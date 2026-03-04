@@ -147,6 +147,15 @@ impl FileTree {
             .collect();
         find_node_recursive(&self.nodes, &components)
     }
+
+    /// 指定パスのノードを可変参照で検索（相対パス）
+    pub fn find_node_mut(&mut self, rel_path: &Path) -> Option<&mut FileNode> {
+        let components: Vec<&str> = rel_path
+            .components()
+            .map(|c| c.as_os_str().to_str().unwrap_or(""))
+            .collect();
+        find_node_mut_recursive(&mut self.nodes, &components)
+    }
 }
 
 fn sort_nodes(nodes: &mut [FileNode]) {
@@ -159,6 +168,26 @@ fn sort_nodes(nodes: &mut [FileNode]) {
         if let Some(ref mut children) = node.children {
             sort_nodes(children);
         }
+    }
+}
+
+fn find_node_mut_recursive<'a>(
+    nodes: &'a mut [FileNode],
+    path: &[&str],
+) -> Option<&'a mut FileNode> {
+    if path.is_empty() {
+        return None;
+    }
+
+    let name = path[0];
+    let node = nodes.iter_mut().find(|n| n.name == name)?;
+
+    if path.len() == 1 {
+        Some(node)
+    } else if let Some(ref mut children) = node.children {
+        find_node_mut_recursive(children, &path[1..])
+    } else {
+        None
     }
 }
 
@@ -276,5 +305,42 @@ mod tests {
         assert!(tree.find_node(Path::new("src/main.rs")).is_some());
         assert!(tree.find_node(Path::new("src/utils/helper.rs")).is_some());
         assert!(tree.find_node(Path::new("nonexistent")).is_none());
+    }
+
+    #[test]
+    fn test_find_node_mut() {
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_file("main.rs"),
+                    FileNode::new_dir("utils"),
+                ],
+            )],
+        };
+
+        // ノードを可変参照で取得して変更
+        let node = tree.find_node_mut(Path::new("src/utils")).unwrap();
+        assert!(node.is_dir());
+        assert!(!node.is_loaded());
+
+        // children を設定
+        node.children = Some(vec![FileNode::new_file("helper.rs")]);
+        assert!(node.is_loaded());
+
+        // 変更が反映されているか確認
+        let node = tree.find_node(Path::new("src/utils")).unwrap();
+        assert!(node.is_loaded());
+        assert_eq!(node.children.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_find_node_mut_nonexistent() {
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        };
+        assert!(tree.find_node_mut(Path::new("nonexistent")).is_none());
     }
 }

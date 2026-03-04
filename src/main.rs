@@ -12,7 +12,7 @@ use remote_merge::local;
 use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
-use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, ServerMenuWidget};
+use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, ServerMenuWidget};
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
 use remote_merge::ui::tree_view::TreeView;
@@ -219,8 +219,7 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Init) => {
-            // TODO: Phase 1-4 で実装
-            println!("remote-merge init: .remote-merge.toml を生成します（未実装）");
+            remote_merge::init::run_init()?;
         }
         Some(Commands::Status { .. }) => {
             // TODO: Phase 4 で実装
@@ -290,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
             let mut app_state = AppState::new(local_tree, remote_tree, server_name.clone());
             app_state.available_servers = available_servers;
             app_state.is_connected = is_connected;
+            app_state.exclude_patterns = config.filter.exclude.clone();
 
             if !is_connected {
                 app_state.status_message = format!(
@@ -367,6 +367,20 @@ fn run_event_loop(
                     KeyCode::Down | KeyCode::Char('j') => state.cursor_down(),
                     KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
                         if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir) {
+                            // 遅延読み込み: 未取得なら先にロード
+                            if let Some(path) = state.current_path() {
+                                let needs_load = state
+                                    .local_tree
+                                    .find_node(std::path::Path::new(&path))
+                                    .is_some_and(|n| n.is_dir() && !n.is_loaded());
+                                if needs_load {
+                                    state.load_local_children(&path);
+                                    // リモート側も遅延読み込み
+                                    if state.is_connected {
+                                        load_remote_children(state, runtime, &path);
+                                    }
+                                }
+                            }
                             state.toggle_expand();
                         } else {
                             // ファイル選択時にコンテンツをロード
@@ -379,7 +393,17 @@ fn run_event_loop(
                             state.toggle_expand();
                         }
                     }
-                    KeyCode::Char('r') => state.clear_cache(),
+                    KeyCode::Char('r') => {
+                        // ディレクトリ上なら子ノードをリフレッシュ、それ以外はキャッシュクリア
+                        if state.current_is_dir() {
+                            if let Some(path) = state.current_path() {
+                                state.refresh_directory(&path);
+                            }
+                        } else {
+                            state.clear_cache();
+                        }
+                    }
+                    KeyCode::Char('f') => state.show_filter_panel(),
                     KeyCode::Char('s') => state.show_server_menu(),
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
@@ -455,7 +479,62 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
             }
             _ => {}
         },
+        DialogState::Filter(_) => match key {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::Filter(ref mut panel) = state.dialog {
+                    panel.cursor_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::Filter(ref mut panel) = state.dialog {
+                    panel.cursor_down();
+                }
+            }
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                if let DialogState::Filter(ref mut panel) = state.dialog {
+                    panel.toggle();
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                // 閉じる前にフィルター変更を適用
+                if let DialogState::Filter(ref panel) = state.dialog {
+                    let panel_clone = panel.clone();
+                    state.apply_filter_changes(&panel_clone);
+                }
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::None => {}
+    }
+}
+
+/// リモートディレクトリの遅延読み込み
+fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path: &str) {
+    let server_name = state.server_name.clone();
+    let server_config = match runtime.config.servers.get(&server_name) {
+        Some(c) => c,
+        None => return,
+    };
+    let remote_root = server_config.root_dir.to_string_lossy().to_string();
+    let full_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
+    let exclude = state.active_exclude_patterns();
+
+    let client = match runtime.ssh_client.as_mut() {
+        Some(c) => c,
+        None => return,
+    };
+
+    match runtime.rt.block_on(client.list_dir(&full_path, &exclude)) {
+        Ok(children) => {
+            if let Some(node) = state.remote_tree.find_node_mut(std::path::Path::new(rel_path)) {
+                node.children = Some(children);
+                node.sort_children();
+            }
+        }
+        Err(e) => {
+            tracing::debug!("リモートディレクトリ取得スキップ: {} - {}", rel_path, e);
+        }
     }
 }
 
@@ -633,6 +712,10 @@ fn draw_ui(frame: &mut Frame, state: &AppState) {
         }
         DialogState::ServerSelect(menu) => {
             let widget = ServerMenuWidget::new(menu);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::Filter(panel) => {
+            let widget = FilterPanelWidget::new(panel);
             frame.render_widget(widget, frame.area());
         }
         DialogState::None => {}

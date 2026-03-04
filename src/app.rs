@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::diff::engine::{self, DiffResult};
 use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
-use crate::ui::dialog::{ConfirmDialog, DialogState, ServerMenu};
+use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, ServerMenu};
 
 /// TUI のフォーカス対象
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +99,10 @@ pub struct AppState {
     pub dialog: DialogState,
     /// SSH 接続済みか
     pub is_connected: bool,
+    /// 除外フィルターパターン（元の設定値）
+    pub exclude_patterns: Vec<String>,
+    /// 一時的に無効化されたパターン
+    pub disabled_patterns: std::collections::HashSet<String>,
 }
 
 impl AppState {
@@ -126,6 +130,8 @@ impl AppState {
             status_message: format!("local ↔ {} | Tab: switch focus | q: quit", server_name),
             dialog: DialogState::None,
             is_connected: false,
+            exclude_patterns: Vec::new(),
+            disabled_patterns: std::collections::HashSet::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -295,6 +301,85 @@ impl AppState {
             new_server
         );
         self.is_connected = true;
+    }
+
+    /// フィルターパネルを表示する (f キー)
+    pub fn show_filter_panel(&mut self) {
+        if self.exclude_patterns.is_empty() {
+            self.status_message = "除外パターンが設定されていません".to_string();
+            return;
+        }
+        let mut panel = FilterPanel::new(&self.exclude_patterns);
+        // 無効化済みパターンを反映
+        for (pattern, enabled) in &mut panel.patterns {
+            if self.disabled_patterns.contains(pattern) {
+                *enabled = false;
+            }
+        }
+        self.dialog = DialogState::Filter(panel);
+    }
+
+    /// フィルターパネルの変更を適用する
+    pub fn apply_filter_changes(&mut self, panel: &FilterPanel) {
+        self.disabled_patterns.clear();
+        for (pattern, enabled) in &panel.patterns {
+            if !enabled {
+                self.disabled_patterns.insert(pattern.clone());
+            }
+        }
+        self.rebuild_flat_nodes();
+    }
+
+    /// 現在有効な除外パターンを返す
+    pub fn active_exclude_patterns(&self) -> Vec<String> {
+        self.exclude_patterns
+            .iter()
+            .filter(|p| !self.disabled_patterns.contains(*p))
+            .cloned()
+            .collect()
+    }
+
+    /// ローカルツリーの遅延読み込み（ディレクトリ展開時）
+    pub fn load_local_children(&mut self, path: &str) {
+        let full_path = self.local_tree.root.join(path);
+        let exclude = self.active_exclude_patterns();
+        match crate::local::scan_dir(&full_path, &exclude) {
+            Ok(children) => {
+                if let Some(node) = self.local_tree.find_node_mut(std::path::Path::new(path)) {
+                    node.children = Some(children);
+                    node.sort_children();
+                }
+            }
+            Err(e) => {
+                self.status_message = format!("ローカルディレクトリ取得失敗: {}", e);
+            }
+        }
+    }
+
+    /// ディレクトリのリフレッシュ（子ノードをクリア）
+    pub fn refresh_directory(&mut self, path: &str) {
+        // ローカルツリーの子ノードをクリア
+        if let Some(node) = self.local_tree.find_node_mut(std::path::Path::new(path)) {
+            node.children = None;
+        }
+        // リモートツリーの子ノードをクリア
+        if let Some(node) = self.remote_tree.find_node_mut(std::path::Path::new(path)) {
+            node.children = None;
+        }
+        self.rebuild_flat_nodes();
+        self.status_message = format!("{}: リフレッシュしました", path);
+    }
+
+    /// 現在カーソル位置のパスを返す
+    pub fn current_path(&self) -> Option<String> {
+        self.flat_nodes.get(self.tree_cursor).map(|n| n.path.clone())
+    }
+
+    /// 現在カーソル位置がディレクトリかどうか
+    pub fn current_is_dir(&self) -> bool {
+        self.flat_nodes
+            .get(self.tree_cursor)
+            .is_some_and(|n| n.is_dir)
     }
 
     /// コンテンツキャッシュをクリアする (r キー)

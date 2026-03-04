@@ -197,32 +197,72 @@ impl SshClient {
         Ok(stdout)
     }
 
+    /// ディレクトリ取得のデフォルトタイムアウト（秒）
+    pub const DIR_TIMEOUT_SECS: u64 = 30;
+    /// ディレクトリ取得のデフォルト最大エントリ数
+    pub const MAX_DIR_ENTRIES: usize = 10_000;
+
     /// リモートディレクトリの直下エントリを取得する
     ///
-    /// `find -printf` の出力をパースして FileNode のリストを返す
+    /// `find -printf` の出力をパースして FileNode のリストを返す。
+    /// 30秒タイムアウトと10,000件エントリ数制限を適用する。
     pub async fn list_dir(
         &mut self,
         remote_path: &str,
         exclude: &[String],
     ) -> crate::error::Result<Vec<FileNode>> {
+        self.list_dir_with_limit(remote_path, exclude, Self::DIR_TIMEOUT_SECS, Self::MAX_DIR_ENTRIES)
+            .await
+            .map(|(nodes, _)| nodes)
+    }
+
+    /// リモートディレクトリの直下エントリを取得する（制限付き）
+    ///
+    /// 戻り値の bool は打ち切りが発生したかどうか
+    pub async fn list_dir_with_limit(
+        &mut self,
+        remote_path: &str,
+        exclude: &[String],
+        timeout_secs: u64,
+        max_entries: usize,
+    ) -> crate::error::Result<(Vec<FileNode>, bool)> {
         let command = format!(
             "find {} -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
             shell_escape(remote_path)
         );
-        let output = self.exec(&command).await?;
+
+        let output = tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            self.exec(&command),
+        )
+        .await
+        .map_err(|_| AppError::SshTimeout {
+            host: self.server_name.clone(),
+            timeout_sec: timeout_secs,
+        })??;
 
         let mut nodes = Vec::new();
+        let mut truncated = false;
 
         for line in output.lines() {
             if line.trim().is_empty() {
                 continue;
+            }
+            if nodes.len() >= max_entries {
+                truncated = true;
+                tracing::warn!(
+                    "エントリ数が上限 {} に達しました: {}",
+                    max_entries,
+                    remote_path
+                );
+                break;
             }
             if let Some(node) = parse_find_line(line, remote_path, exclude) {
                 nodes.push(node);
             }
         }
 
-        Ok(nodes)
+        Ok((nodes, truncated))
     }
 
     /// リモートファイルの内容を取得する（cat 経由）

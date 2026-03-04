@@ -25,11 +25,26 @@ pub fn scan_local_tree(root: &Path, exclude: &[String]) -> crate::error::Result<
     Ok(tree)
 }
 
+/// ディレクトリ取得のデフォルト最大エントリ数
+pub const MAX_DIR_ENTRIES: usize = 10_000;
+
 /// 指定ディレクトリの直下エントリのみを取得する（1階層のみ）
 ///
 /// サブディレクトリは children: None（未取得）で返す
 pub fn scan_dir(dir: &Path, exclude: &[String]) -> crate::error::Result<Vec<FileNode>> {
+    scan_dir_with_limit(dir, exclude, MAX_DIR_ENTRIES).map(|(nodes, _)| nodes)
+}
+
+/// 指定ディレクトリの直下エントリを取得する（エントリ数制限付き）
+///
+/// 戻り値の bool は打ち切りが発生したかどうか
+pub fn scan_dir_with_limit(
+    dir: &Path,
+    exclude: &[String],
+    max_entries: usize,
+) -> crate::error::Result<(Vec<FileNode>, bool)> {
     let mut nodes = Vec::new();
+    let mut truncated = false;
 
     let entries = std::fs::read_dir(dir)
         .with_context(|| format!("ディレクトリの読み込みに失敗: {}", dir.display()))?;
@@ -41,6 +56,16 @@ pub fn scan_dir(dir: &Path, exclude: &[String]) -> crate::error::Result<Vec<File
         // 除外フィルター
         if should_exclude(&file_name, exclude) {
             continue;
+        }
+
+        if nodes.len() >= max_entries {
+            truncated = true;
+            tracing::warn!(
+                "エントリ数が上限 {} に達しました: {}",
+                max_entries,
+                dir.display()
+            );
+            break;
         }
 
         // シンボリックリンクかどうかの判定は symlink_metadata を使う
@@ -69,7 +94,7 @@ pub fn scan_dir(dir: &Path, exclude: &[String]) -> crate::error::Result<Vec<File
         nodes.push(node);
     }
 
-    Ok(nodes)
+    Ok((nodes, truncated))
 }
 
 /// メタデータをノードに適用
