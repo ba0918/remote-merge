@@ -1,5 +1,19 @@
+use std::io;
+
 use clap::{Parser, Subcommand};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::execute;
+use ratatui::prelude::*;
+use ratatui::widgets::Paragraph;
+
+use remote_merge::app::{AppState, Focus};
 use remote_merge::config;
+use remote_merge::local;
+use remote_merge::tree::FileTree;
+use remote_merge::ui::diff_view::DiffView;
+use remote_merge::ui::layout::AppLayout;
+use remote_merge::ui::tree_view::TreeView;
 
 /// ローカルとリモートサーバ間のファイル差分をTUIでグラフィカルに表示・マージするツール
 #[derive(Parser, Debug)]
@@ -129,14 +143,12 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             // TUI モード
-            // サーバ設定を読み込む
             let config = config::load_config()?;
 
             let server_name = cli
                 .server
                 .or(cli.right)
                 .unwrap_or_else(|| {
-                    // 設定の最初のサーバを使用
                     config
                         .servers
                         .keys()
@@ -145,21 +157,140 @@ async fn main() -> anyhow::Result<()> {
                         .unwrap_or_else(|| "develop".to_string())
                 });
 
-            tracing::info!(
-                "TUI モード起動: local ↔ {}",
-                server_name
+            tracing::info!("TUI モード起動: local ↔ {}", server_name);
+
+            // ローカルツリーを取得
+            let local_tree = local::scan_local_tree(
+                &config.local.root_dir,
+                &config.filter.exclude,
+            )?;
+
+            // リモートツリーは接続後に取得（現段階では空ツリー）
+            // TODO: Phase 1-3 で SSH 接続してリモートツリーを取得する
+            let remote_tree = FileTree::new(
+                config.servers.get(&server_name)
+                    .map(|s| s.root_dir.clone())
+                    .unwrap_or_default(),
             );
 
-            // TODO: Phase 1-2 で TUI を実装
-            println!(
-                "remote-merge TUI モード: local ↔ {} （未実装）",
-                server_name
-            );
-            println!("設定ファイルの読み込みに成功しました");
-            println!("サーバ数: {}", config.servers.len());
-            println!("ローカルルート: {}", config.local.root_dir.display());
+            let app_state = AppState::new(local_tree, remote_tree, server_name);
+
+            // TUI 起動
+            run_tui(app_state)?;
         }
     }
 
     Ok(())
+}
+
+/// TUI イベントループを実行する
+fn run_tui(mut state: AppState) -> anyhow::Result<()> {
+    // ターミナルをセットアップ
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    // メインループ
+    let result = run_event_loop(&mut terminal, &mut state);
+
+    // ターミナルをリストア（エラーでも必ず実行）
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+/// イベントループ本体
+fn run_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+) -> anyhow::Result<()> {
+    loop {
+        // 描画
+        terminal.draw(|frame| {
+            draw_ui(frame, state);
+        })?;
+
+        // イベント待ち
+        if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+
+            match state.focus {
+                Focus::FileTree => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        state.should_quit = true;
+                    }
+                    KeyCode::Tab => state.toggle_focus(),
+                    KeyCode::Up | KeyCode::Char('k') => state.cursor_up(),
+                    KeyCode::Down | KeyCode::Char('j') => state.cursor_down(),
+                    KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                        if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir) {
+                            state.toggle_expand();
+                        } else {
+                            state.select_file();
+                        }
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        // ディレクトリなら折りたたみ
+                        if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir && n.expanded) {
+                            state.toggle_expand();
+                        }
+                    }
+                    KeyCode::Char('r') => state.clear_cache(),
+                    _ => {}
+                },
+                Focus::DiffView => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        state.should_quit = true;
+                    }
+                    KeyCode::Tab => state.toggle_focus(),
+                    KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
+                    KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
+                    _ => {}
+                },
+            }
+
+            if state.should_quit {
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// UI を描画する
+fn draw_ui(frame: &mut Frame, state: &AppState) {
+    let layout = AppLayout::new(frame.area());
+
+    // ヘッダ
+    let header = Paragraph::new(Line::from(vec![
+        Span::styled(" remote-merge ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("| "),
+        Span::styled("local", Style::default().fg(Color::Green)),
+        Span::raw(" ↔ "),
+        Span::styled(&state.server_name, Style::default().fg(Color::Yellow)),
+    ]))
+    .style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(header, layout.header);
+
+    // ファイルツリー
+    let tree_view = TreeView::new(state);
+    frame.render_widget(tree_view, layout.tree_pane);
+
+    // Diff ビュー
+    let diff_view = DiffView::new(state);
+    frame.render_widget(diff_view, layout.diff_pane);
+
+    // ステータスバー
+    let status = Paragraph::new(Line::from(vec![
+        Span::styled(&state.status_message, Style::default().fg(Color::White)),
+    ]))
+    .style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(status, layout.status_bar);
 }
