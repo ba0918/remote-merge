@@ -1,0 +1,10 @@
+# Rust
+/target
+
+# Claude
+.claude/settings.local.json
+
+# Cycle doc
+docs/internal
+docs/cycles
+docs/status.md

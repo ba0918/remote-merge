@@ -1,0 +1,22 @@
+[package]
+name = "remote-merge"
+version = "0.1.0"
+edition = "2021"
+description = "TUI tool for comparing and merging files between local and remote servers via SSH"
+
+[dependencies]
+russh = "0.57"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+glob-match = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
