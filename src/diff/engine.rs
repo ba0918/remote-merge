@@ -3,6 +3,15 @@
 
 use similar::{ChangeTag, TextDiff};
 
+/// ハンク適用の方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HunkDirection {
+    /// right → left に取り込む（Insert行をleftに適用）
+    RightToLeft,
+    /// left → right に取り込む（Delete行をrightに適用）
+    LeftToRight,
+}
+
 /// diff 行の変更種別
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffTag {
@@ -132,6 +141,66 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
         lines,
         stats,
     }
+}
+
+/// ハンクを元のテキストに適用して新しいテキストを生成する。
+///
+/// - `RightToLeft`: left テキストに対して、ハンク内の Delete 行を Insert 行で置換する
+/// - `LeftToRight`: right テキストに対して、ハンク内の Insert 行を Delete 行で置換する
+pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirection) -> String {
+    let original_lines: Vec<&str> = if original.is_empty() {
+        Vec::new()
+    } else {
+        original.lines().collect()
+    };
+
+    let mut result = Vec::new();
+
+    // ハンク適用の開始行を決定
+    let (start_line, keep_tag, replace_tag) = match direction {
+        HunkDirection::RightToLeft => (hunk.old_start, DiffTag::Insert, DiffTag::Delete),
+        HunkDirection::LeftToRight => (hunk.new_start, DiffTag::Delete, DiffTag::Insert),
+    };
+
+    // ハンクの前の行をそのまま追加
+    for line in original_lines.iter().take(start_line) {
+        result.push(line.to_string());
+    }
+
+    // ハンク内の行を処理
+    // 元テキストで消費する行数を計算するため、Equal + replace_tag の行数をカウント
+    let mut consumed = 0;
+    for diff_line in &hunk.lines {
+        match diff_line.tag {
+            DiffTag::Equal => {
+                result.push(diff_line.value.trim_end_matches('\n').to_string());
+                consumed += 1;
+            }
+            tag if tag == keep_tag => {
+                // 取り込む行: 結果に追加
+                result.push(diff_line.value.trim_end_matches('\n').to_string());
+            }
+            tag if tag == replace_tag => {
+                // 置換される行: スキップ（元テキストの行を消費）
+                consumed += 1;
+            }
+            _ => {}
+        }
+    }
+
+    // ハンクの後の行をそのまま追加
+    let skip_count = start_line + consumed;
+    for line in original_lines.iter().skip(skip_count) {
+        result.push(line.to_string());
+    }
+
+    // 元テキストが改行で終わっていたら改行を追加
+    let trailing_newline = original.ends_with('\n');
+    let mut text = result.join("\n");
+    if trailing_newline && !text.is_empty() {
+        text.push('\n');
+    }
+    text
 }
 
 /// diff 行をハンク（変更グループ + コンテキスト行）に分割する
@@ -287,6 +356,108 @@ mod tests {
                 assert_eq!(hunks.len(), 2, "離れた変更は別ハンクになるべき");
             }
             other => panic!("Modified を期待したが {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_right_to_left() {
+        // left: line1, line2, line3  →  right: line1, lineX, line3
+        // RightToLeft: left に Insert 行(lineX)を取り込む → line2 が lineX に置換される
+        let old = "line1\nline2\nline3\n";
+        let new = "line1\nlineX\nline3\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            assert_eq!(hunks.len(), 1);
+            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            assert_eq!(result, "line1\nlineX\nline3\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_left_to_right() {
+        // left: line1, line2, line3  →  right: line1, lineX, line3
+        // LeftToRight: right に Delete 行(line2)を取り込む → lineX が line2 に戻る
+        let old = "line1\nline2\nline3\n";
+        let new = "line1\nlineX\nline3\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            assert_eq!(hunks.len(), 1);
+            let result = apply_hunk_to_text(new, &hunks[0], HunkDirection::LeftToRight);
+            assert_eq!(result, "line1\nline2\nline3\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_preserves_context() {
+        // コンテキスト行（Equal）が変更されないこと
+        let old = "aaa\nbbb\nccc\nddd\neee\n";
+        let new = "aaa\nbbb\nXXX\nddd\neee\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            assert_eq!(result, "aaa\nbbb\nXXX\nddd\neee\n");
+            // コンテキスト行 aaa, bbb, ddd, eee がそのまま残っている
+            assert!(result.contains("aaa"));
+            assert!(result.contains("bbb"));
+            assert!(result.contains("ddd"));
+            assert!(result.contains("eee"));
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_at_file_start() {
+        let old = "first\nsecond\nthird\n";
+        let new = "NEW\nsecond\nthird\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            assert_eq!(result, "NEW\nsecond\nthird\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_at_file_end() {
+        let old = "first\nsecond\nlast\n";
+        let new = "first\nsecond\nNEW_LAST\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            assert_eq!(result, "first\nsecond\nNEW_LAST\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_multiple_changes() {
+        // 1ハンク内に複数の挿入/削除がある場合
+        let old = "a\nb\nc\nd\n";
+        let new = "a\nX\nY\nd\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { hunks, .. } = &diff {
+            assert_eq!(hunks.len(), 1);
+            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            assert_eq!(result, "a\nX\nY\nd\n");
+
+            // 逆方向も検証
+            let result2 = apply_hunk_to_text(new, &hunks[0], HunkDirection::LeftToRight);
+            assert_eq!(result2, "a\nb\nc\nd\n");
+        } else {
+            panic!("Modified を期待");
         }
     }
 

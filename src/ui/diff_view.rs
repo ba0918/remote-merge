@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::app::{AppState, Focus};
-use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
+use crate::diff::engine::{DiffHunk, DiffLine, DiffResult, DiffTag};
 
 /// diff ビューウィジェット
 pub struct DiffView<'a> {
@@ -46,7 +46,68 @@ impl<'a> DiffView<'a> {
         }
     }
 
-    /// diff 行を Line に変換
+    /// 行が指定ハンク内に含まれるかチェック
+    fn is_line_in_hunk(line: &DiffLine, hunk: &DiffHunk) -> bool {
+        hunk.lines.iter().any(|hl| {
+            hl.tag == line.tag
+                && hl.value == line.value
+                && hl.old_index == line.old_index
+                && hl.new_index == line.new_index
+        })
+    }
+
+    /// diff 行を Line に変換（ハンクハイライト付き）
+    fn render_diff_line_with_highlight(
+        line: &DiffLine,
+        is_current_hunk: bool,
+        is_focused: bool,
+    ) -> Line<'static> {
+        let style = Self::line_style(line.tag);
+        let old_num = Self::format_line_num(line.old_index);
+        let new_num = Self::format_line_num(line.new_index);
+        let prefix = Self::tag_char(line.tag);
+        let value = line.value.trim_end_matches('\n').to_string();
+
+        let num_style = Style::default().fg(Color::DarkGray);
+        let prefix_style = match line.tag {
+            DiffTag::Equal => Style::default().fg(Color::DarkGray),
+            DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        };
+
+        // カレントハンクかつフォーカス中なら背景色でハイライト
+        let (style, num_style, prefix_style) = if is_current_hunk && is_focused {
+            let bg = Color::Rgb(40, 40, 60);
+            (
+                style.bg(bg),
+                num_style.bg(bg),
+                prefix_style.bg(bg),
+            )
+        } else {
+            (style, num_style, prefix_style)
+        };
+
+        // カレントハンクのインジケータ
+        let indicator = if is_current_hunk && is_focused {
+            Span::styled("▶ ", Style::default().fg(Color::Cyan).bg(if is_current_hunk && is_focused { Color::Rgb(40, 40, 60) } else { Color::Reset }))
+        } else {
+            Span::styled("  ", Style::default())
+        };
+
+        Line::from(vec![
+            indicator,
+            Span::styled(old_num, num_style),
+            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(new_num, num_style),
+            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(prefix.to_string(), prefix_style),
+            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(value, style),
+        ])
+    }
+
+    /// diff 行を Line に変換（テスト互換用）
+    #[allow(dead_code)]
     fn render_diff_line(line: &DiffLine) -> Line<'static> {
         let style = Self::line_style(line.tag);
         let old_num = Self::format_line_num(line.old_index);
@@ -120,27 +181,45 @@ impl<'a> Widget for DiffView<'a> {
                 ]));
                 msg.render(inner, buf);
             }
-            Some(DiffResult::Modified { lines, stats, .. }) => {
+            Some(DiffResult::Modified { hunks, lines, stats }) => {
                 let visible_height = inner.height as usize;
                 let scroll = self.state.diff_scroll.min(lines.len().saturating_sub(1));
+
+                let current_hunk = hunks.get(self.state.hunk_cursor);
 
                 let mut display_lines: Vec<Line> = lines
                     .iter()
                     .skip(scroll)
                     .take(visible_height.saturating_sub(1)) // 最終行にサマリー表示
-                    .map(Self::render_diff_line)
+                    .map(|line| {
+                        let in_current_hunk = current_hunk
+                            .map(|h| Self::is_line_in_hunk(line, h))
+                            .unwrap_or(false);
+                        Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused)
+                    })
                     .collect();
 
-                // サマリー行
+                // サマリー行（ハンク情報付き）
+                let hunk_info = if !hunks.is_empty() {
+                    format!(
+                        " | hunk {}/{}",
+                        self.state.hunk_cursor + 1,
+                        hunks.len()
+                    )
+                } else {
+                    String::new()
+                };
+
                 let summary = Line::from(vec![
                     Span::styled(
                         format!(
-                            " +{} -{} ={} | {}/{}",
+                            " +{} -{} ={} | {}/{}{}",
                             stats.insertions,
                             stats.deletions,
                             stats.equal,
                             scroll + 1,
                             lines.len(),
+                            hunk_info,
                         ),
                         Style::default().fg(Color::DarkGray),
                     ),
@@ -219,6 +298,44 @@ mod tests {
         assert!(content.contains("old"), "Delete行が表示されるべき");
         assert!(content.contains("new"), "Insert行が表示されるべき");
         assert!(content.contains("+1"), "統計が表示されるべき");
+    }
+
+    #[test]
+    fn test_hunk_highlight_rendering() {
+        use crate::diff::engine::{compute_diff, DiffResult};
+
+        let old = "aaa\nbbb\nccc\n";
+        let new = "aaa\nXXX\nccc\n";
+        let diff = compute_diff(old, new);
+
+        let mut state = make_test_state_with_diff(Some(diff));
+        state.focus = Focus::DiffView; // フォーカス中
+        state.hunk_cursor = 0;
+
+        let content = render_to_string(&state, 80, 15);
+        // ハンクハイライトが有効で、コンテンツが表示されること
+        assert!(content.contains("aaa"), "コンテキスト行が表示されるべき");
+        assert!(content.contains("XXX"), "Insert行が表示されるべき");
+        assert!(content.contains("bbb"), "Delete行が表示されるべき");
+        // ハンク情報がサマリーに含まれること
+        assert!(content.contains("hunk 1/1"), "ハンク情報がサマリーに表示されるべき");
+    }
+
+    #[test]
+    fn test_hunk_cursor_indicator() {
+        use crate::diff::engine::{compute_diff, DiffResult};
+
+        let old = "aaa\nbbb\nccc\n";
+        let new = "aaa\nXXX\nccc\n";
+        let diff = compute_diff(old, new);
+
+        let mut state = make_test_state_with_diff(Some(diff));
+        state.focus = Focus::DiffView;
+        state.hunk_cursor = 0;
+
+        let content = render_to_string(&state, 80, 15);
+        // カーソルインジケータ ▶ が描画されていること
+        assert!(content.contains("▶"), "ハンクカーソルインジケータが表示されるべき");
     }
 
     #[test]

@@ -8,6 +8,7 @@ use ratatui::widgets::Paragraph;
 
 use remote_merge::app::{AppState, Focus};
 use remote_merge::config::{self, AppConfig};
+use remote_merge::diff::engine::HunkDirection;
 use remote_merge::local;
 use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
@@ -424,8 +425,49 @@ fn run_event_loop(
                         state.should_quit = true;
                     }
                     KeyCode::Tab => state.toggle_focus(),
-                    KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
-                    KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        // ハンク間ジャンプ（上）
+                        state.hunk_cursor_up();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        // ハンク間ジャンプ（下）
+                        state.hunk_cursor_down();
+                    }
+                    KeyCode::Right | KeyCode::Char('l') => {
+                        // → キー: right の変更を left に取り込む
+                        if state.hunk_count() > 0 {
+                            if let Some(path) = state.apply_hunk_merge(HunkDirection::RightToLeft) {
+                                // ローカルファイルに書き込む（キャッシュ更新済み）
+                                let content = state.local_cache.get(&path).cloned().unwrap_or_default();
+                                let local_root = state.local_tree.root.clone();
+                                if let Err(e) = executor::write_local_file(&local_root, &path, &content) {
+                                    state.status_message = format!("ローカル書き込み失敗: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        // ← キー: left の変更を right に取り込む
+                        if state.hunk_count() > 0 && state.is_connected {
+                            if let Some(path) = state.apply_hunk_merge(HunkDirection::LeftToRight) {
+                                // リモートファイルに書き込む
+                                let content = state.remote_cache.get(&path).cloned().unwrap_or_default();
+                                if let Err(e) = runtime.write_remote_file(&state.server_name, &path, &content) {
+                                    state.status_message = format!("リモート書き込み失敗: {}", e);
+                                }
+                            }
+                        } else if state.hunk_count() > 0 {
+                            state.status_message = "SSH 未接続: リモートへのハンクマージはできません".to_string();
+                        }
+                    }
+                    KeyCode::Char('K') => {
+                        // Shift+K: 通常のスクロールアップ（行単位）
+                        state.scroll_up();
+                    }
+                    KeyCode::Char('J') => {
+                        // Shift+J: 通常のスクロールダウン（行単位）
+                        state.scroll_down();
+                    }
                     _ => {}
                 },
             }

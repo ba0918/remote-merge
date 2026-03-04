@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::diff::engine::{self, DiffResult};
+use crate::diff::engine::{self, DiffHunk, DiffResult, HunkDirection};
 use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, ServerMenu};
@@ -103,6 +103,8 @@ pub struct AppState {
     pub exclude_patterns: Vec<String>,
     /// 一時的に無効化されたパターン
     pub disabled_patterns: std::collections::HashSet<String>,
+    /// 現在選択中のハンクインデックス（Diff View フォーカス時）
+    pub hunk_cursor: usize,
 }
 
 impl AppState {
@@ -132,6 +134,7 @@ impl AppState {
             is_connected: false,
             exclude_patterns: Vec::new(),
             disabled_patterns: std::collections::HashSet::new(),
+            hunk_cursor: 0,
         };
         state.rebuild_flat_nodes();
         state
@@ -221,6 +224,7 @@ impl AppState {
             }
         };
         self.diff_scroll = 0;
+        self.hunk_cursor = 0;
     }
 
     /// マージ確認ダイアログを表示する (Shift+L / Shift+R)
@@ -380,6 +384,136 @@ impl AppState {
         self.flat_nodes
             .get(self.tree_cursor)
             .is_some_and(|n| n.is_dir)
+    }
+
+    /// 現在の diff のハンク数を返す
+    pub fn hunk_count(&self) -> usize {
+        match &self.current_diff {
+            Some(DiffResult::Modified { hunks, .. }) => hunks.len(),
+            _ => 0,
+        }
+    }
+
+    /// ハンクカーソルを上に移動（前のハンクへ）
+    pub fn hunk_cursor_up(&mut self) {
+        if self.hunk_cursor > 0 {
+            self.hunk_cursor -= 1;
+            self.scroll_to_hunk();
+        }
+    }
+
+    /// ハンクカーソルを下に移動（次のハンクへ）
+    pub fn hunk_cursor_down(&mut self) {
+        let count = self.hunk_count();
+        if count > 0 && self.hunk_cursor + 1 < count {
+            self.hunk_cursor += 1;
+            self.scroll_to_hunk();
+        }
+    }
+
+    /// ハンクカーソル位置に diff_scroll を合わせる
+    fn scroll_to_hunk(&mut self) {
+        if let Some(DiffResult::Modified { hunks, lines, .. }) = &self.current_diff {
+            if let Some(hunk) = hunks.get(self.hunk_cursor) {
+                // ハンクの先頭行が全体 lines 内の何行目かを探す
+                if let Some(first_hunk_line) = hunk.lines.first() {
+                    let scroll_target = lines
+                        .iter()
+                        .position(|l| std::ptr::eq(l, first_hunk_line))
+                        .unwrap_or_else(|| {
+                            // ポインタ比較が失敗した場合はインデックスベースで探す
+                            self.find_hunk_start_in_lines(lines, hunk)
+                        });
+                    self.diff_scroll = scroll_target;
+                }
+            }
+        }
+    }
+
+    /// ハンクの開始位置を lines 内で探す（内容ベース）
+    fn find_hunk_start_in_lines(
+        &self,
+        lines: &[engine::DiffLine],
+        hunk: &DiffHunk,
+    ) -> usize {
+        if hunk.lines.is_empty() {
+            return 0;
+        }
+        let first = &hunk.lines[0];
+        for (i, line) in lines.iter().enumerate() {
+            if line.tag == first.tag
+                && line.value == first.value
+                && line.old_index == first.old_index
+                && line.new_index == first.new_index
+            {
+                return i;
+            }
+        }
+        0
+    }
+
+    /// ハンク単位マージを実行する
+    ///
+    /// direction: RightToLeft なら right の変更を left に取り込む
+    ///            LeftToRight なら left の変更を right に取り込む
+    pub fn apply_hunk_merge(&mut self, direction: HunkDirection) -> Option<String> {
+        let path = self.selected_path.clone()?;
+
+        let (hunks, _lines) = match &self.current_diff {
+            Some(DiffResult::Modified { hunks, lines, .. }) => (hunks.clone(), lines.clone()),
+            _ => return None,
+        };
+
+        let hunk = hunks.get(self.hunk_cursor)?;
+
+        // 適用先テキストを取得
+        let original = match direction {
+            HunkDirection::RightToLeft => self.local_cache.get(&path)?.clone(),
+            HunkDirection::LeftToRight => self.remote_cache.get(&path)?.clone(),
+        };
+
+        let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
+
+        // キャッシュを更新
+        match direction {
+            HunkDirection::RightToLeft => {
+                self.local_cache.insert(path.clone(), new_text.clone());
+            }
+            HunkDirection::LeftToRight => {
+                self.remote_cache.insert(path.clone(), new_text.clone());
+            }
+        }
+
+        // diff を再計算
+        let local = self.local_cache.get(&path);
+        let remote = self.remote_cache.get(&path);
+        if let (Some(l), Some(r)) = (local, remote) {
+            self.current_diff = Some(engine::compute_diff(l, r));
+        }
+
+        // ハンクカーソルを範囲内に収める
+        let new_count = self.hunk_count();
+        if new_count == 0 {
+            self.hunk_cursor = 0;
+        } else if self.hunk_cursor >= new_count {
+            self.hunk_cursor = new_count - 1;
+        }
+
+        // バッジを再構築
+        self.rebuild_flat_nodes();
+
+        let dir_str = match direction {
+            HunkDirection::RightToLeft => "right → left",
+            HunkDirection::LeftToRight => "left → right",
+        };
+        self.status_message = format!(
+            "Hunk {} applied ({}) | {} hunks remaining",
+            self.hunk_cursor + 1,
+            dir_str,
+            self.hunk_count(),
+        );
+
+        Some(path)
     }
 
     /// コンテンツキャッシュをクリアする (r キー)
@@ -763,6 +897,120 @@ mod tests {
 
         // リモートキャッシュが更新されている
         assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_hunk_cursor_navigation() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // 離れた2箇所に変更がある diff を設定
+        let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
+        let mut new_text = old.clone();
+        new_text = new_text.replace("line3\n", "modified3\n");
+        new_text = new_text.replace("line15\n", "modified15\n");
+
+        state.local_cache.insert("test.txt".to_string(), old);
+        state.remote_cache.insert("test.txt".to_string(), new_text);
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert_eq!(state.hunk_count(), 2);
+        assert_eq!(state.hunk_cursor, 0);
+
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, 1);
+
+        state.hunk_cursor_down(); // 境界: 動かない
+        assert_eq!(state.hunk_cursor, 1);
+
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+
+        state.hunk_cursor_up(); // 境界: 動かない
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_cursor_bounds() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        // diff なしの状態
+        assert_eq!(state.hunk_count(), 0);
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, 0);
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_merge_updates_cache() {
+        use crate::diff::engine::HunkDirection;
+
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
+        state.remote_cache.insert("test.txt".to_string(), "line1\nmodified\nline3\n".to_string());
+        state.selected_path = Some("test.txt".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        // RightToLeft: remote の modified を local に取り込む
+        let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert!(result.is_some());
+        assert_eq!(
+            state.local_cache.get("test.txt").unwrap(),
+            "line1\nmodified\nline3\n"
+        );
+    }
+
+    #[test]
+    fn test_hunk_merge_recalculates_diff() {
+        use crate::diff::engine::HunkDirection;
+
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.selected_path = Some("test.txt".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert_eq!(state.hunk_count(), 1);
+
+        // ハンクマージ実行
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+
+        // マージ後は local == remote なので Equal になるはず
+        match &state.current_diff {
+            Some(DiffResult::Equal) => {} // OK
+            other => panic!("Equal を期待したが {:?}", other),
+        }
+        assert_eq!(state.hunk_count(), 0);
     }
 
     #[test]
