@@ -210,12 +210,12 @@ pub fn load_config_from_paths(
 ) -> crate::error::Result<AppConfig> {
     let global_raw = global_path
         .filter(|p| p.exists())
-        .map(|p| load_raw_config(p))
+        .map(load_raw_config)
         .transpose()?;
 
     let project_raw = project_path
         .filter(|p| p.exists())
-        .map(|p| load_raw_config(p))
+        .map(load_raw_config)
         .transpose()?;
 
     if global_raw.is_none() && project_raw.is_none() {

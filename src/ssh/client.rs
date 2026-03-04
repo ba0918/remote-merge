@@ -225,6 +225,125 @@ impl SshClient {
         Ok(nodes)
     }
 
+    /// リモートファイルの内容を取得する（cat 経由）
+    pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
+        let command = format!("cat {}", shell_escape(remote_path));
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
+            AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("チャネルオープンに失敗: {}", e),
+            }
+        })?;
+
+        channel.exec(true, command.as_str()).await.map_err(|_e| {
+            AppError::SshExec {
+                command: command.clone(),
+            }
+        })?;
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_code = None;
+
+        loop {
+            let Some(msg) = channel.wait().await else {
+                break;
+            };
+            match msg {
+                ChannelMsg::Data { ref data } => {
+                    stdout.extend_from_slice(data);
+                }
+                ChannelMsg::ExtendedData { ref data, ext } => {
+                    if ext == 1 {
+                        // stderr
+                        stderr.extend_from_slice(data);
+                    }
+                }
+                ChannelMsg::ExitStatus { exit_status } => {
+                    exit_code = Some(exit_status);
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(code) = exit_code {
+            if code != 0 {
+                let err_msg = String::from_utf8_lossy(&stderr).to_string();
+                anyhow::bail!(AppError::SshExec {
+                    command: format!(
+                        "cat {}: exit={}, stderr={}",
+                        remote_path, code, err_msg
+                    ),
+                });
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&stdout).to_string())
+    }
+
+    /// リモートファイルに内容を書き込む（stdin 経由の cat >）
+    pub async fn write_file(
+        &mut self,
+        remote_path: &str,
+        content: &str,
+    ) -> crate::error::Result<()> {
+        let command = format!("cat > {}", shell_escape(remote_path));
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
+            AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("チャネルオープンに失敗: {}", e),
+            }
+        })?;
+
+        channel.exec(true, command.as_str()).await.map_err(|_e| {
+            AppError::SshExec {
+                command: command.clone(),
+            }
+        })?;
+
+        // ファイル内容を stdin に送信
+        channel
+            .data(content.as_bytes())
+            .await
+            .map_err(|e| AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("データ送信に失敗: {}", e),
+            })?;
+
+        // EOF を送信して cat を終了させる
+        channel.eof().await.map_err(|e| AppError::SshConnection {
+            host: self.server_name.clone(),
+            message: format!("EOF 送信に失敗: {}", e),
+        })?;
+
+        // 終了を待つ
+        let mut exit_code = None;
+        loop {
+            let Some(msg) = channel.wait().await else {
+                break;
+            };
+            if let ChannelMsg::ExitStatus { exit_status } = msg {
+                exit_code = Some(exit_status);
+            }
+        }
+
+        if let Some(code) = exit_code {
+            if code != 0 {
+                anyhow::bail!(AppError::SshExec {
+                    command: format!("cat > {}: exit={}", remote_path, code),
+                });
+            }
+        }
+
+        tracing::info!("リモートファイル書き込み完了: {}", remote_path);
+        Ok(())
+    }
+
+    /// サーバ名を取得する
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
     /// 接続を切断する
     pub async fn disconnect(self) -> crate::error::Result<()> {
         self.session
@@ -390,5 +509,15 @@ mod tests {
         let ssh_config = SshConfig { timeout_sec: 30 };
         let duration = Duration::from_secs(ssh_config.timeout_sec);
         assert_eq!(duration.as_secs(), 30);
+    }
+
+    #[test]
+    fn test_shell_escape_special_chars() {
+        // パスにスペースが含まれる場合
+        assert_eq!(shell_escape("/path/to/my file.txt"), "'/path/to/my file.txt'");
+        // パスにセミコロンが含まれる場合
+        assert_eq!(shell_escape("/path;rm -rf /"), "'/path;rm -rf /'");
+        // パスにダブルクォートが含まれる場合
+        assert_eq!(shell_escape("/path/\"quoted\""), "'/path/\"quoted\"'");
     }
 }

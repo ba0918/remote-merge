@@ -3,6 +3,7 @@ pub mod config;
 pub mod diff;
 pub mod error;
 pub mod local;
+pub mod merge;
 pub mod ssh;
 pub mod tree;
 pub mod ui;

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::diff::engine::{self, DiffResult};
+use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
+use crate::ui::dialog::{ConfirmDialog, DialogState, ServerMenu};
 
 /// TUI のフォーカス対象
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +73,8 @@ pub struct AppState {
     pub remote_tree: FileTree,
     /// 接続中のサーバ名
     pub server_name: String,
+    /// 利用可能なサーバ名一覧
+    pub available_servers: Vec<String>,
     /// ローカルファイル内容キャッシュ (パス → 内容)
     pub local_cache: HashMap<String, String>,
     /// リモートファイル内容キャッシュ (パス → 内容)
@@ -91,6 +95,10 @@ pub struct AppState {
     pub should_quit: bool,
     /// ステータスバーに表示するメッセージ
     pub status_message: String,
+    /// ダイアログ状態
+    pub dialog: DialogState,
+    /// SSH 接続済みか
+    pub is_connected: bool,
 }
 
 impl AppState {
@@ -105,6 +113,7 @@ impl AppState {
             local_tree,
             remote_tree,
             server_name: server_name.clone(),
+            available_servers: Vec::new(),
             local_cache: HashMap::new(),
             remote_cache: HashMap::new(),
             current_diff: None,
@@ -115,6 +124,8 @@ impl AppState {
             expanded_dirs: std::collections::HashSet::new(),
             should_quit: false,
             status_message: format!("local ↔ {} | Tab: switch focus | q: quit", server_name),
+            dialog: DialogState::None,
+            is_connected: false,
         };
         state.rebuild_flat_nodes();
         state
@@ -204,6 +215,86 @@ impl AppState {
             }
         };
         self.diff_scroll = 0;
+    }
+
+    /// マージ確認ダイアログを表示する (Shift+L / Shift+R)
+    pub fn show_merge_dialog(&mut self, direction: MergeDirection) {
+        let node = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) if !n.is_dir => n.clone(),
+            _ => {
+                self.status_message = "ファイルを選択してください".to_string();
+                return;
+            }
+        };
+
+        let (source, target) = match direction {
+            MergeDirection::LeftMerge => ("local".to_string(), self.server_name.clone()),
+            MergeDirection::RightMerge => (self.server_name.clone(), "local".to_string()),
+        };
+
+        self.dialog = DialogState::Confirm(ConfirmDialog::new(
+            node.path.clone(),
+            direction,
+            source,
+            target,
+        ));
+    }
+
+    /// サーバ選択メニューを表示する (s キー)
+    pub fn show_server_menu(&mut self) {
+        if self.available_servers.is_empty() {
+            self.status_message = "利用可能なサーバがありません".to_string();
+            return;
+        }
+        self.dialog = DialogState::ServerSelect(ServerMenu::new(
+            self.available_servers.clone(),
+            self.server_name.clone(),
+        ));
+    }
+
+    /// ダイアログを閉じる
+    pub fn close_dialog(&mut self) {
+        self.dialog = DialogState::None;
+    }
+
+    /// ダイアログが表示中かどうか
+    pub fn has_dialog(&self) -> bool {
+        !matches!(self.dialog, DialogState::None)
+    }
+
+    /// マージ完了後にバッジを更新する
+    pub fn update_badge_after_merge(&mut self, path: &str, content: &str, direction: MergeDirection) {
+        match direction {
+            MergeDirection::LeftMerge => {
+                // ローカル → リモート: リモートキャッシュをローカルの内容で更新
+                self.remote_cache.insert(path.to_string(), content.to_string());
+            }
+            MergeDirection::RightMerge => {
+                // リモート → ローカル: ローカルキャッシュをリモートの内容で更新
+                self.local_cache.insert(path.to_string(), content.to_string());
+            }
+        }
+        // diff を再計算
+        if self.selected_path.as_deref() == Some(path) {
+            self.select_file();
+        }
+        self.rebuild_flat_nodes();
+    }
+
+    /// サーバ切替後にツリーを再構築する
+    pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
+        self.server_name = new_server.clone();
+        self.remote_tree = remote_tree;
+        self.remote_cache.clear();
+        self.current_diff = None;
+        self.selected_path = None;
+        self.diff_scroll = 0;
+        self.rebuild_flat_nodes();
+        self.status_message = format!(
+            "local ↔ {} | Tab: switch focus | q: quit",
+            new_server
+        );
+        self.is_connected = true;
     }
 
     /// コンテンツキャッシュをクリアする (r キー)
@@ -465,6 +556,128 @@ mod tests {
         assert!(state.local_cache.is_empty());
         assert!(state.remote_cache.is_empty());
         assert!(state.current_diff.is_none());
+    }
+
+    #[test]
+    fn test_show_merge_dialog_left() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LeftMerge);
+        assert!(matches!(state.dialog, DialogState::Confirm(_)));
+
+        if let DialogState::Confirm(ref d) = state.dialog {
+            assert_eq!(d.file_path, "test.txt");
+            assert_eq!(d.direction, MergeDirection::LeftMerge);
+        }
+    }
+
+    #[test]
+    fn test_show_merge_dialog_right() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::RightMerge);
+
+        if let DialogState::Confirm(ref d) = state.dialog {
+            assert_eq!(d.direction, MergeDirection::RightMerge);
+        } else {
+            panic!("Expected Confirm dialog");
+        }
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_skipped() {
+        let local_nodes = vec![FileNode::new_dir("src")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LeftMerge);
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_server_menu() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.available_servers = vec![
+            "develop".to_string(),
+            "staging".to_string(),
+        ];
+
+        state.show_server_menu();
+        assert!(matches!(state.dialog, DialogState::ServerSelect(_)));
+    }
+
+    #[test]
+    fn test_close_dialog() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LeftMerge);
+        assert!(state.has_dialog());
+        state.close_dialog();
+        assert!(!state.has_dialog());
+    }
+
+    #[test]
+    fn test_switch_server() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.remote_cache.insert("a.txt".to_string(), "old".to_string());
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert_eq!(state.server_name, "staging");
+        assert!(state.remote_cache.is_empty());
+        assert!(state.is_connected);
+    }
+
+    #[test]
+    fn test_update_badge_after_merge() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("test.txt".to_string(), "content".to_string());
+        state.update_badge_after_merge("test.txt", "content", MergeDirection::LeftMerge);
+
+        // リモートキャッシュが更新されている
+        assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
     }
 
     #[test]

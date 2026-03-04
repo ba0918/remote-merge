@@ -1,16 +1,18 @@
 use std::io;
-
 use clap::{Parser, Subcommand};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
 
 use remote_merge::app::{AppState, Focus};
-use remote_merge::config;
+use remote_merge::config::{self, AppConfig};
 use remote_merge::local;
+use remote_merge::merge::executor::{self, MergeDirection};
+use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
+use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, ServerMenuWidget};
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
 use remote_merge::ui::tree_view::TreeView;
@@ -112,6 +114,97 @@ enum Commands {
     },
 }
 
+/// tokio ランタイム（TUI 内で同期的に非同期操作を呼ぶため）
+struct TuiRuntime {
+    rt: tokio::runtime::Runtime,
+    ssh_client: Option<SshClient>,
+    config: AppConfig,
+}
+
+impl TuiRuntime {
+    fn new(config: AppConfig) -> Self {
+        Self {
+            rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
+            ssh_client: None,
+            config,
+        }
+    }
+
+    /// SSH 接続を確立する
+    fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
+        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+        })?;
+
+        let client = self.rt.block_on(SshClient::connect(
+            server_name,
+            server_config,
+            &self.config.ssh,
+        ))?;
+
+        self.ssh_client = Some(client);
+        Ok(())
+    }
+
+    /// リモートツリーを取得する
+    fn fetch_remote_tree(&mut self, server_name: &str) -> anyhow::Result<FileTree> {
+        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+        })?;
+        let root_dir = server_config.root_dir.to_string_lossy().to_string();
+
+        let client = self.ssh_client.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("SSH 未接続")
+        })?;
+
+        let nodes = self.rt.block_on(
+            client.list_dir(&root_dir, &self.config.filter.exclude)
+        )?;
+
+        let mut tree = FileTree::new(&server_config.root_dir);
+        tree.nodes = nodes;
+        tree.sort();
+        Ok(tree)
+    }
+
+    /// リモートファイル内容を取得する
+    fn read_remote_file(&mut self, server_name: &str, rel_path: &str) -> anyhow::Result<String> {
+        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+        })?;
+        let remote_root = server_config.root_dir.to_string_lossy().to_string();
+        let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
+
+        let client = self.ssh_client.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("SSH 未接続")
+        })?;
+
+        self.rt.block_on(client.read_file(&full_path))
+    }
+
+    /// リモートファイルに書き込む
+    fn write_remote_file(&mut self, server_name: &str, rel_path: &str, content: &str) -> anyhow::Result<()> {
+        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
+            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+        })?;
+        let remote_root = server_config.root_dir.to_string_lossy().to_string();
+        let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
+
+        let client = self.ssh_client.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("SSH 未接続")
+        })?;
+
+        self.rt.block_on(client.write_file(&full_path, content))
+    }
+
+    /// 切断する
+    fn disconnect(&mut self) {
+        if let Some(client) = self.ssh_client.take() {
+            let _ = self.rt.block_on(client.disconnect());
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // ログ初期化
@@ -165,18 +258,48 @@ async fn main() -> anyhow::Result<()> {
                 &config.filter.exclude,
             )?;
 
-            // リモートツリーは接続後に取得（現段階では空ツリー）
-            // TODO: Phase 1-3 で SSH 接続してリモートツリーを取得する
-            let remote_tree = FileTree::new(
-                config.servers.get(&server_name)
-                    .map(|s| s.root_dir.clone())
-                    .unwrap_or_default(),
-            );
+            // 利用可能なサーバ名一覧
+            let available_servers: Vec<String> = config.servers.keys().cloned().collect();
 
-            let app_state = AppState::new(local_tree, remote_tree, server_name);
+            // TuiRuntime を構築
+            let mut runtime = TuiRuntime::new(config.clone());
+
+            // SSH 接続を試行してリモートツリーを取得
+            let (remote_tree, is_connected) = match runtime.connect(&server_name) {
+                Ok(()) => {
+                    match runtime.fetch_remote_tree(&server_name) {
+                        Ok(tree) => (tree, true),
+                        Err(e) => {
+                            tracing::warn!("リモートツリー取得に失敗: {}", e);
+                            let root = config.servers.get(&server_name)
+                                .map(|s| s.root_dir.clone())
+                                .unwrap_or_default();
+                            (FileTree::new(root), true) // 接続はできたがツリー取得失敗
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("SSH 接続に失敗（オフラインモード）: {}", e);
+                    let root = config.servers.get(&server_name)
+                        .map(|s| s.root_dir.clone())
+                        .unwrap_or_default();
+                    (FileTree::new(root), false)
+                }
+            };
+
+            let mut app_state = AppState::new(local_tree, remote_tree, server_name.clone());
+            app_state.available_servers = available_servers;
+            app_state.is_connected = is_connected;
+
+            if !is_connected {
+                app_state.status_message = format!(
+                    "local ↔ {} (offline) | s: server | q: quit",
+                    server_name
+                );
+            }
 
             // TUI 起動
-            run_tui(app_state)?;
+            run_tui(app_state, runtime)?;
         }
     }
 
@@ -184,7 +307,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// TUI イベントループを実行する
-fn run_tui(mut state: AppState) -> anyhow::Result<()> {
+fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
     // ターミナルをセットアップ
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -193,7 +316,10 @@ fn run_tui(mut state: AppState) -> anyhow::Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // メインループ
-    let result = run_event_loop(&mut terminal, &mut state);
+    let result = run_event_loop(&mut terminal, &mut state, &mut runtime);
+
+    // 切断
+    runtime.disconnect();
 
     // ターミナルをリストア（エラーでも必ず実行）
     disable_raw_mode()?;
@@ -207,6 +333,7 @@ fn run_tui(mut state: AppState) -> anyhow::Result<()> {
 fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState,
+    runtime: &mut TuiRuntime,
 ) -> anyhow::Result<()> {
     loop {
         // 描画
@@ -217,6 +344,16 @@ fn run_event_loop(
         // イベント待ち
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
+                continue;
+            }
+
+            // ダイアログ表示中はダイアログのキーハンドリングを優先
+            if state.has_dialog() {
+                handle_dialog_key(state, runtime, key.code);
+
+                if state.should_quit {
+                    break;
+                }
                 continue;
             }
 
@@ -232,16 +369,30 @@ fn run_event_loop(
                         if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir) {
                             state.toggle_expand();
                         } else {
+                            // ファイル選択時にコンテンツをロード
+                            load_file_content(state, runtime);
                             state.select_file();
                         }
                     }
                     KeyCode::Left | KeyCode::Char('h') => {
-                        // ディレクトリなら折りたたみ
                         if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir && n.expanded) {
                             state.toggle_expand();
                         }
                     }
                     KeyCode::Char('r') => state.clear_cache(),
+                    KeyCode::Char('s') => state.show_server_menu(),
+                    KeyCode::Char('L') => {
+                        // Shift+L: LeftMerge (local → remote)
+                        if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('L') {
+                            state.show_merge_dialog(MergeDirection::LeftMerge);
+                        }
+                    }
+                    KeyCode::Char('R') => {
+                        // Shift+R: RightMerge (remote → local)
+                        if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('R') {
+                            state.show_merge_dialog(MergeDirection::RightMerge);
+                        }
+                    }
                     _ => {}
                 },
                 Focus::DiffView => match key.code {
@@ -264,17 +415,197 @@ fn run_event_loop(
     Ok(())
 }
 
+/// ダイアログ表示中のキーハンドリング
+fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCode) {
+    let mut dialog = state.dialog.clone();
+    match dialog {
+        DialogState::Confirm(ref confirm) => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                execute_merge(state, runtime, confirm);
+                state.close_dialog();
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "マージをキャンセルしました".to_string();
+                state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::ServerSelect(ref mut menu) => match key {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::ServerSelect(ref mut m) = state.dialog {
+                    m.cursor_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::ServerSelect(ref mut m) = state.dialog {
+                    m.cursor_down();
+                }
+            }
+            KeyCode::Enter => {
+                let selected = menu.selected().map(|s| s.to_string());
+                if let Some(server_name) = selected {
+                    if server_name != state.server_name {
+                        execute_server_switch(state, runtime, &server_name);
+                    }
+                }
+                state.close_dialog();
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::None => {}
+    }
+}
+
+/// ファイル選択時にコンテンツをロードする
+fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let node = match state.flat_nodes.get(state.tree_cursor) {
+        Some(n) if !n.is_dir => n.clone(),
+        _ => return,
+    };
+
+    let path = &node.path;
+
+    // ローカルキャッシュ
+    if !state.local_cache.contains_key(path) {
+        let local_root = &state.local_tree.root;
+        match executor::read_local_file(local_root, path) {
+            Ok(content) => {
+                state.local_cache.insert(path.clone(), content);
+            }
+            Err(e) => {
+                tracing::debug!("ローカルファイル読み込みスキップ: {} - {}", path, e);
+            }
+        }
+    }
+
+    // リモートキャッシュ
+    if !state.remote_cache.contains_key(path) && state.is_connected {
+        match runtime.read_remote_file(&state.server_name, path) {
+            Ok(content) => {
+                state.remote_cache.insert(path.clone(), content);
+            }
+            Err(e) => {
+                tracing::debug!("リモートファイル読み込みスキップ: {} - {}", path, e);
+            }
+        }
+    }
+}
+
+/// マージを実行する
+fn execute_merge(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    confirm: &remote_merge::ui::dialog::ConfirmDialog,
+) {
+    let path = &confirm.file_path;
+    let direction = confirm.direction;
+
+    match direction {
+        MergeDirection::LeftMerge => {
+            // local → remote: ローカル内容をリモートに書き込む
+            let content = match state.local_cache.get(path) {
+                Some(c) => c.clone(),
+                None => {
+                    state.status_message = format!("{}: ローカル内容が未取得です", path);
+                    return;
+                }
+            };
+
+            if !state.is_connected {
+                state.status_message = "SSH 未接続: マージを実行できません".to_string();
+                return;
+            }
+
+            match runtime.write_remote_file(&state.server_name, path, &content) {
+                Ok(()) => {
+                    state.update_badge_after_merge(path, &content, direction);
+                    state.status_message = format!(
+                        "{}: local → {} にマージしました",
+                        path, state.server_name
+                    );
+                }
+                Err(e) => {
+                    state.status_message = format!("マージ失敗: {}", e);
+                }
+            }
+        }
+        MergeDirection::RightMerge => {
+            // remote → local: リモート内容をローカルに書き込む
+            let content = match state.remote_cache.get(path) {
+                Some(c) => c.clone(),
+                None => {
+                    state.status_message = format!("{}: リモート内容が未取得です", path);
+                    return;
+                }
+            };
+
+            let local_root = state.local_tree.root.clone();
+            match executor::write_local_file(&local_root, path, &content) {
+                Ok(()) => {
+                    state.update_badge_after_merge(path, &content, direction);
+                    state.status_message = format!(
+                        "{}: {} → local にマージしました",
+                        path, state.server_name
+                    );
+                }
+                Err(e) => {
+                    state.status_message = format!("マージ失敗: {}", e);
+                }
+            }
+        }
+    }
+}
+
+/// サーバ切替を実行する
+fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_name: &str) {
+    state.status_message = format!("{} に接続中...", server_name);
+
+    // 既存の接続を切断
+    runtime.disconnect();
+
+    match runtime.connect(server_name) {
+        Ok(()) => {
+            match runtime.fetch_remote_tree(server_name) {
+                Ok(tree) => {
+                    state.switch_server(server_name.to_string(), tree);
+                    state.status_message = format!(
+                        "local ↔ {} | Tab: switch focus | s: server | q: quit",
+                        server_name
+                    );
+                }
+                Err(e) => {
+                    state.status_message = format!(
+                        "{} のツリー取得に失敗: {}",
+                        server_name, e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            state.status_message = format!("{} への接続に失敗: {}", server_name, e);
+        }
+    }
+}
+
 /// UI を描画する
 fn draw_ui(frame: &mut Frame, state: &AppState) {
     let layout = AppLayout::new(frame.area());
 
     // ヘッダ
+    let conn_indicator = if state.is_connected { "●" } else { "○" };
+    let conn_color = if state.is_connected { Color::Green } else { Color::Red };
+
     let header = Paragraph::new(Line::from(vec![
         Span::styled(" remote-merge ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw("| "),
         Span::styled("local", Style::default().fg(Color::Green)),
         Span::raw(" ↔ "),
         Span::styled(&state.server_name, Style::default().fg(Color::Yellow)),
+        Span::raw(" "),
+        Span::styled(conn_indicator, Style::default().fg(conn_color)),
     ]))
     .style(Style::default().bg(Color::DarkGray));
     frame.render_widget(header, layout.header);
@@ -293,4 +624,17 @@ fn draw_ui(frame: &mut Frame, state: &AppState) {
     ]))
     .style(Style::default().bg(Color::DarkGray));
     frame.render_widget(status, layout.status_bar);
+
+    // ダイアログ（最前面に描画）
+    match &state.dialog {
+        DialogState::Confirm(confirm) => {
+            let widget = ConfirmDialogWidget::new(confirm);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::ServerSelect(menu) => {
+            let widget = ServerMenuWidget::new(menu);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::None => {}
+    }
 }
