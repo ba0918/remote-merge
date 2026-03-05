@@ -1,0 +1,1104 @@
+//! TUI アプリケーション状態管理。
+//! ツリー、diff、フォーカス、コンテンツキャッシュを一元管理する。
+
+pub mod badge;
+pub mod dialog_ops;
+pub mod hunk_ops;
+pub mod navigation;
+pub mod scan;
+pub mod selection;
+pub mod tree_ops;
+pub mod types;
+
+use std::collections::{HashMap, HashSet, VecDeque};
+
+use crate::diff::engine::{DiffResult, HunkDirection};
+use crate::tree::{FileNode, FileTree};
+use crate::ui::dialog::DialogState;
+
+pub use types::{Badge, CacheSnapshot, DiffMode, FlatNode, Focus, MergedNode, ScanState};
+
+/// TUI アプリケーション全体の状態
+pub struct AppState {
+    /// 現在のフォーカス
+    pub focus: Focus,
+    /// ローカルファイルツリー
+    pub local_tree: FileTree,
+    /// リモートファイルツリー
+    pub remote_tree: FileTree,
+    /// 接続中のサーバ名
+    pub server_name: String,
+    /// 利用可能なサーバ名一覧
+    pub available_servers: Vec<String>,
+    /// ローカルファイル内容キャッシュ (パス -> 内容)
+    pub local_cache: HashMap<String, String>,
+    /// リモートファイル内容キャッシュ (パス -> 内容)
+    pub remote_cache: HashMap<String, String>,
+    /// 現在選択中の diff 結果
+    pub current_diff: Option<DiffResult>,
+    /// 現在選択中のファイルパス
+    pub selected_path: Option<String>,
+    /// フラット化されたツリー行リスト
+    pub flat_nodes: Vec<FlatNode>,
+    /// ツリーのカーソル位置
+    pub tree_cursor: usize,
+    /// ツリーのスクロールオフセット
+    pub tree_scroll: usize,
+    /// ツリーの表示可能行数（最後の render で記録）
+    pub tree_visible_height: usize,
+    /// diff ビューのスクロールオフセット（ビューポート先頭行）
+    pub diff_scroll: usize,
+    /// diff ビューのカーソル位置（論理行インデックス）
+    pub diff_cursor: usize,
+    /// diff ビューの表示可能行数（最後の render で記録）
+    pub diff_visible_height: usize,
+    /// 展開中ディレクトリの集合
+    pub expanded_dirs: HashSet<String>,
+    /// アプリを終了するか
+    pub should_quit: bool,
+    /// ステータスバーに表示するメッセージ
+    pub status_message: String,
+    /// ダイアログ状態
+    pub dialog: DialogState,
+    /// SSH 接続済みか
+    pub is_connected: bool,
+    /// 除外フィルターパターン（元の設定値）
+    pub exclude_patterns: Vec<String>,
+    /// 一時的に無効化されたパターン
+    pub disabled_patterns: HashSet<String>,
+    /// コンテンツ取得に失敗したパスの集合
+    pub error_paths: HashSet<String>,
+    /// 現在選択中のハンクインデックス（Diff View フォーカス時）
+    pub hunk_cursor: usize,
+    /// ハンクマージの保留状態（→/← で選択、Enter で確定）
+    pub pending_hunk_merge: Option<HunkDirection>,
+    /// Diff 表示モード
+    pub diff_mode: DiffMode,
+    /// undo スタック（適用前のキャッシュスナップショット）
+    pub undo_stack: VecDeque<CacheSnapshot>,
+    /// 変更ファイルフィルターモード（Shift+F で切替）
+    pub diff_filter_mode: bool,
+    /// 全走査の状態
+    pub scan_state: ScanState,
+    /// 全走査結果のローカルツリー（キャッシュ）
+    pub scan_local_tree: Option<Vec<FileNode>>,
+    /// 全走査結果のリモートツリー（キャッシュ）
+    pub scan_remote_tree: Option<Vec<FileNode>>,
+    /// センシティブファイルパターン
+    pub sensitive_patterns: Vec<String>,
+}
+
+impl AppState {
+    /// 新しい AppState を構築する
+    pub fn new(local_tree: FileTree, remote_tree: FileTree, server_name: String) -> Self {
+        let mut state = Self {
+            focus: Focus::FileTree,
+            local_tree,
+            remote_tree,
+            status_message: format!("local <-> {} | Tab: switch focus | q: quit", &server_name),
+            server_name,
+            available_servers: Vec::new(),
+            local_cache: HashMap::new(),
+            remote_cache: HashMap::new(),
+            current_diff: None,
+            selected_path: None,
+            flat_nodes: Vec::new(),
+            tree_cursor: 0,
+            tree_scroll: 0,
+            tree_visible_height: 20,
+            diff_scroll: 0,
+            diff_cursor: 0,
+            diff_visible_height: 20,
+            expanded_dirs: HashSet::new(),
+            should_quit: false,
+            dialog: DialogState::None,
+            is_connected: false,
+            exclude_patterns: Vec::new(),
+            disabled_patterns: HashSet::new(),
+            error_paths: HashSet::new(),
+            hunk_cursor: 0,
+            pending_hunk_merge: None,
+            diff_mode: DiffMode::Unified,
+            undo_stack: VecDeque::new(),
+            diff_filter_mode: false,
+            scan_state: ScanState::default(),
+            scan_local_tree: None,
+            scan_remote_tree: None,
+            sensitive_patterns: Vec::new(),
+        };
+        state.rebuild_flat_nodes();
+        state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff::engine::HunkDirection;
+    use crate::merge::executor::MergeDirection;
+    use crate::ui::dialog::BatchConfirmDialog;
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_initial_focus_is_file_tree() {
+        let state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        assert_eq!(state.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn test_toggle_focus() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        assert_eq!(state.focus, Focus::FileTree);
+        state.toggle_focus();
+        assert_eq!(state.focus, Focus::DiffView);
+        state.toggle_focus();
+        assert_eq!(state.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn test_cache_update_on_select() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "hello\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "world\n".to_string());
+
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert!(state.current_diff.is_some());
+        assert_eq!(state.selected_path, Some("test.txt".to_string()));
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.local_cache.insert("a".to_string(), "x".to_string());
+        state.remote_cache.insert("b".to_string(), "y".to_string());
+        state.error_paths.insert("some/path".to_string());
+        state.clear_cache();
+        assert!(state.local_cache.is_empty());
+        assert!(state.remote_cache.is_empty());
+        assert!(state.current_diff.is_none());
+        assert!(state.error_paths.is_empty());
+    }
+
+    #[test]
+    fn test_show_merge_dialog_left() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::Confirm(_)));
+
+        if let DialogState::Confirm(ref d) = state.dialog {
+            assert_eq!(d.file_path, "test.txt");
+            assert_eq!(d.direction, MergeDirection::LocalToRemote);
+        }
+    }
+
+    #[test]
+    fn test_show_merge_dialog_right() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::RemoteToLocal);
+
+        if let DialogState::Confirm(ref d) = state.dialog {
+            assert_eq!(d.direction, MergeDirection::RemoteToLocal);
+        } else {
+            panic!("Expected Confirm dialog");
+        }
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_skipped() {
+        let local_nodes = vec![FileNode::new_dir("src")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_server_menu() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.available_servers = vec!["develop".to_string(), "staging".to_string()];
+
+        state.show_server_menu();
+        assert!(matches!(state.dialog, DialogState::ServerSelect(_)));
+    }
+
+    #[test]
+    fn test_close_dialog() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(state.has_dialog());
+        state.close_dialog();
+        assert!(!state.has_dialog());
+    }
+
+    #[test]
+    fn test_switch_server() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "old".to_string());
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert_eq!(state.server_name, "staging");
+        assert!(state.remote_cache.is_empty());
+        assert!(state.is_connected);
+    }
+
+    #[test]
+    fn test_update_badge_after_merge() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state.update_badge_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
+
+        assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_hunk_cursor_navigation() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
+        let mut new_text = old.clone();
+        new_text = new_text.replace("line3\n", "modified3\n");
+        new_text = new_text.replace("line15\n", "modified15\n");
+
+        state.local_cache.insert("test.txt".to_string(), old);
+        state.remote_cache.insert("test.txt".to_string(), new_text);
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert_eq!(state.hunk_count(), 2);
+        assert_eq!(state.hunk_cursor, 0);
+
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, 1);
+
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, 1);
+
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_cursor_bounds() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        assert_eq!(state.hunk_count(), 0);
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, 0);
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_merge_updates_cache() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
+        state.remote_cache.insert(
+            "test.txt".to_string(),
+            "line1\nmodified\nline3\n".to_string(),
+        );
+        state.selected_path = Some("test.txt".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert!(result.is_some());
+        assert_eq!(
+            state.local_cache.get("test.txt").unwrap(),
+            "line1\nmodified\nline3\n"
+        );
+    }
+
+    #[test]
+    fn test_hunk_merge_recalculates_diff() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.selected_path = Some("test.txt".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert_eq!(state.hunk_count(), 1);
+
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+
+        match &state.current_diff {
+            Some(DiffResult::Equal) => {}
+            other => panic!("Expected Equal but got {:?}", other),
+        }
+        assert_eq!(state.hunk_count(), 0);
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_sets_pending() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert!(state.pending_hunk_merge.is_none());
+
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::RightToLeft));
+        assert!(state.status_message.contains("Enter"));
+        assert!(state.status_message.contains("Esc"));
+
+        state.stage_hunk_merge(HunkDirection::LeftToRight);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::LeftToRight));
+    }
+
+    #[test]
+    fn test_cancel_hunk_merge_clears_pending() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_some());
+
+        state.cancel_hunk_merge();
+        assert!(state.pending_hunk_merge.is_none());
+        assert!(state.status_message.contains("cancelled"));
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_noop_when_no_hunks() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_select_file_clears_pending() {
+        let local_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+        let remote_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "old\n".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "new\n".to_string());
+        state
+            .local_cache
+            .insert("b.txt".to_string(), "x\n".to_string());
+        state
+            .remote_cache
+            .insert("b.txt".to_string(), "y\n".to_string());
+
+        state.tree_cursor = 0;
+        state.select_file();
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_some());
+
+        state.tree_cursor = 1;
+        state.select_file();
+        assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_opens_batch_confirm() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.is_connected = true;
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state.rebuild_flat_nodes();
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+
+        match &state.dialog {
+            DialogState::BatchConfirm(batch) => {
+                assert_eq!(batch.files.len(), 1);
+                assert_eq!(batch.files[0].0, "src/a.ts");
+                assert_eq!(batch.files[0].1, Badge::Modified);
+            }
+            other => panic!("Expected BatchConfirm but got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_collect_diff_files_under_empty() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state.rebuild_flat_nodes();
+
+        let (files, _) = state.collect_diff_files_under("src");
+        assert!(files.is_empty());
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_collect_diff_files_unchecked_dirs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_dir("nested")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+
+        let (files, unchecked) = state.collect_diff_files_under("src");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].1, Badge::LocalOnly);
+        assert_eq!(unchecked, 1);
+    }
+
+    #[test]
+    fn test_batch_confirm_boundary_20_files() {
+        let batch = BatchConfirmDialog::new(
+            (0..20)
+                .map(|i| (format!("file{}.txt", i), Badge::Modified))
+                .collect(),
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+        assert!(!batch.is_large_batch());
+    }
+
+    #[test]
+    fn test_batch_confirm_boundary_21_files() {
+        let batch = BatchConfirmDialog::new(
+            (0..21)
+                .map(|i| (format!("file{}.txt", i), Badge::Modified))
+                .collect(),
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+        assert!(batch.is_large_batch());
+    }
+
+    #[test]
+    fn test_diff_filter_mode_hides_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes.clone()),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+
+        state.set_scan_result(local_nodes, remote_nodes);
+        state.rebuild_flat_nodes();
+
+        assert!(!state.diff_filter_mode);
+        let all_files: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(all_files.len(), 2);
+
+        state.toggle_diff_filter();
+        assert!(state.diff_filter_mode);
+
+        let filtered_files: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(filtered_files.len(), 1);
+        assert_eq!(filtered_files[0], "src/a.ts");
+
+        state.toggle_diff_filter();
+        assert!(!state.diff_filter_mode);
+        let all_again: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(all_again.len(), 2);
+    }
+
+    #[test]
+    fn test_diff_filter_hides_equal_dirs() {
+        let local_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("a.ts")]),
+            FileNode::new_dir_with_children("test", vec![FileNode::new_file("t.ts")]),
+        ];
+        let remote_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("a.ts")]),
+            FileNode::new_dir_with_children("test", vec![FileNode::new_file("t.ts")]),
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes.clone()),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state.tree_cursor = 2;
+        state.toggle_expand();
+
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("test/t.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("test/t.ts".to_string(), "same".to_string());
+
+        state.set_scan_result(local_nodes, remote_nodes);
+
+        state.toggle_diff_filter();
+
+        let names: Vec<&str> = state.flat_nodes.iter().map(|n| n.path.as_str()).collect();
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"src/a.ts"));
+        assert!(!names.contains(&"test"));
+        assert!(!names.contains(&"test/t.ts"));
+    }
+
+    #[test]
+    fn test_scan_state_default() {
+        let state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        assert!(matches!(state.scan_state, ScanState::Idle));
+        assert!(!state.diff_filter_mode);
+        assert!(state.scan_local_tree.is_none());
+    }
+
+    #[test]
+    fn test_clear_scan_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.scan_local_tree = Some(vec![]);
+        state.scan_remote_tree = Some(vec![]);
+        state.diff_filter_mode = true;
+
+        state.clear_scan_cache();
+        assert!(state.scan_local_tree.is_none());
+        assert!(state.scan_remote_tree.is_none());
+        assert!(!state.diff_filter_mode);
+    }
+
+    #[test]
+    fn test_batch_confirm_sensitive_check() {
+        let mut batch = BatchConfirmDialog::new(
+            vec![
+                ("src/app.ts".to_string(), Badge::Modified),
+                (".env".to_string(), Badge::Modified),
+                ("config/secrets.json".to_string(), Badge::Modified),
+                ("server.key".to_string(), Badge::LocalOnly),
+            ],
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+
+        batch.check_sensitive(&[
+            ".env".into(),
+            ".env.*".into(),
+            "*.pem".into(),
+            "*.key".into(),
+            "*secret*".into(),
+        ]);
+
+        assert_eq!(batch.sensitive_files.len(), 3);
+        assert!(batch.sensitive_files.contains(&".env".to_string()));
+        assert!(batch
+            .sensitive_files
+            .contains(&"config/secrets.json".to_string()));
+        assert!(batch.sensitive_files.contains(&"server.key".to_string()));
+    }
+
+    #[test]
+    fn test_tree_expand_management() {
+        let local_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
+            FileNode::new_file("README.md"),
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        assert_eq!(state.flat_nodes.len(), 2);
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        assert!(state.expanded_dirs.contains("src"));
+        assert_eq!(state.flat_nodes.len(), 3);
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        assert!(!state.expanded_dirs.contains("src"));
+        assert_eq!(state.flat_nodes.len(), 2);
+    }
+
+    #[test]
+    fn test_switch_server_clears_local_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "old content".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "remote content".to_string());
+        state.error_paths.insert("a.txt".to_string());
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(state.local_cache.is_empty());
+        assert!(state.remote_cache.is_empty());
+        assert!(state.error_paths.is_empty());
+    }
+
+    #[test]
+    fn test_switch_server_clears_scan_cache_and_filter_mode() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state.scan_local_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.diff_filter_mode = true;
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(state.scan_local_tree.is_none());
+        assert!(state.scan_remote_tree.is_none());
+        assert!(!state.diff_filter_mode);
+    }
+
+    #[test]
+    fn test_switch_server_clears_undo_stack() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state.undo_stack.push_back(CacheSnapshot {
+            local_content: "old".to_string(),
+            remote_content: "old-remote".to_string(),
+            diff: None,
+        });
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(state.undo_stack.is_empty());
+        assert!(!state.has_unsaved_changes());
+    }
+
+    #[test]
+    fn test_clear_scan_cache_disables_filter_mode() {
+        let local_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+        let remote_nodes = vec![FileNode::new_file("a.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.scan_local_tree = Some(local_nodes);
+        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.diff_filter_mode = true;
+        state.rebuild_flat_nodes();
+
+        let nodes_in_filter = state.flat_nodes.len();
+
+        state.clear_scan_cache();
+
+        assert!(!state.diff_filter_mode);
+        assert!(state.flat_nodes.len() >= nodes_in_filter);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_without_scan_cache_returns_unchecked() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state.scan_local_tree = None;
+        state.scan_remote_tree = None;
+
+        let badge = state.compute_scan_badge("a.txt", false);
+        assert_eq!(badge, Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_prefers_content_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "same".to_string());
+
+        let mut local_node = FileNode::new_file("a.txt");
+        local_node.size = Some(100);
+        let mut remote_node = FileNode::new_file("a.txt");
+        remote_node.size = Some(200);
+        state.scan_local_tree = Some(vec![local_node]);
+        state.scan_remote_tree = Some(vec![remote_node]);
+
+        let badge = state.compute_scan_badge("a.txt", false);
+        assert_eq!(badge, Badge::Equal);
+    }
+
+    #[test]
+    fn test_switch_server_badge_uses_new_tree() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        let badge_before = state.compute_badge("a.txt", false);
+        assert_eq!(badge_before, Badge::Unchecked);
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        let badge_after = state.compute_badge("a.txt", false);
+        assert_eq!(badge_after, Badge::LocalOnly);
+    }
+
+    #[test]
+    fn test_error_paths_cleared_after_state_reset() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state.error_paths.insert("a.txt".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Error);
+
+        state.clear_cache();
+        assert_ne!(state.compute_badge("a.txt", false), Badge::Error);
+    }
+
+    #[test]
+    fn test_diff_filter_to_server_switch_restores_all_files() {
+        let local_nodes = vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ];
+        let remote_nodes = vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("same.txt".to_string(), "identical".to_string());
+        state
+            .remote_cache
+            .insert("same.txt".to_string(), "identical".to_string());
+        state
+            .local_cache
+            .insert("changed.txt".to_string(), "local ver".to_string());
+        state
+            .remote_cache
+            .insert("changed.txt".to_string(), "remote ver".to_string());
+
+        state.scan_local_tree = Some(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+        state.scan_remote_tree = Some(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+
+        state.toggle_diff_filter();
+        assert!(state.diff_filter_mode);
+        let filtered_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
+
+        let new_tree = make_test_tree(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(!state.diff_filter_mode);
+        let all_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
+        assert!(all_count >= filtered_count);
+    }
+}

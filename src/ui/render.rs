@@ -1,0 +1,198 @@
+//! トップレベル描画関数。
+
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+
+use crate::app::{AppState, ScanState};
+use crate::ui::dialog::{
+    centered_rect, BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
+    HelpOverlayWidget, HunkMergePreviewWidget, ServerMenuWidget,
+};
+use crate::ui::diff_view::DiffView;
+use crate::ui::layout::AppLayout;
+use crate::ui::tree_view::TreeView;
+
+/// UI を描画する
+pub fn draw_ui(frame: &mut Frame, state: &mut AppState) {
+    let layout = AppLayout::new(frame.area());
+
+    // ビューポートサイズを記録（スクロール計算用）
+    state.tree_visible_height = layout.tree_pane.height.saturating_sub(2) as usize;
+    state.diff_visible_height = layout.diff_pane.height.saturating_sub(2) as usize;
+
+    draw_header(frame, state, layout.header);
+    draw_panes(frame, state, &layout);
+    draw_status_bar(frame, state, layout.status_bar);
+    draw_dialog(frame, state);
+}
+
+/// ヘッダを描画する
+fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
+    let conn_indicator = if state.is_connected { "●" } else { "○" };
+    let conn_color = if state.is_connected {
+        Color::Green
+    } else {
+        Color::Red
+    };
+
+    let mut spans = vec![
+        Span::styled(
+            " remote-merge ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("| "),
+        Span::styled("local", Style::default().fg(Color::Green)),
+        Span::raw(" <-> "),
+        Span::styled(&state.server_name, Style::default().fg(Color::Yellow)),
+        Span::raw(" "),
+        Span::styled(conn_indicator, Style::default().fg(conn_color)),
+    ];
+
+    if state.diff_filter_mode {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            " DIFF ONLY ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    if matches!(state.scan_state, ScanState::Scanning) {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            " SCANNING... ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    let header = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(header, area);
+}
+
+/// ツリーペイン + Diff ペインを描画する
+fn draw_panes(frame: &mut Frame, state: &AppState, layout: &AppLayout) {
+    let tree_view = TreeView::new(state);
+    frame.render_widget(tree_view, layout.tree_pane);
+
+    let diff_view = DiffView::new(state);
+    frame.render_widget(diff_view, layout.diff_pane);
+}
+
+/// ステータスバーを描画する
+fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
+    let key_hints = state.build_key_hints();
+    let status = Paragraph::new(Line::from(vec![
+        Span::styled(
+            format!(" {} ", key_hints),
+            Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+        ),
+        Span::styled("  ", Style::default().bg(Color::DarkGray)),
+        Span::styled(
+            &state.status_message,
+            Style::default().fg(Color::White).bg(Color::DarkGray),
+        ),
+    ]))
+    .style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(status, area);
+}
+
+/// ダイアログを描画する（最前面）
+fn draw_dialog(frame: &mut Frame, state: &AppState) {
+    match &state.dialog {
+        DialogState::Confirm(confirm) => {
+            let widget = ConfirmDialogWidget::new(confirm);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::BatchConfirm(batch) => {
+            let widget = BatchConfirmDialogWidget::new(batch);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::ServerSelect(menu) => {
+            let widget = ServerMenuWidget::new(menu);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::Filter(panel) => {
+            let widget = FilterPanelWidget::new(panel);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::Help(help) => {
+            let widget = HelpOverlayWidget::new(help);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::HunkMergePreview(preview) => {
+            let widget = HunkMergePreviewWidget::new(preview);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::WriteConfirmation => {
+            render_simple_dialog(
+                frame,
+                " Write Changes ",
+                &format!("Write {} changes to files?", state.undo_stack.len()),
+                Color::Green,
+            );
+        }
+        DialogState::UnsavedChanges => {
+            render_simple_dialog(
+                frame,
+                " Unsaved Changes ",
+                "You have unsaved changes. Discard and quit?",
+                Color::Yellow,
+            );
+        }
+        DialogState::None => {}
+    }
+}
+
+/// シンプルな Y/n 確認ダイアログを描画する
+fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color) {
+    let dialog_area = centered_rect(60, 7, frame.area());
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
+
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let msg = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(message, Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(msg, chunks[1]);
+
+    let guide = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "[Y]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Yes  "),
+        Span::styled(
+            "[n/Esc]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" No"),
+    ]));
+    frame.render_widget(guide, chunks[3]);
+}
