@@ -133,7 +133,6 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
 fn count_subtree_files(state: &AppState, dir_path: &str) -> (usize, bool) {
     let prefix = format!("{}/", dir_path);
     let mut file_count = 0;
-    let mut has_unloaded = false;
 
     // flat_nodes に既にあるファイルをカウント
     for node in &state.flat_nodes {
@@ -143,44 +142,120 @@ fn count_subtree_files(state: &AppState, dir_path: &str) -> (usize, bool) {
     }
 
     // ローカル・リモートツリーで未ロードのサブディレクトリを検索
-    check_unloaded_recursive(&state.local_tree.nodes, dir_path, &mut has_unloaded);
-    check_unloaded_recursive(&state.remote_tree.nodes, dir_path, &mut has_unloaded);
+    let has_unloaded = has_unloaded_children(&state.local_tree, dir_path)
+        || has_unloaded_children(&state.remote_tree, dir_path);
 
     (file_count, has_unloaded)
 }
 
-/// ツリー内の未ロードサブディレクトリを再帰的にチェック
-fn check_unloaded_recursive(
-    nodes: &[crate::tree::FileNode],
-    dir_path: &str,
-    has_unloaded: &mut bool,
-) {
-    for node in nodes {
-        if !node.is_dir() {
-            continue;
-        }
-        if node.name == dir_path || dir_path.ends_with(&format!("/{}", node.name)) {
-            if !node.is_loaded() {
-                *has_unloaded = true;
-                return;
-            }
-            if let Some(children) = &node.children {
-                for child in children {
-                    if child.is_dir() {
-                        let child_path = format!("{}/{}", dir_path, child.name);
-                        if !child.is_loaded() {
-                            *has_unloaded = true;
-                            return;
-                        }
-                        if let Some(grandchildren) = &child.children {
-                            check_unloaded_recursive(grandchildren, &child_path, has_unloaded);
-                            if *has_unloaded {
-                                return;
-                            }
-                        }
-                    }
-                }
+/// 指定パスのツリーノード配下に未ロードのサブディレクトリがあるか
+fn has_unloaded_children(tree: &crate::tree::FileTree, dir_path: &str) -> bool {
+    let node = match tree.find_node(std::path::Path::new(dir_path)) {
+        Some(n) => n,
+        None => return false,
+    };
+    if !node.is_dir() {
+        return false;
+    }
+    check_node_unloaded(node)
+}
+
+/// ノード自体と全子孫の未ロード状態を再帰チェック
+fn check_node_unloaded(node: &crate::tree::FileNode) -> bool {
+    if !node.is_loaded() {
+        return true;
+    }
+    if let Some(children) = &node.children {
+        for child in children {
+            if child.is_dir() && check_node_unloaded(child) {
+                return true;
             }
         }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_has_unloaded_children_all_loaded() {
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        assert!(!has_unloaded_children(&tree, "src"));
+    }
+
+    #[test]
+    fn test_has_unloaded_children_unloaded_dir() {
+        // children = None は未ロード
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir("app")], // app は children=None（未ロード）
+        )]);
+        assert!(has_unloaded_children(&tree, "src"));
+    }
+
+    #[test]
+    fn test_has_unloaded_children_nested_unloaded() {
+        let app = FileNode::new_dir_with_children("app", vec![FileNode::new_dir("sub")]);
+        // app は loaded だが、app/sub は未ロード (children=None)
+        assert!(app.is_loaded());
+
+        let tree = make_tree(vec![FileNode::new_dir_with_children("src", vec![app])]);
+        assert!(has_unloaded_children(&tree, "src"));
+    }
+
+    #[test]
+    fn test_has_unloaded_children_all_nested_loaded() {
+        let sub = FileNode::new_dir_with_children("sub", vec![FileNode::new_file("c.rs")]);
+        let app = FileNode::new_dir_with_children("app", vec![FileNode::new_file("a.rs"), sub]);
+        let tree = make_tree(vec![FileNode::new_dir_with_children("src", vec![app])]);
+        assert!(!has_unloaded_children(&tree, "src"));
+    }
+
+    #[test]
+    fn test_has_unloaded_children_nonexistent_path() {
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        // 存在しないパスは false
+        assert!(!has_unloaded_children(&tree, "nonexistent"));
+    }
+
+    #[test]
+    fn test_has_unloaded_children_file_path() {
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        // ファイルパスは false
+        assert!(!has_unloaded_children(&tree, "src/a.rs"));
+    }
+
+    #[test]
+    fn test_check_node_unloaded_leaf_dir() {
+        // children=None のディレクトリは未ロード
+        let node = FileNode::new_dir("empty");
+        assert!(check_node_unloaded(&node));
+    }
+
+    #[test]
+    fn test_check_node_unloaded_loaded_empty_dir() {
+        // children=Some([]) の空ディレクトリはロード済み
+        let node = FileNode::new_dir_with_children("empty", vec![]);
+        assert!(!check_node_unloaded(&node));
     }
 }

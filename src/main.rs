@@ -6,6 +6,7 @@ use crossterm::terminal::{
 };
 use ratatui::prelude::*;
 use std::io;
+use std::sync::Mutex;
 
 use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
 use remote_merge::config::{self, AppConfig};
@@ -85,14 +86,8 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .init();
-
     let cli = Cli::parse();
+    init_tracing(cli.command.is_none());
 
     match cli.command {
         Some(Commands::Init) => {
@@ -242,4 +237,34 @@ fn run_event_loop(
     }
 
     Ok(())
+}
+
+/// tracing を初期化する。
+///
+/// TUI モードでは stderr に書くと画面が崩壊するため、ログファイルに出力する。
+/// CLI モード（サブコマンド実行時）は従来どおり stderr。
+fn init_tracing(is_tui: bool) {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+
+    if is_tui {
+        let log_dir = dirs::cache_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+            .join("remote-merge");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_path = log_dir.join("debug.log");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .expect("Failed to open log file");
+
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_writer(Mutex::new(file))
+            .with_ansi(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    }
 }

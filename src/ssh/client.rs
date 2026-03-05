@@ -175,7 +175,7 @@ impl SshClient {
 
         if let Some(code) = exit_code {
             if code != 0 {
-                tracing::warn!(
+                tracing::debug!(
                     "リモートコマンドが非ゼロで終了: cmd='{}', code={}",
                     command,
                     code
@@ -361,11 +361,18 @@ impl SshClient {
     }
 
     /// リモートファイルに内容を書き込む（stdin 経由の cat >）
+    ///
+    /// 親ディレクトリが存在しない場合は自動的に作成する。
     pub async fn write_file(
         &mut self,
         remote_path: &str,
         content: &str,
     ) -> crate::error::Result<()> {
+        // 親ディレクトリを作成（存在しなければ）
+        if let Some(cmd) = build_mkdir_command(remote_path) {
+            let _ = self.exec(&cmd).await;
+        }
+
         let command = format!("cat > {}", shell_escape(remote_path));
         let mut channel =
             self.session
@@ -449,6 +456,18 @@ fn build_preferred(_opts: &crate::config::SshOptions) -> Preferred {
     Preferred::default()
 }
 
+/// リモートパスの親ディレクトリを作成する `mkdir -p` コマンドを構築する。
+///
+/// 親ディレクトリがない（ルート直下のファイル等）場合は `None` を返す。
+fn build_mkdir_command(remote_path: &str) -> Option<String> {
+    let parent = Path::new(remote_path).parent()?;
+    let parent_str = parent.to_string_lossy();
+    if parent_str.is_empty() {
+        return None;
+    }
+    Some(format!("mkdir -p {}", shell_escape(&parent_str)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,5 +477,37 @@ mod tests {
         let ssh_config = SshConfig { timeout_sec: 30 };
         let duration = Duration::from_secs(ssh_config.timeout_sec);
         assert_eq!(duration.as_secs(), 30);
+    }
+
+    #[test]
+    fn test_build_mkdir_command_nested_path() {
+        let cmd = build_mkdir_command("/var/www/app/src/handler/mod.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app/src/handler'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_single_depth() {
+        let cmd = build_mkdir_command("/var/www/app/main.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_root_file() {
+        // ルート直下のファイルは mkdir 不要
+        let cmd = build_mkdir_command("/main.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_no_parent() {
+        // 親がないパスは None
+        let cmd = build_mkdir_command("file.rs");
+        assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn test_build_mkdir_command_special_chars() {
+        let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
     }
 }
