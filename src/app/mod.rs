@@ -1108,4 +1108,141 @@ mod tests {
         let all_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
         assert!(all_count >= filtered_count);
     }
+
+    // ── error_paths とバッジ計算のテスト ──
+
+    #[test]
+    fn test_badge_local_only_not_error_when_remote_missing() {
+        // ローカルにのみ存在するファイル: error_paths に入っていなければ LocalOnly
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("local_only.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir("src")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // ローカルキャッシュのみ存在（リモートは読めなかった想定）
+        state
+            .local_cache
+            .insert("src/local_only.rs".to_string(), "content".to_string());
+        // error_paths には入れない（片方読めれば OK）
+
+        let badge = state.compute_badge("src/local_only.rs", false);
+        assert_eq!(badge, Badge::LocalOnly);
+    }
+
+    #[test]
+    fn test_badge_remote_only_not_error_when_local_missing() {
+        // リモートにのみ存在するファイル
+        let local_nodes = vec![FileNode::new_dir("src")];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("remote_only.rs")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .remote_cache
+            .insert("src/remote_only.rs".to_string(), "content".to_string());
+
+        let badge = state.compute_badge("src/remote_only.rs", false);
+        assert_eq!(badge, Badge::RemoteOnly);
+    }
+
+    #[test]
+    fn test_badge_error_only_when_both_fail() {
+        // error_paths に入っているファイルは Error バッジになる
+        let local_nodes = vec![FileNode::new_file("broken.rs")];
+        let remote_nodes = vec![FileNode::new_file("broken.rs")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.error_paths.insert("broken.rs".to_string());
+
+        let badge = state.compute_badge("broken.rs", false);
+        assert_eq!(badge, Badge::Error);
+    }
+
+    #[test]
+    fn test_collect_diff_includes_local_only_files() {
+        // LocalOnly ファイルがバッチマージダイアログに含まれることを検証
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("both.rs"),
+                FileNode::new_file("local_only.rs"),
+            ],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("both.rs")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        // both.rs: 同一内容
+        state
+            .local_cache
+            .insert("src/both.rs".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/both.rs".to_string(), "same".to_string());
+        // local_only.rs: ローカルのみキャッシュあり（リモートになし → error_paths にも入れない）
+        state
+            .local_cache
+            .insert("src/local_only.rs".to_string(), "only here".to_string());
+        state.rebuild_flat_nodes();
+
+        let (files, _) = state.collect_diff_files_under("src");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, "src/local_only.rs");
+        assert_eq!(files[0].1, Badge::LocalOnly);
+    }
+
+    #[test]
+    fn test_collect_diff_excludes_error_badge() {
+        // error_paths に入ったファイルは collect_diff_files_under に含まれない
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("broken.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("broken.rs")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state.error_paths.insert("src/broken.rs".to_string());
+        state.rebuild_flat_nodes();
+
+        let (files, _) = state.collect_diff_files_under("src");
+        assert!(files.is_empty(), "Error badge files should be excluded");
+    }
 }

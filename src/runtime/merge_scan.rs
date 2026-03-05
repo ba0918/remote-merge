@@ -125,26 +125,33 @@ fn run_merge_scan(
         }
 
         // ローカルコンテンツ
-        match executor::read_local_file(local_root, path) {
+        let local_ok = match executor::read_local_file(local_root, path) {
             Ok(content) => {
                 local_cache.insert(path.clone(), content);
+                true
             }
             Err(e) => {
                 tracing::debug!("Local file read skipped: {} - {}", path, e);
-                error_paths.insert(path.clone());
+                false
             }
-        }
+        };
 
         // リモートコンテンツ
         let full_remote = format!("{}/{}", remote_root.trim_end_matches('/'), path);
-        match rt.block_on(client.read_file(&full_remote)) {
+        let remote_ok = match rt.block_on(client.read_file(&full_remote)) {
             Ok(content) => {
                 remote_cache.insert(path.clone(), content);
+                true
             }
             Err(e) => {
                 tracing::debug!("Remote file read skipped: {} - {}", path, e);
-                error_paths.insert(path.clone());
+                false
             }
+        };
+
+        // 両方とも読み込めなかった場合のみエラー扱い
+        if !local_ok && !remote_ok {
+            error_paths.insert(path.clone());
         }
 
         if total > 0 && i % 5 == 0 {

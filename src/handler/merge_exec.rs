@@ -372,7 +372,8 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         }
 
         // ローカルコンテンツ
-        if !state.local_cache.contains_key(path) {
+        let local_loaded = state.local_cache.contains_key(path);
+        if !local_loaded {
             let local_root = &state.local_tree.root;
             match executor::read_local_file(local_root, path) {
                 Ok(content) => {
@@ -381,13 +382,13 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
                 }
                 Err(e) => {
                     tracing::debug!("Local file read skipped: {} - {}", path, e);
-                    state.error_paths.insert(path.clone());
                 }
             }
         }
 
         // リモートコンテンツ
-        if !state.remote_cache.contains_key(path) && state.is_connected {
+        let remote_loaded = state.remote_cache.contains_key(path);
+        if !remote_loaded && state.is_connected {
             match runtime.read_remote_file(&state.server_name, path) {
                 Ok(content) => {
                     state.remote_cache.insert(path.clone(), content);
@@ -401,6 +402,13 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
                     return;
                 }
             }
+        }
+
+        // 両方とも読み込めなかった場合のみエラー扱い
+        let has_local = state.local_cache.contains_key(path);
+        let has_remote = state.remote_cache.contains_key(path);
+        if !has_local && !has_remote {
+            state.error_paths.insert(path.clone());
         }
     }
 
@@ -427,7 +435,6 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             Err(e) => {
                 tracing::debug!("Local file read skipped: {} - {}", path, e);
                 state.status_message = format!("Local read failed: {} - {}", path, e);
-                state.error_paths.insert(path.clone());
             }
         }
     }
@@ -443,9 +450,13 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
                 tracing::debug!("Remote file read skipped: {} - {}", path, e);
                 state.is_connected = false;
                 state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
-                state.error_paths.insert(path.clone());
             }
         }
+    }
+
+    // 両方とも読み込めなかった場合のみエラー扱い
+    if !state.local_cache.contains_key(path) && !state.remote_cache.contains_key(path) {
+        state.error_paths.insert(path.clone());
     }
 
     state.rebuild_flat_nodes();
