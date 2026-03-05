@@ -7,7 +7,7 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::scanner;
 use crate::runtime::TuiRuntime;
 
-use super::merge_exec::load_file_content;
+use super::merge_exec::{expand_subtree_for_merge, load_file_content, load_subtree_contents};
 use super::reconnect::execute_reconnect;
 
 /// FileTree フォーカス時のキーハンドリング
@@ -78,8 +78,29 @@ pub fn handle_tree_key(
         KeyCode::Char('c') => execute_reconnect(state, runtime),
         KeyCode::Char('?') => state.show_help(),
         KeyCode::Char('F') => scanner::handle_diff_filter_toggle(state, runtime),
-        KeyCode::Char('L') => state.show_merge_dialog(MergeDirection::LocalToRemote),
-        KeyCode::Char('R') => state.show_merge_dialog(MergeDirection::RemoteToLocal),
+        KeyCode::Char('L') => handle_tree_merge(state, runtime, MergeDirection::RemoteToLocal),
+        KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LocalToRemote),
         _ => {}
     }
+}
+
+/// ツリーマージ操作 (L/R キー)
+///
+/// ディレクトリ選択時は未ロードのサブディレクトリを再帰的に展開してから
+/// マージダイアログを表示する。ファイル選択時はそのまま表示。
+fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: MergeDirection) {
+    let is_dir = state
+        .flat_nodes
+        .get(state.tree_cursor)
+        .is_some_and(|n| n.is_dir);
+
+    if is_dir {
+        if let Some(path) = state.current_path() {
+            state.status_message = format!("Scanning {}...", path);
+            expand_subtree_for_merge(state, runtime, &path);
+            load_subtree_contents(state, runtime, &path);
+        }
+    }
+
+    state.show_merge_dialog(direction);
 }

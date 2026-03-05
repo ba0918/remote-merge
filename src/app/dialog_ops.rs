@@ -31,7 +31,7 @@ impl AppState {
             }
 
             match node.badge {
-                Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly => {
+                Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Unchecked => {
                     diff_files.push((node.path.clone(), node.badge));
                 }
                 _ => {}

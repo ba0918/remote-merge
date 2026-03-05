@@ -275,9 +275,136 @@ pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_
         }
         Err(e) => {
             tracing::debug!("Remote directory load skipped: {} - {}", rel_path, e);
-            state.status_message = format!("Remote directory load failed: {} - {}", rel_path, e);
+            state.is_connected = false;
+            state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
         }
     }
+}
+
+/// ディレクトリ配下の未ロードサブディレクトリを再帰的にロードする
+///
+/// マージ時に未展開ディレクトリの子もマージ対象にするため、
+/// ツリー構造上の全サブディレクトリを遅延読み込みする。
+pub fn expand_subtree_for_merge(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    dir_path: &str,
+) -> usize {
+    let mut loaded = 0usize;
+    let mut dirs_to_load: Vec<String> = vec![dir_path.to_string()];
+
+    while let Some(path) = dirs_to_load.pop() {
+        // ローカルの未ロード子を読み込み
+        let local_needs_load = state
+            .local_tree
+            .find_node(std::path::Path::new(&path))
+            .is_some_and(|n| n.is_dir() && !n.is_loaded());
+        if local_needs_load {
+            state.load_local_children(&path);
+            loaded += 1;
+        }
+
+        // リモートの未ロード子を読み込み
+        if state.is_connected {
+            let remote_needs_load = state
+                .remote_tree
+                .find_node(std::path::Path::new(&path))
+                .is_some_and(|n| n.is_dir() && !n.is_loaded());
+            if remote_needs_load {
+                load_remote_children(state, runtime, &path);
+                loaded += 1;
+            }
+        }
+
+        // 展開状態に追加（表示のため）
+        state.expanded_dirs.insert(path.clone());
+
+        // ローカルツリーのサブディレクトリを収集
+        let mut sub_dirs = Vec::new();
+        if let Some(node) = state.local_tree.find_node(std::path::Path::new(&path)) {
+            if let Some(children) = &node.children {
+                for child in children {
+                    if child.is_dir() {
+                        sub_dirs.push(format!("{}/{}", path, child.name));
+                    }
+                }
+            }
+        }
+
+        // リモートツリーのサブディレクトリも収集（ローカルにないものも含む）
+        if let Some(node) = state.remote_tree.find_node(std::path::Path::new(&path)) {
+            if let Some(children) = &node.children {
+                for child in children {
+                    if child.is_dir() {
+                        let child_path = format!("{}/{}", path, child.name);
+                        if !sub_dirs.contains(&child_path) {
+                            sub_dirs.push(child_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        dirs_to_load.extend(sub_dirs);
+    }
+
+    state.rebuild_flat_nodes();
+    loaded
+}
+
+/// ディレクトリ配下の全ファイルのコンテンツをロードする（マージ準備用）
+///
+/// flat_nodes から指定ディレクトリ配下のファイルを収集し、
+/// ローカル・リモート両方のコンテンツをキャッシュに読み込む。
+pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir_path: &str) {
+    let prefix = format!("{}/", dir_path);
+    let file_paths: Vec<String> = state
+        .flat_nodes
+        .iter()
+        .filter(|n| !n.is_dir && n.path.starts_with(&prefix))
+        .map(|n| n.path.clone())
+        .collect();
+
+    let total = file_paths.len();
+    for (i, path) in file_paths.iter().enumerate() {
+        if i % 10 == 0 {
+            state.status_message = format!("Loading files... {}/{}", i, total);
+        }
+
+        // ローカルコンテンツ
+        if !state.local_cache.contains_key(path) {
+            let local_root = &state.local_tree.root;
+            match executor::read_local_file(local_root, path) {
+                Ok(content) => {
+                    state.local_cache.insert(path.clone(), content);
+                    state.error_paths.remove(path);
+                }
+                Err(e) => {
+                    tracing::debug!("Local file read skipped: {} - {}", path, e);
+                    state.error_paths.insert(path.clone());
+                }
+            }
+        }
+
+        // リモートコンテンツ
+        if !state.remote_cache.contains_key(path) && state.is_connected {
+            match runtime.read_remote_file(&state.server_name, path) {
+                Ok(content) => {
+                    state.remote_cache.insert(path.clone(), content);
+                    state.error_paths.remove(path);
+                }
+                Err(e) => {
+                    tracing::debug!("Remote file read skipped: {} - {}", path, e);
+                    state.is_connected = false;
+                    state.status_message =
+                        format!("Connection lost: {} | Press 'c' to reconnect", e);
+                    return;
+                }
+            }
+        }
+    }
+
+    state.rebuild_flat_nodes();
 }
 
 /// ファイル選択時にコンテンツをロードする
@@ -314,7 +441,8 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
             Err(e) => {
                 tracing::debug!("Remote file read skipped: {} - {}", path, e);
-                state.status_message = format!("Remote read failed: {} - {}", path, e);
+                state.is_connected = false;
+                state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
                 state.error_paths.insert(path.clone());
             }
         }

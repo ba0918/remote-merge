@@ -49,11 +49,6 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             state.hunk_cursor_up();
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if state.hunk_count() > 0 {
-                state.apply_hunk_merge(HunkDirection::RightToLeft);
-            }
-        }
-        KeyCode::Left | KeyCode::Char('h') => {
             if state.is_connected {
                 if state.hunk_count() > 0 {
                     state.apply_hunk_merge(HunkDirection::LeftToRight);
@@ -61,6 +56,11 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             } else if state.hunk_count() > 0 {
                 state.status_message =
                     "SSH not connected: cannot merge hunks to remote".to_string();
+            }
+        }
+        KeyCode::Left | KeyCode::Char('h') => {
+            if state.hunk_count() > 0 {
+                state.apply_hunk_merge(HunkDirection::RightToLeft);
             }
         }
         KeyCode::Char('w') => {

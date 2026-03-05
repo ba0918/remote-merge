@@ -8,6 +8,10 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     let server_name = state.server_name.clone();
     state.status_message = format!("Reconnecting to {}...", server_name);
 
+    // 展開状態とカーソル位置を保存
+    let expanded_backup = state.expanded_dirs.clone();
+    let cursor_path = state.current_path();
+
     runtime.disconnect();
 
     let local_tree_result = crate::local::scan_local_tree(
@@ -33,11 +37,26 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
                 state.undo_stack.clear();
                 state.is_connected = true;
                 state.clear_scan_cache();
+
+                // 展開状態を復元
+                state.expanded_dirs = expanded_backup;
+
+                // 展開済みディレクトリの子ノードを再取得
+                let dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+                for dir in &dirs {
+                    state.load_local_children(dir);
+                    super::merge_exec::load_remote_children(state, runtime, dir);
+                }
+
                 state.rebuild_flat_nodes();
-                state.status_message = format!(
-                    "Reconnected: {} | unsaved changes have been reset",
-                    server_name
-                );
+
+                // カーソル位置を復元
+                if let Some(path) = cursor_path {
+                    restore_cursor_position(state, &path);
+                }
+
+                state.status_message =
+                    format!("Reconnected: {} | tree state restored", server_name);
             }
             Err(e) => {
                 state.is_connected = false;
@@ -47,6 +66,24 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
         Err(e) => {
             state.is_connected = false;
             state.status_message = format!("{} reconnection failed: {} | c: retry", server_name, e);
+        }
+    }
+}
+
+/// カーソル位置を指定パスに最も近いノードに復元する
+fn restore_cursor_position(state: &mut AppState, target_path: &str) {
+    // 完全一致を試みる
+    if let Some(idx) = state.flat_nodes.iter().position(|n| n.path == target_path) {
+        state.tree_cursor = idx;
+        return;
+    }
+    // 親ディレクトリにフォールバック
+    let mut path = target_path.to_string();
+    while let Some(pos) = path.rfind('/') {
+        path.truncate(pos);
+        if let Some(idx) = state.flat_nodes.iter().position(|n| n.path == path) {
+            state.tree_cursor = idx;
+            return;
         }
     }
 }

@@ -31,6 +31,8 @@ impl SshClient {
     ) -> crate::error::Result<Self> {
         let mut config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(ssh_config.timeout_sec)),
+            keepalive_interval: Some(Duration::from_secs(15)),
+            keepalive_max: 3,
             ..Default::default()
         };
 

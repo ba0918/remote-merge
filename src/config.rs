@@ -92,7 +92,7 @@ impl Default for FilterConfig {
 
 impl Default for SshConfig {
     fn default() -> Self {
-        Self { timeout_sec: 10 }
+        Self { timeout_sec: 300 }
     }
 }
 
@@ -320,11 +320,11 @@ fn merge_configs(
                     .ssh
                     .as_ref()
                     .map_or_else(SshConfig::default, |s| SshConfig {
-                        timeout_sec: s.timeout_sec.unwrap_or(10),
+                        timeout_sec: s.timeout_sec.unwrap_or(300),
                     })
             },
             |s| SshConfig {
-                timeout_sec: s.timeout_sec.unwrap_or(10),
+                timeout_sec: s.timeout_sec.unwrap_or(300),
             },
         )
     } else {
@@ -332,7 +332,7 @@ fn merge_configs(
             .ssh
             .as_ref()
             .map_or_else(SshConfig::default, |s| SshConfig {
-                timeout_sec: s.timeout_sec.unwrap_or(10),
+                timeout_sec: s.timeout_sec.unwrap_or(300),
             })
     };
 
@@ -484,7 +484,7 @@ root_dir = "/home/user/app"
         assert_eq!(dev.root_dir, PathBuf::from("/var/www/app"));
 
         assert_eq!(config.local.root_dir, PathBuf::from("/home/user/app"));
-        assert_eq!(config.ssh.timeout_sec, 10); // デフォルト
+        assert_eq!(config.ssh.timeout_sec, 300); // デフォルト
         assert!(config.backup.enabled); // デフォルト
     }
 
