@@ -79,8 +79,6 @@ impl<'a> DiffView<'a> {
         let old_num = Self::format_line_num(line.old_index);
         let new_num = Self::format_line_num(line.new_index);
         let prefix = Self::tag_char(line.tag);
-        let value = line.value.trim_end_matches('\n').to_string();
-
         let num_style = Style::default().fg(Color::DarkGray);
         let prefix_style = match line.tag {
             DiffTag::Equal => Style::default().fg(Color::DarkGray),
@@ -139,7 +137,7 @@ impl<'a> DiffView<'a> {
             Span::styled(" ", gap_style),
             Span::styled(prefix.to_string(), prefix_style),
             Span::styled(" ", gap_style),
-            Span::styled(value, style),
+            Span::styled(line.value.clone(), style),
         ])
     }
 
@@ -231,7 +229,7 @@ impl<'a> DiffView<'a> {
                         DiffTag::Equal => line.old_index,
                     });
                     let prefix = Self::tag_char(line.tag);
-                    let value = line.value.trim_end_matches('\n').to_string();
+                    let value = &line.value;
                     let truncated = if value.len() > content_width {
                         format!("{}…", &value[..content_width.saturating_sub(1)])
                     } else {
@@ -312,9 +310,6 @@ impl<'a> DiffView<'a> {
         let new_num = Self::format_line_num(line.new_index);
         let prefix = Self::tag_char(line.tag);
 
-        // 行末の改行を除去
-        let value = line.value.trim_end_matches('\n').to_string();
-
         let num_style = Style::default().fg(Color::DarkGray);
         let prefix_style = match line.tag {
             DiffTag::Equal => Style::default().fg(Color::DarkGray),
@@ -329,7 +324,7 @@ impl<'a> DiffView<'a> {
             Span::raw(" "),
             Span::styled(prefix.to_string(), prefix_style),
             Span::raw(" "),
-            Span::styled(value, style),
+            Span::styled(line.value.clone(), style),
         ])
     }
 }
@@ -569,10 +564,10 @@ mod tests {
     #[test]
     fn test_diff_color_lines() {
         let lines = vec![
-            DiffLine { tag: DiffTag::Equal,  value: "same\n".to_string(), old_index: Some(0), new_index: Some(0) },
-            DiffLine { tag: DiffTag::Delete, value: "old\n".to_string(),  old_index: Some(1), new_index: None },
-            DiffLine { tag: DiffTag::Insert, value: "new\n".to_string(),  old_index: None,    new_index: Some(1) },
-            DiffLine { tag: DiffTag::Equal,  value: "end\n".to_string(),  old_index: Some(2), new_index: Some(2) },
+            DiffLine { tag: DiffTag::Equal,  value: "same".to_string(), old_index: Some(0), new_index: Some(0) },
+            DiffLine { tag: DiffTag::Delete, value: "old".to_string(),  old_index: Some(1), new_index: None },
+            DiffLine { tag: DiffTag::Insert, value: "new".to_string(),  old_index: None,    new_index: Some(1) },
+            DiffLine { tag: DiffTag::Equal,  value: "end".to_string(),  old_index: Some(2), new_index: Some(2) },
         ];
 
         let diff = DiffResult::Modified {
@@ -635,7 +630,7 @@ mod tests {
     fn test_insert_line_has_green_background() {
         let line = DiffLine {
             tag: DiffTag::Insert,
-            value: "new line\n".to_string(),
+            value: "new line".to_string(),
             old_index: None,
             new_index: Some(0),
         };
@@ -654,7 +649,7 @@ mod tests {
     fn test_delete_line_has_red_background() {
         let line = DiffLine {
             tag: DiffTag::Delete,
-            value: "old line\n".to_string(),
+            value: "old line".to_string(),
             old_index: Some(0),
             new_index: None,
         };
@@ -671,7 +666,7 @@ mod tests {
     fn test_equal_line_no_background() {
         let line = DiffLine {
             tag: DiffTag::Equal,
-            value: "same line\n".to_string(),
+            value: "same line".to_string(),
             old_index: Some(0),
             new_index: Some(0),
         };
