@@ -637,9 +637,10 @@ mod tests {
         let (files, _) = state.collect_diff_files_under("src");
         assert!(files.is_empty());
 
+        state.is_connected = true;
         state.tree_cursor = 0;
         state.show_merge_dialog(MergeDirection::LocalToRemote);
-        assert!(matches!(state.dialog, DialogState::None));
+        assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 
     #[test]

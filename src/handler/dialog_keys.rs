@@ -155,6 +155,12 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             _ => {}
         },
+        DialogState::Info(_) => match key {
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => {
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::None => {}
     }
 }

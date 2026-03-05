@@ -65,7 +65,7 @@ impl AppState {
             let (diff_files, unchecked_dirs) = self.collect_diff_files_under(&node.path);
 
             if diff_files.is_empty() {
-                self.status_message = "No files with differences".to_string();
+                self.dialog = DialogState::Info(format!("No differences found in {}/", node.path));
                 return;
             }
 

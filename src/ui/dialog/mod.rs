@@ -37,6 +37,8 @@ pub enum DialogState {
     HunkMergePreview(HunkMergePreview),
     /// ヘルプオーバーレイ
     Help(HelpOverlay),
+    /// 情報ダイアログ（メッセージ表示のみ、Esc/Enter で閉じる）
+    Info(String),
     /// 書き込み確認ダイアログ（w キー）
     WriteConfirmation,
     /// 未保存変更確認ダイアログ（q キー時）

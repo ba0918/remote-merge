@@ -130,6 +130,9 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             let widget = HunkMergePreviewWidget::new(preview);
             frame.render_widget(widget, frame.area());
         }
+        DialogState::Info(ref msg) => {
+            render_info_dialog(frame, msg);
+        }
         DialogState::WriteConfirmation => {
             render_simple_dialog(
                 frame,
@@ -148,6 +151,52 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
         }
         DialogState::None => {}
     }
+}
+
+/// 情報表示ダイアログ（Esc/Enter で閉じるだけ）
+fn render_info_dialog(frame: &mut Frame, message: &str) {
+    let dialog_area = centered_rect(60, 7, frame.area());
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(" Info ")
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let msg = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(message, Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(msg, chunks[1]);
+
+    let guide = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "[Enter/Esc]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" OK"),
+    ]));
+    frame.render_widget(guide, chunks[3]);
 }
 
 /// シンプルな Y/n 確認ダイアログを描画する
