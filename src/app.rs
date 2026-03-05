@@ -857,6 +857,7 @@ impl AppState {
     pub fn clear_cache(&mut self) {
         self.local_cache.clear();
         self.remote_cache.clear();
+        self.error_paths.clear();
         self.current_diff = None;
         self.selected_path = None;
         self.status_message = "Cache cleared".to_string();
@@ -1114,10 +1115,12 @@ mod tests {
         );
         state.local_cache.insert("a".to_string(), "x".to_string());
         state.remote_cache.insert("b".to_string(), "y".to_string());
+        state.error_paths.insert("some/path".to_string());
         state.clear_cache();
         assert!(state.local_cache.is_empty());
         assert!(state.remote_cache.is_empty());
         assert!(state.current_diff.is_none());
+        assert!(state.error_paths.is_empty());
     }
 
     #[test]
