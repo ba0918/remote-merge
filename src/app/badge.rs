@@ -42,7 +42,12 @@ impl AppState {
         }
     }
 
-    /// ディレクトリのバッジを配下ファイルの状態から計算する
+    /// ディレクトリのバッジを配下ファイルの状態から計算する。
+    ///
+    /// ルール：
+    /// - `[M]` — 配下に1つでも差分ファイルがあれば確定（早期return）
+    /// - `[=]` — 配下の全ファイルがキャッシュ済みかつ全部Equal
+    /// - `[?]` — 未確認ファイルが残っている、またはキャッシュが空
     fn compute_dir_badge(&self, path: &str) -> Badge {
         let in_local = self
             .local_tree
@@ -58,46 +63,36 @@ impl AppState {
             (false, true) => Badge::RemoteOnly,
             (false, false) => Badge::Unchecked,
             (true, true) => {
-                // 配下ファイルのバッジを集計
-                let prefix = format!("{}/", path);
-                let mut has_diff = false;
-                let mut has_checked = false;
+                // ツリーから配下の全ファイルを列挙
+                let all_files = super::merge_collect::collect_merge_files(
+                    &self.local_tree,
+                    &self.remote_tree,
+                    path,
+                );
 
-                for cached_path in self.local_cache.keys() {
-                    if !cached_path.starts_with(&prefix) {
-                        continue;
-                    }
-                    has_checked = true;
-                    let file_badge = self.compute_badge(cached_path, false);
-                    if file_badge != Badge::Equal {
-                        has_diff = true;
-                        break;
+                if all_files.is_empty() {
+                    return Badge::Unchecked;
+                }
+
+                // 各ファイルのバッジを集計
+                let mut all_checked = true;
+                for file_path in &all_files {
+                    let badge = self.compute_badge(file_path, false);
+                    match badge {
+                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Error => {
+                            return Badge::Modified;
+                        }
+                        Badge::Unchecked => {
+                            all_checked = false;
+                        }
+                        Badge::Equal | Badge::Loading => {}
                     }
                 }
 
-                // リモートキャッシュにのみあるファイルもチェック
-                if !has_diff {
-                    for cached_path in self.remote_cache.keys() {
-                        if !cached_path.starts_with(&prefix) {
-                            continue;
-                        }
-                        if !self.local_cache.contains_key(cached_path) {
-                            has_checked = true;
-                            let file_badge = self.compute_badge(cached_path, false);
-                            if file_badge != Badge::Equal {
-                                has_diff = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if !has_checked {
-                    Badge::Unchecked
-                } else if has_diff {
-                    Badge::Modified
-                } else {
+                if all_checked {
                     Badge::Equal
+                } else {
+                    Badge::Unchecked
                 }
             }
         }

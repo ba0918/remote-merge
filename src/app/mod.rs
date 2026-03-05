@@ -1354,6 +1354,66 @@ mod tests {
         assert_eq!(badge, Badge::Unchecked);
     }
 
+    #[test]
+    fn test_dir_badge_unchecked_when_partial_cache() {
+        // 2ファイル中1つだけキャッシュ済みでEqual → 全数確認できてないので Unchecked
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // a.ts だけキャッシュ済み（Equal）、b.ts は未確認
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_dir_badge_modified_even_with_unchecked_siblings() {
+        // 1つでも差分があれば、未確認ファイルがあっても Modified
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // a.ts は Modified、b.ts は未確認
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::Modified);
+    }
+
     // ── selection: Local Only 誤判定テスト ──
 
     #[test]
