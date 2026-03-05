@@ -1,10 +1,12 @@
 //! TuiRuntime: TUI 内で同期的に非同期操作を呼ぶためのランタイム。
 
+pub mod merge_scan;
 pub mod remote_io;
 pub mod scanner;
 
 use std::sync::mpsc;
 
+use crate::app::MergeScanMsg;
 use crate::config::{AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
 use crate::tree::FileTree;
@@ -27,6 +29,8 @@ pub struct TuiRuntime {
     pub config: AppConfig,
     /// 非ブロッキング走査の結果受信チャネル
     pub scan_receiver: Option<mpsc::Receiver<ScanResult>>,
+    /// マージ走査の結果受信チャネル
+    pub merge_scan_receiver: Option<mpsc::Receiver<MergeScanMsg>>,
 }
 
 impl TuiRuntime {
@@ -44,6 +48,7 @@ impl TuiRuntime {
             ssh_client: None,
             config,
             scan_receiver: None,
+            merge_scan_receiver: None,
         }
     }
 

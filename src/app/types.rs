@@ -100,6 +100,51 @@ pub enum ScanState {
     Error(String),
 }
 
+/// マージ走査の進捗メッセージ（スレッド → メインスレッド）
+#[derive(Debug)]
+pub enum MergeScanMsg {
+    /// 途中経過: 発見ファイル数の更新
+    Progress(usize),
+    /// 走査完了
+    Done(Box<MergeScanResult>),
+    /// エラー
+    Error(String),
+}
+
+/// マージ走査完了時の結果
+#[derive(Debug)]
+pub struct MergeScanResult {
+    /// ローカルファイル内容キャッシュ (パス -> 内容)
+    pub local_cache: std::collections::HashMap<String, String>,
+    /// リモートファイル内容キャッシュ (パス -> 内容)
+    pub remote_cache: std::collections::HashMap<String, String>,
+    /// 展開すべきディレクトリパス
+    pub expanded_dirs: std::collections::HashSet<String>,
+    /// ローカルツリー更新 (パス -> 子ノード)
+    pub local_tree_updates: Vec<(String, Vec<FileNode>)>,
+    /// リモートツリー更新 (パス -> 子ノード)
+    pub remote_tree_updates: Vec<(String, Vec<FileNode>)>,
+    /// エラーパス
+    pub error_paths: std::collections::HashSet<String>,
+}
+
+/// マージ走査の状態
+#[derive(Debug, Clone, Default)]
+pub enum MergeScanState {
+    /// 走査していない
+    #[default]
+    Idle,
+    /// 走査中
+    Scanning {
+        /// 走査対象ディレクトリパス
+        dir_path: String,
+        /// マージ方向
+        direction: crate::merge::executor::MergeDirection,
+        /// 発見ファイル数
+        files_found: usize,
+    },
+}
+
 /// ツリーマージ用の一時ノード
 #[derive(Debug, Clone)]
 pub struct MergedNode {

@@ -2,13 +2,16 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use crate::app::{AppState, ScanState};
+use crate::app::{AppState, MergeScanState, ScanState};
 use crate::merge::executor::MergeDirection;
-use crate::runtime::scanner;
 use crate::runtime::TuiRuntime;
+use crate::runtime::{merge_scan, scanner};
 
 use super::merge_exec::{expand_subtree_for_merge, load_file_content, load_subtree_contents};
 use super::reconnect::execute_reconnect;
+
+/// 非同期走査に切り替える閾値（この数以下なら同期処理）
+const SYNC_FILE_THRESHOLD: usize = 20;
 
 /// FileTree フォーカス時のキーハンドリング
 pub fn handle_tree_key(
@@ -19,7 +22,11 @@ pub fn handle_tree_key(
 ) {
     match code {
         KeyCode::Char('q') | KeyCode::Esc => {
-            if matches!(state.scan_state, ScanState::Scanning) && code == KeyCode::Esc {
+            if !matches!(state.merge_scan_state, MergeScanState::Idle) && code == KeyCode::Esc {
+                state.merge_scan_state = MergeScanState::Idle;
+                runtime.merge_scan_receiver = None;
+                state.status_message = "Merge scan cancelled".to_string();
+            } else if matches!(state.scan_state, ScanState::Scanning) && code == KeyCode::Esc {
                 state.scan_state = ScanState::Idle;
                 runtime.scan_receiver = None;
                 state.status_message = "Scan cancelled".to_string();
@@ -86,9 +93,16 @@ pub fn handle_tree_key(
 
 /// ツリーマージ操作 (L/R キー)
 ///
-/// ディレクトリ選択時は未ロードのサブディレクトリを再帰的に展開してから
-/// マージダイアログを表示する。ファイル選択時はそのまま表示。
+/// ディレクトリ選択時: 展開済みファイル数が少なければ同期処理、
+/// 多ければ非ブロッキング走査に切り替える。
+/// ファイル選択時はそのまま表示。
 fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: MergeDirection) {
+    // マージ走査中は無視
+    if !matches!(state.merge_scan_state, MergeScanState::Idle) {
+        state.status_message = "Merge scan in progress. Please wait or press Esc.".to_string();
+        return;
+    }
+
     let is_dir = state
         .flat_nodes
         .get(state.tree_cursor)
@@ -96,11 +110,77 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
 
     if is_dir {
         if let Some(path) = state.current_path() {
-            state.status_message = format!("Scanning {}...", path);
-            expand_subtree_for_merge(state, runtime, &path);
-            load_subtree_contents(state, runtime, &path);
+            // 展開済みファイル数と未ロードサブディレクトリの有無を判定
+            let (file_count, has_unloaded) = count_subtree_files(state, &path);
+
+            if file_count <= SYNC_FILE_THRESHOLD && !has_unloaded {
+                // 同期処理（既存のまま）
+                state.status_message = format!("Scanning {}...", path);
+                expand_subtree_for_merge(state, runtime, &path);
+                load_subtree_contents(state, runtime, &path);
+                state.show_merge_dialog(direction);
+            } else {
+                // 非同期走査に切り替え
+                merge_scan::start_merge_scan(state, runtime, &path, direction);
+            }
+        }
+    } else {
+        state.show_merge_dialog(direction);
+    }
+}
+
+/// ディレクトリ配下の展開済みファイル数と未ロードサブディレクトリの有無を返す
+fn count_subtree_files(state: &AppState, dir_path: &str) -> (usize, bool) {
+    let prefix = format!("{}/", dir_path);
+    let mut file_count = 0;
+    let mut has_unloaded = false;
+
+    // flat_nodes に既にあるファイルをカウント
+    for node in &state.flat_nodes {
+        if node.path.starts_with(&prefix) && !node.is_dir {
+            file_count += 1;
         }
     }
 
-    state.show_merge_dialog(direction);
+    // ローカル・リモートツリーで未ロードのサブディレクトリを検索
+    check_unloaded_recursive(&state.local_tree.nodes, dir_path, &mut has_unloaded);
+    check_unloaded_recursive(&state.remote_tree.nodes, dir_path, &mut has_unloaded);
+
+    (file_count, has_unloaded)
+}
+
+/// ツリー内の未ロードサブディレクトリを再帰的にチェック
+fn check_unloaded_recursive(
+    nodes: &[crate::tree::FileNode],
+    dir_path: &str,
+    has_unloaded: &mut bool,
+) {
+    for node in nodes {
+        if !node.is_dir() {
+            continue;
+        }
+        if node.name == dir_path || dir_path.ends_with(&format!("/{}", node.name)) {
+            if !node.is_loaded() {
+                *has_unloaded = true;
+                return;
+            }
+            if let Some(children) = &node.children {
+                for child in children {
+                    if child.is_dir() {
+                        let child_path = format!("{}/{}", dir_path, child.name);
+                        if !child.is_loaded() {
+                            *has_unloaded = true;
+                            return;
+                        }
+                        if let Some(grandchildren) = &child.children {
+                            check_unloaded_recursive(grandchildren, &child_path, has_unloaded);
+                            if *has_unloaded {
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

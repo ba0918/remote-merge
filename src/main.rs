@@ -7,12 +7,12 @@ use crossterm::terminal::{
 use ratatui::prelude::*;
 use std::io;
 
-use remote_merge::app::{AppState, Focus, ScanState};
+use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
 use remote_merge::config::{self, AppConfig};
 use remote_merge::handler::{dialog_keys, diff_keys, tree_keys};
 use remote_merge::local;
-use remote_merge::runtime::scanner;
 use remote_merge::runtime::TuiRuntime;
+use remote_merge::runtime::{merge_scan, scanner};
 use remote_merge::tree::FileTree;
 use remote_merge::ui::render::draw_ui;
 
@@ -199,12 +199,15 @@ fn run_event_loop(
 ) -> anyhow::Result<()> {
     loop {
         scanner::poll_scan_result(state, runtime);
+        merge_scan::poll_merge_scan_result(state, runtime);
 
         terminal.draw(|frame| {
             draw_ui(frame, state);
         })?;
 
-        let timeout = if matches!(state.scan_state, ScanState::Scanning) {
+        let is_scanning = matches!(state.scan_state, ScanState::Scanning)
+            || !matches!(state.merge_scan_state, MergeScanState::Idle);
+        let timeout = if is_scanning {
             std::time::Duration::from_millis(100)
         } else {
             std::time::Duration::from_secs(60)

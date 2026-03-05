@@ -16,7 +16,10 @@ use crate::diff::engine::{DiffResult, HunkDirection};
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::DialogState;
 
-pub use types::{Badge, CacheSnapshot, DiffMode, FlatNode, Focus, MergedNode, ScanState};
+pub use types::{
+    Badge, CacheSnapshot, DiffMode, FlatNode, Focus, MergeScanMsg, MergeScanResult, MergeScanState,
+    MergedNode, ScanState,
+};
 
 /// TUI アプリケーション全体の状態
 pub struct AppState {
@@ -86,6 +89,8 @@ pub struct AppState {
     pub scan_remote_tree: Option<Vec<FileNode>>,
     /// センシティブファイルパターン
     pub sensitive_patterns: Vec<String>,
+    /// マージ走査の状態
+    pub merge_scan_state: MergeScanState,
 }
 
 impl AppState {
@@ -125,6 +130,7 @@ impl AppState {
             scan_local_tree: None,
             scan_remote_tree: None,
             sensitive_patterns: Vec::new(),
+            merge_scan_state: MergeScanState::default(),
         };
         state.rebuild_flat_nodes();
         state
