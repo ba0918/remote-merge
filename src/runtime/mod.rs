@@ -5,7 +5,7 @@ pub mod scanner;
 
 use std::sync::mpsc;
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
 use crate::tree::FileTree;
 
@@ -30,6 +30,14 @@ pub struct TuiRuntime {
 }
 
 impl TuiRuntime {
+    /// 指定サーバー名の設定を取得する
+    pub fn get_server_config(&self, server_name: &str) -> anyhow::Result<&ServerConfig> {
+        self.config
+            .servers
+            .get(server_name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))
+    }
+
     pub fn new(config: AppConfig) -> Self {
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
@@ -41,11 +49,7 @@ impl TuiRuntime {
 
     /// SSH 接続を確立する
     pub fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
-        let server_config = self
-            .config
-            .servers
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
+        let server_config = self.get_server_config(server_name)?;
 
         let client = self.rt.block_on(SshClient::connect(
             server_name,
@@ -65,6 +69,7 @@ impl TuiRuntime {
             .get(server_name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let root_path = server_config.root_dir.clone();
 
         let client = self
             .ssh_client
@@ -75,7 +80,7 @@ impl TuiRuntime {
             .rt
             .block_on(client.list_dir(&root_dir, &self.config.filter.exclude))?;
 
-        let mut tree = FileTree::new(&server_config.root_dir);
+        let mut tree = FileTree::new(&root_path);
         tree.nodes = nodes;
         tree.sort();
         Ok(tree)

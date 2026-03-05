@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::tree::FileNode;
+use crate::tree::find_node_in_slice;
 
 use super::types::{Badge, MergedNode};
 use super::AppState;
@@ -58,11 +58,11 @@ impl AppState {
         let local_node = self
             .scan_local_tree
             .as_ref()
-            .and_then(|tree| find_node_in_tree(tree, path));
+            .and_then(|tree| find_node_in_slice(tree, path));
         let remote_node = self
             .scan_remote_tree
             .as_ref()
-            .and_then(|tree| find_node_in_tree(tree, path));
+            .and_then(|tree| find_node_in_slice(tree, path));
 
         match (local_node, remote_node) {
             (Some(_), None) => Badge::LocalOnly,
@@ -103,29 +103,5 @@ impl AppState {
             }
         }
         false
-    }
-}
-
-/// 走査結果ツリーからパスでノードを検索する
-pub fn find_node_in_tree<'a>(nodes: &'a [FileNode], path: &str) -> Option<&'a FileNode> {
-    let parts: Vec<&str> = path.split('/').collect();
-    find_node_recursive(nodes, &parts)
-}
-
-/// 再帰的にパスのパーツをたどってノードを探す
-fn find_node_recursive<'a>(nodes: &'a [FileNode], parts: &[&str]) -> Option<&'a FileNode> {
-    if parts.is_empty() {
-        return None;
-    }
-
-    let name = parts[0];
-    let node = nodes.iter().find(|n| n.name == name)?;
-
-    if parts.len() == 1 {
-        Some(node)
-    } else if let Some(children) = &node.children {
-        find_node_recursive(children, &parts[1..])
-    } else {
-        None
     }
 }

@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::Context;
 use chrono::{TimeZone, Utc};
 
+use crate::ssh::tree_parser::should_exclude;
 use crate::tree::{FileNode, FileTree};
 
 /// ローカルファイルシステムからディレクトリツリーを取得する
@@ -257,16 +258,6 @@ fn build_local_tree_from_flat(entries: Vec<(String, FileNode)>) -> Vec<FileNode>
         _ => a.name.cmp(&b.name),
     });
     result
-}
-
-/// ファイル名が除外パターンにマッチするか
-fn should_exclude(name: &str, patterns: &[String]) -> bool {
-    for pattern in patterns {
-        if glob_match::glob_match(pattern, name) {
-            return true;
-        }
-    }
-    false
 }
 
 #[cfg(test)]

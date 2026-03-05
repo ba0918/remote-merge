@@ -7,6 +7,15 @@ use crate::tree::FileNode;
 use super::types::{Badge, FlatNode, MergedNode};
 use super::AppState;
 
+/// MergedNode をディレクトリ優先・名前順でソートする
+fn sort_merged_nodes(nodes: &mut [MergedNode]) {
+    nodes.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+}
+
 impl AppState {
     /// ディレクトリの展開/折りたたみを切り替える
     pub fn toggle_expand(&mut self) {
@@ -126,13 +135,8 @@ pub fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNo
         }
     }
 
-    // ディレクトリ優先、名前順でソート
     let mut result: Vec<MergedNode> = map.into_values().collect();
-    result.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.cmp(&b.name),
-    });
+    sort_merged_nodes(&mut result);
     result
 }
 
@@ -160,10 +164,6 @@ fn merge_merged_with_file_nodes(
     }
 
     let mut result: Vec<MergedNode> = map.into_values().collect();
-    result.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.cmp(&b.name),
-    });
+    sort_merged_nodes(&mut result);
     result
 }

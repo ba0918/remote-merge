@@ -209,6 +209,14 @@ fn find_node_mut_recursive<'a>(
     }
 }
 
+/// ノードスライスから `/` 区切りのパス文字列でノードを検索する。
+///
+/// `FileTree::find_node` と同じロジックだが、`&[FileNode]` に直接使える。
+pub fn find_node_in_slice<'a>(nodes: &'a [FileNode], path: &str) -> Option<&'a FileNode> {
+    let parts: Vec<&str> = path.split('/').collect();
+    find_node_recursive(nodes, &parts)
+}
+
 /// パスコンポーネント列を辿ってノードを不変参照で検索する。
 fn find_node_recursive<'a>(nodes: &'a [FileNode], path: &[&str]) -> Option<&'a FileNode> {
     if path.is_empty() {

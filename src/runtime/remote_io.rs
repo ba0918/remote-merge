@@ -11,11 +11,7 @@ impl TuiRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> anyhow::Result<String> {
-        let server_config = self
-            .config
-            .servers
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
+        let server_config = self.get_server_config(server_name)?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
         let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
 
@@ -34,11 +30,7 @@ impl TuiRuntime {
         rel_path: &str,
         content: &str,
     ) -> anyhow::Result<()> {
-        let server_config = self
-            .config
-            .servers
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
+        let server_config = self.get_server_config(server_name)?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
         let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
 

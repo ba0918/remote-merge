@@ -250,9 +250,9 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
 /// リモートディレクトリの遅延読み込み
 pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path: &str) {
     let server_name = state.server_name.clone();
-    let server_config = match runtime.config.servers.get(&server_name) {
-        Some(c) => c,
-        None => return,
+    let server_config = match runtime.get_server_config(&server_name) {
+        Ok(c) => c,
+        Err(_) => return,
     };
     let remote_root = server_config.root_dir.to_string_lossy().to_string();
     let full_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
