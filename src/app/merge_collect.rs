@@ -1,0 +1,159 @@
+//! マージ対象ファイルの収集。
+//!
+//! `flat_nodes`（表示用）ではなく、ツリー構造から直接ファイルパスを再帰的に収集する。
+//! ディレクトリの展開状態 (`expanded_dirs`) に依存しないため、
+//! マージ走査後にツリーを展開せずにファイル一覧を取得できる。
+
+use crate::tree::FileTree;
+
+/// 指定ディレクトリ配下のファイルパスをローカル・リモート両ツリーから収集する。
+///
+/// 両ツリーの union を返す（片方にのみ存在するファイルも含む）。
+/// パスは `dir_path/...` 形式の相対パス。
+pub fn collect_merge_files(
+    local_tree: &FileTree,
+    remote_tree: &FileTree,
+    dir_path: &str,
+) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_from_tree(local_tree, dir_path, &mut files);
+    collect_from_tree(remote_tree, dir_path, &mut files);
+    files
+}
+
+/// 単一ツリーからファイルパスを再帰的に収集する（重複除去付き）。
+fn collect_from_tree(tree: &FileTree, dir_path: &str, files: &mut Vec<String>) {
+    let node = match tree.find_node(std::path::Path::new(dir_path)) {
+        Some(n) => n,
+        None => return,
+    };
+    if !node.is_dir() {
+        return;
+    }
+    collect_children_recursive(node, dir_path, files);
+}
+
+/// ノードの子を再帰的に走査してファイルパスを収集する。
+fn collect_children_recursive(
+    node: &crate::tree::FileNode,
+    current_path: &str,
+    files: &mut Vec<String>,
+) {
+    let children = match &node.children {
+        Some(c) => c,
+        None => return, // 未ロードディレクトリはスキップ
+    };
+
+    for child in children {
+        let child_path = format!("{}/{}", current_path, child.name);
+        if child.is_dir() {
+            collect_children_recursive(child, &child_path, files);
+        } else if !files.contains(&child_path) {
+            files.push(child_path);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_empty_directory() {
+        let local = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let files = collect_merge_files(&local, &remote, "src");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_files_only() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let files = collect_merge_files(&local, &remote, "src");
+        assert_eq!(files, vec!["src/a.rs", "src/b.rs"]);
+    }
+
+    #[test]
+    fn test_nested_directories() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir_with_children(
+                "app",
+                vec![FileNode::new_file("mod.rs"), FileNode::new_file("state.rs")],
+            )],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let files = collect_merge_files(&local, &remote, "src");
+        assert_eq!(files, vec!["src/app/mod.rs", "src/app/state.rs"]);
+    }
+
+    #[test]
+    fn test_union_of_both_trees() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("local_only.rs"),
+                FileNode::new_file("common.rs"),
+            ],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("remote_only.rs"),
+                FileNode::new_file("common.rs"),
+            ],
+        )]);
+        let files = collect_merge_files(&local, &remote, "src");
+        assert_eq!(
+            files,
+            vec!["src/local_only.rs", "src/common.rs", "src/remote_only.rs"]
+        );
+    }
+
+    #[test]
+    fn test_one_side_only() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("only_local.rs")],
+        )]);
+        let remote = make_tree(vec![]); // リモートに src なし
+        let files = collect_merge_files(&local, &remote, "src");
+        assert_eq!(files, vec!["src/only_local.rs"]);
+    }
+
+    #[test]
+    fn test_unloaded_subdirectory_skipped() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("a.rs"),
+                FileNode::new_dir("unloaded"), // children = None
+            ],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let files = collect_merge_files(&local, &remote, "src");
+        // unloaded ディレクトリはスキップされ、a.rs のみ
+        assert_eq!(files, vec!["src/a.rs"]);
+    }
+
+    #[test]
+    fn test_nonexistent_directory() {
+        let local = make_tree(vec![]);
+        let remote = make_tree(vec![]);
+        let files = collect_merge_files(&local, &remote, "nonexistent");
+        assert!(files.is_empty());
+    }
+}

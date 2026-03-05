@@ -49,3 +49,65 @@ pub enum AppError {
 
 /// アプリ全体で使う Result 型エイリアス
 pub type Result<T> = std::result::Result<T, anyhow::Error>;
+
+/// SSH 接続自体が断絶したエラーかどうかを判定する。
+///
+/// `SshConnection` / `SshTimeout` のみ `true`。
+/// `SshExec`（コマンド実行失敗＝ファイル不在等）は `false`。
+/// 呼び出し元で `is_connected = false` にすべきかの判定に使う。
+pub fn is_connection_error(e: &anyhow::Error) -> bool {
+    matches!(
+        e.downcast_ref::<AppError>(),
+        Some(AppError::SshConnection { .. }) | Some(AppError::SshTimeout { .. })
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ssh_connection_error_is_connection() {
+        let err: anyhow::Error = AppError::SshConnection {
+            host: "example.com".to_string(),
+            message: "reset by peer".to_string(),
+        }
+        .into();
+        assert!(is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_ssh_timeout_is_connection() {
+        let err: anyhow::Error = AppError::SshTimeout {
+            host: "example.com".to_string(),
+            timeout_sec: 30,
+        }
+        .into();
+        assert!(is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_ssh_exec_is_not_connection() {
+        let err: anyhow::Error = AppError::SshExec {
+            command: "cat /nonexistent".to_string(),
+        }
+        .into();
+        assert!(!is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_ssh_auth_is_not_connection() {
+        let err: anyhow::Error = AppError::SshAuth {
+            host: "example.com".to_string(),
+            user: "root".to_string(),
+        }
+        .into();
+        assert!(!is_connection_error(&err));
+    }
+
+    #[test]
+    fn test_non_app_error_is_not_connection() {
+        let err = anyhow::anyhow!("some random error");
+        assert!(!is_connection_error(&err));
+    }
+}

@@ -4,6 +4,7 @@
 pub mod badge;
 pub mod dialog_ops;
 pub mod hunk_ops;
+pub mod merge_collect;
 pub mod navigation;
 pub mod scan;
 pub mod selection;

@@ -118,8 +118,6 @@ pub struct MergeScanResult {
     pub local_cache: std::collections::HashMap<String, String>,
     /// リモートファイル内容キャッシュ (パス -> 内容)
     pub remote_cache: std::collections::HashMap<String, String>,
-    /// 展開すべきディレクトリパス
-    pub expanded_dirs: std::collections::HashSet<String>,
     /// ローカルツリー更新 (パス -> 子ノード)
     pub local_tree_updates: Vec<(String, Vec<FileNode>)>,
     /// リモートツリー更新 (パス -> 子ノード)

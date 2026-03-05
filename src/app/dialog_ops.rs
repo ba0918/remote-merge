@@ -62,15 +62,34 @@ impl AppState {
                 return;
             }
 
-            let (diff_files, unchecked_dirs) = self.collect_diff_files_under(&node.path);
+            // ツリーから直接ファイル収集（expanded_dirs に依存しない）
+            let all_files = super::merge_collect::collect_merge_files(
+                &self.local_tree,
+                &self.remote_tree,
+                &node.path,
+            );
+
+            // Badge を計算してフィルタリング
+            let diff_files: Vec<(String, Badge)> = all_files
+                .into_iter()
+                .map(|path| {
+                    let badge = self.compute_badge(&path, false);
+                    (path, badge)
+                })
+                .filter(|(_, badge)| {
+                    matches!(
+                        badge,
+                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Unchecked
+                    )
+                })
+                .collect();
 
             if diff_files.is_empty() {
                 self.dialog = DialogState::Info(format!("No differences found in {}/", node.path));
                 return;
             }
 
-            let mut batch =
-                BatchConfirmDialog::new(diff_files, direction, source, target, unchecked_dirs);
+            let mut batch = BatchConfirmDialog::new(diff_files, direction, source, target, 0);
             batch.check_sensitive(&self.sensitive_patterns);
             self.dialog = DialogState::BatchConfirm(batch);
         } else {

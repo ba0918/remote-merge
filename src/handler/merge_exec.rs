@@ -108,6 +108,15 @@ pub fn execute_batch_merge(
                         success_count += 1;
                     }
                     Err(e) => {
+                        if crate::error::is_connection_error(&e) {
+                            state.is_connected = false;
+                            state.status_message = format!(
+                                "Connection lost during merge: {} succeeded/{} failed",
+                                success_count,
+                                fail_count + 1
+                            );
+                            return;
+                        }
                         tracing::warn!("Batch merge failed: {} - {}", path, e);
                         fail_count += 1;
                     }
@@ -129,7 +138,16 @@ pub fn execute_batch_merge(
                                 state.remote_cache.insert(path.clone(), c.clone());
                                 c
                             }
-                            Err(_) => {
+                            Err(e) => {
+                                if crate::error::is_connection_error(&e) {
+                                    state.is_connected = false;
+                                    state.status_message = format!(
+                                        "Connection lost during merge: {} succeeded/{} failed",
+                                        success_count,
+                                        fail_count + 1
+                                    );
+                                    return;
+                                }
                                 fail_count += 1;
                                 continue;
                             }
@@ -275,8 +293,12 @@ pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_
         }
         Err(e) => {
             tracing::debug!("Remote directory load skipped: {} - {}", rel_path, e);
-            state.is_connected = false;
-            state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
+            if crate::error::is_connection_error(&e) {
+                state.is_connected = false;
+                state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
+            } else {
+                state.status_message = format!("Remote dir load failed: {} - {}", rel_path, e);
+            }
         }
     }
 }
@@ -316,8 +338,8 @@ pub fn expand_subtree_for_merge(
             }
         }
 
-        // 展開状態に追加（表示のため）
-        state.expanded_dirs.insert(path.clone());
+        // NOTE: expanded_dirs には追加しない（ツリー表示の展開状態を変えない）
+        // ファイル収集は collect_merge_files() がツリーから直接行う
 
         // ローカルツリーのサブディレクトリを収集
         let mut sub_dirs = Vec::new();
@@ -354,16 +376,14 @@ pub fn expand_subtree_for_merge(
 
 /// ディレクトリ配下の全ファイルのコンテンツをロードする（マージ準備用）
 ///
-/// flat_nodes から指定ディレクトリ配下のファイルを収集し、
+/// ツリーから直接ファイルパスを収集し（expanded_dirs に依存しない）、
 /// ローカル・リモート両方のコンテンツをキャッシュに読み込む。
 pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir_path: &str) {
-    let prefix = format!("{}/", dir_path);
-    let file_paths: Vec<String> = state
-        .flat_nodes
-        .iter()
-        .filter(|n| !n.is_dir && n.path.starts_with(&prefix))
-        .map(|n| n.path.clone())
-        .collect();
+    let file_paths = crate::app::merge_collect::collect_merge_files(
+        &state.local_tree,
+        &state.remote_tree,
+        dir_path,
+    );
 
     let total = file_paths.len();
     for (i, path) in file_paths.iter().enumerate() {
@@ -396,10 +416,13 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
                 }
                 Err(e) => {
                     tracing::debug!("Remote file read skipped: {} - {}", path, e);
-                    state.is_connected = false;
-                    state.status_message =
-                        format!("Connection lost: {} | Press 'c' to reconnect", e);
-                    return;
+                    if crate::error::is_connection_error(&e) {
+                        state.is_connected = false;
+                        state.status_message =
+                            format!("Connection lost: {} | Press 'c' to reconnect", e);
+                        return;
+                    }
+                    // ファイル単位のエラー（not found等）はスキップして次へ
                 }
             }
         }
@@ -448,8 +471,13 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
             Err(e) => {
                 tracing::debug!("Remote file read skipped: {} - {}", path, e);
-                state.is_connected = false;
-                state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
+                if crate::error::is_connection_error(&e) {
+                    state.is_connected = false;
+                    state.status_message =
+                        format!("Connection lost: {} | Press 'c' to reconnect", e);
+                } else {
+                    state.status_message = format!("Remote read failed: {} - {}", path, e);
+                }
             }
         }
     }

@@ -96,7 +96,6 @@ fn run_merge_scan(
     // サブツリーを再帰的に展開
     let mut local_tree_updates = Vec::new();
     let mut remote_tree_updates = Vec::new();
-    let mut expanded_dirs = HashSet::new();
     let mut file_paths = Vec::new();
 
     expand_subtree_recursive(
@@ -109,7 +108,6 @@ fn run_merge_scan(
         dir_path,
         &mut local_tree_updates,
         &mut remote_tree_updates,
-        &mut expanded_dirs,
         &mut file_paths,
     )?;
 
@@ -164,7 +162,6 @@ fn run_merge_scan(
     Ok(MergeScanResult {
         local_cache,
         remote_cache,
-        expanded_dirs,
         local_tree_updates,
         remote_tree_updates,
         error_paths,
@@ -183,14 +180,12 @@ fn expand_subtree_recursive(
     dir_path: &str,
     local_tree_updates: &mut Vec<(String, Vec<FileNode>)>,
     remote_tree_updates: &mut Vec<(String, Vec<FileNode>)>,
-    expanded_dirs: &mut HashSet<String>,
     file_paths: &mut Vec<String>,
 ) -> Result<(), String> {
     if file_paths.len() >= MAX_FILES {
         return Err(format!("File limit reached ({})", MAX_FILES));
     }
 
-    expanded_dirs.insert(dir_path.to_string());
     let _ = tx.send(MergeScanMsg::Progress(file_paths.len()));
 
     // ローカルディレクトリの走査
@@ -258,7 +253,6 @@ fn expand_subtree_recursive(
             &sub_dir,
             local_tree_updates,
             remote_tree_updates,
-            expanded_dirs,
             file_paths,
         )?;
     }
@@ -351,8 +345,7 @@ fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
         }
     }
 
-    // 展開状態に追加
-    state.expanded_dirs.extend(result.expanded_dirs);
+    // NOTE: expanded_dirs には追加しない（ツリー表示の展開状態を変えない）
 
     // キャッシュ反映（既存のものは上書きしない）
     for (path, content) in result.local_cache {
