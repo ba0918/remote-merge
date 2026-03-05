@@ -190,12 +190,37 @@ impl<'a> DiffView<'a> {
     }
 
     /// Side-by-Side 用の1行を Line に変換
+    ///
+    /// `is_current_hunk`: この行がカレントハンク内かどうか
+    /// `is_focused`: DiffView がフォーカスされているか
+    /// `is_pending`: 確定待ちマージがあるか
+    /// `is_cursor_line`: この行がカーソルラインかどうか
     fn render_side_by_side_line(
         left: &Option<DiffLine>,
         right: &Option<DiffLine>,
         half_width: u16,
+        is_current_hunk: bool,
+        is_focused: bool,
+        is_pending: bool,
+        is_cursor_line: bool,
     ) -> Line<'static> {
         let content_width = (half_width as usize).saturating_sub(8); // line_num(5) + tag(1) + spaces(2)
+
+        // ハンクハイライトまたはカーソルラインの背景色を決定
+        let hunk_bg = if is_current_hunk && is_focused {
+            if is_pending {
+                Some(Color::Rgb(60, 40, 20)) // オレンジ系: 確定待ち
+            } else {
+                Some(Color::Rgb(40, 40, 60)) // 青系: 通常選択
+            }
+        } else {
+            None
+        };
+        let cursor_bg = if is_cursor_line && is_focused && hunk_bg.is_none() {
+            Some(Color::Rgb(30, 30, 50))
+        } else {
+            None
+        };
 
         let render_half = |line_opt: &Option<DiffLine>| -> Vec<Span<'static>> {
             match line_opt {
@@ -213,8 +238,15 @@ impl<'a> DiffView<'a> {
                         format!("{:<width$}", value, width = content_width)
                     };
 
-                    let style = Self::line_style(line.tag);
-                    let num_style = match Self::base_bg(line.tag) {
+                    let base_bg = Self::base_bg(line.tag);
+                    // 背景色の優先度: ハンクハイライト > diff色 > カーソルライン > なし
+                    let bg = hunk_bg.or(base_bg).or(cursor_bg);
+
+                    let style = match bg {
+                        Some(bg) => Self::line_style(line.tag).bg(bg),
+                        None => Self::line_style(line.tag),
+                    };
+                    let num_style = match bg {
                         Some(bg) => Style::default().fg(Color::DarkGray).bg(bg),
                         None => Style::default().fg(Color::DarkGray),
                     };
@@ -223,26 +255,49 @@ impl<'a> DiffView<'a> {
                         DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                         DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     };
-                    let prefix_style = match Self::base_bg(line.tag) {
+                    let prefix_style = match bg {
                         Some(bg) => prefix_style.bg(bg),
                         None => prefix_style,
                     };
+                    let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
 
                     vec![
                         Span::styled(num, num_style),
                         Span::styled(prefix.to_string(), prefix_style),
-                        Span::styled(" ", Style::default()),
+                        Span::styled(" ", gap_style),
                         Span::styled(truncated, style),
                     ]
                 }
                 None => {
+                    let bg = hunk_bg.or(cursor_bg);
                     let empty = format!("{:<width$}", "", width = content_width + 7);
-                    vec![Span::styled(empty, Style::default().fg(Color::DarkGray))]
+                    let empty_style = match bg {
+                        Some(bg) => Style::default().fg(Color::DarkGray).bg(bg),
+                        None => Style::default().fg(Color::DarkGray),
+                    };
+                    vec![Span::styled(empty, empty_style)]
                 }
             }
         };
 
-        let mut spans = render_half(left);
+        // カレントハンクのインジケータ（左端に表示）
+        let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
+            if is_pending {
+                ("⏎", Color::Yellow)
+            } else {
+                ("▶", Color::Cyan)
+            }
+        } else {
+            (" ", Color::Reset)
+        };
+        let indicator_bg = hunk_bg.or(cursor_bg);
+        let indicator_style = match indicator_bg {
+            Some(bg) => Style::default().fg(indicator_color).bg(bg),
+            None => Style::default().fg(indicator_color),
+        };
+
+        let mut spans = vec![Span::styled(indicator_char, indicator_style)];
+        spans.extend(render_half(left));
         spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
         spans.extend(render_half(right));
 
@@ -405,13 +460,30 @@ impl<'a> Widget for DiffView<'a> {
                     }
                     DiffMode::SideBySide => {
                         let pairs = Self::split_for_side_by_side(lines);
-                        let half_width = inner.width / 2;
+                        let half_width = (inner.width.saturating_sub(1)) / 2; // インジケータ分を引く
                         pairs
                             .iter()
+                            .enumerate()
                             .skip(scroll)
                             .take(visible_height.saturating_sub(1))
-                            .map(|(left, right)| {
-                                Self::render_side_by_side_line(left, right, half_width)
+                            .map(|(pair_idx, (left, right))| {
+                                // ペア内のいずれかの行がカレントハンクに含まれるか
+                                let in_current_hunk = current_hunk
+                                    .map(|h| {
+                                        let left_match = left.as_ref()
+                                            .map(|l| Self::is_line_in_hunk(l, h))
+                                            .unwrap_or(false);
+                                        let right_match = right.as_ref()
+                                            .map(|r| Self::is_line_in_hunk(r, h))
+                                            .unwrap_or(false);
+                                        left_match || right_match
+                                    })
+                                    .unwrap_or(false);
+                                let is_cursor = pair_idx == cursor;
+                                Self::render_side_by_side_line(
+                                    left, right, half_width,
+                                    in_current_hunk, is_focused, is_pending, is_cursor,
+                                )
                             })
                             .collect()
                     }
