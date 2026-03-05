@@ -1,13 +1,16 @@
 //! TUI アプリケーション状態管理。
 //! ツリー、diff、フォーカス、コンテンツキャッシュを一元管理する。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 
 use crate::diff::engine::{self, DiffHunk, DiffResult, HunkDirection};
 use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu};
+
+/// undo スタックの最大保持数
+const MAX_UNDO_STACK: usize = 50;
 
 /// キャッシュのスナップショット（undo 用）
 #[derive(Debug, Clone)]
@@ -144,7 +147,7 @@ pub struct AppState {
     /// Diff 表示モード
     pub diff_mode: DiffMode,
     /// undo スタック（適用前のキャッシュスナップショット）
-    pub undo_stack: Vec<CacheSnapshot>,
+    pub undo_stack: VecDeque<CacheSnapshot>,
 }
 
 impl AppState {
@@ -182,7 +185,7 @@ impl AppState {
             hunk_cursor: 0,
             pending_hunk_merge: None,
             diff_mode: DiffMode::Unified,
-            undo_stack: Vec::new(),
+            undo_stack: VecDeque::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -735,7 +738,10 @@ impl AppState {
         // undo 用スナップショットを保存
         let local_content = self.local_cache.get(&path)?.clone();
         let remote_content = self.remote_cache.get(&path)?.clone();
-        self.undo_stack.push(CacheSnapshot {
+        if self.undo_stack.len() >= MAX_UNDO_STACK {
+            self.undo_stack.pop_front();
+        }
+        self.undo_stack.push_back(CacheSnapshot {
             local_content: local_content.clone(),
             remote_content: remote_content.clone(),
             diff: self.current_diff.clone(),
@@ -792,7 +798,7 @@ impl AppState {
 
     /// 最後のハンク操作を undo する
     pub fn undo_last(&mut self) -> bool {
-        if let Some(snapshot) = self.undo_stack.pop() {
+        if let Some(snapshot) = self.undo_stack.pop_back() {
             if let Some(path) = &self.selected_path {
                 self.local_cache.insert(path.clone(), snapshot.local_content);
                 self.remote_cache.insert(path.clone(), snapshot.remote_content);
@@ -826,7 +832,7 @@ impl AppState {
         }
 
         // 最初のスナップショット（初期状態）を取り出す
-        let initial = self.undo_stack.remove(0);
+        let initial = self.undo_stack.pop_front().expect("undo_stack is not empty");
         self.undo_stack.clear();
 
         if let Some(path) = &self.selected_path {
