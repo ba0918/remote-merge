@@ -258,7 +258,14 @@ impl AppState {
 
     /// カーソル位置に応じてビューポートスクロールを調整する（VSCode準拠）
     pub fn ensure_cursor_visible(&mut self) {
-        let height = self.diff_visible_height.max(1);
+        // 表示モード別の予約行数を差し引いた有効表示高さを使う
+        // Modified: サマリー行1行、Equal: バナー行+サマリー行2行
+        let reserved = match &self.current_diff {
+            Some(DiffResult::Equal) => 2,
+            Some(DiffResult::Modified { .. }) => 1,
+            _ => 0,
+        };
+        let height = self.diff_visible_height.saturating_sub(reserved).max(1);
         let margin = Self::SCROLL_MARGIN.min(height / 2); // 画面が小さい場合はマージンを縮小
         let total = self.diff_line_count();
 
