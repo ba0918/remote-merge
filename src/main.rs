@@ -534,11 +534,15 @@ fn run_event_loop(
 
 /// ダイアログ表示中のキーハンドリング
 fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCode) {
-    let mut dialog = state.dialog.clone();
-    match dialog {
-        DialogState::Confirm(ref confirm) => match key {
+    match &state.dialog {
+        DialogState::Confirm(_) => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                execute_merge(state, runtime, confirm);
+                // 借用競合を避けるため、confirm データを先に抽出
+                let confirm = match &state.dialog {
+                    DialogState::Confirm(c) => c.clone(),
+                    _ => unreachable!(),
+                };
+                execute_merge(state, runtime, &confirm);
                 state.close_dialog();
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -547,7 +551,7 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
             }
             _ => {}
         },
-        DialogState::ServerSelect(ref mut menu) => match key {
+        DialogState::ServerSelect(_) => match key {
             KeyCode::Up | KeyCode::Char('k') => {
                 if let DialogState::ServerSelect(ref mut m) = state.dialog {
                     m.cursor_up();
@@ -559,7 +563,12 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
                 }
             }
             KeyCode::Enter => {
-                let selected = menu.selected().map(|s| s.to_string());
+                // 借用競合を避けるため、selected を先に取得
+                let selected = if let DialogState::ServerSelect(ref menu) = state.dialog {
+                    menu.selected().map(|s| s.to_string())
+                } else {
+                    None
+                };
                 if let Some(server_name) = selected {
                     if server_name != state.server_name {
                         execute_server_switch(state, runtime, &server_name);
@@ -589,10 +598,14 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
                 }
             }
             KeyCode::Esc | KeyCode::Char('q') => {
-                // 閉じる前にフィルター変更を適用
-                if let DialogState::Filter(ref panel) = state.dialog {
-                    let panel_clone = panel.clone();
-                    state.apply_filter_changes(&panel_clone);
+                // 閉じる前にフィルター変更を適用（借用競合を避けるためクローン）
+                let panel_clone = if let DialogState::Filter(ref panel) = state.dialog {
+                    Some(panel.clone())
+                } else {
+                    None
+                };
+                if let Some(ref panel) = panel_clone {
+                    state.apply_filter_changes(panel);
                 }
                 state.close_dialog();
             }
