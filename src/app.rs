@@ -9,6 +9,15 @@ use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu};
 
+/// キャッシュのスナップショット（undo 用）
+#[derive(Debug, Clone)]
+pub struct CacheSnapshot {
+    pub local_content: String,
+    pub remote_content: String,
+    /// 適用時の diff 結果
+    pub diff: Option<DiffResult>,
+}
+
 /// TUI のフォーカス対象
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -38,6 +47,10 @@ pub enum Badge {
     RemoteOnly,
     /// `[?]` Unchecked - 未比較
     Unchecked,
+    /// `[...]` Loading - コンテンツ取得中
+    Loading,
+    /// `[!]` Error - 取得失敗
+    Error,
 }
 
 impl Badge {
@@ -49,6 +62,8 @@ impl Badge {
             Badge::LocalOnly => "[+]",
             Badge::RemoteOnly => "[-]",
             Badge::Unchecked => "[?]",
+            Badge::Loading => "[..]",
+            Badge::Error => "[!]",
         }
     }
 }
@@ -112,12 +127,16 @@ pub struct AppState {
     pub exclude_patterns: Vec<String>,
     /// 一時的に無効化されたパターン
     pub disabled_patterns: std::collections::HashSet<String>,
+    /// コンテンツ取得に失敗したパスの集合
+    pub error_paths: std::collections::HashSet<String>,
     /// 現在選択中のハンクインデックス（Diff View フォーカス時）
     pub hunk_cursor: usize,
     /// ハンクマージの保留状態（→/← で選択、Enter で確定）
     pub pending_hunk_merge: Option<HunkDirection>,
     /// Diff 表示モード
     pub diff_mode: DiffMode,
+    /// undo スタック（適用前のキャッシュスナップショット）
+    pub undo_stack: Vec<CacheSnapshot>,
 }
 
 impl AppState {
@@ -147,9 +166,11 @@ impl AppState {
             is_connected: false,
             exclude_patterns: Vec::new(),
             disabled_patterns: std::collections::HashSet::new(),
+            error_paths: std::collections::HashSet::new(),
             hunk_cursor: 0,
             pending_hunk_merge: None,
             diff_mode: DiffMode::Unified,
+            undo_stack: Vec::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -482,6 +503,18 @@ impl AppState {
         }
     }
 
+    /// スクロール位置に最も近いハンクにハンクカーソルを同期する（二分探索）
+    pub fn sync_hunk_cursor_to_scroll(&mut self) {
+        if let Some(DiffResult::Modified { merge_hunk_line_indices, .. }) = &self.current_diff {
+            if merge_hunk_line_indices.is_empty() {
+                return;
+            }
+            // 二分探索: diff_scroll 以下の最大のインデックスを持つハンクを探す
+            let pos = merge_hunk_line_indices.partition_point(|&idx| idx <= self.diff_scroll);
+            self.hunk_cursor = if pos == 0 { 0 } else { pos - 1 };
+        }
+    }
+
     /// ハンクカーソルを上に移動（前のハンクへ）
     pub fn hunk_cursor_up(&mut self) {
         if self.hunk_cursor > 0 {
@@ -562,7 +595,7 @@ impl AppState {
         Some((original, new_text))
     }
 
-    /// ハンク単位マージを実行する
+    /// ハンク単位マージを実行する（即時適用 + undo スナップショット保存）
     ///
     /// direction: RightToLeft なら right の変更を left に取り込む
     ///            LeftToRight なら left の変更を right に取り込む
@@ -576,10 +609,19 @@ impl AppState {
 
         let hunk = hunks.get(self.hunk_cursor)?;
 
+        // undo 用スナップショットを保存
+        let local_content = self.local_cache.get(&path)?.clone();
+        let remote_content = self.remote_cache.get(&path)?.clone();
+        self.undo_stack.push(CacheSnapshot {
+            local_content: local_content.clone(),
+            remote_content: remote_content.clone(),
+            diff: self.current_diff.clone(),
+        });
+
         // 適用先テキストを取得
         let original = match direction {
-            HunkDirection::RightToLeft => self.local_cache.get(&path)?.clone(),
-            HunkDirection::LeftToRight => self.remote_cache.get(&path)?.clone(),
+            HunkDirection::RightToLeft => local_content,
+            HunkDirection::LeftToRight => remote_content,
         };
 
         let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
@@ -617,13 +659,75 @@ impl AppState {
             HunkDirection::LeftToRight => "left → right",
         };
         self.status_message = format!(
-            "Hunk {} applied ({}) | {} hunks remaining",
-            self.hunk_cursor + 1,
+            "Hunk applied ({}) | {} changes | w:write u:undo",
             dir_str,
-            self.hunk_count(),
+            self.undo_stack.len(),
         );
 
         Some(path)
+    }
+
+    /// 最後のハンク操作を undo する
+    pub fn undo_last(&mut self) -> bool {
+        if let Some(snapshot) = self.undo_stack.pop() {
+            if let Some(path) = &self.selected_path {
+                self.local_cache.insert(path.clone(), snapshot.local_content);
+                self.remote_cache.insert(path.clone(), snapshot.remote_content);
+                self.current_diff = snapshot.diff;
+
+                // ハンクカーソルを範囲内に収める
+                let new_count = self.hunk_count();
+                if new_count == 0 {
+                    self.hunk_cursor = 0;
+                } else if self.hunk_cursor >= new_count {
+                    self.hunk_cursor = new_count - 1;
+                }
+
+                self.rebuild_flat_nodes();
+                self.status_message = format!(
+                    "Undo | {} changes remaining | w:write u:undo",
+                    self.undo_stack.len(),
+                );
+                return true;
+            }
+        }
+        self.status_message = "Nothing to undo".to_string();
+        false
+    }
+
+    /// 全ハンク操作を undo する（初期状態に復元）
+    pub fn undo_all(&mut self) -> bool {
+        if self.undo_stack.is_empty() {
+            self.status_message = "Nothing to undo".to_string();
+            return false;
+        }
+
+        // 最初のスナップショット（初期状態）を取り出す
+        let initial = self.undo_stack.remove(0);
+        self.undo_stack.clear();
+
+        if let Some(path) = &self.selected_path {
+            self.local_cache.insert(path.clone(), initial.local_content);
+            self.remote_cache.insert(path.clone(), initial.remote_content);
+            self.current_diff = initial.diff;
+
+            let new_count = self.hunk_count();
+            if new_count == 0 {
+                self.hunk_cursor = 0;
+            } else if self.hunk_cursor >= new_count {
+                self.hunk_cursor = new_count - 1;
+            }
+
+            self.rebuild_flat_nodes();
+            self.status_message = "All changes undone".to_string();
+            return true;
+        }
+        false
+    }
+
+    /// 未保存の変更があるかどうか
+    pub fn has_unsaved_changes(&self) -> bool {
+        !self.undo_stack.is_empty()
     }
 
     /// コンテンツキャッシュをクリアする (r キー)
@@ -640,6 +744,12 @@ impl AppState {
         if is_dir {
             return Badge::Unchecked;
         }
+
+        // エラーパスの場合は Error バッジ
+        if self.error_paths.contains(path) {
+            return Badge::Error;
+        }
+
         let in_local = self.local_tree.find_node(Path::new(path)).is_some();
         let in_remote = self.remote_tree.find_node(Path::new(path)).is_some();
 

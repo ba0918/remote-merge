@@ -49,7 +49,7 @@ impl ConfirmDialog {
             MergeDirection::RightMerge => {
                 format!(
                     "{} を {} → {} にマージしますか？",
-                    self.file_path, self.target_name, self.source_name
+                    self.file_path, self.source_name, self.target_name
                 )
             }
         }
@@ -224,19 +224,20 @@ impl HelpOverlay {
                 HelpSection {
                     title: "Diff View".to_string(),
                     bindings: vec![
-                        ("j/↓".to_string(), "次のハンクへ".to_string()),
-                        ("k/↑".to_string(), "前のハンクへ".to_string()),
-                        ("J (Shift)".to_string(), "1行下スクロール".to_string()),
-                        ("K (Shift)".to_string(), "1行上スクロール".to_string()),
+                        ("j/k/↑/↓".to_string(), "1行スクロール".to_string()),
+                        ("n".to_string(), "次のハンクへジャンプ".to_string()),
+                        ("N".to_string(), "前のハンクへジャンプ".to_string()),
                         ("PageDown".to_string(), "ページ下スクロール".to_string()),
                         ("PageUp".to_string(), "ページ上スクロール".to_string()),
                         ("Home".to_string(), "先頭へ".to_string()),
                         ("End".to_string(), "末尾へ".to_string()),
-                        ("→/l".to_string(), "ハンク: remote → local 選択".to_string()),
-                        ("←/h".to_string(), "ハンク: local → remote 選択".to_string()),
-                        ("Enter".to_string(), "ハンクマージ プレビュー確認".to_string()),
-                        ("Esc".to_string(), "ハンクマージ キャンセル".to_string()),
+                        ("→/l".to_string(), "ハンク: remote → local 即時適用".to_string()),
+                        ("←/h".to_string(), "ハンク: local → remote 即時適用".to_string()),
+                        ("w".to_string(), "変更をファイルに書き込み".to_string()),
+                        ("u".to_string(), "最後の操作を undo".to_string()),
+                        ("U".to_string(), "全操作を undo".to_string()),
                         ("d".to_string(), "Unified ↔ Side-by-Side 切替".to_string()),
+                        ("c".to_string(), "SSH 再接続".to_string()),
                     ],
                 },
                 HelpSection {
@@ -268,6 +269,10 @@ pub enum DialogState {
     HunkMergePreview(HunkMergePreview),
     /// ヘルプオーバーレイ
     Help(HelpOverlay),
+    /// 書き込み確認ダイアログ（w キー）
+    WriteConfirmation,
+    /// 未保存変更確認ダイアログ（q キー時）
+    UnsavedChanges,
 }
 
 /// 中央にモーダルエリアを計算する
@@ -650,16 +655,38 @@ mod tests {
 
     #[test]
     fn test_confirm_dialog_message_right_merge() {
+        // RightMerge: show_merge_dialog では source=server_name, target="local"
         let dialog = ConfirmDialog::new(
             "src/config.ts".to_string(),
             MergeDirection::RightMerge,
-            "local".to_string(),
             "develop".to_string(),
+            "local".to_string(),
         );
         assert_eq!(
             dialog.message(),
             "src/config.ts を develop → local にマージしますか？"
         );
+    }
+
+    #[test]
+    fn test_confirm_dialog_both_directions_use_source_arrow_target() {
+        // LeftMerge: source="local", target="develop"
+        let left = ConfirmDialog::new(
+            "app.js".to_string(),
+            MergeDirection::LeftMerge,
+            "local".to_string(),
+            "staging".to_string(),
+        );
+        assert!(left.message().contains("local → staging"));
+
+        // RightMerge: source="staging", target="local"
+        let right = ConfirmDialog::new(
+            "app.js".to_string(),
+            MergeDirection::RightMerge,
+            "staging".to_string(),
+            "local".to_string(),
+        );
+        assert!(right.message().contains("staging → local"));
     }
 
     #[test]

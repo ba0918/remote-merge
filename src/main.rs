@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
 use ratatui::prelude::*;
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Paragraph};
 
 use remote_merge::app::{AppState, Focus};
 use remote_merge::config::{self, AppConfig};
@@ -13,7 +13,7 @@ use remote_merge::local;
 use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
-use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreview, HunkMergePreviewWidget, ServerMenuWidget};
+use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreviewWidget, ServerMenuWidget};
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
 use remote_merge::ui::tree_view::TreeView;
@@ -405,6 +405,10 @@ fn run_event_loop(
                     }
                     KeyCode::Char('f') => state.show_filter_panel(),
                     KeyCode::Char('s') => state.show_server_menu(),
+                    KeyCode::Char('c') => {
+                        // 手動再接続
+                        execute_reconnect(state, runtime);
+                    }
                     KeyCode::Char('?') => state.show_help(),
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
@@ -422,12 +426,17 @@ fn run_event_loop(
                 },
                 Focus::DiffView => match key.code {
                     KeyCode::Char('q') => {
-                        state.should_quit = true;
+                        if state.has_unsaved_changes() {
+                            state.dialog = DialogState::UnsavedChanges;
+                        } else {
+                            state.should_quit = true;
+                        }
                     }
                     KeyCode::Esc => {
-                        // 保留中のハンクマージがあればキャンセル、なければ終了
                         if state.pending_hunk_merge.is_some() {
                             state.cancel_hunk_merge();
+                        } else if state.has_unsaved_changes() {
+                            state.dialog = DialogState::UnsavedChanges;
                         } else {
                             state.should_quit = true;
                         }
@@ -436,57 +445,75 @@ fn run_event_loop(
                         state.cancel_hunk_merge();
                         state.toggle_focus();
                     }
+                    // j/k, ↑/↓: 1行スクロール（スクロールではpending操作をキャンセルしない）
                     KeyCode::Up | KeyCode::Char('k') => {
-                        state.cancel_hunk_merge();
-                        state.hunk_cursor_up();
+                        state.scroll_up();
+                        state.sync_hunk_cursor_to_scroll();
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
+                        state.scroll_down();
+                        state.sync_hunk_cursor_to_scroll();
+                    }
+                    // n/N: ハンクジャンプ（ハンクジャンプ時のみpending操作をキャンセル）
+                    KeyCode::Char('n') => {
                         state.cancel_hunk_merge();
                         state.hunk_cursor_down();
                     }
+                    KeyCode::Char('N') => {
+                        state.cancel_hunk_merge();
+                        state.hunk_cursor_up();
+                    }
                     KeyCode::Right | KeyCode::Char('l') => {
-                        // → キー: remote → local のハンクマージを選択（プレビュー）
-                        state.stage_hunk_merge(HunkDirection::RightToLeft);
+                        // → キー: remote → local のハンク即時適用
+                        if state.hunk_count() > 0 {
+                            state.apply_hunk_merge(HunkDirection::RightToLeft);
+                        }
                     }
                     KeyCode::Left | KeyCode::Char('h') => {
-                        // ← キー: local → remote のハンクマージを選択（プレビュー）
+                        // ← キー: local → remote のハンク即時適用
                         if state.is_connected {
-                            state.stage_hunk_merge(HunkDirection::LeftToRight);
+                            if state.hunk_count() > 0 {
+                                state.apply_hunk_merge(HunkDirection::LeftToRight);
+                            }
                         } else if state.hunk_count() > 0 {
                             state.status_message = "SSH 未接続: リモートへのハンクマージはできません".to_string();
                         }
                     }
-                    KeyCode::Enter => {
-                        // Enter: プレビューダイアログを表示
-                        if let Some(direction) = state.pending_hunk_merge {
-                            if let Some((before, after)) = state.preview_hunk_merge(direction) {
-                                let path = state.selected_path.clone().unwrap_or_default();
-                                state.dialog = DialogState::HunkMergePreview(HunkMergePreview::new(
-                                    path,
-                                    direction,
-                                    before,
-                                    after,
-                                ));
-                            }
+                    KeyCode::Char('w') => {
+                        // w キー: 変更をファイルに書き込み（確認ダイアログ）
+                        if state.has_unsaved_changes() {
+                            state.dialog = DialogState::WriteConfirmation;
+                        } else {
+                            state.status_message = "No changes to write".to_string();
                         }
                     }
-                    KeyCode::Char('K') => {
-                        state.scroll_up();
+                    KeyCode::Char('u') => {
+                        // u キー: 最後の操作を undo
+                        state.undo_last();
                     }
-                    KeyCode::Char('J') => {
-                        state.scroll_down();
+                    KeyCode::Char('U') => {
+                        // U キー: 全操作を undo
+                        state.undo_all();
                     }
                     KeyCode::PageDown => {
                         state.scroll_page_down(20);
+                        state.sync_hunk_cursor_to_scroll();
                     }
                     KeyCode::PageUp => {
                         state.scroll_page_up(20);
+                        state.sync_hunk_cursor_to_scroll();
                     }
                     KeyCode::Home => {
                         state.scroll_to_home();
+                        state.sync_hunk_cursor_to_scroll();
                     }
                     KeyCode::End => {
                         state.scroll_to_end();
+                        state.sync_hunk_cursor_to_scroll();
+                    }
+                    KeyCode::Char('c') => {
+                        // 手動再接続
+                        execute_reconnect(state, runtime);
                     }
                     KeyCode::Char('d') => {
                         state.toggle_diff_mode();
@@ -591,7 +618,64 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
             }
             _ => {}
         },
+        DialogState::WriteConfirmation => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                state.close_dialog();
+                execute_write_changes(state, runtime);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "書き込みをキャンセルしました".to_string();
+                state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::UnsavedChanges => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // 破棄して終了
+                state.undo_stack.clear();
+                state.close_dialog();
+                state.should_quit = true;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "終了をキャンセルしました | w:write u:undo".to_string();
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::None => {}
+    }
+}
+
+/// 変更をファイルに書き込む（w キー確定後）
+fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
+    if let Some(path) = state.selected_path.clone() {
+        let changes = state.undo_stack.len();
+
+        // ローカルファイルに書き込む
+        if let Some(local_content) = state.local_cache.get(&path) {
+            let local_root = state.local_tree.root.clone();
+            if let Err(e) = executor::write_local_file(&local_root, &path, local_content) {
+                state.status_message = format!("ローカル書き込み失敗: {}", e);
+                return;
+            }
+        }
+
+        // リモートファイルに書き込む
+        if state.is_connected {
+            if let Some(remote_content) = state.remote_cache.get(&path).cloned() {
+                if let Err(e) = runtime.write_remote_file(&state.server_name, &path, &remote_content) {
+                    state.status_message = format!("リモート書き込み失敗: {}", e);
+                    return;
+                }
+            }
+        }
+
+        // undo スタックをクリア（書き込み済みなので）
+        state.undo_stack.clear();
+        state.status_message = format!(
+            "{}: {} changes written | {} hunks remaining",
+            path, changes, state.hunk_count()
+        );
     }
 }
 
@@ -640,10 +724,12 @@ fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
         match executor::read_local_file(local_root, path) {
             Ok(content) => {
                 state.local_cache.insert(path.clone(), content);
+                state.error_paths.remove(path);
             }
             Err(e) => {
                 tracing::debug!("ローカルファイル読み込みスキップ: {} - {}", path, e);
                 state.status_message = format!("ローカル読み込み失敗: {} - {}", path, e);
+                state.error_paths.insert(path.clone());
             }
         }
     }
@@ -653,13 +739,18 @@ fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
         match runtime.read_remote_file(&state.server_name, path) {
             Ok(content) => {
                 state.remote_cache.insert(path.clone(), content);
+                state.error_paths.remove(path);
             }
             Err(e) => {
                 tracing::debug!("リモートファイル読み込みスキップ: {} - {}", path, e);
                 state.status_message = format!("リモート読み込み失敗: {} - {}", path, e);
+                state.error_paths.insert(path.clone());
             }
         }
     }
+
+    // バッジを更新
+    state.rebuild_flat_nodes();
 }
 
 /// マージを実行する
@@ -772,6 +863,49 @@ fn execute_hunk_merge(
     }
 }
 
+/// SSH 再接続を実行する（c キー）
+fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let server_name = state.server_name.clone();
+    state.status_message = format!("{} に再接続中...", server_name);
+
+    // 既存の接続を切断
+    runtime.disconnect();
+
+    match runtime.connect(&server_name) {
+        Ok(()) => {
+            match runtime.fetch_remote_tree(&server_name) {
+                Ok(tree) => {
+                    // 再接続成功: キャッシュとundoスタックをクリア
+                    state.remote_tree = tree;
+                    state.remote_cache.clear();
+                    state.current_diff = None;
+                    state.selected_path = None;
+                    state.diff_scroll = 0;
+                    state.hunk_cursor = 0;
+                    state.pending_hunk_merge = None;
+                    state.is_connected = true;
+                    state.rebuild_flat_nodes();
+                    state.status_message = format!(
+                        "接続復旧: {} | 未保存の変更はリセットされました",
+                        server_name
+                    );
+                }
+                Err(e) => {
+                    state.is_connected = false;
+                    state.status_message = format!(
+                        "{} のツリー取得に失敗: {}",
+                        server_name, e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            state.is_connected = false;
+            state.status_message = format!("{} への再接続に失敗: {} | c: retry", server_name, e);
+        }
+    }
+}
+
 /// サーバ切替を実行する
 fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_name: &str) {
     state.status_message = format!("{} に接続中...", server_name);
@@ -860,6 +994,64 @@ fn draw_ui(frame: &mut Frame, state: &AppState) {
             let widget = HunkMergePreviewWidget::new(preview);
             frame.render_widget(widget, frame.area());
         }
+        DialogState::WriteConfirmation => {
+            render_simple_dialog(
+                frame,
+                " Write Changes ",
+                &format!("{}件の変更をファイルに書き込みますか？", state.undo_stack.len()),
+                Color::Green,
+            );
+        }
+        DialogState::UnsavedChanges => {
+            render_simple_dialog(
+                frame,
+                " Unsaved Changes ",
+                "未保存の変更があります。破棄して終了しますか？",
+                Color::Yellow,
+            );
+        }
         DialogState::None => {}
     }
+}
+
+/// シンプルな Y/n 確認ダイアログを描画する
+fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color) {
+    use remote_merge::ui::dialog::centered_rect;
+    use ratatui::widgets::Clear;
+
+    let dialog_area = centered_rect(60, 7, frame.area());
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
+
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let msg = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(message, Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(msg, chunks[1]);
+
+    let guide = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" はい  "),
+        Span::styled("[n/Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        Span::raw(" いいえ"),
+    ]));
+    frame.render_widget(guide, chunks[3]);
 }

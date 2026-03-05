@@ -61,6 +61,8 @@ pub enum DiffResult {
         /// 全行（コンテキスト含む）
         lines: Vec<DiffLine>,
         stats: DiffStats,
+        /// 各 merge_hunk の全行リスト内での開始行インデックス（二分探索用キャッシュ）
+        merge_hunk_line_indices: Vec<usize>,
     },
     /// バイナリファイル（diff 不可）
     Binary,
@@ -141,11 +143,15 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
     // 操作用ハンク（コンテキスト0行、変更ブロック単位）
     let merge_hunks = build_hunks(&lines, 0);
 
+    // 各 merge_hunk の全行リスト内での開始行インデックスをキャッシュ
+    let merge_hunk_line_indices = compute_hunk_line_indices(&lines, &merge_hunks);
+
     DiffResult::Modified {
         hunks,
         merge_hunks,
         lines,
         stats,
+        merge_hunk_line_indices,
     }
 }
 
@@ -207,6 +213,28 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
         text.push('\n');
     }
     text
+}
+
+/// 各ハンクの全行リスト内での開始行インデックスを計算する
+fn compute_hunk_line_indices(lines: &[DiffLine], hunks: &[DiffHunk]) -> Vec<usize> {
+    hunks
+        .iter()
+        .map(|hunk| {
+            if let Some(first) = hunk.lines.first() {
+                lines
+                    .iter()
+                    .position(|l| {
+                        l.tag == first.tag
+                            && l.value == first.value
+                            && l.old_index == first.old_index
+                            && l.new_index == first.new_index
+                    })
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        })
+        .collect()
 }
 
 /// diff 行をハンク（変更グループ + コンテキスト行）に分割する

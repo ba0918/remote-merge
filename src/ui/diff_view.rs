@@ -316,7 +316,7 @@ impl<'a> Widget for DiffView<'a> {
                 ]));
                 msg.render(inner, buf);
             }
-            Some(DiffResult::Modified { hunks: _, merge_hunks, lines, stats }) => {
+            Some(DiffResult::Modified { hunks: _, merge_hunks, lines, stats, .. }) => {
                 let visible_height = inner.height as usize;
                 let scroll = self.state.diff_scroll.min(lines.len().saturating_sub(1));
 
@@ -447,6 +447,7 @@ mod tests {
             merge_hunks: vec![],
             lines,
             stats: DiffStats { insertions: 1, deletions: 1, equal: 2 },
+            merge_hunk_line_indices: vec![],
         };
 
         let state = make_test_state_with_diff(Some(diff));

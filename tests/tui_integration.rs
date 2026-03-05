@@ -605,3 +605,325 @@ fn test_side_by_side_render() {
     assert!(content.contains("aaa"), "コンテキスト行が表示されるべき");
     assert!(content.contains("side-by-side"), "モードラベルが表示されるべき");
 }
+
+// === #1: ナビゲーション変更テスト ===
+
+#[test]
+fn test_diffview_jk_scrolls_one_line() {
+    let mut state = make_state_with_long_diff();
+    state.focus = Focus::DiffView;
+    assert_eq!(state.diff_scroll, 0);
+
+    // j/k は1行スクロール
+    state.scroll_down();
+    assert_eq!(state.diff_scroll, 1);
+    state.scroll_down();
+    assert_eq!(state.diff_scroll, 2);
+    state.scroll_up();
+    assert_eq!(state.diff_scroll, 1);
+}
+
+#[test]
+fn test_diffview_nN_jumps_to_hunk() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    // 離れた2箇所に変更がある diff
+    let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
+    let mut new_text = old.clone();
+    new_text = new_text.replace("line3\n", "modified3\n");
+    new_text = new_text.replace("line15\n", "modified15\n");
+
+    state.local_cache.insert("test.txt".to_string(), old);
+    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    assert_eq!(state.hunk_count(), 2);
+    assert_eq!(state.hunk_cursor, 0);
+
+    // n: 次のハンクへ
+    state.hunk_cursor_down();
+    assert_eq!(state.hunk_cursor, 1);
+
+    // N: 前のハンクへ
+    state.hunk_cursor_up();
+    assert_eq!(state.hunk_cursor, 0);
+}
+
+#[test]
+fn test_scroll_does_not_cancel_pending_merge() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+    state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    // stage → pending 設定
+    state.stage_hunk_merge(HunkDirection::RightToLeft);
+    assert!(state.pending_hunk_merge.is_some());
+
+    // スクロール（j/k）ではpending操作がキャンセルされない
+    state.scroll_down();
+    assert!(state.pending_hunk_merge.is_some(), "スクロールでpendingがキャンセルされるべきでない");
+
+    state.scroll_up();
+    assert!(state.pending_hunk_merge.is_some(), "スクロールでpendingがキャンセルされるべきでない");
+}
+
+#[test]
+fn test_hunk_jump_cancels_pending_merge() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
+    let mut new_text = old.clone();
+    new_text = new_text.replace("line3\n", "modified3\n");
+    new_text = new_text.replace("line15\n", "modified15\n");
+
+    state.local_cache.insert("test.txt".to_string(), old);
+    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    // stage → pending 設定
+    state.stage_hunk_merge(HunkDirection::RightToLeft);
+    assert!(state.pending_hunk_merge.is_some());
+
+    // ハンクジャンプ（n/N）でpending操作がキャンセルされる
+    state.cancel_hunk_merge();
+    state.hunk_cursor_down();
+    assert!(state.pending_hunk_merge.is_none(), "ハンクジャンプでpendingがキャンセルされるべき");
+}
+
+// === #2: Unified マージ + sync_hunk_cursor テスト ===
+
+#[test]
+fn test_hunk_cursor_follows_scroll_position() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    // 離れた2箇所に変更がある diff
+    let old: String = (0..30).map(|i| format!("line{}\n", i)).collect();
+    let mut new_text = old.clone();
+    new_text = new_text.replace("line5\n", "modified5\n");
+    new_text = new_text.replace("line25\n", "modified25\n");
+
+    state.local_cache.insert("test.txt".to_string(), old);
+    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.tree_cursor = 0;
+    state.select_file();
+
+    assert_eq!(state.hunk_count(), 2);
+    assert_eq!(state.hunk_cursor, 0);
+
+    // 2番目のハンクの実際の開始位置を取得
+    let second_hunk_line = if let Some(DiffResult::Modified { merge_hunk_line_indices, .. }) = &state.current_diff {
+        merge_hunk_line_indices[1]
+    } else {
+        panic!("Modified を期待");
+    };
+
+    // スクロールを2番目のハンク位置に移動
+    state.diff_scroll = second_hunk_line;
+    state.sync_hunk_cursor_to_scroll();
+    assert_eq!(state.hunk_cursor, 1, "スクロール位置に応じて2番目のハンクが選択されるべき");
+
+    // 先頭に戻す
+    state.diff_scroll = 0;
+    state.sync_hunk_cursor_to_scroll();
+    assert_eq!(state.hunk_cursor, 0, "先頭に戻すと最初のハンクが選択されるべき");
+}
+
+#[test]
+fn test_hunk_start_line_cache_computed() {
+    use remote_merge::diff::engine::{compute_diff, DiffResult};
+
+    let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+    let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+    let diff = compute_diff(old, new);
+
+    if let DiffResult::Modified { merge_hunks, merge_hunk_line_indices, .. } = &diff {
+        assert_eq!(merge_hunks.len(), 2);
+        assert_eq!(merge_hunk_line_indices.len(), 2);
+        // 最初のハンクのインデックスは2番目より小さい
+        assert!(merge_hunk_line_indices[0] < merge_hunk_line_indices[1]);
+    } else {
+        panic!("Modified を期待");
+    }
+}
+
+#[test]
+fn test_sync_hunk_cursor_binary_search() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    // 3箇所の変更
+    let old: String = (0..50).map(|i| format!("line{}\n", i)).collect();
+    let mut new_text = old.clone();
+    new_text = new_text.replace("line5\n", "mod5\n");
+    new_text = new_text.replace("line25\n", "mod25\n");
+    new_text = new_text.replace("line45\n", "mod45\n");
+
+    state.local_cache.insert("test.txt".to_string(), old);
+    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.tree_cursor = 0;
+    state.select_file();
+
+    assert_eq!(state.hunk_count(), 3);
+
+    // 各ハンク位置付近にスクロールして正しいハンクが選択されるか確認
+    state.diff_scroll = 0;
+    state.sync_hunk_cursor_to_scroll();
+    assert_eq!(state.hunk_cursor, 0);
+
+    state.diff_scroll = 30;
+    state.sync_hunk_cursor_to_scroll();
+    assert_eq!(state.hunk_cursor, 1);
+
+    state.diff_scroll = 48;
+    state.sync_hunk_cursor_to_scroll();
+    assert_eq!(state.hunk_cursor, 2);
+}
+
+// === #3: マージフロー改善テスト（即時適用 + undo） ===
+
+#[test]
+fn test_apply_hunk_creates_snapshot() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let old = "aaa\nbbb\nccc\n";
+    let new = "aaa\nXXX\nccc\n";
+
+    state.local_cache.insert("test.txt".to_string(), old.to_string());
+    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    assert!(state.undo_stack.is_empty(), "undo_stack は最初空であるべき");
+
+    // 即時適用
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+
+    assert_eq!(state.undo_stack.len(), 1, "適用後に1つのスナップショットがあるべき");
+    // 適用後のローカルキャッシュが変わっている
+    let local_content = state.local_cache.get("test.txt").unwrap();
+    assert!(local_content.contains("XXX"), "ローカルにリモートの変更が適用されるべき");
+}
+
+#[test]
+fn test_undo_restores_previous_cache() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let old = "aaa\nbbb\nccc\n";
+    let new = "aaa\nXXX\nccc\n";
+
+    state.local_cache.insert("test.txt".to_string(), old.to_string());
+    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    // 適用 → undo
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+    let after_apply = state.local_cache.get("test.txt").unwrap().clone();
+    assert!(after_apply.contains("XXX"));
+
+    state.undo_last();
+    assert!(state.undo_stack.is_empty(), "undo後にスタックが空になるべき");
+    let after_undo = state.local_cache.get("test.txt").unwrap();
+    assert_eq!(after_undo, old, "undoで元のコンテンツに戻るべき");
+}
+
+#[test]
+fn test_undo_all_restores_initial_cache() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let old = "line1\nline2\nline3\nline4\nline5\n";
+    let new = "line1\nAAA\nline3\nBBB\nline5\n";
+
+    state.local_cache.insert("test.txt".to_string(), old.to_string());
+    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    // 2回適用
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+
+    assert_eq!(state.undo_stack.len(), 2);
+
+    // undo_all で全部戻す
+    state.undo_all();
+    assert!(state.undo_stack.is_empty());
+    let after_undo_all = state.local_cache.get("test.txt").unwrap();
+    assert_eq!(after_undo_all, old, "undo_allで最初の状態に戻るべき");
+}
+
+#[test]
+fn test_has_unsaved_changes() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    assert!(!state.has_unsaved_changes(), "初期状態では未保存変更なし");
+
+    let old = "aaa\nbbb\nccc\n";
+    let new = "aaa\nXXX\nccc\n";
+
+    state.local_cache.insert("test.txt".to_string(), old.to_string());
+    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+    assert!(state.has_unsaved_changes(), "適用後は未保存変更あり");
+
+    state.undo_last();
+    assert!(!state.has_unsaved_changes(), "undo後は未保存変更なし");
+}
+
+#[test]
+fn test_help_contains_updated_keybinds() {
+    use remote_merge::ui::dialog::HelpOverlay;
+
+    let help = HelpOverlay::new();
+    let diff_section = help.sections.iter().find(|s| s.title == "Diff View").unwrap();
+
+    // 新しいキーバインドが含まれている
+    let keys: Vec<&str> = diff_section.bindings.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(keys.iter().any(|k| k.contains("j/k")), "j/k スクロールが含まれるべき");
+    assert!(keys.iter().any(|k| *k == "n"), "n ハンクジャンプが含まれるべき");
+    assert!(keys.iter().any(|k| *k == "N"), "N ハンクジャンプが含まれるべき");
+
+    // 旧キーバインドが含まれていない
+    let descs: Vec<&str> = diff_section.bindings.iter().map(|(_, d)| d.as_str()).collect();
+    assert!(!descs.iter().any(|d| d.contains("次のハンクへ") && !d.contains("ジャンプ")), "旧ハンクナビゲーション表記が残っていないべき");
+}

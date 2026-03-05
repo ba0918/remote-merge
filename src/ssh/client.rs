@@ -42,7 +42,9 @@ impl SshClient {
     ) -> crate::error::Result<Self> {
         // russh Config 構築
         let mut config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(ssh_config.timeout_sec)),
+            inactivity_timeout: None, // keep-alive で接続維持するため無効化
+            keepalive_interval: Some(Duration::from_secs(15)), // 15秒ごとにkeep-alive送信
+            keepalive_max: 3, // 3回応答なしでタイムアウト
             ..Default::default()
         };
 

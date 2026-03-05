@@ -27,6 +27,8 @@ impl<'a> TreeView<'a> {
             Badge::LocalOnly => Style::default().fg(Color::Cyan),
             Badge::RemoteOnly => Style::default().fg(Color::Magenta),
             Badge::Unchecked => Style::default().fg(Color::DarkGray),
+            Badge::Loading => Style::default().fg(Color::Blue),
+            Badge::Error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         }
     }
 }
