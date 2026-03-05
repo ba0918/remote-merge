@@ -240,7 +240,7 @@ fn merge_configs(
     global: Option<RawConfig>,
     project: Option<RawConfig>,
 ) -> crate::error::Result<AppConfig> {
-    let (global, project) = match (global, project) {
+    let (global, mut project) = match (global, project) {
         (Some(g), Some(p)) => (g, Some(p)),
         (Some(g), None) => (g, None),
         (None, Some(p)) => (p, None),
@@ -249,10 +249,10 @@ fn merge_configs(
 
     // servers: プロジェクトで上書き
     let mut servers_raw = global.servers.unwrap_or_default();
-    if let Some(ref proj) = project {
-        if let Some(ref proj_servers) = proj.servers {
+    if let Some(ref mut proj) = project {
+        if let Some(proj_servers) = proj.servers.take() {
             for (name, server) in proj_servers {
-                servers_raw.insert(name.clone(), server.clone());
+                servers_raw.insert(name, server);
             }
         }
     }
@@ -260,7 +260,8 @@ fn merge_configs(
     // servers を変換・バリデーション
     let mut servers = HashMap::new();
     for (name, raw) in servers_raw {
-        servers.insert(name.clone(), convert_server_config(&name, raw)?);
+        let config = convert_server_config(&name, raw)?;
+        servers.insert(name, config);
     }
 
     // local: プロジェクトで上書き
@@ -280,32 +281,32 @@ fn merge_configs(
 
     // filter: 和集合でマージ
     let mut filter = FilterConfig::default();
-    if let Some(ref gf) = global.filter {
-        if let Some(ref exc) = gf.exclude {
-            filter.exclude.extend(exc.iter().cloned());
+    if let Some(gf) = global.filter {
+        if let Some(exc) = gf.exclude {
+            filter.exclude.extend(exc);
         }
-        if let Some(ref sens) = gf.sensitive {
+        if let Some(sens) = gf.sensitive {
             // デフォルトsensitiveにグローバルを追加
             for s in sens {
-                if !filter.sensitive.contains(s) {
-                    filter.sensitive.push(s.clone());
+                if !filter.sensitive.contains(&s) {
+                    filter.sensitive.push(s);
                 }
             }
         }
     }
-    if let Some(ref proj) = project {
-        if let Some(ref pf) = proj.filter {
-            if let Some(ref exc) = pf.exclude {
+    if let Some(ref mut proj) = project {
+        if let Some(pf) = proj.filter.take() {
+            if let Some(exc) = pf.exclude {
                 for e in exc {
-                    if !filter.exclude.contains(e) {
-                        filter.exclude.push(e.clone());
+                    if !filter.exclude.contains(&e) {
+                        filter.exclude.push(e);
                     }
                 }
             }
-            if let Some(ref sens) = pf.sensitive {
+            if let Some(sens) = pf.sensitive {
                 for s in sens {
-                    if !filter.sensitive.contains(s) {
-                        filter.sensitive.push(s.clone());
+                    if !filter.sensitive.contains(&s) {
+                        filter.sensitive.push(s);
                     }
                 }
             }
@@ -423,27 +424,6 @@ fn expand_tilde(path: &str) -> PathBuf {
         }
     }
     PathBuf::from(path)
-}
-
-// ── Deserialize 用の Clone 実装 ──
-
-impl Clone for RawServerConfig {
-    fn clone(&self) -> Self {
-        Self {
-            host: self.host.clone(),
-            port: self.port,
-            user: self.user.clone(),
-            auth: self.auth.clone(),
-            key: self.key.clone(),
-            root_dir: self.root_dir.clone(),
-            ssh_options: self.ssh_options.as_ref().map(|o| RawSshOptions {
-                kex_algorithms: o.kex_algorithms.clone(),
-                host_key_algorithms: o.host_key_algorithms.clone(),
-                ciphers: o.ciphers.clone(),
-                mac_algorithms: o.mac_algorithms.clone(),
-            }),
-        }
-    }
 }
 
 #[cfg(test)]
