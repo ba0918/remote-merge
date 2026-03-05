@@ -1217,19 +1217,33 @@ fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     // 既存の接続を切断
     runtime.disconnect();
 
+    // ローカルツリーを再取得（ローカル側の変更も反映するため）
+    let local_tree_result = crate::local::scan_local_tree(
+        &runtime.config.local.root_dir,
+        &runtime.config.filter.exclude,
+    );
+
     match runtime.connect(&server_name) {
         Ok(()) => {
             match runtime.fetch_remote_tree(&server_name) {
                 Ok(tree) => {
-                    // 再接続成功: キャッシュとundoスタックをクリア
+                    // 再接続成功: ローカル・リモート両方のツリーとキャッシュをリセット
+                    if let Ok(local_tree) = local_tree_result {
+                        state.local_tree = local_tree;
+                    }
                     state.remote_tree = tree;
+                    state.local_cache.clear();
                     state.remote_cache.clear();
+                    state.error_paths.clear();
                     state.current_diff = None;
                     state.selected_path = None;
                     state.diff_scroll = 0;
                     state.hunk_cursor = 0;
                     state.pending_hunk_merge = None;
+                    state.undo_stack.clear();
                     state.is_connected = true;
+                    // 走査キャッシュをクリア（diff_filter_mode も解除される）
+                    state.clear_scan_cache();
                     state.rebuild_flat_nodes();
                     state.status_message = format!(
                         "接続復旧: {} | 未保存の変更はリセットされました",

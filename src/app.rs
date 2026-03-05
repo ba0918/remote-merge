@@ -613,11 +613,16 @@ impl AppState {
         self.status_message = format!("local ↔ {} | Tab: switch focus | q: quit", &new_server);
         self.server_name = new_server;
         self.remote_tree = remote_tree;
+        self.local_cache.clear();
         self.remote_cache.clear();
+        self.error_paths.clear();
         self.current_diff = None;
         self.selected_path = None;
         self.diff_scroll = 0;
         self.diff_cursor = 0;
+        self.undo_stack.clear();
+        // 走査キャッシュをクリア（diff_filter_mode も解除される）
+        self.clear_scan_cache();
         self.rebuild_flat_nodes();
         self.is_connected = true;
     }
@@ -2080,5 +2085,309 @@ mod tests {
         state.toggle_expand();
         assert!(!state.expanded_dirs.contains("src"));
         assert_eq!(state.flat_nodes.len(), 2);
+    }
+
+    // =========================================================================
+    // 再接続・サーバ切替時のステート整合性テスト
+    // =========================================================================
+
+    /// switch_server がローカルキャッシュもクリアすることを検証
+    /// (旧実装ではリモートキャッシュしかクリアされず、バッジ計算が狂っていた)
+    #[test]
+    fn test_switch_server_clears_local_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "old content".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "remote content".to_string());
+        state.error_paths.insert("a.txt".to_string());
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(
+            state.local_cache.is_empty(),
+            "local_cache がクリアされていない"
+        );
+        assert!(
+            state.remote_cache.is_empty(),
+            "remote_cache がクリアされていない"
+        );
+        assert!(
+            state.error_paths.is_empty(),
+            "error_paths がクリアされていない"
+        );
+    }
+
+    /// switch_server が走査キャッシュと diff_filter_mode をリセットすることを検証
+    /// (旧実装では古い走査結果が残り、DIFF ONLY モードが壊れていた)
+    #[test]
+    fn test_switch_server_clears_scan_cache_and_filter_mode() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        // 走査結果とフィルターモードを設定
+        state.scan_local_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.diff_filter_mode = true;
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(
+            state.scan_local_tree.is_none(),
+            "scan_local_tree がクリアされていない"
+        );
+        assert!(
+            state.scan_remote_tree.is_none(),
+            "scan_remote_tree がクリアされていない"
+        );
+        assert!(
+            !state.diff_filter_mode,
+            "diff_filter_mode が解除されていない"
+        );
+    }
+
+    /// switch_server が undo スタックをクリアすることを検証
+    /// (別サーバのスナップショットで undo するのは危険)
+    #[test]
+    fn test_switch_server_clears_undo_stack() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        // undo スタックにダミーデータを積む
+        state.undo_stack.push_back(CacheSnapshot {
+            local_content: "old".to_string(),
+            remote_content: "old-remote".to_string(),
+            diff: None,
+        });
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(
+            state.undo_stack.is_empty(),
+            "undo_stack がクリアされていない"
+        );
+        assert!(!state.has_unsaved_changes(), "unsaved changes が残っている");
+    }
+
+    /// diff_filter_mode 中に走査キャッシュがクリアされた場合、
+    /// フィルターモードが自動解除され通常表示に戻ることを検証
+    #[test]
+    fn test_clear_scan_cache_disables_filter_mode() {
+        let local_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+        let remote_nodes = vec![FileNode::new_file("a.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.scan_local_tree = Some(local_nodes);
+        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.diff_filter_mode = true;
+        state.rebuild_flat_nodes();
+
+        let nodes_in_filter = state.flat_nodes.len();
+
+        state.clear_scan_cache();
+
+        assert!(!state.diff_filter_mode);
+        // フィルター解除後はノード数が増える（全ファイル表示）
+        assert!(
+            state.flat_nodes.len() >= nodes_in_filter,
+            "フィルター解除後のノード数が減っている"
+        );
+    }
+
+    /// compute_scan_badge が走査キャッシュなしの場合 Unchecked を返すことを検証
+    /// (再接続で走査キャッシュクリア後、バッジが不正にならないこと)
+    #[test]
+    fn test_compute_scan_badge_without_scan_cache_returns_unchecked() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        // 走査キャッシュなし、コンテンツキャッシュもなし
+        state.scan_local_tree = None;
+        state.scan_remote_tree = None;
+
+        let badge = state.compute_scan_badge("a.txt", false);
+        assert_eq!(
+            badge,
+            Badge::Unchecked,
+            "走査キャッシュなしで Unchecked 以外が返された"
+        );
+    }
+
+    /// compute_scan_badge がコンテンツキャッシュを優先することを検証
+    /// (走査結果より正確なキャッシュベースのバッジを優先すべき)
+    #[test]
+    fn test_compute_scan_badge_prefers_content_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        // コンテンツキャッシュで両方同じ内容 → Equal
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "same".to_string());
+
+        // 走査結果ではサイズ違い（本来 Modified 判定になるはず）
+        let mut local_node = FileNode::new_file("a.txt");
+        local_node.size = Some(100);
+        let mut remote_node = FileNode::new_file("a.txt");
+        remote_node.size = Some(200);
+        state.scan_local_tree = Some(vec![local_node]);
+        state.scan_remote_tree = Some(vec![remote_node]);
+
+        let badge = state.compute_scan_badge("a.txt", false);
+        assert_eq!(
+            badge,
+            Badge::Equal,
+            "コンテンツキャッシュの Equal がスキャン結果より優先されるべき"
+        );
+    }
+
+    /// switch_server 後にバッジ計算が新しいツリーを基に正しく行われることを検証
+    #[test]
+    fn test_switch_server_badge_uses_new_tree() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        // a.txt は local/remote 両方にある → Unchecked (キャッシュなし)
+        let badge_before = state.compute_badge("a.txt", false);
+        assert_eq!(badge_before, Badge::Unchecked);
+
+        // 新サーバには a.txt がない
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        // a.txt は local にだけある → LocalOnly
+        let badge_after = state.compute_badge("a.txt", false);
+        assert_eq!(
+            badge_after,
+            Badge::LocalOnly,
+            "サーバ切替後にバッジが更新されていない"
+        );
+    }
+
+    /// error_paths が残っている場合、バッジが Error になることを確認し、
+    /// クリア後に正常に戻ることを検証
+    #[test]
+    fn test_error_paths_cleared_after_state_reset() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            "develop".to_string(),
+        );
+
+        state.error_paths.insert("a.txt".to_string());
+        assert_eq!(
+            state.compute_badge("a.txt", false),
+            Badge::Error,
+            "error_paths にあるのに Error バッジでない"
+        );
+
+        // clear_cache で error_paths がクリアされる
+        state.clear_cache();
+        assert_ne!(
+            state.compute_badge("a.txt", false),
+            Badge::Error,
+            "clear_cache 後も Error バッジが残っている"
+        );
+    }
+
+    /// diff_filter_mode で Equal ファイルが非表示になり、
+    /// サーバ切替後に全ファイルが再表示されることを検証
+    #[test]
+    fn test_diff_filter_to_server_switch_restores_all_files() {
+        let local_nodes = vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ];
+        let remote_nodes = vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // same.txt をキャッシュで Equal にする
+        state
+            .local_cache
+            .insert("same.txt".to_string(), "identical".to_string());
+        state
+            .remote_cache
+            .insert("same.txt".to_string(), "identical".to_string());
+        // changed.txt は Modified
+        state
+            .local_cache
+            .insert("changed.txt".to_string(), "local ver".to_string());
+        state
+            .remote_cache
+            .insert("changed.txt".to_string(), "remote ver".to_string());
+
+        // 走査キャッシュも設定
+        state.scan_local_tree = Some(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+        state.scan_remote_tree = Some(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+
+        // DIFF ONLY モード有効化
+        state.toggle_diff_filter();
+        assert!(state.diff_filter_mode);
+        let filtered_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
+
+        // サーバ切替
+        let new_tree = make_test_tree(vec![
+            FileNode::new_file("changed.txt"),
+            FileNode::new_file("same.txt"),
+        ]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert!(
+            !state.diff_filter_mode,
+            "サーバ切替後もフィルターモードが残っている"
+        );
+        let all_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
+        assert!(
+            all_count >= filtered_count,
+            "サーバ切替後にファイルが減っている (all={}, filtered={})",
+            all_count,
+            filtered_count
+        );
     }
 }
