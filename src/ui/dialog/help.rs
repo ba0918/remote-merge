@@ -40,11 +40,11 @@ impl HelpOverlay {
                         ("h/←".to_string(), "折りたたみ".to_string()),
                         (
                             "L (Shift)".to_string(),
-                            "local → remote マージ (ディレクトリ対応)".to_string(),
+                            "remote → local マージ (ディレクトリ対応)".to_string(),
                         ),
                         (
                             "R (Shift)".to_string(),
-                            "remote → local マージ (ディレクトリ対応)".to_string(),
+                            "local → remote マージ (ディレクトリ対応)".to_string(),
                         ),
                         (
                             "F (Shift)".to_string(),
