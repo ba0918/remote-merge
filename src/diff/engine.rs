@@ -28,7 +28,7 @@ pub enum DiffTag {
 pub struct DiffLine {
     /// 変更種別
     pub tag: DiffTag,
-    /// 行内容（改行を含む場合あり）
+    /// 行内容（末尾改行はトリム済み）
     pub value: String,
     /// 左側の行番号（Equal/Delete のとき Some）
     pub old_index: Option<usize>,
@@ -125,7 +125,7 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
 
         lines.push(DiffLine {
             tag,
-            value: change.value().to_string(),
+            value: change.value().trim_end_matches('\n').to_string(),
             old_index,
             new_index,
         });
@@ -185,12 +185,12 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
     for diff_line in &hunk.lines {
         match diff_line.tag {
             DiffTag::Equal => {
-                result.push(diff_line.value.trim_end_matches('\n').to_string());
+                result.push(diff_line.value.clone());
                 consumed += 1;
             }
             tag if tag == keep_tag => {
                 // 取り込む行: 結果に追加
-                result.push(diff_line.value.trim_end_matches('\n').to_string());
+                result.push(diff_line.value.clone());
             }
             tag if tag == replace_tag => {
                 // 置換される行: スキップ（元テキストの行を消費）
