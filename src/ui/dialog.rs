@@ -40,13 +40,13 @@ impl ConfirmDialog {
     /// ダイアログのメッセージを生成
     pub fn message(&self) -> String {
         match self.direction {
-            MergeDirection::LeftMerge => {
+            MergeDirection::LocalToRemote => {
                 format!(
                     "{} を {} → {} にマージしますか？",
                     self.file_path, self.source_name, self.target_name
                 )
             }
-            MergeDirection::RightMerge => {
+            MergeDirection::RemoteToLocal => {
                 format!(
                     "{} を {} → {} にマージしますか？",
                     self.file_path, self.source_name, self.target_name
@@ -643,7 +643,7 @@ mod tests {
     fn test_confirm_dialog_message_left_merge() {
         let dialog = ConfirmDialog::new(
             "src/config.ts".to_string(),
-            MergeDirection::LeftMerge,
+            MergeDirection::LocalToRemote,
             "local".to_string(),
             "develop".to_string(),
         );
@@ -658,7 +658,7 @@ mod tests {
         // RightMerge: show_merge_dialog では source=server_name, target="local"
         let dialog = ConfirmDialog::new(
             "src/config.ts".to_string(),
-            MergeDirection::RightMerge,
+            MergeDirection::RemoteToLocal,
             "develop".to_string(),
             "local".to_string(),
         );
@@ -673,7 +673,7 @@ mod tests {
         // LeftMerge: source="local", target="develop"
         let left = ConfirmDialog::new(
             "app.js".to_string(),
-            MergeDirection::LeftMerge,
+            MergeDirection::LocalToRemote,
             "local".to_string(),
             "staging".to_string(),
         );
@@ -682,7 +682,7 @@ mod tests {
         // RightMerge: source="staging", target="local"
         let right = ConfirmDialog::new(
             "app.js".to_string(),
-            MergeDirection::RightMerge,
+            MergeDirection::RemoteToLocal,
             "staging".to_string(),
             "local".to_string(),
         );
@@ -755,7 +755,7 @@ mod tests {
     fn test_confirm_dialog_render() {
         let dialog = ConfirmDialog::new(
             "test.txt".to_string(),
-            MergeDirection::LeftMerge,
+            MergeDirection::LocalToRemote,
             "local".to_string(),
             "develop".to_string(),
         );

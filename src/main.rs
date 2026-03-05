@@ -413,13 +413,13 @@ fn run_event_loop(
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
                         if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('L') {
-                            state.show_merge_dialog(MergeDirection::LeftMerge);
+                            state.show_merge_dialog(MergeDirection::LocalToRemote);
                         }
                     }
                     KeyCode::Char('R') => {
                         // Shift+R: RightMerge (remote → local)
                         if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('R') {
-                            state.show_merge_dialog(MergeDirection::RightMerge);
+                            state.show_merge_dialog(MergeDirection::RemoteToLocal);
                         }
                     }
                     _ => {}
@@ -763,7 +763,7 @@ fn execute_merge(
     let direction = confirm.direction;
 
     match direction {
-        MergeDirection::LeftMerge => {
+        MergeDirection::LocalToRemote => {
             // local → remote: ローカル内容をリモートに書き込む
             let content = match state.local_cache.get(path) {
                 Some(c) => c.clone(),
@@ -791,7 +791,7 @@ fn execute_merge(
                 }
             }
         }
-        MergeDirection::RightMerge => {
+        MergeDirection::RemoteToLocal => {
             // remote → local: リモート内容をローカルに書き込む
             let content = match state.remote_cache.get(path) {
                 Some(c) => c.clone(),

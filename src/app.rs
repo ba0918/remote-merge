@@ -158,7 +158,8 @@ impl AppState {
             focus: Focus::FileTree,
             local_tree,
             remote_tree,
-            server_name: server_name.clone(),
+            status_message: format!("local ↔ {} | Tab: switch focus | q: quit", &server_name),
+            server_name,
             available_servers: Vec::new(),
             local_cache: HashMap::new(),
             remote_cache: HashMap::new(),
@@ -173,7 +174,6 @@ impl AppState {
             diff_visible_height: 20, // デフォルト値（render時に更新）
             expanded_dirs: std::collections::HashSet::new(),
             should_quit: false,
-            status_message: format!("local ↔ {} | Tab: switch focus | q: quit", server_name),
             dialog: DialogState::None,
             is_connected: false,
             exclude_patterns: Vec::new(),
@@ -383,12 +383,11 @@ impl AppState {
 
     /// 現在カーソル位置のファイルを選択して diff を計算する
     pub fn select_file(&mut self) {
-        let node = match self.flat_nodes.get(self.tree_cursor) {
-            Some(n) if !n.is_dir => n.clone(),
+        let path = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) if !n.is_dir => n.path.clone(),
             _ => return,
         };
 
-        let path = node.path.clone();
         self.selected_path = Some(path.clone());
 
         // キャッシュからコンテンツを取得して diff
@@ -455,8 +454,8 @@ impl AppState {
 
     /// マージ確認ダイアログを表示する (Shift+L / Shift+R)
     pub fn show_merge_dialog(&mut self, direction: MergeDirection) {
-        let node = match self.flat_nodes.get(self.tree_cursor) {
-            Some(n) if !n.is_dir => n.clone(),
+        let path = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) if !n.is_dir => n.path.clone(),
             _ => {
                 self.status_message = "ファイルを選択してください".to_string();
                 return;
@@ -464,12 +463,12 @@ impl AppState {
         };
 
         let (source, target) = match direction {
-            MergeDirection::LeftMerge => ("local".to_string(), self.server_name.clone()),
-            MergeDirection::RightMerge => (self.server_name.clone(), "local".to_string()),
+            MergeDirection::LocalToRemote => ("local".to_string(), self.server_name.clone()),
+            MergeDirection::RemoteToLocal => (self.server_name.clone(), "local".to_string()),
         };
 
         self.dialog = DialogState::Confirm(ConfirmDialog::new(
-            node.path.clone(),
+            path,
             direction,
             source,
             target,
@@ -506,11 +505,11 @@ impl AppState {
     /// マージ完了後にバッジを更新する
     pub fn update_badge_after_merge(&mut self, path: &str, content: &str, direction: MergeDirection) {
         match direction {
-            MergeDirection::LeftMerge => {
+            MergeDirection::LocalToRemote => {
                 // ローカル → リモート: リモートキャッシュをローカルの内容で更新
                 self.remote_cache.insert(path.to_string(), content.to_string());
             }
-            MergeDirection::RightMerge => {
+            MergeDirection::RemoteToLocal => {
                 // リモート → ローカル: ローカルキャッシュをリモートの内容で更新
                 self.local_cache.insert(path.to_string(), content.to_string());
             }
@@ -524,7 +523,11 @@ impl AppState {
 
     /// サーバ切替後にツリーを再構築する
     pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
-        self.server_name = new_server.clone();
+        self.status_message = format!(
+            "local ↔ {} | Tab: switch focus | q: quit",
+            &new_server
+        );
+        self.server_name = new_server;
         self.remote_tree = remote_tree;
         self.remote_cache.clear();
         self.current_diff = None;
@@ -532,10 +535,6 @@ impl AppState {
         self.diff_scroll = 0;
         self.diff_cursor = 0;
         self.rebuild_flat_nodes();
-        self.status_message = format!(
-            "local ↔ {} | Tab: switch focus | q: quit",
-            new_server
-        );
         self.is_connected = true;
     }
 
@@ -992,7 +991,7 @@ fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNode> 
             if let Some(children) = &node.children {
                 // リモートの子ノードもマージ
                 let existing = std::mem::take(&mut entry.children);
-                entry.children = merge_merged_with_file_nodes(&existing, children);
+                entry.children = merge_merged_with_file_nodes(existing, children);
             }
         }
     }
@@ -1017,11 +1016,11 @@ impl MergedNode {
 }
 
 /// MergedNode リストと FileNode リストをマージ
-fn merge_merged_with_file_nodes(merged: &[MergedNode], file_nodes: &[FileNode]) -> Vec<MergedNode> {
+fn merge_merged_with_file_nodes(merged: Vec<MergedNode>, file_nodes: &[FileNode]) -> Vec<MergedNode> {
     let mut map: std::collections::BTreeMap<String, MergedNode> = std::collections::BTreeMap::new();
 
     for m in merged {
-        map.insert(m.name.clone(), m.clone());
+        map.insert(m.name.clone(), m);
     }
 
     for node in file_nodes {
@@ -1133,12 +1132,12 @@ mod tests {
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LeftMerge);
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
         assert!(matches!(state.dialog, DialogState::Confirm(_)));
 
         if let DialogState::Confirm(ref d) = state.dialog {
             assert_eq!(d.file_path, "test.txt");
-            assert_eq!(d.direction, MergeDirection::LeftMerge);
+            assert_eq!(d.direction, MergeDirection::LocalToRemote);
         }
     }
 
@@ -1154,10 +1153,10 @@ mod tests {
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::RightMerge);
+        state.show_merge_dialog(MergeDirection::RemoteToLocal);
 
         if let DialogState::Confirm(ref d) = state.dialog {
-            assert_eq!(d.direction, MergeDirection::RightMerge);
+            assert_eq!(d.direction, MergeDirection::RemoteToLocal);
         } else {
             panic!("Expected Confirm dialog");
         }
@@ -1174,7 +1173,7 @@ mod tests {
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LeftMerge);
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
         assert!(matches!(state.dialog, DialogState::None));
     }
 
@@ -1202,7 +1201,7 @@ mod tests {
             "develop".to_string(),
         );
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LeftMerge);
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
         assert!(state.has_dialog());
         state.close_dialog();
         assert!(!state.has_dialog());
@@ -1237,7 +1236,7 @@ mod tests {
         );
 
         state.local_cache.insert("test.txt".to_string(), "content".to_string());
-        state.update_badge_after_merge("test.txt", "content", MergeDirection::LeftMerge);
+        state.update_badge_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
 
         // リモートキャッシュが更新されている
         assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");

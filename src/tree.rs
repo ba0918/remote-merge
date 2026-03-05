@@ -1,3 +1,10 @@
+//! ファイルツリーのデータ構造と操作。
+//!
+//! ## パスの規約
+//! - `FileNode.name`: ファイル名（String、UTF-8前提）
+//! - ツリー内のパス: `/` 区切りの相対パス（String）
+//! - システムパス操作: `std::path::Path` / `PathBuf` を使用
+
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -127,6 +134,7 @@ pub struct FileTree {
 }
 
 impl FileTree {
+    /// 指定ルートパスで空のファイルツリーを作成する。
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
@@ -139,8 +147,12 @@ impl FileTree {
         sort_nodes(&mut self.nodes);
     }
 
-    /// 指定パスのノードを検索（相対パス）
-    pub fn find_node(&self, rel_path: &Path) -> Option<&FileNode> {
+    /// 指定パスのノードを検索（相対パス）。
+    ///
+    /// `rel_path` には `&str`、`&Path`、`&PathBuf` など `AsRef<Path>` を実装する
+    /// 任意の型を渡すことができる。パスは `/` 区切りの相対パスとして解釈される。
+    pub fn find_node(&self, rel_path: impl AsRef<Path>) -> Option<&FileNode> {
+        let rel_path = rel_path.as_ref();
         let components: Vec<&str> = rel_path
             .components()
             .map(|c| c.as_os_str().to_str().unwrap_or(""))
@@ -148,8 +160,12 @@ impl FileTree {
         find_node_recursive(&self.nodes, &components)
     }
 
-    /// 指定パスのノードを可変参照で検索（相対パス）
-    pub fn find_node_mut(&mut self, rel_path: &Path) -> Option<&mut FileNode> {
+    /// 指定パスのノードを可変参照で検索（相対パス）。
+    ///
+    /// `rel_path` には `&str`、`&Path`、`&PathBuf` など `AsRef<Path>` を実装する
+    /// 任意の型を渡すことができる。パスは `/` 区切りの相対パスとして解釈される。
+    pub fn find_node_mut(&mut self, rel_path: impl AsRef<Path>) -> Option<&mut FileNode> {
+        let rel_path = rel_path.as_ref();
         let components: Vec<&str> = rel_path
             .components()
             .map(|c| c.as_os_str().to_str().unwrap_or(""))
@@ -158,6 +174,7 @@ impl FileTree {
     }
 }
 
+/// ノードリストを再帰的にソートする（ディレクトリ優先、名前順）。
 fn sort_nodes(nodes: &mut [FileNode]) {
     nodes.sort_by(|a, b| {
         let a_is_dir = a.is_dir() as u8;
@@ -171,6 +188,7 @@ fn sort_nodes(nodes: &mut [FileNode]) {
     }
 }
 
+/// パスコンポーネント列を辿ってノードを可変参照で検索する。
 fn find_node_mut_recursive<'a>(
     nodes: &'a mut [FileNode],
     path: &[&str],
@@ -191,6 +209,7 @@ fn find_node_mut_recursive<'a>(
     }
 }
 
+/// パスコンポーネント列を辿ってノードを不変参照で検索する。
 fn find_node_recursive<'a>(nodes: &'a [FileNode], path: &[&str]) -> Option<&'a FileNode> {
     if path.is_empty() {
         return None;

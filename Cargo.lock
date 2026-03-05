@@ -2432,14 +2432,17 @@ name = "remote-merge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "clap",
  "crossterm",
  "dirs",
  "glob-match",
+ "hmac",
  "ratatui",
  "russh",
  "serde",
+ "sha1 0.10.6",
  "similar",
  "tempfile",
  "thiserror 2.0.18",
