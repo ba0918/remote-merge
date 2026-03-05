@@ -93,6 +93,12 @@ impl AppState {
             batch.check_sensitive(&self.sensitive_patterns);
             self.dialog = DialogState::BatchConfirm(batch);
         } else {
+            // 差分がなければ Info ダイアログ
+            let badge = self.compute_badge(&node.path, false);
+            if badge == Badge::Equal {
+                self.dialog = DialogState::Info(format!("No differences found in {}", node.path));
+                return;
+            }
             self.dialog =
                 DialogState::Confirm(ConfirmDialog::new(node.path, direction, source, target));
         }

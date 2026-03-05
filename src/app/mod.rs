@@ -262,6 +262,34 @@ mod tests {
     }
 
     #[test]
+    fn test_show_merge_dialog_file_equal_shows_info() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // 両方同じ内容 → Equal
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "same".to_string());
+
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(
+            matches!(state.dialog, DialogState::Info(_)),
+            "Expected Info dialog for equal file, got {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
     fn test_show_merge_dialog_dir_skipped() {
         let local_nodes = vec![FileNode::new_dir("src")];
 
