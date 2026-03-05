@@ -282,6 +282,32 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     Rect::new(x, y, width.min(area.width), height.min(area.height))
 }
 
+/// ダイアログ共通フレームを描画し、内部領域を返す。
+///
+/// 各ダイアログウィジェットで重複していた以下のパターンを共通化:
+/// 1. `centered_rect` で位置計算
+/// 2. `Clear` で背景クリア
+/// 3. `Block` でボーダー描画
+/// 4. 内部領域の取得
+pub fn render_dialog_frame(
+    title: &str,
+    border_color: Color,
+    width: u16,
+    height: u16,
+    area: Rect,
+    buf: &mut Buffer,
+) -> Rect {
+    let dialog_area = centered_rect(width, height, area);
+    Clear.render(dialog_area, buf);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color).add_modifier(Modifier::BOLD));
+    let inner = block.inner(dialog_area);
+    block.render(dialog_area, buf);
+    inner
+}
+
 /// 確認ダイアログウィジェット
 pub struct ConfirmDialogWidget<'a> {
     dialog: &'a ConfirmDialog,
@@ -295,18 +321,7 @@ impl<'a> ConfirmDialogWidget<'a> {
 
 impl<'a> Widget for ConfirmDialogWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let dialog_area = centered_rect(60, 7, area);
-
-        // 背景をクリア
-        Clear.render(dialog_area, buf);
-
-        let block = Block::default()
-            .title(" Merge Confirmation ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-
-        let inner = block.inner(dialog_area);
-        block.render(dialog_area, buf);
+        let inner = render_dialog_frame(" Merge Confirmation ", Color::Yellow, 60, 7, area, buf);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -352,18 +367,7 @@ impl<'a> ServerMenuWidget<'a> {
 impl<'a> Widget for ServerMenuWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let height = (self.menu.servers.len() as u16) + 4; // borders + title + padding
-        let dialog_area = centered_rect(40, height, area);
-
-        // 背景をクリア
-        Clear.render(dialog_area, buf);
-
-        let block = Block::default()
-            .title(" Server Select ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
-
-        let inner = block.inner(dialog_area);
-        block.render(dialog_area, buf);
+        let inner = render_dialog_frame(" Server Select ", Color::Cyan, 40, height, area, buf);
 
         let lines: Vec<Line> = self
             .menu
@@ -413,18 +417,7 @@ impl<'a> FilterPanelWidget<'a> {
 impl<'a> Widget for FilterPanelWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let height = (self.panel.patterns.len() as u16) + 6; // borders + title + guide + padding
-        let dialog_area = centered_rect(50, height, area);
-
-        // 背景をクリア
-        Clear.render(dialog_area, buf);
-
-        let block = Block::default()
-            .title(" Filters ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD));
-
-        let inner = block.inner(dialog_area);
-        block.render(dialog_area, buf);
+        let inner = render_dialog_frame(" Filters ", Color::Magenta, 50, height, area, buf);
 
         // パターン一覧 + ガイド行
         let constraints: Vec<Constraint> = (0..self.panel.patterns.len())
@@ -494,17 +487,7 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
 
         let width = area.width.min(60);
         let height = ((total_lines as u16) + 4).min(area.height); // borders + padding
-        let dialog_area = centered_rect(width, height, area);
-
-        Clear.render(dialog_area, buf);
-
-        let block = Block::default()
-            .title(" Help (? to close) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
-
-        let inner = block.inner(dialog_area);
-        block.render(dialog_area, buf);
+        let inner = render_dialog_frame(" Help (? to close) ", Color::Cyan, width, height, area, buf);
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -559,19 +542,8 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let width = area.width.min(76);
         let height = area.height.min(24);
-        let dialog_area = centered_rect(width, height, area);
-
-        // 背景をクリア
-        Clear.render(dialog_area, buf);
-
         let title = format!(" Hunk Merge Preview ({}) ", self.preview.direction_label);
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-
-        let inner = block.inner(dialog_area);
-        block.render(dialog_area, buf);
+        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf);
 
         // レイアウト: ファイルパス + Before + After + ガイド
         let half_height = inner.height.saturating_sub(4) / 2;
