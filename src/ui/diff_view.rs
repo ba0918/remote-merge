@@ -149,38 +149,38 @@ impl<'a> DiffView<'a> {
     /// - Equal: (Some(line), Some(line))
     /// - Delete: (Some(line), None) — 次の Insert とペアリングを試みる
     /// - Insert: (None, Some(line))
-    pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Option<DiffLine>)> {
+    pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
         let mut result = Vec::new();
         let mut i = 0;
 
         while i < lines.len() {
             match lines[i].tag {
                 DiffTag::Equal => {
-                    result.push((Some(lines[i].clone()), Some(lines[i].clone())));
+                    result.push((Some(&lines[i]), Some(&lines[i])));
                     i += 1;
                 }
                 DiffTag::Delete => {
                     // Delete/Insert のペアリングを試みる
-                    let mut deletes = Vec::new();
+                    let delete_start = i;
                     while i < lines.len() && lines[i].tag == DiffTag::Delete {
-                        deletes.push(lines[i].clone());
                         i += 1;
                     }
-                    let mut inserts = Vec::new();
+                    let delete_end = i;
                     while i < lines.len() && lines[i].tag == DiffTag::Insert {
-                        inserts.push(lines[i].clone());
                         i += 1;
                     }
 
-                    let max_len = deletes.len().max(inserts.len());
+                    let delete_count = delete_end - delete_start;
+                    let insert_count = i - delete_end;
+                    let max_len = delete_count.max(insert_count);
                     for j in 0..max_len {
-                        let left = deletes.get(j).cloned();
-                        let right = inserts.get(j).cloned();
+                        let left = if j < delete_count { Some(&lines[delete_start + j]) } else { None };
+                        let right = if j < insert_count { Some(&lines[delete_end + j]) } else { None };
                         result.push((left, right));
                     }
                 }
                 DiffTag::Insert => {
-                    result.push((None, Some(lines[i].clone())));
+                    result.push((None, Some(&lines[i])));
                     i += 1;
                 }
             }
@@ -196,8 +196,8 @@ impl<'a> DiffView<'a> {
     /// `is_pending`: 確定待ちマージがあるか
     /// `is_cursor_line`: この行がカーソルラインかどうか
     fn render_side_by_side_line(
-        left: &Option<DiffLine>,
-        right: &Option<DiffLine>,
+        left: Option<&DiffLine>,
+        right: Option<&DiffLine>,
         half_width: u16,
         is_current_hunk: bool,
         is_focused: bool,
@@ -222,7 +222,7 @@ impl<'a> DiffView<'a> {
             None
         };
 
-        let render_half = |line_opt: &Option<DiffLine>| -> Vec<Span<'static>> {
+        let render_half = |line_opt: Option<&DiffLine>| -> Vec<Span<'static>> {
             match line_opt {
                 Some(line) => {
                     let num = Self::format_line_num(match line.tag {
@@ -470,10 +470,10 @@ impl<'a> Widget for DiffView<'a> {
                                 // ペア内のいずれかの行がカレントハンクに含まれるか
                                 let in_current_hunk = current_hunk
                                     .map(|h| {
-                                        let left_match = left.as_ref()
+                                        let left_match = left
                                             .map(|l| Self::is_line_in_hunk(l, h))
                                             .unwrap_or(false);
-                                        let right_match = right.as_ref()
+                                        let right_match = right
                                             .map(|r| Self::is_line_in_hunk(r, h))
                                             .unwrap_or(false);
                                         left_match || right_match
@@ -481,7 +481,7 @@ impl<'a> Widget for DiffView<'a> {
                                     .unwrap_or(false);
                                 let is_cursor = pair_idx == cursor;
                                 Self::render_side_by_side_line(
-                                    left, right, half_width,
+                                    *left, *right, half_width,
                                     in_current_hunk, is_focused, is_pending, is_cursor,
                                 )
                             })
