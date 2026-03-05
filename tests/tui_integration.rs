@@ -927,3 +927,212 @@ fn test_help_contains_updated_keybinds() {
     let descs: Vec<&str> = diff_section.bindings.iter().map(|(_, d)| d.as_str()).collect();
     assert!(!descs.iter().any(|d| d.contains("次のハンクへ") && !d.contains("ジャンプ")), "旧ハンクナビゲーション表記が残っていないべき");
 }
+
+// === UX 改善 Round 2 テスト ===
+
+#[test]
+fn test_equal_shows_file_content() {
+    use remote_merge::diff::engine::DiffResult;
+    use remote_merge::ui::diff_view::DiffView;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::Widget;
+
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let content = "line1\nline2\nline3\n";
+    state.local_cache.insert("test.txt".to_string(), content.to_string());
+    state.remote_cache.insert("test.txt".to_string(), content.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+
+    assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+
+    // レンダリングしてコンテンツが含まれるか確認
+    let area = Rect::new(0, 0, 80, 15);
+    let mut buf = Buffer::empty(area);
+    let widget = DiffView::new(&state);
+    widget.render(area, &mut buf);
+
+    let rendered: String = (0..area.height)
+        .map(|y| {
+            (0..area.width)
+                .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("identical"), "identical バナーが表示されるべき");
+    assert!(rendered.contains("line1"), "ファイル内容が表示されるべき");
+    assert!(rendered.contains("line2"), "ファイル内容が表示されるべき");
+}
+
+#[test]
+fn test_equal_scroll_works() {
+    use remote_merge::diff::engine::DiffResult;
+
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let content: String = (0..50).map(|i| format!("line{}\n", i)).collect();
+    state.local_cache.insert("test.txt".to_string(), content.clone());
+    state.remote_cache.insert("test.txt".to_string(), content);
+    state.tree_cursor = 0;
+    state.select_file();
+
+    assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+    assert_eq!(state.diff_line_count(), 50);
+
+    state.scroll_down();
+    assert_eq!(state.diff_scroll, 1);
+
+    state.scroll_page_down(20);
+    assert_eq!(state.diff_scroll, 21);
+}
+
+#[test]
+fn test_key_hints_file_tree() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    let hints = state.build_key_hints();
+    assert!(hints.contains("j/k"), "FileTree ヒントに j/k が含まれるべき");
+    assert!(hints.contains("Enter"), "FileTree ヒントに Enter が含まれるべき");
+    assert!(hints.contains("help"), "FileTree ヒントに help が含まれるべき");
+}
+
+#[test]
+fn test_key_hints_diff_view_no_changes() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    state.local_cache.insert("test.txt".to_string(), "aaa\n".to_string());
+    state.remote_cache.insert("test.txt".to_string(), "bbb\n".to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    let hints = state.build_key_hints();
+    assert!(hints.contains("scroll"), "DiffView ヒントに scroll が含まれるべき");
+    assert!(hints.contains("hunk"), "DiffView ヒントに hunk が含まれるべき");
+    assert!(hints.contains("apply"), "DiffView ヒントに apply が含まれるべき");
+}
+
+#[test]
+fn test_key_hints_diff_view_with_changes() {
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    // 2箇所に差分を持つファイル（1つ適用しても Modified のまま残る）
+    let old = "line1\nline2\nline3\nline4\nline5\n";
+    let new = "line1\nAAA\nline3\nBBB\nline5\n";
+    state.local_cache.insert("test.txt".to_string(), old.to_string());
+    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    state.apply_hunk_merge(HunkDirection::RightToLeft);
+
+    let hints = state.build_key_hints();
+    assert!(hints.contains("changes"), "変更ありヒントに changes が含まれるべき");
+    assert!(hints.contains("write"), "変更ありヒントに write が含まれるべき");
+    assert!(hints.contains("undo"), "変更ありヒントに undo が含まれるべき");
+}
+
+#[test]
+fn test_key_hints_diff_view_equal() {
+    use remote_merge::diff::engine::DiffResult;
+
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+
+    state.local_cache.insert("test.txt".to_string(), "same\n".to_string());
+    state.remote_cache.insert("test.txt".to_string(), "same\n".to_string());
+    state.tree_cursor = 0;
+    state.select_file();
+    state.focus = Focus::DiffView;
+
+    assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+
+    let hints = state.build_key_hints();
+    assert!(hints.contains("scroll"), "Equal ヒントに scroll が含まれるべき");
+    assert!(hints.contains("tree"), "Equal ヒントに tree が含まれるべき");
+}
+
+#[test]
+fn test_cursor_line_has_background() {
+    use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::ui::diff_view::DiffView;
+
+    let line = DiffLine {
+        tag: DiffTag::Equal,
+        value: "same line\n".to_string(),
+        old_index: Some(0),
+        new_index: Some(0),
+    };
+    // カーソルラインかつフォーカス中 → 背景色が付く
+    let rendered = DiffView::render_diff_line_with_highlight(&line, false, true, false, true);
+    let value_span = rendered.spans.last().unwrap();
+    assert_eq!(
+        value_span.style.bg,
+        Some(ratatui::style::Color::Rgb(30, 30, 50)),
+        "カーソルラインに背景色が設定されるべき"
+    );
+}
+
+#[test]
+fn test_cursor_line_priority_below_diff() {
+    use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::ui::diff_view::DiffView;
+
+    let line = DiffLine {
+        tag: DiffTag::Insert,
+        value: "new line\n".to_string(),
+        old_index: None,
+        new_index: Some(0),
+    };
+    // Insert行 + カーソルライン → diff色 (緑) が優先
+    let rendered = DiffView::render_diff_line_with_highlight(&line, false, true, false, true);
+    let value_span = rendered.spans.last().unwrap();
+    assert_eq!(
+        value_span.style.bg,
+        Some(ratatui::style::Color::Rgb(0, 30, 0)),
+        "diff色がカーソルラインより優先されるべき"
+    );
+}
+
+#[test]
+fn test_cursor_line_priority_below_hunk() {
+    use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::ui::diff_view::DiffView;
+
+    let line = DiffLine {
+        tag: DiffTag::Equal,
+        value: "same line\n".to_string(),
+        old_index: Some(0),
+        new_index: Some(0),
+    };
+    // ハンクハイライト + カーソルライン → ハンクが最優先
+    let rendered = DiffView::render_diff_line_with_highlight(&line, true, true, false, true);
+    let value_span = rendered.spans.last().unwrap();
+    assert_eq!(
+        value_span.style.bg,
+        Some(ratatui::style::Color::Rgb(40, 40, 60)),
+        "ハンクハイライトがカーソルラインより優先されるべき"
+    );
+}

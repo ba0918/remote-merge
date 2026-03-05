@@ -66,11 +66,14 @@ impl<'a> DiffView<'a> {
     }
 
     /// diff 行を Line に変換（ハンクハイライト付き）
-    fn render_diff_line_with_highlight(
+    ///
+    /// `is_cursor_line`: この行がカーソルライン（スクロール先頭行）かどうか
+    pub fn render_diff_line_with_highlight(
         line: &DiffLine,
         is_current_hunk: bool,
         is_focused: bool,
         is_pending: bool,
+        is_cursor_line: bool,
     ) -> Line<'static> {
         let style = Self::line_style(line.tag);
         let old_num = Self::format_line_num(line.old_index);
@@ -85,8 +88,9 @@ impl<'a> DiffView<'a> {
             DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         };
 
-        // 背景色の優先度: ハンクハイライト > base_bg (Insert/Delete)
+        // 背景色の優先度: ハンクハイライト > diff色(Insert/Delete) > カーソルライン > なし
         let base_bg = Self::base_bg(line.tag);
+        let cursor_bg = Color::Rgb(30, 30, 50);
 
         let bg = if is_current_hunk && is_focused {
             if is_pending {
@@ -94,8 +98,12 @@ impl<'a> DiffView<'a> {
             } else {
                 Some(Color::Rgb(40, 40, 60)) // 青系: 通常選択（最優先）
             }
-        } else {
+        } else if base_bg.is_some() {
             base_bg // Insert/Delete の背景色
+        } else if is_cursor_line && is_focused {
+            Some(cursor_bg) // カーソルライン（Equal行のみ適用）
+        } else {
+            None
         };
 
         let (style, num_style, prefix_style) = if let Some(bg) = bg {
@@ -300,11 +308,62 @@ impl<'a> Widget for DiffView<'a> {
                 msg.render(inner, buf);
             }
             Some(DiffResult::Equal) => {
-                let msg = Paragraph::new(Line::from(vec![
+                // Equal: バナー + ファイル内容を表示（読み取り専用）
+                let visible_height = inner.height as usize;
+                let mut display_lines: Vec<Line> = Vec::new();
+
+                // バナー行
+                display_lines.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled("Files are identical", Style::default().fg(Color::Green)),
+                    Span::styled("✓ Files are identical", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ]));
-                msg.render(inner, buf);
+
+                // ファイル内容を表示（local_cache から取得）
+                if let Some(path) = &self.state.selected_path {
+                    if let Some(content) = self.state.local_cache.get(path) {
+                        let content_lines: Vec<&str> = content.lines().collect();
+                        let total_lines = content_lines.len();
+                        let scroll = self.state.diff_scroll.min(total_lines.saturating_sub(1));
+                        let cursor_line_idx = 0; // スクロール先頭行
+
+                        for (view_idx, (i, text)) in content_lines.iter().enumerate()
+                            .skip(scroll)
+                            .take(visible_height.saturating_sub(2)) // バナー + サマリー分を引く
+                            .enumerate()
+                        {
+                            let line_num = format!("{:>5} ", i + 1);
+                            let is_cursor = view_idx == cursor_line_idx && is_focused;
+                            let bg = if is_cursor {
+                                Some(Color::Rgb(30, 30, 50))
+                            } else {
+                                None
+                            };
+                            let num_style = match bg {
+                                Some(bg) => Style::default().fg(Color::DarkGray).bg(bg),
+                                None => Style::default().fg(Color::DarkGray),
+                            };
+                            let text_style = match bg {
+                                Some(bg) => Style::default().fg(Color::White).bg(bg),
+                                None => Style::default().fg(Color::White),
+                            };
+                            display_lines.push(Line::from(vec![
+                                Span::styled(line_num, num_style),
+                                Span::styled(text.to_string(), text_style),
+                            ]));
+                        }
+
+                        // サマリー行
+                        display_lines.push(Line::from(vec![
+                            Span::styled(
+                                format!(" ={} | {}/{} | identical", total_lines, scroll + 1, total_lines),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]));
+                    }
+                }
+
+                let paragraph = Paragraph::new(display_lines);
+                paragraph.render(inner, buf);
             }
             Some(DiffResult::Binary) => {
                 let msg = Paragraph::new(Line::from(vec![
@@ -328,17 +387,21 @@ impl<'a> Widget for DiffView<'a> {
                     DiffMode::SideBySide => "side-by-side",
                 };
 
+                let cursor_line_idx: usize = 0; // スクロール先頭行がカーソルライン
+
                 let mut display_lines: Vec<Line> = match self.state.diff_mode {
                     DiffMode::Unified => {
                         lines
                             .iter()
                             .skip(scroll)
                             .take(visible_height.saturating_sub(1))
-                            .map(|line| {
+                            .enumerate()
+                            .map(|(view_idx, line)| {
                                 let in_current_hunk = current_hunk
                                     .map(|h| Self::is_line_in_hunk(line, h))
                                     .unwrap_or(false);
-                                Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused, is_pending)
+                                let is_cursor = view_idx == cursor_line_idx;
+                                Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused, is_pending, is_cursor)
                             })
                             .collect()
                     }
@@ -506,7 +569,7 @@ mod tests {
             old_index: None,
             new_index: Some(0),
         };
-        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false, false);
         // Insert 行のスタイルに bg が設定されていることを確認
         // rendered の最後の Span (value) のスタイルをチェック
         let value_span = rendered.spans.last().unwrap();
@@ -525,7 +588,7 @@ mod tests {
             old_index: Some(0),
             new_index: None,
         };
-        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false, false);
         let value_span = rendered.spans.last().unwrap();
         assert_eq!(
             value_span.style.bg,
@@ -542,7 +605,7 @@ mod tests {
             old_index: Some(0),
             new_index: Some(0),
         };
-        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false, false);
         let value_span = rendered.spans.last().unwrap();
         assert_eq!(
             value_span.style.bg,

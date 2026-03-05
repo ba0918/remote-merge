@@ -216,11 +216,43 @@ impl AppState {
         };
     }
 
-    /// diff の全行数を返す
+    /// diff の全行数を返す（Equal 時はキャッシュのコンテンツ行数）
     pub fn diff_line_count(&self) -> usize {
         match &self.current_diff {
             Some(DiffResult::Modified { lines, .. }) => lines.len(),
+            Some(DiffResult::Equal) => {
+                // Equal 時は local_cache のコンテンツ行数
+                self.selected_path.as_ref()
+                    .and_then(|p| self.local_cache.get(p))
+                    .map(|c| c.lines().count())
+                    .unwrap_or(0)
+            }
             _ => 0,
+        }
+    }
+
+    /// フッターに表示するキーバインドヒント文字列を生成する
+    pub fn build_key_hints(&self) -> String {
+        match self.focus {
+            Focus::FileTree => "[j/k] move [Enter] open [Tab] diff [?] help".to_string(),
+            Focus::DiffView => {
+                match &self.current_diff {
+                    Some(DiffResult::Equal) => {
+                        "[j/k] scroll [Tab] tree [?] help".to_string()
+                    }
+                    Some(DiffResult::Modified { .. }) => {
+                        if self.has_unsaved_changes() {
+                            format!(
+                                "[{} changes] [w] write [u] undo [→/←] apply",
+                                self.undo_stack.len()
+                            )
+                        } else {
+                            "[j/k] scroll [n/N] hunk [→/←] apply [?] help".to_string()
+                        }
+                    }
+                    _ => "[Tab] tree [?] help".to_string(),
+                }
+            }
         }
     }
 

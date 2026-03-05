@@ -965,9 +965,15 @@ fn draw_ui(frame: &mut Frame, state: &AppState) {
     let diff_view = DiffView::new(state);
     frame.render_widget(diff_view, layout.diff_pane);
 
-    // ステータスバー
+    // ステータスバー（キーヒント + メッセージの2部構成）
+    let key_hints = state.build_key_hints();
     let status = Paragraph::new(Line::from(vec![
-        Span::styled(&state.status_message, Style::default().fg(Color::White)),
+        Span::styled(
+            format!(" {} ", key_hints),
+            Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+        ),
+        Span::styled("  ", Style::default().bg(Color::DarkGray)),
+        Span::styled(&state.status_message, Style::default().fg(Color::White).bg(Color::DarkGray)),
     ]))
     .style(Style::default().bg(Color::DarkGray));
     frame.render_widget(status, layout.status_bar);
