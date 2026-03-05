@@ -18,19 +18,16 @@ impl AppLayout {
         let vertical = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),  // ヘッダ
+                Constraint::Length(1), // ヘッダ
                 Constraint::Min(5),    // メイン領域
-                Constraint::Length(1),  // ステータスバー
+                Constraint::Length(1), // ステータスバー
             ])
             .split(area);
 
         // メイン領域を横分割: ツリー(30%) | diff(70%)
         let horizontal = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(30),
-                Constraint::Percentage(70),
-            ])
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
             .split(vertical[1]);
 
         Self {

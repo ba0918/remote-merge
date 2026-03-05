@@ -91,19 +91,11 @@ impl server::Handler for TestHandler {
         Ok(true)
     }
 
-    async fn auth_publickey(
-        &mut self,
-        _user: &str,
-        _key: &PublicKey,
-    ) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(&mut self, _user: &str, _key: &PublicKey) -> Result<Auth, Self::Error> {
         Ok(Auth::Accept)
     }
 
-    async fn auth_password(
-        &mut self,
-        _user: &str,
-        password: &str,
-    ) -> Result<Auth, Self::Error> {
+    async fn auth_password(&mut self, _user: &str, password: &str) -> Result<Auth, Self::Error> {
         match &self.password {
             Some(expected) if password == expected => Ok(Auth::Accept),
             Some(_) => Ok(Auth::reject()),
@@ -145,13 +137,15 @@ async fn start_test_server() -> (u16, CommandRegistry) {
 async fn start_test_server_with_password(password: Option<String>) -> (u16, CommandRegistry) {
     let registry = CommandRegistry::default();
 
-    let mut config = server::Config::default();
-    config.auth_rejection_time = Duration::from_millis(100);
-    config.auth_rejection_time_initial = Some(Duration::from_millis(0));
-    config.inactivity_timeout = Some(Duration::from_secs(10));
-    config.keys.push(
-        russh::keys::PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap(),
-    );
+    let mut config = server::Config {
+        auth_rejection_time: Duration::from_millis(100),
+        auth_rejection_time_initial: Some(Duration::from_millis(0)),
+        inactivity_timeout: Some(Duration::from_secs(10)),
+        ..Default::default()
+    };
+    config
+        .keys
+        .push(russh::keys::PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
     let config = Arc::new(config);
 
     // ランダムポートで bind → ポート取得 → そのポートでサーバー起動
@@ -185,7 +179,9 @@ use remote_merge::ssh::client::SshClient;
 /// テスト用の一時SSH鍵ファイルを生成する
 fn generate_test_key() -> NamedTempFile {
     let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
-    let openssh_str = key.to_openssh(russh::keys::ssh_key::LineEnding::LF).unwrap();
+    let openssh_str = key
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
     let mut f = NamedTempFile::new().unwrap();
     f.write_all(openssh_str.as_bytes()).unwrap();
     f.flush().unwrap();
@@ -222,7 +218,8 @@ async fn test_ssh_connect_and_exec() {
     registry.register("echo hello", "hello\n", 0);
 
     let key_file = generate_test_key();
-    let server_config = make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
+    let server_config =
+        make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
     let mut client = SshClient::connect("test", &server_config, &ssh_config)
@@ -250,7 +247,8 @@ d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t
     registry.register("find '/var/www/app'", find_output, 0);
 
     let key_file = generate_test_key();
-    let server_config = make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
+    let server_config =
+        make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
     let mut client = SshClient::connect("test", &server_config, &ssh_config)
@@ -290,8 +288,7 @@ d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t
 
 #[tokio::test]
 async fn test_ssh_password_auth() {
-    let (port, registry) =
-        start_test_server_with_password(Some("secret123".to_string())).await;
+    let (port, registry) = start_test_server_with_password(Some("secret123".to_string())).await;
     registry.register("whoami", "testuser\n", 0);
 
     // 環境変数でパスワードを設定
@@ -339,10 +336,15 @@ async fn test_ssh_connection_timeout() {
 #[tokio::test]
 async fn test_ssh_nonzero_exit_code() {
     let (port, registry) = start_test_server().await;
-    registry.register("ls /nonexistent", "ls: cannot access '/nonexistent': No such file or directory\n", 2);
+    registry.register(
+        "ls /nonexistent",
+        "ls: cannot access '/nonexistent': No such file or directory\n",
+        2,
+    );
 
     let key_file = generate_test_key();
-    let server_config = make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
+    let server_config =
+        make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
     let mut client = SshClient::connect("test", &server_config, &ssh_config)
@@ -350,10 +352,7 @@ async fn test_ssh_nonzero_exit_code() {
         .expect("SSH接続に失敗");
 
     // 非ゼロ終了でもstdoutは取得できる
-    let output = client
-        .exec("ls /nonexistent")
-        .await
-        .expect("exec に失敗");
+    let output = client.exec("ls /nonexistent").await.expect("exec に失敗");
     assert!(output.contains("No such file or directory"));
 
     client.disconnect().await.expect("切断に失敗");
@@ -366,7 +365,8 @@ async fn test_ssh_empty_directory() {
     registry.register("find '/var/www/empty'", "", 0);
 
     let key_file = generate_test_key();
-    let server_config = make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
+    let server_config =
+        make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
     let mut client = SshClient::connect("test", &server_config, &ssh_config)

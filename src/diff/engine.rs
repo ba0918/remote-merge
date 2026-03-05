@@ -327,8 +327,12 @@ mod tests {
                 assert!(stats.equal > 0, "同一行が存在するべき");
 
                 // line2 が削除され modified が追加されていること
-                assert!(lines.iter().any(|l| l.tag == DiffTag::Delete && l.value.contains("line2")));
-                assert!(lines.iter().any(|l| l.tag == DiffTag::Insert && l.value.contains("modified")));
+                assert!(lines
+                    .iter()
+                    .any(|l| l.tag == DiffTag::Delete && l.value.contains("line2")));
+                assert!(lines
+                    .iter()
+                    .any(|l| l.tag == DiffTag::Insert && l.value.contains("modified")));
             }
             other => panic!("Modified を期待したが {:?}", other),
         }
@@ -400,10 +404,17 @@ mod tests {
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { merge_hunks, hunks, .. } = &diff {
+        if let DiffResult::Modified {
+            merge_hunks, hunks, ..
+        } = &diff
+        {
             // 表示用 hunks はコンテキスト3行で結合されうる
             // merge_hunks はコンテキスト0行で変更ごとに分かれるべき
-            assert_eq!(merge_hunks.len(), 2, "2つの離れた変更は別々の merge_hunk に");
+            assert_eq!(
+                merge_hunks.len(),
+                2,
+                "2つの離れた変更は別々の merge_hunk に"
+            );
             // b→X のハンク
             assert!(merge_hunks[0].lines.iter().any(|l| l.value.contains("X")));
             // i→Y のハンク

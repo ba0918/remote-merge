@@ -82,7 +82,9 @@ impl<'a> DiffView<'a> {
         let num_style = Style::default().fg(Color::DarkGray);
         let prefix_style = match line.tag {
             DiffTag::Equal => Style::default().fg(Color::DarkGray),
-            DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            DiffTag::Insert => Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
             DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         };
 
@@ -115,7 +117,7 @@ impl<'a> DiffView<'a> {
             if is_pending {
                 ("⏎ ", Color::Yellow) // 確定待ち
             } else {
-                ("▶ ", Color::Cyan)   // 通常選択
+                ("▶ ", Color::Cyan) // 通常選択
             }
         } else {
             ("  ", Color::Reset)
@@ -147,7 +149,9 @@ impl<'a> DiffView<'a> {
     /// - Equal: (Some(line), Some(line))
     /// - Delete: (Some(line), None) — 次の Insert とペアリングを試みる
     /// - Insert: (None, Some(line))
-    pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
+    pub fn split_for_side_by_side(
+        lines: &[DiffLine],
+    ) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
         let mut result = Vec::new();
         let mut i = 0;
 
@@ -172,8 +176,16 @@ impl<'a> DiffView<'a> {
                     let insert_count = i - delete_end;
                     let max_len = delete_count.max(insert_count);
                     for j in 0..max_len {
-                        let left = if j < delete_count { Some(&lines[delete_start + j]) } else { None };
-                        let right = if j < insert_count { Some(&lines[delete_end + j]) } else { None };
+                        let left = if j < delete_count {
+                            Some(&lines[delete_start + j])
+                        } else {
+                            None
+                        };
+                        let right = if j < insert_count {
+                            Some(&lines[delete_end + j])
+                        } else {
+                            None
+                        };
                         result.push((left, right));
                     }
                 }
@@ -250,8 +262,12 @@ impl<'a> DiffView<'a> {
                     };
                     let prefix_style = match line.tag {
                         DiffTag::Equal => Style::default().fg(Color::DarkGray),
-                        DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                        DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        DiffTag::Insert => Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                        DiffTag::Delete => {
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                        }
                     };
                     let prefix_style = match bg {
                         Some(bg) => prefix_style.bg(bg),
@@ -313,7 +329,9 @@ impl<'a> DiffView<'a> {
         let num_style = Style::default().fg(Color::DarkGray);
         let prefix_style = match line.tag {
             DiffTag::Equal => Style::default().fg(Color::DarkGray),
-            DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            DiffTag::Insert => Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
             DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         };
 
@@ -365,7 +383,12 @@ impl<'a> Widget for DiffView<'a> {
                 // バナー行
                 display_lines.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled("✓ Files are identical", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "✓ Files are identical",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ]));
 
                 // ファイル内容を表示（local_cache から取得）
@@ -376,9 +399,12 @@ impl<'a> Widget for DiffView<'a> {
                         let scroll = self.state.diff_scroll.min(total_lines.saturating_sub(1));
                         let cursor = self.state.diff_cursor;
 
-                        for (i, text) in content_lines.iter().enumerate()
+                        for (i, text) in content_lines
+                            .iter()
+                            .enumerate()
                             .skip(scroll)
-                            .take(visible_height.saturating_sub(2)) // バナー + サマリー分を引く
+                            .take(visible_height.saturating_sub(2))
+                        // バナー + サマリー分を引く
                         {
                             let line_num = format!("{:>5} ", i + 1);
                             let is_cursor = i == cursor && is_focused;
@@ -402,12 +428,15 @@ impl<'a> Widget for DiffView<'a> {
                         }
 
                         // サマリー行
-                        display_lines.push(Line::from(vec![
-                            Span::styled(
-                                format!(" ={} | {}/{} | identical", total_lines, cursor + 1, total_lines),
-                                Style::default().fg(Color::DarkGray),
+                        display_lines.push(Line::from(vec![Span::styled(
+                            format!(
+                                " ={} | {}/{} | identical",
+                                total_lines,
+                                cursor + 1,
+                                total_lines
                             ),
-                        ]));
+                            Style::default().fg(Color::DarkGray),
+                        )]));
                     }
                 }
 
@@ -424,7 +453,13 @@ impl<'a> Widget for DiffView<'a> {
                 ]));
                 msg.render(inner, buf);
             }
-            Some(DiffResult::Modified { hunks: _, merge_hunks, lines, stats, .. }) => {
+            Some(DiffResult::Modified {
+                hunks: _,
+                merge_hunks,
+                lines,
+                stats,
+                ..
+            }) => {
                 let visible_height = inner.height as usize;
                 let scroll = self.state.diff_scroll.min(lines.len().saturating_sub(1));
                 let cursor = self.state.diff_cursor;
@@ -438,21 +473,25 @@ impl<'a> Widget for DiffView<'a> {
                 };
 
                 let mut display_lines: Vec<Line> = match self.state.diff_mode {
-                    DiffMode::Unified => {
-                        lines
-                            .iter()
-                            .enumerate()
-                            .skip(scroll)
-                            .take(visible_height.saturating_sub(1))
-                            .map(|(line_idx, line)| {
-                                let in_current_hunk = current_hunk
-                                    .map(|h| Self::is_line_in_hunk(line, h))
-                                    .unwrap_or(false);
-                                let is_cursor = line_idx == cursor;
-                                Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused, is_pending, is_cursor)
-                            })
-                            .collect()
-                    }
+                    DiffMode::Unified => lines
+                        .iter()
+                        .enumerate()
+                        .skip(scroll)
+                        .take(visible_height.saturating_sub(1))
+                        .map(|(line_idx, line)| {
+                            let in_current_hunk = current_hunk
+                                .map(|h| Self::is_line_in_hunk(line, h))
+                                .unwrap_or(false);
+                            let is_cursor = line_idx == cursor;
+                            Self::render_diff_line_with_highlight(
+                                line,
+                                in_current_hunk,
+                                is_focused,
+                                is_pending,
+                                is_cursor,
+                            )
+                        })
+                        .collect(),
                     DiffMode::SideBySide => {
                         let pairs = Self::split_for_side_by_side(lines);
                         let half_width = (inner.width.saturating_sub(1)) / 2; // インジケータ分を引く
@@ -476,8 +515,13 @@ impl<'a> Widget for DiffView<'a> {
                                     .unwrap_or(false);
                                 let is_cursor = pair_idx == cursor;
                                 Self::render_side_by_side_line(
-                                    *left, *right, half_width,
-                                    in_current_hunk, is_focused, is_pending, is_cursor,
+                                    *left,
+                                    *right,
+                                    half_width,
+                                    in_current_hunk,
+                                    is_focused,
+                                    is_pending,
+                                    is_cursor,
                                 )
                             })
                             .collect()
@@ -495,21 +539,19 @@ impl<'a> Widget for DiffView<'a> {
                     String::new()
                 };
 
-                let summary = Line::from(vec![
-                    Span::styled(
-                        format!(
-                            " +{} -{} ={} | {}/{}{} | {}",
-                            stats.insertions,
-                            stats.deletions,
-                            stats.equal,
-                            cursor + 1,
-                            lines.len(),
-                            hunk_info,
-                            mode_label,
-                        ),
-                        Style::default().fg(Color::DarkGray),
+                let summary = Line::from(vec![Span::styled(
+                    format!(
+                        " +{} -{} ={} | {}/{}{} | {}",
+                        stats.insertions,
+                        stats.deletions,
+                        stats.equal,
+                        cursor + 1,
+                        lines.len(),
+                        hunk_info,
+                        mode_label,
                     ),
-                ]);
+                    Style::default().fg(Color::DarkGray),
+                )]);
                 display_lines.push(summary);
 
                 let paragraph = Paragraph::new(display_lines);
@@ -523,14 +565,20 @@ impl<'a> Widget for DiffView<'a> {
 mod tests {
     use super::*;
     use crate::app::AppState;
-    use crate::diff::engine::{DiffStats, DiffResult};
+    use crate::diff::engine::{DiffResult, DiffStats};
     use crate::tree::FileTree;
     use std::path::PathBuf;
 
     fn make_test_state_with_diff(diff: Option<DiffResult>) -> AppState {
         let mut state = AppState::new(
-            FileTree { root: PathBuf::from("/test"), nodes: vec![] },
-            FileTree { root: PathBuf::from("/test"), nodes: vec![] },
+            FileTree {
+                root: PathBuf::from("/test"),
+                nodes: vec![],
+            },
+            FileTree {
+                root: PathBuf::from("/test"),
+                nodes: vec![],
+            },
             "develop".to_string(),
         );
         state.current_diff = diff;
@@ -547,7 +595,11 @@ mod tests {
         (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -558,23 +610,50 @@ mod tests {
     fn test_no_diff_message() {
         let state = make_test_state_with_diff(None);
         let content = render_to_string(&state, 60, 10);
-        assert!(content.contains("Select a file"), "ガイドメッセージが表示されるべき");
+        assert!(
+            content.contains("Select a file"),
+            "ガイドメッセージが表示されるべき"
+        );
     }
 
     #[test]
     fn test_diff_color_lines() {
         let lines = vec![
-            DiffLine { tag: DiffTag::Equal,  value: "same".to_string(), old_index: Some(0), new_index: Some(0) },
-            DiffLine { tag: DiffTag::Delete, value: "old".to_string(),  old_index: Some(1), new_index: None },
-            DiffLine { tag: DiffTag::Insert, value: "new".to_string(),  old_index: None,    new_index: Some(1) },
-            DiffLine { tag: DiffTag::Equal,  value: "end".to_string(),  old_index: Some(2), new_index: Some(2) },
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "same".to_string(),
+                old_index: Some(0),
+                new_index: Some(0),
+            },
+            DiffLine {
+                tag: DiffTag::Delete,
+                value: "old".to_string(),
+                old_index: Some(1),
+                new_index: None,
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "new".to_string(),
+                old_index: None,
+                new_index: Some(1),
+            },
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "end".to_string(),
+                old_index: Some(2),
+                new_index: Some(2),
+            },
         ];
 
         let diff = DiffResult::Modified {
             hunks: vec![],
             merge_hunks: vec![],
             lines,
-            stats: DiffStats { insertions: 1, deletions: 1, equal: 2 },
+            stats: DiffStats {
+                insertions: 1,
+                deletions: 1,
+                equal: 2,
+            },
             merge_hunk_line_indices: vec![],
         };
 
@@ -606,7 +685,10 @@ mod tests {
         assert!(content.contains("XXX"), "Insert行が表示されるべき");
         assert!(content.contains("bbb"), "Delete行が表示されるべき");
         // ハンク情報がサマリーに含まれること
-        assert!(content.contains("hunk 1/1"), "ハンク情報がサマリーに表示されるべき");
+        assert!(
+            content.contains("hunk 1/1"),
+            "ハンク情報がサマリーに表示されるべき"
+        );
     }
 
     #[test]
@@ -623,7 +705,10 @@ mod tests {
 
         let content = render_to_string(&state, 80, 15);
         // カーソルインジケータ ▶ が描画されていること
-        assert!(content.contains("▶"), "ハンクカーソルインジケータが表示されるべき");
+        assert!(
+            content.contains("▶"),
+            "ハンクカーソルインジケータが表示されるべき"
+        );
     }
 
     #[test]
@@ -673,8 +758,7 @@ mod tests {
         let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false, false);
         let value_span = rendered.spans.last().unwrap();
         assert_eq!(
-            value_span.style.bg,
-            None,
+            value_span.style.bg, None,
             "Equal 行には背景色が設定されないべき"
         );
     }
@@ -683,6 +767,9 @@ mod tests {
     fn test_binary_diff_display() {
         let state = make_test_state_with_diff(Some(DiffResult::Binary));
         let content = render_to_string(&state, 60, 10);
-        assert!(content.contains("Binary"), "バイナリメッセージが表示されるべき");
+        assert!(
+            content.contains("Binary"),
+            "バイナリメッセージが表示されるべき"
+        );
     }
 }

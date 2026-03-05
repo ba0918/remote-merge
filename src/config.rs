@@ -196,7 +196,8 @@ pub fn load_config() -> crate::error::Result<AppConfig> {
 
     // 少なくともどちらか一つは必要
     if global_raw.is_none() && project_raw.is_none() {
-        let path = global_path.unwrap_or_else(|| PathBuf::from("~/.config/remote-merge/config.toml"));
+        let path =
+            global_path.unwrap_or_else(|| PathBuf::from("~/.config/remote-merge/config.toml"));
         bail!(AppError::ConfigNotFound { path });
     }
 
@@ -269,11 +270,9 @@ fn merge_configs(
         .as_ref()
         .and_then(|p| p.local.as_ref())
         .or(global.local.as_ref())
-        .ok_or_else(|| {
-            AppError::ConfigValidation {
-                field: "local".into(),
-                message: "[local] セクションが設定されていません".into(),
-            }
+        .ok_or_else(|| AppError::ConfigValidation {
+            field: "local".into(),
+            message: "[local] セクションが設定されていません".into(),
         })?;
     let local = LocalConfig {
         root_dir: expand_tilde(&local_raw.root_dir),
@@ -317,28 +316,37 @@ fn merge_configs(
     let ssh = if let Some(ref proj) = project {
         proj.ssh.as_ref().map_or_else(
             || {
-                global.ssh.as_ref().map_or_else(SshConfig::default, |s| SshConfig {
-                    timeout_sec: s.timeout_sec.unwrap_or(10),
-                })
+                global
+                    .ssh
+                    .as_ref()
+                    .map_or_else(SshConfig::default, |s| SshConfig {
+                        timeout_sec: s.timeout_sec.unwrap_or(10),
+                    })
             },
             |s| SshConfig {
                 timeout_sec: s.timeout_sec.unwrap_or(10),
             },
         )
     } else {
-        global.ssh.as_ref().map_or_else(SshConfig::default, |s| SshConfig {
-            timeout_sec: s.timeout_sec.unwrap_or(10),
-        })
+        global
+            .ssh
+            .as_ref()
+            .map_or_else(SshConfig::default, |s| SshConfig {
+                timeout_sec: s.timeout_sec.unwrap_or(10),
+            })
     };
 
     // backup: プロジェクトで上書き
     let backup = if let Some(ref proj) = project {
         proj.backup.as_ref().map_or_else(
             || {
-                global.backup.as_ref().map_or_else(BackupConfig::default, |b| BackupConfig {
-                    enabled: b.enabled.unwrap_or(true),
-                    retention_days: b.retention_days.unwrap_or(7),
-                })
+                global
+                    .backup
+                    .as_ref()
+                    .map_or_else(BackupConfig::default, |b| BackupConfig {
+                        enabled: b.enabled.unwrap_or(true),
+                        retention_days: b.retention_days.unwrap_or(7),
+                    })
             },
             |b| BackupConfig {
                 enabled: b.enabled.unwrap_or(true),
@@ -346,10 +354,13 @@ fn merge_configs(
             },
         )
     } else {
-        global.backup.as_ref().map_or_else(BackupConfig::default, |b| BackupConfig {
-            enabled: b.enabled.unwrap_or(true),
-            retention_days: b.retention_days.unwrap_or(7),
-        })
+        global
+            .backup
+            .as_ref()
+            .map_or_else(BackupConfig::default, |b| BackupConfig {
+                enabled: b.enabled.unwrap_or(true),
+                retention_days: b.retention_days.unwrap_or(7),
+            })
     };
 
     Ok(AppConfig {
@@ -361,10 +372,7 @@ fn merge_configs(
     })
 }
 
-fn convert_server_config(
-    name: &str,
-    raw: RawServerConfig,
-) -> crate::error::Result<ServerConfig> {
+fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Result<ServerConfig> {
     // port バリデーション
     let port = raw.port.unwrap_or(22);
     if port == 0 {
@@ -381,7 +389,10 @@ fn convert_server_config(
         Some(other) => {
             bail!(AppError::ConfigValidation {
                 field: format!("servers.{}.auth", name),
-                message: format!("不正な auth 値: '{}' (key または password を指定してください)", other),
+                message: format!(
+                    "不正な auth 値: '{}' (key または password を指定してください)",
+                    other
+                ),
             });
         }
     };

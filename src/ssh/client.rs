@@ -73,7 +73,8 @@ impl SshHandler {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+                    let _ =
+                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
                 }
             }
         }
@@ -341,11 +342,10 @@ impl SshClient {
                 let key_path_str = key_path.to_string_lossy();
                 let expanded = expand_tilde(&key_path_str);
 
-                let key_pair = load_secret_key(&expanded, None).map_err(|_| {
-                    AppError::SshKeyLoad {
+                let key_pair =
+                    load_secret_key(&expanded, None).map_err(|_| AppError::SshKeyLoad {
                         path: key_path.to_path_buf(),
-                    }
-                })?;
+                    })?;
 
                 let auth_res = session
                     .authenticate_publickey(
@@ -375,10 +375,7 @@ impl SshClient {
             }
             AuthMethod::Password => {
                 // パスワードは環境変数 REMOTE_MERGE_PASSWORD_<SERVER名> から取得
-                let env_key = format!(
-                    "REMOTE_MERGE_PASSWORD_{}",
-                    server_name.to_uppercase()
-                );
+                let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
                 let password = std::env::var(&env_key).map_err(|_| AppError::SshAuth {
                     host: server_config.host.clone(),
                     user: server_config.user.clone(),
@@ -401,7 +398,11 @@ impl SshClient {
             }
         }
 
-        tracing::info!("SSH 接続成功: {}@{}", server_config.user, server_config.host);
+        tracing::info!(
+            "SSH 接続成功: {}@{}",
+            server_config.user,
+            server_config.host
+        );
 
         Ok(Self {
             session,
@@ -411,18 +412,21 @@ impl SshClient {
 
     /// リモートでコマンドを実行し、stdout を文字列で返す
     pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
-            }
-        })?;
+        let mut channel =
+            self.session
+                .channel_open_session()
+                .await
+                .map_err(|e| AppError::SshConnection {
+                    host: self.server_name.clone(),
+                    message: format!("チャネルオープンに失敗: {}", e),
+                })?;
 
-        channel.exec(true, command).await.map_err(|_e| {
-            AppError::SshExec {
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),
-            }
-        })?;
+            })?;
 
         let mut output = Vec::new();
         let mut exit_code = None;
@@ -472,9 +476,14 @@ impl SshClient {
         remote_path: &str,
         exclude: &[String],
     ) -> crate::error::Result<Vec<FileNode>> {
-        self.list_dir_with_limit(remote_path, exclude, Self::DIR_TIMEOUT_SECS, Self::MAX_DIR_ENTRIES)
-            .await
-            .map(|(nodes, _)| nodes)
+        self.list_dir_with_limit(
+            remote_path,
+            exclude,
+            Self::DIR_TIMEOUT_SECS,
+            Self::MAX_DIR_ENTRIES,
+        )
+        .await
+        .map(|(nodes, _)| nodes)
     }
 
     /// リモートディレクトリの直下エントリを取得する（制限付き）
@@ -492,15 +501,12 @@ impl SshClient {
             shell_escape(remote_path)
         );
 
-        let output = tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            self.exec(&command),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: self.server_name.clone(),
-            timeout_sec: timeout_secs,
-        })??;
+        let output = tokio::time::timeout(Duration::from_secs(timeout_secs), self.exec(&command))
+            .await
+            .map_err(|_| AppError::SshTimeout {
+                host: self.server_name.clone(),
+                timeout_sec: timeout_secs,
+            })??;
 
         let mut nodes = Vec::new();
         let mut truncated = false;
@@ -529,18 +535,21 @@ impl SshClient {
     /// リモートファイルの内容を取得する（cat 経由）
     pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
         let command = format!("cat {}", shell_escape(remote_path));
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
-            }
-        })?;
+        let mut channel =
+            self.session
+                .channel_open_session()
+                .await
+                .map_err(|e| AppError::SshConnection {
+                    host: self.server_name.clone(),
+                    message: format!("チャネルオープンに失敗: {}", e),
+                })?;
 
-        channel.exec(true, command.as_str()).await.map_err(|_e| {
-            AppError::SshExec {
+        channel
+            .exec(true, command.as_str())
+            .await
+            .map_err(|_e| AppError::SshExec {
                 command: command.clone(),
-            }
-        })?;
+            })?;
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -571,10 +580,7 @@ impl SshClient {
             if code != 0 {
                 let err_msg = String::from_utf8_lossy(&stderr).to_string();
                 anyhow::bail!(AppError::SshExec {
-                    command: format!(
-                        "cat {}: exit={}, stderr={}",
-                        remote_path, code, err_msg
-                    ),
+                    command: format!("cat {}: exit={}, stderr={}", remote_path, code, err_msg),
                 });
             }
         }
@@ -589,18 +595,21 @@ impl SshClient {
         content: &str,
     ) -> crate::error::Result<()> {
         let command = format!("cat > {}", shell_escape(remote_path));
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
-            }
-        })?;
+        let mut channel =
+            self.session
+                .channel_open_session()
+                .await
+                .map_err(|e| AppError::SshConnection {
+                    host: self.server_name.clone(),
+                    message: format!("チャネルオープンに失敗: {}", e),
+                })?;
 
-        channel.exec(true, command.as_str()).await.map_err(|_e| {
-            AppError::SshExec {
+        channel
+            .exec(true, command.as_str())
+            .await
+            .map_err(|_e| AppError::SshExec {
                 command: command.clone(),
-            }
-        })?;
+            })?;
 
         // ファイル内容を stdin に送信
         channel
@@ -815,7 +824,10 @@ mod tests {
     #[test]
     fn test_shell_escape_special_chars() {
         // パスにスペースが含まれる場合
-        assert_eq!(shell_escape("/path/to/my file.txt"), "'/path/to/my file.txt'");
+        assert_eq!(
+            shell_escape("/path/to/my file.txt"),
+            "'/path/to/my file.txt'"
+        );
         // パスにセミコロンが含まれる場合
         assert_eq!(shell_escape("/path;rm -rf /"), "'/path;rm -rf /'");
         // パスにダブルクォートが含まれる場合
@@ -881,7 +893,12 @@ example.com ssh-ed25519 AAAAC3...
 
     #[test]
     fn test_host_matches_plain() {
-        assert!(host_matches("example.com", "example.com", "example.com", 22));
+        assert!(host_matches(
+            "example.com",
+            "example.com",
+            "example.com",
+            22
+        ));
         assert!(!host_matches("other.com", "example.com", "example.com", 22));
     }
 
@@ -932,7 +949,7 @@ example.com ssh-ed25519 AAAAC3...
         let mut mac = Hmac::<Sha1>::new_from_slice(salt).unwrap();
         mac.update(b"example.com");
         let hash = mac.finalize().into_bytes();
-        let hash_b64 = BASE64.encode(&hash);
+        let hash_b64 = BASE64.encode(hash);
 
         let pattern = format!("|1|{}|{}", salt_b64, hash_b64);
 
@@ -948,7 +965,7 @@ example.com ssh-ed25519 AAAAC3...
         let mut mac = Hmac::<Sha1>::new_from_slice(salt).unwrap();
         mac.update(b"[example.com]:2222");
         let hash = mac.finalize().into_bytes();
-        let hash_b64 = BASE64.encode(&hash);
+        let hash_b64 = BASE64.encode(hash);
 
         let pattern = format!("|1|{}|{}", salt_b64, hash_b64);
 
@@ -959,10 +976,7 @@ example.com ssh-ed25519 AAAAC3...
     #[test]
     fn test_format_host_entry() {
         assert_eq!(format_host_entry("example.com", 22), "example.com");
-        assert_eq!(
-            format_host_entry("example.com", 2222),
-            "[example.com]:2222"
-        );
+        assert_eq!(format_host_entry("example.com", 2222), "[example.com]:2222");
     }
 
     #[test]

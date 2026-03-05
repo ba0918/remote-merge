@@ -28,10 +28,7 @@ fn test_tree_to_file_select_to_diff_flow() {
         vec![
             FileNode::new_dir_with_children(
                 "src",
-                vec![
-                    FileNode::new_file("main.rs"),
-                    FileNode::new_file("lib.rs"),
-                ],
+                vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
             ),
             FileNode::new_file("README.md"),
         ],
@@ -56,7 +53,10 @@ fn test_tree_to_file_select_to_diff_flow() {
 
     // 1. 初期状態確認
     assert_eq!(state.focus, Focus::FileTree);
-    assert!(!state.flat_nodes.is_empty(), "マージされたツリーが表示されるべき");
+    assert!(
+        !state.flat_nodes.is_empty(),
+        "マージされたツリーが表示されるべき"
+    );
 
     // 2. ディレクトリ展開
     // src ディレクトリを見つける
@@ -136,18 +136,30 @@ fn test_badge_computation() {
     assert_eq!(state.compute_badge("both.txt", false), Badge::Unchecked);
 
     // local only
-    assert_eq!(state.compute_badge("local_only.txt", false), Badge::LocalOnly);
+    assert_eq!(
+        state.compute_badge("local_only.txt", false),
+        Badge::LocalOnly
+    );
 
     // remote only
-    assert_eq!(state.compute_badge("remote_only.txt", false), Badge::RemoteOnly);
+    assert_eq!(
+        state.compute_badge("remote_only.txt", false),
+        Badge::RemoteOnly
+    );
 
     // キャッシュあり・同一 → Equal
-    state.local_cache.insert("both.txt".to_string(), "same".to_string());
-    state.remote_cache.insert("both.txt".to_string(), "same".to_string());
+    state
+        .local_cache
+        .insert("both.txt".to_string(), "same".to_string());
+    state
+        .remote_cache
+        .insert("both.txt".to_string(), "same".to_string());
     assert_eq!(state.compute_badge("both.txt", false), Badge::Equal);
 
     // キャッシュあり・差異 → Modified
-    state.remote_cache.insert("both.txt".to_string(), "different".to_string());
+    state
+        .remote_cache
+        .insert("both.txt".to_string(), "different".to_string());
     assert_eq!(state.compute_badge("both.txt", false), Badge::Modified);
 }
 
@@ -160,11 +172,16 @@ fn test_diff_engine_integration_with_app() {
     let result = engine::compute_diff(old, new);
 
     match result {
-        DiffResult::Modified { lines, hunks, stats, .. } => {
+        DiffResult::Modified {
+            lines,
+            hunks,
+            stats,
+            ..
+        } => {
             // 統計が正しい
-            assert_eq!(stats.deletions, 1);   // line2
-            assert_eq!(stats.insertions, 2);   // changed, new_line
-            assert_eq!(stats.equal, 2);        // line1, line3
+            assert_eq!(stats.deletions, 1); // line2
+            assert_eq!(stats.insertions, 2); // changed, new_line
+            assert_eq!(stats.equal, 2); // line1, line3
 
             // ハンクが存在
             assert!(!hunks.is_empty());
@@ -212,14 +229,8 @@ fn test_cursor_navigation_bounds() {
 #[test]
 fn test_select_file_shows_status_on_no_cache() {
     // キャッシュ未取得時にステータスメッセージに表示される
-    let local_tree = make_tree(
-        "/local",
-        vec![FileNode::new_file("test.txt")],
-    );
-    let remote_tree = make_tree(
-        "/remote",
-        vec![FileNode::new_file("test.txt")],
-    );
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
     state.tree_cursor = 0;
@@ -236,17 +247,13 @@ fn test_select_file_shows_status_on_no_cache() {
 #[test]
 fn test_select_file_shows_status_on_local_only() {
     // ローカルのみ存在する場合のステータス
-    let local_tree = make_tree(
-        "/local",
-        vec![FileNode::new_file("test.txt")],
-    );
-    let remote_tree = make_tree(
-        "/remote",
-        vec![FileNode::new_file("test.txt")],
-    );
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "hello".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "hello".to_string());
     // remote_cache なし
     state.tree_cursor = 0;
     state.select_file();
@@ -260,17 +267,13 @@ fn test_select_file_shows_status_on_local_only() {
 #[test]
 fn test_select_file_shows_status_on_remote_only() {
     // リモートのみ存在する場合のステータス
-    let local_tree = make_tree(
-        "/local",
-        vec![FileNode::new_file("test.txt")],
-    );
-    let remote_tree = make_tree(
-        "/remote",
-        vec![FileNode::new_file("test.txt")],
-    );
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "hello".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "hello".to_string());
     // local_cache なし
     state.tree_cursor = 0;
     state.select_file();
@@ -289,8 +292,13 @@ fn test_preview_hunk_merge_generates_before_after() {
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "line1\nmodified\nline3\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
+    state.remote_cache.insert(
+        "test.txt".to_string(),
+        "line1\nmodified\nline3\n".to_string(),
+    );
     state.tree_cursor = 0;
     state.select_file();
 
@@ -299,7 +307,10 @@ fn test_preview_hunk_merge_generates_before_after() {
     assert!(result.is_some(), "プレビューが生成されるべき");
     let (before, after) = result.unwrap();
     assert!(before.contains("line2"), "before にはline2が含まれるべき");
-    assert!(after.contains("modified"), "after にはmodifiedが含まれるべき");
+    assert!(
+        after.contains("modified"),
+        "after にはmodifiedが含まれるべき"
+    );
 }
 
 #[test]
@@ -310,8 +321,12 @@ fn test_hunk_merge_preview_dialog_created() {
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -324,9 +339,8 @@ fn test_hunk_merge_preview_dialog_created() {
     let direction = state.pending_hunk_merge.unwrap();
     if let Some((before, after)) = state.preview_hunk_merge(direction) {
         let path = state.selected_path.clone().unwrap_or_default();
-        state.dialog = DialogState::HunkMergePreview(HunkMergePreview::new(
-            path, direction, before, after,
-        ));
+        state.dialog =
+            DialogState::HunkMergePreview(HunkMergePreview::new(path, direction, before, after));
     }
 
     assert!(matches!(state.dialog, DialogState::HunkMergePreview(_)));
@@ -342,8 +356,12 @@ fn test_hunk_merge_confirm_executes() {
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
 
@@ -359,8 +377,12 @@ fn test_hunk_merge_cancel_aborts() {
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
 
@@ -381,13 +403,26 @@ fn test_help_overlay_has_all_sections() {
 
     let help = HelpOverlay::new();
     let section_titles: Vec<&str> = help.sections.iter().map(|s| s.title.as_str()).collect();
-    assert!(section_titles.contains(&"File Tree"), "File Tree セクションが存在するべき");
-    assert!(section_titles.contains(&"Diff View"), "Diff View セクションが存在するべき");
-    assert!(section_titles.contains(&"Global"), "Global セクションが存在するべき");
+    assert!(
+        section_titles.contains(&"File Tree"),
+        "File Tree セクションが存在するべき"
+    );
+    assert!(
+        section_titles.contains(&"Diff View"),
+        "Diff View セクションが存在するべき"
+    );
+    assert!(
+        section_titles.contains(&"Global"),
+        "Global セクションが存在するべき"
+    );
 
     // 各セクションにバインドが存在する
     for section in &help.sections {
-        assert!(!section.bindings.is_empty(), "{} セクションにバインドが存在するべき", section.title);
+        assert!(
+            !section.bindings.is_empty(),
+            "{} セクションにバインドが存在するべき",
+            section.title
+        );
     }
 }
 
@@ -523,14 +558,34 @@ fn test_toggle_diff_mode() {
 
 #[test]
 fn test_split_for_side_by_side() {
-    use remote_merge::ui::diff_view::DiffView;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::ui::diff_view::DiffView;
 
     let lines = vec![
-        DiffLine { tag: DiffTag::Equal,  value: "same\n".to_string(), old_index: Some(0), new_index: Some(0) },
-        DiffLine { tag: DiffTag::Delete, value: "old\n".to_string(),  old_index: Some(1), new_index: None },
-        DiffLine { tag: DiffTag::Insert, value: "new\n".to_string(),  old_index: None,    new_index: Some(1) },
-        DiffLine { tag: DiffTag::Equal,  value: "end\n".to_string(),  old_index: Some(2), new_index: Some(2) },
+        DiffLine {
+            tag: DiffTag::Equal,
+            value: "same\n".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        },
+        DiffLine {
+            tag: DiffTag::Delete,
+            value: "old\n".to_string(),
+            old_index: Some(1),
+            new_index: None,
+        },
+        DiffLine {
+            tag: DiffTag::Insert,
+            value: "new\n".to_string(),
+            old_index: None,
+            new_index: Some(1),
+        },
+        DiffLine {
+            tag: DiffTag::Equal,
+            value: "end\n".to_string(),
+            old_index: Some(2),
+            new_index: Some(2),
+        },
     ];
 
     let pairs = DiffView::split_for_side_by_side(&lines);
@@ -554,12 +609,22 @@ fn test_split_for_side_by_side() {
 
 #[test]
 fn test_side_by_side_equal_lines_both_sides() {
-    use remote_merge::ui::diff_view::DiffView;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::ui::diff_view::DiffView;
 
     let lines = vec![
-        DiffLine { tag: DiffTag::Equal, value: "same1\n".to_string(), old_index: Some(0), new_index: Some(0) },
-        DiffLine { tag: DiffTag::Equal, value: "same2\n".to_string(), old_index: Some(1), new_index: Some(1) },
+        DiffLine {
+            tag: DiffTag::Equal,
+            value: "same1\n".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        },
+        DiffLine {
+            tag: DiffTag::Equal,
+            value: "same2\n".to_string(),
+            old_index: Some(1),
+            new_index: Some(1),
+        },
     ];
 
     let pairs = DiffView::split_for_side_by_side(&lines);
@@ -574,12 +639,12 @@ fn test_side_by_side_equal_lines_both_sides() {
 
 #[test]
 fn test_side_by_side_render() {
-    use remote_merge::app::DiffMode;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
     use ratatui::widgets::Widget;
-    use remote_merge::ui::diff_view::DiffView;
+    use remote_merge::app::DiffMode;
     use remote_merge::diff::engine::compute_diff;
+    use remote_merge::ui::diff_view::DiffView;
 
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
@@ -601,14 +666,21 @@ fn test_side_by_side_render() {
     let content: String = (0..area.height)
         .map(|y| {
             (0..area.width)
-                .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                .map(|x| {
+                    buf.cell((x, y))
+                        .map(|c| c.symbol().to_string())
+                        .unwrap_or_default()
+                })
                 .collect::<String>()
         })
         .collect::<Vec<_>>()
         .join("\n");
 
     assert!(content.contains("aaa"), "コンテキスト行が表示されるべき");
-    assert!(content.contains("side-by-side"), "モードラベルが表示されるべき");
+    assert!(
+        content.contains("side-by-side"),
+        "モードラベルが表示されるべき"
+    );
 }
 
 // === #1: ナビゲーション変更テスト ===
@@ -629,6 +701,7 @@ fn test_diffview_jk_scrolls_one_line() {
 }
 
 #[test]
+#[allow(non_snake_case)]
 fn test_diffview_nN_jumps_to_hunk() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
@@ -665,8 +738,12 @@ fn test_scroll_does_not_cancel_pending_merge() {
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
-    state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -677,10 +754,16 @@ fn test_scroll_does_not_cancel_pending_merge() {
 
     // スクロール（j/k）ではpending操作がキャンセルされない
     state.scroll_down();
-    assert!(state.pending_hunk_merge.is_some(), "スクロールでpendingがキャンセルされるべきでない");
+    assert!(
+        state.pending_hunk_merge.is_some(),
+        "スクロールでpendingがキャンセルされるべきでない"
+    );
 
     state.scroll_up();
-    assert!(state.pending_hunk_merge.is_some(), "スクロールでpendingがキャンセルされるべきでない");
+    assert!(
+        state.pending_hunk_merge.is_some(),
+        "スクロールでpendingがキャンセルされるべきでない"
+    );
 }
 
 #[test]
@@ -708,7 +791,10 @@ fn test_hunk_jump_cancels_pending_merge() {
     // ハンクジャンプ（n/N）でpending操作がキャンセルされる
     state.cancel_hunk_merge();
     state.hunk_cursor_down();
-    assert!(state.pending_hunk_merge.is_none(), "ハンクジャンプでpendingがキャンセルされるべき");
+    assert!(
+        state.pending_hunk_merge.is_none(),
+        "ハンクジャンプでpendingがキャンセルされるべき"
+    );
 }
 
 // === #2: Unified マージ + sync_hunk_cursor テスト ===
@@ -735,7 +821,11 @@ fn test_hunk_cursor_follows_scroll_position() {
     assert_eq!(state.hunk_cursor, 0);
 
     // 2番目のハンクの実際の開始位置を取得
-    let second_hunk_line = if let Some(DiffResult::Modified { merge_hunk_line_indices, .. }) = &state.current_diff {
+    let second_hunk_line = if let Some(DiffResult::Modified {
+        merge_hunk_line_indices,
+        ..
+    }) = &state.current_diff
+    {
         merge_hunk_line_indices[1]
     } else {
         panic!("Modified を期待");
@@ -744,12 +834,18 @@ fn test_hunk_cursor_follows_scroll_position() {
     // カーソルを2番目のハンク位置に移動
     state.diff_cursor = second_hunk_line;
     state.sync_hunk_cursor_to_scroll();
-    assert_eq!(state.hunk_cursor, 1, "カーソル位置に応じて2番目のハンクが選択されるべき");
+    assert_eq!(
+        state.hunk_cursor, 1,
+        "カーソル位置に応じて2番目のハンクが選択されるべき"
+    );
 
     // 先頭に戻す
     state.diff_cursor = 0;
     state.sync_hunk_cursor_to_scroll();
-    assert_eq!(state.hunk_cursor, 0, "先頭に戻すと最初のハンクが選択されるべき");
+    assert_eq!(
+        state.hunk_cursor, 0,
+        "先頭に戻すと最初のハンクが選択されるべき"
+    );
 }
 
 #[test]
@@ -760,7 +856,12 @@ fn test_hunk_start_line_cache_computed() {
     let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
     let diff = compute_diff(old, new);
 
-    if let DiffResult::Modified { merge_hunks, merge_hunk_line_indices, .. } = &diff {
+    if let DiffResult::Modified {
+        merge_hunks,
+        merge_hunk_line_indices,
+        ..
+    } = &diff
+    {
         assert_eq!(merge_hunks.len(), 2);
         assert_eq!(merge_hunk_line_indices.len(), 2);
         // 最初のハンクのインデックスは2番目より小さい
@@ -817,8 +918,12 @@ fn test_apply_hunk_creates_snapshot() {
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
 
-    state.local_cache.insert("test.txt".to_string(), old.to_string());
-    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), old.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -828,10 +933,17 @@ fn test_apply_hunk_creates_snapshot() {
     // 即時適用
     state.apply_hunk_merge(HunkDirection::RightToLeft);
 
-    assert_eq!(state.undo_stack.len(), 1, "適用後に1つのスナップショットがあるべき");
+    assert_eq!(
+        state.undo_stack.len(),
+        1,
+        "適用後に1つのスナップショットがあるべき"
+    );
     // 適用後のローカルキャッシュが変わっている
     let local_content = state.local_cache.get("test.txt").unwrap();
-    assert!(local_content.contains("XXX"), "ローカルにリモートの変更が適用されるべき");
+    assert!(
+        local_content.contains("XXX"),
+        "ローカルにリモートの変更が適用されるべき"
+    );
 }
 
 #[test]
@@ -844,8 +956,12 @@ fn test_undo_restores_previous_cache() {
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
 
-    state.local_cache.insert("test.txt".to_string(), old.to_string());
-    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), old.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -856,7 +972,10 @@ fn test_undo_restores_previous_cache() {
     assert!(after_apply.contains("XXX"));
 
     state.undo_last();
-    assert!(state.undo_stack.is_empty(), "undo後にスタックが空になるべき");
+    assert!(
+        state.undo_stack.is_empty(),
+        "undo後にスタックが空になるべき"
+    );
     let after_undo = state.local_cache.get("test.txt").unwrap();
     assert_eq!(after_undo, old, "undoで元のコンテンツに戻るべき");
 }
@@ -871,8 +990,12 @@ fn test_undo_all_restores_initial_cache() {
     let old = "line1\nline2\nline3\nline4\nline5\n";
     let new = "line1\nAAA\nline3\nBBB\nline5\n";
 
-    state.local_cache.insert("test.txt".to_string(), old.to_string());
-    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), old.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -902,8 +1025,12 @@ fn test_has_unsaved_changes() {
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
 
-    state.local_cache.insert("test.txt".to_string(), old.to_string());
-    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), old.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -920,28 +1047,48 @@ fn test_help_contains_updated_keybinds() {
     use remote_merge::ui::dialog::HelpOverlay;
 
     let help = HelpOverlay::new();
-    let diff_section = help.sections.iter().find(|s| s.title == "Diff View").unwrap();
+    let diff_section = help
+        .sections
+        .iter()
+        .find(|s| s.title == "Diff View")
+        .unwrap();
 
     // 新しいキーバインドが含まれている
-    let keys: Vec<&str> = diff_section.bindings.iter().map(|(k, _)| k.as_str()).collect();
-    assert!(keys.iter().any(|k| k.contains("j/k")), "j/k スクロールが含まれるべき");
-    assert!(keys.iter().any(|k| *k == "n"), "n ハンクジャンプが含まれるべき");
-    assert!(keys.iter().any(|k| *k == "N"), "N ハンクジャンプが含まれるべき");
+    let keys: Vec<&str> = diff_section
+        .bindings
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect();
+    assert!(
+        keys.iter().any(|k| k.contains("j/k")),
+        "j/k スクロールが含まれるべき"
+    );
+    assert!(keys.contains(&"n"), "n ハンクジャンプが含まれるべき");
+    assert!(keys.contains(&"N"), "N ハンクジャンプが含まれるべき");
 
     // 旧キーバインドが含まれていない
-    let descs: Vec<&str> = diff_section.bindings.iter().map(|(_, d)| d.as_str()).collect();
-    assert!(!descs.iter().any(|d| d.contains("次のハンクへ") && !d.contains("ジャンプ")), "旧ハンクナビゲーション表記が残っていないべき");
+    let descs: Vec<&str> = diff_section
+        .bindings
+        .iter()
+        .map(|(_, d)| d.as_str())
+        .collect();
+    assert!(
+        !descs
+            .iter()
+            .any(|d| d.contains("次のハンクへ") && !d.contains("ジャンプ")),
+        "旧ハンクナビゲーション表記が残っていないべき"
+    );
 }
 
 // === UX 改善 Round 2 テスト ===
 
 #[test]
 fn test_equal_shows_file_content() {
-    use remote_merge::diff::engine::DiffResult;
-    use remote_merge::ui::diff_view::DiffView;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
     use ratatui::widgets::Widget;
+    use remote_merge::diff::engine::DiffResult;
+    use remote_merge::ui::diff_view::DiffView;
 
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
@@ -949,8 +1096,12 @@ fn test_equal_shows_file_content() {
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
 
     let content = "line1\nline2\nline3\n";
-    state.local_cache.insert("test.txt".to_string(), content.to_string());
-    state.remote_cache.insert("test.txt".to_string(), content.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), content.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), content.to_string());
     state.tree_cursor = 0;
     state.select_file();
 
@@ -965,13 +1116,20 @@ fn test_equal_shows_file_content() {
     let rendered: String = (0..area.height)
         .map(|y| {
             (0..area.width)
-                .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                .map(|x| {
+                    buf.cell((x, y))
+                        .map(|c| c.symbol().to_string())
+                        .unwrap_or_default()
+                })
                 .collect::<String>()
         })
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(rendered.contains("identical"), "identical バナーが表示されるべき");
+    assert!(
+        rendered.contains("identical"),
+        "identical バナーが表示されるべき"
+    );
     assert!(rendered.contains("line1"), "ファイル内容が表示されるべき");
     assert!(rendered.contains("line2"), "ファイル内容が表示されるべき");
 }
@@ -986,7 +1144,9 @@ fn test_equal_scroll_works() {
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
 
     let content: String = (0..50).map(|i| format!("line{}\n", i)).collect();
-    state.local_cache.insert("test.txt".to_string(), content.clone());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), content.clone());
     state.remote_cache.insert("test.txt".to_string(), content);
     state.tree_cursor = 0;
     state.select_file();
@@ -1009,9 +1169,18 @@ fn test_key_hints_file_tree() {
     let state = AppState::new(local_tree, remote_tree, "develop".to_string());
 
     let hints = state.build_key_hints();
-    assert!(hints.contains("j/k"), "FileTree ヒントに j/k が含まれるべき");
-    assert!(hints.contains("Enter"), "FileTree ヒントに Enter が含まれるべき");
-    assert!(hints.contains("help"), "FileTree ヒントに help が含まれるべき");
+    assert!(
+        hints.contains("j/k"),
+        "FileTree ヒントに j/k が含まれるべき"
+    );
+    assert!(
+        hints.contains("Enter"),
+        "FileTree ヒントに Enter が含まれるべき"
+    );
+    assert!(
+        hints.contains("help"),
+        "FileTree ヒントに help が含まれるべき"
+    );
 }
 
 #[test]
@@ -1021,16 +1190,29 @@ fn test_key_hints_diff_view_no_changes() {
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
 
-    state.local_cache.insert("test.txt".to_string(), "aaa\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "bbb\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "aaa\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "bbb\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
 
     let hints = state.build_key_hints();
-    assert!(hints.contains("scroll"), "DiffView ヒントに scroll が含まれるべき");
-    assert!(hints.contains("hunk"), "DiffView ヒントに hunk が含まれるべき");
-    assert!(hints.contains("apply"), "DiffView ヒントに apply が含まれるべき");
+    assert!(
+        hints.contains("scroll"),
+        "DiffView ヒントに scroll が含まれるべき"
+    );
+    assert!(
+        hints.contains("hunk"),
+        "DiffView ヒントに hunk が含まれるべき"
+    );
+    assert!(
+        hints.contains("apply"),
+        "DiffView ヒントに apply が含まれるべき"
+    );
 }
 
 #[test]
@@ -1043,8 +1225,12 @@ fn test_key_hints_diff_view_with_changes() {
     // 2箇所に差分を持つファイル（1つ適用しても Modified のまま残る）
     let old = "line1\nline2\nline3\nline4\nline5\n";
     let new = "line1\nAAA\nline3\nBBB\nline5\n";
-    state.local_cache.insert("test.txt".to_string(), old.to_string());
-    state.remote_cache.insert("test.txt".to_string(), new.to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), old.to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -1052,9 +1238,18 @@ fn test_key_hints_diff_view_with_changes() {
     state.apply_hunk_merge(HunkDirection::RightToLeft);
 
     let hints = state.build_key_hints();
-    assert!(hints.contains("changes"), "変更ありヒントに changes が含まれるべき");
-    assert!(hints.contains("write"), "変更ありヒントに write が含まれるべき");
-    assert!(hints.contains("undo"), "変更ありヒントに undo が含まれるべき");
+    assert!(
+        hints.contains("changes"),
+        "変更ありヒントに changes が含まれるべき"
+    );
+    assert!(
+        hints.contains("write"),
+        "変更ありヒントに write が含まれるべき"
+    );
+    assert!(
+        hints.contains("undo"),
+        "変更ありヒントに undo が含まれるべき"
+    );
 }
 
 #[test]
@@ -1066,8 +1261,12 @@ fn test_key_hints_diff_view_equal() {
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
 
-    state.local_cache.insert("test.txt".to_string(), "same\n".to_string());
-    state.remote_cache.insert("test.txt".to_string(), "same\n".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "same\n".to_string());
+    state
+        .remote_cache
+        .insert("test.txt".to_string(), "same\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -1075,7 +1274,10 @@ fn test_key_hints_diff_view_equal() {
     assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
 
     let hints = state.build_key_hints();
-    assert!(hints.contains("scroll"), "Equal ヒントに scroll が含まれるべき");
+    assert!(
+        hints.contains("scroll"),
+        "Equal ヒントに scroll が含まれるべき"
+    );
     assert!(hints.contains("tree"), "Equal ヒントに tree が含まれるべき");
 }
 

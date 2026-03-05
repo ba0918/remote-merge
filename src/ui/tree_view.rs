@@ -72,7 +72,11 @@ impl<'a> Widget for TreeView<'a> {
             .map(|(i, node)| {
                 let indent = "  ".repeat(node.depth);
                 let marker = if node.is_dir {
-                    if node.expanded { "▼ " } else { "▶ " }
+                    if node.expanded {
+                        "▼ "
+                    } else {
+                        "▶ "
+                    }
                 } else {
                     "  "
                 };
@@ -94,7 +98,9 @@ impl<'a> Widget for TreeView<'a> {
                         .fg(Color::White)
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                 } else if node.is_dir {
-                    Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
@@ -123,8 +129,14 @@ mod tests {
 
     fn make_test_state(flat_nodes: Vec<FlatNode>) -> AppState {
         let mut state = AppState::new(
-            FileTree { root: PathBuf::from("/test"), nodes: vec![] },
-            FileTree { root: PathBuf::from("/test"), nodes: vec![] },
+            FileTree {
+                root: PathBuf::from("/test"),
+                nodes: vec![],
+            },
+            FileTree {
+                root: PathBuf::from("/test"),
+                nodes: vec![],
+            },
             "develop".to_string(),
         );
         state.flat_nodes = flat_nodes;
@@ -164,7 +176,11 @@ mod tests {
         let content: String = (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -210,12 +226,19 @@ mod tests {
         let content: String = (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(content.contains("no files"), "空ツリーメッセージが表示されるべき");
+        assert!(
+            content.contains("no files"),
+            "空ツリーメッセージが表示されるべき"
+        );
     }
 }

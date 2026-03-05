@@ -68,8 +68,8 @@ pub fn read_local_file(root_dir: &Path, rel_path: &str) -> crate::error::Result<
     let full_path = root_dir.join(rel_path);
     validate_path_within_root(root_dir, &full_path)?;
 
-    let content = std::fs::read_to_string(&full_path)
-        .map_err(|_| crate::error::AppError::PathNotFound {
+    let content =
+        std::fs::read_to_string(&full_path).map_err(|_| crate::error::AppError::PathNotFound {
             path: full_path.clone(),
         })?;
     Ok(content)

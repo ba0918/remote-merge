@@ -1,10 +1,12 @@
-use std::io;
 use clap::{Parser, Subcommand};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
+use std::io;
 
 use remote_merge::app::{AppState, Focus};
 use remote_merge::config::{self, AppConfig};
@@ -13,7 +15,10 @@ use remote_merge::local;
 use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
-use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreviewWidget, ServerMenuWidget};
+use remote_merge::ui::dialog::{
+    ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreviewWidget,
+    ServerMenuWidget,
+};
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
 use remote_merge::ui::tree_view::TreeView;
@@ -133,9 +138,10 @@ impl TuiRuntime {
 
     /// SSH 接続を確立する
     fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
-        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
-            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
-        })?;
+        let server_config =
+            self.config.servers.get(server_name).ok_or_else(|| {
+                anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+            })?;
 
         let client = self.rt.block_on(SshClient::connect(
             server_name,
@@ -149,18 +155,20 @@ impl TuiRuntime {
 
     /// リモートツリーを取得する
     fn fetch_remote_tree(&mut self, server_name: &str) -> anyhow::Result<FileTree> {
-        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
-            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
-        })?;
+        let server_config =
+            self.config.servers.get(server_name).ok_or_else(|| {
+                anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+            })?;
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
 
-        let client = self.ssh_client.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("SSH 未接続")
-        })?;
+        let client = self
+            .ssh_client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("SSH 未接続"))?;
 
-        let nodes = self.rt.block_on(
-            client.list_dir(&root_dir, &self.config.filter.exclude)
-        )?;
+        let nodes = self
+            .rt
+            .block_on(client.list_dir(&root_dir, &self.config.filter.exclude))?;
 
         let mut tree = FileTree::new(&server_config.root_dir);
         tree.nodes = nodes;
@@ -170,30 +178,39 @@ impl TuiRuntime {
 
     /// リモートファイル内容を取得する
     fn read_remote_file(&mut self, server_name: &str, rel_path: &str) -> anyhow::Result<String> {
-        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
-            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
-        })?;
+        let server_config =
+            self.config.servers.get(server_name).ok_or_else(|| {
+                anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+            })?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
         let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
 
-        let client = self.ssh_client.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("SSH 未接続")
-        })?;
+        let client = self
+            .ssh_client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("SSH 未接続"))?;
 
         self.rt.block_on(client.read_file(&full_path))
     }
 
     /// リモートファイルに書き込む
-    fn write_remote_file(&mut self, server_name: &str, rel_path: &str, content: &str) -> anyhow::Result<()> {
-        let server_config = self.config.servers.get(server_name).ok_or_else(|| {
-            anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
-        })?;
+    fn write_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        content: &str,
+    ) -> anyhow::Result<()> {
+        let server_config =
+            self.config.servers.get(server_name).ok_or_else(|| {
+                anyhow::anyhow!("サーバ '{}' が設定に見つかりません", server_name)
+            })?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
         let full_path = executor::validate_remote_path(&remote_root, rel_path)?;
 
-        let client = self.ssh_client.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("SSH 未接続")
-        })?;
+        let client = self
+            .ssh_client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("SSH 未接続"))?;
 
         self.rt.block_on(client.write_file(&full_path, content))
     }
@@ -237,25 +254,20 @@ fn main() -> anyhow::Result<()> {
             // TUI モード
             let config = config::load_config()?;
 
-            let server_name = cli
-                .server
-                .or(cli.right)
-                .unwrap_or_else(|| {
-                    config
-                        .servers
-                        .keys()
-                        .next()
-                        .cloned()
-                        .unwrap_or_else(|| "develop".to_string())
-                });
+            let server_name = cli.server.or(cli.right).unwrap_or_else(|| {
+                config
+                    .servers
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "develop".to_string())
+            });
 
             tracing::info!("TUI モード起動: local ↔ {}", server_name);
 
             // ローカルツリーを取得
-            let local_tree = local::scan_local_tree(
-                &config.local.root_dir,
-                &config.filter.exclude,
-            )?;
+            let local_tree =
+                local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
 
             // 利用可能なサーバ名一覧
             let available_servers: Vec<String> = config.servers.keys().cloned().collect();
@@ -270,7 +282,9 @@ fn main() -> anyhow::Result<()> {
                         Ok(tree) => (tree, true),
                         Err(e) => {
                             tracing::warn!("リモートツリー取得に失敗: {}", e);
-                            let root = config.servers.get(&server_name)
+                            let root = config
+                                .servers
+                                .get(&server_name)
                                 .map(|s| s.root_dir.clone())
                                 .unwrap_or_default();
                             (FileTree::new(root), true) // 接続はできたがツリー取得失敗
@@ -279,7 +293,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     tracing::warn!("SSH 接続に失敗（オフラインモード）: {}", e);
-                    let root = config.servers.get(&server_name)
+                    let root = config
+                        .servers
+                        .get(&server_name)
                         .map(|s| s.root_dir.clone())
                         .unwrap_or_default();
                     (FileTree::new(root), false)
@@ -292,10 +308,8 @@ fn main() -> anyhow::Result<()> {
             app_state.exclude_patterns = config.filter.exclude.clone();
 
             if !is_connected {
-                app_state.status_message = format!(
-                    "local ↔ {} (offline) | s: server | q: quit",
-                    server_name
-                );
+                app_state.status_message =
+                    format!("local ↔ {} (offline) | s: server | q: quit", server_name);
             }
 
             // TUI 起動
@@ -366,7 +380,11 @@ fn run_event_loop(
                     KeyCode::Up | KeyCode::Char('k') => state.cursor_up(),
                     KeyCode::Down | KeyCode::Char('j') => state.cursor_down(),
                     KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-                        if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir) {
+                        if state
+                            .flat_nodes
+                            .get(state.tree_cursor)
+                            .is_some_and(|n| n.is_dir)
+                        {
                             // 遅延読み込み: 未取得なら先にロード
                             if let Some(path) = state.current_path() {
                                 let needs_load = state
@@ -389,7 +407,11 @@ fn run_event_loop(
                         }
                     }
                     KeyCode::Left | KeyCode::Char('h') => {
-                        if state.flat_nodes.get(state.tree_cursor).is_some_and(|n| n.is_dir && n.expanded) {
+                        if state
+                            .flat_nodes
+                            .get(state.tree_cursor)
+                            .is_some_and(|n| n.is_dir && n.expanded)
+                        {
                             state.toggle_expand();
                         }
                     }
@@ -412,13 +434,17 @@ fn run_event_loop(
                     KeyCode::Char('?') => state.show_help(),
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
-                        if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('L') {
+                        if key.modifiers.contains(KeyModifiers::SHIFT)
+                            || key.code == KeyCode::Char('L')
+                        {
                             state.show_merge_dialog(MergeDirection::LocalToRemote);
                         }
                     }
                     KeyCode::Char('R') => {
                         // Shift+R: RightMerge (remote → local)
-                        if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('R') {
+                        if key.modifiers.contains(KeyModifiers::SHIFT)
+                            || key.code == KeyCode::Char('R')
+                        {
                             state.show_merge_dialog(MergeDirection::RemoteToLocal);
                         }
                     }
@@ -476,7 +502,8 @@ fn run_event_loop(
                                 state.apply_hunk_merge(HunkDirection::LeftToRight);
                             }
                         } else if state.hunk_count() > 0 {
-                            state.status_message = "SSH 未接続: リモートへのハンクマージはできません".to_string();
+                            state.status_message =
+                                "SSH 未接続: リモートへのハンクマージはできません".to_string();
                         }
                     }
                     KeyCode::Char('w') => {
@@ -676,7 +703,9 @@ fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
         // リモートファイルに書き込む
         if state.is_connected {
             if let Some(remote_content) = state.remote_cache.get(&path).cloned() {
-                if let Err(e) = runtime.write_remote_file(&state.server_name, &path, &remote_content) {
+                if let Err(e) =
+                    runtime.write_remote_file(&state.server_name, &path, &remote_content)
+                {
                     state.status_message = format!("リモート書き込み失敗: {}", e);
                     return;
                 }
@@ -687,7 +716,9 @@ fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
         state.undo_stack.clear();
         state.status_message = format!(
             "{}: {} changes written | {} hunks remaining",
-            path, changes, state.hunk_count()
+            path,
+            changes,
+            state.hunk_count()
         );
     }
 }
@@ -710,7 +741,10 @@ fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path
 
     match runtime.rt.block_on(client.list_dir(&full_path, &exclude)) {
         Ok(children) => {
-            if let Some(node) = state.remote_tree.find_node_mut(std::path::Path::new(rel_path)) {
+            if let Some(node) = state
+                .remote_tree
+                .find_node_mut(std::path::Path::new(rel_path))
+            {
                 node.children = Some(children);
                 node.sort_children();
             }
@@ -794,10 +828,8 @@ fn execute_merge(
             match runtime.write_remote_file(&state.server_name, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
-                    state.status_message = format!(
-                        "{}: local → {} にマージしました",
-                        path, state.server_name
-                    );
+                    state.status_message =
+                        format!("{}: local → {} にマージしました", path, state.server_name);
                 }
                 Err(e) => {
                     state.status_message = format!("マージ失敗: {}", e);
@@ -818,10 +850,8 @@ fn execute_merge(
             match executor::write_local_file(&local_root, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
-                    state.status_message = format!(
-                        "{}: {} → local にマージしました",
-                        path, state.server_name
-                    );
+                    state.status_message =
+                        format!("{}: {} → local にマージしました", path, state.server_name);
                 }
                 Err(e) => {
                     state.status_message = format!("マージ失敗: {}", e);
@@ -832,11 +862,7 @@ fn execute_merge(
 }
 
 /// ハンクマージを実行する（2段階操作の確定時）
-fn execute_hunk_merge(
-    state: &mut AppState,
-    runtime: &mut TuiRuntime,
-    direction: HunkDirection,
-) {
+fn execute_hunk_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: HunkDirection) {
     if let Some(path) = state.apply_hunk_merge(direction) {
         match direction {
             HunkDirection::RightToLeft => {
@@ -905,10 +931,7 @@ fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
                 }
                 Err(e) => {
                     state.is_connected = false;
-                    state.status_message = format!(
-                        "{} のツリー取得に失敗: {}",
-                        server_name, e
-                    );
+                    state.status_message = format!("{} のツリー取得に失敗: {}", server_name, e);
                 }
             }
         }
@@ -927,23 +950,18 @@ fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_
     runtime.disconnect();
 
     match runtime.connect(server_name) {
-        Ok(()) => {
-            match runtime.fetch_remote_tree(server_name) {
-                Ok(tree) => {
-                    state.switch_server(server_name.to_string(), tree);
-                    state.status_message = format!(
-                        "local ↔ {} | Tab: switch focus | s: server | q: quit",
-                        server_name
-                    );
-                }
-                Err(e) => {
-                    state.status_message = format!(
-                        "{} のツリー取得に失敗: {}",
-                        server_name, e
-                    );
-                }
+        Ok(()) => match runtime.fetch_remote_tree(server_name) {
+            Ok(tree) => {
+                state.switch_server(server_name.to_string(), tree);
+                state.status_message = format!(
+                    "local ↔ {} | Tab: switch focus | s: server | q: quit",
+                    server_name
+                );
             }
-        }
+            Err(e) => {
+                state.status_message = format!("{} のツリー取得に失敗: {}", server_name, e);
+            }
+        },
         Err(e) => {
             state.status_message = format!("{} への接続に失敗: {}", server_name, e);
         }
@@ -961,10 +979,19 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
 
     // ヘッダ
     let conn_indicator = if state.is_connected { "●" } else { "○" };
-    let conn_color = if state.is_connected { Color::Green } else { Color::Red };
+    let conn_color = if state.is_connected {
+        Color::Green
+    } else {
+        Color::Red
+    };
 
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(" remote-merge ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " remote-merge ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("| "),
         Span::styled("local", Style::default().fg(Color::Green)),
         Span::raw(" ↔ "),
@@ -991,7 +1018,10 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
             Style::default().fg(Color::Cyan).bg(Color::DarkGray),
         ),
         Span::styled("  ", Style::default().bg(Color::DarkGray)),
-        Span::styled(&state.status_message, Style::default().fg(Color::White).bg(Color::DarkGray)),
+        Span::styled(
+            &state.status_message,
+            Style::default().fg(Color::White).bg(Color::DarkGray),
+        ),
     ]))
     .style(Style::default().bg(Color::DarkGray));
     frame.render_widget(status, layout.status_bar);
@@ -1022,7 +1052,10 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
             render_simple_dialog(
                 frame,
                 " Write Changes ",
-                &format!("{}件の変更をファイルに書き込みますか？", state.undo_stack.len()),
+                &format!(
+                    "{}件の変更をファイルに書き込みますか？",
+                    state.undo_stack.len()
+                ),
                 Color::Green,
             );
         }
@@ -1040,8 +1073,8 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
 
 /// シンプルな Y/n 確認ダイアログを描画する
 fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color) {
-    use remote_merge::ui::dialog::centered_rect;
     use ratatui::widgets::Clear;
+    use remote_merge::ui::dialog::centered_rect;
 
     let dialog_area = centered_rect(60, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
@@ -1072,9 +1105,17 @@ fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Co
 
     let guide = Paragraph::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Y]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" はい  "),
-        Span::styled("[n/Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[n/Esc]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" いいえ"),
     ]));
     frame.render_widget(guide, chunks[3]);

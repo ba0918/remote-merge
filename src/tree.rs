@@ -251,10 +251,7 @@ mod tests {
     fn test_dir_node_with_children() {
         let dir = FileNode::new_dir_with_children(
             "src",
-            vec![
-                FileNode::new_file("main.rs"),
-                FileNode::new_file("lib.rs"),
-            ],
+            vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
         );
         assert!(dir.is_dir());
         assert!(dir.is_loaded());
@@ -312,10 +309,7 @@ mod tests {
                 "src",
                 vec![
                     FileNode::new_file("main.rs"),
-                    FileNode::new_dir_with_children(
-                        "utils",
-                        vec![FileNode::new_file("helper.rs")],
-                    ),
+                    FileNode::new_dir_with_children("utils", vec![FileNode::new_file("helper.rs")]),
                 ],
             )],
         };
@@ -332,10 +326,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_dir_with_children(
                 "src",
-                vec![
-                    FileNode::new_file("main.rs"),
-                    FileNode::new_dir("utils"),
-                ],
+                vec![FileNode::new_file("main.rs"), FileNode::new_dir("utils")],
             )],
         };
 

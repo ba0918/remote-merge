@@ -54,7 +54,10 @@ pub fn generate_toml(input: &InitInput) -> String {
     toml.push_str(&format!("root_dir = \"{}\"\n", input.remote_root_dir));
 
     // local セクション
-    toml.push_str(&format!("\n[local]\nroot_dir = \"{}\"\n", input.local_root_dir));
+    toml.push_str(&format!(
+        "\n[local]\nroot_dir = \"{}\"\n",
+        input.local_root_dir
+    ));
 
     // filter セクション
     if !input.exclude.is_empty() {
@@ -95,7 +98,10 @@ pub fn run_init() -> anyhow::Result<()> {
 }
 
 /// 対話的に入力を取得する（テスト用に reader/writer を分離）
-pub fn prompt_input<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> anyhow::Result<InitInput> {
+pub fn prompt_input<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> anyhow::Result<InitInput> {
     let mut input = InitInput::default();
 
     input.server_name = prompt_with_default(reader, writer, "サーバ名", &input.server_name)?;
@@ -111,7 +117,8 @@ pub fn prompt_input<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> any
     }
 
     input.remote_root_dir = prompt_required(reader, writer, "リモート root_dir")?;
-    input.local_root_dir = prompt_with_default(reader, writer, "ローカル root_dir", &input.local_root_dir)?;
+    input.local_root_dir =
+        prompt_with_default(reader, writer, "ローカル root_dir", &input.local_root_dir)?;
 
     let exclude_str = prompt_with_default(
         reader,
@@ -270,7 +277,8 @@ mod tests {
 
     #[test]
     fn test_prompt_input_custom_values() {
-        let input_text = "staging\nstaging.example.com\nweb\npassword\n/opt/app\n./src\n*.log,*.tmp\n";
+        let input_text =
+            "staging\nstaging.example.com\nweb\npassword\n/opt/app\n./src\n*.log,*.tmp\n";
         let mut reader = io::Cursor::new(input_text);
         let mut writer = Vec::new();
 

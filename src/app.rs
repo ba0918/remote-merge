@@ -152,11 +152,7 @@ pub struct AppState {
 
 impl AppState {
     /// 新しい AppState を構築する
-    pub fn new(
-        local_tree: FileTree,
-        remote_tree: FileTree,
-        server_name: String,
-    ) -> Self {
+    pub fn new(local_tree: FileTree, remote_tree: FileTree, server_name: String) -> Self {
         let mut state = Self {
             focus: Focus::FileTree,
             local_tree,
@@ -310,7 +306,8 @@ impl AppState {
             Some(DiffResult::Modified { lines, .. }) => lines.len(),
             Some(DiffResult::Equal) => {
                 // Equal 時は local_cache のコンテンツ行数
-                self.selected_path.as_ref()
+                self.selected_path
+                    .as_ref()
                     .and_then(|p| self.local_cache.get(p))
                     .map(|c| c.lines().count())
                     .unwrap_or(0)
@@ -323,24 +320,20 @@ impl AppState {
     pub fn build_key_hints(&self) -> String {
         match self.focus {
             Focus::FileTree => "[j/k] move [Enter] open [Tab] diff [?] help".to_string(),
-            Focus::DiffView => {
-                match &self.current_diff {
-                    Some(DiffResult::Equal) => {
-                        "[j/k] scroll [Tab] tree [?] help".to_string()
+            Focus::DiffView => match &self.current_diff {
+                Some(DiffResult::Equal) => "[j/k] scroll [Tab] tree [?] help".to_string(),
+                Some(DiffResult::Modified { .. }) => {
+                    if self.has_unsaved_changes() {
+                        format!(
+                            "[{} changes] [w] write [u] undo [→/←] apply",
+                            self.undo_stack.len()
+                        )
+                    } else {
+                        "[j/k] scroll [n/N] hunk [→/←] apply [?] help".to_string()
                     }
-                    Some(DiffResult::Modified { .. }) => {
-                        if self.has_unsaved_changes() {
-                            format!(
-                                "[{} changes] [w] write [u] undo [→/←] apply",
-                                self.undo_stack.len()
-                            )
-                        } else {
-                            "[j/k] scroll [n/N] hunk [→/←] apply [?] help".to_string()
-                        }
-                    }
-                    _ => "[Tab] tree [?] help".to_string(),
                 }
-            }
+                _ => "[Tab] tree [?] help".to_string(),
+            },
         }
     }
 
@@ -470,12 +463,7 @@ impl AppState {
             MergeDirection::RemoteToLocal => (self.server_name.clone(), "local".to_string()),
         };
 
-        self.dialog = DialogState::Confirm(ConfirmDialog::new(
-            path,
-            direction,
-            source,
-            target,
-        ));
+        self.dialog = DialogState::Confirm(ConfirmDialog::new(path, direction, source, target));
     }
 
     /// サーバ選択メニューを表示する (s キー)
@@ -506,15 +494,22 @@ impl AppState {
     }
 
     /// マージ完了後にバッジを更新する
-    pub fn update_badge_after_merge(&mut self, path: &str, content: &str, direction: MergeDirection) {
+    pub fn update_badge_after_merge(
+        &mut self,
+        path: &str,
+        content: &str,
+        direction: MergeDirection,
+    ) {
         match direction {
             MergeDirection::LocalToRemote => {
                 // ローカル → リモート: リモートキャッシュをローカルの内容で更新
-                self.remote_cache.insert(path.to_string(), content.to_string());
+                self.remote_cache
+                    .insert(path.to_string(), content.to_string());
             }
             MergeDirection::RemoteToLocal => {
                 // リモート → ローカル: ローカルキャッシュをリモートの内容で更新
-                self.local_cache.insert(path.to_string(), content.to_string());
+                self.local_cache
+                    .insert(path.to_string(), content.to_string());
             }
         }
         // diff を再計算
@@ -526,10 +521,7 @@ impl AppState {
 
     /// サーバ切替後にツリーを再構築する
     pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
-        self.status_message = format!(
-            "local ↔ {} | Tab: switch focus | q: quit",
-            &new_server
-        );
+        self.status_message = format!("local ↔ {} | Tab: switch focus | q: quit", &new_server);
         self.server_name = new_server;
         self.remote_tree = remote_tree;
         self.remote_cache.clear();
@@ -610,7 +602,9 @@ impl AppState {
 
     /// 現在カーソル位置のパスを返す
     pub fn current_path(&self) -> Option<String> {
-        self.flat_nodes.get(self.tree_cursor).map(|n| n.path.clone())
+        self.flat_nodes
+            .get(self.tree_cursor)
+            .map(|n| n.path.clone())
     }
 
     /// 現在カーソル位置がディレクトリかどうか
@@ -630,7 +624,11 @@ impl AppState {
 
     /// カーソル位置に最も近いハンクにハンクカーソルを同期する（二分探索）
     pub fn sync_hunk_cursor_to_scroll(&mut self) {
-        if let Some(DiffResult::Modified { merge_hunk_line_indices, .. }) = &self.current_diff {
+        if let Some(DiffResult::Modified {
+            merge_hunk_line_indices,
+            ..
+        }) = &self.current_diff
+        {
             if merge_hunk_line_indices.is_empty() {
                 return;
             }
@@ -659,7 +657,10 @@ impl AppState {
 
     /// ハンクカーソル位置に diff_cursor を合わせ、ビューポートも追従させる
     fn scroll_to_hunk(&mut self) {
-        if let Some(DiffResult::Modified { merge_hunks, lines, .. }) = &self.current_diff {
+        if let Some(DiffResult::Modified {
+            merge_hunks, lines, ..
+        }) = &self.current_diff
+        {
             if let Some(hunk) = merge_hunks.get(self.hunk_cursor) {
                 // ハンクの先頭行が全体 lines 内の何行目かを探す
                 if let Some(first_hunk_line) = hunk.lines.first() {
@@ -678,11 +679,7 @@ impl AppState {
     }
 
     /// ハンクの開始位置を lines 内で探す（内容ベース）
-    fn find_hunk_start_in_lines(
-        &self,
-        lines: &[engine::DiffLine],
-        hunk: &DiffHunk,
-    ) -> usize {
+    fn find_hunk_start_in_lines(&self, lines: &[engine::DiffLine], hunk: &DiffHunk) -> usize {
         if hunk.lines.is_empty() {
             return 0;
         }
@@ -704,7 +701,9 @@ impl AppState {
         let path = self.selected_path.as_ref()?;
 
         let (hunks, _lines) = match &self.current_diff {
-            Some(DiffResult::Modified { merge_hunks, lines, .. }) => (merge_hunks.clone(), lines.clone()),
+            Some(DiffResult::Modified {
+                merge_hunks, lines, ..
+            }) => (merge_hunks.clone(), lines.clone()),
             _ => return None,
         };
 
@@ -729,7 +728,9 @@ impl AppState {
         let path = self.selected_path.clone()?;
 
         let (hunks, _lines) = match &self.current_diff {
-            Some(DiffResult::Modified { merge_hunks, lines, .. }) => (merge_hunks.clone(), lines.clone()),
+            Some(DiffResult::Modified {
+                merge_hunks, lines, ..
+            }) => (merge_hunks.clone(), lines.clone()),
             _ => return None,
         };
 
@@ -800,8 +801,10 @@ impl AppState {
     pub fn undo_last(&mut self) -> bool {
         if let Some(snapshot) = self.undo_stack.pop_back() {
             if let Some(path) = &self.selected_path {
-                self.local_cache.insert(path.clone(), snapshot.local_content);
-                self.remote_cache.insert(path.clone(), snapshot.remote_content);
+                self.local_cache
+                    .insert(path.clone(), snapshot.local_content);
+                self.remote_cache
+                    .insert(path.clone(), snapshot.remote_content);
                 self.current_diff = snapshot.diff;
 
                 // ハンクカーソルを範囲内に収める
@@ -832,12 +835,16 @@ impl AppState {
         }
 
         // 最初のスナップショット（初期状態）を取り出す
-        let initial = self.undo_stack.pop_front().expect("undo_stack is not empty");
+        let initial = self
+            .undo_stack
+            .pop_front()
+            .expect("undo_stack is not empty");
         self.undo_stack.clear();
 
         if let Some(path) = &self.selected_path {
             self.local_cache.insert(path.clone(), initial.local_content);
-            self.remote_cache.insert(path.clone(), initial.remote_content);
+            self.remote_cache
+                .insert(path.clone(), initial.remote_content);
             self.current_diff = initial.diff;
 
             let new_count = self.hunk_count();
@@ -981,7 +988,8 @@ fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNode> 
         if node.is_dir() {
             entry.is_dir = true;
             if let Some(children) = &node.children {
-                entry.children = merge_node_lists(children, &entry.children_as_file_nodes_placeholder());
+                entry.children =
+                    merge_node_lists(children, &entry.children_as_file_nodes_placeholder());
             }
         }
     }
@@ -1005,12 +1013,10 @@ fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNode> 
 
     // ディレクトリ優先、名前順でソート
     let mut result: Vec<MergedNode> = map.into_values().collect();
-    result.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        }
+    result.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
     });
     result
 }
@@ -1023,7 +1029,10 @@ impl MergedNode {
 }
 
 /// MergedNode リストと FileNode リストをマージ
-fn merge_merged_with_file_nodes(merged: Vec<MergedNode>, file_nodes: &[FileNode]) -> Vec<MergedNode> {
+fn merge_merged_with_file_nodes(
+    merged: Vec<MergedNode>,
+    file_nodes: &[FileNode],
+) -> Vec<MergedNode> {
     let mut map: std::collections::BTreeMap<String, MergedNode> = std::collections::BTreeMap::new();
 
     for m in merged {
@@ -1043,12 +1052,10 @@ fn merge_merged_with_file_nodes(merged: Vec<MergedNode>, file_nodes: &[FileNode]
     }
 
     let mut result: Vec<MergedNode> = map.into_values().collect();
-    result.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        }
+    result.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
     });
     result
 }
@@ -1101,8 +1108,12 @@ mod tests {
         );
 
         // キャッシュにコンテンツを追加
-        state.local_cache.insert("test.txt".to_string(), "hello\n".to_string());
-        state.remote_cache.insert("test.txt".to_string(), "world\n".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "hello\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "world\n".to_string());
 
         // ファイルを選択
         state.tree_cursor = 0;
@@ -1193,10 +1204,7 @@ mod tests {
             make_test_tree(vec![]),
             "develop".to_string(),
         );
-        state.available_servers = vec![
-            "develop".to_string(),
-            "staging".to_string(),
-        ];
+        state.available_servers = vec!["develop".to_string(), "staging".to_string()];
 
         state.show_server_menu();
         assert!(matches!(state.dialog, DialogState::ServerSelect(_)));
@@ -1223,7 +1231,9 @@ mod tests {
             make_test_tree(vec![]),
             "develop".to_string(),
         );
-        state.remote_cache.insert("a.txt".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "old".to_string());
 
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
@@ -1244,7 +1254,9 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("test.txt".to_string(), "content".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "content".to_string());
         state.update_badge_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
 
         // リモートキャッシュが更新されている
@@ -1318,8 +1330,13 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
-        state.remote_cache.insert("test.txt".to_string(), "line1\nmodified\nline3\n".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
+        state.remote_cache.insert(
+            "test.txt".to_string(),
+            "line1\nmodified\nline3\n".to_string(),
+        );
         state.selected_path = Some("test.txt".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -1346,8 +1363,12 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.selected_path = Some("test.txt".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -1378,8 +1399,12 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.tree_cursor = 0;
         state.select_file();
 
@@ -1409,8 +1434,12 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
-        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state
+            .remote_cache
+            .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.tree_cursor = 0;
         state.select_file();
 
@@ -1450,10 +1479,18 @@ mod tests {
             "develop".to_string(),
         );
 
-        state.local_cache.insert("a.txt".to_string(), "old\n".to_string());
-        state.remote_cache.insert("a.txt".to_string(), "new\n".to_string());
-        state.local_cache.insert("b.txt".to_string(), "x\n".to_string());
-        state.remote_cache.insert("b.txt".to_string(), "y\n".to_string());
+        state
+            .local_cache
+            .insert("a.txt".to_string(), "old\n".to_string());
+        state
+            .remote_cache
+            .insert("a.txt".to_string(), "new\n".to_string());
+        state
+            .local_cache
+            .insert("b.txt".to_string(), "x\n".to_string());
+        state
+            .remote_cache
+            .insert("b.txt".to_string(), "y\n".to_string());
 
         state.tree_cursor = 0;
         state.select_file();
@@ -1469,9 +1506,7 @@ mod tests {
     #[test]
     fn test_tree_expand_management() {
         let local_nodes = vec![
-            FileNode::new_dir_with_children("src", vec![
-                FileNode::new_file("main.rs"),
-            ]),
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
             FileNode::new_file("README.md"),
         ];
 

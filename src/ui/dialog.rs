@@ -69,10 +69,7 @@ pub struct ServerMenu {
 
 impl ServerMenu {
     pub fn new(servers: Vec<String>, connected: String) -> Self {
-        let cursor = servers
-            .iter()
-            .position(|s| s == &connected)
-            .unwrap_or(0);
+        let cursor = servers.iter().position(|s| s == &connected).unwrap_or(0);
         Self {
             servers,
             cursor,
@@ -216,7 +213,10 @@ impl HelpOverlay {
                         ("h/←".to_string(), "折りたたみ".to_string()),
                         ("L (Shift)".to_string(), "local → remote マージ".to_string()),
                         ("R (Shift)".to_string(), "remote → local マージ".to_string()),
-                        ("r".to_string(), "リフレッシュ / キャッシュクリア".to_string()),
+                        (
+                            "r".to_string(),
+                            "リフレッシュ / キャッシュクリア".to_string(),
+                        ),
                         ("f".to_string(), "フィルターパネル".to_string()),
                         ("s".to_string(), "サーバ選択".to_string()),
                     ],
@@ -231,8 +231,14 @@ impl HelpOverlay {
                         ("PageUp".to_string(), "ページ上スクロール".to_string()),
                         ("Home".to_string(), "先頭へ".to_string()),
                         ("End".to_string(), "末尾へ".to_string()),
-                        ("→/l".to_string(), "ハンク: remote → local 即時適用".to_string()),
-                        ("←/h".to_string(), "ハンク: local → remote 即時適用".to_string()),
+                        (
+                            "→/l".to_string(),
+                            "ハンク: remote → local 即時適用".to_string(),
+                        ),
+                        (
+                            "←/h".to_string(),
+                            "ハンク: local → remote 即時適用".to_string(),
+                        ),
                         ("w".to_string(), "変更をファイルに書き込み".to_string()),
                         ("u".to_string(), "最後の操作を undo".to_string()),
                         ("U".to_string(), "全操作を undo".to_string()),
@@ -302,7 +308,11 @@ pub fn render_dialog_frame(
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color).add_modifier(Modifier::BOLD));
+        .border_style(
+            Style::default()
+                .fg(border_color)
+                .add_modifier(Modifier::BOLD),
+        );
     let inner = block.inner(dialog_area);
     block.render(dialog_area, buf);
     inner
@@ -335,18 +345,23 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
 
         let msg = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                self.dialog.message(),
-                Style::default().fg(Color::White),
-            ),
+            Span::styled(self.dialog.message(), Style::default().fg(Color::White)),
         ]));
         msg.render(chunks[1], buf);
 
         let guide = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Y]",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" 実行  "),
-            Span::styled("[n/Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[n/Esc]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" キャンセル"),
         ]));
         guide.render(chunks[3], buf);
@@ -457,9 +472,19 @@ impl<'a> Widget for FilterPanelWidget<'a> {
         if guide_idx < chunks.len() {
             let guide = Paragraph::new(Line::from(vec![
                 Span::raw("  "),
-                Span::styled("Space", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Space",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(": toggle  "),
-                Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Esc",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(": close"),
             ]));
             guide.render(chunks[guide_idx], buf);
@@ -481,13 +506,17 @@ impl<'a> HelpOverlayWidget<'a> {
 impl<'a> Widget for HelpOverlayWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // 全セクションの行数を計算
-        let total_lines: usize = self.help.sections.iter()
+        let total_lines: usize = self
+            .help
+            .sections
+            .iter()
             .map(|s| s.bindings.len() + 2) // タイトル + 空行 + bindings
             .sum();
 
         let width = area.width.min(60);
         let height = ((total_lines as u16) + 4).min(area.height); // borders + padding
-        let inner = render_dialog_frame(" Help (? to close) ", Color::Cyan, width, height, area, buf);
+        let inner =
+            render_dialog_frame(" Help (? to close) ", Color::Cyan, width, height, area, buf);
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -497,7 +526,9 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
                 Span::raw("  "),
                 Span::styled(
                     format!("── {} ──", section.title),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]));
 
@@ -533,7 +564,12 @@ impl<'a> HunkMergePreviewWidget<'a> {
     fn build_preview_lines(text: &str, max_lines: usize) -> Vec<Line<'static>> {
         text.lines()
             .take(max_lines)
-            .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(Color::White))))
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(Color::White),
+                ))
+            })
             .collect()
     }
 }
@@ -548,12 +584,12 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
         // レイアウト: ファイルパス + Before + After + ガイド
         let half_height = inner.height.saturating_sub(4) / 2;
         let constraints = vec![
-            Constraint::Length(1), // ファイルパス
-            Constraint::Length(1), // "Before:" ラベル
+            Constraint::Length(1),           // ファイルパス
+            Constraint::Length(1),           // "Before:" ラベル
             Constraint::Length(half_height), // before テキスト
-            Constraint::Length(1), // "After:" ラベル
+            Constraint::Length(1),           // "After:" ラベル
             Constraint::Length(half_height), // after テキスト
-            Constraint::Length(1), // ガイド
+            Constraint::Length(1),           // ガイド
         ];
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -570,36 +606,53 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
         // Before ラベル
         let before_label = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled("Before:", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Before:",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
         ]));
         before_label.render(chunks[1], buf);
 
         // Before テキスト
-        let before_lines = Self::build_preview_lines(&self.preview.before_text, half_height as usize);
-        let before_para = Paragraph::new(before_lines)
-            .style(Style::default().bg(Color::Rgb(30, 0, 0)));
+        let before_lines =
+            Self::build_preview_lines(&self.preview.before_text, half_height as usize);
+        let before_para =
+            Paragraph::new(before_lines).style(Style::default().bg(Color::Rgb(30, 0, 0)));
         before_para.render(chunks[2], buf);
 
         // After ラベル
         let after_label = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled("After:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "After:",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
         after_label.render(chunks[3], buf);
 
         // After テキスト
         let after_lines = Self::build_preview_lines(&self.preview.after_text, half_height as usize);
-        let after_para = Paragraph::new(after_lines)
-            .style(Style::default().bg(Color::Rgb(0, 30, 0)));
+        let after_para =
+            Paragraph::new(after_lines).style(Style::default().bg(Color::Rgb(0, 30, 0)));
         after_para.render(chunks[4], buf);
 
         // ガイド行
         if chunks.len() > 5 {
             let guide = Paragraph::new(Line::from(vec![
                 Span::raw("  "),
-                Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Y]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" 実行  "),
-                Span::styled("[n/Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[n/Esc]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" キャンセル"),
             ]));
             guide.render(chunks[5], buf);
@@ -664,7 +717,11 @@ mod tests {
     #[test]
     fn test_server_menu_navigation() {
         let mut menu = ServerMenu::new(
-            vec!["develop".to_string(), "staging".to_string(), "release".to_string()],
+            vec![
+                "develop".to_string(),
+                "staging".to_string(),
+                "release".to_string(),
+            ],
             "develop".to_string(),
         );
 
@@ -741,7 +798,11 @@ mod tests {
         let content: String = (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -765,7 +826,11 @@ mod tests {
         let content: String = (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
@@ -808,10 +873,7 @@ mod tests {
 
     #[test]
     fn test_filter_panel_toggle() {
-        let mut panel = FilterPanel::new(&[
-            "node_modules".to_string(),
-            ".git".to_string(),
-        ]);
+        let mut panel = FilterPanel::new(&["node_modules".to_string(), ".git".to_string()]);
 
         // 初期状態: 両方有効
         assert_eq!(panel.active_patterns().len(), 2);
@@ -829,11 +891,7 @@ mod tests {
 
     #[test]
     fn test_filter_panel_active_patterns() {
-        let mut panel = FilterPanel::new(&[
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
-        ]);
+        let mut panel = FilterPanel::new(&["a".to_string(), "b".to_string(), "c".to_string()]);
 
         panel.cursor = 1;
         panel.toggle(); // b を無効化
@@ -844,10 +902,7 @@ mod tests {
 
     #[test]
     fn test_filter_panel_render() {
-        let panel = FilterPanel::new(&[
-            "node_modules".to_string(),
-            ".git".to_string(),
-        ]);
+        let panel = FilterPanel::new(&["node_modules".to_string(), ".git".to_string()]);
 
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = Buffer::empty(area);
@@ -857,7 +912,11 @@ mod tests {
         let content: String = (0..area.height)
             .map(|y| {
                 (0..area.width)
-                    .map(|x| buf.cell((x, y)).map(|c| c.symbol().to_string()).unwrap_or_default())
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
