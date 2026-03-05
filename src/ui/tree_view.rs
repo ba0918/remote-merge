@@ -80,9 +80,9 @@ impl<'a> Widget for TreeView<'a> {
                 };
 
                 let icon = if node.is_symlink {
-                    "🔗"
+                    "@ "
                 } else if node.is_dir {
-                    "📁"
+                    "/ "
                 } else {
                     "  "
                 };

@@ -8,3 +8,6 @@
 docs/internal
 docs/cycles
 docs/status.md
+
+# Example
+.remote-merge.toml

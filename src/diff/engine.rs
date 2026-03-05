@@ -54,7 +54,10 @@ pub enum DiffResult {
     Equal,
     /// テキスト差分あり
     Modified {
+        /// 表示用ハンク（コンテキスト3行付き）
         hunks: Vec<DiffHunk>,
+        /// 操作用ハンク（コンテキスト0行、変更ブロック単位）
+        merge_hunks: Vec<DiffHunk>,
         /// 全行（コンテキスト含む）
         lines: Vec<DiffLine>,
         stats: DiffStats,
@@ -133,11 +136,14 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
         equal: lines.iter().filter(|l| l.tag == DiffTag::Equal).count(),
     };
 
-    // ハンク生成（コンテキスト3行でグループ化）
+    // 表示用ハンク（コンテキスト3行でグループ化）
     let hunks = build_hunks(&lines, 3);
+    // 操作用ハンク（コンテキスト0行、変更ブロック単位）
+    let merge_hunks = build_hunks(&lines, 0);
 
     DiffResult::Modified {
         hunks,
+        merge_hunks,
         lines,
         stats,
     }
@@ -356,6 +362,57 @@ mod tests {
                 assert_eq!(hunks.len(), 2, "離れた変更は別ハンクになるべき");
             }
             other => panic!("Modified を期待したが {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_merge_hunks_separate_changes() {
+        // 離れた変更はそれぞれ別の merge_hunk になるべき
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { merge_hunks, hunks, .. } = &diff {
+            // 表示用 hunks はコンテキスト3行で結合されうる
+            // merge_hunks はコンテキスト0行で変更ごとに分かれるべき
+            assert_eq!(merge_hunks.len(), 2, "2つの離れた変更は別々の merge_hunk に");
+            // b→X のハンク
+            assert!(merge_hunks[0].lines.iter().any(|l| l.value.contains("X")));
+            // i→Y のハンク
+            assert!(merge_hunks[1].lines.iter().any(|l| l.value.contains("Y")));
+
+            // 表示用は1つに結合されてもよい（コンテキスト次第）
+            assert!(hunks.len() <= merge_hunks.len());
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_merge_hunks_close_changes_still_separate() {
+        // 3行間隔の変更でも merge_hunks は分離される
+        let old = "a\nb\nc\nd\ne\n";
+        let new = "a\nX\nc\nY\ne\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { merge_hunks, .. } = &diff {
+            assert_eq!(merge_hunks.len(), 2, "近い変更でも merge_hunk は分離");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_merge_hunks_adjacent_changes_grouped() {
+        // 連続した変更行は1つの merge_hunk
+        let old = "a\nb\nc\nd\n";
+        let new = "a\nX\nY\nd\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified { merge_hunks, .. } = &diff {
+            assert_eq!(merge_hunks.len(), 1, "連続変更は1つの merge_hunk");
+        } else {
+            panic!("Modified を期待");
         }
     }
 

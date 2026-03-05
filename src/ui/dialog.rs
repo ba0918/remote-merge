@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 
+use crate::diff::engine::HunkDirection;
 use crate::merge::executor::MergeDirection;
 
 /// マージ確認ダイアログの状態
@@ -147,6 +148,110 @@ impl FilterPanel {
     }
 }
 
+/// ハンクマージプレビューの状態
+#[derive(Debug, Clone)]
+pub struct HunkMergePreview {
+    /// 対象ファイルパス
+    pub file_path: String,
+    /// マージ方向
+    pub direction: HunkDirection,
+    /// 適用前テキスト（対象ファイルの変更部分周辺）
+    pub before_text: String,
+    /// 適用後テキスト
+    pub after_text: String,
+    /// マージ方向の文字列表示
+    pub direction_label: String,
+}
+
+impl HunkMergePreview {
+    pub fn new(
+        file_path: String,
+        direction: HunkDirection,
+        before_text: String,
+        after_text: String,
+    ) -> Self {
+        let direction_label = match direction {
+            HunkDirection::RightToLeft => "remote → local".to_string(),
+            HunkDirection::LeftToRight => "local → remote".to_string(),
+        };
+        Self {
+            file_path,
+            direction,
+            before_text,
+            after_text,
+            direction_label,
+        }
+    }
+}
+
+/// ヘルプオーバーレイのセクション
+#[derive(Debug, Clone)]
+pub struct HelpSection {
+    pub title: String,
+    pub bindings: Vec<(String, String)>, // (キー, 説明)
+}
+
+/// ヘルプオーバーレイの状態
+#[derive(Debug, Clone)]
+pub struct HelpOverlay {
+    pub sections: Vec<HelpSection>,
+}
+
+impl Default for HelpOverlay {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HelpOverlay {
+    pub fn new() -> Self {
+        Self {
+            sections: vec![
+                HelpSection {
+                    title: "File Tree".to_string(),
+                    bindings: vec![
+                        ("j/↓".to_string(), "カーソル下移動".to_string()),
+                        ("k/↑".to_string(), "カーソル上移動".to_string()),
+                        ("Enter/l/→".to_string(), "展開 / ファイル選択".to_string()),
+                        ("h/←".to_string(), "折りたたみ".to_string()),
+                        ("L (Shift)".to_string(), "local → remote マージ".to_string()),
+                        ("R (Shift)".to_string(), "remote → local マージ".to_string()),
+                        ("r".to_string(), "リフレッシュ / キャッシュクリア".to_string()),
+                        ("f".to_string(), "フィルターパネル".to_string()),
+                        ("s".to_string(), "サーバ選択".to_string()),
+                    ],
+                },
+                HelpSection {
+                    title: "Diff View".to_string(),
+                    bindings: vec![
+                        ("j/↓".to_string(), "次のハンクへ".to_string()),
+                        ("k/↑".to_string(), "前のハンクへ".to_string()),
+                        ("J (Shift)".to_string(), "1行下スクロール".to_string()),
+                        ("K (Shift)".to_string(), "1行上スクロール".to_string()),
+                        ("PageDown".to_string(), "ページ下スクロール".to_string()),
+                        ("PageUp".to_string(), "ページ上スクロール".to_string()),
+                        ("Home".to_string(), "先頭へ".to_string()),
+                        ("End".to_string(), "末尾へ".to_string()),
+                        ("→/l".to_string(), "ハンク: remote → local 選択".to_string()),
+                        ("←/h".to_string(), "ハンク: local → remote 選択".to_string()),
+                        ("Enter".to_string(), "ハンクマージ プレビュー確認".to_string()),
+                        ("Esc".to_string(), "ハンクマージ キャンセル".to_string()),
+                        ("d".to_string(), "Unified ↔ Side-by-Side 切替".to_string()),
+                    ],
+                },
+                HelpSection {
+                    title: "Global".to_string(),
+                    bindings: vec![
+                        ("Tab".to_string(), "フォーカス切替".to_string()),
+                        ("?".to_string(), "ヘルプ表示/閉じる".to_string()),
+                        ("q".to_string(), "終了".to_string()),
+                    ],
+                },
+            ],
+        }
+    }
+}
+
 /// アプリのダイアログ状態
 #[derive(Debug, Clone, Default)]
 pub enum DialogState {
@@ -159,6 +264,10 @@ pub enum DialogState {
     ServerSelect(ServerMenu),
     /// フィルターパネル
     Filter(FilterPanel),
+    /// ハンクマージプレビュー
+    HunkMergePreview(HunkMergePreview),
+    /// ヘルプオーバーレイ
+    Help(HelpOverlay),
 }
 
 /// 中央にモーダルエリアを計算する
@@ -356,6 +465,167 @@ impl<'a> Widget for FilterPanelWidget<'a> {
                 Span::raw(": close"),
             ]));
             guide.render(chunks[guide_idx], buf);
+        }
+    }
+}
+
+/// ヘルプオーバーレイウィジェット
+pub struct HelpOverlayWidget<'a> {
+    help: &'a HelpOverlay,
+}
+
+impl<'a> HelpOverlayWidget<'a> {
+    pub fn new(help: &'a HelpOverlay) -> Self {
+        Self { help }
+    }
+}
+
+impl<'a> Widget for HelpOverlayWidget<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // 全セクションの行数を計算
+        let total_lines: usize = self.help.sections.iter()
+            .map(|s| s.bindings.len() + 2) // タイトル + 空行 + bindings
+            .sum();
+
+        let width = area.width.min(60);
+        let height = ((total_lines as u16) + 4).min(area.height); // borders + padding
+        let dialog_area = centered_rect(width, height, area);
+
+        Clear.render(dialog_area, buf);
+
+        let block = Block::default()
+            .title(" Help (? to close) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+
+        let inner = block.inner(dialog_area);
+        block.render(dialog_area, buf);
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        for section in &self.help.sections {
+            // セクションタイトル
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("── {} ──", section.title),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            // キーバインド
+            for (key, desc) in &section.bindings {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("{:<16}", key), Style::default().fg(Color::Cyan)),
+                    Span::styled(desc.clone(), Style::default().fg(Color::White)),
+                ]));
+            }
+
+            // セクション間の空行
+            lines.push(Line::from(""));
+        }
+
+        let paragraph = Paragraph::new(lines);
+        paragraph.render(inner, buf);
+    }
+}
+
+/// ハンクマージプレビューウィジェット
+pub struct HunkMergePreviewWidget<'a> {
+    preview: &'a HunkMergePreview,
+}
+
+impl<'a> HunkMergePreviewWidget<'a> {
+    pub fn new(preview: &'a HunkMergePreview) -> Self {
+        Self { preview }
+    }
+
+    /// before/after テキストから差分がある行のみを抽出して表示用行を生成
+    fn build_preview_lines(text: &str, max_lines: usize) -> Vec<Line<'static>> {
+        text.lines()
+            .take(max_lines)
+            .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(Color::White))))
+            .collect()
+    }
+}
+
+impl<'a> Widget for HunkMergePreviewWidget<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let width = area.width.min(76);
+        let height = area.height.min(24);
+        let dialog_area = centered_rect(width, height, area);
+
+        // 背景をクリア
+        Clear.render(dialog_area, buf);
+
+        let title = format!(" Hunk Merge Preview ({}) ", self.preview.direction_label);
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+
+        let inner = block.inner(dialog_area);
+        block.render(dialog_area, buf);
+
+        // レイアウト: ファイルパス + Before + After + ガイド
+        let half_height = inner.height.saturating_sub(4) / 2;
+        let constraints = vec![
+            Constraint::Length(1), // ファイルパス
+            Constraint::Length(1), // "Before:" ラベル
+            Constraint::Length(half_height), // before テキスト
+            Constraint::Length(1), // "After:" ラベル
+            Constraint::Length(half_height), // after テキスト
+            Constraint::Length(1), // ガイド
+        ];
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(inner);
+
+        // ファイルパス
+        let path_line = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(&self.preview.file_path, Style::default().fg(Color::Cyan)),
+        ]));
+        path_line.render(chunks[0], buf);
+
+        // Before ラベル
+        let before_label = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Before:", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        ]));
+        before_label.render(chunks[1], buf);
+
+        // Before テキスト
+        let before_lines = Self::build_preview_lines(&self.preview.before_text, half_height as usize);
+        let before_para = Paragraph::new(before_lines)
+            .style(Style::default().bg(Color::Rgb(30, 0, 0)));
+        before_para.render(chunks[2], buf);
+
+        // After ラベル
+        let after_label = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled("After:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]));
+        after_label.render(chunks[3], buf);
+
+        // After テキスト
+        let after_lines = Self::build_preview_lines(&self.preview.after_text, half_height as usize);
+        let after_para = Paragraph::new(after_lines)
+            .style(Style::default().bg(Color::Rgb(0, 30, 0)));
+        after_para.render(chunks[4], buf);
+
+        // ガイド行
+        if chunks.len() > 5 {
+            let guide = Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("[Y]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw(" 実行  "),
+                Span::styled("[n/Esc]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw(" キャンセル"),
+            ]));
+            guide.render(chunks[5], buf);
         }
     }
 }

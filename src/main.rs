@@ -13,7 +13,7 @@ use remote_merge::local;
 use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
-use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, ServerMenuWidget};
+use remote_merge::ui::dialog::{ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreview, HunkMergePreviewWidget, ServerMenuWidget};
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
 use remote_merge::ui::tree_view::TreeView;
@@ -206,8 +206,7 @@ impl TuiRuntime {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     // ログ初期化
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -406,6 +405,7 @@ fn run_event_loop(
                     }
                     KeyCode::Char('f') => state.show_filter_panel(),
                     KeyCode::Char('s') => state.show_server_menu(),
+                    KeyCode::Char('?') => state.show_help(),
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
                         if key.modifiers.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('L') {
@@ -421,53 +421,77 @@ fn run_event_loop(
                     _ => {}
                 },
                 Focus::DiffView => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => {
+                    KeyCode::Char('q') => {
                         state.should_quit = true;
                     }
-                    KeyCode::Tab => state.toggle_focus(),
+                    KeyCode::Esc => {
+                        // 保留中のハンクマージがあればキャンセル、なければ終了
+                        if state.pending_hunk_merge.is_some() {
+                            state.cancel_hunk_merge();
+                        } else {
+                            state.should_quit = true;
+                        }
+                    }
+                    KeyCode::Tab => {
+                        state.cancel_hunk_merge();
+                        state.toggle_focus();
+                    }
                     KeyCode::Up | KeyCode::Char('k') => {
-                        // ハンク間ジャンプ（上）
+                        state.cancel_hunk_merge();
                         state.hunk_cursor_up();
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        // ハンク間ジャンプ（下）
+                        state.cancel_hunk_merge();
                         state.hunk_cursor_down();
                     }
                     KeyCode::Right | KeyCode::Char('l') => {
-                        // → キー: right の変更を left に取り込む
-                        if state.hunk_count() > 0 {
-                            if let Some(path) = state.apply_hunk_merge(HunkDirection::RightToLeft) {
-                                // ローカルファイルに書き込む（キャッシュ更新済み）
-                                let content = state.local_cache.get(&path).cloned().unwrap_or_default();
-                                let local_root = state.local_tree.root.clone();
-                                if let Err(e) = executor::write_local_file(&local_root, &path, &content) {
-                                    state.status_message = format!("ローカル書き込み失敗: {}", e);
-                                }
-                            }
-                        }
+                        // → キー: remote → local のハンクマージを選択（プレビュー）
+                        state.stage_hunk_merge(HunkDirection::RightToLeft);
                     }
                     KeyCode::Left | KeyCode::Char('h') => {
-                        // ← キー: left の変更を right に取り込む
-                        if state.hunk_count() > 0 && state.is_connected {
-                            if let Some(path) = state.apply_hunk_merge(HunkDirection::LeftToRight) {
-                                // リモートファイルに書き込む
-                                let content = state.remote_cache.get(&path).cloned().unwrap_or_default();
-                                if let Err(e) = runtime.write_remote_file(&state.server_name, &path, &content) {
-                                    state.status_message = format!("リモート書き込み失敗: {}", e);
-                                }
-                            }
+                        // ← キー: local → remote のハンクマージを選択（プレビュー）
+                        if state.is_connected {
+                            state.stage_hunk_merge(HunkDirection::LeftToRight);
                         } else if state.hunk_count() > 0 {
                             state.status_message = "SSH 未接続: リモートへのハンクマージはできません".to_string();
                         }
                     }
+                    KeyCode::Enter => {
+                        // Enter: プレビューダイアログを表示
+                        if let Some(direction) = state.pending_hunk_merge {
+                            if let Some((before, after)) = state.preview_hunk_merge(direction) {
+                                let path = state.selected_path.clone().unwrap_or_default();
+                                state.dialog = DialogState::HunkMergePreview(HunkMergePreview::new(
+                                    path,
+                                    direction,
+                                    before,
+                                    after,
+                                ));
+                            }
+                        }
+                    }
                     KeyCode::Char('K') => {
-                        // Shift+K: 通常のスクロールアップ（行単位）
                         state.scroll_up();
                     }
                     KeyCode::Char('J') => {
-                        // Shift+J: 通常のスクロールダウン（行単位）
                         state.scroll_down();
                     }
+                    KeyCode::PageDown => {
+                        state.scroll_page_down(20);
+                    }
+                    KeyCode::PageUp => {
+                        state.scroll_page_up(20);
+                    }
+                    KeyCode::Home => {
+                        state.scroll_to_home();
+                    }
+                    KeyCode::End => {
+                        state.scroll_to_end();
+                    }
+                    KeyCode::Char('d') => {
+                        state.toggle_diff_mode();
+                    }
+                    KeyCode::Char('?') => state.show_help(),
                     _ => {}
                 },
             }
@@ -547,6 +571,26 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
             }
             _ => {}
         },
+        DialogState::Help(_) => match key {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => {
+                state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::HunkMergePreview(ref preview) => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let direction = preview.direction;
+                state.pending_hunk_merge = None;
+                state.close_dialog();
+                execute_hunk_merge(state, runtime, direction);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.pending_hunk_merge = None;
+                state.status_message = "ハンクマージをキャンセルしました".to_string();
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::None => {}
     }
 }
@@ -576,6 +620,7 @@ fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path
         }
         Err(e) => {
             tracing::debug!("リモートディレクトリ取得スキップ: {} - {}", rel_path, e);
+            state.status_message = format!("リモートディレクトリ取得失敗: {} - {}", rel_path, e);
         }
     }
 }
@@ -598,6 +643,7 @@ fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
             Err(e) => {
                 tracing::debug!("ローカルファイル読み込みスキップ: {} - {}", path, e);
+                state.status_message = format!("ローカル読み込み失敗: {} - {}", path, e);
             }
         }
     }
@@ -610,6 +656,7 @@ fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
             Err(e) => {
                 tracing::debug!("リモートファイル読み込みスキップ: {} - {}", path, e);
+                state.status_message = format!("リモート読み込み失敗: {} - {}", path, e);
             }
         }
     }
@@ -674,6 +721,51 @@ fn execute_merge(
                 }
                 Err(e) => {
                     state.status_message = format!("マージ失敗: {}", e);
+                }
+            }
+        }
+    }
+}
+
+/// ハンクマージを実行する（2段階操作の確定時）
+fn execute_hunk_merge(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    direction: HunkDirection,
+) {
+    if let Some(path) = state.apply_hunk_merge(direction) {
+        match direction {
+            HunkDirection::RightToLeft => {
+                // ローカルファイルに書き込む
+                let content = state.local_cache.get(&path).cloned().unwrap_or_default();
+                let local_root = state.local_tree.root.clone();
+                match executor::write_local_file(&local_root, &path, &content) {
+                    Ok(()) => {
+                        state.status_message = format!(
+                            "Hunk merged: remote → local ({}) | {} hunks left",
+                            path,
+                            state.hunk_count(),
+                        );
+                    }
+                    Err(e) => {
+                        state.status_message = format!("ローカル書き込み失敗: {}", e);
+                    }
+                }
+            }
+            HunkDirection::LeftToRight => {
+                // リモートファイルに書き込む
+                let content = state.remote_cache.get(&path).cloned().unwrap_or_default();
+                match runtime.write_remote_file(&state.server_name, &path, &content) {
+                    Ok(()) => {
+                        state.status_message = format!(
+                            "Hunk merged: local → remote ({}) | {} hunks left",
+                            path,
+                            state.hunk_count(),
+                        );
+                    }
+                    Err(e) => {
+                        state.status_message = format!("リモート書き込み失敗: {}", e);
+                    }
                 }
             }
         }
@@ -758,6 +850,14 @@ fn draw_ui(frame: &mut Frame, state: &AppState) {
         }
         DialogState::Filter(panel) => {
             let widget = FilterPanelWidget::new(panel);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::Help(help) => {
+            let widget = HelpOverlayWidget::new(help);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::HunkMergePreview(preview) => {
+            let widget = HunkMergePreviewWidget::new(preview);
             frame.render_widget(widget, frame.area());
         }
         DialogState::None => {}

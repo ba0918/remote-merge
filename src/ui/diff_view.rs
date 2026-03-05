@@ -7,7 +7,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use crate::app::{AppState, Focus};
+use crate::app::{AppState, DiffMode, Focus};
 use crate::diff::engine::{DiffHunk, DiffLine, DiffResult, DiffTag};
 
 /// diff ビューウィジェット
@@ -32,8 +32,17 @@ impl<'a> DiffView<'a> {
     fn line_style(tag: DiffTag) -> Style {
         match tag {
             DiffTag::Equal => Style::default().fg(Color::White),
-            DiffTag::Insert => Style::default().fg(Color::Green),
-            DiffTag::Delete => Style::default().fg(Color::Red),
+            DiffTag::Insert => Style::default().fg(Color::Green).bg(Color::Rgb(0, 30, 0)),
+            DiffTag::Delete => Style::default().fg(Color::Red).bg(Color::Rgb(30, 0, 0)),
+        }
+    }
+
+    /// diff タグに応じたベース背景色を返す（ハンクハイライトより低優先度）
+    fn base_bg(tag: DiffTag) -> Option<Color> {
+        match tag {
+            DiffTag::Insert => Some(Color::Rgb(0, 30, 0)),
+            DiffTag::Delete => Some(Color::Rgb(30, 0, 0)),
+            DiffTag::Equal => None,
         }
     }
 
@@ -61,6 +70,7 @@ impl<'a> DiffView<'a> {
         line: &DiffLine,
         is_current_hunk: bool,
         is_focused: bool,
+        is_pending: bool,
     ) -> Line<'static> {
         let style = Self::line_style(line.tag);
         let old_num = Self::format_line_num(line.old_index);
@@ -75,35 +85,160 @@ impl<'a> DiffView<'a> {
             DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         };
 
-        // カレントハンクかつフォーカス中なら背景色でハイライト
-        let (style, num_style, prefix_style) = if is_current_hunk && is_focused {
-            let bg = Color::Rgb(40, 40, 60);
-            (
-                style.bg(bg),
-                num_style.bg(bg),
-                prefix_style.bg(bg),
-            )
+        // 背景色の優先度: ハンクハイライト > base_bg (Insert/Delete)
+        let base_bg = Self::base_bg(line.tag);
+
+        let bg = if is_current_hunk && is_focused {
+            if is_pending {
+                Some(Color::Rgb(60, 40, 20)) // オレンジ系: 確定待ち（最優先）
+            } else {
+                Some(Color::Rgb(40, 40, 60)) // 青系: 通常選択（最優先）
+            }
+        } else {
+            base_bg // Insert/Delete の背景色
+        };
+
+        let (style, num_style, prefix_style) = if let Some(bg) = bg {
+            (style.bg(bg), num_style.bg(bg), prefix_style.bg(bg))
         } else {
             (style, num_style, prefix_style)
         };
 
         // カレントハンクのインジケータ
-        let indicator = if is_current_hunk && is_focused {
-            Span::styled("▶ ", Style::default().fg(Color::Cyan).bg(if is_current_hunk && is_focused { Color::Rgb(40, 40, 60) } else { Color::Reset }))
+        let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
+            if is_pending {
+                ("⏎ ", Color::Yellow) // 確定待ち
+            } else {
+                ("▶ ", Color::Cyan)   // 通常選択
+            }
         } else {
-            Span::styled("  ", Style::default())
+            ("  ", Color::Reset)
         };
 
+        let indicator_style = if let Some(bg) = bg {
+            Style::default().fg(indicator_color).bg(bg)
+        } else {
+            Style::default().fg(indicator_color)
+        };
+
+        let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
+
         Line::from(vec![
-            indicator,
+            Span::styled(indicator_char, indicator_style),
             Span::styled(old_num, num_style),
-            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(" ", gap_style),
             Span::styled(new_num, num_style),
-            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(" ", gap_style),
             Span::styled(prefix.to_string(), prefix_style),
-            Span::styled(" ", if is_current_hunk && is_focused { Style::default().bg(Color::Rgb(40, 40, 60)) } else { Style::default() }),
+            Span::styled(" ", gap_style),
             Span::styled(value, style),
         ])
+    }
+
+    /// Side-by-Side 用に diff 行を左右にペアリングする
+    ///
+    /// 各行が (Option<&DiffLine>, Option<&DiffLine>) のペアになる:
+    /// - Equal: (Some(line), Some(line))
+    /// - Delete: (Some(line), None) — 次の Insert とペアリングを試みる
+    /// - Insert: (None, Some(line))
+    pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Option<DiffLine>)> {
+        let mut result = Vec::new();
+        let mut i = 0;
+
+        while i < lines.len() {
+            match lines[i].tag {
+                DiffTag::Equal => {
+                    result.push((Some(lines[i].clone()), Some(lines[i].clone())));
+                    i += 1;
+                }
+                DiffTag::Delete => {
+                    // Delete/Insert のペアリングを試みる
+                    let mut deletes = Vec::new();
+                    while i < lines.len() && lines[i].tag == DiffTag::Delete {
+                        deletes.push(lines[i].clone());
+                        i += 1;
+                    }
+                    let mut inserts = Vec::new();
+                    while i < lines.len() && lines[i].tag == DiffTag::Insert {
+                        inserts.push(lines[i].clone());
+                        i += 1;
+                    }
+
+                    let max_len = deletes.len().max(inserts.len());
+                    for j in 0..max_len {
+                        let left = deletes.get(j).cloned();
+                        let right = inserts.get(j).cloned();
+                        result.push((left, right));
+                    }
+                }
+                DiffTag::Insert => {
+                    result.push((None, Some(lines[i].clone())));
+                    i += 1;
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Side-by-Side 用の1行を Line に変換
+    fn render_side_by_side_line(
+        left: &Option<DiffLine>,
+        right: &Option<DiffLine>,
+        half_width: u16,
+    ) -> Line<'static> {
+        let content_width = (half_width as usize).saturating_sub(8); // line_num(5) + tag(1) + spaces(2)
+
+        let render_half = |line_opt: &Option<DiffLine>| -> Vec<Span<'static>> {
+            match line_opt {
+                Some(line) => {
+                    let num = Self::format_line_num(match line.tag {
+                        DiffTag::Delete => line.old_index,
+                        DiffTag::Insert => line.new_index,
+                        DiffTag::Equal => line.old_index,
+                    });
+                    let prefix = Self::tag_char(line.tag);
+                    let value = line.value.trim_end_matches('\n').to_string();
+                    let truncated = if value.len() > content_width {
+                        format!("{}…", &value[..content_width.saturating_sub(1)])
+                    } else {
+                        format!("{:<width$}", value, width = content_width)
+                    };
+
+                    let style = Self::line_style(line.tag);
+                    let num_style = match Self::base_bg(line.tag) {
+                        Some(bg) => Style::default().fg(Color::DarkGray).bg(bg),
+                        None => Style::default().fg(Color::DarkGray),
+                    };
+                    let prefix_style = match line.tag {
+                        DiffTag::Equal => Style::default().fg(Color::DarkGray),
+                        DiffTag::Insert => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        DiffTag::Delete => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    };
+                    let prefix_style = match Self::base_bg(line.tag) {
+                        Some(bg) => prefix_style.bg(bg),
+                        None => prefix_style,
+                    };
+
+                    vec![
+                        Span::styled(num, num_style),
+                        Span::styled(prefix.to_string(), prefix_style),
+                        Span::styled(" ", Style::default()),
+                        Span::styled(truncated, style),
+                    ]
+                }
+                None => {
+                    let empty = format!("{:<width$}", "", width = content_width + 7);
+                    vec![Span::styled(empty, Style::default().fg(Color::DarkGray))]
+                }
+            }
+        };
+
+        let mut spans = render_half(left);
+        spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+        spans.extend(render_half(right));
+
+        Line::from(spans)
     }
 
     /// diff 行を Line に変換（テスト互換用）
@@ -181,30 +316,52 @@ impl<'a> Widget for DiffView<'a> {
                 ]));
                 msg.render(inner, buf);
             }
-            Some(DiffResult::Modified { hunks, lines, stats }) => {
+            Some(DiffResult::Modified { hunks: _, merge_hunks, lines, stats }) => {
                 let visible_height = inner.height as usize;
                 let scroll = self.state.diff_scroll.min(lines.len().saturating_sub(1));
 
-                let current_hunk = hunks.get(self.state.hunk_cursor);
+                let current_hunk = merge_hunks.get(self.state.hunk_cursor);
+                let is_pending = self.state.pending_hunk_merge.is_some();
 
-                let mut display_lines: Vec<Line> = lines
-                    .iter()
-                    .skip(scroll)
-                    .take(visible_height.saturating_sub(1)) // 最終行にサマリー表示
-                    .map(|line| {
-                        let in_current_hunk = current_hunk
-                            .map(|h| Self::is_line_in_hunk(line, h))
-                            .unwrap_or(false);
-                        Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused)
-                    })
-                    .collect();
+                let mode_label = match self.state.diff_mode {
+                    DiffMode::Unified => "unified",
+                    DiffMode::SideBySide => "side-by-side",
+                };
+
+                let mut display_lines: Vec<Line> = match self.state.diff_mode {
+                    DiffMode::Unified => {
+                        lines
+                            .iter()
+                            .skip(scroll)
+                            .take(visible_height.saturating_sub(1))
+                            .map(|line| {
+                                let in_current_hunk = current_hunk
+                                    .map(|h| Self::is_line_in_hunk(line, h))
+                                    .unwrap_or(false);
+                                Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused, is_pending)
+                            })
+                            .collect()
+                    }
+                    DiffMode::SideBySide => {
+                        let pairs = Self::split_for_side_by_side(lines);
+                        let half_width = inner.width / 2;
+                        pairs
+                            .iter()
+                            .skip(scroll)
+                            .take(visible_height.saturating_sub(1))
+                            .map(|(left, right)| {
+                                Self::render_side_by_side_line(left, right, half_width)
+                            })
+                            .collect()
+                    }
+                };
 
                 // サマリー行（ハンク情報付き）
-                let hunk_info = if !hunks.is_empty() {
+                let hunk_info = if !merge_hunks.is_empty() {
                     format!(
                         " | hunk {}/{}",
                         self.state.hunk_cursor + 1,
-                        hunks.len()
+                        merge_hunks.len()
                     )
                 } else {
                     String::new()
@@ -213,13 +370,14 @@ impl<'a> Widget for DiffView<'a> {
                 let summary = Line::from(vec![
                     Span::styled(
                         format!(
-                            " +{} -{} ={} | {}/{}{}",
+                            " +{} -{} ={} | {}/{}{} | {}",
                             stats.insertions,
                             stats.deletions,
                             stats.equal,
                             scroll + 1,
                             lines.len(),
                             hunk_info,
+                            mode_label,
                         ),
                         Style::default().fg(Color::DarkGray),
                     ),
@@ -286,6 +444,7 @@ mod tests {
 
         let diff = DiffResult::Modified {
             hunks: vec![],
+            merge_hunks: vec![],
             lines,
             stats: DiffStats { insertions: 1, deletions: 1, equal: 2 },
         };
@@ -302,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_hunk_highlight_rendering() {
-        use crate::diff::engine::{compute_diff, DiffResult};
+        use crate::diff::engine::compute_diff;
 
         let old = "aaa\nbbb\nccc\n";
         let new = "aaa\nXXX\nccc\n";
@@ -323,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_hunk_cursor_indicator() {
-        use crate::diff::engine::{compute_diff, DiffResult};
+        use crate::diff::engine::compute_diff;
 
         let old = "aaa\nbbb\nccc\n";
         let new = "aaa\nXXX\nccc\n";
@@ -336,6 +495,59 @@ mod tests {
         let content = render_to_string(&state, 80, 15);
         // カーソルインジケータ ▶ が描画されていること
         assert!(content.contains("▶"), "ハンクカーソルインジケータが表示されるべき");
+    }
+
+    #[test]
+    fn test_insert_line_has_green_background() {
+        let line = DiffLine {
+            tag: DiffTag::Insert,
+            value: "new line\n".to_string(),
+            old_index: None,
+            new_index: Some(0),
+        };
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        // Insert 行のスタイルに bg が設定されていることを確認
+        // rendered の最後の Span (value) のスタイルをチェック
+        let value_span = rendered.spans.last().unwrap();
+        assert_eq!(
+            value_span.style.bg,
+            Some(Color::Rgb(0, 30, 0)),
+            "Insert 行に緑の背景色が設定されるべき"
+        );
+    }
+
+    #[test]
+    fn test_delete_line_has_red_background() {
+        let line = DiffLine {
+            tag: DiffTag::Delete,
+            value: "old line\n".to_string(),
+            old_index: Some(0),
+            new_index: None,
+        };
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        let value_span = rendered.spans.last().unwrap();
+        assert_eq!(
+            value_span.style.bg,
+            Some(Color::Rgb(30, 0, 0)),
+            "Delete 行に赤の背景色が設定されるべき"
+        );
+    }
+
+    #[test]
+    fn test_equal_line_no_background() {
+        let line = DiffLine {
+            tag: DiffTag::Equal,
+            value: "same line\n".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        };
+        let rendered = DiffView::render_diff_line_with_highlight(&line, false, false, false);
+        let value_span = rendered.spans.last().unwrap();
+        assert_eq!(
+            value_span.style.bg,
+            None,
+            "Equal 行には背景色が設定されないべき"
+        );
     }
 
     #[test]

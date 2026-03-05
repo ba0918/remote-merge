@@ -7,13 +7,22 @@ use std::path::Path;
 use crate::diff::engine::{self, DiffHunk, DiffResult, HunkDirection};
 use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
-use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, ServerMenu};
+use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu};
 
 /// TUI のフォーカス対象
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     FileTree,
     DiffView,
+}
+
+/// Diff 表示モード
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffMode {
+    /// 統一形式 (Unified)
+    Unified,
+    /// 左右比較 (Side-by-Side)
+    SideBySide,
 }
 
 /// 差分バッジ（ファイル状態を示すマーカー）
@@ -105,6 +114,10 @@ pub struct AppState {
     pub disabled_patterns: std::collections::HashSet<String>,
     /// 現在選択中のハンクインデックス（Diff View フォーカス時）
     pub hunk_cursor: usize,
+    /// ハンクマージの保留状態（→/← で選択、Enter で確定）
+    pub pending_hunk_merge: Option<HunkDirection>,
+    /// Diff 表示モード
+    pub diff_mode: DiffMode,
 }
 
 impl AppState {
@@ -135,6 +148,8 @@ impl AppState {
             exclude_patterns: Vec::new(),
             disabled_patterns: std::collections::HashSet::new(),
             hunk_cursor: 0,
+            pending_hunk_merge: None,
+            diff_mode: DiffMode::Unified,
         };
         state.rebuild_flat_nodes();
         state
@@ -170,6 +185,43 @@ impl AppState {
     /// diff ビューを下にスクロール
     pub fn scroll_down(&mut self) {
         self.diff_scroll = self.diff_scroll.saturating_add(1);
+    }
+
+    /// Diff 表示モードを切り替える (d キー)
+    pub fn toggle_diff_mode(&mut self) {
+        self.diff_mode = match self.diff_mode {
+            DiffMode::Unified => DiffMode::SideBySide,
+            DiffMode::SideBySide => DiffMode::Unified,
+        };
+    }
+
+    /// diff の全行数を返す
+    pub fn diff_line_count(&self) -> usize {
+        match &self.current_diff {
+            Some(DiffResult::Modified { lines, .. }) => lines.len(),
+            _ => 0,
+        }
+    }
+
+    /// ページ下スクロール
+    pub fn scroll_page_down(&mut self, page_size: usize) {
+        let max = self.diff_line_count().saturating_sub(1);
+        self.diff_scroll = (self.diff_scroll + page_size).min(max);
+    }
+
+    /// ページ上スクロール
+    pub fn scroll_page_up(&mut self, page_size: usize) {
+        self.diff_scroll = self.diff_scroll.saturating_sub(page_size);
+    }
+
+    /// 先頭にスクロール
+    pub fn scroll_to_home(&mut self) {
+        self.diff_scroll = 0;
+    }
+
+    /// 末尾にスクロール
+    pub fn scroll_to_end(&mut self) {
+        self.diff_scroll = self.diff_line_count().saturating_sub(1);
     }
 
     /// ディレクトリの展開/折りたたみを切り替える
@@ -225,6 +277,37 @@ impl AppState {
         };
         self.diff_scroll = 0;
         self.hunk_cursor = 0;
+        self.pending_hunk_merge = None;
+    }
+
+    /// ハンクマージの保留をセットする（→/← で呼ぶ）
+    pub fn stage_hunk_merge(&mut self, direction: HunkDirection) {
+        if self.hunk_count() == 0 {
+            return;
+        }
+        self.pending_hunk_merge = Some(direction);
+        let dir_str = match direction {
+            HunkDirection::RightToLeft => "remote → local",
+            HunkDirection::LeftToRight => "local → remote",
+        };
+        self.status_message = format!(
+            "Hunk {}/{} ({}) — Enter: apply / Esc: cancel",
+            self.hunk_cursor + 1,
+            self.hunk_count(),
+            dir_str,
+        );
+    }
+
+    /// 保留中のハンクマージをキャンセルする
+    pub fn cancel_hunk_merge(&mut self) {
+        if self.pending_hunk_merge.is_some() {
+            self.pending_hunk_merge = None;
+            self.status_message = format!(
+                "Hunk merge cancelled | hunk {}/{}",
+                self.hunk_cursor + 1,
+                self.hunk_count(),
+            );
+        }
     }
 
     /// マージ確認ダイアログを表示する (Shift+L / Shift+R)
@@ -260,6 +343,11 @@ impl AppState {
             self.available_servers.clone(),
             self.server_name.clone(),
         ));
+    }
+
+    /// ヘルプオーバーレイを表示する (? キー)
+    pub fn show_help(&mut self) {
+        self.dialog = DialogState::Help(HelpOverlay::new());
     }
 
     /// ダイアログを閉じる
@@ -389,7 +477,7 @@ impl AppState {
     /// 現在の diff のハンク数を返す
     pub fn hunk_count(&self) -> usize {
         match &self.current_diff {
-            Some(DiffResult::Modified { hunks, .. }) => hunks.len(),
+            Some(DiffResult::Modified { merge_hunks, .. }) => merge_hunks.len(),
             _ => 0,
         }
     }
@@ -413,8 +501,8 @@ impl AppState {
 
     /// ハンクカーソル位置に diff_scroll を合わせる
     fn scroll_to_hunk(&mut self) {
-        if let Some(DiffResult::Modified { hunks, lines, .. }) = &self.current_diff {
-            if let Some(hunk) = hunks.get(self.hunk_cursor) {
+        if let Some(DiffResult::Modified { merge_hunks, lines, .. }) = &self.current_diff {
+            if let Some(hunk) = merge_hunks.get(self.hunk_cursor) {
                 // ハンクの先頭行が全体 lines 内の何行目かを探す
                 if let Some(first_hunk_line) = hunk.lines.first() {
                     let scroll_target = lines
@@ -452,6 +540,28 @@ impl AppState {
         0
     }
 
+    /// ハンクマージのプレビューテキスト（before/after）を生成する
+    pub fn preview_hunk_merge(&self, direction: HunkDirection) -> Option<(String, String)> {
+        let path = self.selected_path.as_ref()?;
+
+        let (hunks, _lines) = match &self.current_diff {
+            Some(DiffResult::Modified { merge_hunks, lines, .. }) => (merge_hunks.clone(), lines.clone()),
+            _ => return None,
+        };
+
+        let hunk = hunks.get(self.hunk_cursor)?;
+
+        // 適用先テキストを取得
+        let original = match direction {
+            HunkDirection::RightToLeft => self.local_cache.get(path)?.clone(),
+            HunkDirection::LeftToRight => self.remote_cache.get(path)?.clone(),
+        };
+
+        let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
+
+        Some((original, new_text))
+    }
+
     /// ハンク単位マージを実行する
     ///
     /// direction: RightToLeft なら right の変更を left に取り込む
@@ -460,7 +570,7 @@ impl AppState {
         let path = self.selected_path.clone()?;
 
         let (hunks, _lines) = match &self.current_diff {
-            Some(DiffResult::Modified { hunks, lines, .. }) => (hunks.clone(), lines.clone()),
+            Some(DiffResult::Modified { merge_hunks, lines, .. }) => (merge_hunks.clone(), lines.clone()),
             _ => return None,
         };
 
@@ -1011,6 +1121,107 @@ mod tests {
             other => panic!("Equal を期待したが {:?}", other),
         }
         assert_eq!(state.hunk_count(), 0);
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_sets_pending() {
+        use crate::diff::engine::HunkDirection;
+
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert!(state.pending_hunk_merge.is_none());
+
+        // → で RightToLeft を選択
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::RightToLeft));
+        assert!(state.status_message.contains("Enter"));
+        assert!(state.status_message.contains("Esc"));
+
+        // ← で上書き
+        state.stage_hunk_merge(HunkDirection::LeftToRight);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::LeftToRight));
+    }
+
+    #[test]
+    fn test_cancel_hunk_merge_clears_pending() {
+        use crate::diff::engine::HunkDirection;
+
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("test.txt".to_string(), "a\nb\nc\n".to_string());
+        state.remote_cache.insert("test.txt".to_string(), "a\nX\nc\n".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_some());
+
+        state.cancel_hunk_merge();
+        assert!(state.pending_hunk_merge.is_none());
+        assert!(state.status_message.contains("cancelled"));
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_noop_when_no_hunks() {
+        use crate::diff::engine::HunkDirection;
+
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        // diff なし → stage しても pending にならない
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_select_file_clears_pending() {
+        use crate::diff::engine::HunkDirection;
+
+        let local_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+        let remote_nodes = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.local_cache.insert("a.txt".to_string(), "old\n".to_string());
+        state.remote_cache.insert("a.txt".to_string(), "new\n".to_string());
+        state.local_cache.insert("b.txt".to_string(), "x\n".to_string());
+        state.remote_cache.insert("b.txt".to_string(), "y\n".to_string());
+
+        state.tree_cursor = 0;
+        state.select_file();
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_some());
+
+        // 別ファイル選択 → pending がクリアされる
+        state.tree_cursor = 1;
+        state.select_file();
+        assert!(state.pending_hunk_merge.is_none());
     }
 
     #[test]
