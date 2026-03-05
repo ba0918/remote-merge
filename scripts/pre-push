@@ -1,0 +1,12 @@
+#!/bin/sh
+# pre-push hook: run tests before push
+set -e
+
+echo "pre-push: cargo test..."
+cargo test --all-features
+if [ $? -ne 0 ]; then
+    echo "ERROR: tests failed. Push aborted."
+    exit 1
+fi
+
+echo "pre-push: OK"

@@ -1,0 +1,19 @@
+#!/bin/sh
+# pre-commit hook: format check + clippy
+set -e
+
+echo "pre-commit: cargo fmt --check..."
+cargo fmt --all --check
+if [ $? -ne 0 ]; then
+    echo "ERROR: cargo fmt check failed. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+echo "pre-commit: cargo clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "ERROR: clippy check failed."
+    exit 1
+fi
+
+echo "pre-commit: OK"
