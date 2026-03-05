@@ -105,11 +105,11 @@ fn test_tree_to_file_select_to_diff_flow() {
     state.toggle_focus();
     assert_eq!(state.focus, Focus::DiffView);
 
-    // 5. diff スクロール
+    // 5. diff カーソル移動（scroll_down/up はカーソル移動に変更済み）
     state.scroll_down();
-    assert_eq!(state.diff_scroll, 1);
+    assert_eq!(state.diff_cursor, 1);
     state.scroll_up();
-    assert_eq!(state.diff_scroll, 0);
+    assert_eq!(state.diff_cursor, 0);
 }
 
 #[test]
@@ -442,33 +442,37 @@ fn make_state_with_long_diff() -> AppState {
 #[test]
 fn test_scroll_page_down() {
     let mut state = make_state_with_long_diff();
-    assert_eq!(state.diff_scroll, 0);
+    assert_eq!(state.diff_cursor, 0);
 
     state.scroll_page_down(20);
-    assert_eq!(state.diff_scroll, 20);
+    assert_eq!(state.diff_cursor, 20);
 
     state.scroll_page_down(20);
-    assert_eq!(state.diff_scroll, 40);
+    assert_eq!(state.diff_cursor, 40);
 }
 
 #[test]
 fn test_scroll_page_up() {
     let mut state = make_state_with_long_diff();
-    state.diff_scroll = 50;
+    // カーソルを50に設定
+    state.diff_cursor = 50;
+    state.ensure_cursor_visible();
 
     state.scroll_page_up(20);
-    assert_eq!(state.diff_scroll, 30);
+    assert_eq!(state.diff_cursor, 30);
 
     state.scroll_page_up(20);
-    assert_eq!(state.diff_scroll, 10);
+    assert_eq!(state.diff_cursor, 10);
 }
 
 #[test]
 fn test_scroll_home() {
     let mut state = make_state_with_long_diff();
-    state.diff_scroll = 50;
+    state.diff_cursor = 50;
+    state.ensure_cursor_visible();
 
     state.scroll_to_home();
+    assert_eq!(state.diff_cursor, 0);
     assert_eq!(state.diff_scroll, 0);
 }
 
@@ -479,7 +483,7 @@ fn test_scroll_end() {
     assert!(line_count > 0);
 
     state.scroll_to_end();
-    assert_eq!(state.diff_scroll, line_count - 1);
+    assert_eq!(state.diff_cursor, line_count - 1);
 }
 
 #[test]
@@ -489,12 +493,13 @@ fn test_scroll_page_clamp() {
 
     // 大量にスクロールしても最大値を超えない
     state.scroll_page_down(10000);
-    assert_eq!(state.diff_scroll, line_count - 1);
+    assert_eq!(state.diff_cursor, line_count - 1);
 
     // 0以下にならない
-    state.diff_scroll = 5;
+    state.diff_cursor = 5;
+    state.ensure_cursor_visible();
     state.scroll_page_up(10000);
-    assert_eq!(state.diff_scroll, 0);
+    assert_eq!(state.diff_cursor, 0);
 }
 
 // === C-2: 2ペイン (Side-by-Side) Diff モードテスト ===
@@ -612,15 +617,15 @@ fn test_side_by_side_render() {
 fn test_diffview_jk_scrolls_one_line() {
     let mut state = make_state_with_long_diff();
     state.focus = Focus::DiffView;
-    assert_eq!(state.diff_scroll, 0);
+    assert_eq!(state.diff_cursor, 0);
 
-    // j/k は1行スクロール
+    // j/k は1行カーソル移動
     state.scroll_down();
-    assert_eq!(state.diff_scroll, 1);
+    assert_eq!(state.diff_cursor, 1);
     state.scroll_down();
-    assert_eq!(state.diff_scroll, 2);
+    assert_eq!(state.diff_cursor, 2);
     state.scroll_up();
-    assert_eq!(state.diff_scroll, 1);
+    assert_eq!(state.diff_cursor, 1);
 }
 
 #[test]
@@ -736,13 +741,13 @@ fn test_hunk_cursor_follows_scroll_position() {
         panic!("Modified を期待");
     };
 
-    // スクロールを2番目のハンク位置に移動
-    state.diff_scroll = second_hunk_line;
+    // カーソルを2番目のハンク位置に移動
+    state.diff_cursor = second_hunk_line;
     state.sync_hunk_cursor_to_scroll();
-    assert_eq!(state.hunk_cursor, 1, "スクロール位置に応じて2番目のハンクが選択されるべき");
+    assert_eq!(state.hunk_cursor, 1, "カーソル位置に応じて2番目のハンクが選択されるべき");
 
     // 先頭に戻す
-    state.diff_scroll = 0;
+    state.diff_cursor = 0;
     state.sync_hunk_cursor_to_scroll();
     assert_eq!(state.hunk_cursor, 0, "先頭に戻すと最初のハンクが選択されるべき");
 }
@@ -786,16 +791,16 @@ fn test_sync_hunk_cursor_binary_search() {
 
     assert_eq!(state.hunk_count(), 3);
 
-    // 各ハンク位置付近にスクロールして正しいハンクが選択されるか確認
-    state.diff_scroll = 0;
+    // 各ハンク位置付近にカーソルを移動して正しいハンクが選択されるか確認
+    state.diff_cursor = 0;
     state.sync_hunk_cursor_to_scroll();
     assert_eq!(state.hunk_cursor, 0);
 
-    state.diff_scroll = 30;
+    state.diff_cursor = 30;
     state.sync_hunk_cursor_to_scroll();
     assert_eq!(state.hunk_cursor, 1);
 
-    state.diff_scroll = 48;
+    state.diff_cursor = 48;
     state.sync_hunk_cursor_to_scroll();
     assert_eq!(state.hunk_cursor, 2);
 }
@@ -990,10 +995,10 @@ fn test_equal_scroll_works() {
     assert_eq!(state.diff_line_count(), 50);
 
     state.scroll_down();
-    assert_eq!(state.diff_scroll, 1);
+    assert_eq!(state.diff_cursor, 1);
 
     state.scroll_page_down(20);
-    assert_eq!(state.diff_scroll, 21);
+    assert_eq!(state.diff_cursor, 21);
 }
 
 #[test]

@@ -938,8 +938,13 @@ fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_
 }
 
 /// UI を描画する
-fn draw_ui(frame: &mut Frame, state: &AppState) {
+fn draw_ui(frame: &mut Frame, state: &mut AppState) {
     let layout = AppLayout::new(frame.area());
+
+    // ビューポートサイズを記録（スクロール計算用）
+    // Block の border 分 (2行) を差し引く
+    state.tree_visible_height = layout.tree_pane.height.saturating_sub(2) as usize;
+    state.diff_visible_height = layout.diff_pane.height.saturating_sub(2) as usize;
 
     // ヘッダ
     let conn_indicator = if state.is_connected { "●" } else { "○" };

@@ -57,14 +57,10 @@ impl<'a> Widget for TreeView<'a> {
             return;
         }
 
-        // スクロール計算
+        // スクロールオフセットは AppState 側で管理（ensure_tree_cursor_visible）
         let visible_height = inner.height as usize;
         let cursor = self.state.tree_cursor;
-        let scroll_offset = if cursor >= visible_height {
-            cursor - visible_height + 1
-        } else {
-            0
-        };
+        let scroll_offset = self.state.tree_scroll;
 
         let lines: Vec<Line> = self
             .state

@@ -324,15 +324,14 @@ impl<'a> Widget for DiffView<'a> {
                         let content_lines: Vec<&str> = content.lines().collect();
                         let total_lines = content_lines.len();
                         let scroll = self.state.diff_scroll.min(total_lines.saturating_sub(1));
-                        let cursor_line_idx = 0; // スクロール先頭行
+                        let cursor = self.state.diff_cursor;
 
-                        for (view_idx, (i, text)) in content_lines.iter().enumerate()
+                        for (i, text) in content_lines.iter().enumerate()
                             .skip(scroll)
                             .take(visible_height.saturating_sub(2)) // バナー + サマリー分を引く
-                            .enumerate()
                         {
                             let line_num = format!("{:>5} ", i + 1);
-                            let is_cursor = view_idx == cursor_line_idx && is_focused;
+                            let is_cursor = i == cursor && is_focused;
                             let bg = if is_cursor {
                                 Some(Color::Rgb(30, 30, 50))
                             } else {
@@ -355,7 +354,7 @@ impl<'a> Widget for DiffView<'a> {
                         // サマリー行
                         display_lines.push(Line::from(vec![
                             Span::styled(
-                                format!(" ={} | {}/{} | identical", total_lines, scroll + 1, total_lines),
+                                format!(" ={} | {}/{} | identical", total_lines, cursor + 1, total_lines),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]));
@@ -378,6 +377,7 @@ impl<'a> Widget for DiffView<'a> {
             Some(DiffResult::Modified { hunks: _, merge_hunks, lines, stats, .. }) => {
                 let visible_height = inner.height as usize;
                 let scroll = self.state.diff_scroll.min(lines.len().saturating_sub(1));
+                let cursor = self.state.diff_cursor;
 
                 let current_hunk = merge_hunks.get(self.state.hunk_cursor);
                 let is_pending = self.state.pending_hunk_merge.is_some();
@@ -387,20 +387,18 @@ impl<'a> Widget for DiffView<'a> {
                     DiffMode::SideBySide => "side-by-side",
                 };
 
-                let cursor_line_idx: usize = 0; // スクロール先頭行がカーソルライン
-
                 let mut display_lines: Vec<Line> = match self.state.diff_mode {
                     DiffMode::Unified => {
                         lines
                             .iter()
+                            .enumerate()
                             .skip(scroll)
                             .take(visible_height.saturating_sub(1))
-                            .enumerate()
-                            .map(|(view_idx, line)| {
+                            .map(|(line_idx, line)| {
                                 let in_current_hunk = current_hunk
                                     .map(|h| Self::is_line_in_hunk(line, h))
                                     .unwrap_or(false);
-                                let is_cursor = view_idx == cursor_line_idx;
+                                let is_cursor = line_idx == cursor;
                                 Self::render_diff_line_with_highlight(line, in_current_hunk, is_focused, is_pending, is_cursor)
                             })
                             .collect()
@@ -437,7 +435,7 @@ impl<'a> Widget for DiffView<'a> {
                             stats.insertions,
                             stats.deletions,
                             stats.equal,
-                            scroll + 1,
+                            cursor + 1,
                             lines.len(),
                             hunk_info,
                             mode_label,

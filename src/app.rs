@@ -111,8 +111,16 @@ pub struct AppState {
     pub flat_nodes: Vec<FlatNode>,
     /// ツリーのカーソル位置
     pub tree_cursor: usize,
-    /// diff ビューのスクロールオフセット
+    /// ツリーのスクロールオフセット
+    pub tree_scroll: usize,
+    /// ツリーの表示可能行数（最後の render で記録）
+    pub tree_visible_height: usize,
+    /// diff ビューのスクロールオフセット（ビューポート先頭行）
     pub diff_scroll: usize,
+    /// diff ビューのカーソル位置（論理行インデックス）
+    pub diff_cursor: usize,
+    /// diff ビューの表示可能行数（最後の render で記録）
+    pub diff_visible_height: usize,
     /// 展開中ディレクトリの集合
     pub expanded_dirs: std::collections::HashSet<String>,
     /// アプリを終了するか
@@ -158,7 +166,11 @@ impl AppState {
             selected_path: None,
             flat_nodes: Vec::new(),
             tree_cursor: 0,
+            tree_scroll: 0,
+            tree_visible_height: 20,
             diff_scroll: 0,
+            diff_cursor: 0,
+            diff_visible_height: 20, // デフォルト値（render時に更新）
             expanded_dirs: std::collections::HashSet::new(),
             should_quit: false,
             status_message: format!("local ↔ {} | Tab: switch focus | q: quit", server_name),
@@ -188,6 +200,7 @@ impl AppState {
     pub fn cursor_up(&mut self) {
         if self.tree_cursor > 0 {
             self.tree_cursor -= 1;
+            self.ensure_tree_cursor_visible();
         }
     }
 
@@ -195,17 +208,82 @@ impl AppState {
     pub fn cursor_down(&mut self) {
         if self.tree_cursor + 1 < self.flat_nodes.len() {
             self.tree_cursor += 1;
+            self.ensure_tree_cursor_visible();
         }
     }
 
-    /// diff ビューを上にスクロール
-    pub fn scroll_up(&mut self) {
-        self.diff_scroll = self.diff_scroll.saturating_sub(1);
+    /// ツリーカーソルの可視範囲を保証する（スクロールマージン付き）
+    pub fn ensure_tree_cursor_visible(&mut self) {
+        let height = self.tree_visible_height.max(1);
+        let total = self.flat_nodes.len();
+        let margin = Self::SCROLL_MARGIN.min(height / 2);
+
+        if total <= height {
+            self.tree_scroll = 0;
+            return;
+        }
+
+        // カーソルが上端マージンより上にある場合
+        if self.tree_cursor < self.tree_scroll.saturating_add(margin) {
+            self.tree_scroll = self.tree_cursor.saturating_sub(margin);
+        }
+
+        // カーソルが下端マージンより下にある場合
+        if self.tree_cursor + margin >= self.tree_scroll + height {
+            self.tree_scroll = (self.tree_cursor + margin + 1).saturating_sub(height);
+        }
+
+        // スクロール範囲のクランプ
+        let max_scroll = total.saturating_sub(height);
+        self.tree_scroll = self.tree_scroll.min(max_scroll);
     }
 
-    /// diff ビューを下にスクロール
+    /// スクロールマージン（上下端からこの行数を残してスクロールを開始する）
+    const SCROLL_MARGIN: usize = 3;
+
+    /// diff カーソルを上に移動
+    pub fn scroll_up(&mut self) {
+        self.diff_cursor = self.diff_cursor.saturating_sub(1);
+        self.ensure_cursor_visible();
+    }
+
+    /// diff カーソルを下に移動
     pub fn scroll_down(&mut self) {
-        self.diff_scroll = self.diff_scroll.saturating_add(1);
+        let max = self.diff_line_count().saturating_sub(1);
+        if self.diff_cursor < max {
+            self.diff_cursor += 1;
+        }
+        self.ensure_cursor_visible();
+    }
+
+    /// カーソル位置に応じてビューポートスクロールを調整する（VSCode準拠）
+    pub fn ensure_cursor_visible(&mut self) {
+        let height = self.diff_visible_height.max(1);
+        let margin = Self::SCROLL_MARGIN.min(height / 2); // 画面が小さい場合はマージンを縮小
+        let total = self.diff_line_count();
+
+        // カーソルを有効範囲にクランプ
+        if total > 0 {
+            self.diff_cursor = self.diff_cursor.min(total - 1);
+        } else {
+            self.diff_cursor = 0;
+            self.diff_scroll = 0;
+            return;
+        }
+
+        // カーソルが上端マージンより上にある場合
+        if self.diff_cursor < self.diff_scroll + margin {
+            self.diff_scroll = self.diff_cursor.saturating_sub(margin);
+        }
+
+        // カーソルが下端マージンより下にある場合
+        if self.diff_cursor + margin >= self.diff_scroll + height {
+            self.diff_scroll = (self.diff_cursor + margin + 1).saturating_sub(height);
+        }
+
+        // スクロール範囲のクランプ
+        let max_scroll = total.saturating_sub(height);
+        self.diff_scroll = self.diff_scroll.min(max_scroll);
     }
 
     /// Diff 表示モードを切り替える (d キー)
@@ -256,25 +334,29 @@ impl AppState {
         }
     }
 
-    /// ページ下スクロール
+    /// ページ下スクロール（カーソルも一緒に移動）
     pub fn scroll_page_down(&mut self, page_size: usize) {
         let max = self.diff_line_count().saturating_sub(1);
-        self.diff_scroll = (self.diff_scroll + page_size).min(max);
+        self.diff_cursor = (self.diff_cursor + page_size).min(max);
+        self.ensure_cursor_visible();
     }
 
-    /// ページ上スクロール
+    /// ページ上スクロール（カーソルも一緒に移動）
     pub fn scroll_page_up(&mut self, page_size: usize) {
-        self.diff_scroll = self.diff_scroll.saturating_sub(page_size);
+        self.diff_cursor = self.diff_cursor.saturating_sub(page_size);
+        self.ensure_cursor_visible();
     }
 
     /// 先頭にスクロール
     pub fn scroll_to_home(&mut self) {
+        self.diff_cursor = 0;
         self.diff_scroll = 0;
     }
 
     /// 末尾にスクロール
     pub fn scroll_to_end(&mut self) {
-        self.diff_scroll = self.diff_line_count().saturating_sub(1);
+        self.diff_cursor = self.diff_line_count().saturating_sub(1);
+        self.ensure_cursor_visible();
     }
 
     /// ディレクトリの展開/折りたたみを切り替える
@@ -329,6 +411,7 @@ impl AppState {
             }
         };
         self.diff_scroll = 0;
+        self.diff_cursor = 0;
         self.hunk_cursor = 0;
         self.pending_hunk_merge = None;
     }
@@ -440,6 +523,7 @@ impl AppState {
         self.current_diff = None;
         self.selected_path = None;
         self.diff_scroll = 0;
+        self.diff_cursor = 0;
         self.rebuild_flat_nodes();
         self.status_message = format!(
             "local ↔ {} | Tab: switch focus | q: quit",
@@ -535,14 +619,14 @@ impl AppState {
         }
     }
 
-    /// スクロール位置に最も近いハンクにハンクカーソルを同期する（二分探索）
+    /// カーソル位置に最も近いハンクにハンクカーソルを同期する（二分探索）
     pub fn sync_hunk_cursor_to_scroll(&mut self) {
         if let Some(DiffResult::Modified { merge_hunk_line_indices, .. }) = &self.current_diff {
             if merge_hunk_line_indices.is_empty() {
                 return;
             }
-            // 二分探索: diff_scroll 以下の最大のインデックスを持つハンクを探す
-            let pos = merge_hunk_line_indices.partition_point(|&idx| idx <= self.diff_scroll);
+            // 二分探索: diff_cursor 以下の最大のインデックスを持つハンクを探す
+            let pos = merge_hunk_line_indices.partition_point(|&idx| idx <= self.diff_cursor);
             self.hunk_cursor = if pos == 0 { 0 } else { pos - 1 };
         }
     }
@@ -564,20 +648,21 @@ impl AppState {
         }
     }
 
-    /// ハンクカーソル位置に diff_scroll を合わせる
+    /// ハンクカーソル位置に diff_cursor を合わせ、ビューポートも追従させる
     fn scroll_to_hunk(&mut self) {
         if let Some(DiffResult::Modified { merge_hunks, lines, .. }) = &self.current_diff {
             if let Some(hunk) = merge_hunks.get(self.hunk_cursor) {
                 // ハンクの先頭行が全体 lines 内の何行目かを探す
                 if let Some(first_hunk_line) = hunk.lines.first() {
-                    let scroll_target = lines
+                    let target = lines
                         .iter()
                         .position(|l| std::ptr::eq(l, first_hunk_line))
                         .unwrap_or_else(|| {
                             // ポインタ比較が失敗した場合はインデックスベースで探す
                             self.find_hunk_start_in_lines(lines, hunk)
                         });
-                    self.diff_scroll = scroll_target;
+                    self.diff_cursor = target;
+                    self.ensure_cursor_visible();
                 }
             }
         }
