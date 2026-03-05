@@ -91,6 +91,14 @@ impl TuiRuntime {
         Ok(tree)
     }
 
+    /// tokio Runtime の pending タスク（keepalive 等）を駆動する。
+    ///
+    /// TUI のイベントループ中に定期的に呼び出すことで、
+    /// SSH keepalive パケットの送受信を継続し、接続切断を防ぐ。
+    pub fn drive_runtime(&self) {
+        self.rt.block_on(async { tokio::task::yield_now().await });
+    }
+
     /// 切断する
     pub fn disconnect(&mut self) {
         if let Some(client) = self.ssh_client.take() {

@@ -193,6 +193,9 @@ fn run_event_loop(
     runtime: &mut TuiRuntime,
 ) -> anyhow::Result<()> {
     loop {
+        // tokio Runtime を駆動して SSH keepalive 等の pending タスクを処理
+        runtime.drive_runtime();
+
         scanner::poll_scan_result(state, runtime);
         merge_scan::poll_merge_scan_result(state, runtime);
 
