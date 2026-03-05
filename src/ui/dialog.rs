@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 
+use crate::app::Badge;
 use crate::diff::engine::HunkDirection;
 use crate::merge::executor::MergeDirection;
 
@@ -145,6 +146,89 @@ impl FilterPanel {
     }
 }
 
+/// バッチマージ確認ダイアログの状態
+#[derive(Debug, Clone)]
+pub struct BatchConfirmDialog {
+    /// 対象ファイルとバッジ一覧
+    pub files: Vec<(String, Badge)>,
+    /// マージ方向
+    pub direction: MergeDirection,
+    /// ソース名
+    pub source_name: String,
+    /// ターゲット名
+    pub target_name: String,
+    /// スクロール位置（大量ファイル対応）
+    pub scroll: usize,
+    /// 未比較(Unchecked)ディレクトリ数（警告用）
+    pub unchecked_count: usize,
+    /// センシティブファイル一覧
+    pub sensitive_files: Vec<String>,
+}
+
+impl BatchConfirmDialog {
+    pub fn new(
+        files: Vec<(String, Badge)>,
+        direction: MergeDirection,
+        source_name: String,
+        target_name: String,
+        unchecked_count: usize,
+    ) -> Self {
+        Self {
+            files,
+            direction,
+            source_name,
+            target_name,
+            scroll: 0,
+            unchecked_count,
+            sensitive_files: Vec::new(),
+        }
+    }
+
+    /// センシティブファイルパターンでチェックを行い、マッチするファイルを記録する
+    pub fn check_sensitive(&mut self, patterns: &[String]) {
+        self.sensitive_files = self
+            .files
+            .iter()
+            .filter(|(path, _)| {
+                let filename = path.rsplit('/').next().unwrap_or(path);
+                patterns
+                    .iter()
+                    .any(|p| glob_match::glob_match(p, filename) || glob_match::glob_match(p, path))
+            })
+            .map(|(path, _)| path.clone())
+            .collect();
+    }
+
+    /// 大量ファイル（21件以上）かどうか
+    pub fn is_large_batch(&self) -> bool {
+        self.files.len() > 20
+    }
+
+    /// メッセージを生成
+    pub fn message(&self) -> String {
+        format!(
+            "{}件のファイルを {} → {} にマージします",
+            self.files.len(),
+            self.source_name,
+            self.target_name
+        )
+    }
+
+    /// スクロールダウン
+    pub fn scroll_down(&mut self) {
+        if self.scroll + 1 < self.files.len() {
+            self.scroll += 1;
+        }
+    }
+
+    /// スクロールアップ
+    pub fn scroll_up(&mut self) {
+        if self.scroll > 0 {
+            self.scroll -= 1;
+        }
+    }
+}
+
 /// ハンクマージプレビューの状態
 #[derive(Debug, Clone)]
 pub struct HunkMergePreview {
@@ -211,8 +295,18 @@ impl HelpOverlay {
                         ("k/↑".to_string(), "カーソル上移動".to_string()),
                         ("Enter/l/→".to_string(), "展開 / ファイル選択".to_string()),
                         ("h/←".to_string(), "折りたたみ".to_string()),
-                        ("L (Shift)".to_string(), "local → remote マージ".to_string()),
-                        ("R (Shift)".to_string(), "remote → local マージ".to_string()),
+                        (
+                            "L (Shift)".to_string(),
+                            "local → remote マージ (ディレクトリ対応)".to_string(),
+                        ),
+                        (
+                            "R (Shift)".to_string(),
+                            "remote → local マージ (ディレクトリ対応)".to_string(),
+                        ),
+                        (
+                            "F (Shift)".to_string(),
+                            "変更ファイルのみ表示 (全走査)".to_string(),
+                        ),
                         (
                             "r".to_string(),
                             "リフレッシュ / キャッシュクリア".to_string(),
@@ -267,6 +361,8 @@ pub enum DialogState {
     None,
     /// マージ確認ダイアログ
     Confirm(ConfirmDialog),
+    /// バッチマージ確認ダイアログ（ディレクトリ選択時）
+    BatchConfirm(BatchConfirmDialog),
     /// サーバ選択メニュー
     ServerSelect(ServerMenu),
     /// フィルターパネル
@@ -365,6 +461,188 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
             Span::raw(" キャンセル"),
         ]));
         guide.render(chunks[3], buf);
+    }
+}
+
+/// バッチマージ確認ダイアログウィジェット
+pub struct BatchConfirmDialogWidget<'a> {
+    dialog: &'a BatchConfirmDialog,
+}
+
+impl<'a> BatchConfirmDialogWidget<'a> {
+    pub fn new(dialog: &'a BatchConfirmDialog) -> Self {
+        Self { dialog }
+    }
+}
+
+impl<'a> Widget for BatchConfirmDialogWidget<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let file_count = self.dialog.files.len();
+        // ダイアログの高さ: ヘッダ(1) + 警告(0-2) + ファイル一覧(最大15行) + 空行 + ガイド(1) + ボーダー(2)
+        let warning_lines = if self.dialog.unchecked_count > 0 {
+            1
+        } else {
+            0
+        } + if !self.dialog.sensitive_files.is_empty() {
+            1
+        } else {
+            0
+        };
+        let visible_files = file_count.min(15);
+        let height = (visible_files as u16) + (warning_lines as u16) + 6;
+        let width = area.width.min(70);
+        let title = format!(" Batch Merge ({} files) ", file_count);
+        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf);
+
+        let mut constraints: Vec<Constraint> = Vec::new();
+        constraints.push(Constraint::Length(1)); // メッセージ行
+        if self.dialog.unchecked_count > 0 {
+            constraints.push(Constraint::Length(1)); // 未比較警告
+        }
+        if !self.dialog.sensitive_files.is_empty() {
+            constraints.push(Constraint::Length(1)); // センシティブ警告
+        }
+        constraints.push(Constraint::Length(1)); // 空行
+        for _ in 0..visible_files {
+            constraints.push(Constraint::Length(1)); // ファイル行
+        }
+        if file_count > visible_files {
+            constraints.push(Constraint::Length(1)); // "...and N more" 行
+        }
+        constraints.push(Constraint::Length(1)); // 空行
+        constraints.push(Constraint::Length(1)); // ガイド行
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
+            .split(inner);
+
+        let mut row = 0;
+
+        // メッセージ行
+        let msg = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(self.dialog.message(), Style::default().fg(Color::White)),
+        ]));
+        msg.render(chunks[row], buf);
+        row += 1;
+
+        // 未比較警告
+        if self.dialog.unchecked_count > 0 {
+            let warn = Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "⚠ 未比較のディレクトリが{}個あります",
+                        self.dialog.unchecked_count
+                    ),
+                    Style::default().fg(Color::Yellow),
+                ),
+            ]));
+            warn.render(chunks[row], buf);
+            row += 1;
+        }
+
+        // センシティブ警告
+        if !self.dialog.sensitive_files.is_empty() {
+            let warn = Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "⚠ センシティブファイルが{}件含まれています",
+                        self.dialog.sensitive_files.len()
+                    ),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            warn.render(chunks[row], buf);
+            row += 1;
+        }
+
+        row += 1; // 空行
+
+        // ファイル一覧（スクロール対応）
+        let start = self.dialog.scroll;
+        let end = (start + visible_files).min(file_count);
+        for i in start..end {
+            if let Some((path, badge)) = self.dialog.files.get(i) {
+                let badge_style = match badge {
+                    Badge::Modified => Style::default().fg(Color::Yellow),
+                    Badge::LocalOnly => Style::default().fg(Color::Green),
+                    Badge::RemoteOnly => Style::default().fg(Color::Red),
+                    _ => Style::default().fg(Color::White),
+                };
+                let is_sensitive = self.dialog.sensitive_files.contains(path);
+                let sensitive_mark = if is_sensitive { " ⚠" } else { "" };
+
+                let line = Paragraph::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(badge.label(), badge_style),
+                    Span::raw(" "),
+                    Span::styled(path.as_str(), Style::default().fg(Color::White)),
+                    Span::styled(sensitive_mark, Style::default().fg(Color::Red)),
+                ]));
+                line.render(chunks[row], buf);
+            }
+            row += 1;
+        }
+
+        // "...and N more" 表示
+        if file_count > visible_files {
+            let more = Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!(
+                        "  ...他 {} 件 (j/k でスクロール)",
+                        file_count - visible_files
+                    ),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+            more.render(chunks[row], buf);
+            row += 1;
+        }
+
+        row += 1; // 空行
+
+        // ガイド行
+        if row < chunks.len() {
+            let guide = if self.dialog.is_large_batch() {
+                Paragraph::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        "[Y]",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" 実行  "),
+                    Span::styled(
+                        "[n/Esc]",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" キャンセル  "),
+                    Span::styled("(大量ファイル)", Style::default().fg(Color::Yellow)),
+                ]))
+            } else {
+                Paragraph::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        "[Y]",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" 実行  "),
+                    Span::styled(
+                        "[n/Esc]",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(" キャンセル"),
+                ]))
+            };
+            guide.render(chunks[row], buf);
+        }
     }
 }
 
@@ -837,6 +1115,83 @@ mod tests {
             .join("\n");
 
         assert!(content.contains("Server Select"));
+    }
+
+    #[test]
+    fn test_batch_confirm_dialog_message() {
+        let batch = BatchConfirmDialog::new(
+            vec![
+                ("src/a.ts".to_string(), Badge::Modified),
+                ("src/b.ts".to_string(), Badge::LocalOnly),
+            ],
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            1,
+        );
+        assert_eq!(
+            batch.message(),
+            "2件のファイルを local → develop にマージします"
+        );
+        assert!(!batch.is_large_batch());
+        assert_eq!(batch.unchecked_count, 1);
+    }
+
+    #[test]
+    fn test_batch_confirm_dialog_scroll() {
+        let mut batch = BatchConfirmDialog::new(
+            (0..25)
+                .map(|i| (format!("file{}.txt", i), Badge::Modified))
+                .collect(),
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+
+        assert_eq!(batch.scroll, 0);
+        batch.scroll_down();
+        assert_eq!(batch.scroll, 1);
+        batch.scroll_up();
+        assert_eq!(batch.scroll, 0);
+        // 下限
+        batch.scroll_up();
+        assert_eq!(batch.scroll, 0);
+    }
+
+    #[test]
+    fn test_batch_confirm_dialog_render() {
+        let batch = BatchConfirmDialog::new(
+            vec![
+                ("src/a.ts".to_string(), Badge::Modified),
+                ("src/b.ts".to_string(), Badge::LocalOnly),
+            ],
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+
+        let area = Rect::new(0, 0, 80, 30);
+        let mut buf = Buffer::empty(area);
+        let widget = BatchConfirmDialogWidget::new(&batch);
+        widget.render(area, &mut buf);
+
+        let content: String = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(content.contains("Batch Merge"));
+        assert!(content.contains("[M]"));
     }
 
     #[test]

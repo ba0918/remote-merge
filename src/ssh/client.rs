@@ -532,6 +532,66 @@ impl SshClient {
         Ok((nodes, truncated))
     }
 
+    /// リモートディレクトリを再帰的に全走査する（変更ファイルフィルター用）
+    ///
+    /// `find` コマンドを `-maxdepth` なしで実行し、全ファイルのメタデータを取得する。
+    /// 戻り値の bool は打ち切りが発生したかどうか。
+    pub async fn list_tree_recursive(
+        &mut self,
+        remote_path: &str,
+        exclude: &[String],
+        max_entries: usize,
+        timeout_secs: u64,
+    ) -> crate::error::Result<(Vec<FileNode>, bool)> {
+        // -P: シンボリックリンク非追跡を明示
+        let command = format!(
+            "find -P {} -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
+            shell_escape(remote_path)
+        );
+
+        let output = match tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            self.exec(&command),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => {
+                // タイムアウト: フォールバックなし、空で返す
+                return Err(AppError::SshTimeout {
+                    host: self.server_name.clone(),
+                    timeout_sec: timeout_secs,
+                }
+                .into());
+            }
+        };
+
+        let mut flat_nodes = Vec::new();
+        let mut truncated = false;
+
+        for line in output.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if flat_nodes.len() >= max_entries {
+                truncated = true;
+                tracing::warn!(
+                    "全走査: エントリ数が上限 {} に達しました: {}",
+                    max_entries,
+                    remote_path
+                );
+                break;
+            }
+            if let Some(node) = parse_find_line(line, remote_path, exclude) {
+                flat_nodes.push(node);
+            }
+        }
+
+        // フラットなリストを再帰ツリーに構築
+        let tree = build_tree_from_flat(flat_nodes);
+        Ok((tree, truncated))
+    }
+
     /// リモートファイルの内容を取得する（cat 経由）
     pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
         let command = format!("cat {}", shell_escape(remote_path));
@@ -731,6 +791,84 @@ fn should_exclude(name: &str, patterns: &[String]) -> bool {
         }
     }
     false
+}
+
+/// フラットなノードリスト（相対パス含む名前）から再帰ツリーを構築する
+///
+/// `parse_find_line` が返す `name` は "src/main.rs" のような相対パスになる。
+/// これを "/" で分割して再帰的にディレクトリ構造に埋め込む。
+fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
+    use std::collections::BTreeMap;
+
+    // 再帰的に挿入するヘルパー
+    fn insert_into_tree(
+        tree: &mut BTreeMap<String, FileNode>,
+        parts: &[&str],
+        original_node: &FileNode,
+    ) {
+        if parts.is_empty() {
+            return;
+        }
+
+        let name = parts[0];
+
+        if parts.len() == 1 {
+            // リーフノード: ファイルまたは空ディレクトリ
+            let mut node = original_node.clone();
+            node.name = name.to_string();
+            if node.is_dir() && node.children.is_none() {
+                node.children = Some(Vec::new()); // loaded 状態に
+            }
+            // 既存のディレクトリがあればマージ（メタデータを更新）
+            if let Some(existing) = tree.get_mut(name) {
+                existing.size = original_node.size.or(existing.size);
+                existing.mtime = original_node.mtime.or(existing.mtime);
+                existing.permissions = original_node.permissions.or(existing.permissions);
+            } else {
+                tree.insert(name.to_string(), node);
+            }
+        } else {
+            // 中間ディレクトリ: 存在しなければ作成
+            let dir = tree.entry(name.to_string()).or_insert_with(|| {
+                let mut d = FileNode::new_dir(name);
+                d.children = Some(Vec::new());
+                d
+            });
+            // children を確保
+            if dir.children.is_none() {
+                dir.children = Some(Vec::new());
+            }
+            // 子ツリーに再帰挿入するため、一旦 BTreeMap に変換
+            let children = dir.children.take().unwrap_or_default();
+            let mut child_map: BTreeMap<String, FileNode> = BTreeMap::new();
+            for child in children {
+                child_map.insert(child.name.clone(), child);
+            }
+            insert_into_tree(&mut child_map, &parts[1..], original_node);
+            let mut sorted: Vec<FileNode> = child_map.into_values().collect();
+            sorted.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.cmp(&b.name),
+            });
+            dir.children = Some(sorted);
+        }
+    }
+
+    let mut root_map: BTreeMap<String, FileNode> = BTreeMap::new();
+
+    for node in &flat_nodes {
+        let parts: Vec<&str> = node.name.split('/').collect();
+        insert_into_tree(&mut root_map, &parts, node);
+    }
+
+    let mut result: Vec<FileNode> = root_map.into_values().collect();
+    result.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+    result
 }
 
 /// シェル引数をエスケープする
@@ -994,5 +1132,64 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
 ";
         let entries = parse_known_hosts(content);
         assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_simple() {
+        let flat = vec![FileNode::new_file("a.txt"), FileNode::new_file("b.txt")];
+        let tree = build_tree_from_flat(flat);
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].name, "a.txt");
+        assert_eq!(tree[1].name, "b.txt");
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_nested() {
+        let mut dir = FileNode::new_dir("src");
+        dir.name = "src/main.rs".to_string(); // parse_find_line が返す形式
+        let flat = vec![
+            {
+                let mut n = FileNode::new_dir("src");
+                n.children = Some(Vec::new());
+                n.name = "src".to_string();
+                n
+            },
+            {
+                let mut n = FileNode::new_file("main.rs");
+                n.name = "src/main.rs".to_string();
+                n
+            },
+            FileNode::new_file("README.md"),
+        ];
+        let tree = build_tree_from_flat(flat);
+
+        // ルート: src/ と README.md
+        assert_eq!(tree.len(), 2);
+
+        let src = tree.iter().find(|n| n.name == "src").unwrap();
+        assert!(src.is_dir());
+        let children = src.children.as_ref().unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "main.rs");
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_deep() {
+        let flat = vec![{
+            let mut n = FileNode::new_file("deep.txt");
+            n.name = "a/b/c/deep.txt".to_string();
+            n
+        }];
+        let tree = build_tree_from_flat(flat);
+
+        // a/ → b/ → c/ → deep.txt
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "a");
+        let b = &tree[0].children.as_ref().unwrap()[0];
+        assert_eq!(b.name, "b");
+        let c = &b.children.as_ref().unwrap()[0];
+        assert_eq!(c.name, "c");
+        let deep = &c.children.as_ref().unwrap()[0];
+        assert_eq!(deep.name, "deep.txt");
     }
 }

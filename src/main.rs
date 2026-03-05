@@ -7,8 +7,9 @@ use crossterm::terminal::{
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use std::io;
+use std::sync::mpsc;
 
-use remote_merge::app::{AppState, Focus};
+use remote_merge::app::{AppState, Focus, ScanState};
 use remote_merge::config::{self, AppConfig};
 use remote_merge::diff::engine::HunkDirection;
 use remote_merge::local;
@@ -16,8 +17,8 @@ use remote_merge::merge::executor::{self, MergeDirection};
 use remote_merge::ssh::client::SshClient;
 use remote_merge::tree::FileTree;
 use remote_merge::ui::dialog::{
-    ConfirmDialogWidget, DialogState, FilterPanelWidget, HelpOverlayWidget, HunkMergePreviewWidget,
-    ServerMenuWidget,
+    BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
+    HelpOverlayWidget, HunkMergePreviewWidget, ServerMenuWidget,
 };
 use remote_merge::ui::diff_view::DiffView;
 use remote_merge::ui::layout::AppLayout;
@@ -120,11 +121,24 @@ enum Commands {
     },
 }
 
+/// 走査結果の型
+type ScanResult = Result<
+    (
+        Vec<remote_merge::tree::FileNode>,
+        Vec<remote_merge::tree::FileNode>,
+        bool,
+        bool,
+    ),
+    String,
+>;
+
 /// tokio ランタイム（TUI 内で同期的に非同期操作を呼ぶため）
 struct TuiRuntime {
     rt: tokio::runtime::Runtime,
     ssh_client: Option<SshClient>,
     config: AppConfig,
+    /// 非ブロッキング走査の結果受信チャネル
+    scan_receiver: Option<mpsc::Receiver<ScanResult>>,
 }
 
 impl TuiRuntime {
@@ -133,6 +147,7 @@ impl TuiRuntime {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
             ssh_client: None,
             config,
+            scan_receiver: None,
         }
     }
 
@@ -306,6 +321,7 @@ fn main() -> anyhow::Result<()> {
             app_state.available_servers = available_servers;
             app_state.is_connected = is_connected;
             app_state.exclude_patterns = config.filter.exclude.clone();
+            app_state.sensitive_patterns = config.filter.sensitive.clone();
 
             if !is_connected {
                 app_state.status_message =
@@ -350,12 +366,68 @@ fn run_event_loop(
     runtime: &mut TuiRuntime,
 ) -> anyhow::Result<()> {
     loop {
+        // 走査結果のポーリング
+        if matches!(state.scan_state, ScanState::Scanning) {
+            if let Some(ref rx) = runtime.scan_receiver {
+                match rx.try_recv() {
+                    Ok(Ok((local_nodes, remote_nodes, local_trunc, remote_trunc))) => {
+                        if local_trunc || remote_trunc {
+                            let msg = if local_trunc && remote_trunc {
+                                "ローカル・リモート共にエントリ上限に達しました"
+                            } else if local_trunc {
+                                "ローカルのエントリ上限に達しました"
+                            } else {
+                                "リモートのエントリ上限に達しました"
+                            };
+                            state.scan_state = ScanState::PartialComplete(
+                                local_nodes.clone(),
+                                remote_nodes.clone(),
+                                msg.to_string(),
+                            );
+                            state.set_scan_result(local_nodes, remote_nodes);
+                            state.toggle_diff_filter();
+                            state.status_message =
+                                format!("[DIFF ONLY] 部分結果で表示中 ({})", msg);
+                        } else {
+                            state.set_scan_result(local_nodes, remote_nodes);
+                            state.toggle_diff_filter();
+                        }
+                        runtime.scan_receiver = None;
+                    }
+                    Ok(Err(e)) => {
+                        state.scan_state = ScanState::Error(e.clone());
+                        state.status_message = format!("走査エラー: {}", e);
+                        runtime.scan_receiver = None;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        // まだ走査中 - 何もしない
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        state.scan_state =
+                            ScanState::Error("走査スレッドが異常終了しました".to_string());
+                        state.status_message = "走査スレッドが異常終了しました".to_string();
+                        runtime.scan_receiver = None;
+                    }
+                }
+            }
+        }
+
         // 描画
         terminal.draw(|frame| {
             draw_ui(frame, state);
         })?;
 
-        // イベント待ち
+        // イベント待ち（走査中は短いタイムアウトでポーリング）
+        let timeout = if matches!(state.scan_state, ScanState::Scanning) {
+            std::time::Duration::from_millis(100)
+        } else {
+            std::time::Duration::from_secs(60)
+        };
+
+        if !event::poll(timeout)? {
+            continue;
+        }
+
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 continue;
@@ -374,7 +446,16 @@ fn run_event_loop(
             match state.focus {
                 Focus::FileTree => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        state.should_quit = true;
+                        // 走査中なら Esc でキャンセル
+                        if matches!(state.scan_state, ScanState::Scanning)
+                            && key.code == KeyCode::Esc
+                        {
+                            state.scan_state = ScanState::Idle;
+                            runtime.scan_receiver = None;
+                            state.status_message = "走査をキャンセルしました".to_string();
+                        } else {
+                            state.should_quit = true;
+                        }
                     }
                     KeyCode::Tab => state.toggle_focus(),
                     KeyCode::Up | KeyCode::Char('k') => state.cursor_up(),
@@ -424,6 +505,8 @@ fn run_event_loop(
                         } else {
                             state.clear_cache();
                         }
+                        // 走査キャッシュもクリア
+                        state.clear_scan_cache();
                     }
                     KeyCode::Char('f') => state.show_filter_panel(),
                     KeyCode::Char('s') => state.show_server_menu(),
@@ -432,6 +515,10 @@ fn run_event_loop(
                         execute_reconnect(state, runtime);
                     }
                     KeyCode::Char('?') => state.show_help(),
+                    KeyCode::Char('F') => {
+                        // Shift+F: 変更ファイルフィルター切替
+                        handle_diff_filter_toggle(state, runtime);
+                    }
                     KeyCode::Char('L') => {
                         // Shift+L: LeftMerge (local → remote)
                         if key.modifiers.contains(KeyModifiers::SHIFT)
@@ -575,6 +662,32 @@ fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: KeyCod
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 state.status_message = "マージをキャンセルしました".to_string();
                 state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::BatchConfirm(_) => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                // バッチマージ実行
+                let batch = match &state.dialog {
+                    DialogState::BatchConfirm(b) => b.clone(),
+                    _ => unreachable!(),
+                };
+                state.close_dialog();
+                execute_batch_merge(state, runtime, &batch);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "バッチマージをキャンセルしました".to_string();
+                state.close_dialog();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::BatchConfirm(ref mut b) = state.dialog {
+                    b.scroll_down();
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::BatchConfirm(ref mut b) = state.dialog {
+                    b.scroll_up();
+                }
             }
             _ => {}
         },
@@ -861,6 +974,117 @@ fn execute_merge(
     }
 }
 
+/// バッチマージを実行する（ディレクトリ選択時）
+fn execute_batch_merge(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    batch: &remote_merge::ui::dialog::BatchConfirmDialog,
+) {
+    let direction = batch.direction;
+    let file_count = batch.files.len();
+    let mut success_count = 0usize;
+    let mut fail_count = 0usize;
+
+    for (i, (path, _badge)) in batch.files.iter().enumerate() {
+        state.status_message = format!("マージ中... {}/{}", i + 1, file_count);
+
+        match direction {
+            MergeDirection::LocalToRemote => {
+                let content = match state.local_cache.get(path) {
+                    Some(c) => c.clone(),
+                    None => {
+                        // キャッシュ未取得: ローカルから読み込み
+                        let local_root = &state.local_tree.root;
+                        match executor::read_local_file(local_root, path) {
+                            Ok(c) => {
+                                state.local_cache.insert(path.clone(), c.clone());
+                                c
+                            }
+                            Err(_) => {
+                                fail_count += 1;
+                                continue;
+                            }
+                        }
+                    }
+                };
+
+                if !state.is_connected {
+                    state.status_message = format!(
+                        "SSH 切断: ここまでの結果: 成功{}件/失敗{}件",
+                        success_count, fail_count
+                    );
+                    return;
+                }
+
+                match runtime.write_remote_file(&state.server_name, path, &content) {
+                    Ok(()) => {
+                        state.update_badge_after_merge(path, &content, direction);
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!("バッチマージ失敗: {} - {}", path, e);
+                        fail_count += 1;
+                    }
+                }
+            }
+            MergeDirection::RemoteToLocal => {
+                let content = match state.remote_cache.get(path) {
+                    Some(c) => c.clone(),
+                    None => {
+                        // キャッシュ未取得: リモートから読み込み
+                        if !state.is_connected {
+                            state.status_message = format!(
+                                "SSH 切断: ここまでの結果: 成功{}件/失敗{}件",
+                                success_count, fail_count
+                            );
+                            return;
+                        }
+                        match runtime.read_remote_file(&state.server_name, path) {
+                            Ok(c) => {
+                                state.remote_cache.insert(path.clone(), c.clone());
+                                c
+                            }
+                            Err(_) => {
+                                fail_count += 1;
+                                continue;
+                            }
+                        }
+                    }
+                };
+
+                let local_root = state.local_tree.root.clone();
+                match executor::write_local_file(&local_root, path, &content) {
+                    Ok(()) => {
+                        state.update_badge_after_merge(path, &content, direction);
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        tracing::warn!("バッチマージ失敗: {} - {}", path, e);
+                        fail_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let dir_str = match direction {
+        MergeDirection::LocalToRemote => format!("local → {}", state.server_name),
+        MergeDirection::RemoteToLocal => format!("{} → local", state.server_name),
+    };
+
+    if fail_count == 0 {
+        state.status_message = format!(
+            "バッチマージ完了: {}件を {} にマージしました",
+            success_count, dir_str
+        );
+    } else {
+        state.status_message = format!(
+            "バッチマージ完了: 成功{}件/失敗{}件 ({})",
+            success_count, fail_count, dir_str
+        );
+    }
+}
+
 /// ハンクマージを実行する（2段階操作の確定時）
 fn execute_hunk_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: HunkDirection) {
     if let Some(path) = state.apply_hunk_merge(direction) {
@@ -900,6 +1124,89 @@ fn execute_hunk_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction:
             }
         }
     }
+}
+
+/// 変更ファイルフィルターの切替処理（Shift+F）
+fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime) {
+    // 走査中ならブロック
+    if matches!(state.scan_state, ScanState::Scanning) {
+        state.status_message = "走査中です。完了後に再度お試しください".to_string();
+        return;
+    }
+
+    // 既にフィルターモード ON → OFF に切替
+    if state.diff_filter_mode {
+        state.toggle_diff_filter();
+        return;
+    }
+
+    // SSH未接続チェック
+    if !state.is_connected {
+        state.status_message = "SSH 未接続: リモートサーバに接続してください".to_string();
+        return;
+    }
+
+    // 走査済み（キャッシュあり）→ 即時切替
+    if state.scan_local_tree.is_some() && state.scan_remote_tree.is_some() {
+        state.toggle_diff_filter();
+        return;
+    }
+
+    // 未走査: 非ブロッキング走査を開始
+    state.scan_state = ScanState::Scanning;
+    state.status_message = "走査中... [Esc: キャンセル]".to_string();
+
+    let (tx, rx) = mpsc::channel();
+    runtime.scan_receiver = Some(rx);
+
+    let local_root = state.local_tree.root.clone();
+    let exclude = state.active_exclude_patterns();
+
+    // SSH接続情報をクローン
+    let config = runtime.config.clone();
+    let server_name = state.server_name.clone();
+
+    // 走査スレッドを起動
+    std::thread::spawn(move || {
+        let result = (|| -> Result<(Vec<remote_merge::tree::FileNode>, Vec<remote_merge::tree::FileNode>, bool, bool), String> {
+            // ローカル走査
+            let (local_nodes, local_trunc) = remote_merge::local::scan_local_tree_recursive(
+                &local_root,
+                &exclude,
+                50_000,
+            )
+            .map_err(|e| format!("ローカル走査エラー: {}", e))?;
+
+            // リモート走査（新しい SSH 接続が必要）
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| format!("tokio runtime 作成失敗: {}", e))?;
+
+            let server_config = config
+                .servers
+                .get(&server_name)
+                .ok_or_else(|| format!("サーバ '{}' が設定に見つかりません", server_name))?;
+
+            let mut client = rt
+                .block_on(SshClient::connect(&server_name, server_config, &config.ssh))
+                .map_err(|e| format!("SSH 接続失敗: {}", e))?;
+
+            let remote_root = server_config.root_dir.to_string_lossy().to_string();
+            let (remote_nodes, remote_trunc) = rt
+                .block_on(client.list_tree_recursive(
+                    &remote_root,
+                    &exclude,
+                    50_000,
+                    60,
+                ))
+                .map_err(|e| format!("リモート走査エラー: {}", e))?;
+
+            let _ = rt.block_on(client.disconnect());
+
+            Ok((local_nodes, remote_nodes, local_trunc, remote_trunc))
+        })();
+
+        let _ = tx.send(result);
+    });
 }
 
 /// SSH 再接続を実行する（c キー）
@@ -985,7 +1292,7 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
         Color::Red
     };
 
-    let header = Paragraph::new(Line::from(vec![
+    let mut header_spans = vec![
         Span::styled(
             " remote-merge ",
             Style::default()
@@ -998,8 +1305,32 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
         Span::styled(&state.server_name, Style::default().fg(Color::Yellow)),
         Span::raw(" "),
         Span::styled(conn_indicator, Style::default().fg(conn_color)),
-    ]))
-    .style(Style::default().bg(Color::DarkGray));
+    ];
+
+    if state.diff_filter_mode {
+        header_spans.push(Span::raw(" "));
+        header_spans.push(Span::styled(
+            " DIFF ONLY ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    if matches!(state.scan_state, ScanState::Scanning) {
+        header_spans.push(Span::raw(" "));
+        header_spans.push(Span::styled(
+            " SCANNING... ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    let header =
+        Paragraph::new(Line::from(header_spans)).style(Style::default().bg(Color::DarkGray));
     frame.render_widget(header, layout.header);
 
     // ファイルツリー
@@ -1030,6 +1361,10 @@ fn draw_ui(frame: &mut Frame, state: &mut AppState) {
     match &state.dialog {
         DialogState::Confirm(confirm) => {
             let widget = ConfirmDialogWidget::new(confirm);
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::BatchConfirm(batch) => {
+            let widget = BatchConfirmDialogWidget::new(batch);
             frame.render_widget(widget, frame.area());
         }
         DialogState::ServerSelect(menu) => {

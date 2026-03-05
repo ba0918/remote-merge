@@ -110,6 +110,155 @@ fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
     }
 }
 
+/// ローカルディレクトリを再帰的に全走査する（変更ファイルフィルター用）
+///
+/// walkdir クレートを使用して全ファイルのメタデータを取得する。
+/// 戻り値の bool は打ち切りが発生したかどうか。
+pub fn scan_local_tree_recursive(
+    root: &Path,
+    exclude: &[String],
+    max_entries: usize,
+) -> crate::error::Result<(Vec<FileNode>, bool)> {
+    use walkdir::WalkDir;
+
+    if !root.exists() {
+        anyhow::bail!(crate::error::AppError::PathNotFound {
+            path: root.to_path_buf(),
+        });
+    }
+
+    let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
+    let mut truncated = false;
+
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !should_exclude(&name, exclude)
+        })
+    {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::debug!("walkdir エラー: {}", e);
+                continue;
+            }
+        };
+
+        if flat_entries.len() >= max_entries {
+            truncated = true;
+            tracing::warn!(
+                "全走査: エントリ数が上限 {} に達しました: {}",
+                max_entries,
+                root.display()
+            );
+            break;
+        }
+
+        let rel_path = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .to_string();
+
+        if rel_path.is_empty() {
+            continue;
+        }
+
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let meta = entry.path().symlink_metadata()?;
+
+        let mut node = if meta.is_symlink() {
+            let target = std::fs::read_link(entry.path())
+                .map(|t| t.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "???".to_string());
+            FileNode::new_symlink(&file_name, target)
+        } else if meta.is_dir() {
+            let mut d = FileNode::new_dir(&file_name);
+            d.children = Some(Vec::new()); // loaded 状態
+            d
+        } else {
+            FileNode::new_file(&file_name)
+        };
+
+        apply_metadata(&mut node, &meta);
+        flat_entries.push((rel_path, node));
+    }
+
+    // フラットリストから再帰ツリーを構築
+    let tree = build_local_tree_from_flat(flat_entries);
+    Ok((tree, truncated))
+}
+
+/// フラットなエントリリスト（相対パス付き）から再帰ツリーを構築する
+fn build_local_tree_from_flat(entries: Vec<(String, FileNode)>) -> Vec<FileNode> {
+    use std::collections::BTreeMap;
+
+    fn insert_into_tree(
+        tree: &mut BTreeMap<String, FileNode>,
+        parts: &[&str],
+        original_node: &FileNode,
+    ) {
+        if parts.is_empty() {
+            return;
+        }
+
+        let name = parts[0];
+
+        if parts.len() == 1 {
+            if let Some(existing) = tree.get_mut(name) {
+                existing.size = original_node.size.or(existing.size);
+                existing.mtime = original_node.mtime.or(existing.mtime);
+                existing.permissions = original_node.permissions.or(existing.permissions);
+            } else {
+                let mut node = original_node.clone();
+                node.name = name.to_string();
+                tree.insert(name.to_string(), node);
+            }
+        } else {
+            let dir = tree.entry(name.to_string()).or_insert_with(|| {
+                let mut d = FileNode::new_dir(name);
+                d.children = Some(Vec::new());
+                d
+            });
+            if dir.children.is_none() {
+                dir.children = Some(Vec::new());
+            }
+            let children = dir.children.take().unwrap_or_default();
+            let mut child_map: BTreeMap<String, FileNode> = BTreeMap::new();
+            for child in children {
+                child_map.insert(child.name.clone(), child);
+            }
+            insert_into_tree(&mut child_map, &parts[1..], original_node);
+            let mut sorted: Vec<FileNode> = child_map.into_values().collect();
+            sorted.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.cmp(&b.name),
+            });
+            dir.children = Some(sorted);
+        }
+    }
+
+    let mut root_map: BTreeMap<String, FileNode> = BTreeMap::new();
+
+    for (rel_path, node) in &entries {
+        let parts: Vec<&str> = rel_path.split('/').collect();
+        insert_into_tree(&mut root_map, &parts, node);
+    }
+
+    let mut result: Vec<FileNode> = root_map.into_values().collect();
+    result.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+    result
+}
+
 /// ファイル名が除外パターンにマッチするか
 fn should_exclude(name: &str, patterns: &[String]) -> bool {
     for pattern in patterns {
@@ -233,6 +382,59 @@ mod tests {
     #[test]
     fn test_nonexistent_path() {
         let result = scan_local_tree(Path::new("/nonexistent/path"), &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive() {
+        let dir = create_test_tree();
+
+        let (nodes, truncated) =
+            scan_local_tree_recursive(dir.path(), &["node_modules".to_string()], 50_000).unwrap();
+
+        assert!(!truncated);
+
+        // ルート直下: file1.txt, file2.log, subdir, empty_dir
+        assert!(nodes.iter().any(|n| n.name == "file1.txt"));
+        assert!(nodes.iter().any(|n| n.name == "subdir"));
+
+        // node_modules は除外されている
+        assert!(!nodes.iter().any(|n| n.name == "node_modules"));
+
+        // subdir は children が展開済み
+        let subdir = nodes.iter().find(|n| n.name == "subdir").unwrap();
+        assert!(subdir.is_loaded());
+        let children = subdir.children.as_ref().unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "nested.txt");
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive_max_entries() {
+        let dir = create_test_tree();
+
+        // 極端に小さい上限
+        let (nodes, truncated) = scan_local_tree_recursive(dir.path(), &[], 2).unwrap();
+
+        assert!(truncated);
+        // ノード数は上限以下（ツリー構築で増える場合があるが、元のフラットエントリが2以下）
+        let flat_count = count_all_nodes(&nodes);
+        assert!(flat_count <= 3); // 2エントリ + 1中間ディレクトリ程度
+    }
+
+    fn count_all_nodes(nodes: &[FileNode]) -> usize {
+        let mut count = nodes.len();
+        for node in nodes {
+            if let Some(children) = &node.children {
+                count += count_all_nodes(children);
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive_nonexistent() {
+        let result = scan_local_tree_recursive(Path::new("/nonexistent/path"), &[], 50_000);
         assert!(result.is_err());
     }
 }

@@ -7,7 +7,9 @@ use std::path::Path;
 use crate::diff::engine::{self, DiffHunk, DiffResult, HunkDirection};
 use crate::merge::executor::MergeDirection;
 use crate::tree::{FileNode, FileTree};
-use crate::ui::dialog::{ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu};
+use crate::ui::dialog::{
+    BatchConfirmDialog, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu,
+};
 
 /// undo スタックの最大保持数
 const MAX_UNDO_STACK: usize = 50;
@@ -90,6 +92,22 @@ pub struct FlatNode {
     pub badge: Badge,
 }
 
+/// 全走査の状態（変更ファイルフィルター用）
+#[derive(Debug, Clone, Default)]
+pub enum ScanState {
+    /// 未走査
+    #[default]
+    Idle,
+    /// 走査中
+    Scanning,
+    /// 走査完了（ローカル全ツリー, リモート全ツリー）
+    Complete(Vec<FileNode>, Vec<FileNode>),
+    /// 部分完了（ローカル, リモート, 理由メッセージ）
+    PartialComplete(Vec<FileNode>, Vec<FileNode>, String),
+    /// エラー
+    Error(String),
+}
+
 /// TUI アプリケーション全体の状態
 pub struct AppState {
     /// 現在のフォーカス
@@ -148,6 +166,16 @@ pub struct AppState {
     pub diff_mode: DiffMode,
     /// undo スタック（適用前のキャッシュスナップショット）
     pub undo_stack: VecDeque<CacheSnapshot>,
+    /// 変更ファイルフィルターモード（Shift+F で切替）
+    pub diff_filter_mode: bool,
+    /// 全走査の状態
+    pub scan_state: ScanState,
+    /// 全走査結果のローカルツリー（キャッシュ）
+    pub scan_local_tree: Option<Vec<FileNode>>,
+    /// 全走査結果のリモートツリー（キャッシュ）
+    pub scan_remote_tree: Option<Vec<FileNode>>,
+    /// センシティブファイルパターン
+    pub sensitive_patterns: Vec<String>,
 }
 
 impl AppState {
@@ -182,6 +210,11 @@ impl AppState {
             pending_hunk_merge: None,
             diff_mode: DiffMode::Unified,
             undo_stack: VecDeque::new(),
+            diff_filter_mode: false,
+            scan_state: ScanState::default(),
+            scan_local_tree: None,
+            scan_remote_tree: None,
+            sensitive_patterns: Vec::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -448,11 +481,45 @@ impl AppState {
         }
     }
 
+    /// ディレクトリ配下の差分ファイルを収集する
+    ///
+    /// 展開済みノードのみを対象とし、未展開ディレクトリの数も返す。
+    pub fn collect_diff_files_under(&self, dir_path: &str) -> (Vec<(String, Badge)>, usize) {
+        let prefix = format!("{}/", dir_path);
+        let mut diff_files = Vec::new();
+        let mut unchecked_dirs = 0;
+
+        for node in &self.flat_nodes {
+            // dir_path 配下のノードのみ対象
+            if !node.path.starts_with(&prefix) {
+                continue;
+            }
+
+            if node.is_dir {
+                // 未展開ディレクトリをカウント
+                if !node.expanded && node.badge == Badge::Unchecked {
+                    unchecked_dirs += 1;
+                }
+                continue;
+            }
+
+            // 差分のあるファイルのみ収集
+            match node.badge {
+                Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly => {
+                    diff_files.push((node.path.clone(), node.badge));
+                }
+                _ => {}
+            }
+        }
+
+        (diff_files, unchecked_dirs)
+    }
+
     /// マージ確認ダイアログを表示する (Shift+L / Shift+R)
     pub fn show_merge_dialog(&mut self, direction: MergeDirection) {
-        let path = match self.flat_nodes.get(self.tree_cursor) {
-            Some(n) if !n.is_dir => n.path.clone(),
-            _ => {
+        let node = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) => n.clone(),
+            None => {
                 self.status_message = "ファイルを選択してください".to_string();
                 return;
             }
@@ -463,7 +530,29 @@ impl AppState {
             MergeDirection::RemoteToLocal => (self.server_name.clone(), "local".to_string()),
         };
 
-        self.dialog = DialogState::Confirm(ConfirmDialog::new(path, direction, source, target));
+        if node.is_dir {
+            // ディレクトリ: バッチマージ
+            if !self.is_connected && matches!(direction, MergeDirection::LocalToRemote) {
+                self.status_message = "SSH 未接続: マージを実行できません".to_string();
+                return;
+            }
+
+            let (diff_files, unchecked_dirs) = self.collect_diff_files_under(&node.path);
+
+            if diff_files.is_empty() {
+                self.status_message = "差分のあるファイルがありません".to_string();
+                return;
+            }
+
+            let mut batch =
+                BatchConfirmDialog::new(diff_files, direction, source, target, unchecked_dirs);
+            batch.check_sensitive(&self.sensitive_patterns);
+            self.dialog = DialogState::BatchConfirm(batch);
+        } else {
+            // ファイル: 単一マージ
+            self.dialog =
+                DialogState::Confirm(ConfirmDialog::new(node.path, direction, source, target));
+        }
     }
 
     /// サーバ選択メニューを表示する (s キー)
@@ -945,7 +1034,22 @@ impl AppState {
         };
 
         let expanded = self.expanded_dirs.contains(&path);
-        let badge = self.compute_badge(&path, node.is_dir);
+        let badge = if self.diff_filter_mode {
+            // フィルターモードでは走査結果のバッジを使用
+            self.compute_scan_badge(&path, node.is_dir)
+        } else {
+            self.compute_badge(&path, node.is_dir)
+        };
+
+        // フィルターモード時: Equal ファイルをスキップ
+        if self.diff_filter_mode && !node.is_dir && badge == Badge::Equal {
+            return;
+        }
+
+        // フィルターモード時: ディレクトリは配下に差分があるかチェック
+        if self.diff_filter_mode && node.is_dir && !self.dir_has_diff_children(node, &path) {
+            return;
+        }
 
         out.push(FlatNode {
             path: path.clone(),
@@ -962,6 +1066,124 @@ impl AppState {
                 self.flatten_node(child, &path, depth + 1, out);
             }
         }
+    }
+
+    /// 走査結果を使ったバッジ計算（mtime + size ベース）
+    fn compute_scan_badge(&self, path: &str, is_dir: bool) -> Badge {
+        if is_dir {
+            return Badge::Unchecked;
+        }
+
+        // まずキャッシュベースの正確なバッジがあればそれを使う
+        let cache_badge = self.compute_badge(path, false);
+        if cache_badge != Badge::Unchecked {
+            return cache_badge;
+        }
+
+        // 走査結果からメタデータ比較
+        let local_node = self
+            .scan_local_tree
+            .as_ref()
+            .and_then(|tree| find_node_in_tree(tree, path));
+        let remote_node = self
+            .scan_remote_tree
+            .as_ref()
+            .and_then(|tree| find_node_in_tree(tree, path));
+
+        match (local_node, remote_node) {
+            (Some(_), None) => Badge::LocalOnly,
+            (None, Some(_)) => Badge::RemoteOnly,
+            (Some(l), Some(r)) => {
+                // mtime + size が一致なら Equal（推定）
+                let size_match = l.size == r.size;
+                let mtime_match = match (l.mtime, r.mtime) {
+                    (Some(lt), Some(rt)) => lt == rt,
+                    _ => false,
+                };
+                if size_match && mtime_match {
+                    Badge::Equal
+                } else {
+                    Badge::Modified
+                }
+            }
+            (None, None) => Badge::Unchecked,
+        }
+    }
+
+    /// ディレクトリ配下に差分のある子ノードが存在するか（再帰チェック）
+    fn dir_has_diff_children(&self, node: &MergedNode, parent_path: &str) -> bool {
+        for child in &node.children {
+            let child_path = format!("{}/{}", parent_path, child.name);
+            let badge = if self.diff_filter_mode {
+                self.compute_scan_badge(&child_path, child.is_dir)
+            } else {
+                self.compute_badge(&child_path, child.is_dir)
+            };
+
+            if child.is_dir {
+                if self.dir_has_diff_children(child, &child_path) {
+                    return true;
+                }
+            } else if badge != Badge::Equal {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// フィルターモードの切り替え
+    pub fn toggle_diff_filter(&mut self) {
+        self.diff_filter_mode = !self.diff_filter_mode;
+        self.rebuild_flat_nodes();
+        if self.diff_filter_mode {
+            // 差分件数をカウント
+            let diff_count = self.flat_nodes.iter().filter(|n| !n.is_dir).count();
+            self.status_message = format!("[DIFF ONLY] 変更: {}件", diff_count);
+        } else {
+            self.status_message = "通常表示に戻しました".to_string();
+        }
+    }
+
+    /// 走査完了時にキャッシュを設定
+    pub fn set_scan_result(&mut self, local_nodes: Vec<FileNode>, remote_nodes: Vec<FileNode>) {
+        self.scan_local_tree = Some(local_nodes);
+        self.scan_remote_tree = Some(remote_nodes);
+        self.scan_state = ScanState::Idle; // 完了
+    }
+
+    /// 走査キャッシュをクリア
+    pub fn clear_scan_cache(&mut self) {
+        self.scan_local_tree = None;
+        self.scan_remote_tree = None;
+        self.scan_state = ScanState::Idle;
+        if self.diff_filter_mode {
+            self.diff_filter_mode = false;
+            self.rebuild_flat_nodes();
+        }
+    }
+}
+
+/// 走査結果ツリーからパスでノードを検索する
+fn find_node_in_tree<'a>(nodes: &'a [FileNode], path: &str) -> Option<&'a FileNode> {
+    let parts: Vec<&str> = path.split('/').collect();
+    find_node_recursive(nodes, &parts)
+}
+
+/// 再帰的にパスのパーツをたどってノードを探す
+fn find_node_recursive<'a>(nodes: &'a [FileNode], parts: &[&str]) -> Option<&'a FileNode> {
+    if parts.is_empty() {
+        return None;
+    }
+
+    let name = parts[0];
+    let node = nodes.iter().find(|n| n.name == name)?;
+
+    if parts.len() == 1 {
+        Some(node)
+    } else if let Some(children) = &node.children {
+        find_node_recursive(children, &parts[1..])
+    } else {
+        None
     }
 }
 
@@ -1501,6 +1723,333 @@ mod tests {
         state.tree_cursor = 1;
         state.select_file();
         assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_opens_batch_confirm() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.is_connected = true; // SSH接続あり
+
+        // src を展開してコンテンツをキャッシュに追加（Modified にするため）
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state.rebuild_flat_nodes();
+
+        // src ディレクトリにカーソル
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+
+        // BatchConfirm ダイアログが出ること
+        match &state.dialog {
+            DialogState::BatchConfirm(batch) => {
+                assert_eq!(batch.files.len(), 1); // a.ts のみ Modified
+                assert_eq!(batch.files[0].0, "src/a.ts");
+                assert_eq!(batch.files[0].1, Badge::Modified);
+            }
+            other => panic!("BatchConfirm を期待したが {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_collect_diff_files_under_empty() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        // Equal バッジにするため両方同じ内容をキャッシュ
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state.rebuild_flat_nodes();
+
+        let (files, _) = state.collect_diff_files_under("src");
+        assert!(files.is_empty());
+
+        // ダイアログは出ない
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_collect_diff_files_unchecked_dirs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("a.ts"),
+                FileNode::new_dir("nested"), // 未展開
+            ],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+
+        let (files, unchecked) = state.collect_diff_files_under("src");
+        // a.ts は LocalOnly
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].1, Badge::LocalOnly);
+        // nested は未展開
+        assert_eq!(unchecked, 1);
+    }
+
+    #[test]
+    fn test_batch_confirm_boundary_20_files() {
+        let batch = BatchConfirmDialog::new(
+            (0..20)
+                .map(|i| (format!("file{}.txt", i), Badge::Modified))
+                .collect(),
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+        assert!(!batch.is_large_batch()); // 20件はまだ通常確認
+    }
+
+    #[test]
+    fn test_batch_confirm_boundary_21_files() {
+        let batch = BatchConfirmDialog::new(
+            (0..21)
+                .map(|i| (format!("file{}.txt", i), Badge::Modified))
+                .collect(),
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+        assert!(batch.is_large_batch()); // 21件は大量ファイル
+    }
+
+    #[test]
+    fn test_diff_filter_mode_hides_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes.clone()),
+            "develop".to_string(),
+        );
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+
+        // a.ts = Modified, b.ts = Equal
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+
+        // 走査結果を設定
+        state.set_scan_result(local_nodes, remote_nodes);
+        state.rebuild_flat_nodes();
+
+        // フィルターモード OFF: 全件表示
+        assert!(!state.diff_filter_mode);
+        let all_files: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(all_files.len(), 2);
+
+        // フィルターモード ON
+        state.toggle_diff_filter();
+        assert!(state.diff_filter_mode);
+
+        let filtered_files: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(filtered_files.len(), 1);
+        assert_eq!(filtered_files[0], "src/a.ts");
+
+        // フィルターモード OFF に戻す
+        state.toggle_diff_filter();
+        assert!(!state.diff_filter_mode);
+        let all_again: Vec<&str> = state
+            .flat_nodes
+            .iter()
+            .filter(|n| !n.is_dir)
+            .map(|n| n.path.as_str())
+            .collect();
+        assert_eq!(all_again.len(), 2);
+    }
+
+    #[test]
+    fn test_diff_filter_hides_equal_dirs() {
+        // test/ 配下がすべて Equal の場合、test/ 自体も非表示に
+        let local_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("a.ts")]),
+            FileNode::new_dir_with_children("test", vec![FileNode::new_file("t.ts")]),
+        ];
+        let remote_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("a.ts")]),
+            FileNode::new_dir_with_children("test", vec![FileNode::new_file("t.ts")]),
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes.clone()),
+            make_test_tree(remote_nodes.clone()),
+            "develop".to_string(),
+        );
+
+        // 全展開
+        state.tree_cursor = 0; // src
+        state.toggle_expand();
+        state.tree_cursor = 2; // test (src, a.ts, test)
+        state.toggle_expand();
+
+        // src/a.ts = Modified, test/t.ts = Equal
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        state
+            .local_cache
+            .insert("test/t.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("test/t.ts".to_string(), "same".to_string());
+
+        state.set_scan_result(local_nodes, remote_nodes);
+
+        // フィルターモード ON
+        state.toggle_diff_filter();
+
+        let names: Vec<&str> = state.flat_nodes.iter().map(|n| n.path.as_str()).collect();
+        // test/ とその子は消える、src/ と a.ts のみ残る
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"src/a.ts"));
+        assert!(!names.contains(&"test"));
+        assert!(!names.contains(&"test/t.ts"));
+    }
+
+    #[test]
+    fn test_scan_state_default() {
+        let state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        assert!(matches!(state.scan_state, ScanState::Idle));
+        assert!(!state.diff_filter_mode);
+        assert!(state.scan_local_tree.is_none());
+    }
+
+    #[test]
+    fn test_clear_scan_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+        state.scan_local_tree = Some(vec![]);
+        state.scan_remote_tree = Some(vec![]);
+        state.diff_filter_mode = true;
+
+        state.clear_scan_cache();
+        assert!(state.scan_local_tree.is_none());
+        assert!(state.scan_remote_tree.is_none());
+        assert!(!state.diff_filter_mode);
+    }
+
+    #[test]
+    fn test_batch_confirm_sensitive_check() {
+        let mut batch = BatchConfirmDialog::new(
+            vec![
+                ("src/app.ts".to_string(), Badge::Modified),
+                (".env".to_string(), Badge::Modified),
+                ("config/secrets.json".to_string(), Badge::Modified),
+                ("server.key".to_string(), Badge::LocalOnly),
+            ],
+            MergeDirection::LocalToRemote,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+
+        batch.check_sensitive(&[
+            ".env".into(),
+            ".env.*".into(),
+            "*.pem".into(),
+            "*.key".into(),
+            "*secret*".into(),
+        ]);
+
+        assert_eq!(batch.sensitive_files.len(), 3); // .env, secrets.json, server.key
+        assert!(batch.sensitive_files.contains(&".env".to_string()));
+        assert!(batch
+            .sensitive_files
+            .contains(&"config/secrets.json".to_string()));
+        assert!(batch.sensitive_files.contains(&"server.key".to_string()));
     }
 
     #[test]
