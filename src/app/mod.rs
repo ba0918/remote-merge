@@ -646,14 +646,19 @@ mod tests {
 
     #[test]
     fn test_collect_diff_files_unchecked_dirs() {
+        // nested は両方に存在＋未展開なので Unchecked
         let local_nodes = vec![FileNode::new_dir_with_children(
             "src",
             vec![FileNode::new_file("a.ts"), FileNode::new_dir("nested")],
         )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir("nested")],
+        )];
 
         let mut state = AppState::new(
             make_test_tree(local_nodes),
-            make_test_tree(vec![]),
+            make_test_tree(remote_nodes),
             "develop".to_string(),
         );
 
@@ -1245,5 +1250,185 @@ mod tests {
 
         let (files, _) = state.collect_diff_files_under("src");
         assert!(files.is_empty(), "Error badge files should be excluded");
+    }
+
+    // ── ディレクトリバッジのテスト ──
+
+    #[test]
+    fn test_dir_badge_equal_when_all_children_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .local_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::Equal);
+    }
+
+    #[test]
+    fn test_dir_badge_modified_when_child_differs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::Modified);
+    }
+
+    #[test]
+    fn test_dir_badge_local_only() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::LocalOnly);
+    }
+
+    #[test]
+    fn test_dir_badge_unchecked_when_no_cache() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        let badge = state.compute_badge("src", true);
+        assert_eq!(badge, Badge::Unchecked);
+    }
+
+    // ── selection: Local Only 誤判定テスト ──
+
+    #[test]
+    fn test_select_file_remote_cache_not_loaded_shows_not_loaded() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        // ローカルキャッシュのみ（リモートは未ロード）
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        // ツリーにリモートがあるので "local only" ではなく "not loaded"
+        assert!(
+            state.status_message.contains("not loaded"),
+            "Expected 'not loaded' but got: {}",
+            state.status_message
+        );
+        // diff は表示される（空文字列との比較）
+        assert!(state.current_diff.is_some());
+    }
+
+    #[test]
+    fn test_select_file_true_local_only_shows_local_only() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+
+        assert!(
+            state.status_message.contains("local only"),
+            "Expected 'local only' but got: {}",
+            state.status_message
+        );
+        // diff は表示される
+        assert!(state.current_diff.is_some());
+    }
+
+    // ── sync_cache_after_merge テスト ──
+
+    #[test]
+    fn test_sync_cache_after_merge_local_to_remote() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+        );
+
+        state
+            .local_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state.sync_cache_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
+
+        // リモートキャッシュが同期される
+        assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
+        // rebuild_flat_nodes は呼ばれない（バッジは古いまま）
     }
 }

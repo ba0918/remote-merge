@@ -1,5 +1,7 @@
 //! ファイル選択・読み込み・キャッシュ管理。
 
+use std::path::Path;
+
 use crate::diff::engine::{self, DiffResult};
 
 use super::AppState;
@@ -18,6 +20,10 @@ impl AppState {
         let local_content = self.local_cache.get(&path).map(|s| s.as_str());
         let remote_content = self.remote_cache.get(&path).map(|s| s.as_str());
 
+        // ツリー上の存在を確認（キャッシュ未ロードと存在しないを区別）
+        let in_local_tree = self.local_tree.find_node(Path::new(&path)).is_some();
+        let in_remote_tree = self.remote_tree.find_node(Path::new(&path)).is_some();
+
         self.current_diff = match (local_content, remote_content) {
             (Some(l), Some(r)) => {
                 if engine::is_binary(l.as_bytes()) || engine::is_binary(r.as_bytes()) {
@@ -26,13 +32,31 @@ impl AppState {
                     Some(engine::compute_diff(l, r))
                 }
             }
-            (Some(_), None) => {
-                self.status_message = format!("{}: local only", path);
-                None
+            (Some(l), None) => {
+                if in_remote_tree {
+                    // ツリー上にはリモートファイルあり→キャッシュ未ロード
+                    self.status_message = format!("{}: remote content not loaded", path);
+                } else {
+                    self.status_message = format!("{}: local only", path);
+                }
+                // 片方だけでも diff 表示（空文字列との比較）
+                if engine::is_binary(l.as_bytes()) {
+                    Some(DiffResult::Binary)
+                } else {
+                    Some(engine::compute_diff(l, ""))
+                }
             }
-            (None, Some(_)) => {
-                self.status_message = format!("{}: remote only", path);
-                None
+            (None, Some(r)) => {
+                if in_local_tree {
+                    self.status_message = format!("{}: local content not loaded", path);
+                } else {
+                    self.status_message = format!("{}: remote only", path);
+                }
+                if engine::is_binary(r.as_bytes()) {
+                    Some(DiffResult::Binary)
+                } else {
+                    Some(engine::compute_diff("", r))
+                }
             }
             (None, None) => {
                 self.status_message = format!("{}: content not loaded", path);

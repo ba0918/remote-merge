@@ -25,6 +25,7 @@ pub fn handle_tree_key(
             if !matches!(state.merge_scan_state, MergeScanState::Idle) && code == KeyCode::Esc {
                 state.merge_scan_state = MergeScanState::Idle;
                 runtime.merge_scan_receiver = None;
+                state.dialog = crate::ui::dialog::DialogState::None;
                 state.status_message = "Merge scan cancelled".to_string();
             } else if matches!(state.scan_state, ScanState::Scanning) && code == KeyCode::Esc {
                 state.scan_state = ScanState::Idle;
@@ -114,10 +115,17 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
             let (file_count, has_unloaded) = count_subtree_files(state, &path);
 
             if file_count <= SYNC_FILE_THRESHOLD && !has_unloaded {
-                // 同期処理（既存のまま）
-                state.status_message = format!("Scanning {}...", path);
+                // 同期処理（プログレスダイアログ表示）
+                state.dialog =
+                    crate::ui::dialog::DialogState::Progress(crate::ui::dialog::ProgressDialog {
+                        title: format!("Scanning {}", path),
+                        current: 0,
+                        total: None,
+                        cancelable: false,
+                    });
                 expand_subtree_for_merge(state, runtime, &path);
                 load_subtree_contents(state, runtime, &path);
+                state.dialog = crate::ui::dialog::DialogState::None;
                 state.show_merge_dialog(direction);
             } else {
                 // 非同期走査に切り替え

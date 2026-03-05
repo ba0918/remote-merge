@@ -11,6 +11,7 @@ use crate::app::{AppState, MergeScanMsg, MergeScanResult, MergeScanState};
 use crate::merge::executor::{self, MergeDirection};
 use crate::ssh::client::SshClient;
 use crate::tree::FileNode;
+use crate::ui::dialog::{DialogState, ProgressDialog};
 
 use super::TuiRuntime;
 
@@ -46,7 +47,12 @@ pub fn start_merge_scan(
         direction,
         files_found: 0,
     };
-    state.status_message = format!("Scanning {}... [Esc: cancel]", dir_path);
+    state.dialog = DialogState::Progress(ProgressDialog {
+        title: format!("Scanning {}", dir_path),
+        current: 0,
+        total: None,
+        cancelable: true,
+    });
 
     let (tx, rx) = mpsc::channel();
     runtime.merge_scan_receiver = Some(rx);
@@ -262,7 +268,7 @@ fn expand_subtree_recursive(
 
 /// 走査結果のポーリング処理（イベントループから呼ばれる）
 pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
-    let (dir_path, direction) = match &state.merge_scan_state {
+    let (_dir_path, direction) = match &state.merge_scan_state {
         MergeScanState::Scanning {
             dir_path,
             direction,
@@ -308,7 +314,10 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
         {
             *files_found = n;
         }
-        state.status_message = format!("Scanning {}... {} files [Esc: cancel]", dir_path, n);
+        // ダイアログの進捗を更新
+        if let DialogState::Progress(ref mut progress) = state.dialog {
+            progress.current = n;
+        }
     }
 
     // 完了/エラー処理
@@ -317,10 +326,12 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             MergeScanMsg::Done(result) => {
                 apply_merge_scan_result(state, *result);
                 state.merge_scan_state = MergeScanState::Idle;
+                state.dialog = DialogState::None;
                 state.show_merge_dialog(direction);
             }
             MergeScanMsg::Error(e) => {
                 state.merge_scan_state = MergeScanState::Idle;
+                state.dialog = DialogState::None;
                 state.status_message = format!("Merge scan error: {}", e);
             }
             MergeScanMsg::Progress(_) => unreachable!(),

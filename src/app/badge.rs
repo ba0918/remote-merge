@@ -11,7 +11,7 @@ impl AppState {
     /// ローカル/リモートのツリーを比較してバッジを決定する
     pub fn compute_badge(&self, path: &str, is_dir: bool) -> Badge {
         if is_dir {
-            return Badge::Unchecked;
+            return self.compute_dir_badge(path);
         }
 
         // エラーパスの場合は Error バッジ
@@ -42,10 +42,71 @@ impl AppState {
         }
     }
 
+    /// ディレクトリのバッジを配下ファイルの状態から計算する
+    fn compute_dir_badge(&self, path: &str) -> Badge {
+        let in_local = self
+            .local_tree
+            .find_node(std::path::Path::new(path))
+            .is_some();
+        let in_remote = self
+            .remote_tree
+            .find_node(std::path::Path::new(path))
+            .is_some();
+
+        match (in_local, in_remote) {
+            (true, false) => Badge::LocalOnly,
+            (false, true) => Badge::RemoteOnly,
+            (false, false) => Badge::Unchecked,
+            (true, true) => {
+                // 配下ファイルのバッジを集計
+                let prefix = format!("{}/", path);
+                let mut has_diff = false;
+                let mut has_checked = false;
+
+                for cached_path in self.local_cache.keys() {
+                    if !cached_path.starts_with(&prefix) {
+                        continue;
+                    }
+                    has_checked = true;
+                    let file_badge = self.compute_badge(cached_path, false);
+                    if file_badge != Badge::Equal {
+                        has_diff = true;
+                        break;
+                    }
+                }
+
+                // リモートキャッシュにのみあるファイルもチェック
+                if !has_diff {
+                    for cached_path in self.remote_cache.keys() {
+                        if !cached_path.starts_with(&prefix) {
+                            continue;
+                        }
+                        if !self.local_cache.contains_key(cached_path) {
+                            has_checked = true;
+                            let file_badge = self.compute_badge(cached_path, false);
+                            if file_badge != Badge::Equal {
+                                has_diff = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !has_checked {
+                    Badge::Unchecked
+                } else if has_diff {
+                    Badge::Modified
+                } else {
+                    Badge::Equal
+                }
+            }
+        }
+    }
+
     /// 走査結果を使ったバッジ計算（mtime + size ベース）
     pub fn compute_scan_badge(&self, path: &str, is_dir: bool) -> Badge {
         if is_dir {
-            return Badge::Unchecked;
+            return self.compute_dir_badge(path);
         }
 
         // まずキャッシュベースの正確なバッジがあればそれを使う

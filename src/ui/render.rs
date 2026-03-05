@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use crate::app::{AppState, ScanState};
 use crate::ui::dialog::{
     centered_rect, BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
-    HelpOverlayWidget, HunkMergePreviewWidget, ServerMenuWidget,
+    HelpOverlayWidget, HunkMergePreviewWidget, ProgressDialog, ServerMenuWidget,
 };
 use crate::ui::diff_view::DiffView;
 use crate::ui::layout::AppLayout;
@@ -133,6 +133,9 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
         DialogState::Info(ref msg) => {
             render_info_dialog(frame, msg);
         }
+        DialogState::Progress(ref progress) => {
+            render_progress_dialog(frame, progress);
+        }
         DialogState::WriteConfirmation => {
             render_simple_dialog(
                 frame,
@@ -197,6 +200,85 @@ fn render_info_dialog(frame: &mut Frame, message: &str) {
         Span::raw(" OK"),
     ]));
     frame.render_widget(guide, chunks[3]);
+}
+
+/// プログレスダイアログを描画する
+fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog) {
+    let dialog_area = centered_rect(50, 7, frame.area());
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(format!(" {} ", progress.title))
+        .borders(Borders::ALL)
+        .border_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    // 進捗テキスト
+    let progress_text = match progress.total {
+        Some(total) if total > 0 => {
+            let pct = (progress.current as f64 / total as f64 * 100.0).min(100.0);
+            format!("{}/{} ({:.0}%)", progress.current, total, pct)
+        }
+        _ => format!("{} files...", progress.current),
+    };
+
+    let msg = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            &progress_text,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    frame.render_widget(msg, chunks[1]);
+
+    // プログレスバー（ total がある場合のみ）
+    if let Some(total) = progress.total {
+        if total > 0 {
+            let bar_width = (chunks[2].width as usize).saturating_sub(4);
+            let filled = (progress.current as f64 / total as f64 * bar_width as f64) as usize;
+            let bar: String = format!(
+                "  {}{}",
+                "#".repeat(filled.min(bar_width)),
+                "-".repeat(bar_width.saturating_sub(filled))
+            );
+            let bar_para = Paragraph::new(Line::from(Span::styled(
+                bar,
+                Style::default().fg(Color::Cyan),
+            )));
+            frame.render_widget(bar_para, chunks[2]);
+        }
+    }
+
+    // キャンセルヒント
+    if progress.cancelable {
+        let guide = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "[Esc]",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Cancel"),
+        ]));
+        frame.render_widget(guide, chunks[3]);
+    }
 }
 
 /// シンプルな Y/n 確認ダイアログを描画する

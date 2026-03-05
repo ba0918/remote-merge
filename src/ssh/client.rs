@@ -31,8 +31,8 @@ impl SshClient {
     ) -> crate::error::Result<Self> {
         let mut config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(ssh_config.timeout_sec)),
-            keepalive_interval: Some(Duration::from_secs(15)),
-            keepalive_max: 3,
+            keepalive_interval: Some(Duration::from_secs(10)),
+            keepalive_max: 5,
             ..Default::default()
         };
 
@@ -136,14 +136,17 @@ impl SshClient {
 
     /// リモートでコマンドを実行し、stdout を文字列で返す
     pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
-        let mut channel =
-            self.session
-                .channel_open_session()
-                .await
-                .map_err(|e| AppError::SshConnection {
-                    host: self.server_name.clone(),
-                    message: format!("チャネルオープンに失敗: {}", e),
-                })?;
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
+            tracing::warn!(
+                "SSH channel open failed: server={}, error={}",
+                self.server_name,
+                e
+            );
+            AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("チャネルオープンに失敗: {}", e),
+            }
+        })?;
 
         channel
             .exec(true, command)
@@ -308,14 +311,18 @@ impl SshClient {
     /// リモートファイルの内容を取得する（cat 経由）
     pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
         let command = format!("cat {}", shell_escape(remote_path));
-        let mut channel =
-            self.session
-                .channel_open_session()
-                .await
-                .map_err(|e| AppError::SshConnection {
-                    host: self.server_name.clone(),
-                    message: format!("チャネルオープンに失敗: {}", e),
-                })?;
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
+            tracing::warn!(
+                "SSH channel open failed (read_file): server={}, path={}, error={}",
+                self.server_name,
+                remote_path,
+                e
+            );
+            AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("チャネルオープンに失敗: {}", e),
+            }
+        })?;
 
         channel
             .exec(true, command.as_str())
@@ -374,14 +381,18 @@ impl SshClient {
         }
 
         let command = format!("cat > {}", shell_escape(remote_path));
-        let mut channel =
-            self.session
-                .channel_open_session()
-                .await
-                .map_err(|e| AppError::SshConnection {
-                    host: self.server_name.clone(),
-                    message: format!("チャネルオープンに失敗: {}", e),
-                })?;
+        let mut channel = self.session.channel_open_session().await.map_err(|e| {
+            tracing::warn!(
+                "SSH channel open failed (write_file): server={}, path={}, error={}",
+                self.server_name,
+                remote_path,
+                e
+            );
+            AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("チャネルオープンに失敗: {}", e),
+            }
+        })?;
 
         channel
             .exec(true, command.as_str())

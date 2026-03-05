@@ -39,10 +39,25 @@ pub enum DialogState {
     Help(HelpOverlay),
     /// 情報ダイアログ（メッセージ表示のみ、Esc/Enter で閉じる）
     Info(String),
+    /// プログレスダイアログ（走査・マージ進捗表示）
+    Progress(ProgressDialog),
     /// 書き込み確認ダイアログ（w キー）
     WriteConfirmation,
     /// 未保存変更確認ダイアログ（q キー時）
     UnsavedChanges,
+}
+
+/// プログレスダイアログの状態
+#[derive(Debug, Clone)]
+pub struct ProgressDialog {
+    /// タイトル（例: "Scanning...", "Merging..."）
+    pub title: String,
+    /// 現在の進捗値
+    pub current: usize,
+    /// 全体の件数（不明な場合は None）
+    pub total: Option<usize>,
+    /// Esc でキャンセル可能か
+    pub cancelable: bool,
 }
 
 /// 中央にモーダルエリアを計算する

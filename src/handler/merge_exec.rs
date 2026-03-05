@@ -4,7 +4,7 @@ use crate::app::AppState;
 use crate::diff::engine::HunkDirection;
 use crate::merge::executor::{self, MergeDirection};
 use crate::runtime::TuiRuntime;
-use crate::ui::dialog::{BatchConfirmDialog, ConfirmDialog};
+use crate::ui::dialog::{BatchConfirmDialog, ConfirmDialog, DialogState, ProgressDialog};
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
@@ -72,8 +72,19 @@ pub fn execute_batch_merge(
     let mut success_count = 0usize;
     let mut fail_count = 0usize;
 
+    // プログレスダイアログを表示
+    state.dialog = DialogState::Progress(ProgressDialog {
+        title: "Merging...".to_string(),
+        current: 0,
+        total: Some(file_count),
+        cancelable: false,
+    });
+
     for (i, (path, _badge)) in batch.files.iter().enumerate() {
-        state.status_message = format!("Merging... {}/{}", i + 1, file_count);
+        // ダイアログの進捗を更新
+        if let DialogState::Progress(ref mut progress) = state.dialog {
+            progress.current = i + 1;
+        }
 
         match direction {
             MergeDirection::LocalToRemote => {
@@ -104,7 +115,7 @@ pub fn execute_batch_merge(
 
                 match runtime.write_remote_file(&state.server_name, path, &content) {
                     Ok(()) => {
-                        state.update_badge_after_merge(path, &content, direction);
+                        state.sync_cache_after_merge(path, &content, direction);
                         success_count += 1;
                     }
                     Err(e) => {
@@ -158,7 +169,7 @@ pub fn execute_batch_merge(
                 let local_root = state.local_tree.root.clone();
                 match executor::write_local_file(&local_root, path, &content) {
                     Ok(()) => {
-                        state.update_badge_after_merge(path, &content, direction);
+                        state.sync_cache_after_merge(path, &content, direction);
                         success_count += 1;
                     }
                     Err(e) => {
@@ -169,6 +180,15 @@ pub fn execute_batch_merge(
             }
         }
     }
+
+    // プログレスダイアログを閉じる
+    state.dialog = DialogState::None;
+
+    // バッジ再計算（バッチ全体で1回だけ）
+    if state.selected_path.is_some() {
+        state.select_file();
+    }
+    state.rebuild_flat_nodes();
 
     let dir_str = match direction {
         MergeDirection::LocalToRemote => format!("local -> {}", state.server_name),
@@ -386,9 +406,19 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     );
 
     let total = file_paths.len();
+    // プログレスダイアログで進捗表示
+    state.dialog = DialogState::Progress(ProgressDialog {
+        title: "Loading files...".to_string(),
+        current: 0,
+        total: Some(total),
+        cancelable: false,
+    });
+
     for (i, path) in file_paths.iter().enumerate() {
         if i % 10 == 0 {
-            state.status_message = format!("Loading files... {}/{}", i, total);
+            if let DialogState::Progress(ref mut progress) = state.dialog {
+                progress.current = i;
+            }
         }
 
         // ローカルコンテンツ
@@ -435,6 +465,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         }
     }
 
+    state.dialog = DialogState::None;
     state.rebuild_flat_nodes();
 }
 

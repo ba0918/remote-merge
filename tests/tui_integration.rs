@@ -246,15 +246,14 @@ fn test_select_file_shows_status_on_no_cache() {
 
 #[test]
 fn test_select_file_shows_status_on_local_only() {
-    // ローカルのみ存在する場合のステータス
+    // ローカルにのみ存在する場合のステータス（ツリー上もローカルだけ）
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
-    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
     state
         .local_cache
         .insert("test.txt".to_string(), "hello".to_string());
-    // remote_cache なし
     state.tree_cursor = 0;
     state.select_file();
     assert!(
@@ -262,19 +261,20 @@ fn test_select_file_shows_status_on_local_only() {
         "ローカルのみの場合にステータスメッセージが設定されるべき: {}",
         state.status_message
     );
+    // diff は空文字列との比較で表示される
+    assert!(state.current_diff.is_some());
 }
 
 #[test]
 fn test_select_file_shows_status_on_remote_only() {
-    // リモートのみ存在する場合のステータス
-    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    // リモートにのみ存在する場合のステータス（ツリー上もリモートだけ）
+    let local_tree = make_tree("/local", vec![]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
     let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
     state
         .remote_cache
         .insert("test.txt".to_string(), "hello".to_string());
-    // local_cache なし
     state.tree_cursor = 0;
     state.select_file();
     assert!(
@@ -282,6 +282,29 @@ fn test_select_file_shows_status_on_remote_only() {
         "リモートのみの場合にステータスメッセージが設定されるべき: {}",
         state.status_message
     );
+    assert!(state.current_diff.is_some());
+}
+
+#[test]
+fn test_select_file_shows_not_loaded_when_cache_missing() {
+    // ツリーには両方あるがキャッシュが片方だけの場合 → "not loaded"
+    let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
+    let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
+
+    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    state
+        .local_cache
+        .insert("test.txt".to_string(), "hello".to_string());
+    // remote_cache なし → ツリーにはあるので "not loaded"
+    state.tree_cursor = 0;
+    state.select_file();
+    assert!(
+        state.status_message.contains("not loaded"),
+        "キャッシュ未ロードの場合は 'not loaded' と表示されるべき: {}",
+        state.status_message
+    );
+    // diff は表示される
+    assert!(state.current_diff.is_some());
 }
 
 // === A-2: ハンクマージプレビューテスト ===

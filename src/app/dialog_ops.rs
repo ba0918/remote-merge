@@ -132,6 +132,18 @@ impl AppState {
         content: &str,
         direction: MergeDirection,
     ) {
+        self.sync_cache_after_merge(path, content, direction);
+        if self.selected_path.as_deref() == Some(path) {
+            self.select_file();
+        }
+        self.rebuild_flat_nodes();
+    }
+
+    /// マージ後のキャッシュ同期のみ（rebuild_flat_nodes は呼ばない）
+    ///
+    /// バッチマージ時は最後に1回だけ rebuild_flat_nodes を呼ぶため、
+    /// 個別ファイルごとにはキャッシュ同期のみ行う。
+    pub fn sync_cache_after_merge(&mut self, path: &str, content: &str, direction: MergeDirection) {
         match direction {
             MergeDirection::LocalToRemote => {
                 self.remote_cache
@@ -142,10 +154,6 @@ impl AppState {
                     .insert(path.to_string(), content.to_string());
             }
         }
-        if self.selected_path.as_deref() == Some(path) {
-            self.select_file();
-        }
-        self.rebuild_flat_nodes();
     }
 
     /// サーバ切替後にツリーを再構築する

@@ -161,6 +161,17 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             _ => {}
         },
+        DialogState::Progress(ref progress) => match key {
+            KeyCode::Esc if progress.cancelable => {
+                // マージスキャンのキャンセルは tree_keys.rs 側で処理
+                // ここでは走査中でなければダイアログを閉じる
+                if matches!(state.merge_scan_state, crate::app::MergeScanState::Idle) {
+                    state.close_dialog();
+                }
+                // 走査中の場合は tree_keys.rs の Esc ハンドラがキャンセルする
+            }
+            _ => {}
+        },
         DialogState::None => {}
     }
 }
