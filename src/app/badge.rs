@@ -19,12 +19,18 @@ impl AppState {
             return Badge::Error;
         }
 
-        let in_local = self.local_tree.find_node(Path::new(path)).is_some();
-        let in_remote = self.remote_tree.find_node(Path::new(path)).is_some();
+        use crate::tree::NodePresence;
+
+        let local_presence = self.local_tree.find_node_or_unloaded(Path::new(path));
+        let remote_presence = self.remote_tree.find_node_or_unloaded(Path::new(path));
+
+        // 確実に片方のみと言えるときだけ LocalOnly/RemoteOnly
+        let in_local = local_presence == NodePresence::Found;
+        let in_remote = remote_presence == NodePresence::Found;
+        let local_absent = local_presence == NodePresence::NotFound;
+        let remote_absent = remote_presence == NodePresence::NotFound;
 
         match (in_local, in_remote) {
-            (true, false) => Badge::LocalOnly,
-            (false, true) => Badge::RemoteOnly,
             (true, true) => {
                 // キャッシュに両方あれば diff で判定
                 match (self.local_cache.get(path), self.remote_cache.get(path)) {
@@ -38,7 +44,9 @@ impl AppState {
                     _ => Badge::Unchecked,
                 }
             }
-            (false, false) => Badge::Unchecked,
+            (true, false) if remote_absent => Badge::LocalOnly,
+            (false, true) if local_absent => Badge::RemoteOnly,
+            _ => Badge::Unchecked,
         }
     }
 

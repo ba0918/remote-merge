@@ -1152,7 +1152,8 @@ mod tests {
             "src",
             vec![FileNode::new_file("local_only.rs")],
         )];
-        let remote_nodes = vec![FileNode::new_dir("src")];
+        // リモートの src はロード済み（空）→ local_only.rs は確実に存在しない
+        let remote_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
 
         let mut state = AppState::new(
             make_test_tree(local_nodes),
@@ -1173,7 +1174,8 @@ mod tests {
     #[test]
     fn test_badge_remote_only_not_error_when_local_missing() {
         // リモートにのみ存在するファイル
-        let local_nodes = vec![FileNode::new_dir("src")];
+        // ローカルの src はロード済み（空）→ remote_only.rs は確実に存在しない
+        let local_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
         let remote_nodes = vec![FileNode::new_dir_with_children(
             "src",
             vec![FileNode::new_file("remote_only.rs")],

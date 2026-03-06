@@ -160,6 +160,19 @@ impl FileTree {
         find_node_recursive(&self.nodes, &components)
     }
 
+    /// 指定パスのノードを検索し、途中で未ロードかどうかも区別する。
+    ///
+    /// `find_node` と異なり、途中のディレクトリが未ロード（`children: None`）の場合に
+    /// `NodePresence::Unloaded` を返す。これにより「存在しない」と「判定不能」を区別できる。
+    pub fn find_node_or_unloaded(&self, rel_path: impl AsRef<Path>) -> NodePresence {
+        let rel_path = rel_path.as_ref();
+        let components: Vec<&str> = rel_path
+            .components()
+            .map(|c| c.as_os_str().to_str().unwrap_or(""))
+            .collect();
+        find_node_presence_recursive(&self.nodes, &components)
+    }
+
     /// 指定パスのノードを可変参照で検索（相対パス）。
     ///
     /// `rel_path` には `&str`、`&Path`、`&PathBuf` など `AsRef<Path>` を実装する
@@ -209,12 +222,45 @@ fn find_node_mut_recursive<'a>(
     }
 }
 
+/// ノード検索結果（見つかった / 途中が未ロード / 存在しない）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodePresence {
+    /// ノードが見つかった
+    Found,
+    /// 途中のディレクトリが未ロードのため判定不能
+    Unloaded,
+    /// ツリー上に存在しない
+    NotFound,
+}
+
 /// ノードスライスから `/` 区切りのパス文字列でノードを検索する。
 ///
 /// `FileTree::find_node` と同じロジックだが、`&[FileNode]` に直接使える。
 pub fn find_node_in_slice<'a>(nodes: &'a [FileNode], path: &str) -> Option<&'a FileNode> {
     let parts: Vec<&str> = path.split('/').collect();
     find_node_recursive(nodes, &parts)
+}
+
+/// パスコンポーネント列を辿ってノードの存在を3値で判定する。
+fn find_node_presence_recursive(nodes: &[FileNode], path: &[&str]) -> NodePresence {
+    if path.is_empty() {
+        return NodePresence::NotFound;
+    }
+
+    let name = path[0];
+    let node = match nodes.iter().find(|n| n.name == name) {
+        Some(n) => n,
+        None => return NodePresence::NotFound,
+    };
+
+    if path.len() == 1 {
+        NodePresence::Found
+    } else if let Some(ref children) = node.children {
+        find_node_presence_recursive(children, &path[1..])
+    } else {
+        // children が None = 未ロードディレクトリ → 子の存在は不明
+        NodePresence::Unloaded
+    }
 }
 
 /// パスコンポーネント列を辿ってノードを不変参照で検索する。
@@ -360,5 +406,62 @@ mod tests {
             nodes: vec![FileNode::new_file("a.txt")],
         };
         assert!(tree.find_node_mut(Path::new("nonexistent")).is_none());
+    }
+
+    #[test]
+    fn test_find_node_or_unloaded_found() {
+        let tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )],
+        };
+        assert_eq!(
+            tree.find_node_or_unloaded(Path::new("src/main.rs")),
+            NodePresence::Found
+        );
+    }
+
+    #[test]
+    fn test_find_node_or_unloaded_not_found() {
+        let tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children("src", vec![])],
+        };
+        // src はロード済み（空）→ main.rs は確実に存在しない
+        assert_eq!(
+            tree.find_node_or_unloaded(Path::new("src/main.rs")),
+            NodePresence::NotFound
+        );
+    }
+
+    #[test]
+    fn test_find_node_or_unloaded_unloaded_parent() {
+        let tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir("src")], // children: None = 未ロード
+        };
+        // src が未ロードなので子の存在は判定不能
+        assert_eq!(
+            tree.find_node_or_unloaded(Path::new("src/main.rs")),
+            NodePresence::Unloaded
+        );
+    }
+
+    #[test]
+    fn test_find_node_or_unloaded_deep_unloaded() {
+        let tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_dir("app")], // app は未ロード
+            )],
+        };
+        // src/app が未ロードなので src/app/mod.rs の存在は判定不能
+        assert_eq!(
+            tree.find_node_or_unloaded(Path::new("src/app/mod.rs")),
+            NodePresence::Unloaded
+        );
     }
 }

@@ -21,8 +21,13 @@ impl AppState {
         let remote_content = self.remote_cache.get(&path).map(|s| s.as_str());
 
         // ツリー上の存在を確認（キャッシュ未ロードと存在しないを区別）
-        let in_local_tree = self.local_tree.find_node(Path::new(&path)).is_some();
-        let in_remote_tree = self.remote_tree.find_node(Path::new(&path)).is_some();
+        // find_node は未ロードディレクトリの子を見つけられないため、
+        // find_node_or_unloaded で「途中が未ロード」も区別する。
+        // 「xx only」は確実に存在しないと言えるときだけ表示する。
+        let remote_absent = self.remote_tree.find_node_or_unloaded(Path::new(&path))
+            == crate::tree::NodePresence::NotFound;
+        let local_absent = self.local_tree.find_node_or_unloaded(Path::new(&path))
+            == crate::tree::NodePresence::NotFound;
 
         self.current_diff = match (local_content, remote_content) {
             (Some(l), Some(r)) => {
@@ -33,11 +38,10 @@ impl AppState {
                 }
             }
             (Some(l), None) => {
-                if in_remote_tree {
-                    // ツリー上にはリモートファイルあり→キャッシュ未ロード
-                    self.status_message = format!("{}: remote content not loaded", path);
-                } else {
+                if remote_absent {
                     self.status_message = format!("{}: local only", path);
+                } else {
+                    self.status_message = format!("{}: remote content not loaded", path);
                 }
                 // 片方だけでも diff 表示（空文字列との比較）
                 if engine::is_binary(l.as_bytes()) {
@@ -47,10 +51,10 @@ impl AppState {
                 }
             }
             (None, Some(r)) => {
-                if in_local_tree {
-                    self.status_message = format!("{}: local content not loaded", path);
-                } else {
+                if local_absent {
                     self.status_message = format!("{}: remote only", path);
+                } else {
+                    self.status_message = format!("{}: local content not loaded", path);
                 }
                 if engine::is_binary(r.as_bytes()) {
                     Some(DiffResult::Binary)
