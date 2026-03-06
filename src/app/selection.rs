@@ -151,13 +151,12 @@ impl AppState {
         self.status_message = "Cache cleared".to_string();
     }
 
-    /// テーマを次のビルトインテーマに切り替える (T キー)
-    pub fn cycle_theme(&mut self) {
-        let next = crate::theme::next_theme_name(&self.theme_name);
-        let theme = crate::theme::load_theme(&next);
+    /// 指定テーマを適用する（起動時の復元用）。
+    pub fn apply_theme(&mut self, name: &str) {
+        let theme = crate::theme::load_theme(name);
         self.palette = crate::theme::TuiPalette::from_theme(&theme);
-        self.highlighter.set_theme(&next);
-        self.theme_name = next.clone();
+        self.highlighter.set_theme(name);
+        self.theme_name = name.to_string();
         // ハイライトキャッシュをクリア（テーマが変わると色が変わる）
         self.highlight_cache_local.clear();
         self.highlight_cache_remote.clear();
@@ -167,6 +166,16 @@ impl AppState {
                 self.build_highlight_cache(&path);
             }
         }
+    }
+
+    /// テーマを次のビルトインテーマに切り替える (T キー)
+    pub fn cycle_theme(&mut self) {
+        let next = crate::theme::next_theme_name(&self.theme_name);
+        self.apply_theme(&next);
+        // 永続化
+        crate::state::save_state(&crate::state::PersistedState {
+            theme: next.clone(),
+        });
         self.status_message = format!("Theme: {}", next);
     }
 

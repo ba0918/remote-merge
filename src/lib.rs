@@ -9,6 +9,7 @@ pub mod local;
 pub mod merge;
 pub mod runtime;
 pub mod ssh;
+pub mod state;
 pub mod theme;
 pub mod tree;
 pub mod ui;

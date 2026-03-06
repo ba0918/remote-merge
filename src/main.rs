@@ -159,6 +159,12 @@ fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
     app_state.exclude_patterns = config.filter.exclude.clone();
     app_state.sensitive_patterns = config.filter.sensitive.clone();
 
+    // 永続化された UI 状態を復元（テーマなど）
+    let persisted = remote_merge::state::load_state();
+    if persisted.theme != remote_merge::theme::DEFAULT_THEME {
+        app_state.apply_theme(&persisted.theme);
+    }
+
     if !is_connected {
         app_state.status_message =
             format!("local <-> {} (offline) | s: server | q: quit", server_name);
