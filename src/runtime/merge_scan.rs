@@ -249,7 +249,8 @@ fn expand_subtree_recursive(
         let child_path = format!("{}/{}", dir_path, child.name);
         if child.is_dir() {
             sub_dirs.insert(child_path);
-        } else {
+        } else if !child.is_symlink() {
+            // シンボリックリンクはツリーノードから直接比較するためスキップ
             local_file_set.insert(child_path.clone());
             file_paths.push(child_path);
         }
@@ -259,7 +260,7 @@ fn expand_subtree_recursive(
         let child_path = format!("{}/{}", dir_path, child.name);
         if child.is_dir() {
             sub_dirs.insert(child_path);
-        } else if !local_file_set.contains(&child_path) {
+        } else if !child.is_symlink() && !local_file_set.contains(&child_path) {
             file_paths.push(child_path);
         }
     }

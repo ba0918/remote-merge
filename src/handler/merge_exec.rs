@@ -636,11 +636,14 @@ pub fn expand_subtree_for_merge(
 /// リモートファイルは **バッチ読み込み**（1つのSSHチャネルで全ファイル）を使い、
 /// チャネル枯渇を防ぐ。
 pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir_path: &str) {
-    let file_paths = crate::app::merge_collect::collect_merge_files(
+    let file_paths: Vec<String> = crate::app::merge_collect::collect_merge_files(
         &state.local_tree,
         &state.remote_tree,
         dir_path,
-    );
+    )
+    .into_iter()
+    .filter(|p| !is_symlink_in_tree(state, p))
+    .collect();
 
     let total = file_paths.len();
     let mut progress = ProgressDialog::new(ProgressPhase::LoadingFiles, "", false);
@@ -740,6 +743,12 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
         _ => return,
     };
 
+    // シンボリックリンクはツリーノードから直接比較するため、
+    // テキスト/バイナリキャッシュへの読み込みは不要
+    if node.is_symlink {
+        return;
+    }
+
     let path = &node.path;
 
     // 未保存変更がなければキャッシュを無効化して最新を取得
@@ -804,4 +813,17 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 
     state.rebuild_flat_nodes();
+}
+
+/// パスがローカルまたはリモートツリーでシンボリックリンクかどうかを判定する
+fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
+    let local_symlink = state
+        .local_tree
+        .find_node(path)
+        .is_some_and(|n| n.is_symlink());
+    let remote_symlink = state
+        .remote_tree
+        .find_node(path)
+        .is_some_and(|n| n.is_symlink());
+    local_symlink || remote_symlink
 }
