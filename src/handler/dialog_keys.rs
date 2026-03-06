@@ -7,7 +7,8 @@ use crate::runtime::TuiRuntime;
 use crate::ui::dialog::DialogState;
 
 use super::merge_exec::{
-    execute_batch_merge, execute_hunk_merge, execute_merge, execute_write_changes,
+    check_mtime_conflict_single, execute_batch_merge, execute_hunk_merge, execute_merge,
+    execute_write_changes,
 };
 use super::reconnect::execute_server_switch;
 
@@ -20,8 +21,17 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                     DialogState::Confirm(c) => c.clone(),
                     _ => unreachable!(),
                 };
-                execute_merge(state, runtime, &confirm);
                 state.close_dialog();
+                // 楽観的ロック: mtime チェック
+                if check_mtime_conflict_single(
+                    state,
+                    runtime,
+                    &confirm.file_path,
+                    confirm.direction,
+                ) {
+                    return; // MtimeWarningDialog が表示される
+                }
+                execute_merge(state, runtime, &confirm);
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 state.status_message = "Merge cancelled".to_string();
@@ -169,6 +179,58 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                     state.close_dialog();
                 }
                 // 走査中の場合は tree_keys.rs の Esc ハンドラがキャンセルする
+            }
+            _ => {}
+        },
+        DialogState::MtimeWarning(_) => match key {
+            KeyCode::Char('r') | KeyCode::Char('R') => {
+                // reload: ファイル再読み込み
+                state.status_message = "Reloading file...".to_string();
+                state.close_dialog();
+                if let Some(path) = state.selected_path.clone() {
+                    // キャッシュクリアして再読み込みをトリガー
+                    state.local_cache.remove(&path);
+                    state.remote_cache.remove(&path);
+                    super::merge_exec::load_file_content(state, runtime);
+                }
+            }
+            KeyCode::Char('f') | KeyCode::Char('F') => {
+                // force: 強制マージ続行
+                let dialog = match &state.dialog {
+                    DialogState::MtimeWarning(d) => d.clone(),
+                    _ => unreachable!(),
+                };
+                state.close_dialog();
+                match dialog.merge_context {
+                    crate::ui::dialog::MtimeWarningMergeContext::Single {
+                        ref path,
+                        direction,
+                    } => {
+                        let (source_name, target_name) = match direction {
+                            crate::merge::executor::MergeDirection::LocalToRemote => {
+                                ("local".to_string(), state.server_name.clone())
+                            }
+                            crate::merge::executor::MergeDirection::RemoteToLocal => {
+                                (state.server_name.clone(), "local".to_string())
+                            }
+                        };
+                        let confirm = crate::ui::dialog::ConfirmDialog {
+                            file_path: path.clone(),
+                            direction,
+                            source_name,
+                            target_name,
+                        };
+                        execute_merge(state, runtime, &confirm);
+                    }
+                    crate::ui::dialog::MtimeWarningMergeContext::Batch { .. } => {
+                        state.status_message =
+                            "Force merge for batch not yet supported".to_string();
+                    }
+                }
+            }
+            KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => {
+                state.status_message = "Merge cancelled (mtime conflict)".to_string();
+                state.close_dialog();
             }
             _ => {}
         },

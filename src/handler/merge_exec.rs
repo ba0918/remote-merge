@@ -1,10 +1,85 @@
 //! マージ実行・ファイルコンテンツ読み込み。
 
 use crate::app::AppState;
+use crate::backup;
 use crate::diff::engine::HunkDirection;
 use crate::merge::executor::{self, MergeDirection};
+use crate::merge::optimistic_lock::{self, MtimeConflict};
 use crate::runtime::TuiRuntime;
-use crate::ui::dialog::{BatchConfirmDialog, ConfirmDialog, DialogState, ProgressDialog};
+use crate::ui::dialog::{
+    BatchConfirmDialog, ConfirmDialog, DialogState, MtimeWarningDialog, MtimeWarningMergeContext,
+    ProgressDialog,
+};
+
+/// 単一ファイルの楽観的ロックチェック。
+///
+/// マージ先のファイルの mtime が diff 取得時から変更されていないかチェック。
+/// 衝突がある場合は MtimeWarningDialog を表示し `true` を返す。
+pub fn check_mtime_conflict_single(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+    direction: MergeDirection,
+) -> bool {
+    match direction {
+        MergeDirection::LocalToRemote => {
+            // リモート側のmtimeをチェック
+            if !state.is_connected {
+                return false;
+            }
+            let expected = state
+                .remote_tree
+                .find_node(std::path::Path::new(path))
+                .and_then(|n| n.mtime);
+
+            match runtime.stat_remote_files(&state.server_name, &[path.to_string()]) {
+                Ok(results) => {
+                    let actual = results.first().and_then(|(_, dt)| *dt);
+                    if let Some(conflict) = optimistic_lock::check_mtime(path, expected, actual) {
+                        show_mtime_warning(state, vec![conflict], direction, Some(path));
+                        return true;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("mtime check failed (continuing): {}", e);
+                }
+            }
+        }
+        MergeDirection::RemoteToLocal => {
+            // ローカル側のmtimeをチェック
+            let expected = state
+                .local_tree
+                .find_node(std::path::Path::new(path))
+                .and_then(|n| n.mtime);
+            let actual = optimistic_lock::stat_local_file(&state.local_tree.root, path);
+
+            if let Some(conflict) = optimistic_lock::check_mtime(path, expected, actual) {
+                show_mtime_warning(state, vec![conflict], direction, Some(path));
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn show_mtime_warning(
+    state: &mut AppState,
+    conflicts: Vec<MtimeConflict>,
+    direction: MergeDirection,
+    path: Option<&str>,
+) {
+    let merge_context = match path {
+        Some(p) => MtimeWarningMergeContext::Single {
+            path: p.to_string(),
+            direction,
+        },
+        None => MtimeWarningMergeContext::Batch { direction },
+    };
+    state.dialog = DialogState::MtimeWarning(MtimeWarningDialog {
+        conflicts,
+        merge_context,
+    });
+}
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
@@ -26,6 +101,15 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 return;
             }
 
+            // バックアップ（リモート側）
+            if runtime.config.backup.enabled {
+                if let Err(e) =
+                    runtime.create_remote_backups(&state.server_name, std::slice::from_ref(path))
+                {
+                    tracing::warn!("Remote backup failed (continuing): {}", e);
+                }
+            }
+
             match runtime.write_remote_file(&state.server_name, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
@@ -45,6 +129,16 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     return;
                 }
             };
+
+            // バックアップ（ローカル側）
+            if runtime.config.backup.enabled {
+                let backup_dir = state.local_tree.root.join(backup::BACKUP_DIR_NAME);
+                if let Err(e) =
+                    backup::create_local_backup(&state.local_tree.root, path, &backup_dir)
+                {
+                    tracing::warn!("Local backup failed (continuing): {}", e);
+                }
+            }
 
             let local_root = state.local_tree.root.clone();
             match executor::write_local_file(&local_root, path, &content) {
@@ -71,6 +165,32 @@ pub fn execute_batch_merge(
     let file_count = batch.files.len();
     let mut success_count = 0usize;
     let mut fail_count = 0usize;
+
+    // バックアップ（マージ前に一括実行）
+    if runtime.config.backup.enabled {
+        let file_paths: Vec<String> = batch.files.iter().map(|(p, _)| p.clone()).collect();
+        match direction {
+            MergeDirection::LocalToRemote => {
+                // リモート側バックアップ（バッチ）
+                if state.is_connected {
+                    if let Err(e) = runtime.create_remote_backups(&state.server_name, &file_paths) {
+                        tracing::warn!("Remote batch backup failed (continuing): {}", e);
+                    }
+                }
+            }
+            MergeDirection::RemoteToLocal => {
+                // ローカル側バックアップ
+                let backup_dir = state.local_tree.root.join(backup::BACKUP_DIR_NAME);
+                for path in &file_paths {
+                    if let Err(e) =
+                        backup::create_local_backup(&state.local_tree.root, path, &backup_dir)
+                    {
+                        tracing::warn!("Local backup failed for {}: {}", path, e);
+                    }
+                }
+            }
+        }
+    }
 
     // プログレスダイアログを表示
     state.dialog = DialogState::Progress(ProgressDialog {
@@ -215,6 +335,29 @@ pub fn execute_hunk_merge(
     direction: HunkDirection,
 ) {
     if let Some(path) = state.apply_hunk_merge(direction) {
+        // バックアップ
+        if runtime.config.backup.enabled {
+            match direction {
+                HunkDirection::RightToLeft => {
+                    let backup_dir = state.local_tree.root.join(backup::BACKUP_DIR_NAME);
+                    if let Err(e) =
+                        backup::create_local_backup(&state.local_tree.root, &path, &backup_dir)
+                    {
+                        tracing::warn!("Local backup failed (continuing): {}", e);
+                    }
+                }
+                HunkDirection::LeftToRight => {
+                    if state.is_connected {
+                        if let Err(e) = runtime
+                            .create_remote_backups(&state.server_name, std::slice::from_ref(&path))
+                        {
+                            tracing::warn!("Remote backup failed (continuing): {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
         match direction {
             HunkDirection::RightToLeft => {
                 let content = state.local_cache.get(&path).cloned().unwrap_or_default();
@@ -255,6 +398,22 @@ pub fn execute_hunk_merge(
 pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
     if let Some(path) = state.selected_path.clone() {
         let changes = state.undo_stack.len();
+
+        // バックアップ（両側）
+        if runtime.config.backup.enabled {
+            let backup_dir = state.local_tree.root.join(backup::BACKUP_DIR_NAME);
+            if let Err(e) = backup::create_local_backup(&state.local_tree.root, &path, &backup_dir)
+            {
+                tracing::warn!("Local backup failed (continuing): {}", e);
+            }
+            if state.is_connected {
+                if let Err(e) =
+                    runtime.create_remote_backups(&state.server_name, std::slice::from_ref(&path))
+                {
+                    tracing::warn!("Remote backup failed (continuing): {}", e);
+                }
+            }
+        }
 
         if let Some(local_content) = state.local_cache.get(&path) {
             let local_root = state.local_tree.root.clone();

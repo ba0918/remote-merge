@@ -5,6 +5,7 @@ mod confirm;
 mod filter_panel;
 mod help;
 mod hunk_preview;
+mod mtime_warning;
 mod server_menu;
 
 pub use batch_confirm::{BatchConfirmDialog, BatchConfirmDialogWidget};
@@ -12,6 +13,7 @@ pub use confirm::{ConfirmDialog, ConfirmDialogWidget};
 pub use filter_panel::{FilterPanel, FilterPanelWidget};
 pub use help::{HelpOverlay, HelpOverlayWidget, HelpSection};
 pub use hunk_preview::{HunkMergePreview, HunkMergePreviewWidget};
+pub use mtime_warning::{MtimeWarningDialog, MtimeWarningDialogWidget, MtimeWarningMergeContext};
 pub use server_menu::{ServerMenu, ServerMenuWidget};
 
 use ratatui::buffer::Buffer;
@@ -45,6 +47,8 @@ pub enum DialogState {
     WriteConfirmation,
     /// 未保存変更確認ダイアログ（q キー時）
     UnsavedChanges,
+    /// mtime 衝突警告ダイアログ（楽観的ロック）
+    MtimeWarning(MtimeWarningDialog),
 }
 
 /// プログレスダイアログの状態

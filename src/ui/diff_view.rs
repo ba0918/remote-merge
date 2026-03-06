@@ -14,6 +14,7 @@ use crate::diff::engine::{DiffHunk, DiffLine, DiffResult, DiffTag};
 use crate::highlight::StyledSegment;
 use crate::theme::palette::ensure_contrast;
 use crate::theme::TuiPalette;
+use crate::ui::metadata;
 
 /// Style にオプショナルな背景色を適用する。
 fn style_with_bg(style: Style, bg: Option<Color>) -> Style {
@@ -419,8 +420,11 @@ impl<'a> Widget for DiffView<'a> {
             .border_style(border_style)
             .style(Style::default().bg(p.bg));
 
-        let inner = block.inner(area);
+        let full_inner = block.inner(area);
         block.render(area, buf);
+
+        // メタデータ行を描画し、残りの領域を返す
+        let inner = self.render_metadata_line(full_inner, buf);
 
         match &self.state.current_diff {
             None => {
@@ -449,6 +453,58 @@ impl<'a> Widget for DiffView<'a> {
             }) => {
                 self.render_modified(inner, buf, is_focused, merge_hunks, lines, stats);
             }
+        }
+    }
+}
+
+/// メタデータ行の描画
+impl<'a> DiffView<'a> {
+    /// 選択中ファイルのメタデータ行を inner 先頭に描画し、残り領域を返す。
+    /// ファイル未選択時は inner をそのまま返す。
+    fn render_metadata_line(&self, inner: Rect, buf: &mut Buffer) -> Rect {
+        let path = match &self.state.selected_path {
+            Some(p) => p,
+            None => return inner,
+        };
+
+        if inner.height < 2 {
+            return inner;
+        }
+
+        let p = &self.state.palette;
+        let local_node = self.state.local_tree.find_node(std::path::Path::new(path));
+        let remote_node = self.state.remote_tree.find_node(std::path::Path::new(path));
+
+        let local_meta = match local_node {
+            Some(n) => metadata::format_metadata_line(n.mtime, n.permissions, n.size),
+            None => "not found".to_string(),
+        };
+        let remote_meta = match remote_node {
+            Some(n) => metadata::format_metadata_line(n.mtime, n.permissions, n.size),
+            None => "not found".to_string(),
+        };
+
+        let line = Line::from(vec![
+            Span::styled("L: ", Style::default().fg(p.gutter_fg)),
+            Span::styled(local_meta, Style::default().fg(p.gutter_fg)),
+            Span::styled("  R: ", Style::default().fg(p.gutter_fg)),
+            Span::styled(remote_meta, Style::default().fg(p.gutter_fg)),
+        ]);
+
+        let meta_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: 1,
+        };
+        Paragraph::new(line).render(meta_area, buf);
+
+        // 残りの領域を返す
+        Rect {
+            x: inner.x,
+            y: inner.y + 1,
+            width: inner.width,
+            height: inner.height - 1,
         }
     }
 }

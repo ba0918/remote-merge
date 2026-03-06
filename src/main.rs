@@ -171,6 +171,27 @@ fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
             format!("local <-> {} (offline) | s: server | q: quit", server_name);
     }
 
+    // 起動時に古いバックアップをクリーンアップ
+    if config.backup.enabled {
+        let backup_dir = config
+            .local
+            .root_dir
+            .join(remote_merge::backup::BACKUP_DIR_NAME);
+        match remote_merge::backup::cleanup_old_backups(
+            &backup_dir,
+            config.backup.retention_days,
+            chrono::Utc::now(),
+        ) {
+            Ok(removed) if !removed.is_empty() => {
+                tracing::info!("Cleaned up {} old backup(s)", removed.len());
+            }
+            Err(e) => {
+                tracing::warn!("Backup cleanup failed: {}", e);
+            }
+            _ => {}
+        }
+    }
+
     run_tui(app_state, runtime)
 }
 
