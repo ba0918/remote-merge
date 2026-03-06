@@ -358,12 +358,12 @@ fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
 
     // NOTE: expanded_dirs には追加しない（ツリー表示の展開状態を変えない）
 
-    // キャッシュ反映（既存のものは上書きしない）
+    // キャッシュ反映（走査結果は新規SSH接続で取得した最新データなので上書き）
     for (path, content) in result.local_cache {
-        state.local_cache.entry(path).or_insert(content);
+        state.local_cache.insert(path, content);
     }
     for (path, content) in result.remote_cache {
-        state.remote_cache.entry(path).or_insert(content);
+        state.remote_cache.insert(path, content);
     }
 
     // エラーパス

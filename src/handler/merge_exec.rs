@@ -638,6 +638,11 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         cancelable: false,
     });
 
+    // ── キャッシュをクリアして最新の内容を取得する ──
+    // マージ前に古いキャッシュが残っていると、第三者の変更が反映されず
+    // 差分なしと誤判定される（load_file_content と同じ方針）。
+    state.invalidate_cache_for_paths(&file_paths);
+
     // ── ローカルファイルを個別に読み込み ──
     for (i, path) in file_paths.iter().enumerate() {
         if i % 10 == 0 {

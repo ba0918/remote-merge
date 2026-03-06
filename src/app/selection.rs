@@ -139,6 +139,17 @@ impl AppState {
             .is_some_and(|n| n.is_dir)
     }
 
+    /// 指定パス群のキャッシュを無効化する。
+    ///
+    /// ディレクトリマージ前に古いキャッシュを破棄して最新の内容を再取得するために使う。
+    /// `load_file_content` が単一ファイルで行うキャッシュ無効化と同じ方針。
+    pub fn invalidate_cache_for_paths(&mut self, paths: &[String]) {
+        for path in paths {
+            self.local_cache.remove(path);
+            self.remote_cache.remove(path);
+        }
+    }
+
     /// コンテンツキャッシュをクリアする (r キー)
     pub fn clear_cache(&mut self) {
         self.local_cache.clear();

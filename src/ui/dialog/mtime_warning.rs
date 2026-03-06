@@ -54,7 +54,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let conflict_count = self.dialog.conflicts.len();
         let height = (conflict_count as u16 * 3 + 7).min(area.height);
-        let width = 56u16.min(area.width);
+        let width = 60u16.min(area.width);
 
         let inner = render_dialog_frame(
             " ⚠ File Changed ",
@@ -161,5 +161,63 @@ mod tests {
         // ダイアログが描画されたことを確認（バッファにコンテンツがある）
         let content = buf.content().iter().map(|c| c.symbol()).collect::<String>();
         assert!(content.contains("config.ts"));
+    }
+
+    /// mtime の日時が切れずに表示されることを確認する。
+    /// ダイアログ内部幅が "    diff: YYYY-MM-DD HH:MM:SS  now: YYYY-MM-DD HH:MM:SS" (55文字)
+    /// を収容できること。
+    #[test]
+    fn test_mtime_warning_dialog_width_shows_full_timestamps() {
+        let dt1 = Utc.with_ymd_and_hms(2026, 3, 6, 14, 35, 47).unwrap();
+        let dt2 = Utc.with_ymd_and_hms(2026, 3, 6, 14, 35, 49).unwrap();
+
+        let dialog = MtimeWarningDialog {
+            conflicts: vec![MtimeConflict {
+                path: "src/diff/engine.rs".to_string(),
+                expected: Some(dt1),
+                actual: Some(dt2),
+            }],
+            merge_context: MtimeWarningMergeContext::Single {
+                path: "src/diff/engine.rs".to_string(),
+                direction: crate::merge::executor::MergeDirection::LocalToRemote,
+            },
+        };
+
+        // ダイアログ幅(60) + 左右ボーダー(2) = 最低62幅、十分な領域で描画
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+
+        let widget = MtimeWarningDialogWidget {
+            dialog: &dialog,
+            border_color: Color::Yellow,
+            bg: Color::Black,
+        };
+        widget.render(area, &mut buf);
+
+        // バッファから行を抽出して "now:" の後の秒まで表示されているか確認
+        let mut found_now_line = false;
+        for y in 0..area.height {
+            let row: String = (0..area.width)
+                .map(|x| {
+                    buf.cell((x, y))
+                        .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                })
+                .collect();
+            if row.contains("now:") {
+                found_now_line = true;
+                // "now:" の後にタイムスタンプ末尾の秒(2桁)まで含まれていること
+                // format_mtime は Local タイムゾーンに変換するが、秒部分が切れていないことを確認
+                let now_pos = row.find("now:").unwrap();
+                let after_now = &row[now_pos..];
+                // "now: YYYY-MM-DD HH:MM:SS" → "now:" の後に少なくとも20文字
+                let trimmed = after_now.trim_end();
+                assert!(
+                    trimmed.len() >= 24,
+                    "Timestamp after 'now:' is truncated: '{}'",
+                    trimmed,
+                );
+            }
+        }
+        assert!(found_now_line, "Could not find 'now:' in rendered dialog");
     }
 }

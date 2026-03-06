@@ -1602,4 +1602,61 @@ mod tests {
         assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
         // rebuild_flat_nodes は呼ばれない（バッジは古いまま）
     }
+
+    // ── invalidate_cache_for_paths テスト ──
+
+    #[test]
+    fn test_invalidate_cache_for_paths_clears_specified_paths() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "old_a".to_string());
+        state
+            .local_cache
+            .insert("b.rs".to_string(), "old_b".to_string());
+        state
+            .local_cache
+            .insert("c.rs".to_string(), "keep_c".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "old_a_remote".to_string());
+        state
+            .remote_cache
+            .insert("b.rs".to_string(), "old_b_remote".to_string());
+
+        let paths = vec!["a.rs".to_string(), "b.rs".to_string()];
+        state.invalidate_cache_for_paths(&paths);
+
+        // 指定パスはクリアされる
+        assert!(!state.local_cache.contains_key("a.rs"));
+        assert!(!state.local_cache.contains_key("b.rs"));
+        assert!(!state.remote_cache.contains_key("a.rs"));
+        assert!(!state.remote_cache.contains_key("b.rs"));
+        // 指定外のパスは残る
+        assert_eq!(state.local_cache.get("c.rs").unwrap(), "keep_c");
+    }
+
+    #[test]
+    fn test_invalidate_cache_for_paths_empty_is_noop() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        state
+            .local_cache
+            .insert("x.rs".to_string(), "content".to_string());
+
+        state.invalidate_cache_for_paths(&[]);
+
+        assert_eq!(state.local_cache.get("x.rs").unwrap(), "content");
+    }
 }
