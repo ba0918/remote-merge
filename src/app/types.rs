@@ -38,10 +38,10 @@ pub enum Badge {
     Modified,
     /// `[=]` Equal - 同一
     Equal,
-    /// `[+]` Local Only
-    LocalOnly,
-    /// `[-]` Remote Only
-    RemoteOnly,
+    /// `[+]` Left Only（左側にのみ存在）
+    LeftOnly,
+    /// `[-]` Right Only（右側にのみ存在）
+    RightOnly,
     /// `[?]` Unchecked - 未比較
     Unchecked,
     /// `[...]` Loading - コンテンツ取得中
@@ -56,8 +56,8 @@ impl Badge {
         match self {
             Badge::Modified => "[M]",
             Badge::Equal => "[=]",
-            Badge::LocalOnly => "[+]",
-            Badge::RemoteOnly => "[-]",
+            Badge::LeftOnly => "[+]",
+            Badge::RightOnly => "[-]",
             Badge::Unchecked => "[?]",
             Badge::Loading => "[..]",
             Badge::Error => "[!]",
@@ -167,8 +167,8 @@ mod tests {
     fn test_badge_label_all_variants() {
         assert_eq!(Badge::Modified.label(), "[M]");
         assert_eq!(Badge::Equal.label(), "[=]");
-        assert_eq!(Badge::LocalOnly.label(), "[+]");
-        assert_eq!(Badge::RemoteOnly.label(), "[-]");
+        assert_eq!(Badge::LeftOnly.label(), "[+]");
+        assert_eq!(Badge::RightOnly.label(), "[-]");
         assert_eq!(Badge::Unchecked.label(), "[?]");
         assert_eq!(Badge::Loading.label(), "[..]");
         assert_eq!(Badge::Error.label(), "[!]");

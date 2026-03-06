@@ -98,7 +98,7 @@ fn get_diff_matches(state: &AppState) -> Vec<usize> {
         Some(DiffResult::Equal) => state
             .selected_path
             .as_ref()
-            .and_then(|p| state.local_cache.get(p))
+            .and_then(|p| state.left_cache.get(p))
             .map(|content| find_content_matches(content, query))
             .unwrap_or_default(),
         _ => Vec::new(),
@@ -119,6 +119,7 @@ fn update_diff_search_status_with_pos(state: &mut AppState, pos: usize, total: u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::Side;
     use crate::diff::engine::{DiffLine, DiffResult, DiffStats, DiffTag};
     use crate::tree::FileTree;
     use std::path::PathBuf;
@@ -133,7 +134,8 @@ mod tests {
                 root: PathBuf::from("/test"),
                 nodes: vec![],
             },
-            "test".to_string(),
+            Side::Local,
+            Side::Remote("test".to_string()),
             "default",
         );
         state.current_diff = Some(DiffResult::Modified {

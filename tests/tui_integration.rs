@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use remote_merge::app::Side;
 use remote_merge::app::{AppState, Badge, Focus};
 use remote_merge::diff::engine::{self, DiffResult, DiffTag, HunkDirection};
 use remote_merge::tree::{FileNode, FileTree};
@@ -52,7 +53,8 @@ fn test_tree_to_file_select_to_diff_flow() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -80,10 +82,10 @@ fn test_tree_to_file_select_to_diff_flow() {
     // 3. ファイル選択 + diff 計算
     // README.md にキャッシュを設定
     state
-        .local_cache
+        .left_cache
         .insert("README.md".to_string(), "# Hello\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("README.md".to_string(), "# Hello World\n".to_string());
 
     // README.md を見つけて選択
@@ -138,7 +140,8 @@ fn test_badge_computation() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -148,27 +151,27 @@ fn test_badge_computation() {
     // local only
     assert_eq!(
         state.compute_badge("local_only.txt", false),
-        Badge::LocalOnly
+        Badge::LeftOnly
     );
 
     // remote only
     assert_eq!(
         state.compute_badge("remote_only.txt", false),
-        Badge::RemoteOnly
+        Badge::RightOnly
     );
 
     // キャッシュあり・同一 → Equal
     state
-        .local_cache
+        .left_cache
         .insert("both.txt".to_string(), "same".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("both.txt".to_string(), "same".to_string());
     assert_eq!(state.compute_badge("both.txt", false), Badge::Equal);
 
     // キャッシュあり・差異 → Modified
     state
-        .remote_cache
+        .right_cache
         .insert("both.txt".to_string(), "different".to_string());
     assert_eq!(state.compute_badge("both.txt", false), Badge::Modified);
 }
@@ -218,7 +221,8 @@ fn test_cursor_navigation_bounds() {
     let mut state = AppState::new(
         local_tree,
         make_tree("/remote", vec![]),
-        "dev".to_string(),
+        Side::Local,
+        Side::Remote("dev".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -250,7 +254,8 @@ fn test_select_file_shows_status_on_no_cache() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state.tree_cursor = 0;
@@ -273,11 +278,12 @@ fn test_select_file_shows_status_on_local_only() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "hello".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -299,11 +305,12 @@ fn test_select_file_shows_status_on_remote_only() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "hello".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -324,11 +331,12 @@ fn test_select_file_shows_not_loaded_when_cache_missing() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "hello".to_string());
     // remote_cache なし → ツリーにはあるので "not loaded"
     state.tree_cursor = 0;
@@ -352,13 +360,14 @@ fn test_preview_hunk_merge_generates_before_after() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
-    state.remote_cache.insert(
+    state.right_cache.insert(
         "test.txt".to_string(),
         "line1\nmodified\nline3\n".to_string(),
     );
@@ -386,14 +395,15 @@ fn test_hunk_merge_preview_dialog_created() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -426,14 +436,15 @@ fn test_hunk_merge_confirm_executes() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -441,7 +452,7 @@ fn test_hunk_merge_confirm_executes() {
     // Y で確定するとマージが実行される (apply_hunk_merge をシミュレート)
     let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
     assert!(result.is_some());
-    assert_eq!(state.local_cache.get("test.txt").unwrap(), "a\nX\nc\n");
+    assert_eq!(state.left_cache.get("test.txt").unwrap(), "a\nX\nc\n");
 }
 
 #[test]
@@ -452,14 +463,15 @@ fn test_hunk_merge_cancel_aborts() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -470,7 +482,7 @@ fn test_hunk_merge_cancel_aborts() {
     state.close_dialog();
 
     assert!(state.pending_hunk_merge.is_none());
-    assert_eq!(state.local_cache.get("test.txt").unwrap(), "a\nb\nc\n");
+    assert_eq!(state.left_cache.get("test.txt").unwrap(), "a\nb\nc\n");
 }
 
 // === B-1: ヘルプオーバーレイテスト ===
@@ -509,7 +521,8 @@ fn test_show_help_sets_dialog() {
     let mut state = AppState::new(
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -524,7 +537,8 @@ fn test_help_closes_on_esc() {
     let mut state = AppState::new(
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -543,7 +557,8 @@ fn make_state_with_long_diff() -> AppState {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -552,8 +567,8 @@ fn make_state_with_long_diff() -> AppState {
     let mut new_text = old.clone();
     new_text = new_text.replace("line50\n", "modified50\n");
 
-    state.local_cache.insert("test.txt".to_string(), old);
-    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.left_cache.insert("test.txt".to_string(), old);
+    state.right_cache.insert("test.txt".to_string(), new_text);
     state.tree_cursor = 0;
     state.select_file();
     state
@@ -631,7 +646,8 @@ fn test_toggle_diff_mode() {
     let mut state = AppState::new(
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -741,7 +757,8 @@ fn test_side_by_side_render() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state.current_diff = Some(diff);
@@ -800,7 +817,8 @@ fn test_diffview_nN_jumps_to_hunk() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -810,8 +828,8 @@ fn test_diffview_nN_jumps_to_hunk() {
     new_text = new_text.replace("line3\n", "modified3\n");
     new_text = new_text.replace("line15\n", "modified15\n");
 
-    state.local_cache.insert("test.txt".to_string(), old);
-    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.left_cache.insert("test.txt".to_string(), old);
+    state.right_cache.insert("test.txt".to_string(), new_text);
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -836,14 +854,15 @@ fn test_scroll_does_not_cancel_pending_merge() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -875,7 +894,8 @@ fn test_hunk_jump_cancels_pending_merge() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -884,8 +904,8 @@ fn test_hunk_jump_cancels_pending_merge() {
     new_text = new_text.replace("line3\n", "modified3\n");
     new_text = new_text.replace("line15\n", "modified15\n");
 
-    state.local_cache.insert("test.txt".to_string(), old);
-    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.left_cache.insert("test.txt".to_string(), old);
+    state.right_cache.insert("test.txt".to_string(), new_text);
     state.tree_cursor = 0;
     state.select_file();
     state.focus = Focus::DiffView;
@@ -913,7 +933,8 @@ fn test_hunk_cursor_follows_scroll_position() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -923,8 +944,8 @@ fn test_hunk_cursor_follows_scroll_position() {
     new_text = new_text.replace("line5\n", "modified5\n");
     new_text = new_text.replace("line25\n", "modified25\n");
 
-    state.local_cache.insert("test.txt".to_string(), old);
-    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.left_cache.insert("test.txt".to_string(), old);
+    state.right_cache.insert("test.txt".to_string(), new_text);
     state.tree_cursor = 0;
     state.select_file();
 
@@ -990,7 +1011,8 @@ fn test_sync_hunk_cursor_binary_search() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1001,8 +1023,8 @@ fn test_sync_hunk_cursor_binary_search() {
     new_text = new_text.replace("line25\n", "mod25\n");
     new_text = new_text.replace("line45\n", "mod45\n");
 
-    state.local_cache.insert("test.txt".to_string(), old);
-    state.remote_cache.insert("test.txt".to_string(), new_text);
+    state.left_cache.insert("test.txt".to_string(), old);
+    state.right_cache.insert("test.txt".to_string(), new_text);
     state.tree_cursor = 0;
     state.select_file();
 
@@ -1032,7 +1054,8 @@ fn test_apply_hunk_creates_snapshot() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1040,10 +1063,10 @@ fn test_apply_hunk_creates_snapshot() {
     let new = "aaa\nXXX\nccc\n";
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), old.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1060,7 +1083,7 @@ fn test_apply_hunk_creates_snapshot() {
         "適用後に1つのスナップショットがあるべき"
     );
     // 適用後のローカルキャッシュが変わっている
-    let local_content = state.local_cache.get("test.txt").unwrap();
+    let local_content = state.left_cache.get("test.txt").unwrap();
     assert!(
         local_content.contains("XXX"),
         "ローカルにリモートの変更が適用されるべき"
@@ -1075,7 +1098,8 @@ fn test_undo_restores_previous_cache() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1083,10 +1107,10 @@ fn test_undo_restores_previous_cache() {
     let new = "aaa\nXXX\nccc\n";
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), old.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1094,7 +1118,7 @@ fn test_undo_restores_previous_cache() {
 
     // 適用 → undo
     state.apply_hunk_merge(HunkDirection::RightToLeft);
-    let after_apply = state.local_cache.get("test.txt").unwrap().clone();
+    let after_apply = state.left_cache.get("test.txt").unwrap().clone();
     assert!(after_apply.contains("XXX"));
 
     state.undo_last();
@@ -1102,7 +1126,7 @@ fn test_undo_restores_previous_cache() {
         state.undo_stack.is_empty(),
         "undo後にスタックが空になるべき"
     );
-    let after_undo = state.local_cache.get("test.txt").unwrap();
+    let after_undo = state.left_cache.get("test.txt").unwrap();
     assert_eq!(after_undo, old, "undoで元のコンテンツに戻るべき");
 }
 
@@ -1114,7 +1138,8 @@ fn test_undo_all_restores_initial_cache() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1122,10 +1147,10 @@ fn test_undo_all_restores_initial_cache() {
     let new = "line1\nAAA\nline3\nBBB\nline5\n";
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), old.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1140,7 +1165,7 @@ fn test_undo_all_restores_initial_cache() {
     // undo_all で全部戻す
     state.undo_all();
     assert!(state.undo_stack.is_empty());
-    let after_undo_all = state.local_cache.get("test.txt").unwrap();
+    let after_undo_all = state.left_cache.get("test.txt").unwrap();
     assert_eq!(after_undo_all, old, "undo_allで最初の状態に戻るべき");
 }
 
@@ -1152,7 +1177,8 @@ fn test_has_unsaved_changes() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1162,10 +1188,10 @@ fn test_has_unsaved_changes() {
     let new = "aaa\nXXX\nccc\n";
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), old.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1232,16 +1258,17 @@ fn test_equal_shows_file_content() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
     let content = "line1\nline2\nline3\n";
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), content.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), content.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1285,15 +1312,16 @@ fn test_equal_scroll_works() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
     let content: String = (0..50).map(|i| format!("line{}\n", i)).collect();
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), content.clone());
-    state.remote_cache.insert("test.txt".to_string(), content);
+    state.right_cache.insert("test.txt".to_string(), content);
     state.tree_cursor = 0;
     state.select_file();
 
@@ -1315,7 +1343,8 @@ fn test_key_hints_file_tree() {
     let state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1342,15 +1371,16 @@ fn test_key_hints_diff_view_no_changes() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "aaa\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "bbb\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1379,7 +1409,8 @@ fn test_key_hints_diff_view_with_changes() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1387,10 +1418,10 @@ fn test_key_hints_diff_view_with_changes() {
     let old = "line1\nline2\nline3\nline4\nline5\n";
     let new = "line1\nAAA\nline3\nBBB\nline5\n";
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), old.to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), new.to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1423,15 +1454,16 @@ fn test_key_hints_diff_view_equal() {
     let mut state = AppState::new(
         local_tree,
         remote_tree,
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
     state
-        .local_cache
+        .left_cache
         .insert("test.txt".to_string(), "same\n".to_string());
     state
-        .remote_cache
+        .right_cache
         .insert("test.txt".to_string(), "same\n".to_string());
     state.tree_cursor = 0;
     state.select_file();
@@ -1464,7 +1496,8 @@ fn test_cursor_line_has_background() {
             root: PathBuf::from("/test"),
             nodes: vec![],
         },
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1501,7 +1534,8 @@ fn test_cursor_line_priority_below_diff() {
             root: PathBuf::from("/test"),
             nodes: vec![],
         },
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 
@@ -1538,7 +1572,8 @@ fn test_cursor_line_priority_below_hunk() {
             root: PathBuf::from("/test"),
             nodes: vec![],
         },
-        "develop".to_string(),
+        Side::Local,
+        Side::Remote("develop".to_string()),
         remote_merge::theme::DEFAULT_THEME,
     );
 

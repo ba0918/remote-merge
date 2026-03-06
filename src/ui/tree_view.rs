@@ -24,8 +24,8 @@ impl<'a> TreeView<'a> {
         match badge {
             Badge::Modified => Style::default().fg(Color::Yellow),
             Badge::Equal => Style::default().fg(Color::Green),
-            Badge::LocalOnly => Style::default().fg(Color::Cyan),
-            Badge::RemoteOnly => Style::default().fg(Color::Magenta),
+            Badge::LeftOnly => Style::default().fg(Color::Cyan),
+            Badge::RightOnly => Style::default().fg(Color::Magenta),
             Badge::Unchecked => Style::default().fg(Color::DarkGray),
             Badge::Loading => Style::default().fg(Color::Blue),
             Badge::Error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -171,6 +171,7 @@ fn build_name_spans<'a>(
 mod tests {
     use super::*;
     use crate::app::FlatNode;
+    use crate::app::Side;
     use crate::tree::FileTree;
     use std::path::PathBuf;
 
@@ -184,7 +185,8 @@ mod tests {
                 root: PathBuf::from("/test"),
                 nodes: vec![],
             },
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.flat_nodes = flat_nodes;

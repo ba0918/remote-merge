@@ -224,8 +224,8 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
             if let Some((path, badge)) = self.dialog.files.get(i) {
                 let badge_style = match badge {
                     Badge::Modified => Style::default().fg(Color::Yellow),
-                    Badge::LocalOnly => Style::default().fg(Color::Green),
-                    Badge::RemoteOnly => Style::default().fg(Color::Red),
+                    Badge::LeftOnly => Style::default().fg(Color::Green),
+                    Badge::RightOnly => Style::default().fg(Color::Red),
                     _ => Style::default().fg(Color::White),
                 };
                 let is_sensitive = self.dialog.sensitive_files.contains(path);
@@ -283,9 +283,9 @@ mod tests {
         let batch = BatchConfirmDialog::new(
             vec![
                 ("src/a.ts".to_string(), Badge::Modified),
-                ("src/b.ts".to_string(), Badge::LocalOnly),
+                ("src/b.ts".to_string(), Badge::LeftOnly),
             ],
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             1,
@@ -301,7 +301,7 @@ mod tests {
             (0..25)
                 .map(|i| (format!("file{}.txt", i), Badge::Modified))
                 .collect(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             0,
@@ -321,9 +321,9 @@ mod tests {
         let batch = BatchConfirmDialog::new(
             vec![
                 ("src/a.ts".to_string(), Badge::Modified),
-                ("src/b.ts".to_string(), Badge::LocalOnly),
+                ("src/b.ts".to_string(), Badge::LeftOnly),
             ],
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             0,

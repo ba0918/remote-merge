@@ -21,6 +21,8 @@ pub struct ConfirmDialog {
     pub source_name: String,
     /// ターゲット名（例: "develop"）
     pub target_name: String,
+    /// リモート間マージかどうか（追加の警告表示に使用）
+    pub is_remote_to_remote: bool,
 }
 
 impl ConfirmDialog {
@@ -35,15 +37,30 @@ impl ConfirmDialog {
             direction,
             source_name,
             target_name,
+            is_remote_to_remote: false,
         }
+    }
+
+    /// リモート間マージフラグを設定する
+    pub fn with_remote_to_remote(mut self, is_r2r: bool) -> Self {
+        self.is_remote_to_remote = is_r2r;
+        self
     }
 
     /// ダイアログのメッセージを生成
     pub fn message(&self) -> String {
-        format!(
+        let base = format!(
             "Merge {} from {} → {}?",
             self.file_path, self.source_name, self.target_name
-        )
+        );
+        if self.is_remote_to_remote {
+            format!(
+                "{}\n\n⚠ Remote-to-remote merge: both sides are remote servers",
+                base
+            )
+        } else {
+            base
+        }
     }
 }
 
@@ -100,7 +117,7 @@ mod tests {
     fn test_confirm_dialog_message_left_merge() {
         let dialog = ConfirmDialog::new(
             "src/config.ts".to_string(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
         );
@@ -114,7 +131,7 @@ mod tests {
     fn test_confirm_dialog_message_right_merge() {
         let dialog = ConfirmDialog::new(
             "src/config.ts".to_string(),
-            MergeDirection::RemoteToLocal,
+            MergeDirection::RightToLeft,
             "develop".to_string(),
             "local".to_string(),
         );
@@ -128,7 +145,7 @@ mod tests {
     fn test_confirm_dialog_both_directions_use_source_arrow_target() {
         let left = ConfirmDialog::new(
             "app.js".to_string(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "staging".to_string(),
         );
@@ -136,7 +153,7 @@ mod tests {
 
         let right = ConfirmDialog::new(
             "app.js".to_string(),
-            MergeDirection::RemoteToLocal,
+            MergeDirection::RightToLeft,
             "staging".to_string(),
             "local".to_string(),
         );
@@ -147,7 +164,7 @@ mod tests {
     fn test_confirm_dialog_render() {
         let dialog = ConfirmDialog::new(
             "test.txt".to_string(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
         );

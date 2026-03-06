@@ -110,6 +110,7 @@ fn update_search_status_with_pos(state: &mut AppState, pos: usize, total: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::Side;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -125,7 +126,13 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![],
         };
-        let mut state = AppState::new(local_tree, remote_tree, "test".to_string(), "default");
+        let mut state = AppState::new(
+            local_tree,
+            remote_tree,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
         state.rebuild_flat_nodes();
         state
     }

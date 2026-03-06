@@ -196,12 +196,12 @@ impl<'a> DiffView<'a> {
         match line.tag {
             DiffTag::Delete | DiffTag::Equal => {
                 let idx = line.old_index?;
-                let cached = state.highlight_cache_local.get(path)?;
+                let cached = state.highlight_cache_left.get(path)?;
                 cached.get(idx)
             }
             DiffTag::Insert => {
                 let idx = line.new_index?;
-                let cached = state.highlight_cache_remote.get(path)?;
+                let cached = state.highlight_cache_right.get(path)?;
                 cached.get(idx)
             }
         }
@@ -478,8 +478,8 @@ impl<'a> DiffView<'a> {
         }
 
         let p = &self.state.palette;
-        let local_node = self.state.local_tree.find_node(std::path::Path::new(path));
-        let remote_node = self.state.remote_tree.find_node(std::path::Path::new(path));
+        let local_node = self.state.left_tree.find_node(std::path::Path::new(path));
+        let remote_node = self.state.right_tree.find_node(std::path::Path::new(path));
 
         let local_meta = match local_node {
             Some(n) => metadata::format_metadata_line(n.mtime, n.permissions, n.size),
@@ -657,13 +657,13 @@ impl<'a> DiffView<'a> {
         line_bgs.push(None);
 
         if let Some(path) = &self.state.selected_path {
-            if let Some(content) = self.state.local_cache.get(path) {
+            if let Some(content) = self.state.left_cache.get(path) {
                 let content_lines: Vec<&str> = content.lines().collect();
                 let total_lines = content_lines.len();
                 let scroll = self.state.diff_scroll.min(total_lines.saturating_sub(1));
                 let cursor = self.state.diff_cursor;
                 let highlight_data = if self.state.syntax_highlight_enabled {
-                    self.state.highlight_cache_local.get(path)
+                    self.state.highlight_cache_left.get(path)
                 } else {
                     None
                 };
@@ -937,6 +937,7 @@ fn apply_search_highlight<'a>(
 mod tests {
     use super::*;
     use crate::app::AppState;
+    use crate::app::Side;
     use crate::diff::engine::{DiffResult, DiffStats};
     use crate::tree::FileTree;
     use std::path::PathBuf;
@@ -951,7 +952,8 @@ mod tests {
                 root: PathBuf::from("/test"),
                 nodes: vec![],
             },
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.current_diff = diff;
@@ -1173,7 +1175,7 @@ mod tests {
             },
         ]];
         state
-            .highlight_cache_local
+            .highlight_cache_left
             .insert("test.rs".to_string(), highlight_data);
 
         let line = DiffLine {

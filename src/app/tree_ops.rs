@@ -48,7 +48,7 @@ impl AppState {
 
     /// ローカルとリモートのルートノードをマージ（和集合）する
     fn merge_tree_nodes(&self) -> Vec<MergedNode> {
-        merge_node_lists(&self.local_tree.nodes, &self.remote_tree.nodes)
+        merge_node_lists(&self.left_tree.nodes, &self.right_tree.nodes)
     }
 
     /// 再帰的にフラット化する
@@ -184,7 +184,7 @@ fn merge_merged_with_file_nodes(
 
 #[cfg(test)]
 mod tests {
-    use crate::app::AppState;
+    use crate::app::{AppState, Side};
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -208,7 +208,8 @@ mod tests {
         let mut state = AppState::new(
             make_tree(local_nodes),
             make_tree(vec![]),
-            "test".to_string(),
+            Side::Local,
+            Side::Remote("test".to_string()),
             "default",
         );
 
@@ -236,7 +237,8 @@ mod tests {
         let mut state = AppState::new(
             make_tree(local_nodes),
             make_tree(vec![]),
-            "test".to_string(),
+            Side::Local,
+            Side::Remote("test".to_string()),
             "default",
         );
 
@@ -253,7 +255,8 @@ mod tests {
         let mut state = AppState::new(
             make_tree(local_nodes),
             make_tree(vec![]),
-            "test".to_string(),
+            Side::Local,
+            Side::Remote("test".to_string()),
             "default",
         );
 

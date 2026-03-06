@@ -52,7 +52,7 @@ pub fn start_merge_scan(
     let (tx, rx) = mpsc::channel();
     runtime.merge_scan_receiver = Some(rx);
 
-    let local_root = state.local_tree.root.clone();
+    let local_root = state.left_tree.root.clone();
     let exclude = state.active_exclude_patterns();
     let config = runtime.config.clone();
     let server_name = state.server_name.clone();
@@ -372,13 +372,13 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
 fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
     // ツリー更新
     for (path, children) in result.local_tree_updates {
-        if let Some(node) = state.local_tree.find_node_mut(Path::new(&path)) {
+        if let Some(node) = state.left_tree.find_node_mut(Path::new(&path)) {
             node.children = Some(children);
             node.sort_children();
         }
     }
     for (path, children) in result.remote_tree_updates {
-        if let Some(node) = state.remote_tree.find_node_mut(Path::new(&path)) {
+        if let Some(node) = state.right_tree.find_node_mut(Path::new(&path)) {
             node.children = Some(children);
             node.sort_children();
         }
@@ -388,16 +388,16 @@ fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
 
     // キャッシュ反映（走査結果は新規SSH接続で取得した最新データなので上書き）
     for (path, content) in result.local_cache {
-        state.local_cache.insert(path, content);
+        state.left_cache.insert(path, content);
     }
     for (path, content) in result.remote_cache {
-        state.remote_cache.insert(path, content);
+        state.right_cache.insert(path, content);
     }
     for (path, info) in result.local_binary_cache {
-        state.local_binary_cache.insert(path, info);
+        state.left_binary_cache.insert(path, info);
     }
     for (path, info) in result.remote_binary_cache {
-        state.remote_binary_cache.insert(path, info);
+        state.right_binary_cache.insert(path, info);
     }
 
     // エラーパス

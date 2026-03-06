@@ -29,7 +29,7 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
     }
 
     // 走査済み（キャッシュあり）-> 即時切替
-    if state.scan_local_tree.is_some() && state.scan_remote_tree.is_some() {
+    if state.scan_left_tree.is_some() && state.scan_right_tree.is_some() {
         state.toggle_diff_filter();
         return;
     }
@@ -41,7 +41,7 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
     let (tx, rx) = mpsc::channel();
     runtime.scan_receiver = Some(rx);
 
-    let local_root = state.local_tree.root.clone();
+    let local_root = state.left_tree.root.clone();
     let exclude = state.active_exclude_patterns();
 
     let config = runtime.config.clone();

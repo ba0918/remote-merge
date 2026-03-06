@@ -126,7 +126,7 @@ impl AppState {
             Some(DiffResult::Equal) => self
                 .selected_path
                 .as_ref()
-                .and_then(|p| self.local_cache.get(p))
+                .and_then(|p| self.left_cache.get(p))
                 .map(|c| c.lines().count())
                 .unwrap_or(0),
             _ => 0,
@@ -185,6 +185,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::app::types::{Badge, DiffMode, FlatNode, Focus};
+    use crate::app::Side;
     use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
@@ -200,7 +201,8 @@ mod tests {
         AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         )
     }
@@ -402,7 +404,7 @@ mod tests {
         state.current_diff = Some(DiffResult::Equal);
         state.selected_path = Some("a.rs".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "line1\nline2\nline3".to_string());
         assert_eq!(state.diff_line_count(), 3);
     }

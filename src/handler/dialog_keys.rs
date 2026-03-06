@@ -214,10 +214,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                         direction,
                     } => {
                         let (source_name, target_name) = match direction {
-                            crate::merge::executor::MergeDirection::LocalToRemote => {
+                            crate::merge::executor::MergeDirection::LeftToRight => {
                                 ("local".to_string(), state.server_name.clone())
                             }
-                            crate::merge::executor::MergeDirection::RemoteToLocal => {
+                            crate::merge::executor::MergeDirection::RightToLeft => {
                                 (state.server_name.clone(), "local".to_string())
                             }
                         };
@@ -226,6 +226,7 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                             direction,
                             source_name,
                             target_name,
+                            is_remote_to_remote: false,
                         };
                         execute_merge(state, runtime, &confirm);
                     }

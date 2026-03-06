@@ -31,7 +31,7 @@ impl AppState {
             }
 
             match node.badge {
-                Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Unchecked => {
+                Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Unchecked => {
                     diff_files.push((node.path.clone(), node.badge));
                 }
                 _ => {}
@@ -52,20 +52,26 @@ impl AppState {
         };
 
         let (source, target) = match direction {
-            MergeDirection::LocalToRemote => ("local".to_string(), self.server_name.clone()),
-            MergeDirection::RemoteToLocal => (self.server_name.clone(), "local".to_string()),
+            MergeDirection::LeftToRight => (
+                self.left_source.display_name().to_string(),
+                self.right_source.display_name().to_string(),
+            ),
+            MergeDirection::RightToLeft => (
+                self.right_source.display_name().to_string(),
+                self.left_source.display_name().to_string(),
+            ),
         };
 
         if node.is_dir {
-            if !self.is_connected && matches!(direction, MergeDirection::LocalToRemote) {
+            if !self.is_connected && matches!(direction, MergeDirection::LeftToRight) {
                 self.status_message = "SSH not connected: cannot merge".to_string();
                 return;
             }
 
             // ツリーから直接ファイル収集（expanded_dirs に依存しない）
             let all_files = super::merge_collect::collect_merge_files(
-                &self.local_tree,
-                &self.remote_tree,
+                &self.left_tree,
+                &self.right_tree,
                 &node.path,
             );
 
@@ -82,10 +88,7 @@ impl AppState {
                         unchecked_count += 1;
                         return false;
                     }
-                    matches!(
-                        badge,
-                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly
-                    )
+                    matches!(badge, Badge::Modified | Badge::LeftOnly | Badge::RightOnly)
                 })
                 .collect();
 
@@ -115,8 +118,11 @@ impl AppState {
                 self.dialog = DialogState::Info(format!("No differences found in {}", node.path));
                 return;
             }
-            self.dialog =
-                DialogState::Confirm(ConfirmDialog::new(node.path, direction, source, target));
+            let is_r2r = super::side::is_remote_to_remote(&self.left_source, &self.right_source);
+            self.dialog = DialogState::Confirm(
+                ConfirmDialog::new(node.path, direction, source, target)
+                    .with_remote_to_remote(is_r2r),
+            );
         }
     }
 
@@ -167,12 +173,12 @@ impl AppState {
     /// 個別ファイルごとにはキャッシュ同期のみ行う。
     pub fn sync_cache_after_merge(&mut self, path: &str, content: &str, direction: MergeDirection) {
         match direction {
-            MergeDirection::LocalToRemote => {
-                self.remote_cache
+            MergeDirection::LeftToRight => {
+                self.right_cache
                     .insert(path.to_string(), content.to_string());
             }
-            MergeDirection::RemoteToLocal => {
-                self.local_cache
+            MergeDirection::RightToLeft => {
+                self.left_cache
                     .insert(path.to_string(), content.to_string());
             }
         }
@@ -180,9 +186,11 @@ impl AppState {
 
     /// サーバ切替後にツリーを再構築する
     pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
-        self.status_message = format!("local <-> {} | Tab: switch focus | q: quit", &new_server);
-        self.server_name = new_server;
-        self.remote_tree = remote_tree;
+        self.server_name = new_server.clone();
+        self.right_source = super::Side::Remote(new_server);
+        let label = super::side::comparison_label(&self.left_source, &self.right_source);
+        self.status_message = format!("{} | Tab: switch focus | q: quit", label);
+        self.right_tree = remote_tree;
         self.clear_all_content_caches();
         self.current_diff = None;
         self.selected_path = None;
@@ -234,6 +242,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode};
+    use crate::app::Side;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -248,7 +257,8 @@ mod tests {
         AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         )
     }
@@ -284,7 +294,7 @@ mod tests {
             make_flat_dir("src", Badge::Unchecked, true),
             make_flat_file("src/a.rs", Badge::Modified),
             make_flat_file("src/b.rs", Badge::Equal),
-            make_flat_file("src/c.rs", Badge::LocalOnly),
+            make_flat_file("src/c.rs", Badge::LeftOnly),
         ];
         let (files, unchecked) = state.collect_diff_files_under("src");
         assert_eq!(files.len(), 2);
@@ -318,7 +328,7 @@ mod tests {
     fn test_show_merge_dialog_no_cursor() {
         let mut state = make_state();
         state.flat_nodes.clear();
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(state.status_message.contains("Select a file"));
     }
 
@@ -327,18 +337,18 @@ mod tests {
         // Unchecked でもキャッシュに同一内容があれば Equal として Info ダイアログ
         let mut state = make_state();
         let node = FileNode::new_file("a.rs");
-        state.local_tree = make_test_tree(vec![node.clone()]);
-        state.remote_tree = make_test_tree(vec![node]);
+        state.left_tree = make_test_tree(vec![node.clone()]);
+        state.right_tree = make_test_tree(vec![node]);
         state.flat_nodes = vec![make_flat_file("a.rs", Badge::Unchecked)];
         // キャッシュに同一内容をセットすると compute_badge が Equal を返す
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "same".to_string());
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(
             matches!(state.dialog, DialogState::Info(_)),
             "Expected Info dialog for equal content, got: {:?}",
@@ -351,17 +361,17 @@ mod tests {
         // Unchecked でもキャッシュに異なる内容があれば Confirm ダイアログ
         let mut state = make_state();
         let node = FileNode::new_file("a.rs");
-        state.local_tree = make_test_tree(vec![node.clone()]);
-        state.remote_tree = make_test_tree(vec![node]);
+        state.left_tree = make_test_tree(vec![node.clone()]);
+        state.right_tree = make_test_tree(vec![node]);
         state.flat_nodes = vec![make_flat_file("a.rs", Badge::Unchecked)];
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "new".to_string());
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(
             matches!(state.dialog, DialogState::Confirm(_)),
             "Expected Confirm dialog for different content, got: {:?}",
@@ -373,17 +383,17 @@ mod tests {
     fn test_show_merge_dialog_equal_file() {
         let mut state = make_state();
         let node = FileNode::new_file("a.rs");
-        state.local_tree = make_test_tree(vec![node.clone()]);
-        state.remote_tree = make_test_tree(vec![node]);
+        state.left_tree = make_test_tree(vec![node.clone()]);
+        state.right_tree = make_test_tree(vec![node]);
         state.flat_nodes = vec![make_flat_file("a.rs", Badge::Equal)];
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "same".to_string());
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 
@@ -391,17 +401,17 @@ mod tests {
     fn test_show_merge_dialog_modified_file() {
         let mut state = make_state();
         let node = FileNode::new_file("a.rs");
-        state.local_tree = make_test_tree(vec![node.clone()]);
-        state.remote_tree = make_test_tree(vec![node]);
+        state.left_tree = make_test_tree(vec![node.clone()]);
+        state.right_tree = make_test_tree(vec![node]);
         state.flat_nodes = vec![make_flat_file("a.rs", Badge::Modified)];
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "new".to_string());
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Confirm(_)));
     }
 
@@ -440,25 +450,23 @@ mod tests {
     #[test]
     fn test_sync_cache_after_merge_local_to_remote() {
         let mut state = make_state();
-        state.sync_cache_after_merge("a.rs", "content", MergeDirection::LocalToRemote);
-        assert_eq!(state.remote_cache.get("a.rs").unwrap(), "content");
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::LeftToRight);
+        assert_eq!(state.right_cache.get("a.rs").unwrap(), "content");
     }
 
     #[test]
     fn test_sync_cache_after_merge_remote_to_local() {
         let mut state = make_state();
-        state.sync_cache_after_merge("a.rs", "content", MergeDirection::RemoteToLocal);
-        assert_eq!(state.local_cache.get("a.rs").unwrap(), "content");
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::RightToLeft);
+        assert_eq!(state.left_cache.get("a.rs").unwrap(), "content");
     }
 
     #[test]
     fn test_switch_server() {
         let mut state = make_state();
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
         state
-            .local_cache
-            .insert("a.rs".to_string(), "x".to_string());
-        state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "y".to_string());
         state.selected_path = Some("a.rs".to_string());
         state.current_diff = Some(crate::diff::engine::DiffResult::Equal);
@@ -467,8 +475,8 @@ mod tests {
         state.switch_server("staging".to_string(), new_tree);
 
         assert_eq!(state.server_name, "staging");
-        assert!(state.local_cache.is_empty());
-        assert!(state.remote_cache.is_empty());
+        assert!(state.left_cache.is_empty());
+        assert!(state.right_cache.is_empty());
         assert!(state.selected_path.is_none());
         assert!(state.current_diff.is_none());
         assert!(state.is_connected);
@@ -543,11 +551,11 @@ mod tests {
             "src",
             vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
         )];
-        state.local_tree = make_test_tree(local_nodes);
-        state.remote_tree = make_test_tree(remote_nodes);
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
         state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         match &state.dialog {
             DialogState::Info(msg) => {
                 assert!(
@@ -573,18 +581,18 @@ mod tests {
             "src",
             vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
         )];
-        state.local_tree = make_test_tree(local_nodes);
-        state.remote_tree = make_test_tree(remote_nodes);
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
         // a.rs はキャッシュあり（Modified）、b.rs は未キャッシュ（Unchecked）
         state
-            .local_cache
+            .left_cache
             .insert("src/a.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.rs".to_string(), "new".to_string());
         state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         match &state.dialog {
             DialogState::BatchConfirm(batch) => {
                 assert_eq!(batch.files.len(), 1);
@@ -602,7 +610,7 @@ mod tests {
         state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
         state.is_connected = false;
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(state.status_message.contains("SSH not connected"));
     }
 
@@ -623,7 +631,7 @@ mod tests {
             left: Some(info.clone()),
             right: Some(info),
         });
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 
@@ -638,7 +646,7 @@ mod tests {
             left_target: Some("../README.md".to_string()),
             right_target: Some("../README.md".to_string()),
         });
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 }

@@ -125,8 +125,8 @@ impl AppState {
         let hunk = hunks.get(self.hunk_cursor)?;
 
         let original = match direction {
-            HunkDirection::RightToLeft => self.local_cache.get(path)?.clone(),
-            HunkDirection::LeftToRight => self.remote_cache.get(path)?.clone(),
+            HunkDirection::RightToLeft => self.left_cache.get(path)?.clone(),
+            HunkDirection::LeftToRight => self.right_cache.get(path)?.clone(),
         };
 
         let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
@@ -145,8 +145,8 @@ impl AppState {
         let hunk = hunks.get(self.hunk_cursor)?;
 
         // undo 用スナップショットを保存
-        let local_content = self.local_cache.get(&path)?.clone();
-        let remote_content = self.remote_cache.get(&path)?.clone();
+        let local_content = self.left_cache.get(&path)?.clone();
+        let remote_content = self.right_cache.get(&path)?.clone();
         if self.undo_stack.len() >= MAX_UNDO_STACK {
             self.undo_stack.pop_front();
         }
@@ -167,16 +167,16 @@ impl AppState {
         // キャッシュを更新
         match direction {
             HunkDirection::RightToLeft => {
-                self.local_cache.insert(path.clone(), new_text.clone());
+                self.left_cache.insert(path.clone(), new_text.clone());
             }
             HunkDirection::LeftToRight => {
-                self.remote_cache.insert(path.clone(), new_text.clone());
+                self.right_cache.insert(path.clone(), new_text.clone());
             }
         }
 
         // diff を再計算
-        let local = self.local_cache.get(&path);
-        let remote = self.remote_cache.get(&path);
+        let local = self.left_cache.get(&path);
+        let remote = self.right_cache.get(&path);
         if let (Some(l), Some(r)) = (local, remote) {
             self.current_diff = Some(engine::compute_diff(l, r));
         }
@@ -209,9 +209,8 @@ impl AppState {
     pub fn undo_last(&mut self) -> bool {
         if let Some(snapshot) = self.undo_stack.pop_back() {
             if let Some(path) = &self.selected_path {
-                self.local_cache
-                    .insert(path.clone(), snapshot.local_content);
-                self.remote_cache
+                self.left_cache.insert(path.clone(), snapshot.local_content);
+                self.right_cache
                     .insert(path.clone(), snapshot.remote_content);
                 self.current_diff = snapshot.diff;
 
@@ -248,8 +247,8 @@ impl AppState {
         self.undo_stack.clear();
 
         if let Some(path) = &self.selected_path {
-            self.local_cache.insert(path.clone(), initial.local_content);
-            self.remote_cache
+            self.left_cache.insert(path.clone(), initial.local_content);
+            self.right_cache
                 .insert(path.clone(), initial.remote_content);
             self.current_diff = initial.diff;
 
@@ -277,6 +276,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode};
+    use crate::app::Side;
     use crate::diff::engine;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
@@ -292,7 +292,8 @@ mod tests {
         AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         )
     }
@@ -303,7 +304,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![node.clone()]),
             make_test_tree(vec![node]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.flat_nodes = vec![FlatNode {
@@ -316,10 +318,10 @@ mod tests {
             badge: Badge::Modified,
         }];
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), local.to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), remote.to_string());
         state.selected_path = Some("a.rs".to_string());
         state.current_diff = Some(engine::compute_diff(local, remote));

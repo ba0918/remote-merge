@@ -57,11 +57,11 @@ pub fn handle_tree_key(
             {
                 if let Some(path) = state.current_path() {
                     let local_needs_load = state
-                        .local_tree
+                        .left_tree
                         .find_node(std::path::Path::new(&path))
                         .is_some_and(|n| n.is_dir() && !n.is_loaded());
                     let remote_needs_load = state
-                        .remote_tree
+                        .right_tree
                         .find_node(std::path::Path::new(&path))
                         .is_some_and(|n| n.is_dir() && !n.is_loaded());
 
@@ -102,8 +102,8 @@ pub fn handle_tree_key(
         KeyCode::Char('c') => execute_reconnect(state, runtime),
         KeyCode::Char('?') => state.show_help(),
         KeyCode::Char('F') => scanner::handle_diff_filter_toggle(state, runtime),
-        KeyCode::Char('L') => handle_tree_merge(state, runtime, MergeDirection::RemoteToLocal),
-        KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LocalToRemote),
+        KeyCode::Char('L') => handle_tree_merge(state, runtime, MergeDirection::RightToLeft),
+        KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LeftToRight),
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),
         KeyCode::Char('/') => {
@@ -188,8 +188,8 @@ fn count_subtree_files(state: &AppState, dir_path: &str) -> (usize, bool) {
     }
 
     // ローカル・リモートツリーで未ロードのサブディレクトリを検索
-    let has_unloaded = has_unloaded_children(&state.local_tree, dir_path)
-        || has_unloaded_children(&state.remote_tree, dir_path);
+    let has_unloaded = has_unloaded_children(&state.left_tree, dir_path)
+        || has_unloaded_children(&state.right_tree, dir_path);
 
     (file_count, has_unloaded)
 }

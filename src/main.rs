@@ -113,7 +113,9 @@ fn main() -> anyhow::Result<()> {
 
 /// TUI モードを起動する
 fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
-    let server_name = cli.server.or(cli.right).unwrap_or_else(|| {
+    use remote_merge::app::Side;
+
+    let right_server = cli.server.or(cli.right).unwrap_or_else(|| {
         config
             .servers
             .keys()
@@ -121,44 +123,79 @@ fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
             .cloned()
             .unwrap_or_else(|| "develop".to_string())
     });
+    let left_server = cli.left;
 
-    tracing::info!("TUI mode: local <-> {}", server_name);
-
-    let local_tree = local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
     let available_servers: Vec<String> = config.servers.keys().cloned().collect();
-
     let mut runtime = TuiRuntime::new(config.clone());
 
-    let (remote_tree, is_connected) = match runtime.connect(&server_name) {
-        Ok(()) => match runtime.fetch_remote_tree(&server_name) {
-            Ok(tree) => (tree, true),
+    // 左側: --left が指定されたらリモート、なければローカル
+    let (left_tree, left_source, left_connected) = if let Some(ref left_name) = left_server {
+        tracing::info!("TUI mode: {} <-> {}", left_name, right_server);
+        match runtime.connect(left_name) {
+            Ok(()) => match runtime.fetch_remote_tree(left_name) {
+                Ok(tree) => (tree, Side::Remote(left_name.clone()), true),
+                Err(e) => {
+                    tracing::warn!("Left remote tree fetch failed: {}", e);
+                    let root = config
+                        .servers
+                        .get(left_name)
+                        .map(|s| s.root_dir.clone())
+                        .unwrap_or_default();
+                    (FileTree::new(root), Side::Remote(left_name.clone()), true)
+                }
+            },
             Err(e) => {
-                tracing::warn!("Remote tree fetch failed: {}", e);
+                tracing::warn!("Left SSH connection failed: {}", e);
                 let root = config
                     .servers
-                    .get(&server_name)
+                    .get(left_name)
+                    .map(|s| s.root_dir.clone())
+                    .unwrap_or_default();
+                (FileTree::new(root), Side::Remote(left_name.clone()), false)
+            }
+        }
+    } else {
+        tracing::info!("TUI mode: local <-> {}", right_server);
+        let tree = local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
+        (tree, Side::Local, true)
+    };
+
+    // 右側: 常にリモート
+    let (right_tree, right_connected) = match runtime.connect(&right_server) {
+        Ok(()) => match runtime.fetch_remote_tree(&right_server) {
+            Ok(tree) => (tree, true),
+            Err(e) => {
+                tracing::warn!("Right remote tree fetch failed: {}", e);
+                let root = config
+                    .servers
+                    .get(&right_server)
                     .map(|s| s.root_dir.clone())
                     .unwrap_or_default();
                 (FileTree::new(root), true)
             }
         },
         Err(e) => {
-            tracing::warn!("SSH connection failed (offline mode): {}", e);
+            tracing::warn!("Right SSH connection failed (offline mode): {}", e);
             let root = config
                 .servers
-                .get(&server_name)
+                .get(&right_server)
                 .map(|s| s.root_dir.clone())
                 .unwrap_or_default();
             (FileTree::new(root), false)
         }
     };
 
+    let right_source = Side::Remote(right_server.clone());
+    let is_connected = left_connected && right_connected;
+
     // 永続化された UI 状態を復元（テーマなど）
     let persisted = remote_merge::state::load_state();
+    let label = remote_merge::app::side::comparison_label(&left_source, &right_source);
     let mut app_state = AppState::new(
-        local_tree,
-        remote_tree,
-        server_name.clone(),
+        left_tree,
+        right_tree,
+        left_source,
+        right_source,
         &persisted.theme,
     );
     app_state.available_servers = available_servers;
@@ -167,8 +204,7 @@ fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
     app_state.sensitive_patterns = config.filter.sensitive.clone();
 
     if !is_connected {
-        app_state.status_message =
-            format!("local <-> {} (offline) | s: server | q: quit", server_name);
+        app_state.status_message = format!("{} (offline) | s: server | q: quit", label);
     }
 
     // 起動時に古いバックアップをクリーンアップ
@@ -205,7 +241,7 @@ fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
 
     let result = run_event_loop(&mut terminal, &mut state, &mut runtime);
 
-    runtime.disconnect();
+    runtime.disconnect_all();
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

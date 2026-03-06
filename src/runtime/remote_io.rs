@@ -15,7 +15,7 @@ impl TuiRuntime {
     ) -> anyhow::Result<String> {
         let full_path = self.resolve_remote_path(server_name, rel_path)?;
 
-        match self.read_file_inner(&full_path) {
+        match self.read_file_inner(server_name, &full_path) {
             Ok(content) => Ok(content),
             Err(e) if crate::error::is_connection_error(&e) => {
                 tracing::info!(
@@ -23,7 +23,7 @@ impl TuiRuntime {
                     rel_path
                 );
                 self.try_reconnect(server_name)?;
-                self.read_file_inner(&full_path)
+                self.read_file_inner(server_name, &full_path)
             }
             Err(e) => Err(e),
         }
@@ -41,12 +41,12 @@ impl TuiRuntime {
 
         let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
 
-        match self.read_files_batch_inner(&full_paths) {
+        match self.read_files_batch_inner(server_name, &full_paths) {
             Ok(batch_result) => Ok(Self::map_to_rel_paths(rel_paths, &full_paths, batch_result)),
             Err(e) if crate::error::is_connection_error(&e) => {
                 tracing::info!("Batch read failed (connection error), auto-reconnecting");
                 self.try_reconnect(server_name)?;
-                let batch_result = self.read_files_batch_inner(&full_paths)?;
+                let batch_result = self.read_files_batch_inner(server_name, &full_paths)?;
                 Ok(Self::map_to_rel_paths(rel_paths, &full_paths, batch_result))
             }
             Err(e) => Err(e),
@@ -63,9 +63,9 @@ impl TuiRuntime {
         let full_path = self.resolve_remote_path(server_name, rel_path)?;
 
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         self.rt.block_on(client.write_file(&full_path, content))
     }
@@ -107,9 +107,9 @@ impl TuiRuntime {
         }
 
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         // バックアップ失敗は警告だけでマージを止めない
         match self.rt.block_on(client.exec(&cmd)) {
@@ -146,9 +146,9 @@ impl TuiRuntime {
         let cmd = format!("stat -c '%Y %n' {} 2>/dev/null || true", quoted.join(" "));
 
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         let output = self.rt.block_on(client.exec(&cmd))?;
 
@@ -199,22 +199,23 @@ impl TuiRuntime {
             .collect()
     }
 
-    fn read_file_inner(&mut self, full_path: &str) -> anyhow::Result<String> {
+    fn read_file_inner(&mut self, server_name: &str, full_path: &str) -> anyhow::Result<String> {
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
         self.rt.block_on(client.read_file(full_path))
     }
 
     fn read_files_batch_inner(
         &mut self,
+        server_name: &str,
         full_paths: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
         self.rt.block_on(client.read_files_batch(full_paths))
     }
 
@@ -252,9 +253,9 @@ impl TuiRuntime {
         );
 
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         self.rt.block_on(client.exec(&cmd))?;
         Ok(())

@@ -22,8 +22,8 @@ pub fn execute_symlink_merge(
             left_target,
             right_target,
         }) => match direction {
-            MergeDirection::LocalToRemote => left_target.clone(),
-            MergeDirection::RemoteToLocal => right_target.clone(),
+            MergeDirection::LeftToRight => left_target.clone(),
+            MergeDirection::RightToLeft => right_target.clone(),
         },
         _ => {
             state.status_message = "Not a symlink diff".to_string();
@@ -40,7 +40,7 @@ pub fn execute_symlink_merge(
     };
 
     match direction {
-        MergeDirection::LocalToRemote => {
+        MergeDirection::LeftToRight => {
             if !state.is_connected {
                 state.status_message = "SSH not connected: cannot merge symlink".to_string();
                 return;
@@ -57,8 +57,8 @@ pub fn execute_symlink_merge(
                 }
             }
         }
-        MergeDirection::RemoteToLocal => {
-            match create_local_symlink(&state.local_tree.root, path, &source_target) {
+        MergeDirection::RightToLeft => {
+            match create_local_symlink(&state.left_tree.root, path, &source_target) {
                 Ok(()) => {
                     state.status_message = format!(
                         "{}: symlink {} -> local merged (-> {})",

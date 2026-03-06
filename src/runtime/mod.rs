@@ -4,6 +4,7 @@ pub mod merge_scan;
 pub mod remote_io;
 pub mod scanner;
 
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use crate::app::MergeScanMsg;
@@ -25,7 +26,8 @@ pub type ScanResult = Result<
 /// tokio ランタイム（TUI 内で同期的に非同期操作を呼ぶため）
 pub struct TuiRuntime {
     pub rt: tokio::runtime::Runtime,
-    pub ssh_client: Option<SshClient>,
+    /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
+    pub ssh_clients: HashMap<String, SshClient>,
     pub config: AppConfig,
     /// 非ブロッキング走査の結果受信チャネル
     pub scan_receiver: Option<mpsc::Receiver<ScanResult>>,
@@ -45,7 +47,7 @@ impl TuiRuntime {
     pub fn new(config: AppConfig) -> Self {
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
-            ssh_client: None,
+            ssh_clients: HashMap::new(),
             config,
             scan_receiver: None,
             merge_scan_receiver: None,
@@ -74,8 +76,20 @@ impl TuiRuntime {
             &self.config.ssh,
         ))?;
 
-        self.ssh_client = Some(client);
+        self.ssh_clients.insert(server_name.to_string(), client);
         Ok(())
+    }
+
+    /// 指定サーバの SSH クライアントを取得する
+    pub fn get_client(&mut self, server_name: &str) -> anyhow::Result<&mut SshClient> {
+        self.ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))
+    }
+
+    /// 指定サーバの SSH クライアントが存在するか
+    pub fn has_client(&self, server_name: &str) -> bool {
+        self.ssh_clients.contains_key(server_name)
     }
 
     /// リモートツリーを取得する
@@ -89,9 +103,9 @@ impl TuiRuntime {
         let root_path = server_config.root_dir.clone();
 
         let client = self
-            .ssh_client
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         let nodes = self
             .rt
@@ -116,9 +130,9 @@ impl TuiRuntime {
         });
     }
 
-    /// SSH 接続が生きているか確認する
-    pub fn check_connection(&mut self) -> bool {
-        match self.ssh_client.as_mut() {
+    /// 指定サーバの SSH 接続が生きているか確認する
+    pub fn check_connection(&mut self, server_name: &str) -> bool {
+        match self.ssh_clients.get_mut(server_name) {
             Some(client) => self.rt.block_on(client.is_alive()),
             None => false,
         }
@@ -132,17 +146,25 @@ impl TuiRuntime {
         tracing::info!("Auto-reconnecting SSH: server={}", server_name);
 
         // 古い接続を切断
-        if let Some(client) = self.ssh_client.take() {
+        if let Some(client) = self.ssh_clients.remove(server_name) {
             let _ = self.rt.block_on(client.disconnect());
         }
 
         self.connect(server_name)
     }
 
-    /// 切断する
-    pub fn disconnect(&mut self) {
-        if let Some(client) = self.ssh_client.take() {
+    /// 指定サーバの接続を切断する
+    pub fn disconnect(&mut self, server_name: &str) {
+        if let Some(client) = self.ssh_clients.remove(server_name) {
             let _ = self.rt.block_on(client.disconnect());
+        }
+    }
+
+    /// 全接続を切断する
+    pub fn disconnect_all(&mut self) {
+        let names: Vec<String> = self.ssh_clients.keys().cloned().collect();
+        for name in names {
+            self.disconnect(&name);
         }
     }
 }

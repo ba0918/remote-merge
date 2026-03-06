@@ -143,7 +143,7 @@ mod tests {
             }],
             merge_context: MtimeWarningMergeContext::Single {
                 path: "src/config.ts".to_string(),
-                direction: crate::merge::executor::MergeDirection::LocalToRemote,
+                direction: crate::merge::executor::MergeDirection::LeftToRight,
             },
         };
 
@@ -179,7 +179,7 @@ mod tests {
             }],
             merge_context: MtimeWarningMergeContext::Single {
                 path: "src/diff/engine.rs".to_string(),
-                direction: crate::merge::executor::MergeDirection::LocalToRemote,
+                direction: crate::merge::executor::MergeDirection::LeftToRight,
             },
         };
 

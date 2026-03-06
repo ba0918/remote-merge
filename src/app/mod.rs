@@ -10,6 +10,7 @@ pub mod navigation;
 pub mod scan;
 pub mod search;
 pub mod selection;
+pub mod side;
 pub mod tree_ops;
 pub mod types;
 
@@ -21,6 +22,8 @@ use crate::theme::TuiPalette;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::DialogState;
 
+pub use side::Side;
+
 pub use types::{
     Badge, CacheSnapshot, DiffMode, FlatNode, Focus, MergeScanMsg, MergeScanResult, MergeScanState,
     MergedNode, ScanState,
@@ -30,22 +33,26 @@ pub use types::{
 pub struct AppState {
     /// 現在のフォーカス
     pub focus: Focus,
-    /// ローカルファイルツリー
-    pub local_tree: FileTree,
-    /// リモートファイルツリー
-    pub remote_tree: FileTree,
-    /// 接続中のサーバ名
+    /// 左側ファイルツリー
+    pub left_tree: FileTree,
+    /// 右側ファイルツリー
+    pub right_tree: FileTree,
+    /// 左側の比較元
+    pub left_source: Side,
+    /// 右側の比較元
+    pub right_source: Side,
+    /// 接続中のサーバ名（right_source のヘルパー。廃止予定）
     pub server_name: String,
     /// 利用可能なサーバ名一覧
     pub available_servers: Vec<String>,
-    /// ローカルファイル内容キャッシュ (パス -> 内容)
-    pub local_cache: HashMap<String, String>,
-    /// リモートファイル内容キャッシュ (パス -> 内容)
-    pub remote_cache: HashMap<String, String>,
-    /// ローカルバイナリファイル情報キャッシュ (パス -> BinaryInfo)
-    pub local_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
-    /// リモートバイナリファイル情報キャッシュ (パス -> BinaryInfo)
-    pub remote_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
+    /// 左側ファイル内容キャッシュ (パス -> 内容)
+    pub left_cache: HashMap<String, String>,
+    /// 右側ファイル内容キャッシュ (パス -> 内容)
+    pub right_cache: HashMap<String, String>,
+    /// 左側バイナリファイル情報キャッシュ (パス -> BinaryInfo)
+    pub left_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
+    /// 右側バイナリファイル情報キャッシュ (パス -> BinaryInfo)
+    pub right_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
     /// 現在選択中の diff 結果
     pub current_diff: Option<DiffResult>,
     /// 現在選択中のファイルパス
@@ -92,20 +99,20 @@ pub struct AppState {
     pub diff_filter_mode: bool,
     /// 全走査の状態
     pub scan_state: ScanState,
-    /// 全走査結果のローカルツリー（キャッシュ）
-    pub scan_local_tree: Option<Vec<FileNode>>,
-    /// 全走査結果のリモートツリー（キャッシュ）
-    pub scan_remote_tree: Option<Vec<FileNode>>,
+    /// 全走査結果の左側ツリー（キャッシュ）
+    pub scan_left_tree: Option<Vec<FileNode>>,
+    /// 全走査結果の右側ツリー（キャッシュ）
+    pub scan_right_tree: Option<Vec<FileNode>>,
     /// センシティブファイルパターン
     pub sensitive_patterns: Vec<String>,
     /// マージ走査の状態
     pub merge_scan_state: MergeScanState,
     /// TUI カラーパレット（テーマから導出）
     pub palette: TuiPalette,
-    /// シンタックスハイライトキャッシュ（ローカル側）
-    pub highlight_cache_local: HighlightCache,
-    /// シンタックスハイライトキャッシュ（リモート側）
-    pub highlight_cache_remote: HighlightCache,
+    /// シンタックスハイライトキャッシュ（左側）
+    pub highlight_cache_left: HighlightCache,
+    /// シンタックスハイライトキャッシュ（右側）
+    pub highlight_cache_right: HighlightCache,
     /// 現在のテーマ名
     pub theme_name: String,
     /// シンタックスハイライト有効か
@@ -122,26 +129,32 @@ impl AppState {
     /// 新しい AppState を構築する。
     /// `theme_name` で初期テーマを指定する。
     pub fn new(
-        local_tree: FileTree,
-        remote_tree: FileTree,
-        server_name: String,
+        left_tree: FileTree,
+        right_tree: FileTree,
+        left_source: Side,
+        right_source: Side,
         theme_name: &str,
     ) -> Self {
         let theme = crate::theme::load_theme(theme_name);
         let palette = TuiPalette::from_theme(&theme);
         let highlighter = SyntaxHighlighter::new(theme);
 
+        let server_name = right_source.display_name().to_string();
+        let label = side::comparison_label(&left_source, &right_source);
+
         let mut state = Self {
             focus: Focus::FileTree,
-            local_tree,
-            remote_tree,
-            status_message: format!("local <-> {} | Tab: switch focus | q: quit", &server_name),
+            left_tree,
+            right_tree,
+            left_source,
+            right_source,
+            status_message: format!("{} | Tab: switch focus | q: quit", label),
             server_name,
             available_servers: Vec::new(),
-            local_cache: HashMap::new(),
-            remote_cache: HashMap::new(),
-            local_binary_cache: HashMap::new(),
-            remote_binary_cache: HashMap::new(),
+            left_cache: HashMap::new(),
+            right_cache: HashMap::new(),
+            left_binary_cache: HashMap::new(),
+            right_binary_cache: HashMap::new(),
             current_diff: None,
             selected_path: None,
             flat_nodes: Vec::new(),
@@ -164,13 +177,13 @@ impl AppState {
             undo_stack: VecDeque::new(),
             diff_filter_mode: false,
             scan_state: ScanState::default(),
-            scan_local_tree: None,
-            scan_remote_tree: None,
+            scan_left_tree: None,
+            scan_right_tree: None,
             sensitive_patterns: Vec::new(),
             merge_scan_state: MergeScanState::default(),
             palette,
-            highlight_cache_local: HighlightCache::new(),
-            highlight_cache_remote: HighlightCache::new(),
+            highlight_cache_left: HighlightCache::new(),
+            highlight_cache_right: HighlightCache::new(),
             theme_name: theme_name.to_string(),
             syntax_highlight_enabled: true,
             highlighter,
@@ -202,7 +215,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.focus, Focus::FileTree);
@@ -213,7 +227,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.focus, Focus::FileTree);
@@ -231,15 +246,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "hello\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test.txt".to_string(), "world\n".to_string());
 
         state.tree_cursor = 0;
@@ -254,15 +270,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
-        state.local_cache.insert("a".to_string(), "x".to_string());
-        state.remote_cache.insert("b".to_string(), "y".to_string());
+        state.left_cache.insert("a".to_string(), "x".to_string());
+        state.right_cache.insert("b".to_string(), "y".to_string());
         state.error_paths.insert("some/path".to_string());
         state.clear_cache();
-        assert!(state.local_cache.is_empty());
-        assert!(state.remote_cache.is_empty());
+        assert!(state.left_cache.is_empty());
+        assert!(state.right_cache.is_empty());
         assert!(state.current_diff.is_none());
         assert!(state.error_paths.is_empty());
     }
@@ -275,17 +292,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Confirm(_)));
 
         if let DialogState::Confirm(ref d) = state.dialog {
             assert_eq!(d.file_path, "test.txt");
-            assert_eq!(d.direction, MergeDirection::LocalToRemote);
+            assert_eq!(d.direction, MergeDirection::LeftToRight);
         }
     }
 
@@ -297,15 +315,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::RemoteToLocal);
+        state.show_merge_dialog(MergeDirection::RightToLeft);
 
         if let DialogState::Confirm(ref d) = state.dialog {
-            assert_eq!(d.direction, MergeDirection::RemoteToLocal);
+            assert_eq!(d.direction, MergeDirection::RightToLeft);
         } else {
             panic!("Expected Confirm dialog");
         }
@@ -319,20 +338,21 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // 両方同じ内容 → Equal
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test.txt".to_string(), "same".to_string());
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(
             matches!(state.dialog, DialogState::Info(_)),
             "Expected Info dialog for equal file, got {:?}",
@@ -347,12 +367,13 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::None));
     }
 
@@ -361,7 +382,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.available_servers = vec!["develop".to_string(), "staging".to_string()];
@@ -375,11 +397,12 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(state.has_dialog());
         state.close_dialog();
         assert!(!state.has_dialog());
@@ -390,18 +413,19 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state
-            .remote_cache
+            .right_cache
             .insert("a.txt".to_string(), "old".to_string());
 
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
 
         assert_eq!(state.server_name, "staging");
-        assert!(state.remote_cache.is_empty());
+        assert!(state.right_cache.is_empty());
         assert!(state.is_connected);
     }
 
@@ -413,16 +437,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "content".to_string());
-        state.update_badge_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
+        state.update_badge_after_merge("test.txt", "content", MergeDirection::LeftToRight);
 
-        assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
+        assert_eq!(state.right_cache.get("test.txt").unwrap(), "content");
     }
 
     #[test]
@@ -433,7 +458,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -442,8 +468,8 @@ mod tests {
         new_text = new_text.replace("line3\n", "modified3\n");
         new_text = new_text.replace("line15\n", "modified15\n");
 
-        state.local_cache.insert("test.txt".to_string(), old);
-        state.remote_cache.insert("test.txt".to_string(), new_text);
+        state.left_cache.insert("test.txt".to_string(), old);
+        state.right_cache.insert("test.txt".to_string(), new_text);
         state.tree_cursor = 0;
         state.select_file();
 
@@ -468,7 +494,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -487,14 +514,15 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
-        state.remote_cache.insert(
+        state.right_cache.insert(
             "test.txt".to_string(),
             "line1\nmodified\nline3\n".to_string(),
         );
@@ -505,7 +533,7 @@ mod tests {
         let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
         assert!(result.is_some());
         assert_eq!(
-            state.local_cache.get("test.txt").unwrap(),
+            state.left_cache.get("test.txt").unwrap(),
             "line1\nmodified\nline3\n"
         );
     }
@@ -518,15 +546,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.selected_path = Some("test.txt".to_string());
         state.tree_cursor = 0;
@@ -551,15 +580,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -583,15 +613,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test.txt".to_string(), "a\nX\nc\n".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -609,7 +640,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -625,21 +657,22 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("a.txt".to_string(), "old\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.txt".to_string(), "new\n".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("b.txt".to_string(), "x\n".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("b.txt".to_string(), "y\n".to_string());
 
         state.tree_cursor = 0;
@@ -666,7 +699,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -675,21 +709,21 @@ mod tests {
         state.tree_cursor = 0;
         state.toggle_expand();
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "new".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("src/b.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/b.ts".to_string(), "same".to_string());
         state.rebuild_flat_nodes();
 
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
 
         match &state.dialog {
             DialogState::BatchConfirm(batch) => {
@@ -715,17 +749,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
         state.toggle_expand();
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "same".to_string());
         state.rebuild_flat_nodes();
 
@@ -734,7 +769,7 @@ mod tests {
 
         state.is_connected = true;
         state.tree_cursor = 0;
-        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 
@@ -753,7 +788,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -762,7 +798,7 @@ mod tests {
 
         let (files, unchecked) = state.collect_diff_files_under("src");
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].1, Badge::LocalOnly);
+        assert_eq!(files[0].1, Badge::LeftOnly);
         assert_eq!(unchecked, 1);
     }
 
@@ -772,7 +808,7 @@ mod tests {
             (0..20)
                 .map(|i| (format!("file{}.txt", i), Badge::Modified))
                 .collect(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             0,
@@ -786,7 +822,7 @@ mod tests {
             (0..21)
                 .map(|i| (format!("file{}.txt", i), Badge::Modified))
                 .collect(),
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             0,
@@ -808,7 +844,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes.clone()),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -816,16 +853,16 @@ mod tests {
         state.toggle_expand();
 
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "new".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("src/b.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/b.ts".to_string(), "same".to_string());
 
         state.set_scan_result(local_nodes, remote_nodes);
@@ -877,7 +914,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes.clone()),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -887,16 +925,16 @@ mod tests {
         state.toggle_expand();
 
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "new".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("test/t.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("test/t.ts".to_string(), "same".to_string());
 
         state.set_scan_result(local_nodes, remote_nodes);
@@ -915,12 +953,13 @@ mod tests {
         let state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert!(matches!(state.scan_state, ScanState::Idle));
         assert!(!state.diff_filter_mode);
-        assert!(state.scan_local_tree.is_none());
+        assert!(state.scan_left_tree.is_none());
     }
 
     #[test]
@@ -928,16 +967,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
-        state.scan_local_tree = Some(vec![]);
-        state.scan_remote_tree = Some(vec![]);
+        state.scan_left_tree = Some(vec![]);
+        state.scan_right_tree = Some(vec![]);
         state.diff_filter_mode = true;
 
         state.clear_scan_cache();
-        assert!(state.scan_local_tree.is_none());
-        assert!(state.scan_remote_tree.is_none());
+        assert!(state.scan_left_tree.is_none());
+        assert!(state.scan_right_tree.is_none());
         assert!(!state.diff_filter_mode);
     }
 
@@ -948,9 +988,9 @@ mod tests {
                 ("src/app.ts".to_string(), Badge::Modified),
                 (".env".to_string(), Badge::Modified),
                 ("config/secrets.json".to_string(), Badge::Modified),
-                ("server.key".to_string(), Badge::LocalOnly),
+                ("server.key".to_string(), Badge::LeftOnly),
             ],
-            MergeDirection::LocalToRemote,
+            MergeDirection::LeftToRight,
             "local".to_string(),
             "develop".to_string(),
             0,
@@ -982,7 +1022,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1004,22 +1045,23 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state
-            .local_cache
+            .left_cache
             .insert("a.txt".to_string(), "old content".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.txt".to_string(), "remote content".to_string());
         state.error_paths.insert("a.txt".to_string());
 
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
 
-        assert!(state.local_cache.is_empty());
-        assert!(state.remote_cache.is_empty());
+        assert!(state.left_cache.is_empty());
+        assert!(state.right_cache.is_empty());
         assert!(state.error_paths.is_empty());
     }
 
@@ -1028,19 +1070,20 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
-        state.scan_local_tree = Some(vec![FileNode::new_file("a.txt")]);
-        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_left_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_right_tree = Some(vec![FileNode::new_file("a.txt")]);
         state.diff_filter_mode = true;
 
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
 
-        assert!(state.scan_local_tree.is_none());
-        assert!(state.scan_remote_tree.is_none());
+        assert!(state.scan_left_tree.is_none());
+        assert!(state.scan_right_tree.is_none());
         assert!(!state.diff_filter_mode);
     }
 
@@ -1049,7 +1092,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1074,12 +1118,13 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
-        state.scan_local_tree = Some(local_nodes);
-        state.scan_remote_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_left_tree = Some(local_nodes);
+        state.scan_right_tree = Some(vec![FileNode::new_file("a.txt")]);
         state.diff_filter_mode = true;
         state.rebuild_flat_nodes();
 
@@ -1096,12 +1141,13 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
-        state.scan_local_tree = None;
-        state.scan_remote_tree = None;
+        state.scan_left_tree = None;
+        state.scan_right_tree = None;
 
         let badge = state.compute_scan_badge("a.txt", false);
         assert_eq!(badge, Badge::Unchecked);
@@ -1112,23 +1158,24 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("a.txt".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.txt".to_string(), "same".to_string());
 
         let mut local_node = FileNode::new_file("a.txt");
         local_node.size = Some(100);
         let mut remote_node = FileNode::new_file("a.txt");
         remote_node.size = Some(200);
-        state.scan_local_tree = Some(vec![local_node]);
-        state.scan_remote_tree = Some(vec![remote_node]);
+        state.scan_left_tree = Some(vec![local_node]);
+        state.scan_right_tree = Some(vec![remote_node]);
 
         let badge = state.compute_scan_badge("a.txt", false);
         assert_eq!(badge, Badge::Equal);
@@ -1139,7 +1186,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1150,7 +1198,7 @@ mod tests {
         state.switch_server("staging".to_string(), new_tree);
 
         let badge_after = state.compute_badge("a.txt", false);
-        assert_eq!(badge_after, Badge::LocalOnly);
+        assert_eq!(badge_after, Badge::LeftOnly);
     }
 
     #[test]
@@ -1158,7 +1206,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1183,28 +1232,29 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("same.txt".to_string(), "identical".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("same.txt".to_string(), "identical".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("changed.txt".to_string(), "local ver".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("changed.txt".to_string(), "remote ver".to_string());
 
-        state.scan_local_tree = Some(vec![
+        state.scan_left_tree = Some(vec![
             FileNode::new_file("changed.txt"),
             FileNode::new_file("same.txt"),
         ]);
-        state.scan_remote_tree = Some(vec![
+        state.scan_right_tree = Some(vec![
             FileNode::new_file("changed.txt"),
             FileNode::new_file("same.txt"),
         ]);
@@ -1239,18 +1289,19 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // ローカルキャッシュのみ存在（リモートは読めなかった想定）
         state
-            .local_cache
+            .left_cache
             .insert("src/local_only.rs".to_string(), "content".to_string());
         // error_paths には入れない（片方読めれば OK）
 
         let badge = state.compute_badge("src/local_only.rs", false);
-        assert_eq!(badge, Badge::LocalOnly);
+        assert_eq!(badge, Badge::LeftOnly);
     }
 
     #[test]
@@ -1266,16 +1317,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .remote_cache
+            .right_cache
             .insert("src/remote_only.rs".to_string(), "content".to_string());
 
         let badge = state.compute_badge("src/remote_only.rs", false);
-        assert_eq!(badge, Badge::RemoteOnly);
+        assert_eq!(badge, Badge::RightOnly);
     }
 
     #[test]
@@ -1287,7 +1339,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1315,7 +1368,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1323,21 +1377,21 @@ mod tests {
         state.toggle_expand();
         // both.rs: 同一内容
         state
-            .local_cache
+            .left_cache
             .insert("src/both.rs".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/both.rs".to_string(), "same".to_string());
         // local_only.rs: ローカルのみキャッシュあり（リモートになし → error_paths にも入れない）
         state
-            .local_cache
+            .left_cache
             .insert("src/local_only.rs".to_string(), "only here".to_string());
         state.rebuild_flat_nodes();
 
         let (files, _) = state.collect_diff_files_under("src");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].0, "src/local_only.rs");
-        assert_eq!(files[0].1, Badge::LocalOnly);
+        assert_eq!(files[0].1, Badge::LeftOnly);
     }
 
     #[test]
@@ -1355,7 +1409,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1384,21 +1439,22 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "same".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("src/b.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/b.ts".to_string(), "same".to_string());
 
         let badge = state.compute_badge("src", true);
@@ -1419,15 +1475,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "new".to_string());
 
         let badge = state.compute_badge("src", true);
@@ -1444,12 +1501,13 @@ mod tests {
         let state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         let badge = state.compute_badge("src", true);
-        assert_eq!(badge, Badge::LocalOnly);
+        assert_eq!(badge, Badge::LeftOnly);
     }
 
     #[test]
@@ -1466,7 +1524,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
@@ -1489,16 +1548,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // a.ts だけキャッシュ済み（Equal）、b.ts は未確認
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "same".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "same".to_string());
 
         let badge = state.compute_badge("src", true);
@@ -1520,16 +1580,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // a.ts は Modified、b.ts は未確認
         state
-            .local_cache
+            .left_cache
             .insert("src/a.ts".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/a.ts".to_string(), "new".to_string());
 
         let badge = state.compute_badge("src", true);
@@ -1551,16 +1612,17 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // キャッシュには同一コンテンツが入っている
         state
-            .local_cache
+            .left_cache
             .insert("src/scan.rs".to_string(), "content".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/scan.rs".to_string(), "content".to_string());
 
         // リモートツリーの src/scan.rs は Unloaded（srcのchildren=None）
@@ -1580,15 +1642,16 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("src/scan.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("src/scan.rs".to_string(), "new".to_string());
 
         let badge = state.compute_badge("src/scan.rs", false);
@@ -1605,13 +1668,14 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         // ローカルキャッシュのみ（リモートは未ロード）
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "content".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -1633,12 +1697,13 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "content".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -1662,17 +1727,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("test.txt".to_string(), "content".to_string());
-        state.sync_cache_after_merge("test.txt", "content", MergeDirection::LocalToRemote);
+        state.sync_cache_after_merge("test.txt", "content", MergeDirection::LeftToRight);
 
         // リモートキャッシュが同期される
-        assert_eq!(state.remote_cache.get("test.txt").unwrap(), "content");
+        assert_eq!(state.right_cache.get("test.txt").unwrap(), "content");
         // rebuild_flat_nodes は呼ばれない（バッジは古いまま）
     }
 
@@ -1683,36 +1749,37 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "old_a".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("b.rs".to_string(), "old_b".to_string());
         state
-            .local_cache
+            .left_cache
             .insert("c.rs".to_string(), "keep_c".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "old_a_remote".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("b.rs".to_string(), "old_b_remote".to_string());
 
         let paths = vec!["a.rs".to_string(), "b.rs".to_string()];
         state.invalidate_cache_for_paths(&paths);
 
         // 指定パスはクリアされる
-        assert!(!state.local_cache.contains_key("a.rs"));
-        assert!(!state.local_cache.contains_key("b.rs"));
-        assert!(!state.remote_cache.contains_key("a.rs"));
-        assert!(!state.remote_cache.contains_key("b.rs"));
+        assert!(!state.left_cache.contains_key("a.rs"));
+        assert!(!state.left_cache.contains_key("b.rs"));
+        assert!(!state.right_cache.contains_key("a.rs"));
+        assert!(!state.right_cache.contains_key("b.rs"));
         // 指定外のパスは残る
-        assert_eq!(state.local_cache.get("c.rs").unwrap(), "keep_c");
+        assert_eq!(state.left_cache.get("c.rs").unwrap(), "keep_c");
     }
 
     #[test]
@@ -1720,17 +1787,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
 
         state
-            .local_cache
+            .left_cache
             .insert("x.rs".to_string(), "content".to_string());
 
         state.invalidate_cache_for_paths(&[]);
 
-        assert_eq!(state.local_cache.get("x.rs").unwrap(), "content");
+        assert_eq!(state.left_cache.get("x.rs").unwrap(), "content");
     }
 
     #[test]
@@ -1746,7 +1814,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.compute_badge("src/link", false), Badge::Equal);
@@ -1765,7 +1834,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.compute_badge("src/link", false), Badge::Modified);
@@ -1785,7 +1855,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.compute_badge("src/file", false), Badge::Modified);
@@ -1804,7 +1875,8 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         let info = crate::diff::binary::BinaryInfo {
@@ -1812,10 +1884,10 @@ mod tests {
             sha256: "abc123".to_string(),
         };
         state
-            .local_binary_cache
+            .left_binary_cache
             .insert("src/logo.png".to_string(), info.clone());
         state
-            .remote_binary_cache
+            .right_binary_cache
             .insert("src/logo.png".to_string(), info);
         assert_eq!(state.compute_badge("src/logo.png", false), Badge::Equal);
     }
@@ -1833,17 +1905,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
-        state.local_binary_cache.insert(
+        state.left_binary_cache.insert(
             "src/logo.png".to_string(),
             crate::diff::binary::BinaryInfo {
                 size: 100,
                 sha256: "abc".to_string(),
             },
         );
-        state.remote_binary_cache.insert(
+        state.right_binary_cache.insert(
             "src/logo.png".to_string(),
             crate::diff::binary::BinaryInfo {
                 size: 200,
@@ -1858,17 +1931,18 @@ mod tests {
         let mut state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
-        state.local_binary_cache.insert(
+        state.left_binary_cache.insert(
             "x.png".to_string(),
             crate::diff::binary::BinaryInfo {
                 size: 1,
                 sha256: "a".to_string(),
             },
         );
-        state.remote_binary_cache.insert(
+        state.right_binary_cache.insert(
             "x.png".to_string(),
             crate::diff::binary::BinaryInfo {
                 size: 1,
@@ -1876,7 +1950,7 @@ mod tests {
             },
         );
         state.clear_cache();
-        assert!(state.local_binary_cache.is_empty());
-        assert!(state.remote_binary_cache.is_empty());
+        assert!(state.left_binary_cache.is_empty());
+        assert!(state.right_binary_cache.is_empty());
     }
 }

@@ -33,8 +33,8 @@ impl AppState {
         }
 
         // バイナリキャッシュにあればそちらを優先（コンテンツを保持しない）
-        let local_bin = self.local_binary_cache.get(&path).cloned();
-        let remote_bin = self.remote_binary_cache.get(&path).cloned();
+        let local_bin = self.left_binary_cache.get(&path).cloned();
+        let remote_bin = self.right_binary_cache.get(&path).cloned();
         if local_bin.is_some() || remote_bin.is_some() {
             self.current_diff = Some(DiffResult::Binary {
                 left: local_bin,
@@ -45,13 +45,13 @@ impl AppState {
         }
 
         // テキストキャッシュからコンテンツを取得して diff
-        let local_content = self.local_cache.get(&path).map(|s| s.as_str());
-        let remote_content = self.remote_cache.get(&path).map(|s| s.as_str());
+        let local_content = self.left_cache.get(&path).map(|s| s.as_str());
+        let remote_content = self.right_cache.get(&path).map(|s| s.as_str());
 
         // ツリー上の存在を確認（キャッシュ未ロードと存在しないを区別）
-        let remote_absent = self.remote_tree.find_node_or_unloaded(Path::new(&path))
+        let remote_absent = self.right_tree.find_node_or_unloaded(Path::new(&path))
             == crate::tree::NodePresence::NotFound;
-        let local_absent = self.local_tree.find_node_or_unloaded(Path::new(&path))
+        let local_absent = self.left_tree.find_node_or_unloaded(Path::new(&path))
             == crate::tree::NodePresence::NotFound;
 
         self.current_diff = match (local_content, remote_content) {
@@ -60,10 +60,10 @@ impl AppState {
                     // テキストキャッシュ経由でバイナリ検出 → binary_cache に移動
                     let left = crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes());
                     let right = crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes());
-                    self.local_binary_cache.insert(path.clone(), left.clone());
-                    self.remote_binary_cache.insert(path.clone(), right.clone());
-                    self.local_cache.remove(&path);
-                    self.remote_cache.remove(&path);
+                    self.left_binary_cache.insert(path.clone(), left.clone());
+                    self.right_binary_cache.insert(path.clone(), right.clone());
+                    self.left_cache.remove(&path);
+                    self.right_cache.remove(&path);
                     Some(DiffResult::Binary {
                         left: Some(left),
                         right: Some(right),
@@ -80,8 +80,8 @@ impl AppState {
                 }
                 if engine::is_binary(l.as_bytes()) {
                     let info = crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes());
-                    self.local_binary_cache.insert(path.clone(), info.clone());
-                    self.local_cache.remove(&path);
+                    self.left_binary_cache.insert(path.clone(), info.clone());
+                    self.left_cache.remove(&path);
                     Some(DiffResult::Binary {
                         left: Some(info),
                         right: None,
@@ -98,8 +98,8 @@ impl AppState {
                 }
                 if engine::is_binary(r.as_bytes()) {
                     let info = crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes());
-                    self.remote_binary_cache.insert(path.clone(), info.clone());
-                    self.remote_cache.remove(&path);
+                    self.right_binary_cache.insert(path.clone(), info.clone());
+                    self.right_cache.remove(&path);
                     Some(DiffResult::Binary {
                         left: None,
                         right: Some(info),
@@ -129,8 +129,8 @@ impl AppState {
 
     /// シンボリックリンク選択時の diff 計算
     fn select_symlink(&mut self, path: &str) {
-        let local_target = self.symlink_target_from_tree(&self.local_tree, path);
-        let remote_target = self.symlink_target_from_tree(&self.remote_tree, path);
+        let local_target = self.symlink_target_from_tree(&self.left_tree, path);
+        let remote_target = self.symlink_target_from_tree(&self.right_tree, path);
 
         self.current_diff = Some(DiffResult::SymlinkDiff {
             left_target: local_target,
@@ -153,17 +153,17 @@ impl AppState {
 
     /// 指定パスのシンタックスハイライトキャッシュを構築する
     fn build_highlight_cache(&mut self, path: &str) {
-        if let Some(content) = self.local_cache.get(path) {
-            if self.highlight_cache_local.get(path).is_none() {
+        if let Some(content) = self.left_cache.get(path) {
+            if self.highlight_cache_left.get(path).is_none() {
                 let highlighted = self.highlighter.highlight_file(path, content);
-                self.highlight_cache_local
+                self.highlight_cache_left
                     .insert(path.to_string(), highlighted);
             }
         }
-        if let Some(content) = self.remote_cache.get(path) {
-            if self.highlight_cache_remote.get(path).is_none() {
+        if let Some(content) = self.right_cache.get(path) {
+            if self.highlight_cache_right.get(path).is_none() {
                 let highlighted = self.highlighter.highlight_file(path, content);
-                self.highlight_cache_remote
+                self.highlight_cache_right
                     .insert(path.to_string(), highlighted);
             }
         }
@@ -171,11 +171,11 @@ impl AppState {
 
     /// ローカルツリーの遅延読み込み（ディレクトリ展開時）
     pub fn load_local_children(&mut self, path: &str) {
-        let full_path = self.local_tree.root.join(path);
+        let full_path = self.left_tree.root.join(path);
         let exclude = self.active_exclude_patterns();
         match crate::local::scan_dir(&full_path, &exclude) {
             Ok(children) => {
-                if let Some(node) = self.local_tree.find_node_mut(std::path::Path::new(path)) {
+                if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
                     node.children = Some(children);
                     node.sort_children();
                 }
@@ -192,8 +192,8 @@ impl AppState {
     /// 検索が全ファイルを対象にできるようにする。
     pub fn load_local_tree_recursive(&mut self) {
         let exclude = self.active_exclude_patterns();
-        let root = self.local_tree.root.clone();
-        Self::load_children_recursive(&mut self.local_tree.nodes, &root, &exclude);
+        let root = self.left_tree.root.clone();
+        Self::load_children_recursive(&mut self.left_tree.nodes, &root, &exclude);
     }
 
     /// FileNode リストの未ロードディレクトリを再帰的にロードする
@@ -221,10 +221,10 @@ impl AppState {
 
     /// ディレクトリのリフレッシュ（子ノードをクリア）
     pub fn refresh_directory(&mut self, path: &str) {
-        if let Some(node) = self.local_tree.find_node_mut(std::path::Path::new(path)) {
+        if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
             node.children = None;
         }
-        if let Some(node) = self.remote_tree.find_node_mut(std::path::Path::new(path)) {
+        if let Some(node) = self.right_tree.find_node_mut(std::path::Path::new(path)) {
             node.children = None;
         }
         self.rebuild_flat_nodes();
@@ -251,27 +251,27 @@ impl AppState {
     /// `load_file_content` が単一ファイルで行うキャッシュ無効化と同じ方針。
     pub fn invalidate_cache_for_paths(&mut self, paths: &[String]) {
         for path in paths {
-            self.local_cache.remove(path);
-            self.remote_cache.remove(path);
-            self.local_binary_cache.remove(path);
-            self.remote_binary_cache.remove(path);
+            self.left_cache.remove(path);
+            self.right_cache.remove(path);
+            self.left_binary_cache.remove(path);
+            self.right_binary_cache.remove(path);
         }
     }
 
     /// 全コンテンツキャッシュ（テキスト + バイナリ + エラー）をクリアする
     pub fn clear_all_content_caches(&mut self) {
-        self.local_cache.clear();
-        self.remote_cache.clear();
-        self.local_binary_cache.clear();
-        self.remote_binary_cache.clear();
+        self.left_cache.clear();
+        self.right_cache.clear();
+        self.left_binary_cache.clear();
+        self.right_binary_cache.clear();
         self.error_paths.clear();
     }
 
     /// コンテンツキャッシュをクリアする (r キー)
     pub fn clear_cache(&mut self) {
         self.clear_all_content_caches();
-        self.highlight_cache_local.clear();
-        self.highlight_cache_remote.clear();
+        self.highlight_cache_left.clear();
+        self.highlight_cache_right.clear();
         self.current_diff = None;
         self.selected_path = None;
         self.status_message = "Cache cleared".to_string();
@@ -284,8 +284,8 @@ impl AppState {
         self.highlighter.set_theme(theme);
         self.theme_name = name.to_string();
         // ハイライトキャッシュをクリア（テーマが変わると色が変わる）
-        self.highlight_cache_local.clear();
-        self.highlight_cache_remote.clear();
+        self.highlight_cache_left.clear();
+        self.highlight_cache_right.clear();
         // 現在のファイルのキャッシュを再構築
         if self.syntax_highlight_enabled {
             if let Some(path) = self.selected_path.clone() {
@@ -324,6 +324,7 @@ impl AppState {
 mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode};
+    use crate::app::Side;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -340,7 +341,8 @@ mod tests {
         let mut state = AppState::new(
             local_tree,
             remote_tree,
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         // flat_nodes にファイルが入るように設定
@@ -360,10 +362,10 @@ mod tests {
     fn test_select_file_both_cached_equal() {
         let mut state = make_state_with_file("a.rs");
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "hello".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "hello".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -375,10 +377,10 @@ mod tests {
     fn test_select_file_both_cached_modified() {
         let mut state = make_state_with_file("a.rs");
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "new".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -395,7 +397,8 @@ mod tests {
         let mut state = AppState::new(
             local_tree,
             remote_tree,
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.flat_nodes = vec![FlatNode {
@@ -408,7 +411,7 @@ mod tests {
             badge: Badge::Unchecked,
         }];
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "content".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -422,7 +425,8 @@ mod tests {
         let mut state = AppState::new(
             local_tree,
             remote_tree,
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         state.flat_nodes = vec![FlatNode {
@@ -435,7 +439,7 @@ mod tests {
             badge: Badge::Unchecked,
         }];
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "content".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -473,11 +477,9 @@ mod tests {
     #[test]
     fn test_select_file_resets_scroll() {
         let mut state = make_state_with_file("a.rs");
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
         state
-            .local_cache
-            .insert("a.rs".to_string(), "x".to_string());
-        state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "x".to_string());
         state.diff_scroll = 10;
         state.diff_cursor = 5;
@@ -500,7 +502,8 @@ mod tests {
         let state = AppState::new(
             make_test_tree(vec![]),
             make_test_tree(vec![]),
-            "develop".to_string(),
+            Side::Local,
+            Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.current_path(), None);
@@ -522,36 +525,30 @@ mod tests {
     #[test]
     fn test_invalidate_cache_for_paths() {
         let mut state = make_state_with_file("a.rs");
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
         state
-            .local_cache
-            .insert("a.rs".to_string(), "x".to_string());
-        state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "y".to_string());
-        state
-            .local_cache
-            .insert("b.rs".to_string(), "z".to_string());
+        state.left_cache.insert("b.rs".to_string(), "z".to_string());
         state.invalidate_cache_for_paths(&["a.rs".to_string()]);
-        assert!(!state.local_cache.contains_key("a.rs"));
-        assert!(!state.remote_cache.contains_key("a.rs"));
-        assert!(state.local_cache.contains_key("b.rs"));
+        assert!(!state.left_cache.contains_key("a.rs"));
+        assert!(!state.right_cache.contains_key("a.rs"));
+        assert!(state.left_cache.contains_key("b.rs"));
     }
 
     #[test]
     fn test_clear_cache() {
         let mut state = make_state_with_file("a.rs");
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
         state
-            .local_cache
-            .insert("a.rs".to_string(), "x".to_string());
-        state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "y".to_string());
         state.error_paths.insert("a.rs".to_string());
         state.selected_path = Some("a.rs".to_string());
         state.current_diff = Some(DiffResult::Equal);
         state.clear_cache();
-        assert!(state.local_cache.is_empty());
-        assert!(state.remote_cache.is_empty());
+        assert!(state.left_cache.is_empty());
+        assert!(state.right_cache.is_empty());
         assert!(state.error_paths.is_empty());
         assert!(state.selected_path.is_none());
         assert!(state.current_diff.is_none());
@@ -575,10 +572,10 @@ mod tests {
         let mut state = make_state_with_file("img.png");
         // バイナリ判定: NULバイトを含む
         state
-            .local_cache
+            .left_cache
             .insert("img.png".to_string(), "hello\x00world".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("img.png".to_string(), "hello\x00world".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -591,11 +588,9 @@ mod tests {
     #[test]
     fn test_select_file_clears_pending_hunk() {
         let mut state = make_state_with_file("a.rs");
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
         state
-            .local_cache
-            .insert("a.rs".to_string(), "x".to_string());
-        state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "x".to_string());
         state.pending_hunk_merge = Some(crate::diff::engine::HunkDirection::RightToLeft);
         state.tree_cursor = 0;
@@ -608,10 +603,10 @@ mod tests {
         let mut state = make_state_with_file("a.rs");
         assert_eq!(state.flat_nodes[0].badge, Badge::Unchecked);
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "hello".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "hello".to_string());
         state.tree_cursor = 0;
         state.select_file();
@@ -623,10 +618,10 @@ mod tests {
         let mut state = make_state_with_file("a.rs");
         assert_eq!(state.flat_nodes[0].badge, Badge::Unchecked);
         state
-            .local_cache
+            .left_cache
             .insert("a.rs".to_string(), "old".to_string());
         state
-            .remote_cache
+            .right_cache
             .insert("a.rs".to_string(), "new".to_string());
         state.tree_cursor = 0;
         state.select_file();

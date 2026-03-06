@@ -1,41 +1,37 @@
 //! マージ実行ロジック。
-//! LocalToRemote（ローカル → リモート）と RemoteToLocal（リモート → ローカル）を担当する。
+//! LeftToRight（左 → 右）と RightToLeft（右 → 左）を担当する。
 
 use std::path::{Path, PathBuf};
 
 /// マージの方向
 ///
-/// - Local = 左パネル（ローカルファイル）
-/// - Remote = 右パネル（リモートファイル）
+/// - Left = 左パネル
+/// - Right = 右パネル
 ///
-/// `LocalToRemote` はローカルの内容をリモートに適用（上書き）する方向を表し、
-/// `RemoteToLocal` はリモートの内容をローカルに適用（上書き）する方向を表す。
+/// `LeftToRight` は左側の内容を右側に適用（上書き）する方向を表し、
+/// `RightToLeft` は右側の内容を左側に適用（上書き）する方向を表す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergeDirection {
-    /// ローカル → リモート（ローカルの内容でリモートを上書き）
-    ///
-    /// 旧名: `LeftMerge`
-    LocalToRemote,
-    /// リモート → ローカル（リモートの内容でローカルを上書き）
-    ///
-    /// 旧名: `RightMerge`
-    RemoteToLocal,
+    /// 左 → 右（左側の内容で右側を上書き）
+    LeftToRight,
+    /// 右 → 左（右側の内容で左側を上書き）
+    RightToLeft,
 }
 
 impl MergeDirection {
     /// 方向を表す矢印文字列
     pub fn arrow(&self) -> &'static str {
         match self {
-            MergeDirection::LocalToRemote => "→",
-            MergeDirection::RemoteToLocal => "←",
+            MergeDirection::LeftToRight => "→",
+            MergeDirection::RightToLeft => "←",
         }
     }
 
     /// 表示用の説明文
     pub fn description(&self, left: &str, right: &str) -> String {
         match self {
-            MergeDirection::LocalToRemote => format!("{} → {}", left, right),
-            MergeDirection::RemoteToLocal => format!("{} → {}", right, left),
+            MergeDirection::LeftToRight => format!("{} → {}", left, right),
+            MergeDirection::RightToLeft => format!("{} → {}", right, left),
         }
     }
 }
@@ -141,10 +137,10 @@ mod tests {
 
     #[test]
     fn test_merge_direction_description() {
-        let dir = MergeDirection::LocalToRemote;
+        let dir = MergeDirection::LeftToRight;
         assert_eq!(dir.description("local", "develop"), "local → develop");
 
-        let dir = MergeDirection::RemoteToLocal;
+        let dir = MergeDirection::RightToLeft;
         assert_eq!(dir.description("local", "develop"), "develop → local");
     }
 
@@ -220,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_merge_direction_arrow() {
-        assert_eq!(MergeDirection::LocalToRemote.arrow(), "→");
-        assert_eq!(MergeDirection::RemoteToLocal.arrow(), "←");
+        assert_eq!(MergeDirection::LeftToRight.arrow(), "→");
+        assert_eq!(MergeDirection::RightToLeft.arrow(), "←");
     }
 }

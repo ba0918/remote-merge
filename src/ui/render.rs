@@ -46,15 +46,18 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
     let server_color = ensure_contrast(p.badge_modified, p.header_bg);
     let conn_color = ensure_contrast(conn_color, p.header_bg);
 
+    let left_name = state.left_source.display_name();
+    let right_name = state.right_source.display_name();
+
     let mut spans = vec![
         Span::styled(
             " remote-merge ",
             Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
         Span::raw("| "),
-        Span::styled("local", Style::default().fg(local_color)),
+        Span::styled(left_name, Style::default().fg(local_color)),
         Span::raw(" <-> "),
-        Span::styled(&state.server_name, Style::default().fg(server_color)),
+        Span::styled(right_name, Style::default().fg(server_color)),
         Span::raw(" "),
         Span::styled(conn_indicator, Style::default().fg(conn_color)),
     ];

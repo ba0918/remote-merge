@@ -21,8 +21,8 @@ impl AppState {
 
         use crate::tree::NodePresence;
 
-        let local_presence = self.local_tree.find_node_or_unloaded(Path::new(path));
-        let remote_presence = self.remote_tree.find_node_or_unloaded(Path::new(path));
+        let local_presence = self.left_tree.find_node_or_unloaded(Path::new(path));
+        let remote_presence = self.right_tree.find_node_or_unloaded(Path::new(path));
 
         // 確実に片方のみと言えるときだけ LocalOnly/RemoteOnly
         let in_local = local_presence == NodePresence::Found;
@@ -33,8 +33,8 @@ impl AppState {
         match (in_local, in_remote) {
             (true, true) => {
                 // シンボリックリンクの場合はリンク先パスで比較
-                let local_node = self.local_tree.find_node(path);
-                let remote_node = self.remote_tree.find_node(path);
+                let local_node = self.left_tree.find_node(path);
+                let remote_node = self.right_tree.find_node(path);
                 if let (Some(ln), Some(rn)) = (local_node, remote_node) {
                     if ln.is_symlink() || rn.is_symlink() {
                         return self.compute_symlink_badge(ln, rn);
@@ -42,8 +42,8 @@ impl AppState {
                 }
 
                 // バイナリキャッシュに両方あれば SHA-256 で判定
-                let local_bin = self.local_binary_cache.get(path);
-                let remote_bin = self.remote_binary_cache.get(path);
+                let local_bin = self.left_binary_cache.get(path);
+                let remote_bin = self.right_binary_cache.get(path);
                 if let (Some(lb), Some(rb)) = (local_bin, remote_bin) {
                     return if lb.is_same_content(rb) {
                         Badge::Equal
@@ -53,7 +53,7 @@ impl AppState {
                 }
 
                 // テキストキャッシュに両方あれば diff で判定
-                match (self.local_cache.get(path), self.remote_cache.get(path)) {
+                match (self.left_cache.get(path), self.right_cache.get(path)) {
                     (Some(l), Some(r)) => {
                         if l == r {
                             Badge::Equal
@@ -64,12 +64,12 @@ impl AppState {
                     _ => Badge::Unchecked,
                 }
             }
-            (true, false) if remote_absent => Badge::LocalOnly,
-            (false, true) if local_absent => Badge::RemoteOnly,
+            (true, false) if remote_absent => Badge::LeftOnly,
+            (false, true) if local_absent => Badge::RightOnly,
             _ => {
                 // ツリー上で片方が Unloaded でも、キャッシュに両方あればコンテンツで判定。
                 // 検索時にリモートツリーが未展開でも、コンテンツ読み込み済みなら正しいバッジを返す。
-                match (self.local_cache.get(path), self.remote_cache.get(path)) {
+                match (self.left_cache.get(path), self.right_cache.get(path)) {
                     (Some(l), Some(r)) => {
                         if l == r {
                             Badge::Equal
@@ -77,8 +77,8 @@ impl AppState {
                             Badge::Modified
                         }
                     }
-                    (Some(_), None) if remote_absent => Badge::LocalOnly,
-                    (None, Some(_)) if local_absent => Badge::RemoteOnly,
+                    (Some(_), None) if remote_absent => Badge::LeftOnly,
+                    (None, Some(_)) if local_absent => Badge::RightOnly,
                     _ => Badge::Unchecked,
                 }
             }
@@ -93,23 +93,23 @@ impl AppState {
     /// - `[?]` — 未確認ファイルが残っている、またはキャッシュが空
     fn compute_dir_badge(&self, path: &str) -> Badge {
         let in_local = self
-            .local_tree
+            .left_tree
             .find_node(std::path::Path::new(path))
             .is_some();
         let in_remote = self
-            .remote_tree
+            .right_tree
             .find_node(std::path::Path::new(path))
             .is_some();
 
         match (in_local, in_remote) {
-            (true, false) => Badge::LocalOnly,
-            (false, true) => Badge::RemoteOnly,
+            (true, false) => Badge::LeftOnly,
+            (false, true) => Badge::RightOnly,
             (false, false) => Badge::Unchecked,
             (true, true) => {
                 // ツリーから配下の全ファイルを列挙
                 let all_files = super::merge_collect::collect_merge_files(
-                    &self.local_tree,
-                    &self.remote_tree,
+                    &self.left_tree,
+                    &self.right_tree,
                     path,
                 );
 
@@ -122,7 +122,7 @@ impl AppState {
                 for file_path in &all_files {
                     let badge = self.compute_badge(file_path, false);
                     match badge {
-                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Error => {
+                        Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
                             return Badge::Modified;
                         }
                         Badge::Unchecked => {
@@ -176,17 +176,17 @@ impl AppState {
 
         // 走査結果からメタデータ比較
         let local_node = self
-            .scan_local_tree
+            .scan_left_tree
             .as_ref()
             .and_then(|tree| find_node_in_slice(tree, path));
         let remote_node = self
-            .scan_remote_tree
+            .scan_right_tree
             .as_ref()
             .and_then(|tree| find_node_in_slice(tree, path));
 
         match (local_node, remote_node) {
-            (Some(_), None) => Badge::LocalOnly,
-            (None, Some(_)) => Badge::RemoteOnly,
+            (Some(_), None) => Badge::LeftOnly,
+            (None, Some(_)) => Badge::RightOnly,
             (Some(l), Some(r)) => {
                 // mtime + size が一致なら Equal（推定）
                 let size_match = l.size == r.size;
