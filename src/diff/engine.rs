@@ -84,7 +84,7 @@ impl DiffResult {
             DiffResult::Equal => true,
             DiffResult::Modified { .. } => false,
             DiffResult::Binary { left, right } => match (left, right) {
-                (Some(l), Some(r)) => l.sha256 == r.sha256,
+                (Some(l), Some(r)) => l.is_same_content(r),
                 _ => false,
             },
             DiffResult::SymlinkDiff {

@@ -244,10 +244,12 @@ impl TuiRuntime {
     ) -> anyhow::Result<()> {
         let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
 
-        // シェルインジェクション防止: パスをシングルクォートでエスケープ
-        let safe_target = target.replace('\'', "'\\''");
-        let safe_path = full_path.replace('\'', "'\\''");
-        let cmd = format!("ln -sfn '{}' '{}'", safe_target, safe_path);
+        // シェルインジェクション防止: 既存の shell_escape を使用
+        let cmd = format!(
+            "ln -sfn {} {}",
+            crate::ssh::tree_parser::shell_escape(target),
+            crate::ssh::tree_parser::shell_escape(&full_path),
+        );
 
         let client = self
             .ssh_client

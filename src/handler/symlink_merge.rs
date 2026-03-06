@@ -17,13 +17,13 @@ pub fn execute_symlink_merge(
     path: &str,
     direction: MergeDirection,
 ) {
-    let (source_target, _dest_target) = match &state.current_diff {
+    let source_target = match &state.current_diff {
         Some(DiffResult::SymlinkDiff {
             left_target,
             right_target,
         }) => match direction {
-            MergeDirection::LocalToRemote => (left_target.clone(), right_target.clone()),
-            MergeDirection::RemoteToLocal => (right_target.clone(), left_target.clone()),
+            MergeDirection::LocalToRemote => left_target.clone(),
+            MergeDirection::RemoteToLocal => right_target.clone(),
         },
         _ => {
             state.status_message = "Not a symlink diff".to_string();
@@ -81,9 +81,11 @@ fn create_local_symlink(
 ) -> anyhow::Result<()> {
     let full_path = root.join(rel_path);
 
-    // 既存のファイル/リンクを削除
-    if full_path.exists() || full_path.symlink_metadata().is_ok() {
-        std::fs::remove_file(&full_path)?;
+    // 既存のファイル/リンクを削除（TOCTOU 回避: 直接 remove して NotFound は無視）
+    match std::fs::remove_file(&full_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
     }
 
     // シンボリックリンクを作成

@@ -548,20 +548,12 @@ impl<'a> DiffView<'a> {
         ]));
 
         // SHA-256行
-        let left_hash = left.as_ref().map_or("(not loaded)".to_string(), |i| {
-            if i.sha256.len() > 16 {
-                format!("{}...", &i.sha256[..16])
-            } else {
-                i.sha256.clone()
-            }
-        });
-        let right_hash = right.as_ref().map_or("(not loaded)".to_string(), |i| {
-            if i.sha256.len() > 16 {
-                format!("{}...", &i.sha256[..16])
-            } else {
-                i.sha256.clone()
-            }
-        });
+        let left_hash = left
+            .as_ref()
+            .map_or("(not loaded)".to_string(), |i| i.short_hash());
+        let right_hash = right
+            .as_ref()
+            .map_or("(not loaded)".to_string(), |i| i.short_hash());
         let left_part = format!("  sha256: {}", left_hash);
         let right_part = format!("  sha256: {}", right_hash);
         lines.push(Line::from(vec![

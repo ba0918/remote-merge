@@ -197,10 +197,7 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                 state.close_dialog();
                 if let Some(path) = state.selected_path.clone() {
                     // キャッシュクリアして再読み込みをトリガー
-                    state.local_cache.remove(&path);
-                    state.remote_cache.remove(&path);
-                    state.local_binary_cache.remove(&path);
-                    state.remote_binary_cache.remove(&path);
+                    state.invalidate_cache_for_paths(&[path]);
                     super::merge_exec::load_file_content(state, runtime);
                 }
             }

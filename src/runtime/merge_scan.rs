@@ -243,12 +243,14 @@ fn expand_subtree_recursive(
 
     // ファイルパスを収集し、サブディレクトリを再帰的に展開
     let mut sub_dirs = HashSet::new();
+    let mut local_file_set = HashSet::new();
 
     for child in &local_children {
         let child_path = format!("{}/{}", dir_path, child.name);
         if child.is_dir() {
             sub_dirs.insert(child_path);
         } else {
+            local_file_set.insert(child_path.clone());
             file_paths.push(child_path);
         }
     }
@@ -257,7 +259,7 @@ fn expand_subtree_recursive(
         let child_path = format!("{}/{}", dir_path, child.name);
         if child.is_dir() {
             sub_dirs.insert(child_path);
-        } else if !file_paths.contains(&child_path) {
+        } else if !local_file_set.contains(&child_path) {
             file_paths.push(child_path);
         }
     }

@@ -20,6 +20,20 @@ impl BinaryInfo {
             sha256: compute_sha256(content),
         }
     }
+
+    /// SHA-256ハッシュが一致するかどうかを判定する
+    pub fn is_same_content(&self, other: &Self) -> bool {
+        self.sha256 == other.sha256
+    }
+
+    /// SHA-256ハッシュを短縮表示する（UI用）
+    pub fn short_hash(&self) -> String {
+        if self.sha256.len() > 16 {
+            format!("{}...", &self.sha256[..16])
+        } else {
+            self.sha256.clone()
+        }
+    }
 }
 
 /// バイナリファイルの比較結果
@@ -33,7 +47,7 @@ pub enum BinaryComparison {
 
 /// 2つの BinaryInfo を比較する
 pub fn compare(left: &BinaryInfo, right: &BinaryInfo) -> BinaryComparison {
-    if left.sha256 == right.sha256 {
+    if left.is_same_content(right) {
         BinaryComparison::Equal
     } else {
         BinaryComparison::Different

@@ -8,7 +8,13 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymlinkValidation {
     pub warnings: Vec<SymlinkWarning>,
-    pub is_safe: bool,
+}
+
+impl SymlinkValidation {
+    /// 警告がなければ安全
+    pub fn is_safe(&self) -> bool {
+        self.warnings.is_empty()
+    }
 }
 
 /// シンボリックリンクマージ時の警告種別
@@ -99,8 +105,7 @@ pub fn validate_symlink_merge(
         });
     }
 
-    let is_safe = warnings.is_empty();
-    SymlinkValidation { warnings, is_safe }
+    SymlinkValidation { warnings }
 }
 
 /// 相対パスかどうか判定
@@ -230,7 +235,7 @@ mod tests {
     #[test]
     fn test_safe_symlink_no_warnings() {
         let result = validate_symlink_merge("/absolute/target", "/link/path", None, &[], &[]);
-        assert!(result.is_safe);
+        assert!(result.is_safe());
         assert!(result.warnings.is_empty());
     }
 
@@ -243,7 +248,7 @@ mod tests {
             symlink_target: None,
         };
         let result = validate_symlink_merge("/existing/file", "/link/path", Some(&info), &[], &[]);
-        assert!(!result.is_safe);
+        assert!(!result.is_safe());
         assert!(result
             .warnings
             .iter()

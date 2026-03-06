@@ -169,11 +169,7 @@ impl AppState {
         self.status_message = format!("local <-> {} | Tab: switch focus | q: quit", &new_server);
         self.server_name = new_server;
         self.remote_tree = remote_tree;
-        self.local_cache.clear();
-        self.remote_cache.clear();
-        self.local_binary_cache.clear();
-        self.remote_binary_cache.clear();
-        self.error_paths.clear();
+        self.clear_all_content_caches();
         self.current_diff = None;
         self.selected_path = None;
         self.diff_scroll = 0;

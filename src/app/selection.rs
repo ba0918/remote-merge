@@ -7,6 +7,14 @@ use crate::diff::engine::{self, DiffResult};
 use super::AppState;
 
 impl AppState {
+    /// diff ビューの状態（スクロール・カーソル・ハンク）をリセットする
+    pub fn reset_diff_view_state(&mut self) {
+        self.diff_scroll = 0;
+        self.diff_cursor = 0;
+        self.hunk_cursor = 0;
+        self.pending_hunk_merge = None;
+    }
+
     /// 現在カーソル位置のファイルを選択して diff を計算する
     pub fn select_file(&mut self) {
         let node = match self.flat_nodes.get(self.tree_cursor) {
@@ -32,10 +40,7 @@ impl AppState {
                 left: local_bin,
                 right: remote_bin,
             });
-            self.diff_scroll = 0;
-            self.diff_cursor = 0;
-            self.hunk_cursor = 0;
-            self.pending_hunk_merge = None;
+            self.reset_diff_view_state();
             return;
         }
 
@@ -108,10 +113,7 @@ impl AppState {
                 None
             }
         };
-        self.diff_scroll = 0;
-        self.diff_cursor = 0;
-        self.hunk_cursor = 0;
-        self.pending_hunk_merge = None;
+        self.reset_diff_view_state();
 
         // シンタックスハイライトキャッシュを構築
         if self.syntax_highlight_enabled {
@@ -128,10 +130,7 @@ impl AppState {
             left_target: local_target,
             right_target: remote_target,
         });
-        self.diff_scroll = 0;
-        self.diff_cursor = 0;
-        self.hunk_cursor = 0;
-        self.pending_hunk_merge = None;
+        self.reset_diff_view_state();
         self.status_message = format!("{}: symlink", path);
     }
 
@@ -220,13 +219,18 @@ impl AppState {
         }
     }
 
-    /// コンテンツキャッシュをクリアする (r キー)
-    pub fn clear_cache(&mut self) {
+    /// 全コンテンツキャッシュ（テキスト + バイナリ + エラー）をクリアする
+    pub fn clear_all_content_caches(&mut self) {
         self.local_cache.clear();
         self.remote_cache.clear();
         self.local_binary_cache.clear();
         self.remote_binary_cache.clear();
         self.error_paths.clear();
+    }
+
+    /// コンテンツキャッシュをクリアする (r キー)
+    pub fn clear_cache(&mut self) {
+        self.clear_all_content_caches();
         self.highlight_cache_local.clear();
         self.highlight_cache_remote.clear();
         self.current_diff = None;

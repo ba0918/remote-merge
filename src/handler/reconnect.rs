@@ -26,16 +26,10 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
                     state.local_tree = local_tree;
                 }
                 state.remote_tree = tree;
-                state.local_cache.clear();
-                state.remote_cache.clear();
-                state.local_binary_cache.clear();
-                state.remote_binary_cache.clear();
-                state.error_paths.clear();
+                state.clear_all_content_caches();
                 state.current_diff = None;
                 state.selected_path = None;
-                state.diff_scroll = 0;
-                state.hunk_cursor = 0;
-                state.pending_hunk_merge = None;
+                state.reset_diff_view_state();
                 state.undo_stack.clear();
                 state.is_connected = true;
                 state.clear_scan_cache();

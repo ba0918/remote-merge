@@ -45,7 +45,7 @@ impl AppState {
                 let local_bin = self.local_binary_cache.get(path);
                 let remote_bin = self.remote_binary_cache.get(path);
                 if let (Some(lb), Some(rb)) = (local_bin, remote_bin) {
-                    return if lb.sha256 == rb.sha256 {
+                    return if lb.is_same_content(rb) {
                         Badge::Equal
                     } else {
                         Badge::Modified
