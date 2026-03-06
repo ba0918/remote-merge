@@ -312,6 +312,12 @@ fn merge_configs(
         }
     }
 
+    // バックアップディレクトリは常に除外（ユーザー設定に関わらず）
+    let backup = crate::backup::BACKUP_DIR_NAME.to_string();
+    if !filter.exclude.contains(&backup) {
+        filter.exclude.push(backup);
+    }
+
     // ssh: プロジェクトで上書き
     let ssh = if let Some(ref proj) = project {
         proj.ssh.as_ref().map_or_else(
@@ -623,5 +629,52 @@ root_dir = "/home/user/app"
             opts.ciphers.as_ref().unwrap(),
             &vec!["aes128-cbc".to_string()]
         );
+    }
+
+    #[test]
+    fn test_backup_dir_always_in_exclude() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+exclude = ["node_modules", ".git"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(config
+            .filter
+            .exclude
+            .contains(&".remote-merge-backup".to_string()));
+    }
+
+    #[test]
+    fn test_backup_dir_no_duplicate_when_user_specifies() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+exclude = [".remote-merge-backup", ".git"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        let count = config
+            .filter
+            .exclude
+            .iter()
+            .filter(|e| e.as_str() == ".remote-merge-backup")
+            .count();
+        assert_eq!(count, 1);
     }
 }
