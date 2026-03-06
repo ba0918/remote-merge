@@ -1659,4 +1659,62 @@ mod tests {
 
         assert_eq!(state.local_cache.get("x.rs").unwrap(), "content");
     }
+
+    #[test]
+    fn test_symlink_badge_equal_when_same_target() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/link", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_symlink_badge_modified_when_different_target() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../OTHER.md")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/link", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_symlink_badge_modified_when_mixed_types() {
+        // ローカルがシンボリックリンク、リモートが通常ファイル
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("file", "target")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("file")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/file", false), Badge::Modified);
+    }
 }

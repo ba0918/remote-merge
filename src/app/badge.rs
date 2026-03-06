@@ -32,6 +32,15 @@ impl AppState {
 
         match (in_local, in_remote) {
             (true, true) => {
+                // シンボリックリンクの場合はリンク先パスで比較
+                let local_node = self.local_tree.find_node(path);
+                let remote_node = self.remote_tree.find_node(path);
+                if let (Some(ln), Some(rn)) = (local_node, remote_node) {
+                    if ln.is_symlink() || rn.is_symlink() {
+                        return self.compute_symlink_badge(ln, rn);
+                    }
+                }
+
                 // キャッシュに両方あれば diff で判定
                 match (self.local_cache.get(path), self.remote_cache.get(path)) {
                     (Some(l), Some(r)) => {
@@ -103,6 +112,27 @@ impl AppState {
                     Badge::Unchecked
                 }
             }
+        }
+    }
+
+    /// シンボリックリンクのバッジを計算する。
+    /// 両方symlink → ターゲット比較、片方のみ → Modified。
+    fn compute_symlink_badge(
+        &self,
+        local_node: &crate::tree::FileNode,
+        remote_node: &crate::tree::FileNode,
+    ) -> Badge {
+        use crate::tree::NodeKind;
+        match (&local_node.kind, &remote_node.kind) {
+            (NodeKind::Symlink { target: lt }, NodeKind::Symlink { target: rt }) => {
+                if lt == rt {
+                    Badge::Equal
+                } else {
+                    Badge::Modified
+                }
+            }
+            // 片方だけsymlink → 型が異なるので Modified
+            _ => Badge::Modified,
         }
     }
 
