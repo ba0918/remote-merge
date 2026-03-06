@@ -7,11 +7,46 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::app::{AppState, DiffMode, Focus};
 use crate::diff::engine::{DiffHunk, DiffLine, DiffResult, DiffTag};
 use crate::highlight::StyledSegment;
 use crate::theme::palette::ensure_contrast;
 use crate::theme::TuiPalette;
+
+/// 表示幅ベースでトランケーション or パディングする
+fn truncate_or_pad(value: &str, width: usize) -> String {
+    let display_width = UnicodeWidthStr::width(value);
+    if display_width > width {
+        // 表示幅で切る（文字境界を壊さない）
+        let target = width.saturating_sub(1); // 「…」分
+        let mut current_width = 0;
+        let mut end = 0;
+        for (i, ch) in value.char_indices() {
+            let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            if current_width + ch_width > target {
+                break;
+            }
+            current_width += ch_width;
+            end = i + ch.len_utf8();
+        }
+        let mut result = value[..end].to_string();
+        result.push('…');
+        // 残り幅をスペースで埋める（「…」は幅1）
+        let used = current_width + 1;
+        if used < width {
+            result.extend(std::iter::repeat_n(' ', width - used));
+        }
+        result
+    } else {
+        // パディング
+        let pad = width.saturating_sub(display_width);
+        let mut result = value.to_string();
+        result.extend(std::iter::repeat_n(' ', pad));
+        result
+    }
+}
 
 /// diff ビューウィジェット
 pub struct DiffView<'a> {
@@ -313,11 +348,7 @@ impl<'a> DiffView<'a> {
                     });
                     let prefix = Self::tag_char(line.tag);
                     let value = &line.value;
-                    let truncated = if value.len() > content_width {
-                        format!("{}…", &value[..content_width.saturating_sub(1)])
-                    } else {
-                        format!("{:<width$}", value, width = content_width)
-                    };
+                    let truncated = truncate_or_pad(value, content_width);
 
                     let base_bg = Self::base_bg(p, line.tag);
                     let bg = hunk_bg.or(base_bg).or(cursor_bg);
@@ -447,6 +478,7 @@ impl<'a> DiffView<'a> {
         let p = &self.state.palette;
         let visible_height = inner.height as usize;
         let mut display_lines: Vec<Line> = Vec::new();
+        let mut line_bgs: Vec<Option<Color>> = Vec::new();
 
         // バナー行
         display_lines.push(Line::from(vec![
@@ -458,6 +490,7 @@ impl<'a> DiffView<'a> {
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
+        line_bgs.push(None);
 
         if let Some(path) = &self.state.selected_path {
             if let Some(content) = self.state.local_cache.get(path) {
@@ -484,6 +517,7 @@ impl<'a> DiffView<'a> {
                     } else {
                         None
                     };
+                    line_bgs.push(bg);
                     let num_style = match bg {
                         Some(bg) => Style::default().fg(p.gutter_fg).bg(bg),
                         None => Style::default().fg(p.gutter_fg),
@@ -523,11 +557,15 @@ impl<'a> DiffView<'a> {
                     ),
                     Style::default().fg(p.gutter_fg),
                 )]));
+                line_bgs.push(None);
             }
         }
 
         let paragraph = Paragraph::new(display_lines);
         paragraph.render(inner, buf);
+
+        // テキスト末尾から行末まで背景色を塗りつぶす
+        Self::fill_line_backgrounds(inner, buf, &line_bgs);
     }
 
     fn render_modified(
@@ -552,6 +590,9 @@ impl<'a> DiffView<'a> {
             DiffMode::SideBySide => "side-by-side",
         };
 
+        // 各行の背景色を収集（Paragraph 描画後にバッファの行末まで塗るため）
+        let mut line_bgs: Vec<Option<Color>> = Vec::new();
+
         let mut display_lines: Vec<Line> = match self.state.diff_mode {
             DiffMode::Unified => lines
                 .iter()
@@ -563,6 +604,15 @@ impl<'a> DiffView<'a> {
                         .map(|h| Self::is_line_in_hunk(line, h))
                         .unwrap_or(false);
                     let is_cursor = line_idx == cursor;
+                    let bg = Self::resolve_bg(
+                        p,
+                        line.tag,
+                        in_current_hunk,
+                        is_focused,
+                        is_pending,
+                        is_cursor,
+                    );
+                    line_bgs.push(bg);
                     Self::render_diff_line_highlighted(
                         self.state,
                         line,
@@ -592,6 +642,22 @@ impl<'a> DiffView<'a> {
                             })
                             .unwrap_or(false);
                         let is_cursor = pair_idx == cursor;
+                        // Side-by-Side: hunk/cursor bg のみ行末塗りつぶし対象
+                        let hunk_bg = if in_current_hunk && is_focused {
+                            if is_pending {
+                                Some(p.hunk_pending_bg)
+                            } else {
+                                Some(p.hunk_select_bg)
+                            }
+                        } else {
+                            None
+                        };
+                        let cursor_bg = if is_cursor && is_focused && hunk_bg.is_none() {
+                            Some(p.cursor_line_bg)
+                        } else {
+                            None
+                        };
+                        line_bgs.push(hunk_bg.or(cursor_bg));
                         Self::render_side_by_side_line(
                             self.state,
                             *left,
@@ -635,6 +701,25 @@ impl<'a> DiffView<'a> {
 
         let paragraph = Paragraph::new(display_lines);
         paragraph.render(inner, buf);
+
+        // テキスト末尾から行末まで背景色を塗りつぶす
+        Self::fill_line_backgrounds(inner, buf, &line_bgs);
+    }
+
+    /// 各行のテキスト末尾から行末まで背景色を塗りつぶす
+    fn fill_line_backgrounds(area: Rect, buf: &mut Buffer, line_bgs: &[Option<Color>]) {
+        for (row_idx, bg) in line_bgs.iter().enumerate() {
+            let Some(bg) = bg else { continue };
+            let y = area.y + row_idx as u16;
+            if y >= area.y + area.height {
+                break;
+            }
+            for x in area.x..area.x + area.width {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_bg(*bg);
+                }
+            }
+        }
     }
 }
 
@@ -910,5 +995,39 @@ mod tests {
             DiffView::render_diff_line_highlighted(&state, &line, false, false, false, false);
         // ハイライト無効時は 7 + 1 = 8 Span
         assert_eq!(rendered.spans.len(), 8);
+    }
+
+    #[test]
+    fn test_truncate_or_pad_ascii() {
+        // パディング
+        let result = truncate_or_pad("hello", 10);
+        assert_eq!(result, "hello     ");
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
+
+        // ちょうど
+        let result = truncate_or_pad("hello", 5);
+        assert_eq!(result, "hello");
+
+        // トランケーション
+        let result = truncate_or_pad("hello world", 8);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 8);
+        assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn test_truncate_or_pad_multibyte() {
+        // 全角文字（各2幅）のパディング
+        let result = truncate_or_pad("あいう", 10);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
+        assert!(result.starts_with("あいう"));
+
+        // 全角文字のトランケーション（幅6 → 幅5に収める）
+        let result = truncate_or_pad("あいう", 5);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 5);
+        assert!(result.contains('…'));
+
+        // 混在
+        let result = truncate_or_pad("abあい", 10);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
     }
 }
