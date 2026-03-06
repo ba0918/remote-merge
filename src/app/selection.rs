@@ -115,6 +115,12 @@ impl AppState {
         };
         self.reset_diff_view_state();
 
+        // flat_nodes のバッジを更新（Unchecked → Equal/Modified 等）
+        let new_badge = self.compute_badge(&path, false);
+        if let Some(node) = self.flat_nodes.get_mut(self.tree_cursor) {
+            node.badge = new_badge;
+        }
+
         // シンタックスハイライトキャッシュを構築
         if self.syntax_highlight_enabled {
             self.build_highlight_cache(&path);
@@ -595,5 +601,35 @@ mod tests {
         state.tree_cursor = 0;
         state.select_file();
         assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_select_file_updates_badge_equal() {
+        let mut state = make_state_with_file("a.rs");
+        assert_eq!(state.flat_nodes[0].badge, Badge::Unchecked);
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "hello".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "hello".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert_eq!(state.flat_nodes[0].badge, Badge::Equal);
+    }
+
+    #[test]
+    fn test_select_file_updates_badge_modified() {
+        let mut state = make_state_with_file("a.rs");
+        assert_eq!(state.flat_nodes[0].badge, Badge::Unchecked);
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "new".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert_eq!(state.flat_nodes[0].badge, Badge::Modified);
     }
 }

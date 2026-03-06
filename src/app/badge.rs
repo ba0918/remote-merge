@@ -66,7 +66,22 @@ impl AppState {
             }
             (true, false) if remote_absent => Badge::LocalOnly,
             (false, true) if local_absent => Badge::RemoteOnly,
-            _ => Badge::Unchecked,
+            _ => {
+                // ツリー上で片方が Unloaded でも、キャッシュに両方あればコンテンツで判定。
+                // 検索時にリモートツリーが未展開でも、コンテンツ読み込み済みなら正しいバッジを返す。
+                match (self.local_cache.get(path), self.remote_cache.get(path)) {
+                    (Some(l), Some(r)) => {
+                        if l == r {
+                            Badge::Equal
+                        } else {
+                            Badge::Modified
+                        }
+                    }
+                    (Some(_), None) if remote_absent => Badge::LocalOnly,
+                    (None, Some(_)) if local_absent => Badge::RemoteOnly,
+                    _ => Badge::Unchecked,
+                }
+            }
         }
     }
 

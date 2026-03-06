@@ -1536,6 +1536,65 @@ mod tests {
         assert_eq!(badge, Badge::Modified);
     }
 
+    // ── badge: リモートツリー未ロードでもキャッシュで判定 ──
+
+    #[test]
+    fn test_badge_equal_when_remote_tree_unloaded_but_cache_exists() {
+        // 検索時にリモートツリーが未展開でも、キャッシュにコンテンツがあればバッジを確定
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("scan.rs")],
+        )];
+        // リモートはルート直下に src ディレクトリがあるが children=None（未ロード）
+        let remote_nodes = vec![FileNode::new_dir("src")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        // キャッシュには同一コンテンツが入っている
+        state
+            .local_cache
+            .insert("src/scan.rs".to_string(), "content".to_string());
+        state
+            .remote_cache
+            .insert("src/scan.rs".to_string(), "content".to_string());
+
+        // リモートツリーの src/scan.rs は Unloaded（srcのchildren=None）
+        // だがキャッシュから Equal と判定されるべき
+        let badge = state.compute_badge("src/scan.rs", false);
+        assert_eq!(badge, Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_modified_when_remote_tree_unloaded_but_cache_differs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("scan.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir("src")];
+
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        state
+            .local_cache
+            .insert("src/scan.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/scan.rs".to_string(), "new".to_string());
+
+        let badge = state.compute_badge("src/scan.rs", false);
+        assert_eq!(badge, Badge::Modified);
+    }
+
     // ── selection: Local Only 誤判定テスト ──
 
     #[test]
