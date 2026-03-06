@@ -94,6 +94,8 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
         }
         KeyCode::Char('c') => execute_reconnect(state, runtime),
         KeyCode::Char('d') => state.toggle_diff_mode(),
+        KeyCode::Char('T') => state.cycle_theme(),
+        KeyCode::Char('S') => state.toggle_syntax_highlight(),
         KeyCode::Char('?') => state.show_help(),
         _ => {}
     }

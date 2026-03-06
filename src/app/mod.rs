@@ -14,6 +14,8 @@ pub mod types;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::diff::engine::{DiffResult, HunkDirection};
+use crate::highlight::{HighlightCache, SyntaxHighlighter};
+use crate::theme::TuiPalette;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::DialogState;
 
@@ -92,6 +94,18 @@ pub struct AppState {
     pub sensitive_patterns: Vec<String>,
     /// マージ走査の状態
     pub merge_scan_state: MergeScanState,
+    /// TUI カラーパレット（テーマから導出）
+    pub palette: TuiPalette,
+    /// シンタックスハイライトキャッシュ（ローカル側）
+    pub highlight_cache_local: HighlightCache,
+    /// シンタックスハイライトキャッシュ（リモート側）
+    pub highlight_cache_remote: HighlightCache,
+    /// 現在のテーマ名
+    pub theme_name: String,
+    /// シンタックスハイライト有効か
+    pub syntax_highlight_enabled: bool,
+    /// シンタックスハイライトエンジン
+    pub highlighter: SyntaxHighlighter,
 }
 
 impl AppState {
@@ -132,6 +146,12 @@ impl AppState {
             scan_remote_tree: None,
             sensitive_patterns: Vec::new(),
             merge_scan_state: MergeScanState::default(),
+            palette: TuiPalette::from_theme(&crate::theme::load_theme(crate::theme::DEFAULT_THEME)),
+            highlight_cache_local: HighlightCache::new(),
+            highlight_cache_remote: HighlightCache::new(),
+            theme_name: crate::theme::DEFAULT_THEME.to_string(),
+            syntax_highlight_enabled: true,
+            highlighter: SyntaxHighlighter::new(crate::theme::DEFAULT_THEME),
         };
         state.rebuild_flat_nodes();
         state

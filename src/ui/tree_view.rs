@@ -37,16 +37,18 @@ impl<'a> Widget for TreeView<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let is_focused = self.state.focus == Focus::FileTree;
 
+        let p = &self.state.palette;
         let border_style = if is_focused {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(p.border_focused)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(p.border_unfocused)
         };
 
         let block = Block::default()
             .title(" Files ")
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_style(border_style)
+            .style(Style::default().bg(p.bg));
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -92,17 +94,16 @@ impl<'a> Widget for TreeView<'a> {
                 let badge_text = node.badge.label();
                 let badge_style = Self::badge_style(node.badge);
 
+                let p = &self.state.palette;
                 let is_selected = i == cursor;
                 let name_style = if is_selected {
                     Style::default()
-                        .fg(Color::White)
+                        .fg(p.fg)
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                 } else if node.is_dir {
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD)
+                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(p.fg)
                 };
 
                 Line::from(vec![

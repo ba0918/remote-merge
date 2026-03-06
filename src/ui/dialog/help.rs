@@ -87,6 +87,8 @@ impl HelpOverlay {
                     title: "Global".to_string(),
                     bindings: vec![
                         ("Tab".to_string(), "フォーカス切替".to_string()),
+                        ("T".to_string(), "テーマ切り替え".to_string()),
+                        ("S".to_string(), "シンタックスハイライト ON/OFF".to_string()),
                         ("?".to_string(), "ヘルプ表示/閉じる".to_string()),
                         ("q".to_string(), "終了".to_string()),
                     ],
@@ -99,11 +101,12 @@ impl HelpOverlay {
 /// ヘルプオーバーレイウィジェット
 pub struct HelpOverlayWidget<'a> {
     help: &'a HelpOverlay,
+    bg: Color,
 }
 
 impl<'a> HelpOverlayWidget<'a> {
-    pub fn new(help: &'a HelpOverlay) -> Self {
-        Self { help }
+    pub fn new(help: &'a HelpOverlay, bg: Color) -> Self {
+        Self { help, bg }
     }
 }
 
@@ -118,8 +121,15 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
 
         let width = area.width.min(60);
         let height = ((total_lines as u16) + 4).min(area.height);
-        let inner =
-            render_dialog_frame(" Help (? to close) ", Color::Cyan, width, height, area, buf);
+        let inner = render_dialog_frame(
+            " Help (? to close) ",
+            Color::Cyan,
+            width,
+            height,
+            area,
+            buf,
+            self.bg,
+        );
 
         let mut lines: Vec<Line> = Vec::new();
 

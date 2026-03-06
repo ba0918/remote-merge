@@ -49,11 +49,12 @@ impl HunkMergePreview {
 /// ハンクマージプレビューウィジェット
 pub struct HunkMergePreviewWidget<'a> {
     preview: &'a HunkMergePreview,
+    bg: Color,
 }
 
 impl<'a> HunkMergePreviewWidget<'a> {
-    pub fn new(preview: &'a HunkMergePreview) -> Self {
-        Self { preview }
+    pub fn new(preview: &'a HunkMergePreview, bg: Color) -> Self {
+        Self { preview, bg }
     }
 
     /// before/after テキストから差分がある行のみを抽出して表示用行を生成
@@ -75,7 +76,7 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
         let width = area.width.min(76);
         let height = area.height.min(24);
         let title = format!(" Hunk Merge Preview ({}) ", self.preview.direction_label);
-        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf);
+        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf, self.bg);
 
         let half_height = inner.height.saturating_sub(4) / 2;
         let constraints = vec![

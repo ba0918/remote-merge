@@ -4,6 +4,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::{AppState, ScanState};
+use crate::theme::palette::ensure_contrast;
 use crate::ui::dialog::{
     centered_rect, BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
     HelpOverlayWidget, HunkMergePreviewWidget, ProgressDialog, ServerMenuWidget,
@@ -15,6 +16,10 @@ use crate::ui::tree_view::TreeView;
 /// UI を描画する
 pub fn draw_ui(frame: &mut Frame, state: &mut AppState) {
     let layout = AppLayout::new(frame.area());
+
+    // フレーム全体にテーマ背景色を塗る（ライトテーマ対応）
+    let bg_block = Block::default().style(Style::default().bg(state.palette.bg));
+    frame.render_widget(bg_block, frame.area());
 
     // ビューポートサイズを記録（スクロール計算用）
     state.tree_visible_height = layout.tree_pane.height.saturating_sub(2) as usize;
@@ -28,6 +33,7 @@ pub fn draw_ui(frame: &mut Frame, state: &mut AppState) {
 
 /// ヘッダを描画する
 fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
+    let p = &state.palette;
     let conn_indicator = if state.is_connected { "●" } else { "○" };
     let conn_color = if state.is_connected {
         Color::Green
@@ -35,17 +41,19 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
         Color::Red
     };
 
+    let local_color = ensure_contrast(Color::Green, p.header_bg);
+    let server_color = ensure_contrast(p.badge_modified, p.header_bg);
+    let conn_color = ensure_contrast(conn_color, p.header_bg);
+
     let mut spans = vec![
         Span::styled(
             " remote-merge ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
         ),
         Span::raw("| "),
-        Span::styled("local", Style::default().fg(Color::Green)),
+        Span::styled("local", Style::default().fg(local_color)),
         Span::raw(" <-> "),
-        Span::styled(&state.server_name, Style::default().fg(Color::Yellow)),
+        Span::styled(&state.server_name, Style::default().fg(server_color)),
         Span::raw(" "),
         Span::styled(conn_indicator, Style::default().fg(conn_color)),
     ];
@@ -56,7 +64,7 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
             " DIFF ONLY ",
             Style::default()
                 .fg(Color::Black)
-                .bg(Color::Yellow)
+                .bg(p.badge_modified)
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -67,12 +75,13 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
             " SCANNING... ",
             Style::default()
                 .fg(Color::Black)
-                .bg(Color::Cyan)
+                .bg(p.accent)
                 .add_modifier(Modifier::BOLD),
         ));
     }
 
-    let header = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::DarkGray));
+    let header = Paragraph::new(Line::from(spans))
+        .style(Style::default().fg(p.status_bar_fg).bg(p.header_bg));
     frame.render_widget(header, area);
 }
 
@@ -87,19 +96,20 @@ fn draw_panes(frame: &mut Frame, state: &AppState, layout: &AppLayout) {
 
 /// ステータスバーを描画する
 fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
+    let p = &state.palette;
     let key_hints = state.build_key_hints();
     let status = Paragraph::new(Line::from(vec![
         Span::styled(
             format!(" {} ", key_hints),
-            Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+            Style::default().fg(p.accent).bg(p.status_bar_bg),
         ),
-        Span::styled("  ", Style::default().bg(Color::DarkGray)),
+        Span::styled("  ", Style::default().bg(p.status_bar_bg)),
         Span::styled(
             &state.status_message,
-            Style::default().fg(Color::White).bg(Color::DarkGray),
+            Style::default().fg(p.status_bar_fg).bg(p.status_bar_bg),
         ),
     ]))
-    .style(Style::default().bg(Color::DarkGray));
+    .style(Style::default().bg(p.status_bar_bg));
     frame.render_widget(status, area);
 }
 
@@ -107,34 +117,34 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
 fn draw_dialog(frame: &mut Frame, state: &AppState) {
     match &state.dialog {
         DialogState::Confirm(confirm) => {
-            let widget = ConfirmDialogWidget::new(confirm);
+            let widget = ConfirmDialogWidget::new(confirm, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::BatchConfirm(batch) => {
-            let widget = BatchConfirmDialogWidget::new(batch);
+            let widget = BatchConfirmDialogWidget::new(batch, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::ServerSelect(menu) => {
-            let widget = ServerMenuWidget::new(menu);
+            let widget = ServerMenuWidget::new(menu, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Filter(panel) => {
-            let widget = FilterPanelWidget::new(panel);
+            let widget = FilterPanelWidget::new(panel, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Help(help) => {
-            let widget = HelpOverlayWidget::new(help);
+            let widget = HelpOverlayWidget::new(help, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::HunkMergePreview(preview) => {
-            let widget = HunkMergePreviewWidget::new(preview);
+            let widget = HunkMergePreviewWidget::new(preview, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Info(ref msg) => {
-            render_info_dialog(frame, msg);
+            render_info_dialog(frame, msg, state.palette.bg);
         }
         DialogState::Progress(ref progress) => {
-            render_progress_dialog(frame, progress);
+            render_progress_dialog(frame, progress, state.palette.bg);
         }
         DialogState::WriteConfirmation => {
             render_simple_dialog(
@@ -142,6 +152,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
                 " Write Changes ",
                 &format!("Write {} changes to files?", state.undo_stack.len()),
                 Color::Green,
+                state.palette.bg,
             );
         }
         DialogState::UnsavedChanges => {
@@ -150,6 +161,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
                 " Unsaved Changes ",
                 "You have unsaved changes. Discard and quit?",
                 Color::Yellow,
+                state.palette.bg,
             );
         }
         DialogState::None => {}
@@ -157,7 +169,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
 }
 
 /// 情報表示ダイアログ（Esc/Enter で閉じるだけ）
-fn render_info_dialog(frame: &mut Frame, message: &str) {
+fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
     let dialog_area = centered_rect(60, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -168,7 +180,8 @@ fn render_info_dialog(frame: &mut Frame, message: &str) {
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .style(Style::default().bg(bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
@@ -203,7 +216,7 @@ fn render_info_dialog(frame: &mut Frame, message: &str) {
 }
 
 /// プログレスダイアログを描画する
-fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog) {
+fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Color) {
     let dialog_area = centered_rect(50, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -214,7 +227,8 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog) {
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .style(Style::default().bg(bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
@@ -282,14 +296,15 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog) {
 }
 
 /// シンプルな Y/n 確認ダイアログを描画する
-fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color) {
+fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color, bg: Color) {
     let dialog_area = centered_rect(60, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
 
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD));
+        .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD))
+        .style(Style::default().bg(bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);

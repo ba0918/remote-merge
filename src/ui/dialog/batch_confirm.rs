@@ -97,11 +97,12 @@ impl BatchConfirmDialog {
 /// バッチマージ確認ダイアログウィジェット
 pub struct BatchConfirmDialogWidget<'a> {
     dialog: &'a BatchConfirmDialog,
+    bg: Color,
 }
 
 impl<'a> BatchConfirmDialogWidget<'a> {
-    pub fn new(dialog: &'a BatchConfirmDialog) -> Self {
-        Self { dialog }
+    pub fn new(dialog: &'a BatchConfirmDialog, bg: Color) -> Self {
+        Self { dialog, bg }
     }
 }
 
@@ -121,7 +122,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         let height = (visible_files as u16) + (warning_lines as u16) + 6;
         let width = area.width.min(70);
         let title = format!(" Batch Merge ({} files) ", file_count);
-        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf);
+        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf, self.bg);
 
         let mut constraints: Vec<Constraint> = Vec::new();
         constraints.push(Constraint::Length(1)); // メッセージ行
@@ -335,7 +336,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 30);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = BatchConfirmDialogWidget::new(&batch);
+        let widget = BatchConfirmDialogWidget::new(&batch, Color::Rgb(0x2b, 0x30, 0x3b));
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

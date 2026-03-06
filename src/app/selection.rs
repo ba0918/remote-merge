@@ -71,6 +71,29 @@ impl AppState {
         self.diff_cursor = 0;
         self.hunk_cursor = 0;
         self.pending_hunk_merge = None;
+
+        // シンタックスハイライトキャッシュを構築
+        if self.syntax_highlight_enabled {
+            self.build_highlight_cache(&path);
+        }
+    }
+
+    /// 指定パスのシンタックスハイライトキャッシュを構築する
+    fn build_highlight_cache(&mut self, path: &str) {
+        if let Some(content) = self.local_cache.get(path) {
+            if self.highlight_cache_local.get(path).is_none() {
+                let highlighted = self.highlighter.highlight_file(path, content);
+                self.highlight_cache_local
+                    .insert(path.to_string(), highlighted);
+            }
+        }
+        if let Some(content) = self.remote_cache.get(path) {
+            if self.highlight_cache_remote.get(path).is_none() {
+                let highlighted = self.highlighter.highlight_file(path, content);
+                self.highlight_cache_remote
+                    .insert(path.to_string(), highlighted);
+            }
+        }
     }
 
     /// ローカルツリーの遅延読み込み（ディレクトリ展開時）
@@ -121,8 +144,43 @@ impl AppState {
         self.local_cache.clear();
         self.remote_cache.clear();
         self.error_paths.clear();
+        self.highlight_cache_local.clear();
+        self.highlight_cache_remote.clear();
         self.current_diff = None;
         self.selected_path = None;
         self.status_message = "Cache cleared".to_string();
+    }
+
+    /// テーマを次のビルトインテーマに切り替える (T キー)
+    pub fn cycle_theme(&mut self) {
+        let next = crate::theme::next_theme_name(&self.theme_name);
+        let theme = crate::theme::load_theme(&next);
+        self.palette = crate::theme::TuiPalette::from_theme(&theme);
+        self.highlighter.set_theme(&next);
+        self.theme_name = next.clone();
+        // ハイライトキャッシュをクリア（テーマが変わると色が変わる）
+        self.highlight_cache_local.clear();
+        self.highlight_cache_remote.clear();
+        // 現在のファイルのキャッシュを再構築
+        if self.syntax_highlight_enabled {
+            if let Some(path) = self.selected_path.clone() {
+                self.build_highlight_cache(&path);
+            }
+        }
+        self.status_message = format!("Theme: {}", next);
+    }
+
+    /// シンタックスハイライトの ON/OFF を切り替える (S キー)
+    pub fn toggle_syntax_highlight(&mut self) {
+        self.syntax_highlight_enabled = !self.syntax_highlight_enabled;
+        if self.syntax_highlight_enabled {
+            self.status_message = "Syntax highlight: ON".to_string();
+            // 現在のファイルのキャッシュを構築
+            if let Some(path) = self.selected_path.clone() {
+                self.build_highlight_cache(&path);
+            }
+        } else {
+            self.status_message = "Syntax highlight: OFF".to_string();
+        }
     }
 }

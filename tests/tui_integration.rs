@@ -1306,8 +1306,23 @@ fn test_key_hints_diff_view_equal() {
 
 #[test]
 fn test_cursor_line_has_background() {
+    use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::tree::FileTree;
     use remote_merge::ui::diff_view::DiffView;
+    use std::path::PathBuf;
+
+    let state = AppState::new(
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        "develop".to_string(),
+    );
 
     let line = DiffLine {
         tag: DiffTag::Equal,
@@ -1315,20 +1330,35 @@ fn test_cursor_line_has_background() {
         old_index: Some(0),
         new_index: Some(0),
     };
-    // カーソルラインかつフォーカス中 → 背景色が付く
-    let rendered = DiffView::render_diff_line_with_highlight(&line, false, true, false, true);
+    // カーソルラインかつフォーカス中 → パレットの cursor_line_bg が付く
+    let rendered = DiffView::render_diff_line_highlighted(&state, &line, false, true, false, true);
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,
-        Some(ratatui::style::Color::Rgb(30, 30, 50)),
-        "カーソルラインに背景色が設定されるべき"
+        Some(state.palette.cursor_line_bg),
+        "カーソルラインにパレットの背景色が設定されるべき"
     );
 }
 
 #[test]
 fn test_cursor_line_priority_below_diff() {
+    use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::tree::FileTree;
     use remote_merge::ui::diff_view::DiffView;
+    use std::path::PathBuf;
+
+    let state = AppState::new(
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        "develop".to_string(),
+    );
 
     let line = DiffLine {
         tag: DiffTag::Insert,
@@ -1336,20 +1366,35 @@ fn test_cursor_line_priority_below_diff() {
         old_index: None,
         new_index: Some(0),
     };
-    // Insert行 + カーソルライン → diff色 (緑) が優先
-    let rendered = DiffView::render_diff_line_with_highlight(&line, false, true, false, true);
+    // Insert行 + カーソルライン → diff色が優先
+    let rendered = DiffView::render_diff_line_highlighted(&state, &line, false, true, false, true);
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,
-        Some(ratatui::style::Color::Rgb(0, 30, 0)),
+        Some(state.palette.diff_insert_bg),
         "diff色がカーソルラインより優先されるべき"
     );
 }
 
 #[test]
 fn test_cursor_line_priority_below_hunk() {
+    use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
+    use remote_merge::tree::FileTree;
     use remote_merge::ui::diff_view::DiffView;
+    use std::path::PathBuf;
+
+    let state = AppState::new(
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![],
+        },
+        "develop".to_string(),
+    );
 
     let line = DiffLine {
         tag: DiffTag::Equal,
@@ -1358,11 +1403,11 @@ fn test_cursor_line_priority_below_hunk() {
         new_index: Some(0),
     };
     // ハンクハイライト + カーソルライン → ハンクが最優先
-    let rendered = DiffView::render_diff_line_with_highlight(&line, true, true, false, true);
+    let rendered = DiffView::render_diff_line_highlighted(&state, &line, true, true, false, true);
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,
-        Some(ratatui::style::Color::Rgb(40, 40, 60)),
+        Some(state.palette.hunk_select_bg),
         "ハンクハイライトがカーソルラインより優先されるべき"
     );
 }

@@ -60,17 +60,26 @@ impl ConfirmDialog {
 /// 確認ダイアログウィジェット
 pub struct ConfirmDialogWidget<'a> {
     dialog: &'a ConfirmDialog,
+    bg: Color,
 }
 
 impl<'a> ConfirmDialogWidget<'a> {
-    pub fn new(dialog: &'a ConfirmDialog) -> Self {
-        Self { dialog }
+    pub fn new(dialog: &'a ConfirmDialog, bg: Color) -> Self {
+        Self { dialog, bg }
     }
 }
 
 impl<'a> Widget for ConfirmDialogWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let inner = render_dialog_frame(" Merge Confirmation ", Color::Yellow, 60, 7, area, buf);
+        let inner = render_dialog_frame(
+            " Merge Confirmation ",
+            Color::Yellow,
+            60,
+            7,
+            area,
+            buf,
+            self.bg,
+        );
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -169,7 +178,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 20);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = ConfirmDialogWidget::new(&dialog);
+        let widget = ConfirmDialogWidget::new(&dialog, Color::Rgb(0x2b, 0x30, 0x3b));
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

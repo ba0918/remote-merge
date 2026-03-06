@@ -52,18 +52,27 @@ impl ServerMenu {
 /// サーバ選択メニューウィジェット
 pub struct ServerMenuWidget<'a> {
     menu: &'a ServerMenu,
+    bg: Color,
 }
 
 impl<'a> ServerMenuWidget<'a> {
-    pub fn new(menu: &'a ServerMenu) -> Self {
-        Self { menu }
+    pub fn new(menu: &'a ServerMenu, bg: Color) -> Self {
+        Self { menu, bg }
     }
 }
 
 impl<'a> Widget for ServerMenuWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let height = (self.menu.servers.len() as u16) + 4;
-        let inner = render_dialog_frame(" Server Select ", Color::Cyan, 40, height, area, buf);
+        let inner = render_dialog_frame(
+            " Server Select ",
+            Color::Cyan,
+            40,
+            height,
+            area,
+            buf,
+            self.bg,
+        );
 
         let lines: Vec<Line> = self
             .menu
@@ -154,7 +163,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = ServerMenuWidget::new(&menu);
+        let widget = ServerMenuWidget::new(&menu, Color::Rgb(0x2b, 0x30, 0x3b));
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

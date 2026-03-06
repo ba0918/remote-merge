@@ -68,6 +68,7 @@ pub fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 /// ダイアログ共通フレームを描画し、内部領域を返す。
+/// `bg` でダイアログ内部の背景色を指定する（ライトテーマ対応）。
 pub fn render_dialog_frame(
     title: &str,
     border_color: Color,
@@ -75,6 +76,7 @@ pub fn render_dialog_frame(
     height: u16,
     area: Rect,
     buf: &mut Buffer,
+    bg: Color,
 ) -> Rect {
     let dialog_area = centered_rect(width, height, area);
     Clear.render(dialog_area, buf);
@@ -85,7 +87,8 @@ pub fn render_dialog_frame(
             Style::default()
                 .fg(border_color)
                 .add_modifier(Modifier::BOLD),
-        );
+        )
+        .style(Style::default().bg(bg));
     let inner = block.inner(dialog_area);
     block.render(dialog_area, buf);
     inner

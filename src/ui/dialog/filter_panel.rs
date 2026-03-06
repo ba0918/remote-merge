@@ -59,18 +59,20 @@ impl FilterPanel {
 /// フィルターパネルウィジェット
 pub struct FilterPanelWidget<'a> {
     panel: &'a FilterPanel,
+    bg: Color,
 }
 
 impl<'a> FilterPanelWidget<'a> {
-    pub fn new(panel: &'a FilterPanel) -> Self {
-        Self { panel }
+    pub fn new(panel: &'a FilterPanel, bg: Color) -> Self {
+        Self { panel, bg }
     }
 }
 
 impl<'a> Widget for FilterPanelWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let height = (self.panel.patterns.len() as u16) + 6;
-        let inner = render_dialog_frame(" Filters ", Color::Magenta, 50, height, area, buf);
+        let inner =
+            render_dialog_frame(" Filters ", Color::Magenta, 50, height, area, buf, self.bg);
 
         let constraints: Vec<Constraint> = (0..self.panel.patterns.len())
             .map(|_| Constraint::Length(1))
@@ -189,7 +191,7 @@ mod tests {
 
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = FilterPanelWidget::new(&panel);
+        let widget = FilterPanelWidget::new(&panel, Color::Rgb(0x2b, 0x30, 0x3b));
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

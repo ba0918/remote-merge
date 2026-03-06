@@ -93,6 +93,8 @@ pub fn handle_tree_key(
         KeyCode::Char('F') => scanner::handle_diff_filter_toggle(state, runtime),
         KeyCode::Char('L') => handle_tree_merge(state, runtime, MergeDirection::RemoteToLocal),
         KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LocalToRemote),
+        KeyCode::Char('T') => state.cycle_theme(),
+        KeyCode::Char('S') => state.toggle_syntax_highlight(),
         _ => {}
     }
 }
