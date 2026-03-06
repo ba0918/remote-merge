@@ -51,6 +51,7 @@ pub fn start_merge_scan(
         title: format!("Scanning {}", dir_path),
         current: 0,
         total: None,
+        current_path: None,
         cancelable: true,
     });
 
@@ -117,15 +118,20 @@ fn run_merge_scan(
         &mut file_paths,
     )?;
 
-    // コンテンツ読み込み
+    // コンテンツ読み込みフェーズ（total 確定）
     let mut local_cache = HashMap::new();
     let mut remote_cache = HashMap::new();
     let mut error_paths = HashSet::new();
     let total = file_paths.len();
 
+    let _ = tx.send(MergeScanMsg::ContentPhase { total });
+
     for (i, path) in file_paths.iter().enumerate() {
         if i % 5 == 0 {
-            let _ = tx.send(MergeScanMsg::Progress(i));
+            let _ = tx.send(MergeScanMsg::Progress {
+                files_found: i,
+                current_path: Some(path.clone()),
+            });
         }
 
         // ローカルコンテンツ
@@ -158,9 +164,7 @@ fn run_merge_scan(
             error_paths.insert(path.clone());
         }
 
-        if total > 0 && i % 5 == 0 {
-            let _ = tx.send(MergeScanMsg::Progress(i + 1));
-        }
+        // NOTE: ループ先頭で既に Progress を送信しているため、ここでは重複送信しない
     }
 
     let _ = rt.block_on(client.disconnect());
@@ -192,7 +196,10 @@ fn expand_subtree_recursive(
         return Err(format!("File limit reached ({})", MAX_FILES));
     }
 
-    let _ = tx.send(MergeScanMsg::Progress(file_paths.len()));
+    let _ = tx.send(MergeScanMsg::Progress {
+        files_found: file_paths.len(),
+        current_path: Some(dir_path.to_string()),
+    });
 
     // ローカルディレクトリの走査
     let local_full = local_root.join(dir_path);
@@ -283,13 +290,20 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
     };
 
     // 全メッセージを drain（最新の Progress だけ残す）
-    let mut last_progress = None;
+    let mut last_progress: Option<(usize, Option<String>)> = None;
+    let mut content_phase_total: Option<usize> = None;
     let mut final_msg = None;
 
     loop {
         match rx.try_recv() {
-            Ok(MergeScanMsg::Progress(n)) => {
-                last_progress = Some(n);
+            Ok(MergeScanMsg::Progress {
+                files_found,
+                current_path,
+            }) => {
+                last_progress = Some((files_found, current_path));
+            }
+            Ok(MergeScanMsg::ContentPhase { total }) => {
+                content_phase_total = Some(total);
             }
             Ok(msg @ MergeScanMsg::Done(_)) | Ok(msg @ MergeScanMsg::Error(_)) => {
                 final_msg = Some(msg);
@@ -305,8 +319,16 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
         }
     }
 
+    // ContentPhase: total が確定したらダイアログに反映
+    if let Some(total) = content_phase_total {
+        if let DialogState::Progress(ref mut progress) = state.dialog {
+            progress.total = Some(total);
+            progress.title = "Loading files...".to_string();
+        }
+    }
+
     // Progress 更新
-    if let Some(n) = last_progress {
+    if let Some((n, path)) = last_progress {
         if let MergeScanState::Scanning {
             ref mut files_found,
             ..
@@ -317,6 +339,7 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
         // ダイアログの進捗を更新
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.current = n;
+            progress.current_path = path;
         }
     }
 
@@ -334,7 +357,7 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
                 state.dialog = DialogState::None;
                 state.status_message = format!("Merge scan error: {}", e);
             }
-            MergeScanMsg::Progress(_) => unreachable!(),
+            MergeScanMsg::Progress { .. } | MergeScanMsg::ContentPhase { .. } => unreachable!(),
         }
         runtime.merge_scan_receiver = None;
     }

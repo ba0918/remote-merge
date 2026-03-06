@@ -103,8 +103,13 @@ pub enum ScanState {
 /// マージ走査の進捗メッセージ（スレッド → メインスレッド）
 #[derive(Debug)]
 pub enum MergeScanMsg {
-    /// 途中経過: 発見ファイル数の更新
-    Progress(usize),
+    /// 途中経過: 発見ファイル数と処理中パスの更新
+    Progress {
+        files_found: usize,
+        current_path: Option<String>,
+    },
+    /// コンテンツ読み込みフェーズに遷移（total 確定）
+    ContentPhase { total: usize },
     /// 走査完了
     Done(Box<MergeScanResult>),
     /// エラー

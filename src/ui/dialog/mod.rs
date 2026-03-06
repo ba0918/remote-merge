@@ -54,12 +54,14 @@ pub enum DialogState {
 /// プログレスダイアログの状態
 #[derive(Debug, Clone)]
 pub struct ProgressDialog {
-    /// タイトル（例: "Scanning...", "Merging..."）
+    /// タイトル（例: "Scanning src/", "Loading files..."）
     pub title: String,
     /// 現在の進捗値
     pub current: usize,
     /// 全体の件数（不明な場合は None）
     pub total: Option<usize>,
+    /// 現在処理中のパス（表示用）
+    pub current_path: Option<String>,
     /// Esc でキャンセル可能か
     pub cancelable: bool,
 }

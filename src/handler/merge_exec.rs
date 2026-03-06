@@ -260,6 +260,7 @@ pub fn execute_batch_merge(
         title: "Merging...".to_string(),
         current: 0,
         total: Some(file_count),
+        current_path: None,
         cancelable: false,
     });
 
@@ -267,6 +268,7 @@ pub fn execute_batch_merge(
         // ダイアログの進捗を更新
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.current = i + 1;
+            progress.current_path = Some(path.clone());
         }
 
         match direction {
@@ -635,6 +637,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         title: "Loading files...".to_string(),
         current: 0,
         total: Some(total),
+        current_path: None,
         cancelable: false,
     });
 
@@ -648,6 +651,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         if i % 10 == 0 {
             if let DialogState::Progress(ref mut progress) = state.dialog {
                 progress.current = i;
+                progress.current_path = Some(path.clone());
             }
         }
         if !state.local_cache.contains_key(path) {

@@ -128,6 +128,7 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
                         title: format!("Scanning {}", path),
                         current: 0,
                         total: None,
+                        current_path: None,
                         cancelable: false,
                     });
                 expand_subtree_for_merge(state, runtime, &path);
