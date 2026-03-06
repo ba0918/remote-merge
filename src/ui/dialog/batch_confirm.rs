@@ -109,15 +109,17 @@ impl<'a> BatchConfirmDialogWidget<'a> {
 impl<'a> Widget for BatchConfirmDialogWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let file_count = self.dialog.files.len();
-        let warning_lines = if self.dialog.unchecked_count > 0 {
-            1
-        } else {
-            0
-        } + if !self.dialog.sensitive_files.is_empty() {
-            1
-        } else {
-            0
-        };
+        let warning_lines = 1 // mtime未チェック警告（常に表示）
+            + if self.dialog.unchecked_count > 0 {
+                1
+            } else {
+                0
+            }
+            + if !self.dialog.sensitive_files.is_empty() {
+                1
+            } else {
+                0
+            };
         let visible_files = file_count.min(15);
         let height = (visible_files as u16) + (warning_lines as u16) + 6;
         let width = area.width.min(70);
@@ -126,6 +128,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
 
         let mut constraints: Vec<Constraint> = Vec::new();
         constraints.push(Constraint::Length(1)); // メッセージ行
+        constraints.push(Constraint::Length(1)); // mtime未チェック警告
         if self.dialog.unchecked_count > 0 {
             constraints.push(Constraint::Length(1));
         }
@@ -155,6 +158,17 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
             Span::styled(self.dialog.message(), Style::default().fg(Color::White)),
         ]));
         msg.render(chunks[row], buf);
+        row += 1;
+
+        // mtime未チェック警告（ディレクトリマージのリスク注意）
+        let caution = Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "⚠ 一括マージは変更検知なし。事前に差分を確認してください",
+                Style::default().fg(Color::Yellow),
+            ),
+        ]));
+        caution.render(chunks[row], buf);
         row += 1;
 
         // 未比較警告
