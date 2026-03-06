@@ -94,8 +94,10 @@ impl AppState {
             self.dialog = DialogState::BatchConfirm(batch);
         } else {
             // 差分がなければ Info ダイアログ
+            // Badge::Equal または current_diff の内容が同一ならブロック
             let badge = self.compute_badge(&node.path, false);
-            if badge == Badge::Equal {
+            let diff_equal = self.current_diff.as_ref().is_some_and(|d| d.is_equal());
+            if badge == Badge::Equal || diff_equal {
                 self.dialog = DialogState::Info(format!("No differences found in {}", node.path));
                 return;
             }
@@ -477,5 +479,41 @@ mod tests {
         state.tree_cursor = 0;
         state.show_merge_dialog(MergeDirection::LocalToRemote);
         assert!(state.status_message.contains("SSH not connected"));
+    }
+
+    #[test]
+    fn test_show_merge_dialog_binary_equal_blocks_merge() {
+        use crate::diff::binary::BinaryInfo;
+        use crate::diff::engine::DiffResult;
+
+        let mut state = make_state();
+        state.flat_nodes = vec![make_flat_file("logo.png", Badge::Unchecked)];
+        state.tree_cursor = 0;
+        // SHA-256が同一のバイナリ
+        let info = BinaryInfo {
+            size: 100,
+            sha256: "abc123".to_string(),
+        };
+        state.current_diff = Some(DiffResult::Binary {
+            left: Some(info.clone()),
+            right: Some(info),
+        });
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::Info(_)));
+    }
+
+    #[test]
+    fn test_show_merge_dialog_symlink_equal_blocks_merge() {
+        use crate::diff::engine::DiffResult;
+
+        let mut state = make_state();
+        state.flat_nodes = vec![make_flat_file("link", Badge::Unchecked)];
+        state.tree_cursor = 0;
+        state.current_diff = Some(DiffResult::SymlinkDiff {
+            left_target: Some("../README.md".to_string()),
+            right_target: Some("../README.md".to_string()),
+        });
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::Info(_)));
     }
 }

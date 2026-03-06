@@ -76,6 +76,25 @@ pub enum DiffResult {
     },
 }
 
+impl DiffResult {
+    /// この差分結果が「同一（差分なし）」かどうかを判定する。
+    /// テキスト Equal、バイナリ SHA-256 一致、シンボリックリンク同一ターゲットを含む。
+    pub fn is_equal(&self) -> bool {
+        match self {
+            DiffResult::Equal => true,
+            DiffResult::Modified { .. } => false,
+            DiffResult::Binary { left, right } => match (left, right) {
+                (Some(l), Some(r)) => l.sha256 == r.sha256,
+                _ => false,
+            },
+            DiffResult::SymlinkDiff {
+                left_target,
+                right_target,
+            } => left_target == right_target && left_target.is_some(),
+        }
+    }
+}
+
 /// 差分の統計情報
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiffStats {
@@ -591,5 +610,84 @@ mod tests {
             }
             other => panic!("Modified を期待したが {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_is_equal_for_equal() {
+        assert!(DiffResult::Equal.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_modified() {
+        let result = compute_diff("a\n", "b\n");
+        assert!(!result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_binary_same_hash() {
+        let info = super::super::binary::BinaryInfo {
+            size: 10,
+            sha256: "abc".to_string(),
+        };
+        let result = DiffResult::Binary {
+            left: Some(info.clone()),
+            right: Some(info),
+        };
+        assert!(result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_binary_different_hash() {
+        let result = DiffResult::Binary {
+            left: Some(super::super::binary::BinaryInfo {
+                size: 10,
+                sha256: "abc".to_string(),
+            }),
+            right: Some(super::super::binary::BinaryInfo {
+                size: 10,
+                sha256: "def".to_string(),
+            }),
+        };
+        assert!(!result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_binary_one_side_missing() {
+        let result = DiffResult::Binary {
+            left: Some(super::super::binary::BinaryInfo {
+                size: 10,
+                sha256: "abc".to_string(),
+            }),
+            right: None,
+        };
+        assert!(!result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_symlink_same_target() {
+        let result = DiffResult::SymlinkDiff {
+            left_target: Some("../README.md".to_string()),
+            right_target: Some("../README.md".to_string()),
+        };
+        assert!(result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_symlink_different_target() {
+        let result = DiffResult::SymlinkDiff {
+            left_target: Some("../README.md".to_string()),
+            right_target: Some("../OTHER.md".to_string()),
+        };
+        assert!(!result.is_equal());
+    }
+
+    #[test]
+    fn test_is_equal_for_symlink_both_none() {
+        let result = DiffResult::SymlinkDiff {
+            left_target: None,
+            right_target: None,
+        };
+        // 両方Noneは「読み込めてない」ので equal とは判定しない
+        assert!(!result.is_equal());
     }
 }
