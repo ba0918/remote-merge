@@ -7,8 +7,8 @@ use crate::runtime::TuiRuntime;
 use crate::ui::dialog::DialogState;
 
 use super::merge_exec::{
-    check_mtime_conflict_single, execute_batch_merge, execute_hunk_merge, execute_merge,
-    execute_write_changes,
+    check_mtime_conflict_single, check_mtime_for_write, execute_batch_merge, execute_hunk_merge,
+    execute_merge, execute_write_changes,
 };
 use super::reconnect::execute_server_switch;
 
@@ -133,6 +133,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                 let direction = preview.direction;
                 state.pending_hunk_merge = None;
                 state.close_dialog();
+                // 楽観的ロック: mtime チェック（書き込み先）
+                if check_mtime_for_write(state, runtime, Some(direction)) {
+                    return; // MtimeWarningDialog が表示される
+                }
                 execute_hunk_merge(state, runtime, direction);
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -145,6 +149,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
         DialogState::WriteConfirmation => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 state.close_dialog();
+                // 楽観的ロック: mtime チェック（両側書き込み）
+                if check_mtime_for_write(state, runtime, None) {
+                    return; // MtimeWarningDialog が表示される
+                }
                 execute_write_changes(state, runtime);
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -225,6 +233,12 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                     crate::ui::dialog::MtimeWarningMergeContext::Batch { .. } => {
                         state.status_message =
                             "Force merge for batch not yet supported".to_string();
+                    }
+                    crate::ui::dialog::MtimeWarningMergeContext::Write => {
+                        execute_write_changes(state, runtime);
+                    }
+                    crate::ui::dialog::MtimeWarningMergeContext::HunkMerge { direction } => {
+                        execute_hunk_merge(state, runtime, direction);
                     }
                 }
             }

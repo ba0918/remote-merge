@@ -35,6 +35,12 @@ pub enum MtimeWarningMergeContext {
     Batch {
         direction: crate::merge::executor::MergeDirection,
     },
+    /// 変更書き込み（w キー）
+    Write,
+    /// ハンクマージ（HunkMergePreview 確認後）
+    HunkMerge {
+        direction: crate::diff::engine::HunkDirection,
+    },
 }
 
 /// mtime 警告ダイアログ Widget

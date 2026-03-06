@@ -81,6 +81,69 @@ fn show_mtime_warning(
     });
 }
 
+/// diff viewer からの書き込み時の mtime チェック（w キー / HunkMergePreview）。
+///
+/// - `hunk_direction` が `Some` なら HunkMerge コンテキスト
+/// - `None` なら Write コンテキスト（w キーで両側書き込み）
+///
+/// 衝突があれば `MtimeWarningDialog` を表示して `true` を返す。
+pub fn check_mtime_for_write(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    hunk_direction: Option<crate::diff::engine::HunkDirection>,
+) -> bool {
+    let path = match &state.selected_path {
+        Some(p) => p.clone(),
+        None => return false,
+    };
+
+    let mut conflicts = Vec::new();
+
+    // ローカル側の mtime チェック
+    let local_expected = state
+        .local_tree
+        .find_node(std::path::Path::new(&path))
+        .and_then(|n| n.mtime);
+    let local_actual = optimistic_lock::stat_local_file(&state.local_tree.root, &path);
+    if let Some(c) = optimistic_lock::check_mtime(&path, local_expected, local_actual) {
+        conflicts.push(c);
+    }
+
+    // リモート側の mtime チェック
+    if state.is_connected {
+        let remote_expected = state
+            .remote_tree
+            .find_node(std::path::Path::new(&path))
+            .and_then(|n| n.mtime);
+        match runtime.stat_remote_files(&state.server_name, std::slice::from_ref(&path)) {
+            Ok(results) => {
+                let remote_actual = results.first().and_then(|(_, dt)| *dt);
+                if let Some(c) = optimistic_lock::check_mtime(&path, remote_expected, remote_actual)
+                {
+                    conflicts.push(c);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("mtime check failed (continuing): {}", e);
+            }
+        }
+    }
+
+    if conflicts.is_empty() {
+        return false;
+    }
+
+    let merge_context = match hunk_direction {
+        Some(dir) => MtimeWarningMergeContext::HunkMerge { direction: dir },
+        None => MtimeWarningMergeContext::Write,
+    };
+    state.dialog = DialogState::MtimeWarning(MtimeWarningDialog {
+        conflicts,
+        merge_context,
+    });
+    true
+}
+
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
     let path = &confirm.file_path;
@@ -651,7 +714,11 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     state.rebuild_flat_nodes();
 }
 
-/// ファイル選択時にコンテンツをロードする
+/// ファイル選択時にコンテンツをロードする。
+///
+/// 未保存の変更がない場合はキャッシュを無効化して毎回再取得する。
+/// これにより、マージ後に第三者がリモートファイルを変更した場合でも
+/// 最新の内容が表示される。
 pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     let node = match state.flat_nodes.get(state.tree_cursor) {
         Some(n) if !n.is_dir => n.clone(),
@@ -659,6 +726,12 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     };
 
     let path = &node.path;
+
+    // 未保存変更がなければキャッシュを無効化して最新を取得
+    if !state.has_unsaved_changes() {
+        state.local_cache.remove(path);
+        state.remote_cache.remove(path);
+    }
 
     // ローカルキャッシュ
     if !state.local_cache.contains_key(path) {
