@@ -160,13 +160,25 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         msg.render(chunks[row], buf);
         row += 1;
 
-        // mtime未チェック警告（ディレクトリマージのリスク注意）
+        // 差分自動チェックの案内
+        let has_unchecked = self
+            .dialog
+            .files
+            .iter()
+            .any(|(_, b)| *b == Badge::Unchecked);
+        let caution_msg = if has_unchecked {
+            "Unchecked files will be auto-verified; identical files skipped"
+        } else {
+            "All files have been diff-checked"
+        };
+        let caution_color = if has_unchecked {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
         let caution = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(
-                "⚠ Batch merge skips change detection. Review diffs first",
-                Style::default().fg(Color::Yellow),
-            ),
+            Span::styled(caution_msg, Style::default().fg(caution_color)),
         ]));
         caution.render(chunks[row], buf);
         row += 1;

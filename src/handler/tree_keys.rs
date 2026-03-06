@@ -159,7 +159,19 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
             }
         }
     } else {
+        // Unchecked ファイルはコンテンツを読み込んで差分を確定させてからダイアログ表示
+        ensure_file_checked(state, runtime);
         state.show_merge_dialog(direction);
+    }
+}
+
+/// ファイルが Unchecked なら、コンテンツをロードしてバッジを確定させる。
+fn ensure_file_checked(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let badge = state.flat_nodes.get(state.tree_cursor).map(|n| n.badge);
+    if badge == Some(crate::app::Badge::Unchecked) {
+        load_file_content(state, runtime);
+        state.select_file();
+        state.rebuild_flat_nodes();
     }
 }
 

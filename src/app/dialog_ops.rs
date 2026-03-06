@@ -69,7 +69,8 @@ impl AppState {
                 &node.path,
             );
 
-            // Badge を計算してフィルタリング
+            // Badge を計算してフィルタリング（Unchecked は除外）
+            let mut unchecked_count = 0usize;
             let diff_files: Vec<(String, Badge)> = all_files
                 .into_iter()
                 .map(|path| {
@@ -77,19 +78,32 @@ impl AppState {
                     (path, badge)
                 })
                 .filter(|(_, badge)| {
+                    if *badge == Badge::Unchecked {
+                        unchecked_count += 1;
+                        return false;
+                    }
                     matches!(
                         badge,
-                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly | Badge::Unchecked
+                        Badge::Modified | Badge::LocalOnly | Badge::RemoteOnly
                     )
                 })
                 .collect();
 
             if diff_files.is_empty() {
-                self.dialog = DialogState::Info(format!("No differences found in {}/", node.path));
+                if unchecked_count > 0 {
+                    self.dialog = DialogState::Info(format!(
+                        "Cannot merge {}/: {} file(s) have unknown diff status. Open files to check diffs first",
+                        node.path, unchecked_count
+                    ));
+                } else {
+                    self.dialog =
+                        DialogState::Info(format!("No differences found in {}/", node.path));
+                }
                 return;
             }
 
-            let mut batch = BatchConfirmDialog::new(diff_files, direction, source, target, 0);
+            let mut batch =
+                BatchConfirmDialog::new(diff_files, direction, source, target, unchecked_count);
             batch.check_sensitive(&self.sensitive_patterns);
             self.dialog = DialogState::BatchConfirm(batch);
         } else {
@@ -309,6 +323,53 @@ mod tests {
     }
 
     #[test]
+    fn test_show_merge_dialog_unchecked_file_with_cache_equal() {
+        // Unchecked でもキャッシュに同一内容があれば Equal として Info ダイアログ
+        let mut state = make_state();
+        let node = FileNode::new_file("a.rs");
+        state.local_tree = make_test_tree(vec![node.clone()]);
+        state.remote_tree = make_test_tree(vec![node]);
+        state.flat_nodes = vec![make_flat_file("a.rs", Badge::Unchecked)];
+        // キャッシュに同一内容をセットすると compute_badge が Equal を返す
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(
+            matches!(state.dialog, DialogState::Info(_)),
+            "Expected Info dialog for equal content, got: {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
+    fn test_show_merge_dialog_unchecked_file_with_cache_diff() {
+        // Unchecked でもキャッシュに異なる内容があれば Confirm ダイアログ
+        let mut state = make_state();
+        let node = FileNode::new_file("a.rs");
+        state.local_tree = make_test_tree(vec![node.clone()]);
+        state.remote_tree = make_test_tree(vec![node]);
+        state.flat_nodes = vec![make_flat_file("a.rs", Badge::Unchecked)];
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "new".to_string());
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(
+            matches!(state.dialog, DialogState::Confirm(_)),
+            "Expected Confirm dialog for different content, got: {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
     fn test_show_merge_dialog_equal_file() {
         let mut state = make_state();
         let node = FileNode::new_file("a.rs");
@@ -467,6 +528,72 @@ mod tests {
         state.disabled_patterns.insert("*.tmp".to_string());
         let active = state.active_exclude_patterns();
         assert_eq!(active, vec!["*.log".to_string(), "dist".to_string()]);
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_all_unchecked_blocks_merge() {
+        // ディレクトリ配下が全て Unchecked の場合はマージ不可
+        let mut state = make_state();
+        state.is_connected = true;
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        state.local_tree = make_test_tree(local_nodes);
+        state.remote_tree = make_test_tree(remote_nodes);
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        match &state.dialog {
+            DialogState::Info(msg) => {
+                assert!(
+                    msg.contains("unknown diff status"),
+                    "Expected unknown diff status message, got: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected Info dialog, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_mixed_unchecked_and_modified() {
+        // Unchecked + Modified の場合、Modified のみがバッチマージに含まれる
+        let mut state = make_state();
+        state.is_connected = true;
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        state.local_tree = make_test_tree(local_nodes);
+        state.remote_tree = make_test_tree(remote_nodes);
+        // a.rs はキャッシュあり（Modified）、b.rs は未キャッシュ（Unchecked）
+        state
+            .local_cache
+            .insert("src/a.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("src/a.rs".to_string(), "new".to_string());
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        match &state.dialog {
+            DialogState::BatchConfirm(batch) => {
+                assert_eq!(batch.files.len(), 1);
+                assert_eq!(batch.files[0].0, "src/a.rs");
+                assert_eq!(batch.files[0].1, Badge::Modified);
+                assert_eq!(batch.unchecked_count, 1); // b.rs が Unchecked
+            }
+            other => panic!("Expected BatchConfirm dialog, got: {:?}", other),
+        }
     }
 
     #[test]

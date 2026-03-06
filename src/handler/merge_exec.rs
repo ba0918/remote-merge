@@ -233,19 +233,36 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
 }
 
 /// バッチマージを実行する（ディレクトリ選択時）
+///
+/// `Badge::Unchecked` のファイルはマージ前にキャッシュの内容を比較し、
+/// 実際に差分があるもののみマージする。同一内容ならスキップする。
 pub fn execute_batch_merge(
     state: &mut AppState,
     runtime: &mut TuiRuntime,
     batch: &BatchConfirmDialog,
 ) {
     let direction = batch.direction;
-    let file_count = batch.files.len();
     let mut success_count = 0usize;
     let mut fail_count = 0usize;
 
+    // Unchecked ファイルの差分チェック: 同一内容のファイルを除外する
+    let (files, skipped_equal) =
+        filter_unchecked_equal(&batch.files, &state.local_cache, &state.remote_cache);
+
+    let file_count = files.len();
+
+    // 全ファイルが同一だった場合は早期リターン
+    if file_count == 0 {
+        state.status_message = format!(
+            "Batch merge skipped: all {} file(s) are identical",
+            skipped_equal
+        );
+        return;
+    }
+
     // バックアップ（マージ前に一括実行）
     if runtime.config.backup.enabled {
-        let file_paths: Vec<String> = batch.files.iter().map(|(p, _)| p.clone()).collect();
+        let file_paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
         match direction {
             MergeDirection::LocalToRemote => {
                 // リモート側バックアップ（バッチ）
@@ -274,7 +291,7 @@ pub fn execute_batch_merge(
     progress.total = Some(file_count);
     state.dialog = DialogState::Progress(progress);
 
-    for (i, (path, _badge)) in batch.files.iter().enumerate() {
+    for (i, (path, _badge)) in files.iter().enumerate() {
         // ダイアログの進捗を更新
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.current = i + 1;
@@ -390,15 +407,21 @@ pub fn execute_batch_merge(
         MergeDirection::RemoteToLocal => format!("{} -> local", state.server_name),
     };
 
+    let skip_suffix = if skipped_equal > 0 {
+        format!(", {} identical skipped", skipped_equal)
+    } else {
+        String::new()
+    };
+
     if fail_count == 0 {
         state.status_message = format!(
-            "Batch merge complete: {} files merged ({})",
-            success_count, dir_str
+            "Batch merge complete: {} files merged ({}){}",
+            success_count, dir_str, skip_suffix
         );
     } else {
         state.status_message = format!(
-            "Batch merge complete: {} succeeded/{} failed ({})",
-            success_count, fail_count, dir_str
+            "Batch merge complete: {} succeeded/{} failed ({}){}",
+            success_count, fail_count, dir_str, skip_suffix
         );
     }
 }
@@ -815,6 +838,40 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     state.rebuild_flat_nodes();
 }
 
+/// バッチマージ対象から同一内容の Unchecked ファイルを除外する。
+///
+/// `Badge::Unchecked` のファイルについて、ローカル・リモート両方のキャッシュが
+/// 存在し内容が同一であればスキップする。
+/// 戻り値は `(フィルタ済みファイル一覧, スキップ数)`.
+pub fn filter_unchecked_equal(
+    files: &[(String, crate::app::Badge)],
+    local_cache: &std::collections::HashMap<String, String>,
+    remote_cache: &std::collections::HashMap<String, String>,
+) -> (Vec<(String, crate::app::Badge)>, usize) {
+    let mut skipped = 0usize;
+    let filtered = files
+        .iter()
+        .filter(|(path, badge)| {
+            if *badge != crate::app::Badge::Unchecked {
+                return true;
+            }
+            match (local_cache.get(path), remote_cache.get(path)) {
+                (Some(local), Some(remote)) => {
+                    if local == remote {
+                        skipped += 1;
+                        false
+                    } else {
+                        true
+                    }
+                }
+                _ => true,
+            }
+        })
+        .cloned()
+        .collect();
+    (filtered, skipped)
+}
+
 /// パスがローカルまたはリモートツリーでシンボリックリンクかどうかを判定する
 fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
     let local_symlink = state
@@ -826,4 +883,112 @@ fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
         .find_node(path)
         .is_some_and(|n| n.is_symlink());
     local_symlink || remote_symlink
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::Badge;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_filter_unchecked_equal_skips_identical() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Unchecked),
+            ("b.rs".to_string(), Badge::Modified),
+        ];
+        let mut local = HashMap::new();
+        let mut remote = HashMap::new();
+        local.insert("a.rs".to_string(), "same".to_string());
+        remote.insert("a.rs".to_string(), "same".to_string());
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, "b.rs");
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_keeps_different() {
+        let files = vec![("a.rs".to_string(), Badge::Unchecked)];
+        let mut local = HashMap::new();
+        let mut remote = HashMap::new();
+        local.insert("a.rs".to_string(), "old".to_string());
+        remote.insert("a.rs".to_string(), "new".to_string());
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_keeps_missing_cache() {
+        // 片方しかキャッシュにない場合 → スキップしない（安全側に倒す）
+        let files = vec![("a.rs".to_string(), Badge::Unchecked)];
+        let mut local = HashMap::new();
+        let remote = HashMap::new();
+        local.insert("a.rs".to_string(), "content".to_string());
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_preserves_non_unchecked() {
+        // Modified / LocalOnly / RemoteOnly は無条件で通す
+        let files = vec![
+            ("a.rs".to_string(), Badge::Modified),
+            ("b.rs".to_string(), Badge::LocalOnly),
+            ("c.rs".to_string(), Badge::RemoteOnly),
+        ];
+        let local = HashMap::new();
+        let remote = HashMap::new();
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 3);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_all_identical() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Unchecked),
+            ("b.rs".to_string(), Badge::Unchecked),
+        ];
+        let mut local = HashMap::new();
+        let mut remote = HashMap::new();
+        local.insert("a.rs".to_string(), "x".to_string());
+        remote.insert("a.rs".to_string(), "x".to_string());
+        local.insert("b.rs".to_string(), "y".to_string());
+        remote.insert("b.rs".to_string(), "y".to_string());
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 0);
+        assert_eq!(skipped, 2);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_mixed() {
+        let files = vec![
+            ("equal.rs".to_string(), Badge::Unchecked),
+            ("diff.rs".to_string(), Badge::Unchecked),
+            ("known.rs".to_string(), Badge::Modified),
+            ("no_cache.rs".to_string(), Badge::Unchecked),
+        ];
+        let mut local = HashMap::new();
+        let mut remote = HashMap::new();
+        local.insert("equal.rs".to_string(), "same".to_string());
+        remote.insert("equal.rs".to_string(), "same".to_string());
+        local.insert("diff.rs".to_string(), "aaa".to_string());
+        remote.insert("diff.rs".to_string(), "bbb".to_string());
+        // no_cache.rs はキャッシュなし
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert_eq!(filtered.len(), 3); // diff.rs, known.rs, no_cache.rs
+        assert_eq!(skipped, 1); // equal.rs
+        assert_eq!(filtered[0].0, "diff.rs");
+        assert_eq!(filtered[1].0, "known.rs");
+        assert_eq!(filtered[2].0, "no_cache.rs");
+    }
 }
