@@ -96,7 +96,35 @@ impl TuiRuntime {
     /// TUI のイベントループ中に定期的に呼び出すことで、
     /// SSH keepalive パケットの送受信を継続し、接続切断を防ぐ。
     pub fn drive_runtime(&self) {
-        self.rt.block_on(async { tokio::task::yield_now().await });
+        self.rt.block_on(async {
+            // 複数回 yield して pending タスク（keepalive 等）に十分な実行機会を与える
+            for _ in 0..3 {
+                tokio::task::yield_now().await;
+            }
+        });
+    }
+
+    /// SSH 接続が生きているか確認する
+    pub fn check_connection(&mut self) -> bool {
+        match self.ssh_client.as_mut() {
+            Some(client) => self.rt.block_on(client.is_alive()),
+            None => false,
+        }
+    }
+
+    /// SSH 接続のみを再確立する（ツリー・キャッシュはそのまま）
+    ///
+    /// 読み込み操作の自動リトライ用。書き込み（merge）では使わない。
+    /// 完全な再接続（ツリー再取得含む）は `execute_reconnect`（c キー）を使う。
+    pub fn try_reconnect(&mut self, server_name: &str) -> anyhow::Result<()> {
+        tracing::info!("Auto-reconnecting SSH: server={}", server_name);
+
+        // 古い接続を切断
+        if let Some(client) = self.ssh_client.take() {
+            let _ = self.rt.block_on(client.disconnect());
+        }
+
+        self.connect(server_name)
     }
 
     /// 切断する

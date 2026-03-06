@@ -1,5 +1,6 @@
 //! SSH接続を管理するクライアント。
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,8 +14,16 @@ use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
 use crate::tree::FileNode;
 
+use super::batch_read;
 use super::known_hosts::SshHandler;
 use super::tree_parser::{build_tree_from_flat, parse_find_line, shell_escape};
+
+/// リモートコマンドの実行結果
+struct CommandOutput {
+    stdout: String,
+    stderr: String,
+    exit_code: Option<u32>,
+}
 
 /// SSH接続を管理するクライアント
 pub struct SshClient {
@@ -29,8 +38,12 @@ impl SshClient {
         server_config: &ServerConfig,
         ssh_config: &SshConfig,
     ) -> crate::error::Result<Self> {
+        // inactivity_timeout は接続タイムアウト(timeout_sec)とは独立。
+        // timeout_sec が短い(10秒等)場合にセッションごと切れるのを防ぐため、
+        // 最低でも keepalive_interval × keepalive_max + マージン 以上にする。
+        let inactivity_secs = ssh_config.timeout_sec.max(120);
         let mut config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(ssh_config.timeout_sec)),
+            inactivity_timeout: Some(Duration::from_secs(inactivity_secs)),
             keepalive_interval: Some(Duration::from_secs(10)),
             keepalive_max: 5,
             ..Default::default()
@@ -134,49 +147,60 @@ impl SshClient {
         })
     }
 
-    /// リモートでコマンドを実行し、stdout を文字列で返す
-    pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            tracing::warn!(
-                "SSH channel open failed: server={}, error={}",
-                self.server_name,
-                e
-            );
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
+    /// SSH 接続が生きているか確認する（`echo` コマンドで簡易チェック）
+    pub async fn is_alive(&mut self) -> bool {
+        match self.session.channel_open_session().await {
+            Ok(mut channel) => {
+                let _ = channel.exec(true, "echo ok").await;
+                loop {
+                    let Some(_msg) = channel.wait().await else {
+                        break;
+                    };
+                }
+                let _ = channel.close().await;
+                true
             }
-        })?;
+            Err(_) => false,
+        }
+    }
 
-        channel
-            .exec(true, command)
-            .await
-            .map_err(|_e| AppError::SshExec {
-                command: command.to_string(),
-            })?;
-
-        let mut output = Vec::new();
-        let mut exit_code = None;
-
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-
-            match msg {
-                ChannelMsg::Data { ref data } => {
-                    output.extend_from_slice(data);
-                }
-                ChannelMsg::ExitStatus { exit_status } => {
-                    exit_code = Some(exit_status);
-                }
-                _ => {}
+    /// チャネルをオープンする（1回リトライ付き）
+    async fn open_channel_with_retry(
+        &mut self,
+    ) -> crate::error::Result<russh::Channel<russh::client::Msg>> {
+        match self.session.channel_open_session().await {
+            Ok(ch) => Ok(ch),
+            Err(e) => {
+                tracing::warn!(
+                    "SSH channel open failed (retrying): server={}, error={}",
+                    self.server_name,
+                    e
+                );
+                // 少し待ってリトライ
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                self.session.channel_open_session().await.map_err(|e2| {
+                    tracing::error!(
+                        "SSH channel open failed (retry failed): server={}, error={}",
+                        self.server_name,
+                        e2
+                    );
+                    anyhow::Error::from(AppError::SshConnection {
+                        host: self.server_name.clone(),
+                        message: format!("チャネルオープンに失敗: {}", e2),
+                    })
+                })
             }
         }
+    }
 
-        let stdout = String::from_utf8_lossy(&output).to_string();
+    /// リモートでコマンドを実行し、stdout を文字列で返す
+    ///
+    /// 非ゼロ終了コードはログに記録するがエラーにはしない。
+    /// `find` 等の一部エントリでエラーが起きても結果を返すコマンド向き。
+    pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
+        let result = self.run_command(command).await?;
 
-        if let Some(code) = exit_code {
+        if let Some(code) = result.exit_code {
             if code != 0 {
                 tracing::debug!(
                     "リモートコマンドが非ゼロで終了: cmd='{}', code={}",
@@ -186,7 +210,7 @@ impl SshClient {
             }
         }
 
-        Ok(stdout)
+        Ok(result.stdout)
     }
 
     /// ディレクトリ取得のデフォルトタイムアウト（秒）
@@ -308,27 +332,65 @@ impl SshClient {
         Ok((tree, truncated))
     }
 
-    /// リモートファイルの内容を取得する（cat 経由）
+    /// リモートファイルの内容を取得する（`exec_strict` 経由の `cat`）
+    ///
+    /// `exec_strict` を使ってチャネル管理を一元化しつつ、
+    /// 非ゼロ終了コードをエラーとして検知する。
     pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
         let command = format!("cat {}", shell_escape(remote_path));
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            tracing::warn!(
-                "SSH channel open failed (read_file): server={}, path={}, error={}",
-                self.server_name,
-                remote_path,
-                e
-            );
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
+        self.exec_strict(&command).await
+    }
+
+    /// 複数のリモートファイルを1つのSSHチャネルでバッチ読み込みする。
+    ///
+    /// チャネル枯渇防止: N個のファイルを個別チャネルで読む代わりに、
+    /// 区切り文字付き `cat` コマンドで1チャネルにまとめる。
+    ///
+    /// 読み込めなかったファイルは空文字列として返される。
+    pub async fn read_files_batch(
+        &mut self,
+        paths: &[String],
+    ) -> crate::error::Result<HashMap<String, String>> {
+        if paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let command = match batch_read::build_batch_cat_command(paths) {
+            Some(cmd) => cmd,
+            None => return Ok(HashMap::new()),
+        };
+
+        // exec を使う（非ゼロ終了は許容：一部ファイル不在でも結果を返す）
+        let output = self.exec(&command).await?;
+        Ok(batch_read::parse_batch_output(&output, paths))
+    }
+
+    /// リモートでコマンドを実行し、非ゼロ終了コードをエラーとして返す
+    ///
+    /// ファイル読み込みなど、失敗を検知すべき操作に使う。
+    async fn exec_strict(&mut self, command: &str) -> crate::error::Result<String> {
+        let result = self.run_command(command).await?;
+
+        if let Some(code) = result.exit_code {
+            if code != 0 {
+                anyhow::bail!(AppError::SshExec {
+                    command: format!("{}: exit={}, stderr={}", command, code, result.stderr),
+                });
             }
-        })?;
+        }
+
+        Ok(result.stdout)
+    }
+
+    /// コマンドを実行してチャネルの開閉を管理する共通関数
+    async fn run_command(&mut self, command: &str) -> crate::error::Result<CommandOutput> {
+        let mut channel = self.open_channel_with_retry().await?;
 
         channel
-            .exec(true, command.as_str())
+            .exec(true, command)
             .await
             .map_err(|_e| AppError::SshExec {
-                command: command.clone(),
+                command: command.to_string(),
             })?;
 
         let mut stdout = Vec::new();
@@ -355,16 +417,13 @@ impl SshClient {
             }
         }
 
-        if let Some(code) = exit_code {
-            if code != 0 {
-                let err_msg = String::from_utf8_lossy(&stderr).to_string();
-                anyhow::bail!(AppError::SshExec {
-                    command: format!("cat {}: exit={}, stderr={}", remote_path, code, err_msg),
-                });
-            }
-        }
+        let _ = channel.close().await;
 
-        Ok(String::from_utf8_lossy(&stdout).to_string())
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&stdout).to_string(),
+            stderr: String::from_utf8_lossy(&stderr).to_string(),
+            exit_code,
+        })
     }
 
     /// リモートファイルに内容を書き込む（stdin 経由の cat >）
@@ -381,18 +440,7 @@ impl SshClient {
         }
 
         let command = format!("cat > {}", shell_escape(remote_path));
-        let mut channel = self.session.channel_open_session().await.map_err(|e| {
-            tracing::warn!(
-                "SSH channel open failed (write_file): server={}, path={}, error={}",
-                self.server_name,
-                remote_path,
-                e
-            );
-            AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("チャネルオープンに失敗: {}", e),
-            }
-        })?;
+        let mut channel = self.open_channel_with_retry().await?;
 
         channel
             .exec(true, command.as_str())
@@ -423,6 +471,9 @@ impl SshClient {
                 exit_code = Some(exit_status);
             }
         }
+
+        // チャネルを明示的に閉じてリソースを解放
+        let _ = channel.close().await;
 
         if let Some(code) = exit_code {
             if code != 0 {

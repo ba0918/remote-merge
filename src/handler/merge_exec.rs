@@ -398,6 +398,9 @@ pub fn expand_subtree_for_merge(
 ///
 /// ツリーから直接ファイルパスを収集し（expanded_dirs に依存しない）、
 /// ローカル・リモート両方のコンテンツをキャッシュに読み込む。
+///
+/// リモートファイルは **バッチ読み込み**（1つのSSHチャネルで全ファイル）を使い、
+/// チャネル枯渇を防ぐ。
 pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir_path: &str) {
     let file_paths = crate::app::merge_collect::collect_merge_files(
         &state.local_tree,
@@ -406,7 +409,6 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     );
 
     let total = file_paths.len();
-    // プログレスダイアログで進捗表示
     state.dialog = DialogState::Progress(ProgressDialog {
         title: "Loading files...".to_string(),
         current: 0,
@@ -414,16 +416,14 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         cancelable: false,
     });
 
+    // ── ローカルファイルを個別に読み込み ──
     for (i, path) in file_paths.iter().enumerate() {
         if i % 10 == 0 {
             if let DialogState::Progress(ref mut progress) = state.dialog {
                 progress.current = i;
             }
         }
-
-        // ローカルコンテンツ
-        let local_loaded = state.local_cache.contains_key(path);
-        if !local_loaded {
+        if !state.local_cache.contains_key(path) {
             let local_root = &state.local_tree.root;
             match executor::read_local_file(local_root, path) {
                 Ok(content) => {
@@ -435,29 +435,52 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
                 }
             }
         }
+    }
 
-        // リモートコンテンツ
-        let remote_loaded = state.remote_cache.contains_key(path);
-        if !remote_loaded && state.is_connected {
-            match runtime.read_remote_file(&state.server_name, path) {
-                Ok(content) => {
-                    state.remote_cache.insert(path.clone(), content);
-                    state.error_paths.remove(path);
+    // ── リモートファイルをバッチ読み込み（1チャネルで全ファイル） ──
+    let remote_paths: Vec<String> = file_paths
+        .iter()
+        .filter(|p| !state.remote_cache.contains_key(*p))
+        .cloned()
+        .collect();
+
+    if !remote_paths.is_empty() {
+        if !state.is_connected && runtime.check_connection() {
+            tracing::info!("SSH connection recovered during subtree load");
+            state.is_connected = true;
+        }
+
+        if state.is_connected {
+            if let DialogState::Progress(ref mut progress) = state.dialog {
+                progress.title = "Loading remote files...".to_string();
+                progress.current = 0;
+                progress.total = Some(remote_paths.len());
+            }
+
+            match runtime.read_remote_files_batch(&state.server_name, &remote_paths) {
+                Ok(batch_result) => {
+                    for (path, content) in batch_result {
+                        // 空文字列のファイルも有効（0バイトファイル）
+                        state.remote_cache.insert(path.clone(), content);
+                        state.error_paths.remove(&path);
+                    }
                 }
                 Err(e) => {
-                    tracing::debug!("Remote file read skipped: {} - {}", path, e);
+                    tracing::warn!("Batch remote read failed: {}", e);
                     if crate::error::is_connection_error(&e) {
                         state.is_connected = false;
                         state.status_message =
                             format!("Connection lost: {} | Press 'c' to reconnect", e);
+                        state.dialog = DialogState::None;
                         return;
                     }
-                    // ファイル単位のエラー（not found等）はスキップして次へ
                 }
             }
         }
+    }
 
-        // 両方とも読み込めなかった場合のみエラー扱い
+    // ── エラーパス判定 ──
+    for path in &file_paths {
         let has_local = state.local_cache.contains_key(path);
         let has_remote = state.remote_cache.contains_key(path);
         if !has_local && !has_remote {
@@ -494,22 +517,38 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 
     // リモートキャッシュ
-    if !state.remote_cache.contains_key(path) && state.is_connected {
-        match runtime.read_remote_file(&state.server_name, path) {
-            Ok(content) => {
-                state.remote_cache.insert(path.clone(), content);
-                state.error_paths.remove(path);
+    if !state.remote_cache.contains_key(path) {
+        if !state.is_connected {
+            // 切断状態だが、実際に接続が回復してないか確認
+            if runtime.check_connection() {
+                tracing::warn!("SSH connection recovered, resuming remote operations");
+                state.is_connected = true;
             }
-            Err(e) => {
-                tracing::debug!("Remote file read skipped: {} - {}", path, e);
-                if crate::error::is_connection_error(&e) {
-                    state.is_connected = false;
-                    state.status_message =
-                        format!("Connection lost: {} | Press 'c' to reconnect", e);
-                } else {
-                    state.status_message = format!("Remote read failed: {} - {}", path, e);
+        }
+
+        if state.is_connected {
+            match runtime.read_remote_file(&state.server_name, path) {
+                Ok(content) => {
+                    state.remote_cache.insert(path.clone(), content);
+                    state.error_paths.remove(path);
+                }
+                Err(e) => {
+                    tracing::warn!("Remote file read failed: {} - {}", path, e);
+                    if crate::error::is_connection_error(&e) {
+                        state.is_connected = false;
+                        state.status_message =
+                            format!("Connection lost: {} | Press 'c' to reconnect", e);
+                    } else {
+                        state.status_message = format!("Remote read failed: {} - {}", path, e);
+                    }
                 }
             }
+        } else {
+            tracing::warn!(
+                "Remote read skipped (disconnected): {} | ssh_client={}",
+                path,
+                runtime.ssh_client.is_some()
+            );
         }
     }
 

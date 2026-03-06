@@ -45,15 +45,20 @@ pub fn handle_tree_key(
                 .is_some_and(|n| n.is_dir)
             {
                 if let Some(path) = state.current_path() {
-                    let needs_load = state
+                    let local_needs_load = state
                         .local_tree
                         .find_node(std::path::Path::new(&path))
                         .is_some_and(|n| n.is_dir() && !n.is_loaded());
-                    if needs_load {
+                    let remote_needs_load = state
+                        .remote_tree
+                        .find_node(std::path::Path::new(&path))
+                        .is_some_and(|n| n.is_dir() && !n.is_loaded());
+
+                    if local_needs_load {
                         state.load_local_children(&path);
-                        if state.is_connected {
-                            super::merge_exec::load_remote_children(state, runtime, &path);
-                        }
+                    }
+                    if remote_needs_load && state.is_connected {
+                        super::merge_exec::load_remote_children(state, runtime, &path);
                     }
                 }
                 state.toggle_expand();
