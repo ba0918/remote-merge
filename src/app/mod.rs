@@ -7,6 +7,7 @@ pub mod hunk_ops;
 pub mod merge_collect;
 pub mod navigation;
 pub mod scan;
+pub mod search;
 pub mod selection;
 pub mod tree_ops;
 pub mod types;
@@ -110,6 +111,8 @@ pub struct AppState {
     pub syntax_highlight_enabled: bool,
     /// シンタックスハイライトエンジン
     pub highlighter: SyntaxHighlighter,
+    /// ファイル検索状態
+    pub search_state: search::SearchState,
 }
 
 impl AppState {
@@ -168,6 +171,7 @@ impl AppState {
             theme_name: theme_name.to_string(),
             syntax_highlight_enabled: true,
             highlighter,
+            search_state: search::SearchState::default(),
         };
         state.rebuild_flat_nodes();
         state

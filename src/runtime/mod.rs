@@ -52,6 +52,18 @@ impl TuiRuntime {
         }
     }
 
+    /// テスト用: SSH 接続なしの最小ランタイムを作成する
+    #[cfg(test)]
+    pub fn new_for_test() -> Self {
+        Self::new(AppConfig {
+            servers: std::collections::HashMap::new(),
+            local: crate::config::LocalConfig::default(),
+            filter: crate::config::FilterConfig::default(),
+            ssh: crate::config::SshConfig::default(),
+            backup: crate::config::BackupConfig::default(),
+        })
+    }
+
     /// SSH 接続を確立する
     pub fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
         let server_config = self.get_server_config(server_name)?;

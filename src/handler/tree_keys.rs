@@ -20,6 +20,12 @@ pub fn handle_tree_key(
     code: KeyCode,
     _modifiers: KeyModifiers,
 ) {
+    // 検索モード中は search_keys にディスパッチ
+    if state.search_state.active {
+        super::search_keys::handle_search_key(state, runtime, code);
+        return;
+    }
+
     match code {
         KeyCode::Char('q') | KeyCode::Esc => {
             if !matches!(state.merge_scan_state, MergeScanState::Idle) && code == KeyCode::Esc {
@@ -31,6 +37,10 @@ pub fn handle_tree_key(
                 state.scan_state = ScanState::Idle;
                 runtime.scan_receiver = None;
                 state.status_message = "Scan cancelled".to_string();
+            } else if state.search_state.has_query() && code == KeyCode::Esc {
+                // 検索結果がある場合は Esc で検索クリア（quit しない）
+                state.search_state.clear();
+                state.status_message = String::new();
             } else {
                 state.should_quit = true;
             }
@@ -95,6 +105,12 @@ pub fn handle_tree_key(
         KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LocalToRemote),
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),
+        KeyCode::Char('/') => {
+            state.search_state.activate();
+            state.status_message = "/".to_string();
+        }
+        KeyCode::Char('n') => super::search_keys::jump_next(state, runtime),
+        KeyCode::Char('N') => super::search_keys::jump_prev(state, runtime),
         _ => {}
     }
 }

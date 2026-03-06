@@ -74,6 +74,14 @@ pub struct BackupConfig {
 
 // ── デフォルト値 ──
 
+impl Default for LocalConfig {
+    fn default() -> Self {
+        Self {
+            root_dir: PathBuf::from("."),
+        }
+    }
+}
+
 impl Default for FilterConfig {
     fn default() -> Self {
         Self {

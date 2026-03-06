@@ -106,13 +106,18 @@ impl<'a> Widget for TreeView<'a> {
                     Style::default().fg(p.fg)
                 };
 
-                let mut spans = vec![
-                    Span::raw(indent),
-                    Span::raw(marker),
-                    Span::raw(icon),
-                    Span::styled(format!("{} ", node.name), name_style),
-                    Span::styled(badge_text, badge_style),
-                ];
+                // 検索一致部分のハイライト
+                let name_spans = build_name_spans(
+                    &node.name,
+                    &self.state.search_state.query,
+                    name_style,
+                    p.accent,
+                );
+
+                let mut spans = vec![Span::raw(indent), Span::raw(marker), Span::raw(icon)];
+                spans.extend(name_spans);
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled(badge_text, badge_style));
                 if node.is_symlink {
                     spans.push(Span::styled(" [L]", Style::default().fg(Color::Cyan)));
                 }
@@ -122,6 +127,43 @@ impl<'a> Widget for TreeView<'a> {
 
         let paragraph = Paragraph::new(lines);
         paragraph.render(inner, buf);
+    }
+}
+
+/// ノード名を検索クエリでスプリットし、一致部分をハイライトした Span リストを生成する。
+///
+/// case-insensitive で最初の一致のみハイライト。クエリが空なら通常表示。
+fn build_name_spans<'a>(
+    name: &'a str,
+    query: &str,
+    base_style: Style,
+    highlight_color: Color,
+) -> Vec<Span<'a>> {
+    if query.is_empty() {
+        return vec![Span::styled(name.to_string(), base_style)];
+    }
+
+    let name_lower = name.to_lowercase();
+    let query_lower = query.to_lowercase();
+
+    if let Some(start) = name_lower.find(&query_lower) {
+        let end = start + query.len();
+        let highlight_style = Style::default()
+            .fg(Color::Black)
+            .bg(highlight_color)
+            .add_modifier(Modifier::BOLD);
+
+        let mut spans = Vec::with_capacity(3);
+        if start > 0 {
+            spans.push(Span::styled(name[..start].to_string(), base_style));
+        }
+        spans.push(Span::styled(name[start..end].to_string(), highlight_style));
+        if end < name.len() {
+            spans.push(Span::styled(name[end..].to_string(), base_style));
+        }
+        spans
+    } else {
+        vec![Span::styled(name.to_string(), base_style)]
     }
 }
 

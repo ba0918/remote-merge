@@ -137,7 +137,7 @@ impl AppState {
     pub fn build_key_hints(&self) -> String {
         use super::types::Focus;
         match self.focus {
-            Focus::FileTree => "[j/k] move [Enter] open [Tab] diff [?] help".to_string(),
+            Focus::FileTree => "[j/k] move [Enter] open [/] search [Tab] diff [?] help".to_string(),
             Focus::DiffView => match &self.current_diff {
                 Some(DiffResult::Equal) => "[j/k] scroll [Tab] tree [?] help".to_string(),
                 Some(DiffResult::Modified { .. }) => {
