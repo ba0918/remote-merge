@@ -41,7 +41,18 @@ impl AppState {
                     }
                 }
 
-                // キャッシュに両方あれば diff で判定
+                // バイナリキャッシュに両方あれば SHA-256 で判定
+                let local_bin = self.local_binary_cache.get(path);
+                let remote_bin = self.remote_binary_cache.get(path);
+                if let (Some(lb), Some(rb)) = (local_bin, remote_bin) {
+                    return if lb.sha256 == rb.sha256 {
+                        Badge::Equal
+                    } else {
+                        Badge::Modified
+                    };
+                }
+
+                // テキストキャッシュに両方あれば diff で判定
                 match (self.local_cache.get(path), self.remote_cache.get(path)) {
                     (Some(l), Some(r)) => {
                         if l == r {

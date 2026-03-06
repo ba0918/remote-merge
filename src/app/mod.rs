@@ -40,6 +40,10 @@ pub struct AppState {
     pub local_cache: HashMap<String, String>,
     /// リモートファイル内容キャッシュ (パス -> 内容)
     pub remote_cache: HashMap<String, String>,
+    /// ローカルバイナリファイル情報キャッシュ (パス -> BinaryInfo)
+    pub local_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
+    /// リモートバイナリファイル情報キャッシュ (パス -> BinaryInfo)
+    pub remote_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
     /// 現在選択中の diff 結果
     pub current_diff: Option<DiffResult>,
     /// 現在選択中のファイルパス
@@ -130,6 +134,8 @@ impl AppState {
             available_servers: Vec::new(),
             local_cache: HashMap::new(),
             remote_cache: HashMap::new(),
+            local_binary_cache: HashMap::new(),
+            remote_binary_cache: HashMap::new(),
             current_diff: None,
             selected_path: None,
             flat_nodes: Vec::new(),
@@ -1716,5 +1722,94 @@ mod tests {
             crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.compute_badge("src/file", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_binary_cache_badge_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        let info = crate::diff::binary::BinaryInfo {
+            size: 100,
+            sha256: "abc123".to_string(),
+        };
+        state
+            .local_binary_cache
+            .insert("src/logo.png".to_string(), info.clone());
+        state
+            .remote_binary_cache
+            .insert("src/logo.png".to_string(), info);
+        assert_eq!(state.compute_badge("src/logo.png", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_binary_cache_badge_modified() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.local_binary_cache.insert(
+            "src/logo.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 100,
+                sha256: "abc".to_string(),
+            },
+        );
+        state.remote_binary_cache.insert(
+            "src/logo.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 200,
+                sha256: "def".to_string(),
+            },
+        );
+        assert_eq!(state.compute_badge("src/logo.png", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_clear_cache_also_clears_binary_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.local_binary_cache.insert(
+            "x.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 1,
+                sha256: "a".to_string(),
+            },
+        );
+        state.remote_binary_cache.insert(
+            "x.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 1,
+                sha256: "a".to_string(),
+            },
+        );
+        state.clear_cache();
+        assert!(state.local_binary_cache.is_empty());
+        assert!(state.remote_binary_cache.is_empty());
     }
 }

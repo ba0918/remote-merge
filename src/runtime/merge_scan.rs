@@ -115,6 +115,8 @@ fn run_merge_scan(
     // コンテンツ読み込みフェーズ（total 確定）
     let mut local_cache = HashMap::new();
     let mut remote_cache = HashMap::new();
+    let mut local_binary_cache = HashMap::new();
+    let mut remote_binary_cache = HashMap::new();
     let mut error_paths = HashSet::new();
     let total = file_paths.len();
 
@@ -131,7 +133,14 @@ fn run_merge_scan(
         // ローカルコンテンツ
         let local_ok = match executor::read_local_file(local_root, path) {
             Ok(content) => {
-                local_cache.insert(path.clone(), content);
+                if crate::diff::engine::is_binary(content.as_bytes()) {
+                    local_binary_cache.insert(
+                        path.clone(),
+                        crate::diff::binary::BinaryInfo::from_bytes(content.as_bytes()),
+                    );
+                } else {
+                    local_cache.insert(path.clone(), content);
+                }
                 true
             }
             Err(e) => {
@@ -144,7 +153,14 @@ fn run_merge_scan(
         let full_remote = format!("{}/{}", remote_root.trim_end_matches('/'), path);
         let remote_ok = match rt.block_on(client.read_file(&full_remote)) {
             Ok(content) => {
-                remote_cache.insert(path.clone(), content);
+                if crate::diff::engine::is_binary(content.as_bytes()) {
+                    remote_binary_cache.insert(
+                        path.clone(),
+                        crate::diff::binary::BinaryInfo::from_bytes(content.as_bytes()),
+                    );
+                } else {
+                    remote_cache.insert(path.clone(), content);
+                }
                 true
             }
             Err(e) => {
@@ -157,8 +173,6 @@ fn run_merge_scan(
         if !local_ok && !remote_ok {
             error_paths.insert(path.clone());
         }
-
-        // NOTE: ループ先頭で既に Progress を送信しているため、ここでは重複送信しない
     }
 
     let _ = rt.block_on(client.disconnect());
@@ -166,6 +180,8 @@ fn run_merge_scan(
     Ok(MergeScanResult {
         local_cache,
         remote_cache,
+        local_binary_cache,
+        remote_binary_cache,
         local_tree_updates,
         remote_tree_updates,
         error_paths,
@@ -373,6 +389,12 @@ fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
     }
     for (path, content) in result.remote_cache {
         state.remote_cache.insert(path, content);
+    }
+    for (path, info) in result.local_binary_cache {
+        state.local_binary_cache.insert(path, info);
+    }
+    for (path, info) in result.remote_binary_cache {
+        state.remote_binary_cache.insert(path, info);
     }
 
     // エラーパス

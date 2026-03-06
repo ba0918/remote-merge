@@ -171,6 +171,8 @@ impl AppState {
         self.remote_tree = remote_tree;
         self.local_cache.clear();
         self.remote_cache.clear();
+        self.local_binary_cache.clear();
+        self.remote_binary_cache.clear();
         self.error_paths.clear();
         self.current_diff = None;
         self.selected_path = None;

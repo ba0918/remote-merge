@@ -157,12 +157,10 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
         return;
     }
 
-    // バイナリファイルの場合は丸ごとコピー（キャッシュ経由）
-    // 注: バイナリはNULバイトでStringが切れるため、完全なバイナリコピーには
-    // バイト列キャッシュが必要。現状はテキストキャッシュで対応。
+    // バイナリファイルのマージは未対応（バイト列I/Oが必要）
     if let Some(DiffResult::Binary { .. }) = &state.current_diff {
-        // テキストキャッシュ経由のマージを試行（不完全なバイナリには警告）
-        state.status_message = format!("{}: binary file merge (via text cache)", path);
+        state.status_message = format!("{}: binary file merge is not yet supported", path);
+        return;
     }
 
     match direction {

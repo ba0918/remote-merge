@@ -24,14 +24,26 @@ impl AppState {
             return;
         }
 
-        // キャッシュからコンテンツを取得して diff
+        // バイナリキャッシュにあればそちらを優先（コンテンツを保持しない）
+        let local_bin = self.local_binary_cache.get(&path).cloned();
+        let remote_bin = self.remote_binary_cache.get(&path).cloned();
+        if local_bin.is_some() || remote_bin.is_some() {
+            self.current_diff = Some(DiffResult::Binary {
+                left: local_bin,
+                right: remote_bin,
+            });
+            self.diff_scroll = 0;
+            self.diff_cursor = 0;
+            self.hunk_cursor = 0;
+            self.pending_hunk_merge = None;
+            return;
+        }
+
+        // テキストキャッシュからコンテンツを取得して diff
         let local_content = self.local_cache.get(&path).map(|s| s.as_str());
         let remote_content = self.remote_cache.get(&path).map(|s| s.as_str());
 
         // ツリー上の存在を確認（キャッシュ未ロードと存在しないを区別）
-        // find_node は未ロードディレクトリの子を見つけられないため、
-        // find_node_or_unloaded で「途中が未ロード」も区別する。
-        // 「xx only」は確実に存在しないと言えるときだけ表示する。
         let remote_absent = self.remote_tree.find_node_or_unloaded(Path::new(&path))
             == crate::tree::NodePresence::NotFound;
         let local_absent = self.local_tree.find_node_or_unloaded(Path::new(&path))
@@ -40,9 +52,16 @@ impl AppState {
         self.current_diff = match (local_content, remote_content) {
             (Some(l), Some(r)) => {
                 if engine::is_binary(l.as_bytes()) || engine::is_binary(r.as_bytes()) {
+                    // テキストキャッシュ経由でバイナリ検出 → binary_cache に移動
+                    let left = crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes());
+                    let right = crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes());
+                    self.local_binary_cache.insert(path.clone(), left.clone());
+                    self.remote_binary_cache.insert(path.clone(), right.clone());
+                    self.local_cache.remove(&path);
+                    self.remote_cache.remove(&path);
                     Some(DiffResult::Binary {
-                        left: Some(crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes())),
-                        right: Some(crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes())),
+                        left: Some(left),
+                        right: Some(right),
                     })
                 } else {
                     Some(engine::compute_diff(l, r))
@@ -54,10 +73,12 @@ impl AppState {
                 } else {
                     self.status_message = format!("{}: remote content not loaded", path);
                 }
-                // 片方だけでも diff 表示（空文字列との比較）
                 if engine::is_binary(l.as_bytes()) {
+                    let info = crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes());
+                    self.local_binary_cache.insert(path.clone(), info.clone());
+                    self.local_cache.remove(&path);
                     Some(DiffResult::Binary {
-                        left: Some(crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes())),
+                        left: Some(info),
                         right: None,
                     })
                 } else {
@@ -71,9 +92,12 @@ impl AppState {
                     self.status_message = format!("{}: local content not loaded", path);
                 }
                 if engine::is_binary(r.as_bytes()) {
+                    let info = crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes());
+                    self.remote_binary_cache.insert(path.clone(), info.clone());
+                    self.remote_cache.remove(&path);
                     Some(DiffResult::Binary {
                         left: None,
-                        right: Some(crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes())),
+                        right: Some(info),
                     })
                 } else {
                     Some(engine::compute_diff("", r))
@@ -191,6 +215,8 @@ impl AppState {
         for path in paths {
             self.local_cache.remove(path);
             self.remote_cache.remove(path);
+            self.local_binary_cache.remove(path);
+            self.remote_binary_cache.remove(path);
         }
     }
 
@@ -198,6 +224,8 @@ impl AppState {
     pub fn clear_cache(&mut self) {
         self.local_cache.clear();
         self.remote_cache.clear();
+        self.local_binary_cache.clear();
+        self.remote_binary_cache.clear();
         self.error_paths.clear();
         self.highlight_cache_local.clear();
         self.highlight_cache_remote.clear();
