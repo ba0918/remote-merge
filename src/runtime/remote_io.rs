@@ -231,4 +231,30 @@ impl TuiRuntime {
         }
         result
     }
+
+    /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
+    ///
+    /// - `target`: リンク先パス
+    /// - `link_rel_path`: リンク自体の相対パス
+    pub fn create_remote_symlink(
+        &mut self,
+        server_name: &str,
+        link_rel_path: &str,
+        target: &str,
+    ) -> anyhow::Result<()> {
+        let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
+
+        // シェルインジェクション防止: パスをシングルクォートでエスケープ
+        let safe_target = target.replace('\'', "'\\''");
+        let safe_path = full_path.replace('\'', "'\\''");
+        let cmd = format!("ln -sfn '{}' '{}'", safe_target, safe_path);
+
+        let client = self
+            .ssh_client
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected"))?;
+
+        self.rt.block_on(client.exec(&cmd))?;
+        Ok(())
+    }
 }

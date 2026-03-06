@@ -106,13 +106,17 @@ impl<'a> Widget for TreeView<'a> {
                     Style::default().fg(p.fg)
                 };
 
-                Line::from(vec![
+                let mut spans = vec![
                     Span::raw(indent),
                     Span::raw(marker),
                     Span::raw(icon),
                     Span::styled(format!("{} ", node.name), name_style),
                     Span::styled(badge_text, badge_style),
-                ])
+                ];
+                if node.is_symlink {
+                    spans.push(Span::styled(" [L]", Style::default().fg(Color::Cyan)));
+                }
+                Line::from(spans)
             })
             .collect();
 

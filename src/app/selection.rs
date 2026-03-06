@@ -9,12 +9,20 @@ use super::AppState;
 impl AppState {
     /// 現在カーソル位置のファイルを選択して diff を計算する
     pub fn select_file(&mut self) {
-        let path = match self.flat_nodes.get(self.tree_cursor) {
-            Some(n) if !n.is_dir => n.path.clone(),
+        let node = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) if !n.is_dir => n,
             _ => return,
         };
+        let path = node.path.clone();
+        let is_symlink = node.is_symlink;
 
         self.selected_path = Some(path.clone());
+
+        // シンボリックリンクの場合はリンク先パスを比較
+        if is_symlink {
+            self.select_symlink(&path);
+            return;
+        }
 
         // キャッシュからコンテンツを取得して diff
         let local_content = self.local_cache.get(&path).map(|s| s.as_str());
@@ -32,7 +40,10 @@ impl AppState {
         self.current_diff = match (local_content, remote_content) {
             (Some(l), Some(r)) => {
                 if engine::is_binary(l.as_bytes()) || engine::is_binary(r.as_bytes()) {
-                    Some(DiffResult::Binary)
+                    Some(DiffResult::Binary {
+                        left: Some(crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes())),
+                        right: Some(crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes())),
+                    })
                 } else {
                     Some(engine::compute_diff(l, r))
                 }
@@ -45,7 +56,10 @@ impl AppState {
                 }
                 // 片方だけでも diff 表示（空文字列との比較）
                 if engine::is_binary(l.as_bytes()) {
-                    Some(DiffResult::Binary)
+                    Some(DiffResult::Binary {
+                        left: Some(crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes())),
+                        right: None,
+                    })
                 } else {
                     Some(engine::compute_diff(l, ""))
                 }
@@ -57,7 +71,10 @@ impl AppState {
                     self.status_message = format!("{}: local content not loaded", path);
                 }
                 if engine::is_binary(r.as_bytes()) {
-                    Some(DiffResult::Binary)
+                    Some(DiffResult::Binary {
+                        left: None,
+                        right: Some(crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes())),
+                    })
                 } else {
                     Some(engine::compute_diff("", r))
                 }
@@ -75,6 +92,33 @@ impl AppState {
         // シンタックスハイライトキャッシュを構築
         if self.syntax_highlight_enabled {
             self.build_highlight_cache(&path);
+        }
+    }
+
+    /// シンボリックリンク選択時の diff 計算
+    fn select_symlink(&mut self, path: &str) {
+        let local_target = self.symlink_target_from_tree(&self.local_tree, path);
+        let remote_target = self.symlink_target_from_tree(&self.remote_tree, path);
+
+        self.current_diff = Some(DiffResult::SymlinkDiff {
+            left_target: local_target,
+            right_target: remote_target,
+        });
+        self.diff_scroll = 0;
+        self.diff_cursor = 0;
+        self.hunk_cursor = 0;
+        self.pending_hunk_merge = None;
+        self.status_message = format!("{}: symlink", path);
+    }
+
+    /// ツリーからシンボリックリンクのターゲットパスを取得する
+    fn symlink_target_from_tree(&self, tree: &crate::tree::FileTree, path: &str) -> Option<String> {
+        use crate::tree::NodeKind;
+        let node = tree.find_node(path)?;
+        if let NodeKind::Symlink { ref target } = node.kind {
+            Some(target.clone())
+        } else {
+            None
         }
     }
 
@@ -467,7 +511,10 @@ mod tests {
             .insert("img.png".to_string(), "hello\x00world".to_string());
         state.tree_cursor = 0;
         state.select_file();
-        assert!(matches!(state.current_diff, Some(DiffResult::Binary)));
+        assert!(matches!(
+            state.current_diff,
+            Some(DiffResult::Binary { .. })
+        ));
     }
 
     #[test]

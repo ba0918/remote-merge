@@ -64,8 +64,16 @@ pub enum DiffResult {
         /// 各 merge_hunk の全行リスト内での開始行インデックス（二分探索用キャッシュ）
         merge_hunk_line_indices: Vec<usize>,
     },
-    /// バイナリファイル（diff 不可）
-    Binary,
+    /// バイナリファイル（diff 不可、SHA-256ハッシュ+サイズで比較）
+    Binary {
+        left: Option<super::binary::BinaryInfo>,
+        right: Option<super::binary::BinaryInfo>,
+    },
+    /// シンボリックリンク（リンク先パスの比較）
+    SymlinkDiff {
+        left_target: Option<String>,
+        right_target: Option<String>,
+    },
 }
 
 /// 差分の統計情報

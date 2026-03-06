@@ -434,15 +434,14 @@ impl<'a> Widget for DiffView<'a> {
             Some(DiffResult::Equal) => {
                 self.render_equal(inner, buf, is_focused);
             }
-            Some(DiffResult::Binary) => {
-                let msg = Paragraph::new(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        "Binary file - diff not available",
-                        Style::default().fg(Color::Yellow),
-                    ),
-                ]));
-                msg.render(inner, buf);
+            Some(DiffResult::Binary { left, right }) => {
+                self.render_binary(inner, buf, left, right);
+            }
+            Some(DiffResult::SymlinkDiff {
+                left_target,
+                right_target,
+            }) => {
+                self.render_symlink_diff(inner, buf, left_target, right_target);
             }
             Some(DiffResult::Modified {
                 hunks: _,
@@ -506,6 +505,135 @@ impl<'a> DiffView<'a> {
             width: inner.width,
             height: inner.height - 1,
         }
+    }
+}
+
+/// Binary / SymlinkDiff の描画
+impl<'a> DiffView<'a> {
+    fn render_binary(
+        &self,
+        inner: Rect,
+        buf: &mut Buffer,
+        left: &Option<crate::diff::binary::BinaryInfo>,
+        right: &Option<crate::diff::binary::BinaryInfo>,
+    ) {
+        use crate::diff::binary::format_size;
+
+        let mut lines: Vec<Line<'_>> = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "  Binary file - content diff not available",
+            Style::default().fg(Color::Yellow),
+        )));
+        lines.push(Line::from(""));
+
+        let half_width = inner.width as usize / 2;
+        let label_style = Style::default().fg(Color::DarkGray);
+        let value_style = Style::default().fg(Color::White);
+
+        // サイズ行
+        let left_size = left
+            .as_ref()
+            .map_or("(not loaded)".to_string(), |i| format_size(i.size));
+        let right_size = right
+            .as_ref()
+            .map_or("(not loaded)".to_string(), |i| format_size(i.size));
+        let left_part = format!("  size: {}", left_size);
+        let right_part = format!("  size: {}", right_size);
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:<width$}", left_part, width = half_width),
+                label_style,
+            ),
+            Span::styled(right_part, label_style),
+        ]));
+
+        // SHA-256行
+        let left_hash = left.as_ref().map_or("(not loaded)".to_string(), |i| {
+            if i.sha256.len() > 16 {
+                format!("{}...", &i.sha256[..16])
+            } else {
+                i.sha256.clone()
+            }
+        });
+        let right_hash = right.as_ref().map_or("(not loaded)".to_string(), |i| {
+            if i.sha256.len() > 16 {
+                format!("{}...", &i.sha256[..16])
+            } else {
+                i.sha256.clone()
+            }
+        });
+        let left_part = format!("  sha256: {}", left_hash);
+        let right_part = format!("  sha256: {}", right_hash);
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:<width$}", left_part, width = half_width),
+                value_style,
+            ),
+            Span::styled(right_part, value_style),
+        ]));
+
+        // 比較結果
+        if let (Some(l), Some(r)) = (left, right) {
+            let cmp = crate::diff::binary::compare(l, r);
+            let (msg, color) = match cmp {
+                crate::diff::binary::BinaryComparison::Equal => {
+                    ("  Status: identical", Color::Green)
+                }
+                crate::diff::binary::BinaryComparison::Different => {
+                    ("  Status: different", Color::Red)
+                }
+            };
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(msg, Style::default().fg(color))));
+        }
+
+        let paragraph = Paragraph::new(lines);
+        paragraph.render(inner, buf);
+    }
+
+    fn render_symlink_diff(
+        &self,
+        inner: Rect,
+        buf: &mut Buffer,
+        left_target: &Option<String>,
+        right_target: &Option<String>,
+    ) {
+        let mut lines: Vec<Line<'_>> = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "  Symbolic link",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(""));
+
+        let half_width = inner.width as usize / 2;
+        let arrow_style = Style::default().fg(Color::Cyan);
+
+        let left_str = left_target.as_deref().unwrap_or("(not present)");
+        let right_str = right_target.as_deref().unwrap_or("(not present)");
+
+        let left_part = format!("  -> {}", left_str);
+        let right_part = format!("  -> {}", right_str);
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:<width$}", left_part, width = half_width),
+                arrow_style,
+            ),
+            Span::styled(right_part, arrow_style),
+        ]));
+
+        // 比較結果
+        let is_same = left_target == right_target;
+        let (msg, color) = if is_same {
+            ("  Status: identical", Color::Green)
+        } else {
+            ("  Status: different", Color::Red)
+        };
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(msg, Style::default().fg(color))));
+
+        let paragraph = Paragraph::new(lines);
+        paragraph.render(inner, buf);
     }
 }
 
@@ -961,7 +1089,14 @@ mod tests {
 
     #[test]
     fn test_binary_diff_display() {
-        let state = make_test_state_with_diff(Some(DiffResult::Binary));
+        let state = make_test_state_with_diff(Some(DiffResult::Binary {
+            left: Some(crate::diff::binary::BinaryInfo::from_bytes(
+                b"hello\x00world",
+            )),
+            right: Some(crate::diff::binary::BinaryInfo::from_bytes(
+                b"different\x00data",
+            )),
+        }));
         let content = render_to_string(&state, 60, 10);
         assert!(
             content.contains("Binary"),

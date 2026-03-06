@@ -146,8 +146,24 @@ pub fn check_mtime_for_write(
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
+    use crate::diff::engine::DiffResult;
+
     let path = &confirm.file_path;
     let direction = confirm.direction;
+
+    // シンボリックリンクの場合は専用のマージ処理
+    if let Some(DiffResult::SymlinkDiff { .. }) = &state.current_diff {
+        super::symlink_merge::execute_symlink_merge(state, runtime, path, direction);
+        return;
+    }
+
+    // バイナリファイルの場合は丸ごとコピー（キャッシュ経由）
+    // 注: バイナリはNULバイトでStringが切れるため、完全なバイナリコピーには
+    // バイト列キャッシュが必要。現状はテキストキャッシュで対応。
+    if let Some(DiffResult::Binary { .. }) = &state.current_diff {
+        // テキストキャッシュ経由のマージを試行（不完全なバイナリには警告）
+        state.status_message = format!("{}: binary file merge (via text cache)", path);
+    }
 
     match direction {
         MergeDirection::LocalToRemote => {
