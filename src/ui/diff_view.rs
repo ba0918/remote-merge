@@ -15,6 +15,14 @@ use crate::highlight::StyledSegment;
 use crate::theme::palette::ensure_contrast;
 use crate::theme::TuiPalette;
 
+/// Style にオプショナルな背景色を適用する。
+fn style_with_bg(style: Style, bg: Option<Color>) -> Style {
+    match bg {
+        Some(bg) => style.bg(bg),
+        None => style,
+    }
+}
+
 /// 表示幅ベースでトランケーション or パディングする
 fn truncate_or_pad(value: &str, width: usize) -> String {
     let display_width = UnicodeWidthStr::width(value);
@@ -147,14 +155,10 @@ impl<'a> DiffView<'a> {
                 .iter()
                 .map(|seg| {
                     let fg_raw = seg.fg.unwrap_or(state.palette.fg);
-                    let fg = match bg {
-                        Some(bg_color) => ensure_contrast(fg_raw, bg_color),
-                        None => ensure_contrast(fg_raw, state.palette.bg),
-                    };
-                    let mut style = Style::default().fg(fg).add_modifier(seg.modifier);
-                    if let Some(bg) = bg {
-                        style = style.bg(bg);
-                    }
+                    let effective_bg = bg.unwrap_or(state.palette.bg);
+                    let fg = ensure_contrast(fg_raw, effective_bg);
+                    let style =
+                        style_with_bg(Style::default().fg(fg).add_modifier(seg.modifier), bg);
                     Span::styled(seg.text.clone(), style)
                 })
                 .collect(),
@@ -169,11 +173,10 @@ impl<'a> DiffView<'a> {
             DiffTag::Insert => state.palette.diff_insert_fg,
             DiffTag::Delete => state.palette.diff_delete_fg,
         };
-        let mut style = Style::default().fg(fg);
-        if let Some(bg) = bg {
-            style = style.bg(bg);
-        }
-        Span::styled(line.value.clone(), style)
+        Span::styled(
+            line.value.clone(),
+            style_with_bg(Style::default().fg(fg), bg),
+        )
     }
 
     /// ハイライトキャッシュから該当行のセグメントを取得
@@ -221,11 +224,8 @@ impl<'a> DiffView<'a> {
             is_cursor_line,
         );
 
-        let (num_style, prefix_style) = if let Some(bg) = bg {
-            (num_style.bg(bg), prefix_style.bg(bg))
-        } else {
-            (num_style, prefix_style)
-        };
+        let num_style = style_with_bg(num_style, bg);
+        let prefix_style = style_with_bg(prefix_style, bg);
 
         // インジケータ
         let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
@@ -238,10 +238,7 @@ impl<'a> DiffView<'a> {
             ("  ", Color::Reset)
         };
 
-        let indicator_style = match bg {
-            Some(bg) => Style::default().fg(indicator_color).bg(bg),
-            None => Style::default().fg(indicator_color),
-        };
+        let indicator_style = style_with_bg(Style::default().fg(indicator_color), bg);
         let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
 
         let mut spans = vec![
@@ -358,19 +355,9 @@ impl<'a> DiffView<'a> {
                         DiffTag::Insert => p.diff_insert_fg,
                         DiffTag::Delete => p.diff_delete_fg,
                     };
-                    let style = match bg {
-                        Some(bg) => Style::default().fg(fg).bg(bg),
-                        None => Style::default().fg(fg),
-                    };
-                    let num_style = match bg {
-                        Some(bg) => Style::default().fg(p.gutter_fg).bg(bg),
-                        None => Style::default().fg(p.gutter_fg),
-                    };
-                    let pstyle = Self::prefix_style(p, line.tag);
-                    let pstyle = match bg {
-                        Some(bg) => pstyle.bg(bg),
-                        None => pstyle,
-                    };
+                    let style = style_with_bg(Style::default().fg(fg), bg);
+                    let num_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
+                    let pstyle = style_with_bg(Self::prefix_style(p, line.tag), bg);
                     let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
 
                     vec![
@@ -383,10 +370,7 @@ impl<'a> DiffView<'a> {
                 None => {
                     let bg = hunk_bg.or(cursor_bg);
                     let empty = format!("{:<width$}", "", width = content_width + 7);
-                    let empty_style = match bg {
-                        Some(bg) => Style::default().fg(p.gutter_fg).bg(bg),
-                        None => Style::default().fg(p.gutter_fg),
-                    };
+                    let empty_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
                     vec![Span::styled(empty, empty_style)]
                 }
             }
@@ -402,10 +386,7 @@ impl<'a> DiffView<'a> {
             (" ", Color::Reset)
         };
         let indicator_bg = hunk_bg.or(cursor_bg);
-        let indicator_style = match indicator_bg {
-            Some(bg) => Style::default().fg(indicator_color).bg(bg),
-            None => Style::default().fg(indicator_color),
-        };
+        let indicator_style = style_with_bg(Style::default().fg(indicator_color), indicator_bg);
 
         let mut spans = vec![Span::styled(indicator_char, indicator_style)];
         spans.extend(render_half(left));
@@ -518,10 +499,7 @@ impl<'a> DiffView<'a> {
                         None
                     };
                     line_bgs.push(bg);
-                    let num_style = match bg {
-                        Some(bg) => Style::default().fg(p.gutter_fg).bg(bg),
-                        None => Style::default().fg(p.gutter_fg),
-                    };
+                    let num_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
 
                     let mut spans = vec![Span::styled(line_num, num_style)];
 
@@ -531,18 +509,17 @@ impl<'a> DiffView<'a> {
                             let fg_raw = seg.fg.unwrap_or(p.fg);
                             let effective_bg = bg.unwrap_or(p.bg);
                             let fg = ensure_contrast(fg_raw, effective_bg);
-                            let mut style = Style::default().fg(fg).add_modifier(seg.modifier);
-                            if let Some(bg) = bg {
-                                style = style.bg(bg);
-                            }
+                            let style = style_with_bg(
+                                Style::default().fg(fg).add_modifier(seg.modifier),
+                                bg,
+                            );
                             spans.push(Span::styled(seg.text.clone(), style));
                         }
                     } else {
-                        let text_style = match bg {
-                            Some(bg) => Style::default().fg(p.fg).bg(bg),
-                            None => Style::default().fg(p.fg),
-                        };
-                        spans.push(Span::styled(text.to_string(), text_style));
+                        spans.push(Span::styled(
+                            text.to_string(),
+                            style_with_bg(Style::default().fg(p.fg), bg),
+                        ));
                     }
 
                     display_lines.push(Line::from(spans));
@@ -742,6 +719,7 @@ mod tests {
                 nodes: vec![],
             },
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.current_diff = diff;
         state.selected_path = Some("test.txt".to_string());

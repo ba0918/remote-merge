@@ -109,8 +109,18 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// 新しい AppState を構築する
-    pub fn new(local_tree: FileTree, remote_tree: FileTree, server_name: String) -> Self {
+    /// 新しい AppState を構築する。
+    /// `theme_name` で初期テーマを指定する。
+    pub fn new(
+        local_tree: FileTree,
+        remote_tree: FileTree,
+        server_name: String,
+        theme_name: &str,
+    ) -> Self {
+        let theme = crate::theme::load_theme(theme_name);
+        let palette = TuiPalette::from_theme(&theme);
+        let highlighter = SyntaxHighlighter::new(theme);
+
         let mut state = Self {
             focus: Focus::FileTree,
             local_tree,
@@ -146,12 +156,12 @@ impl AppState {
             scan_remote_tree: None,
             sensitive_patterns: Vec::new(),
             merge_scan_state: MergeScanState::default(),
-            palette: TuiPalette::from_theme(&crate::theme::load_theme(crate::theme::DEFAULT_THEME)),
+            palette,
             highlight_cache_local: HighlightCache::new(),
             highlight_cache_remote: HighlightCache::new(),
-            theme_name: crate::theme::DEFAULT_THEME.to_string(),
+            theme_name: theme_name.to_string(),
             syntax_highlight_enabled: true,
-            highlighter: SyntaxHighlighter::new(crate::theme::DEFAULT_THEME),
+            highlighter,
         };
         state.rebuild_flat_nodes();
         state
@@ -179,6 +189,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.focus, Focus::FileTree);
     }
@@ -189,6 +200,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         assert_eq!(state.focus, Focus::FileTree);
         state.toggle_focus();
@@ -206,6 +218,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -228,6 +241,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.local_cache.insert("a".to_string(), "x".to_string());
         state.remote_cache.insert("b".to_string(), "y".to_string());
@@ -248,6 +262,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -269,6 +284,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -290,6 +306,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         // 両方同じ内容 → Equal
@@ -317,6 +334,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -330,6 +348,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.available_servers = vec!["develop".to_string(), "staging".to_string()];
 
@@ -343,6 +362,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.tree_cursor = 0;
         state.show_merge_dialog(MergeDirection::LocalToRemote);
@@ -357,6 +377,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state
             .remote_cache
@@ -379,6 +400,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -398,6 +420,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
@@ -432,6 +455,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         assert_eq!(state.hunk_count(), 0);
@@ -450,6 +474,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -480,6 +505,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -512,6 +538,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -543,6 +570,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -568,6 +596,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.stage_hunk_merge(HunkDirection::RightToLeft);
@@ -583,6 +612,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -623,6 +653,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.is_connected = true;
@@ -671,6 +702,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -708,6 +740,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -762,6 +795,7 @@ mod tests {
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes.clone()),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -830,6 +864,7 @@ mod tests {
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes.clone()),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -867,6 +902,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         assert!(matches!(state.scan_state, ScanState::Idle));
         assert!(!state.diff_filter_mode);
@@ -879,6 +915,7 @@ mod tests {
             make_test_tree(vec![]),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.scan_local_tree = Some(vec![]);
         state.scan_remote_tree = Some(vec![]);
@@ -932,6 +969,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         assert_eq!(state.flat_nodes.len(), 2);
@@ -953,6 +991,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state
             .local_cache
@@ -976,6 +1015,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.scan_local_tree = Some(vec![FileNode::new_file("a.txt")]);
@@ -996,6 +1036,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.undo_stack.push_back(CacheSnapshot {
@@ -1020,6 +1061,7 @@ mod tests {
             make_test_tree(local_nodes.clone()),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.scan_local_tree = Some(local_nodes);
@@ -1041,6 +1083,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.scan_local_tree = None;
@@ -1056,6 +1099,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1082,6 +1126,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         let badge_before = state.compute_badge("a.txt", false);
@@ -1100,6 +1145,7 @@ mod tests {
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.error_paths.insert("a.txt".to_string());
@@ -1124,6 +1170,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1179,6 +1226,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         // ローカルキャッシュのみ存在（リモートは読めなかった想定）
@@ -1205,6 +1253,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1225,6 +1274,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.error_paths.insert("broken.rs".to_string());
@@ -1252,6 +1302,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -1291,6 +1342,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state.tree_cursor = 0;
@@ -1319,6 +1371,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1353,6 +1406,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1377,6 +1431,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         let badge = state.compute_badge("src", true);
@@ -1398,6 +1453,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         let badge = state.compute_badge("src", true);
@@ -1420,6 +1476,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         // a.ts だけキャッシュ済み（Equal）、b.ts は未確認
@@ -1450,6 +1507,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         // a.ts は Modified、b.ts は未確認
@@ -1475,6 +1533,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         // ローカルキャッシュのみ（リモートは未ロード）
@@ -1502,6 +1561,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(vec![]),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state
@@ -1530,6 +1590,7 @@ mod tests {
             make_test_tree(local_nodes),
             make_test_tree(remote_nodes),
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
 
         state

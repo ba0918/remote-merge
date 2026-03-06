@@ -49,7 +49,12 @@ fn test_tree_to_file_select_to_diff_flow() {
         ],
     );
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 1. 初期状態確認
     assert_eq!(state.focus, Focus::FileTree);
@@ -130,7 +135,12 @@ fn test_badge_computation() {
         ],
     );
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // キャッシュなし → Unchecked
     assert_eq!(state.compute_badge("both.txt", false), Badge::Unchecked);
@@ -205,7 +215,12 @@ fn test_cursor_navigation_bounds() {
         ],
     );
 
-    let mut state = AppState::new(local_tree, make_tree("/remote", vec![]), "dev".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        make_tree("/remote", vec![]),
+        "dev".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     assert_eq!(state.tree_cursor, 0);
 
@@ -232,7 +247,12 @@ fn test_select_file_shows_status_on_no_cache() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state.tree_cursor = 0;
     // キャッシュなしで select_file → "content not loaded" メッセージ
     state.select_file();
@@ -250,7 +270,12 @@ fn test_select_file_shows_status_on_local_only() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "hello".to_string());
@@ -271,7 +296,12 @@ fn test_select_file_shows_status_on_remote_only() {
     let local_tree = make_tree("/local", vec![]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .remote_cache
         .insert("test.txt".to_string(), "hello".to_string());
@@ -291,7 +321,12 @@ fn test_select_file_shows_not_loaded_when_cache_missing() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "hello".to_string());
@@ -314,7 +349,12 @@ fn test_preview_hunk_merge_generates_before_after() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "line1\nline2\nline3\n".to_string());
@@ -343,7 +383,12 @@ fn test_hunk_merge_preview_dialog_created() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
@@ -378,7 +423,12 @@ fn test_hunk_merge_confirm_executes() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
@@ -399,7 +449,12 @@ fn test_hunk_merge_cancel_aborts() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
@@ -455,6 +510,7 @@ fn test_show_help_sets_dialog() {
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     assert!(!state.has_dialog());
@@ -469,6 +525,7 @@ fn test_help_closes_on_esc() {
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     state.show_help();
@@ -483,7 +540,12 @@ fn make_state_with_long_diff() -> AppState {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 100行のファイルを用意し、50行目を変更
     let old: String = (0..100).map(|i| format!("line{}\n", i)).collect();
@@ -570,6 +632,7 @@ fn test_toggle_diff_mode() {
         make_tree("/local", vec![]),
         make_tree("/remote", vec![]),
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     assert_eq!(state.diff_mode, DiffMode::Unified);
@@ -675,7 +738,12 @@ fn test_side_by_side_render() {
 
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state.current_diff = Some(diff);
     state.selected_path = Some("test.txt".to_string());
     state.diff_mode = DiffMode::SideBySide;
@@ -729,7 +797,12 @@ fn test_diffview_nN_jumps_to_hunk() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 離れた2箇所に変更がある diff
     let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
@@ -760,7 +833,12 @@ fn test_scroll_does_not_cancel_pending_merge() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
     state
         .local_cache
         .insert("test.txt".to_string(), "a\nb\nc\n".to_string());
@@ -794,7 +872,12 @@ fn test_hunk_jump_cancels_pending_merge() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let old: String = (0..20).map(|i| format!("line{}\n", i)).collect();
     let mut new_text = old.clone();
@@ -827,7 +910,12 @@ fn test_hunk_cursor_follows_scroll_position() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 離れた2箇所に変更がある diff
     let old: String = (0..30).map(|i| format!("line{}\n", i)).collect();
@@ -899,7 +987,12 @@ fn test_sync_hunk_cursor_binary_search() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 3箇所の変更
     let old: String = (0..50).map(|i| format!("line{}\n", i)).collect();
@@ -936,7 +1029,12 @@ fn test_apply_hunk_creates_snapshot() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
@@ -974,7 +1072,12 @@ fn test_undo_restores_previous_cache() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let old = "aaa\nbbb\nccc\n";
     let new = "aaa\nXXX\nccc\n";
@@ -1008,7 +1111,12 @@ fn test_undo_all_restores_initial_cache() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let old = "line1\nline2\nline3\nline4\nline5\n";
     let new = "line1\nAAA\nline3\nBBB\nline5\n";
@@ -1041,7 +1149,12 @@ fn test_has_unsaved_changes() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     assert!(!state.has_unsaved_changes(), "初期状態では未保存変更なし");
 
@@ -1116,7 +1229,12 @@ fn test_equal_shows_file_content() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let content = "line1\nline2\nline3\n";
     state
@@ -1164,7 +1282,12 @@ fn test_equal_scroll_works() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let content: String = (0..50).map(|i| format!("line{}\n", i)).collect();
     state
@@ -1189,7 +1312,12 @@ fn test_key_hints_file_tree() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     let hints = state.build_key_hints();
     assert!(
@@ -1211,7 +1339,12 @@ fn test_key_hints_diff_view_no_changes() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     state
         .local_cache
@@ -1243,7 +1376,12 @@ fn test_key_hints_diff_view_with_changes() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     // 2箇所に差分を持つファイル（1つ適用しても Modified のまま残る）
     let old = "line1\nline2\nline3\nline4\nline5\n";
@@ -1282,7 +1420,12 @@ fn test_key_hints_diff_view_equal() {
     let local_tree = make_tree("/local", vec![FileNode::new_file("test.txt")]);
     let remote_tree = make_tree("/remote", vec![FileNode::new_file("test.txt")]);
 
-    let mut state = AppState::new(local_tree, remote_tree, "develop".to_string());
+    let mut state = AppState::new(
+        local_tree,
+        remote_tree,
+        "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
+    );
 
     state
         .local_cache
@@ -1322,6 +1465,7 @@ fn test_cursor_line_has_background() {
             nodes: vec![],
         },
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     let line = DiffLine {
@@ -1358,6 +1502,7 @@ fn test_cursor_line_priority_below_diff() {
             nodes: vec![],
         },
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     let line = DiffLine {
@@ -1394,6 +1539,7 @@ fn test_cursor_line_priority_below_hunk() {
             nodes: vec![],
         },
         "develop".to_string(),
+        remote_merge::theme::DEFAULT_THEME,
     );
 
     let line = DiffLine {

@@ -139,6 +139,7 @@ mod tests {
                 nodes: vec![],
             },
             "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
         );
         state.flat_nodes = flat_nodes;
         state

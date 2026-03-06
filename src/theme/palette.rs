@@ -3,6 +3,8 @@
 use ratatui::style::Color;
 use syntect::highlighting::Theme;
 
+use crate::highlight::convert;
+
 /// TUI 全体のカラーパレット。
 /// syntect テーマから導出され、全 UI 要素の色をこの構造体経由で取得する。
 #[derive(Debug, Clone)]
@@ -118,10 +120,8 @@ impl TuiPalette {
 
 /// syntect Color を ratatui Color に変換する。None の場合はフォールバック値を使う。
 fn theme_color_or(c: Option<syntect::highlighting::Color>, r: u8, g: u8, b: u8) -> Color {
-    match c {
-        Some(c) => Color::Rgb(c.r, c.g, c.b),
-        None => Color::Rgb(r, g, b),
-    }
+    c.map(convert::to_ratatui_color)
+        .unwrap_or(Color::Rgb(r, g, b))
 }
 
 /// fg 色が bg 色に対して十分なコントラストを持つか検査し、不足なら調整する。

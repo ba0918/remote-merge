@@ -151,11 +151,11 @@ impl AppState {
         self.status_message = "Cache cleared".to_string();
     }
 
-    /// 指定テーマを適用する（起動時の復元用）。
+    /// 指定テーマを適用する。
     pub fn apply_theme(&mut self, name: &str) {
         let theme = crate::theme::load_theme(name);
         self.palette = crate::theme::TuiPalette::from_theme(&theme);
-        self.highlighter.set_theme(name);
+        self.highlighter.set_theme(theme);
         self.theme_name = name.to_string();
         // ハイライトキャッシュをクリア（テーマが変わると色が変わる）
         self.highlight_cache_local.clear();

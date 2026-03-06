@@ -4,14 +4,22 @@ pub mod palette;
 
 pub use palette::TuiPalette;
 
+use std::sync::LazyLock;
 use syntect::highlighting::{Theme, ThemeSet};
 
-/// ビルトインテーマ名の一覧を返す（ソート済み）。
-pub fn builtin_theme_names() -> Vec<String> {
-    let ts = ThemeSet::load_defaults();
-    let mut names: Vec<String> = ts.themes.keys().cloned().collect();
+/// ビルトインテーマセット（デシリアライズが重いため1回だけロード）。
+static BUILTIN_THEMES: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+
+/// ビルトインテーマ名の一覧（ソート済み、不変なので1回だけ構築）。
+static BUILTIN_THEME_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut names: Vec<String> = BUILTIN_THEMES.themes.keys().cloned().collect();
     names.sort();
     names
+});
+
+/// ビルトインテーマ名の一覧を返す（ソート済み）。
+pub fn builtin_theme_names() -> &'static [String] {
+    &BUILTIN_THEME_NAMES
 }
 
 /// デフォルトテーマ名。
@@ -20,11 +28,11 @@ pub const DEFAULT_THEME: &str = "base16-ocean.dark";
 /// テーマ名から syntect Theme を取得する。
 /// 見つからない場合はデフォルトテーマにフォールバック。
 pub fn load_theme(name: &str) -> Theme {
-    let ts = ThemeSet::load_defaults();
-    ts.themes
+    BUILTIN_THEMES
+        .themes
         .get(name)
         .cloned()
-        .unwrap_or_else(|| ts.themes[DEFAULT_THEME].clone())
+        .unwrap_or_else(|| BUILTIN_THEMES.themes[DEFAULT_THEME].clone())
 }
 
 /// テーマ名リストで次のテーマに切り替える。
@@ -49,9 +57,9 @@ mod tests {
     #[test]
     fn test_builtin_theme_names_sorted() {
         let names = builtin_theme_names();
-        let mut sorted = names.clone();
+        let mut sorted = names.to_vec();
         sorted.sort();
-        assert_eq!(names, sorted);
+        assert_eq!(names, &sorted);
     }
 
     #[test]

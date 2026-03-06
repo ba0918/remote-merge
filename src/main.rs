@@ -153,17 +153,18 @@ fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
         }
     };
 
-    let mut app_state = AppState::new(local_tree, remote_tree, server_name.clone());
+    // 永続化された UI 状態を復元（テーマなど）
+    let persisted = remote_merge::state::load_state();
+    let mut app_state = AppState::new(
+        local_tree,
+        remote_tree,
+        server_name.clone(),
+        &persisted.theme,
+    );
     app_state.available_servers = available_servers;
     app_state.is_connected = is_connected;
     app_state.exclude_patterns = config.filter.exclude.clone();
     app_state.sensitive_patterns = config.filter.sensitive.clone();
-
-    // 永続化された UI 状態を復元（テーマなど）
-    let persisted = remote_merge::state::load_state();
-    if persisted.theme != remote_merge::theme::DEFAULT_THEME {
-        app_state.apply_theme(&persisted.theme);
-    }
 
     if !is_connected {
         app_state.status_message =

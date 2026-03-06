@@ -1,12 +1,17 @@
 //! シンタックスハイライトエンジン。
 //! syntect を使ってファイル内容を行ごとにハイライトする。
 
+use std::sync::LazyLock;
+
 use ratatui::style::{Color, Modifier};
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style as SyntectStyle, Theme, ThemeSet};
+use syntect::highlighting::{Style as SyntectStyle, Theme};
 use syntect::parsing::SyntaxSet;
 
 use crate::highlight::convert;
+
+/// SyntaxSet（パース定義のデシリアライズが重いため1回だけロード）。
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 
 /// ハイライト済みの1セグメント（1行は複数セグメントで構成）
 #[derive(Debug, Clone, PartialEq)]
@@ -20,36 +25,24 @@ pub struct StyledSegment {
 }
 
 /// 1ファイル分のハイライト結果。
-/// `lines[line_index]` = そのの行のセグメントリスト。
+/// `lines[line_index]` = その行のセグメントリスト。
 pub type HighlightedFile = Vec<Vec<StyledSegment>>;
 
 /// シンタックスハイライトエンジン。
-/// SyntaxSet と ThemeSet を保持し、ファイル内容をハイライトする。
+/// Theme を保持し、ファイル内容をハイライトする。
 pub struct SyntaxHighlighter {
-    syntax_set: SyntaxSet,
     theme: Theme,
 }
 
 impl SyntaxHighlighter {
-    /// デフォルトテーマでエンジンを初期化する。
-    pub fn new(theme_name: &str) -> Self {
-        let syntax_set = SyntaxSet::load_defaults_newlines();
-        let ts = ThemeSet::load_defaults();
-        let theme = ts
-            .themes
-            .get(theme_name)
-            .cloned()
-            .unwrap_or_else(|| ts.themes[crate::theme::DEFAULT_THEME].clone());
-
-        Self { syntax_set, theme }
+    /// 指定テーマでエンジンを初期化する。
+    pub fn new(theme: Theme) -> Self {
+        Self { theme }
     }
 
     /// テーマを変更する。
-    pub fn set_theme(&mut self, theme_name: &str) {
-        let ts = ThemeSet::load_defaults();
-        if let Some(t) = ts.themes.get(theme_name) {
-            self.theme = t.clone();
-        }
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
     /// 現在のテーマへの参照を返す。
@@ -62,13 +55,13 @@ impl SyntaxHighlighter {
     /// `filename` はファイル名（拡張子や名前から言語を検出するため）。
     /// `content` はファイルの全テキスト。
     pub fn highlight_file(&self, filename: &str, content: &str) -> HighlightedFile {
-        let syntax = self
-            .syntax_set
+        let ss = &*SYNTAX_SET;
+        let syntax = ss
             .find_syntax_for_file(filename)
             .ok()
             .flatten()
-            .or_else(|| detect_by_first_line(&self.syntax_set, content))
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+            .or_else(|| detect_by_first_line(ss, content))
+            .unwrap_or_else(|| ss.find_syntax_plain_text());
 
         let mut highlighter = HighlightLines::new(syntax, &self.theme);
 
@@ -76,7 +69,7 @@ impl SyntaxHighlighter {
             .lines()
             .map(|line| {
                 let line_with_newline = format!("{}\n", line);
-                match highlighter.highlight_line(&line_with_newline, &self.syntax_set) {
+                match highlighter.highlight_line(&line_with_newline, ss) {
                     Ok(ranges) => {
                         let ranges: Vec<(SyntectStyle, &str)> = ranges;
                         ranges
@@ -118,7 +111,7 @@ mod tests {
     use super::*;
 
     fn make_engine() -> SyntaxHighlighter {
-        SyntaxHighlighter::new("base16-ocean.dark")
+        SyntaxHighlighter::new(crate::theme::load_theme("base16-ocean.dark"))
     }
 
     #[test]
@@ -211,7 +204,7 @@ world";"#;
     #[test]
     fn test_set_theme() {
         let mut engine = make_engine();
-        engine.set_theme("Solarized (dark)");
+        engine.set_theme(crate::theme::load_theme("Solarized (dark)"));
         // テーマ変更後もハイライトが動作すること
         let result = engine.highlight_file("test.rs", "fn main() {}");
         assert!(!result.is_empty());
