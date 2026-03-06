@@ -256,36 +256,20 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
 
     let bar_width = (chunks[1].width as usize).saturating_sub(4);
 
-    match progress.total {
+    // バー文字列と進捗テキストを分岐で生成し、描画は共通化
+    let (bar, text) = match progress.total {
         Some(total) if total > 0 => {
-            // ── total が確定しているケース ──
             let filled = (progress.current as f64 / total as f64 * bar_width as f64) as usize;
             let bar = format!(
                 "  [{}{}]",
                 "█".repeat(filled.min(bar_width)),
                 "░".repeat(bar_width.saturating_sub(filled))
             );
-            let bar_para = Paragraph::new(Line::from(Span::styled(
-                bar,
-                Style::default().fg(Color::Cyan),
-            )));
-            frame.render_widget(bar_para, chunks[1]);
-
             let pct = (progress.current as f64 / total as f64 * 100.0).min(100.0);
             let text = format!("{} / {} files ({:.0}%)", progress.current, total, pct);
-            let msg = Paragraph::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    text,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            frame.render_widget(msg, chunks[2]);
+            (bar, text)
         }
         _ => {
-            // ── total 不明（ディレクトリ走査フェーズ）──
             // バウンスアニメーション: current を使って位置をずらす
             let marker_width = 4.min(bar_width);
             let travel = bar_width.saturating_sub(marker_width);
@@ -306,25 +290,27 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
                 "━".repeat(marker_width),
                 "░".repeat(bar_width.saturating_sub(pos + marker_width)),
             );
-            let bar_para = Paragraph::new(Line::from(Span::styled(
-                bar,
-                Style::default().fg(Color::Cyan),
-            )));
-            frame.render_widget(bar_para, chunks[1]);
-
             let text = format!("Discovering files... {} found", progress.current);
-            let msg = Paragraph::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    text,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            frame.render_widget(msg, chunks[2]);
+            (bar, text)
         }
-    }
+    };
+
+    let bar_para = Paragraph::new(Line::from(Span::styled(
+        bar,
+        Style::default().fg(Color::Cyan),
+    )));
+    frame.render_widget(bar_para, chunks[1]);
+
+    let msg = Paragraph::new(Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            text,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    frame.render_widget(msg, chunks[2]);
 
     // 処理中パス表示
     if let Some(ref path) = progress.current_path {
@@ -352,11 +338,15 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
 }
 
 /// パスが長すぎる場合に先頭を省略する（例: `.../handler/merge_exec.rs`）
+///
+/// UTF-8 文字境界を考慮し、マルチバイト文字を含むパスでもパニックしない。
 fn truncate_path(path: &str, max_len: usize) -> String {
-    if path.len() <= max_len {
+    if path.chars().count() <= max_len {
         return path.to_string();
     }
-    let suffix = &path[path.len().saturating_sub(max_len.saturating_sub(3))..];
+    let suffix_len = max_len.saturating_sub(3);
+    let skip = path.chars().count().saturating_sub(suffix_len);
+    let suffix: String = path.chars().skip(skip).collect();
     format!("...{}", suffix)
 }
 
@@ -428,7 +418,7 @@ mod tests {
         let path = "src/handler/merge_exec/very_long_name.rs";
         let result = truncate_path(path, 20);
         assert!(result.starts_with("..."));
-        assert!(result.len() <= 20);
+        assert!(result.chars().count() <= 20);
         assert!(result.ends_with(".rs"));
     }
 
@@ -437,6 +427,16 @@ mod tests {
         let path = "src/handler/merge_exec.rs";
         let result = truncate_path(path, 5);
         assert!(result.starts_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_path_multibyte() {
+        // マルチバイト文字を含むパスでもパニックしない
+        let path = "src/日本語ディレクトリ/設定.rs";
+        let result = truncate_path(path, 10);
+        assert!(result.starts_with("..."));
+        assert!(result.chars().count() <= 10);
+        assert!(result.ends_with(".rs"));
     }
 
     #[test]

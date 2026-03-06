@@ -738,8 +738,7 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
 
     // 未保存変更がなければキャッシュを無効化して最新を取得
     if !state.has_unsaved_changes() {
-        state.local_cache.remove(path);
-        state.remote_cache.remove(path);
+        state.invalidate_cache_for_paths(std::slice::from_ref(path));
     }
 
     // ローカルキャッシュ

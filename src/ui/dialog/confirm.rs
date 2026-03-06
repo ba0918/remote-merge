@@ -40,20 +40,10 @@ impl ConfirmDialog {
 
     /// ダイアログのメッセージを生成
     pub fn message(&self) -> String {
-        match self.direction {
-            MergeDirection::LocalToRemote => {
-                format!(
-                    "Merge {} from {} → {}?",
-                    self.file_path, self.source_name, self.target_name
-                )
-            }
-            MergeDirection::RemoteToLocal => {
-                format!(
-                    "Merge {} from {} → {}?",
-                    self.file_path, self.source_name, self.target_name
-                )
-            }
-        }
+        format!(
+            "Merge {} from {} → {}?",
+            self.file_path, self.source_name, self.target_name
+        )
     }
 }
 
