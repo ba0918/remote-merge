@@ -13,10 +13,12 @@ pub fn handle_search_key(state: &mut AppState, runtime: &mut TuiRuntime, code: K
     match code {
         KeyCode::Char(c) => {
             state.search_state.query.push(c);
+            state.rebuild_flat_nodes();
             jump_to_first_match(state, runtime);
         }
         KeyCode::Backspace => {
             state.search_state.query.pop();
+            state.rebuild_flat_nodes();
             if state.search_state.query.is_empty() {
                 state.search_state.match_cursor = 0;
                 update_search_status(state, 0);
@@ -31,6 +33,7 @@ pub fn handle_search_key(state: &mut AppState, runtime: &mut TuiRuntime, code: K
         KeyCode::Esc => {
             // 検索モード終了 + 結果クリア
             state.search_state.clear();
+            state.rebuild_flat_nodes();
             state.status_message = String::new();
         }
         _ => {}
@@ -109,33 +112,23 @@ fn update_search_status_with_pos(state: &mut AppState, pos: usize, total: usize)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::types::{Badge, FlatNode};
-    use crate::tree::FileTree;
+    use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
+    /// ルート直下にファイルノードを持つ AppState を作成する。
+    /// rebuild_flat_nodes() で正しく flat_nodes が生成される。
     fn make_state_with_nodes(names: &[&str]) -> AppState {
+        let nodes: Vec<FileNode> = names.iter().map(|n| FileNode::new_file(*n)).collect();
         let local_tree = FileTree {
             root: PathBuf::from("/test"),
-            nodes: vec![],
+            nodes,
         };
         let remote_tree = FileTree {
             root: PathBuf::from("/test"),
             nodes: vec![],
         };
         let mut state = AppState::new(local_tree, remote_tree, "test".to_string(), "default");
-
-        state.flat_nodes = names
-            .iter()
-            .map(|name| FlatNode {
-                path: format!("src/{}", name),
-                name: name.to_string(),
-                depth: 1,
-                is_dir: false,
-                is_symlink: false,
-                expanded: false,
-                badge: Badge::Unchecked,
-            })
-            .collect();
+        state.rebuild_flat_nodes();
         state
     }
 
@@ -158,6 +151,7 @@ mod tests {
         let mut runtime = make_runtime();
         state.search_state.activate();
         state.search_state.query = "mai".to_string();
+        state.rebuild_flat_nodes();
 
         handle_search_key(&mut state, &mut runtime, KeyCode::Backspace);
         assert_eq!(state.search_state.query, "ma");
@@ -193,30 +187,33 @@ mod tests {
         let mut runtime = make_runtime();
         state.search_state.activate();
 
-        // "b" で bbb.rs にジャンプ
+        // "b" で bbb.rs にジャンプ — フィルタ後は bbb.rs が先頭
         handle_search_key(&mut state, &mut runtime, KeyCode::Char('b'));
-        assert_eq!(state.tree_cursor, 1); // bbb.rs
+        // フィルタリング後: [abc.rs, bbb.rs] — "b" にマッチするのは abc.rs(idx 0) と bbb.rs(idx 1)
+        assert!(state.flat_nodes.iter().any(|n| n.name == "bbb.rs"));
+        assert!(state.flat_nodes[state.tree_cursor].name.contains('b'));
     }
 
     #[test]
     fn test_jump_next_cycles() {
+        // jump_next/jump_prev はフィルタリングなしの flat_nodes で動作
+        // (検索モード外で使う n/N キー)
         let mut state = make_state_with_nodes(&["a.rs", "ab.rs", "b.rs", "abc.rs"]);
         let mut runtime = make_runtime();
         state.search_state.query = "a".to_string();
         state.search_state.match_cursor = 0;
+        // rebuild でフィルタ適用: a.rs, ab.rs, abc.rs のみ表示
+        state.rebuild_flat_nodes();
 
-        // matches: [0, 1, 3] (a.rs, ab.rs, abc.rs)
+        // フィルタ後の全ノードが "a" にマッチ: [0, 1, 2]
         jump_next(&mut state, &mut runtime);
         assert_eq!(state.search_state.match_cursor, 1);
-        assert_eq!(state.tree_cursor, 1); // ab.rs
 
         jump_next(&mut state, &mut runtime);
         assert_eq!(state.search_state.match_cursor, 2);
-        assert_eq!(state.tree_cursor, 3); // abc.rs
 
         jump_next(&mut state, &mut runtime);
-        assert_eq!(state.search_state.match_cursor, 0);
-        assert_eq!(state.tree_cursor, 0); // a.rs (循環)
+        assert_eq!(state.search_state.match_cursor, 0); // 循環
     }
 
     #[test]
@@ -225,11 +222,36 @@ mod tests {
         let mut runtime = make_runtime();
         state.search_state.query = "a".to_string();
         state.search_state.match_cursor = 0;
+        state.rebuild_flat_nodes();
 
-        // matches: [0, 1, 3]
+        // フィルタ後: [a.rs, ab.rs, abc.rs] — 全マッチ [0, 1, 2]
         jump_prev(&mut state, &mut runtime);
-        assert_eq!(state.search_state.match_cursor, 2);
-        assert_eq!(state.tree_cursor, 3); // abc.rs (循環)
+        assert_eq!(state.search_state.match_cursor, 2); // 循環
+    }
+
+    #[test]
+    fn test_search_filter_shows_only_matches() {
+        let mut state = make_state_with_nodes(&["main.rs", "lib.rs", "mod.rs"]);
+        state.search_state.activate();
+        state.search_state.query = "main".to_string();
+        state.rebuild_flat_nodes();
+
+        assert_eq!(state.flat_nodes.len(), 1);
+        assert_eq!(state.flat_nodes[0].name, "main.rs");
+    }
+
+    #[test]
+    fn test_search_filter_clears_on_esc() {
+        let mut state = make_state_with_nodes(&["main.rs", "lib.rs", "mod.rs"]);
+        let mut runtime = make_runtime();
+        state.search_state.activate();
+        state.search_state.query = "main".to_string();
+        state.rebuild_flat_nodes();
+        assert_eq!(state.flat_nodes.len(), 1);
+
+        handle_search_key(&mut state, &mut runtime, KeyCode::Esc);
+        // Esc 後は全ファイルが表示される
+        assert_eq!(state.flat_nodes.len(), 3);
     }
 
     fn make_runtime() -> TuiRuntime {

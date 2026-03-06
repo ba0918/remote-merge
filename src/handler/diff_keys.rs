@@ -11,6 +11,12 @@ use super::reconnect::execute_reconnect;
 
 /// DiffView フォーカス時のキーハンドリング
 pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: KeyCode) {
+    // Diff 検索モード中は diff_search_keys にディスパッチ
+    if state.diff_search_state.active {
+        super::diff_search_keys::handle_diff_search_key(state, code);
+        return;
+    }
+
     match code {
         KeyCode::Char('q') => {
             if state.has_unsaved_changes() {
@@ -22,6 +28,9 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
         KeyCode::Esc => {
             if state.pending_hunk_merge.is_some() {
                 state.cancel_hunk_merge();
+            } else if state.diff_search_state.has_query() {
+                state.diff_search_state.clear();
+                state.status_message = String::new();
             } else if state.has_unsaved_changes() {
                 state.dialog = DialogState::UnsavedChanges;
             } else {
@@ -41,12 +50,20 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             state.sync_hunk_cursor_to_scroll();
         }
         KeyCode::Char('n') => {
-            state.cancel_hunk_merge();
-            state.hunk_cursor_down();
+            if state.diff_search_state.has_query() {
+                super::diff_search_keys::jump_next_diff(state);
+            } else {
+                state.cancel_hunk_merge();
+                state.hunk_cursor_down();
+            }
         }
         KeyCode::Char('N') => {
-            state.cancel_hunk_merge();
-            state.hunk_cursor_up();
+            if state.diff_search_state.has_query() {
+                super::diff_search_keys::jump_prev_diff(state);
+            } else {
+                state.cancel_hunk_merge();
+                state.hunk_cursor_up();
+            }
         }
         KeyCode::Right | KeyCode::Char('l') => {
             if state.is_connected {
@@ -96,6 +113,10 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
         KeyCode::Char('d') => state.toggle_diff_mode(),
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),
+        KeyCode::Char('/') => {
+            state.diff_search_state.activate();
+            state.status_message = "/".to_string();
+        }
         KeyCode::Char('?') => state.show_help(),
         _ => {}
     }

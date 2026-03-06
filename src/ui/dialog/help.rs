@@ -62,8 +62,9 @@ impl HelpOverlay {
                     title: "Diff View".to_string(),
                     bindings: vec![
                         ("j/k/↑/↓".to_string(), "Scroll one line".to_string()),
-                        ("n".to_string(), "Jump to next hunk".to_string()),
-                        ("N".to_string(), "Jump to prev hunk".to_string()),
+                        ("n".to_string(), "Next hunk / search match".to_string()),
+                        ("N".to_string(), "Prev hunk / search match".to_string()),
+                        ("/".to_string(), "Search in diff".to_string()),
                         ("PageDown".to_string(), "Page down".to_string()),
                         ("PageUp".to_string(), "Page up".to_string()),
                         ("Home".to_string(), "Go to top".to_string()),

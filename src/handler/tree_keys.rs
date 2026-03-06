@@ -40,6 +40,7 @@ pub fn handle_tree_key(
             } else if state.search_state.has_query() && code == KeyCode::Esc {
                 // 検索結果がある場合は Esc で検索クリア（quit しない）
                 state.search_state.clear();
+                state.rebuild_flat_nodes();
                 state.status_message = String::new();
             } else {
                 state.should_quit = true;

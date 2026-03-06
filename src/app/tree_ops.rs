@@ -82,6 +82,19 @@ impl AppState {
             return;
         }
 
+        // 検索フィルタリング: クエリにマッチしないファイルをスキップ
+        let search_query = &self.search_state.query;
+        if self.search_state.has_query() {
+            if !node.is_dir {
+                let query_lower = search_query.to_lowercase();
+                if !node.name.to_lowercase().contains(&query_lower) {
+                    return;
+                }
+            } else if !super::search::dir_has_search_matches(node, search_query) {
+                return;
+            }
+        }
+
         out.push(FlatNode {
             path: path.clone(),
             name: node.name.clone(),

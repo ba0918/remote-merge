@@ -2,7 +2,7 @@
 //!
 //! 純粋関数で構成し、UI やイベント処理から独立してテスト可能にする。
 
-use super::types::FlatNode;
+use super::types::{FlatNode, MergedNode};
 
 /// ファイル検索の状態
 #[derive(Debug, Clone, Default)]
@@ -79,6 +79,26 @@ pub fn prev_match(current: usize, total: usize) -> usize {
     } else {
         current - 1
     }
+}
+
+/// MergedNode ツリーのディレクトリ配下に検索クエリにマッチするノードが存在するか（再帰チェック）。
+///
+/// ツリーフィルタリング時にマッチする子孫がいないディレクトリをスキップするために使用する。
+pub fn dir_has_search_matches(node: &MergedNode, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let query_lower = query.to_lowercase();
+    for child in &node.children {
+        if child.is_dir {
+            if dir_has_search_matches(child, query) {
+                return true;
+            }
+        } else if child.name.to_lowercase().contains(&query_lower) {
+            return true;
+        }
+    }
+    false
 }
 
 /// 現在のカーソル位置から最も近い一致を探す。
@@ -256,5 +276,57 @@ mod tests {
         assert!(!state.active);
         assert!(state.query.is_empty());
         assert_eq!(state.match_cursor, 0);
+    }
+
+    // ── dir_has_search_matches ──
+
+    fn make_merged_file(name: &str) -> MergedNode {
+        MergedNode {
+            name: name.to_string(),
+            is_dir: false,
+            is_symlink: false,
+            children: vec![],
+        }
+    }
+
+    fn make_merged_dir(name: &str, children: Vec<MergedNode>) -> MergedNode {
+        MergedNode {
+            name: name.to_string(),
+            is_dir: true,
+            is_symlink: false,
+            children,
+        }
+    }
+
+    #[test]
+    fn test_dir_has_search_matches_direct_child() {
+        let dir = make_merged_dir(
+            "src",
+            vec![make_merged_file("main.rs"), make_merged_file("lib.rs")],
+        );
+        assert!(dir_has_search_matches(&dir, "main"));
+        assert!(!dir_has_search_matches(&dir, "xyz"));
+    }
+
+    #[test]
+    fn test_dir_has_search_matches_nested() {
+        let dir = make_merged_dir(
+            "src",
+            vec![make_merged_dir("app", vec![make_merged_file("search.rs")])],
+        );
+        assert!(dir_has_search_matches(&dir, "search"));
+        assert!(!dir_has_search_matches(&dir, "xyz"));
+    }
+
+    #[test]
+    fn test_dir_has_search_matches_empty_query() {
+        let dir = make_merged_dir("src", vec![]);
+        assert!(dir_has_search_matches(&dir, ""));
+    }
+
+    #[test]
+    fn test_dir_has_search_matches_case_insensitive() {
+        let dir = make_merged_dir("src", vec![make_merged_file("README.md")]);
+        assert!(dir_has_search_matches(&dir, "readme"));
     }
 }

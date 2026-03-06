@@ -143,27 +143,34 @@ impl<'a> DiffView<'a> {
         }
     }
 
-    /// テキスト部分の Span リストを構築する（ハイライト対応）
+    /// テキスト部分の Span リストを構築する（ハイライト + 検索マッチ対応）
     fn text_spans(state: &AppState, line: &DiffLine, bg: Option<Color>) -> Vec<Span<'static>> {
-        if !state.syntax_highlight_enabled {
-            return vec![Self::plain_text_span(state, line, bg)];
-        }
+        let base_spans = if !state.syntax_highlight_enabled {
+            vec![Self::plain_text_span(state, line, bg)]
+        } else {
+            let segments = Self::get_highlight_segments(state, line);
+            match segments {
+                Some(segs) if !segs.is_empty() => segs
+                    .iter()
+                    .map(|seg| {
+                        let fg_raw = seg.fg.unwrap_or(state.palette.fg);
+                        let effective_bg = bg.unwrap_or(state.palette.bg);
+                        let fg = ensure_contrast(fg_raw, effective_bg);
+                        let style =
+                            style_with_bg(Style::default().fg(fg).add_modifier(seg.modifier), bg);
+                        Span::styled(seg.text.clone(), style)
+                    })
+                    .collect(),
+                _ => vec![Self::plain_text_span(state, line, bg)],
+            }
+        };
 
-        // ハイライトキャッシュから該当行のセグメントを取得
-        let segments = Self::get_highlight_segments(state, line);
-        match segments {
-            Some(segs) if !segs.is_empty() => segs
-                .iter()
-                .map(|seg| {
-                    let fg_raw = seg.fg.unwrap_or(state.palette.fg);
-                    let effective_bg = bg.unwrap_or(state.palette.bg);
-                    let fg = ensure_contrast(fg_raw, effective_bg);
-                    let style =
-                        style_with_bg(Style::default().fg(fg).add_modifier(seg.modifier), bg);
-                    Span::styled(seg.text.clone(), style)
-                })
-                .collect(),
-            _ => vec![Self::plain_text_span(state, line, bg)],
+        // Diff 検索ハイライトを適用
+        let query = &state.diff_search_state.query;
+        if query.is_empty() {
+            base_spans
+        } else {
+            apply_search_highlight(base_spans, query, state.palette.accent)
         }
     }
 
@@ -680,23 +687,33 @@ impl<'a> DiffView<'a> {
                     let mut spans = vec![Span::styled(line_num, num_style)];
 
                     // ハイライトがあれば適用
-                    if let Some(hl) = highlight_data.and_then(|h| h.get(i)) {
-                        for seg in hl {
-                            let fg_raw = seg.fg.unwrap_or(p.fg);
-                            let effective_bg = bg.unwrap_or(p.bg);
-                            let fg = ensure_contrast(fg_raw, effective_bg);
-                            let style = style_with_bg(
-                                Style::default().fg(fg).add_modifier(seg.modifier),
-                                bg,
-                            );
-                            spans.push(Span::styled(seg.text.clone(), style));
-                        }
-                    } else {
-                        spans.push(Span::styled(
-                            text.to_string(),
-                            style_with_bg(Style::default().fg(p.fg), bg),
-                        ));
+                    let mut text_spans: Vec<Span<'_>> =
+                        if let Some(hl) = highlight_data.and_then(|h| h.get(i)) {
+                            hl.iter()
+                                .map(|seg| {
+                                    let fg_raw = seg.fg.unwrap_or(p.fg);
+                                    let effective_bg = bg.unwrap_or(p.bg);
+                                    let fg = ensure_contrast(fg_raw, effective_bg);
+                                    let style = style_with_bg(
+                                        Style::default().fg(fg).add_modifier(seg.modifier),
+                                        bg,
+                                    );
+                                    Span::styled(seg.text.clone(), style)
+                                })
+                                .collect()
+                        } else {
+                            vec![Span::styled(
+                                text.to_string(),
+                                style_with_bg(Style::default().fg(p.fg), bg),
+                            )]
+                        };
+
+                    // Diff 検索ハイライト適用
+                    let diff_query = &self.state.diff_search_state.query;
+                    if !diff_query.is_empty() {
+                        text_spans = apply_search_highlight(text_spans, diff_query, p.accent);
                     }
+                    spans.extend(text_spans);
 
                     display_lines.push(Line::from(spans));
                 }
@@ -874,6 +891,46 @@ impl<'a> DiffView<'a> {
             }
         }
     }
+}
+
+/// Span リストに対して検索クエリのマッチ部分をハイライトする。
+///
+/// 各 Span のテキストを case-insensitive で分割し、マッチ部分に
+/// 黒文字+アクセント背景のスタイルを適用する。
+fn apply_search_highlight<'a>(
+    spans: Vec<Span<'a>>,
+    query: &str,
+    highlight_color: Color,
+) -> Vec<Span<'a>> {
+    if query.is_empty() {
+        return spans;
+    }
+    let query_lower = query.to_lowercase();
+    let highlight_style = Style::default()
+        .fg(Color::Black)
+        .bg(highlight_color)
+        .add_modifier(Modifier::BOLD);
+
+    let mut result = Vec::new();
+    for span in spans {
+        let text = span.content.as_ref();
+        let text_lower = text.to_lowercase();
+        let base_style = span.style;
+
+        let mut last = 0;
+        for (start, _) in text_lower.match_indices(&query_lower) {
+            let end = start + query.len();
+            if start > last {
+                result.push(Span::styled(text[last..start].to_string(), base_style));
+            }
+            result.push(Span::styled(text[start..end].to_string(), highlight_style));
+            last = end;
+        }
+        if last < text.len() {
+            result.push(Span::styled(text[last..].to_string(), base_style));
+        }
+    }
+    result
 }
 
 #[cfg(test)]
