@@ -154,3 +154,101 @@ pub struct MergedNode {
     pub is_symlink: bool,
     pub children: Vec<MergedNode>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_badge_label_all_variants() {
+        assert_eq!(Badge::Modified.label(), "[M]");
+        assert_eq!(Badge::Equal.label(), "[=]");
+        assert_eq!(Badge::LocalOnly.label(), "[+]");
+        assert_eq!(Badge::RemoteOnly.label(), "[-]");
+        assert_eq!(Badge::Unchecked.label(), "[?]");
+        assert_eq!(Badge::Loading.label(), "[..]");
+        assert_eq!(Badge::Error.label(), "[!]");
+    }
+
+    #[test]
+    fn test_badge_equality() {
+        assert_eq!(Badge::Modified, Badge::Modified);
+        assert_ne!(Badge::Modified, Badge::Equal);
+    }
+
+    #[test]
+    fn test_max_undo_stack_value() {
+        assert_eq!(MAX_UNDO_STACK, 50);
+    }
+
+    #[test]
+    fn test_focus_variants() {
+        assert_eq!(Focus::FileTree, Focus::FileTree);
+        assert_ne!(Focus::FileTree, Focus::DiffView);
+    }
+
+    #[test]
+    fn test_diff_mode_variants() {
+        assert_eq!(DiffMode::Unified, DiffMode::Unified);
+        assert_ne!(DiffMode::Unified, DiffMode::SideBySide);
+    }
+
+    #[test]
+    fn test_scan_state_default_is_idle() {
+        let state = ScanState::default();
+        assert!(matches!(state, ScanState::Idle));
+    }
+
+    #[test]
+    fn test_merge_scan_state_default_is_idle() {
+        let state = MergeScanState::default();
+        assert!(matches!(state, MergeScanState::Idle));
+    }
+
+    #[test]
+    fn test_flat_node_construction() {
+        let node = FlatNode {
+            path: "src/main.rs".to_string(),
+            name: "main.rs".to_string(),
+            depth: 1,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Modified,
+        };
+        assert_eq!(node.path, "src/main.rs");
+        assert_eq!(node.badge, Badge::Modified);
+        assert!(!node.is_dir);
+    }
+
+    #[test]
+    fn test_cache_snapshot_clone() {
+        let snapshot = CacheSnapshot {
+            local_content: "hello".to_string(),
+            remote_content: "world".to_string(),
+            diff: None,
+        };
+        let cloned = snapshot.clone();
+        assert_eq!(cloned.local_content, "hello");
+        assert_eq!(cloned.remote_content, "world");
+        assert!(cloned.diff.is_none());
+    }
+
+    #[test]
+    fn test_merged_node_with_children() {
+        let child = MergedNode {
+            name: "file.rs".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            children: vec![],
+        };
+        let parent = MergedNode {
+            name: "src".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            children: vec![child],
+        };
+        assert_eq!(parent.children.len(), 1);
+        assert_eq!(parent.children[0].name, "file.rs");
+    }
+}

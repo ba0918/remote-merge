@@ -12,3 +12,7 @@ docs/status.md
 # Example
 demo
 .remote-merge.toml
+
+# Coverage
+lcov.info
+/coverage/

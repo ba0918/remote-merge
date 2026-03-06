@@ -204,3 +204,284 @@ impl AppState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::{Badge, FlatNode};
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    fn make_state_with_file(path: &str) -> AppState {
+        let local_tree = make_test_tree(vec![FileNode::new_file(path)]);
+        let remote_tree = make_test_tree(vec![FileNode::new_file(path)]);
+        let mut state = AppState::new(
+            local_tree,
+            remote_tree,
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        // flat_nodes にファイルが入るように設定
+        state.flat_nodes = vec![FlatNode {
+            path: path.to_string(),
+            name: path.to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+        }];
+        state
+    }
+
+    #[test]
+    fn test_select_file_both_cached_equal() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "hello".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "hello".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert_eq!(state.selected_path, Some("a.rs".to_string()));
+        assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+    }
+
+    #[test]
+    fn test_select_file_both_cached_modified() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "new".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(matches!(
+            state.current_diff,
+            Some(DiffResult::Modified { .. })
+        ));
+    }
+
+    #[test]
+    fn test_select_file_local_only() {
+        let local_tree = make_test_tree(vec![FileNode::new_file("a.rs")]);
+        let remote_tree = make_test_tree(vec![]);
+        let mut state = AppState::new(
+            local_tree,
+            remote_tree,
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.flat_nodes = vec![FlatNode {
+            path: "a.rs".to_string(),
+            name: "a.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+        }];
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "content".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.status_message.contains("local only"));
+    }
+
+    #[test]
+    fn test_select_file_remote_only() {
+        let local_tree = make_test_tree(vec![]);
+        let remote_tree = make_test_tree(vec![FileNode::new_file("a.rs")]);
+        let mut state = AppState::new(
+            local_tree,
+            remote_tree,
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.flat_nodes = vec![FlatNode {
+            path: "a.rs".to_string(),
+            name: "a.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+        }];
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "content".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.status_message.contains("remote only"));
+    }
+
+    #[test]
+    fn test_select_file_neither_cached() {
+        let mut state = make_state_with_file("a.rs");
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.status_message.contains("not loaded"));
+        assert!(state.current_diff.is_none());
+    }
+
+    #[test]
+    fn test_select_file_dir_skipped() {
+        let mut state = make_state_with_file("src");
+        state.flat_nodes[0].is_dir = true;
+        state.tree_cursor = 0;
+        let old_selected = state.selected_path.clone();
+        state.select_file();
+        assert_eq!(state.selected_path, old_selected);
+    }
+
+    #[test]
+    fn test_select_file_out_of_bounds() {
+        let mut state = make_state_with_file("a.rs");
+        state.tree_cursor = 999;
+        state.select_file();
+        // 何も変わらない
+        assert!(state.selected_path.is_none());
+    }
+
+    #[test]
+    fn test_select_file_resets_scroll() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state.diff_scroll = 10;
+        state.diff_cursor = 5;
+        state.hunk_cursor = 3;
+        state.tree_cursor = 0;
+        state.select_file();
+        assert_eq!(state.diff_scroll, 0);
+        assert_eq!(state.diff_cursor, 0);
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_current_path() {
+        let state = make_state_with_file("a.rs");
+        assert_eq!(state.current_path(), Some("a.rs".to_string()));
+    }
+
+    #[test]
+    fn test_current_path_empty() {
+        let state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.current_path(), None);
+    }
+
+    #[test]
+    fn test_current_is_dir_false() {
+        let state = make_state_with_file("a.rs");
+        assert!(!state.current_is_dir());
+    }
+
+    #[test]
+    fn test_current_is_dir_true() {
+        let mut state = make_state_with_file("src");
+        state.flat_nodes[0].is_dir = true;
+        assert!(state.current_is_dir());
+    }
+
+    #[test]
+    fn test_invalidate_cache_for_paths() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "y".to_string());
+        state
+            .local_cache
+            .insert("b.rs".to_string(), "z".to_string());
+        state.invalidate_cache_for_paths(&["a.rs".to_string()]);
+        assert!(!state.local_cache.contains_key("a.rs"));
+        assert!(!state.remote_cache.contains_key("a.rs"));
+        assert!(state.local_cache.contains_key("b.rs"));
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "y".to_string());
+        state.error_paths.insert("a.rs".to_string());
+        state.selected_path = Some("a.rs".to_string());
+        state.current_diff = Some(DiffResult::Equal);
+        state.clear_cache();
+        assert!(state.local_cache.is_empty());
+        assert!(state.remote_cache.is_empty());
+        assert!(state.error_paths.is_empty());
+        assert!(state.selected_path.is_none());
+        assert!(state.current_diff.is_none());
+        assert!(state.status_message.contains("Cache cleared"));
+    }
+
+    #[test]
+    fn test_toggle_syntax_highlight() {
+        let mut state = make_state_with_file("a.rs");
+        assert!(state.syntax_highlight_enabled);
+        state.toggle_syntax_highlight();
+        assert!(!state.syntax_highlight_enabled);
+        assert!(state.status_message.contains("OFF"));
+        state.toggle_syntax_highlight();
+        assert!(state.syntax_highlight_enabled);
+        assert!(state.status_message.contains("ON"));
+    }
+
+    #[test]
+    fn test_select_file_binary_content() {
+        let mut state = make_state_with_file("img.png");
+        // バイナリ判定: NULバイトを含む
+        state
+            .local_cache
+            .insert("img.png".to_string(), "hello\x00world".to_string());
+        state
+            .remote_cache
+            .insert("img.png".to_string(), "hello\x00world".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(matches!(state.current_diff, Some(DiffResult::Binary)));
+    }
+
+    #[test]
+    fn test_select_file_clears_pending_hunk() {
+        let mut state = make_state_with_file("a.rs");
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state.pending_hunk_merge = Some(crate::diff::engine::HunkDirection::RightToLeft);
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.pending_hunk_merge.is_none());
+    }
+}

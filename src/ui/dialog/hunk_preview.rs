@@ -141,3 +141,80 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+
+    #[test]
+    fn test_hunk_merge_preview_new_right_to_left() {
+        let preview = HunkMergePreview::new(
+            "src/a.rs".to_string(),
+            HunkDirection::RightToLeft,
+            "old text".to_string(),
+            "new text".to_string(),
+        );
+        assert_eq!(preview.file_path, "src/a.rs");
+        assert!(preview.direction_label.contains("local"));
+        assert_eq!(preview.before_text, "old text");
+        assert_eq!(preview.after_text, "new text");
+    }
+
+    #[test]
+    fn test_hunk_merge_preview_new_left_to_right() {
+        let preview = HunkMergePreview::new(
+            "src/b.rs".to_string(),
+            HunkDirection::LeftToRight,
+            "before".to_string(),
+            "after".to_string(),
+        );
+        assert!(preview.direction_label.contains("remote"));
+    }
+
+    #[test]
+    fn test_build_preview_lines() {
+        let lines = HunkMergePreviewWidget::build_preview_lines("line1\nline2\nline3", 10);
+        assert_eq!(lines.len(), 3);
+    }
+
+    #[test]
+    fn test_build_preview_lines_truncates() {
+        let text = (0..20)
+            .map(|i| format!("line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let lines = HunkMergePreviewWidget::build_preview_lines(&text, 5);
+        assert_eq!(lines.len(), 5);
+    }
+
+    #[test]
+    fn test_hunk_merge_preview_render() {
+        let preview = HunkMergePreview::new(
+            "src/a.rs".to_string(),
+            HunkDirection::RightToLeft,
+            "old line".to_string(),
+            "new line".to_string(),
+        );
+        let area = Rect::new(0, 0, 80, 30);
+        let mut buf = Buffer::empty(area);
+        let widget = HunkMergePreviewWidget::new(&preview, Color::Rgb(0x2b, 0x30, 0x3b));
+        widget.render(area, &mut buf);
+
+        let content: String = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(content.contains("Preview"));
+        assert!(content.contains("Before"));
+        assert!(content.contains("After"));
+    }
+}

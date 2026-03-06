@@ -180,3 +180,351 @@ impl AppState {
         self.ensure_cursor_visible();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::{Badge, DiffMode, FlatNode, Focus};
+    use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    fn make_state() -> AppState {
+        AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    fn make_flat_nodes(n: usize) -> Vec<FlatNode> {
+        (0..n)
+            .map(|i| FlatNode {
+                path: format!("file{}.rs", i),
+                name: format!("file{}.rs", i),
+                depth: 0,
+                is_dir: false,
+                is_symlink: false,
+                expanded: false,
+                badge: Badge::Unchecked,
+            })
+            .collect()
+    }
+
+    fn make_diff_lines(n: usize) -> Vec<DiffLine> {
+        (0..n)
+            .map(|i| DiffLine {
+                tag: DiffTag::Equal,
+                value: format!("line {}", i),
+                old_index: Some(i),
+                new_index: Some(i),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_toggle_focus() {
+        let mut state = make_state();
+        assert_eq!(state.focus, Focus::FileTree);
+        state.toggle_focus();
+        assert_eq!(state.focus, Focus::DiffView);
+        state.toggle_focus();
+        assert_eq!(state.focus, Focus::FileTree);
+    }
+
+    #[test]
+    fn test_cursor_up_at_zero() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(5);
+        state.tree_cursor = 0;
+        state.cursor_up();
+        assert_eq!(state.tree_cursor, 0);
+    }
+
+    #[test]
+    fn test_cursor_up() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(5);
+        state.tree_cursor = 3;
+        state.cursor_up();
+        assert_eq!(state.tree_cursor, 2);
+    }
+
+    #[test]
+    fn test_cursor_down() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(5);
+        state.tree_cursor = 2;
+        state.cursor_down();
+        assert_eq!(state.tree_cursor, 3);
+    }
+
+    #[test]
+    fn test_cursor_down_at_end() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(5);
+        state.tree_cursor = 4;
+        state.cursor_down();
+        assert_eq!(state.tree_cursor, 4);
+    }
+
+    #[test]
+    fn test_ensure_tree_cursor_visible_small_tree() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(3);
+        state.tree_visible_height = 10;
+        state.tree_scroll = 5;
+        state.tree_cursor = 0;
+        state.ensure_tree_cursor_visible();
+        assert_eq!(state.tree_scroll, 0);
+    }
+
+    #[test]
+    fn test_ensure_tree_cursor_visible_scroll_down() {
+        let mut state = make_state();
+        state.flat_nodes = make_flat_nodes(50);
+        state.tree_visible_height = 10;
+        state.tree_scroll = 0;
+        state.tree_cursor = 20;
+        state.ensure_tree_cursor_visible();
+        assert!(state.tree_scroll > 0);
+    }
+
+    #[test]
+    fn test_scroll_up_diff() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(20),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.diff_cursor = 5;
+        state.scroll_up();
+        assert_eq!(state.diff_cursor, 4);
+    }
+
+    #[test]
+    fn test_scroll_up_at_zero() {
+        let mut state = make_state();
+        state.diff_cursor = 0;
+        state.scroll_up();
+        assert_eq!(state.diff_cursor, 0);
+    }
+
+    #[test]
+    fn test_scroll_down_diff() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(20),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.diff_cursor = 5;
+        state.scroll_down();
+        assert_eq!(state.diff_cursor, 6);
+    }
+
+    #[test]
+    fn test_scroll_down_at_end() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(10),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.diff_cursor = 9;
+        state.scroll_down();
+        assert_eq!(state.diff_cursor, 9);
+    }
+
+    #[test]
+    fn test_toggle_diff_mode() {
+        let mut state = make_state();
+        assert_eq!(state.diff_mode, DiffMode::Unified);
+        state.toggle_diff_mode();
+        assert_eq!(state.diff_mode, DiffMode::SideBySide);
+        state.toggle_diff_mode();
+        assert_eq!(state.diff_mode, DiffMode::Unified);
+    }
+
+    #[test]
+    fn test_diff_line_count_none() {
+        let state = make_state();
+        assert_eq!(state.diff_line_count(), 0);
+    }
+
+    #[test]
+    fn test_diff_line_count_modified() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(15),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        assert_eq!(state.diff_line_count(), 15);
+    }
+
+    #[test]
+    fn test_diff_line_count_equal() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Equal);
+        state.selected_path = Some("a.rs".to_string());
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "line1\nline2\nline3".to_string());
+        assert_eq!(state.diff_line_count(), 3);
+    }
+
+    #[test]
+    fn test_build_key_hints_file_tree() {
+        let state = make_state();
+        let hints = state.build_key_hints();
+        assert!(hints.contains("move"));
+        assert!(hints.contains("open"));
+    }
+
+    #[test]
+    fn test_build_key_hints_diff_view_equal() {
+        let mut state = make_state();
+        state.focus = Focus::DiffView;
+        state.current_diff = Some(DiffResult::Equal);
+        let hints = state.build_key_hints();
+        assert!(hints.contains("scroll"));
+    }
+
+    #[test]
+    fn test_build_key_hints_diff_view_modified_no_changes() {
+        let mut state = make_state();
+        state.focus = Focus::DiffView;
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(5),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        let hints = state.build_key_hints();
+        assert!(hints.contains("hunk"));
+    }
+
+    #[test]
+    fn test_build_key_hints_diff_view_no_diff() {
+        let mut state = make_state();
+        state.focus = Focus::DiffView;
+        state.current_diff = None;
+        let hints = state.build_key_hints();
+        assert!(hints.contains("tree"));
+    }
+
+    #[test]
+    fn test_scroll_page_down() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(100),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.diff_cursor = 0;
+        state.scroll_page_down(20);
+        assert_eq!(state.diff_cursor, 20);
+    }
+
+    #[test]
+    fn test_scroll_page_up() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(100),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.diff_cursor = 30;
+        state.scroll_page_up(20);
+        assert_eq!(state.diff_cursor, 10);
+    }
+
+    #[test]
+    fn test_scroll_to_home() {
+        let mut state = make_state();
+        state.diff_cursor = 50;
+        state.diff_scroll = 40;
+        state.scroll_to_home();
+        assert_eq!(state.diff_cursor, 0);
+        assert_eq!(state.diff_scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_to_end() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: crate::diff::engine::DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: 0,
+            },
+            lines: make_diff_lines(20),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state.scroll_to_end();
+        assert_eq!(state.diff_cursor, 19);
+    }
+
+    #[test]
+    fn test_ensure_cursor_visible_empty() {
+        let mut state = make_state();
+        state.current_diff = None;
+        state.diff_cursor = 10;
+        state.ensure_cursor_visible();
+        assert_eq!(state.diff_cursor, 0);
+        assert_eq!(state.diff_scroll, 0);
+    }
+}

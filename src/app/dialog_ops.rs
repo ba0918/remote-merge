@@ -215,3 +215,267 @@ impl AppState {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::{Badge, FlatNode};
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    fn make_state() -> AppState {
+        AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    fn make_flat_file(path: &str, badge: Badge) -> FlatNode {
+        FlatNode {
+            path: path.to_string(),
+            name: path.rsplit('/').next().unwrap_or(path).to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge,
+        }
+    }
+
+    fn make_flat_dir(path: &str, badge: Badge, expanded: bool) -> FlatNode {
+        FlatNode {
+            path: path.to_string(),
+            name: path.rsplit('/').next().unwrap_or(path).to_string(),
+            depth: 0,
+            is_dir: true,
+            is_symlink: false,
+            expanded,
+            badge,
+        }
+    }
+
+    #[test]
+    fn test_collect_diff_files_under_modified() {
+        let mut state = make_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", Badge::Unchecked, true),
+            make_flat_file("src/a.rs", Badge::Modified),
+            make_flat_file("src/b.rs", Badge::Equal),
+            make_flat_file("src/c.rs", Badge::LocalOnly),
+        ];
+        let (files, unchecked) = state.collect_diff_files_under("src");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].0, "src/a.rs");
+        assert_eq!(files[1].0, "src/c.rs");
+        assert_eq!(unchecked, 0);
+    }
+
+    #[test]
+    fn test_collect_diff_files_under_unchecked_dirs() {
+        let mut state = make_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", Badge::Unchecked, true),
+            make_flat_dir("src/sub", Badge::Unchecked, false),
+        ];
+        let (files, unchecked) = state.collect_diff_files_under("src");
+        assert_eq!(files.len(), 0);
+        assert_eq!(unchecked, 1);
+    }
+
+    #[test]
+    fn test_collect_diff_files_under_no_prefix_match() {
+        let mut state = make_state();
+        state.flat_nodes = vec![make_flat_file("other/a.rs", Badge::Modified)];
+        let (files, unchecked) = state.collect_diff_files_under("src");
+        assert_eq!(files.len(), 0);
+        assert_eq!(unchecked, 0);
+    }
+
+    #[test]
+    fn test_show_merge_dialog_no_cursor() {
+        let mut state = make_state();
+        state.flat_nodes.clear();
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(state.status_message.contains("Select a file"));
+    }
+
+    #[test]
+    fn test_show_merge_dialog_equal_file() {
+        let mut state = make_state();
+        let node = FileNode::new_file("a.rs");
+        state.local_tree = make_test_tree(vec![node.clone()]);
+        state.remote_tree = make_test_tree(vec![node]);
+        state.flat_nodes = vec![make_flat_file("a.rs", Badge::Equal)];
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::Info(_)));
+    }
+
+    #[test]
+    fn test_show_merge_dialog_modified_file() {
+        let mut state = make_state();
+        let node = FileNode::new_file("a.rs");
+        state.local_tree = make_test_tree(vec![node.clone()]);
+        state.remote_tree = make_test_tree(vec![node]);
+        state.flat_nodes = vec![make_flat_file("a.rs", Badge::Modified)];
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "old".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "new".to_string());
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(matches!(state.dialog, DialogState::Confirm(_)));
+    }
+
+    #[test]
+    fn test_show_server_menu_empty() {
+        let mut state = make_state();
+        state.available_servers.clear();
+        state.show_server_menu();
+        assert!(state.status_message.contains("No servers"));
+    }
+
+    #[test]
+    fn test_show_server_menu_with_servers() {
+        let mut state = make_state();
+        state.available_servers = vec!["staging".to_string()];
+        state.show_server_menu();
+        assert!(matches!(state.dialog, DialogState::ServerSelect(_)));
+    }
+
+    #[test]
+    fn test_show_help() {
+        let mut state = make_state();
+        state.show_help();
+        assert!(matches!(state.dialog, DialogState::Help(_)));
+    }
+
+    #[test]
+    fn test_close_dialog() {
+        let mut state = make_state();
+        state.show_help();
+        assert!(state.has_dialog());
+        state.close_dialog();
+        assert!(!state.has_dialog());
+    }
+
+    #[test]
+    fn test_sync_cache_after_merge_local_to_remote() {
+        let mut state = make_state();
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::LocalToRemote);
+        assert_eq!(state.remote_cache.get("a.rs").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_sync_cache_after_merge_remote_to_local() {
+        let mut state = make_state();
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::RemoteToLocal);
+        assert_eq!(state.local_cache.get("a.rs").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_switch_server() {
+        let mut state = make_state();
+        state
+            .local_cache
+            .insert("a.rs".to_string(), "x".to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), "y".to_string());
+        state.selected_path = Some("a.rs".to_string());
+        state.current_diff = Some(crate::diff::engine::DiffResult::Equal);
+
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.rs")]);
+        state.switch_server("staging".to_string(), new_tree);
+
+        assert_eq!(state.server_name, "staging");
+        assert!(state.local_cache.is_empty());
+        assert!(state.remote_cache.is_empty());
+        assert!(state.selected_path.is_none());
+        assert!(state.current_diff.is_none());
+        assert!(state.is_connected);
+        assert_eq!(state.diff_scroll, 0);
+        assert_eq!(state.diff_cursor, 0);
+    }
+
+    #[test]
+    fn test_show_filter_panel_empty() {
+        let mut state = make_state();
+        state.exclude_patterns.clear();
+        state.show_filter_panel();
+        assert!(state.status_message.contains("No exclude patterns"));
+    }
+
+    #[test]
+    fn test_show_filter_panel_with_patterns() {
+        let mut state = make_state();
+        state.exclude_patterns = vec!["*.log".to_string(), "node_modules".to_string()];
+        state.show_filter_panel();
+        assert!(matches!(state.dialog, DialogState::Filter(_)));
+    }
+
+    #[test]
+    fn test_show_filter_panel_respects_disabled() {
+        let mut state = make_state();
+        state.exclude_patterns = vec!["*.log".to_string(), "*.tmp".to_string()];
+        state.disabled_patterns.insert("*.log".to_string());
+        state.show_filter_panel();
+        if let DialogState::Filter(panel) = &state.dialog {
+            let log_entry = panel.patterns.iter().find(|(p, _)| p == "*.log");
+            assert!(!log_entry.unwrap().1);
+            let tmp_entry = panel.patterns.iter().find(|(p, _)| p == "*.tmp");
+            assert!(tmp_entry.unwrap().1);
+        } else {
+            panic!("Expected Filter dialog");
+        }
+    }
+
+    #[test]
+    fn test_apply_filter_changes() {
+        let mut state = make_state();
+        state.exclude_patterns = vec!["*.log".to_string(), "*.tmp".to_string()];
+        let panel = FilterPanel {
+            patterns: vec![("*.log".to_string(), false), ("*.tmp".to_string(), true)],
+            cursor: 0,
+        };
+        state.apply_filter_changes(&panel);
+        assert!(state.disabled_patterns.contains("*.log"));
+        assert!(!state.disabled_patterns.contains("*.tmp"));
+    }
+
+    #[test]
+    fn test_active_exclude_patterns() {
+        let mut state = make_state();
+        state.exclude_patterns = vec!["*.log".to_string(), "*.tmp".to_string(), "dist".to_string()];
+        state.disabled_patterns.insert("*.tmp".to_string());
+        let active = state.active_exclude_patterns();
+        assert_eq!(active, vec!["*.log".to_string(), "dist".to_string()]);
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_no_connection() {
+        let mut state = make_state();
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.is_connected = false;
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LocalToRemote);
+        assert!(state.status_message.contains("SSH not connected"));
+    }
+}

@@ -150,3 +150,71 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
         paragraph.render(inner, buf);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+
+    #[test]
+    fn test_help_overlay_new() {
+        let help = HelpOverlay::new();
+        assert_eq!(help.sections.len(), 3);
+        assert_eq!(help.sections[0].title, "File Tree");
+        assert_eq!(help.sections[1].title, "Diff View");
+        assert_eq!(help.sections[2].title, "Global");
+    }
+
+    #[test]
+    fn test_help_overlay_default() {
+        let help = HelpOverlay::default();
+        assert_eq!(help.sections.len(), 3);
+    }
+
+    #[test]
+    fn test_help_sections_have_bindings() {
+        let help = HelpOverlay::new();
+        for section in &help.sections {
+            assert!(
+                !section.bindings.is_empty(),
+                "{} should have bindings",
+                section.title
+            );
+        }
+    }
+
+    #[test]
+    fn test_help_overlay_render() {
+        let help = HelpOverlay::new();
+        let area = Rect::new(0, 0, 80, 40);
+        let mut buf = Buffer::empty(area);
+        let widget = HelpOverlayWidget::new(&help, Color::Rgb(0x2b, 0x30, 0x3b));
+        widget.render(area, &mut buf);
+
+        let content: String = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(content.contains("Help"));
+        assert!(content.contains("File Tree"));
+        assert!(content.contains("Diff View"));
+    }
+
+    #[test]
+    fn test_help_contains_quit_binding() {
+        let help = HelpOverlay::new();
+        let global = &help.sections[2];
+        assert!(
+            global.bindings.iter().any(|(k, _)| k == "q"),
+            "Should have quit binding"
+        );
+    }
+}

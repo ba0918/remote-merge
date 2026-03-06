@@ -272,3 +272,277 @@ impl AppState {
         !self.undo_stack.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::{Badge, FlatNode};
+    use crate::diff::engine;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    fn make_state() -> AppState {
+        AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    /// diff付きstateを作成するヘルパー
+    fn make_state_with_diff(local: &str, remote: &str) -> AppState {
+        let node = FileNode::new_file("a.rs");
+        let mut state = AppState::new(
+            make_test_tree(vec![node.clone()]),
+            make_test_tree(vec![node]),
+            "develop".to_string(),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.flat_nodes = vec![FlatNode {
+            path: "a.rs".to_string(),
+            name: "a.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Modified,
+        }];
+        state
+            .local_cache
+            .insert("a.rs".to_string(), local.to_string());
+        state
+            .remote_cache
+            .insert("a.rs".to_string(), remote.to_string());
+        state.selected_path = Some("a.rs".to_string());
+        state.current_diff = Some(engine::compute_diff(local, remote));
+        state
+    }
+
+    #[test]
+    fn test_hunk_count_none() {
+        let state = make_state();
+        assert_eq!(state.hunk_count(), 0);
+    }
+
+    #[test]
+    fn test_hunk_count_equal() {
+        let mut state = make_state();
+        state.current_diff = Some(DiffResult::Equal);
+        assert_eq!(state.hunk_count(), 0);
+    }
+
+    #[test]
+    fn test_hunk_count_modified() {
+        let state = make_state_with_diff("line1\nline2\n", "line1\nchanged\n");
+        assert!(state.hunk_count() > 0);
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_no_hunks() {
+        let mut state = make_state();
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.pending_hunk_merge.is_none());
+    }
+
+    #[test]
+    fn test_stage_hunk_merge() {
+        let mut state = make_state_with_diff("line1\nline2\n", "line1\nchanged\n");
+        state.stage_hunk_merge(HunkDirection::RightToLeft);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::RightToLeft));
+        assert!(state.status_message.contains("remote -> local"));
+    }
+
+    #[test]
+    fn test_stage_hunk_merge_left_to_right() {
+        let mut state = make_state_with_diff("line1\nline2\n", "line1\nchanged\n");
+        state.stage_hunk_merge(HunkDirection::LeftToRight);
+        assert_eq!(state.pending_hunk_merge, Some(HunkDirection::LeftToRight));
+        assert!(state.status_message.contains("local -> remote"));
+    }
+
+    #[test]
+    fn test_cancel_hunk_merge_when_pending() {
+        let mut state = make_state_with_diff("a\n", "b\n");
+        state.pending_hunk_merge = Some(HunkDirection::RightToLeft);
+        state.cancel_hunk_merge();
+        assert!(state.pending_hunk_merge.is_none());
+        assert!(state.status_message.contains("cancelled"));
+    }
+
+    #[test]
+    fn test_cancel_hunk_merge_when_none() {
+        let mut state = make_state();
+        let old_msg = state.status_message.clone();
+        state.cancel_hunk_merge();
+        // 何も変わらない
+        assert_eq!(state.status_message, old_msg);
+    }
+
+    #[test]
+    fn test_has_unsaved_changes_empty() {
+        let state = make_state();
+        assert!(!state.has_unsaved_changes());
+    }
+
+    #[test]
+    fn test_has_unsaved_changes_after_apply() {
+        let mut state = make_state_with_diff("line1\nline2\n", "line1\nchanged\n");
+        if state.hunk_count() > 0 {
+            state.apply_hunk_merge(HunkDirection::RightToLeft);
+            assert!(state.has_unsaved_changes());
+        }
+    }
+
+    #[test]
+    fn test_apply_hunk_merge() {
+        let mut state = make_state_with_diff("line1\nold\nline3\n", "line1\nnew\nline3\n");
+        let count_before = state.hunk_count();
+        assert!(count_before > 0);
+
+        let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), "a.rs");
+        assert!(!state.undo_stack.is_empty());
+        assert!(state.status_message.contains("applied"));
+    }
+
+    #[test]
+    fn test_apply_hunk_merge_no_diff() {
+        let mut state = make_state();
+        state.selected_path = Some("a.rs".to_string());
+        let result = state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_undo_last() {
+        let mut state = make_state_with_diff("line1\nold\n", "line1\nnew\n");
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert!(state.has_unsaved_changes());
+
+        let result = state.undo_last();
+        assert!(result);
+        assert!(!state.has_unsaved_changes());
+        assert!(state.status_message.contains("Undo"));
+    }
+
+    #[test]
+    fn test_undo_last_empty_stack() {
+        let mut state = make_state();
+        let result = state.undo_last();
+        assert!(!result);
+        assert!(state.status_message.contains("Nothing to undo"));
+    }
+
+    #[test]
+    fn test_undo_all() {
+        let mut state = make_state_with_diff("a\nb\nc\n", "a\nx\ny\n");
+        // 複数回適用
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        if state.hunk_count() > 0 {
+            state.apply_hunk_merge(HunkDirection::RightToLeft);
+        }
+
+        let result = state.undo_all();
+        assert!(result);
+        assert!(!state.has_unsaved_changes());
+        assert!(state.status_message.contains("undone"));
+    }
+
+    #[test]
+    fn test_undo_all_empty_stack() {
+        let mut state = make_state();
+        let result = state.undo_all();
+        assert!(!result);
+        assert!(state.status_message.contains("Nothing to undo"));
+    }
+
+    #[test]
+    fn test_hunk_cursor_up() {
+        let mut state = make_state_with_diff("a\nb\nc\n", "x\ny\nz\n");
+        state.hunk_cursor = 1;
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_cursor_up_at_zero() {
+        let mut state = make_state_with_diff("a\n", "b\n");
+        state.hunk_cursor = 0;
+        state.hunk_cursor_up();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_hunk_cursor_down() {
+        let mut state = make_state_with_diff("a\nb\nc\n", "x\ny\nz\n");
+        let count = state.hunk_count();
+        if count > 1 {
+            state.hunk_cursor = 0;
+            state.hunk_cursor_down();
+            assert_eq!(state.hunk_cursor, 1);
+        }
+    }
+
+    #[test]
+    fn test_hunk_cursor_down_at_end() {
+        let mut state = make_state_with_diff("a\n", "b\n");
+        let count = state.hunk_count();
+        state.hunk_cursor = count.saturating_sub(1);
+        state.hunk_cursor_down();
+        assert_eq!(state.hunk_cursor, count.saturating_sub(1));
+    }
+
+    #[test]
+    fn test_preview_hunk_merge() {
+        let state = make_state_with_diff("line1\nold\nline3\n", "line1\nnew\nline3\n");
+        let preview = state.preview_hunk_merge(HunkDirection::RightToLeft);
+        assert!(preview.is_some());
+        let (before, after) = preview.unwrap();
+        assert!(before.contains("old"));
+        assert!(after.contains("new"));
+    }
+
+    #[test]
+    fn test_preview_hunk_merge_no_diff() {
+        let mut state = make_state();
+        state.selected_path = Some("a.rs".to_string());
+        let preview = state.preview_hunk_merge(HunkDirection::RightToLeft);
+        assert!(preview.is_none());
+    }
+
+    #[test]
+    fn test_sync_hunk_cursor_to_scroll() {
+        let mut state = make_state_with_diff("a\nb\nc\n", "x\ny\nz\n");
+        state.diff_cursor = 0;
+        state.sync_hunk_cursor_to_scroll();
+        assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_undo_stack_max_limit() {
+        let mut state = make_state_with_diff("a\n", "b\n");
+        // ちょうど MAX_UNDO_STACK 個入れる
+        for _ in 0..MAX_UNDO_STACK {
+            state.undo_stack.push_back(CacheSnapshot {
+                local_content: "x".to_string(),
+                remote_content: "y".to_string(),
+                diff: None,
+            });
+        }
+        assert_eq!(state.undo_stack.len(), MAX_UNDO_STACK);
+        // apply で pop_front + push_back → 個数は MAX_UNDO_STACK のまま
+        if state.hunk_count() > 0 {
+            state.apply_hunk_merge(HunkDirection::RightToLeft);
+            assert_eq!(state.undo_stack.len(), MAX_UNDO_STACK);
+        }
+    }
+}
