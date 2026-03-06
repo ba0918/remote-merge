@@ -107,6 +107,8 @@ pub fn handle_tree_key(
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),
         KeyCode::Char('/') => {
+            // 検索前にローカルツリーを全展開ロード（未取得ディレクトリをスキャン）
+            state.load_local_tree_recursive();
             state.search_state.activate();
             state.status_message = "/".to_string();
         }

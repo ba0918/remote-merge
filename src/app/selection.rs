@@ -180,6 +180,39 @@ impl AppState {
         }
     }
 
+    /// ローカルツリーの全ディレクトリを再帰的にロードする（検索用）。
+    ///
+    /// 未ロード（`children = None`）のディレクトリをスキャンし、
+    /// 検索が全ファイルを対象にできるようにする。
+    pub fn load_local_tree_recursive(&mut self) {
+        let exclude = self.active_exclude_patterns();
+        let root = self.local_tree.root.clone();
+        Self::load_children_recursive(&mut self.local_tree.nodes, &root, &exclude);
+    }
+
+    /// FileNode リストの未ロードディレクトリを再帰的にロードする
+    fn load_children_recursive(
+        nodes: &mut [crate::tree::FileNode],
+        base_path: &std::path::Path,
+        exclude: &[String],
+    ) {
+        for node in nodes.iter_mut() {
+            if !node.is_dir() {
+                continue;
+            }
+            let dir_path = base_path.join(&node.name);
+            if !node.is_loaded() {
+                if let Ok(children) = crate::local::scan_dir(&dir_path, exclude) {
+                    node.children = Some(children);
+                    node.sort_children();
+                }
+            }
+            if let Some(ref mut children) = node.children {
+                Self::load_children_recursive(children, &dir_path, exclude);
+            }
+        }
+    }
+
     /// ディレクトリのリフレッシュ（子ノードをクリア）
     pub fn refresh_directory(&mut self, path: &str) {
         if let Some(node) = self.local_tree.find_node_mut(std::path::Path::new(path)) {

@@ -105,7 +105,9 @@ impl AppState {
             badge,
         });
 
-        if node.is_dir && expanded {
+        // 検索中はマッチする子孫がいるディレクトリを自動展開する
+        let force_expand = self.search_state.has_query();
+        if node.is_dir && (expanded || force_expand) {
             for child in &node.children {
                 self.flatten_node(child, &path, depth + 1, out);
             }
@@ -179,4 +181,84 @@ fn merge_merged_with_file_nodes(
     let mut result: Vec<MergedNode> = map.into_values().collect();
     sort_merged_nodes(&mut result);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::AppState;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_search_auto_expands_directories() {
+        // サブディレクトリ src/app/search.rs を持つツリー
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir_with_children(
+                "app",
+                vec![FileNode::new_file("search.rs")],
+            )],
+        )];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            "test".to_string(),
+            "default",
+        );
+
+        // 展開せずに検索 → search.rs がフラットノードに含まれるべき
+        state.search_state.query = "search".to_string();
+        state.rebuild_flat_nodes();
+
+        let names: Vec<&str> = state.flat_nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(
+            names.contains(&"search.rs"),
+            "Search should auto-expand and find nested files, got: {:?}",
+            names
+        );
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"app"));
+    }
+
+    #[test]
+    fn test_search_filter_hides_non_matching() {
+        let local_nodes = vec![
+            FileNode::new_file("main.rs"),
+            FileNode::new_file("lib.rs"),
+            FileNode::new_file("utils.rs"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            "test".to_string(),
+            "default",
+        );
+
+        state.search_state.query = "main".to_string();
+        state.rebuild_flat_nodes();
+
+        assert_eq!(state.flat_nodes.len(), 1);
+        assert_eq!(state.flat_nodes[0].name, "main.rs");
+    }
+
+    #[test]
+    fn test_no_search_shows_all() {
+        let local_nodes = vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            "test".to_string(),
+            "default",
+        );
+
+        state.rebuild_flat_nodes();
+        assert_eq!(state.flat_nodes.len(), 2);
+    }
 }
