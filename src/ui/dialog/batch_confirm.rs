@@ -72,7 +72,7 @@ impl BatchConfirmDialog {
     /// メッセージを生成
     pub fn message(&self) -> String {
         format!(
-            "{}件のファイルを {} → {} にマージします",
+            "Merge {} file(s) from {} → {}",
             self.files.len(),
             self.source_name,
             self.target_name
@@ -164,7 +164,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         let caution = Paragraph::new(Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                "⚠ 一括マージは変更検知なし。事前に差分を確認してください",
+                "⚠ Batch merge skips change detection. Review diffs first",
                 Style::default().fg(Color::Yellow),
             ),
         ]));
@@ -177,7 +177,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                 Span::raw("  "),
                 Span::styled(
                     format!(
-                        "⚠ 未比較のディレクトリが{}個あります",
+                        "⚠ {} unchecked director(ies) found",
                         self.dialog.unchecked_count
                     ),
                     Style::default().fg(Color::Yellow),
@@ -193,7 +193,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                 Span::raw("  "),
                 Span::styled(
                     format!(
-                        "⚠ センシティブファイルが{}件含まれています",
+                        "⚠ {} sensitive file(s) included",
                         self.dialog.sensitive_files.len()
                     ),
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -237,7 +237,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                 Span::raw("  "),
                 Span::styled(
                     format!(
-                        "  ...他 {} 件 (j/k でスクロール)",
+                        "  ...and {} more (j/k to scroll)",
                         file_count - visible_files
                     ),
                     Style::default().fg(Color::DarkGray),
@@ -260,13 +260,13 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                             .fg(Color::Green)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::raw(" 実行  "),
+                    Span::raw(" Confirm  "),
                     Span::styled(
                         "[n/Esc]",
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ),
-                    Span::raw(" キャンセル  "),
-                    Span::styled("(大量ファイル)", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Cancel  "),
+                    Span::styled("(large batch)", Style::default().fg(Color::Yellow)),
                 ]))
             } else {
                 Paragraph::new(Line::from(vec![
@@ -277,12 +277,12 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                             .fg(Color::Green)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::raw(" 実行  "),
+                    Span::raw(" Confirm  "),
                     Span::styled(
                         "[n/Esc]",
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ),
-                    Span::raw(" キャンセル"),
+                    Span::raw(" Cancel"),
                 ]))
             };
             guide.render(chunks[row], buf);
@@ -306,10 +306,7 @@ mod tests {
             "develop".to_string(),
             1,
         );
-        assert_eq!(
-            batch.message(),
-            "2件のファイルを local → develop にマージします"
-        );
+        assert_eq!(batch.message(), "Merge 2 file(s) from local → develop");
         assert!(!batch.is_large_batch());
         assert_eq!(batch.unchecked_count, 1);
     }

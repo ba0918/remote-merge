@@ -4,46 +4,46 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     // ── 設定エラー ──
-    #[error("設定ファイルが見つかりません: {path}")]
+    #[error("Config file not found: {path}")]
     ConfigNotFound { path: PathBuf },
 
-    #[error("設定ファイルのパースに失敗しました: {source}")]
+    #[error("Failed to parse config file: {source}")]
     ConfigParse {
         #[source]
         source: toml::de::Error,
     },
 
-    #[error("設定値が不正です: {field} - {message}")]
+    #[error("Invalid config value: {field} - {message}")]
     ConfigValidation { field: String, message: String },
 
-    // ── SSH エラー ──
-    #[error("{host} への SSH 接続に失敗しました: {message}")]
+    // ── SSH errors ──
+    #[error("SSH connection failed to {host}: {message}")]
     SshConnection { host: String, message: String },
 
-    #[error("SSH 認証に失敗しました (ユーザ: {user}@{host})")]
+    #[error("SSH authentication failed (user: {user}@{host})")]
     SshAuth { host: String, user: String },
 
-    #[error("SSH コマンドの実行に失敗しました: {command}")]
+    #[error("SSH command execution failed: {command}")]
     SshExec { command: String },
 
-    #[error("SSH 接続がタイムアウトしました ({timeout_sec}秒): {host}")]
+    #[error("SSH connection timed out ({timeout_sec}s): {host}")]
     SshTimeout { host: String, timeout_sec: u64 },
 
-    #[error("SSH 秘密鍵の読み込みに失敗しました: {path}")]
+    #[error("Failed to load SSH private key: {path}")]
     SshKeyLoad { path: PathBuf },
 
-    // ── ファイルシステムエラー ──
-    #[error("パスが見つかりません: {path}")]
+    // ── Filesystem errors ──
+    #[error("Path not found: {path}")]
     PathNotFound { path: PathBuf },
 
-    #[error("IO エラー: {0}")]
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    // ── リモートコマンドエラー ──
-    #[error("リモートコマンドの出力パースに失敗しました: {message}")]
+    // ── Remote command errors ──
+    #[error("Failed to parse remote command output: {message}")]
     RemoteParse { message: String },
 
-    #[error("リモートの root_dir が見つかりません: {host}:{path}")]
+    #[error("Remote root_dir not found: {host}:{path}")]
     RemoteRootNotFound { host: String, path: String },
 }
 

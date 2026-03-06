@@ -59,7 +59,7 @@ pub fn write_local_file(
     }
 
     std::fs::write(&full_path, content)?;
-    tracing::info!("ローカルファイル書き込み完了: {}", full_path.display());
+    tracing::info!("Local file written: {}", full_path.display());
     Ok(())
 }
 
@@ -88,7 +88,7 @@ fn validate_path_within_root(root_dir: &Path, full_path: &Path) -> crate::error:
         anyhow::bail!(crate::error::AppError::ConfigValidation {
             field: "path".to_string(),
             message: format!(
-                "パスが root_dir の外を指しています: {} (root: {})",
+                "Path escapes root_dir: {} (root: {})",
                 full_path.display(),
                 root_dir.display()
             ),
@@ -120,7 +120,7 @@ pub fn validate_remote_path(remote_root: &str, rel_path: &str) -> crate::error::
         if matches!(component, std::path::Component::ParentDir) {
             anyhow::bail!(crate::error::AppError::ConfigValidation {
                 field: "remote_path".to_string(),
-                message: format!("リモートパスに '..' は使用できません: {}", rel_path),
+                message: format!("Remote path must not contain '..': {}", rel_path),
             });
         }
     }

@@ -76,23 +76,23 @@ pub fn run_init() -> anyhow::Result<()> {
 
     // 既存ファイルのチェック
     if output_path.exists() {
-        eprint!(".remote-merge.toml は既に存在します。上書きしますか？ [y/N]: ");
+        eprint!(".remote-merge.toml already exists. Overwrite? [y/N]: ");
         io::stderr().flush()?;
         let mut answer = String::new();
         io::stdin().lock().read_line(&mut answer)?;
         if !answer.trim().eq_ignore_ascii_case("y") {
-            println!("キャンセルしました。");
+            println!("Cancelled.");
             return Ok(());
         }
     }
 
-    println!("\nremote-merge 設定ファイルを生成します\n");
+    println!("\nGenerating remote-merge config file\n");
 
     let input = prompt_input(&mut io::stdin().lock(), &mut io::stderr())?;
     let toml_content = generate_toml(&input);
 
     std::fs::write(output_path, &toml_content)?;
-    println!("\n.remote-merge.toml を生成しました");
+    println!("\n.remote-merge.toml created successfully");
 
     Ok(())
 }
@@ -104,26 +104,26 @@ pub fn prompt_input<R: BufRead, W: Write>(
 ) -> anyhow::Result<InitInput> {
     let mut input = InitInput::default();
 
-    input.server_name = prompt_with_default(reader, writer, "サーバ名", &input.server_name)?;
-    input.host = prompt_required(reader, writer, "ホスト名")?;
-    input.user = prompt_with_default(reader, writer, "ユーザ名", &input.user)?;
-    input.auth = prompt_with_default(reader, writer, "認証方式 [key/password]", &input.auth)?;
+    input.server_name = prompt_with_default(reader, writer, "Server name", &input.server_name)?;
+    input.host = prompt_required(reader, writer, "Hostname")?;
+    input.user = prompt_with_default(reader, writer, "Username", &input.user)?;
+    input.auth = prompt_with_default(reader, writer, "Auth method [key/password]", &input.auth)?;
 
     if input.auth == "key" {
-        let key = prompt_with_default(reader, writer, "SSH鍵パス", "~/.ssh/id_rsa")?;
+        let key = prompt_with_default(reader, writer, "SSH key path", "~/.ssh/id_rsa")?;
         if key != "~/.ssh/id_rsa" {
             input.key_path = Some(key);
         }
     }
 
-    input.remote_root_dir = prompt_required(reader, writer, "リモート root_dir")?;
+    input.remote_root_dir = prompt_required(reader, writer, "Remote root_dir")?;
     input.local_root_dir =
-        prompt_with_default(reader, writer, "ローカル root_dir", &input.local_root_dir)?;
+        prompt_with_default(reader, writer, "Local root_dir", &input.local_root_dir)?;
 
     let exclude_str = prompt_with_default(
         reader,
         writer,
-        "除外パターン (カンマ区切り)",
+        "Exclude patterns (comma-separated)",
         "node_modules,.git,dist",
     )?;
     input.exclude = exclude_str
@@ -173,7 +173,7 @@ fn prompt_required<R: BufRead, W: Write>(
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
         }
-        writeln!(writer, "  ※ 入力してください")?;
+        writeln!(writer, "  * Required")?;
     }
 }
 
@@ -241,7 +241,11 @@ mod tests {
         let toml_str = generate_toml(&input);
         // パースできることを確認
         let parsed: Result<toml::Value, _> = toml::from_str(&toml_str);
-        assert!(parsed.is_ok(), "生成された TOML が不正: {:?}", parsed.err());
+        assert!(
+            parsed.is_ok(),
+            "Generated TOML is invalid: {:?}",
+            parsed.err()
+        );
     }
 
     #[test]

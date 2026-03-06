@@ -57,6 +57,11 @@ cargo fmt                    # Format
 - **コード変更時は必ずテストを書く。テストなしのコミットは禁止**
 - テストが書けない = 設計が悪い。ロジックを純粋関数に切り出してテスト可能にする
 
+### 5. UI text in English
+- All user-facing text (dialogs, status messages, error messages, CLI help) **MUST be in English**
+- Code comments and doc comments may be in Japanese
+- This ensures consistency across the TUI and CLI interfaces
+
 ## Architecture
 
 ### Connection Model

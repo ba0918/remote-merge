@@ -43,13 +43,13 @@ impl ConfirmDialog {
         match self.direction {
             MergeDirection::LocalToRemote => {
                 format!(
-                    "{} を {} → {} にマージしますか？",
+                    "Merge {} from {} → {}?",
                     self.file_path, self.source_name, self.target_name
                 )
             }
             MergeDirection::RemoteToLocal => {
                 format!(
-                    "{} を {} → {} にマージしますか？",
+                    "Merge {} from {} → {}?",
                     self.file_path, self.source_name, self.target_name
                 )
             }
@@ -105,12 +105,12 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" 実行  "),
+            Span::raw(" Confirm  "),
             Span::styled(
                 "[n/Esc]",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" キャンセル"),
+            Span::raw(" Cancel"),
         ]));
         guide.render(chunks[3], buf);
     }
@@ -130,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             dialog.message(),
-            "src/config.ts を local → develop にマージしますか？"
+            "Merge src/config.ts from local → develop?"
         );
     }
 
@@ -144,7 +144,7 @@ mod tests {
         );
         assert_eq!(
             dialog.message(),
-            "src/config.ts を develop → local にマージしますか？"
+            "Merge src/config.ts from develop → local?"
         );
     }
 

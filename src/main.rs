@@ -17,19 +17,19 @@ use remote_merge::runtime::{merge_scan, scanner};
 use remote_merge::tree::FileTree;
 use remote_merge::ui::render::draw_ui;
 
-/// ローカルとリモートサーバ間のファイル差分をTUIでグラフィカルに表示・マージするツール
+/// TUI tool for graphically displaying and merging file diffs between local and remote servers
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
 struct Cli {
-    /// 比較対象のサーバ名（localとの比較）
+    /// Server name to compare with local
     #[arg(short, long)]
     server: Option<String>,
 
-    /// 比較の左側（デフォルト: local）
+    /// Left side of comparison (default: local)
     #[arg(long)]
     left: Option<String>,
 
-    /// 比較の右側
+    /// Right side of comparison
     #[arg(long)]
     right: Option<String>,
 
@@ -39,10 +39,10 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// プロジェクト設定ファイルを初期化する
+    /// Initialize project config file
     Init,
 
-    /// 差分があるファイルの一覧を表示
+    /// List files with differences
     Status {
         #[arg(short, long)]
         server: Option<String>,
@@ -56,7 +56,7 @@ enum Commands {
         summary: bool,
     },
 
-    /// 特定ファイルの差分を表示
+    /// Show diff for a specific file
     Diff {
         path: String,
         #[arg(long)]
@@ -71,7 +71,7 @@ enum Commands {
         max_files: Option<usize>,
     },
 
-    /// ファイルをマージする
+    /// Merge files
     Merge {
         path: String,
         #[arg(long)]

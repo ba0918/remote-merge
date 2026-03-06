@@ -458,7 +458,7 @@ mod tests {
         );
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("見つかりません"));
+        assert!(err.contains("not found"));
     }
 
     #[test]

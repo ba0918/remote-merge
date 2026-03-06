@@ -144,12 +144,12 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(" 実行  "),
+                Span::raw(" Confirm  "),
                 Span::styled(
                     "[n/Esc]",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(" キャンセル"),
+                Span::raw(" Cancel"),
             ]));
             guide.render(chunks[5], buf);
         }
