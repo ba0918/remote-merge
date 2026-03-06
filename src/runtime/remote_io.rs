@@ -85,16 +85,10 @@ impl TuiRuntime {
     ) -> anyhow::Result<Vec<String>> {
         let server_config = self.get_server_config(server_name)?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
-        Ok(rel_paths
+        rel_paths
             .iter()
-            .map(|rel| {
-                format!(
-                    "{}/{}",
-                    remote_root.trim_end_matches('/'),
-                    rel.trim_start_matches('/')
-                )
-            })
-            .collect())
+            .map(|rel| executor::validate_remote_path(&remote_root, rel))
+            .collect()
     }
 
     fn read_file_inner(&mut self, full_path: &str) -> anyhow::Result<String> {
@@ -119,12 +113,12 @@ impl TuiRuntime {
     fn map_to_rel_paths(
         rel_paths: &[String],
         full_paths: &[String],
-        batch_result: HashMap<String, String>,
+        mut batch_result: HashMap<String, String>,
     ) -> HashMap<String, String> {
-        let mut result = HashMap::new();
+        let mut result = HashMap::with_capacity(batch_result.len());
         for (i, rel_path) in rel_paths.iter().enumerate() {
-            if let Some(content) = batch_result.get(&full_paths[i]) {
-                result.insert(rel_path.clone(), content.clone());
+            if let Some(content) = batch_result.remove(&full_paths[i]) {
+                result.insert(rel_path.clone(), content);
             }
         }
         result
