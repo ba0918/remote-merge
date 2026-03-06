@@ -22,7 +22,7 @@ pub fn handle_tree_key(
 ) {
     // 検索モード中は search_keys にディスパッチ
     if state.search_state.active {
-        super::search_keys::handle_search_key(state, runtime, code);
+        super::search_keys::handle_search_key(state, code);
         return;
     }
 
@@ -112,8 +112,8 @@ pub fn handle_tree_key(
             state.search_state.activate();
             state.status_message = "/".to_string();
         }
-        KeyCode::Char('n') => super::search_keys::jump_next(state, runtime),
-        KeyCode::Char('N') => super::search_keys::jump_prev(state, runtime),
+        KeyCode::Char('n') => super::search_keys::jump_next(state),
+        KeyCode::Char('N') => super::search_keys::jump_prev(state),
         _ => {}
     }
 }

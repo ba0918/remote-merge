@@ -115,7 +115,7 @@ pub struct AppState {
     /// ファイル検索状態
     pub search_state: search::SearchState,
     /// Diff View 内テキスト検索状態
-    pub diff_search_state: diff_search::DiffSearchState,
+    pub diff_search_state: search::SearchState,
 }
 
 impl AppState {
@@ -175,7 +175,7 @@ impl AppState {
             syntax_highlight_enabled: true,
             highlighter,
             search_state: search::SearchState::default(),
-            diff_search_state: diff_search::DiffSearchState::default(),
+            diff_search_state: search::SearchState::default(),
         };
         state.rebuild_flat_nodes();
         state

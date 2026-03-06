@@ -2,9 +2,9 @@
 
 use crossterm::event::KeyCode;
 
-use crate::app::diff_search::{
-    find_content_matches, find_diff_matches, nearest_diff_match_from, next_diff_match,
-    prev_diff_match,
+use crate::app::diff_search::{find_content_matches, find_diff_matches};
+use crate::app::search::{
+    format_search_status, format_search_status_with_pos, nearest_match_from, next_match, prev_match,
 };
 use crate::app::AppState;
 use crate::diff::engine::DiffResult;
@@ -47,7 +47,7 @@ pub fn jump_next_diff(state: &mut AppState) {
         return;
     }
     state.diff_search_state.match_cursor =
-        next_diff_match(state.diff_search_state.match_cursor, matches.len());
+        next_match(state.diff_search_state.match_cursor, matches.len());
     jump_to_diff_match(state, &matches);
 }
 
@@ -62,7 +62,7 @@ pub fn jump_prev_diff(state: &mut AppState) {
         return;
     }
     state.diff_search_state.match_cursor =
-        prev_diff_match(state.diff_search_state.match_cursor, matches.len());
+        prev_match(state.diff_search_state.match_cursor, matches.len());
     jump_to_diff_match(state, &matches);
 }
 
@@ -73,7 +73,7 @@ fn jump_to_first_diff_match(state: &mut AppState) {
         update_diff_search_status(state, 0);
         return;
     }
-    if let Some(match_idx) = nearest_diff_match_from(&matches, state.diff_cursor) {
+    if let Some(match_idx) = nearest_match_from(&matches, state.diff_cursor) {
         state.diff_search_state.match_cursor = match_idx;
         jump_to_diff_match(state, &matches);
     }
@@ -107,16 +107,13 @@ fn get_diff_matches(state: &AppState) -> Vec<usize> {
 
 /// ステータスメッセージ更新（一致なし）
 fn update_diff_search_status(state: &mut AppState, total: usize) {
-    if total == 0 && state.diff_search_state.has_query() {
-        state.status_message = format!("/{} [no match]", state.diff_search_state.query);
-    } else {
-        state.status_message = format!("/{}", state.diff_search_state.query);
-    }
+    state.status_message = format_search_status(&state.diff_search_state.query, total);
 }
 
 /// ステータスメッセージ更新（位置付き）
 fn update_diff_search_status_with_pos(state: &mut AppState, pos: usize, total: usize) {
-    state.status_message = format!("/{} [{}/{}]", state.diff_search_state.query, pos, total);
+    state.status_message =
+        format_search_status_with_pos(&state.diff_search_state.query, pos, total);
 }
 
 #[cfg(test)]

@@ -41,6 +41,13 @@ impl SearchState {
     }
 }
 
+/// ノード名が検索クエリにマッチするか（case-insensitive 部分一致）。
+///
+/// `query_lower` は事前に `to_lowercase()` 済みの値を渡す。
+pub fn name_matches(name: &str, query_lower: &str) -> bool {
+    name.to_lowercase().contains(query_lower)
+}
+
 /// flat_nodes から query にマッチするインデックスのリストを返す（case-insensitive）。
 ///
 /// ノード名（`name` フィールド）に対して部分一致で検索する。
@@ -52,7 +59,7 @@ pub fn find_matches(flat_nodes: &[FlatNode], query: &str) -> Vec<usize> {
     flat_nodes
         .iter()
         .enumerate()
-        .filter(|(_, node)| node.name.to_lowercase().contains(&query_lower))
+        .filter(|(_, node)| name_matches(&node.name, &query_lower))
         .map(|(i, _)| i)
         .collect()
 }
@@ -89,16 +96,35 @@ pub fn dir_has_search_matches(node: &MergedNode, query: &str) -> bool {
         return true;
     }
     let query_lower = query.to_lowercase();
+    dir_has_search_matches_lower(node, &query_lower)
+}
+
+/// `query_lower` 事前計算済み版の内部関数。再帰で `to_lowercase()` を繰り返さない。
+fn dir_has_search_matches_lower(node: &MergedNode, query_lower: &str) -> bool {
     for child in &node.children {
         if child.is_dir {
-            if dir_has_search_matches(child, query) {
+            if dir_has_search_matches_lower(child, query_lower) {
                 return true;
             }
-        } else if child.name.to_lowercase().contains(&query_lower) {
+        } else if name_matches(&child.name, query_lower) {
             return true;
         }
     }
     false
+}
+
+/// 検索ステータスメッセージを生成する（一致なし / クエリのみ）。
+pub fn format_search_status(query: &str, total: usize) -> String {
+    if total == 0 && !query.is_empty() {
+        format!("/{} [no match]", query)
+    } else {
+        format!("/{}", query)
+    }
+}
+
+/// 検索ステータスメッセージを生成する（位置付き）。
+pub fn format_search_status_with_pos(query: &str, pos: usize, total: usize) -> String {
+    format!("/{} [{}/{}]", query, pos, total)
 }
 
 /// 現在のカーソル位置から最も近い一致を探す。
