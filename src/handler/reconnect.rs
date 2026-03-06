@@ -41,11 +41,19 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     // 展開済みディレクトリの子ノードを再取得
     let dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
     for dir in &dirs {
-        if left_source.is_local() {
-            state.load_local_children(dir);
+        // 左側: ローカルならファイルシステムから、リモートならSSHで取得
+        match &left_source {
+            Side::Local => {
+                state.load_local_children(dir);
+            }
+            Side::Remote(name) => {
+                super::merge_exec::load_remote_children_to(state, runtime, dir, name, true);
+            }
         }
-        // リモート側の子ノードは right_tree に対して取得
-        super::merge_exec::load_remote_children(state, runtime, dir);
+        // 右側: 常にリモートから取得
+        if let Side::Remote(name) = &right_source {
+            super::merge_exec::load_remote_children_to(state, runtime, dir, name, false);
+        }
     }
 
     state.rebuild_flat_nodes();

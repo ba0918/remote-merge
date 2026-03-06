@@ -76,6 +76,9 @@ impl AppState {
             );
 
             // Badge を計算してフィルタリング（Unchecked は除外）
+            // マージ方向に応じて不要な *-Only ファイルも除外する:
+            //   LeftToRight: LeftOnly + Modified のみ（RightOnly は上書き対象がない）
+            //   RightToLeft: RightOnly + Modified のみ（LeftOnly は上書き対象がない）
             let mut unchecked_count = 0usize;
             let diff_files: Vec<(String, Badge)> = all_files
                 .into_iter()
@@ -88,7 +91,14 @@ impl AppState {
                         unchecked_count += 1;
                         return false;
                     }
-                    matches!(badge, Badge::Modified | Badge::LeftOnly | Badge::RightOnly)
+                    match direction {
+                        MergeDirection::LeftToRight => {
+                            matches!(badge, Badge::Modified | Badge::LeftOnly)
+                        }
+                        MergeDirection::RightToLeft => {
+                            matches!(badge, Badge::Modified | Badge::RightOnly)
+                        }
+                    }
                 })
                 .collect();
 
@@ -127,15 +137,21 @@ impl AppState {
     }
 
     /// サーバ選択メニューを表示する (s キー)
+    ///
+    /// 左側がリモートの場合、同じサーバを右側に選択しても無意味なため除外する。
     pub fn show_server_menu(&mut self) {
-        if self.available_servers.is_empty() {
+        let left_server = self.left_source.server_name();
+        let servers: Vec<String> = self
+            .available_servers
+            .iter()
+            .filter(|s| left_server != Some(s.as_str()))
+            .cloned()
+            .collect();
+        if servers.is_empty() {
             self.status_message = "No servers available".to_string();
             return;
         }
-        self.dialog = DialogState::ServerSelect(ServerMenu::new(
-            self.available_servers.clone(),
-            self.server_name.clone(),
-        ));
+        self.dialog = DialogState::ServerSelect(ServerMenu::new(servers, self.server_name.clone()));
     }
 
     /// ヘルプオーバーレイを表示する (? キー)
@@ -432,6 +448,54 @@ mod tests {
     }
 
     #[test]
+    fn test_show_server_menu_excludes_left_remote_server() {
+        // left_source がリモートの場合、同じサーバはリストから除外される
+        let mut state = make_state();
+        state.left_source = Side::Remote("develop".to_string());
+        state.right_source = Side::Remote("staging".to_string());
+        state.available_servers = vec![
+            "develop".to_string(),
+            "staging".to_string(),
+            "release".to_string(),
+        ];
+        state.show_server_menu();
+        match &state.dialog {
+            DialogState::ServerSelect(menu) => {
+                assert_eq!(menu.servers.len(), 2);
+                assert!(!menu.servers.contains(&"develop".to_string()));
+                assert!(menu.servers.contains(&"staging".to_string()));
+                assert!(menu.servers.contains(&"release".to_string()));
+            }
+            other => panic!("Expected ServerSelect dialog, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_show_server_menu_local_left_keeps_all() {
+        // left_source が Local の場合、全サーバが表示される
+        let mut state = make_state();
+        state.left_source = Side::Local;
+        state.available_servers = vec!["develop".to_string(), "staging".to_string()];
+        state.show_server_menu();
+        match &state.dialog {
+            DialogState::ServerSelect(menu) => {
+                assert_eq!(menu.servers.len(), 2);
+            }
+            other => panic!("Expected ServerSelect dialog, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_show_server_menu_only_left_server_available() {
+        // left_source と同じサーバしか available にない → 空 → "No servers available"
+        let mut state = make_state();
+        state.left_source = Side::Remote("develop".to_string());
+        state.available_servers = vec!["develop".to_string()];
+        state.show_server_menu();
+        assert!(state.status_message.contains("No servers"));
+    }
+
+    #[test]
     fn test_show_help() {
         let mut state = make_state();
         state.show_help();
@@ -648,5 +712,79 @@ mod tests {
         });
         state.show_merge_dialog(MergeDirection::LeftToRight);
         assert!(matches!(state.dialog, DialogState::Info(_)));
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_right_only_excluded_for_left_to_right() {
+        // LeftToRight: RightOnly ファイルはマージ対象外（上書き元がないため）
+        let mut state = make_state();
+        state.is_connected = true;
+        let local_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("staging_only.rs")],
+        )];
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LeftToRight);
+        // RightOnly のみなので差分なし → Info ダイアログ
+        assert!(
+            matches!(state.dialog, DialogState::Info(_)),
+            "Expected Info dialog (no mergeable files), got: {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_left_only_excluded_for_right_to_left() {
+        // RightToLeft: LeftOnly ファイルはマージ対象外
+        let mut state = make_state();
+        state.is_connected = true;
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("local_only.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::RightToLeft);
+        assert!(
+            matches!(state.dialog, DialogState::Info(_)),
+            "Expected Info dialog (no mergeable files), got: {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_right_only_included_for_right_to_left() {
+        // RightToLeft: RightOnly ファイルはマージ対象に含まれる
+        let mut state = make_state();
+        state.is_connected = true;
+        let local_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("remote_only.rs")],
+        )];
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
+        // キャッシュがないと Unchecked 扱いになるので、右キャッシュだけ入れる
+        state
+            .right_cache
+            .insert("src/remote_only.rs".to_string(), "content".to_string());
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::RightToLeft);
+        match &state.dialog {
+            DialogState::BatchConfirm(batch) => {
+                assert_eq!(batch.files.len(), 1);
+                assert_eq!(batch.files[0].0, "src/remote_only.rs");
+                assert_eq!(batch.files[0].1, Badge::RightOnly);
+            }
+            other => panic!("Expected BatchConfirm dialog, got: {:?}", other),
+        }
     }
 }

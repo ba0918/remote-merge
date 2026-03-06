@@ -213,20 +213,26 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                         ref path,
                         direction,
                     } => {
+                        let left_name = state.left_source.display_name().to_string();
+                        let right_name = state.right_source.display_name().to_string();
                         let (source_name, target_name) = match direction {
                             crate::merge::executor::MergeDirection::LeftToRight => {
-                                ("local".to_string(), state.server_name.clone())
+                                (left_name, right_name)
                             }
                             crate::merge::executor::MergeDirection::RightToLeft => {
-                                (state.server_name.clone(), "local".to_string())
+                                (right_name, left_name)
                             }
                         };
+                        let is_r2r = crate::app::side::is_remote_to_remote(
+                            &state.left_source,
+                            &state.right_source,
+                        );
                         let confirm = crate::ui::dialog::ConfirmDialog {
                             file_path: path.clone(),
                             direction,
                             source_name,
                             target_name,
-                            is_remote_to_remote: false,
+                            is_remote_to_remote: is_r2r,
                         };
                         execute_merge(state, runtime, &confirm);
                     }

@@ -66,10 +66,22 @@ pub fn handle_tree_key(
                         .is_some_and(|n| n.is_dir() && !n.is_loaded());
 
                     if local_needs_load {
-                        state.load_local_children(&path);
+                        if state.left_source.is_local() {
+                            state.load_local_children(&path);
+                        } else if let Some(name) = state.left_source.server_name() {
+                            let name = name.to_string();
+                            super::merge_exec::load_remote_children_to(
+                                state, runtime, &path, &name, true,
+                            );
+                        }
                     }
                     if remote_needs_load && state.is_connected {
-                        super::merge_exec::load_remote_children(state, runtime, &path);
+                        if let Some(name) = state.right_source.server_name() {
+                            let name = name.to_string();
+                            super::merge_exec::load_remote_children_to(
+                                state, runtime, &path, &name, false,
+                            );
+                        }
                     }
                 }
                 state.toggle_expand();

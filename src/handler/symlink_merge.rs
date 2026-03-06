@@ -47,9 +47,10 @@ pub fn execute_symlink_merge(
             }
             match runtime.create_remote_symlink(&state.server_name, path, &source_target) {
                 Ok(()) => {
+                    let left_name = state.left_source.display_name();
                     state.status_message = format!(
-                        "{}: symlink local -> {} merged (-> {})",
-                        path, state.server_name, source_target
+                        "{}: symlink {} -> {} merged (-> {})",
+                        path, left_name, state.server_name, source_target
                     );
                 }
                 Err(e) => {
@@ -60,9 +61,10 @@ pub fn execute_symlink_merge(
         MergeDirection::RightToLeft => {
             match create_local_symlink(&state.left_tree.root, path, &source_target) {
                 Ok(()) => {
+                    let left_name = state.left_source.display_name();
                     state.status_message = format!(
-                        "{}: symlink {} -> local merged (-> {})",
-                        path, state.server_name, source_target
+                        "{}: symlink {} -> {} merged (-> {})",
+                        path, state.server_name, left_name, source_target
                     );
                 }
                 Err(e) => {

@@ -190,8 +190,9 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             match runtime.write_remote_file(&state.server_name, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
+                    let left_name = state.left_source.display_name();
                     state.status_message =
-                        format!("{}: local -> {} merged", path, state.server_name);
+                        format!("{}: {} -> {} merged", path, left_name, state.server_name);
                 }
                 Err(e) => {
                     state.status_message = format!("Merge failed: {}", e);
@@ -221,8 +222,9 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             match executor::write_local_file(&local_root, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
+                    let left_name = state.left_source.display_name();
                     state.status_message =
-                        format!("{}: {} -> local merged", path, state.server_name);
+                        format!("{}: {} -> {} merged", path, state.server_name, left_name);
                 }
                 Err(e) => {
                     state.status_message = format!("Merge failed: {}", e);
@@ -402,9 +404,10 @@ pub fn execute_batch_merge(
     }
     state.rebuild_flat_nodes();
 
+    let left_name = state.left_source.display_name();
     let dir_str = match direction {
-        MergeDirection::LeftToRight => format!("local -> {}", state.server_name),
-        MergeDirection::RightToLeft => format!("{} -> local", state.server_name),
+        MergeDirection::LeftToRight => format!("{} -> {}", left_name, state.server_name),
+        MergeDirection::RightToLeft => format!("{} -> {}", state.server_name, left_name),
     };
 
     let skip_suffix = if skipped_equal > 0 {
@@ -462,8 +465,11 @@ pub fn execute_hunk_merge(
                 let local_root = state.left_tree.root.clone();
                 match executor::write_local_file(&local_root, &path, &content) {
                     Ok(()) => {
+                        let left_name = state.left_source.display_name();
                         state.status_message = format!(
-                            "Hunk merged: remote -> local ({}) | {} hunks left",
+                            "Hunk merged: {} -> {} ({}) | {} hunks left",
+                            state.server_name,
+                            left_name,
                             path,
                             state.hunk_count(),
                         );
@@ -477,8 +483,11 @@ pub fn execute_hunk_merge(
                 let content = state.right_cache.get(&path).cloned().unwrap_or_default();
                 match runtime.write_remote_file(&state.server_name, &path, &content) {
                     Ok(()) => {
+                        let left_name = state.left_source.display_name();
                         state.status_message = format!(
-                            "Hunk merged: local -> remote ({}) | {} hunks left",
+                            "Hunk merged: {} -> {} ({}) | {} hunks left",
+                            left_name,
+                            state.server_name,
                             path,
                             state.hunk_count(),
                         );
@@ -541,10 +550,23 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 }
 
-/// リモートディレクトリの遅延読み込み
+/// リモートディレクトリの遅延読み込み（右側ツリー用、従来互換）
 pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path: &str) {
     let server_name = state.server_name.clone();
-    let server_config = match runtime.get_server_config(&server_name) {
+    load_remote_children_to(state, runtime, rel_path, &server_name, false);
+}
+
+/// リモートディレクトリの遅延読み込み（ツリー側指定版）
+///
+/// `is_left` が true なら left_tree に、false なら right_tree にロードする。
+pub fn load_remote_children_to(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    rel_path: &str,
+    server_name: &str,
+    is_left: bool,
+) {
+    let server_config = match runtime.get_server_config(server_name) {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -552,17 +574,20 @@ pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_
     let full_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
     let exclude = state.active_exclude_patterns();
 
-    let client = match runtime.ssh_clients.get_mut(&server_name) {
+    let client = match runtime.ssh_clients.get_mut(server_name) {
         Some(c) => c,
         None => return,
     };
 
+    let tree = if is_left {
+        &mut state.left_tree
+    } else {
+        &mut state.right_tree
+    };
+
     match runtime.rt.block_on(client.list_dir(&full_path, &exclude)) {
         Ok(children) => {
-            if let Some(node) = state
-                .right_tree
-                .find_node_mut(std::path::Path::new(rel_path))
-            {
+            if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
                 node.children = Some(children);
                 node.sort_children();
             }
@@ -591,25 +616,34 @@ pub fn expand_subtree_for_merge(
     let mut loaded = 0usize;
     let mut dirs_to_load: Vec<String> = vec![dir_path.to_string()];
 
+    let left_server = state.left_source.server_name().map(|s| s.to_string());
+    let right_server = state.right_source.server_name().map(|s| s.to_string());
+
     while let Some(path) = dirs_to_load.pop() {
-        // ローカルの未ロード子を読み込み
-        let local_needs_load = state
+        // 左側の未ロード子を読み込み
+        let left_needs_load = state
             .left_tree
             .find_node(std::path::Path::new(&path))
             .is_some_and(|n| n.is_dir() && !n.is_loaded());
-        if local_needs_load {
-            state.load_local_children(&path);
+        if left_needs_load {
+            if state.left_source.is_local() {
+                state.load_local_children(&path);
+            } else if let Some(ref name) = left_server {
+                load_remote_children_to(state, runtime, &path, name, true);
+            }
             loaded += 1;
         }
 
-        // リモートの未ロード子を読み込み
+        // 右側の未ロード子を読み込み
         if state.is_connected {
-            let remote_needs_load = state
+            let right_needs_load = state
                 .right_tree
                 .find_node(std::path::Path::new(&path))
                 .is_some_and(|n| n.is_dir() && !n.is_loaded());
-            if remote_needs_load {
-                load_remote_children(state, runtime, &path);
+            if right_needs_load {
+                if let Some(ref name) = right_server {
+                    load_remote_children_to(state, runtime, &path, name, false);
+                }
                 loaded += 1;
             }
         }
