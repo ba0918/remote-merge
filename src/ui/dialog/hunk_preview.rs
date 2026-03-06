@@ -136,21 +136,7 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
 
         // ガイド行
         if chunks.len() > 5 {
-            let guide = Paragraph::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    "[Y]",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" Confirm  "),
-                Span::styled(
-                    "[n/Esc]",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" Cancel"),
-            ]));
+            let guide = Paragraph::new(super::confirm_cancel_guide(None));
             guide.render(chunks[5], buf);
         }
     }

@@ -211,16 +211,7 @@ fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
     ]));
     frame.render_widget(msg, chunks[1]);
 
-    let guide = Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            "[Enter/Esc]",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" OK"),
-    ]));
+    let guide = Paragraph::new(crate::ui::dialog::ok_guide());
     frame.render_widget(guide, chunks[3]);
 }
 
@@ -230,7 +221,7 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
     frame.render_widget(Clear, dialog_area);
 
     let block = Block::default()
-        .title(format!(" {} ", progress.title))
+        .title(format!(" {} ", progress.display_title()))
         .borders(Borders::ALL)
         .border_style(
             Style::default()
@@ -290,7 +281,7 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
                 "━".repeat(marker_width),
                 "░".repeat(bar_width.saturating_sub(pos + marker_width)),
             );
-            let text = format!("Discovering files... {} found", progress.current);
+            let text = progress.phase.indeterminate_text(progress.current);
             (bar, text)
         }
     };
@@ -325,14 +316,7 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
 
     // キャンセルヒント
     if progress.cancelable {
-        let guide = Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                "[Esc]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" Cancel"),
-        ]));
+        let guide = Paragraph::new(crate::ui::dialog::cancel_guide());
         frame.render_widget(guide, chunks[4]);
     }
 }
@@ -380,21 +364,7 @@ fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Co
     ]));
     frame.render_widget(msg, chunks[1]);
 
-    let guide = Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            "[Y]",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" Yes  "),
-        Span::styled(
-            "[n/Esc]",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" No"),
-    ]));
+    let guide = Paragraph::new(crate::ui::dialog::confirm_cancel_guide(None));
     frame.render_widget(guide, chunks[3]);
 }
 
@@ -441,29 +411,26 @@ mod tests {
 
     #[test]
     fn test_progress_dialog_with_current_path() {
-        let dialog = ProgressDialog {
-            title: "Scanning src/".to_string(),
-            current: 5,
-            total: None,
-            current_path: Some("src/handler/merge_exec.rs".to_string()),
-            cancelable: true,
-        };
+        use crate::ui::dialog::ProgressPhase;
+        let mut dialog = ProgressDialog::new(ProgressPhase::Scanning, "src/", true);
+        dialog.current = 5;
+        dialog.current_path = Some("src/handler/merge_exec.rs".to_string());
         assert_eq!(
             dialog.current_path.as_deref(),
             Some("src/handler/merge_exec.rs")
         );
+        assert_eq!(dialog.display_title(), "Scanning src/");
     }
 
     #[test]
     fn test_progress_dialog_content_phase() {
-        let dialog = ProgressDialog {
-            title: "Loading files...".to_string(),
-            current: 10,
-            total: Some(46),
-            current_path: Some("src/config.rs".to_string()),
-            cancelable: false,
-        };
+        use crate::ui::dialog::ProgressPhase;
+        let mut dialog = ProgressDialog::new(ProgressPhase::LoadingFiles, "", false);
+        dialog.current = 10;
+        dialog.total = Some(46);
+        dialog.current_path = Some("src/config.rs".to_string());
         assert_eq!(dialog.total, Some(46));
         assert_eq!(dialog.current, 10);
+        assert_eq!(dialog.display_title(), "Loading files");
     }
 }

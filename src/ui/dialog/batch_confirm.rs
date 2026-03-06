@@ -251,40 +251,12 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
 
         // ガイド行
         if row < chunks.len() {
-            let guide = if self.dialog.is_large_batch() {
-                Paragraph::new(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        "[Y]",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" Confirm  "),
-                    Span::styled(
-                        "[n/Esc]",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" Cancel  "),
-                    Span::styled("(large batch)", Style::default().fg(Color::Yellow)),
-                ]))
+            let suffix = if self.dialog.is_large_batch() {
+                Some(("(large batch)", Color::Yellow))
             } else {
-                Paragraph::new(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        "[Y]",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" Confirm  "),
-                    Span::styled(
-                        "[n/Esc]",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" Cancel"),
-                ]))
+                None
             };
+            let guide = Paragraph::new(super::confirm_cancel_guide(suffix));
             guide.render(chunks[row], buf);
         }
     }

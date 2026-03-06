@@ -123,14 +123,13 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
 
             if file_count <= SYNC_FILE_THRESHOLD && !has_unloaded {
                 // 同期処理（プログレスダイアログ表示）
-                state.dialog =
-                    crate::ui::dialog::DialogState::Progress(crate::ui::dialog::ProgressDialog {
-                        title: format!("Scanning {}", path),
-                        current: 0,
-                        total: None,
-                        current_path: None,
-                        cancelable: false,
-                    });
+                state.dialog = crate::ui::dialog::DialogState::Progress(
+                    crate::ui::dialog::ProgressDialog::new(
+                        crate::ui::dialog::ProgressPhase::Scanning,
+                        path.as_str(),
+                        false,
+                    ),
+                );
                 expand_subtree_for_merge(state, runtime, &path);
                 load_subtree_contents(state, runtime, &path);
                 state.dialog = crate::ui::dialog::DialogState::None;

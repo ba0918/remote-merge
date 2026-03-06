@@ -8,7 +8,7 @@ use crate::merge::optimistic_lock::{self, MtimeConflict};
 use crate::runtime::TuiRuntime;
 use crate::ui::dialog::{
     BatchConfirmDialog, ConfirmDialog, DialogState, MtimeWarningDialog, MtimeWarningMergeContext,
-    ProgressDialog,
+    ProgressDialog, ProgressPhase,
 };
 
 /// 単一ファイルの楽観的ロックチェック。
@@ -256,13 +256,9 @@ pub fn execute_batch_merge(
     }
 
     // プログレスダイアログを表示
-    state.dialog = DialogState::Progress(ProgressDialog {
-        title: "Merging...".to_string(),
-        current: 0,
-        total: Some(file_count),
-        current_path: None,
-        cancelable: false,
-    });
+    let mut progress = ProgressDialog::new(ProgressPhase::Merging, "", false);
+    progress.total = Some(file_count);
+    state.dialog = DialogState::Progress(progress);
 
     for (i, (path, _badge)) in batch.files.iter().enumerate() {
         // ダイアログの進捗を更新
@@ -633,13 +629,9 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     );
 
     let total = file_paths.len();
-    state.dialog = DialogState::Progress(ProgressDialog {
-        title: "Loading files...".to_string(),
-        current: 0,
-        total: Some(total),
-        current_path: None,
-        cancelable: false,
-    });
+    let mut progress = ProgressDialog::new(ProgressPhase::LoadingFiles, "", false);
+    progress.total = Some(total);
+    state.dialog = DialogState::Progress(progress);
 
     // ── キャッシュをクリアして最新の内容を取得する ──
     // マージ前に古いキャッシュが残っていると、第三者の変更が反映されず
@@ -683,7 +675,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
 
         if state.is_connected {
             if let DialogState::Progress(ref mut progress) = state.dialog {
-                progress.title = "Loading remote files...".to_string();
+                progress.phase = ProgressPhase::LoadingRemote;
                 progress.current = 0;
                 progress.total = Some(remote_paths.len());
             }

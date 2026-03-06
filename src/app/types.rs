@@ -143,8 +143,6 @@ pub enum MergeScanState {
         dir_path: String,
         /// マージ方向
         direction: crate::merge::executor::MergeDirection,
-        /// 発見ファイル数
-        files_found: usize,
     },
 }
 

@@ -19,6 +19,7 @@ pub use server_menu::{ServerMenu, ServerMenuWidget};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Widget};
 
 /// アプリのダイアログ状態
@@ -51,11 +52,46 @@ pub enum DialogState {
     MtimeWarning(MtimeWarningDialog),
 }
 
+/// プログレスダイアログのフェーズ（サービス層はフェーズだけ設定し、UI層が表示テキストを生成）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgressPhase {
+    /// ディレクトリ走査中（ファイル発見フェーズ）
+    Scanning,
+    /// ファイルコンテンツ読み込み中
+    LoadingFiles,
+    /// リモートファイル読み込み中
+    LoadingRemote,
+    /// マージ実行中
+    Merging,
+}
+
+impl ProgressPhase {
+    /// UI 表示用のタイトルテキストを生成する
+    pub fn title(&self) -> &'static str {
+        match self {
+            ProgressPhase::Scanning => "Scanning",
+            ProgressPhase::LoadingFiles => "Loading files",
+            ProgressPhase::LoadingRemote => "Loading remote files",
+            ProgressPhase::Merging => "Merging",
+        }
+    }
+
+    /// プログレスバーの不定形式テキスト（total 不明時）
+    pub fn indeterminate_text(&self, current: usize) -> String {
+        match self {
+            ProgressPhase::Scanning => format!("Discovering files... {} found", current),
+            _ => format!("Processing... {}", current),
+        }
+    }
+}
+
 /// プログレスダイアログの状態
 #[derive(Debug, Clone)]
 pub struct ProgressDialog {
-    /// タイトル（例: "Scanning src/", "Loading files..."）
-    pub title: String,
+    /// 進捗フェーズ
+    pub phase: ProgressPhase,
+    /// 走査対象のコンテキスト（例: ディレクトリパス）
+    pub context: String,
     /// 現在の進捗値
     pub current: usize,
     /// 全体の件数（不明な場合は None）
@@ -64,6 +100,81 @@ pub struct ProgressDialog {
     pub current_path: Option<String>,
     /// Esc でキャンセル可能か
     pub cancelable: bool,
+}
+
+impl ProgressDialog {
+    /// 新しいプログレスダイアログを作成する
+    pub fn new(phase: ProgressPhase, context: impl Into<String>, cancelable: bool) -> Self {
+        Self {
+            phase,
+            context: context.into(),
+            current: 0,
+            total: None,
+            current_path: None,
+            cancelable,
+        }
+    }
+
+    /// UI 表示用のタイトルを生成する（フェーズ + コンテキスト）
+    pub fn display_title(&self) -> String {
+        if self.context.is_empty() {
+            self.phase.title().to_string()
+        } else {
+            format!("{} {}", self.phase.title(), self.context)
+        }
+    }
+}
+
+/// `[Y] Confirm  [n/Esc] Cancel` フッターガイドを生成する。
+///
+/// `suffix` が `Some` の場合、末尾に追加テキストを付与する（例: "(large batch)"）。
+pub fn confirm_cancel_guide(suffix: Option<(&str, Color)>) -> Line<'static> {
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(
+            "[Y]",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Confirm  "),
+        Span::styled(
+            "[n/Esc]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Cancel"),
+    ];
+    if let Some((text, color)) = suffix {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(text.to_string(), Style::default().fg(color)));
+    }
+    Line::from(spans)
+}
+
+/// `[Enter/Esc] OK` フッターガイドを生成する。
+pub fn ok_guide() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "[Enter/Esc]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" OK"),
+    ])
+}
+
+/// `[Esc] Cancel` フッターガイドを生成する。
+pub fn cancel_guide() -> Line<'static> {
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            "[Esc]",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Cancel"),
+    ])
 }
 
 /// 中央にモーダルエリアを計算する
@@ -128,5 +239,75 @@ mod tests {
     fn test_dialog_state_default() {
         let state = DialogState::default();
         assert!(matches!(state, DialogState::None));
+    }
+
+    #[test]
+    fn test_progress_phase_titles() {
+        assert_eq!(ProgressPhase::Scanning.title(), "Scanning");
+        assert_eq!(ProgressPhase::LoadingFiles.title(), "Loading files");
+        assert_eq!(ProgressPhase::LoadingRemote.title(), "Loading remote files");
+        assert_eq!(ProgressPhase::Merging.title(), "Merging");
+    }
+
+    #[test]
+    fn test_progress_phase_indeterminate_text() {
+        let text = ProgressPhase::Scanning.indeterminate_text(42);
+        assert_eq!(text, "Discovering files... 42 found");
+
+        let text = ProgressPhase::Merging.indeterminate_text(10);
+        assert_eq!(text, "Processing... 10");
+    }
+
+    #[test]
+    fn test_progress_dialog_new_defaults() {
+        let dialog = ProgressDialog::new(ProgressPhase::Scanning, "src/", true);
+        assert_eq!(dialog.phase, ProgressPhase::Scanning);
+        assert_eq!(dialog.context, "src/");
+        assert_eq!(dialog.current, 0);
+        assert_eq!(dialog.total, None);
+        assert_eq!(dialog.current_path, None);
+        assert!(dialog.cancelable);
+    }
+
+    #[test]
+    fn test_progress_dialog_display_title() {
+        let dialog = ProgressDialog::new(ProgressPhase::Scanning, "src/app", true);
+        assert_eq!(dialog.display_title(), "Scanning src/app");
+
+        let dialog = ProgressDialog::new(ProgressPhase::LoadingFiles, "", false);
+        assert_eq!(dialog.display_title(), "Loading files");
+    }
+
+    #[test]
+    fn test_confirm_cancel_guide_without_suffix() {
+        let line = confirm_cancel_guide(None);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("[Y]"));
+        assert!(text.contains("Confirm"));
+        assert!(text.contains("[n/Esc]"));
+        assert!(text.contains("Cancel"));
+    }
+
+    #[test]
+    fn test_confirm_cancel_guide_with_suffix() {
+        let line = confirm_cancel_guide(Some(("(large batch)", Color::Yellow)));
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("(large batch)"));
+    }
+
+    #[test]
+    fn test_ok_guide_content() {
+        let line = ok_guide();
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("[Enter/Esc]"));
+        assert!(text.contains("OK"));
+    }
+
+    #[test]
+    fn test_cancel_guide_content() {
+        let line = cancel_guide();
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("[Esc]"));
+        assert!(text.contains("Cancel"));
     }
 }

@@ -11,7 +11,7 @@ use crate::app::{AppState, MergeScanMsg, MergeScanResult, MergeScanState};
 use crate::merge::executor::{self, MergeDirection};
 use crate::ssh::client::SshClient;
 use crate::tree::FileNode;
-use crate::ui::dialog::{DialogState, ProgressDialog};
+use crate::ui::dialog::{DialogState, ProgressDialog, ProgressPhase};
 
 use super::TuiRuntime;
 
@@ -45,15 +45,9 @@ pub fn start_merge_scan(
     state.merge_scan_state = MergeScanState::Scanning {
         dir_path: dir_path.to_string(),
         direction,
-        files_found: 0,
     };
-    state.dialog = DialogState::Progress(ProgressDialog {
-        title: format!("Scanning {}", dir_path),
-        current: 0,
-        total: None,
-        current_path: None,
-        cancelable: true,
-    });
+    state.dialog =
+        DialogState::Progress(ProgressDialog::new(ProgressPhase::Scanning, dir_path, true));
 
     let (tx, rx) = mpsc::channel();
     runtime.merge_scan_receiver = Some(rx);
@@ -323,20 +317,12 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
     if let Some(total) = content_phase_total {
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.total = Some(total);
-            progress.title = "Loading files...".to_string();
+            progress.phase = ProgressPhase::LoadingFiles;
         }
     }
 
-    // Progress 更新
+    // Progress 更新（ダイアログの進捗値が唯一の真実源）
     if let Some((n, path)) = last_progress {
-        if let MergeScanState::Scanning {
-            ref mut files_found,
-            ..
-        } = state.merge_scan_state
-        {
-            *files_found = n;
-        }
-        // ダイアログの進捗を更新
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.current = n;
             progress.current_path = path;
