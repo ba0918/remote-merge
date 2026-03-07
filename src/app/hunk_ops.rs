@@ -83,11 +83,8 @@ impl AppState {
         }) = &self.current_diff
         {
             if let Some(hunk) = merge_hunks.get(self.hunk_cursor) {
-                if let Some(first_hunk_line) = hunk.lines.first() {
-                    let target = lines
-                        .iter()
-                        .position(|l| std::ptr::eq(l, first_hunk_line))
-                        .unwrap_or_else(|| self.find_hunk_start_in_lines(lines, hunk));
+                if !hunk.lines.is_empty() {
+                    let target = self.find_hunk_start_in_lines(lines, hunk);
                     self.diff_cursor = target;
                     self.ensure_cursor_visible();
                 }
@@ -556,6 +553,47 @@ mod tests {
         state.diff_cursor = 0;
         state.sync_hunk_cursor_to_scroll();
         assert_eq!(state.hunk_cursor, 0);
+    }
+
+    #[test]
+    fn test_scroll_to_hunk_uses_content_based_search() {
+        // ハンクがクローンされた場合でもスクロールが正しく動作することを確認
+        let mut state = make_state_with_diff("a\nb\nc\n", "a\nx\nc\n");
+        assert!(state.hunk_count() > 0);
+
+        // hunk_cursor_down / hunk_cursor_up は内部で scroll_to_hunk を呼ぶ
+        // クローンされたハンクでもパニックせず正しく動作する
+        state.hunk_cursor = 0;
+        state.hunk_cursor_down();
+        // カーソルが範囲外でなければOK（ハンクが1つの場合は0のまま）
+        assert!(state.hunk_cursor <= state.hunk_count().saturating_sub(1));
+
+        // 複数ハンクのケース
+        let mut state2 = make_state_with_diff("a\nb\nc\nd\ne\n", "a\nx\nc\ny\ne\n");
+        let count = state2.hunk_count();
+        if count > 1 {
+            state2.hunk_cursor = 0;
+            state2.hunk_cursor_down();
+            assert_eq!(state2.hunk_cursor, 1);
+            // diff_cursor がハンク開始位置に移動していることを確認
+            assert!(state2.diff_cursor > 0);
+
+            state2.hunk_cursor_up();
+            assert_eq!(state2.hunk_cursor, 0);
+        }
+    }
+
+    #[test]
+    fn test_find_hunk_start_in_lines_returns_zero_for_empty_hunk() {
+        let state = make_state_with_diff("a\nb\n", "a\nx\n");
+        if let Some(DiffResult::Modified { lines, .. }) = &state.current_diff {
+            let empty_hunk = DiffHunk {
+                lines: vec![],
+                old_start: 0,
+                new_start: 0,
+            };
+            assert_eq!(state.find_hunk_start_in_lines(lines, &empty_hunk), 0);
+        }
     }
 
     #[test]
