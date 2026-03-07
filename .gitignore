@@ -3,6 +3,9 @@
 
 # Claude
 .claude/settings.local.json
+.claude/worktrees
+.claude/docs/internal
+.claude/skills/remote-merge
 
 # Cycle doc
 docs/internal
