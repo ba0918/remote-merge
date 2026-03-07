@@ -2,6 +2,7 @@
 //! ツリー、diff、フォーカス、コンテンツキャッシュを一元管理する。
 
 pub mod badge;
+pub mod cache;
 pub mod dialog_ops;
 pub mod diff_search;
 pub mod hunk_ops;
@@ -14,7 +15,9 @@ pub mod side;
 pub mod tree_ops;
 pub mod types;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
+
+use cache::{BoundedCache, MAX_BINARY_CACHE_ENTRIES, MAX_TEXT_CACHE_ENTRIES};
 
 use crate::diff::engine::{DiffResult, HunkDirection};
 use crate::highlight::{HighlightCache, SyntaxHighlighter};
@@ -46,13 +49,13 @@ pub struct AppState {
     /// 利用可能なサーバ名一覧
     pub available_servers: Vec<String>,
     /// 左側ファイル内容キャッシュ (パス -> 内容)
-    pub left_cache: HashMap<String, String>,
+    pub left_cache: BoundedCache<String>,
     /// 右側ファイル内容キャッシュ (パス -> 内容)
-    pub right_cache: HashMap<String, String>,
+    pub right_cache: BoundedCache<String>,
     /// 左側バイナリファイル情報キャッシュ (パス -> BinaryInfo)
-    pub left_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
+    pub left_binary_cache: BoundedCache<crate::diff::binary::BinaryInfo>,
     /// 右側バイナリファイル情報キャッシュ (パス -> BinaryInfo)
-    pub right_binary_cache: HashMap<String, crate::diff::binary::BinaryInfo>,
+    pub right_binary_cache: BoundedCache<crate::diff::binary::BinaryInfo>,
     /// 現在選択中の diff 結果
     pub current_diff: Option<DiffResult>,
     /// 現在選択中のファイルパス
@@ -151,10 +154,10 @@ impl AppState {
             status_message: format!("{} | Tab: switch focus | q: quit", label),
             server_name,
             available_servers: Vec::new(),
-            left_cache: HashMap::new(),
-            right_cache: HashMap::new(),
-            left_binary_cache: HashMap::new(),
-            right_binary_cache: HashMap::new(),
+            left_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
+            right_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
+            left_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
+            right_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
             current_diff: None,
             selected_path: None,
             flat_nodes: Vec::new(),

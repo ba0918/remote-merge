@@ -1,15 +1,26 @@
 //! ハイライト結果のキャッシュ。
 //! ファイルパスをキーとして HighlightedFile を保持する。
+//! 内部で `BoundedCache` を使用し、エントリ数の上限を設ける。
 
-use std::collections::HashMap;
-
+use crate::app::cache::BoundedCache;
 use crate::highlight::engine::HighlightedFile;
 
+/// ハイライトキャッシュの最大エントリ数
+const MAX_HIGHLIGHT_CACHE_ENTRIES: usize = 500;
+
 /// ハイライト結果のキャッシュ。
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct HighlightCache {
     /// ファイルパス -> ハイライト結果
-    entries: HashMap<String, HighlightedFile>,
+    entries: BoundedCache<HighlightedFile>,
+}
+
+impl Default for HighlightCache {
+    fn default() -> Self {
+        Self {
+            entries: BoundedCache::new(MAX_HIGHLIGHT_CACHE_ENTRIES),
+        }
+    }
 }
 
 impl HighlightCache {

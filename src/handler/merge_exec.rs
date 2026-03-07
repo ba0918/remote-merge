@@ -775,7 +775,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         // リモート: バッチ読み込み
         let left_paths: Vec<String> = file_paths
             .iter()
-            .filter(|p| !state.left_cache.contains_key(*p))
+            .filter(|p| !state.left_cache.contains_key(p))
             .cloned()
             .collect();
 
@@ -809,7 +809,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     // ── 右側ファイルをバッチ読み込み（1チャネルで全ファイル） ──
     let remote_paths: Vec<String> = file_paths
         .iter()
-        .filter(|p| !state.right_cache.contains_key(*p))
+        .filter(|p| !state.right_cache.contains_key(p))
         .cloned()
         .collect();
 
@@ -954,8 +954,8 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
 /// 戻り値は `(フィルタ済みファイル一覧, スキップ数)`.
 pub fn filter_unchecked_equal(
     files: &[(String, crate::app::Badge)],
-    local_cache: &std::collections::HashMap<String, String>,
-    remote_cache: &std::collections::HashMap<String, String>,
+    local_cache: &crate::app::cache::BoundedCache<String>,
+    remote_cache: &crate::app::cache::BoundedCache<String>,
 ) -> (Vec<(String, crate::app::Badge)>, usize) {
     let mut skipped = 0usize;
     let filtered = files
@@ -997,8 +997,16 @@ fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::cache::BoundedCache;
     use crate::app::Badge;
-    use std::collections::HashMap;
+
+    fn make_cache(entries: Vec<(&str, &str)>) -> BoundedCache<String> {
+        let mut cache = BoundedCache::new(100);
+        for (k, v) in entries {
+            cache.insert(k.to_string(), v.to_string());
+        }
+        cache
+    }
 
     #[test]
     fn test_filter_unchecked_equal_skips_identical() {
@@ -1006,10 +1014,8 @@ mod tests {
             ("a.rs".to_string(), Badge::Unchecked),
             ("b.rs".to_string(), Badge::Modified),
         ];
-        let mut local = HashMap::new();
-        let mut remote = HashMap::new();
-        local.insert("a.rs".to_string(), "same".to_string());
-        remote.insert("a.rs".to_string(), "same".to_string());
+        let local = make_cache(vec![("a.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same")]);
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
@@ -1020,10 +1026,8 @@ mod tests {
     #[test]
     fn test_filter_unchecked_equal_keeps_different() {
         let files = vec![("a.rs".to_string(), Badge::Unchecked)];
-        let mut local = HashMap::new();
-        let mut remote = HashMap::new();
-        local.insert("a.rs".to_string(), "old".to_string());
-        remote.insert("a.rs".to_string(), "new".to_string());
+        let local = make_cache(vec![("a.rs", "old")]);
+        let remote = make_cache(vec![("a.rs", "new")]);
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
@@ -1034,9 +1038,8 @@ mod tests {
     fn test_filter_unchecked_equal_keeps_missing_cache() {
         // 片方しかキャッシュにない場合 → スキップしない（安全側に倒す）
         let files = vec![("a.rs".to_string(), Badge::Unchecked)];
-        let mut local = HashMap::new();
-        let remote = HashMap::new();
-        local.insert("a.rs".to_string(), "content".to_string());
+        let local = make_cache(vec![("a.rs", "content")]);
+        let remote = BoundedCache::new(100);
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
@@ -1051,8 +1054,8 @@ mod tests {
             ("b.rs".to_string(), Badge::LeftOnly),
             ("c.rs".to_string(), Badge::RightOnly),
         ];
-        let local = HashMap::new();
-        let remote = HashMap::new();
+        let local = BoundedCache::new(100);
+        let remote = BoundedCache::new(100);
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
         assert_eq!(filtered.len(), 3);
@@ -1065,12 +1068,8 @@ mod tests {
             ("a.rs".to_string(), Badge::Unchecked),
             ("b.rs".to_string(), Badge::Unchecked),
         ];
-        let mut local = HashMap::new();
-        let mut remote = HashMap::new();
-        local.insert("a.rs".to_string(), "x".to_string());
-        remote.insert("a.rs".to_string(), "x".to_string());
-        local.insert("b.rs".to_string(), "y".to_string());
-        remote.insert("b.rs".to_string(), "y".to_string());
+        let local = make_cache(vec![("a.rs", "x"), ("b.rs", "y")]);
+        let remote = make_cache(vec![("a.rs", "x"), ("b.rs", "y")]);
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
         assert_eq!(filtered.len(), 0);
@@ -1085,12 +1084,8 @@ mod tests {
             ("known.rs".to_string(), Badge::Modified),
             ("no_cache.rs".to_string(), Badge::Unchecked),
         ];
-        let mut local = HashMap::new();
-        let mut remote = HashMap::new();
-        local.insert("equal.rs".to_string(), "same".to_string());
-        remote.insert("equal.rs".to_string(), "same".to_string());
-        local.insert("diff.rs".to_string(), "aaa".to_string());
-        remote.insert("diff.rs".to_string(), "bbb".to_string());
+        let local = make_cache(vec![("equal.rs", "same"), ("diff.rs", "aaa")]);
+        let remote = make_cache(vec![("equal.rs", "same"), ("diff.rs", "bbb")]);
         // no_cache.rs はキャッシュなし
 
         let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
