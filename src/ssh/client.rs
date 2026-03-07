@@ -38,6 +38,28 @@ impl SshClient {
         server_config: &ServerConfig,
         ssh_config: &SshConfig,
     ) -> crate::error::Result<Self> {
+        Self::connect_inner(server_name, server_config, ssh_config, false).await
+    }
+
+    /// テスト用: known_hosts チェックをスキップして接続する
+    ///
+    /// インテグレーションテストで使用。プロダクションでは使用しないこと。
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn connect_insecure(
+        server_name: &str,
+        server_config: &ServerConfig,
+        ssh_config: &SshConfig,
+    ) -> crate::error::Result<Self> {
+        Self::connect_inner(server_name, server_config, ssh_config, true).await
+    }
+
+    /// 接続の内部実装
+    async fn connect_inner(
+        server_name: &str,
+        server_config: &ServerConfig,
+        ssh_config: &SshConfig,
+        skip_host_key_check: bool,
+    ) -> crate::error::Result<Self> {
         // inactivity_timeout は接続タイムアウト(timeout_sec)とは独立。
         // timeout_sec が短い(10秒等)場合にセッションごと切れるのを防ぐため、
         // 最低でも keepalive_interval × keepalive_max + マージン 以上にする。
@@ -54,7 +76,8 @@ impl SshClient {
         }
 
         let config = Arc::new(config);
-        let handler = SshHandler::new(server_config.host.clone(), server_config.port);
+        let mut handler = SshHandler::new(server_config.host.clone(), server_config.port);
+        handler.skip_host_key_check = skip_host_key_check;
 
         let addr = (server_config.host.as_str(), server_config.port);
         let mut session = tokio::time::timeout(
@@ -101,7 +124,7 @@ impl SshClient {
                     .await
                     .map_err(|e| AppError::SshConnection {
                         host: server_config.host.clone(),
-                        message: format!("鍵認証エラー: {}", e),
+                        message: format!("Key authentication error: {}", e),
                     })?;
 
                 if !auth_res.success() {
@@ -123,7 +146,7 @@ impl SshClient {
                     .await
                     .map_err(|e| AppError::SshConnection {
                         host: server_config.host.clone(),
-                        message: format!("パスワード認証エラー: {}", e),
+                        message: format!("Password authentication error: {}", e),
                     })?;
 
                 if !auth_res.success() {
@@ -136,7 +159,7 @@ impl SshClient {
         }
 
         tracing::info!(
-            "SSH 接続成功: {}@{}",
+            "SSH connection established: {}@{}",
             server_config.user,
             server_config.host
         );
@@ -186,7 +209,7 @@ impl SshClient {
                     );
                     anyhow::Error::from(AppError::SshConnection {
                         host: self.server_name.clone(),
-                        message: format!("チャネルオープンに失敗: {}", e2),
+                        message: format!("Failed to open channel: {}", e2),
                     })
                 })
             }
@@ -203,7 +226,7 @@ impl SshClient {
         if let Some(code) = result.exit_code {
             if code != 0 {
                 tracing::debug!(
-                    "リモートコマンドが非ゼロで終了: cmd='{}', code={}",
+                    "Remote command exited with non-zero: cmd='{}', code={}",
                     command,
                     code
                 );
@@ -263,11 +286,7 @@ impl SshClient {
             }
             if nodes.len() >= max_entries {
                 truncated = true;
-                tracing::warn!(
-                    "エントリ数が上限 {} に達しました: {}",
-                    max_entries,
-                    remote_path
-                );
+                tracing::warn!("Entry count reached limit {}: {}", max_entries, remote_path);
                 break;
             }
             if let Some(node) = parse_find_line(line, remote_path, exclude) {
@@ -317,7 +336,7 @@ impl SshClient {
             if flat_nodes.len() >= max_entries {
                 truncated = true;
                 tracing::warn!(
-                    "全走査: エントリ数が上限 {} に達しました: {}",
+                    "Recursive scan: entry count reached limit {}: {}",
                     max_entries,
                     remote_path
                 );
@@ -454,12 +473,12 @@ impl SshClient {
             .await
             .map_err(|e| AppError::SshConnection {
                 host: self.server_name.clone(),
-                message: format!("データ送信に失敗: {}", e),
+                message: format!("Failed to send data: {}", e),
             })?;
 
         channel.eof().await.map_err(|e| AppError::SshConnection {
             host: self.server_name.clone(),
-            message: format!("EOF 送信に失敗: {}", e),
+            message: format!("Failed to send EOF: {}", e),
         })?;
 
         let mut exit_code = None;
@@ -483,7 +502,7 @@ impl SshClient {
             }
         }
 
-        tracing::info!("リモートファイル書き込み完了: {}", remote_path);
+        tracing::info!("Remote file write completed: {}", remote_path);
         Ok(())
     }
 
@@ -497,7 +516,7 @@ impl SshClient {
         self.session
             .disconnect(Disconnect::ByApplication, "", "")
             .await
-            .context("SSH 切断に失敗")?;
+            .context("Failed to disconnect SSH")?;
         Ok(())
     }
 }

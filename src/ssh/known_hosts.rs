@@ -24,11 +24,17 @@ pub(crate) struct KnownHost {
 pub(crate) struct SshHandler {
     pub host: String,
     pub port: u16,
+    /// テスト用: known_hosts チェックをスキップするフラグ
+    pub skip_host_key_check: bool,
 }
 
 impl SshHandler {
     pub fn new(host: String, port: u16) -> Self {
-        Self { host, port }
+        Self {
+            host,
+            port,
+            skip_host_key_check: false,
+        }
     }
 
     /// known_hosts ファイルのパスを取得する
@@ -45,7 +51,7 @@ impl SshHandler {
     /// known_hosts ファイルにエントリを追加する
     fn append_known_hosts_entry(&self, key_type: &str, key_base64: &str) {
         let Some(path) = Self::known_hosts_path() else {
-            tracing::warn!("known_hosts のパスを取得できませんでした");
+            tracing::warn!("Failed to get known_hosts path");
             return;
         };
 
@@ -53,7 +59,7 @@ impl SshHandler {
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
-                    tracing::warn!("~/.ssh ディレクトリの作成に失敗: {}", e);
+                    tracing::warn!("Failed to create ~/.ssh directory: {}", e);
                     return;
                 }
                 #[cfg(unix)]
@@ -75,7 +81,7 @@ impl SshHandler {
             .and_then(|mut f| f.write_all(line.as_bytes()));
 
         if let Err(e) = result {
-            tracing::warn!("known_hosts への書き込みに失敗: {}", e);
+            tracing::warn!("Failed to write to known_hosts: {}", e);
             return;
         }
 
@@ -85,10 +91,7 @@ impl SshHandler {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         }
 
-        tracing::info!(
-            "known_hosts に新しいホストキーを追加しました: {}",
-            host_entry
-        );
+        tracing::info!("Added new host key to known_hosts: {}", host_entry);
     }
 }
 
@@ -99,14 +102,19 @@ impl client::Handler for SshHandler {
         &mut self,
         server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, Self::Error> {
+        if self.skip_host_key_check {
+            tracing::debug!("Skipping known_hosts check: {}", self.host);
+            return Ok(true);
+        }
+
         let openssh_str = server_public_key
             .to_openssh()
-            .map_err(|e| anyhow::anyhow!("公開鍵のシリアライズに失敗: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to serialize public key: {}", e))?;
 
         let parts: Vec<&str> = openssh_str.splitn(2, ' ').collect();
         if parts.len() < 2 {
             return Err(anyhow::anyhow!(
-                "公開鍵のフォーマットが不正です: {}",
+                "Invalid public key format: {}",
                 openssh_str
             ));
         }
@@ -117,7 +125,7 @@ impl client::Handler for SshHandler {
             Some(content) => content,
             None => {
                 tracing::info!(
-                    "known_hosts ファイルが存在しません。TOFU: ホストキーを追加します: {}",
+                    "known_hosts file not found. TOFU: adding host key: {}",
                     self.host
                 );
                 self.append_known_hosts_entry(server_key_type, server_key_base64);
@@ -137,7 +145,7 @@ impl client::Handler for SshHandler {
 
             if kh.key_type == server_key_type {
                 if kh.key_base64 == server_key_base64 {
-                    tracing::debug!("known_hosts: ホストキーが一致しました: {}", self.host);
+                    tracing::debug!("known_hosts: host key matched: {}", self.host);
                     return Ok(true);
                 } else {
                     return Err(anyhow::anyhow!(
@@ -163,7 +171,7 @@ impl client::Handler for SshHandler {
         }
 
         tracing::info!(
-            "known_hosts: 未知のホストです。TOFU: ホストキーを追加します: {}",
+            "known_hosts: unknown host. TOFU: adding host key: {}",
             self.host
         );
         self.append_known_hosts_entry(server_key_type, server_key_base64);

@@ -222,7 +222,7 @@ async fn test_ssh_connect_and_exec() {
         make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect("test", &server_config, &ssh_config)
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
         .await
         .expect("SSH接続に失敗");
 
@@ -251,7 +251,7 @@ d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t
         make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect("test", &server_config, &ssh_config)
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
         .await
         .expect("SSH接続に失敗");
 
@@ -297,7 +297,7 @@ async fn test_ssh_password_auth() {
     let server_config = make_server_config(port, AuthMethod::Password, None);
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect("test", &server_config, &ssh_config)
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
         .await
         .expect("パスワード認証に失敗");
 
@@ -347,7 +347,7 @@ async fn test_ssh_nonzero_exit_code() {
         make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect("test", &server_config, &ssh_config)
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
         .await
         .expect("SSH接続に失敗");
 
@@ -369,7 +369,7 @@ async fn test_ssh_empty_directory() {
         make_server_config(port, AuthMethod::Key, Some(key_file.path().to_path_buf()));
     let ssh_config = make_ssh_config();
 
-    let mut client = SshClient::connect("test", &server_config, &ssh_config)
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
         .await
         .expect("SSH接続に失敗");
 
