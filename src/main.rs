@@ -32,6 +32,10 @@ struct Cli {
     #[arg(long)]
     right: Option<String>,
 
+    /// Reference server for 3-way diff (displays badges for differences with a third server)
+    #[arg(long, alias = "reference")]
+    r#ref: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -216,6 +220,7 @@ fn main() -> anyhow::Result<()> {
             let params = TuiBootstrapParams {
                 right_server,
                 left_server: cli.left,
+                ref_server: cli.r#ref,
             };
             let (app_state, runtime) = bootstrap::bootstrap_tui(params, config)?;
             run_tui(app_state, runtime)?;

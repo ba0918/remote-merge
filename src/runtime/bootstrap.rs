@@ -15,6 +15,8 @@ use super::TuiRuntime;
 pub struct TuiBootstrapParams {
     pub right_server: String,
     pub left_server: Option<String>,
+    /// reference サーバ（3way diff 用。省略時は自動選択）
+    pub ref_server: Option<String>,
 }
 
 /// TUI モードの AppState と Runtime を構築する
@@ -58,6 +60,11 @@ pub fn bootstrap_tui(
     if !is_connected {
         app_state.status_message = format!("{} (offline) | s: server | q: quit", label);
     }
+
+    // reference サーバの設定
+    setup_reference_server(&params, &app_state, &mut runtime);
+    // re-borrow を避けるため、setup後に状態を更新
+    apply_reference_from_runtime(&mut app_state, &params, &mut runtime);
 
     // 起動時に古いバックアップをクリーンアップ
     cleanup_old_backups(&config);
@@ -132,6 +139,106 @@ fn fetch_right_side(
                 .unwrap_or_default();
             (FileTree::new(root), false)
         }
+    }
+}
+
+/// reference サーバを設定する（bootstrap 用ヘルパー）
+///
+/// --ref が指定されていればそれを使用。未指定で available_servers が3つ以上なら
+/// left/right 以外の先頭を自動選択。
+fn setup_reference_server(
+    _params: &TuiBootstrapParams,
+    _app_state: &AppState,
+    _runtime: &mut TuiRuntime,
+) {
+    // 実際の接続は apply_reference_from_runtime で行う
+}
+
+/// reference サーバへの接続・ツリー取得を行い、AppState に反映する
+fn apply_reference_from_runtime(
+    app_state: &mut AppState,
+    params: &TuiBootstrapParams,
+    runtime: &mut TuiRuntime,
+) {
+    let left_name = app_state.left_source.display_name().to_string();
+    let right_name = app_state.right_source.display_name().to_string();
+
+    // --ref が指定されていればそれを使う
+    let ref_name = if let Some(ref name) = params.ref_server {
+        // left/right と同じなら無視
+        if name == &left_name || name == &right_name {
+            tracing::warn!("--ref server '{}' is same as left or right, ignoring", name);
+            None
+        } else {
+            Some(name.clone())
+        }
+    } else {
+        // 自動選択: available_servers + "local" から left/right を除いた先頭
+        // available_servers は config.servers.keys() なので "local" を含まない
+        let mut candidates = vec!["local".to_string()];
+        for s in &app_state.available_servers {
+            if s != "local" {
+                candidates.push(s.clone());
+            }
+        }
+        candidates
+            .iter()
+            .find(|s| {
+                let name = s.as_str();
+                name != left_name && name != right_name
+            })
+            .cloned()
+    };
+
+    let ref_name = match ref_name {
+        Some(name) => name,
+        None => return,
+    };
+
+    let ref_source = if ref_name == "local" {
+        Side::Local
+    } else {
+        Side::Remote(ref_name.clone())
+    };
+
+    // ツリーを取得
+    let ref_tree = match &ref_source {
+        Side::Local => {
+            // reference は再帰的に全走査する（浅いスキャンだと find_node が失敗する）
+            match local::scan_local_tree_recursive(
+                &runtime.core.config.local.root_dir,
+                &runtime.core.config.filter.exclude,
+                10_000,
+            ) {
+                Ok((nodes, _truncated)) => {
+                    let mut tree = crate::tree::FileTree::new(&runtime.core.config.local.root_dir);
+                    tree.nodes = nodes;
+                    Some(tree)
+                }
+                Err(e) => {
+                    tracing::warn!("Reference local scan failed: {}", e);
+                    None
+                }
+            }
+        }
+        Side::Remote(name) => match runtime.connect(name) {
+            Ok(()) => match runtime.fetch_remote_tree_recursive(name, 10_000) {
+                Ok(tree) => Some(tree),
+                Err(e) => {
+                    tracing::warn!("Reference tree fetch failed: {}", e);
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!("Reference SSH connection failed: {}", e);
+                None
+            }
+        },
+    };
+
+    if let Some(tree) = ref_tree {
+        app_state.set_reference(ref_source, tree);
+        tracing::info!("Reference server set: {}", ref_name);
     }
 }
 

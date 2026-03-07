@@ -127,6 +127,10 @@ pub struct MergeScanResult {
     pub local_binary_cache: std::collections::HashMap<String, crate::diff::binary::BinaryInfo>,
     /// リモートバイナリ情報キャッシュ (パス -> BinaryInfo)
     pub remote_binary_cache: std::collections::HashMap<String, crate::diff::binary::BinaryInfo>,
+    /// reference サーバのファイル内容キャッシュ (パス -> 内容)
+    pub ref_cache: std::collections::HashMap<String, String>,
+    /// reference サーバのバイナリ情報キャッシュ (パス -> BinaryInfo)
+    pub ref_binary_cache: std::collections::HashMap<String, crate::diff::binary::BinaryInfo>,
     /// ローカルツリー更新 (パス -> 子ノード)
     pub local_tree_updates: Vec<(String, Vec<FileNode>)>,
     /// リモートツリー更新 (パス -> 子ノード)

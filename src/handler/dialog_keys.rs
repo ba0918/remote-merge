@@ -250,6 +250,46 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             _ => {}
         },
+        DialogState::PairServerSelect(_) => match key {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::PairServerSelect(ref mut m) = state.dialog {
+                    m.cursor_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::PairServerSelect(ref mut m) = state.dialog {
+                    m.cursor_down();
+                }
+            }
+            KeyCode::Tab | KeyCode::BackTab => {
+                if let DialogState::PairServerSelect(ref mut m) = state.dialog {
+                    m.toggle_column();
+                }
+            }
+            KeyCode::Enter => {
+                let pair = if let DialogState::PairServerSelect(ref menu) = state.dialog {
+                    if menu.is_same_pair() {
+                        None // 同じサーバ同士は不可
+                    } else {
+                        Some((
+                            menu.selected_left().map(|s| s.to_string()),
+                            menu.selected_right().map(|s| s.to_string()),
+                        ))
+                    }
+                } else {
+                    None
+                };
+                if let Some((Some(left_name), Some(right_name))) = pair {
+                    state.close_dialog();
+                    super::reconnect::execute_pair_switch(state, runtime, &left_name, &right_name);
+                }
+                // is_same_pair() の場合は閉じない（ユーザーにエラーを認識させる）
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::None => {}
     }
 }

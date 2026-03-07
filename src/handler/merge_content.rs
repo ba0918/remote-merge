@@ -204,7 +204,50 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
         state.error_paths.insert(path.clone());
     }
 
+    // reference サーバのコンテンツを遅延取得（3way バッジ用）
+    load_ref_file_content(state, runtime, path);
+
     state.rebuild_flat_nodes();
+}
+
+/// reference サーバの単一ファイルコンテンツをロードする（3way バッジ用）
+///
+/// reference サーバが未設定の場合は何もしない。
+/// 取得失敗時はバッジ非表示（エラーにしない、graceful degradation）。
+fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &str) {
+    if !state.has_reference() || state.ref_cache.contains_key(path) {
+        return;
+    }
+
+    let ref_source = match &state.ref_source {
+        Some(source) => source.clone(),
+        None => return,
+    };
+
+    match &ref_source {
+        crate::app::Side::Local => match read_local_file_for_ref(runtime, path) {
+            Ok(content) => {
+                state.ref_cache.insert(path.to_string(), content);
+            }
+            Err(e) => {
+                tracing::debug!("Ref file read skipped: {} - {}", path, e);
+            }
+        },
+        crate::app::Side::Remote(name) => match runtime.read_remote_file(name, path) {
+            Ok(content) => {
+                state.ref_cache.insert(path.to_string(), content);
+            }
+            Err(e) => {
+                tracing::debug!("Ref remote file read skipped: {} - {}", path, e);
+            }
+        },
+    }
+}
+
+/// reference がローカルの場合のファイル読み込み
+fn read_local_file_for_ref(runtime: &TuiRuntime, path: &str) -> anyhow::Result<String> {
+    let root_dir = &runtime.core.config.local.root_dir;
+    executor::read_local_file(root_dir, path).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 /// 右側の単一ファイルコンテンツをロードする

@@ -16,6 +16,7 @@ pub mod search;
 pub mod selection;
 pub mod server_switch;
 pub mod side;
+pub mod three_way;
 pub mod tree_ops;
 pub mod types;
 pub mod undo;
@@ -136,6 +137,14 @@ pub struct AppState {
     pub search_state: search::SearchState,
     /// Diff View 内テキスト検索状態
     pub diff_search_state: search::SearchState,
+    /// Reference サーバ（3way diff 用）
+    pub ref_source: Option<Side>,
+    /// Reference サーバのファイルツリー
+    pub ref_tree: Option<FileTree>,
+    /// Reference サーバのファイル内容キャッシュ
+    pub ref_cache: BoundedCache<String>,
+    /// Reference サーバのバイナリ情報キャッシュ
+    pub ref_binary_cache: BoundedCache<crate::diff::binary::BinaryInfo>,
 }
 
 impl AppState {
@@ -203,6 +212,10 @@ impl AppState {
             highlighter,
             search_state: search::SearchState::default(),
             diff_search_state: search::SearchState::default(),
+            ref_source: None,
+            ref_tree: None,
+            ref_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
+            ref_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
         };
         state.rebuild_flat_nodes();
         state
@@ -211,6 +224,32 @@ impl AppState {
     /// 両サイドがリモート同士か（remote ↔ remote 比較モード）
     pub fn is_remote_to_remote(&self) -> bool {
         self.left_source.is_remote() && self.right_source.is_remote()
+    }
+
+    /// reference サーバが設定されているか
+    pub fn has_reference(&self) -> bool {
+        self.ref_source.is_some()
+    }
+
+    /// reference サーバの表示名を返す
+    pub fn ref_server_name(&self) -> Option<&str> {
+        self.ref_source.as_ref().map(|s| s.display_name())
+    }
+
+    /// reference サーバを設定する
+    pub fn set_reference(&mut self, source: Side, tree: FileTree) {
+        self.ref_source = Some(source);
+        self.ref_tree = Some(tree);
+        self.ref_cache.clear();
+        self.ref_binary_cache.clear();
+    }
+
+    /// reference サーバをクリアする
+    pub fn clear_reference(&mut self) {
+        self.ref_source = None;
+        self.ref_tree = None;
+        self.ref_cache.clear();
+        self.ref_binary_cache.clear();
     }
 }
 
@@ -248,6 +287,68 @@ mod tests {
             crate::theme::DEFAULT_THEME,
         );
         assert!(state.is_remote_to_remote());
+    }
+
+    #[test]
+    fn test_ref_fields_initially_none() {
+        let state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert!(!state.has_reference());
+        assert!(state.ref_source.is_none());
+        assert!(state.ref_tree.is_none());
+        assert!(state.ref_cache.is_empty());
+        assert!(state.ref_binary_cache.is_empty());
+    }
+
+    #[test]
+    fn test_set_reference() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        let ref_tree = make_test_tree(vec![FileNode::new_file("x.rs")]);
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        assert!(state.has_reference());
+        assert_eq!(state.ref_server_name(), Some("staging"));
+        assert!(state.ref_tree.is_some());
+    }
+
+    #[test]
+    fn test_clear_reference() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), make_test_tree(vec![]));
+        assert!(state.has_reference());
+        state.clear_reference();
+        assert!(!state.has_reference());
+        assert!(state.ref_source.is_none());
+        assert!(state.ref_tree.is_none());
+    }
+
+    #[test]
+    fn test_ref_server_name_local() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Remote("develop".to_string()),
+            Side::Remote("staging".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Local, make_test_tree(vec![]));
+        assert_eq!(state.ref_server_name(), Some("local"));
     }
 
     #[test]

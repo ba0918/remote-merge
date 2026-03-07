@@ -7,8 +7,8 @@ use crate::app::{AppState, ScanState};
 use crate::theme::palette::ensure_contrast;
 use crate::ui::dialog::{
     centered_rect, BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
-    HelpOverlayWidget, HunkMergePreviewWidget, MtimeWarningDialogWidget, ProgressDialog,
-    ServerMenuWidget,
+    HelpOverlayWidget, HunkMergePreviewWidget, MtimeWarningDialogWidget, PairServerMenuWidget,
+    ProgressDialog, ServerMenuWidget,
 };
 use crate::ui::diff_view::DiffView;
 use crate::ui::layout::AppLayout;
@@ -174,6 +174,10 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
                 border_color: Color::Yellow,
                 bg: state.palette.bg,
             };
+            frame.render_widget(widget, frame.area());
+        }
+        DialogState::PairServerSelect(menu) => {
+            let widget = PairServerMenuWidget::new(menu, state.palette.bg);
             frame.render_widget(widget, frame.area());
         }
         DialogState::None => {}

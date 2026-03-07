@@ -6,6 +6,7 @@ mod filter_panel;
 mod help;
 mod hunk_preview;
 mod mtime_warning;
+mod pair_server_menu;
 mod server_menu;
 
 pub use batch_confirm::{BatchConfirmDialog, BatchConfirmDialogWidget};
@@ -14,6 +15,7 @@ pub use filter_panel::{FilterPanel, FilterPanelWidget};
 pub use help::{HelpOverlay, HelpOverlayWidget, HelpSection};
 pub use hunk_preview::{HunkMergePreview, HunkMergePreviewWidget};
 pub use mtime_warning::{MtimeWarningDialog, MtimeWarningDialogWidget, MtimeWarningMergeContext};
+pub use pair_server_menu::{Column, PairServerMenu, PairServerMenuWidget};
 pub use server_menu::{ServerMenu, ServerMenuWidget};
 
 use ratatui::buffer::Buffer;
@@ -32,8 +34,10 @@ pub enum DialogState {
     Confirm(ConfirmDialog),
     /// バッチマージ確認ダイアログ（ディレクトリ選択時）
     BatchConfirm(BatchConfirmDialog),
-    /// サーバ選択メニュー
+    /// サーバ選択メニュー（右側のみ切り替え、後方互換）
     ServerSelect(ServerMenu),
+    /// ペアサーバ選択メニュー（LEFT/RIGHT 両方選択可能、3way diff 用）
+    PairServerSelect(PairServerMenu),
     /// フィルターパネル
     Filter(FilterPanel),
     /// ハンクマージプレビュー

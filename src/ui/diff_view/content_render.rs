@@ -16,6 +16,7 @@ use super::line_render::{
 };
 use super::search::apply_search_highlight;
 use super::style_utils::{resolve_bg, style_with_bg};
+use super::three_way_badge::{build_ref_context, side_by_side_line_badge, unified_line_badge};
 use super::DiffView;
 
 impl<'a> DiffView<'a> {
@@ -311,6 +312,9 @@ impl<'a> DiffView<'a> {
         // 各行の背景色を収集（Paragraph 描画後にバッファの行末まで塗るため）
         let mut line_bgs: Vec<Option<Color>> = Vec::new();
 
+        // 3way reference context（存在する場合のみ）
+        let ref_ctx = build_ref_context(self.state);
+
         let mut display_lines: Vec<Line> = match self.state.diff_mode {
             DiffMode::Unified => lines
                 .iter()
@@ -331,14 +335,28 @@ impl<'a> DiffView<'a> {
                         is_cursor,
                     );
                     line_bgs.push(bg);
-                    render_diff_line_highlighted(
+                    let mut rendered = render_diff_line_highlighted(
                         self.state,
                         line,
                         in_current_hunk,
                         is_focused,
                         is_pending,
                         is_cursor,
-                    )
+                    );
+                    // 3way line badge を追加
+                    if let Some(ctx) = &ref_ctx {
+                        let badge = unified_line_badge(
+                            ctx,
+                            line.tag,
+                            &line.value,
+                            line.old_index,
+                            line.new_index,
+                        );
+                        if !badge.content.is_empty() {
+                            rendered.spans.push(badge);
+                        }
+                    }
+                    rendered
                 })
                 .collect(),
             DiffMode::SideBySide => {
@@ -375,7 +393,7 @@ impl<'a> DiffView<'a> {
                             None
                         };
                         line_bgs.push(hunk_bg.or(cursor_bg));
-                        render_side_by_side_line(
+                        let mut rendered = render_side_by_side_line(
                             self.state,
                             *left,
                             *right,
@@ -384,7 +402,20 @@ impl<'a> DiffView<'a> {
                             is_focused,
                             is_pending,
                             is_cursor,
-                        )
+                        );
+                        // 3way line badge を追加
+                        if let Some(ctx) = &ref_ctx {
+                            let left_val = left.map(|l| l.value.as_str());
+                            let right_val = right.map(|r| r.value.as_str());
+                            let old_idx = left.and_then(|l| l.old_index);
+                            let new_idx = right.and_then(|r| r.new_index);
+                            let badge =
+                                side_by_side_line_badge(ctx, left_val, right_val, old_idx, new_idx);
+                            if !badge.content.is_empty() {
+                                rendered.spans.push(badge);
+                            }
+                        }
+                        rendered
                     })
                     .collect()
             }

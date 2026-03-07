@@ -114,7 +114,7 @@ pub fn handle_tree_key(
             state.clear_scan_cache();
         }
         KeyCode::Char('f') => state.show_filter_panel(),
-        KeyCode::Char('s') => state.show_server_menu(),
+        KeyCode::Char('s') => state.show_pair_server_menu(),
         KeyCode::Char('c') => handle_clipboard_copy(state),
         KeyCode::Char('?') => state.show_help(),
         KeyCode::Char('F') => scanner::handle_diff_filter_toggle(state, runtime),

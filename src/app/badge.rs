@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::service::types::FileStatusKind;
 
+use super::three_way::{self, ThreeWayFileBadge};
 use super::types::{Badge, MergedNode};
 use super::AppState;
 
@@ -275,11 +276,107 @@ impl AppState {
         }
         false
     }
+
+    /// 3way バッジを計算する（ファイル/ディレクトリ両対応）。
+    ///
+    /// ディレクトリの場合は配下ファイルの 3way バッジを集約する。
+    pub fn compute_ref_badge(&self, path: &str, is_dir: bool) -> Option<ThreeWayFileBadge> {
+        if is_dir {
+            self.compute_ref_dir_badge(path)
+        } else {
+            self.compute_ref_file_badge(path)
+        }
+    }
+
+    /// 3way ディレクトリバッジを計算する。
+    ///
+    /// 配下ファイルの `compute_ref_file_badge` を集約する。
+    /// - 1つでも Differs/ExistsOnlyInRef/MissingInRef → Differs
+    /// - 全 AllEqual → AllEqual
+    /// - 判定不能ファイルあり → None（表示しない）
+    fn compute_ref_dir_badge(&self, path: &str) -> Option<ThreeWayFileBadge> {
+        self.ref_source.as_ref()?;
+        self.ref_tree.as_ref()?;
+
+        let all_files =
+            super::merge_collect::collect_merge_files(&self.left_tree, &self.right_tree, path);
+
+        if all_files.is_empty() {
+            return None;
+        }
+
+        let mut all_equal = true;
+        for file_path in &all_files {
+            match self.compute_ref_file_badge(file_path) {
+                Some(ThreeWayFileBadge::AllEqual) => {}
+                Some(ThreeWayFileBadge::Differs)
+                | Some(ThreeWayFileBadge::ExistsOnlyInRef)
+                | Some(ThreeWayFileBadge::MissingInRef) => {
+                    return Some(ThreeWayFileBadge::Differs);
+                }
+                None => {
+                    // キャッシュ不足で判定不能 → 伝播しない
+                    all_equal = false;
+                }
+            }
+        }
+
+        if all_equal {
+            Some(ThreeWayFileBadge::AllEqual)
+        } else {
+            None
+        }
+    }
+
+    /// 3way ファイルバッジを計算する。
+    ///
+    /// reference サーバが未設定なら None。
+    /// 内容キャッシュが揃っていない場合も None（不正確な表示を避ける）。
+    /// ファイルが片方に存在しない場合のみ、キャッシュなしでも存在バッジを返す。
+    pub fn compute_ref_file_badge(&self, path: &str) -> Option<ThreeWayFileBadge> {
+        let ref_tree = self.ref_tree.as_ref()?;
+        // ref_source が設定されていることを確認
+        self.ref_source.as_ref()?;
+
+        let left_exists = self.left_tree.find_node(path).is_some();
+        let right_exists = self.right_tree.find_node(path).is_some();
+        let ref_exists = ref_tree.find_node(path).is_some();
+
+        let all_exist = left_exists && right_exists && ref_exists;
+
+        // 存在差がある場合はキャッシュ不要で判定可能
+        if !all_exist {
+            return Some(three_way::compute_file_badge(
+                left_exists,
+                right_exists,
+                ref_exists,
+                false,
+                false,
+            ));
+        }
+
+        // 全3サーバにファイルが存在 → 内容キャッシュが必要
+        let left_content = self.left_cache.get(path)?;
+        let right_content = self.right_cache.get(path)?;
+        let ref_content = self.ref_cache.get(path)?;
+
+        let left_eq_right = left_content == right_content;
+        let left_eq_ref = left_content == ref_content;
+
+        Some(three_way::compute_file_badge(
+            left_exists,
+            right_exists,
+            ref_exists,
+            left_eq_right,
+            left_eq_ref,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::three_way::ThreeWayFileBadge;
     use crate::app::Side;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
@@ -886,5 +983,379 @@ mod tests {
         );
         // scan_statuses なし → compute_dir_badge にフォールバック
         assert_eq!(state.compute_scan_badge("src", true), Badge::LeftOnly);
+    }
+
+    // ── compute_ref_file_badge (3way) ──
+
+    #[test]
+    fn test_ref_file_badge_returns_none_without_reference() {
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert!(state.compute_ref_file_badge("a.txt").is_none());
+    }
+
+    #[test]
+    fn test_ref_file_badge_all_equal() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::AllEqual)
+        );
+    }
+
+    #[test]
+    fn test_ref_file_badge_all_different() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "aaa".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "bbb".to_string());
+        state
+            .ref_cache
+            .insert("a.txt".to_string(), "ccc".to_string());
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::Differs)
+        );
+    }
+
+    #[test]
+    fn test_ref_file_badge_ref_only_differs() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("a.txt".to_string(), "diff".to_string());
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::Differs)
+        );
+    }
+
+    #[test]
+    fn test_ref_file_badge_only_in_ref() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::ExistsOnlyInRef)
+        );
+    }
+
+    #[test]
+    fn test_ref_file_badge_missing_from_ref() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), make_test_tree(vec![]));
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::MissingInRef)
+        );
+    }
+
+    #[test]
+    fn test_ref_file_badge_none_when_cache_incomplete() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        // 3サーバに存在するがキャッシュなし → None（不正確な表示を避ける）
+        assert!(state.compute_ref_file_badge("a.txt").is_none());
+    }
+
+    #[test]
+    fn test_ref_file_badge_none_when_ref_cache_missing() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        // left/right キャッシュはあるが ref_cache なし → None
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        assert!(state.compute_ref_file_badge("a.txt").is_none());
+    }
+
+    #[test]
+    fn test_ref_file_badge_missing_from_ref_no_cache_needed() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), make_test_tree(vec![]));
+        // ref ツリーにファイルなし → キャッシュ不要で MissingInRef
+        assert_eq!(
+            state.compute_ref_file_badge("a.txt"),
+            Some(ThreeWayFileBadge::MissingInRef)
+        );
+    }
+
+    // ── compute_ref_badge (ファイル/ディレクトリ統合) ──
+
+    #[test]
+    fn test_ref_badge_delegates_to_file_badge() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        assert_eq!(
+            state.compute_ref_badge("a.txt", false),
+            Some(ThreeWayFileBadge::AllEqual)
+        );
+    }
+
+    // ── compute_ref_dir_badge (3way ディレクトリバッジ) ──
+
+    #[test]
+    fn test_ref_dir_badge_all_equal() {
+        let local = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let remote = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let ref_tree = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let mut state = AppState::new(
+            local,
+            remote,
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        for f in &["src/a.rs", "src/b.rs"] {
+            state.left_cache.insert(f.to_string(), "same".to_string());
+            state.right_cache.insert(f.to_string(), "same".to_string());
+            state.ref_cache.insert(f.to_string(), "same".to_string());
+        }
+        assert_eq!(
+            state.compute_ref_badge("src", true),
+            Some(ThreeWayFileBadge::AllEqual)
+        );
+    }
+
+    #[test]
+    fn test_ref_dir_badge_differs_when_child_differs() {
+        let local = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let remote = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let ref_tree = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let mut state = AppState::new(
+            local,
+            remote,
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        // a.rs: 全サーバ同一
+        state
+            .left_cache
+            .insert("src/a.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("src/a.rs".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("src/a.rs".to_string(), "same".to_string());
+        // b.rs: left==right だが ref が異なる
+        state
+            .left_cache
+            .insert("src/b.rs".to_string(), "ver1".to_string());
+        state
+            .right_cache
+            .insert("src/b.rs".to_string(), "ver1".to_string());
+        state
+            .ref_cache
+            .insert("src/b.rs".to_string(), "ver2".to_string());
+        assert_eq!(
+            state.compute_ref_badge("src", true),
+            Some(ThreeWayFileBadge::Differs)
+        );
+    }
+
+    #[test]
+    fn test_ref_dir_badge_none_when_cache_incomplete() {
+        let local = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let ref_tree = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let mut state = AppState::new(
+            local,
+            remote,
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        // キャッシュなし → None
+        assert!(state.compute_ref_badge("src", true).is_none());
+    }
+
+    #[test]
+    fn test_ref_dir_badge_none_when_no_reference() {
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert!(state.compute_ref_badge("src", true).is_none());
+    }
+
+    #[test]
+    fn test_ref_dir_badge_differs_when_child_missing_in_ref() {
+        let local = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        // ref に src/a.rs がない
+        let ref_tree = make_test_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let mut state = AppState::new(
+            local,
+            remote,
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        // MissingInRef → ディレクトリは Differs
+        assert_eq!(
+            state.compute_ref_badge("src", true),
+            Some(ThreeWayFileBadge::Differs)
+        );
     }
 }

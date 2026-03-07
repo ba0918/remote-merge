@@ -5,6 +5,7 @@ mod content_render;
 mod line_render;
 mod search;
 mod style_utils;
+mod three_way_badge;
 
 // 公開API（外部から使うもの）
 pub use line_render::{render_diff_line_highlighted, split_for_side_by_side};

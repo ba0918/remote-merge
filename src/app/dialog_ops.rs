@@ -2,7 +2,8 @@
 
 use crate::merge::executor::MergeDirection;
 use crate::ui::dialog::{
-    BatchConfirmDialog, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, ServerMenu,
+    BatchConfirmDialog, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, PairServerMenu,
+    ServerMenu,
 };
 
 use super::types::Badge;
@@ -155,6 +156,36 @@ impl AppState {
             return;
         }
         self.dialog = DialogState::ServerSelect(ServerMenu::new(servers, self.server_name.clone()));
+    }
+
+    /// ペアサーバ選択メニューを表示する（3way diff 時の s キー）
+    ///
+    /// 3つ以上のサーバが利用可能な場合、LEFT/RIGHT 両方を選択できるメニューを表示する。
+    /// 2つ以下の場合は従来の show_server_menu にフォールバック。
+    pub fn show_pair_server_menu(&mut self) {
+        // "local" を先頭に、全サーバをリストアップ
+        let mut servers = vec!["local".to_string()];
+        for s in &self.available_servers {
+            if !servers.contains(s) {
+                servers.push(s.clone());
+            }
+        }
+
+        if servers.len() < 2 {
+            self.status_message = "No servers available".to_string();
+            return;
+        }
+
+        // 2サーバしかない場合は従来メニュー
+        if servers.len() == 2 {
+            self.show_server_menu();
+            return;
+        }
+
+        let left_name = self.left_source.display_name().to_string();
+        let right_name = self.right_source.display_name().to_string();
+        self.dialog =
+            DialogState::PairServerSelect(PairServerMenu::new(servers, &left_name, &right_name));
     }
 
     /// ヘルプオーバーレイを表示する (? キー)

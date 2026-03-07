@@ -121,6 +121,15 @@ impl<'a> Widget for TreeView<'a> {
                 if node.is_symlink {
                     spans.push(Span::styled(" [L]", Style::default().fg(Color::Cyan)));
                 }
+
+                // 3way reference バッジ（reference サーバが設定されている場合のみ）
+                if self.state.has_reference() {
+                    if let Some(ref_badge) = self.state.compute_ref_badge(&node.path, node.is_dir) {
+                        spans.push(Span::raw(" "));
+                        spans.push(Span::styled(ref_badge.label(), ref_badge.style()));
+                    }
+                }
+
                 Line::from(spans)
             })
             .collect();
