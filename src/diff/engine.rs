@@ -166,12 +166,9 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
     };
 
     // 表示用ハンク（コンテキスト3行でグループ化）
-    let hunks = build_hunks(&lines, 3);
+    let (hunks, _) = build_hunks(&lines, 3);
     // 操作用ハンク（コンテキスト0行、変更ブロック単位）
-    let merge_hunks = build_hunks(&lines, 0);
-
-    // 各 merge_hunk の全行リスト内での開始行インデックスをキャッシュ
-    let merge_hunk_line_indices = compute_hunk_line_indices(&lines, &merge_hunks);
+    let (merge_hunks, merge_hunk_line_indices) = build_hunks(&lines, 0);
 
     DiffResult::Modified {
         hunks,
@@ -242,32 +239,11 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
     text
 }
 
-/// 各ハンクの全行リスト内での開始行インデックスを計算する
-fn compute_hunk_line_indices(lines: &[DiffLine], hunks: &[DiffHunk]) -> Vec<usize> {
-    hunks
-        .iter()
-        .map(|hunk| {
-            if let Some(first) = hunk.lines.first() {
-                lines
-                    .iter()
-                    .position(|l| {
-                        l.tag == first.tag
-                            && l.value == first.value
-                            && l.old_index == first.old_index
-                            && l.new_index == first.new_index
-                    })
-                    .unwrap_or(0)
-            } else {
-                0
-            }
-        })
-        .collect()
-}
-
-/// diff 行をハンク（変更グループ + コンテキスト行）に分割する
-fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
+/// diff 行をハンク（変更グループ + コンテキスト行）に分割する。
+/// 各ハンクの全行リスト内での開始行インデックスも同時に返す（O(n+m)）。
+fn build_hunks(lines: &[DiffLine], context: usize) -> (Vec<DiffHunk>, Vec<usize>) {
     if lines.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     // 変更行のインデックスを収集
@@ -279,10 +255,11 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
         .collect();
 
     if change_indices.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
 
     let mut hunks = Vec::new();
+    let mut line_indices = Vec::new();
     let mut hunk_start = change_indices[0].saturating_sub(context);
     let mut hunk_end = (change_indices[0] + context + 1).min(lines.len());
 
@@ -293,15 +270,17 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
             hunk_end = (ci + context + 1).min(lines.len());
         } else {
             // 前のハンクを確定、新しいハンクを開始
+            line_indices.push(hunk_start);
             hunks.push(make_hunk(&lines[hunk_start..hunk_end], hunk_start, lines));
             hunk_start = ci_start;
             hunk_end = (ci + context + 1).min(lines.len());
         }
     }
     // 最後のハンク
+    line_indices.push(hunk_start);
     hunks.push(make_hunk(&lines[hunk_start..hunk_end], hunk_start, lines));
 
-    hunks
+    (hunks, line_indices)
 }
 
 fn make_hunk(hunk_lines: &[DiffLine], start_in_all: usize, all_lines: &[DiffLine]) -> DiffHunk {
@@ -689,5 +668,100 @@ mod tests {
         };
         // 両方Noneは「読み込めてない」ので equal とは判定しない
         assert!(!result.is_equal());
+    }
+
+    #[test]
+    fn test_merge_hunk_line_indices_correct() {
+        // 2つの離れた変更 → merge_hunk_line_indices が正しい位置を指すこと
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let result = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            lines,
+            merge_hunks,
+            merge_hunk_line_indices,
+            ..
+        } = &result
+        {
+            assert_eq!(merge_hunks.len(), 2);
+            assert_eq!(merge_hunk_line_indices.len(), 2);
+
+            // 各インデックスが実際のハンク先頭行と一致すること
+            for (hunk, &idx) in merge_hunks.iter().zip(merge_hunk_line_indices.iter()) {
+                let first = &hunk.lines[0];
+                let line_at_idx = &lines[idx];
+                assert_eq!(first.tag, line_at_idx.tag);
+                assert_eq!(first.value, line_at_idx.value);
+                assert_eq!(first.old_index, line_at_idx.old_index);
+                assert_eq!(first.new_index, line_at_idx.new_index);
+            }
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_build_hunks_returns_correct_line_indices() {
+        // build_hunks が返す line_indices が hunk_start と一致することを直接検証
+        let lines = vec![
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "a".into(),
+                old_index: Some(0),
+                new_index: Some(0),
+            },
+            DiffLine {
+                tag: DiffTag::Delete,
+                value: "b".into(),
+                old_index: Some(1),
+                new_index: None,
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "X".into(),
+                old_index: None,
+                new_index: Some(1),
+            },
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "c".into(),
+                old_index: Some(2),
+                new_index: Some(2),
+            },
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "d".into(),
+                old_index: Some(3),
+                new_index: Some(3),
+            },
+            DiffLine {
+                tag: DiffTag::Delete,
+                value: "e".into(),
+                old_index: Some(4),
+                new_index: None,
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "Y".into(),
+                old_index: None,
+                new_index: Some(4),
+            },
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "f".into(),
+                old_index: Some(5),
+                new_index: Some(5),
+            },
+        ];
+
+        // context=0: 各変更ブロックは独立
+        let (hunks, indices) = build_hunks(&lines, 0);
+        assert_eq!(hunks.len(), 2);
+        assert_eq!(indices.len(), 2);
+        // 最初の変更ブロックは行1から
+        assert_eq!(indices[0], 1);
+        // 2番目の変更ブロックは行5から
+        assert_eq!(indices[1], 5);
     }
 }

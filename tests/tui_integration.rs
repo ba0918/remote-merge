@@ -661,7 +661,6 @@ fn test_toggle_diff_mode() {
 #[test]
 fn test_split_for_side_by_side() {
     use remote_merge::diff::engine::{DiffLine, DiffTag};
-    use remote_merge::ui::diff_view::DiffView;
 
     let lines = vec![
         DiffLine {
@@ -690,7 +689,7 @@ fn test_split_for_side_by_side() {
         },
     ];
 
-    let pairs = DiffView::split_for_side_by_side(&lines);
+    let pairs = remote_merge::ui::diff_view::split_for_side_by_side(&lines);
     // Equal: (Some, Some), Delete+Insert: ペアリング, Equal: (Some, Some)
     assert_eq!(pairs.len(), 3);
 
@@ -712,7 +711,6 @@ fn test_split_for_side_by_side() {
 #[test]
 fn test_side_by_side_equal_lines_both_sides() {
     use remote_merge::diff::engine::{DiffLine, DiffTag};
-    use remote_merge::ui::diff_view::DiffView;
 
     let lines = vec![
         DiffLine {
@@ -729,7 +727,7 @@ fn test_side_by_side_equal_lines_both_sides() {
         },
     ];
 
-    let pairs = DiffView::split_for_side_by_side(&lines);
+    let pairs = remote_merge::ui::diff_view::split_for_side_by_side(&lines);
     assert_eq!(pairs.len(), 2);
 
     for (left, right) in &pairs {
@@ -1484,7 +1482,6 @@ fn test_cursor_line_has_background() {
     use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
     use remote_merge::tree::FileTree;
-    use remote_merge::ui::diff_view::DiffView;
     use std::path::PathBuf;
 
     let state = AppState::new(
@@ -1508,7 +1505,9 @@ fn test_cursor_line_has_background() {
         new_index: Some(0),
     };
     // カーソルラインかつフォーカス中 → パレットの cursor_line_bg が付く
-    let rendered = DiffView::render_diff_line_highlighted(&state, &line, false, true, false, true);
+    let rendered = remote_merge::ui::diff_view::render_diff_line_highlighted(
+        &state, &line, false, true, false, true,
+    );
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,
@@ -1522,7 +1521,6 @@ fn test_cursor_line_priority_below_diff() {
     use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
     use remote_merge::tree::FileTree;
-    use remote_merge::ui::diff_view::DiffView;
     use std::path::PathBuf;
 
     let state = AppState::new(
@@ -1546,7 +1544,9 @@ fn test_cursor_line_priority_below_diff() {
         new_index: Some(0),
     };
     // Insert行 + カーソルライン → diff色が優先
-    let rendered = DiffView::render_diff_line_highlighted(&state, &line, false, true, false, true);
+    let rendered = remote_merge::ui::diff_view::render_diff_line_highlighted(
+        &state, &line, false, true, false, true,
+    );
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,
@@ -1560,7 +1560,6 @@ fn test_cursor_line_priority_below_hunk() {
     use remote_merge::app::AppState;
     use remote_merge::diff::engine::{DiffLine, DiffTag};
     use remote_merge::tree::FileTree;
-    use remote_merge::ui::diff_view::DiffView;
     use std::path::PathBuf;
 
     let state = AppState::new(
@@ -1584,7 +1583,9 @@ fn test_cursor_line_priority_below_hunk() {
         new_index: Some(0),
     };
     // ハンクハイライト + カーソルライン → ハンクが最優先
-    let rendered = DiffView::render_diff_line_highlighted(&state, &line, true, true, false, true);
+    let rendered = remote_merge::ui::diff_view::render_diff_line_highlighted(
+        &state, &line, true, true, false, true,
+    );
     let value_span = rendered.spans.last().unwrap();
     assert_eq!(
         value_span.style.bg,

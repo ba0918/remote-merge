@@ -116,8 +116,10 @@ fn reconnect_side(
                 },
                 Err(e) => {
                     state.is_connected = false;
-                    state.status_message =
-                        format!("{} reconnection failed: {} | c: retry", server_name, e);
+                    state.status_message = format!(
+                        "{} reconnection failed: {} | Press 'c' to retry",
+                        server_name, e
+                    );
                     false
                 }
             }

@@ -22,19 +22,29 @@ pub struct MtimeConflict {
 /// - actual が `None` → 衝突なし（ファイルが削除された可能性があるが別途検知）
 /// - 一致 → 衝突なし
 /// - 不一致 → 衝突あり
+///
+/// 比較は秒精度で行う。リモートの `stat -c '%Y'` は秒単位しか返さないため、
+/// サブ秒の差異で偽の衝突が発生するのを防ぐ。
 pub fn check_mtime(
     path: &str,
     expected: Option<DateTime<Utc>>,
     actual: Option<DateTime<Utc>>,
 ) -> Option<MtimeConflict> {
     match (expected, actual) {
-        (Some(exp), Some(act)) if exp != act => Some(MtimeConflict {
-            path: path.to_string(),
-            expected: Some(exp),
-            actual: Some(act),
-        }),
+        (Some(exp), Some(act)) if truncate_to_secs(exp) != truncate_to_secs(act) => {
+            Some(MtimeConflict {
+                path: path.to_string(),
+                expected: Some(exp),
+                actual: Some(act),
+            })
+        }
         _ => None,
     }
+}
+
+/// DateTime をエポック秒に切り捨てる（サブ秒を除去）。
+fn truncate_to_secs(dt: DateTime<Utc>) -> i64 {
+    dt.timestamp()
 }
 
 /// 複数ファイルの mtime を一括チェックする。
@@ -119,6 +129,24 @@ mod tests {
         let conflicts = check_mtimes_batch(&paths, &expected, &actual);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].path, "a.txt");
+    }
+
+    #[test]
+    fn test_check_mtime_ignores_subsecond_difference() {
+        // リモートの find 出力は小数秒を含むが、stat -c '%Y' は秒単位。
+        // 同じエポック秒でナノ秒が異なる場合、衝突として扱わない。
+        let dt_with_nanos = Utc.timestamp_opt(1705312800, 123_456_789).single().unwrap();
+        let dt_truncated = Utc.timestamp_opt(1705312800, 0).single().unwrap();
+        assert!(check_mtime("test.txt", Some(dt_with_nanos), Some(dt_truncated)).is_none());
+    }
+
+    #[test]
+    fn test_check_mtime_detects_different_seconds() {
+        // 秒単位で異なれば衝突として検出する
+        let dt1 = Utc.timestamp_opt(1705312800, 500_000_000).single().unwrap();
+        let dt2 = Utc.timestamp_opt(1705312801, 0).single().unwrap();
+        let result = check_mtime("test.txt", Some(dt1), Some(dt2));
+        assert!(result.is_some());
     }
 
     #[test]
