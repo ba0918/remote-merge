@@ -152,7 +152,7 @@ impl AppState {
     }
 
     /// 指定パスのシンタックスハイライトキャッシュを構築する
-    fn build_highlight_cache(&mut self, path: &str) {
+    pub(super) fn build_highlight_cache(&mut self, path: &str) {
         if let Some(content) = self.left_cache.get(path) {
             if self.highlight_cache_left.get(path).is_none() {
                 let highlighted = self.highlighter.highlight_file(path, content);

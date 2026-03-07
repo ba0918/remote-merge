@@ -113,6 +113,28 @@ impl AppState {
         0
     }
 
+    /// ハンクマージ後にシンタックスハイライトキャッシュを再構築する。
+    ///
+    /// キャッシュ内容が変わった側のハイライトを破棄して再構築する。
+    fn invalidate_highlight_cache(&mut self, path: &str, direction: HunkDirection) {
+        match direction {
+            HunkDirection::RightToLeft => {
+                self.highlight_cache_left.remove(path);
+            }
+            HunkDirection::LeftToRight => {
+                self.highlight_cache_right.remove(path);
+            }
+        }
+        self.build_highlight_cache(path);
+    }
+
+    /// undo 後にシンタックスハイライトキャッシュを両側再構築する。
+    fn rebuild_highlight_cache_both(&mut self, path: &str) {
+        self.highlight_cache_left.remove(path);
+        self.highlight_cache_right.remove(path);
+        self.build_highlight_cache(path);
+    }
+
     /// ハンクマージのプレビューテキスト（before/after）を生成する
     pub fn preview_hunk_merge(&self, direction: HunkDirection) -> Option<(String, String)> {
         let path = self.selected_path.as_ref()?;
@@ -147,6 +169,7 @@ impl AppState {
         // undo 用スナップショットを保存
         let local_content = self.left_cache.get(&path)?.clone();
         let remote_content = self.right_cache.get(&path)?.clone();
+
         if self.undo_stack.len() >= MAX_UNDO_STACK {
             self.undo_stack.pop_front();
         }
@@ -173,6 +196,10 @@ impl AppState {
                 self.right_cache.insert(path.clone(), new_text.clone());
             }
         }
+
+        // シンタックスハイライトキャッシュを再構築
+        // （キャッシュ内容が変わったので古いハイライト結果を破棄する）
+        self.invalidate_highlight_cache(&path, direction);
 
         // diff を再計算
         let local = self.left_cache.get(&path);
@@ -208,7 +235,7 @@ impl AppState {
     /// 最後のハンク操作を undo する
     pub fn undo_last(&mut self) -> bool {
         if let Some(snapshot) = self.undo_stack.pop_back() {
-            if let Some(path) = &self.selected_path {
+            if let Some(path) = self.selected_path.clone() {
                 self.left_cache.insert(path.clone(), snapshot.local_content);
                 self.right_cache
                     .insert(path.clone(), snapshot.remote_content);
@@ -221,6 +248,7 @@ impl AppState {
                     self.hunk_cursor = new_count - 1;
                 }
 
+                self.rebuild_highlight_cache_both(&path);
                 self.rebuild_flat_nodes();
                 self.status_message = format!(
                     "Undo | {} changes remaining | w:write u:undo",
@@ -246,7 +274,7 @@ impl AppState {
             .expect("undo_stack is not empty");
         self.undo_stack.clear();
 
-        if let Some(path) = &self.selected_path {
+        if let Some(path) = self.selected_path.clone() {
             self.left_cache.insert(path.clone(), initial.local_content);
             self.right_cache
                 .insert(path.clone(), initial.remote_content);
@@ -259,6 +287,7 @@ impl AppState {
                 self.hunk_cursor = new_count - 1;
             }
 
+            self.rebuild_highlight_cache_both(&path);
             self.rebuild_flat_nodes();
             self.status_message = "All changes undone".to_string();
             return true;
