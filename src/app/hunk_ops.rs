@@ -1,8 +1,8 @@
-//! ハンクマージ、undo、ハンクカーソル操作。
+//! ハンクマージ、ハンクカーソル操作。
 
 use crate::diff::engine::{self, DiffHunk, DiffLine, DiffResult, HunkDirection};
 
-use super::types::{CacheSnapshot, MAX_UNDO_STACK};
+use super::types::CacheSnapshot;
 use super::AppState;
 
 impl AppState {
@@ -125,13 +125,6 @@ impl AppState {
         self.build_highlight_cache(path);
     }
 
-    /// undo 後にシンタックスハイライトキャッシュを両側再構築する。
-    fn rebuild_highlight_cache_both(&mut self, path: &str) {
-        self.highlight_cache_left.remove(path);
-        self.highlight_cache_right.remove(path);
-        self.build_highlight_cache(path);
-    }
-
     /// ハンクマージのプレビューテキスト（before/after）を生成する
     pub fn preview_hunk_merge(&self, direction: HunkDirection) -> Option<(String, String)> {
         let path = self.selected_path.as_ref()?;
@@ -167,10 +160,7 @@ impl AppState {
         let local_content = self.left_cache.get(&path)?.clone();
         let remote_content = self.right_cache.get(&path)?.clone();
 
-        if self.undo_stack.len() >= MAX_UNDO_STACK {
-            self.undo_stack.pop_front();
-        }
-        self.undo_stack.push_back(CacheSnapshot {
+        self.push_undo_snapshot(CacheSnapshot {
             local_content: local_content.clone(),
             remote_content: remote_content.clone(),
             diff: self.current_diff.clone(),
@@ -206,12 +196,7 @@ impl AppState {
         }
 
         // ハンクカーソルを範囲内に収める
-        let new_count = self.hunk_count();
-        if new_count == 0 {
-            self.hunk_cursor = 0;
-        } else if self.hunk_cursor >= new_count {
-            self.hunk_cursor = new_count - 1;
-        }
+        self.clamp_hunk_cursor();
 
         // バッジを再構築
         self.rebuild_flat_nodes();
@@ -228,80 +213,12 @@ impl AppState {
 
         Some(path)
     }
-
-    /// 最後のハンク操作を undo する
-    pub fn undo_last(&mut self) -> bool {
-        if let Some(snapshot) = self.undo_stack.pop_back() {
-            if let Some(path) = self.selected_path.clone() {
-                self.left_cache.insert(path.clone(), snapshot.local_content);
-                self.right_cache
-                    .insert(path.clone(), snapshot.remote_content);
-                self.current_diff = snapshot.diff;
-
-                let new_count = self.hunk_count();
-                if new_count == 0 {
-                    self.hunk_cursor = 0;
-                } else if self.hunk_cursor >= new_count {
-                    self.hunk_cursor = new_count - 1;
-                }
-
-                self.rebuild_highlight_cache_both(&path);
-                self.rebuild_flat_nodes();
-                self.status_message = format!(
-                    "Undo | {} changes remaining | w:write u:undo",
-                    self.undo_stack.len(),
-                );
-                return true;
-            }
-        }
-        self.status_message = "Nothing to undo".to_string();
-        false
-    }
-
-    /// 全ハンク操作を undo する（初期状態に復元）
-    pub fn undo_all(&mut self) -> bool {
-        if self.undo_stack.is_empty() {
-            self.status_message = "Nothing to undo".to_string();
-            return false;
-        }
-
-        let initial = self
-            .undo_stack
-            .pop_front()
-            .expect("undo_stack is not empty");
-        self.undo_stack.clear();
-
-        if let Some(path) = self.selected_path.clone() {
-            self.left_cache.insert(path.clone(), initial.local_content);
-            self.right_cache
-                .insert(path.clone(), initial.remote_content);
-            self.current_diff = initial.diff;
-
-            let new_count = self.hunk_count();
-            if new_count == 0 {
-                self.hunk_cursor = 0;
-            } else if self.hunk_cursor >= new_count {
-                self.hunk_cursor = new_count - 1;
-            }
-
-            self.rebuild_highlight_cache_both(&path);
-            self.rebuild_flat_nodes();
-            self.status_message = "All changes undone".to_string();
-            return true;
-        }
-        false
-    }
-
-    /// 未保存の変更があるかどうか
-    pub fn has_unsaved_changes(&self) -> bool {
-        !self.undo_stack.is_empty()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::types::{Badge, FlatNode};
+    use crate::app::types::{Badge, FlatNode, MAX_UNDO_STACK};
     use crate::app::Side;
     use crate::diff::engine;
     use crate::tree::{FileNode, FileTree};

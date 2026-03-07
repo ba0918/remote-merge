@@ -1,5 +1,6 @@
 //! TuiRuntime: TUI 内で同期的に非同期操作を呼ぶためのランタイム。
 
+pub mod bootstrap;
 pub mod merge_scan;
 pub mod remote_io;
 pub mod scanner;

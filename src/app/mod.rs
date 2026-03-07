@@ -11,9 +11,11 @@ pub mod navigation;
 pub mod scan;
 pub mod search;
 pub mod selection;
+pub mod server_switch;
 pub mod side;
 pub mod tree_ops;
 pub mod types;
+pub mod undo;
 
 use std::collections::{HashSet, VecDeque};
 

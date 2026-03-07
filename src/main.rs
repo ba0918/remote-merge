@@ -9,12 +9,11 @@ use std::io;
 use std::sync::Mutex;
 
 use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
-use remote_merge::config::{self, AppConfig};
+use remote_merge::config;
 use remote_merge::handler::{dialog_keys, diff_keys, tree_keys};
-use remote_merge::local;
+use remote_merge::runtime::bootstrap::{self, TuiBootstrapParams};
 use remote_merge::runtime::TuiRuntime;
 use remote_merge::runtime::{merge_scan, scanner};
-use remote_merge::tree::FileTree;
 use remote_merge::ui::render::draw_ui;
 
 /// TUI tool for graphically displaying and merging file diffs between local and remote servers
@@ -104,131 +103,24 @@ fn main() -> anyhow::Result<()> {
         }
         None => {
             let config = config::load_config()?;
-            run_tui_mode(cli, config)?;
+            let right_server = cli.server.or(cli.right).unwrap_or_else(|| {
+                config
+                    .servers
+                    .keys()
+                    .next()
+                    .cloned()
+                    .unwrap_or_else(|| "develop".to_string())
+            });
+            let params = TuiBootstrapParams {
+                right_server,
+                left_server: cli.left,
+            };
+            let (app_state, runtime) = bootstrap::bootstrap_tui(params, config)?;
+            run_tui(app_state, runtime)?;
         }
     }
 
     Ok(())
-}
-
-/// TUI モードを起動する
-fn run_tui_mode(cli: Cli, config: AppConfig) -> anyhow::Result<()> {
-    use remote_merge::app::Side;
-
-    let right_server = cli.server.or(cli.right).unwrap_or_else(|| {
-        config
-            .servers
-            .keys()
-            .next()
-            .cloned()
-            .unwrap_or_else(|| "develop".to_string())
-    });
-    let left_server = cli.left;
-
-    let available_servers: Vec<String> = config.servers.keys().cloned().collect();
-    let mut runtime = TuiRuntime::new(config.clone());
-
-    // 左側: --left が指定されたらリモート、なければローカル
-    let (left_tree, left_source, left_connected) = if let Some(ref left_name) = left_server {
-        tracing::info!("TUI mode: {} <-> {}", left_name, right_server);
-        match runtime.connect(left_name) {
-            Ok(()) => match runtime.fetch_remote_tree(left_name) {
-                Ok(tree) => (tree, Side::Remote(left_name.clone()), true),
-                Err(e) => {
-                    tracing::warn!("Left remote tree fetch failed: {}", e);
-                    let root = config
-                        .servers
-                        .get(left_name)
-                        .map(|s| s.root_dir.clone())
-                        .unwrap_or_default();
-                    (FileTree::new(root), Side::Remote(left_name.clone()), true)
-                }
-            },
-            Err(e) => {
-                tracing::warn!("Left SSH connection failed: {}", e);
-                let root = config
-                    .servers
-                    .get(left_name)
-                    .map(|s| s.root_dir.clone())
-                    .unwrap_or_default();
-                (FileTree::new(root), Side::Remote(left_name.clone()), false)
-            }
-        }
-    } else {
-        tracing::info!("TUI mode: local <-> {}", right_server);
-        let tree = local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
-        (tree, Side::Local, true)
-    };
-
-    // 右側: 常にリモート
-    let (right_tree, right_connected) = match runtime.connect(&right_server) {
-        Ok(()) => match runtime.fetch_remote_tree(&right_server) {
-            Ok(tree) => (tree, true),
-            Err(e) => {
-                tracing::warn!("Right remote tree fetch failed: {}", e);
-                let root = config
-                    .servers
-                    .get(&right_server)
-                    .map(|s| s.root_dir.clone())
-                    .unwrap_or_default();
-                (FileTree::new(root), true)
-            }
-        },
-        Err(e) => {
-            tracing::warn!("Right SSH connection failed (offline mode): {}", e);
-            let root = config
-                .servers
-                .get(&right_server)
-                .map(|s| s.root_dir.clone())
-                .unwrap_or_default();
-            (FileTree::new(root), false)
-        }
-    };
-
-    let right_source = Side::Remote(right_server.clone());
-    let is_connected = left_connected && right_connected;
-
-    // 永続化された UI 状態を復元（テーマなど）
-    let persisted = remote_merge::state::load_state();
-    let label = remote_merge::app::side::comparison_label(&left_source, &right_source);
-    let mut app_state = AppState::new(
-        left_tree,
-        right_tree,
-        left_source,
-        right_source,
-        &persisted.theme,
-    );
-    app_state.available_servers = available_servers;
-    app_state.is_connected = is_connected;
-    app_state.exclude_patterns = config.filter.exclude.clone();
-    app_state.sensitive_patterns = config.filter.sensitive.clone();
-
-    if !is_connected {
-        app_state.status_message = format!("{} (offline) | s: server | q: quit", label);
-    }
-
-    // 起動時に古いバックアップをクリーンアップ
-    if config.backup.enabled {
-        let backup_dir = config
-            .local
-            .root_dir
-            .join(remote_merge::backup::BACKUP_DIR_NAME);
-        match remote_merge::backup::cleanup_old_backups(
-            &backup_dir,
-            config.backup.retention_days,
-            chrono::Utc::now(),
-        ) {
-            Ok(removed) if !removed.is_empty() => {
-                tracing::info!("Cleaned up {} old backup(s)", removed.len());
-            }
-            Err(e) => {
-                tracing::warn!("Backup cleanup failed: {}", e);
-            }
-            _ => {}
-        }
-    }
-
-    run_tui(app_state, runtime)
 }
 
 /// TUI イベントループを実行する
