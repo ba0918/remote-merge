@@ -5,6 +5,7 @@
 
 use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
 use crate::service::status::is_sensitive;
+use crate::ssh::tree_parser::should_exclude;
 
 /// レポート生成に必要な入力
 pub struct ReportInput<'a> {
@@ -13,6 +14,7 @@ pub struct ReportInput<'a> {
     pub left_root: &'a str,
     pub right_root: &'a str,
     pub sensitive_patterns: &'a [String],
+    pub exclude_patterns: &'a [String],
     pub files: Vec<ReportFileEntry<'a>>,
 }
 
@@ -28,8 +30,23 @@ pub struct ReportFileEntry<'a> {
 const LARGE_FILE_THRESHOLD: usize = 5 * 1024 * 1024;
 
 /// キャッシュ済みファイルから Markdown レポートを生成する（純粋関数）。
+///
+/// - `exclude_patterns` にマッチするパスはレポートから除外
+/// - 差分がないファイル（`DiffResult::Equal`）は詳細を省略し、サマリーにカウントのみ
 pub fn generate_report(input: &ReportInput) -> String {
     let mut out = String::new();
+
+    // exclude フィルタ適用
+    let included: Vec<&ReportFileEntry> = input
+        .files
+        .iter()
+        .filter(|e| !is_path_excluded(e.path, input.exclude_patterns))
+        .collect();
+
+    // Equal / non-Equal を分離してカウント
+    let (equal_files, diff_files): (Vec<&&ReportFileEntry>, Vec<&&ReportFileEntry>) = included
+        .iter()
+        .partition(|e| matches!(e.diff, Some(DiffResult::Equal)) || e.diff.is_none());
 
     out.push_str("# remote-merge Report\n\n");
     out.push_str(&format!(
@@ -40,15 +57,29 @@ pub fn generate_report(input: &ReportInput) -> String {
         "- **Right:** {} ({})\n",
         input.right_label, input.right_root
     ));
-    out.push_str(&format!("- **Files:** {}\n\n", input.files.len()));
+    out.push_str(&format!(
+        "- **Files:** {} total ({} changed, {} unchanged)\n\n",
+        included.len(),
+        diff_files.len(),
+        equal_files.len(),
+    ));
     out.push_str("---\n\n");
 
-    if input.files.is_empty() {
+    if included.is_empty() {
         out.push_str("No cached files to report.\n");
         return out;
     }
 
-    for entry in &input.files {
+    // 差分があるファイルのみ詳細セクションを出力
+    for entry in &included {
+        let is_equal = matches!(entry.diff, Some(DiffResult::Equal));
+        let has_no_diff = entry.diff.is_none();
+
+        // Equal / no-diff はスキップ（サマリーに含まれている）
+        if is_equal || has_no_diff {
+            continue;
+        }
+
         let sensitive = is_sensitive(entry.path, input.sensitive_patterns);
 
         out.push_str(&format!("## {}\n\n", entry.path));
@@ -72,9 +103,6 @@ pub fn generate_report(input: &ReportInput) -> String {
         }
 
         match entry.diff {
-            Some(DiffResult::Equal) => {
-                out.push_str("No differences.\n\n");
-            }
             Some(DiffResult::Modified { lines, .. }) => {
                 out.push_str("```diff\n");
                 for line in lines {
@@ -112,13 +140,54 @@ pub fn generate_report(input: &ReportInput) -> String {
                     right_target.as_deref().unwrap_or("(missing)")
                 ));
             }
-            None => {
-                out.push_str("(no diff data)\n\n");
+            // Equal / None はすでにスキップ済み
+            _ => {}
+        }
+    }
+
+    // 変更なしファイルの一覧（コンパクト表示）
+    if !equal_files.is_empty() {
+        out.push_str("## Unchanged files\n\n");
+        for entry in &equal_files {
+            out.push_str(&format!("- {}\n", entry.path));
+        }
+        out.push('\n');
+    }
+
+    out
+}
+
+/// パスが exclude パターンにマッチするか判定する。
+///
+/// パターンの種類によって2通りのマッチを行う:
+/// - `/` を含むパターン（例: `path/**/*.rs`, `**/*.ext`）→ パス全体に対してマッチ
+/// - `/` を含まないパターン（例: `*.rs`, `node_modules`）→ 各セグメントに対してマッチ
+fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
+    if patterns.is_empty() {
+        return false;
+    }
+    // パス全体マッチ用と セグメントマッチ用に分離
+    let (path_patterns, segment_patterns): (Vec<&String>, Vec<&String>) =
+        patterns.iter().partition(|p| p.contains('/'));
+
+    // パス全体マッチ（`**/*.rs`, `path/to/**/*.ext` など）
+    for pattern in &path_patterns {
+        if glob_match::glob_match(pattern, path) {
+            return true;
+        }
+    }
+
+    // セグメント単位マッチ（`*.rs`, `node_modules` など）
+    if !segment_patterns.is_empty() {
+        let seg_strs: Vec<String> = segment_patterns.iter().map(|s| s.to_string()).collect();
+        for segment in path.split('/') {
+            if !segment.is_empty() && should_exclude(segment, &seg_strs) {
+                return true;
             }
         }
     }
 
-    out
+    false
 }
 
 /// DiffLine を unified diff 形式の1行文字列に変換する。
@@ -164,6 +233,7 @@ mod tests {
             left_root: "/home/user/project",
             right_root: "/var/www/project",
             sensitive_patterns: &[],
+            exclude_patterns: &[],
             files: vec![],
         };
         let report = generate_report(&input);
@@ -171,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_report_with_equal_file() {
+    fn test_equal_file_not_in_detail_but_in_unchanged() {
         let diff = DiffResult::Equal;
         let input = ReportInput {
             left_label: "local",
@@ -179,6 +249,7 @@ mod tests {
             left_root: "/home",
             right_root: "/var",
             sensitive_patterns: &[],
+            exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "src/main.rs",
                 left_content: Some("fn main() {}"),
@@ -187,8 +258,14 @@ mod tests {
             }],
         };
         let report = generate_report(&input);
-        assert!(report.contains("## src/main.rs"));
-        assert!(report.contains("No differences"));
+        // 詳細セクション（## src/main.rs）は出ない
+        assert!(!report.contains("## src/main.rs"));
+        // Unchanged files セクションにリスト表示される
+        assert!(report.contains("Unchanged files"));
+        assert!(report.contains("- src/main.rs"));
+        // サマリーに 0 changed, 1 unchanged
+        assert!(report.contains("0 changed"));
+        assert!(report.contains("1 unchanged"));
     }
 
     #[test]
@@ -213,6 +290,7 @@ mod tests {
             left_root: "/home",
             right_root: "/var",
             sensitive_patterns: &[],
+            exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "config.toml",
                 left_content: Some("old line"),
@@ -228,13 +306,20 @@ mod tests {
 
     #[test]
     fn test_generate_report_sensitive_file_excluded() {
-        let diff = DiffResult::Equal;
+        // sensitive + modified なファイル → ⚠ 表示
+        let diff = make_modified_diff(vec![DiffLine {
+            tag: DiffTag::Delete,
+            value: "SECRET=xxx".to_string(),
+            old_index: Some(0),
+            new_index: None,
+        }]);
         let input = ReportInput {
             left_label: "local",
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
             sensitive_patterns: &[".env*".to_string()],
+            exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: ".env.production",
                 left_content: Some("SECRET=xxx"),
@@ -250,13 +335,19 @@ mod tests {
     #[test]
     fn test_generate_report_large_file_skipped() {
         let content = "x".repeat(LARGE_FILE_THRESHOLD + 1);
-        let diff = DiffResult::Equal;
+        let diff = make_modified_diff(vec![DiffLine {
+            tag: DiffTag::Insert,
+            value: "big".to_string(),
+            old_index: None,
+            new_index: Some(0),
+        }]);
         let input = ReportInput {
             left_label: "local",
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
             sensitive_patterns: &[],
+            exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "big.bin",
                 left_content: Some(&content),
@@ -266,6 +357,67 @@ mod tests {
         };
         let report = generate_report(&input);
         assert!(report.contains("too large, skipped"));
+    }
+
+    #[test]
+    fn test_exclude_patterns_filter_files() {
+        let diff = make_modified_diff(vec![DiffLine {
+            tag: DiffTag::Insert,
+            value: "backup data".to_string(),
+            old_index: None,
+            new_index: Some(0),
+        }]);
+        let input = ReportInput {
+            left_label: "local",
+            right_label: "develop",
+            left_root: "/home",
+            right_root: "/var",
+            sensitive_patterns: &[],
+            exclude_patterns: &[
+                ".remote-merge-backup".to_string(),
+                "node_modules".to_string(),
+            ],
+            files: vec![
+                ReportFileEntry {
+                    path: ".remote-merge-backup/src/old.rs",
+                    left_content: Some("old"),
+                    right_content: None,
+                    diff: Some(&diff),
+                },
+                ReportFileEntry {
+                    path: "node_modules/pkg/index.js",
+                    left_content: Some("module"),
+                    right_content: Some("module"),
+                    diff: Some(&DiffResult::Equal),
+                },
+            ],
+        };
+        let report = generate_report(&input);
+        // 除外されたファイルは一切出ない
+        assert!(!report.contains(".remote-merge-backup"));
+        assert!(!report.contains("node_modules"));
+        assert!(report.contains("0 changed"));
+    }
+
+    #[test]
+    fn test_exclude_patterns_mid_path_segment() {
+        let diff = DiffResult::Equal;
+        let input = ReportInput {
+            left_label: "local",
+            right_label: "develop",
+            left_root: "/home",
+            right_root: "/var",
+            sensitive_patterns: &[],
+            exclude_patterns: &["*.log".to_string()],
+            files: vec![ReportFileEntry {
+                path: "logs/app.log",
+                left_content: Some("log"),
+                right_content: Some("log"),
+                diff: Some(&diff),
+            }],
+        };
+        let report = generate_report(&input);
+        assert!(!report.contains("app.log"));
     }
 
     #[test]
@@ -304,5 +456,57 @@ mod tests {
             }),
             "+added\n"
         );
+    }
+
+    #[test]
+    fn test_is_path_excluded_empty_patterns() {
+        assert!(!is_path_excluded("src/main.rs", &[]));
+    }
+
+    #[test]
+    fn test_is_path_excluded_matches_segment() {
+        let patterns = vec![".remote-merge-backup".to_string()];
+        assert!(is_path_excluded(
+            ".remote-merge-backup/src/old.rs",
+            &patterns
+        ));
+        assert!(!is_path_excluded("src/main.rs", &patterns));
+    }
+
+    #[test]
+    fn test_is_path_excluded_glob_pattern() {
+        let patterns = vec!["*.tmp".to_string()];
+        assert!(is_path_excluded("cache/data.tmp", &patterns));
+        assert!(!is_path_excluded("cache/data.txt", &patterns));
+    }
+
+    #[test]
+    fn test_is_path_excluded_double_star_pattern() {
+        // **/*.rs はパス全体マッチ（/ を含むパターン）
+        let patterns = vec!["**/*.rs".to_string()];
+        assert!(is_path_excluded("src/main.rs", &patterns));
+        assert!(is_path_excluded("src/deep/nested/lib.rs", &patterns));
+        assert!(!is_path_excluded("src/main.toml", &patterns));
+    }
+
+    #[test]
+    fn test_is_path_excluded_path_prefix_pattern() {
+        // path/to/**/*.ext はパス全体マッチ
+        let patterns = vec!["vendor/**/*.js".to_string()];
+        assert!(is_path_excluded("vendor/pkg/index.js", &patterns));
+        assert!(is_path_excluded("vendor/deep/nested/util.js", &patterns));
+        assert!(!is_path_excluded("src/app.js", &patterns));
+    }
+
+    #[test]
+    fn test_is_path_excluded_mixed_patterns() {
+        // セグメントパターンとパス全体パターンの混在
+        let patterns = vec![
+            "node_modules".to_string(), // セグメント
+            "**/*.log".to_string(),     // パス全体
+        ];
+        assert!(is_path_excluded("node_modules/pkg/index.js", &patterns));
+        assert!(is_path_excluded("logs/app.log", &patterns));
+        assert!(!is_path_excluded("src/main.rs", &patterns));
     }
 }
