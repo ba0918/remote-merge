@@ -40,9 +40,24 @@ impl<'a> Widget for DiffView<'a> {
             Style::default().fg(p.border_unfocused)
         };
 
-        let title = match &self.state.selected_path {
-            Some(path) => format!(" {} ", path),
-            None => " Diff ".to_string(),
+        let title = if self.state.showing_ref_diff {
+            let left_name = self.state.left_source.display_name();
+            let ref_name = self.state.ref_server_name().unwrap_or("ref");
+            match &self.state.selected_path {
+                Some(path) => format!(
+                    " {} | {} ↔ {} (ref) | read-only | X: swap to merge ",
+                    path, left_name, ref_name
+                ),
+                None => format!(
+                    " Diff: {} ↔ {} (ref) | read-only | X: swap to merge ",
+                    left_name, ref_name
+                ),
+            }
+        } else {
+            match &self.state.selected_path {
+                Some(path) => format!(" {} ", path),
+                None => " Diff ".to_string(),
+            }
         };
 
         let block = Block::default()

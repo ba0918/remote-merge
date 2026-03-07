@@ -69,7 +69,26 @@ impl AppState {
                         right: Some(right),
                     })
                 } else {
-                    Some(engine::compute_diff(l, r))
+                    let diff = engine::compute_diff(l, r);
+                    // Equal + ref 差分がある場合、ref diff を自動表示
+                    if matches!(&diff, DiffResult::Equal) && self.has_reference() {
+                        if let Some(ref_content) = self.ref_cache.get(&path).cloned() {
+                            let ref_diff = engine::compute_diff(l, &ref_content);
+                            if matches!(&ref_diff, DiffResult::Equal) {
+                                self.showing_ref_diff = false;
+                                Some(diff)
+                            } else {
+                                self.showing_ref_diff = true;
+                                Some(ref_diff)
+                            }
+                        } else {
+                            self.showing_ref_diff = false;
+                            Some(diff)
+                        }
+                    } else {
+                        self.showing_ref_diff = false;
+                        Some(diff)
+                    }
                 }
             }
             (Some(l), None) => {
@@ -660,5 +679,118 @@ mod tests {
         state.tree_cursor = 0;
         state.select_file();
         assert_eq!(state.flat_nodes[0].badge, Badge::Modified);
+    }
+
+    // ── showing_ref_diff テスト ──
+
+    fn make_state_with_ref(path: &str) -> AppState {
+        let mut state = make_state_with_file(path);
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file(path)]),
+        );
+        state
+    }
+
+    #[test]
+    fn test_equal_with_ref_diff_shows_ref_diff() {
+        let mut state = make_state_with_ref("a.rs");
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("a.rs".to_string(), "different".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.showing_ref_diff);
+        assert!(matches!(
+            state.current_diff,
+            Some(DiffResult::Modified { .. })
+        ));
+    }
+
+    #[test]
+    fn test_equal_with_ref_also_equal() {
+        let mut state = make_state_with_ref("a.rs");
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(!state.showing_ref_diff);
+        assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+    }
+
+    #[test]
+    fn test_equal_with_no_ref_cache() {
+        let mut state = make_state_with_ref("a.rs");
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        // ref_cache にコンテンツなし
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(!state.showing_ref_diff);
+        assert!(matches!(state.current_diff, Some(DiffResult::Equal)));
+    }
+
+    #[test]
+    fn test_equal_without_reference_server() {
+        let mut state = make_state_with_file("a.rs");
+        // ref なし
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "same".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(!state.showing_ref_diff);
+    }
+
+    #[test]
+    fn test_modified_resets_showing_ref_diff() {
+        let mut state = make_state_with_ref("a.rs");
+        state.showing_ref_diff = true; // 前のファイルで設定されていた
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "new".to_string());
+        state
+            .ref_cache
+            .insert("a.rs".to_string(), "ref".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(!state.showing_ref_diff);
+    }
+
+    #[test]
+    fn test_file_switch_resets_showing_ref_diff() {
+        let mut state = make_state_with_ref("a.rs");
+        state.showing_ref_diff = true;
+        // 新しいファイルで Modified
+        state.left_cache.insert("a.rs".to_string(), "x".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "y".to_string());
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(!state.showing_ref_diff);
     }
 }

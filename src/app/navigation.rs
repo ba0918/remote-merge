@@ -138,20 +138,26 @@ impl AppState {
         use super::types::Focus;
         match self.focus {
             Focus::FileTree => "[j/k] move [Enter] open [/] search [Tab] diff [?] help".to_string(),
-            Focus::DiffView => match &self.current_diff {
-                Some(DiffResult::Equal) => "[j/k] scroll [Tab] tree [?] help".to_string(),
-                Some(DiffResult::Modified { .. }) => {
-                    if self.has_unsaved_changes() {
-                        format!(
-                            "[{} changes] [w] write [u] undo [→/←] apply",
-                            self.undo_stack.len()
-                        )
-                    } else {
-                        "[j/k] scroll [n/N] hunk [→/←] apply [?] help".to_string()
-                    }
+            Focus::DiffView => {
+                if self.showing_ref_diff {
+                    return "[j/k] scroll [X] swap right↔ref to merge [Tab] tree [?] help"
+                        .to_string();
                 }
-                _ => "[Tab] tree [?] help".to_string(),
-            },
+                match &self.current_diff {
+                    Some(DiffResult::Equal) => "[j/k] scroll [Tab] tree [?] help".to_string(),
+                    Some(DiffResult::Modified { .. }) => {
+                        if self.has_unsaved_changes() {
+                            format!(
+                                "[{} changes] [w] write [u] undo [→/←] apply",
+                                self.undo_stack.len()
+                            )
+                        } else {
+                            "[j/k] scroll [n/N] hunk [→/←] apply [?] help".to_string()
+                        }
+                    }
+                    _ => "[Tab] tree [?] help".to_string(),
+                }
+            }
         }
     }
 

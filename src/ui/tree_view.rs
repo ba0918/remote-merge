@@ -91,8 +91,21 @@ impl<'a> Widget for TreeView<'a> {
                     "  "
                 };
 
-                let badge_text = node.badge.label();
-                let badge_style = Self::badge_style(node.badge);
+                // ref 差分のみの場合はバッジを DarkGray の [M] に変更
+                let ref_badge_opt = if self.state.has_reference() {
+                    self.state.compute_ref_badge(&node.path, node.is_dir)
+                } else {
+                    None
+                };
+                let (badge_text, badge_style) = if node.badge == Badge::Equal
+                    && ref_badge_opt.as_ref().is_some_and(|b| {
+                        !matches!(b, crate::app::three_way::ThreeWayFileBadge::AllEqual)
+                    }) {
+                    // left/right は Equal だが ref に差分あり → DarkGray の [M]
+                    ("[M]", Style::default().fg(Color::DarkGray))
+                } else {
+                    (node.badge.label(), Self::badge_style(node.badge))
+                };
 
                 let p = &self.state.palette;
                 let is_selected = i == cursor;
@@ -123,11 +136,9 @@ impl<'a> Widget for TreeView<'a> {
                 }
 
                 // 3way reference バッジ（reference サーバが設定されている場合のみ）
-                if self.state.has_reference() {
-                    if let Some(ref_badge) = self.state.compute_ref_badge(&node.path, node.is_dir) {
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(ref_badge.label(), ref_badge.style()));
-                    }
+                if let Some(ref_badge) = &ref_badge_opt {
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled(ref_badge.label(), ref_badge.style()));
                 }
 
                 Line::from(spans)

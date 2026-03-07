@@ -10,6 +10,7 @@ pub mod diff_search;
 pub mod hunk_ops;
 pub mod merge_collect;
 pub mod navigation;
+pub mod ref_swap;
 pub mod report;
 pub mod scan;
 pub mod search;
@@ -145,6 +146,8 @@ pub struct AppState {
     pub ref_cache: BoundedCache<String>,
     /// Reference サーバのバイナリ情報キャッシュ
     pub ref_binary_cache: BoundedCache<crate::diff::binary::BinaryInfo>,
+    /// ref diff 表示中フラグ（left/right Equal + ref 差分あり時に自動セット）
+    pub showing_ref_diff: bool,
 }
 
 impl AppState {
@@ -216,6 +219,7 @@ impl AppState {
             ref_tree: None,
             ref_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
             ref_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
+            showing_ref_diff: false,
         };
         state.rebuild_flat_nodes();
         state
@@ -242,6 +246,11 @@ impl AppState {
         self.ref_tree = Some(tree);
         self.ref_cache.clear();
         self.ref_binary_cache.clear();
+    }
+
+    /// ref diff 表示中かどうか
+    pub fn is_showing_ref_diff(&self) -> bool {
+        self.showing_ref_diff
     }
 
     /// reference サーバをクリアする

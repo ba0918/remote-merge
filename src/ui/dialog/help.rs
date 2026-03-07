@@ -54,6 +54,10 @@ impl HelpOverlay {
                         ("r".to_string(), "Refresh dir / Reconnect SSH".to_string()),
                         ("f".to_string(), "Filter panel".to_string()),
                         ("s".to_string(), "Server select".to_string()),
+                        (
+                            "X (Shift)".to_string(),
+                            "Swap right ↔ ref server".to_string(),
+                        ),
                         ("/".to_string(), "Search files".to_string()),
                         ("n".to_string(), "Next search match".to_string()),
                         ("N (Shift)".to_string(), "Previous search match".to_string()),

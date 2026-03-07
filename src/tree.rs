@@ -163,7 +163,7 @@ impl FileNode {
 }
 
 /// ファイルツリー全体を表すルートコンテナ
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FileTree {
     /// ツリーのルートパス
     pub root: PathBuf,

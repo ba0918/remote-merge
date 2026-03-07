@@ -131,6 +131,13 @@ pub fn handle_tree_key(
         }
         KeyCode::Char('n') => super::search_keys::jump_next(state),
         KeyCode::Char('N') => super::search_keys::jump_prev(state),
+        KeyCode::Char('X') => {
+            if state.has_reference() {
+                super::reconnect::execute_ref_swap(state, runtime);
+            } else {
+                state.status_message = "No reference server".to_string();
+            }
+        }
         _ => {}
     }
 }
@@ -141,6 +148,12 @@ pub fn handle_tree_key(
 /// 多ければ非ブロッキング走査に切り替える。
 /// ファイル選択時はそのまま表示。
 fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: MergeDirection) {
+    // showing_ref_diff 中はマージ不可
+    if state.showing_ref_diff {
+        state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+        return;
+    }
+
     // マージ走査中は無視
     if !matches!(state.merge_scan_state, MergeScanState::Idle) {
         state.status_message = "Merge scan in progress. Please wait or press Esc.".to_string();

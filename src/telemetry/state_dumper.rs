@@ -55,6 +55,8 @@ pub struct StateSnapshot {
     pub merge_scan_state: String,
     /// diffフィルターモード
     pub diff_filter_mode: bool,
+    /// ref diff 表示中か
+    pub showing_ref_diff: bool,
     /// 変更ファイル数（ツリーバッジから集計）
     pub file_counts: FileCounts,
 }
@@ -112,6 +114,7 @@ pub fn build_snapshot(state: &AppState) -> StateSnapshot {
         scan_state: format_scan_state(&state.scan_state),
         merge_scan_state: format_merge_scan_state(&state.merge_scan_state),
         diff_filter_mode: state.diff_filter_mode,
+        showing_ref_diff: state.showing_ref_diff,
         file_counts,
     }
 }

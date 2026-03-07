@@ -50,6 +50,7 @@ impl AppState {
         self.diff_scroll = 0;
         self.diff_cursor = 0;
         self.undo_stack.clear();
+        self.showing_ref_diff = false;
         self.clear_scan_cache();
         self.rebuild_flat_nodes();
     }

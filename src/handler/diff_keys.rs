@@ -66,7 +66,9 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if state.is_connected {
+            if state.showing_ref_diff {
+                state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+            } else if state.is_connected {
                 if state.hunk_count() > 0 {
                     state.apply_hunk_merge(HunkDirection::LeftToRight);
                 }
@@ -76,22 +78,34 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {
-            if state.hunk_count() > 0 {
+            if state.showing_ref_diff {
+                state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+            } else if state.hunk_count() > 0 {
                 state.apply_hunk_merge(HunkDirection::RightToLeft);
             }
         }
         KeyCode::Char('w') => {
-            if state.has_unsaved_changes() {
+            if state.showing_ref_diff {
+                state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+            } else if state.has_unsaved_changes() {
                 state.dialog = DialogState::WriteConfirmation;
             } else {
                 state.status_message = "No changes to write".to_string();
             }
         }
         KeyCode::Char('u') => {
-            state.undo_last();
+            if state.showing_ref_diff {
+                state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+            } else {
+                state.undo_last();
+            }
         }
         KeyCode::Char('U') => {
-            state.undo_all();
+            if state.showing_ref_diff {
+                state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
+            } else {
+                state.undo_all();
+            }
         }
         KeyCode::PageDown => {
             state.scroll_page_down(20);
@@ -119,6 +133,13 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             state.status_message = "/".to_string();
         }
         KeyCode::Char('?') => state.show_help(),
+        KeyCode::Char('X') => {
+            if state.has_reference() {
+                super::reconnect::execute_ref_swap(state, runtime);
+            } else {
+                state.status_message = "No reference server".to_string();
+            }
+        }
         _ => {}
     }
 }

@@ -33,6 +33,7 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     state.reset_diff_view_state();
     state.undo_stack.clear();
     state.is_connected = true;
+    state.showing_ref_diff = false;
     state.clear_scan_cache();
 
     // 展開状態を復元
@@ -142,6 +143,24 @@ fn restore_cursor_position(state: &mut AppState, target_path: &str) {
             state.tree_cursor = idx;
             return;
         }
+    }
+}
+
+/// right ↔ ref スワップを実行する（X キー）
+///
+/// unsaved changes がある場合は UnsavedChanges ダイアログを表示。
+/// swap 後に ref_tree が None なら `execute_ref_connect()` で取得。
+pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
+    if state.has_unsaved_changes() {
+        state.dialog = crate::ui::dialog::DialogState::UnsavedChanges;
+        return;
+    }
+
+    state.swap_right_ref();
+
+    // ref_tree が None なら接続して取得
+    if state.ref_tree.is_none() && state.ref_source.is_some() {
+        execute_ref_connect(state, runtime);
     }
 }
 
