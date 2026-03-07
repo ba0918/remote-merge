@@ -80,7 +80,7 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
     } else if let Some(left_server) = state.left_source.server_name().map(|s| s.to_string()) {
         let left_paths: Vec<String> = file_paths
             .iter()
-            .filter(|p| !state.left_cache.contains_key(*p))
+            .filter(|p| !state.left_cache.contains_key(p))
             .cloned()
             .collect();
 
@@ -115,7 +115,7 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
 fn load_right_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &[String]) {
     let remote_paths: Vec<String> = file_paths
         .iter()
-        .filter(|p| !state.right_cache.contains_key(*p))
+        .filter(|p| !state.right_cache.contains_key(p))
         .cloned()
         .collect();
 

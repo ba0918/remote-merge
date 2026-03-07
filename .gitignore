@@ -15,4 +15,4 @@ demo
 
 # Coverage
 lcov.info
-/coverage/
+/coverage/.claude/worktrees/
