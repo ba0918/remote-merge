@@ -4,6 +4,7 @@
 pub mod badge;
 pub mod cache;
 pub mod clipboard;
+pub mod clipboard_write;
 pub mod dialog_ops;
 pub mod diff_search;
 pub mod hunk_ops;

@@ -280,17 +280,13 @@ pub fn handle_clipboard_copy(state: &mut AppState) {
 
     let text = format_diff_for_clipboard(&context, diff);
 
-    match arboard::Clipboard::new() {
-        Ok(mut clipboard) => match clipboard.set_text(&text) {
-            Ok(()) => {
-                state.status_message = "Diff copied to clipboard".to_string();
-            }
-            Err(e) => {
-                state.status_message = format!("Clipboard write failed: {}", e);
-            }
-        },
-        Err(e) => {
-            state.status_message = format!("Clipboard not available: {} (WSL? try xclip)", e);
+    match crate::app::clipboard_write::write_to_clipboard(&text) {
+        crate::app::clipboard_write::ClipboardResult::Ok => {
+            state.status_message = "Diff copied to clipboard".to_string();
+        }
+        crate::app::clipboard_write::ClipboardResult::WriteError(msg)
+        | crate::app::clipboard_write::ClipboardResult::Unavailable(msg) => {
+            state.status_message = msg;
         }
     }
 }
@@ -345,12 +341,14 @@ fn handle_export_report(state: &mut AppState) {
     let left_root = state.left_tree.root.to_string_lossy().to_string();
     let right_root = state.right_tree.root.to_string_lossy().to_string();
 
+    let exclude = state.active_exclude_patterns();
     let input = ReportInput {
         left_label,
         right_label,
         left_root: &left_root,
         right_root: &right_root,
         sensitive_patterns: &state.sensitive_patterns,
+        exclude_patterns: &exclude,
         files: entries,
     };
 
