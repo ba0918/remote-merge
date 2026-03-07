@@ -53,14 +53,27 @@ impl CoreRuntime {
     pub fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
         let server_config = self.get_server_config(server_name)?;
 
-        let client = self.rt.block_on(SshClient::connect(
+        tracing::info!(
+            "SSH connecting: server={}, host={}",
+            server_name,
+            server_config.host
+        );
+
+        match self.rt.block_on(SshClient::connect(
             server_name,
             server_config,
             &self.config.ssh,
-        ))?;
-
-        self.ssh_clients.insert(server_name.to_string(), client);
-        Ok(())
+        )) {
+            Ok(client) => {
+                tracing::info!("SSH connected: server={}", server_name);
+                self.ssh_clients.insert(server_name.to_string(), client);
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!("SSH connection failed: server={}, error={}", server_name, e);
+                Err(e)
+            }
+        }
     }
 
     /// 指定サーバの SSH クライアントを取得する
@@ -152,10 +165,14 @@ impl CoreRuntime {
 
     /// 指定サーバの SSH 接続が生きているか確認する
     pub fn check_connection(&mut self, server_name: &str) -> bool {
-        match self.ssh_clients.get_mut(server_name) {
+        let alive = match self.ssh_clients.get_mut(server_name) {
             Some(client) => self.rt.block_on(client.is_alive()),
             None => false,
+        };
+        if !alive {
+            tracing::warn!("SSH connection check failed: server={}", server_name);
         }
+        alive
     }
 
     /// SSH 接続のみを再確立する（ツリー・キャッシュはそのまま）

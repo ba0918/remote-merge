@@ -61,9 +61,11 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     state.update_badge_after_merge(path, &content, direction);
                     let left = state.left_source.display_name();
                     let right = state.right_source.display_name();
+                    tracing::info!("Merge ok: {} ({} -> {})", path, left, right);
                     state.status_message = format!("{}: {} -> {} merged", path, left, right);
                 }
                 Err(e) => {
+                    tracing::error!("Merge failed: path={}, error={}", path, e);
                     state.status_message = format!("Merge failed: {}", e);
                 }
             }
@@ -86,9 +88,11 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     state.update_badge_after_merge(path, &content, direction);
                     let left = state.left_source.display_name();
                     let right = state.right_source.display_name();
+                    tracing::info!("Merge ok: {} ({} -> {})", path, right, left);
                     state.status_message = format!("{}: {} -> {} merged", path, right, left);
                 }
                 Err(e) => {
+                    tracing::error!("Merge failed: path={}, error={}", path, e);
                     state.status_message = format!("Merge failed: {}", e);
                 }
             }
@@ -123,6 +127,13 @@ pub fn execute_hunk_merge(
                     Ok(()) => {
                         let left = state.left_source.display_name();
                         let right = state.right_source.display_name();
+                        tracing::info!(
+                            "Hunk merge ok: {} ({} -> {}), hunks_left={}",
+                            path,
+                            right,
+                            left,
+                            state.hunk_count()
+                        );
                         state.status_message = format!(
                             "Hunk merged: {} -> {} ({}) | {} hunks left",
                             right,
@@ -132,6 +143,11 @@ pub fn execute_hunk_merge(
                         );
                     }
                     Err(e) => {
+                        tracing::error!(
+                            "Hunk merge write failed: path={}, side=left, error={}",
+                            path,
+                            e
+                        );
                         state.status_message = format!("Left write failed: {}", e);
                     }
                 }
@@ -142,6 +158,13 @@ pub fn execute_hunk_merge(
                     Ok(()) => {
                         let left = state.left_source.display_name();
                         let right = state.right_source.display_name();
+                        tracing::info!(
+                            "Hunk merge ok: {} ({} -> {}), hunks_left={}",
+                            path,
+                            left,
+                            right,
+                            state.hunk_count()
+                        );
                         state.status_message = format!(
                             "Hunk merged: {} -> {} ({}) | {} hunks left",
                             left,
@@ -151,6 +174,11 @@ pub fn execute_hunk_merge(
                         );
                     }
                     Err(e) => {
+                        tracing::error!(
+                            "Hunk merge write failed: path={}, side=right, error={}",
+                            path,
+                            e
+                        );
                         state.status_message = format!("Right write failed: {}", e);
                     }
                 }

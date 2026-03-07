@@ -31,6 +31,13 @@ pub fn execute_batch_merge(
 
     let file_count = files.len();
 
+    tracing::info!(
+        "Batch merge started: files={}, direction={:?}, skipped_identical={}",
+        file_count,
+        direction,
+        skipped_equal
+    );
+
     // 全ファイルが同一だった場合は早期リターン
     if file_count == 0 {
         state.status_message = format!(
@@ -99,6 +106,10 @@ pub fn execute_batch_merge(
                     Err(e) => {
                         if crate::error::is_connection_error(&e) {
                             state.is_connected = false;
+                            tracing::error!(
+                                "Connection lost during batch merge: file={}, progress={}/{}, error={}",
+                                path, success_count, file_count, e
+                            );
                             state.status_message = format!(
                                 "Connection lost during merge: {} succeeded/{} failed",
                                 success_count,
@@ -188,6 +199,13 @@ pub fn execute_batch_merge(
     } else {
         String::new()
     };
+
+    tracing::info!(
+        "Batch merge completed: success={}, failed={}, skipped_identical={}",
+        success_count,
+        fail_count,
+        skipped_equal
+    );
 
     if fail_count == 0 {
         state.status_message = format!(

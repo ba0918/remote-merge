@@ -71,7 +71,26 @@ impl CoreRuntime {
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
-        self.rt.block_on(client.write_file(&full_path, content))
+        match self.rt.block_on(client.write_file(&full_path, content)) {
+            Ok(()) => {
+                tracing::info!(
+                    "Remote file written: server={}, path={}, size={}",
+                    server_name,
+                    rel_path,
+                    content.len()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Remote file write failed: server={}, path={}, error={}",
+                    server_name,
+                    rel_path,
+                    e
+                );
+                Err(e)
+            }
+        }
     }
 
     /// リモートファイルのパーミッションを変更する。

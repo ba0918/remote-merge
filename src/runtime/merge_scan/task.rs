@@ -24,6 +24,13 @@ pub fn run_merge_scan(
     server_name: &str,
     dir_path: &str,
 ) -> Result<MergeScanResult, String> {
+    let scan_start = std::time::Instant::now();
+    tracing::info!(
+        "Merge scan started: server={}, dir={}",
+        server_name,
+        dir_path
+    );
+
     let server_config = config
         .servers
         .get(server_name)
@@ -77,6 +84,16 @@ pub fn run_merge_scan(
     );
 
     let _ = rt.block_on(client.disconnect());
+
+    let duration = scan_start.elapsed();
+    let total_files = result.local_cache.len() + result.local_binary_cache.len();
+    let errors = result.error_paths.len();
+    tracing::info!(
+        "Merge scan completed: files={}, errors={}, duration={:.2}s",
+        total_files,
+        errors,
+        duration.as_secs_f64()
+    );
 
     Ok(result)
 }

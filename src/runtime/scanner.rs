@@ -97,6 +97,14 @@ fn run_scan(
     sensitive_patterns: &[String],
     config: &AppConfig,
 ) -> Result<ScanOutput, String> {
+    let scan_start = std::time::Instant::now();
+    tracing::info!(
+        "Scan started: left={}, right={}, exclude_patterns={}",
+        left_source.display_name(),
+        right_source.display_name(),
+        exclude.len()
+    );
+
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("tokio runtime creation failed: {}", e))?;
 
@@ -149,6 +157,20 @@ fn run_scan(
     if let Some(c) = right_client.take() {
         let _ = rt.block_on(c.disconnect());
     }
+
+    let duration = scan_start.elapsed();
+    let modified_count = statuses
+        .values()
+        .filter(|s| !matches!(s, FileStatusKind::Equal))
+        .count();
+    tracing::info!(
+        "Scan completed: left_files={}, right_files={}, changed={}, content_verified={}, duration={:.2}s",
+        left_nodes.len(),
+        right_nodes.len(),
+        modified_count,
+        resolved_contents.len(),
+        duration.as_secs_f64()
+    );
 
     Ok(ScanOutput {
         left_nodes,
@@ -340,6 +362,7 @@ pub fn poll_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             runtime.scan_receiver = None;
         }
         Ok(Err(e)) => {
+            tracing::error!("Scan failed: {}", e);
             state.scan_state = ScanState::Error(e.clone());
             state.status_message = format!("Scan error: {}", e);
             runtime.scan_receiver = None;
@@ -348,6 +371,7 @@ pub fn poll_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             // まだ走査中 - 何もしない
         }
         Err(mpsc::TryRecvError::Disconnected) => {
+            tracing::error!("Scan thread terminated unexpectedly");
             state.scan_state = ScanState::Error("Scan thread terminated unexpectedly".to_string());
             state.status_message = "Scan thread terminated unexpectedly".to_string();
             runtime.scan_receiver = None;
