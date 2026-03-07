@@ -223,16 +223,12 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                                 (right_name, left_name)
                             }
                         };
-                        let is_r2r = crate::app::side::is_remote_to_remote(
-                            &state.left_source,
-                            &state.right_source,
-                        );
                         let confirm = crate::ui::dialog::ConfirmDialog {
                             file_path: path.clone(),
                             direction,
                             source_name,
                             target_name,
-                            is_remote_to_remote: is_r2r,
+                            is_remote_to_remote: state.is_remote_to_remote(),
                         };
                         execute_merge(state, runtime, &confirm);
                     }

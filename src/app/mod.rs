@@ -193,6 +193,11 @@ impl AppState {
         state.rebuild_flat_nodes();
         state
     }
+
+    /// 両サイドがリモート同士か（remote ↔ remote 比較モード）
+    pub fn is_remote_to_remote(&self) -> bool {
+        self.left_source.is_remote() && self.right_source.is_remote()
+    }
 }
 
 #[cfg(test)]

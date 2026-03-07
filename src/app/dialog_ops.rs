@@ -63,7 +63,12 @@ impl AppState {
         };
 
         if node.is_dir {
-            if !self.is_connected && matches!(direction, MergeDirection::LeftToRight) {
+            // SSH 接続チェック: マージ先がリモートなら接続必須
+            let needs_ssh = match direction {
+                MergeDirection::LeftToRight => true, // 右側は常にリモート
+                MergeDirection::RightToLeft => self.left_source.is_remote(), // 左側がリモートの場合のみ
+            };
+            if !self.is_connected && needs_ssh {
                 self.status_message = "SSH not connected: cannot merge".to_string();
                 return;
             }
@@ -128,10 +133,9 @@ impl AppState {
                 self.dialog = DialogState::Info(format!("No differences found in {}", node.path));
                 return;
             }
-            let is_r2r = super::side::is_remote_to_remote(&self.left_source, &self.right_source);
             self.dialog = DialogState::Confirm(
                 ConfirmDialog::new(node.path, direction, source, target)
-                    .with_remote_to_remote(is_r2r),
+                    .with_remote_to_remote(self.is_remote_to_remote()),
             );
         }
     }

@@ -11,6 +11,94 @@ use crate::ui::dialog::{
     ProgressDialog, ProgressPhase,
 };
 
+// ── 左側I/Oヘルパー ──
+// 左側がローカルかリモートかに応じて適切なI/O操作にディスパッチする。
+
+/// 左側からファイルを読み込む。
+/// ローカルならファイルシステム、リモートならSSH経由。
+fn read_left_file(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+) -> anyhow::Result<String> {
+    if state.left_source.is_local() {
+        let local_root = &state.left_tree.root;
+        executor::read_local_file(local_root, path).map_err(|e| anyhow::anyhow!("{}", e))
+    } else {
+        let server = state.left_source.server_name().unwrap();
+        runtime.read_remote_file(server, path)
+    }
+}
+
+/// 左側にファイルを書き込む。
+/// ローカルならファイルシステム、リモートならSSH経由。
+fn write_left_file(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+    content: &str,
+) -> anyhow::Result<()> {
+    if state.left_source.is_local() {
+        let local_root = &state.left_tree.root;
+        executor::write_local_file(local_root, path, content).map_err(|e| anyhow::anyhow!("{}", e))
+    } else {
+        let server = state.left_source.server_name().unwrap();
+        runtime.write_remote_file(server, path, content)
+    }
+}
+
+/// 右側にファイルを書き込む。
+/// リモートSSH経由（右側は常にリモート）。
+fn write_right_file(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+    content: &str,
+) -> anyhow::Result<()> {
+    runtime.write_remote_file(&state.server_name, path, content)
+}
+
+/// 左側ファイルの mtime を取得する。
+/// ローカルなら stat、リモートならSSH stat。
+fn stat_left_file(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    if state.left_source.is_local() {
+        optimistic_lock::stat_local_file(&state.left_tree.root, path)
+    } else {
+        let server = state.left_source.server_name()?;
+        let results = runtime
+            .stat_remote_files(server, &[path.to_string()])
+            .ok()?;
+        results.first().and_then(|(_, dt)| *dt)
+    }
+}
+
+/// 左側のバックアップを作成する。
+fn backup_left(state: &AppState, runtime: &mut TuiRuntime, paths: &[String]) {
+    if state.left_source.is_local() {
+        let backup_dir = state.left_tree.root.join(backup::BACKUP_DIR_NAME);
+        for path in paths {
+            if let Err(e) = backup::create_local_backup(&state.left_tree.root, path, &backup_dir) {
+                tracing::warn!("Local backup failed for {}: {}", path, e);
+            }
+        }
+    } else if let Some(server) = state.left_source.server_name() {
+        if let Err(e) = runtime.create_remote_backups(server, paths) {
+            tracing::warn!("Left remote backup failed (continuing): {}", e);
+        }
+    }
+}
+
+/// 右側のバックアップを作成する。
+fn backup_right(state: &AppState, runtime: &mut TuiRuntime, paths: &[String]) {
+    if let Err(e) = runtime.create_remote_backups(&state.server_name, paths) {
+        tracing::warn!("Right remote backup failed (continuing): {}", e);
+    }
+}
+
 /// 単一ファイルの楽観的ロックチェック。
 ///
 /// マージ先のファイルの mtime が diff 取得時から変更されていないかチェック。
@@ -46,12 +134,12 @@ pub fn check_mtime_conflict_single(
             }
         }
         MergeDirection::RightToLeft => {
-            // ローカル側のmtimeをチェック
+            // 左側のmtimeをチェック（ローカル or リモート）
             let expected = state
                 .left_tree
                 .find_node(std::path::Path::new(path))
                 .and_then(|n| n.mtime);
-            let actual = optimistic_lock::stat_local_file(&state.left_tree.root, path);
+            let actual = stat_left_file(state, runtime, path);
 
             if let Some(conflict) = optimistic_lock::check_mtime(path, expected, actual) {
                 show_mtime_warning(state, vec![conflict], direction, Some(path));
@@ -99,13 +187,13 @@ pub fn check_mtime_for_write(
 
     let mut conflicts = Vec::new();
 
-    // ローカル側の mtime チェック
-    let local_expected = state
+    // 左側の mtime チェック（ローカル or リモート）
+    let left_expected = state
         .left_tree
         .find_node(std::path::Path::new(&path))
         .and_then(|n| n.mtime);
-    let local_actual = optimistic_lock::stat_local_file(&state.left_tree.root, &path);
-    if let Some(c) = optimistic_lock::check_mtime(&path, local_expected, local_actual) {
+    let left_actual = stat_left_file(state, runtime, &path);
+    if let Some(c) = optimistic_lock::check_mtime(&path, left_expected, left_actual) {
         conflicts.push(c);
     }
 
@@ -168,7 +256,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             let content = match state.left_cache.get(path) {
                 Some(c) => c.clone(),
                 None => {
-                    state.status_message = format!("{}: local content not loaded", path);
+                    state.status_message = format!("{}: left content not loaded", path);
                     return;
                 }
             };
@@ -178,21 +266,17 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 return;
             }
 
-            // バックアップ（リモート側）
+            // バックアップ（右側）
             if runtime.config.backup.enabled {
-                if let Err(e) =
-                    runtime.create_remote_backups(&state.server_name, std::slice::from_ref(path))
-                {
-                    tracing::warn!("Remote backup failed (continuing): {}", e);
-                }
+                backup_right(state, runtime, &[path.to_string()]);
             }
 
-            match runtime.write_remote_file(&state.server_name, path, &content) {
+            match write_right_file(state, runtime, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
-                    let left_name = state.left_source.display_name();
-                    state.status_message =
-                        format!("{}: {} -> {} merged", path, left_name, state.server_name);
+                    let left = state.left_source.display_name();
+                    let right = state.right_source.display_name();
+                    state.status_message = format!("{}: {} -> {} merged", path, left, right);
                 }
                 Err(e) => {
                     state.status_message = format!("Merge failed: {}", e);
@@ -203,28 +287,22 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             let content = match state.right_cache.get(path) {
                 Some(c) => c.clone(),
                 None => {
-                    state.status_message = format!("{}: remote content not loaded", path);
+                    state.status_message = format!("{}: right content not loaded", path);
                     return;
                 }
             };
 
-            // バックアップ（ローカル側）
+            // バックアップ（左側）
             if runtime.config.backup.enabled {
-                let backup_dir = state.left_tree.root.join(backup::BACKUP_DIR_NAME);
-                if let Err(e) =
-                    backup::create_local_backup(&state.left_tree.root, path, &backup_dir)
-                {
-                    tracing::warn!("Local backup failed (continuing): {}", e);
-                }
+                backup_left(state, runtime, &[path.to_string()]);
             }
 
-            let local_root = state.left_tree.root.clone();
-            match executor::write_local_file(&local_root, path, &content) {
+            match write_left_file(state, runtime, path, &content) {
                 Ok(()) => {
                     state.update_badge_after_merge(path, &content, direction);
-                    let left_name = state.left_source.display_name();
-                    state.status_message =
-                        format!("{}: {} -> {} merged", path, state.server_name, left_name);
+                    let left = state.left_source.display_name();
+                    let right = state.right_source.display_name();
+                    state.status_message = format!("{}: {} -> {} merged", path, right, left);
                 }
                 Err(e) => {
                     state.status_message = format!("Merge failed: {}", e);
@@ -267,23 +345,12 @@ pub fn execute_batch_merge(
         let file_paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
         match direction {
             MergeDirection::LeftToRight => {
-                // リモート側バックアップ（バッチ）
                 if state.is_connected {
-                    if let Err(e) = runtime.create_remote_backups(&state.server_name, &file_paths) {
-                        tracing::warn!("Remote batch backup failed (continuing): {}", e);
-                    }
+                    backup_right(state, runtime, &file_paths);
                 }
             }
             MergeDirection::RightToLeft => {
-                // ローカル側バックアップ
-                let backup_dir = state.left_tree.root.join(backup::BACKUP_DIR_NAME);
-                for path in &file_paths {
-                    if let Err(e) =
-                        backup::create_local_backup(&state.left_tree.root, path, &backup_dir)
-                    {
-                        tracing::warn!("Local backup failed for {}: {}", path, e);
-                    }
-                }
+                backup_left(state, runtime, &file_paths);
             }
         }
     }
@@ -304,19 +371,16 @@ pub fn execute_batch_merge(
             MergeDirection::LeftToRight => {
                 let content = match state.left_cache.get(path) {
                     Some(c) => c.clone(),
-                    None => {
-                        let local_root = &state.left_tree.root;
-                        match executor::read_local_file(local_root, path) {
-                            Ok(c) => {
-                                state.left_cache.insert(path.clone(), c.clone());
-                                c
-                            }
-                            Err(_) => {
-                                fail_count += 1;
-                                continue;
-                            }
+                    None => match read_left_file(state, runtime, path) {
+                        Ok(c) => {
+                            state.left_cache.insert(path.clone(), c.clone());
+                            c
                         }
-                    }
+                        Err(_) => {
+                            fail_count += 1;
+                            continue;
+                        }
+                    },
                 };
 
                 if !state.is_connected {
@@ -327,7 +391,7 @@ pub fn execute_batch_merge(
                     return;
                 }
 
-                match runtime.write_remote_file(&state.server_name, path, &content) {
+                match write_right_file(state, runtime, path, &content) {
                     Ok(()) => {
                         state.sync_cache_after_merge(path, &content, direction);
                         success_count += 1;
@@ -380,13 +444,21 @@ pub fn execute_batch_merge(
                     }
                 };
 
-                let local_root = state.left_tree.root.clone();
-                match executor::write_local_file(&local_root, path, &content) {
+                match write_left_file(state, runtime, path, &content) {
                     Ok(()) => {
                         state.sync_cache_after_merge(path, &content, direction);
                         success_count += 1;
                     }
                     Err(e) => {
+                        if crate::error::is_connection_error(&e) {
+                            state.is_connected = false;
+                            state.status_message = format!(
+                                "Connection lost during merge: {} succeeded/{} failed",
+                                success_count,
+                                fail_count + 1
+                            );
+                            return;
+                        }
                         tracing::warn!("Batch merge failed: {} - {}", path, e);
                         fail_count += 1;
                     }
@@ -404,10 +476,11 @@ pub fn execute_batch_merge(
     }
     state.rebuild_flat_nodes();
 
-    let left_name = state.left_source.display_name();
+    let left = state.left_source.display_name();
+    let right = state.right_source.display_name();
     let dir_str = match direction {
-        MergeDirection::LeftToRight => format!("{} -> {}", left_name, state.server_name),
-        MergeDirection::RightToLeft => format!("{} -> {}", state.server_name, left_name),
+        MergeDirection::LeftToRight => format!("{} -> {}", left, right),
+        MergeDirection::RightToLeft => format!("{} -> {}", right, left),
     };
 
     let skip_suffix = if skipped_equal > 0 {
@@ -440,20 +513,11 @@ pub fn execute_hunk_merge(
         if runtime.config.backup.enabled {
             match direction {
                 HunkDirection::RightToLeft => {
-                    let backup_dir = state.left_tree.root.join(backup::BACKUP_DIR_NAME);
-                    if let Err(e) =
-                        backup::create_local_backup(&state.left_tree.root, &path, &backup_dir)
-                    {
-                        tracing::warn!("Local backup failed (continuing): {}", e);
-                    }
+                    backup_left(state, runtime, std::slice::from_ref(&path));
                 }
                 HunkDirection::LeftToRight => {
                     if state.is_connected {
-                        if let Err(e) = runtime
-                            .create_remote_backups(&state.server_name, std::slice::from_ref(&path))
-                        {
-                            tracing::warn!("Remote backup failed (continuing): {}", e);
-                        }
+                        backup_right(state, runtime, std::slice::from_ref(&path));
                     }
                 }
             }
@@ -462,38 +526,39 @@ pub fn execute_hunk_merge(
         match direction {
             HunkDirection::RightToLeft => {
                 let content = state.left_cache.get(&path).cloned().unwrap_or_default();
-                let local_root = state.left_tree.root.clone();
-                match executor::write_local_file(&local_root, &path, &content) {
+                match write_left_file(state, runtime, &path, &content) {
                     Ok(()) => {
-                        let left_name = state.left_source.display_name();
+                        let left = state.left_source.display_name();
+                        let right = state.right_source.display_name();
                         state.status_message = format!(
                             "Hunk merged: {} -> {} ({}) | {} hunks left",
-                            state.server_name,
-                            left_name,
+                            right,
+                            left,
                             path,
                             state.hunk_count(),
                         );
                     }
                     Err(e) => {
-                        state.status_message = format!("Local write failed: {}", e);
+                        state.status_message = format!("Left write failed: {}", e);
                     }
                 }
             }
             HunkDirection::LeftToRight => {
                 let content = state.right_cache.get(&path).cloned().unwrap_or_default();
-                match runtime.write_remote_file(&state.server_name, &path, &content) {
+                match write_right_file(state, runtime, &path, &content) {
                     Ok(()) => {
-                        let left_name = state.left_source.display_name();
+                        let left = state.left_source.display_name();
+                        let right = state.right_source.display_name();
                         state.status_message = format!(
                             "Hunk merged: {} -> {} ({}) | {} hunks left",
-                            left_name,
-                            state.server_name,
+                            left,
+                            right,
                             path,
                             state.hunk_count(),
                         );
                     }
                     Err(e) => {
-                        state.status_message = format!("Remote write failed: {}", e);
+                        state.status_message = format!("Right write failed: {}", e);
                     }
                 }
             }
@@ -508,33 +573,23 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
 
         // バックアップ（両側）
         if runtime.config.backup.enabled {
-            let backup_dir = state.left_tree.root.join(backup::BACKUP_DIR_NAME);
-            if let Err(e) = backup::create_local_backup(&state.left_tree.root, &path, &backup_dir) {
-                tracing::warn!("Local backup failed (continuing): {}", e);
-            }
+            backup_left(state, runtime, std::slice::from_ref(&path));
             if state.is_connected {
-                if let Err(e) =
-                    runtime.create_remote_backups(&state.server_name, std::slice::from_ref(&path))
-                {
-                    tracing::warn!("Remote backup failed (continuing): {}", e);
-                }
+                backup_right(state, runtime, std::slice::from_ref(&path));
             }
         }
 
-        if let Some(local_content) = state.left_cache.get(&path) {
-            let local_root = state.left_tree.root.clone();
-            if let Err(e) = executor::write_local_file(&local_root, &path, local_content) {
-                state.status_message = format!("Local write failed: {}", e);
+        if let Some(left_content) = state.left_cache.get(&path).cloned() {
+            if let Err(e) = write_left_file(state, runtime, &path, &left_content) {
+                state.status_message = format!("Left write failed: {}", e);
                 return;
             }
         }
 
         if state.is_connected {
-            if let Some(remote_content) = state.right_cache.get(&path).cloned() {
-                if let Err(e) =
-                    runtime.write_remote_file(&state.server_name, &path, &remote_content)
-                {
-                    state.status_message = format!("Remote write failed: {}", e);
+            if let Some(right_content) = state.right_cache.get(&path).cloned() {
+                if let Err(e) = write_right_file(state, runtime, &path, &right_content) {
+                    state.status_message = format!("Right write failed: {}", e);
                     return;
                 }
             }
@@ -548,12 +603,6 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
             state.hunk_count()
         );
     }
-}
-
-/// リモートディレクトリの遅延読み込み（右側ツリー用、従来互換）
-pub fn load_remote_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path: &str) {
-    let server_name = state.server_name.clone();
-    load_remote_children_to(state, runtime, rel_path, &server_name, false);
 }
 
 /// リモートディレクトリの遅延読み込み（ツリー側指定版）
@@ -651,26 +700,14 @@ pub fn expand_subtree_for_merge(
         // NOTE: expanded_dirs には追加しない（ツリー表示の展開状態を変えない）
         // ファイル収集は collect_merge_files() がツリーから直接行う
 
-        // ローカルツリーのサブディレクトリを収集
-        let mut sub_dirs = Vec::new();
-        if let Some(node) = state.left_tree.find_node(std::path::Path::new(&path)) {
-            if let Some(children) = &node.children {
-                for child in children {
-                    if child.is_dir() {
-                        sub_dirs.push(format!("{}/{}", path, child.name));
-                    }
-                }
-            }
-        }
-
-        // リモートツリーのサブディレクトリも収集（ローカルにないものも含む）
-        if let Some(node) = state.right_tree.find_node(std::path::Path::new(&path)) {
-            if let Some(children) = &node.children {
-                for child in children {
-                    if child.is_dir() {
-                        let child_path = format!("{}/{}", path, child.name);
-                        if !sub_dirs.contains(&child_path) {
-                            sub_dirs.push(child_path);
+        // 左右ツリーのサブディレクトリを収集（重複排除に HashSet 使用）
+        let mut sub_dirs = std::collections::HashSet::new();
+        for tree in [&state.left_tree, &state.right_tree] {
+            if let Some(node) = tree.find_node(std::path::Path::new(&path)) {
+                if let Some(children) = &node.children {
+                    for child in children {
+                        if child.is_dir() {
+                            sub_dirs.insert(format!("{}/{}", path, child.name));
                         }
                     }
                 }
@@ -711,29 +748,65 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     // 差分なしと誤判定される（load_file_content と同じ方針）。
     state.invalidate_cache_for_paths(&file_paths);
 
-    // ── ローカルファイルを個別に読み込み ──
-    for (i, path) in file_paths.iter().enumerate() {
-        if i % 10 == 0 {
-            if let DialogState::Progress(ref mut progress) = state.dialog {
-                progress.current = i;
-                progress.current_path = Some(path.clone());
+    // ── 左側ファイルの読み込み ──
+    if state.left_source.is_local() {
+        // ローカル: 個別に読み込み
+        for (i, path) in file_paths.iter().enumerate() {
+            if i % 10 == 0 {
+                if let DialogState::Progress(ref mut progress) = state.dialog {
+                    progress.current = i;
+                    progress.current_path = Some(path.clone());
+                }
+            }
+            if !state.left_cache.contains_key(path) {
+                let local_root = &state.left_tree.root;
+                match executor::read_local_file(local_root, path) {
+                    Ok(content) => {
+                        state.left_cache.insert(path.clone(), content);
+                        state.error_paths.remove(path);
+                    }
+                    Err(e) => {
+                        tracing::debug!("Local file read skipped: {} - {}", path, e);
+                    }
+                }
             }
         }
-        if !state.left_cache.contains_key(path) {
-            let local_root = &state.left_tree.root;
-            match executor::read_local_file(local_root, path) {
-                Ok(content) => {
-                    state.left_cache.insert(path.clone(), content);
-                    state.error_paths.remove(path);
+    } else if let Some(left_server) = state.left_source.server_name().map(|s| s.to_string()) {
+        // リモート: バッチ読み込み
+        let left_paths: Vec<String> = file_paths
+            .iter()
+            .filter(|p| !state.left_cache.contains_key(*p))
+            .cloned()
+            .collect();
+
+        if !left_paths.is_empty() {
+            if let DialogState::Progress(ref mut progress) = state.dialog {
+                progress.phase = ProgressPhase::LoadingRemote;
+                progress.current = 0;
+                progress.total = Some(left_paths.len());
+            }
+
+            match runtime.read_remote_files_batch(&left_server, &left_paths) {
+                Ok(batch_result) => {
+                    for (path, content) in batch_result {
+                        state.left_cache.insert(path.clone(), content);
+                        state.error_paths.remove(&path);
+                    }
                 }
                 Err(e) => {
-                    tracing::debug!("Local file read skipped: {} - {}", path, e);
+                    tracing::warn!("Left batch remote read failed: {}", e);
+                    if crate::error::is_connection_error(&e) {
+                        state.status_message =
+                            format!("Left connection lost: {} | Press 'c' to reconnect", e);
+                        state.dialog = DialogState::None;
+                        return;
+                    }
                 }
             }
         }
     }
 
-    // ── リモートファイルをバッチ読み込み（1チャネルで全ファイル） ──
+    // ── 右側ファイルをバッチ読み込み（1チャネルで全ファイル） ──
     let remote_paths: Vec<String> = file_paths
         .iter()
         .filter(|p| !state.right_cache.contains_key(*p))
@@ -756,13 +829,12 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
             match runtime.read_remote_files_batch(&state.server_name, &remote_paths) {
                 Ok(batch_result) => {
                     for (path, content) in batch_result {
-                        // 空文字列のファイルも有効（0バイトファイル）
                         state.right_cache.insert(path.clone(), content);
                         state.error_paths.remove(&path);
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Batch remote read failed: {}", e);
+                    tracing::warn!("Right batch remote read failed: {}", e);
                     if crate::error::is_connection_error(&e) {
                         state.is_connected = false;
                         state.status_message =
@@ -812,22 +884,26 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
         state.invalidate_cache_for_paths(std::slice::from_ref(path));
     }
 
-    // ローカルキャッシュ
+    // 左側キャッシュ（ローカル or リモート）
     if !state.left_cache.contains_key(path) {
-        let local_root = &state.left_tree.root;
-        match executor::read_local_file(local_root, path) {
+        match read_left_file(state, runtime, path) {
             Ok(content) => {
                 state.left_cache.insert(path.clone(), content);
                 state.error_paths.remove(path);
             }
             Err(e) => {
-                tracing::debug!("Local file read skipped: {} - {}", path, e);
-                state.status_message = format!("Local read failed: {} - {}", path, e);
+                tracing::debug!("Left file read skipped: {} - {}", path, e);
+                if state.left_source.is_remote() && crate::error::is_connection_error(&e) {
+                    state.status_message =
+                        format!("Left connection lost: {} | Press 'c' to reconnect", e);
+                } else {
+                    state.status_message = format!("Left read failed: {} - {}", path, e);
+                }
             }
         }
     }
 
-    // リモートキャッシュ
+    // 右側キャッシュ（リモート）
     if !state.right_cache.contains_key(path) {
         if !state.is_connected {
             // 切断状態だが、実際に接続が回復してないか確認
@@ -844,19 +920,19 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
                     state.error_paths.remove(path);
                 }
                 Err(e) => {
-                    tracing::warn!("Remote file read failed: {} - {}", path, e);
+                    tracing::warn!("Right file read failed: {} - {}", path, e);
                     if crate::error::is_connection_error(&e) {
                         state.is_connected = false;
                         state.status_message =
                             format!("Connection lost: {} | Press 'c' to reconnect", e);
                     } else {
-                        state.status_message = format!("Remote read failed: {} - {}", path, e);
+                        state.status_message = format!("Right read failed: {} - {}", path, e);
                     }
                 }
             }
         } else {
             tracing::warn!(
-                "Remote read skipped (disconnected): {} | has_client={}",
+                "Right read skipped (disconnected): {} | has_client={}",
                 path,
                 runtime.has_client(&state.server_name)
             );
