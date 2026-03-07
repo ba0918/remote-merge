@@ -14,6 +14,7 @@ use remote_merge::handler::{dialog_keys, diff_keys, tree_keys};
 use remote_merge::runtime::bootstrap::{self, TuiBootstrapParams};
 use remote_merge::runtime::TuiRuntime;
 use remote_merge::runtime::{merge_scan, scanner};
+use remote_merge::telemetry;
 use remote_merge::ui::render::draw_ui;
 
 /// TUI tool for graphically displaying and merging file diffs between local and remote servers
@@ -166,13 +167,22 @@ fn main() -> anyhow::Result<()> {
 
 /// TUI イベントループを実行する
 fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
+    // テレメトリ: ダンプディレクトリ準備 + 起動時トランケーション
+    let dump_dir = telemetry::state_dumper::default_dump_dir();
+    let _ = std::fs::create_dir_all(&dump_dir);
+    let _ = telemetry::truncate_file_lines(&dump_dir.join("events.jsonl"), 10_000);
+    let _ = telemetry::truncate::truncate_file_bytes(
+        &dump_dir.join("debug.log"),
+        10 * 1024 * 1024, // 10MB
+    );
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_event_loop(&mut terminal, &mut state, &mut runtime);
+    let result = run_event_loop(&mut terminal, &mut state, &mut runtime, &dump_dir);
 
     runtime.disconnect_all();
 
@@ -183,12 +193,21 @@ fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
     result
 }
 
+/// 描画遅延の閾値（ミリ秒）。これを超えたフレームのみイベント記録する。
+const RENDER_SLOW_THRESHOLD_MS: u64 = 100;
+
 /// イベントループ本体
 fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState,
     runtime: &mut TuiRuntime,
+    dump_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
+    let state_path = dump_dir.join("state.json");
+    let screen_path = dump_dir.join("screen.txt");
+    let mut event_recorder = telemetry::EventRecorder::new(&dump_dir.join("events.jsonl"));
+    let mut frame_count: u64 = 0;
+
     loop {
         // tokio Runtime を駆動して SSH keepalive 等の pending タスクを処理
         runtime.drive_runtime();
@@ -196,9 +215,26 @@ fn run_event_loop(
         scanner::poll_scan_result(state, runtime);
         merge_scan::poll_merge_scan_result(state, runtime);
 
+        // 描画 + 描画時間計測
+        let render_start = std::time::Instant::now();
         terminal.draw(|frame| {
             draw_ui(frame, state);
         })?;
+        let render_duration = render_start.elapsed();
+        frame_count += 1;
+
+        // テレメトリ: 描画遅延イベント（閾値超えのみ）
+        let render_ms = render_duration.as_millis() as u64;
+        if render_ms > RENDER_SLOW_THRESHOLD_MS {
+            event_recorder.record_render_slow(frame_count, render_ms);
+        }
+
+        // テレメトリ: 画面テキストをダンプ
+        let screen_text = telemetry::state_dumper::buffer_to_text(terminal.current_buffer_mut());
+        let _ = telemetry::state_dumper::dump_screen_to_file(&screen_text, &screen_path);
+
+        // テレメトリ: AppState スナップショットをダンプ
+        let _ = telemetry::state_dumper::dump_state_to_file(state, &state_path);
 
         let is_scanning = matches!(state.scan_state, ScanState::Scanning)
             || !matches!(state.merge_scan_state, MergeScanState::Idle);
@@ -217,6 +253,10 @@ fn run_event_loop(
                 continue;
             }
 
+            // テレメトリ: キー入力イベント記録
+            let key_str = format!("{:?}", key.code);
+            let focus_str = format!("{:?}", state.focus);
+
             if state.has_dialog() {
                 dialog_keys::handle_dialog_key(state, runtime, key.code);
             } else {
@@ -229,6 +269,8 @@ fn run_event_loop(
                     }
                 }
             }
+
+            event_recorder.record_key_press(&key_str, &focus_str);
 
             if state.should_quit {
                 break;

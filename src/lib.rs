@@ -13,6 +13,7 @@ pub mod runtime;
 pub mod service;
 pub mod ssh;
 pub mod state;
+pub mod telemetry;
 pub mod theme;
 pub mod tree;
 pub mod ui;
