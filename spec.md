@@ -972,8 +972,16 @@ remote-merge/
 - [ ] root_dir不在時のエラーハンドリング
 
 ### Phase 4: CLIサブコマンド（LLMエージェント連携）
-- [ ] `status` コマンド（テキスト・JSON出力・`--summary`）
-- [ ] `diff` コマンド（ファイル指定・`--max-lines`・`--max-files`）
-- [ ] `merge` コマンド（`--dry-run`・`--force`）
-- [ ] JSON出力へのセンシティブフラグ付与
-- [ ] コンテキストウィンドウ対策（段階的取得フロー）
+- [x] `status` コマンド（テキスト・JSON出力・`--summary`）
+- [x] `diff` コマンド（ファイル指定・`--max-lines`・`--max-files`）
+- [x] `merge` コマンド（`--dry-run`・`--force`）
+- [x] JSON出力へのセンシティブフラグ付与
+- [x] コンテキストウィンドウ対策（段階的取得フロー）
+- [x] CoreRuntime分離（TuiRuntime → CoreRuntime + TuiRuntime）
+- [x] Service層基盤 + 型定義（service/types.rs, source_pair.rs, output.rs）
+- [x] TUI監視基盤（state.json / screen.txt / events.jsonl ファイルダンプ）
+- [x] telemetry（event_recorder, state_dumper, truncate）
+- [x] Skill ファイル（LLMエージェント向けガイダンス）
+- [ ] `logs` CLIサブコマンド（debug.log のフィルタ・表示: --level, --since, --tail, --format json）
+- [ ] `events` CLIサブコマンド（events.jsonl のフィルタ・表示: --type, --since, --tail）
+- [ ] structured_log.rs（tracing JSON Layer — `logs --format json` の基盤）
