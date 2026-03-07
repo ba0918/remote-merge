@@ -223,6 +223,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Unchecked,
+                ref_only: false,
             })
             .collect()
     }

@@ -304,6 +304,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge,
+            ref_only: false,
         }
     }
 
@@ -316,6 +317,7 @@ mod tests {
             is_symlink: false,
             expanded,
             badge,
+            ref_only: false,
         }
     }
 

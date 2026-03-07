@@ -266,6 +266,7 @@ mod tests {
                 is_symlink: false,
                 expanded: true,
                 badge: Badge::Unchecked,
+                ref_only: false,
             },
             FlatNode {
                 path: "src/main.rs".to_string(),
@@ -275,6 +276,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Modified,
+                ref_only: false,
             },
             FlatNode {
                 path: "src/lib.rs".to_string(),
@@ -284,6 +286,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Equal,
+                ref_only: false,
             },
             FlatNode {
                 path: "new.rs".to_string(),
@@ -293,6 +296,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::LeftOnly,
+                ref_only: false,
             },
             FlatNode {
                 path: "old.rs".to_string(),
@@ -302,6 +306,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::RightOnly,
+                ref_only: false,
             },
             FlatNode {
                 path: "err.rs".to_string(),
@@ -311,6 +316,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Error,
+                ref_only: false,
             },
         ]
     }

@@ -259,6 +259,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Modified,
+            ref_only: false,
         }];
         state
             .left_cache

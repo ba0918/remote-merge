@@ -50,7 +50,10 @@ impl AppState {
     ///
     /// diff filter モード時はスキャン結果のフルツリーを使用する。
     /// 通常モードでは初期取得ツリー（遅延ロード）を使用する。
+    /// ref_tree が設定されている場合は 3-way マージし、ref_only フラグを付与する。
     fn merge_tree_nodes(&self) -> Vec<MergedNode> {
+        let ref_nodes = self.ref_tree.as_ref().map(|t| t.nodes.as_slice());
+
         if self.diff_filter_mode {
             let left = self
                 .scan_left_tree
@@ -60,9 +63,9 @@ impl AppState {
                 .scan_right_tree
                 .as_deref()
                 .unwrap_or(&self.right_tree.nodes);
-            merge_node_lists(left, right)
+            merge_node_lists_3way(left, right, ref_nodes)
         } else {
-            merge_node_lists(&self.left_tree.nodes, &self.right_tree.nodes)
+            merge_node_lists_3way(&self.left_tree.nodes, &self.right_tree.nodes, ref_nodes)
         }
     }
 
@@ -123,6 +126,7 @@ impl AppState {
             is_symlink: node.is_symlink,
             expanded,
             badge,
+            ref_only: node.ref_only,
         });
 
         // 検索中はマッチする子孫がいるディレクトリを自動展開する
@@ -137,29 +141,47 @@ impl AppState {
 
 /// 2つの FileNode リストをマージして MergedNode リストを返す
 pub fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNode> {
+    merge_node_lists_3way(local, remote, None)
+}
+
+/// 3つの FileNode リスト（left, right, ref）をマージして MergedNode リストを返す。
+///
+/// ref にのみ存在するノードは `ref_only: true` でマーク。
+/// ref が None の場合は 2-way マージと同等。
+pub fn merge_node_lists_3way(
+    local: &[FileNode],
+    remote: &[FileNode],
+    ref_nodes: Option<&[FileNode]>,
+) -> Vec<MergedNode> {
     let mut map: BTreeMap<String, MergedNode> = BTreeMap::new();
+    // left/right に存在する名前を記録（ref_only 判定用）
+    let mut lr_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for node in local {
+        lr_names.insert(node.name.clone());
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
             is_dir: node.is_dir(),
             is_symlink: node.is_symlink(),
             children: Vec::new(),
+            ref_only: false,
         });
         if node.is_dir() {
             entry.is_dir = true;
             if let Some(children) = &node.children {
-                entry.children = merge_node_lists(children, &[]);
+                entry.children = merge_node_lists_3way(children, &[], None);
             }
         }
     }
 
     for node in remote {
+        lr_names.insert(node.name.clone());
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
             is_dir: node.is_dir(),
             is_symlink: node.is_symlink(),
             children: Vec::new(),
+            ref_only: false,
         });
         if node.is_dir() {
             entry.is_dir = true;
@@ -170,12 +192,38 @@ pub fn merge_node_lists(local: &[FileNode], remote: &[FileNode]) -> Vec<MergedNo
         }
     }
 
+    // ref ツリーのノードをマージ（ref_only フラグ付き）
+    if let Some(ref_nodes) = ref_nodes {
+        for node in ref_nodes {
+            let is_ref_only = !lr_names.contains(&node.name);
+            let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
+                name: node.name.clone(),
+                is_dir: node.is_dir(),
+                is_symlink: node.is_symlink(),
+                children: Vec::new(),
+                ref_only: is_ref_only,
+            });
+            // ディレクトリの場合は子ノードも再帰マージ
+            if node.is_dir() {
+                entry.is_dir = true;
+                if let Some(children) = &node.children {
+                    let existing = std::mem::take(&mut entry.children);
+                    // 既存の子に ref の子をマージ（ref_only 判定含む）
+                    entry.children = merge_merged_with_ref_nodes(existing, children);
+                }
+            }
+        }
+    }
+
     let mut result: Vec<MergedNode> = map.into_values().collect();
     sort_merged_nodes(&mut result);
     result
 }
 
-/// MergedNode リストと FileNode リストをマージ
+/// MergedNode リストと FileNode リストをマージ（right 側の追加用）
+///
+/// ディレクトリの場合は children を再帰的にマージする。
+/// これにより、right にしかないファイルも正しく MergedNode に含まれる。
 fn merge_merged_with_file_nodes(
     merged: Vec<MergedNode>,
     file_nodes: &[FileNode],
@@ -192,9 +240,47 @@ fn merge_merged_with_file_nodes(
             is_dir: node.is_dir(),
             is_symlink: node.is_symlink(),
             children: Vec::new(),
+            ref_only: false,
         });
         if node.is_dir() {
             entry.is_dir = true;
+            if let Some(children) = &node.children {
+                let existing = std::mem::take(&mut entry.children);
+                entry.children = merge_merged_with_file_nodes(existing, children);
+            }
+        }
+    }
+
+    let mut result: Vec<MergedNode> = map.into_values().collect();
+    sort_merged_nodes(&mut result);
+    result
+}
+
+/// MergedNode リストと ref FileNode リストをマージ（ref_only 判定付き）
+fn merge_merged_with_ref_nodes(merged: Vec<MergedNode>, ref_nodes: &[FileNode]) -> Vec<MergedNode> {
+    let mut map: BTreeMap<String, MergedNode> = BTreeMap::new();
+    let existing_names: std::collections::HashSet<String> =
+        merged.iter().map(|m| m.name.clone()).collect();
+
+    for m in merged {
+        map.insert(m.name.clone(), m);
+    }
+
+    for node in ref_nodes {
+        let is_ref_only = !existing_names.contains(&node.name);
+        let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
+            name: node.name.clone(),
+            is_dir: node.is_dir(),
+            is_symlink: node.is_symlink(),
+            children: Vec::new(),
+            ref_only: is_ref_only,
+        });
+        if node.is_dir() {
+            entry.is_dir = true;
+            if let Some(children) = &node.children {
+                let existing = std::mem::take(&mut entry.children);
+                entry.children = merge_merged_with_ref_nodes(existing, children);
+            }
         }
     }
 
@@ -283,5 +369,178 @@ mod tests {
 
         state.rebuild_flat_nodes();
         assert_eq!(state.flat_nodes.len(), 2);
+    }
+
+    // ── 3-way merge テスト ──
+
+    #[test]
+    fn test_3way_merge_ref_only_file() {
+        use super::merge_node_lists_3way;
+
+        let local = vec![FileNode::new_file("a.rs")];
+        let remote = vec![FileNode::new_file("b.rs")];
+        let ref_nodes = vec![FileNode::new_file("c.rs")];
+
+        let merged = merge_node_lists_3way(&local, &remote, Some(&ref_nodes));
+        assert_eq!(merged.len(), 3);
+
+        let c_node = merged.iter().find(|n| n.name == "c.rs").unwrap();
+        assert!(c_node.ref_only, "c.rs should be ref_only");
+
+        let a_node = merged.iter().find(|n| n.name == "a.rs").unwrap();
+        assert!(!a_node.ref_only, "a.rs should not be ref_only");
+
+        let b_node = merged.iter().find(|n| n.name == "b.rs").unwrap();
+        assert!(!b_node.ref_only, "b.rs should not be ref_only");
+    }
+
+    #[test]
+    fn test_3way_merge_ref_has_same_file() {
+        use super::merge_node_lists_3way;
+
+        let local = vec![FileNode::new_file("common.rs")];
+        let remote = vec![FileNode::new_file("common.rs")];
+        let ref_nodes = vec![FileNode::new_file("common.rs")];
+
+        let merged = merge_node_lists_3way(&local, &remote, Some(&ref_nodes));
+        assert_eq!(merged.len(), 1);
+        assert!(!merged[0].ref_only, "common.rs exists in left/right");
+    }
+
+    #[test]
+    fn test_3way_merge_no_ref() {
+        use super::merge_node_lists_3way;
+
+        let local = vec![FileNode::new_file("a.rs")];
+        let remote = vec![FileNode::new_file("b.rs")];
+
+        let merged = merge_node_lists_3way(&local, &remote, None);
+        assert_eq!(merged.len(), 2);
+        assert!(merged.iter().all(|n| !n.ref_only));
+    }
+
+    #[test]
+    fn test_3way_merge_ref_only_in_subdir() {
+        use super::merge_node_lists_3way;
+
+        let local = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        let remote = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        let ref_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("a.rs"),
+                FileNode::new_file("staging_config.rs"),
+            ],
+        )];
+
+        let merged = merge_node_lists_3way(&local, &remote, Some(&ref_nodes));
+        assert_eq!(merged.len(), 1);
+        let src = &merged[0];
+        assert!(!src.ref_only, "src dir is in all trees");
+        assert_eq!(src.children.len(), 2);
+
+        let staging = src
+            .children
+            .iter()
+            .find(|c| c.name == "staging_config.rs")
+            .unwrap();
+        assert!(staging.ref_only, "staging_config.rs should be ref_only");
+
+        let a = src.children.iter().find(|c| c.name == "a.rs").unwrap();
+        assert!(!a.ref_only, "a.rs should not be ref_only");
+    }
+
+    #[test]
+    fn test_rebuild_flat_nodes_includes_ref_only() {
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            "default",
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_file("a.rs"),
+                    FileNode::new_file("staging_config.rs"),
+                ],
+            )]),
+        );
+
+        // src を展開
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        let names: Vec<(&str, bool)> = state
+            .flat_nodes
+            .iter()
+            .map(|n| (n.name.as_str(), n.ref_only))
+            .collect();
+        assert!(
+            names.contains(&("staging_config.rs", true)),
+            "staging_config.rs should appear as ref_only, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&("a.rs", false)),
+            "a.rs should appear as not ref_only"
+        );
+    }
+
+    /// develop → staging シナリオ: right にしかないファイルが展開後に見えるか
+    #[test]
+    fn test_right_only_file_visible_after_expand() {
+        // left(develop): src/app に a.rs のみ
+        // right(staging): src/app に a.rs + staging_config.rs
+        // ref(local): なし
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_dir_with_children(
+                    "app",
+                    vec![FileNode::new_file("a.rs")],
+                )],
+            )]),
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_dir_with_children(
+                    "app",
+                    vec![
+                        FileNode::new_file("a.rs"),
+                        FileNode::new_file("staging_config.rs"),
+                    ],
+                )],
+            )]),
+            Side::Remote("develop".to_string()),
+            Side::Remote("staging".to_string()),
+            "default",
+        );
+
+        // src と src/app を展開
+        state.expanded_dirs.insert("src".to_string());
+        state.expanded_dirs.insert("src/app".to_string());
+        state.rebuild_flat_nodes();
+
+        let names: Vec<&str> = state.flat_nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(
+            names.contains(&"staging_config.rs"),
+            "staging_config.rs should be visible after expanding src/app, got: {:?}",
+            names
+        );
     }
 }

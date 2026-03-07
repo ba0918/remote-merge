@@ -156,11 +156,28 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
         return;
     }
 
+    // 選択中のパスを保持（swap 後にカーソル位置と diff を再計算するため）
+    let selected_path = state.selected_path.clone();
+
     state.swap_right_ref();
 
     // ref_tree が None なら接続して取得
     if state.ref_tree.is_none() && state.ref_source.is_some() {
         execute_ref_connect(state, runtime);
+    }
+
+    // swap 後に選択中のパスが flat_nodes に残っていればカーソル位置を復元
+    if let Some(ref path) = selected_path {
+        if let Some(idx) = state.flat_nodes.iter().position(|n| n.path == *path) {
+            state.tree_cursor = idx;
+            // コンテンツをロード（新しい right からの読み込みが必要な場合）
+            super::merge_exec::load_file_content(state, runtime);
+            state.select_file();
+        } else {
+            // パスが見つからない場合はカーソル位置をクランプ
+            state.selected_path = None;
+            state.current_diff = None;
+        }
     }
 }
 
@@ -262,7 +279,7 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
         _ => return,
     };
 
-    match &ref_source {
+    let tree_acquired = match &ref_source {
         Side::Local => {
             // reference は再帰的に全走査する（浅いスキャンだと find_node が失敗する）
             match crate::local::scan_local_tree_recursive(
@@ -274,9 +291,11 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
                     let mut tree = crate::tree::FileTree::new(&runtime.core.config.local.root_dir);
                     tree.nodes = nodes;
                     state.ref_tree = Some(tree);
+                    true
                 }
                 Err(_) => {
                     state.clear_reference();
+                    false
                 }
             }
         }
@@ -289,12 +308,19 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
             match runtime.fetch_remote_tree_recursive(name, 10_000) {
                 Ok(tree) => {
                     state.ref_tree = Some(tree);
+                    true
                 }
                 Err(_) => {
                     state.clear_reference();
+                    false
                 }
             }
         }
+    };
+
+    // ref_tree 取得後に flat_nodes を再構築（ref_only ノードを含めるため）
+    if tree_acquired {
+        state.rebuild_flat_nodes();
     }
 }
 

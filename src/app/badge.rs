@@ -298,8 +298,12 @@ impl AppState {
         self.ref_source.as_ref()?;
         self.ref_tree.as_ref()?;
 
-        let all_files =
-            super::merge_collect::collect_merge_files(&self.left_tree, &self.right_tree, path);
+        let all_files = super::merge_collect::collect_merge_files_3way(
+            &self.left_tree,
+            &self.right_tree,
+            self.ref_tree.as_ref(),
+            path,
+        );
 
         if all_files.is_empty() {
             return None;

@@ -21,6 +21,24 @@ pub fn collect_merge_files(
     files
 }
 
+/// 指定ディレクトリ配下のファイルパスを3ツリー（left, right, ref）から収集する。
+///
+/// 3ツリーの union を返す。ref_tree が None の場合は 2-way と同等。
+pub fn collect_merge_files_3way(
+    local_tree: &FileTree,
+    remote_tree: &FileTree,
+    ref_tree: Option<&FileTree>,
+    dir_path: &str,
+) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_from_tree(local_tree, dir_path, &mut files);
+    collect_from_tree(remote_tree, dir_path, &mut files);
+    if let Some(ref_t) = ref_tree {
+        collect_from_tree(ref_t, dir_path, &mut files);
+    }
+    files
+}
+
 /// 単一ツリーからファイルパスを再帰的に収集する（重複除去付き）。
 fn collect_from_tree(tree: &FileTree, dir_path: &str, files: &mut Vec<String>) {
     let node = match tree.find_node(std::path::Path::new(dir_path)) {
@@ -155,5 +173,41 @@ mod tests {
         let remote = make_tree(vec![]);
         let files = collect_merge_files(&local, &remote, "nonexistent");
         assert!(files.is_empty());
+    }
+
+    // ── collect_merge_files_3way ──
+
+    #[test]
+    fn test_3way_includes_ref_only_files() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let ref_tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("a.rs"),
+                FileNode::new_file("staging_config.rs"),
+            ],
+        )]);
+        let files = collect_merge_files_3way(&local, &remote, Some(&ref_tree), "src");
+        assert!(files.contains(&"src/a.rs".to_string()));
+        assert!(files.contains(&"src/staging_config.rs".to_string()));
+    }
+
+    #[test]
+    fn test_3way_no_ref_same_as_2way() {
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let files_2way = collect_merge_files(&local, &remote, "src");
+        let files_3way = collect_merge_files_3way(&local, &remote, None, "src");
+        assert_eq!(files_2way, files_3way);
     }
 }

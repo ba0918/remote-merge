@@ -66,6 +66,11 @@ pub fn bootstrap_tui(
     // re-borrow を避けるため、setup後に状態を更新
     apply_reference_from_runtime(&mut app_state, &params, &mut runtime);
 
+    // ref_tree 設定後に flat_nodes を再構築（ref_only ノードを含めるため）
+    if app_state.has_reference() {
+        app_state.rebuild_flat_nodes();
+    }
+
     // 起動時に古いバックアップをクリーンアップ
     cleanup_old_backups(&config);
 

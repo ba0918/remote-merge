@@ -97,10 +97,17 @@ impl<'a> Widget for TreeView<'a> {
                 } else {
                     None
                 };
-                let (badge_text, badge_style) = if node.badge == Badge::Equal
+
+                // ref_only ファイル: 行全体グレイ + DarkGray [M]
+                let is_ref_only_file = node.ref_only && !node.is_dir;
+
+                let (badge_text, badge_style) = if is_ref_only_file {
+                    ("[M]", Style::default().fg(Color::DarkGray))
+                } else if node.badge == Badge::Equal
                     && ref_badge_opt.as_ref().is_some_and(|b| {
                         !matches!(b, crate::app::three_way::ThreeWayFileBadge::AllEqual)
-                    }) {
+                    })
+                {
                     // left/right は Equal だが ref に差分あり → DarkGray の [M]
                     ("[M]", Style::default().fg(Color::DarkGray))
                 } else {
@@ -113,6 +120,9 @@ impl<'a> Widget for TreeView<'a> {
                     Style::default()
                         .fg(p.fg)
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                } else if is_ref_only_file {
+                    // ref_only ファイルは行全体グレイ
+                    Style::default().fg(Color::DarkGray)
                 } else if node.is_dir {
                     Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
                 } else {
@@ -224,6 +234,7 @@ mod tests {
                 is_symlink: false,
                 expanded: true,
                 badge: Badge::Unchecked,
+                ref_only: false,
             },
             FlatNode {
                 path: "src/main.rs".to_string(),
@@ -233,6 +244,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Modified,
+                ref_only: false,
             },
         ]);
 
@@ -272,6 +284,7 @@ mod tests {
                 is_symlink: false,
                 expanded: false,
                 badge: Badge::Unchecked,
+                ref_only: false,
             });
         }
         let mut state = make_test_state(nodes);

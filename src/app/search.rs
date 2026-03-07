@@ -160,6 +160,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Unchecked,
+            ref_only: false,
         }
     }
 
@@ -312,6 +313,7 @@ mod tests {
             is_dir: false,
             is_symlink: false,
             children: vec![],
+            ref_only: false,
         }
     }
 
@@ -321,6 +323,7 @@ mod tests {
             is_dir: true,
             is_symlink: false,
             children,
+            ref_only: false,
         }
     }
 

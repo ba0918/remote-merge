@@ -171,40 +171,44 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 
     let path = &node.path;
+    let is_ref_only = node.ref_only;
 
     // 未保存変更がなければキャッシュを無効化して最新を取得
     if !state.has_unsaved_changes() {
         state.invalidate_cache_for_paths(std::slice::from_ref(path));
     }
 
-    // 左側キャッシュ（ローカル or リモート）
-    if !state.left_cache.contains_key(path) {
-        match read_left_file(state, runtime, path) {
-            Ok(content) => {
-                state.left_cache.insert(path.clone(), content);
-                state.error_paths.remove(path);
-            }
-            Err(e) => {
-                tracing::debug!("Left file read skipped: {} - {}", path, e);
-                if state.left_source.is_remote() && crate::error::is_connection_error(&e) {
-                    state.status_message =
-                        format!("Left connection lost: {} | Press 'c' to reconnect", e);
-                } else {
-                    state.status_message = format!("Left read failed: {} - {}", path, e);
+    // ref-only ファイルは left/right に存在しないため読み込みをスキップ
+    if !is_ref_only {
+        // 左側キャッシュ（ローカル or リモート）
+        if !state.left_cache.contains_key(path) {
+            match read_left_file(state, runtime, path) {
+                Ok(content) => {
+                    state.left_cache.insert(path.clone(), content);
+                    state.error_paths.remove(path);
+                }
+                Err(e) => {
+                    tracing::debug!("Left file read skipped: {} - {}", path, e);
+                    if state.left_source.is_remote() && crate::error::is_connection_error(&e) {
+                        state.status_message =
+                            format!("Left connection lost: {} | Press 'c' to reconnect", e);
+                    } else {
+                        state.status_message = format!("Left read failed: {} - {}", path, e);
+                    }
                 }
             }
         }
+
+        // 右側キャッシュ（リモート）
+        load_right_file_content(state, runtime, path);
+
+        // 両方とも読み込めなかった場合のみエラー扱い
+        if !state.left_cache.contains_key(path) && !state.right_cache.contains_key(path) {
+            state.error_paths.insert(path.clone());
+        }
     }
 
-    // 右側キャッシュ（リモート）
-    load_right_file_content(state, runtime, path);
-
-    // 両方とも読み込めなかった場合のみエラー扱い
-    if !state.left_cache.contains_key(path) && !state.right_cache.contains_key(path) {
-        state.error_paths.insert(path.clone());
-    }
-
-    // reference サーバのコンテンツを遅延取得（3way バッジ用）
+    // reference サーバのコンテンツを遅延取得（3way バッジ用 & ref-only 表示用）
     load_ref_file_content(state, runtime, path);
 
     state.rebuild_flat_nodes();

@@ -82,6 +82,8 @@ pub struct FlatNode {
     pub expanded: bool,
     /// 差分バッジ
     pub badge: Badge,
+    /// reference サーバにのみ存在するノード（グレイ表示用）
+    pub ref_only: bool,
 }
 
 /// 全走査の状態（変更ファイルフィルター用）
@@ -161,6 +163,8 @@ pub struct MergedNode {
     pub is_dir: bool,
     pub is_symlink: bool,
     pub children: Vec<MergedNode>,
+    /// reference サーバにのみ存在する（left/right 両方に存在しない）
+    pub ref_only: bool,
 }
 
 #[cfg(test)]
@@ -223,6 +227,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Modified,
+            ref_only: false,
         };
         assert_eq!(node.path, "src/main.rs");
         assert_eq!(node.badge, Badge::Modified);
@@ -249,12 +254,14 @@ mod tests {
             is_dir: false,
             is_symlink: false,
             children: vec![],
+            ref_only: false,
         };
         let parent = MergedNode {
             name: "src".to_string(),
             is_dir: true,
             is_symlink: false,
             children: vec![child],
+            ref_only: false,
         };
         assert_eq!(parent.children.len(), 1);
         assert_eq!(parent.children[0].name, "file.rs");

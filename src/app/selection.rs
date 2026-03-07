@@ -128,8 +128,15 @@ impl AppState {
                 }
             }
             (None, None) => {
-                self.status_message = format!("{}: content not loaded", path);
-                None
+                // ref-only ファイル: ref_cache にコンテンツがあれば表示
+                if let Some(ref_content) = self.ref_cache.get(&path).cloned() {
+                    self.showing_ref_diff = true;
+                    self.status_message = format!("{}: ref only", path);
+                    Some(engine::compute_diff("", &ref_content))
+                } else {
+                    self.status_message = format!("{}: content not loaded", path);
+                    None
+                }
             }
         };
         self.reset_diff_view_state();
@@ -379,6 +386,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Unchecked,
+            ref_only: false,
         }];
         state
     }
@@ -434,6 +442,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Unchecked,
+            ref_only: false,
         }];
         state
             .left_cache
@@ -462,6 +471,7 @@ mod tests {
             is_symlink: false,
             expanded: false,
             badge: Badge::Unchecked,
+            ref_only: false,
         }];
         state
             .right_cache
@@ -792,5 +802,56 @@ mod tests {
         state.tree_cursor = 0;
         state.select_file();
         assert!(!state.showing_ref_diff);
+    }
+
+    // ── ref-only ファイルテスト ──
+
+    #[test]
+    fn test_ref_only_file_shows_ref_content_as_diff() {
+        // ref-only ファイル: left/right にコンテンツなし、ref_cache にだけある
+        let mut state = make_state_with_ref("staging_config.rs");
+        state.flat_nodes = vec![FlatNode {
+            path: "staging_config.rs".to_string(),
+            name: "staging_config.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+            ref_only: true,
+        }];
+        state
+            .ref_cache
+            .insert("staging_config.rs".to_string(), "ref content".to_string());
+        // left/right にはコンテンツなし
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.showing_ref_diff);
+        assert!(state.current_diff.is_some());
+        assert!(
+            state.status_message.contains("ref only"),
+            "status should indicate ref only, got: {}",
+            state.status_message
+        );
+    }
+
+    #[test]
+    fn test_ref_only_file_no_ref_cache_shows_not_loaded() {
+        // ref-only ファイルだが ref_cache にもコンテンツがない
+        let mut state = make_state_with_ref("staging_config.rs");
+        state.flat_nodes = vec![FlatNode {
+            path: "staging_config.rs".to_string(),
+            name: "staging_config.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+            ref_only: true,
+        }];
+        state.tree_cursor = 0;
+        state.select_file();
+        assert!(state.current_diff.is_none());
+        assert!(state.status_message.contains("not loaded"));
     }
 }
