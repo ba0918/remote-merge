@@ -16,7 +16,10 @@ use crate::tree::FileNode;
 pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Option<FileNode> {
     let parts: Vec<&str> = line.splitn(6, '\t').collect();
     if parts.len() < 5 {
-        tracing::warn!("find 出力のパースに失敗（カラム不足）: {}", line);
+        tracing::warn!(
+            "Failed to parse find output (insufficient columns): {}",
+            line
+        );
         return None;
     }
 

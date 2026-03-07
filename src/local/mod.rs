@@ -20,7 +20,7 @@ pub fn scan_local_tree(root: &Path, exclude: &[String]) -> crate::error::Result<
     }
 
     tree.nodes = scan_dir(root, exclude)
-        .with_context(|| format!("ローカルツリーの取得に失敗: {}", root.display()))?;
+        .with_context(|| format!("Failed to scan local tree: {}", root.display()))?;
     tree.sort();
 
     Ok(tree)
@@ -48,7 +48,7 @@ pub fn scan_dir_with_limit(
     let mut truncated = false;
 
     let entries = std::fs::read_dir(dir)
-        .with_context(|| format!("ディレクトリの読み込みに失敗: {}", dir.display()))?;
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry?;
@@ -62,7 +62,7 @@ pub fn scan_dir_with_limit(
         if nodes.len() >= max_entries {
             truncated = true;
             tracing::warn!(
-                "エントリ数が上限 {} に達しました: {}",
+                "Entry count reached limit {}: {}",
                 max_entries,
                 dir.display()
             );
@@ -143,7 +143,7 @@ pub fn scan_local_tree_recursive(
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                tracing::debug!("walkdir エラー: {}", e);
+                tracing::debug!("walkdir error: {}", e);
                 continue;
             }
         };
@@ -151,7 +151,7 @@ pub fn scan_local_tree_recursive(
         if flat_entries.len() >= max_entries {
             truncated = true;
             tracing::warn!(
-                "全走査: エントリ数が上限 {} に達しました: {}",
+                "Recursive scan: entry count reached limit {}: {}",
                 max_entries,
                 root.display()
             );

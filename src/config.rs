@@ -239,7 +239,7 @@ pub fn load_config_from_paths(
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
     let content = std::fs::read_to_string(path)
-        .with_context(|| format!("設定ファイルの読み込みに失敗: {}", path.display()))?;
+        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
     let raw: RawConfig =
         toml::from_str(&content).map_err(|e| AppError::ConfigParse { source: e })?;
     Ok(raw)
