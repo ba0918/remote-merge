@@ -92,14 +92,55 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Init) => {
             remote_merge::init::run_init()?;
         }
-        Some(Commands::Status { .. }) => {
-            println!("remote-merge status: not yet implemented (Phase 4)");
+        Some(Commands::Status {
+            server,
+            left,
+            right,
+            format,
+            summary,
+        }) => {
+            let code =
+                remote_merge::cli::status::run_status(remote_merge::cli::status::StatusArgs {
+                    server,
+                    left,
+                    right,
+                    format,
+                    summary,
+                })?;
+            std::process::exit(code);
         }
-        Some(Commands::Diff { .. }) => {
-            println!("remote-merge diff: not yet implemented (Phase 4)");
+        Some(Commands::Diff {
+            path,
+            left,
+            right,
+            format,
+            max_lines,
+            max_files: _,
+        }) => {
+            let code = remote_merge::cli::diff::run_diff(remote_merge::cli::diff::DiffArgs {
+                path,
+                left,
+                right,
+                format,
+                max_lines,
+            })?;
+            std::process::exit(code);
         }
-        Some(Commands::Merge { .. }) => {
-            println!("remote-merge merge: not yet implemented (Phase 4)");
+        Some(Commands::Merge {
+            path,
+            left,
+            right,
+            dry_run,
+            force,
+        }) => {
+            let code = remote_merge::cli::merge::run_merge(remote_merge::cli::merge::MergeArgs {
+                path,
+                left,
+                right,
+                dry_run,
+                force,
+            })?;
+            std::process::exit(code);
         }
         None => {
             let config = config::load_config()?;

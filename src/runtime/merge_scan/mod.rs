@@ -57,7 +57,7 @@ pub fn start_merge_scan(
 
     let local_root = state.left_tree.root.clone();
     let exclude = state.active_exclude_patterns();
-    let config = runtime.config.clone();
+    let config = runtime.core.config.clone();
     let server_name = state.server_name.clone();
     let dir_path = dir_path.to_string();
 

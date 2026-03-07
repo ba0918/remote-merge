@@ -4,9 +4,13 @@ use std::collections::HashMap;
 
 use crate::merge::executor;
 
-use super::TuiRuntime;
+use super::core::CoreRuntime;
 
-impl TuiRuntime {
+// ── CoreRuntime にリモートI/Oを実装 ──
+//
+// ファイル読み書きはインターフェースに依存しない共通操作のため、CoreRuntime に配置。
+
+impl CoreRuntime {
     /// リモートファイル内容を取得する（接続エラー時に1回自動再接続）
     pub fn read_remote_file(
         &mut self,
@@ -164,7 +168,6 @@ impl TuiRuntime {
             if let Some((ts_str, path)) = line.split_once(' ') {
                 if let Ok(epoch) = ts_str.parse::<i64>() {
                     let dt = chrono::DateTime::from_timestamp(epoch, 0);
-                    // full_path → rel_path のマッピング
                     for (i, full) in full_paths.iter().enumerate() {
                         if path == full {
                             results[i].1 = dt;
@@ -176,6 +179,30 @@ impl TuiRuntime {
         }
 
         Ok(results)
+    }
+
+    /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
+    pub fn create_remote_symlink(
+        &mut self,
+        server_name: &str,
+        link_rel_path: &str,
+        target: &str,
+    ) -> anyhow::Result<()> {
+        let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
+
+        let cmd = format!(
+            "ln -sfn {} {}",
+            crate::ssh::tree_parser::shell_escape(target),
+            crate::ssh::tree_parser::shell_escape(&full_path),
+        );
+
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+
+        self.rt.block_on(client.exec(&cmd))?;
+        Ok(())
     }
 
     // ── private helpers ──
@@ -232,32 +259,64 @@ impl TuiRuntime {
         }
         result
     }
+}
 
-    /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
-    ///
-    /// - `target`: リンク先パス
-    /// - `link_rel_path`: リンク自体の相対パス
+// ── TuiRuntime デリゲート ──
+//
+// 既存の呼び出し側（handler等）が `runtime.read_remote_file()` を使い続けられるよう、
+// TuiRuntime からの thin delegation を提供する。
+
+use super::TuiRuntime;
+
+impl TuiRuntime {
+    pub fn read_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<String> {
+        self.core.read_remote_file(server_name, rel_path)
+    }
+
+    pub fn read_remote_files_batch(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, String>> {
+        self.core.read_remote_files_batch(server_name, rel_paths)
+    }
+
+    pub fn write_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        content: &str,
+    ) -> anyhow::Result<()> {
+        self.core.write_remote_file(server_name, rel_path, content)
+    }
+
+    pub fn create_remote_backups(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<()> {
+        self.core.create_remote_backups(server_name, rel_paths)
+    }
+
+    pub fn stat_remote_files(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<Vec<(String, Option<chrono::DateTime<chrono::Utc>>)>> {
+        self.core.stat_remote_files(server_name, rel_paths)
+    }
+
     pub fn create_remote_symlink(
         &mut self,
         server_name: &str,
         link_rel_path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
-
-        // シェルインジェクション防止: 既存の shell_escape を使用
-        let cmd = format!(
-            "ln -sfn {} {}",
-            crate::ssh::tree_parser::shell_escape(target),
-            crate::ssh::tree_parser::shell_escape(&full_path),
-        );
-
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        self.rt.block_on(client.exec(&cmd))?;
-        Ok(())
+        self.core
+            .create_remote_symlink(server_name, link_rel_path, target)
     }
 }

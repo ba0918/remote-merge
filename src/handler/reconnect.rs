@@ -79,8 +79,8 @@ fn reconnect_side(
         Side::Local => {
             // ローカルはツリーを再スキャンするだけ
             match crate::local::scan_local_tree(
-                &runtime.config.local.root_dir,
-                &runtime.config.filter.exclude,
+                &runtime.core.config.local.root_dir,
+                &runtime.core.config.filter.exclude,
             ) {
                 Ok(tree) => {
                     if is_left {

@@ -52,7 +52,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 return;
             }
 
-            if runtime.config.backup.enabled {
+            if runtime.core.config.backup.enabled {
                 backup_right(state, runtime, &[path.to_string()]);
             }
 
@@ -77,7 +77,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 }
             };
 
-            if runtime.config.backup.enabled {
+            if runtime.core.config.backup.enabled {
                 backup_left(state, runtime, &[path.to_string()]);
             }
 
@@ -103,7 +103,7 @@ pub fn execute_hunk_merge(
     direction: HunkDirection,
 ) {
     if let Some(path) = state.apply_hunk_merge(direction) {
-        if runtime.config.backup.enabled {
+        if runtime.core.config.backup.enabled {
             match direction {
                 HunkDirection::RightToLeft => {
                     backup_left(state, runtime, std::slice::from_ref(&path));
@@ -164,7 +164,7 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
     if let Some(path) = state.selected_path.clone() {
         let changes = state.undo_stack.len();
 
-        if runtime.config.backup.enabled {
+        if runtime.core.config.backup.enabled {
             backup_left(state, runtime, std::slice::from_ref(&path));
             if state.is_connected {
                 backup_right(state, runtime, std::slice::from_ref(&path));

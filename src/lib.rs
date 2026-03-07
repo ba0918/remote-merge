@@ -1,5 +1,6 @@
 pub mod app;
 pub mod backup;
+pub mod cli;
 pub mod config;
 pub mod diff;
 pub mod error;
@@ -9,6 +10,7 @@ pub mod init;
 pub mod local;
 pub mod merge;
 pub mod runtime;
+pub mod service;
 pub mod ssh;
 pub mod state;
 pub mod theme;

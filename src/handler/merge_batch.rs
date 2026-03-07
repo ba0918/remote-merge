@@ -41,7 +41,7 @@ pub fn execute_batch_merge(
     }
 
     // バックアップ（マージ前に一括実行）
-    if runtime.config.backup.enabled {
+    if runtime.core.config.backup.enabled {
         let file_paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
         match direction {
             MergeDirection::LeftToRight => {

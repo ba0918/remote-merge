@@ -24,7 +24,7 @@ pub fn load_remote_children_to(
     let full_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
     let exclude = state.active_exclude_patterns();
 
-    let client = match runtime.ssh_clients.get_mut(server_name) {
+    let client = match runtime.core.ssh_clients.get_mut(server_name) {
         Some(c) => c,
         None => return,
     };
@@ -35,7 +35,11 @@ pub fn load_remote_children_to(
         &mut state.right_tree
     };
 
-    match runtime.rt.block_on(client.list_dir(&full_path, &exclude)) {
+    match runtime
+        .core
+        .rt
+        .block_on(client.list_dir(&full_path, &exclude))
+    {
         Ok(children) => {
             if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
                 node.children = Some(children);
