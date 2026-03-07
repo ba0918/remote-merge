@@ -16,15 +16,7 @@ use crate::tree::FileTree;
 pub use self::core::CoreRuntime;
 
 /// 走査結果の型
-pub type ScanResult = Result<
-    (
-        Vec<crate::tree::FileNode>,
-        Vec<crate::tree::FileNode>,
-        bool,
-        bool,
-    ),
-    String,
->;
+pub type ScanResult = Result<scanner::ScanOutput, String>;
 
 /// TUI 専用ランタイム。CoreRuntime を内包し、非ブロッキング走査チャネルを管理する。
 pub struct TuiRuntime {

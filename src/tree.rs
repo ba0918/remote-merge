@@ -9,6 +9,44 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
+/// メタデータ比較の結果。
+///
+/// CLI status / TUI badge 共通で使う差分判定の基盤。
+/// `Undetermined` はコンテンツ比較が必要であることを示す。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataCmp {
+    /// メタデータ上同一（size + mtime 一致）
+    Equal,
+    /// メタデータ上確実に異なる（size 不一致）
+    Modified,
+    /// メタデータだけでは判定不能（size 一致 + mtime 不一致/不明、シンボリックリンク等）
+    Undetermined,
+}
+
+/// 2つのファイルノードのメタデータを比較する（純粋関数）。
+///
+/// 判定ルール:
+/// - シンボリックリンク → `Undetermined`（ターゲット文字列比較が必要）
+/// - size が異なる → `Modified`（確定）
+/// - size 同じ + mtime 同じ → `Equal`
+/// - size 同じ + mtime 異なる/不明 → `Undetermined`（コンテンツ比較が必要）
+/// - size 不明 → `Undetermined`
+pub fn compare_metadata(left: &FileNode, right: &FileNode) -> MetadataCmp {
+    // シンボリックリンクはメタデータ比較できない
+    if left.is_symlink() || right.is_symlink() {
+        return MetadataCmp::Undetermined;
+    }
+
+    match (left.size, right.size) {
+        (Some(ls), Some(rs)) if ls != rs => MetadataCmp::Modified,
+        (Some(_), Some(_)) => match (left.mtime, right.mtime) {
+            (Some(lt), Some(rt)) if lt == rt => MetadataCmp::Equal,
+            _ => MetadataCmp::Undetermined,
+        },
+        _ => MetadataCmp::Undetermined,
+    }
+}
+
 /// ファイルノードの種別
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -463,5 +501,56 @@ mod tests {
             tree.find_node_or_unloaded(Path::new("src/app/mod.rs")),
             NodePresence::Unloaded
         );
+    }
+
+    // ── compare_metadata ──
+
+    fn make_file_with_meta(name: &str, size: u64, mtime: Option<DateTime<Utc>>) -> FileNode {
+        let mut node = FileNode::new_file(name);
+        node.size = Some(size);
+        node.mtime = mtime;
+        node
+    }
+
+    #[test]
+    fn test_compare_metadata_equal() {
+        use chrono::TimeZone;
+        let ts = Utc.timestamp_opt(1700000000, 0).unwrap();
+        let l = make_file_with_meta("a", 100, Some(ts));
+        let r = make_file_with_meta("a", 100, Some(ts));
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Equal);
+    }
+
+    #[test]
+    fn test_compare_metadata_different_size() {
+        use chrono::TimeZone;
+        let ts = Utc.timestamp_opt(1700000000, 0).unwrap();
+        let l = make_file_with_meta("a", 100, Some(ts));
+        let r = make_file_with_meta("a", 200, Some(ts));
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Modified);
+    }
+
+    #[test]
+    fn test_compare_metadata_same_size_different_mtime() {
+        use chrono::TimeZone;
+        let ts1 = Utc.timestamp_opt(1700000000, 0).unwrap();
+        let ts2 = Utc.timestamp_opt(1700000001, 0).unwrap();
+        let l = make_file_with_meta("a", 100, Some(ts1));
+        let r = make_file_with_meta("a", 100, Some(ts2));
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Undetermined);
+    }
+
+    #[test]
+    fn test_compare_metadata_no_size() {
+        let l = FileNode::new_file("a");
+        let r = FileNode::new_file("a");
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Undetermined);
+    }
+
+    #[test]
+    fn test_compare_metadata_symlink() {
+        let l = FileNode::new_symlink("link", "target");
+        let r = FileNode::new_symlink("link", "target");
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Undetermined);
     }
 }

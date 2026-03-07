@@ -1,5 +1,8 @@
 //! 走査状態・フィルターモード管理。
 
+use std::collections::HashMap;
+
+use crate::service::types::FileStatusKind;
 use crate::tree::FileNode;
 
 use super::types::ScanState;
@@ -19,9 +22,18 @@ impl AppState {
     }
 
     /// 走査完了時にキャッシュを設定
-    pub fn set_scan_result(&mut self, local_nodes: Vec<FileNode>, remote_nodes: Vec<FileNode>) {
+    ///
+    /// `statuses` は `service::status::compute_status_from_trees` で計算された
+    /// CLIと共通の差分ステータス。
+    pub fn set_scan_result(
+        &mut self,
+        local_nodes: Vec<FileNode>,
+        remote_nodes: Vec<FileNode>,
+        statuses: HashMap<String, FileStatusKind>,
+    ) {
         self.scan_left_tree = Some(local_nodes);
         self.scan_right_tree = Some(remote_nodes);
+        self.scan_statuses = Some(statuses);
         self.scan_state = ScanState::Idle;
     }
 
@@ -29,6 +41,7 @@ impl AppState {
     pub fn clear_scan_cache(&mut self) {
         self.scan_left_tree = None;
         self.scan_right_tree = None;
+        self.scan_statuses = None;
         self.scan_state = ScanState::Idle;
         if self.diff_filter_mode {
             self.diff_filter_mode = false;
@@ -61,12 +74,21 @@ mod tests {
         )
     }
 
+    /// テスト用: ファイルのキャッシュ状態から scan_statuses を手動構築するヘルパー
+    fn make_statuses(entries: &[(&str, FileStatusKind)]) -> HashMap<String, FileStatusKind> {
+        entries
+            .iter()
+            .map(|(path, kind)| (path.to_string(), *kind))
+            .collect()
+    }
+
     #[test]
     fn test_scan_state_default() {
         let state = make_state();
         assert!(matches!(state.scan_state, ScanState::Idle));
         assert!(!state.diff_filter_mode);
         assert!(state.scan_left_tree.is_none());
+        assert!(state.scan_statuses.is_none());
     }
 
     #[test]
@@ -74,10 +96,12 @@ mod tests {
         let mut state = make_state();
         state.scan_left_tree = Some(vec![]);
         state.scan_right_tree = Some(vec![]);
+        state.scan_statuses = Some(HashMap::new());
         state.diff_filter_mode = true;
         state.clear_scan_cache();
         assert!(state.scan_left_tree.is_none());
         assert!(state.scan_right_tree.is_none());
+        assert!(state.scan_statuses.is_none());
         assert!(!state.diff_filter_mode);
     }
 
@@ -92,8 +116,13 @@ mod tests {
             Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
+        let statuses = HashMap::from([
+            ("a.txt".to_string(), FileStatusKind::Modified),
+            ("b.txt".to_string(), FileStatusKind::LeftOnly),
+        ]);
         state.scan_left_tree = Some(local_nodes);
         state.scan_right_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_statuses = Some(statuses);
         state.diff_filter_mode = true;
         state.rebuild_flat_nodes();
         let nodes_in_filter = state.flat_nodes.len();
@@ -133,7 +162,11 @@ mod tests {
         state
             .right_cache
             .insert("src/b.ts".to_string(), "same".to_string());
-        state.set_scan_result(local_nodes, remote_nodes);
+        let statuses = make_statuses(&[
+            ("src/a.ts", FileStatusKind::Modified),
+            ("src/b.ts", FileStatusKind::Equal),
+        ]);
+        state.set_scan_result(local_nodes, remote_nodes, statuses);
         state.rebuild_flat_nodes();
 
         assert!(!state.diff_filter_mode);
@@ -200,7 +233,11 @@ mod tests {
         state
             .right_cache
             .insert("test/t.ts".to_string(), "same".to_string());
-        state.set_scan_result(local_nodes, remote_nodes);
+        let statuses = make_statuses(&[
+            ("src/a.ts", FileStatusKind::Modified),
+            ("test/t.ts", FileStatusKind::Equal),
+        ]);
+        state.set_scan_result(local_nodes, remote_nodes, statuses);
         state.toggle_diff_filter();
 
         let names: Vec<&str> = state.flat_nodes.iter().map(|n| n.path.as_str()).collect();

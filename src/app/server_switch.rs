@@ -86,11 +86,13 @@ mod tests {
         let mut state = make_state();
         state.scan_left_tree = Some(vec![FileNode::new_file("a.txt")]);
         state.scan_right_tree = Some(vec![FileNode::new_file("a.txt")]);
+        state.scan_statuses = Some(std::collections::HashMap::new());
         state.diff_filter_mode = true;
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
         assert!(state.scan_left_tree.is_none());
         assert!(state.scan_right_tree.is_none());
+        assert!(state.scan_statuses.is_none());
         assert!(!state.diff_filter_mode);
     }
 
@@ -148,14 +150,27 @@ mod tests {
         state
             .right_cache
             .insert("changed.txt".to_string(), "remote ver".to_string());
-        state.scan_left_tree = Some(vec![
-            FileNode::new_file("changed.txt"),
-            FileNode::new_file("same.txt"),
+        let statuses = std::collections::HashMap::from([
+            (
+                "changed.txt".to_string(),
+                crate::service::types::FileStatusKind::Modified,
+            ),
+            (
+                "same.txt".to_string(),
+                crate::service::types::FileStatusKind::Equal,
+            ),
         ]);
-        state.scan_right_tree = Some(vec![
-            FileNode::new_file("changed.txt"),
-            FileNode::new_file("same.txt"),
-        ]);
+        state.set_scan_result(
+            vec![
+                FileNode::new_file("changed.txt"),
+                FileNode::new_file("same.txt"),
+            ],
+            vec![
+                FileNode::new_file("changed.txt"),
+                FileNode::new_file("same.txt"),
+            ],
+            statuses,
+        );
         state.toggle_diff_filter();
         assert!(state.diff_filter_mode);
         let filtered_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();

@@ -47,8 +47,23 @@ impl AppState {
     }
 
     /// ローカルとリモートのルートノードをマージ（和集合）する
+    ///
+    /// diff filter モード時はスキャン結果のフルツリーを使用する。
+    /// 通常モードでは初期取得ツリー（遅延ロード）を使用する。
     fn merge_tree_nodes(&self) -> Vec<MergedNode> {
-        merge_node_lists(&self.left_tree.nodes, &self.right_tree.nodes)
+        if self.diff_filter_mode {
+            let left = self
+                .scan_left_tree
+                .as_deref()
+                .unwrap_or(&self.left_tree.nodes);
+            let right = self
+                .scan_right_tree
+                .as_deref()
+                .unwrap_or(&self.right_tree.nodes);
+            merge_node_lists(left, right)
+        } else {
+            merge_node_lists(&self.left_tree.nodes, &self.right_tree.nodes)
+        }
     }
 
     /// 再帰的にフラット化する
@@ -69,7 +84,13 @@ impl AppState {
         let badge = if self.diff_filter_mode {
             self.compute_scan_badge(&path, node.is_dir)
         } else {
-            self.compute_badge(&path, node.is_dir)
+            let b = self.compute_badge(&path, node.is_dir);
+            // スキャン済みで Unchecked ならスキャン結果をフォールバック
+            if b == Badge::Unchecked && self.scan_statuses.is_some() {
+                self.compute_scan_badge(&path, node.is_dir)
+            } else {
+                b
+            }
         };
 
         // フィルターモード時: Equal ファイルをスキップ

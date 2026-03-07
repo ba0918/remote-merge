@@ -17,12 +17,13 @@ pub mod tree_ops;
 pub mod types;
 pub mod undo;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use cache::{BoundedCache, MAX_BINARY_CACHE_ENTRIES, MAX_TEXT_CACHE_ENTRIES};
 
 use crate::diff::engine::{DiffResult, HunkDirection};
 use crate::highlight::{HighlightCache, SyntaxHighlighter};
+use crate::service::types::FileStatusKind;
 use crate::theme::TuiPalette;
 use crate::tree::{FileNode, FileTree};
 use crate::ui::dialog::DialogState;
@@ -108,6 +109,10 @@ pub struct AppState {
     pub scan_left_tree: Option<Vec<FileNode>>,
     /// 全走査結果の右側ツリー（キャッシュ）
     pub scan_right_tree: Option<Vec<FileNode>>,
+    /// 全走査の差分ステータス（パス → 差分種別）
+    /// service/status.rs の compute_status_from_trees で計算された結果。
+    /// CLI と TUI で共通のロジックを使用する。
+    pub scan_statuses: Option<HashMap<String, FileStatusKind>>,
     /// センシティブファイルパターン
     pub sensitive_patterns: Vec<String>,
     /// マージ走査の状態
@@ -184,6 +189,7 @@ impl AppState {
             scan_state: ScanState::default(),
             scan_left_tree: None,
             scan_right_tree: None,
+            scan_statuses: None,
             sensitive_patterns: Vec::new(),
             merge_scan_state: MergeScanState::default(),
             palette,

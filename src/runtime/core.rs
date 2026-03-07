@@ -100,6 +100,47 @@ impl CoreRuntime {
         Ok(tree)
     }
 
+    /// リモートツリーを再帰的に全走査する（CLI status 用）。
+    ///
+    /// `list_tree_recursive` で全ファイルのメタデータ（size, mtime）を含むツリーを取得する。
+    /// TUI のフラット走査（`scan_left_tree`）と異なり、階層構造を持つ FileTree を返す。
+    pub fn fetch_remote_tree_recursive(
+        &mut self,
+        server_name: &str,
+        max_entries: usize,
+    ) -> anyhow::Result<FileTree> {
+        let server_config = self
+            .config
+            .servers
+            .get(server_name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
+        let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let root_path = server_config.root_dir.clone();
+        let exclude = self.config.filter.exclude.clone();
+
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+
+        let (nodes, truncated) =
+            self.rt
+                .block_on(client.list_tree_recursive(&root_dir, &exclude, max_entries, 120))?;
+
+        if truncated {
+            tracing::warn!(
+                "Remote tree scan truncated at {} entries for {}",
+                max_entries,
+                server_name
+            );
+        }
+
+        let mut tree = FileTree::new(&root_path);
+        tree.nodes = nodes;
+        tree.sort();
+        Ok(tree)
+    }
+
     /// tokio Runtime の pending タスク（keepalive 等）を駆動する。
     pub fn drive_runtime(&self) {
         self.rt.block_on(async {

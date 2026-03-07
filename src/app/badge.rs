@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::tree::find_node_in_slice;
+use crate::service::types::FileStatusKind;
 
 use super::types::{Badge, MergedNode};
 use super::AppState;
@@ -162,10 +162,14 @@ impl AppState {
         }
     }
 
-    /// 走査結果を使ったバッジ計算（mtime + size ベース）
+    /// 走査結果を使ったバッジ計算（CLI と共通の差分ステータスを使用）
+    ///
+    /// `scan_statuses`（`service::status::compute_status_from_trees` で計算）から
+    /// ルックアップする。CLI の status コマンドと同一の検出ロジックを使うことで、
+    /// TUI と CLI で検出結果が一致する。
     pub fn compute_scan_badge(&self, path: &str, is_dir: bool) -> Badge {
         if is_dir {
-            return self.compute_dir_badge(path);
+            return self.compute_scan_dir_badge(path);
         }
 
         // まずキャッシュベースの正確なバッジがあればそれを使う
@@ -174,33 +178,80 @@ impl AppState {
             return cache_badge;
         }
 
-        // 走査結果からメタデータ比較
-        let local_node = self
-            .scan_left_tree
-            .as_ref()
-            .and_then(|tree| find_node_in_slice(tree, path));
-        let remote_node = self
-            .scan_right_tree
-            .as_ref()
-            .and_then(|tree| find_node_in_slice(tree, path));
+        // scan_statuses から差分ステータスをルックアップ
+        self.badge_from_scan_statuses(path)
+    }
 
-        match (local_node, remote_node) {
-            (Some(_), None) => Badge::LeftOnly,
-            (None, Some(_)) => Badge::RightOnly,
-            (Some(l), Some(r)) => {
-                // mtime + size が一致なら Equal（推定）
-                let size_match = l.size == r.size;
-                let mtime_match = match (l.mtime, r.mtime) {
-                    (Some(lt), Some(rt)) => lt == rt,
-                    _ => false,
+    /// scan_statuses からファイルのバッジを引く
+    fn badge_from_scan_statuses(&self, path: &str) -> Badge {
+        if let Some(statuses) = &self.scan_statuses {
+            if let Some(status) = statuses.get(path) {
+                return match status {
+                    FileStatusKind::Equal => Badge::Equal,
+                    FileStatusKind::Modified => Badge::Modified,
+                    FileStatusKind::LeftOnly => Badge::LeftOnly,
+                    FileStatusKind::RightOnly => Badge::RightOnly,
                 };
-                if size_match && mtime_match {
-                    Badge::Equal
+            }
+        }
+        Badge::Unchecked
+    }
+
+    /// スキャン結果を使ったディレクトリバッジ計算。
+    ///
+    /// `scan_statuses` の全エントリのうち、このディレクトリ配下のパスを集計する。
+    /// キャッシュベースの `compute_dir_badge` と違い、スキャン済みの全ファイルを
+    /// カバーできるため、未展開ディレクトリでも正確なバッジを返せる。
+    fn compute_scan_dir_badge(&self, path: &str) -> Badge {
+        let statuses = match &self.scan_statuses {
+            Some(s) => s,
+            None => return self.compute_dir_badge(path),
+        };
+
+        let prefix = format!("{}/", path);
+        let mut has_children = false;
+        let mut all_equal = true;
+
+        for (file_path, status) in statuses {
+            if !file_path.starts_with(&prefix) {
+                continue;
+            }
+            has_children = true;
+
+            // キャッシュがあればキャッシュを優先（ユーザーが diff を開いた後の更新を反映）
+            let badge = {
+                let cache_b = self.compute_badge(file_path, false);
+                if cache_b != Badge::Unchecked {
+                    cache_b
                 } else {
-                    Badge::Modified
+                    match status {
+                        FileStatusKind::Equal => Badge::Equal,
+                        FileStatusKind::Modified => Badge::Modified,
+                        FileStatusKind::LeftOnly => Badge::LeftOnly,
+                        FileStatusKind::RightOnly => Badge::RightOnly,
+                    }
+                }
+            };
+
+            match badge {
+                Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
+                    return Badge::Modified;
+                }
+                Badge::Equal => {}
+                Badge::Unchecked | Badge::Loading => {
+                    all_equal = false;
                 }
             }
-            (None, None) => Badge::Unchecked,
+        }
+
+        if !has_children {
+            return self.compute_dir_badge(path);
+        }
+
+        if all_equal {
+            Badge::Equal
+        } else {
+            Badge::Unchecked
         }
     }
 
@@ -691,7 +742,7 @@ mod tests {
     // ── compute_scan_badge ──
 
     #[test]
-    fn test_compute_scan_badge_without_scan_cache_returns_unchecked() {
+    fn test_compute_scan_badge_without_scan_statuses_returns_unchecked() {
         let mut state = AppState::new(
             make_test_tree(vec![FileNode::new_file("a.txt")]),
             make_test_tree(vec![FileNode::new_file("a.txt")]),
@@ -699,8 +750,7 @@ mod tests {
             Side::Remote("develop".to_string()),
             crate::theme::DEFAULT_THEME,
         );
-        state.scan_left_tree = None;
-        state.scan_right_tree = None;
+        state.scan_statuses = None;
         assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Unchecked);
     }
 
@@ -719,13 +769,122 @@ mod tests {
         state
             .right_cache
             .insert("a.txt".to_string(), "same".to_string());
-        // スキャン結果ではサイズが異なるが、キャッシュが優先される
-        let mut local_node = FileNode::new_file("a.txt");
-        local_node.size = Some(100);
-        let mut remote_node = FileNode::new_file("a.txt");
-        remote_node.size = Some(200);
-        state.scan_left_tree = Some(vec![local_node]);
-        state.scan_right_tree = Some(vec![remote_node]);
+        // scan_statuses ではModifiedだが、キャッシュが優先される
+        state.scan_statuses = Some(std::collections::HashMap::from([(
+            "a.txt".to_string(),
+            crate::service::types::FileStatusKind::Modified,
+        )]));
         assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_uses_statuses_when_no_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // キャッシュなしで scan_statuses から判定
+        state.scan_statuses = Some(std::collections::HashMap::from([(
+            "a.txt".to_string(),
+            crate::service::types::FileStatusKind::Modified,
+        )]));
+        assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_equal_from_statuses() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_statuses = Some(std::collections::HashMap::from([(
+            "a.txt".to_string(),
+            crate::service::types::FileStatusKind::Equal,
+        )]));
+        assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_left_only_from_statuses() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_statuses = Some(std::collections::HashMap::from([(
+            "a.txt".to_string(),
+            crate::service::types::FileStatusKind::LeftOnly,
+        )]));
+        assert_eq!(state.compute_scan_badge("a.txt", false), Badge::LeftOnly);
+    }
+
+    // ── compute_scan_dir_badge ──
+
+    #[test]
+    fn test_scan_dir_badge_modified_when_child_modified() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "config",
+                vec![FileNode::new_file("settings.toml")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "config",
+                vec![FileNode::new_file("settings.toml")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_statuses = Some(std::collections::HashMap::from([(
+            "config/settings.toml".to_string(),
+            FileStatusKind::Modified,
+        )]));
+        assert_eq!(state.compute_scan_badge("config", true), Badge::Modified);
+    }
+
+    #[test]
+    fn test_scan_dir_badge_equal_when_all_children_equal() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_statuses = Some(std::collections::HashMap::from([
+            ("src/a.rs".to_string(), FileStatusKind::Equal),
+            ("src/b.rs".to_string(), FileStatusKind::Equal),
+        ]));
+        assert_eq!(state.compute_scan_badge("src", true), Badge::Equal);
+    }
+
+    #[test]
+    fn test_scan_dir_badge_falls_back_without_statuses() {
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // scan_statuses なし → compute_dir_badge にフォールバック
+        assert_eq!(state.compute_scan_badge("src", true), Badge::LeftOnly);
     }
 }
