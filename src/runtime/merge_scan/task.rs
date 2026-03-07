@@ -175,7 +175,7 @@ fn expand_subtree_recursive(
     // ローカルディレクトリの走査
     let local_full = local_root.join(dir_path);
     let local_children = if local_full.is_dir() {
-        match crate::local::scan_dir(&local_full, exclude) {
+        match crate::local::scan_dir(&local_full, exclude, dir_path) {
             Ok(children) => {
                 local_tree_updates.push((dir_path.to_string(), children.clone()));
                 children
@@ -191,7 +191,7 @@ fn expand_subtree_recursive(
 
     // リモートディレクトリの走査
     let remote_full = format!("{}/{}", remote_root.trim_end_matches('/'), dir_path);
-    let remote_children = match rt.block_on(client.list_dir(&remote_full, exclude)) {
+    let remote_children = match rt.block_on(client.list_dir(&remote_full, exclude, dir_path)) {
         Ok(children) => {
             remote_tree_updates.push((dir_path.to_string(), children.clone()));
             children

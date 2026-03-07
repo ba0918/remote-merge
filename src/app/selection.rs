@@ -173,7 +173,7 @@ impl AppState {
     pub fn load_local_children(&mut self, path: &str) {
         let full_path = self.left_tree.root.join(path);
         let exclude = self.active_exclude_patterns();
-        match crate::local::scan_dir(&full_path, &exclude) {
+        match crate::local::scan_dir(&full_path, &exclude, path) {
             Ok(children) => {
                 if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
                     node.children = Some(children);
@@ -193,7 +193,7 @@ impl AppState {
     pub fn load_local_tree_recursive(&mut self) {
         let exclude = self.active_exclude_patterns();
         let root = self.left_tree.root.clone();
-        Self::load_children_recursive(&mut self.left_tree.nodes, &root, &exclude);
+        Self::load_children_recursive(&mut self.left_tree.nodes, &root, &exclude, "");
     }
 
     /// FileNode リストの未ロードディレクトリを再帰的にロードする
@@ -201,20 +201,26 @@ impl AppState {
         nodes: &mut [crate::tree::FileNode],
         base_path: &std::path::Path,
         exclude: &[String],
+        parent_rel: &str,
     ) {
         for node in nodes.iter_mut() {
             if !node.is_dir() {
                 continue;
             }
             let dir_path = base_path.join(&node.name);
+            let rel = if parent_rel.is_empty() {
+                node.name.clone()
+            } else {
+                format!("{}/{}", parent_rel, node.name)
+            };
             if !node.is_loaded() {
-                if let Ok(children) = crate::local::scan_dir(&dir_path, exclude) {
+                if let Ok(children) = crate::local::scan_dir(&dir_path, exclude, &rel) {
                     node.children = Some(children);
                     node.sort_children();
                 }
             }
             if let Some(ref mut children) = node.children {
-                Self::load_children_recursive(children, &dir_path, exclude);
+                Self::load_children_recursive(children, &dir_path, exclude, &rel);
             }
         }
     }

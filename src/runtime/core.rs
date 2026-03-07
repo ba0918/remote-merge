@@ -90,9 +90,9 @@ impl CoreRuntime {
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
-        let nodes = self
-            .rt
-            .block_on(client.list_dir(&root_dir, &self.config.filter.exclude))?;
+        let nodes =
+            self.rt
+                .block_on(client.list_dir(&root_dir, &self.config.filter.exclude, ""))?;
 
         let mut tree = FileTree::new(&root_path);
         tree.nodes = nodes;

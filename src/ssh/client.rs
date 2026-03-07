@@ -283,14 +283,20 @@ impl SshClient {
     pub const MAX_DIR_ENTRIES: usize = 10_000;
 
     /// リモートディレクトリの直下エントリを取得する
+    ///
+    /// `parent_rel_path` はプロジェクトルートからの相対パス（例: `"config"`）。
+    /// パスパターン（`config/*.toml` など）のフィルタに使われる。
+    /// ルート直下の場合は `""` を渡す。
     pub async fn list_dir(
         &mut self,
         remote_path: &str,
         exclude: &[String],
+        parent_rel_path: &str,
     ) -> crate::error::Result<Vec<FileNode>> {
         self.list_dir_with_limit(
             remote_path,
             exclude,
+            parent_rel_path,
             Self::DIR_TIMEOUT_SECS,
             Self::MAX_DIR_ENTRIES,
         )
@@ -299,10 +305,13 @@ impl SshClient {
     }
 
     /// リモートディレクトリの直下エントリを取得する（制限付き）
+    ///
+    /// `parent_rel_path` はプロジェクトルートからの相対パス。
     pub async fn list_dir_with_limit(
         &mut self,
         remote_path: &str,
         exclude: &[String],
+        parent_rel_path: &str,
         timeout_secs: u64,
         max_entries: usize,
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
@@ -331,6 +340,15 @@ impl SshClient {
                 break;
             }
             if let Some(node) = parse_find_line(line, remote_path, exclude) {
+                // maxdepth 1 で得たノード名は1セグメントのみ。
+                // パスパターン（例: config/*.toml）にマッチさせるため、
+                // parent_rel_path を付けてフルパスで再フィルタする。
+                if !parent_rel_path.is_empty() {
+                    let full_rel = format!("{}/{}", parent_rel_path, node.name);
+                    if crate::filter::is_path_excluded(&full_rel, exclude) {
+                        continue;
+                    }
+                }
                 nodes.push(node);
             }
         }

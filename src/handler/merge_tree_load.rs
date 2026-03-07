@@ -38,7 +38,7 @@ pub fn load_remote_children_to(
     match runtime
         .core
         .rt
-        .block_on(client.list_dir(&full_path, &exclude))
+        .block_on(client.list_dir(&full_path, &exclude, rel_path))
     {
         Ok(children) => {
             if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {

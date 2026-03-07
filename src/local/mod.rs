@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Context;
 use chrono::{TimeZone, Utc};
 
-use crate::ssh::tree_parser::should_exclude;
+use crate::filter;
 use crate::tree::{FileNode, FileTree};
 
 /// ローカルファイルシステムからディレクトリツリーを取得する
@@ -19,7 +19,7 @@ pub fn scan_local_tree(root: &Path, exclude: &[String]) -> crate::error::Result<
         });
     }
 
-    tree.nodes = scan_dir(root, exclude)
+    tree.nodes = scan_dir(root, exclude, "")
         .with_context(|| format!("Failed to scan local tree: {}", root.display()))?;
     tree.sort();
 
@@ -31,9 +31,16 @@ pub const MAX_DIR_ENTRIES: usize = 10_000;
 
 /// 指定ディレクトリの直下エントリのみを取得する（1階層のみ）
 ///
-/// サブディレクトリは children: None（未取得）で返す
-pub fn scan_dir(dir: &Path, exclude: &[String]) -> crate::error::Result<Vec<FileNode>> {
-    scan_dir_with_limit(dir, exclude, MAX_DIR_ENTRIES).map(|(nodes, _)| nodes)
+/// サブディレクトリは children: None（未取得）で返す。
+/// `parent_rel_path` はプロジェクトルートからの相対パス（例: `"config"`）。
+/// パスパターン（`config/*.toml` など）のフィルタに使われる。
+/// ルート直下の場合は `""` を渡す。
+pub fn scan_dir(
+    dir: &Path,
+    exclude: &[String],
+    parent_rel_path: &str,
+) -> crate::error::Result<Vec<FileNode>> {
+    scan_dir_with_limit(dir, exclude, parent_rel_path, MAX_DIR_ENTRIES).map(|(nodes, _)| nodes)
 }
 
 /// 指定ディレクトリの直下エントリを取得する（エントリ数制限付き）
@@ -42,6 +49,7 @@ pub fn scan_dir(dir: &Path, exclude: &[String]) -> crate::error::Result<Vec<File
 pub fn scan_dir_with_limit(
     dir: &Path,
     exclude: &[String],
+    parent_rel_path: &str,
     max_entries: usize,
 ) -> crate::error::Result<(Vec<FileNode>, bool)> {
     let mut nodes = Vec::new();
@@ -54,8 +62,13 @@ pub fn scan_dir_with_limit(
         let entry = entry?;
         let file_name = entry.file_name().to_string_lossy().to_string();
 
-        // 除外フィルター
-        if should_exclude(&file_name, exclude) {
+        // 除外フィルター（セグメント + パスパターン両対応）
+        let rel_path = if parent_rel_path.is_empty() {
+            file_name.clone()
+        } else {
+            format!("{}/{}", parent_rel_path, file_name)
+        };
+        if filter::is_path_excluded(&rel_path, exclude) {
             continue;
         }
 
@@ -136,8 +149,17 @@ pub fn scan_local_tree_recursive(
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            !should_exclude(&name, exclude)
+            // filter_entry ではディレクトリの枝刈りも行える。
+            // 相対パスが取れる場合はパスパターンも適用し、ディレクトリ配下を丸ごとスキップ。
+            let rel = e
+                .path()
+                .strip_prefix(root)
+                .unwrap_or(e.path())
+                .to_string_lossy();
+            if rel.is_empty() {
+                return true;
+            }
+            !filter::is_path_excluded(&rel, exclude)
         })
     {
         let entry = match entry {
@@ -333,7 +355,7 @@ mod tests {
         assert!(!subdir.is_loaded());
 
         // 展開時: scan_dir で子ノードを取得
-        let children = scan_dir(&dir.path().join("subdir"), &[]).unwrap();
+        let children = scan_dir(&dir.path().join("subdir"), &[], "subdir").unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "nested.txt");
     }
@@ -374,6 +396,66 @@ mod tests {
     fn test_nonexistent_path() {
         let result = scan_local_tree(Path::new("/nonexistent/path"), &[]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_scan_dir_path_pattern_exclude() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        // config/settings.toml, config/other.json
+        std::fs::create_dir(root.join("config")).unwrap();
+        std::fs::write(root.join("config").join("settings.toml"), "").unwrap();
+        std::fs::write(root.join("config").join("other.json"), "").unwrap();
+
+        // パスパターン config/*.toml で settings.toml を除外
+        let exclude = vec!["config/*.toml".to_string()];
+        let children = scan_dir(&root.join("config"), &exclude, "config").unwrap();
+
+        let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
+        assert!(
+            !names.contains(&"settings.toml"),
+            "settings.toml should be excluded by config/*.toml"
+        );
+        assert!(names.contains(&"other.json"), "other.json should remain");
+    }
+
+    #[test]
+    fn test_scan_dir_segment_pattern_still_works() {
+        let dir = create_test_tree();
+        let exclude = vec!["*.log".to_string()];
+        let nodes = scan_dir(dir.path(), &exclude, "").unwrap();
+
+        let names: Vec<&str> = nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(!names.contains(&"file2.log"));
+        assert!(names.contains(&"file1.txt"));
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive_path_pattern() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        // vendor/legacy/old.rs, vendor/current/new.rs
+        std::fs::create_dir_all(root.join("vendor/legacy")).unwrap();
+        std::fs::create_dir_all(root.join("vendor/current")).unwrap();
+        std::fs::write(root.join("vendor/legacy/old.rs"), "").unwrap();
+        std::fs::write(root.join("vendor/current/new.rs"), "").unwrap();
+
+        let exclude = vec!["vendor/legacy/**".to_string()];
+        let (nodes, _) = scan_local_tree_recursive(root, &exclude, 50_000).unwrap();
+
+        // vendor は残る
+        let vendor = nodes.iter().find(|n| n.name == "vendor").unwrap();
+        let vendor_children = vendor.children.as_ref().unwrap();
+
+        // current は残り、legacy は除外（ディレクトリ自体が枝刈りされる）
+        let child_names: Vec<&str> = vendor_children.iter().map(|n| n.name.as_str()).collect();
+        assert!(child_names.contains(&"current"), "current should remain");
+        assert!(
+            !child_names.contains(&"legacy"),
+            "legacy should be excluded by vendor/legacy/**"
+        );
     }
 
     #[test]

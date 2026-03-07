@@ -4,8 +4,8 @@
 //! AppState に直接依存せず、`ReportInput` 構造体を介して入力を受け取る。
 
 use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
+use crate::filter;
 use crate::service::status::is_sensitive;
-use crate::ssh::tree_parser::should_exclude;
 
 /// レポート生成に必要な入力
 pub struct ReportInput<'a> {
@@ -40,7 +40,7 @@ pub fn generate_report(input: &ReportInput) -> String {
     let included: Vec<&ReportFileEntry> = input
         .files
         .iter()
-        .filter(|e| !is_path_excluded(e.path, input.exclude_patterns))
+        .filter(|e| !filter::is_path_excluded(e.path, input.exclude_patterns))
         .collect();
 
     // Equal / non-Equal を分離してカウント
@@ -155,39 +155,6 @@ pub fn generate_report(input: &ReportInput) -> String {
     }
 
     out
-}
-
-/// パスが exclude パターンにマッチするか判定する。
-///
-/// パターンの種類によって2通りのマッチを行う:
-/// - `/` を含むパターン（例: `path/**/*.rs`, `**/*.ext`）→ パス全体に対してマッチ
-/// - `/` を含まないパターン（例: `*.rs`, `node_modules`）→ 各セグメントに対してマッチ
-fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
-    if patterns.is_empty() {
-        return false;
-    }
-    // パス全体マッチ用と セグメントマッチ用に分離
-    let (path_patterns, segment_patterns): (Vec<&String>, Vec<&String>) =
-        patterns.iter().partition(|p| p.contains('/'));
-
-    // パス全体マッチ（`**/*.rs`, `path/to/**/*.ext` など）
-    for pattern in &path_patterns {
-        if glob_match::glob_match(pattern, path) {
-            return true;
-        }
-    }
-
-    // セグメント単位マッチ（`*.rs`, `node_modules` など）
-    if !segment_patterns.is_empty() {
-        let seg_strs: Vec<String> = segment_patterns.iter().map(|s| s.to_string()).collect();
-        for segment in path.split('/') {
-            if !segment.is_empty() && should_exclude(segment, &seg_strs) {
-                return true;
-            }
-        }
-    }
-
-    false
 }
 
 /// DiffLine を unified diff 形式の1行文字列に変換する。
@@ -456,57 +423,5 @@ mod tests {
             }),
             "+added\n"
         );
-    }
-
-    #[test]
-    fn test_is_path_excluded_empty_patterns() {
-        assert!(!is_path_excluded("src/main.rs", &[]));
-    }
-
-    #[test]
-    fn test_is_path_excluded_matches_segment() {
-        let patterns = vec![".remote-merge-backup".to_string()];
-        assert!(is_path_excluded(
-            ".remote-merge-backup/src/old.rs",
-            &patterns
-        ));
-        assert!(!is_path_excluded("src/main.rs", &patterns));
-    }
-
-    #[test]
-    fn test_is_path_excluded_glob_pattern() {
-        let patterns = vec!["*.tmp".to_string()];
-        assert!(is_path_excluded("cache/data.tmp", &patterns));
-        assert!(!is_path_excluded("cache/data.txt", &patterns));
-    }
-
-    #[test]
-    fn test_is_path_excluded_double_star_pattern() {
-        // **/*.rs はパス全体マッチ（/ を含むパターン）
-        let patterns = vec!["**/*.rs".to_string()];
-        assert!(is_path_excluded("src/main.rs", &patterns));
-        assert!(is_path_excluded("src/deep/nested/lib.rs", &patterns));
-        assert!(!is_path_excluded("src/main.toml", &patterns));
-    }
-
-    #[test]
-    fn test_is_path_excluded_path_prefix_pattern() {
-        // path/to/**/*.ext はパス全体マッチ
-        let patterns = vec!["vendor/**/*.js".to_string()];
-        assert!(is_path_excluded("vendor/pkg/index.js", &patterns));
-        assert!(is_path_excluded("vendor/deep/nested/util.js", &patterns));
-        assert!(!is_path_excluded("src/app.js", &patterns));
-    }
-
-    #[test]
-    fn test_is_path_excluded_mixed_patterns() {
-        // セグメントパターンとパス全体パターンの混在
-        let patterns = vec![
-            "node_modules".to_string(), // セグメント
-            "**/*.log".to_string(),     // パス全体
-        ];
-        assert!(is_path_excluded("node_modules/pkg/index.js", &patterns));
-        assert!(is_path_excluded("logs/app.log", &patterns));
-        assert!(!is_path_excluded("src/main.rs", &patterns));
     }
 }

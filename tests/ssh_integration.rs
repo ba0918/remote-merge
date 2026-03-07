@@ -257,7 +257,7 @@ d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t
 
     let exclude = vec!["node_modules".to_string()];
     let nodes = client
-        .list_dir("/var/www/app", &exclude)
+        .list_dir("/var/www/app", &exclude, "")
         .await
         .expect("list_dir に失敗");
 
@@ -374,7 +374,7 @@ async fn test_ssh_empty_directory() {
         .expect("SSH接続に失敗");
 
     let nodes = client
-        .list_dir("/var/www/empty", &[])
+        .list_dir("/var/www/empty", &[], "")
         .await
         .expect("list_dir に失敗");
 

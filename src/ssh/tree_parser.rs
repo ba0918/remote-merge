@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
+use crate::filter;
 use crate::tree::FileNode;
 
 /// `find -printf` の出力行をパースする
@@ -39,8 +40,8 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
         return None;
     }
 
-    // 除外フィルター
-    if should_exclude(name, exclude) {
+    // 除外フィルター（相対パス全体でマッチ）
+    if filter::is_path_excluded(name, exclude) {
         return None;
     }
 
@@ -61,16 +62,6 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
     node.permissions = permissions;
 
     Some(node)
-}
-
-/// ファイル名が除外パターンにマッチするか
-pub fn should_exclude(name: &str, patterns: &[String]) -> bool {
-    for pattern in patterns {
-        if glob_match::glob_match(pattern, name) {
-            return true;
-        }
-    }
-    false
 }
 
 /// フラットなノードリスト（相対パス含む名前）から再帰ツリーを構築する

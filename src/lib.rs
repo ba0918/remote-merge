@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod diff;
 pub mod error;
+pub mod filter;
 pub mod handler;
 pub mod highlight;
 pub mod init;
