@@ -960,16 +960,16 @@ remote-merge/
 - [x] シンボリックリンク対応
 
 ### Phase 3: UX・堅牢性
-- [ ] レガシーSSHアルゴリズム対応（接続失敗時ヒント表示）
+- [x] レガシーSSHアルゴリズム対応（接続失敗時ヒント表示）
 - [x] パスワード認証対応
 - [x] センシティブファイル警告
-- [ ] ファイルパーミッション制御（`--with-permissions`）
+- [x] ファイルパーミッション制御（`--with-permissions`）
 - [x] ファイル名検索（`/` キー）
 - [x] フィルターTUIトグル（`f` キー）
-- [ ] クリップボードコピー
-- [ ] レポート出力（`Shift+E`）
+- [x] クリップボードコピー
+- [x] レポート出力（`Shift+E`）
 - [x] SSH接続断リカバリ・接続状態インジケータ
-- [ ] root_dir不在時のエラーハンドリング
+- [x] root_dir不在時のエラーハンドリング
 
 ### Phase 4: CLIサブコマンド（LLMエージェント連携）
 - [x] `status` コマンド（テキスト・JSON出力・`--summary`）
@@ -982,6 +982,6 @@ remote-merge/
 - [x] TUI監視基盤（state.json / screen.txt / events.jsonl ファイルダンプ）
 - [x] telemetry（event_recorder, state_dumper, truncate）
 - [x] Skill ファイル（LLMエージェント向けガイダンス）
-- [ ] `logs` CLIサブコマンド（debug.log のフィルタ・表示: --level, --since, --tail, --format json）
-- [ ] `events` CLIサブコマンド（events.jsonl のフィルタ・表示: --type, --since, --tail）
-- [ ] structured_log.rs（tracing JSON Layer — `logs --format json` の基盤）
+- [x] `logs` CLIサブコマンド（debug.log のフィルタ・表示: --level, --since, --tail, --format json）
+- [x] `events` CLIサブコマンド（events.jsonl のフィルタ・表示: --type, --since, --tail）
+- [x] structured_log.rs（tracing JSON Layer — `logs --format json` の基盤）
