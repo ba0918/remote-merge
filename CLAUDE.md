@@ -91,6 +91,48 @@ cargo fmt                    # Format
 - **Remote-to-remote merge** requires server name confirmation (bypass with `--force`)
 - CLI uses `--left`/`--right` consistently across all subcommands (not `--from`/`--to`)
 
+## Commit Message Rules
+
+コミットメッセージは **日本語** で書く。フォーマットは Conventional Commits に従う。
+
+### フォーマット
+
+```
+<type>: <日本語の要約>
+
+<本文（任意）>
+```
+
+### タイプ一覧
+
+| type | 用途 |
+|------|------|
+| `feat` | 新機能 |
+| `fix` | バグ修正 |
+| `refactor` | 機能追加もバグ修正もないコード変更 |
+| `docs` | ドキュメントのみの変更 |
+| `test` | テストの追加・修正 |
+| `style` | コードの意味に影響しない変更（フォーマット等） |
+| `perf` | パフォーマンス改善 |
+| `chore` | ビルドプロセスやツールの変更 |
+
+### ルール
+
+- subject（要約行）は日本語で簡潔に書く
+- body（本文）も日本語。変更の理由や背景を書く
+- フッター（Co-Authored-By 等）はデフォルトで付けない
+- pre-commit hook（fmt + clippy）を通すこと。`--no-verify` 禁止
+
+### 例
+
+```
+feat: exclude パターンでパス全体マッチに対応
+
+config/*.toml や vendor/legacy/** のようなパスパターンが
+ローカル・リモート両方の遅延読み込みで動作するようにした。
+filter.rs を新設し、should_exclude と is_path_excluded を集約。
+```
+
 ## Implementation Phases
 
 Phase 1 (MVP) → Phase 2 (hunk merge, 3-way diff) → Phase 3 (UX/robustness) → Phase 4 (CLI subcommands for LLM agents). See spec.md "実装フェーズ" section for details.
