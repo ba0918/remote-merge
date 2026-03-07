@@ -225,3 +225,507 @@ impl AppState {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::Side;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    // ── ファイルバッジ ──
+
+    #[test]
+    fn test_badge_unchecked_when_no_cache() {
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_badge_equal_when_same_content() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_modified_when_different_content() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_local_only_not_error_when_remote_missing() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("local_only.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/local_only.rs".to_string(), "content".to_string());
+        assert_eq!(
+            state.compute_badge("src/local_only.rs", false),
+            Badge::LeftOnly
+        );
+    }
+
+    #[test]
+    fn test_badge_remote_only_not_error_when_local_missing() {
+        let local_nodes = vec![FileNode::new_dir_with_children("src", vec![])];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("remote_only.rs")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .right_cache
+            .insert("src/remote_only.rs".to_string(), "content".to_string());
+        assert_eq!(
+            state.compute_badge("src/remote_only.rs", false),
+            Badge::RightOnly
+        );
+    }
+
+    #[test]
+    fn test_badge_error_only_when_both_fail() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("broken.rs")]),
+            make_test_tree(vec![FileNode::new_file("broken.rs")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.error_paths.insert("broken.rs".to_string());
+        assert_eq!(state.compute_badge("broken.rs", false), Badge::Error);
+    }
+
+    #[test]
+    fn test_error_paths_cleared_after_state_reset() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.error_paths.insert("a.txt".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Error);
+        state.clear_cache();
+        assert_ne!(state.compute_badge("a.txt", false), Badge::Error);
+    }
+
+    // ── リモートツリー未ロード時のバッジ ──
+
+    #[test]
+    fn test_badge_equal_when_remote_tree_unloaded_but_cache_exists() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("scan.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir("src")];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/scan.rs".to_string(), "content".to_string());
+        state
+            .right_cache
+            .insert("src/scan.rs".to_string(), "content".to_string());
+        assert_eq!(state.compute_badge("src/scan.rs", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_modified_when_remote_tree_unloaded_but_cache_differs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("scan.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir("src")];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/scan.rs".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("src/scan.rs".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("src/scan.rs", false), Badge::Modified);
+    }
+
+    // ── ディレクトリバッジ ──
+
+    #[test]
+    fn test_dir_badge_equal_when_all_children_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .left_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("src/b.ts".to_string(), "same".to_string());
+        assert_eq!(state.compute_badge("src", true), Badge::Equal);
+    }
+
+    #[test]
+    fn test_dir_badge_modified_when_child_differs() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("src", true), Badge::Modified);
+    }
+
+    #[test]
+    fn test_dir_badge_local_only() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src", true), Badge::LeftOnly);
+    }
+
+    #[test]
+    fn test_dir_badge_unchecked_when_no_cache() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src", true), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_dir_badge_unchecked_when_partial_cache() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("src/a.ts".to_string(), "same".to_string());
+        assert_eq!(state.compute_badge("src", true), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_dir_badge_modified_even_with_unchecked_siblings() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.ts"), FileNode::new_file("b.ts")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("src/a.ts".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("src/a.ts".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("src", true), Badge::Modified);
+    }
+
+    // ── シンボリックリンクバッジ ──
+
+    #[test]
+    fn test_symlink_badge_equal_when_same_target() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/link", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_symlink_badge_modified_when_different_target() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../README.md")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("link", "../OTHER.md")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/link", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_symlink_badge_modified_when_mixed_types() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_symlink("file", "target")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("file")],
+        )];
+        let state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("src/file", false), Badge::Modified);
+    }
+
+    // ── バイナリキャッシュバッジ ──
+
+    #[test]
+    fn test_binary_cache_badge_equal() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        let info = crate::diff::binary::BinaryInfo {
+            size: 100,
+            sha256: "abc123".to_string(),
+        };
+        state
+            .left_binary_cache
+            .insert("src/logo.png".to_string(), info.clone());
+        state
+            .right_binary_cache
+            .insert("src/logo.png".to_string(), info);
+        assert_eq!(state.compute_badge("src/logo.png", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_binary_cache_badge_modified() {
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("logo.png")],
+        )];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.left_binary_cache.insert(
+            "src/logo.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 100,
+                sha256: "abc".to_string(),
+            },
+        );
+        state.right_binary_cache.insert(
+            "src/logo.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 200,
+                sha256: "def".to_string(),
+            },
+        );
+        assert_eq!(state.compute_badge("src/logo.png", false), Badge::Modified);
+    }
+
+    // ── compute_scan_badge ──
+
+    #[test]
+    fn test_compute_scan_badge_without_scan_cache_returns_unchecked() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_left_tree = None;
+        state.scan_right_tree = None;
+        assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_compute_scan_badge_prefers_content_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        // スキャン結果ではサイズが異なるが、キャッシュが優先される
+        let mut local_node = FileNode::new_file("a.txt");
+        local_node.size = Some(100);
+        let mut remote_node = FileNode::new_file("a.txt");
+        remote_node.size = Some(200);
+        state.scan_left_tree = Some(vec![local_node]);
+        state.scan_right_tree = Some(vec![remote_node]);
+        assert_eq!(state.compute_scan_badge("a.txt", false), Badge::Equal);
+    }
+}

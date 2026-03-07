@@ -504,6 +504,24 @@ mod tests {
     }
 
     #[test]
+    fn test_update_badge_after_merge() {
+        let local_nodes = vec![FileNode::new_file("test.txt")];
+        let remote_nodes = vec![FileNode::new_file("test.txt")];
+        let mut state = AppState::new(
+            make_test_tree(local_nodes),
+            make_test_tree(remote_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state.update_badge_after_merge("test.txt", "content", MergeDirection::LeftToRight);
+        assert_eq!(state.right_cache.get("test.txt").unwrap(), "content");
+    }
+
+    #[test]
     fn test_sync_cache_after_merge_remote_to_local() {
         let mut state = make_state();
         state.sync_cache_after_merge("a.rs", "content", MergeDirection::RightToLeft);

@@ -599,6 +599,34 @@ mod tests {
     }
 
     #[test]
+    fn test_clear_cache_also_clears_binary_cache() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.left_binary_cache.insert(
+            "x.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 1,
+                sha256: "a".to_string(),
+            },
+        );
+        state.right_binary_cache.insert(
+            "x.png".to_string(),
+            crate::diff::binary::BinaryInfo {
+                size: 1,
+                sha256: "a".to_string(),
+            },
+        );
+        state.clear_cache();
+        assert!(state.left_binary_cache.is_empty());
+        assert!(state.right_binary_cache.is_empty());
+    }
+
+    #[test]
     fn test_select_file_updates_badge_equal() {
         let mut state = make_state_with_file("a.rs");
         assert_eq!(state.flat_nodes[0].badge, Badge::Unchecked);
