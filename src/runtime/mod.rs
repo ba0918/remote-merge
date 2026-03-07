@@ -168,3 +168,42 @@ impl TuiRuntime {
         }
     }
 }
+
+impl Drop for TuiRuntime {
+    fn drop(&mut self) {
+        if !self.ssh_clients.is_empty() {
+            tracing::debug!(
+                "TuiRuntime dropped with {} active SSH connections, disconnecting",
+                self.ssh_clients.len()
+            );
+            self.disconnect_all();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_drop_with_no_clients() {
+        // SSH接続がない状態でドロップしてもパニックしない
+        let runtime = TuiRuntime::new_for_test();
+        assert!(runtime.ssh_clients.is_empty());
+        drop(runtime);
+        // パニックしなければ成功
+    }
+
+    #[test]
+    fn test_disconnect_all_empty() {
+        let mut runtime = TuiRuntime::new_for_test();
+        runtime.disconnect_all();
+        assert!(runtime.ssh_clients.is_empty());
+    }
+
+    #[test]
+    fn test_has_client_returns_false_when_empty() {
+        let runtime = TuiRuntime::new_for_test();
+        assert!(!runtime.has_client("nonexistent"));
+    }
+}

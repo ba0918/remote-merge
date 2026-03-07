@@ -29,6 +29,8 @@ struct CommandOutput {
 pub struct SshClient {
     session: client::Handle<SshHandler>,
     server_name: String,
+    /// チャネルオープン時のタイムアウト（秒）
+    channel_timeout_sec: u64,
 }
 
 impl SshClient {
@@ -94,6 +96,33 @@ impl SshClient {
             message: e.to_string(),
         })?;
 
+        if let Err(e) = Self::authenticate(&mut session, server_name, server_config).await {
+            // 認証失敗時にセッションを明示的に切断してリソースリークを防ぐ
+            let _ = session
+                .disconnect(Disconnect::ByApplication, "auth failed", "")
+                .await;
+            return Err(e);
+        }
+
+        tracing::info!(
+            "SSH connection established: {}@{}",
+            server_config.user,
+            server_config.host
+        );
+
+        Ok(Self {
+            session,
+            server_name: server_name.to_string(),
+            channel_timeout_sec: ssh_config.timeout_sec,
+        })
+    }
+
+    /// 認証を実行する（connect_inner から分離）
+    async fn authenticate(
+        session: &mut client::Handle<SshHandler>,
+        server_name: &str,
+        server_config: &ServerConfig,
+    ) -> crate::error::Result<()> {
         match server_config.auth {
             AuthMethod::Key => {
                 let key_path = server_config
@@ -157,17 +186,7 @@ impl SshClient {
                 }
             }
         }
-
-        tracing::info!(
-            "SSH connection established: {}@{}",
-            server_config.user,
-            server_config.host
-        );
-
-        Ok(Self {
-            session,
-            server_name: server_name.to_string(),
-        })
+        Ok(())
     }
 
     /// SSH 接続が生きているか確認する（`echo` コマンドで簡易チェック）
@@ -187,11 +206,30 @@ impl SshClient {
         }
     }
 
-    /// チャネルをオープンする（1回リトライ付き）
+    /// タイムアウト付きでチャネルをオープンする（単発）
+    async fn open_channel_with_timeout(
+        &mut self,
+    ) -> crate::error::Result<russh::Channel<russh::client::Msg>> {
+        let timeout = Duration::from_secs(self.channel_timeout_sec);
+        tokio::time::timeout(timeout, self.session.channel_open_session())
+            .await
+            .map_err(|_| AppError::SshTimeout {
+                host: self.server_name.clone(),
+                timeout_sec: self.channel_timeout_sec,
+            })?
+            .map_err(|e| {
+                anyhow::Error::from(AppError::SshConnection {
+                    host: self.server_name.clone(),
+                    message: format!("Failed to open channel: {}", e),
+                })
+            })
+    }
+
+    /// チャネルをオープンする（1回リトライ付き、タイムアウトあり）
     async fn open_channel_with_retry(
         &mut self,
     ) -> crate::error::Result<russh::Channel<russh::client::Msg>> {
-        match self.session.channel_open_session().await {
+        match self.open_channel_with_timeout().await {
             Ok(ch) => Ok(ch),
             Err(e) => {
                 tracing::warn!(
@@ -199,18 +237,14 @@ impl SshClient {
                     self.server_name,
                     e
                 );
-                // 少し待ってリトライ
                 tokio::time::sleep(Duration::from_millis(200)).await;
-                self.session.channel_open_session().await.map_err(|e2| {
+                self.open_channel_with_timeout().await.map_err(|e2| {
                     tracing::error!(
                         "SSH channel open failed (retry failed): server={}, error={}",
                         self.server_name,
                         e2
                     );
-                    anyhow::Error::from(AppError::SshConnection {
-                        host: self.server_name.clone(),
-                        message: format!("Failed to open channel: {}", e2),
-                    })
+                    e2
                 })
             }
         }
@@ -590,5 +624,31 @@ mod tests {
     fn test_build_mkdir_command_special_chars() {
         let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
         assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
+    }
+
+    #[test]
+    fn test_expand_tilde_home_dir() {
+        let expanded = expand_tilde("~/test/path");
+        // ホームディレクトリが取得できる環境では ~ が展開される
+        assert!(!expanded.starts_with("~/") || dirs::home_dir().is_none());
+    }
+
+    #[test]
+    fn test_expand_tilde_no_tilde() {
+        // チルダがないパスはそのまま返される
+        assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
+        assert_eq!(expand_tilde("relative/path"), "relative/path");
+    }
+
+    #[test]
+    fn test_build_preferred_returns_default() {
+        let opts = crate::config::SshOptions {
+            kex_algorithms: None,
+            host_key_algorithms: None,
+            ciphers: None,
+            mac_algorithms: None,
+        };
+        let _preferred = build_preferred(&opts);
+        // Phase 3 までデフォルトを返すことを確認（パニックしない）
     }
 }
