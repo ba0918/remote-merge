@@ -6,7 +6,6 @@ use crossterm::terminal::{
 };
 use ratatui::prelude::*;
 use std::io;
-use std::sync::Mutex;
 
 use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
 use remote_merge::config;
@@ -86,6 +85,35 @@ enum Commands {
         #[arg(long)]
         with_permissions: bool,
     },
+
+    /// Show debug logs
+    Logs {
+        /// Filter by log level (info, warn, error, debug, trace)
+        #[arg(long)]
+        level: Option<String>,
+        /// Show logs since duration (e.g. 5m, 1h, 30s)
+        #[arg(long)]
+        since: Option<String>,
+        /// Show last N lines
+        #[arg(long)]
+        tail: Option<usize>,
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Show TUI events
+    Events {
+        /// Filter by event type (key_press, error, render_slow, ssh_exec, state_change, dialog)
+        #[arg(long, name = "type")]
+        event_type: Option<String>,
+        /// Show events since duration (e.g. 5m, 1h, 30s)
+        #[arg(long)]
+        since: Option<String>,
+        /// Show last N events
+        #[arg(long)]
+        tail: Option<usize>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -146,6 +174,33 @@ fn main() -> anyhow::Result<()> {
                 force,
                 with_permissions,
             })?;
+            std::process::exit(code);
+        }
+        Some(Commands::Logs {
+            level,
+            since,
+            tail,
+            format,
+        }) => {
+            let code = remote_merge::cli::logs::run_logs(remote_merge::cli::logs::LogsArgs {
+                level,
+                since,
+                tail,
+                format,
+            })?;
+            std::process::exit(code);
+        }
+        Some(Commands::Events {
+            event_type,
+            since,
+            tail,
+        }) => {
+            let code =
+                remote_merge::cli::events::run_events(remote_merge::cli::events::EventsArgs {
+                    event_type,
+                    since,
+                    tail,
+                })?;
             std::process::exit(code);
         }
         None => {
@@ -288,9 +343,12 @@ fn run_event_loop(
 
 /// tracing を初期化する。
 ///
-/// TUI モードでは stderr に書くと画面が崩壊するため、ログファイルに出力する。
-/// CLI モード（サブコマンド実行時）は従来どおり stderr。
+/// TUI モードでは debug.log に JSONL 形式で出力（JsonLogLayer）。
+/// CLI モード（サブコマンド実行時）は従来どおり stderr にテキスト出力。
 fn init_tracing(is_tui: bool) {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
@@ -306,10 +364,9 @@ fn init_tracing(is_tui: bool) {
             .open(&log_path)
             .expect("Failed to open log file");
 
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .with_writer(Mutex::new(file))
-            .with_ansi(false)
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(telemetry::JsonLogLayer::new(file))
             .init();
     } else {
         tracing_subscriber::fmt().with_env_filter(env_filter).init();

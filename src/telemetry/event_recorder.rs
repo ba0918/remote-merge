@@ -89,6 +89,7 @@ impl EventRecorder {
 pub fn read_events(
     path: &Path,
     event_type: Option<&str>,
+    since: Option<chrono::DateTime<chrono::Utc>>,
     tail: Option<usize>,
 ) -> std::io::Result<Vec<String>> {
     if !path.exists() {
@@ -108,6 +109,16 @@ pub fn read_events(
                 true
             }
         })
+        .filter(|line| {
+            if let Some(cutoff) = since {
+                // "ts":"<timestamp>" パターンからタイムスタンプを抽出
+                extract_ts_from_json(line)
+                    .map(|ts| ts >= cutoff)
+                    .unwrap_or(true) // パース不能なら含める
+            } else {
+                true
+            }
+        })
         .map(|s| s.to_string())
         .collect();
 
@@ -118,6 +129,14 @@ pub fn read_events(
     }
 
     Ok(lines)
+}
+
+/// JSON 行から "ts" フィールドのタイムスタンプを抽出する
+fn extract_ts_from_json(line: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    // 軽量パース: serde_json::Value を使って "ts" フィールドを取得
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let ts_str = value.get("ts")?.as_str()?;
+    ts_str.parse::<chrono::DateTime<chrono::Utc>>().ok()
 }
 
 #[cfg(test)]
@@ -175,7 +194,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");
 
-        let events = read_events(&path, None, None).unwrap();
+        let events = read_events(&path, None, None, None).unwrap();
         assert!(events.is_empty());
     }
 
@@ -191,10 +210,10 @@ mod tests {
         ];
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
 
-        let result = read_events(&path, Some("key_press"), None).unwrap();
+        let result = read_events(&path, Some("key_press"), None, None).unwrap();
         assert_eq!(result.len(), 2);
 
-        let result = read_events(&path, Some("error"), None).unwrap();
+        let result = read_events(&path, Some("error"), None, None).unwrap();
         assert_eq!(result.len(), 1);
     }
 
@@ -206,15 +225,35 @@ mod tests {
         let lines: Vec<String> = (0..50)
             .map(|i| {
                 format!(
-                    r#"{{"ts":"t","event":"key_press","key":"{}","result":"ok"}}"#,
-                    i
+                    r#"{{"ts":"2026-01-01T00:00:{:02}Z","event":"key_press","key":"{}","result":"ok"}}"#,
+                    i % 60, i
                 )
             })
             .collect();
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
 
-        let result = read_events(&path, None, Some(5)).unwrap();
+        let result = read_events(&path, None, None, Some(5)).unwrap();
         assert_eq!(result.len(), 5);
         assert!(result[4].contains("\"key\":\"49\""));
+    }
+
+    #[test]
+    fn test_read_events_filter_since() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+
+        let lines = [
+            r#"{"ts":"2026-01-01T00:00:00Z","event":"key_press","key":"a","result":"ok"}"#,
+            r#"{"ts":"2026-01-01T00:00:30Z","event":"key_press","key":"b","result":"ok"}"#,
+            r#"{"ts":"2026-01-01T00:01:00Z","event":"error","kind":"io","target":"ssh","message":"fail"}"#,
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+        let cutoff = "2026-01-01T00:00:30Z"
+            .parse::<chrono::DateTime<chrono::Utc>>()
+            .unwrap();
+        let result = read_events(&path, None, Some(cutoff), None).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].contains("\"key\":\"b\""));
     }
 }

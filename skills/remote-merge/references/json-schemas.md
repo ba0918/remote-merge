@@ -92,6 +92,17 @@ Line types: `context`, `added`, `removed`. When `truncated` is true, output was 
 
 Badges: `[M]` modified, `[=]` equal, `[+]` left only, `[-]` right only, `[?]` unchecked, `[!]` error.
 
+## debug.log (JSONL)
+
+Each line is one JSON object (structured tracing log):
+
+```json
+{"timestamp":"2026-03-07T21:00:00.123Z","level":"INFO","target":"ssh::client","message":"connected to develop","fields":{}}
+{"timestamp":"2026-03-07T21:00:01.456Z","level":"ERROR","target":"ssh::client","message":"connection timeout","fields":{"elapsed_ms":30000}}
+```
+
+Fields: `timestamp` (ISO 8601), `level` (TRACE/DEBUG/INFO/WARN/ERROR), `target` (module path), `message`, `fields` (extra key-value data).
+
 ## events.jsonl
 
 Each line is one JSON object:

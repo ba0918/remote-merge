@@ -51,14 +51,34 @@ remote-merge status --format json
 
 ## TUI Monitoring
 
-Read dump files at `~/.cache/remote-merge/`:
+### CLI commands (preferred)
+
+```bash
+# Logs — debug.log is JSONL; text output is the default, use --format json for machine parsing
+remote-merge logs --format json                  # all logs (JSONL)
+remote-merge logs --format json --level error    # errors only
+remote-merge logs --format json --since 5m       # last 5 minutes
+remote-merge logs --format json --tail 50        # last 50 entries
+
+# Events — always JSONL output
+remote-merge events                              # all events
+remote-merge events --type error                 # error events only
+remote-merge events --type key_press --since 5m  # recent key presses
+remote-merge events --tail 100                   # last 100 events
+```
+
+Duration shorthand for `--since`: `30s`, `5m`, `1h`, `2d`.
+
+### Dump files (alternative)
+
+Read directly at `~/.cache/remote-merge/`:
 
 | File | Content | Command |
 |------|---------|---------|
 | `state.json` | App state snapshot | `cat ~/.cache/remote-merge/state.json` |
 | `screen.txt` | Plain text screen | `cat ~/.cache/remote-merge/screen.txt` |
-| `events.jsonl` | Event stream | `grep '"event":"error"' ~/.cache/remote-merge/events.jsonl` |
-| `debug.log` | Application logs | `grep ERROR ~/.cache/remote-merge/debug.log` |
+| `events.jsonl` | Event stream (JSONL) | `remote-merge events --type error` |
+| `debug.log` | Application logs (JSONL) | `remote-merge logs --format json --level error` |
 
 Event types: `key_press`, `render_slow`, `error`, `dialog`, `state_change`.
 
