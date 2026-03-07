@@ -109,7 +109,8 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             state.scroll_to_end();
             state.sync_hunk_cursor_to_scroll();
         }
-        KeyCode::Char('c') => execute_reconnect(state, runtime),
+        KeyCode::Char('c') => super::tree_keys::handle_clipboard_copy(state),
+        KeyCode::Char('r') => execute_reconnect(state, runtime),
         KeyCode::Char('d') => state.toggle_diff_mode(),
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),

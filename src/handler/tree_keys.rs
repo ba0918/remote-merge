@@ -100,22 +100,27 @@ pub fn handle_tree_key(
             }
         }
         KeyCode::Char('r') => {
-            if state.current_is_dir() {
+            if !state.is_connected {
+                // 未接続時は再接続
+                execute_reconnect(state, runtime);
+            } else if state.current_is_dir() {
                 if let Some(path) = state.current_path() {
                     state.refresh_directory(&path);
                 }
             } else {
-                state.clear_cache();
+                // ファイル選択時は再接続
+                execute_reconnect(state, runtime);
             }
             state.clear_scan_cache();
         }
         KeyCode::Char('f') => state.show_filter_panel(),
         KeyCode::Char('s') => state.show_server_menu(),
-        KeyCode::Char('c') => execute_reconnect(state, runtime),
+        KeyCode::Char('c') => handle_clipboard_copy(state),
         KeyCode::Char('?') => state.show_help(),
         KeyCode::Char('F') => scanner::handle_diff_filter_toggle(state, runtime),
         KeyCode::Char('L') => handle_tree_merge(state, runtime, MergeDirection::RightToLeft),
         KeyCode::Char('R') => handle_tree_merge(state, runtime, MergeDirection::LeftToRight),
+        KeyCode::Char('E') => handle_export_report(state),
         KeyCode::Char('T') => state.cycle_theme(),
         KeyCode::Char('S') => state.toggle_syntax_highlight(),
         KeyCode::Char('/') => {
@@ -231,6 +236,140 @@ fn check_node_unloaded(node: &crate::tree::FileNode) -> bool {
         }
     }
     false
+}
+
+/// c キー: 選択中ファイルの diff をクリップボードにコピー
+pub fn handle_clipboard_copy(state: &mut AppState) {
+    use crate::app::clipboard::{format_diff_for_clipboard, ClipboardContext};
+    use crate::service::status::is_sensitive;
+
+    let path = match &state.selected_path {
+        Some(p) => p.clone(),
+        None => {
+            state.status_message = "No file selected".to_string();
+            return;
+        }
+    };
+
+    // センシティブファイルチェック
+    if is_sensitive(&path, &state.sensitive_patterns) {
+        state.status_message = "Warning: sensitive file — content not copied".to_string();
+        return;
+    }
+
+    let diff = match &state.current_diff {
+        Some(d) => d,
+        None => {
+            state.status_message = "No diff available for this file".to_string();
+            return;
+        }
+    };
+
+    let left_label = state.left_source.display_name().to_string();
+    let right_label = state.right_source.display_name().to_string();
+    let left_root = state.left_tree.root.to_string_lossy().to_string();
+    let right_root = state.right_tree.root.to_string_lossy().to_string();
+
+    let context = ClipboardContext {
+        file_path: path,
+        left_label,
+        right_label,
+        left_root,
+        right_root,
+    };
+
+    let text = format_diff_for_clipboard(&context, diff);
+
+    match arboard::Clipboard::new() {
+        Ok(mut clipboard) => match clipboard.set_text(&text) {
+            Ok(()) => {
+                state.status_message = "Diff copied to clipboard".to_string();
+            }
+            Err(e) => {
+                state.status_message = format!("Clipboard write failed: {}", e);
+            }
+        },
+        Err(e) => {
+            state.status_message = format!("Clipboard not available: {} (WSL? try xclip)", e);
+        }
+    }
+}
+
+/// Shift+E: レポート出力
+fn handle_export_report(state: &mut AppState) {
+    use crate::app::report::{generate_report, report_filename, ReportFileEntry, ReportInput};
+    use crate::diff::engine::compute_diff;
+    use std::collections::BTreeSet;
+    use std::io::Write;
+
+    // 左右のキャッシュからキーを収集（ソートして一貫した順序に）
+    let keys: BTreeSet<String> = state
+        .left_cache
+        .keys()
+        .chain(state.right_cache.keys())
+        .cloned()
+        .collect();
+
+    if keys.is_empty() {
+        state.status_message = "No cached files to export".to_string();
+        return;
+    }
+
+    // キャッシュ済みの diff を計算
+    let mut diffs: Vec<crate::diff::engine::DiffResult> = Vec::new();
+    let mut entries: Vec<ReportFileEntry> = Vec::new();
+
+    for path in &keys {
+        let left = state.left_cache.get(path).map(|s| s.as_str());
+        let right = state.right_cache.get(path).map(|s| s.as_str());
+
+        let diff = match (left, right) {
+            (Some(l), Some(r)) => compute_diff(l, r),
+            _ => crate::diff::engine::DiffResult::Equal,
+        };
+        diffs.push(diff);
+    }
+
+    // ReportFileEntry は diff への参照を持つので、diffs を先に作ってからイテレート
+    for (i, path) in keys.iter().enumerate() {
+        entries.push(ReportFileEntry {
+            path,
+            left_content: state.left_cache.get(path).map(|s| s.as_str()),
+            right_content: state.right_cache.get(path).map(|s| s.as_str()),
+            diff: Some(&diffs[i]),
+        });
+    }
+
+    let left_label = state.left_source.display_name();
+    let right_label = state.right_source.display_name();
+    let left_root = state.left_tree.root.to_string_lossy().to_string();
+    let right_root = state.right_tree.root.to_string_lossy().to_string();
+
+    let input = ReportInput {
+        left_label,
+        right_label,
+        left_root: &left_root,
+        right_root: &right_root,
+        sensitive_patterns: &state.sensitive_patterns,
+        files: entries,
+    };
+
+    let report = generate_report(&input);
+    let filename = report_filename();
+
+    match std::fs::File::create(&filename) {
+        Ok(mut file) => match file.write_all(report.as_bytes()) {
+            Ok(()) => {
+                state.status_message = format!("Report exported: {}", filename);
+            }
+            Err(e) => {
+                state.status_message = format!("Failed to write report: {}", e);
+            }
+        },
+        Err(e) => {
+            state.status_message = format!("Failed to create report file: {}", e);
+        }
+    }
 }
 
 #[cfg(test)]

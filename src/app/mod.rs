@@ -3,11 +3,13 @@
 
 pub mod badge;
 pub mod cache;
+pub mod clipboard;
 pub mod dialog_ops;
 pub mod diff_search;
 pub mod hunk_ops;
 pub mod merge_collect;
 pub mod navigation;
+pub mod report;
 pub mod scan;
 pub mod search;
 pub mod selection;

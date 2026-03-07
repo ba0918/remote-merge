@@ -82,6 +82,9 @@ enum Commands {
         dry_run: bool,
         #[arg(long)]
         force: bool,
+        /// Copy source file permissions to destination
+        #[arg(long)]
+        with_permissions: bool,
     },
 }
 
@@ -133,6 +136,7 @@ fn main() -> anyhow::Result<()> {
             right,
             dry_run,
             force,
+            with_permissions,
         }) => {
             let code = remote_merge::cli::merge::run_merge(remote_merge::cli::merge::MergeArgs {
                 path,
@@ -140,6 +144,7 @@ fn main() -> anyhow::Result<()> {
                 right,
                 dry_run,
                 force,
+                with_permissions,
             })?;
             std::process::exit(code);
         }

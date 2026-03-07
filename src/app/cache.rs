@@ -75,6 +75,11 @@ impl<V> BoundedCache<V> {
         self.map.len()
     }
 
+    /// 全キーのイテレータを返す。
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.map.keys()
+    }
+
     /// 上限に達している場合、最古のエントリを 1 つ除去する。
     fn evict_if_full(&mut self) {
         if self.map.len() >= self.max_entries {

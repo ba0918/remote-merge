@@ -91,9 +91,16 @@ impl SshClient {
             host: server_config.host.clone(),
             timeout_sec: ssh_config.timeout_sec,
         })?
-        .map_err(|e| AppError::SshConnection {
-            host: server_config.host.clone(),
-            message: e.to_string(),
+        .map_err(|e| {
+            let msg = e.to_string();
+            let message = match super::hint::ssh_algorithm_hint(&msg) {
+                Some(hint) => format!("{}\n\n{}", msg, hint),
+                None => msg,
+            };
+            AppError::SshConnection {
+                host: server_config.host.clone(),
+                message,
+            }
         })?;
 
         if let Err(e) = Self::authenticate(&mut session, server_name, server_config).await {
@@ -339,6 +346,16 @@ impl SshClient {
         max_entries: usize,
         timeout_secs: u64,
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
+        // root_dir の存在チェック
+        let check_cmd = format!("test -d {}", shell_escape(remote_path));
+        if self.exec_strict(&check_cmd).await.is_err() {
+            return Err(AppError::RemoteRootNotFound {
+                host: self.server_name.clone(),
+                path: remote_path.to_string(),
+            }
+            .into());
+        }
+
         let command = format!(
             "find -P {} -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
             shell_escape(remote_path)
@@ -543,6 +560,16 @@ impl SshClient {
     /// サーバ名を取得する
     pub fn server_name(&self) -> &str {
         &self.server_name
+    }
+
+    /// リモートファイルのパーミッションを変更する。
+    pub async fn chmod_file(&mut self, path: &str, mode: u32) -> crate::error::Result<()> {
+        if mode > 0o777 {
+            anyhow::bail!("Invalid permission mode: {:o}", mode);
+        }
+        let cmd = format!("chmod {:o} {}", mode, shell_escape(path));
+        self.exec_strict(&cmd).await?;
+        Ok(())
     }
 
     /// 接続を切断する

@@ -50,12 +50,17 @@ impl HelpOverlay {
                             "F (Shift)".to_string(),
                             "Show changed files only (full scan)".to_string(),
                         ),
-                        ("r".to_string(), "Refresh / Clear cache".to_string()),
+                        ("c".to_string(), "Copy diff to clipboard".to_string()),
+                        ("r".to_string(), "Refresh dir / Reconnect SSH".to_string()),
                         ("f".to_string(), "Filter panel".to_string()),
                         ("s".to_string(), "Server select".to_string()),
                         ("/".to_string(), "Search files".to_string()),
                         ("n".to_string(), "Next search match".to_string()),
                         ("N (Shift)".to_string(), "Previous search match".to_string()),
+                        (
+                            "E (Shift)".to_string(),
+                            "Export report (Markdown)".to_string(),
+                        ),
                     ],
                 },
                 HelpSection {
@@ -75,7 +80,8 @@ impl HelpOverlay {
                         ("u".to_string(), "Undo last change".to_string()),
                         ("U".to_string(), "Undo all changes".to_string()),
                         ("d".to_string(), "Toggle Unified / Side-by-Side".to_string()),
-                        ("c".to_string(), "Reconnect SSH".to_string()),
+                        ("c".to_string(), "Copy diff to clipboard".to_string()),
+                        ("r".to_string(), "Reconnect SSH".to_string()),
                     ],
                 },
                 HelpSection {

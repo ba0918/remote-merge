@@ -4,7 +4,7 @@ use crate::app::side::comparison_label;
 use crate::app::{AppState, Side};
 use crate::runtime::TuiRuntime;
 
-/// SSH 再接続を実行する（c キー）
+/// SSH 再接続を実行する（r キー）
 ///
 /// left_source / right_source に応じて必要な接続を再確立する。
 pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
@@ -117,7 +117,7 @@ fn reconnect_side(
                 Err(e) => {
                     state.is_connected = false;
                     state.status_message = format!(
-                        "{} reconnection failed: {} | Press 'c' to retry",
+                        "{} reconnection failed: {} | Press 'r' to retry",
                         server_name, e
                     );
                     false

@@ -94,6 +94,46 @@ pub fn backup_right(state: &AppState, runtime: &mut TuiRuntime, paths: &[String]
     }
 }
 
+/// ファイルのパーミッションを設定する。
+/// ローカルならファイルシステム、リモートならSSH chmod。
+/// `mode` が 0 の場合はスキップする。
+pub fn chmod_file(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    path: &str,
+    mode: u32,
+    is_left: bool,
+) -> anyhow::Result<()> {
+    if mode == 0 || mode > 0o777 {
+        return Ok(());
+    }
+
+    if is_left {
+        if state.left_source.is_local() {
+            let full_path = state.left_tree.root.join(path);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(mode);
+                std::fs::set_permissions(&full_path, perms)?;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = full_path;
+                tracing::warn!("Permission setting not supported on this platform");
+            }
+        } else {
+            let server = state.left_source.server_name().unwrap();
+            runtime.chmod_remote_file(server, path, mode)?;
+        }
+    } else {
+        let server = &state.server_name;
+        runtime.chmod_remote_file(server, path, mode)?;
+    }
+
+    Ok(())
+}
+
 /// パスがローカルまたはリモートツリーでシンボリックリンクかどうかを判定する
 pub fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
     let local_symlink = state

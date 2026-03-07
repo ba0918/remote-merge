@@ -74,6 +74,23 @@ impl CoreRuntime {
         self.rt.block_on(client.write_file(&full_path, content))
     }
 
+    /// リモートファイルのパーミッションを変更する。
+    pub fn chmod_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        mode: u32,
+    ) -> anyhow::Result<()> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+
+        self.rt.block_on(client.chmod_file(&full_path, mode))
+    }
+
     /// リモート側でバックアップを作成する（バッチ cp コマンド）。
     ///
     /// `rel_paths` の各ファイルについて、リモートの `.remote-merge-backup/` にコピー。
@@ -292,6 +309,15 @@ impl TuiRuntime {
         content: &str,
     ) -> anyhow::Result<()> {
         self.core.write_remote_file(server_name, rel_path, content)
+    }
+
+    pub fn chmod_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        mode: u32,
+    ) -> anyhow::Result<()> {
+        self.core.chmod_remote_file(server_name, rel_path, mode)
     }
 
     pub fn create_remote_backups(

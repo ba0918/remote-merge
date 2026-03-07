@@ -36,6 +36,13 @@ impl MergeDirection {
     }
 }
 
+/// マージ時のオプション
+#[derive(Debug, Clone, Default)]
+pub struct MergeOptions {
+    /// マージ時にソースファイルのパーミッションもコピーするか
+    pub with_permissions: bool,
+}
+
 /// ローカルファイルに書き込む（RemoteToLocal で使用）
 ///
 /// root_dir 配下であることを検証してから書き込む

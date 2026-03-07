@@ -17,6 +17,7 @@ pub struct MergeArgs {
     pub right: Option<String>,
     pub dry_run: bool,
     pub force: bool,
+    pub with_permissions: bool,
 }
 
 /// merge サブコマンドを実行する
@@ -67,7 +68,15 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     let mut failed = Vec::new();
 
     for path in &plan.files {
-        match execute_single_merge(&pair.left, &pair.right, path, direction, &config, &mut core) {
+        match execute_single_merge(
+            &pair.left,
+            &pair.right,
+            path,
+            direction,
+            &config,
+            &mut core,
+            args.with_permissions,
+        ) {
             Ok(result) => merged.push(result),
             Err(e) => failed.push(MergeFailure {
                 path: path.clone(),
@@ -109,6 +118,7 @@ fn execute_single_merge(
     direction: MergeDirection,
     config: &AppConfig,
     core: &mut CoreRuntime,
+    with_permissions: bool,
 ) -> anyhow::Result<MergeFileResult> {
     // コンテンツ読み込み（ソース側）
     let content = match direction {
@@ -130,6 +140,21 @@ fn execute_single_merge(
     match direction {
         MergeDirection::LeftToRight => write_side_content(right, path, &content, config, core)?,
         MergeDirection::RightToLeft => write_side_content(left, path, &content, config, core)?,
+    }
+
+    // パーミッションコピー（--with-permissions 指定時）
+    if with_permissions {
+        let (source, target) = match direction {
+            MergeDirection::LeftToRight => (left, right),
+            MergeDirection::RightToLeft => (right, left),
+        };
+        if let Ok(mode) = get_file_permissions(source, path, config, core) {
+            if mode > 0 && mode <= 0o777 {
+                if let Err(e) = set_file_permissions(target, path, mode, config, core) {
+                    tracing::warn!("Failed to set permissions for {}: {}", path, e);
+                }
+            }
+        }
     }
 
     Ok(MergeFileResult {
@@ -201,5 +226,62 @@ fn create_backup(
             // ローカルバックアップは backup モジュールが担当
             Ok(None)
         }
+    }
+}
+
+/// ソースファイルのパーミッションを取得する
+fn get_file_permissions(
+    side: &Side,
+    path: &str,
+    config: &AppConfig,
+    _core: &mut CoreRuntime,
+) -> anyhow::Result<u32> {
+    match side {
+        Side::Local => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let full = config.local.root_dir.join(path);
+                let metadata = std::fs::metadata(&full)?;
+                Ok(metadata.permissions().mode() & 0o777)
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = (config, path);
+                Ok(0)
+            }
+        }
+        Side::Remote(_name) => {
+            // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。
+            // 現時点では未サポート（TUI 側では FileNode.permissions を使用）。
+            Ok(0)
+        }
+    }
+}
+
+/// ターゲットファイルのパーミッションを設定する
+fn set_file_permissions(
+    side: &Side,
+    path: &str,
+    mode: u32,
+    config: &AppConfig,
+    core: &mut CoreRuntime,
+) -> anyhow::Result<()> {
+    match side {
+        Side::Local => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let full = config.local.root_dir.join(path);
+                let perms = std::fs::Permissions::from_mode(mode);
+                std::fs::set_permissions(&full, perms)?;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = (config, path, mode);
+            }
+            Ok(())
+        }
+        Side::Remote(name) => core.chmod_remote_file(name, path, mode),
     }
 }
