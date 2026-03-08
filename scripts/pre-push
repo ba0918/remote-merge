@@ -1,11 +1,18 @@
 #!/bin/sh
-# pre-push hook: run tests before push
+# pre-push hook: unit tests + integration tests
 set -e
 
-echo "pre-push: cargo test..."
-cargo test --all-features
+echo "pre-push: unit tests..."
+cargo test --lib --all-features
 if [ $? -ne 0 ]; then
-    echo "ERROR: tests failed. Push aborted."
+    echo "ERROR: unit tests failed. Push aborted."
+    exit 1
+fi
+
+echo "pre-push: integration tests..."
+cargo test --test '*' --all-features
+if [ $? -ne 0 ]; then
+    echo "ERROR: integration tests failed. Push aborted."
     exit 1
 fi
 

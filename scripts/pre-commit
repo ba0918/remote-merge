@@ -1,5 +1,5 @@
 #!/bin/sh
-# pre-commit hook: format check + clippy
+# pre-commit hook: format check + clippy + unit tests
 set -e
 
 echo "pre-commit: cargo fmt --check..."
@@ -13,6 +13,20 @@ echo "pre-commit: cargo clippy..."
 cargo clippy --all-targets --all-features -- -D warnings
 if [ $? -ne 0 ]; then
     echo "ERROR: clippy check failed."
+    exit 1
+fi
+
+echo "pre-commit: unit tests..."
+cargo test --lib --all-features
+if [ $? -ne 0 ]; then
+    echo "ERROR: unit tests failed. Commit aborted."
+    exit 1
+fi
+
+echo "pre-commit: integration tests..."
+cargo test --test '*' --all-features
+if [ $? -ne 0 ]; then
+    echo "ERROR: integration tests failed. Commit aborted."
     exit 1
 fi
 
