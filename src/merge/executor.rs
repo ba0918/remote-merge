@@ -67,15 +67,26 @@ pub fn write_local_file(
 }
 
 /// ローカルファイルの内容を読み込む
+///
+/// バイナリファイル（UTF-8でないファイル）の場合は lossy 変換して返す。
+/// これにより diff エンジンの `is_binary()` でバイナリ判定できるようになる。
 pub fn read_local_file(root_dir: &Path, rel_path: &str) -> crate::error::Result<String> {
     let full_path = root_dir.join(rel_path);
     let normalized = validate_path_within_root(root_dir, &full_path)?;
 
-    let content =
-        std::fs::read_to_string(&normalized).map_err(|_| crate::error::AppError::PathNotFound {
+    let bytes = std::fs::read(&normalized).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => crate::error::AppError::PathNotFound {
             path: normalized.clone(),
-        })?;
-    Ok(content)
+        },
+        _ => crate::error::AppError::Io(e),
+    })?;
+
+    // UTF-8 として読めればそのまま返す。
+    // バイナリの場合は lossy 変換して返し、diff エンジンの is_binary() に判定を委ねる。
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok(s),
+        Err(e) => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
 }
 
 /// パスが root_dir 配下にあることを検証する
@@ -198,6 +209,28 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let result = read_local_file(dir.path(), "nonexistent.txt");
         assert!(result.is_err());
+        // PathNotFound エラーであることを確認
+        let err = result.unwrap_err();
+        let app_err = err.downcast_ref::<crate::error::AppError>();
+        assert!(
+            matches!(app_err, Some(crate::error::AppError::PathNotFound { .. })),
+            "Expected PathNotFound, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_read_local_file_binary() {
+        let dir = TempDir::new().unwrap();
+        // NULバイトを含むバイナリファイルを作成
+        let binary_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0xFD];
+        std::fs::write(dir.path().join("binary.dat"), &binary_data).unwrap();
+
+        // バイナリファイルでもエラーにならず、lossy 変換された文字列が返る
+        let result = read_local_file(dir.path(), "binary.dat");
+        assert!(result.is_ok(), "Binary file should not cause error");
+        let content = result.unwrap();
+        assert!(!content.is_empty());
     }
 
     #[test]

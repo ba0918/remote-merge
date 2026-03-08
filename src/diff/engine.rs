@@ -117,6 +117,14 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
         return DiffResult::Equal;
     }
 
+    // バイナリ判定: どちらかが NUL バイトを含む場合はバイナリとして扱う
+    if is_binary(old.as_bytes()) || is_binary(new.as_bytes()) {
+        return DiffResult::Binary {
+            left: Some(crate::diff::binary::BinaryInfo::from_bytes(old.as_bytes())),
+            right: Some(crate::diff::binary::BinaryInfo::from_bytes(new.as_bytes())),
+        };
+    }
+
     let text_diff = TextDiff::from_lines(old, new);
 
     let mut lines = Vec::new();

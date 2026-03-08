@@ -113,6 +113,11 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     lines.push(format!("--- a/{} ({})", output.path, output.left.label));
     lines.push(format!("+++ b/{} ({})", output.path, output.right.label));
 
+    if output.binary {
+        lines.push("Binary files differ".into());
+        return lines.join("\n");
+    }
+
     for hunk in &output.hunks {
         lines.push(format!(
             "@@ -{},{} +{},{} @@",
@@ -352,6 +357,7 @@ mod tests {
             },
             ref_: None,
             sensitive: false,
+            binary: false,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -396,6 +402,7 @@ mod tests {
             },
             ref_: None,
             sensitive: false,
+            binary: false,
             truncated: true,
             hunks: vec![],
             ref_hunks: None,
@@ -548,6 +555,7 @@ mod tests {
                 root: "/s".into(),
             }),
             sensitive: false,
+            binary: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![DiffHunk {
@@ -586,6 +594,7 @@ mod tests {
             },
             ref_: None,
             sensitive: false,
+            binary: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -667,6 +676,7 @@ mod tests {
             },
             ref_: None,
             sensitive: false,
+            binary: false,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,

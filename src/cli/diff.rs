@@ -56,8 +56,8 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
     if !paths_to_compare.is_empty() {
         let mut compare_pairs = HashMap::new();
         for path in &paths_to_compare {
-            let left_content = read_file_tolerant(&mut core, &pair.left, path);
-            let right_content = read_file_tolerant(&mut core, &pair.right, path);
+            let (left_content, _) = read_file_tolerant(&mut core, &pair.left, path);
+            let (right_content, _) = read_file_tolerant(&mut core, &pair.right, path);
             compare_pairs.insert(path.clone(), (left_content, right_content));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);
@@ -95,9 +95,14 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
 
     // Build diff for each file
     let mut file_diffs = Vec::new();
+    let mut has_read_error = false;
     for path in process_files {
-        let left_content = read_file_tolerant(&mut core, &pair.left, path);
-        let right_content = read_file_tolerant(&mut core, &pair.right, path);
+        let (left_content, left_ok) = read_file_tolerant(&mut core, &pair.left, path);
+        let (right_content, right_ok) = read_file_tolerant(&mut core, &pair.right, path);
+        // 両方読めなかったファイルはエラーとして記録
+        if !left_ok && !right_ok {
+            has_read_error = true;
+        }
         let sensitive = is_sensitive(path, &config.filter.sensitive);
 
         let ref_content = if let Some(ref_s) = &ref_side {
@@ -120,7 +125,10 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
         file_diffs.push(output);
     }
 
-    let files_with_changes = file_diffs.iter().filter(|d| !d.hunks.is_empty()).count();
+    let files_with_changes = file_diffs
+        .iter()
+        .filter(|d| d.binary || !d.hunks.is_empty())
+        .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
             total_files: diff_files.len(),
@@ -131,7 +139,9 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
         total_files,
     };
 
-    let code = if multi_output.summary.files_with_changes > 0 {
+    let code = if has_read_error {
+        exit_code::ERROR
+    } else if multi_output.summary.files_with_changes > 0 {
         exit_code::DIFF_FOUND
     } else {
         exit_code::SUCCESS
@@ -152,9 +162,11 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
 /// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空文字列にフォールバックする。
 /// diff は読み取り専用操作であり、片側が読めなくても全行追加/削除として表示できるため、
 /// エラー種別による分岐は行わない。警告は eprintln で常にユーザーに通知される。
-fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> String {
+///
+/// 返り値: (コンテンツ, 読み込み成功したか)
+fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> (String, bool) {
     match core.read_file(side, path) {
-        Ok(content) => content,
+        Ok(content) => (content, true),
         Err(e) => {
             eprintln!(
                 "Warning: {}: {}: {:#} (treating as empty)",
@@ -162,7 +174,7 @@ fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> String
                 path,
                 e
             );
-            String::new()
+            (String::new(), false)
         }
     }
 }

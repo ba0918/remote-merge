@@ -46,7 +46,10 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
 
 /// merge サブコマンドを実行する
 pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
-    validate_merge_args(&args)?;
+    if let Err(e) = validate_merge_args(&args) {
+        eprintln!("Error: {}", e);
+        return Ok(crate::service::types::exit_code::ERROR);
+    }
 
     // フォーマットを先にパースして不正値を早期エラーにする
     let format = OutputFormat::parse(&args.format)?;
@@ -117,8 +120,8 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
 
     let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
-    // スキップされたセンシティブファイル数を表示
-    if !plan.skipped.is_empty() && !args.force {
+    // スキップされたセンシティブファイル数を表示（text 形式のみ。JSON は出力自体に含まれる）
+    if !plan.skipped.is_empty() && !args.force && format == OutputFormat::Text {
         eprintln!(
             "{} sensitive file(s) will be skipped. Use --force to include them.",
             plan.skipped.len()

@@ -22,12 +22,15 @@ pub fn build_diff_output(
 ) -> DiffOutput {
     let result = engine::compute_diff(left_content, right_content);
 
-    let (hunks, truncated) = match result {
-        engine::DiffResult::Equal => (vec![], false),
-        engine::DiffResult::Modified { hunks, .. } => convert_hunks(&hunks, max_lines),
+    let (hunks, truncated, binary) = match result {
+        engine::DiffResult::Equal => (vec![], false, false),
+        engine::DiffResult::Modified { hunks, .. } => {
+            let (h, t) = convert_hunks(&hunks, max_lines);
+            (h, t, false)
+        }
         engine::DiffResult::Binary { .. } | engine::DiffResult::SymlinkDiff { .. } => {
-            // CLI ではバイナリ/シンボリックリンクの詳細 diff は非対応
-            (vec![], false)
+            // バイナリ/シンボリックリンクは hunks を空にし binary フラグで通知
+            (vec![], false, true)
         }
     };
 
@@ -58,6 +61,7 @@ pub fn build_diff_output(
         right: right_info,
         ref_: ref_info_out,
         sensitive,
+        binary,
         truncated,
         hunks,
         ref_hunks: ref_hunks_out,
@@ -113,10 +117,10 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
 
 /// diff の exit code を判定する。差分があれば 1、なければ 0。
 pub fn diff_exit_code(output: &DiffOutput) -> i32 {
-    if output.hunks.is_empty() {
-        exit_code::SUCCESS
-    } else {
+    if output.binary || !output.hunks.is_empty() {
         exit_code::DIFF_FOUND
+    } else {
+        exit_code::SUCCESS
     }
 }
 
@@ -340,6 +344,41 @@ mod tests {
         );
         assert!(output.ref_.is_none());
         assert!(output.ref_hunks.is_none());
+    }
+
+    #[test]
+    fn test_binary_files_set_binary_flag() {
+        // NULバイトを含むコンテンツ → compute_diff が Binary を返す
+        let binary_content = "hello\x00world";
+        let output = build_diff_output(
+            "image.png",
+            info("l"),
+            info("r"),
+            binary_content,
+            "different\x00data",
+            false,
+            None,
+            None,
+            None,
+        );
+        assert!(output.binary, "binary flag should be true for binary files");
+        assert!(output.hunks.is_empty(), "binary files should have no hunks");
+    }
+
+    #[test]
+    fn test_text_files_binary_flag_false() {
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "old\n",
+            "new\n",
+            false,
+            None,
+            None,
+            None,
+        );
+        assert!(!output.binary, "text files should have binary=false");
     }
 
     #[test]
