@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 pub struct StatusOutput {
     pub left: SourceInfo,
     pub right: SourceInfo,
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<SourceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<FileStatus>>,
     pub summary: StatusSummary,
@@ -32,6 +34,8 @@ pub struct FileStatus {
     pub sensitive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hunks: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_badge: Option<String>,
 }
 
 /// ファイル差分の種別
@@ -51,6 +55,12 @@ pub struct StatusSummary {
     pub left_only: usize,
     pub right_only: usize,
     pub equal: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_differs: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_only: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_missing: Option<usize>,
 }
 
 // ── diff ──
@@ -61,9 +71,13 @@ pub struct DiffOutput {
     pub path: String,
     pub left: SourceInfo,
     pub right: SourceInfo,
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<SourceInfo>,
     pub sensitive: bool,
     pub truncated: bool,
     pub hunks: Vec<DiffHunk>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_hunks: Option<Vec<DiffHunk>>,
 }
 
 /// diff のハンク
@@ -100,6 +114,8 @@ pub struct MergeOutput {
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
     pub failed: Vec<MergeFailure>,
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<SourceInfo>,
 }
 
 /// マージ成功結果
@@ -109,6 +125,8 @@ pub struct MergeFileResult {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ref_badge: Option<String>,
 }
 
 /// マージスキップ
@@ -152,17 +170,22 @@ mod tests {
                 label: "develop".into(),
                 root: "dev.example.com:/var/www/app".into(),
             },
+            ref_: None,
             files: Some(vec![FileStatus {
                 path: "src/config.ts".into(),
                 status: FileStatusKind::Modified,
                 sensitive: false,
                 hunks: None,
+                ref_badge: None,
             }]),
             summary: StatusSummary {
                 modified: 1,
                 left_only: 0,
                 right_only: 0,
                 equal: 0,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
             },
         };
 
@@ -180,6 +203,7 @@ mod tests {
             status: FileStatusKind::Modified,
             sensitive: false,
             hunks: Some(3),
+            ref_badge: None,
         };
         let json = serde_json::to_string(&file).unwrap();
         assert!(json.contains("\"hunks\":3"));
@@ -196,12 +220,16 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            ref_: None,
             files: None,
             summary: StatusSummary {
                 modified: 2,
                 left_only: 1,
                 right_only: 0,
                 equal: 10,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
             },
         };
         let json = serde_json::to_string(&output).unwrap();
@@ -222,6 +250,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            ref_: None,
             sensitive: false,
             truncated: false,
             hunks: vec![DiffHunk {
@@ -243,6 +272,7 @@ mod tests {
                     },
                 ],
             }],
+            ref_hunks: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -257,12 +287,14 @@ mod tests {
                 path: "src/config.ts".into(),
                 status: "ok".into(),
                 backup: Some("src/config.ts.20260307.bak".into()),
+                ref_badge: None,
             }],
             skipped: vec![MergeSkipped {
                 path: ".env".into(),
                 reason: "sensitive file".into(),
             }],
             failed: vec![],
+            ref_: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"merged\""));
@@ -295,6 +327,7 @@ mod tests {
                 label: "dev".into(),
                 root: "/var/www".into(),
             },
+            ref_: None,
             files: Some(vec![]),
             summary: StatusSummary::default(),
         };
@@ -302,5 +335,202 @@ mod tests {
         let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.left.label, "local");
         assert_eq!(parsed.right.label, "dev");
+    }
+
+    // ── ref field serialization ──
+
+    #[test]
+    fn test_status_output_with_ref_serialize() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "stg:/var/www".into(),
+            }),
+            files: None,
+            summary: StatusSummary {
+                modified: 1,
+                left_only: 0,
+                right_only: 0,
+                equal: 0,
+                ref_differs: Some(1),
+                ref_only: None,
+                ref_missing: None,
+            },
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"ref\""));
+        assert!(json.contains("\"staging\""));
+        assert!(json.contains("\"ref_differs\":1"));
+        assert!(!json.contains("\"ref_only\""));
+        assert!(!json.contains("\"ref_missing\""));
+    }
+
+    #[test]
+    fn test_status_output_without_ref_serialize() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            ref_: None,
+            files: None,
+            summary: StatusSummary::default(),
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("\"ref\""));
+        assert!(!json.contains("ref_differs"));
+    }
+
+    #[test]
+    fn test_diff_output_with_ref_hunks_serialize() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+            sensitive: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: Some(vec![]),
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"ref\""));
+        assert!(json.contains("\"ref_hunks\""));
+    }
+
+    #[test]
+    fn test_diff_output_without_ref_serialize() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("\"ref\""));
+        assert!(!json.contains("\"ref_hunks\""));
+    }
+
+    #[test]
+    fn test_merge_output_with_ref_serialize() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: Some("differs".into()),
+            }],
+            skipped: vec![],
+            failed: vec![],
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"ref\""));
+        assert!(json.contains("\"ref_badge\""));
+        assert!(json.contains("\"differs\""));
+    }
+
+    #[test]
+    fn test_file_status_ref_badge_serialize() {
+        let file = FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: Some(2),
+            ref_badge: Some("differs".into()),
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        assert!(json.contains("\"ref_badge\":\"differs\""));
+    }
+
+    #[test]
+    fn test_file_status_ref_badge_none_omitted() {
+        let file = FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        };
+        let json = serde_json::to_string(&file).unwrap();
+        assert!(!json.contains("ref_badge"));
+    }
+
+    #[test]
+    fn test_status_summary_backward_compat_deserialize() {
+        // Old JSON without ref fields should deserialize with ref_* = None
+        let json = r#"{"modified":1,"left_only":0,"right_only":0,"equal":5}"#;
+        let summary: StatusSummary = serde_json::from_str(json).unwrap();
+        assert_eq!(summary.modified, 1);
+        assert_eq!(summary.equal, 5);
+        assert!(summary.ref_differs.is_none());
+        assert!(summary.ref_only.is_none());
+        assert!(summary.ref_missing.is_none());
+    }
+
+    #[test]
+    fn test_roundtrip_status_output_with_ref() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/var/www".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+            files: Some(vec![]),
+            summary: StatusSummary {
+                modified: 0,
+                left_only: 0,
+                right_only: 0,
+                equal: 0,
+                ref_differs: Some(0),
+                ref_only: Some(0),
+                ref_missing: Some(0),
+            },
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.ref_.as_ref().unwrap().label, "staging");
+        assert_eq!(parsed.summary.ref_differs, Some(0));
     }
 }

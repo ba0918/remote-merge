@@ -53,6 +53,9 @@ enum Commands {
         left: Option<String>,
         #[arg(long)]
         right: Option<String>,
+        /// Reference server for 3-way comparison
+        #[arg(long, alias = "reference")]
+        r#ref: Option<String>,
         #[arg(long, default_value = "text")]
         format: String,
         #[arg(long)]
@@ -66,6 +69,9 @@ enum Commands {
         left: Option<String>,
         #[arg(long)]
         right: Option<String>,
+        /// Reference server for 3-way comparison
+        #[arg(long, alias = "reference")]
+        r#ref: Option<String>,
         #[arg(long, default_value = "text")]
         format: String,
         #[arg(long)]
@@ -81,6 +87,9 @@ enum Commands {
         left: Option<String>,
         #[arg(long)]
         right: Option<String>,
+        /// Reference server for 3-way comparison
+        #[arg(long, alias = "reference")]
+        r#ref: Option<String>,
         #[arg(long)]
         dry_run: bool,
         #[arg(long)]
@@ -132,6 +141,7 @@ fn main() -> anyhow::Result<()> {
             server,
             left,
             right,
+            r#ref,
             format,
             summary,
         }) => {
@@ -140,6 +150,7 @@ fn main() -> anyhow::Result<()> {
                     server,
                     left,
                     right,
+                    ref_server: r#ref,
                     format,
                     summary,
                 })?;
@@ -149,6 +160,7 @@ fn main() -> anyhow::Result<()> {
             path,
             left,
             right,
+            r#ref,
             format,
             max_lines,
             max_files: _,
@@ -157,6 +169,7 @@ fn main() -> anyhow::Result<()> {
                 path,
                 left,
                 right,
+                ref_server: r#ref,
                 format,
                 max_lines,
             })?;
@@ -166,6 +179,7 @@ fn main() -> anyhow::Result<()> {
             path,
             left,
             right,
+            r#ref,
             dry_run,
             force,
             with_permissions,
@@ -174,6 +188,7 @@ fn main() -> anyhow::Result<()> {
                 path,
                 left,
                 right,
+                ref_server: r#ref,
                 dry_run,
                 force,
                 with_permissions,

@@ -22,6 +22,16 @@ impl OutputFormat {
     }
 }
 
+/// ref バッジ文字列を表示用テキストに変換する
+fn ref_badge_display(badge: &str) -> &'static str {
+    match badge {
+        "differs" => " [ref≠]",
+        "exists_only_in_ref" => " [ref+]",
+        "missing_in_ref" => " [ref-]",
+        _ => "", // all_equal — don't display
+    }
+}
+
 /// StatusOutput をテキストフォーマットする（git status 風）
 pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
     let mut lines = Vec::new();
@@ -40,9 +50,14 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
                     .hunks
                     .map(|n| format!(" ({} hunks)", n))
                     .unwrap_or_default();
+                let ref_badge_str = file
+                    .ref_badge
+                    .as_ref()
+                    .map(|b| ref_badge_display(b))
+                    .unwrap_or("");
                 lines.push(format!(
-                    "{}{}{}{}",
-                    prefix, file.path, sensitive_mark, hunk_info
+                    "{}{}{}{}{}",
+                    prefix, file.path, sensitive_mark, hunk_info, ref_badge_str
                 ));
             }
             lines.push(String::new());
@@ -56,6 +71,17 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
         output.summary.right_only,
         output.summary.equal,
     ));
+
+    if let (Some(rd), Some(ro), Some(rm)) = (
+        output.summary.ref_differs,
+        output.summary.ref_only,
+        output.summary.ref_missing,
+    ) {
+        lines.push(format!(
+            "  Ref: {} differs, {} ref-only, {} ref-missing",
+            rd, ro, rm
+        ));
+    }
 
     lines.join("\n")
 }
@@ -95,6 +121,39 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         lines.push("... (output truncated)".into());
     }
 
+    if let (Some(ref_info), Some(ref_hunks)) = (&output.ref_, &output.ref_hunks) {
+        if !ref_hunks.is_empty() {
+            lines.push(String::new());
+            lines.push(format!(
+                "--- ref:{}:{} (reference diff vs left)",
+                ref_info.label, output.path
+            ));
+            for hunk in ref_hunks {
+                lines.push(format!(
+                    "@@ -{},{} +{},{} @@",
+                    hunk.left_start,
+                    hunk.lines
+                        .iter()
+                        .filter(|l| l.line_type != DiffLineType::Added)
+                        .count(),
+                    hunk.right_start,
+                    hunk.lines
+                        .iter()
+                        .filter(|l| l.line_type != DiffLineType::Removed)
+                        .count(),
+                ));
+                for line in &hunk.lines {
+                    let prefix = match line.line_type {
+                        DiffLineType::Context => " ",
+                        DiffLineType::Added => "+",
+                        DiffLineType::Removed => "-",
+                    };
+                    lines.push(format!("{}{}", prefix, line.content));
+                }
+            }
+        }
+    }
+
     lines.join("\n")
 }
 
@@ -108,7 +167,15 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
             .as_ref()
             .map(|b| format!(" (backup: {})", b))
             .unwrap_or_default();
-        lines.push(format!("Merged: {}{}", result.path, backup_info));
+        let ref_badge_str = result
+            .ref_badge
+            .as_ref()
+            .map(|b| ref_badge_display(b))
+            .unwrap_or("");
+        lines.push(format!(
+            "Merged: {}{}{}",
+            result.path, backup_info, ref_badge_str
+        ));
     }
 
     for skip in &output.skipped {
@@ -141,24 +208,28 @@ mod tests {
                 label: "develop".into(),
                 root: "dev:/var/www".into(),
             },
+            ref_: None,
             files: Some(vec![
                 FileStatus {
                     path: "src/config.ts".into(),
                     status: FileStatusKind::Modified,
                     sensitive: false,
                     hunks: None,
+                    ref_badge: None,
                 },
                 FileStatus {
                     path: "src/new.ts".into(),
                     status: FileStatusKind::LeftOnly,
                     sensitive: false,
                     hunks: None,
+                    ref_badge: None,
                 },
                 FileStatus {
                     path: ".env".into(),
                     status: FileStatusKind::Modified,
                     sensitive: true,
                     hunks: None,
+                    ref_badge: None,
                 },
             ]),
             summary: StatusSummary {
@@ -166,6 +237,9 @@ mod tests {
                 left_only: 1,
                 right_only: 0,
                 equal: 0,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
             },
         }
     }
@@ -197,11 +271,13 @@ mod tests {
                 label: "r".into(),
                 root: "/r".into(),
             },
+            ref_: None,
             files: Some(vec![FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
                 sensitive: false,
                 hunks: Some(3),
+                ref_badge: None,
             }]),
             summary: StatusSummary {
                 modified: 1,
@@ -224,6 +300,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            ref_: None,
             sensitive: false,
             truncated: false,
             hunks: vec![DiffHunk {
@@ -245,6 +322,7 @@ mod tests {
                     },
                 ],
             }],
+            ref_hunks: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -266,9 +344,11 @@ mod tests {
                 label: "r".into(),
                 root: "/r".into(),
             },
+            ref_: None,
             sensitive: false,
             truncated: true,
             hunks: vec![],
+            ref_hunks: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -281,12 +361,14 @@ mod tests {
                 path: "a.rs".into(),
                 status: "ok".into(),
                 backup: Some("a.rs.bak".into()),
+                ref_badge: None,
             }],
             skipped: vec![MergeSkipped {
                 path: ".env".into(),
                 reason: "sensitive file".into(),
             }],
             failed: vec![],
+            ref_: None,
         };
         let text = format_merge_text(&output);
         assert!(text.contains("Merged: a.rs (backup: a.rs.bak)"));
@@ -307,5 +389,178 @@ mod tests {
         assert_eq!(OutputFormat::parse("json").unwrap(), OutputFormat::Json);
         assert_eq!(OutputFormat::parse("diff").unwrap(), OutputFormat::Text);
         assert!(OutputFormat::parse("yaml").is_err());
+    }
+
+    #[test]
+    fn test_format_status_text_with_ref_badges() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+            files: Some(vec![
+                FileStatus {
+                    path: "a.rs".into(),
+                    status: FileStatusKind::Modified,
+                    sensitive: false,
+                    hunks: Some(2),
+                    ref_badge: Some("differs".into()),
+                },
+                FileStatus {
+                    path: "b.rs".into(),
+                    status: FileStatusKind::Equal,
+                    sensitive: false,
+                    hunks: None,
+                    ref_badge: Some("missing_in_ref".into()),
+                },
+                FileStatus {
+                    path: "c.rs".into(),
+                    status: FileStatusKind::Modified,
+                    sensitive: false,
+                    hunks: None,
+                    ref_badge: Some("all_equal".into()),
+                },
+            ]),
+            summary: StatusSummary {
+                modified: 2,
+                left_only: 0,
+                right_only: 0,
+                equal: 1,
+                ref_differs: Some(1),
+                ref_only: Some(0),
+                ref_missing: Some(1),
+            },
+        };
+        let text = format_status_text(&output, false);
+        assert!(text.contains("M a.rs (2 hunks) [ref≠]"));
+        assert!(text.contains("= b.rs [ref-]"));
+        // all_equal badge should NOT be displayed
+        assert!(!text.contains("c.rs [ref"));
+        assert!(text.contains("Ref: 1 differs, 0 ref-only, 1 ref-missing"));
+    }
+
+    #[test]
+    fn test_format_status_text_no_ref_backward_compat() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            files: Some(vec![FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            }]),
+            summary: StatusSummary {
+                modified: 1,
+                left_only: 0,
+                right_only: 0,
+                equal: 0,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
+            },
+        };
+        let text = format_status_text(&output, false);
+        assert!(!text.contains("Ref:"));
+        assert!(!text.contains("[ref"));
+    }
+
+    #[test]
+    fn test_format_diff_text_with_ref_hunks() {
+        let output = DiffOutput {
+            path: "config.ts".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+            sensitive: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: Some(vec![DiffHunk {
+                index: 0,
+                left_start: 1,
+                right_start: 1,
+                lines: vec![
+                    DiffLine {
+                        line_type: DiffLineType::Removed,
+                        content: "old ref".into(),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Added,
+                        content: "new ref".into(),
+                    },
+                ],
+            }]),
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
+        assert!(text.contains("-old ref"));
+        assert!(text.contains("+new ref"));
+    }
+
+    #[test]
+    fn test_format_diff_text_no_ref_backward_compat() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(!text.contains("ref"));
+    }
+
+    #[test]
+    fn test_format_merge_text_with_ref_badge() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: Some("differs".into()),
+            }],
+            skipped: vec![],
+            failed: vec![],
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+        };
+        let text = format_merge_text(&output);
+        assert!(text.contains("Merged: a.rs [ref≠]"));
     }
 }

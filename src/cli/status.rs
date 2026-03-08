@@ -14,9 +14,11 @@ use crate::app::Side;
 use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
-use crate::service::source_pair::{build_source_info, resolve_source_pair, SourceArgs};
+use crate::service::source_pair::{
+    build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
+};
 use crate::service::status::{
-    build_status_output, compute_status_from_trees, needs_content_compare,
+    build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
     refine_status_with_content, status_exit_code,
 };
 
@@ -28,6 +30,7 @@ pub struct StatusArgs {
     pub server: Option<String>,
     pub left: Option<String>,
     pub right: Option<String>,
+    pub ref_server: Option<String>,
     pub format: String,
     pub summary: bool,
 }
@@ -64,14 +67,84 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
     // コンテンツ比較が必要なファイルを抽出
     let paths_to_compare = needs_content_compare(&files, &left_tree, &right_tree);
 
+    // Ref server handling
+    let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
+
+    // ref 指定時は全非 sensitive ファイルのコンテンツが必要（badge 計算用）。
+    // ref 未指定時は paths_to_compare のみ読めばよい。
+    // いずれの場合も左右コンテンツを1回だけ読み、両方の用途で再利用する。
+    let content_paths = if ref_side.is_some() {
+        files
+            .iter()
+            .filter(|f| !f.sensitive)
+            .map(|f| f.path.clone())
+            .collect::<Vec<_>>()
+    } else {
+        paths_to_compare.clone()
+    };
+
+    let left_contents = if !content_paths.is_empty() {
+        fetch_side_contents_tolerant(&pair.left, &content_paths, &mut core)
+    } else {
+        HashMap::new()
+    };
+    let right_contents = if !content_paths.is_empty() {
+        fetch_side_contents_tolerant(&pair.right, &content_paths, &mut core)
+    } else {
+        HashMap::new()
+    };
+
+    // コンテンツ比較で status を精緻化
     if !paths_to_compare.is_empty() {
-        // コンテンツ取得・比較
-        let contents =
-            fetch_contents_for_compare(&pair.left, &pair.right, &paths_to_compare, &mut core)?;
-        refine_status_with_content(&mut files, &contents);
+        let mut compare_pairs = HashMap::new();
+        for path in &paths_to_compare {
+            if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {
+                compare_pairs.insert(path.clone(), (l.clone(), r.clone()));
+            }
+        }
+        refine_status_with_content(&mut files, &compare_pairs);
     }
 
-    let output = build_status_output(left_info, right_info, files, args.summary);
+    let mut ref_info = None;
+    let mut ref_badges = None;
+
+    if let Some(ref_s) = &ref_side {
+        // Connect to ref server
+        core.connect_if_remote(ref_s)?;
+
+        // Fetch ref tree
+        let ref_tree = core.fetch_tree_recursive(ref_s, MAX_SCAN_ENTRIES)?;
+        ref_info = Some(build_source_info(ref_s, &core)?);
+
+        // Fetch ref contents for non-sensitive files
+        let ref_paths: Vec<String> = files
+            .iter()
+            .filter(|f| !f.sensitive)
+            .map(|f| f.path.clone())
+            .collect();
+        let ref_contents = fetch_side_contents_tolerant(ref_s, &ref_paths, &mut core);
+
+        // Compute ref badges — left/right contents は既に取得済みのものを再利用
+        let badges = compute_ref_badges(
+            &files,
+            &left_tree,
+            &right_tree,
+            &ref_tree,
+            &left_contents,
+            &right_contents,
+            &ref_contents,
+        );
+        ref_badges = Some(badges);
+    }
+
+    let output = build_status_output(
+        left_info,
+        right_info,
+        files,
+        args.summary,
+        ref_info,
+        ref_badges.as_ref(),
+    );
     let code = status_exit_code(&output.summary);
 
     // 出力
@@ -83,26 +156,6 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
-}
-
-/// 左右のファイルコンテンツを取得して比較用ペアにまとめる
-fn fetch_contents_for_compare(
-    left_side: &Side,
-    right_side: &Side,
-    paths: &[String],
-    core: &mut CoreRuntime,
-) -> anyhow::Result<HashMap<String, (String, String)>> {
-    // バッチ読み込み（エラーが起きた場合はスキップ）
-    let left_contents = fetch_side_contents_tolerant(left_side, paths, core);
-    let right_contents = fetch_side_contents_tolerant(right_side, paths, core);
-
-    let mut result = HashMap::new();
-    for path in paths {
-        if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {
-            result.insert(path.clone(), (l.clone(), r.clone()));
-        }
-    }
-    Ok(result)
 }
 
 /// 片側のファイルコンテンツをバッチ取得する（読み込みエラーはスキップ）

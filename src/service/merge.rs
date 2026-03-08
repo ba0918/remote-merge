@@ -41,11 +41,13 @@ pub fn build_merge_output(
     merged: Vec<MergeFileResult>,
     skipped: Vec<MergeSkipped>,
     failed: Vec<MergeFailure>,
+    ref_info: Option<SourceInfo>,
 ) -> MergeOutput {
     MergeOutput {
         merged,
         skipped,
         failed,
+        ref_: ref_info,
     }
 }
 
@@ -98,9 +100,11 @@ mod tests {
                 path: "a.rs".into(),
                 status: "ok".into(),
                 backup: None,
+                ref_badge: None,
             }],
             vec![],
             vec![],
+            None,
         );
         assert_eq!(output.merged.len(), 1);
         assert!(output.failed.is_empty());
@@ -113,9 +117,11 @@ mod tests {
                 path: "a.rs".into(),
                 status: "ok".into(),
                 backup: None,
+                ref_badge: None,
             }],
             vec![],
             vec![],
+            None,
         );
         assert_eq!(merge_exit_code(&output), exit_code::SUCCESS);
     }
@@ -129,7 +135,48 @@ mod tests {
                 path: "a.rs".into(),
                 error: "write error".into(),
             }],
+            None,
         );
         assert_eq!(merge_exit_code(&output), exit_code::ERROR);
+    }
+
+    #[test]
+    fn test_build_merge_output_with_ref() {
+        let output = build_merge_output(
+            vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: Some("differs".into()),
+            }],
+            vec![],
+            vec![],
+            Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+        );
+        assert!(output.ref_.is_some());
+        assert_eq!(output.ref_.as_ref().unwrap().label, "staging");
+        assert_eq!(output.merged[0].ref_badge.as_ref().unwrap(), "differs");
+    }
+
+    #[test]
+    fn test_build_merge_output_no_ref_backward_compat() {
+        let output = build_merge_output(
+            vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            vec![],
+            vec![],
+            None,
+        );
+        assert!(output.ref_.is_none());
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("\"ref\""));
+        assert!(!json.contains("\"ref_badge\""));
     }
 }

@@ -3,9 +3,10 @@
 //! 2つのツリーを受け取り、各ファイルの差分ステータスを計算する純粋関数群。
 //! CoreRuntime 経由のI/O操作は呼び出し側（CLI層）が行う。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+use crate::app::three_way;
 use crate::tree::{FileTree, NodePresence};
 
 use super::types::*;
@@ -106,6 +107,7 @@ pub fn compute_status_from_trees(
             status,
             sensitive: is_sensitive(path, sensitive_patterns),
             hunks: None,
+            ref_badge: None,
         });
     }
 
@@ -195,19 +197,106 @@ pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
     summary
 }
 
+/// 3-way バッジを全ファイルに対して計算する。
+///
+/// `app::three_way::compute_file_badge()` を内部で呼び出す。
+/// sensitive ファイルは HashMap に含めない。
+pub fn compute_ref_badges(
+    files: &[FileStatus],
+    left_tree: &FileTree,
+    right_tree: &FileTree,
+    ref_tree: &FileTree,
+    left_contents: &HashMap<String, String>,
+    right_contents: &HashMap<String, String>,
+    ref_contents: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for file in files {
+        if file.sensitive {
+            continue;
+        }
+        let left_exists = left_tree.find_node(Path::new(&file.path)).is_some();
+        let right_exists = right_tree.find_node(Path::new(&file.path)).is_some();
+        let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
+        let left_eq_right = left_contents.get(&file.path) == right_contents.get(&file.path);
+        let left_eq_ref = left_contents.get(&file.path) == ref_contents.get(&file.path);
+        let badge = three_way::compute_file_badge(
+            left_exists,
+            right_exists,
+            ref_exists,
+            left_eq_right,
+            left_eq_ref,
+        );
+        let badge_str = match badge {
+            three_way::ThreeWayFileBadge::AllEqual => "all_equal",
+            three_way::ThreeWayFileBadge::Differs => "differs",
+            three_way::ThreeWayFileBadge::ExistsOnlyInRef => "exists_only_in_ref",
+            three_way::ThreeWayFileBadge::MissingInRef => "missing_in_ref",
+        };
+        map.insert(file.path.clone(), badge_str.to_string());
+    }
+    map
+}
+
+/// ref バッジの集計を返す。
+pub fn compute_ref_summary(ref_badges: &HashMap<String, String>) -> (usize, usize, usize) {
+    let mut differs = 0;
+    let mut ref_only = 0;
+    let mut ref_missing = 0;
+    for badge in ref_badges.values() {
+        match badge.as_str() {
+            "differs" => differs += 1,
+            "exists_only_in_ref" => ref_only += 1,
+            "missing_in_ref" => ref_missing += 1,
+            _ => {} // all_equal — no count
+        }
+    }
+    (differs, ref_only, ref_missing)
+}
+
 /// StatusOutput を組み立てる（純粋関数）。
 pub fn build_status_output(
     left_info: SourceInfo,
     right_info: SourceInfo,
     files: Vec<FileStatus>,
     summary_only: bool,
+    ref_info: Option<SourceInfo>,
+    ref_badges: Option<&HashMap<String, String>>,
 ) -> StatusOutput {
     let summary = compute_summary(&files);
+
+    // Apply ref badges to files
+    let files_with_badges: Vec<FileStatus> = files
+        .into_iter()
+        .map(|mut f| {
+            if let Some(badges) = ref_badges {
+                f.ref_badge = badges.get(&f.path).cloned();
+            }
+            f
+        })
+        .collect();
+
+    // Compute ref summary
+    let (ref_differs, ref_only_count, ref_missing_count) =
+        ref_badges.map(compute_ref_summary).unwrap_or((0, 0, 0));
+
+    let mut summary_out = summary;
+    if ref_badges.is_some() {
+        summary_out.ref_differs = Some(ref_differs);
+        summary_out.ref_only = Some(ref_only_count);
+        summary_out.ref_missing = Some(ref_missing_count);
+    }
+
     StatusOutput {
         left: left_info,
         right: right_info,
-        files: if summary_only { None } else { Some(files) },
-        summary,
+        ref_: ref_info,
+        files: if summary_only {
+            None
+        } else {
+            Some(files_with_badges)
+        },
+        summary: summary_out,
     }
 }
 
@@ -330,24 +419,28 @@ mod tests {
                 status: FileStatusKind::Modified,
                 sensitive: false,
                 hunks: None,
+                ref_badge: None,
             },
             FileStatus {
                 path: "b".into(),
                 status: FileStatusKind::LeftOnly,
                 sensitive: false,
                 hunks: None,
+                ref_badge: None,
             },
             FileStatus {
                 path: "c".into(),
                 status: FileStatusKind::RightOnly,
                 sensitive: false,
                 hunks: None,
+                ref_badge: None,
             },
             FileStatus {
                 path: "d".into(),
                 status: FileStatusKind::Equal,
                 sensitive: false,
                 hunks: None,
+                ref_badge: None,
             },
         ];
         let summary = compute_summary(&files);
@@ -366,6 +459,7 @@ mod tests {
             status: FileStatusKind::Modified,
             sensitive: false,
             hunks: None,
+            ref_badge: None,
         }];
         let output = build_status_output(
             SourceInfo {
@@ -378,6 +472,8 @@ mod tests {
             },
             files,
             false,
+            None,
+            None,
         );
         assert!(output.files.is_some());
         assert_eq!(output.summary.modified, 1);
@@ -390,6 +486,7 @@ mod tests {
             status: FileStatusKind::Modified,
             sensitive: false,
             hunks: None,
+            ref_badge: None,
         }];
         let output = build_status_output(
             SourceInfo {
@@ -402,6 +499,8 @@ mod tests {
             },
             files,
             true,
+            None,
+            None,
         );
         assert!(output.files.is_none());
         assert_eq!(output.summary.modified, 1);
@@ -416,6 +515,9 @@ mod tests {
             left_only: 0,
             right_only: 0,
             equal: 5,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
         };
         assert_eq!(status_exit_code(&summary), exit_code::SUCCESS);
     }
@@ -427,6 +529,9 @@ mod tests {
             left_only: 0,
             right_only: 0,
             equal: 5,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
         };
         assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
     }
@@ -438,6 +543,9 @@ mod tests {
             left_only: 1,
             right_only: 0,
             equal: 0,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
         };
         assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
     }
@@ -534,6 +642,7 @@ mod tests {
             status: FileStatusKind::Modified,
             sensitive: false,
             hunks: None,
+            ref_badge: None,
         }];
         let mut contents = std::collections::HashMap::new();
         contents.insert(
@@ -551,6 +660,7 @@ mod tests {
             status: FileStatusKind::Modified,
             sensitive: false,
             hunks: None,
+            ref_badge: None,
         }];
         let mut contents = std::collections::HashMap::new();
         contents.insert(
@@ -568,11 +678,192 @@ mod tests {
             status: FileStatusKind::LeftOnly,
             sensitive: false,
             hunks: None,
+            ref_badge: None,
         }];
         let mut contents = std::collections::HashMap::new();
         contents.insert("a.rs".to_string(), ("same".to_string(), "same".to_string()));
         refine_status_with_content(&mut files, &contents);
         // LeftOnly はコンテンツ比較で変更されない
         assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    // ── compute_ref_badges ──
+
+    #[test]
+    fn test_compute_ref_badges_all_equal() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let mut left_c = HashMap::new();
+        left_c.insert("a.rs".into(), "content".into());
+        let mut right_c = HashMap::new();
+        right_c.insert("a.rs".into(), "content".into());
+        let mut ref_c = HashMap::new();
+        ref_c.insert("a.rs".into(), "content".into());
+
+        let badges =
+            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        assert_eq!(badges.get("a.rs").unwrap(), "all_equal");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_differs() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let mut left_c = HashMap::new();
+        left_c.insert("a.rs".into(), "left_content".into());
+        let mut right_c = HashMap::new();
+        right_c.insert("a.rs".into(), "right_content".into());
+        let mut ref_c = HashMap::new();
+        ref_c.insert("a.rs".into(), "ref_content".into());
+
+        let badges =
+            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        assert_eq!(badges.get("a.rs").unwrap(), "differs");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_missing_in_ref() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_sensitive_skipped() {
+        let files = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::Modified,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file(".env")]);
+        let right = make_tree(vec![FileNode::new_file(".env")]);
+        let ref_tree = make_tree(vec![FileNode::new_file(".env")]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(!badges.contains_key(".env"));
+    }
+
+    #[test]
+    fn test_compute_ref_summary() {
+        let mut badges = HashMap::new();
+        badges.insert("a.rs".into(), "differs".into());
+        badges.insert("b.rs".into(), "differs".into());
+        badges.insert("c.rs".into(), "exists_only_in_ref".into());
+        badges.insert("d.rs".into(), "all_equal".into());
+        badges.insert("e.rs".into(), "missing_in_ref".into());
+
+        let (differs, ref_only, ref_missing) = compute_ref_summary(&badges);
+        assert_eq!(differs, 2);
+        assert_eq!(ref_only, 1);
+        assert_eq!(ref_missing, 1);
+    }
+
+    #[test]
+    fn test_compute_ref_badges_empty_ref_tree() {
+        let files = vec![
+            FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b.rs".into(),
+                status: FileStatusKind::LeftOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let left = make_tree(vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    #[test]
+    fn test_build_status_output_no_ref_backward_compat() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let output = build_status_output(
+            SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            SourceInfo {
+                label: "dev".into(),
+                root: "/var/www".into(),
+            },
+            files,
+            false,
+            None,
+            None,
+        );
+        assert!(output.ref_.is_none());
+        assert!(output.summary.ref_differs.is_none());
+        // ref_badge should remain None on all files
+        for f in output.files.unwrap() {
+            assert!(f.ref_badge.is_none());
+        }
     }
 }

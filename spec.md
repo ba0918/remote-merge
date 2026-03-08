@@ -1095,7 +1095,7 @@ remote-merge/
 - [x] 3way diff バッジ表示・ペア切り替え（PairServerMenu 2列選択UI、--ref CLI引数）
 - [x] right↔ref ワンキースワップ（`X` キー）・Equal時ref diff自動表示
 - [x] ディレクトリバッジの ref 差分色分け
-- [ ] 3way サマリーパネル（`W` キー）
+- [x] 3way サマリーパネル（`W` キー）
 - [x] サーバ間比較（remote ↔ remote）
 - [x] リモート間マージ（サーバ名入力確認・`--force`）
 - [x] 更新日時・メタデータ表示

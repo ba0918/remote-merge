@@ -101,6 +101,24 @@ pub fn build_source_info(side: &Side, core: &CoreRuntime) -> anyhow::Result<Sour
     }
 }
 
+/// ref サーバ名を Side に解決する。None の場合は Ok(None) を返す。
+/// 存在しないサーバ名の場合は Err を返す。
+/// 内部で validate_server() を呼び出す。
+pub fn resolve_ref_source(
+    ref_server_name: Option<&str>,
+    config: &AppConfig,
+) -> anyhow::Result<Option<Side>> {
+    let name = match ref_server_name {
+        Some(n) => n,
+        None => return Ok(None),
+    };
+    if name == "local" {
+        return Ok(Some(Side::Local));
+    }
+    validate_server(name, config)?;
+    Ok(Some(Side::Remote(name.to_string())))
+}
+
 /// サーバ名が config に存在するか検証する
 fn validate_server(name: &str, config: &AppConfig) -> anyhow::Result<()> {
     if name == "local" {
@@ -266,6 +284,44 @@ mod tests {
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
         assert_eq!(pair.right, Side::Local);
+    }
+
+    // ── resolve_ref_source ──
+
+    #[test]
+    fn test_resolve_ref_source_remote() {
+        let config = test_config();
+        let result = resolve_ref_source(Some("develop"), &config).unwrap();
+        assert_eq!(result, Some(Side::Remote("develop".into())));
+    }
+
+    #[test]
+    fn test_resolve_ref_source_local() {
+        let config = test_config();
+        let result = resolve_ref_source(Some("local"), &config).unwrap();
+        assert_eq!(result, Some(Side::Local));
+    }
+
+    #[test]
+    fn test_resolve_ref_source_nonexistent() {
+        let config = test_config();
+        let result = resolve_ref_source(Some("nonexistent"), &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_ref_source_none() {
+        let config = test_config();
+        let result = resolve_ref_source(None, &config).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_ref_source_same_as_left() {
+        // ref == left (same name as a valid server) should NOT error
+        let config = test_config();
+        let result = resolve_ref_source(Some("staging"), &config).unwrap();
+        assert_eq!(result, Some(Side::Remote("staging".into())));
     }
 
     #[test]

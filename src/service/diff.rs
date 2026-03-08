@@ -8,6 +8,7 @@ use crate::diff::engine::{self, DiffTag};
 use super::types::*;
 
 /// diff エンジンの結果を DiffOutput に変換する（純粋関数）。
+#[allow(clippy::too_many_arguments)]
 pub fn build_diff_output(
     path: &str,
     left_info: SourceInfo,
@@ -16,6 +17,8 @@ pub fn build_diff_output(
     right_content: &str,
     sensitive: bool,
     max_lines: Option<usize>,
+    ref_info: Option<SourceInfo>,
+    ref_content: Option<&str>,
 ) -> DiffOutput {
     let result = engine::compute_diff(left_content, right_content);
 
@@ -28,13 +31,36 @@ pub fn build_diff_output(
         }
     };
 
+    // Compute ref hunks (left vs ref)
+    let (ref_hunks_out, ref_info_out) = match (ref_info, ref_content) {
+        (Some(ri), Some(rc)) => {
+            let ref_result = engine::compute_diff(left_content, rc);
+            let ref_hunks = match ref_result {
+                engine::DiffResult::Equal => Some(vec![]),
+                engine::DiffResult::Modified { hunks: rh, .. } => {
+                    let (converted, _) = convert_hunks(&rh, max_lines);
+                    Some(converted)
+                }
+                _ => Some(vec![]),
+            };
+            (ref_hunks, Some(ri))
+        }
+        (Some(ri), None) => {
+            // ref server specified but file doesn't exist on ref
+            (None, Some(ri))
+        }
+        _ => (None, None),
+    };
+
     DiffOutput {
         path: path.to_string(),
         left: left_info,
         right: right_info,
+        ref_: ref_info_out,
         sensitive,
         truncated,
         hunks,
+        ref_hunks: ref_hunks_out,
     }
 }
 
@@ -115,6 +141,8 @@ mod tests {
             "hello\nworld\n",
             false,
             None,
+            None,
+            None,
         );
         assert!(output.hunks.is_empty());
         assert!(!output.truncated);
@@ -129,6 +157,8 @@ mod tests {
             "line1\nline2\nline3\n",
             "line1\nchanged\nline3\n",
             false,
+            None,
+            None,
             None,
         );
         assert!(!output.hunks.is_empty());
@@ -157,7 +187,17 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let output = build_diff_output("big.rs", info("l"), info("r"), &old, &new, false, Some(5));
+        let output = build_diff_output(
+            "big.rs",
+            info("l"),
+            info("r"),
+            &old,
+            &new,
+            false,
+            Some(5),
+            None,
+            None,
+        );
         assert!(output.truncated);
         let total_lines: usize = output.hunks.iter().map(|h| h.lines.len()).sum();
         assert!(total_lines <= 5);
@@ -173,19 +213,41 @@ mod tests {
             "SECRET=new",
             true,
             None,
+            None,
+            None,
         );
         assert!(output.sensitive);
     }
 
     #[test]
     fn test_exit_code_no_diff() {
-        let output = build_diff_output("a.rs", info("l"), info("r"), "same", "same", false, None);
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "same",
+            "same",
+            false,
+            None,
+            None,
+            None,
+        );
         assert_eq!(diff_exit_code(&output), exit_code::SUCCESS);
     }
 
     #[test]
     fn test_exit_code_has_diff() {
-        let output = build_diff_output("a.rs", info("l"), info("r"), "old", "new", false, None);
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "old",
+            "new",
+            false,
+            None,
+            None,
+            None,
+        );
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
 
@@ -199,6 +261,8 @@ mod tests {
             "aaa\nBBB\nccc\n",
             false,
             None,
+            None,
+            None,
         );
         let hunk = &output.hunks[0];
         // context, removed, added, context が含まれるはず
@@ -206,5 +270,113 @@ mod tests {
         assert!(types.contains(&DiffLineType::Context));
         assert!(types.contains(&DiffLineType::Removed));
         assert!(types.contains(&DiffLineType::Added));
+    }
+
+    #[test]
+    fn test_ref_content_produces_ref_hunks() {
+        let output = build_diff_output(
+            "a.rs",
+            info("local"),
+            info("dev"),
+            "line1\nline2\nline3\n",
+            "line1\nchanged\nline3\n",
+            false,
+            None,
+            Some(info("staging")),
+            Some("line1\nref_changed\nline3\n"),
+        );
+        assert!(output.ref_.is_some());
+        assert_eq!(output.ref_.as_ref().unwrap().label, "staging");
+        assert!(output.ref_hunks.is_some());
+        assert!(!output.ref_hunks.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_ref_content_same_as_left_produces_empty_ref_hunks() {
+        let output = build_diff_output(
+            "a.rs",
+            info("local"),
+            info("dev"),
+            "same content\n",
+            "different\n",
+            false,
+            None,
+            Some(info("staging")),
+            Some("same content\n"),
+        );
+        assert!(output.ref_hunks.is_some());
+        assert!(output.ref_hunks.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_ref_content_none_produces_none_ref_hunks() {
+        let output = build_diff_output(
+            "a.rs",
+            info("local"),
+            info("dev"),
+            "content\n",
+            "other\n",
+            false,
+            None,
+            Some(info("staging")),
+            None,
+        );
+        assert!(output.ref_.is_some());
+        assert!(output.ref_hunks.is_none());
+    }
+
+    #[test]
+    fn test_no_ref_backward_compat() {
+        let output = build_diff_output(
+            "a.rs",
+            info("local"),
+            info("dev"),
+            "old\n",
+            "new\n",
+            false,
+            None,
+            None,
+            None,
+        );
+        assert!(output.ref_.is_none());
+        assert!(output.ref_hunks.is_none());
+    }
+
+    #[test]
+    fn test_max_lines_applied_independently_to_ref_hunks() {
+        let old = (0..100)
+            .map(|i| format!("old_{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let new = (0..100)
+            .map(|i| format!("new_{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let ref_content = (0..100)
+            .map(|i| format!("ref_{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let output = build_diff_output(
+            "big.rs",
+            info("l"),
+            info("r"),
+            &old,
+            &new,
+            false,
+            Some(5),
+            Some(info("ref")),
+            Some(&ref_content),
+        );
+        let main_lines: usize = output.hunks.iter().map(|h| h.lines.len()).sum();
+        let ref_lines: usize = output
+            .ref_hunks
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|h| h.lines.len())
+            .sum();
+        assert!(main_lines <= 5);
+        assert!(ref_lines <= 5);
     }
 }

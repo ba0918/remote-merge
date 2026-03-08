@@ -4,7 +4,9 @@ use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::diff::{build_diff_output, diff_exit_code};
 use crate::service::output::{format_diff_text, format_json, OutputFormat};
-use crate::service::source_pair::{build_source_info, resolve_source_pair, SourceArgs};
+use crate::service::source_pair::{
+    build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
+};
 use crate::service::status::is_sensitive;
 
 /// diff サブコマンドの引数
@@ -12,6 +14,7 @@ pub struct DiffArgs {
     pub path: String,
     pub left: Option<String>,
     pub right: Option<String>,
+    pub ref_server: Option<String>,
     pub format: String,
     pub max_lines: Option<usize>,
 }
@@ -44,6 +47,25 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
 
     let sensitive = is_sensitive(&args.path, &config.filter.sensitive);
 
+    // Ref server handling
+    let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
+    let mut ref_info = None;
+    let mut ref_content_opt = None;
+
+    if let Some(ref_s) = &ref_side {
+        core.connect_if_remote(ref_s)?;
+        ref_info = Some(build_source_info(ref_s, &core)?);
+        // Read ref content — file not existing is OK (ref_content = None)
+        match core.read_file(ref_s, &args.path) {
+            Ok(content) => ref_content_opt = Some(content),
+            Err(e) => {
+                tracing::debug!("Ref file not found: {}", e);
+            }
+        }
+    }
+
+    // Note: sensitive files get ref_hunks just like main hunks.
+    // The `sensitive` flag in output is informational only.
     let output = build_diff_output(
         &args.path,
         left_info,
@@ -52,6 +74,8 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
         &right_content,
         sensitive,
         args.max_lines,
+        ref_info,
+        ref_content_opt.as_deref(),
     );
     let code = diff_exit_code(&output);
 
