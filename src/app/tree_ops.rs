@@ -502,6 +502,125 @@ mod tests {
         );
     }
 
+    /// ref_tree が未展開（children: None）のとき、3way マージで誤った ref_only にならないこと。
+    ///
+    /// 問題のシナリオ:
+    /// - left/right の src は展開済み（children あり）
+    /// - ref の src は未展開（children: None）
+    ///   → ref の src.children が None なので merge_merged_with_ref_nodes がスキップされ、
+    ///   ref に存在するファイルが ref_only として現れない（正しい動作）。
+    ///   ただし left/right にある src/a.rs が [3-] になるのは ref が未展開だから判定不能で、
+    ///   これはバッジ計算側（compute_ref_file_badge）で ref_tree.find_node が None を返すことで
+    ///   正しく None（バッジ非表示）になる。
+    #[test]
+    fn test_3way_merge_ref_unexpanded_dir_no_false_ref_only() {
+        use super::merge_node_lists_3way;
+
+        // left/right: src ディレクトリが展開済み
+        let local = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        let remote = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )];
+        // ref: src ディレクトリが未展開（children: None）
+        let ref_nodes = vec![FileNode::new_dir("src")];
+
+        let merged = merge_node_lists_3way(&local, &remote, Some(&ref_nodes));
+        assert_eq!(merged.len(), 1);
+        let src = &merged[0];
+        assert!(!src.ref_only, "src exists in all trees");
+
+        // ref の src が未展開（children: None）なので、
+        // merge_merged_with_ref_nodes は呼ばれない。
+        // left/right の子はそのまま残る（ref_only: false）
+        assert_eq!(src.children.len(), 2);
+        for child in &src.children {
+            assert!(
+                !child.ref_only,
+                "{} should NOT be ref_only (ref dir is unexpanded)",
+                child.name
+            );
+        }
+    }
+
+    /// ref_tree が展開済みのとき、3way マージで正しく ref_only が判定されること。
+    #[test]
+    fn test_3way_merge_ref_expanded_correct_badges() {
+        use super::merge_node_lists_3way;
+
+        let local = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        let remote = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        // ref: src が展開済み、ref にだけある ref_only.rs を含む
+        let ref_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![
+                FileNode::new_file("a.rs"),
+                FileNode::new_file("ref_only.rs"),
+            ],
+        )];
+
+        let merged = merge_node_lists_3way(&local, &remote, Some(&ref_nodes));
+        let src = &merged[0];
+        assert_eq!(src.children.len(), 2);
+
+        let a = src.children.iter().find(|c| c.name == "a.rs").unwrap();
+        assert!(!a.ref_only, "a.rs exists in all three");
+
+        let ref_only = src
+            .children
+            .iter()
+            .find(|c| c.name == "ref_only.rs")
+            .unwrap();
+        assert!(ref_only.ref_only, "ref_only.rs only in ref");
+    }
+
+    /// 全3ツリーが同じ深さで展開されているとき、rebuild_flat_nodes で正しい ref_only が出ること。
+    /// これは load_ref_children による同期ロード後の期待状態をシミュレートする。
+    #[test]
+    fn test_rebuild_flat_nodes_3way_all_expanded_consistent() {
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+            Side::Remote("develop".to_string()),
+            Side::Remote("staging".to_string()),
+            "default",
+        );
+        // ref も同じ深さで展開済み
+        state.set_reference(
+            Side::Local,
+            make_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+        );
+
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        // main.rs は全3ツリーに存在 → ref_only: false
+        let main_node = state
+            .flat_nodes
+            .iter()
+            .find(|n| n.name == "main.rs")
+            .expect("main.rs should be in flat_nodes");
+        assert!(!main_node.ref_only, "main.rs exists in all three trees");
+    }
+
     /// develop → staging シナリオ: right にしかないファイルが展開後に見えるか
     #[test]
     fn test_right_only_file_visible_after_expand() {

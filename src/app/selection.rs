@@ -259,6 +259,12 @@ impl AppState {
         if let Some(node) = self.right_tree.find_node_mut(std::path::Path::new(path)) {
             node.children = None;
         }
+        // ref_tree の子もクリアして stale data を防ぐ
+        if let Some(ref mut tree) = self.ref_tree {
+            if let Some(node) = tree.find_node_mut(std::path::Path::new(path)) {
+                node.children = None;
+            }
+        }
         self.rebuild_flat_nodes();
         self.status_message = format!("{}: refreshed", path);
     }
@@ -853,5 +859,56 @@ mod tests {
         state.select_file();
         assert!(state.current_diff.is_none());
         assert!(state.status_message.contains("not loaded"));
+    }
+
+    #[test]
+    fn test_refresh_directory_clears_ref_tree_children() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("a.rs")],
+            )]),
+        );
+
+        // 全ツリーの src が展開済みであることを確認
+        assert!(state.left_tree.find_node("src").unwrap().is_loaded());
+        assert!(state.right_tree.find_node("src").unwrap().is_loaded());
+        assert!(state
+            .ref_tree
+            .as_ref()
+            .unwrap()
+            .find_node("src")
+            .unwrap()
+            .is_loaded());
+
+        // refresh_directory で全ツリーの src がクリアされる
+        state.refresh_directory("src");
+
+        assert!(!state.left_tree.find_node("src").unwrap().is_loaded());
+        assert!(!state.right_tree.find_node("src").unwrap().is_loaded());
+        assert!(
+            !state
+                .ref_tree
+                .as_ref()
+                .unwrap()
+                .find_node("src")
+                .unwrap()
+                .is_loaded(),
+            "ref_tree children should also be cleared by refresh_directory"
+        );
     }
 }

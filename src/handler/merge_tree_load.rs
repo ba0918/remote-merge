@@ -2,6 +2,7 @@
 //!
 //! リモートディレクトリの遅延読み込みと、
 //! マージ前のサブツリー再帰展開を担当する。
+//! ref_tree の同期ロード（3way マージ整合性維持）も含む。
 
 use crate::app::AppState;
 use crate::runtime::TuiRuntime;
@@ -37,6 +38,50 @@ pub fn load_children_to(
                 state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
             } else {
                 state.status_message = format!("Dir load failed: {} - {}", rel_path, e);
+            }
+        }
+    }
+}
+
+/// ref_tree のディレクトリ children を遅延ロードする。
+///
+/// left/right のディレクトリ展開時に ref_tree も同期的にロードすることで、
+/// `merge_node_lists_3way` でのツリー深度不整合を防ぐ。
+/// ref_source が未設定、または対象ディレクトリが ref_tree に存在しない場合は何もしない。
+pub fn load_ref_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_path: &str) {
+    let ref_source = match &state.ref_source {
+        Some(source) => source.clone(),
+        None => return,
+    };
+
+    let needs_load = state
+        .ref_tree
+        .as_ref()
+        .and_then(|t| t.find_node(std::path::Path::new(rel_path)))
+        .is_some_and(|n| n.is_dir() && !n.is_loaded());
+
+    if !needs_load {
+        return;
+    }
+
+    match runtime.fetch_children(&ref_source, rel_path) {
+        Ok(children) => {
+            if let Some(ref mut tree) = state.ref_tree {
+                if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
+                    node.children = Some(children);
+                    node.sort_children();
+                }
+            }
+        }
+        Err(e) => {
+            if crate::error::is_connection_error(&e) {
+                tracing::warn!(
+                    "Ref directory load failed (connection): {} - {}",
+                    rel_path,
+                    e
+                );
+            } else {
+                tracing::debug!("Ref directory load skipped: {} - {}", rel_path, e);
             }
         }
     }
@@ -80,12 +125,18 @@ pub fn expand_subtree_for_merge(
             }
         }
 
+        // ref_tree も同期ロード（3way マージ整合性維持）
+        load_ref_children(state, runtime, &path);
+
         // NOTE: expanded_dirs には追加しない（ツリー表示の展開状態を変えない）
         // ファイル収集は collect_merge_files() がツリーから直接行う
 
-        // 左右ツリーのサブディレクトリを収集（重複排除に HashSet 使用）
+        // 左右+ref ツリーのサブディレクトリを収集（重複排除に HashSet 使用）
         let mut sub_dirs = std::collections::HashSet::new();
-        for tree in [&state.left_tree, &state.right_tree] {
+        for tree in std::iter::once(&state.left_tree)
+            .chain(std::iter::once(&state.right_tree))
+            .chain(state.ref_tree.as_ref())
+        {
             if let Some(node) = tree.find_node(std::path::Path::new(&path)) {
                 if let Some(children) = &node.children {
                     for child in children {

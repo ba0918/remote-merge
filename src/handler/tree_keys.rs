@@ -89,6 +89,8 @@ pub fn handle_tree_key(
                             false,
                         );
                     }
+                    // ref_tree も同期ロード（3way マージ整合性維持）
+                    super::merge_tree_load::load_ref_children(state, runtime, &path);
                 }
                 state.toggle_expand();
             } else {

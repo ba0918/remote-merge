@@ -16,7 +16,7 @@ use super::merge_file_io::{backup_left, backup_right, write_left_file, write_rig
 pub use super::merge_batch::{execute_batch_merge, filter_unchecked_equal};
 pub use super::merge_content::{load_file_content, load_subtree_contents};
 pub use super::merge_mtime::{check_mtime_conflict_single, check_mtime_for_write};
-pub use super::merge_tree_load::{expand_subtree_for_merge, load_children_to};
+pub use super::merge_tree_load::{expand_subtree_for_merge, load_children_to, load_ref_children};
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {

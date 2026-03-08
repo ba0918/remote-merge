@@ -46,13 +46,15 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     // 展開状態を復元
     state.expanded_dirs = expanded_backup;
 
-    // 展開済みディレクトリの子ノードを再取得
+    // 展開済みディレクトリの子ノードを再取得（ref_tree も含む）
     let dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
     for dir in &dirs {
         // 左側: 統一 API 経由で取得（is_left=true で left_tree に書き込む）
         super::merge_exec::load_children_to(state, runtime, dir, &left_source, true);
         // 右側: 統一 API 経由で取得（is_left=false で right_tree に書き込む）
         super::merge_exec::load_children_to(state, runtime, dir, &right_source, false);
+        // ref_tree も同期ロード（3way マージ整合性維持）
+        super::merge_tree_load::load_ref_children(state, runtime, dir);
     }
 
     state.rebuild_flat_nodes();
