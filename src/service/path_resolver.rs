@@ -39,12 +39,18 @@ pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result
 
     let mut result = BTreeSet::new();
     for path in paths {
-        if is_directory_in_tree(path, tree) {
-            for file in collect_files_under(path, tree) {
+        let normalized = path.trim_end_matches('/');
+        if is_directory_in_tree(normalized, tree) {
+            for file in collect_files_under(normalized, tree) {
                 result.insert(file);
             }
         } else {
-            result.insert(path.clone());
+            // For non-directory paths, use normalized form too
+            result.insert(if normalized.is_empty() {
+                path.clone()
+            } else {
+                normalized.to_string()
+            });
         }
     }
 
@@ -53,7 +59,11 @@ pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result
 
 /// ツリー上で指定パスがディレクトリかどうかを判定する。
 fn is_directory_in_tree(path: &str, tree: &FileTree) -> bool {
-    tree.find_node(path)
+    let normalized = path.trim_end_matches('/');
+    if normalized.is_empty() {
+        return false;
+    }
+    tree.find_node(normalized)
         .map(|node| node.is_dir())
         .unwrap_or(false)
 }
@@ -130,9 +140,10 @@ pub fn resolve_target_files_from_statuses(
             is_directory_in_tree(path, left_tree) || is_directory_in_tree(path, right_tree);
         if is_dir {
             // Collect all status entries under this directory prefix
-            let prefix_with_slash = format!("{}/", path);
+            let normalized = path.trim_end_matches('/');
+            let prefix_with_slash = format!("{}/", normalized);
             for status in statuses {
-                if status.path.starts_with(&prefix_with_slash) || status.path == *path {
+                if status.path.starts_with(&prefix_with_slash) || status.path == normalized {
                     result.insert(status.path.clone());
                 }
             }
@@ -449,5 +460,102 @@ mod tests {
         let paths = vec!["config.toml".to_string()];
         let result = resolve_target_files_from_statuses(&paths, &statuses, &tree, &tree).unwrap();
         assert_eq!(result, vec!["config.toml"]);
+    }
+
+    // ── Trailing slash tests ──
+
+    #[test]
+    fn trailing_slash_directory_expands() {
+        let tree = make_test_tree();
+        let paths = vec!["src/".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(
+            result,
+            vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
+        );
+    }
+
+    #[test]
+    fn trailing_slash_nested_directory() {
+        let tree = make_test_tree();
+        let paths = vec!["src/utils/".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(result, vec!["src/utils/helper.rs"]);
+    }
+
+    #[test]
+    fn trailing_slash_nonexistent_treated_as_file() {
+        let tree = make_test_tree();
+        let paths = vec!["nonexistent/".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(result, vec!["nonexistent"]);
+    }
+
+    #[test]
+    fn slash_only_treated_as_empty_result() {
+        let tree = make_test_tree();
+        let paths = vec!["/".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        // "/" normalizes to empty string, which is not a directory in the tree
+        // Since it's not a dir, it's inserted as-is (normalized to empty -> original "/" kept)
+        assert_eq!(result, vec!["/"]);
+    }
+
+    #[test]
+    fn mixed_trailing_slash_paths() {
+        let tree = make_test_tree();
+        let paths = vec!["src/".to_string(), "config.toml".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "config.toml",
+                "src/lib.rs",
+                "src/main.rs",
+                "src/utils/helper.rs"
+            ]
+        );
+    }
+
+    #[test]
+    fn from_statuses_trailing_slash_directory() {
+        let left_tree = FileTree {
+            root: PathBuf::from("/project"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
+            )],
+        };
+        let right_tree = FileTree {
+            root: PathBuf::from("/remote"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_file("main.rs"),
+                    FileNode::new_file("extra.rs"),
+                ],
+            )],
+        };
+        let statuses = vec![
+            make_status("src/main.rs", FileStatusKind::Modified),
+            make_status("src/lib.rs", FileStatusKind::LeftOnly),
+            make_status("src/extra.rs", FileStatusKind::RightOnly),
+        ];
+        let paths = vec!["src/".to_string()];
+        let result =
+            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+        assert_eq!(result, vec!["src/extra.rs", "src/lib.rs", "src/main.rs"]);
+    }
+
+    #[test]
+    fn multiple_trailing_slashes_normalized() {
+        let tree = make_test_tree();
+        // Multiple trailing slashes: "src//" -> trim_end_matches('/') -> "src"
+        let paths = vec!["src//".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(
+            result,
+            vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
+        );
     }
 }

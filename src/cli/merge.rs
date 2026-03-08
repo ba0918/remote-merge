@@ -13,7 +13,10 @@ use crate::service::path_resolver::{filter_changed_files, resolve_target_files_f
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
-use crate::service::status::{compute_ref_badges, compute_status_from_trees, is_sensitive};
+use crate::service::status::{
+    compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
+    refine_status_with_content,
+};
 use crate::service::types::{FileStatus, FileStatusKind, MergeFailure, MergeFileResult};
 
 /// merge サブコマンドの引数
@@ -71,7 +74,35 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
 
     // Compute statuses first (covers both left and right trees)
-    let statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+
+    // Refine statuses with content comparison for metadata-ambiguous files
+    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    if !paths_to_compare.is_empty() {
+        let mut compare_pairs = HashMap::new();
+        for path in &paths_to_compare {
+            let left_content = core.read_file(&pair.left, path).unwrap_or_else(|e| {
+                tracing::debug!(
+                    "Failed to read {} from {} for status refinement: {}",
+                    path,
+                    pair.left.display_name(),
+                    e
+                );
+                String::new()
+            });
+            let right_content = core.read_file(&pair.right, path).unwrap_or_else(|e| {
+                tracing::debug!(
+                    "Failed to read {} from {} for status refinement: {}",
+                    path,
+                    pair.right.display_name(),
+                    e
+                );
+                String::new()
+            });
+            compare_pairs.insert(path.clone(), (left_content, right_content));
+        }
+        refine_status_with_content(&mut statuses, &compare_pairs);
+    }
 
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
