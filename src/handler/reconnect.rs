@@ -1,5 +1,7 @@
 //! 接続管理（再接続・サーバ切替）。
 
+use std::collections::HashSet;
+
 use crate::app::side::comparison_label;
 use crate::app::{AppState, Side};
 use crate::runtime::TuiRuntime;
@@ -13,9 +15,10 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     let label = comparison_label(&left_source, &right_source);
     state.status_message = format!("Reconnecting ({})...", label);
 
-    // 展開状態とカーソル位置を保存
+    // 展開状態・カーソル位置・スクロール位置を保存
     let expanded_backup = state.expanded_dirs.clone();
     let cursor_path = state.current_path();
+    let scroll_backup = state.tree_scroll;
 
     // 左側の再接続
     let left_ok = reconnect_side(state, runtime, &left_source, true);
@@ -43,26 +46,16 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
         execute_ref_connect(state, runtime);
     }
 
-    // 展開状態を復元
-    state.expanded_dirs = expanded_backup;
-
-    // 展開済みディレクトリの子ノードを再取得（ref_tree も含む）
-    let dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
-    for dir in &dirs {
-        // 左側: 統一 API 経由で取得（is_left=true で left_tree に書き込む）
-        super::merge_exec::load_children_to(state, runtime, dir, &left_source, true);
-        // 右側: 統一 API 経由で取得（is_left=false で right_tree に書き込む）
-        super::merge_exec::load_children_to(state, runtime, dir, &right_source, false);
-        // ref_tree も同期ロード（3way マージ整合性維持）
-        super::merge_tree_load::load_ref_children(state, runtime, dir);
-    }
-
-    state.rebuild_flat_nodes();
-
-    // カーソル位置を復元
-    if let Some(path) = cursor_path {
-        restore_cursor_position(state, &path);
-    }
+    // ツリー状態を復元
+    restore_tree_state(
+        state,
+        runtime,
+        expanded_backup,
+        cursor_path,
+        scroll_backup,
+        &left_source,
+        &right_source,
+    );
 
     state.status_message = format!("Reconnected: {} | tree state restored", label);
 }
@@ -146,6 +139,58 @@ fn restore_cursor_position(state: &mut AppState, target_path: &str) {
     }
 }
 
+/// ツリー状態（展開・カーソル・スクロール）を復元する共通ヘルパー。
+fn restore_tree_state(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    expanded_backup: HashSet<String>,
+    cursor_path: Option<String>,
+    scroll_backup: usize,
+    left_source: &Side,
+    right_source: &Side,
+) {
+    // 検索状態をクリア
+    state.search_state.clear();
+    state.diff_search_state.clear();
+
+    // 展開状態を復元（新ツリーに存在する or 未ロードのディレクトリのみ）
+    // 浅いスキャンでは中間ディレクトリの children が None のため、
+    // find_node() だと NotFound 扱いになってしまう。
+    // find_node_or_unloaded() で 3値判定し、Unloaded も保持する。
+    use crate::tree::NodePresence;
+    state.expanded_dirs = expanded_backup
+        .into_iter()
+        .filter(|dir| {
+            let path = std::path::Path::new(dir);
+            let left_presence = state.left_tree.find_node_or_unloaded(path);
+            let right_presence = state.right_tree.find_node_or_unloaded(path);
+            // NotFound のみ除外。Found / Unloaded は保持。
+            left_presence != NodePresence::NotFound || right_presence != NodePresence::NotFound
+        })
+        .collect();
+
+    // 展開済みディレクトリの子ノードを深さ順に再取得
+    // 親→子の順でロードしないと、親の children が未取得のため
+    // 子の find_node_mut が None を返してスキップされてしまう
+    let mut dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+    dirs.sort_by_key(|d| d.matches('/').count());
+    for dir in &dirs {
+        super::merge_exec::load_children_to(state, runtime, dir, left_source, true);
+        super::merge_exec::load_children_to(state, runtime, dir, right_source, false);
+        super::merge_tree_load::load_ref_children(state, runtime, dir);
+    }
+
+    state.rebuild_flat_nodes();
+
+    // スクロール位置を復元（範囲外にならないようクランプ）
+    state.tree_scroll = scroll_backup.min(state.flat_nodes.len().saturating_sub(1));
+
+    // カーソル位置を復元
+    if let Some(path) = cursor_path {
+        restore_cursor_position(state, &path);
+    }
+}
+
 /// right ↔ ref スワップを実行する（X キー）
 ///
 /// unsaved changes がある場合は UnsavedChanges ダイアログを表示。
@@ -189,6 +234,11 @@ pub fn execute_pair_switch(
     right_name: &str,
 ) {
     state.status_message = format!("Switching to {} <-> {}...", left_name, right_name);
+
+    // 切替前にツリー状態をバックアップ
+    let expanded_backup = state.expanded_dirs.clone();
+    let cursor_path = state.current_path();
+    let scroll_backup = state.tree_scroll;
 
     // Side を構築
     let new_left = Side::new(left_name);
@@ -258,8 +308,24 @@ pub fn execute_pair_switch(
     // 注: left/right と同じ深さ（浅いスキャン）で取得する
     execute_ref_connect(state, runtime);
 
+    // ツリー状態を復元
+    let left_source = state.left_source.clone();
+    let right_source = state.right_source.clone();
+    restore_tree_state(
+        state,
+        runtime,
+        expanded_backup,
+        cursor_path,
+        scroll_backup,
+        &left_source,
+        &right_source,
+    );
+
     let label = comparison_label(&state.left_source, &state.right_source);
-    state.status_message = format!("{} | Tab: switch focus | s: server | q: quit", label);
+    state.status_message = format!(
+        "{} | tree state restored | Tab: switch focus | s: server | q: quit",
+        label
+    );
 }
 
 /// reference サーバに接続してツリーを取得する。
@@ -322,6 +388,11 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
 
     state.status_message = format!("Switching to {}...", server_name);
 
+    // 切替前にツリー状態をバックアップ
+    let expanded_backup = state.expanded_dirs.clone();
+    let cursor_path = state.current_path();
+    let scroll_backup = state.tree_scroll;
+
     // 古い右側接続を切断
     if let Side::Remote(old_name) = &state.right_source {
         runtime.disconnect(old_name);
@@ -362,6 +433,108 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
     // 注: left/right と同じ深さ（浅いスキャン）で取得する
     execute_ref_connect(state, runtime);
 
+    // ツリー状態を復元
+    let left_source = state.left_source.clone();
+    let right_source = state.right_source.clone();
+    restore_tree_state(
+        state,
+        runtime,
+        expanded_backup,
+        cursor_path,
+        scroll_backup,
+        &left_source,
+        &right_source,
+    );
+
     let label = comparison_label(&state.left_source, &state.right_source);
-    state.status_message = format!("{} | Tab: switch focus | s: server | q: quit", label);
+    state.status_message = format!(
+        "{} | tree state restored | Tab: switch focus | s: server | q: quit",
+        label
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::types::{Badge, FlatNode};
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    /// テスト用の FlatNode を作成するヘルパー
+    fn make_flat_node(path: &str) -> FlatNode {
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
+        FlatNode {
+            path: path.to_string(),
+            name,
+            depth: path.matches('/').count(),
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+            ref_only: false,
+        }
+    }
+
+    /// テスト用の AppState を作成するヘルパー
+    fn make_state() -> AppState {
+        let tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        };
+        let tree2 = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        };
+        AppState::new(
+            tree,
+            tree2,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        )
+    }
+
+    #[test]
+    fn restore_cursor_exact_match() {
+        let mut state = make_state();
+        state.flat_nodes = vec![
+            make_flat_node("README.md"),
+            make_flat_node("src/main.rs"),
+            make_flat_node("src/lib.rs"),
+        ];
+        state.tree_cursor = 0;
+
+        restore_cursor_position(&mut state, "src/main.rs");
+
+        assert_eq!(state.tree_cursor, 1);
+    }
+
+    #[test]
+    fn restore_cursor_fallback_to_parent() {
+        let mut state = make_state();
+        state.flat_nodes = vec![
+            make_flat_node("README.md"),
+            make_flat_node("src"),
+            make_flat_node("tests"),
+        ];
+        state.tree_cursor = 0;
+
+        // "src/main.rs" は存在しないが、親 "src" にフォールバック
+        restore_cursor_position(&mut state, "src/main.rs");
+
+        assert_eq!(state.tree_cursor, 1);
+    }
+
+    #[test]
+    fn restore_cursor_no_match_keeps_original() {
+        let mut state = make_state();
+        state.flat_nodes = vec![make_flat_node("README.md"), make_flat_node("Cargo.toml")];
+        state.tree_cursor = 0;
+
+        // "vendor/lib.rs" もその親 "vendor" も存在しない
+        restore_cursor_position(&mut state, "vendor/lib.rs");
+
+        // tree_cursor は変わらない
+        assert_eq!(state.tree_cursor, 0);
+    }
 }

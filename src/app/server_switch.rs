@@ -50,6 +50,12 @@ impl AppState {
         self.undo_stack.clear();
         self.showing_ref_diff = false;
         self.clear_scan_cache();
+        // ツリー状態のリセット
+        self.expanded_dirs.clear();
+        self.search_state.clear();
+        self.diff_search_state.clear();
+        self.tree_scroll = 0;
+        self.tree_cursor = 0;
         self.rebuild_flat_nodes();
     }
 
@@ -369,6 +375,110 @@ mod tests {
             make_test_tree(vec![]),
         );
         assert_eq!(state.ref_source, Some(Side::Local));
+    }
+
+    // ── ツリー状態維持テスト ──
+
+    #[test]
+    fn test_switch_server_clears_expanded_dirs() {
+        let mut state = make_state();
+        state.expanded_dirs.insert("some/dir".to_string());
+        state.expanded_dirs.insert("another/dir".to_string());
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server(Side::new("staging"), new_tree);
+        assert!(
+            state.expanded_dirs.is_empty(),
+            "expanded_dirs should be cleared after switch_server"
+        );
+    }
+
+    #[test]
+    fn test_switch_server_clears_search_state() {
+        let mut state = make_state();
+        state.search_state.activate();
+        state.search_state.query = "test query".to_string();
+        state.search_state.match_cursor = 3;
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server(Side::new("staging"), new_tree);
+        assert!(
+            !state.search_state.active,
+            "search_state.active should be false after switch_server"
+        );
+        assert!(
+            state.search_state.query.is_empty(),
+            "search_state.query should be empty after switch_server"
+        );
+        assert_eq!(
+            state.search_state.match_cursor, 0,
+            "search_state.match_cursor should be 0 after switch_server"
+        );
+    }
+
+    #[test]
+    fn test_switch_server_clears_diff_search_state() {
+        let mut state = make_state();
+        state.diff_search_state.activate();
+        state.diff_search_state.query = "diff query".to_string();
+        state.diff_search_state.match_cursor = 5;
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server(Side::new("staging"), new_tree);
+        assert!(
+            !state.diff_search_state.active,
+            "diff_search_state.active should be false after switch_server"
+        );
+        assert!(
+            state.diff_search_state.query.is_empty(),
+            "diff_search_state.query should be empty after switch_server"
+        );
+    }
+
+    #[test]
+    fn test_switch_server_resets_tree_scroll() {
+        let mut state = make_state();
+        state.tree_scroll = 100;
+        state.tree_cursor = 50;
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server(Side::new("staging"), new_tree);
+        assert_eq!(
+            state.tree_scroll, 0,
+            "tree_scroll should be 0 after switch_server"
+        );
+        assert_eq!(
+            state.tree_cursor, 0,
+            "tree_cursor should be 0 after switch_server"
+        );
+    }
+
+    #[test]
+    fn test_switch_pair_clears_expanded_dirs() {
+        let mut state = make_state();
+        state.available_servers = vec!["develop".to_string(), "staging".to_string()];
+        state.expanded_dirs.insert("some/dir".to_string());
+        state.switch_pair(
+            Side::Local,
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![FileNode::new_file("b.txt")]),
+        );
+        assert!(
+            state.expanded_dirs.is_empty(),
+            "expanded_dirs should be cleared after switch_pair"
+        );
+    }
+
+    #[test]
+    fn test_switch_server_empty_tree_no_panic() {
+        let mut state = make_state();
+        state.tree_scroll = 10;
+        state.tree_cursor = 5;
+        state.expanded_dirs.insert("dir".to_string());
+        state.search_state.query = "query".to_string();
+        let empty_tree = make_test_tree(vec![]);
+        // パニックせずに完了することを確認
+        state.switch_server(Side::new("staging"), empty_tree);
+        assert!(state.flat_nodes.is_empty() || !state.flat_nodes.is_empty());
+        assert_eq!(state.tree_scroll, 0);
+        assert_eq!(state.tree_cursor, 0);
     }
 
     #[test]
