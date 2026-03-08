@@ -8,7 +8,7 @@ use crate::config;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, merge_exit_code, plan_merge};
-use crate::service::output::format_merge_text;
+use crate::service::output::{format_json, format_merge_text, OutputFormat};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
@@ -24,6 +24,7 @@ pub struct MergeArgs {
     pub dry_run: bool,
     pub force: bool,
     pub with_permissions: bool,
+    pub format: String,
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須
@@ -39,6 +40,9 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
 /// merge サブコマンドを実行する
 pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     validate_merge_args(&args)?;
+
+    // フォーマットを先にパースして不正値を早期エラーにする
+    let format = OutputFormat::parse(&args.format)?;
 
     let config = config::load_config()?;
 
@@ -121,7 +125,10 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
             vec![],
             ref_source_info,
         );
-        println!("{}", format_merge_text(&output));
+        match format {
+            OutputFormat::Text => println!("{}", format_merge_text(&output)),
+            OutputFormat::Json => println!("{}", format_json(&output)?),
+        }
         core.disconnect_all();
         return Ok(merge_exit_code(&output));
     }
@@ -153,8 +160,10 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
 
     let output = build_merge_output(merged, plan.skipped, failed, ref_source_info);
     let code = merge_exit_code(&output);
-    let text = format_merge_text(&output);
-    println!("{}", text);
+    match format {
+        OutputFormat::Text => println!("{}", format_merge_text(&output)),
+        OutputFormat::Json => println!("{}", format_json(&output)?),
+    }
 
     core.disconnect_all();
     Ok(code)
@@ -278,6 +287,7 @@ mod tests {
             dry_run: false,
             force: false,
             with_permissions: false,
+            format: "text".into(),
         }
     }
 
@@ -310,5 +320,33 @@ mod tests {
     fn test_merge_with_both_left_and_right_passes_validation() {
         let args = make_args(Some("local"), Some("staging"));
         assert!(validate_merge_args(&args).is_ok());
+    }
+
+    #[test]
+    fn test_run_merge_rejects_invalid_format_early() {
+        let args = MergeArgs {
+            path: "test.txt".into(),
+            left: Some("local".into()),
+            right: Some("staging".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            with_permissions: false,
+            format: "yaml".into(),
+        };
+        // run_merge は config 読み込みより前に format をパースするため、
+        // 不正な format 値で即座にエラーを返す
+        let err = run_merge(args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("Unknown format"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_make_args_default_format_is_text() {
+        let args = make_args(Some("local"), Some("staging"));
+        assert_eq!(args.format, "text");
     }
 }

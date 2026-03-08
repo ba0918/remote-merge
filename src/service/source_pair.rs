@@ -30,51 +30,135 @@ pub struct SourceArgs {
 ///
 /// 優先順位:
 /// 1. `--left` + `--right` が両方指定 → そのまま使用
-/// 2. `--server` 指定 → left=local, right=server
-/// 3. `--right` のみ → left=local, right=right
-/// 4. いずれも未指定 → config の最初のサーバを right に使用
+/// 2. `--left` + `--server` or `--right` + `--server` → ERROR（排他）
+/// 3. `--server` のみ → left=local, right=server
+/// 4. `--right` のみ → left=local, right=right
+/// 5. `--left` のみ → left=left, right=デフォルトサーバ（フォールバック）
+/// 6. いずれも未指定 → left=local, right=デフォルトサーバ
 pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Result<SourcePair> {
-    // --left + --right
+    // --server と --left/--right の排他チェック
+    check_server_mutual_exclusion(args)?;
+
+    // ペアを解決
+    let (pair, implicit_right) = resolve_pair_inner(args, config)?;
+
+    // left==right の検出
+    check_same_side(&pair, implicit_right.as_deref())?;
+
+    Ok(pair)
+}
+
+/// `--server` と `--left`/`--right` の排他チェック。
+///
+/// **破壊的変更**: 以前は `--server` が `--right` を暗黙的にオーバーライドしていたが、
+/// 曖昧さ回避のため排他エラーに変更した。
+/// `--server staging --right develop` → エラー（以前は `--server` 優先で通っていた）
+fn check_server_mutual_exclusion(args: &SourceArgs) -> anyhow::Result<()> {
+    if args.server.is_some() && (args.left.is_some() || args.right.is_some()) {
+        anyhow::bail!("conflicting options: use --left/--right or --server, not both");
+    }
+    Ok(())
+}
+
+/// left==right の場合にエラーを返す。
+/// `implicit_right` が Some の場合、暗黙的に解決された旨をメッセージに含める。
+fn check_same_side(pair: &SourcePair, implicit_right: Option<&str>) -> anyhow::Result<()> {
+    if pair.left != pair.right {
+        return Ok(());
+    }
+    let name = pair.left.display_name();
+    if let Some(default_name) = implicit_right {
+        anyhow::bail!(
+            "--left and --right must be different (both resolved to '{}'; \
+             --right was implicitly set to default server '{}')",
+            name,
+            default_name
+        );
+    }
+    anyhow::bail!(
+        "--left and --right must be different (both resolved to '{}')",
+        name
+    );
+}
+
+/// ペア解決の内部ロジック。
+/// 戻り値の `Option<String>` は right が暗黙的に解決された場合のデフォルトサーバ名。
+fn resolve_pair_inner(
+    args: &SourceArgs,
+    config: &AppConfig,
+) -> anyhow::Result<(SourcePair, Option<String>)> {
+    // --left + --right 両方指定
     if let (Some(left), Some(right)) = (&args.left, &args.right) {
         validate_server(left, config)?;
         validate_server(right, config)?;
-        return Ok(SourcePair {
-            left: Side::new(left),
-            right: Side::new(right),
-        });
+        return Ok((
+            SourcePair {
+                left: Side::new(left),
+                right: Side::new(right),
+            },
+            None,
+        ));
     }
 
-    // --left のみ（right が必要）
-    if args.left.is_some() && args.right.is_none() && args.server.is_none() {
-        anyhow::bail!("--left requires --right to be specified");
+    // --server のみ（排他チェック済み）
+    if let Some(server) = &args.server {
+        validate_server(server, config)?;
+        return Ok((
+            SourcePair {
+                left: Side::Local,
+                right: Side::new(server),
+            },
+            None,
+        ));
     }
 
-    // --server（--right のエイリアス）
-    let right_name = args
-        .server
-        .as_ref()
-        .or(args.right.as_ref())
+    // --right のみ
+    if let (None, Some(right)) = (&args.left, &args.right) {
+        validate_server(right, config)?;
+        return Ok((
+            SourcePair {
+                left: Side::Local,
+                right: Side::new(right),
+            },
+            None,
+        ));
+    }
+
+    // --left のみ → right をデフォルトサーバにフォールバック
+    if let Some(left) = &args.left {
+        validate_server(left, config)?;
+        let default_server = default_server_name(config)?;
+        validate_server(&default_server, config)?;
+        return Ok((
+            SourcePair {
+                left: Side::new(left),
+                right: Side::new(&default_server),
+            },
+            Some(default_server),
+        ));
+    }
+
+    // 何も未指定 → left=local, right=デフォルトサーバ
+    // ユーザーは --left を指定していないので implicit_right は None（暗黙解決メッセージ不要）
+    let default_server = default_server_name(config)?;
+    validate_server(&default_server, config)?;
+    Ok((
+        SourcePair {
+            left: Side::Local,
+            right: Side::new(&default_server),
+        },
+        None,
+    ))
+}
+
+/// config から最初のサーバ名（アルファベット順）を取得する
+fn default_server_name(config: &AppConfig) -> anyhow::Result<String> {
+    config
+        .servers
+        .keys()
+        .next()
         .cloned()
-        .or_else(|| config.servers.keys().next().cloned());
-
-    let right_name = right_name
-        .ok_or_else(|| anyhow::anyhow!("No server specified and no servers found in config"))?;
-
-    validate_server(&right_name, config)?;
-
-    // --left 指定時
-    if let Some(left_name) = &args.left {
-        validate_server(left_name, config)?;
-        return Ok(SourcePair {
-            left: Side::new(left_name),
-            right: Side::new(&right_name),
-        });
-    }
-
-    Ok(SourcePair {
-        left: Side::Local,
-        right: Side::new(&right_name),
-    })
+        .ok_or_else(|| anyhow::anyhow!("No server specified and no servers found in config"))
 }
 
 /// Side から SourceInfo を構築する。
@@ -216,27 +300,27 @@ mod tests {
     }
 
     #[test]
-    fn test_left_without_right_returns_error() {
+    fn test_server_with_left_conflicts() {
         let args = SourceArgs {
             left: Some("develop".into()),
+            server: Some("staging".into()),
             ..Default::default()
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
-        assert!(format!("{}", result.unwrap_err()).contains("--right"));
+        assert!(format!("{}", result.unwrap_err()).contains("conflicting"));
     }
 
     #[test]
-    fn test_server_overrides_right() {
-        // --server は --right のエイリアス
+    fn test_server_with_right_conflicts() {
         let args = SourceArgs {
-            server: Some("develop".into()),
-            right: Some("staging".into()),
+            right: Some("develop".into()),
+            server: Some("staging".into()),
             ..Default::default()
         };
-        let pair = resolve_source_pair(&args, &test_config()).unwrap();
-        // --server が優先される
-        assert_eq!(pair.right, Side::Remote("develop".into()));
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("conflicting"));
     }
 
     #[test]
@@ -275,15 +359,17 @@ mod tests {
     }
 
     #[test]
-    fn source_pair_both_local() {
+    fn source_pair_both_local_errors() {
         let args = SourceArgs {
             left: Some("local".into()),
             right: Some("local".into()),
             ..Default::default()
         };
-        let pair = resolve_source_pair(&args, &test_config()).unwrap();
-        assert_eq!(pair.left, Side::Local);
-        assert_eq!(pair.right, Side::Local);
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("must be different"));
+        assert!(err_msg.contains("local"));
     }
 
     // ── resolve_ref_source ──
@@ -337,5 +423,96 @@ mod tests {
         let result = resolve_source_pair(&args, &config);
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("No server"));
+    }
+
+    // ── Step 1 & 2: 新規テスト ──
+
+    #[test]
+    fn test_left_only_falls_back_to_default_server() {
+        // --left develop → right は "develop"(デフォルト) → left==right でエラー
+        let args = SourceArgs {
+            left: Some("develop".into()),
+            ..Default::default()
+        };
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("must be different"));
+        assert!(err_msg.contains("develop"));
+    }
+
+    #[test]
+    fn test_left_only_local_falls_back_to_default() {
+        // --left local → right は "develop"(デフォルト) → OK
+        let args = SourceArgs {
+            left: Some("local".into()),
+            ..Default::default()
+        };
+        let pair = resolve_source_pair(&args, &test_config()).unwrap();
+        assert_eq!(pair.left, Side::Local);
+        assert_eq!(pair.right, Side::Remote("develop".into()));
+    }
+
+    #[test]
+    fn test_left_only_nondefault_succeeds() {
+        // --left staging → right は "develop"(デフォルト) → OK
+        let args = SourceArgs {
+            left: Some("staging".into()),
+            ..Default::default()
+        };
+        let pair = resolve_source_pair(&args, &test_config()).unwrap();
+        assert_eq!(pair.left, Side::Remote("staging".into()));
+        assert_eq!(pair.right, Side::Remote("develop".into()));
+    }
+
+    #[test]
+    fn test_same_left_right_explicit_error() {
+        // --left develop --right develop → エラー
+        let args = SourceArgs {
+            left: Some("develop".into()),
+            right: Some("develop".into()),
+            ..Default::default()
+        };
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("must be different"));
+        // 明示的指定なので "implicitly" は含まれない
+        assert!(!err_msg.contains("implicitly"));
+    }
+
+    #[test]
+    fn test_same_left_right_local_error() {
+        // --left local --right local → エラー
+        let args = SourceArgs {
+            left: Some("local".into()),
+            right: Some("local".into()),
+            ..Default::default()
+        };
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        assert!(format!("{}", result.unwrap_err()).contains("must be different"));
+    }
+
+    #[test]
+    fn test_implicit_right_error_message_contains_context() {
+        // --left develop のみ → デフォルトが develop → 暗黙解決のコンテキスト付きエラー
+        let args = SourceArgs {
+            left: Some("develop".into()),
+            ..Default::default()
+        };
+        let result = resolve_source_pair(&args, &test_config());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("implicitly"),
+            "expected 'implicitly' in error: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("default server"),
+            "expected 'default server' in error: {}",
+            err_msg
+        );
     }
 }

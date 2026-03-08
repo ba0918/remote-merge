@@ -20,7 +20,7 @@ use remote_merge::ui::render::draw_ui;
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
 struct Cli {
-    /// Server name to compare with local (TUI mode only; for CLI subcommands use --right)
+    /// Alias for --right. Cannot be combined with --left or --right [default: first server in config]
     #[arg(short, long)]
     server: Option<String>,
 
@@ -47,10 +47,10 @@ enum Commands {
 
     /// List files with differences
     Status {
-        /// Alias for --right. Right side of comparison [default: first server in config, alphabetical]
+        /// Alias for --right. Cannot be combined with --left or --right [default: first server in config]
         #[arg(short, long)]
         server: Option<String>,
-        /// Left side of comparison [default: local]
+        /// Left side of comparison [default: local]. When specified alone, --right falls back to the default server
         #[arg(long)]
         left: Option<String>,
         /// Right side of comparison [default: first server in config, alphabetical]
@@ -68,7 +68,7 @@ enum Commands {
     /// Show diff for a specific file
     Diff {
         path: String,
-        /// Left side of comparison [default: local]
+        /// Left side of comparison [default: local]. When specified alone, --right falls back to the default server
         #[arg(long)]
         left: Option<String>,
         /// Right side of comparison [default: first server in config, alphabetical]
@@ -88,10 +88,10 @@ enum Commands {
     /// Merge files
     Merge {
         path: String,
-        /// Source side of merge (required)
+        /// Source side of merge (required). Cannot be combined with --server
         #[arg(long)]
         left: Option<String>,
-        /// Target side of merge (required)
+        /// Target side of merge (required). Cannot be combined with --server
         #[arg(long)]
         right: Option<String>,
         /// Reference server for 3-way comparison (shows [ref≠] badges)
@@ -104,6 +104,9 @@ enum Commands {
         /// Copy source file permissions to destination
         #[arg(long)]
         with_permissions: bool,
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
     },
 
     /// Show debug logs
@@ -190,6 +193,7 @@ fn main() -> anyhow::Result<()> {
             dry_run,
             force,
             with_permissions,
+            format,
         }) => {
             let code = remote_merge::cli::merge::run_merge(remote_merge::cli::merge::MergeArgs {
                 path,
@@ -199,6 +203,7 @@ fn main() -> anyhow::Result<()> {
                 dry_run,
                 force,
                 with_permissions,
+                format,
             })?;
             std::process::exit(code);
         }
@@ -231,14 +236,14 @@ fn main() -> anyhow::Result<()> {
         }
         None => {
             let config = config::load_config()?;
-            let right_server = cli.server.or(cli.right).unwrap_or_else(|| {
-                config
-                    .servers
-                    .keys()
-                    .next()
-                    .cloned()
-                    .unwrap_or_else(|| "develop".to_string())
-            });
+            let right_server = cli.server.or(cli.right).map(Ok).unwrap_or_else(|| {
+                config.servers.keys().next().cloned().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "No server specified and no servers found in config. \
+                             Use --server or --right, or add servers to config."
+                    )
+                })
+            })?;
             let params = TuiBootstrapParams {
                 right_server,
                 left_server: cli.left,
