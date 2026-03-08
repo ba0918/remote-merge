@@ -106,6 +106,26 @@ pub enum DiffLineType {
     Removed,
 }
 
+// ── multi diff ──
+
+/// 複数ファイルの diff 出力（ディレクトリ・複数パス指定時の統一型）
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiDiffOutput {
+    pub files: Vec<DiffOutput>,
+    pub summary: MultiDiffSummary,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_files: Option<usize>,
+}
+
+/// MultiDiffOutput のサマリー
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiDiffSummary {
+    pub total_files: usize,
+    pub files_with_changes: usize,
+}
+
 // ── merge ──
 
 /// merge コマンドの出力
@@ -488,6 +508,74 @@ mod tests {
         };
         let json = serde_json::to_string(&file).unwrap();
         assert!(!json.contains("ref_badge"));
+    }
+
+    // ── multi diff ──
+
+    #[test]
+    fn test_multi_diff_output_serialize() {
+        let output = MultiDiffOutput {
+            files: vec![DiffOutput {
+                path: "a.rs".into(),
+                left: SourceInfo {
+                    label: "local".into(),
+                    root: ".".into(),
+                },
+                right: SourceInfo {
+                    label: "dev".into(),
+                    root: "/r".into(),
+                },
+                ref_: None,
+                sensitive: false,
+                truncated: false,
+                hunks: vec![],
+                ref_hunks: None,
+            }],
+            summary: MultiDiffSummary {
+                total_files: 5,
+                files_with_changes: 1,
+            },
+            truncated: true,
+            total_files: Some(5),
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"total_files\":5"));
+        assert!(json.contains("\"files_with_changes\":1"));
+        assert!(json.contains("\"truncated\":true"));
+        assert!(json.contains("\"a.rs\""));
+    }
+
+    #[test]
+    fn test_multi_diff_output_truncated_false_omitted() {
+        let output = MultiDiffOutput {
+            files: vec![],
+            summary: MultiDiffSummary {
+                total_files: 0,
+                files_with_changes: 0,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("\"truncated\""));
+    }
+
+    #[test]
+    fn test_multi_diff_output_total_files_none_omitted() {
+        let output = MultiDiffOutput {
+            files: vec![],
+            summary: MultiDiffSummary {
+                total_files: 0,
+                files_with_changes: 0,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        // total_files at the top level should be omitted when None
+        // (summary.total_files is always present)
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(v.get("total_files").is_none());
     }
 
     #[test]

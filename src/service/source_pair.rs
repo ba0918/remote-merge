@@ -1,6 +1,6 @@
 //! SourcePair 解決ロジック。
 //!
-//! CLI 引数 (`--server`, `--left`, `--right`) から
+//! CLI 引数 (`--left`, `--right`) から
 //! 比較対象の左右ソースを決定する。
 
 use crate::app::Side;
@@ -18,8 +18,6 @@ pub struct SourcePair {
 /// CLI 引数を表す入力
 #[derive(Debug, Clone, Default)]
 pub struct SourceArgs {
-    /// `--server` 指定（`--right` のエイリアス、left は local 固定）
-    pub server: Option<String>,
     /// `--left` 指定（省略時は local）
     pub left: Option<String>,
     /// `--right` 指定
@@ -30,15 +28,10 @@ pub struct SourceArgs {
 ///
 /// 優先順位:
 /// 1. `--left` + `--right` が両方指定 → そのまま使用
-/// 2. `--left` + `--server` or `--right` + `--server` → ERROR（排他）
-/// 3. `--server` のみ → left=local, right=server
-/// 4. `--right` のみ → left=local, right=right
-/// 5. `--left` のみ → left=left, right=デフォルトサーバ（フォールバック）
-/// 6. いずれも未指定 → left=local, right=デフォルトサーバ
+/// 2. `--right` のみ → left=local, right=right
+/// 3. `--left` のみ → left=left, right=デフォルトサーバ（フォールバック）
+/// 4. いずれも未指定 → left=local, right=デフォルトサーバ
 pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Result<SourcePair> {
-    // --server と --left/--right の排他チェック
-    check_server_mutual_exclusion(args)?;
-
     // ペアを解決
     let (pair, implicit_right) = resolve_pair_inner(args, config)?;
 
@@ -46,18 +39,6 @@ pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Res
     check_same_side(&pair, implicit_right.as_deref())?;
 
     Ok(pair)
-}
-
-/// `--server` と `--left`/`--right` の排他チェック。
-///
-/// **破壊的変更**: 以前は `--server` が `--right` を暗黙的にオーバーライドしていたが、
-/// 曖昧さ回避のため排他エラーに変更した。
-/// `--server staging --right develop` → エラー（以前は `--server` 優先で通っていた）
-fn check_server_mutual_exclusion(args: &SourceArgs) -> anyhow::Result<()> {
-    if args.server.is_some() && (args.left.is_some() || args.right.is_some()) {
-        anyhow::bail!("conflicting options: use --left/--right or --server, not both");
-    }
-    Ok(())
 }
 
 /// left==right の場合にエラーを返す。
@@ -95,18 +76,6 @@ fn resolve_pair_inner(
             SourcePair {
                 left: Side::new(left),
                 right: Side::new(right),
-            },
-            None,
-        ));
-    }
-
-    // --server のみ（排他チェック済み）
-    if let Some(server) = &args.server {
-        validate_server(server, config)?;
-        return Ok((
-            SourcePair {
-                left: Side::Local,
-                right: Side::new(server),
             },
             None,
         ));
@@ -257,22 +226,10 @@ mod tests {
     }
 
     #[test]
-    fn test_server_resolves_to_local_and_remote() {
-        let args = SourceArgs {
-            server: Some("develop".into()),
-            ..Default::default()
-        };
-        let pair = resolve_source_pair(&args, &test_config()).unwrap();
-        assert_eq!(pair.left, Side::Local);
-        assert_eq!(pair.right, Side::Remote("develop".into()));
-    }
-
-    #[test]
     fn test_left_and_right_explicit() {
         let args = SourceArgs {
             left: Some("develop".into()),
             right: Some("staging".into()),
-            ..Default::default()
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Remote("develop".into()));
@@ -291,8 +248,8 @@ mod tests {
     #[test]
     fn test_unknown_server_returns_error() {
         let args = SourceArgs {
-            server: Some("nonexistent".into()),
-            ..Default::default()
+            left: None,
+            right: Some("nonexistent".into()),
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
@@ -300,34 +257,10 @@ mod tests {
     }
 
     #[test]
-    fn test_server_with_left_conflicts() {
-        let args = SourceArgs {
-            left: Some("develop".into()),
-            server: Some("staging".into()),
-            ..Default::default()
-        };
-        let result = resolve_source_pair(&args, &test_config());
-        assert!(result.is_err());
-        assert!(format!("{}", result.unwrap_err()).contains("conflicting"));
-    }
-
-    #[test]
-    fn test_server_with_right_conflicts() {
-        let args = SourceArgs {
-            right: Some("develop".into()),
-            server: Some("staging".into()),
-            ..Default::default()
-        };
-        let result = resolve_source_pair(&args, &test_config());
-        assert!(result.is_err());
-        assert!(format!("{}", result.unwrap_err()).contains("conflicting"));
-    }
-
-    #[test]
     fn test_right_only() {
         let args = SourceArgs {
+            left: None,
             right: Some("staging".into()),
-            ..Default::default()
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
@@ -339,7 +272,6 @@ mod tests {
         let args = SourceArgs {
             left: Some("local".into()),
             right: Some("develop".into()),
-            ..Default::default()
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
@@ -351,7 +283,6 @@ mod tests {
         let args = SourceArgs {
             left: Some("develop".into()),
             right: Some("local".into()),
-            ..Default::default()
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Remote("develop".into()));
@@ -363,7 +294,6 @@ mod tests {
         let args = SourceArgs {
             left: Some("local".into()),
             right: Some("local".into()),
-            ..Default::default()
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
@@ -432,7 +362,7 @@ mod tests {
         // --left develop → right は "develop"(デフォルト) → left==right でエラー
         let args = SourceArgs {
             left: Some("develop".into()),
-            ..Default::default()
+            right: None,
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
@@ -446,7 +376,7 @@ mod tests {
         // --left local → right は "develop"(デフォルト) → OK
         let args = SourceArgs {
             left: Some("local".into()),
-            ..Default::default()
+            right: None,
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
@@ -458,7 +388,7 @@ mod tests {
         // --left staging → right は "develop"(デフォルト) → OK
         let args = SourceArgs {
             left: Some("staging".into()),
-            ..Default::default()
+            right: None,
         };
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Remote("staging".into()));
@@ -471,7 +401,6 @@ mod tests {
         let args = SourceArgs {
             left: Some("develop".into()),
             right: Some("develop".into()),
-            ..Default::default()
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
@@ -487,7 +416,6 @@ mod tests {
         let args = SourceArgs {
             left: Some("local".into()),
             right: Some("local".into()),
-            ..Default::default()
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
@@ -499,7 +427,7 @@ mod tests {
         // --left develop のみ → デフォルトが develop → 暗黙解決のコンテキスト付きエラー
         let args = SourceArgs {
             left: Some("develop".into()),
-            ..Default::default()
+            right: None,
         };
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());

@@ -20,10 +20,6 @@ use remote_merge::ui::render::draw_ui;
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
 struct Cli {
-    /// Alias for --right. Cannot be combined with --left or --right [default: first server in config]
-    #[arg(short, long)]
-    server: Option<String>,
-
     /// Left side of comparison [default: local]
     #[arg(long)]
     left: Option<String>,
@@ -47,9 +43,6 @@ enum Commands {
 
     /// List files with differences
     Status {
-        /// Alias for --right. Cannot be combined with --left or --right [default: first server in config]
-        #[arg(short, long)]
-        server: Option<String>,
         /// Left side of comparison [default: local]. When specified alone, --right falls back to the default server
         #[arg(long)]
         left: Option<String>,
@@ -63,11 +56,15 @@ enum Commands {
         format: String,
         #[arg(long)]
         summary: bool,
+        /// Include equal files in output (default: omitted)
+        #[arg(long)]
+        all: bool,
     },
 
-    /// Show diff for a specific file
+    /// Show diff for file(s) or directory
     Diff {
-        path: String,
+        #[arg(num_args = 0..)]
+        paths: Vec<String>,
         /// Left side of comparison [default: local]. When specified alone, --right falls back to the default server
         #[arg(long)]
         left: Option<String>,
@@ -81,17 +78,19 @@ enum Commands {
         format: String,
         #[arg(long)]
         max_lines: Option<usize>,
-        #[arg(long)]
-        max_files: Option<usize>,
+        /// Maximum number of files to process (0 for unlimited)
+        #[arg(long, default_value = "100")]
+        max_files: usize,
     },
 
     /// Merge files
     Merge {
-        path: String,
-        /// Source side of merge (required). Cannot be combined with --server
+        #[arg(required = true, num_args = 1..)]
+        paths: Vec<String>,
+        /// Source side of merge (required)
         #[arg(long)]
         left: Option<String>,
-        /// Target side of merge (required). Cannot be combined with --server
+        /// Target side of merge (required)
         #[arg(long)]
         right: Option<String>,
         /// Reference server for 3-way comparison (shows [ref≠] badges)
@@ -148,45 +147,46 @@ fn main() -> anyhow::Result<()> {
             remote_merge::init::run_init()?;
         }
         Some(Commands::Status {
-            server,
             left,
             right,
             r#ref,
             format,
             summary,
+            all,
         }) => {
             let code =
                 remote_merge::cli::status::run_status(remote_merge::cli::status::StatusArgs {
-                    server,
                     left,
                     right,
                     ref_server: r#ref,
                     format,
                     summary,
+                    all,
                 })?;
             std::process::exit(code);
         }
         Some(Commands::Diff {
-            path,
+            paths,
             left,
             right,
             r#ref,
             format,
             max_lines,
-            max_files: _,
+            max_files,
         }) => {
             let code = remote_merge::cli::diff::run_diff(remote_merge::cli::diff::DiffArgs {
-                path,
+                paths,
                 left,
                 right,
                 ref_server: r#ref,
                 format,
                 max_lines,
+                max_files,
             })?;
             std::process::exit(code);
         }
         Some(Commands::Merge {
-            path,
+            paths,
             left,
             right,
             r#ref,
@@ -196,7 +196,7 @@ fn main() -> anyhow::Result<()> {
             format,
         }) => {
             let code = remote_merge::cli::merge::run_merge(remote_merge::cli::merge::MergeArgs {
-                path,
+                paths,
                 left,
                 right,
                 ref_server: r#ref,
@@ -236,11 +236,11 @@ fn main() -> anyhow::Result<()> {
         }
         None => {
             let config = config::load_config()?;
-            let right_server = cli.server.or(cli.right).map(Ok).unwrap_or_else(|| {
+            let right_server = cli.right.map(Ok).unwrap_or_else(|| {
                 config.servers.keys().next().cloned().ok_or_else(|| {
                     anyhow::anyhow!(
                         "No server specified and no servers found in config. \
-                             Use --server or --right, or add servers to config."
+                             Use --right, or add servers to config."
                     )
                 })
             })?;

@@ -4,21 +4,24 @@ use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::config;
 use crate::runtime::CoreRuntime;
-use crate::service::diff::{build_diff_output, diff_exit_code};
-use crate::service::output::{format_diff_text, format_json, OutputFormat};
+use crate::service::diff::build_diff_output;
+use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
+use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
-use crate::service::status::is_sensitive;
+use crate::service::status::{compute_status_from_trees, is_sensitive};
+use crate::service::types::{exit_code, MultiDiffOutput, MultiDiffSummary};
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
-    pub path: String,
+    pub paths: Vec<String>,
     pub left: Option<String>,
     pub right: Option<String>,
     pub ref_server: Option<String>,
     pub format: String,
     pub max_lines: Option<usize>,
+    pub max_files: usize,
 }
 
 /// diff サブコマンドを実行する
@@ -27,64 +30,101 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
     let config = config::load_config()?;
 
     let source_args = SourceArgs {
-        server: None,
         left: args.left,
         right: args.right,
     };
     let pair = resolve_source_pair(&source_args, &config)?;
 
     let mut core = CoreRuntime::new(config.clone());
-
-    // 接続
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
 
-    // 左側コンテンツ取得（ファイルが存在しない場合は空として扱う）
-    let left_content = read_file_tolerant(&mut core, &pair.left, &args.path);
+    // Fetch trees and compute status to identify diff files
+    let left_tree = core.fetch_tree_recursive(&pair.left, 50_000)?;
+    let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
     let left_info = build_source_info(&pair.left, &core)?;
-
-    // 右側コンテンツ取得（ファイルが存在しない場合は空として扱う）
-    let right_content = read_file_tolerant(&mut core, &pair.right, &args.path);
     let right_info = build_source_info(&pair.right, &core)?;
 
-    let sensitive = is_sensitive(&args.path, &config.filter.sensitive);
+    // Compute statuses first (covers both left and right trees)
+    let statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+
+    // Resolve paths to file list using statuses (includes right-only files)
+    let target_files =
+        resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+
+    // Filter to only files with differences (not Equal)
+    let diff_files = filter_changed_files(&target_files, &statuses);
+
+    // Apply max-files truncation
+    let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
+    let total_files = if truncated {
+        Some(diff_files.len())
+    } else {
+        None
+    };
+    let process_files = if truncated {
+        &diff_files[..args.max_files]
+    } else {
+        &diff_files
+    };
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
-    let mut ref_info = None;
-    let mut ref_content_opt = None;
-
-    if let Some(ref_s) = &ref_side {
+    let ref_info_opt = if let Some(ref_s) = &ref_side {
         core.connect_if_remote(ref_s)?;
-        ref_info = Some(build_source_info(ref_s, &core)?);
-        // Read ref content — file not existing is OK (ref_content = None)
-        match core.read_file(ref_s, &args.path) {
-            Ok(content) => ref_content_opt = Some(content),
-            Err(e) => {
-                tracing::debug!("Ref file not found: {}", e);
-            }
-        }
+        Some(build_source_info(ref_s, &core)?)
+    } else {
+        None
+    };
+
+    // Build diff for each file
+    let mut file_diffs = Vec::new();
+    for path in process_files {
+        let left_content = read_file_tolerant(&mut core, &pair.left, path);
+        let right_content = read_file_tolerant(&mut core, &pair.right, path);
+        let sensitive = is_sensitive(path, &config.filter.sensitive);
+
+        let ref_content = if let Some(ref_s) = &ref_side {
+            core.read_file(ref_s, path).ok()
+        } else {
+            None
+        };
+
+        let output = build_diff_output(
+            path,
+            left_info.clone(),
+            right_info.clone(),
+            &left_content,
+            &right_content,
+            sensitive,
+            args.max_lines,
+            ref_info_opt.clone(),
+            ref_content.as_deref(),
+        );
+        file_diffs.push(output);
     }
 
-    // Note: sensitive files get ref_hunks just like main hunks.
-    // The `sensitive` flag in output is informational only.
-    let output = build_diff_output(
-        &args.path,
-        left_info,
-        right_info,
-        &left_content,
-        &right_content,
-        sensitive,
-        args.max_lines,
-        ref_info,
-        ref_content_opt.as_deref(),
-    );
-    let code = diff_exit_code(&output);
+    let files_with_changes = file_diffs.iter().filter(|d| !d.hunks.is_empty()).count();
+    let multi_output = MultiDiffOutput {
+        summary: MultiDiffSummary {
+            total_files: diff_files.len(),
+            files_with_changes,
+        },
+        files: file_diffs,
+        truncated,
+        total_files,
+    };
+
+    let code = if multi_output.summary.files_with_changes > 0 {
+        exit_code::DIFF_FOUND
+    } else {
+        exit_code::SUCCESS
+    };
 
     let text = match format {
-        OutputFormat::Text => format_diff_text(&output),
-        OutputFormat::Json => format_json(&output)?,
+        OutputFormat::Text => format_multi_diff_text(&multi_output),
+        OutputFormat::Json => format_json(&multi_output)?,
     };
     println!("{}", text);
 
@@ -109,5 +149,41 @@ fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> String
             );
             String::new()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::service::path_resolver::filter_changed_files;
+    use crate::service::types::{FileStatus, FileStatusKind};
+
+    fn make_status(path: &str, kind: FileStatusKind) -> FileStatus {
+        FileStatus {
+            path: path.to_string(),
+            status: kind,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }
+    }
+
+    #[test]
+    fn test_filter_excludes_equal() {
+        let targets = vec!["a.txt".into(), "b.txt".into(), "c.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("b.txt", FileStatusKind::Equal),
+            make_status("c.txt", FileStatusKind::LeftOnly),
+        ];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["a.txt", "c.txt"]);
+    }
+
+    #[test]
+    fn test_filter_includes_unknown_paths() {
+        let targets = vec!["unknown.txt".into()];
+        let statuses = vec![];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["unknown.txt"]);
     }
 }

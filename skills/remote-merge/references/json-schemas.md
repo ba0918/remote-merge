@@ -18,31 +18,50 @@ File status values: `modified`, `left_only`, `right_only`, `equal`.
 
 With `--summary`, `files` is omitted.
 
+With `--all`, Equal files are included in `files`. By default, Equal files are excluded.
+
 ## diff
+
+Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 
 ```json
 {
-  "path": "src/config.ts",
-  "left":  { "label": "local", "root": "." },
-  "right": { "label": "develop", "root": "/var/www" },
-  "sensitive": false,
-  "truncated": false,
-  "hunks": [
+  "files": [
     {
-      "index": 0,
-      "left_start": 10,
-      "right_start": 10,
-      "lines": [
-        { "type": "context", "content": "  function hello() {" },
-        { "type": "removed", "content": "  old line" },
-        { "type": "added",   "content": "  new line" }
+      "path": "src/config.ts",
+      "left":  { "label": "local", "root": "." },
+      "right": { "label": "develop", "root": "/var/www" },
+      "sensitive": false,
+      "truncated": false,
+      "hunks": [
+        {
+          "index": 0,
+          "left_start": 10,
+          "right_start": 10,
+          "lines": [
+            { "type": "context", "content": "  function hello() {" },
+            { "type": "removed", "content": "  old line" },
+            { "type": "added",   "content": "  new line" }
+          ]
+        }
       ]
     }
-  ]
+  ],
+  "summary": {
+    "total_files": 1,
+    "files_with_changes": 1
+  },
+  "truncated": false,
+  "total_files": 1
 }
 ```
 
-Line types: `context`, `added`, `removed`. When `truncated` is true, output was cut by `--max-lines`.
+- `files`: array of per-file diff outputs
+- `summary.total_files`: number of files included in output
+- `summary.files_with_changes`: number of files that have at least one hunk
+- `truncated`: true when `--max-files` limit was reached (default: 100; use `--max-files 0` for unlimited)
+- `total_files`: total number of matching files before truncation (present only when truncated)
+- Line types within hunks: `context`, `added`, `removed`. Per-file `truncated` is true when `--max-lines` was hit.
 
 ## merge
 

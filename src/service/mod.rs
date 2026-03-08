@@ -16,6 +16,7 @@
 pub mod diff;
 pub mod merge;
 pub mod output;
+pub mod path_resolver;
 pub mod source_pair;
 pub mod status;
 pub mod types;

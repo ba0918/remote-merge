@@ -177,6 +177,31 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     lines.join("\n")
 }
 
+/// 複数ファイル diff のテキスト出力をフォーマットする
+pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
+    let mut result = String::new();
+    for (i, diff) in output.files.iter().enumerate() {
+        if i > 0 {
+            result.push('\n');
+        }
+        result.push_str(&format_diff_text(diff));
+    }
+    if output.truncated {
+        if let Some(total) = output.total_files {
+            result.push_str(&format!(
+                "\n... and {} more files (truncated, use --max-files 0 for all)\n",
+                total - output.files.len()
+            ));
+        }
+    }
+    // Summary line
+    result.push_str(&format!(
+        "\n{} file(s) with changes out of {} total\n",
+        output.summary.files_with_changes, output.summary.total_files
+    ));
+    result
+}
+
 /// MergeOutput をテキストフォーマットする
 pub fn format_merge_text(output: &MergeOutput) -> String {
     let mut lines = Vec::new();
@@ -625,6 +650,92 @@ mod tests {
         };
         let text = format_merge_text(&output);
         assert!(text.contains("Merged: a.rs [ref≠]"));
+    }
+
+    // ── multi diff text tests ──
+
+    fn sample_diff(path: &str) -> DiffOutput {
+        DiffOutput {
+            path: path.into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            truncated: false,
+            hunks: vec![DiffHunk {
+                index: 0,
+                left_start: 1,
+                right_start: 1,
+                lines: vec![
+                    DiffLine {
+                        line_type: DiffLineType::Removed,
+                        content: "old".into(),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Added,
+                        content: "new".into(),
+                    },
+                ],
+            }],
+            ref_hunks: None,
+        }
+    }
+
+    #[test]
+    fn test_format_multi_diff_text_single_file() {
+        let output = MultiDiffOutput {
+            files: vec![sample_diff("a.rs")],
+            summary: MultiDiffSummary {
+                total_files: 1,
+                files_with_changes: 1,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let text = format_multi_diff_text(&output);
+        assert!(text.contains("--- a/a.rs"));
+        assert!(text.contains("+++ b/a.rs"));
+        assert!(text.contains("-old"));
+        assert!(text.contains("+new"));
+        assert!(text.contains("1 file(s) with changes out of 1 total"));
+    }
+
+    #[test]
+    fn test_format_multi_diff_text_multiple_files() {
+        let output = MultiDiffOutput {
+            files: vec![sample_diff("a.rs"), sample_diff("b.rs")],
+            summary: MultiDiffSummary {
+                total_files: 5,
+                files_with_changes: 2,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let text = format_multi_diff_text(&output);
+        assert!(text.contains("--- a/a.rs"));
+        assert!(text.contains("--- a/b.rs"));
+        assert!(text.contains("2 file(s) with changes out of 5 total"));
+    }
+
+    #[test]
+    fn test_format_multi_diff_text_truncated() {
+        let output = MultiDiffOutput {
+            files: vec![sample_diff("a.rs")],
+            summary: MultiDiffSummary {
+                total_files: 10,
+                files_with_changes: 1,
+            },
+            truncated: true,
+            total_files: Some(10),
+        };
+        let text = format_multi_diff_text(&output);
+        assert!(text.contains("... and 9 more files (truncated, use --max-files 0 for all)"));
     }
 
     // ── status header tests ──

@@ -24,21 +24,51 @@ remote-merge status --format json
 
 Exit codes: 0 = no diff, 1 = diffs found, 2 = error.
 
-Options: `--summary` (counts only, saves tokens), `--server <name>`, `--left <side> --right <side>`.
+Options:
+- `--summary` — counts only (saves tokens), omits `files` array
+- `--left <side> --right <side>` — specify comparison sides (e.g., `local`, `develop`, `staging`, `release`)
+- `--all` — include Equal files in output (by default, Equal files are excluded)
 
-### 2. Inspect individual files
+### 2. Inspect diffs
+
+Diff supports single files, multiple files, directories, or all files (no path = root).
 
 ```bash
-remote-merge diff <path> --format json --max-lines 200
+# Single file
+remote-merge diff src/main.rs --left local --right develop --format json --max-lines 200
+
+# Multiple files
+remote-merge diff src/main.rs src/lib.rs --left local --right develop --format json
+
+# Directory (all files under src/)
+remote-merge diff src/ --left local --right develop --format json
+
+# All files (no path argument = project root)
+remote-merge diff --left local --right develop --format json
 ```
 
-Process one file at a time to manage context window.
+`--max-files 100` is the default limit. Use `--max-files 0` for unlimited.
+
+The output is a `MultiDiffOutput` containing a `files` array, `summary`, `truncated` flag, and `total_files`. See [references/json-schemas.md](references/json-schemas.md) for the full schema.
+
+**Note on glob:** Shell glob expansion is used (the CLI does not implement glob internally). Remote path glob is not supported — always specify explicit paths or directories.
 
 ### 3. Merge
 
+Merge requires at least one path (no default to root, for safety).
+
 ```bash
-remote-merge merge <path> --left local --right develop --dry-run   # preview first
-remote-merge merge <path> --left local --right develop             # execute
+# Preview first (dry-run)
+remote-merge merge src/main.rs --left local --right develop --dry-run
+
+# Single file
+remote-merge merge src/main.rs --left local --right develop
+
+# Multiple files
+remote-merge merge src/main.rs src/lib.rs --left local --right develop
+
+# Directory
+remote-merge merge src/ --left local --right develop
 ```
 
 Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.

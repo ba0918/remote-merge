@@ -9,15 +9,16 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, merge_exit_code, plan_merge};
 use crate::service::output::{format_json, format_merge_text, OutputFormat};
+use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
-use crate::service::status::{compute_ref_badges, is_sensitive};
-use crate::service::types::{MergeFailure, MergeFileResult};
+use crate::service::status::{compute_ref_badges, compute_status_from_trees, is_sensitive};
+use crate::service::types::{FileStatus, FileStatusKind, MergeFailure, MergeFileResult};
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
-    pub path: String,
+    pub paths: Vec<String>,
     pub left: Option<String>,
     pub right: Option<String>,
     pub ref_server: Option<String>,
@@ -27,8 +28,11 @@ pub struct MergeArgs {
     pub format: String,
 }
 
-/// merge 引数のバリデーション: --left と --right の両方が必須
+/// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
 fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
+    if args.paths.is_empty() {
+        anyhow::bail!("at least one path is required for merge");
+    }
     if args.left.is_none() || args.right.is_none() {
         anyhow::bail!(
             "--left and --right are required for merge command (e.g. --left local --right staging)"
@@ -47,7 +51,6 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     let config = config::load_config()?;
 
     let source_args = SourceArgs {
-        server: None,
         left: args.left,
         right: args.right,
     };
@@ -57,17 +60,39 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
 
     let direction = MergeDirection::LeftToRight;
 
-    let plan = plan_merge(
-        std::slice::from_ref(&args.path),
-        &config.filter.sensitive,
-        args.force,
-    );
-
     let mut core = CoreRuntime::new(config.clone());
 
     // 接続（left/right）
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
+
+    // ツリー取得してパス解決・差分フィルタ
+    let left_tree = core.fetch_tree_recursive(&pair.left, 50_000)?;
+    let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
+
+    // Compute statuses first (covers both left and right trees)
+    let statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+
+    // Resolve paths using statuses (includes right-only files)
+    let resolved_paths =
+        resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+    let diff_files = filter_changed_files(&resolved_paths, &statuses);
+
+    if diff_files.is_empty() {
+        eprintln!("no files to merge in the specified path(s)");
+        core.disconnect_all();
+        return Ok(crate::service::types::exit_code::SUCCESS);
+    }
+
+    let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+
+    // スキップされたセンシティブファイル数を表示
+    if !plan.skipped.is_empty() && !args.force {
+        eprintln!(
+            "{} sensitive file(s) will be skipped. Use --force to include them.",
+            plan.skipped.len()
+        );
+    }
 
     // Pre-merge: ref badge をマージ実行前に計算する
     let (ref_source_info, ref_badge_map) = if let Some(ref_s) = &ref_side {
@@ -79,20 +104,18 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
         let right_contents = fetch_contents_tolerant(&pair.right, paths, &mut core);
         let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core);
 
-        let file_statuses: Vec<crate::service::types::FileStatus> = plan
+        let file_statuses: Vec<FileStatus> = plan
             .files
             .iter()
-            .map(|p| crate::service::types::FileStatus {
+            .map(|p| FileStatus {
                 path: p.clone(),
-                status: crate::service::types::FileStatusKind::Modified,
+                status: FileStatusKind::Modified,
                 sensitive: is_sensitive(p, &config.filter.sensitive),
                 hunks: None,
                 ref_badge: None,
             })
             .collect();
 
-        let left_tree = core.fetch_tree_recursive(&pair.left, 50_000)?;
-        let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
         let ref_tree = core.fetch_tree_recursive(ref_s, 50_000)?;
 
         let badges = compute_ref_badges(
@@ -277,10 +300,11 @@ fn fetch_contents_tolerant(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::path_resolver::filter_changed_files;
 
     fn make_args(left: Option<&str>, right: Option<&str>) -> MergeArgs {
         MergeArgs {
-            path: "test.txt".into(),
+            paths: vec!["test.txt".into()],
             left: left.map(|s| s.to_string()),
             right: right.map(|s| s.to_string()),
             ref_server: None,
@@ -325,7 +349,7 @@ mod tests {
     #[test]
     fn test_run_merge_rejects_invalid_format_early() {
         let args = MergeArgs {
-            path: "test.txt".into(),
+            paths: vec!["test.txt".into()],
             left: Some("local".into()),
             right: Some("staging".into()),
             ref_server: None,
@@ -348,5 +372,90 @@ mod tests {
     fn test_make_args_default_format_is_text() {
         let args = make_args(Some("local"), Some("staging"));
         assert_eq!(args.format, "text");
+    }
+
+    #[test]
+    fn test_empty_paths_returns_error() {
+        let args = MergeArgs {
+            paths: vec![],
+            left: Some("local".into()),
+            right: Some("staging".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            with_permissions: false,
+            format: "text".into(),
+        };
+        let err = validate_merge_args(&args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("at least one path is required for merge"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_filter_changed_files_excludes_equal() {
+        let targets = vec![
+            "a.rs".to_string(),
+            "b.rs".to_string(),
+            "c.rs".to_string(),
+            "d.rs".to_string(),
+        ];
+        let statuses = vec![
+            FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b.rs".into(),
+                status: FileStatusKind::Equal,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "c.rs".into(),
+                status: FileStatusKind::LeftOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "d.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["a.rs", "c.rs", "d.rs"]);
+    }
+
+    #[test]
+    fn test_filter_changed_files_unknown_path_included() {
+        // ステータスに存在しないパスは Equal ではないので含まれる
+        let targets = vec!["unknown.rs".to_string()];
+        let statuses = vec![];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["unknown.rs"]);
+    }
+
+    #[test]
+    fn test_filter_changed_files_all_equal() {
+        let targets = vec!["a.rs".to_string()];
+        let statuses = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let result = filter_changed_files(&targets, &statuses);
+        assert!(result.is_empty());
     }
 }

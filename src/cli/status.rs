@@ -22,18 +22,19 @@ use crate::service::status::{
     build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
     refine_status_with_content, status_exit_code,
 };
+use crate::service::types::FileStatusKind;
 
 /// 再帰走査の最大エントリ数
 const MAX_SCAN_ENTRIES: usize = 50_000;
 
 /// status サブコマンドの引数
 pub struct StatusArgs {
-    pub server: Option<String>,
     pub left: Option<String>,
     pub right: Option<String>,
     pub ref_server: Option<String>,
     pub format: String,
     pub summary: bool,
+    pub all: bool,
 }
 
 /// status サブコマンドを実行する
@@ -42,7 +43,6 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
     let config = config::load_config()?;
 
     let source_args = SourceArgs {
-        server: args.server,
         left: args.left,
         right: args.right,
     };
@@ -139,7 +139,7 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
         ref_badges = Some(badges);
     }
 
-    let output = build_status_output(
+    let mut output = build_status_output(
         left_info,
         right_info,
         files,
@@ -148,6 +148,9 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
         ref_badges.as_ref(),
     );
     let code = status_exit_code(&output.summary);
+
+    // Filter out Equal files unless --all is specified
+    filter_equal_files(&mut output, args.all);
 
     // 出力
     let text = match format {
@@ -158,6 +161,16 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// StatusOutput から Equal ファイルを除外する。
+/// `all` が true の場合はフィルタしない。
+fn filter_equal_files(output: &mut crate::service::types::StatusOutput, all: bool) {
+    if !all {
+        if let Some(ref mut files) = output.files {
+            files.retain(|f| f.status != FileStatusKind::Equal);
+        }
+    }
 }
 
 /// 片側のファイルコンテンツをバッチ取得する（読み込みエラーはスキップ）
@@ -180,4 +193,75 @@ fn fetch_side_contents_tolerant(
         }
     }
     contents
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::service::status::compute_summary;
+    use crate::service::types::{FileStatus, FileStatusKind, SourceInfo, StatusOutput};
+
+    fn make_file(path: &str, status: FileStatusKind) -> FileStatus {
+        FileStatus {
+            path: path.to_string(),
+            status,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }
+    }
+
+    fn make_output(files: Vec<FileStatus>) -> StatusOutput {
+        let summary = compute_summary(&files);
+        StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/tmp".into(),
+            },
+            right: SourceInfo {
+                label: "develop".into(),
+                root: "dev:/app".into(),
+            },
+            ref_: None,
+            files: Some(files),
+            summary,
+        }
+    }
+
+    #[test]
+    fn test_equal_files_excluded_by_default() {
+        let mut output = make_output(vec![
+            make_file("a.txt", FileStatusKind::Modified),
+            make_file("b.txt", FileStatusKind::Equal),
+            make_file("c.txt", FileStatusKind::LeftOnly),
+        ]);
+        super::filter_equal_files(&mut output, false);
+        let files = output.files.unwrap();
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().all(|f| f.status != FileStatusKind::Equal));
+    }
+
+    #[test]
+    fn test_all_flag_includes_equal_files() {
+        let mut output = make_output(vec![
+            make_file("a.txt", FileStatusKind::Modified),
+            make_file("b.txt", FileStatusKind::Equal),
+        ]);
+        super::filter_equal_files(&mut output, true);
+        assert_eq!(output.files.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_summary_equal_count_preserved_after_filter() {
+        let mut output = make_output(vec![
+            make_file("a.txt", FileStatusKind::Modified),
+            make_file("b.txt", FileStatusKind::Equal),
+            make_file("c.txt", FileStatusKind::Equal),
+        ]);
+        // summary は filter 前に計算されるので equal=2 のまま
+        assert_eq!(output.summary.equal, 2);
+        super::filter_equal_files(&mut output, false);
+        assert_eq!(output.files.unwrap().len(), 1);
+        // summary は変わらない
+        assert_eq!(output.summary.equal, 2);
+    }
 }
