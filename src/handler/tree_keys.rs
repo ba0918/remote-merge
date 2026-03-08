@@ -139,6 +139,9 @@ pub fn handle_tree_key(
         }
         KeyCode::Char('n') => super::search_keys::jump_next(state),
         KeyCode::Char('N') => super::search_keys::jump_prev(state),
+        KeyCode::Char('W') => {
+            super::three_way_summary_handler::open_three_way_summary(state);
+        }
         KeyCode::Char('X') => {
             if state.has_reference() {
                 super::reconnect::execute_ref_swap(state, runtime);

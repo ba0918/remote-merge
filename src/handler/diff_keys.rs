@@ -132,6 +132,9 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
             state.status_message = "/".to_string();
         }
         KeyCode::Char('?') => state.show_help(),
+        KeyCode::Char('W') => {
+            super::three_way_summary_handler::open_three_way_summary(state);
+        }
         KeyCode::Char('X') => {
             if state.has_reference() {
                 super::reconnect::execute_ref_swap(state, runtime);

@@ -8,6 +8,7 @@ mod hunk_preview;
 mod mtime_warning;
 mod pair_server_menu;
 mod server_menu;
+mod three_way_summary;
 
 pub use batch_confirm::{BatchConfirmDialog, BatchConfirmDialogWidget};
 pub use confirm::{ConfirmDialog, ConfirmDialogWidget};
@@ -17,7 +18,9 @@ pub use hunk_preview::{HunkMergePreview, HunkMergePreviewWidget};
 pub use mtime_warning::{MtimeWarningDialog, MtimeWarningDialogWidget, MtimeWarningMergeContext};
 pub use pair_server_menu::{Column, PairServerMenu, PairServerMenuWidget};
 pub use server_menu::{ServerMenu, ServerMenuWidget};
+pub use three_way_summary::ThreeWaySummaryWidget;
 
+use crate::app::three_way_summary::ThreeWaySummaryPanel;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -54,6 +57,8 @@ pub enum DialogState {
     UnsavedChanges,
     /// mtime 衝突警告ダイアログ（楽観的ロック）
     MtimeWarning(MtimeWarningDialog),
+    /// 3way サマリーパネル（W キー）
+    ThreeWaySummary(ThreeWaySummaryPanel),
 }
 
 /// プログレスダイアログのフェーズ（サービス層はフェーズだけ設定し、UI層が表示テキストを生成）

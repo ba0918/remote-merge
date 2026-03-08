@@ -19,6 +19,8 @@ pub struct HelpSection {
 #[derive(Debug, Clone)]
 pub struct HelpOverlay {
     pub sections: Vec<HelpSection>,
+    /// スクロールオフセット（行単位）
+    pub scroll: usize,
 }
 
 impl Default for HelpOverlay {
@@ -28,8 +30,41 @@ impl Default for HelpOverlay {
 }
 
 impl HelpOverlay {
+    /// 全セクション合計の行数を計算する
+    pub fn total_lines(&self) -> usize {
+        self.sections
+            .iter()
+            .map(|s| s.bindings.len() + 2) // タイトル行 + 空行 + bindings
+            .sum()
+    }
+
+    /// 下にスクロール
+    pub fn scroll_down(&mut self) {
+        let max = self.total_lines().saturating_sub(1);
+        if self.scroll < max {
+            self.scroll += 1;
+        }
+    }
+
+    /// 上にスクロール
+    pub fn scroll_up(&mut self) {
+        self.scroll = self.scroll.saturating_sub(1);
+    }
+
+    /// ページ下スクロール
+    pub fn page_down(&mut self, page_size: usize) {
+        let max = self.total_lines().saturating_sub(1);
+        self.scroll = (self.scroll + page_size).min(max);
+    }
+
+    /// ページ上スクロール
+    pub fn page_up(&mut self, page_size: usize) {
+        self.scroll = self.scroll.saturating_sub(page_size);
+    }
+
     pub fn new() -> Self {
         Self {
+            scroll: 0,
             sections: vec![
                 HelpSection {
                     title: "File Tree".to_string(),
@@ -54,6 +89,7 @@ impl HelpOverlay {
                         ("r".to_string(), "Refresh dir / Reconnect SSH".to_string()),
                         ("f".to_string(), "Filter panel".to_string()),
                         ("s".to_string(), "Server select".to_string()),
+                        ("W (Shift)".to_string(), "3way summary panel".to_string()),
                         (
                             "X (Shift)".to_string(),
                             "Swap right ↔ ref server".to_string(),
@@ -86,6 +122,7 @@ impl HelpOverlay {
                         ("d".to_string(), "Toggle Unified / Side-by-Side".to_string()),
                         ("c".to_string(), "Copy diff to clipboard".to_string()),
                         ("r".to_string(), "Reconnect SSH".to_string()),
+                        ("W (Shift)".to_string(), "3way summary panel".to_string()),
                     ],
                 },
                 HelpSection {
@@ -117,24 +154,19 @@ impl<'a> HelpOverlayWidget<'a> {
 
 impl<'a> Widget for HelpOverlayWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let total_lines: usize = self
-            .help
-            .sections
-            .iter()
-            .map(|s| s.bindings.len() + 2)
-            .sum();
+        let total_lines = self.help.total_lines();
 
         let width = area.width.min(60);
         let height = ((total_lines as u16) + 4).min(area.height);
-        let inner = render_dialog_frame(
-            " Help (? to close) ",
-            Color::Cyan,
-            width,
-            height,
-            area,
-            buf,
-            self.bg,
-        );
+
+        // スクロール可能ならタイトルにインジケータ追加
+        let title = if total_lines + 2 > height as usize {
+            " Help (j/k scroll, ? close) "
+        } else {
+            " Help (? to close) "
+        };
+
+        let inner = render_dialog_frame(title, Color::Cyan, width, height, area, buf, self.bg);
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -160,7 +192,10 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
             lines.push(Line::from(""));
         }
 
-        let paragraph = Paragraph::new(lines);
+        // スクロールオフセットを適用
+        let visible_lines: Vec<Line> = lines.into_iter().skip(self.help.scroll).collect();
+
+        let paragraph = Paragraph::new(visible_lines);
         paragraph.render(inner, buf);
     }
 }
@@ -220,6 +255,53 @@ mod tests {
         assert!(content.contains("Help"));
         assert!(content.contains("File Tree"));
         assert!(content.contains("Diff View"));
+    }
+
+    #[test]
+    fn test_help_scroll_down_and_up() {
+        let mut help = HelpOverlay::new();
+        assert_eq!(help.scroll, 0);
+        help.scroll_down();
+        assert_eq!(help.scroll, 1);
+        help.scroll_down();
+        assert_eq!(help.scroll, 2);
+        help.scroll_up();
+        assert_eq!(help.scroll, 1);
+        help.scroll_up();
+        assert_eq!(help.scroll, 0);
+        // 0 より下にはいかない
+        help.scroll_up();
+        assert_eq!(help.scroll, 0);
+    }
+
+    #[test]
+    fn test_help_scroll_max() {
+        let mut help = HelpOverlay::new();
+        let max = help.total_lines().saturating_sub(1);
+        // max を超えてスクロールしない
+        help.scroll = max;
+        help.scroll_down();
+        assert_eq!(help.scroll, max);
+    }
+
+    #[test]
+    fn test_help_page_scroll() {
+        let mut help = HelpOverlay::new();
+        help.page_down(10);
+        assert_eq!(help.scroll, 10);
+        help.page_up(5);
+        assert_eq!(help.scroll, 5);
+        help.page_up(100);
+        assert_eq!(help.scroll, 0);
+    }
+
+    #[test]
+    fn test_help_total_lines() {
+        let help = HelpOverlay::new();
+        // 各セクション: bindings.len() + 2 (タイトル + 空行)
+        let expected: usize = help.sections.iter().map(|s| s.bindings.len() + 2).sum();
+        assert_eq!(help.total_lines(), expected);
+        assert!(help.total_lines() > 30); // キーバインドは十分多い
     }
 
     #[test]

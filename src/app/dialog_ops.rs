@@ -1,5 +1,7 @@
 //! ダイアログ表示・操作。
 
+use crate::app::three_way_summary::{collect_summary_lines, ThreeWaySummaryPanel};
+use crate::diff::engine::DiffResult;
 use crate::merge::executor::MergeDirection;
 use crate::ui::dialog::{
     BatchConfirmDialog, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, PairServerMenu,
@@ -194,6 +196,81 @@ impl AppState {
     /// ヘルプオーバーレイを表示する (? キー)
     pub fn show_help(&mut self) {
         self.dialog = DialogState::Help(HelpOverlay::new());
+    }
+
+    /// W キーで 3way サマリーパネルを開く（トグル動作）
+    pub fn open_three_way_summary(&mut self) {
+        // トグル: 既に開いていたら閉じる
+        if matches!(self.dialog, DialogState::ThreeWaySummary(_)) {
+            self.close_dialog();
+            return;
+        }
+
+        if !self.has_reference() {
+            self.status_message = "No reference server".to_string();
+            return;
+        }
+
+        let path = match &self.selected_path {
+            Some(p) => p.clone(),
+            None => {
+                self.status_message = "Select a file first".to_string();
+                return;
+            }
+        };
+
+        // current_diff を直接参照して clone を避ける
+        match &self.current_diff {
+            None => {
+                self.status_message = "No diff available".to_string();
+            }
+            Some(DiffResult::Binary { .. }) => {
+                self.status_message = "Cannot show 3way summary for binary files".to_string();
+            }
+            Some(DiffResult::SymlinkDiff { .. }) => {
+                self.status_message = "Cannot show 3way summary for symlinks".to_string();
+            }
+            Some(DiffResult::Equal) => {
+                self.status_message = "All content is equal — no summary to show".to_string();
+            }
+            Some(DiffResult::Modified { lines, .. }) => {
+                let ref_content = match self.ref_cache.get(&path) {
+                    Some(content) => content.clone(),
+                    None => {
+                        self.status_message =
+                            "Reference content not loaded. Expand directory first.".to_string();
+                        return;
+                    }
+                };
+                let left_content = self.left_cache.get(&path).cloned().unwrap_or_default();
+                let right_content = self.right_cache.get(&path).cloned().unwrap_or_default();
+
+                let summary_lines =
+                    collect_summary_lines(lines, &left_content, &right_content, &ref_content);
+                if summary_lines.is_empty() {
+                    self.status_message =
+                        "All content is equal across all three servers".to_string();
+                    return;
+                }
+
+                let left_label = self.left_source.display_name().to_string();
+                let right_label = self.right_source.display_name().to_string();
+                let ref_label = self
+                    .ref_source
+                    .as_ref()
+                    .map(|s| s.display_name().to_string())
+                    .unwrap_or_else(|| "ref".to_string());
+
+                let panel = ThreeWaySummaryPanel::new(
+                    path,
+                    summary_lines,
+                    left_label,
+                    right_label,
+                    ref_label,
+                );
+                self.dialog = DialogState::ThreeWaySummary(panel);
+            }
+        }
     }
 
     /// ダイアログを閉じる
@@ -878,5 +955,109 @@ mod tests {
             }
             other => panic!("Expected BatchConfirm dialog, got: {:?}", other),
         }
+    }
+
+    // --- open_three_way_summary テスト ---
+
+    #[test]
+    fn test_open_three_way_summary_no_ref() {
+        let mut state = make_state();
+        // ref_source はデフォルトで None
+        state.open_three_way_summary();
+        assert_eq!(state.status_message, "No reference server");
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_open_three_way_summary_no_file_selected() {
+        let mut state = make_state();
+        state.ref_source = Some(Side::Remote("release".to_string()));
+        state.selected_path = None;
+        state.open_three_way_summary();
+        assert_eq!(state.status_message, "Select a file first");
+    }
+
+    #[test]
+    fn test_open_three_way_summary_no_diff() {
+        let mut state = make_state();
+        state.ref_source = Some(Side::Remote("release".to_string()));
+        state.selected_path = Some("a.rs".to_string());
+        state.current_diff = None;
+        state.open_three_way_summary();
+        assert_eq!(state.status_message, "No diff available");
+    }
+
+    #[test]
+    fn test_open_three_way_summary_binary() {
+        use crate::diff::binary::BinaryInfo;
+
+        let mut state = make_state();
+        state.ref_source = Some(Side::Remote("release".to_string()));
+        state.selected_path = Some("logo.png".to_string());
+        let info = BinaryInfo {
+            size: 100,
+            sha256: "abc".to_string(),
+        };
+        state.current_diff = Some(DiffResult::Binary {
+            left: Some(info.clone()),
+            right: Some(info),
+        });
+        state.open_three_way_summary();
+        assert_eq!(
+            state.status_message,
+            "Cannot show 3way summary for binary files"
+        );
+    }
+
+    #[test]
+    fn test_open_three_way_summary_toggle_close() {
+        use crate::app::three_way_summary::{SummaryLine, ThreeWaySummaryPanel};
+
+        let mut state = make_state();
+        state.ref_source = Some(Side::Remote("release".to_string()));
+        // まずパネルを開いた状態にする
+        let panel = ThreeWaySummaryPanel::new(
+            "a.rs".to_string(),
+            vec![SummaryLine {
+                diff_line_index: 0,
+                display_line_number: Some(1),
+                left_content: Some("test".to_string()),
+                right_content: Some("changed".to_string()),
+                ref_content: Some("test".to_string()),
+            }],
+            "local".to_string(),
+            "develop".to_string(),
+            "release".to_string(),
+        );
+        state.dialog = DialogState::ThreeWaySummary(panel);
+        // トグルで閉じる
+        state.open_three_way_summary();
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_open_three_way_summary_modified_success() {
+        let mut state = make_state();
+        state.ref_source = Some(Side::Remote("release".to_string()));
+        state.selected_path = Some("a.rs".to_string());
+        // compute_diff で Modified な diff を作成
+        let diff = crate::diff::engine::compute_diff("old line\n", "new line\n");
+        state.current_diff = Some(diff);
+        // キャッシュ設定
+        state
+            .left_cache
+            .insert("a.rs".to_string(), "old line\n".to_string());
+        state
+            .right_cache
+            .insert("a.rs".to_string(), "new line\n".to_string());
+        state
+            .ref_cache
+            .insert("a.rs".to_string(), "ref line\n".to_string());
+        state.open_three_way_summary();
+        assert!(
+            matches!(state.dialog, DialogState::ThreeWaySummary(_)),
+            "Expected ThreeWaySummary dialog, got: {:?}",
+            state.dialog
+        );
     }
 }

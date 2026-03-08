@@ -12,4 +12,5 @@ pub mod merge_tree_load;
 pub mod reconnect;
 pub mod search_keys;
 pub mod symlink_merge;
+pub mod three_way_summary_handler;
 pub mod tree_keys;

@@ -126,6 +126,26 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => {
                 state.close_dialog();
             }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::Help(ref mut help) = state.dialog {
+                    help.scroll_down();
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::Help(ref mut help) = state.dialog {
+                    help.scroll_up();
+                }
+            }
+            KeyCode::PageDown => {
+                if let DialogState::Help(ref mut help) = state.dialog {
+                    help.page_down(10);
+                }
+            }
+            KeyCode::PageUp => {
+                if let DialogState::Help(ref mut help) = state.dialog {
+                    help.page_up(10);
+                }
+            }
             _ => {}
         },
         DialogState::HunkMergePreview(ref preview) => match key {
@@ -247,6 +267,52 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => {
                 state.status_message = "Merge cancelled (mtime conflict)".to_string();
                 state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::ThreeWaySummary(_) => match key {
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let DialogState::ThreeWaySummary(ref mut panel) = state.dialog {
+                    panel.cursor_down();
+                    panel.adjust_scroll(15);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let DialogState::ThreeWaySummary(ref mut panel) = state.dialog {
+                    panel.cursor_up();
+                    panel.adjust_scroll(15);
+                }
+            }
+            KeyCode::Enter => {
+                let jump_idx = if let DialogState::ThreeWaySummary(ref panel) = state.dialog {
+                    panel.selected_diff_line_index()
+                } else {
+                    None
+                };
+                state.close_dialog();
+                if let Some(idx) = jump_idx {
+                    state.diff_cursor = idx;
+                    // diff_visible_height は draw_ui で毎フレーム更新される。
+                    // 初回描画前に 0 の場合は diff_scroll = idx となるが、
+                    // ダイアログが開かれるのは描画後なので実用上問題ない。
+                    let half = state.diff_visible_height / 2;
+                    state.diff_scroll = idx.saturating_sub(half);
+                }
+            }
+            KeyCode::Char('W') | KeyCode::Esc => {
+                state.close_dialog();
+            }
+            KeyCode::PageDown => {
+                if let DialogState::ThreeWaySummary(ref mut panel) = state.dialog {
+                    panel.page_down(15);
+                    panel.adjust_scroll(15);
+                }
+            }
+            KeyCode::PageUp => {
+                if let DialogState::ThreeWaySummary(ref mut panel) = state.dialog {
+                    panel.page_up(15);
+                    panel.adjust_scroll(15);
+                }
             }
             _ => {}
         },

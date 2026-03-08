@@ -18,6 +18,7 @@ pub mod selection;
 pub mod server_switch;
 pub mod side;
 pub mod three_way;
+pub mod three_way_summary;
 pub mod tree_ops;
 pub mod types;
 pub mod undo;

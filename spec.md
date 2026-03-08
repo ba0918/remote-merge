@@ -863,26 +863,32 @@ LLMへの一括投げ込みや記録用途に使う。
 
 | キー | フォーカス | 動作 |
 |------|-----------|------|
-| `↑` `↓` | 両方 | File Tree: ファイル移動 / Diff View: ハンク移動 |
+| `j` / `k` / `↑` `↓` | 両方 | File Tree: ファイル移動 / Diff View: 1行スクロール |
+| `n` / `Shift+N` | Diff View | 次/前のハンクへジャンプ |
 | `Enter` / `Space` | File Tree | ディレクトリ開閉 / ファイル選択 |
 | `Tab` | グローバル | File Tree ↔ Diff View フォーカス切替 |
 | `Shift+L` | File Tree | LeftMerge（leftの内容でrightを上書き） |
 | `Shift+R` | File Tree | RightMerge（rightの内容でleftを上書き） |
 | `→` | Diff View | 現在のハンクを right → left に取り込む |
 | `←` | Diff View | 現在のハンクを left → right に取り込む |
+| `u` | Diff View | undo（直前のハンクマージを取り消し） |
 | `/` | File Tree | ファイル名インクリメンタルサーチ |
-| `n` / `Shift+N` | File Tree | 検索結果の次/前へジャンプ |
+| `/` | Diff View | diff 内テキスト検索 |
 | `Esc` | 両方 | 検索解除 / ダイアログ閉じる |
 | `s` | グローバル | サーバ選択メニュー |
-| `Shift+W` | グローバル | 3way サマリーパネル トグル |
+| `Shift+X` | グローバル | right↔ref ワンキースワップ（3way 時） |
+| `Shift+W` | グローバル | 3way サマリーパネル トグル（未実装） |
 | `c` | グローバル | 選択ファイルのdiffをクリップボードにコピー |
 | `f` | グローバル | フィルター一覧表示・トグル |
+| `Shift+F` | グローバル | 変更ファイルのみ表示フィルター |
 | `r` | グローバル | 選択ディレクトリを再読み込み / 再接続 |
-| `Shift+E` | グローバル | レポート出力 |
+| `Shift+T` | グローバル | カラーテーマ切替 |
+| `Shift+S` | グローバル | シンタックスハイライト ON/OFF |
+| `Shift+E` | グローバル | Markdownレポート出力 |
 | `?` | グローバル | ヘルプ表示 |
 | `q` | グローバル | 終了 |
 
-> **Note:** `L` `R` `W` `E` `N` はShiftキー必須（大文字入力）。
+> **Note:** `L` `R` `W` `X` `E` `F` `N` `T` `S` はShiftキー必須（大文字入力）。
 > 小文字の `l` `r` `w` `e` `n` には別の機能を割り当てない（誤操作防止）。
 
 ---
@@ -891,43 +897,181 @@ LLMへの一括投げ込みや記録用途に使う。
 
 | 用途 | クレート |
 |------|---------|
-| TUI フレームワーク | `ratatui` |
+| TUI フレームワーク | `ratatui` + `crossterm` |
 | 非同期ランタイム | `tokio` |
 | SSH / SFTP | `russh` |
 | diff 生成 | `similar` |
+| シンタックスハイライト | `syntect` |
+| クリップボード | `arboard` |
+| ファイル走査 | `walkdir` |
+| ハッシュ計算 | `sha2` |
 | 設定ファイル | `toml` + `serde` |
+| JSON出力 | `serde_json` |
 | エラーハンドリング | `anyhow` |
-| ログ | `tracing` |
+| ログ | `tracing` + `tracing-subscriber` |
+| CLI引数 | `clap` |
+| テストカバレッジ | `cargo-llvm-cov` |
 
 ---
 
-## ディレクトリ構成（実装想定）
+## ディレクトリ構成
 
 ```
 remote-merge/
 ├── src/
-│   ├── main.rs
-│   ├── app.rs            # アプリ状態管理
-│   ├── config.rs         # 設定ファイル読み込み
-│   ├── ssh/
+│   ├── main.rs              # CLIエントリポイント + TUI起動
+│   ├── lib.rs               # モジュール宣言
+│   ├── tree.rs              # FileTree/FileNode データ構造
+│   ├── config.rs            # TOML設定パーサー（グローバル・プロジェクト・フィルター）
+│   ├── filter.rs            # パス除外フィルター（include/exclude、パス全体マッチ）
+│   ├── error.rs             # カスタムエラー型
+│   ├── init.rs              # 対話的初期化（.remote-merge.toml 生成）
+│   ├── state.rs             # TUI状態ダンプ（JSON/テキスト）
+│   │
+│   ├── app/                 # ドメイン層 — アプリケーション状態・純粋ロジック
+│   │   ├── mod.rs           #   AppState 構造体 + 初期化
+│   │   ├── types.rs         #   Badge, Focus, DiffMode, FlatNode 等の型定義
+│   │   ├── badge.rs         #   バッジ計算エンジン
+│   │   ├── selection.rs     #   ファイル選択・フォーカス管理
+│   │   ├── tree_ops.rs      #   ツリー平坦化・展開・パス操作
+│   │   ├── navigation.rs    #   カーソル移動・スクロール・フォーカス
+│   │   ├── hunk_ops.rs      #   ハンク単位マージ + undo
+│   │   ├── dialog_ops.rs    #   ダイアログ操作（マージ・フィルタ・ヘルプ）
+│   │   ├── server_switch.rs #   サーバ切替・再接続時の状態復元
+│   │   ├── search.rs        #   ファイル名インクリメンタルサーチ
+│   │   ├── diff_search.rs   #   差分検索
+│   │   ├── three_way.rs     #   3way diff 状態管理
+│   │   ├── ref_swap.rs      #   right↔ref スワップ
+│   │   ├── report.rs        #   Markdownレポート出力
+│   │   ├── merge_collect.rs #   マージ対象ファイル集約
+│   │   ├── cache.rs         #   ツリーキャッシュ
+│   │   ├── clipboard.rs     #   クリップボード操作
+│   │   ├── scan.rs          #   スキャン状態管理
+│   │   └── undo.rs          #   undo 実装
+│   │
+│   ├── runtime/             # サービス層 — I/O・非同期処理
+│   │   ├── mod.rs           #   TuiRuntime 構造体
+│   │   ├── core.rs          #   CoreRuntime（CLI/TUI共通の SSH・I/O 基盤）
+│   │   ├── bootstrap.rs     #   TUI 初期化
+│   │   ├── scanner.rs       #   ツリー非同期走査スレッド
+│   │   ├── remote_io.rs     #   リモート I/O（SSH/SFTP）
+│   │   ├── side_io.rs       #   Side-agnostic I/O API
+│   │   └── merge_scan/      #   マージスキャン管理
+│   │       ├── mod.rs
+│   │       ├── task.rs      #     マージタスク
+│   │       ├── poll.rs      #     ポーリング
+│   │       └── apply.rs     #     マージ適用
+│   │
+│   ├── handler/             # イベントハンドラ層 — キー入力 → サービス呼び出し
+│   │   ├── mod.rs           #   イベントルーティング
+│   │   ├── tree_keys.rs     #   ツリービューのキー処理
+│   │   ├── diff_keys.rs     #   diff ビューのキー処理
+│   │   ├── dialog_keys.rs   #   ダイアログのキー処理
+│   │   ├── search_keys.rs   #   検索時のキー処理
+│   │   ├── diff_search_keys.rs # diff 内検索のキー処理
+│   │   ├── merge_batch.rs   #   バッチマージ実行
+│   │   ├── merge_content.rs #   マージ内容決定ロジック
+│   │   ├── merge_exec.rs    #   マージ実行エンジン
+│   │   ├── merge_mtime.rs   #   mtime 再チェック（楽観的ロック）
+│   │   ├── merge_file_io.rs #   ファイル書き込みラッパー
+│   │   ├── merge_tree_load.rs # マージ後のツリー再読み込み
+│   │   ├── symlink_merge.rs #   シンボリックリンクマージ
+│   │   └── reconnect.rs     #   再接続・サーバ切替実装
+│   │
+│   ├── service/             # ビジネスロジック層（CLI サブコマンド用）
 │   │   ├── mod.rs
-│   │   ├── client.rs     # SSH接続・exec
-│   │   └── sftp.rs       # ファイル転送
-│   ├── diff/
+│   │   ├── types.rs         #   ServiceResult 等の型
+│   │   ├── status.rs        #   ステータス集計
+│   │   ├── diff.rs          #   diff 出力
+│   │   ├── merge.rs         #   マージ制御
+│   │   ├── output.rs        #   JSON/テキスト出力
+│   │   └── source_pair.rs   #   ソースペア解析
+│   │
+│   ├── cli/                 # CLI 実装層
 │   │   ├── mod.rs
-│   │   └── engine.rs     # diff計算・バイナリ判定
-│   ├── filter.rs         # 除外フィルター
-│   ├── cli/
+│   │   ├── status.rs        #   status サブコマンド
+│   │   ├── diff.rs          #   diff サブコマンド
+│   │   ├── merge.rs         #   merge サブコマンド（--dry-run, --force）
+│   │   ├── logs.rs          #   logs サブコマンド（構造化ログ取得）
+│   │   └── events.rs        #   events サブコマンド（イベント取得）
+│   │
+│   ├── ui/                  # UI 層 — 描画・ウィジェット
 │   │   ├── mod.rs
-│   │   ├── status.rs     # statusサブコマンド
-│   │   ├── diff.rs       # diffサブコマンド
-│   │   └── merge.rs      # mergeサブコマンド
-│   └── ui/
+│   │   ├── render.rs        #   TUI 全体描画
+│   │   ├── tree_view.rs     #   ツリービューウィジェット
+│   │   ├── layout.rs        #   レイアウト定義
+│   │   ├── metadata.rs      #   ファイルメタデータ表示
+│   │   ├── diff_view/       #   diff ビュー
+│   │   │   ├── mod.rs       #     メインレンダリング
+│   │   │   ├── content_render.rs # 行内容レンダリング
+│   │   │   ├── line_render.rs #   行書式（色・バッジ）
+│   │   │   ├── style_utils.rs #   スタイルユーティリティ
+│   │   │   ├── search.rs    #     diff 内検索 UI
+│   │   │   └── three_way_badge.rs # 3way バッジ表示
+│   │   └── dialog/          #   ダイアログ群
+│   │       ├── mod.rs       #     ダイアログ基盤
+│   │       ├── confirm.rs   #     確認ダイアログ
+│   │       ├── batch_confirm.rs # バッチマージ確認
+│   │       ├── server_menu.rs #   サーバ選択メニュー
+│   │       ├── pair_server_menu.rs # 3way 用 2 列選択 UI
+│   │       ├── filter_panel.rs #  フィルターパネル
+│   │       ├── hunk_preview.rs #  ハンクプレビュー
+│   │       ├── mtime_warning.rs # mtime 警告
+│   │       └── help.rs      #     ヘルプダイアログ
+│   │
+│   ├── ssh/                 # SSH/SFTP 通信層
+│   │   ├── mod.rs
+│   │   ├── client.rs        #   SSH 接続・認証・コマンド実行
+│   │   ├── tree_parser.rs   #   find 出力をツリーに変換
+│   │   ├── known_hosts.rs   #   known_hosts 検証・レガシー SSH 対応
+│   │   ├── batch_read.rs    #   バッチファイル読み込み
+│   │   └── hint.rs          #   SSH アルゴリズムヒント
+│   │
+│   ├── diff/                # 差分計算エンジン
+│   │   ├── mod.rs
+│   │   ├── engine.rs        #   similar crate ベースの diff 計算
+│   │   ├── binary.rs        #   SHA-256 ハッシュ比較（バイナリ）
+│   │   └── symlink.rs       #   シンボリックリンク比較・マージ
+│   │
+│   ├── merge/               # マージ実行エンジン
+│   │   ├── mod.rs
+│   │   ├── executor.rs      #   マージ実行（左/右/中央への上書き）
+│   │   └── optimistic_lock.rs # 楽観的ロック実装
+│   │
+│   ├── local/               # ローカルファイルシステム
+│   │   └── mod.rs           #   再帰的ツリースキャン（WalkDir）
+│   │
+│   ├── backup/              # マージ前バックアップ
+│   │   └── mod.rs           #   .remote-merge-backup/ 管理
+│   │
+│   ├── highlight/           # シンタックスハイライト
+│   │   ├── mod.rs
+│   │   ├── engine.rs        #   syntect ベースエンジン
+│   │   ├── convert.rs       #   syntect → ratatui Color 変換
+│   │   └── cache.rs         #   ハイライトキャッシュ
+│   │
+│   ├── theme/               # カラーテーマシステム
+│   │   ├── mod.rs
+│   │   └── palette.rs       #   12 色パレット定義
+│   │
+│   └── telemetry/           # ログ・イベント記録
 │       ├── mod.rs
-│       ├── tree.rs       # ファイルツリーパネル
-│       └── diff_view.rs  # Diffパネル
+│       ├── event_types.rs   #   イベント型定義
+│       ├── event_recorder.rs #  イベント記録
+│       ├── structured_log.rs # 構造化ログ
+│       ├── log_reader.rs    #   ログファイル読み込み
+│       ├── state_dumper.rs  #   定期的な状態ダンプ
+│       └── truncate.rs      #   ログローテーション
+│
 ├── Cargo.toml
-└── README.md
+├── CLAUDE.md
+├── spec.md
+├── .github/workflows/       # CI/CD
+│   ├── ci.yml               #   push/PR 時: fmt + clippy + test
+│   └── release.yml           #   v* タグ時: Linux/macOS/Windows クロスビルド
+└── docs/
+    ├── status.md             # 進捗管理
+    └── cycles/               # サイクル別実装計画
 ```
 
 ---
@@ -948,8 +1092,10 @@ remote-merge/
 
 ### Phase 2: 高度なマージ・比較機能
 - [x] ハンク単位マージ（Diff View フォーカスモデル）
-- [ ] 3way diff バッジ表示・ペア切り替え
-- [ ] 3way サマリーパネル
+- [x] 3way diff バッジ表示・ペア切り替え（PairServerMenu 2列選択UI、--ref CLI引数）
+- [x] right↔ref ワンキースワップ（`X` キー）・Equal時ref diff自動表示
+- [x] ディレクトリバッジの ref 差分色分け
+- [ ] 3way サマリーパネル（`W` キー）
 - [x] サーバ間比較（remote ↔ remote）
 - [x] リモート間マージ（サーバ名入力確認・`--force`）
 - [x] 更新日時・メタデータ表示
@@ -965,11 +1111,20 @@ remote-merge/
 - [x] センシティブファイル警告
 - [x] ファイルパーミッション制御（`--with-permissions`）
 - [x] ファイル名検索（`/` キー）
+- [x] Diff View内テキスト検索
 - [x] フィルターTUIトグル（`f` キー）
+- [x] 変更ファイルフィルター（`Shift+F` キー）
 - [x] クリップボードコピー
 - [x] レポート出力（`Shift+E`）
 - [x] SSH接続断リカバリ・接続状態インジケータ
 - [x] root_dir不在時のエラーハンドリング
+- [x] シンタックスハイライト（syntect ベース・テーマ切替 `T` キー・ON/OFF `S` キー）
+- [x] VSCode準拠スクロールマージン（上下3行）
+- [x] ディレクトリ再帰マージ（非同期化 + プログレス表示）
+- [x] バッチマージ（複数ファイル同時マージ + 確認フロー）
+- [x] サーバ切替時のツリー展開状態・カーソル位置維持
+- [x] Side-agnostic I/O API（local/remote 決め打ちの根絶）
+- [x] パス全体マッチ対応 exclude パターン（`config/*.toml`, `vendor/legacy/**`）
 
 ### Phase 4: CLIサブコマンド（LLMエージェント連携）
 - [x] `status` コマンド（テキスト・JSON出力・`--summary`）
@@ -985,3 +1140,20 @@ remote-merge/
 - [x] `logs` CLIサブコマンド（debug.log のフィルタ・表示: --level, --since, --tail, --format json）
 - [x] `events` CLIサブコマンド（events.jsonl のフィルタ・表示: --type, --since, --tail）
 - [x] structured_log.rs（tracing JSON Layer — `logs --format json` の基盤）
+
+### CI/CD・品質管理
+- [x] GitHub Actions CI（push/PR 時: fmt + clippy + test）
+- [x] GitHub Actions Release（v* タグ時: Linux/macOS/Windows クロスビルド）
+- [x] pre-commit / pre-push フック（fmt + clippy）
+- [x] cargo-llvm-cov テストカバレッジ基盤（行カバレッジ 76%+）
+- [x] 849 ユニットテスト（114 ファイル、31,500+ 行）
+
+### 進捗サマリー
+
+| Phase | 状態 | 残タスク |
+|-------|------|---------|
+| Phase 1: MVP | 完了 | — |
+| Phase 2: 高度なマージ・比較 | **ほぼ完了** | 3way サマリーパネル、コンフリクト検知 |
+| Phase 3: UX・堅牢性 | 完了 | — |
+| Phase 4: CLI + Skill | 完了 | — |
+| CI/CD・品質管理 | 完了 | — |
