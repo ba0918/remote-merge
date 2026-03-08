@@ -2,7 +2,7 @@
 
 use crate::app::Side;
 use crate::cli::ref_guard;
-use crate::config;
+use crate::config::AppConfig;
 use crate::runtime::CoreRuntime;
 use crate::service::diff::build_diff_output;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
@@ -28,9 +28,8 @@ pub struct DiffArgs {
 }
 
 /// diff サブコマンドを実行する
-pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
+pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
-    let config = config::load_config()?;
 
     let source_args = SourceArgs {
         left: args.left,

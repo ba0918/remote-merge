@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config;
+use crate::config::AppConfig;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, merge_exit_code, plan_merge};
@@ -46,7 +46,7 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
 }
 
 /// merge サブコマンドを実行する
-pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
+pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     if let Err(e) = validate_merge_args(&args) {
         eprintln!("Error: {}", e);
         return Ok(crate::service::types::exit_code::ERROR);
@@ -54,8 +54,6 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
 
     // フォーマットを先にパースして不正値を早期エラーにする
     let format = OutputFormat::parse(&args.format)?;
-
-    let config = config::load_config()?;
 
     let source_args = SourceArgs {
         left: args.left,
@@ -361,6 +359,16 @@ mod tests {
         assert!(validate_merge_args(&args).is_ok());
     }
 
+    fn dummy_config() -> crate::config::AppConfig {
+        crate::config::AppConfig {
+            servers: std::collections::BTreeMap::new(),
+            local: crate::config::LocalConfig::default(),
+            filter: crate::config::FilterConfig::default(),
+            ssh: crate::config::SshConfig::default(),
+            backup: crate::config::BackupConfig::default(),
+        }
+    }
+
     #[test]
     fn test_run_merge_rejects_invalid_format_early() {
         let args = MergeArgs {
@@ -375,7 +383,7 @@ mod tests {
         };
         // run_merge は config 読み込みより前に format をパースするため、
         // 不正な format 値で即座にエラーを返す
-        let err = run_merge(args).unwrap_err();
+        let err = run_merge(args, dummy_config()).unwrap_err();
         assert!(
             format!("{}", err).contains("Unknown format"),
             "unexpected error: {}",

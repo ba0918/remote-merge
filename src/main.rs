@@ -6,6 +6,7 @@ use crossterm::terminal::{
 };
 use ratatui::prelude::*;
 use std::io;
+use std::path::PathBuf;
 
 use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
 use remote_merge::config;
@@ -20,6 +21,10 @@ use remote_merge::ui::render::draw_ui;
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
 struct Cli {
+    /// Path to project config file [overrides .remote-merge.toml in CWD]
+    #[arg(long, global = true)]
+    config: Option<PathBuf>,
+
     /// Left side of comparison [default: local]
     #[arg(long)]
     left: Option<String>,
@@ -144,6 +149,9 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Commands::Init) => {
+            if cli.config.is_some() {
+                eprintln!("Warning: --config is ignored for the 'init' subcommand");
+            }
             remote_merge::init::run_init()?;
         }
         Some(Commands::Status {
@@ -154,15 +162,18 @@ fn main() -> anyhow::Result<()> {
             summary,
             all,
         }) => {
-            let code =
-                remote_merge::cli::status::run_status(remote_merge::cli::status::StatusArgs {
+            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
+            let code = remote_merge::cli::status::run_status(
+                remote_merge::cli::status::StatusArgs {
                     left,
                     right,
                     ref_server: r#ref,
                     format,
                     summary,
                     all,
-                })?;
+                },
+                cfg,
+            )?;
             std::process::exit(code);
         }
         Some(Commands::Diff {
@@ -174,15 +185,19 @@ fn main() -> anyhow::Result<()> {
             max_lines,
             max_files,
         }) => {
-            let code = remote_merge::cli::diff::run_diff(remote_merge::cli::diff::DiffArgs {
-                paths,
-                left,
-                right,
-                ref_server: r#ref,
-                format,
-                max_lines,
-                max_files,
-            })?;
+            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
+            let code = remote_merge::cli::diff::run_diff(
+                remote_merge::cli::diff::DiffArgs {
+                    paths,
+                    left,
+                    right,
+                    ref_server: r#ref,
+                    format,
+                    max_lines,
+                    max_files,
+                },
+                cfg,
+            )?;
             std::process::exit(code);
         }
         Some(Commands::Merge {
@@ -195,16 +210,20 @@ fn main() -> anyhow::Result<()> {
             with_permissions,
             format,
         }) => {
-            let code = remote_merge::cli::merge::run_merge(remote_merge::cli::merge::MergeArgs {
-                paths,
-                left,
-                right,
-                ref_server: r#ref,
-                dry_run,
-                force,
-                with_permissions,
-                format,
-            })?;
+            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
+            let code = remote_merge::cli::merge::run_merge(
+                remote_merge::cli::merge::MergeArgs {
+                    paths,
+                    left,
+                    right,
+                    ref_server: r#ref,
+                    dry_run,
+                    force,
+                    with_permissions,
+                    format,
+                },
+                cfg,
+            )?;
             std::process::exit(code);
         }
         Some(Commands::Logs {
@@ -213,6 +232,9 @@ fn main() -> anyhow::Result<()> {
             tail,
             format,
         }) => {
+            if cli.config.is_some() {
+                eprintln!("Warning: --config is ignored for the 'logs' subcommand");
+            }
             let code = remote_merge::cli::logs::run_logs(remote_merge::cli::logs::LogsArgs {
                 level,
                 since,
@@ -226,6 +248,9 @@ fn main() -> anyhow::Result<()> {
             since,
             tail,
         }) => {
+            if cli.config.is_some() {
+                eprintln!("Warning: --config is ignored for the 'events' subcommand");
+            }
             let code =
                 remote_merge::cli::events::run_events(remote_merge::cli::events::EventsArgs {
                     event_type,
@@ -235,7 +260,7 @@ fn main() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         None => {
-            let config = config::load_config()?;
+            let config = config::load_config_with_project_override(cli.config.as_deref())?;
             let right_server = cli.right.map(Ok).unwrap_or_else(|| {
                 config.servers.keys().next().cloned().ok_or_else(|| {
                     anyhow::anyhow!(

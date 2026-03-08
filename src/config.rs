@@ -187,29 +187,44 @@ pub fn project_config_path() -> PathBuf {
 /// - `[ssh]`: プロジェクト設定で上書き
 /// - `[backup]`: プロジェクト設定で上書き
 pub fn load_config() -> crate::error::Result<AppConfig> {
+    load_config_with_project_override(None)
+}
+
+/// プロジェクト設定ファイルのパスを上書きして設定を読み込む。
+///
+/// `project_override` が `Some` の場合、指定パスをプロジェクト設定として使用し、
+/// CWD の `.remote-merge.toml` は無視する。グローバル設定は常にマージされる。
+pub fn load_config_with_project_override(
+    project_override: Option<&Path>,
+) -> crate::error::Result<AppConfig> {
     let global_path = global_config_path();
-    let project_path = project_config_path();
 
-    let global_raw = global_path
-        .as_ref()
-        .filter(|p| p.exists())
-        .map(|p| load_raw_config(p))
-        .transpose()?;
-
-    let project_raw = if project_path.exists() {
-        Some(load_raw_config(&project_path)?)
-    } else {
-        None
+    let project_path = match project_override {
+        Some(p) => {
+            let abs = if p.is_relative() {
+                std::env::current_dir()?.join(p)
+            } else {
+                p.to_path_buf()
+            };
+            if !abs.exists() {
+                anyhow::bail!("Config file not found: {}", abs.display());
+            }
+            if !abs.is_file() {
+                anyhow::bail!("Config path is not a regular file: {}", abs.display());
+            }
+            Some(abs)
+        }
+        None => {
+            let default = project_config_path();
+            if default.exists() {
+                Some(default)
+            } else {
+                None
+            }
+        }
     };
 
-    // 少なくともどちらか一つは必要
-    if global_raw.is_none() && project_raw.is_none() {
-        let path =
-            global_path.unwrap_or_else(|| PathBuf::from("~/.config/remote-merge/config.toml"));
-        bail!(AppError::ConfigNotFound { path });
-    }
-
-    merge_configs(global_raw, project_raw)
+    load_config_from_paths(global_path.as_deref(), project_path.as_deref())
 }
 
 /// 指定パスから設定ファイルを読み込む（テスト用にpub）
@@ -703,5 +718,143 @@ exclude = [".remote-merge-backup", ".git"]
             .filter(|e| e.as_str() == ".remote-merge-backup")
             .count();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_load_config_with_project_override_uses_specified_file() {
+        let content = r#"
+[servers.develop]
+host = "override.example.com"
+user = "deploy"
+root_dir = "/var/www/override"
+
+[local]
+root_dir = "/home/user/override"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_with_project_override(Some(f.path())).unwrap();
+        assert_eq!(config.servers["develop"].host, "override.example.com");
+        assert_eq!(config.local.root_dir, PathBuf::from("/home/user/override"));
+    }
+
+    #[test]
+    fn test_load_config_with_project_override_nonexistent_file() {
+        let result = load_config_with_project_override(Some(Path::new("/nonexistent/config.toml")));
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("Config file not found"));
+    }
+
+    #[test]
+    fn test_load_config_with_project_override_directory_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = load_config_with_project_override(Some(dir.path()));
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("Config path is not a regular file"));
+    }
+
+    #[test]
+    fn test_load_config_with_project_override_none_falls_back() {
+        // None を渡すと CWD の .remote-merge.toml を探す（通常テスト環境には存在しない）
+        // グローバル設定もなければ ConfigNotFound エラーになる。
+        // テスト環境にグローバル設定がない前提で、ConfigNotFound を確認する。
+        let result = load_config_with_project_override(None);
+        match result {
+            Ok(cfg) => {
+                // グローバル設定が存在する環境: [local] が読めた = 正常
+                assert!(!cfg.local.root_dir.as_os_str().is_empty());
+            }
+            Err(e) => {
+                let err = format!("{}", e);
+                assert!(
+                    err.contains("not found"),
+                    "Expected 'not found' error, got: {}",
+                    err
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_empty_file_parse_error() {
+        // 空ファイルには [local] セクションがないのでバリデーションエラー
+        let f = write_temp_config("");
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("local"),
+            "Expected error about missing [local], got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_valid_toml_missing_local_section() {
+        let content = r#"
+[filter]
+exclude = ["*.log"]
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("local"),
+            "Expected error about missing [local], got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_override_file_values_used() {
+        // プロジェクト設定で指定した値が結果に反映されることを確認
+        let content = r#"
+[servers.production]
+host = "prod.example.com"
+user = "admin"
+root_dir = "/var/www/prod"
+
+[local]
+root_dir = "/home/user/project"
+
+[ssh]
+timeout_sec = 60
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_with_project_override(Some(f.path())).unwrap();
+        assert_eq!(config.servers.len(), 1);
+        assert_eq!(config.servers["production"].host, "prod.example.com");
+        assert_eq!(config.servers["production"].user, "admin");
+        assert_eq!(config.local.root_dir, PathBuf::from("/home/user/project"));
+        assert_eq!(config.ssh.timeout_sec, 60);
+    }
+
+    #[test]
+    fn test_load_config_delegates_to_load_config_with_project_override() {
+        // load_config() は load_config_with_project_override(None) に委譲する。
+        // 両者が同じ結果を返すことを確認。
+        let result_direct = load_config_with_project_override(None);
+        let result_delegate = load_config();
+
+        match (result_direct, result_delegate) {
+            (Ok(cfg1), Ok(cfg2)) => {
+                // 同じ設定が読まれるはず
+                assert_eq!(cfg1.local.root_dir, cfg2.local.root_dir);
+                assert_eq!(cfg1.ssh.timeout_sec, cfg2.ssh.timeout_sec);
+            }
+            (Err(e1), Err(e2)) => {
+                // 同じエラーになるはず
+                assert_eq!(format!("{}", e1), format!("{}", e2));
+            }
+            (r1, r2) => {
+                panic!(
+                    "load_config() and load_config_with_project_override(None) diverged: {:?} vs {:?}",
+                    r1.is_ok(),
+                    r2.is_ok()
+                );
+            }
+        }
     }
 }

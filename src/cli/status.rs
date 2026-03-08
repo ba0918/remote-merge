@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config;
+use crate::config::AppConfig;
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
@@ -38,9 +38,8 @@ pub struct StatusArgs {
 }
 
 /// status サブコマンドを実行する
-pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
+pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
-    let config = config::load_config()?;
 
     let source_args = SourceArgs {
         left: args.left,
