@@ -49,9 +49,9 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
         return;
     }
 
-    // SSH未接続チェック
+    // リモート接続チェック（片方以上がリモートの場合は接続必須）
     if !state.is_connected {
-        state.status_message = "SSH not connected: please connect to remote server".to_string();
+        state.status_message = "Not connected: please reconnect to the remote side".to_string();
         return;
     }
 

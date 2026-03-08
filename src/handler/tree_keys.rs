@@ -68,20 +68,26 @@ pub fn handle_tree_key(
                     if local_needs_load {
                         if state.left_source.is_local() {
                             state.load_local_children(&path);
-                        } else if let Some(name) = state.left_source.server_name() {
-                            let name = name.to_string();
-                            super::merge_exec::load_remote_children_to(
-                                state, runtime, &path, &name, true,
+                        } else {
+                            let left_source = state.left_source.clone();
+                            super::merge_exec::load_children_to(
+                                state,
+                                runtime,
+                                &path,
+                                &left_source,
+                                true,
                             );
                         }
                     }
-                    if remote_needs_load && state.is_connected {
-                        if let Some(name) = state.right_source.server_name() {
-                            let name = name.to_string();
-                            super::merge_exec::load_remote_children_to(
-                                state, runtime, &path, &name, false,
-                            );
-                        }
+                    if remote_needs_load && runtime.is_side_available(&state.right_source) {
+                        let right_source = state.right_source.clone();
+                        super::merge_exec::load_children_to(
+                            state,
+                            runtime,
+                            &path,
+                            &right_source,
+                            false,
+                        );
                     }
                 }
                 state.toggle_expand();
@@ -100,7 +106,7 @@ pub fn handle_tree_key(
             }
         }
         KeyCode::Char('r') => {
-            if !state.is_connected {
+            if !runtime.is_side_available(&state.right_source) {
                 // 未接続時は再接続
                 execute_reconnect(state, runtime);
             } else if state.current_is_dir() {

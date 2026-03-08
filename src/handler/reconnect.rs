@@ -36,25 +36,23 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     state.showing_ref_diff = false;
     state.clear_scan_cache();
 
+    // reference サーバのキャッシュ・ツリーをクリアして再取得
+    if state.ref_source.is_some() {
+        state.ref_tree = None;
+        state.ref_cache.clear();
+        execute_ref_connect(state, runtime);
+    }
+
     // 展開状態を復元
     state.expanded_dirs = expanded_backup;
 
     // 展開済みディレクトリの子ノードを再取得
     let dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
     for dir in &dirs {
-        // 左側: ローカルならファイルシステムから、リモートならSSHで取得
-        match &left_source {
-            Side::Local => {
-                state.load_local_children(dir);
-            }
-            Side::Remote(name) => {
-                super::merge_exec::load_remote_children_to(state, runtime, dir, name, true);
-            }
-        }
-        // 右側: 常にリモートから取得
-        if let Side::Remote(name) = &right_source {
-            super::merge_exec::load_remote_children_to(state, runtime, dir, name, false);
-        }
+        // 左側: 統一 API 経由で取得（is_left=true で left_tree に書き込む）
+        super::merge_exec::load_children_to(state, runtime, dir, &left_source, true);
+        // 右側: 統一 API 経由で取得（is_left=false で right_tree に書き込む）
+        super::merge_exec::load_children_to(state, runtime, dir, &right_source, false);
     }
 
     state.rebuild_flat_nodes();

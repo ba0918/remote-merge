@@ -24,7 +24,7 @@ pub fn check_mtime_conflict_single(
     match direction {
         MergeDirection::LeftToRight => {
             // リモート側のmtimeをチェック
-            if !state.is_connected {
+            if !runtime.is_side_available(&state.right_source) {
                 return false;
             }
             let expected = state
@@ -32,7 +32,7 @@ pub fn check_mtime_conflict_single(
                 .find_node(std::path::Path::new(path))
                 .and_then(|n| n.mtime);
 
-            match runtime.stat_remote_files(&state.server_name, &[path.to_string()]) {
+            match runtime.stat_files(&state.right_source, &[path.to_string()]) {
                 Ok(results) => {
                     let actual = results.first().and_then(|(_, dt)| *dt);
                     if let Some(conflict) = optimistic_lock::check_mtime(path, expected, actual) {
@@ -110,12 +110,12 @@ pub fn check_mtime_for_write(
     }
 
     // リモート側の mtime チェック
-    if state.is_connected {
+    if runtime.is_side_available(&state.right_source) {
         let remote_expected = state
             .right_tree
             .find_node(std::path::Path::new(&path))
             .and_then(|n| n.mtime);
-        match runtime.stat_remote_files(&state.server_name, std::slice::from_ref(&path)) {
+        match runtime.stat_files(&state.right_source, std::slice::from_ref(&path)) {
             Ok(results) => {
                 let remote_actual = results.first().and_then(|(_, dt)| *dt);
                 if let Some(c) = optimistic_lock::check_mtime(&path, remote_expected, remote_actual)

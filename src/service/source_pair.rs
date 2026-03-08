@@ -5,6 +5,8 @@
 
 use crate::app::Side;
 use crate::config::AppConfig;
+use crate::runtime::CoreRuntime;
+use crate::service::types::SourceInfo;
 
 /// 解決済みの比較ペア
 #[derive(Debug, Clone)]
@@ -73,6 +75,30 @@ pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Res
         left: Side::Local,
         right: Side::Remote(right_name),
     })
+}
+
+/// Side から SourceInfo を構築する。
+///
+/// Local の場合は config の root_dir をラベルとルートに使い、
+/// Remote の場合は CoreRuntime から ServerConfig を取得する。
+pub fn build_source_info(side: &Side, core: &CoreRuntime) -> anyhow::Result<SourceInfo> {
+    match side {
+        Side::Local => Ok(SourceInfo {
+            label: "local".into(),
+            root: core.config.local.root_dir.to_string_lossy().to_string(),
+        }),
+        Side::Remote(server_name) => {
+            let server_config = core.get_server_config(server_name)?;
+            Ok(SourceInfo {
+                label: server_name.clone(),
+                root: format!(
+                    "{}:{}",
+                    server_config.host,
+                    server_config.root_dir.to_string_lossy()
+                ),
+            })
+        }
+    }
 }
 
 /// サーバ名が config に存在するか検証する

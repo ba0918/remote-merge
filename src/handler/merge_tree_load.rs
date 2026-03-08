@@ -6,40 +6,23 @@
 use crate::app::AppState;
 use crate::runtime::TuiRuntime;
 
-/// リモートディレクトリの遅延読み込み（ツリー側指定版）
+/// Side ベースのディレクトリ遅延読み込み（統一 API 経由）
 ///
 /// `is_left` が true なら left_tree に、false なら right_tree にロードする。
-pub fn load_remote_children_to(
+pub fn load_children_to(
     state: &mut AppState,
     runtime: &mut TuiRuntime,
     rel_path: &str,
-    server_name: &str,
+    side: &crate::app::Side,
     is_left: bool,
 ) {
-    let server_config = match runtime.get_server_config(server_name) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let remote_root = server_config.root_dir.to_string_lossy().to_string();
-    let full_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
-    let exclude = state.active_exclude_patterns();
-
-    let client = match runtime.core.ssh_clients.get_mut(server_name) {
-        Some(c) => c,
-        None => return,
-    };
-
     let tree = if is_left {
         &mut state.left_tree
     } else {
         &mut state.right_tree
     };
 
-    match runtime
-        .core
-        .rt
-        .block_on(client.list_dir(&full_path, &exclude, rel_path))
-    {
+    match runtime.fetch_children(side, rel_path) {
         Ok(children) => {
             if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
                 node.children = Some(children);
@@ -47,12 +30,13 @@ pub fn load_remote_children_to(
             }
         }
         Err(e) => {
-            tracing::debug!("Remote directory load skipped: {} - {}", rel_path, e);
+            tracing::debug!("Directory load skipped: {} - {}", rel_path, e);
             if crate::error::is_connection_error(&e) {
                 state.is_connected = false;
+                runtime.disconnect_if_remote(side);
                 state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
             } else {
-                state.status_message = format!("Remote dir load failed: {} - {}", rel_path, e);
+                state.status_message = format!("Dir load failed: {} - {}", rel_path, e);
             }
         }
     }
@@ -70,8 +54,8 @@ pub fn expand_subtree_for_merge(
     let mut loaded = 0usize;
     let mut dirs_to_load: Vec<String> = vec![dir_path.to_string()];
 
-    let left_server = state.left_source.server_name().map(|s| s.to_string());
-    let right_server = state.right_source.server_name().map(|s| s.to_string());
+    let left_source = state.left_source.clone();
+    let right_source = state.right_source.clone();
 
     while let Some(path) = dirs_to_load.pop() {
         // 左側の未ロード子を読み込み
@@ -80,24 +64,18 @@ pub fn expand_subtree_for_merge(
             .find_node(std::path::Path::new(&path))
             .is_some_and(|n| n.is_dir() && !n.is_loaded());
         if left_needs_load {
-            if state.left_source.is_local() {
-                state.load_local_children(&path);
-            } else if let Some(ref name) = left_server {
-                load_remote_children_to(state, runtime, &path, name, true);
-            }
+            load_children_to(state, runtime, &path, &left_source, true);
             loaded += 1;
         }
 
         // 右側の未ロード子を読み込み
-        if state.is_connected {
+        if runtime.is_side_available(&right_source) {
             let right_needs_load = state
                 .right_tree
                 .find_node(std::path::Path::new(&path))
                 .is_some_and(|n| n.is_dir() && !n.is_loaded());
             if right_needs_load {
-                if let Some(ref name) = right_server {
-                    load_remote_children_to(state, runtime, &path, name, false);
-                }
+                load_children_to(state, runtime, &path, &right_source, false);
                 loaded += 1;
             }
         }

@@ -9,7 +9,6 @@ use super::AppState;
 impl AppState {
     /// サーバ切替後にツリーを再構築する
     pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
-        self.server_name = new_server.clone();
         self.right_source = super::Side::Remote(new_server);
         let label = super::side::comparison_label(&self.left_source, &self.right_source);
         self.status_message = format!("{} | Tab: switch focus | q: quit", label);
@@ -29,8 +28,7 @@ impl AppState {
         right_tree: FileTree,
     ) {
         self.left_source = new_left;
-        self.right_source = new_right.clone();
-        self.server_name = new_right.display_name().to_string();
+        self.right_source = new_right;
         let label = super::side::comparison_label(&self.left_source, &self.right_source);
         self.status_message = format!("{} | Tab: switch focus | q: quit", label);
         self.left_tree = left_tree;
@@ -129,7 +127,7 @@ mod tests {
             .insert("a.txt".to_string(), "old".to_string());
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server("staging".to_string(), new_tree);
-        assert_eq!(state.server_name, "staging");
+        assert_eq!(state.right_source.display_name(), "staging");
         assert!(state.right_cache.is_empty());
         assert!(state.is_connected);
     }

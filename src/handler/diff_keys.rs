@@ -68,13 +68,12 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
         KeyCode::Right | KeyCode::Char('l') => {
             if state.showing_ref_diff {
                 state.status_message = "Read-only: ref diff. Press X to swap and merge".to_string();
-            } else if state.is_connected {
+            } else if runtime.is_side_available(&state.right_source) {
                 if state.hunk_count() > 0 {
                     state.apply_hunk_merge(HunkDirection::LeftToRight);
                 }
             } else if state.hunk_count() > 0 {
-                state.status_message =
-                    "SSH not connected: cannot merge hunks to remote".to_string();
+                state.status_message = "Right side not available: cannot merge hunks".to_string();
             }
         }
         KeyCode::Left | KeyCode::Char('h') => {

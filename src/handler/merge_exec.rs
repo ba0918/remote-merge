@@ -16,7 +16,7 @@ use super::merge_file_io::{backup_left, backup_right, write_left_file, write_rig
 pub use super::merge_batch::{execute_batch_merge, filter_unchecked_equal};
 pub use super::merge_content::{load_file_content, load_subtree_contents};
 pub use super::merge_mtime::{check_mtime_conflict_single, check_mtime_for_write};
-pub use super::merge_tree_load::{expand_subtree_for_merge, load_remote_children_to};
+pub use super::merge_tree_load::{expand_subtree_for_merge, load_children_to};
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
@@ -47,8 +47,8 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 }
             };
 
-            if !state.is_connected {
-                state.status_message = "SSH not connected: cannot merge".to_string();
+            if !runtime.is_side_available(&state.right_source) {
+                state.status_message = "Right side not available: cannot merge".to_string();
                 return;
             }
 
@@ -113,7 +113,7 @@ pub fn execute_hunk_merge(
                     backup_left(state, runtime, std::slice::from_ref(&path));
                 }
                 HunkDirection::LeftToRight => {
-                    if state.is_connected {
+                    if runtime.is_side_available(&state.right_source) {
                         backup_right(state, runtime, std::slice::from_ref(&path));
                     }
                 }
@@ -194,7 +194,7 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
 
         if runtime.core.config.backup.enabled {
             backup_left(state, runtime, std::slice::from_ref(&path));
-            if state.is_connected {
+            if runtime.is_side_available(&state.right_source) {
                 backup_right(state, runtime, std::slice::from_ref(&path));
             }
         }
@@ -206,7 +206,7 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
         }
 
-        if state.is_connected {
+        if runtime.is_side_available(&state.right_source) {
             if let Some(right_content) = state.right_cache.get(&path).cloned() {
                 if let Err(e) = write_right_file(state, runtime, &path, &right_content) {
                     state.status_message = format!("Right write failed: {}", e);

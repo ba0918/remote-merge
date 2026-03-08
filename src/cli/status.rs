@@ -11,18 +11,14 @@
 use std::collections::HashMap;
 
 use crate::app::Side;
-use crate::config::AppConfig;
-use crate::merge::executor;
+use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
-use crate::service::source_pair::{resolve_source_pair, SourceArgs};
+use crate::service::source_pair::{build_source_info, resolve_source_pair, SourceArgs};
 use crate::service::status::{
     build_status_output, compute_status_from_trees, needs_content_compare,
     refine_status_with_content, status_exit_code,
 };
-use crate::service::types::SourceInfo;
-use crate::tree::FileTree;
-use crate::{config, local};
 
 /// 再帰走査の最大エントリ数
 const MAX_SCAN_ENTRIES: usize = 50_000;
@@ -50,11 +46,17 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
 
     let mut core = CoreRuntime::new(config.clone());
 
+    // 接続
+    core.connect_if_remote(&pair.left)?;
+    core.connect_if_remote(&pair.right)?;
+
     // 左側ツリー取得（再帰走査でメタデータ付き）
-    let (left_tree, left_info) = fetch_side_tree_recursive(&pair.left, &config, &mut core)?;
+    let left_tree = core.fetch_tree_recursive(&pair.left, MAX_SCAN_ENTRIES)?;
+    let left_info = build_source_info(&pair.left, &core)?;
 
     // 右側ツリー取得（再帰走査でメタデータ付き）
-    let (right_tree, right_info) = fetch_side_tree_recursive(&pair.right, &config, &mut core)?;
+    let right_tree = core.fetch_tree_recursive(&pair.right, MAX_SCAN_ENTRIES)?;
+    let right_info = build_source_info(&pair.right, &core)?;
 
     // ステータス計算（メタデータ比較）
     let mut files = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
@@ -64,13 +66,8 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
 
     if !paths_to_compare.is_empty() {
         // コンテンツ取得・比較
-        let contents = fetch_contents_for_compare(
-            &pair.left,
-            &pair.right,
-            &paths_to_compare,
-            &config,
-            &mut core,
-        )?;
+        let contents =
+            fetch_contents_for_compare(&pair.left, &pair.right, &paths_to_compare, &mut core)?;
         refine_status_with_content(&mut files, &contents);
     }
 
@@ -88,58 +85,16 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
     Ok(code)
 }
 
-/// Side から再帰走査ツリーと SourceInfo を取得する
-fn fetch_side_tree_recursive(
-    side: &Side,
-    config: &AppConfig,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<(FileTree, SourceInfo)> {
-    match side {
-        Side::Local => {
-            let (nodes, truncated) = local::scan_local_tree_recursive(
-                &config.local.root_dir,
-                &config.filter.exclude,
-                MAX_SCAN_ENTRIES,
-            )?;
-            if truncated {
-                tracing::warn!("Local tree scan truncated at {} entries", MAX_SCAN_ENTRIES);
-            }
-            let mut tree = FileTree::new(&config.local.root_dir);
-            tree.nodes = nodes;
-            tree.sort();
-            let info = SourceInfo {
-                label: "local".into(),
-                root: config.local.root_dir.to_string_lossy().to_string(),
-            };
-            Ok((tree, info))
-        }
-        Side::Remote(server_name) => {
-            core.connect(server_name)?;
-            let tree = core.fetch_remote_tree_recursive(server_name, MAX_SCAN_ENTRIES)?;
-            let server_config = core.get_server_config(server_name)?;
-            let info = SourceInfo {
-                label: server_name.clone(),
-                root: format!(
-                    "{}:{}",
-                    server_config.host,
-                    server_config.root_dir.to_string_lossy()
-                ),
-            };
-            Ok((tree, info))
-        }
-    }
-}
-
 /// 左右のファイルコンテンツを取得して比較用ペアにまとめる
 fn fetch_contents_for_compare(
     left_side: &Side,
     right_side: &Side,
     paths: &[String],
-    config: &AppConfig,
     core: &mut CoreRuntime,
 ) -> anyhow::Result<HashMap<String, (String, String)>> {
-    let left_contents = fetch_side_contents(left_side, paths, config, core)?;
-    let right_contents = fetch_side_contents(right_side, paths, config, core)?;
+    // バッチ読み込み（エラーが起きた場合はスキップ）
+    let left_contents = fetch_side_contents_tolerant(left_side, paths, core);
+    let right_contents = fetch_side_contents_tolerant(right_side, paths, core);
 
     let mut result = HashMap::new();
     for path in paths {
@@ -150,28 +105,24 @@ fn fetch_contents_for_compare(
     Ok(result)
 }
 
-/// 片側のファイルコンテンツをバッチ取得する
-fn fetch_side_contents(
+/// 片側のファイルコンテンツをバッチ取得する（読み込みエラーはスキップ）
+fn fetch_side_contents_tolerant(
     side: &Side,
     paths: &[String],
-    config: &AppConfig,
     core: &mut CoreRuntime,
-) -> anyhow::Result<HashMap<String, String>> {
-    match side {
-        Side::Local => {
-            let mut contents = HashMap::new();
-            for path in paths {
-                match executor::read_local_file(&config.local.root_dir, path) {
-                    Ok(content) => {
-                        contents.insert(path.clone(), content);
-                    }
-                    Err(e) => {
-                        tracing::debug!("Failed to read local file {}: {}", path, e);
-                    }
-                }
+) -> HashMap<String, String> {
+    // read_files_batch はエラー時に全体が失敗するため、
+    // 個別に読み込んでエラーをスキップする
+    let mut contents = HashMap::new();
+    for path in paths {
+        match core.read_file(side, path) {
+            Ok(content) => {
+                contents.insert(path.clone(), content);
             }
-            Ok(contents)
+            Err(e) => {
+                tracing::debug!("Failed to read file {} from {:?}: {}", path, side, e);
+            }
         }
-        Side::Remote(server_name) => core.read_remote_files_batch(server_name, paths),
     }
+    contents
 }

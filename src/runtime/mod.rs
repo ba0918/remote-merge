@@ -5,6 +5,7 @@ pub mod core;
 pub mod merge_scan;
 pub mod remote_io;
 pub mod scanner;
+pub mod side_io;
 
 use std::sync::mpsc;
 

@@ -4,11 +4,10 @@
 //! ツリーの遅延ロード・展開は `merge_tree_load` に分離。
 
 use crate::app::AppState;
-use crate::merge::executor;
 use crate::runtime::TuiRuntime;
 use crate::ui::dialog::{DialogState, ProgressDialog, ProgressPhase};
 
-use super::merge_file_io::{is_symlink_in_tree, read_left_file};
+use super::merge_file_io::is_symlink_in_tree;
 
 /// ディレクトリ配下の全ファイルのコンテンツをロードする（マージ準備用）
 ///
@@ -54,9 +53,10 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     state.rebuild_flat_nodes();
 }
 
-/// 左側ファイルの読み込み（ローカル個別 or リモートバッチ）
+/// 左側ファイルの読み込み（統一 API 経由）
 fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &[String]) {
     if state.left_source.is_local() {
+        // ローカルは個別読み込み（プログレス表示付き）
         for (i, path) in file_paths.iter().enumerate() {
             if i % 10 == 0 {
                 if let DialogState::Progress(ref mut progress) = state.dialog {
@@ -65,8 +65,7 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
                 }
             }
             if !state.left_cache.contains_key(path) {
-                let local_root = &state.left_tree.root;
-                match executor::read_local_file(local_root, path) {
+                match runtime.read_file(&state.left_source, path) {
                     Ok(content) => {
                         state.left_cache.insert(path.clone(), content);
                         state.error_paths.remove(path);
@@ -77,7 +76,8 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
                 }
             }
         }
-    } else if let Some(left_server) = state.left_source.server_name().map(|s| s.to_string()) {
+    } else {
+        // リモートはバッチ読み込み
         let left_paths: Vec<String> = file_paths
             .iter()
             .filter(|p| !state.left_cache.contains_key(p))
@@ -91,7 +91,7 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
                 progress.total = Some(left_paths.len());
             }
 
-            match runtime.read_remote_files_batch(&left_server, &left_paths) {
+            match runtime.read_files_batch(&state.left_source, &left_paths) {
                 Ok(batch_result) => {
                     for (path, content) in batch_result {
                         state.left_cache.insert(path.clone(), content);
@@ -101,6 +101,8 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
                 Err(e) => {
                     tracing::warn!("Left batch remote read failed: {}", e);
                     if crate::error::is_connection_error(&e) {
+                        state.is_connected = false;
+                        runtime.disconnect_if_remote(&state.left_source);
                         state.status_message =
                             format!("Left connection lost: {} | Press 'c' to reconnect", e);
                         state.dialog = DialogState::None;
@@ -111,34 +113,29 @@ fn load_left_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &
     }
 }
 
-/// 右側ファイルのバッチ読み込み
+/// 右側ファイルのバッチ読み込み（統一 API 経由）
 fn load_right_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &[String]) {
-    let remote_paths: Vec<String> = file_paths
+    let uncached_paths: Vec<String> = file_paths
         .iter()
         .filter(|p| !state.right_cache.contains_key(p))
         .cloned()
         .collect();
 
-    if remote_paths.is_empty() {
+    if uncached_paths.is_empty() {
         return;
     }
 
-    if !state.is_connected && runtime.check_connection(&state.server_name) {
-        tracing::info!("SSH connection recovered during subtree load");
-        state.is_connected = true;
-    }
-
-    if !state.is_connected {
+    if !runtime.is_side_available(&state.right_source) {
         return;
     }
 
     if let DialogState::Progress(ref mut progress) = state.dialog {
         progress.phase = ProgressPhase::LoadingRemote;
         progress.current = 0;
-        progress.total = Some(remote_paths.len());
+        progress.total = Some(uncached_paths.len());
     }
 
-    match runtime.read_remote_files_batch(&state.server_name, &remote_paths) {
+    match runtime.read_files_batch(&state.right_source, &uncached_paths) {
         Ok(batch_result) => {
             for (path, content) in batch_result {
                 state.right_cache.insert(path.clone(), content);
@@ -149,6 +146,7 @@ fn load_right_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: 
             tracing::warn!("Right batch remote read failed: {}", e);
             if crate::error::is_connection_error(&e) {
                 state.is_connected = false;
+                runtime.disconnect_if_remote(&state.right_source);
                 state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
                 state.dialog = DialogState::None;
             }
@@ -180,9 +178,9 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
 
     // ref-only ファイルは left/right に存在しないため読み込みをスキップ
     if !is_ref_only {
-        // 左側キャッシュ（ローカル or リモート）
+        // 左側キャッシュ（統一 API 経由）
         if !state.left_cache.contains_key(path) {
-            match read_left_file(state, runtime, path) {
+            match runtime.read_file(&state.left_source, path) {
                 Ok(content) => {
                     state.left_cache.insert(path.clone(), content);
                     state.error_paths.remove(path);
@@ -190,6 +188,8 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
                 Err(e) => {
                     tracing::debug!("Left file read skipped: {} - {}", path, e);
                     if state.left_source.is_remote() && crate::error::is_connection_error(&e) {
+                        state.is_connected = false;
+                        runtime.disconnect_if_remote(&state.left_source);
                         state.status_message =
                             format!("Left connection lost: {} | Press 'c' to reconnect", e);
                     } else {
@@ -199,7 +199,7 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
         }
 
-        // 右側キャッシュ（リモート）
+        // 右側キャッシュ（リモートまたはローカル）
         load_right_file_content(state, runtime, path);
 
         // 両方とも読み込めなかった場合のみエラー扱い
@@ -228,65 +228,45 @@ fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &
         None => return,
     };
 
-    match &ref_source {
-        crate::app::Side::Local => match read_local_file_for_ref(runtime, path) {
-            Ok(content) => {
-                state.ref_cache.insert(path.to_string(), content);
-            }
-            Err(e) => {
-                tracing::debug!("Ref file read skipped: {} - {}", path, e);
-            }
-        },
-        crate::app::Side::Remote(name) => match runtime.read_remote_file(name, path) {
-            Ok(content) => {
-                state.ref_cache.insert(path.to_string(), content);
-            }
-            Err(e) => {
-                tracing::debug!("Ref remote file read skipped: {} - {}", path, e);
-            }
-        },
+    match runtime.read_file(&ref_source, path) {
+        Ok(content) => {
+            state.ref_cache.insert(path.to_string(), content);
+        }
+        Err(e) => {
+            tracing::debug!("Ref file read skipped: {} - {}", path, e);
+        }
     }
 }
 
-/// reference がローカルの場合のファイル読み込み
-fn read_local_file_for_ref(runtime: &TuiRuntime, path: &str) -> anyhow::Result<String> {
-    let root_dir = &runtime.core.config.local.root_dir;
-    executor::read_local_file(root_dir, path).map_err(|e| anyhow::anyhow!("{}", e))
-}
-
-/// 右側の単一ファイルコンテンツをロードする
+/// 右側の単一ファイルコンテンツをロードする（統一 API 経由）
 fn load_right_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &str) {
     if state.right_cache.contains_key(path) {
         return;
     }
 
-    if !state.is_connected && runtime.check_connection(&state.server_name) {
-        tracing::warn!("SSH connection recovered, resuming remote operations");
-        state.is_connected = true;
-    }
-
-    if state.is_connected {
-        match runtime.read_remote_file(&state.server_name, path) {
-            Ok(content) => {
-                state.right_cache.insert(path.to_string(), content);
-                state.error_paths.remove(path);
-            }
-            Err(e) => {
-                tracing::warn!("Right file read failed: {} - {}", path, e);
-                if crate::error::is_connection_error(&e) {
-                    state.is_connected = false;
-                    state.status_message =
-                        format!("Connection lost: {} | Press 'c' to reconnect", e);
-                } else {
-                    state.status_message = format!("Right read failed: {} - {}", path, e);
-                }
-            }
-        }
-    } else {
+    if !runtime.is_side_available(&state.right_source) {
         tracing::warn!(
             path = %path,
-            has_client = runtime.has_client(&state.server_name),
-            "Right read skipped (disconnected)"
+            side = %state.right_source.display_name(),
+            "Right read skipped (unavailable)"
         );
+        return;
+    }
+
+    match runtime.read_file(&state.right_source, path) {
+        Ok(content) => {
+            state.right_cache.insert(path.to_string(), content);
+            state.error_paths.remove(path);
+        }
+        Err(e) => {
+            tracing::warn!("Right file read failed: {} - {}", path, e);
+            if crate::error::is_connection_error(&e) {
+                state.is_connected = false;
+                runtime.disconnect_if_remote(&state.right_source);
+                state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
+            } else {
+                state.status_message = format!("Right read failed: {} - {}", path, e);
+            }
+        }
     }
 }

@@ -35,11 +35,13 @@ pub fn bootstrap_tui(
         &mut runtime,
     )?;
 
-    // 右側: 常にリモート
-    let (right_tree, right_connected) =
-        fetch_right_side(&params.right_server, &config, &mut runtime);
-
-    let right_source = Side::Remote(params.right_server.clone());
+    // 右側: "local" なら Side::Local、それ以外は Side::Remote
+    let right_source = if params.right_server == "local" {
+        Side::Local
+    } else {
+        Side::Remote(params.right_server.clone())
+    };
+    let (right_tree, right_connected) = fetch_right_side(&right_source, &config, &mut runtime);
     let is_connected = left_connected && right_connected;
 
     // 永続化された UI 状態を復元（テーマなど）
@@ -117,33 +119,46 @@ fn fetch_left_side(
 }
 
 /// 右側のツリーを取得する
+///
+/// Side::Local ならローカルスキャン、Side::Remote ならSSH接続して取得。
 fn fetch_right_side(
-    right_server: &str,
+    right_source: &Side,
     config: &AppConfig,
     runtime: &mut TuiRuntime,
 ) -> (FileTree, bool) {
-    match runtime.connect(right_server) {
-        Ok(()) => match runtime.fetch_remote_tree(right_server) {
-            Ok(tree) => (tree, true),
+    match right_source {
+        Side::Local => {
+            match local::scan_local_tree(&config.local.root_dir, &config.filter.exclude) {
+                Ok(tree) => (tree, true),
+                Err(e) => {
+                    tracing::warn!("Right local scan failed: {}", e);
+                    (FileTree::new(&config.local.root_dir), false)
+                }
+            }
+        }
+        Side::Remote(server_name) => match runtime.connect(server_name) {
+            Ok(()) => match runtime.fetch_remote_tree(server_name) {
+                Ok(tree) => (tree, true),
+                Err(e) => {
+                    tracing::warn!("Right remote tree fetch failed: {}", e);
+                    let root = config
+                        .servers
+                        .get(server_name)
+                        .map(|s| s.root_dir.clone())
+                        .unwrap_or_default();
+                    (FileTree::new(root), true)
+                }
+            },
             Err(e) => {
-                tracing::warn!("Right remote tree fetch failed: {}", e);
+                tracing::warn!("Right SSH connection failed (offline mode): {}", e);
                 let root = config
                     .servers
-                    .get(right_server)
+                    .get(server_name)
                     .map(|s| s.root_dir.clone())
                     .unwrap_or_default();
-                (FileTree::new(root), true)
+                (FileTree::new(root), false)
             }
         },
-        Err(e) => {
-            tracing::warn!("Right SSH connection failed (offline mode): {}", e);
-            let root = config
-                .servers
-                .get(right_server)
-                .map(|s| s.root_dir.clone())
-                .unwrap_or_default();
-            (FileTree::new(root), false)
-        }
     }
 }
 

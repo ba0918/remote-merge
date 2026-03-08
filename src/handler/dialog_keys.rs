@@ -82,7 +82,7 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                     None
                 };
                 if let Some(server_name) = selected {
-                    if server_name != state.server_name {
+                    if server_name != state.right_source.display_name() {
                         execute_server_switch(state, runtime, &server_name);
                     }
                 }

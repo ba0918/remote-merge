@@ -36,9 +36,6 @@ impl AppState {
         // バイナリキャッシュ交換
         std::mem::swap(&mut self.right_binary_cache, &mut self.ref_binary_cache);
 
-        // server_name 更新
-        self.server_name = self.right_source.display_name().to_string();
-
         // undo_stack クリア（ペアが変わるため）
         self.undo_stack.clear();
 
@@ -170,11 +167,11 @@ mod tests {
     }
 
     #[test]
-    fn swap_updates_server_name() {
+    fn swap_updates_right_source() {
         let mut state = make_state_with_ref();
-        assert_eq!(state.server_name, "develop");
+        assert_eq!(state.right_source.display_name(), "develop");
         state.swap_right_ref();
-        assert_eq!(state.server_name, "staging");
+        assert_eq!(state.right_source.display_name(), "staging");
     }
 
     #[test]

@@ -64,11 +64,11 @@ impl AppState {
 
         if node.is_dir {
             // SSH 接続チェック: マージ先がリモートなら接続必須
-            let needs_ssh = match direction {
-                MergeDirection::LeftToRight => true, // 右側は常にリモート
-                MergeDirection::RightToLeft => self.left_source.is_remote(), // 左側がリモートの場合のみ
+            let target_side = match direction {
+                MergeDirection::LeftToRight => &self.right_source,
+                MergeDirection::RightToLeft => &self.left_source,
             };
-            if !self.is_connected && needs_ssh {
+            if target_side.is_remote() && !self.is_connected {
                 self.status_message = "SSH not connected: cannot merge".to_string();
                 return;
             }
@@ -155,7 +155,10 @@ impl AppState {
             self.status_message = "No servers available".to_string();
             return;
         }
-        self.dialog = DialogState::ServerSelect(ServerMenu::new(servers, self.server_name.clone()));
+        self.dialog = DialogState::ServerSelect(ServerMenu::new(
+            servers,
+            self.right_source.display_name().to_string(),
+        ));
     }
 
     /// ペアサーバ選択メニューを表示する（3way diff 時の s キー）
@@ -574,7 +577,7 @@ mod tests {
         let new_tree = make_test_tree(vec![FileNode::new_file("b.rs")]);
         state.switch_server("staging".to_string(), new_tree);
 
-        assert_eq!(state.server_name, "staging");
+        assert_eq!(state.right_source.display_name(), "staging");
         assert!(state.left_cache.is_empty());
         assert!(state.right_cache.is_empty());
         assert!(state.selected_path.is_none());
@@ -792,6 +795,59 @@ mod tests {
             matches!(state.dialog, DialogState::Info(_)),
             "Expected Info dialog (no mergeable files), got: {:?}",
             state.dialog
+        );
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_right_local_left_to_right_no_connection_ok() {
+        // right_source = Local + LeftToRight + is_connected=false でもマージ可能
+        // （target=Local なので SSH 不要）
+        let mut state = make_state();
+        state.left_source = Side::Remote("develop".to_string());
+        state.right_source = Side::Local;
+        state.is_connected = false;
+        let local_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        let remote_nodes = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )];
+        state.left_tree = make_test_tree(local_nodes);
+        state.right_tree = make_test_tree(remote_nodes);
+        state
+            .left_cache
+            .insert("src/a.rs".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("src/a.rs".to_string(), "new".to_string());
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::LeftToRight);
+        // target=Local なので接続不要 → BatchConfirm が表示される
+        assert!(
+            matches!(state.dialog, DialogState::BatchConfirm(_)),
+            "Expected BatchConfirm dialog (target=Local, no SSH needed), got: {:?}",
+            state.dialog
+        );
+    }
+
+    #[test]
+    fn test_show_merge_dialog_dir_left_remote_right_to_left_no_connection_blocked() {
+        // left_source = Remote + RightToLeft + is_connected=false でブロック
+        // （target=Remote で SSH 必要）
+        let mut state = make_state();
+        state.left_source = Side::Remote("develop".to_string());
+        state.right_source = Side::Local;
+        state.is_connected = false;
+        state.flat_nodes = vec![make_flat_dir("src", Badge::Unchecked, true)];
+        state.tree_cursor = 0;
+        state.show_merge_dialog(MergeDirection::RightToLeft);
+        assert!(
+            state.status_message.contains("SSH not connected"),
+            "Expected SSH not connected message, got: {}",
+            state.status_message
         );
     }
 

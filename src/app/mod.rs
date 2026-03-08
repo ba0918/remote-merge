@@ -52,8 +52,6 @@ pub struct AppState {
     pub left_source: Side,
     /// 右側の比較元
     pub right_source: Side,
-    /// 接続中のサーバ名（right_source のヘルパー。廃止予定）
-    pub server_name: String,
     /// 利用可能なサーバ名一覧
     pub available_servers: Vec<String>,
     /// 左側ファイル内容キャッシュ (パス -> 内容)
@@ -90,7 +88,9 @@ pub struct AppState {
     pub status_message: String,
     /// ダイアログ状態
     pub dialog: DialogState,
-    /// SSH 接続済みか
+    /// リモート Side への SSH 接続が有効かどうか。
+    /// UI 表示（接続インジケーター）およびマージ/スキャン操作のガードに使用。
+    /// bootstrap / reconnect ハンドラが runtime の接続状態と同期させる。
     pub is_connected: bool,
     /// 除外フィルターパターン（元の設定値）
     pub exclude_patterns: Vec<String>,
@@ -164,7 +164,6 @@ impl AppState {
         let palette = TuiPalette::from_theme(&theme);
         let highlighter = SyntaxHighlighter::new(theme);
 
-        let server_name = right_source.display_name().to_string();
         let label = side::comparison_label(&left_source, &right_source);
 
         let mut state = Self {
@@ -174,7 +173,6 @@ impl AppState {
             left_source,
             right_source,
             status_message: format!("{} | Tab: switch focus | q: quit", label),
-            server_name,
             available_servers: Vec::new(),
             left_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
             right_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),

@@ -54,34 +54,38 @@ pub fn write_local_file(
     let full_path = root_dir.join(rel_path);
 
     // セキュリティ: root_dir 配下であることを検証
-    validate_path_within_root(root_dir, &full_path)?;
+    let normalized = validate_path_within_root(root_dir, &full_path)?;
 
     // 親ディレクトリを作成（存在しなければ）
-    if let Some(parent) = full_path.parent() {
+    if let Some(parent) = normalized.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(&full_path, content)?;
-    tracing::info!("Local file written: {}", full_path.display());
+    std::fs::write(&normalized, content)?;
+    tracing::info!("Local file written: {}", normalized.display());
     Ok(())
 }
 
 /// ローカルファイルの内容を読み込む
 pub fn read_local_file(root_dir: &Path, rel_path: &str) -> crate::error::Result<String> {
     let full_path = root_dir.join(rel_path);
-    validate_path_within_root(root_dir, &full_path)?;
+    let normalized = validate_path_within_root(root_dir, &full_path)?;
 
     let content =
-        std::fs::read_to_string(&full_path).map_err(|_| crate::error::AppError::PathNotFound {
-            path: full_path.clone(),
+        std::fs::read_to_string(&normalized).map_err(|_| crate::error::AppError::PathNotFound {
+            path: normalized.clone(),
         })?;
     Ok(content)
 }
 
 /// パスが root_dir 配下にあることを検証する
 ///
-/// `..` やシンボリックリンク経由のエスケープを防止する
-fn validate_path_within_root(root_dir: &Path, full_path: &Path) -> crate::error::Result<()> {
+/// `..` やシンボリックリンク経由のエスケープを防止する。
+/// 検証に成功した場合、正規化済みのフルパスを返す。
+pub(crate) fn validate_path_within_root(
+    root_dir: &Path,
+    full_path: &Path,
+) -> crate::error::Result<PathBuf> {
     // canonicalize が使えない（ファイルが存在しない可能性）ので
     // コンポーネントベースで検証する
     let normalized = normalize_path(full_path);
@@ -97,11 +101,11 @@ fn validate_path_within_root(root_dir: &Path, full_path: &Path) -> crate::error:
             ),
         });
     }
-    Ok(())
+    Ok(normalized)
 }
 
-/// パスの `..` コンポーネントを解決して正規化する
-fn normalize_path(path: &Path) -> PathBuf {
+/// パスの `..` コンポーネントを解決して正規化する（ファイル存在不要）
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     let mut components = Vec::new();
     for component in path.components() {
         match component {
@@ -199,7 +203,13 @@ mod tests {
     #[test]
     fn test_validate_path_within_root() {
         let root = Path::new("/home/user/app");
-        assert!(validate_path_within_root(root, Path::new("/home/user/app/src/main.rs")).is_ok());
+
+        // 正常パス: 正規化済みパスが返る
+        let result =
+            validate_path_within_root(root, Path::new("/home/user/app/src/main.rs")).unwrap();
+        assert_eq!(result, PathBuf::from("/home/user/app/src/main.rs"));
+
+        // パストラバーサル: エラー
         assert!(
             validate_path_within_root(root, Path::new("/home/user/app/../../../etc/passwd"))
                 .is_err()

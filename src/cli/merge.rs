@@ -2,7 +2,6 @@
 
 use crate::app::Side;
 use crate::config;
-use crate::config::AppConfig;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, merge_exit_code, plan_merge};
@@ -61,8 +60,9 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
 
     let mut core = CoreRuntime::new(config.clone());
 
-    // リモート接続
-    connect_sides(&pair.left, &pair.right, &mut core)?;
+    // 接続
+    core.connect_if_remote(&pair.left)?;
+    core.connect_if_remote(&pair.right)?;
 
     let mut merged = Vec::new();
     let mut failed = Vec::new();
@@ -73,7 +73,6 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
             &pair.right,
             path,
             direction,
-            &config,
             &mut core,
             args.with_permissions,
         ) {
@@ -95,66 +94,47 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     Ok(code)
 }
 
-/// 左右の Side に応じて SSH 接続を確立する
-fn connect_sides(left: &Side, right: &Side, core: &mut CoreRuntime) -> anyhow::Result<()> {
-    if let Side::Remote(name) = left {
-        if !core.has_client(name) {
-            core.connect(name)?;
-        }
-    }
-    if let Side::Remote(name) = right {
-        if !core.has_client(name) {
-            core.connect(name)?;
-        }
-    }
-    Ok(())
-}
-
 /// 単一ファイルのマージを実行する
 fn execute_single_merge(
     left: &Side,
     right: &Side,
     path: &str,
     direction: MergeDirection,
-    config: &AppConfig,
     core: &mut CoreRuntime,
     with_permissions: bool,
 ) -> anyhow::Result<MergeFileResult> {
-    // コンテンツ読み込み（ソース側）
-    let content = match direction {
-        MergeDirection::LeftToRight => read_side_content(left, path, config, core)?,
-        MergeDirection::RightToLeft => read_side_content(right, path, config, core)?,
+    // ソース側・ターゲット側の決定
+    let (source, target) = match direction {
+        MergeDirection::LeftToRight => (left, right),
+        MergeDirection::RightToLeft => (right, left),
     };
 
+    // コンテンツ読み込み（ソース側）
+    let content = core.read_file(source, path)?;
+
     // バックアップ（ターゲット側）
-    let backup_path = if config.backup.enabled {
-        match direction {
-            MergeDirection::LeftToRight => create_backup(right, path, core)?,
-            MergeDirection::RightToLeft => create_backup(left, path, core)?,
+    let backup_path = if core.config.backup.enabled {
+        let paths = vec![path.to_string()];
+        match core.create_backups(target, &paths) {
+            Ok(()) => {
+                let ts = crate::backup::backup_timestamp();
+                Some(format!("{}.{}.bak", path, ts))
+            }
+            Err(e) => {
+                tracing::warn!("Backup failed (continuing): {}", e);
+                None
+            }
         }
     } else {
         None
     };
 
     // 書き込み（ターゲット側）
-    match direction {
-        MergeDirection::LeftToRight => write_side_content(right, path, &content, config, core)?,
-        MergeDirection::RightToLeft => write_side_content(left, path, &content, config, core)?,
-    }
+    core.write_file(target, path, &content)?;
 
     // パーミッションコピー（--with-permissions 指定時）
     if with_permissions {
-        let (source, target) = match direction {
-            MergeDirection::LeftToRight => (left, right),
-            MergeDirection::RightToLeft => (right, left),
-        };
-        if let Ok(mode) = get_file_permissions(source, path, config, core) {
-            if mode > 0 && mode <= 0o777 {
-                if let Err(e) = set_file_permissions(target, path, mode, config, core) {
-                    tracing::warn!("Failed to set permissions for {}: {}", path, e);
-                }
-            }
-        }
+        copy_permissions(source, target, path, core);
     }
 
     Ok(MergeFileResult {
@@ -164,124 +144,36 @@ fn execute_single_merge(
     })
 }
 
-/// Side からファイル内容を読み込む
-fn read_side_content(
-    side: &Side,
-    path: &str,
-    config: &AppConfig,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<String> {
-    match side {
-        Side::Local => {
-            let full = config.local.root_dir.join(path);
-            std::fs::read_to_string(&full)
-                .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))
-        }
-        Side::Remote(name) => core.read_remote_file(name, path),
-    }
-}
-
-/// Side にファイル内容を書き込む
-fn write_side_content(
-    side: &Side,
-    path: &str,
-    content: &str,
-    config: &AppConfig,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<()> {
-    match side {
-        Side::Local => {
-            let full = config.local.root_dir.join(path);
-            if let Some(parent) = full.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&full, content)
-                .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", path, e))
-        }
-        Side::Remote(name) => core.write_remote_file(name, path, content),
-    }
-}
-
-/// バックアップを作成する（リモートのみ）
-fn create_backup(
-    side: &Side,
-    path: &str,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<Option<String>> {
-    match side {
-        Side::Remote(name) => {
-            let paths = vec![path.to_string()];
-            match core.create_remote_backups(name, &paths) {
-                Ok(()) => {
-                    let ts = crate::backup::backup_timestamp();
-                    Ok(Some(format!("{}.{}.bak", path, ts)))
-                }
-                Err(e) => {
-                    tracing::warn!("Backup failed (continuing): {}", e);
-                    Ok(None)
-                }
-            }
-        }
-        Side::Local => {
-            // ローカルバックアップは backup モジュールが担当
-            Ok(None)
-        }
-    }
-}
-
-/// ソースファイルのパーミッションを取得する
-fn get_file_permissions(
-    side: &Side,
-    path: &str,
-    config: &AppConfig,
-    _core: &mut CoreRuntime,
-) -> anyhow::Result<u32> {
-    match side {
+/// ソースからターゲットへパーミッションをコピーする
+fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut CoreRuntime) {
+    let mode = match source {
         Side::Local => {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let full = config.local.root_dir.join(path);
-                let metadata = std::fs::metadata(&full)?;
-                Ok(metadata.permissions().mode() & 0o777)
+                let full = core.config.local.root_dir.join(path);
+                std::fs::metadata(&full)
+                    .map(|m| m.permissions().mode() & 0o777)
+                    .ok()
             }
             #[cfg(not(unix))]
             {
-                let _ = (config, path);
-                Ok(0)
+                let _ = path;
+                None
             }
         }
-        Side::Remote(_name) => {
+        Side::Remote(_) => {
             // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。
             // 現時点では未サポート（TUI 側では FileNode.permissions を使用）。
-            Ok(0)
+            None
         }
-    }
-}
+    };
 
-/// ターゲットファイルのパーミッションを設定する
-fn set_file_permissions(
-    side: &Side,
-    path: &str,
-    mode: u32,
-    config: &AppConfig,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<()> {
-    match side {
-        Side::Local => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let full = config.local.root_dir.join(path);
-                let perms = std::fs::Permissions::from_mode(mode);
-                std::fs::set_permissions(&full, perms)?;
+    if let Some(m) = mode {
+        if m > 0 && m <= 0o777 {
+            if let Err(e) = core.chmod_file(target, path, m) {
+                tracing::warn!("Failed to set permissions for {}: {}", path, e);
             }
-            #[cfg(not(unix))]
-            {
-                let _ = (config, path, mode);
-            }
-            Ok(())
         }
-        Side::Remote(name) => core.chmod_remote_file(name, path, mode),
     }
 }

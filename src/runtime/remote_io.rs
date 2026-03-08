@@ -1,4 +1,7 @@
-//! リモートファイルの読み書き操作。
+//! リモートファイルの読み書き操作（内部 API）。
+//!
+//! Side ベースの統一 API (`side_io.rs`) から Remote 分岐で呼ばれる。
+//! 外部からは `read_file(side, path)` 等の統一 API を使用すること。
 
 use std::collections::HashMap;
 
@@ -8,11 +11,13 @@ use super::core::CoreRuntime;
 
 // ── CoreRuntime にリモートI/Oを実装 ──
 //
-// ファイル読み書きはインターフェースに依存しない共通操作のため、CoreRuntime に配置。
+// Side::Remote 分岐の内部実装。side_io.rs が唯一の呼び出し元。
 
 impl CoreRuntime {
     /// リモートファイル内容を取得する（接続エラー時に1回自動再接続）
-    pub fn read_remote_file(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_file(side, path)` を使うこと。
+    pub(crate) fn read_remote_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -34,7 +39,9 @@ impl CoreRuntime {
     }
 
     /// 複数のリモートファイルをバッチ読み込みする（接続エラー時に1回自動再接続）
-    pub fn read_remote_files_batch(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_files_batch(side, paths)` を使うこと。
+    pub(crate) fn read_remote_files_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -58,7 +65,9 @@ impl CoreRuntime {
     }
 
     /// リモートファイルに書き込む（自動再接続なし — safety のため）
-    pub fn write_remote_file(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `write_file(side, path, content)` を使うこと。
+    pub(crate) fn write_remote_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -94,7 +103,9 @@ impl CoreRuntime {
     }
 
     /// リモートファイルのパーミッションを変更する。
-    pub fn chmod_remote_file(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `chmod_file(side, path, mode)` を使うこと。
+    pub(crate) fn chmod_remote_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -114,7 +125,9 @@ impl CoreRuntime {
     ///
     /// `rel_paths` の各ファイルについて、リモートの `.remote-merge-backup/` にコピー。
     /// 1回のSSH exec で全ファイルを処理する。
-    pub fn create_remote_backups(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_backups(side, paths)` を使うこと。
+    pub(crate) fn create_remote_backups(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -171,7 +184,9 @@ impl CoreRuntime {
     /// リモートファイルの mtime をバッチ取得する。
     ///
     /// `stat -c '%Y %n'` で一括取得し、`(rel_path, Option<DateTime<Utc>>)` のリストで返す。
-    pub fn stat_remote_files(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `stat_files(side, paths)` を使うこと。
+    pub(crate) fn stat_remote_files(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -218,7 +233,9 @@ impl CoreRuntime {
     }
 
     /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
-    pub fn create_remote_symlink(
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_symlink(side, path, target)` を使うこと。
+    pub(crate) fn create_remote_symlink(
         &mut self,
         server_name: &str,
         link_rel_path: &str,
@@ -239,6 +256,33 @@ impl CoreRuntime {
 
         self.rt.block_on(client.exec(&cmd))?;
         Ok(())
+    }
+
+    /// リモートディレクトリの子ノードを取得する
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `fetch_children(side, path)` を使うこと。
+    pub(crate) fn fetch_remote_children(
+        &mut self,
+        server_name: &str,
+        dir_rel_path: &str,
+    ) -> anyhow::Result<Vec<crate::tree::FileNode>> {
+        let server_config = self.get_server_config(server_name)?;
+        let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let sub_dir = format!(
+            "{}/{}",
+            root_dir.trim_end_matches('/'),
+            dir_rel_path.trim_start_matches('/')
+        );
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        let nodes = self.rt.block_on(client.list_dir(
+            &sub_dir,
+            &self.config.filter.exclude,
+            dir_rel_path,
+        ))?;
+        Ok(nodes)
     }
 
     // ── private helpers ──
@@ -297,71 +341,5 @@ impl CoreRuntime {
     }
 }
 
-// ── TuiRuntime デリゲート ──
-//
-// 既存の呼び出し側（handler等）が `runtime.read_remote_file()` を使い続けられるよう、
-// TuiRuntime からの thin delegation を提供する。
-
-use super::TuiRuntime;
-
-impl TuiRuntime {
-    pub fn read_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-    ) -> anyhow::Result<String> {
-        self.core.read_remote_file(server_name, rel_path)
-    }
-
-    pub fn read_remote_files_batch(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        self.core.read_remote_files_batch(server_name, rel_paths)
-    }
-
-    pub fn write_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-        content: &str,
-    ) -> anyhow::Result<()> {
-        self.core.write_remote_file(server_name, rel_path, content)
-    }
-
-    pub fn chmod_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-        mode: u32,
-    ) -> anyhow::Result<()> {
-        self.core.chmod_remote_file(server_name, rel_path, mode)
-    }
-
-    pub fn create_remote_backups(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-    ) -> anyhow::Result<()> {
-        self.core.create_remote_backups(server_name, rel_paths)
-    }
-
-    pub fn stat_remote_files(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-    ) -> anyhow::Result<Vec<(String, Option<chrono::DateTime<chrono::Utc>>)>> {
-        self.core.stat_remote_files(server_name, rel_paths)
-    }
-
-    pub fn create_remote_symlink(
-        &mut self,
-        server_name: &str,
-        link_rel_path: &str,
-        target: &str,
-    ) -> anyhow::Result<()> {
-        self.core
-            .create_remote_symlink(server_name, link_rel_path, target)
-    }
-}
+// NOTE: 旧 remote-only TuiRuntime デリゲート（read_remote_file, write_remote_file 等）は
+// Phase F で削除済み。Side ベースの統一 API（side_io.rs）を使用すること。

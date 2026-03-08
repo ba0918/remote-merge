@@ -52,7 +52,7 @@ pub fn execute_batch_merge(
         let file_paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
         match direction {
             MergeDirection::LeftToRight => {
-                if state.is_connected {
+                if runtime.is_side_available(&state.right_source) {
                     backup_right(state, runtime, &file_paths);
                 }
             }
@@ -90,7 +90,7 @@ pub fn execute_batch_merge(
                     },
                 };
 
-                if !state.is_connected {
+                if !runtime.is_side_available(&state.right_source) {
                     state.status_message = format!(
                         "SSH disconnected: results so far: {} succeeded/{} failed",
                         success_count, fail_count
@@ -106,6 +106,7 @@ pub fn execute_batch_merge(
                     Err(e) => {
                         if crate::error::is_connection_error(&e) {
                             state.is_connected = false;
+                            runtime.disconnect_if_remote(&state.right_source);
                             tracing::error!(
                                 "Connection lost during batch merge: file={}, progress={}/{}, error={}",
                                 path, success_count, file_count, e
@@ -126,14 +127,14 @@ pub fn execute_batch_merge(
                 let content = match state.right_cache.get(path) {
                     Some(c) => c.clone(),
                     None => {
-                        if !state.is_connected {
+                        if !runtime.is_side_available(&state.right_source) {
                             state.status_message = format!(
                                 "SSH disconnected: results so far: {} succeeded/{} failed",
                                 success_count, fail_count
                             );
                             return;
                         }
-                        match runtime.read_remote_file(&state.server_name, path) {
+                        match runtime.read_file(&state.right_source, path) {
                             Ok(c) => {
                                 state.right_cache.insert(path.clone(), c.clone());
                                 c
@@ -141,6 +142,7 @@ pub fn execute_batch_merge(
                             Err(e) => {
                                 if crate::error::is_connection_error(&e) {
                                     state.is_connected = false;
+                                    runtime.disconnect_if_remote(&state.right_source);
                                     state.status_message = format!(
                                         "Connection lost during merge: {} succeeded/{} failed",
                                         success_count,
@@ -163,6 +165,7 @@ pub fn execute_batch_merge(
                     Err(e) => {
                         if crate::error::is_connection_error(&e) {
                             state.is_connected = false;
+                            runtime.disconnect_if_remote(&state.left_source);
                             state.status_message = format!(
                                 "Connection lost during merge: {} succeeded/{} failed",
                                 success_count,
