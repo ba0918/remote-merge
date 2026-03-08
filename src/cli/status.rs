@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 
 use crate::app::Side;
+use crate::cli::ref_guard;
 use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
@@ -69,6 +70,7 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
+    let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
     // ref 指定時は全非 sensitive ファイルのコンテンツが必要（badge 計算用）。
     // ref 未指定時は paths_to_compare のみ読めばよい。

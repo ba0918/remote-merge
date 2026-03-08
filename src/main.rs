@@ -20,19 +20,19 @@ use remote_merge::ui::render::draw_ui;
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
 struct Cli {
-    /// Server name to compare with local
+    /// Server name to compare with local (TUI mode only; for CLI subcommands use --right)
     #[arg(short, long)]
     server: Option<String>,
 
-    /// Left side of comparison (default: local)
+    /// Left side of comparison [default: local]
     #[arg(long)]
     left: Option<String>,
 
-    /// Right side of comparison
+    /// Right side of comparison [default: first server in config, alphabetical]
     #[arg(long)]
     right: Option<String>,
 
-    /// Reference server for 3-way diff (displays badges for differences with a third server)
+    /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
     #[arg(long, alias = "reference")]
     r#ref: Option<String>,
 
@@ -47,13 +47,16 @@ enum Commands {
 
     /// List files with differences
     Status {
+        /// Alias for --right. Right side of comparison [default: first server in config, alphabetical]
         #[arg(short, long)]
         server: Option<String>,
+        /// Left side of comparison [default: local]
         #[arg(long)]
         left: Option<String>,
+        /// Right side of comparison [default: first server in config, alphabetical]
         #[arg(long)]
         right: Option<String>,
-        /// Reference server for 3-way comparison
+        /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
         #[arg(long, default_value = "text")]
@@ -65,11 +68,13 @@ enum Commands {
     /// Show diff for a specific file
     Diff {
         path: String,
+        /// Left side of comparison [default: local]
         #[arg(long)]
         left: Option<String>,
+        /// Right side of comparison [default: first server in config, alphabetical]
         #[arg(long)]
         right: Option<String>,
-        /// Reference server for 3-way comparison
+        /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
         #[arg(long, default_value = "text")]
@@ -83,11 +88,13 @@ enum Commands {
     /// Merge files
     Merge {
         path: String,
+        /// Source side of merge (required)
         #[arg(long)]
         left: Option<String>,
+        /// Target side of merge (required)
         #[arg(long)]
         right: Option<String>,
-        /// Reference server for 3-way comparison
+        /// Reference server for 3-way comparison (shows [ref≠] badges)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
         #[arg(long)]

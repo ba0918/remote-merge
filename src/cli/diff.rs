@@ -1,5 +1,7 @@
 //! diff サブコマンドの実装。
 
+use crate::app::Side;
+use crate::cli::ref_guard;
 use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::diff::{build_diff_output, diff_exit_code};
@@ -37,18 +39,19 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
 
-    // 左側コンテンツ取得
-    let left_content = core.read_file(&pair.left, &args.path)?;
+    // 左側コンテンツ取得（ファイルが存在しない場合は空として扱う）
+    let left_content = read_file_tolerant(&mut core, &pair.left, &args.path);
     let left_info = build_source_info(&pair.left, &core)?;
 
-    // 右側コンテンツ取得
-    let right_content = core.read_file(&pair.right, &args.path)?;
+    // 右側コンテンツ取得（ファイルが存在しない場合は空として扱う）
+    let right_content = read_file_tolerant(&mut core, &pair.right, &args.path);
     let right_info = build_source_info(&pair.right, &core)?;
 
     let sensitive = is_sensitive(&args.path, &config.filter.sensitive);
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
+    let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
     let mut ref_info = None;
     let mut ref_content_opt = None;
 
@@ -87,4 +90,24 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// ファイル読み込みを試み、失敗時は警告を出して空文字列を返す。
+///
+/// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空文字列にフォールバックする。
+/// diff は読み取り専用操作であり、片側が読めなくても全行追加/削除として表示できるため、
+/// エラー種別による分岐は行わない。警告は eprintln で常にユーザーに通知される。
+fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> String {
+    match core.read_file(side, path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!(
+                "Warning: {}: {}: {:#} (treating as empty)",
+                side.display_name(),
+                path,
+                e
+            );
+            String::new()
+        }
+    }
 }

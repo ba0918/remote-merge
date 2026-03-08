@@ -22,6 +22,17 @@ impl OutputFormat {
     }
 }
 
+/// status テキスト出力のヘッダ行を生成する
+fn format_status_header(left: &str, right: &str, ref_: Option<&SourceInfo>) -> String {
+    match ref_ {
+        Some(ref_info) => format!(
+            "Comparing: {} \u{2194} {} (ref: {})",
+            left, right, ref_info.label
+        ),
+        None => format!("Comparing: {} \u{2194} {}", left, right),
+    }
+}
+
 /// ref バッジ文字列を表示用テキストに変換する
 fn ref_badge_display(badge: &str) -> &'static str {
     match badge {
@@ -35,6 +46,15 @@ fn ref_badge_display(badge: &str) -> &'static str {
 /// StatusOutput をテキストフォーマットする（git status 風）
 pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
     let mut lines = Vec::new();
+
+    // ヘッダ行: 比較対象を表示
+    let header = format_status_header(
+        &output.left.label,
+        &output.right.label,
+        output.ref_.as_ref(),
+    );
+    lines.push(header);
+    lines.push(String::new());
 
     if !summary_only {
         if let Some(files) = &output.files {
@@ -172,9 +192,14 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
             .as_ref()
             .map(|b| ref_badge_display(b))
             .unwrap_or("");
+        let prefix = if result.status == "would merge" {
+            "Would merge"
+        } else {
+            "Merged"
+        };
         lines.push(format!(
-            "Merged: {}{}{}",
-            result.path, backup_info, ref_badge_str
+            "{}: {}{}{}",
+            prefix, result.path, backup_info, ref_badge_str
         ));
     }
 
@@ -545,6 +570,44 @@ mod tests {
     }
 
     #[test]
+    fn test_format_merge_text_dry_run_prefix() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "would merge".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            skipped: vec![],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_text(&output);
+        assert!(text.contains("Would merge: a.rs"));
+        assert!(!text.contains("Merged:"));
+    }
+
+    #[test]
+    fn test_format_merge_text_dry_run_with_ref_badge() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "would merge".into(),
+                backup: None,
+                ref_badge: Some("differs".into()),
+            }],
+            skipped: vec![],
+            failed: vec![],
+            ref_: Some(SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            }),
+        };
+        let text = format_merge_text(&output);
+        assert!(text.contains("Would merge: a.rs [ref≠]"));
+    }
+
+    #[test]
     fn test_format_merge_text_with_ref_badge() {
         let output = MergeOutput {
             merged: vec![MergeFileResult {
@@ -562,5 +625,56 @@ mod tests {
         };
         let text = format_merge_text(&output);
         assert!(text.contains("Merged: a.rs [ref≠]"));
+    }
+
+    // ── status header tests ──
+
+    #[test]
+    fn test_status_header_without_ref() {
+        let text = format_status_text(&sample_status(), false);
+        assert!(text.starts_with("Comparing: local \u{2194} develop"));
+        assert!(!text.contains("(ref:"));
+    }
+
+    #[test]
+    fn test_status_header_with_ref() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "staging".into(),
+                root: "/s".into(),
+            },
+            ref_: Some(SourceInfo {
+                label: "develop".into(),
+                root: "/d".into(),
+            }),
+            files: Some(vec![]),
+            summary: StatusSummary::default(),
+        };
+        let text = format_status_text(&output, false);
+        assert!(text.starts_with("Comparing: local \u{2194} staging (ref: develop)"));
+    }
+
+    #[test]
+    fn test_status_header_appears_in_summary_only_mode() {
+        let text = format_status_text(&sample_status(), true);
+        assert!(text.contains("Comparing: local \u{2194} develop"));
+        assert!(text.contains("Summary:"));
+        // ファイル一覧は出力されない
+        assert!(!text.contains("src/config.ts"));
+    }
+
+    #[test]
+    fn test_status_json_not_affected_by_header() {
+        let output = sample_status();
+        let json = format_json(&output).unwrap();
+        // JSON にはヘッダ行が含まれない
+        assert!(!json.contains("Comparing:"));
+        // JSON の構造は正しい
+        assert!(json.contains("\"label\""));
+        assert!(json.contains("\"local\""));
     }
 }

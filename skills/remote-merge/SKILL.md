@@ -37,8 +37,8 @@ Process one file at a time to manage context window.
 ### 3. Merge
 
 ```bash
-remote-merge merge <path> --dry-run   # preview first
-remote-merge merge <path>             # execute (local -> remote)
+remote-merge merge <path> --left local --right develop --dry-run   # preview first
+remote-merge merge <path> --left local --right develop             # execute
 ```
 
 Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.

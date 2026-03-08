@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use crate::config::{AppConfig, BackupConfig, FilterConfig, LocalConfig, SshConfig};
     use crate::tree::{FileNode, FileTree};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn make_tree(root: &str) -> FileTree {
@@ -119,7 +119,7 @@ mod tests {
 
     fn make_config(local_root: &str) -> AppConfig {
         AppConfig {
-            servers: HashMap::new(),
+            servers: BTreeMap::new(),
             local: LocalConfig {
                 root_dir: PathBuf::from(local_root),
             },

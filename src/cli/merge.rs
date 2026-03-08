@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::app::Side;
+use crate::cli::ref_guard;
 use crate::config;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
@@ -25,8 +26,20 @@ pub struct MergeArgs {
     pub with_permissions: bool,
 }
 
+/// merge 引数のバリデーション: --left と --right の両方が必須
+fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
+    if args.left.is_none() || args.right.is_none() {
+        anyhow::bail!(
+            "--left and --right are required for merge command (e.g. --left local --right staging)"
+        );
+    }
+    Ok(())
+}
+
 /// merge サブコマンドを実行する
 pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
+    validate_merge_args(&args)?;
+
     let config = config::load_config()?;
 
     let source_args = SourceArgs {
@@ -36,6 +49,7 @@ pub fn run_merge(args: MergeArgs) -> anyhow::Result<i32> {
     };
     let pair = resolve_source_pair(&source_args, &config)?;
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
+    let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
     let direction = MergeDirection::LeftToRight;
 
@@ -249,4 +263,52 @@ fn fetch_contents_tolerant(
         }
     }
     contents
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_args(left: Option<&str>, right: Option<&str>) -> MergeArgs {
+        MergeArgs {
+            path: "test.txt".into(),
+            left: left.map(|s| s.to_string()),
+            right: right.map(|s| s.to_string()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            with_permissions: false,
+        }
+    }
+
+    #[test]
+    fn test_merge_without_left_and_right_returns_error() {
+        let args = make_args(None, None);
+        let err = validate_merge_args(&args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("--left and --right are required"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_merge_with_only_right_returns_error() {
+        let args = make_args(None, Some("staging"));
+        let err = validate_merge_args(&args).unwrap_err();
+        assert!(format!("{}", err).contains("--left and --right are required"));
+    }
+
+    #[test]
+    fn test_merge_with_only_left_returns_error() {
+        let args = make_args(Some("local"), None);
+        let err = validate_merge_args(&args).unwrap_err();
+        assert!(format!("{}", err).contains("--left and --right are required"));
+    }
+
+    #[test]
+    fn test_merge_with_both_left_and_right_passes_validation() {
+        let args = make_args(Some("local"), Some("staging"));
+        assert!(validate_merge_args(&args).is_ok());
+    }
 }

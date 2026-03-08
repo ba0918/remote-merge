@@ -33,7 +33,7 @@ impl CoreRuntime {
     #[cfg(test)]
     pub fn new_for_test() -> Self {
         Self::new(AppConfig {
-            servers: HashMap::new(),
+            servers: std::collections::BTreeMap::new(),
             local: crate::config::LocalConfig::default(),
             filter: crate::config::FilterConfig::default(),
             ssh: crate::config::SshConfig::default(),

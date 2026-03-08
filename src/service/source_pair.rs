@@ -134,11 +134,11 @@ fn validate_server(name: &str, config: &AppConfig) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crate::config::*;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn test_config() -> AppConfig {
-        let mut servers = HashMap::new();
+        let mut servers = BTreeMap::new();
         servers.insert(
             "develop".into(),
             ServerConfig {
@@ -200,8 +200,8 @@ mod tests {
         let args = SourceArgs::default();
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
-        // config の最初のサーバ（HashMap 順なので不定だが、存在はする）
-        assert!(matches!(pair.right, Side::Remote(_)));
+        // BTreeMap はアルファベット順なので "develop" < "staging" → develop が選ばれる
+        assert_eq!(pair.right, Side::Remote("develop".into()));
     }
 
     #[test]
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_no_servers_in_config() {
         let config = AppConfig {
-            servers: HashMap::new(),
+            servers: BTreeMap::new(),
             local: LocalConfig::default(),
             filter: FilterConfig::default(),
             ssh: SshConfig::default(),

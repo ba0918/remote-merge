@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
@@ -11,7 +11,7 @@ use crate::error::AppError;
 /// アプリケーション全体の設定
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub servers: HashMap<String, ServerConfig>,
+    pub servers: BTreeMap<String, ServerConfig>,
     pub local: LocalConfig,
     pub filter: FilterConfig,
     pub ssh: SshConfig,
@@ -267,7 +267,7 @@ fn merge_configs(
     }
 
     // servers を変換・バリデーション
-    let mut servers = HashMap::new();
+    let mut servers = BTreeMap::new();
     for (name, raw) in servers_raw {
         let config = convert_server_config(&name, raw)?;
         servers.insert(name, config);
@@ -659,6 +659,25 @@ exclude = ["node_modules", ".git"]
             .filter
             .exclude
             .contains(&".remote-merge-backup".to_string()));
+    }
+
+    #[test]
+    fn btreemap_servers_order_is_alphabetical() {
+        let mut servers = BTreeMap::new();
+        let make_server = |host: &str| ServerConfig {
+            host: host.into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Key,
+            key: None,
+            root_dir: PathBuf::from("/var/www/app"),
+            ssh_options: None,
+        };
+        servers.insert("staging".to_string(), make_server("stg.example.com"));
+        servers.insert("develop".to_string(), make_server("dev.example.com"));
+        servers.insert("alpha".to_string(), make_server("alpha.example.com"));
+        let keys: Vec<_> = servers.keys().collect();
+        assert_eq!(keys, vec!["alpha", "develop", "staging"]);
     }
 
     #[test]

@@ -6,4 +6,5 @@ pub mod diff;
 pub mod events;
 pub mod logs;
 pub mod merge;
+pub mod ref_guard;
 pub mod status;
