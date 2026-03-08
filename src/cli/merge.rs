@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::app::Side;
 use crate::cli::ref_guard;
+use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
@@ -309,26 +310,6 @@ fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut CoreRun
             }
         }
     }
-}
-
-/// 片側のファイルコンテンツをバッチ取得する（エラーはスキップ）
-fn fetch_contents_tolerant(
-    side: &Side,
-    paths: &[String],
-    core: &mut CoreRuntime,
-) -> HashMap<String, String> {
-    let mut contents = HashMap::new();
-    for path in paths {
-        match core.read_file(side, path) {
-            Ok(content) => {
-                contents.insert(path.clone(), content);
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read {}: {}", path, e);
-            }
-        }
-    }
-    contents
 }
 
 #[cfg(test)]

@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 
-use crate::app::Side;
 use crate::cli::ref_guard;
+use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config;
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
@@ -86,12 +86,12 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
     };
 
     let left_contents = if !content_paths.is_empty() {
-        fetch_side_contents_tolerant(&pair.left, &content_paths, &mut core)
+        fetch_contents_tolerant(&pair.left, &content_paths, &mut core)
     } else {
         HashMap::new()
     };
     let right_contents = if !content_paths.is_empty() {
-        fetch_side_contents_tolerant(&pair.right, &content_paths, &mut core)
+        fetch_contents_tolerant(&pair.right, &content_paths, &mut core)
     } else {
         HashMap::new()
     };
@@ -124,7 +124,7 @@ pub fn run_status(args: StatusArgs) -> anyhow::Result<i32> {
             .filter(|f| !f.sensitive)
             .map(|f| f.path.clone())
             .collect();
-        let ref_contents = fetch_side_contents_tolerant(ref_s, &ref_paths, &mut core);
+        let ref_contents = fetch_contents_tolerant(ref_s, &ref_paths, &mut core);
 
         // Compute ref badges — left/right contents は既に取得済みのものを再利用
         let badges = compute_ref_badges(
@@ -171,28 +171,6 @@ fn filter_equal_files(output: &mut crate::service::types::StatusOutput, all: boo
             files.retain(|f| f.status != FileStatusKind::Equal);
         }
     }
-}
-
-/// 片側のファイルコンテンツをバッチ取得する（読み込みエラーはスキップ）
-fn fetch_side_contents_tolerant(
-    side: &Side,
-    paths: &[String],
-    core: &mut CoreRuntime,
-) -> HashMap<String, String> {
-    // read_files_batch はエラー時に全体が失敗するため、
-    // 個別に読み込んでエラーをスキップする
-    let mut contents = HashMap::new();
-    for path in paths {
-        match core.read_file(side, path) {
-            Ok(content) => {
-                contents.insert(path.clone(), content);
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read file {} from {:?}: {}", path, side, e);
-            }
-        }
-    }
-    contents
 }
 
 #[cfg(test)]

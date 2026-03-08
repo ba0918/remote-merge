@@ -8,3 +8,4 @@ pub mod logs;
 pub mod merge;
 pub mod ref_guard;
 pub mod status;
+pub mod tolerant_io;

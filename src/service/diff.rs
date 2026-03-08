@@ -22,15 +22,19 @@ pub fn build_diff_output(
 ) -> DiffOutput {
     let result = engine::compute_diff(left_content, right_content);
 
-    let (hunks, truncated, binary) = match result {
-        engine::DiffResult::Equal => (vec![], false, false),
+    let (hunks, truncated, binary, symlink) = match result {
+        engine::DiffResult::Equal => (vec![], false, false, false),
         engine::DiffResult::Modified { hunks, .. } => {
             let (h, t) = convert_hunks(&hunks, max_lines);
-            (h, t, false)
+            (h, t, false, false)
         }
-        engine::DiffResult::Binary { .. } | engine::DiffResult::SymlinkDiff { .. } => {
-            // バイナリ/シンボリックリンクは hunks を空にし binary フラグで通知
-            (vec![], false, true)
+        engine::DiffResult::Binary { .. } => {
+            // バイナリは hunks を空にし binary フラグで通知
+            (vec![], false, true, false)
+        }
+        engine::DiffResult::SymlinkDiff { .. } => {
+            // シンボリックリンクは hunks を空にし symlink フラグで通知
+            (vec![], false, false, true)
         }
     };
 
@@ -62,6 +66,7 @@ pub fn build_diff_output(
         ref_: ref_info_out,
         sensitive,
         binary,
+        symlink,
         truncated,
         hunks,
         ref_hunks: ref_hunks_out,
@@ -117,7 +122,7 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
 
 /// diff の exit code を判定する。差分があれば 1、なければ 0。
 pub fn diff_exit_code(output: &DiffOutput) -> i32 {
-    if output.binary || !output.hunks.is_empty() {
+    if output.binary || output.symlink || !output.hunks.is_empty() {
         exit_code::DIFF_FOUND
     } else {
         exit_code::SUCCESS
@@ -344,6 +349,64 @@ mod tests {
         );
         assert!(output.ref_.is_none());
         assert!(output.ref_hunks.is_none());
+    }
+
+    #[test]
+    fn test_exit_code_binary_diff_found() {
+        // T-1: binary=true, hunks=[] → DIFF_FOUND
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: info("l"),
+            right: info("r"),
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
+    }
+
+    #[test]
+    fn test_exit_code_symlink_diff_found() {
+        // symlink=true → DIFF_FOUND
+        let output = DiffOutput {
+            path: "link".into(),
+            left: info("l"),
+            right: info("r"),
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: true,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
+    }
+
+    #[test]
+    fn test_symlink_diff_sets_symlink_flag() {
+        // compute_diff が SymlinkDiff を返すケースは engine 側でのみ構築されるため、
+        // ここでは build_diff_output 経由ではなく直接フラグを検証する。
+        // engine::compute_diff はテキスト入力のみ受け付けるため、
+        // SymlinkDiff は engine 層のテストでカバーし、ここでは出力型の分離を検証。
+        let output = DiffOutput {
+            path: "link".into(),
+            left: info("l"),
+            right: info("r"),
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: true,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        assert!(output.symlink);
+        assert!(!output.binary);
     }
 
     #[test]

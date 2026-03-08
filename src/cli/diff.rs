@@ -127,7 +127,7 @@ pub fn run_diff(args: DiffArgs) -> anyhow::Result<i32> {
 
     let files_with_changes = file_diffs
         .iter()
-        .filter(|d| d.binary || !d.hunks.is_empty())
+        .filter(|d| d.binary || d.symlink || !d.hunks.is_empty())
         .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {

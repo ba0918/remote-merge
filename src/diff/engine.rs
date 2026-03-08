@@ -103,9 +103,12 @@ pub struct DiffStats {
     pub equal: usize,
 }
 
-/// バイナリファイルかどうかを判定する（NUL バイト検出）
+/// バイナリファイルかどうかを判定する（NUL バイト検出）。
+///
+/// 先頭 8KB のみをチェックするため、8KB 以降にのみ NUL バイトが存在する
+/// ファイルはテキストとして扱われる。実用上、テキストファイルの先頭 8KB に
+/// NUL バイトが含まれないことは十分信頼できる前提。
 pub fn is_binary(content: &[u8]) -> bool {
-    // 先頭 8KB をチェック（大きなファイルでも高速）
     let check_len = content.len().min(8192);
     content[..check_len].contains(&0)
 }

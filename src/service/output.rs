@@ -118,6 +118,11 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         return lines.join("\n");
     }
 
+    if output.symlink {
+        lines.push("Symbolic link targets differ".into());
+        return lines.join("\n");
+    }
+
     for hunk in &output.hunks {
         lines.push(format!(
             "@@ -{},{} +{},{} @@",
@@ -358,6 +363,7 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -403,6 +409,7 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: true,
             hunks: vec![],
             ref_hunks: None,
@@ -556,6 +563,7 @@ mod tests {
             }),
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![DiffHunk {
@@ -595,12 +603,67 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
+    }
+
+    #[test]
+    fn test_format_diff_text_binary() {
+        // T-3: binary=true の場合 "Binary files differ" が出力される
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("Binary files differ"));
+        assert!(text.contains("--- a/image.png"));
+        assert!(text.contains("+++ b/image.png"));
+        // hunks の @@ ヘッダは出力されない
+        assert!(!text.contains("@@"));
+    }
+
+    #[test]
+    fn test_format_diff_text_symlink() {
+        let output = DiffOutput {
+            path: "link".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: true,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("Symbolic link targets differ"));
+        assert!(!text.contains("Binary files differ"));
     }
 
     #[test]
@@ -677,6 +740,7 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,

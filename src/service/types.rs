@@ -77,6 +77,9 @@ pub struct DiffOutput {
     /// バイナリファイルの場合 true（hunks は空になる）
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub binary: bool,
+    /// シンボリックリンクの場合 true（hunks は空になる）
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub symlink: bool,
     pub truncated: bool,
     pub hunks: Vec<DiffHunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -276,6 +279,7 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -435,6 +439,7 @@ mod tests {
             }),
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![]),
@@ -459,6 +464,7 @@ mod tests {
             ref_: None,
             sensitive: false,
             binary: false,
+            symlink: false,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -534,6 +540,7 @@ mod tests {
                 ref_: None,
                 sensitive: false,
                 binary: false,
+                symlink: false,
                 truncated: false,
                 hunks: vec![],
                 ref_hunks: None,
