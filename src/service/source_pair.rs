@@ -39,8 +39,8 @@ pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Res
         validate_server(left, config)?;
         validate_server(right, config)?;
         return Ok(SourcePair {
-            left: Side::Remote(left.clone()),
-            right: Side::Remote(right.clone()),
+            left: Side::new(left),
+            right: Side::new(right),
         });
     }
 
@@ -66,14 +66,14 @@ pub fn resolve_source_pair(args: &SourceArgs, config: &AppConfig) -> anyhow::Res
     if let Some(left_name) = &args.left {
         validate_server(left_name, config)?;
         return Ok(SourcePair {
-            left: Side::Remote(left_name.clone()),
-            right: Side::Remote(right_name),
+            left: Side::new(left_name),
+            right: Side::new(&right_name),
         });
     }
 
     Ok(SourcePair {
         left: Side::Local,
-        right: Side::Remote(right_name),
+        right: Side::new(&right_name),
     })
 }
 
@@ -230,6 +230,42 @@ mod tests {
         let pair = resolve_source_pair(&args, &test_config()).unwrap();
         assert_eq!(pair.left, Side::Local);
         assert_eq!(pair.right, Side::Remote("staging".into()));
+    }
+
+    #[test]
+    fn source_pair_left_local_right_remote() {
+        let args = SourceArgs {
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ..Default::default()
+        };
+        let pair = resolve_source_pair(&args, &test_config()).unwrap();
+        assert_eq!(pair.left, Side::Local);
+        assert_eq!(pair.right, Side::Remote("develop".into()));
+    }
+
+    #[test]
+    fn source_pair_left_remote_right_local() {
+        let args = SourceArgs {
+            left: Some("develop".into()),
+            right: Some("local".into()),
+            ..Default::default()
+        };
+        let pair = resolve_source_pair(&args, &test_config()).unwrap();
+        assert_eq!(pair.left, Side::Remote("develop".into()));
+        assert_eq!(pair.right, Side::Local);
+    }
+
+    #[test]
+    fn source_pair_both_local() {
+        let args = SourceArgs {
+            left: Some("local".into()),
+            right: Some("local".into()),
+            ..Default::default()
+        };
+        let pair = resolve_source_pair(&args, &test_config()).unwrap();
+        assert_eq!(pair.left, Side::Local);
+        assert_eq!(pair.right, Side::Local);
     }
 
     #[test]

@@ -25,8 +25,12 @@ pub struct StateSnapshot {
     pub focus: String,
     /// 左側ソース
     pub left_source: String,
+    /// 左側ソースの種別 ("local" or "remote")
+    pub left_source_kind: String,
     /// 右側ソース
     pub right_source: String,
+    /// 右側ソースの種別 ("local" or "remote")
+    pub right_source_kind: String,
     /// SSH接続状態
     pub is_connected: bool,
     /// ステータスメッセージ
@@ -99,7 +103,19 @@ pub fn build_snapshot(state: &AppState) -> StateSnapshot {
     StateSnapshot {
         focus: format_focus(state.focus),
         left_source: state.left_source.display_name().to_string(),
+        left_source_kind: if state.left_source.is_local() {
+            "local"
+        } else {
+            "remote"
+        }
+        .to_string(),
         right_source: state.right_source.display_name().to_string(),
+        right_source_kind: if state.right_source.is_local() {
+            "local"
+        } else {
+            "remote"
+        }
+        .to_string(),
         is_connected: state.is_connected,
         status_message: state.status_message.clone(),
         has_dialog: state.has_dialog(),
@@ -454,6 +470,60 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "Hello TUI");
+    }
+
+    #[test]
+    fn state_dump_shows_source_kind() {
+        // StateSnapshot を直接構築してシリアライズし、kind フィールドを検証
+        let snapshot = StateSnapshot {
+            focus: "file_tree".to_string(),
+            left_source: "local".to_string(),
+            left_source_kind: "local".to_string(),
+            right_source: "develop".to_string(),
+            right_source_kind: "remote".to_string(),
+            is_connected: true,
+            status_message: String::new(),
+            has_dialog: false,
+            dialog_kind: None,
+            selected_path: None,
+            tree_cursor: 0,
+            diff_scroll: 0,
+            diff_cursor: 0,
+            hunk_cursor: 0,
+            diff_mode: "unified".to_string(),
+            tree_files: vec![],
+            scan_state: "idle".to_string(),
+            merge_scan_state: "idle".to_string(),
+            diff_filter_mode: false,
+            showing_ref_diff: false,
+            file_counts: FileCounts {
+                modified: 0,
+                equal: 0,
+                left_only: 0,
+                right_only: 0,
+                unchecked: 0,
+                error: 0,
+            },
+        };
+
+        let json = serde_json::to_string(&snapshot).unwrap();
+        assert!(json.contains("\"left_source_kind\":\"local\""));
+        assert!(json.contains("\"right_source_kind\":\"remote\""));
+
+        // Side::Remote("local") のケース（Side::new() 導入前のレガシー不正状態）:
+        // display_name は "local" だが kind は "remote" — これにより検出可能
+        let snapshot2 = StateSnapshot {
+            left_source: "local".to_string(),
+            left_source_kind: "remote".to_string(), // Side::Remote("local") の場合
+            right_source: "staging".to_string(),
+            right_source_kind: "remote".to_string(),
+            ..snapshot
+        };
+
+        let json2 = serde_json::to_string(&snapshot2).unwrap();
+        // left_source は "local" だが kind は "remote" — これで区別できる
+        assert!(json2.contains("\"left_source\":\"local\""));
+        assert!(json2.contains("\"left_source_kind\":\"remote\""));
     }
 
     #[test]

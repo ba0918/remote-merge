@@ -575,7 +575,7 @@ mod tests {
         state.current_diff = Some(crate::diff::engine::DiffResult::Equal);
 
         let new_tree = make_test_tree(vec![FileNode::new_file("b.rs")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
 
         assert_eq!(state.right_source.display_name(), "staging");
         assert!(state.left_cache.is_empty());

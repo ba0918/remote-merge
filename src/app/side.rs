@@ -11,6 +11,15 @@ pub enum Side {
 }
 
 impl Side {
+    /// サーバ名から Side を構築する。"local" なら Side::Local を返す。
+    pub fn new(name: &str) -> Self {
+        if name == "local" {
+            Side::Local
+        } else {
+            Side::Remote(name.to_string())
+        }
+    }
+
     /// 表示用の名前を返す
     pub fn display_name(&self) -> &str {
         match self {
@@ -115,6 +124,28 @@ mod tests {
         let left = Side::Remote("develop".to_string());
         let right = Side::Remote("staging".to_string());
         assert_eq!(comparison_label(&left, &right), "develop <-> staging");
+    }
+
+    #[test]
+    fn side_new_local() {
+        assert_eq!(Side::new("local"), Side::Local);
+    }
+
+    #[test]
+    fn side_new_remote() {
+        assert_eq!(Side::new("develop"), Side::Remote("develop".to_string()));
+    }
+
+    #[test]
+    fn side_new_case_sensitive() {
+        // 大文字小文字は区別する — "LOCAL" は Remote として扱われる
+        assert_eq!(Side::new("LOCAL"), Side::Remote("LOCAL".to_string()));
+    }
+
+    #[test]
+    fn side_new_empty_string() {
+        // 空文字のバリデーションは上位層の責務
+        assert_eq!(Side::new(""), Side::Remote("".to_string()));
     }
 
     #[test]

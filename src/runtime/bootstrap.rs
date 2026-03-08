@@ -36,11 +36,7 @@ pub fn bootstrap_tui(
     )?;
 
     // 右側: "local" なら Side::Local、それ以外は Side::Remote
-    let right_source = if params.right_server == "local" {
-        Side::Local
-    } else {
-        Side::Remote(params.right_server.clone())
-    };
+    let right_source = Side::new(&params.right_server);
     let (right_tree, right_connected) = fetch_right_side(&right_source, &config, &mut runtime);
     let is_connected = left_connected && right_connected;
 
@@ -86,35 +82,43 @@ fn fetch_left_side(
     config: &AppConfig,
     runtime: &mut TuiRuntime,
 ) -> anyhow::Result<(FileTree, Side, bool)> {
-    if let Some(ref left_name) = left_server {
-        tracing::info!("TUI mode: {} <-> {}", left_name, right_server);
-        match runtime.connect(left_name) {
-            Ok(()) => match runtime.fetch_remote_tree(left_name) {
-                Ok(tree) => Ok((tree, Side::Remote(left_name.clone()), true)),
+    let left_side = match left_server {
+        Some(ref name) => Side::new(name),
+        None => Side::Local,
+    };
+
+    match &left_side {
+        Side::Local => {
+            tracing::info!("TUI mode: local <-> {}", right_server);
+            let tree = local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
+            Ok((tree, Side::Local, true))
+        }
+        Side::Remote(name) => {
+            tracing::info!("TUI mode: {} <-> {}", name, right_server);
+            match runtime.connect(name) {
+                Ok(()) => match runtime.fetch_remote_tree(name) {
+                    Ok(tree) => Ok((tree, left_side, true)),
+                    Err(e) => {
+                        tracing::warn!("Left remote tree fetch failed: {}", e);
+                        let root = config
+                            .servers
+                            .get(name.as_str())
+                            .map(|s| s.root_dir.clone())
+                            .unwrap_or_default();
+                        Ok((FileTree::new(root), left_side, true))
+                    }
+                },
                 Err(e) => {
-                    tracing::warn!("Left remote tree fetch failed: {}", e);
+                    tracing::warn!("Left SSH connection failed: {}", e);
                     let root = config
                         .servers
-                        .get(left_name)
+                        .get(name.as_str())
                         .map(|s| s.root_dir.clone())
                         .unwrap_or_default();
-                    Ok((FileTree::new(root), Side::Remote(left_name.clone()), true))
+                    Ok((FileTree::new(root), left_side, false))
                 }
-            },
-            Err(e) => {
-                tracing::warn!("Left SSH connection failed: {}", e);
-                let root = config
-                    .servers
-                    .get(left_name)
-                    .map(|s| s.root_dir.clone())
-                    .unwrap_or_default();
-                Ok((FileTree::new(root), Side::Remote(left_name.clone()), false))
             }
         }
-    } else {
-        tracing::info!("TUI mode: local <-> {}", right_server);
-        let tree = local::scan_local_tree(&config.local.root_dir, &config.filter.exclude)?;
-        Ok((tree, Side::Local, true))
     }
 }
 
@@ -215,26 +219,18 @@ fn apply_reference_from_runtime(
         None => return,
     };
 
-    let ref_source = if ref_name == "local" {
-        Side::Local
-    } else {
-        Side::Remote(ref_name.clone())
-    };
+    let ref_source = Side::new(&ref_name);
 
-    // ツリーを取得
+    // ref ツリーを取得（left/right と同じ浅いスキャン）
+    // 再帰取得すると遅延ロードの left/right との深さ不一致で
+    // 全ファイルが ref_only 判定されてしまうため。
     let ref_tree = match &ref_source {
         Side::Local => {
-            // reference は再帰的に全走査する（浅いスキャンだと find_node が失敗する）
-            match local::scan_local_tree_recursive(
+            match local::scan_local_tree(
                 &runtime.core.config.local.root_dir,
                 &runtime.core.config.filter.exclude,
-                10_000,
             ) {
-                Ok((nodes, _truncated)) => {
-                    let mut tree = crate::tree::FileTree::new(&runtime.core.config.local.root_dir);
-                    tree.nodes = nodes;
-                    Some(tree)
-                }
+                Ok(tree) => Some(tree),
                 Err(e) => {
                     tracing::warn!("Reference local scan failed: {}", e);
                     None
@@ -242,7 +238,7 @@ fn apply_reference_from_runtime(
             }
         }
         Side::Remote(name) => match runtime.connect(name) {
-            Ok(()) => match runtime.fetch_remote_tree_recursive(name, 10_000) {
+            Ok(()) => match runtime.fetch_remote_tree(name) {
                 Ok(tree) => Some(tree),
                 Err(e) => {
                     tracing::warn!("Reference tree fetch failed: {}", e);

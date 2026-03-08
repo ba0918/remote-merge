@@ -189,16 +189,8 @@ pub fn execute_pair_switch(
     state.status_message = format!("Switching to {} <-> {}...", left_name, right_name);
 
     // Side を構築
-    let new_left = if left_name == "local" {
-        Side::Local
-    } else {
-        Side::Remote(left_name.to_string())
-    };
-    let new_right = if right_name == "local" {
-        Side::Local
-    } else {
-        Side::Remote(right_name.to_string())
-    };
+    let new_left = Side::new(left_name);
+    let new_right = Side::new(right_name);
 
     // 左側ツリーを取得
     let left_tree = match &new_left {
@@ -261,6 +253,7 @@ pub fn execute_pair_switch(
     state.switch_pair(new_left, new_right, left_tree, right_tree);
 
     // reference サーバが自動選択されたら接続 + ツリー取得
+    // 注: left/right と同じ深さ（浅いスキャン）で取得する
     execute_ref_connect(state, runtime);
 
     let label = comparison_label(&state.left_source, &state.right_source);
@@ -277,17 +270,17 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
         _ => return,
     };
 
+    // left/right と同じ深さ（浅いスキャン = ルート直下のみ）で取得する。
+    // 再帰取得すると遅延ロードの left/right との深さ不一致で
+    // 全ファイルが ref_only 判定されてしまうため。
+    // ref のファイル内容は load_ref_file_content で個別に遅延取得される。
     let tree_acquired = match &ref_source {
         Side::Local => {
-            // reference は再帰的に全走査する（浅いスキャンだと find_node が失敗する）
-            match crate::local::scan_local_tree_recursive(
+            match crate::local::scan_local_tree(
                 &runtime.core.config.local.root_dir,
                 &runtime.core.config.filter.exclude,
-                10_000,
             ) {
-                Ok((nodes, _truncated)) => {
-                    let mut tree = crate::tree::FileTree::new(&runtime.core.config.local.root_dir);
-                    tree.nodes = nodes;
+                Ok(tree) => {
                     state.ref_tree = Some(tree);
                     true
                 }
@@ -302,8 +295,7 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
                 state.clear_reference();
                 return;
             }
-            // reference ツリーは再帰取得（遅延読み込みだと find_node が失敗するため）
-            match runtime.fetch_remote_tree_recursive(name, 10_000) {
+            match runtime.fetch_remote_tree(name) {
                 Ok(tree) => {
                     state.ref_tree = Some(tree);
                     true
@@ -324,28 +316,50 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
 
 /// サーバ切替を実行する（右側のサーバを切り替え）
 pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_name: &str) {
-    state.status_message = format!("Connecting to {}...", server_name);
+    let new_side = Side::new(server_name);
+
+    state.status_message = format!("Switching to {}...", server_name);
 
     // 古い右側接続を切断
     if let Side::Remote(old_name) = &state.right_source {
         runtime.disconnect(old_name);
     }
 
-    match runtime.connect(server_name) {
-        Ok(()) => match runtime.fetch_remote_tree(server_name) {
-            Ok(tree) => {
-                state.right_source = Side::Remote(server_name.to_string());
-                state.switch_server(server_name.to_string(), tree);
-                let label = comparison_label(&state.left_source, &state.right_source);
-                state.status_message =
-                    format!("{} | Tab: switch focus | s: server | q: quit", label);
+    // Side に応じてツリーを取得
+    let tree = match &new_side {
+        Side::Local => {
+            match crate::local::scan_local_tree(
+                &runtime.core.config.local.root_dir,
+                &runtime.core.config.filter.exclude,
+            ) {
+                Ok(tree) => tree,
+                Err(e) => {
+                    state.status_message = format!("Local scan failed: {}", e);
+                    return;
+                }
             }
+        }
+        Side::Remote(name) => match runtime.connect(name) {
+            Ok(()) => match runtime.fetch_remote_tree(name) {
+                Ok(tree) => tree,
+                Err(e) => {
+                    state.status_message = format!("{} tree fetch failed: {}", name, e);
+                    return;
+                }
+            },
             Err(e) => {
-                state.status_message = format!("{} tree fetch failed: {}", server_name, e);
+                state.status_message = format!("{} connection failed: {}", name, e);
+                return;
             }
         },
-        Err(e) => {
-            state.status_message = format!("{} connection failed: {}", server_name, e);
-        }
-    }
+    };
+
+    state.switch_server(new_side, tree);
+
+    // reference サーバを自動再選択 + ツリー取得
+    // 注: left/right と同じ深さ（浅いスキャン）で取得する
+    execute_ref_connect(state, runtime);
+
+    let label = comparison_label(&state.left_source, &state.right_source);
+    state.status_message = format!("{} | Tab: switch focus | s: server | q: quit", label);
 }

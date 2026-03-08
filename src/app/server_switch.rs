@@ -8,11 +8,11 @@ use super::AppState;
 
 impl AppState {
     /// サーバ切替後にツリーを再構築する
-    pub fn switch_server(&mut self, new_server: String, remote_tree: FileTree) {
-        self.right_source = super::Side::Remote(new_server);
+    pub fn switch_server(&mut self, new_side: super::Side, right_tree: FileTree) {
+        self.right_source = new_side;
         let label = super::side::comparison_label(&self.left_source, &self.right_source);
         self.status_message = format!("{} | Tab: switch focus | q: quit", label);
-        self.right_tree = remote_tree;
+        self.right_tree = right_tree;
         self.reset_diff_state();
         self.is_connected = true;
     }
@@ -78,13 +78,7 @@ impl AppState {
         if ref_server.is_some() {
             // ref_tree は遅延取得のため、ここではソースのみ設定
             // ref_tree は execute_ref_connect() で接続 + 取得される
-            self.ref_source = ref_server.map(|name| {
-                if name == "local" {
-                    super::Side::Local
-                } else {
-                    super::Side::Remote(name)
-                }
-            });
+            self.ref_source = ref_server.map(|name| super::Side::new(&name));
             self.ref_tree = None;
             self.ref_cache.clear();
             self.ref_binary_cache.clear();
@@ -126,7 +120,7 @@ mod tests {
             .right_cache
             .insert("a.txt".to_string(), "old".to_string());
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         assert_eq!(state.right_source.display_name(), "staging");
         assert!(state.right_cache.is_empty());
         assert!(state.is_connected);
@@ -143,7 +137,7 @@ mod tests {
             .insert("a.txt".to_string(), "remote content".to_string());
         state.error_paths.insert("a.txt".to_string());
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         assert!(state.left_cache.is_empty());
         assert!(state.right_cache.is_empty());
         assert!(state.error_paths.is_empty());
@@ -157,7 +151,7 @@ mod tests {
         state.scan_statuses = Some(std::collections::HashMap::new());
         state.diff_filter_mode = true;
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         assert!(state.scan_left_tree.is_none());
         assert!(state.scan_right_tree.is_none());
         assert!(state.scan_statuses.is_none());
@@ -173,7 +167,7 @@ mod tests {
             diff: None,
         });
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         assert!(state.undo_stack.is_empty());
         assert!(!state.has_unsaved_changes());
     }
@@ -184,7 +178,7 @@ mod tests {
         let badge_before = state.compute_badge("a.txt", false);
         assert_eq!(badge_before, Badge::Unchecked);
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         let badge_after = state.compute_badge("a.txt", false);
         assert_eq!(badge_after, Badge::LeftOnly);
     }
@@ -246,7 +240,7 @@ mod tests {
             FileNode::new_file("changed.txt"),
             FileNode::new_file("same.txt"),
         ]);
-        state.switch_server("staging".to_string(), new_tree);
+        state.switch_server(Side::new("staging"), new_tree);
         assert!(!state.diff_filter_mode);
         let all_count = state.flat_nodes.iter().filter(|n| !n.is_dir).count();
         assert!(all_count >= filtered_count);
