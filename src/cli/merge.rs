@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 
-use crate::app::side::is_remote_to_remote;
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
@@ -10,9 +9,13 @@ use crate::config::AppConfig;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{
-    build_merge_output, determine_merge_action, merge_exit_code, plan_merge, MergeAction,
+    build_merge_output, check_r2r_guard, determine_merge_action, merge_exit_code, plan_merge,
+    MergeAction,
 };
-use crate::service::output::{format_json, format_merge_text, OutputFormat};
+use crate::service::output::{
+    format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
+    OutputFormat,
+};
 use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -21,7 +24,9 @@ use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
     refine_status_with_content,
 };
-use crate::service::types::{FileStatus, FileStatusKind, MergeFailure, MergeFileResult};
+use crate::service::types::{
+    FileStatus, FileStatusKind, MergeFailure, MergeFileResult, MergeOutcome,
+};
 use crate::tree::FileTree;
 
 /// merge サブコマンドの引数
@@ -34,12 +39,6 @@ pub struct MergeArgs {
     pub force: bool,
     pub with_permissions: bool,
     pub format: String,
-}
-
-/// remote-to-remote merge でガードが必要かどうかを判定する。
-/// --force または --dry-run が指定されていればガード不要。
-fn needs_r2r_guard(left: &Side, right: &Side, dry_run: bool, force: bool) -> bool {
-    is_remote_to_remote(left, right) && !dry_run && !force
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
@@ -57,10 +56,7 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
 
 /// merge サブコマンドを実行する
 pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
-    if let Err(e) = validate_merge_args(&args) {
-        eprintln!("Error: {}", e);
-        return Ok(crate::service::types::exit_code::ERROR);
-    }
+    validate_merge_args(&args)?;
 
     // フォーマットを先にパースして不正値を早期エラーにする
     let format = OutputFormat::parse(&args.format)?;
@@ -74,13 +70,11 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
     // remote-to-remote merge ガード: --force または --dry-run なしでは拒否
-    if needs_r2r_guard(&pair.left, &pair.right, args.dry_run, args.force) {
-        eprintln!(
-            "Warning: merging between two remote servers ({} → {})",
-            pair.left.display_name(),
-            pair.right.display_name()
-        );
-        eprintln!("Use --force to proceed, or --dry-run to preview changes.");
+    if let Some(outcome) = check_r2r_guard(&pair.left, &pair.right, args.dry_run, args.force) {
+        match format {
+            OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
+            OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
+        }
         return Ok(crate::service::types::exit_code::ERROR);
     }
 
@@ -138,7 +132,11 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let diff_files = filter_changed_files(&resolved_paths, &statuses);
 
     if diff_files.is_empty() {
-        eprintln!("no files to merge in the specified path(s)");
+        let outcome = MergeOutcome::NoFilesToMerge;
+        match format {
+            OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
+            OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
+        }
         core.disconnect_all();
         return Ok(crate::service::types::exit_code::SUCCESS);
     }
@@ -723,36 +721,5 @@ mod tests {
         assert!(check_source_exists("unknown.rs", MergeDirection::LeftToRight, &statuses).is_ok());
     }
 
-    #[test]
-    fn test_r2r_guard_blocks_without_force_or_dry_run() {
-        let left = Side::Remote("develop".into());
-        let right = Side::Remote("staging".into());
-        assert!(needs_r2r_guard(&left, &right, false, false));
-    }
-
-    #[test]
-    fn test_r2r_guard_skipped_with_force() {
-        let left = Side::Remote("develop".into());
-        let right = Side::Remote("staging".into());
-        assert!(!needs_r2r_guard(&left, &right, false, true));
-    }
-
-    #[test]
-    fn test_r2r_guard_skipped_with_dry_run() {
-        let left = Side::Remote("develop".into());
-        let right = Side::Remote("staging".into());
-        assert!(!needs_r2r_guard(&left, &right, true, false));
-    }
-
-    #[test]
-    fn test_r2r_guard_not_triggered_for_local_to_remote() {
-        let left = Side::Local;
-        let right = Side::Remote("staging".into());
-        assert!(!needs_r2r_guard(&left, &right, false, false));
-    }
-
-    #[test]
-    fn test_r2r_guard_not_triggered_for_local_to_local() {
-        assert!(!needs_r2r_guard(&Side::Local, &Side::Local, false, false));
-    }
+    // r2r guard のテストは service/merge.rs の check_r2r_guard テストに移動済み
 }

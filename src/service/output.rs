@@ -138,6 +138,13 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         return lines.join("\n");
     }
 
+    // sensitive マスク: build_masked_diff_output で構築された DiffOutput のみがこのパスに到達する。
+    // --force 使用時は note=None のため通常の hunk 表示にフォールスルーする。
+    if let (true, Some(note)) = (output.sensitive, &output.note) {
+        lines.push(note.to_string());
+        return lines.join("\n");
+    }
+
     for hunk in &output.hunks {
         lines.push(format!(
             "@@ -{},{} +{},{} @@",
@@ -262,6 +269,51 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
     }
 
     lines.join("\n")
+}
+
+/// MergeOutcome をテキストフォーマットする
+pub fn format_merge_outcome_text(outcome: &MergeOutcome) -> String {
+    match outcome {
+        MergeOutcome::Success(output) => format_merge_text(output),
+        MergeOutcome::NoFilesToMerge => "no files to merge in the specified path(s)".to_string(),
+        MergeOutcome::R2rBlocked { left, right } => {
+            format!(
+                "Warning: merging between two remote servers ({} → {})\nUse --force to proceed, or --dry-run to preview changes.",
+                left, right
+            )
+        }
+    }
+}
+
+/// MergeOutcome を JSON フォーマットする
+pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<String> {
+    match outcome {
+        MergeOutcome::Success(output) => format_json(output),
+        MergeOutcome::NoFilesToMerge => {
+            let output = MergeOutput {
+                merged: vec![],
+                skipped: vec![],
+                failed: vec![],
+                ref_: None,
+            };
+            format_json(&output)
+        }
+        MergeOutcome::R2rBlocked { left, right } => {
+            let output = MergeOutput {
+                merged: vec![],
+                skipped: vec![],
+                failed: vec![MergeFailure {
+                    path: "*".to_string(),
+                    error: format!(
+                        "Merging between two remote servers ({} → {}). Use --force to proceed.",
+                        left, right
+                    ),
+                }],
+                ref_: None,
+            };
+            format_json(&output)
+        }
+    }
 }
 
 /// 任意の Serialize 可能な型を JSON 文字列にする
@@ -402,6 +454,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -432,6 +485,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -602,6 +656,7 @@ mod tests {
             }]),
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -630,6 +685,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
@@ -657,6 +713,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -687,6 +744,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Symbolic link targets differ"));
@@ -787,6 +845,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         }
     }
 
@@ -915,6 +974,7 @@ mod tests {
             ref_hunks: None,
             left_hash: Some("abc123def456".into()),
             right_hash: Some("789xyz000111".into()),
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains(
@@ -944,6 +1004,7 @@ mod tests {
             ref_hunks: None,
             left_hash: Some("abc123".into()),
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
@@ -970,6 +1031,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -997,6 +1059,7 @@ mod tests {
             ref_hunks: None,
             left_hash: Some("aaa".into()),
             right_hash: Some("bbb".into()),
+            note: None,
         };
         let json = format_json(&output).unwrap();
         assert!(json.contains("\"left_hash\""));
@@ -1027,9 +1090,140 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("left_hash"));
         assert!(!json.contains("right_hash"));
+    }
+
+    // ── MergeOutcome formatter tests ──
+
+    #[test]
+    fn test_format_merge_outcome_text_no_files() {
+        let text = format_merge_outcome_text(&MergeOutcome::NoFilesToMerge);
+        assert_eq!(text, "no files to merge in the specified path(s)");
+    }
+
+    #[test]
+    fn test_format_merge_outcome_text_r2r_blocked() {
+        let text = format_merge_outcome_text(&MergeOutcome::R2rBlocked {
+            left: "develop".into(),
+            right: "staging".into(),
+        });
+        assert!(text.contains("Warning: merging between two remote servers"));
+        assert!(text.contains("develop → staging"));
+        assert!(text.contains("--force"));
+    }
+
+    #[test]
+    fn test_format_merge_outcome_text_success() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            skipped: vec![],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_outcome_text(&MergeOutcome::Success(output));
+        assert!(text.contains("Merged: a.rs"));
+    }
+
+    #[test]
+    fn test_format_merge_outcome_json_no_files() {
+        let json = format_merge_outcome_json(&MergeOutcome::NoFilesToMerge).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["merged"], serde_json::json!([]));
+        assert_eq!(v["skipped"], serde_json::json!([]));
+        assert_eq!(v["failed"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_format_merge_outcome_json_r2r_blocked() {
+        let json = format_merge_outcome_json(&MergeOutcome::R2rBlocked {
+            left: "develop".into(),
+            right: "staging".into(),
+        })
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["merged"], serde_json::json!([]));
+        assert_eq!(v["failed"][0]["path"], "*");
+        assert!(v["failed"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("--force"));
+    }
+
+    #[test]
+    fn test_format_merge_outcome_json_r2r_blocked_no_root_path() {
+        let json = format_merge_outcome_json(&MergeOutcome::R2rBlocked {
+            left: "develop".into(),
+            right: "staging".into(),
+        })
+        .unwrap();
+        // root パスが含まれないことを検証
+        assert!(!json.contains("/var/www"));
+        assert!(!json.contains("/home/"));
+    }
+
+    #[test]
+    fn test_format_diff_text_sensitive_masked() {
+        let output = DiffOutput {
+            path: ".env".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: true,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: Some("Content hidden (sensitive file). Use --force to show.".into()),
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("--- a/.env (local)"));
+        assert!(text.contains("+++ b/.env (dev)"));
+        assert!(text.contains("Content hidden (sensitive file)"));
+        assert!(!text.contains("@@"));
+    }
+
+    #[test]
+    fn test_format_diff_text_not_sensitive_no_note() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(!text.contains("Content hidden"));
     }
 }

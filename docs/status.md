@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-09 21:10:45
+**Last Updated:** 2026-03-09 22:28:34
 
 ---
 
@@ -8,16 +8,22 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260309211045` |
-| **Feature** | symlink merge ロジックのサービス層集約 + TUI 側バグ修正 |
-| **Started** | 2026-03-09 21:10:45 |
+| **Cycle ID** | `20260309222834` |
+| **Feature** | CLI 出力一貫性修正: JSON/バイナリ/symlink/sensitive |
+| **Started** | 2026-03-09 22:28:34 |
 | **Phase** | 🟡 Planning |
-| **Plan** | [docs/cycles/20260309211045_symlink-merge-logic-to-service-layer.md](./cycles/20260309211045_symlink-merge-logic-to-service-layer.md) |
+| **Plan** | [docs/cycles/20260309222834_cli-output-consistency-fixes.md](./cycles/20260309222834_cli-output-consistency-fixes.md) |
 
 **Current Focus:**
-symlink merge のビジネスロジック（determine_merge_action等）をCLI層からサービス層に移動し、TUI/CLI両方で同一ロジックを使用するようにする。TUI側のsymlink mergeバグ（remove_file欠落・バックアップ欠落）も修正。
+CLI出力の4つの一貫性問題を修正。(1) `--format json`時のプレインテキスト混入、(2) バイナリdiffの生データ表示確認、(3) symlinkのdiffがターゲットパスでなく中身比較、(4) sensitiveファイルdiff内容の丸見え。全てサービス層以下で修正し、TUI/CLI差異をなくす。
 
 ---
+
+### 20260309211045 - symlink merge ロジックのサービス層集約 + TUI 側バグ修正
+- **Started:** 2026-03-09 21:10:45
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260309211045_symlink-merge-logic-to-service-layer.md)
+- **Summary:** symlink merge のビジネスロジックをCLI層からサービス層に移動。TUI側のsymlink mergeバグ修正。
 
 ### 20260309193908 - CLI バイナリ status 誤判定 + symlink merge 破壊 + diff バイナリ文字化け修正
 - **Started:** 2026-03-09 19:39:08

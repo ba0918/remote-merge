@@ -199,6 +199,7 @@ remote-merge diff src/config.ts --left local --right develop
 remote-merge diff src/config.ts --format json
 remote-merge diff src/                         # ディレクトリ再帰diff（テキスト出力のみ）
 remote-merge diff src/ --max-files 20          # 出力ファイル数を制限（デフォルト: 無制限）
+remote-merge diff .env --force                 # --force: セーフティガードを解除（sensitive ファイルの内容表示を許可）
 
 # マージ実行（--left の内容で --right を上書き）
 remote-merge merge src/config.ts --left develop --right local
@@ -625,6 +626,13 @@ sensitive = [".env", ".env.*", "*.pem", "*.key", "credentials.*", "*secret*"]
 
 CLI の `--format json` 出力では、センシティブファイルに `"sensitive": true` フラグを付与する。
 LLMエージェントはこのフラグを見て自動マージ対象から除外できる。
+
+### CLI diff での sensitive マスク
+
+- デフォルトで sensitive ファイルの diff 内容は非表示（hunks 空 + note フィールドで通知）
+- `--force` オプションで解除可能
+- `sensitive && binary` の場合はハッシュもマスクされる
+- JSON 出力では `note` フィールドにマスク理由を格納（`skip_serializing_if` で通常は省略）
 
 ---
 

@@ -5,6 +5,8 @@
 
 use super::status::is_sensitive;
 use super::types::*;
+use crate::app::side::is_remote_to_remote;
+use crate::app::Side;
 use crate::tree::{FileTree, NodeKind};
 
 /// マージ対象ファイルの前処理結果
@@ -111,6 +113,24 @@ pub fn determine_merge_action(
         return MergeAction::ReplaceSymlinkWithFile;
     }
     MergeAction::Normal
+}
+
+/// remote-to-remote merge のガード判定。
+/// ブロックされた場合は MergeOutcome::R2rBlocked を返す。
+pub fn check_r2r_guard(
+    left: &Side,
+    right: &Side,
+    dry_run: bool,
+    force: bool,
+) -> Option<MergeOutcome> {
+    if is_remote_to_remote(left, right) && !dry_run && !force {
+        Some(MergeOutcome::R2rBlocked {
+            left: left.display_name().to_string(),
+            right: right.display_name().to_string(),
+        })
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -390,5 +410,36 @@ mod tests {
                 target_exists: false,
             }
         );
+    }
+
+    // ── check_r2r_guard tests ──
+
+    #[test]
+    fn test_check_r2r_guard_blocks_remote_to_remote() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        let result = check_r2r_guard(&left, &right, false, false);
+        assert!(matches!(result, Some(MergeOutcome::R2rBlocked { .. })));
+    }
+
+    #[test]
+    fn test_check_r2r_guard_allows_with_force() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        assert!(check_r2r_guard(&left, &right, false, true).is_none());
+    }
+
+    #[test]
+    fn test_check_r2r_guard_allows_with_dry_run() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        assert!(check_r2r_guard(&left, &right, true, false).is_none());
+    }
+
+    #[test]
+    fn test_check_r2r_guard_allows_local_to_remote() {
+        let left = Side::Local;
+        let right = Side::Remote("staging".into());
+        assert!(check_r2r_guard(&left, &right, false, false).is_none());
     }
 }

@@ -86,6 +86,9 @@ enum Commands {
         /// Maximum number of files to process (0 for unlimited)
         #[arg(long, default_value = "100")]
         max_files: usize,
+        /// Override safety guards (show sensitive file contents)
+        #[arg(long)]
+        force: bool,
     },
 
     /// Merge files
@@ -191,6 +194,7 @@ fn try_main() -> anyhow::Result<()> {
             format,
             max_lines,
             max_files,
+            force,
         }) => {
             let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
             let code = remote_merge::cli::diff::run_diff(
@@ -202,6 +206,7 @@ fn try_main() -> anyhow::Result<()> {
                     format,
                     max_lines,
                     max_files,
+                    force,
                 },
                 cfg,
             )?;

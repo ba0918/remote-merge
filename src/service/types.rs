@@ -90,6 +90,9 @@ pub struct DiffOutput {
     /// バイナリファイルの右側 SHA-256 ハッシュ
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_hash: Option<String>,
+    /// 補足情報（sensitive マスク時・type mismatch 時等）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// diff のハンク
@@ -173,6 +176,17 @@ pub struct MergeSkipped {
 pub struct MergeFailure {
     pub path: String,
     pub error: String,
+}
+
+/// merge サービスの実行結果。CLI/TUI 共通。
+#[derive(Debug, Clone)]
+pub enum MergeOutcome {
+    /// マージ成功（0件以上のファイルがマージされた）
+    Success(MergeOutput),
+    /// 指定パスにマージ対象ファイルがない
+    NoFilesToMerge,
+    /// remote-to-remote マージがブロックされた（--force で解除可能）
+    R2rBlocked { left: String, right: String },
 }
 
 // ── exit codes ──
@@ -309,6 +323,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -453,6 +468,7 @@ mod tests {
             ref_hunks: Some(vec![]),
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -480,6 +496,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
@@ -558,6 +575,7 @@ mod tests {
                 ref_hunks: None,
                 left_hash: None,
                 right_hash: None,
+                note: None,
             }],
             summary: MultiDiffSummary {
                 total_files: 5,

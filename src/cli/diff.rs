@@ -6,7 +6,10 @@ use crate::config::AppConfig;
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
 use crate::runtime::CoreRuntime;
-use crate::service::diff::build_diff_output;
+use crate::service::diff::{
+    build_diff_output, build_masked_diff_output, build_symlink_diff_output,
+};
+use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
 use crate::service::source_pair::{
@@ -29,6 +32,7 @@ pub struct DiffArgs {
     pub format: String,
     pub max_lines: Option<usize>,
     pub max_files: usize,
+    pub force: bool,
 }
 
 /// diff サブコマンドを実行する
@@ -78,9 +82,8 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     // 指定パスがどちらにも存在しない場合はエラー
     if diff_files.is_empty() && target_files.is_empty() {
-        eprintln!("Error: specified path(s) not found on either side");
         core.disconnect_all();
-        return Ok(exit_code::ERROR);
+        anyhow::bail!("specified path(s) not found on either side");
     }
 
     // Apply max-files truncation
@@ -114,6 +117,33 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
         let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
         let (left_quiet, right_quiet) = quiet_flags_for_status(status);
 
+        let sensitive = is_sensitive(path, &config.filter.sensitive);
+
+        // symlink 判定（ツリー情報から）— sensitive でもターゲットパスは機密情報ではないため先に判定
+        let left_symlink_target = find_symlink_target(&left_tree, path);
+        let right_symlink_target = find_symlink_target(&right_tree, path);
+        if left_symlink_target.is_some() || right_symlink_target.is_some() {
+            file_diffs.push(build_symlink_diff_output(
+                path,
+                left_info.clone(),
+                right_info.clone(),
+                left_symlink_target.as_deref(),
+                right_symlink_target.as_deref(),
+                sensitive,
+            ));
+            continue;
+        }
+
+        // sensitive マスク（--force なしの場合、内容を読み込まずにマスク）
+        if sensitive && !args.force {
+            file_diffs.push(build_masked_diff_output(
+                path,
+                left_info.clone(),
+                right_info.clone(),
+            ));
+            continue;
+        }
+
         // バイト列で読み込み、事前にバイナリ判定を行う
         let (left_bytes, left_ok) =
             read_file_bytes_tolerant(&mut core, &pair.left, path, left_quiet);
@@ -123,7 +153,6 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
         if !left_ok && !right_ok {
             has_read_error = true;
         }
-        let sensitive = is_sensitive(path, &config.filter.sensitive);
 
         let output = if is_binary(&left_bytes) || is_binary(&right_bytes) {
             // バイナリファイル: SHA-256 ハッシュを計算して直接 DiffOutput を構築
@@ -158,6 +187,7 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
                 ref_hunks: ref_hunks_out,
                 left_hash,
                 right_hash,
+                note: None,
             }
         } else {
             // テキストファイル: String に変換して既存の build_diff_output を呼ぶ
@@ -187,7 +217,9 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     let files_with_changes = file_diffs
         .iter()
-        .filter(|d| d.binary || d.symlink || !d.hunks.is_empty())
+        .filter(|d| {
+            d.binary || d.symlink || !d.hunks.is_empty() || (d.sensitive && d.note.is_some())
+        })
         .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {

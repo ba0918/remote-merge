@@ -72,6 +72,7 @@ pub fn build_diff_output(
         ref_hunks: ref_hunks_out,
         left_hash: None,
         right_hash: None,
+        note: None,
     }
 }
 
@@ -123,11 +124,96 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
 }
 
 /// diff の exit code を判定する。差分があれば 1、なければ 0。
+///
+/// sensitive マスク時（note 付き）も差分ありとして DIFF_FOUND を返す。
 pub fn diff_exit_code(output: &DiffOutput) -> i32 {
-    if output.binary || output.symlink || !output.hunks.is_empty() {
+    if output.binary
+        || output.symlink
+        || !output.hunks.is_empty()
+        || (output.sensitive && output.note.is_some())
+    {
         exit_code::DIFF_FOUND
     } else {
         exit_code::SUCCESS
+    }
+}
+
+/// symlink 用の DiffOutput を構築（ターゲットパスの差分）
+///
+/// 前提: `left_target` と `right_target` の少なくとも一方は `Some`。
+/// 呼び出し側で `find_symlink_target` の結果を OR チェックしてからこの関数を呼ぶ。
+pub fn build_symlink_diff_output(
+    path: &str,
+    left_info: SourceInfo,
+    right_info: SourceInfo,
+    left_target: Option<&str>,
+    right_target: Option<&str>,
+    sensitive: bool,
+) -> DiffOutput {
+    let note = match (left_target, right_target) {
+        (Some(_), Some(_)) => None,
+        (Some(_), None) | (None, Some(_)) => Some("type mismatch: symlink vs file".to_string()),
+        (None, None) => None,
+    };
+
+    let hunks = match (left_target, right_target) {
+        (Some(lt), Some(rt)) if lt != rt => {
+            vec![DiffHunk {
+                index: 0,
+                left_start: 1,
+                right_start: 1,
+                lines: vec![
+                    DiffLine {
+                        line_type: DiffLineType::Removed,
+                        content: lt.to_string(),
+                    },
+                    DiffLine {
+                        line_type: DiffLineType::Added,
+                        content: rt.to_string(),
+                    },
+                ],
+            }]
+        }
+        _ => vec![],
+    };
+
+    DiffOutput {
+        path: path.to_string(),
+        left: left_info,
+        right: right_info,
+        ref_: None,
+        sensitive,
+        binary: false,
+        symlink: true,
+        truncated: false,
+        hunks,
+        ref_hunks: None,
+        left_hash: None,
+        right_hash: None,
+        note,
+    }
+}
+
+/// sensitive ファイル用のマスクされた DiffOutput を構築
+pub fn build_masked_diff_output(
+    path: &str,
+    left_info: SourceInfo,
+    right_info: SourceInfo,
+) -> DiffOutput {
+    DiffOutput {
+        path: path.to_string(),
+        left: left_info,
+        right: right_info,
+        ref_: None,
+        sensitive: true,
+        binary: false,
+        symlink: false,
+        truncated: false,
+        hunks: vec![],
+        ref_hunks: None,
+        left_hash: None,
+        right_hash: None,
+        note: Some("Content hidden (sensitive file). Use --force to show.".to_string()),
     }
 }
 
@@ -369,6 +455,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -389,6 +476,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -412,6 +500,7 @@ mod tests {
             ref_hunks: None,
             left_hash: None,
             right_hash: None,
+            note: None,
         };
         assert!(output.symlink);
         assert!(!output.binary);
@@ -488,5 +577,127 @@ mod tests {
             .sum();
         assert!(main_lines <= 5);
         assert!(ref_lines <= 5);
+    }
+
+    // ── build_symlink_diff_output tests ──
+
+    #[test]
+    fn test_build_symlink_diff_output_both_symlinks_different() {
+        let output = build_symlink_diff_output(
+            "link",
+            info("local"),
+            info("dev"),
+            Some("/old/target"),
+            Some("/new/target"),
+            false,
+        );
+        assert!(output.symlink);
+        assert!(!output.binary);
+        assert!(output.note.is_none());
+        assert_eq!(output.hunks.len(), 1);
+        assert!(output.hunks[0]
+            .lines
+            .iter()
+            .any(|l| l.content == "/old/target"));
+        assert!(output.hunks[0]
+            .lines
+            .iter()
+            .any(|l| l.content == "/new/target"));
+    }
+
+    #[test]
+    fn test_build_symlink_diff_output_both_symlinks_same() {
+        let output = build_symlink_diff_output(
+            "link",
+            info("local"),
+            info("dev"),
+            Some("/same/target"),
+            Some("/same/target"),
+            false,
+        );
+        assert!(output.symlink);
+        assert!(output.hunks.is_empty());
+    }
+
+    #[test]
+    fn test_build_symlink_diff_output_type_mismatch() {
+        let output = build_symlink_diff_output(
+            "link",
+            info("local"),
+            info("dev"),
+            Some("/target"),
+            None,
+            false,
+        );
+        assert!(output.symlink);
+        assert_eq!(
+            output.note.as_deref(),
+            Some("type mismatch: symlink vs file")
+        );
+    }
+
+    #[test]
+    fn test_build_symlink_diff_output_dangling() {
+        let output = build_symlink_diff_output(
+            "link",
+            info("local"),
+            info("dev"),
+            Some(""),
+            Some("/target"),
+            false,
+        );
+        assert!(output.symlink);
+        // 空文字列でも差分として表示される
+        assert_eq!(output.hunks.len(), 1);
+    }
+
+    // ── build_masked_diff_output tests ──
+
+    #[test]
+    fn test_build_masked_diff_output() {
+        let output = build_masked_diff_output(".env", info("local"), info("dev"));
+        assert!(output.sensitive);
+        assert!(output.hunks.is_empty());
+        assert!(output.left_hash.is_none());
+        assert!(output.right_hash.is_none());
+        assert!(output.note.as_deref().unwrap().contains("Content hidden"));
+        assert!(output.note.as_deref().unwrap().contains("--force"));
+    }
+
+    #[test]
+    fn test_build_masked_diff_output_is_not_binary() {
+        let output = build_masked_diff_output(".env", info("local"), info("dev"));
+        assert!(!output.binary);
+        assert!(!output.symlink);
+    }
+
+    // ── diff_exit_code + sensitive mask tests ──
+
+    #[test]
+    fn test_exit_code_sensitive_masked_diff_found() {
+        // sensitive マスク（note 付き）→ 差分ありとして DIFF_FOUND
+        let output = build_masked_diff_output(".env", info("l"), info("r"));
+        assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
+    }
+
+    #[test]
+    fn test_exit_code_sensitive_forced_no_diff() {
+        // --force で sensitive ファイルを表示（差分なし）→ SUCCESS
+        let output = DiffOutput {
+            path: ".env".into(),
+            left: info("l"),
+            right: info("r"),
+            ref_: None,
+            sensitive: true,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+        };
+        assert_eq!(diff_exit_code(&output), exit_code::SUCCESS);
     }
 }
