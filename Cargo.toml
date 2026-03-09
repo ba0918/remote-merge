@@ -36,3 +36,7 @@ test-utils = []
 
 [dev-dependencies]
 tempfile = "3"
+
+[[test]]
+name = "ssh_integration"
+required-features = ["test-utils"]
