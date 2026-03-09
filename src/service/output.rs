@@ -303,9 +303,9 @@ pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<Strin
                 merged: vec![],
                 skipped: vec![],
                 failed: vec![MergeFailure {
-                    path: "*".to_string(),
+                    path: String::new(),
                     error: format!(
-                        "Merging between two remote servers ({} → {}). Use --force to proceed.",
+                        "Remote-to-remote merge blocked ({} → {}). Use --force to proceed.",
                         left, right
                     ),
                 }],
@@ -1151,7 +1151,7 @@ mod tests {
         .unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["merged"], serde_json::json!([]));
-        assert_eq!(v["failed"][0]["path"], "*");
+        assert_eq!(v["failed"][0]["path"], "");
         assert!(v["failed"][0]["error"]
             .as_str()
             .unwrap()

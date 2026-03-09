@@ -11,7 +11,9 @@ use crate::service::diff::{
 };
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
-use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
+use crate::service::path_resolver::{
+    filter_changed_files, partition_existing_files, resolve_target_files_from_statuses,
+};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
@@ -77,14 +79,20 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let target_files =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
 
-    // Filter to only files with differences (not Equal)
-    let diff_files = filter_changed_files(&target_files, &statuses);
+    // 指定パスの存在確認: status にないパスはどちら側にも存在しない
+    let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
+    for path in &missing_files {
+        eprintln!("Warning: '{}' not found on either side", path);
+    }
 
-    // 指定パスがどちらにも存在しない場合はエラー
-    if diff_files.is_empty() && target_files.is_empty() {
+    // 全パスが不在の場合はエラー
+    if existing_files.is_empty() && !args.paths.is_empty() {
         core.disconnect_all();
         anyhow::bail!("specified path(s) not found on either side");
     }
+
+    // Filter to only files with differences (not Equal)
+    let diff_files = filter_changed_files(&existing_files, &statuses);
 
     // Apply max-files truncation
     let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
@@ -223,7 +231,7 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
         .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
-            total_files: diff_files.len(),
+            total_files: existing_files.len(),
             files_with_changes,
         },
         files: file_diffs,
@@ -329,26 +337,26 @@ mod tests {
 
     // ── both-sides-missing detection ──
 
+    use crate::service::path_resolver::partition_existing_files;
+
     #[test]
-    fn test_both_empty_means_not_found() {
-        // target_files も diff_files も空 = 指定パスがどちらにもない
-        let diff_files: Vec<String> = vec![];
-        let target_files: Vec<String> = vec![];
-        assert!(
-            diff_files.is_empty() && target_files.is_empty(),
-            "both empty should trigger error path"
-        );
+    fn test_all_missing_triggers_error() {
+        // 指定パスが全て status にない → existing_files が空 → エラー
+        let target_files = vec!["nonexistent.txt".into()];
+        let statuses: Vec<FileStatus> = vec![];
+        let (existing, missing) = partition_existing_files(&target_files, &statuses);
+        assert!(existing.is_empty());
+        assert_eq!(missing, vec!["nonexistent.txt"]);
     }
 
     #[test]
-    fn test_target_files_present_but_no_diff_is_not_error() {
-        // target_files があるが diff_files が空 = Equal ファイルのみ（エラーではない）
-        let diff_files: Vec<String> = vec![];
-        let target_files = ["a.txt".to_string()];
-        assert!(
-            !(diff_files.is_empty() && target_files.is_empty()),
-            "should not trigger error when target_files is non-empty"
-        );
+    fn test_equal_file_is_existing_not_error() {
+        // Equal ファイルは存在する（エラーではない）
+        let target_files = vec!["a.txt".into()];
+        let statuses = vec![make_status("a.txt", FileStatusKind::Equal)];
+        let (existing, missing) = partition_existing_files(&target_files, &statuses);
+        assert_eq!(existing, vec!["a.txt"]);
+        assert!(missing.is_empty());
     }
 
     // ── quiet flags for status ──

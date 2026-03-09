@@ -155,6 +155,27 @@ pub fn resolve_target_files_from_statuses(
     Ok(result.into_iter().collect())
 }
 
+/// target_files から statuses に存在しないパス（どちら側のツリーにも存在しない）を検出する。
+///
+/// 返り値: (存在するパス, 存在しないパス) のタプル
+pub fn partition_existing_files(
+    target_files: &[String],
+    statuses: &[FileStatus],
+) -> (Vec<String>, Vec<String>) {
+    let status_set: std::collections::HashSet<&str> =
+        statuses.iter().map(|s| s.path.as_str()).collect();
+    let mut existing = Vec::new();
+    let mut missing = Vec::new();
+    for path in target_files {
+        if status_set.contains(path.as_str()) {
+            existing.push(path.clone());
+        } else {
+            missing.push(path.clone());
+        }
+    }
+    (existing, missing)
+}
+
 /// status から差分のあるファイルのみをフィルタする（Equal を除外）。
 ///
 /// diff / merge の両方で使用する共通フィルタ。
@@ -545,6 +566,47 @@ mod tests {
         let result =
             resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
         assert_eq!(result, vec!["src/extra.rs", "src/lib.rs", "src/main.rs"]);
+    }
+
+    // ── partition_existing_files tests ──
+
+    #[test]
+    fn partition_separates_existing_and_missing() {
+        let targets = vec!["a.txt".into(), "b.txt".into(), "missing.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("b.txt", FileStatusKind::Equal),
+        ];
+        let (existing, missing) = partition_existing_files(&targets, &statuses);
+        assert_eq!(existing, vec!["a.txt", "b.txt"]);
+        assert_eq!(missing, vec!["missing.txt"]);
+    }
+
+    #[test]
+    fn partition_all_existing() {
+        let targets = vec!["a.txt".into()];
+        let statuses = vec![make_status("a.txt", FileStatusKind::Modified)];
+        let (existing, missing) = partition_existing_files(&targets, &statuses);
+        assert_eq!(existing, vec!["a.txt"]);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn partition_all_missing() {
+        let targets = vec!["gone.txt".into()];
+        let statuses = vec![];
+        let (existing, missing) = partition_existing_files(&targets, &statuses);
+        assert!(existing.is_empty());
+        assert_eq!(missing, vec!["gone.txt"]);
+    }
+
+    #[test]
+    fn partition_empty_targets() {
+        let targets: Vec<String> = vec![];
+        let statuses = vec![make_status("a.txt", FileStatusKind::Modified)];
+        let (existing, missing) = partition_existing_files(&targets, &statuses);
+        assert!(existing.is_empty());
+        assert!(missing.is_empty());
     }
 
     #[test]
