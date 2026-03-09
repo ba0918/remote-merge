@@ -92,16 +92,3 @@ pub fn chmod_file(
     };
     runtime.chmod_file(side, path, mode)
 }
-
-/// パスがローカルまたはリモートツリーでシンボリックリンクかどうかを判定する
-pub fn is_symlink_in_tree(state: &AppState, path: &str) -> bool {
-    let local_symlink = state
-        .left_tree
-        .find_node(path)
-        .is_some_and(|n| n.is_symlink());
-    let remote_symlink = state
-        .right_tree
-        .find_node(path)
-        .is_some_and(|n| n.is_symlink());
-    local_symlink || remote_symlink
-}

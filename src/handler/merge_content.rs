@@ -7,8 +7,6 @@ use crate::app::AppState;
 use crate::runtime::TuiRuntime;
 use crate::ui::dialog::{DialogState, ProgressDialog, ProgressPhase};
 
-use super::merge_file_io::is_symlink_in_tree;
-
 /// ディレクトリ配下の全ファイルのコンテンツをロードする（マージ準備用）
 ///
 /// ツリーから直接ファイルパスを収集し（expanded_dirs に依存しない）、
@@ -21,10 +19,7 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
         &state.left_tree,
         &state.right_tree,
         dir_path,
-    )
-    .into_iter()
-    .filter(|p| !is_symlink_in_tree(state, p))
-    .collect();
+    );
 
     let total = file_paths.len();
     let mut progress = ProgressDialog::new(ProgressPhase::LoadingFiles, "", false);

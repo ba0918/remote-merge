@@ -21,17 +21,47 @@ pub use super::merge_tree_load::{expand_subtree_for_merge, load_children_to, loa
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
     use crate::diff::engine::DiffResult;
+    use crate::service::merge::{determine_merge_action, MergeAction};
 
     let path = &confirm.file_path;
     let direction = confirm.direction;
 
-    // シンボリックリンクの場合は専用のマージ処理
-    if let Some(DiffResult::SymlinkDiff { .. }) = &state.current_diff {
-        super::symlink_merge::execute_symlink_merge(state, runtime, path, direction);
-        return;
+    // symlink 判定を最初に行う（ハンクマージ・通常マージより先）
+    let action = {
+        let (source_tree, target_tree) = match direction {
+            MergeDirection::LeftToRight => (&state.left_tree, &state.right_tree),
+            MergeDirection::RightToLeft => (&state.right_tree, &state.left_tree),
+        };
+        determine_merge_action(source_tree, target_tree, path)
+    };
+
+    match action {
+        MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
+            let (source_side, target_side) = match direction {
+                MergeDirection::LeftToRight => {
+                    (state.left_source.clone(), state.right_source.clone())
+                }
+                MergeDirection::RightToLeft => {
+                    (state.right_source.clone(), state.left_source.clone())
+                }
+            };
+            let _ = super::symlink_merge::execute_symlink_merge(
+                state,
+                runtime,
+                path,
+                direction,
+                action,
+                &source_side,
+                &target_side,
+            );
+            return;
+        }
+        MergeAction::Normal => {
+            // 既存の通常マージフローへ
+        }
     }
 
-    // バイナリファイルのマージは未対応（バイト列I/Oが必要）
+    // バイナリファイルのマージは未対応
     if let Some(DiffResult::Binary { .. }) = &state.current_diff {
         state.status_message = format!("{}: binary file merge is not yet supported", path);
         return;

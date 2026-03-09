@@ -6,6 +6,7 @@
 use crate::app::AppState;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::TuiRuntime;
+use crate::service::merge::{determine_merge_action, MergeAction};
 use crate::ui::dialog::{BatchConfirmDialog, DialogState, ProgressDialog, ProgressPhase};
 
 use super::merge_file_io::{
@@ -47,17 +48,49 @@ pub fn execute_batch_merge(
         return;
     }
 
+    // symlink アクションを事前計算（borrow checker 対策: ツリーの immutable borrow をループ前に終了）
+    let symlink_actions: Vec<(String, MergeAction)> = {
+        let (source_tree, target_tree) = match direction {
+            MergeDirection::LeftToRight => (&state.left_tree, &state.right_tree),
+            MergeDirection::RightToLeft => (&state.right_tree, &state.left_tree),
+        };
+        files
+            .iter()
+            .map(|(p, _)| {
+                let action = determine_merge_action(source_tree, target_tree, p);
+                (p.clone(), action)
+            })
+            .collect()
+    };
+
+    // source_side / target_side を Clone で取得（borrow 分離）
+    let source_side = match direction {
+        MergeDirection::LeftToRight => state.left_source.clone(),
+        MergeDirection::RightToLeft => state.right_source.clone(),
+    };
+    let target_side = match direction {
+        MergeDirection::LeftToRight => state.right_source.clone(),
+        MergeDirection::RightToLeft => state.left_source.clone(),
+    };
+
     // バックアップ（マージ前に一括実行）
+    // symlink ファイルは execute_symlink_merge 内で個別バックアップするため除外
     if runtime.core.config.backup.enabled {
-        let file_paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
-        match direction {
-            MergeDirection::LeftToRight => {
-                if runtime.is_side_available(&state.right_source) {
-                    backup_right(state, runtime, &file_paths);
+        let backup_paths: Vec<String> = symlink_actions
+            .iter()
+            .filter(|(_, action)| matches!(action, MergeAction::Normal))
+            .map(|(p, _)| p.clone())
+            .collect();
+        if !backup_paths.is_empty() {
+            match direction {
+                MergeDirection::LeftToRight => {
+                    if runtime.is_side_available(&state.right_source) {
+                        backup_right(state, runtime, &backup_paths);
+                    }
                 }
-            }
-            MergeDirection::RightToLeft => {
-                backup_left(state, runtime, &file_paths);
+                MergeDirection::RightToLeft => {
+                    backup_left(state, runtime, &backup_paths);
+                }
             }
         }
     }
@@ -72,6 +105,32 @@ pub fn execute_batch_merge(
         if let DialogState::Progress(ref mut progress) = state.dialog {
             progress.current = i + 1;
             progress.current_path = Some(path.clone());
+        }
+
+        // symlink 判定（事前計算結果をインデックスで参照 — files と同じ順序）
+        let action = symlink_actions[i].1.clone();
+
+        match action {
+            MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
+                let ok = super::symlink_merge::execute_symlink_merge(
+                    state,
+                    runtime,
+                    path,
+                    direction,
+                    action,
+                    &source_side,
+                    &target_side,
+                );
+                if ok {
+                    success_count += 1;
+                } else {
+                    fail_count += 1;
+                }
+                continue;
+            }
+            MergeAction::Normal => {
+                // 通常マージ処理へ
+            }
         }
 
         match direction {
