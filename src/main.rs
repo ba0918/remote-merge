@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -36,6 +36,18 @@ struct Cli {
     /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
     #[arg(long, alias = "reference")]
     r#ref: Option<String>,
+
+    /// Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
+    #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true)]
+    verbose: u8,
+
+    /// Shorthand for --log-level debug
+    #[arg(long, global = true)]
+    debug: bool,
+
+    /// Set log level explicitly (error, warn, info, debug, trace)
+    #[arg(long, global = true)]
+    log_level: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -155,7 +167,8 @@ fn main() {
 
 fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    init_tracing(cli.command.is_none());
+    let log_level = resolve_log_level(cli.log_level.as_deref(), cli.debug, cli.verbose);
+    init_tracing(cli.command.is_none(), log_level.as_deref());
 
     match cli.command {
         Some(Commands::Init) => {
@@ -410,16 +423,39 @@ fn run_event_loop(
     Ok(())
 }
 
+/// CLIフラグからログレベルを解決する。
+///
+/// 優先順序: `--log-level` > `--debug` > `-v` > None（環境変数にフォールバック）
+fn resolve_log_level(log_level: Option<&str>, debug: bool, verbose: u8) -> Option<String> {
+    if let Some(level) = log_level {
+        return Some(level.to_string());
+    }
+    if debug {
+        return Some("debug".to_string());
+    }
+    match verbose {
+        1 => Some("info".to_string()),
+        2 => Some("debug".to_string()),
+        v if v >= 3 => Some("trace".to_string()),
+        _ => None, // 環境変数にフォールバック
+    }
+}
+
 /// tracing を初期化する。
 ///
 /// TUI モードでは debug.log に JSONL 形式で出力（JsonLogLayer）。
 /// CLI モード（サブコマンド実行時）は従来どおり stderr にテキスト出力。
-fn init_tracing(is_tui: bool) {
+/// `cli_level` が Some の場合は環境変数より優先する。
+fn init_tracing(is_tui: bool, cli_level: Option<&str>) {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let env_filter = if let Some(level) = cli_level {
+        tracing_subscriber::EnvFilter::new(level)
+    } else {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"))
+    };
 
     if is_tui {
         let log_dir = dirs::cache_dir()
@@ -439,5 +475,95 @@ fn init_tracing(is_tui: bool) {
             .init();
     } else {
         tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_log_level_none_returns_none() {
+        assert_eq!(resolve_log_level(None, false, 0), None);
+    }
+
+    #[test]
+    fn test_resolve_log_level_v_returns_info() {
+        assert_eq!(resolve_log_level(None, false, 1), Some("info".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_log_level_vv_returns_debug() {
+        assert_eq!(resolve_log_level(None, false, 2), Some("debug".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_log_level_vvv_returns_trace() {
+        assert_eq!(resolve_log_level(None, false, 3), Some("trace".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_log_level_v_more_than_3_returns_trace() {
+        assert_eq!(resolve_log_level(None, false, 5), Some("trace".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_log_level_debug_flag_returns_debug() {
+        assert_eq!(resolve_log_level(None, true, 0), Some("debug".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_log_level_explicit_level_takes_priority() {
+        // --log-level trace は --debug や -v より優先
+        assert_eq!(
+            resolve_log_level(Some("trace"), true, 3),
+            Some("trace".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_log_level_explicit_overrides_verbose() {
+        assert_eq!(
+            resolve_log_level(Some("error"), false, 3),
+            Some("error".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_log_level_debug_overrides_verbose() {
+        // --debug は -v（info）より優先
+        assert_eq!(resolve_log_level(None, true, 1), Some("debug".to_string()));
+    }
+
+    #[test]
+    fn test_cli_parse_verbose_count() {
+        // clap の ArgAction::Count が正しく動くか確認
+        let cli = Cli::try_parse_from(["remote-merge", "-vvv"]).unwrap();
+        assert_eq!(cli.verbose, 3);
+    }
+
+    #[test]
+    fn test_cli_parse_debug_flag() {
+        let cli = Cli::try_parse_from(["remote-merge", "--debug"]).unwrap();
+        assert!(cli.debug);
+    }
+
+    #[test]
+    fn test_cli_parse_log_level() {
+        let cli = Cli::try_parse_from(["remote-merge", "--log-level", "trace"]).unwrap();
+        assert_eq!(cli.log_level, Some("trace".to_string()));
+    }
+
+    #[test]
+    fn test_cli_parse_verbose_with_subcommand() {
+        let cli = Cli::try_parse_from(["remote-merge", "-vv", "status"]).unwrap();
+        assert_eq!(cli.verbose, 2);
+        assert!(cli.command.is_some());
+    }
+
+    #[test]
+    fn test_cli_parse_debug_with_subcommand() {
+        let cli = Cli::try_parse_from(["remote-merge", "--debug", "status"]).unwrap();
+        assert!(cli.debug);
     }
 }
