@@ -1290,7 +1290,7 @@ remote-merge/
 
 ### Phase 5: 運用・同期機能
 
-- [ ] `--debug` / `-v` / `--log-level` グローバルオプション
+- [x] `--debug` / `-v` / `--log-level` グローバルオプション
 - [ ] ディレクトリマージ時の削除セマンティクス明文化（デフォルト: 削除しない）
 - [ ] `rollback` CLIサブコマンド（バックアップからの即時復元）
 - [ ] `sync` CLIサブコマンド（1:N マルチサーバ同期）
@@ -1301,15 +1301,15 @@ remote-merge/
 - [x] GitHub Actions Release（v* タグ時: Linux/macOS/Windows クロスビルド）
 - [x] pre-commit / pre-push フック（fmt + clippy）
 - [x] cargo-llvm-cov テストカバレッジ基盤（行カバレッジ 76%+）
-- [x] 849 ユニットテスト（114 ファイル、31,500+ 行）
+- [x] 1,096 ユニットテスト
 
 ### 進捗サマリー
 
 | Phase | 状態 | 残タスク |
 |-------|------|---------|
 | Phase 1: MVP | 完了 | — |
-| Phase 2: 高度なマージ・比較 | **ほぼ完了** | 3way サマリーパネル、コンフリクト検知 |
+| Phase 2: 高度なマージ・比較 | **ほぼ完了** | コンフリクト検知 |
 | Phase 3: UX・堅牢性 | 完了 | — |
 | Phase 4: CLI + Skill | 完了 | — |
-| Phase 5: 運用・同期 | 未着手 | --debug, rollback, sync, --delete |
+| Phase 5: 運用・同期 | **一部完了** | rollback, sync, --delete, 削除セマンティクス |
 | CI/CD・品質管理 | 完了 | — |

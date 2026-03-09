@@ -1,35 +1,35 @@
 # Project Status
 
-**Last Updated:** 2026-03-09 23:57:18
+**Last Updated:** 2026-03-10 12:00:00
 
 ---
 
 ## 🎯 Current Session
 
-| Field | Value |
-|-------|-------|
-| **Cycle ID** | `20260309235718` |
-| **Feature** | グローバルログレベルオプション（--debug / -v / --log-level） |
-| **Started** | 2026-03-09 23:57:18 |
-| **Phase** | 🟡 Planning |
-| **Plan** | [docs/cycles/20260309235718_global-log-level-options.md](./cycles/20260309235718_global-log-level-options.md) |
-
-**Current Focus:**
-`-v` / `--debug` / `--log-level` グローバルオプションを追加し、環境変数なしでログレベルを制御可能にする。
+_（現在アクティブなセッションなし）_
 
 ---
 
+### 20260309235718 - グローバルログレベルオプション（--debug / -v / --log-level）
+- **Started:** 2026-03-09 23:57:18
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260309235718_global-log-level-options.md)
+- **Summary:** -v / --debug / --log-level グローバルオプションを追加。環境変数なしでログレベルを制御可能に。コミット 979640f。
+
 ### 20260309222834 - CLI 出力一貫性修正: JSON/バイナリ/symlink/sensitive
 - **Started:** 2026-03-09 22:28:34
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-09
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260309222834_cli-output-consistency-fixes.md)
-- **Summary:** CLI出力の4つの一貫性問題を修正。
+- **Summary:** CLI出力の4つの一貫性問題を修正。コミット 92cb52b。
 
 ### 20260309211045 - symlink merge ロジックのサービス層集約 + TUI 側バグ修正
 - **Started:** 2026-03-09 21:10:45
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-09
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260309211045_symlink-merge-logic-to-service-layer.md)
-- **Summary:** symlink merge のビジネスロジックをCLI層からサービス層に移動。TUI側のsymlink mergeバグ修正。
+- **Summary:** symlink merge のビジネスロジックをCLI層からサービス層に移動。TUI側のsymlink mergeバグ修正。コミット dbf218b。
 
 ### 20260309193908 - CLI バイナリ status 誤判定 + symlink merge 破壊 + diff バイナリ文字化け修正
 - **Started:** 2026-03-09 19:39:08
@@ -65,9 +65,10 @@
 
 ### 20260308224111 - CLI レビュー指摘修正
 - **Started:** 2026-03-08 22:41:11
-- **Status:** 🟡 In Progress
+- **Completed:** 2026-03-09
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260308224111_cli-review-fixes.md)
-- **Summary:** レビュー指摘 Medium 3件 + Low 2件の修正。
+- **Summary:** レビュー指摘 Medium 3件 + Low 2件の修正。T-1(binary exit code), T-3(binary出力), R-1(symlink分離), D-1(tolerant_io共通化), C-1(is_binary 8KBコメント)。
 
 ### 20260308214910 - CLI バグ修正: 末尾スラッシュ + diff/merge ステータス精緻化
 - **Started:** 2026-03-08 21:49:10
@@ -85,9 +86,10 @@
 
 ### 20260308184823 - CLI UX 一貫性改善（3項目）
 - **Started:** 2026-03-08 18:48:23
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-09
+- **Status:** 🟢 Completed
 - **Plan:** [docs/cycles/20260308184823_cli-ux-consistency.md](./cycles/20260308184823_cli-ux-consistency.md)
-- **Summary:** left==right 自己比較の拒絶、--left のみ指定時のフォールバック統一、merge --format json 追加。
+- **Summary:** left==right 自己比較の拒絶(source_pair.rs check_same_side)、--left のみ指定時のフォールバック統一、merge --format json 追加。
 
 ### 20260308175828 - CLI 安全性強化（7項目一括対応）
 - **Started:** 2026-03-08 17:58:28
@@ -105,9 +107,10 @@
 
 ### 20260308160024 - 3way サマリーパネル（W キー）
 - **Started:** 2026-03-08 16:00:24
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-08
+- **Status:** 🟢 Completed
 - **Plan:** [docs/cycles/20260308160024_three-way-summary-panel.md](./cycles/20260308160024_three-way-summary-panel.md)
-- **Summary:** 3way比較時の不一致箇所一覧パネル。Wキーでトグル表示、Enterで該当行にジャンプ。
+- **Summary:** 3way比較時の不一致箇所一覧パネル。Wキーでトグル表示、Enterで該当行にジャンプ。three_way_summary.rs + handler実装。
 
 ### 20260308145639 - サーバ切替時のツリー状態維持（展開・カーソル）
 - **Started:** 2026-03-08 14:56:39
@@ -118,9 +121,10 @@
 
 ### 20260308122550 - Side::Remote("local") 不正状態の根絶
 - **Started:** 2026-03-08 12:25:50
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-08
+- **Status:** 🟢 Completed
 - **Plan:** [docs/cycles/20260308122550_fix-side-remote-local-bug.md](./cycles/20260308122550_fix-side-remote-local-bug.md)
-- **Summary:** Side::Remote("local") が構築できてしまう設計上の欠陥を修正。
+- **Summary:** Side::new() スマートコンストラクタ導入、全13箇所の直接構築を置換。コミット ffb58ef。
 
 ### 20260308022245 - Side-Agnostic I/O: local/remote 決め打ちの根絶
 - **Started:** 2026-03-08 02:22:45
@@ -166,9 +170,10 @@
 
 ### 20260307151653 - Phase 4: CLI + Skill（LLMエージェント連携）
 - **Started:** 2026-03-07 15:16:53
-- **Status:** 🟡 Partial (logs/events CLI 未実装)
+- **Completed:** 2026-03-07
+- **Status:** 🟢 Completed
 - **Plan:** [docs/cycles/20260307151653_phase4-cli-subcommands.md](./cycles/20260307151653_phase4-cli-subcommands.md)
-- **Summary:** CoreRuntime分離、Service層(status/diff/merge)、CLI(status/diff/merge)、TUI監視基盤(state.json/screen.txt/events.jsonl)、telemetry、Skill。logs/events CLIは未実装（ファイルダンプ方式で代替可能）。
+- **Summary:** CoreRuntime分離、Service層(status/diff/merge)、CLI(status/diff/merge)、TUI監視基盤(state.json/screen.txt/events.jsonl)、telemetry、Skill。logs/events CLIは後続サイクル(20260307211246)で実装完了。
 
 ### 20260307143110 - 責務分離リファクタリング
 - **Started:** 2026-03-07 14:31:10
@@ -290,7 +295,8 @@
 
 ### 20260305120550 - UX 改善 Round 2
 - **Started:** 2026-03-05 12:05:50
-- **Status:** 🟡 Planning (引き継ぎ)
+- **Completed:** 2026-03-05
+- **Status:** 🟢 Completed
 - **Plan:** [docs/cycles/20260305120550_ux-polish-round2.md](./cycles/20260305120550_ux-polish-round2.md)
 - **Summary:** Equal時コンテンツ表示、フッターキーヒント、カーソルライン、Unified ハンクハイライトの4件。実装済み。
 
@@ -378,12 +384,12 @@
 | **4-6** | ログ + イベントストリーム | 🟢 Done |
 | **4-7** | Skill ファイル | 🟢 Done |
 
-### Phase 2 残タスク 🟡 In Progress
+### Phase 2 残タスク 🟡 ほぼ完了
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **3way-1** | 3way diff バッジ表示 + ペア切り替え | 🟢 Done |
 | **3way-1.5** | Right↔Ref Swap + Equal時ref diff + バッジ色分け | 🟢 Done |
-| **3way-2** | 3way サマリーパネル (W キー) | ⚪ Pending |
+| **3way-2** | 3way サマリーパネル (W キー) | 🟢 Done |
 | **conflict** | コンフリクト検知・表示 | ⚪ Pending |
 
 ### Phase 4 追加: CLI ref サーバ対応 🟢 Complete
@@ -403,12 +409,12 @@
 | **safe-5** | --ref help 説明改善 | 🟢 Done |
 | **safe-6** | Skill ファイル更新（merge 例の同期） | 🟢 Done |
 
-### CLI UX 一貫性改善 🟡 In Progress
+### CLI UX 一貫性改善 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
-| **ux-1** | left==right 自己比較の拒絶 | ⚪ Pending |
-| **ux-2** | --left のみ指定時のフォールバック統一 | ⚪ Pending |
-| **ux-3** | merge --format json 追加 | ⚪ Pending |
+| **ux-1** | left==right 自己比較の拒絶 | 🟢 Done |
+| **ux-2** | --left のみ指定時のフォールバック統一 | 🟢 Done |
+| **ux-3** | merge --format json 追加 | 🟢 Done |
 
 ### CLI ディレクトリ対応 + status Equal 除外 + --server 削除 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
@@ -421,12 +427,21 @@
 | **dir-6** | merge ディレクトリ・複数パス対応 | 🟢 Done |
 | **dir-7** | Skill ファイル更新 | 🟢 Done |
 
-### CLI バグ修正: 末尾スラッシュ + ステータス精緻化 🟡 In Progress
+### CLI バグ修正: 末尾スラッシュ + ステータス精緻化 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
-| **fix-1** | path_resolver 末尾スラッシュ正規化 | ⚪ Pending |
-| **fix-2** | diff.rs ステータス精緻化 | ⚪ Pending |
-| **fix-3** | merge.rs ステータス精緻化 | ⚪ Pending |
+| **fix-1** | path_resolver 末尾スラッシュ正規化 | 🟢 Done |
+| **fix-2** | diff.rs ステータス精緻化 | 🟢 Done |
+| **fix-3** | merge.rs ステータス精緻化 | 🟢 Done |
+
+### Phase 5: 運用・同期機能 🟡 In Progress
+| サブフェーズ | 内容 | 状態 |
+|------------|------|------|
+| **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
+| **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | ⚪ Pending |
+| **5-3** | rollback CLIサブコマンド | ⚪ Pending |
+| **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
+| **5-5** | --delete オプション（完全同期） | ⚪ Pending |
 
 ---
 
