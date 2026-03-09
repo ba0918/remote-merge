@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-09 22:28:34
+**Last Updated:** 2026-03-09 23:57:18
 
 ---
 
@@ -8,16 +8,22 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260309222834` |
-| **Feature** | CLI 出力一貫性修正: JSON/バイナリ/symlink/sensitive |
-| **Started** | 2026-03-09 22:28:34 |
+| **Cycle ID** | `20260309235718` |
+| **Feature** | グローバルログレベルオプション（--debug / -v / --log-level） |
+| **Started** | 2026-03-09 23:57:18 |
 | **Phase** | 🟡 Planning |
-| **Plan** | [docs/cycles/20260309222834_cli-output-consistency-fixes.md](./cycles/20260309222834_cli-output-consistency-fixes.md) |
+| **Plan** | [docs/cycles/20260309235718_global-log-level-options.md](./cycles/20260309235718_global-log-level-options.md) |
 
 **Current Focus:**
-CLI出力の4つの一貫性問題を修正。(1) `--format json`時のプレインテキスト混入、(2) バイナリdiffの生データ表示確認、(3) symlinkのdiffがターゲットパスでなく中身比較、(4) sensitiveファイルdiff内容の丸見え。全てサービス層以下で修正し、TUI/CLI差異をなくす。
+`-v` / `--debug` / `--log-level` グローバルオプションを追加し、環境変数なしでログレベルを制御可能にする。
 
 ---
+
+### 20260309222834 - CLI 出力一貫性修正: JSON/バイナリ/symlink/sensitive
+- **Started:** 2026-03-09 22:28:34
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260309222834_cli-output-consistency-fixes.md)
+- **Summary:** CLI出力の4つの一貫性問題を修正。
 
 ### 20260309211045 - symlink merge ロジックのサービス層集約 + TUI 側バグ修正
 - **Started:** 2026-03-09 21:10:45
