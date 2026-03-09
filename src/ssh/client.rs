@@ -615,8 +615,11 @@ impl SshClient {
                 command: command.clone(),
             })?;
 
+        // openssl base64 -d は入力末尾に改行が必要（改行がないとデコードしない）
+        let mut encoded_with_newline = encoded.into_bytes();
+        encoded_with_newline.push(b'\n');
         channel
-            .data(encoded.as_bytes())
+            .data(encoded_with_newline.as_slice())
             .await
             .map_err(|e| AppError::SshConnection {
                 host: self.server_name.clone(),
