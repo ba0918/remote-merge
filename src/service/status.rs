@@ -836,6 +836,35 @@ mod tests {
         assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
     }
 
+    // ── symlink ステータス ──
+
+    #[test]
+    fn test_status_symlink_same_target_is_equal() {
+        let left = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
+        let right = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_symlink_different_target_is_modified() {
+        let left = make_tree(vec![FileNode::new_symlink("link", "/opt/old")]);
+        let right = make_tree(vec![FileNode::new_symlink("link", "/opt/new")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_symlink_vs_file_is_modified() {
+        let left = make_tree(vec![FileNode::new_symlink("item", "/opt/target")]);
+        let right = make_tree(vec![FileNode::new_file("item")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
     #[test]
     fn test_build_status_output_no_ref_backward_compat() {
         let files = vec![FileStatus {

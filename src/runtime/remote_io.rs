@@ -102,6 +102,79 @@ impl CoreRuntime {
         }
     }
 
+    /// リモートファイルをバイト列として読み込む（バイナリファイル対応）
+    ///
+    /// 接続エラー時に1回自動再接続を試みる。
+    /// side_io.rs の統一 API 経由でのみ使用する。
+    pub(crate) fn read_remote_file_bytes(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        force: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+
+        match self.read_file_bytes_inner(server_name, &full_path) {
+            Ok(bytes) => {
+                validate_file_size(&bytes, rel_path, force)?;
+                Ok(bytes)
+            }
+            Err(e) if crate::error::is_connection_error(&e) => {
+                tracing::info!(
+                    "Read bytes failed (connection error), auto-reconnecting: {}",
+                    rel_path
+                );
+                self.try_reconnect(server_name)?;
+                let bytes = self.read_file_bytes_inner(server_name, &full_path)?;
+                validate_file_size(&bytes, rel_path, force)?;
+                Ok(bytes)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// リモートファイルにバイト列を書き込む（バイナリファイル対応）
+    ///
+    /// 自動再接続なし（safety のため）。
+    /// side_io.rs の統一 API 経由でのみ使用する。
+    pub(crate) fn write_remote_file_bytes(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+
+        match self
+            .rt
+            .block_on(client.write_file_bytes(&full_path, content))
+        {
+            Ok(()) => {
+                tracing::info!(
+                    "Remote file written (bytes): server={}, path={}, size={}",
+                    server_name,
+                    rel_path,
+                    content.len()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Remote file write (bytes) failed: server={}, path={}, error={}",
+                    server_name,
+                    rel_path,
+                    e
+                );
+                Err(e)
+            }
+        }
+    }
+
     /// リモートファイルのパーミッションを変更する。
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `chmod_file(side, path, mode)` を使うこと。
@@ -306,6 +379,18 @@ impl CoreRuntime {
             .collect()
     }
 
+    fn read_file_bytes_inner(
+        &mut self,
+        server_name: &str,
+        full_path: &str,
+    ) -> anyhow::Result<Vec<u8>> {
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        self.rt.block_on(client.read_file_bytes(full_path))
+    }
+
     fn read_file_inner(&mut self, server_name: &str, full_path: &str) -> anyhow::Result<String> {
         let client = self
             .ssh_clients
@@ -339,6 +424,22 @@ impl CoreRuntime {
         }
         result
     }
+}
+
+/// バイナリファイルのサイズ制限チェック（100MB）
+///
+/// `force` が true の場合はスキップする。
+fn validate_file_size(bytes: &[u8], rel_path: &str, force: bool) -> anyhow::Result<()> {
+    use crate::merge::executor::MAX_BINARY_FILE_SIZE;
+    if !force && bytes.len() > MAX_BINARY_FILE_SIZE {
+        anyhow::bail!(
+            "File too large ({} bytes > {} bytes limit): {}. Use --force to override.",
+            bytes.len(),
+            MAX_BINARY_FILE_SIZE,
+            rel_path
+        );
+    }
+    Ok(())
 }
 
 // NOTE: 旧 remote-only TuiRuntime デリゲート（read_remote_file, write_remote_file 等）は

@@ -575,6 +575,83 @@ impl SshClient {
         Ok(())
     }
 
+    /// リモートファイルをバイト列として読み込む（バイナリファイル対応）
+    ///
+    /// `openssl base64` でエンコードされたデータを取得し、デコードして返す。
+    /// UTF-8 変換を行わないため、バイナリファイルでもデータが破壊されない。
+    pub async fn read_file_bytes(&mut self, remote_path: &str) -> crate::error::Result<Vec<u8>> {
+        let escaped = shell_escape(remote_path);
+        let cmd = format!("openssl base64 -in {}", escaped);
+        let base64_output = self.exec_strict(&cmd).await?;
+        decode_base64_output(&base64_output)
+    }
+
+    /// リモートファイルにバイト列を書き込む（バイナリファイル対応）
+    ///
+    /// コンテンツを base64 エンコードし、`openssl base64 -d` でデコードして書き込む。
+    /// 親ディレクトリが存在しない場合は自動的に作成する。
+    pub async fn write_file_bytes(
+        &mut self,
+        remote_path: &str,
+        content: &[u8],
+    ) -> crate::error::Result<()> {
+        // 親ディレクトリを作成（存在しなければ）
+        if let Some(cmd) = build_mkdir_command(remote_path) {
+            let _ = self.exec(&cmd).await;
+        }
+
+        let escaped = shell_escape(remote_path);
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(content);
+
+        // base64 文字列を stdin 経由で渡して openssl base64 -d で書き込む
+        let command = format!("openssl base64 -d -out {}", escaped);
+        let mut channel = self.open_channel_with_retry().await?;
+
+        channel
+            .exec(true, command.as_str())
+            .await
+            .map_err(|_e| AppError::SshExec {
+                command: command.clone(),
+            })?;
+
+        channel
+            .data(encoded.as_bytes())
+            .await
+            .map_err(|e| AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!("Failed to send data: {}", e),
+            })?;
+
+        channel.eof().await.map_err(|e| AppError::SshConnection {
+            host: self.server_name.clone(),
+            message: format!("Failed to send EOF: {}", e),
+        })?;
+
+        let mut exit_code = None;
+        loop {
+            let Some(msg) = channel.wait().await else {
+                break;
+            };
+            if let ChannelMsg::ExitStatus { exit_status } = msg {
+                exit_code = Some(exit_status);
+            }
+        }
+
+        let _ = channel.close().await;
+
+        if let Some(code) = exit_code {
+            if code != 0 {
+                anyhow::bail!(AppError::SshExec {
+                    command: format!("openssl base64 -d > {}: exit={}", remote_path, code),
+                });
+            }
+        }
+
+        tracing::info!("Remote file write (bytes) completed: {}", remote_path);
+        Ok(())
+    }
+
     /// サーバ名を取得する
     pub fn server_name(&self) -> &str {
         &self.server_name
@@ -598,6 +675,21 @@ impl SshClient {
             .context("Failed to disconnect SSH")?;
         Ok(())
     }
+}
+
+/// openssl base64 の出力（改行含む）をデコードする
+///
+/// openssl base64 は76文字ごとに改行を挿入する。
+/// `base64::STANDARD` は改行文字を受け付けないため、改行・空白を除去してからデコードする。
+fn decode_base64_output(base64_output: &str) -> crate::error::Result<Vec<u8>> {
+    use base64::Engine;
+    let cleaned: String = base64_output
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(&cleaned)
+        .map_err(|e| anyhow::anyhow!("Failed to decode base64 output from remote: {}", e))
 }
 
 /// チルダ展開
@@ -683,6 +775,67 @@ mod tests {
         // チルダがないパスはそのまま返される
         assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
         assert_eq!(expand_tilde("relative/path"), "relative/path");
+    }
+
+    // ── base64 decode tests ──
+
+    #[test]
+    fn test_decode_base64_output_normal() {
+        // "Hello, world!" を base64 エンコードした文字列
+        let encoded = "SGVsbG8sIHdvcmxkIQ==\n";
+        let result = decode_base64_output(encoded).unwrap();
+        assert_eq!(result, b"Hello, world!");
+    }
+
+    #[test]
+    fn test_decode_base64_output_with_line_breaks() {
+        // openssl base64 は76文字ごとに改行を挿入する。
+        // 80バイトのデータ → base64 で108文字 → 76文字+改行+残り
+        use base64::Engine;
+        let data: Vec<u8> = (0..80).collect();
+        let mut encoded = String::new();
+        let full = base64::engine::general_purpose::STANDARD.encode(&data);
+        // 76文字改行をシミュレート
+        for (i, ch) in full.chars().enumerate() {
+            encoded.push(ch);
+            if (i + 1) % 76 == 0 {
+                encoded.push('\n');
+            }
+        }
+        encoded.push('\n');
+
+        let result = decode_base64_output(&encoded).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_decode_base64_output_invalid() {
+        let invalid = "!!!not-base64!!!\n";
+        let result = decode_base64_output(invalid);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("Failed to decode base64"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_decode_base64_output_empty() {
+        // 空文字列（空ファイル）のデコード
+        let result = decode_base64_output("").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_decode_base64_output_binary_data() {
+        // NULバイトを含むバイナリデータのラウンドトリップ
+        use base64::Engine;
+        let binary_data: Vec<u8> = vec![0x00, 0xFF, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_data);
+        let result = decode_base64_output(&encoded).unwrap();
+        assert_eq!(result, binary_data);
     }
 
     #[test]

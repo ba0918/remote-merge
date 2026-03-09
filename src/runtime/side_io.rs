@@ -52,6 +52,23 @@ impl CoreRuntime {
         }
     }
 
+    // ── バイト列読み込み ──
+
+    /// Side に基づいてバイト列を読み込む（バイナリファイル対応）
+    pub fn read_file_bytes(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        force: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        match side {
+            Side::Local => {
+                executor::read_local_file_bytes(&self.config.local.root_dir, rel_path, force)
+            }
+            Side::Remote(name) => self.read_remote_file_bytes(name, rel_path, force),
+        }
+    }
+
     // ── 書き込み ──
 
     /// Side に基づいてファイルを書き込む
@@ -62,6 +79,21 @@ impl CoreRuntime {
                 executor::write_local_file(&self.config.local.root_dir, rel_path, content)
             }
             Side::Remote(name) => self.write_remote_file(name, rel_path, content),
+        }
+    }
+
+    /// Side に基づいてバイト列を書き込む（バイナリファイル対応）
+    pub fn write_file_bytes(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        match side {
+            Side::Local => {
+                executor::write_local_file_bytes(&self.config.local.root_dir, rel_path, content)
+            }
+            Side::Remote(name) => self.write_remote_file_bytes(name, rel_path, content),
         }
     }
 
@@ -289,8 +321,26 @@ impl TuiRuntime {
         self.core.read_files_batch(side, rel_paths)
     }
 
+    pub fn read_file_bytes(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        force: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        self.core.read_file_bytes(side, rel_path, force)
+    }
+
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
         self.core.write_file(side, rel_path, content)
+    }
+
+    pub fn write_file_bytes(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        content: &[u8],
+    ) -> anyhow::Result<()> {
+        self.core.write_file_bytes(side, rel_path, content)
     }
 
     pub fn stat_files(
@@ -535,6 +585,47 @@ mod tests {
         assert!(link_path.symlink_metadata().unwrap().is_symlink());
         let target = std::fs::read_link(&link_path).unwrap();
         assert_eq!(target.to_string_lossy(), "target.txt");
+    }
+
+    #[test]
+    fn test_read_file_bytes_local() {
+        let tmp = TempDir::new().unwrap();
+        let binary = vec![0x00, 0x01, 0xFF, 0xFE];
+        std::fs::write(tmp.path().join("data.bin"), &binary).unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.read_file_bytes(&Side::Local, "data.bin", false).unwrap();
+        assert_eq!(result, binary);
+    }
+
+    #[test]
+    fn test_write_file_bytes_local() {
+        let tmp = TempDir::new().unwrap();
+        let binary = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00];
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.write_file_bytes(&Side::Local, "out.bin", &binary)
+            .unwrap();
+
+        let written = std::fs::read(tmp.path().join("out.bin")).unwrap();
+        assert_eq!(written, binary);
+    }
+
+    #[test]
+    fn test_bytes_roundtrip_via_side_io() {
+        use sha2::{Digest, Sha256};
+
+        let tmp = TempDir::new().unwrap();
+        let data: Vec<u8> = (0..=255).collect();
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.write_file_bytes(&Side::Local, "roundtrip.bin", &data)
+            .unwrap();
+        let read_back = rt
+            .read_file_bytes(&Side::Local, "roundtrip.bin", false)
+            .unwrap();
+
+        assert_eq!(Sha256::digest(&data), Sha256::digest(&read_back));
     }
 
     #[test]

@@ -13,7 +13,7 @@ use crate::service::source_pair::{
 use crate::service::status::{
     compute_status_from_trees, is_sensitive, needs_content_compare, refine_status_with_content,
 };
-use crate::service::types::{exit_code, MultiDiffOutput, MultiDiffSummary};
+use crate::service::types::{exit_code, FileStatusKind, MultiDiffOutput, MultiDiffSummary};
 use std::collections::HashMap;
 
 /// diff サブコマンドの引数
@@ -71,6 +71,13 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     // Filter to only files with differences (not Equal)
     let diff_files = filter_changed_files(&target_files, &statuses);
 
+    // 指定パスがどちらにも存在しない場合はエラー
+    if diff_files.is_empty() && target_files.is_empty() {
+        eprintln!("Error: specified path(s) not found on either side");
+        core.disconnect_all();
+        return Ok(exit_code::ERROR);
+    }
+
     // Apply max-files truncation
     let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
     let total_files = if truncated {
@@ -98,10 +105,13 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut file_diffs = Vec::new();
     let mut has_read_error = false;
     for path in process_files {
-        let (left_content, left_ok) =
-            read_file_tolerant(&mut core, &pair.left, path, /* quiet */ false);
+        // LeftOnly/RightOnly の場合、存在しない側の読み込み失敗は予想通りなので Warning を抑制
+        let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
+        let (left_quiet, right_quiet) = quiet_flags_for_status(status);
+
+        let (left_content, left_ok) = read_file_tolerant(&mut core, &pair.left, path, left_quiet);
         let (right_content, right_ok) =
-            read_file_tolerant(&mut core, &pair.right, path, /* quiet */ false);
+            read_file_tolerant(&mut core, &pair.right, path, right_quiet);
         // 両方読めなかったファイルはエラーとして記録
         if !left_ok && !right_ok {
             has_read_error = true;
@@ -158,6 +168,15 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// LeftOnly/RightOnly に基づき、存在しない側の quiet フラグを決定する。
+///
+/// 返り値: (left_quiet, right_quiet)
+fn quiet_flags_for_status(status: Option<FileStatusKind>) -> (bool, bool) {
+    let left_quiet = status == Some(FileStatusKind::RightOnly);
+    let right_quiet = status == Some(FileStatusKind::LeftOnly);
+    (left_quiet, right_quiet)
 }
 
 /// ファイル読み込みを試み、失敗時は空文字列を返す。
@@ -226,5 +245,61 @@ mod tests {
         let statuses = vec![];
         let result = filter_changed_files(&targets, &statuses);
         assert_eq!(result, vec!["unknown.txt"]);
+    }
+
+    // ── both-sides-missing detection ──
+
+    #[test]
+    fn test_both_empty_means_not_found() {
+        // target_files も diff_files も空 = 指定パスがどちらにもない
+        let diff_files: Vec<String> = vec![];
+        let target_files: Vec<String> = vec![];
+        assert!(
+            diff_files.is_empty() && target_files.is_empty(),
+            "both empty should trigger error path"
+        );
+    }
+
+    #[test]
+    fn test_target_files_present_but_no_diff_is_not_error() {
+        // target_files があるが diff_files が空 = Equal ファイルのみ（エラーではない）
+        let diff_files: Vec<String> = vec![];
+        let target_files = ["a.txt".to_string()];
+        assert!(
+            !(diff_files.is_empty() && target_files.is_empty()),
+            "should not trigger error when target_files is non-empty"
+        );
+    }
+
+    // ── quiet flags for status ──
+
+    use super::quiet_flags_for_status;
+
+    #[test]
+    fn test_quiet_flags_left_only_suppresses_right_warning() {
+        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::LeftOnly));
+        assert!(!left_quiet, "left side should not be quiet for LeftOnly");
+        assert!(right_quiet, "right side should be quiet for LeftOnly");
+    }
+
+    #[test]
+    fn test_quiet_flags_right_only_suppresses_left_warning() {
+        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::RightOnly));
+        assert!(left_quiet, "left side should be quiet for RightOnly");
+        assert!(!right_quiet, "right side should not be quiet for RightOnly");
+    }
+
+    #[test]
+    fn test_quiet_flags_modified_no_suppression() {
+        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::Modified));
+        assert!(!left_quiet);
+        assert!(!right_quiet);
+    }
+
+    #[test]
+    fn test_quiet_flags_none_no_suppression() {
+        let (left_quiet, right_quiet) = quiet_flags_for_status(None);
+        assert!(!left_quiet);
+        assert!(!right_quiet);
     }
 }

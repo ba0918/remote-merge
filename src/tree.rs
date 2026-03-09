@@ -26,15 +26,26 @@ pub enum MetadataCmp {
 /// 2つのファイルノードのメタデータを比較する（純粋関数）。
 ///
 /// 判定ルール:
-/// - シンボリックリンク → `Undetermined`（ターゲット文字列比較が必要）
+/// - 両方シンボリックリンク → ターゲットパスを直接比較
+/// - 片方だけシンボリックリンク → `Modified`（種別が異なる）
 /// - size が異なる → `Modified`（確定）
 /// - size 同じ + mtime 同じ → `Equal`
 /// - size 同じ + mtime 異なる/不明 → `Undetermined`（コンテンツ比較が必要）
 /// - size 不明 → `Undetermined`
 pub fn compare_metadata(left: &FileNode, right: &FileNode) -> MetadataCmp {
-    // シンボリックリンクはメタデータ比較できない
+    // 両方 symlink → ターゲットパスで比較
+    if let (NodeKind::Symlink { target: lt }, NodeKind::Symlink { target: rt }) =
+        (&left.kind, &right.kind)
+    {
+        return if lt == rt {
+            MetadataCmp::Equal
+        } else {
+            MetadataCmp::Modified
+        };
+    }
+    // 片方だけ symlink → 種別が異なるので Modified
     if left.is_symlink() || right.is_symlink() {
-        return MetadataCmp::Undetermined;
+        return MetadataCmp::Modified;
     }
 
     match (left.size, right.size) {
@@ -548,9 +559,34 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_metadata_symlink() {
+    fn test_compare_metadata_symlink_same_target() {
+        // 同一ターゲットの symlink → Equal
+        let l = FileNode::new_symlink("link", "/usr/share/target");
+        let r = FileNode::new_symlink("link", "/usr/share/target");
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Equal);
+    }
+
+    #[test]
+    fn test_compare_metadata_symlink_different_target() {
+        // 異なるターゲットの symlink → Modified
+        let l = FileNode::new_symlink("link", "/usr/share/old");
+        let r = FileNode::new_symlink("link", "/usr/share/new");
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Modified);
+    }
+
+    #[test]
+    fn test_compare_metadata_symlink_vs_file() {
+        // 片方だけ symlink → Modified
         let l = FileNode::new_symlink("link", "target");
+        let r = FileNode::new_file("link");
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Modified);
+    }
+
+    #[test]
+    fn test_compare_metadata_file_vs_symlink() {
+        // 片方だけ symlink（逆方向）→ Modified
+        let l = FileNode::new_file("link");
         let r = FileNode::new_symlink("link", "target");
-        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Undetermined);
+        assert_eq!(compare_metadata(&l, &r), MetadataCmp::Modified);
     }
 }

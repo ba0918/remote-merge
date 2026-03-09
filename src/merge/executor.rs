@@ -43,6 +43,60 @@ pub struct MergeOptions {
     pub with_permissions: bool,
 }
 
+/// バイナリファイルの最大サイズ（100MB）
+pub const MAX_BINARY_FILE_SIZE: usize = 104_857_600;
+
+/// ローカルファイルのバイト列を読み込む（バイナリファイル対応）
+///
+/// UTF-8 変換を行わず、生のバイト列をそのまま返す。
+/// 100MB 超のファイルは `force` が false の場合エラーを返す。
+pub fn read_local_file_bytes(
+    root_dir: &Path,
+    rel_path: &str,
+    force: bool,
+) -> crate::error::Result<Vec<u8>> {
+    let full_path = root_dir.join(rel_path);
+    let normalized = validate_path_within_root(root_dir, &full_path)?;
+
+    let bytes = std::fs::read(&normalized).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => crate::error::AppError::PathNotFound {
+            path: normalized.clone(),
+        },
+        _ => crate::error::AppError::Io(e),
+    })?;
+
+    if !force && bytes.len() > MAX_BINARY_FILE_SIZE {
+        anyhow::bail!(
+            "File too large ({} bytes > {} bytes limit): {}. Use --force to override.",
+            bytes.len(),
+            MAX_BINARY_FILE_SIZE,
+            normalized.display()
+        );
+    }
+
+    Ok(bytes)
+}
+
+/// ローカルファイルにバイト列を書き込む（バイナリファイル対応）
+///
+/// root_dir 配下であることを検証してから書き込む。
+pub fn write_local_file_bytes(
+    root_dir: &Path,
+    rel_path: &str,
+    content: &[u8],
+) -> crate::error::Result<()> {
+    let full_path = root_dir.join(rel_path);
+    let normalized = validate_path_within_root(root_dir, &full_path)?;
+
+    if let Some(parent) = normalized.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(&normalized, content)?;
+    tracing::info!("Local file written (bytes): {}", normalized.display());
+    Ok(())
+}
+
 /// ローカルファイルに書き込む（RemoteToLocal で使用）
 ///
 /// root_dir 配下であることを検証してから書き込む
@@ -268,5 +322,125 @@ mod tests {
     fn test_merge_direction_arrow() {
         assert_eq!(MergeDirection::LeftToRight.arrow(), "→");
         assert_eq!(MergeDirection::RightToLeft.arrow(), "←");
+    }
+
+    // ── バイト列版テスト ──
+
+    #[test]
+    fn test_read_local_file_bytes_binary() {
+        let dir = TempDir::new().unwrap();
+        // NUL バイトを含むバイナリデータ
+        let binary_data: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0xFD];
+        std::fs::write(dir.path().join("binary.dat"), &binary_data).unwrap();
+
+        let result = read_local_file_bytes(dir.path(), "binary.dat", false).unwrap();
+        assert_eq!(result, binary_data, "Binary data should be returned as-is");
+    }
+
+    #[test]
+    fn test_write_local_file_bytes_binary() {
+        let dir = TempDir::new().unwrap();
+        let binary_data: Vec<u8> = vec![0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD, 0x00, 0xAB];
+
+        write_local_file_bytes(dir.path(), "output.bin", &binary_data).unwrap();
+
+        let written = std::fs::read(dir.path().join("output.bin")).unwrap();
+        assert_eq!(written, binary_data, "Written bytes should match exactly");
+    }
+
+    #[test]
+    fn test_bytes_roundtrip_sha256() {
+        use sha2::{Digest, Sha256};
+
+        let dir = TempDir::new().unwrap();
+        // PNG ヘッダ風のバイナリデータ + NUL バイト
+        let binary_data: Vec<u8> = (0..256).map(|i| i as u8).collect();
+
+        // 書き込み → 読み込みのラウンドトリップ
+        write_local_file_bytes(dir.path(), "roundtrip.bin", &binary_data).unwrap();
+        let read_back = read_local_file_bytes(dir.path(), "roundtrip.bin", false).unwrap();
+
+        let original_hash = Sha256::digest(&binary_data);
+        let readback_hash = Sha256::digest(&read_back);
+        assert_eq!(
+            original_hash, readback_hash,
+            "SHA-256 should match after roundtrip"
+        );
+    }
+
+    #[test]
+    fn test_read_file_bytes_text() {
+        let dir = TempDir::new().unwrap();
+        let text = "Hello, world!\nThis is a text file.\n";
+        std::fs::write(dir.path().join("text.txt"), text).unwrap();
+
+        let result = read_local_file_bytes(dir.path(), "text.txt", false).unwrap();
+        assert_eq!(
+            result,
+            text.as_bytes(),
+            "Text files should also work with bytes API"
+        );
+    }
+
+    #[test]
+    fn test_write_file_bytes_text() {
+        let dir = TempDir::new().unwrap();
+        let text = "Text content via bytes API\n";
+
+        write_local_file_bytes(dir.path(), "text_out.txt", text.as_bytes()).unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join("text_out.txt")).unwrap();
+        assert_eq!(content, text);
+    }
+
+    #[test]
+    fn test_read_local_file_bytes_size_limit() {
+        let dir = TempDir::new().unwrap();
+        // 100MB + 1 バイトのデータを作成
+        let large_data = vec![0xABu8; MAX_BINARY_FILE_SIZE + 1];
+        std::fs::write(dir.path().join("huge.bin"), &large_data).unwrap();
+
+        // force=false: エラーになること
+        let result = read_local_file_bytes(dir.path(), "huge.bin", false);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("File too large"),
+            "Expected 'File too large' error, got: {}",
+            err
+        );
+        assert!(err.contains("--force"), "Error should mention --force");
+
+        // force=true: 成功すること
+        let result = read_local_file_bytes(dir.path(), "huge.bin", true);
+        assert!(result.is_ok(), "force=true should bypass size limit");
+        assert_eq!(result.unwrap().len(), MAX_BINARY_FILE_SIZE + 1);
+    }
+
+    #[test]
+    fn test_write_local_file_bytes_creates_parent_dirs() {
+        let dir = TempDir::new().unwrap();
+        let data = vec![0x01, 0x02, 0x03];
+
+        write_local_file_bytes(dir.path(), "a/b/c/nested.bin", &data).unwrap();
+
+        let written = std::fs::read(dir.path().join("a/b/c/nested.bin")).unwrap();
+        assert_eq!(written, data);
+    }
+
+    #[test]
+    fn test_read_local_file_bytes_not_found() {
+        let dir = TempDir::new().unwrap();
+        let result = read_local_file_bytes(dir.path(), "nonexistent.bin", false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_local_file_bytes_path_traversal() {
+        let dir = TempDir::new().unwrap();
+        let result = read_local_file_bytes(dir.path(), "../../../etc/passwd", false);
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("Path escapes root_dir"));
     }
 }

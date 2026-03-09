@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::app::side::is_remote_to_remote;
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
@@ -30,6 +31,12 @@ pub struct MergeArgs {
     pub force: bool,
     pub with_permissions: bool,
     pub format: String,
+}
+
+/// remote-to-remote merge でガードが必要かどうかを判定する。
+/// --force または --dry-run が指定されていればガード不要。
+fn needs_r2r_guard(left: &Side, right: &Side, dry_run: bool, force: bool) -> bool {
+    is_remote_to_remote(left, right) && !dry_run && !force
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
@@ -62,6 +69,17 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let pair = resolve_source_pair(&source_args, &config)?;
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
+
+    // remote-to-remote merge ガード: --force または --dry-run なしでは拒否
+    if needs_r2r_guard(&pair.left, &pair.right, args.dry_run, args.force) {
+        eprintln!(
+            "Warning: merging between two remote servers ({} → {})",
+            pair.left.display_name(),
+            pair.right.display_name()
+        );
+        eprintln!("Use --force to proceed, or --dry-run to preview changes.");
+        return Ok(crate::service::types::exit_code::ERROR);
+    }
 
     let direction = MergeDirection::LeftToRight;
 
@@ -193,24 +211,29 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut merged = Vec::new();
     let mut failed = Vec::new();
 
-    for path in &plan.files {
-        match execute_single_merge(
-            &pair.left,
-            &pair.right,
-            path,
+    {
+        let mut ctx = MergeContext {
+            left: &pair.left,
+            right: &pair.right,
             direction,
-            &mut core,
-            args.with_permissions,
-        ) {
-            Ok(mut result) => {
-                // マージ前に計算済みの ref badge を適用
-                result.ref_badge = ref_badge_map.as_ref().and_then(|m| m.get(path).cloned());
-                merged.push(result);
+            core: &mut core,
+            with_permissions: args.with_permissions,
+            force: args.force,
+            statuses: &statuses,
+        };
+
+        for path in &plan.files {
+            match execute_single_merge(&mut ctx, path) {
+                Ok(mut result) => {
+                    // マージ前に計算済みの ref badge を適用
+                    result.ref_badge = ref_badge_map.as_ref().and_then(|m| m.get(path).cloned());
+                    merged.push(result);
+                }
+                Err(e) => failed.push(MergeFailure {
+                    path: path.clone(),
+                    error: format!("{}", e),
+                }),
             }
-            Err(e) => failed.push(MergeFailure {
-                path: path.clone(),
-                error: format!("{}", e),
-            }),
         }
     }
 
@@ -225,28 +248,64 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     Ok(code)
 }
 
-/// 単一ファイルのマージを実行する
-fn execute_single_merge(
-    left: &Side,
-    right: &Side,
+/// ソース側にファイルが存在しない方向のマージを検出する
+///
+/// - `LeftToRight` + `RightOnly` = ソース(left)にファイルがない
+/// - `RightToLeft` + `LeftOnly` = ソース(right)にファイルがない
+fn check_source_exists(
     path: &str,
     direction: MergeDirection,
-    core: &mut CoreRuntime,
+    statuses: &[FileStatus],
+) -> anyhow::Result<()> {
+    let status = statuses.iter().find(|s| s.path == path);
+    let source_missing = matches!(
+        (direction, status.map(|s| &s.status)),
+        (MergeDirection::LeftToRight, Some(FileStatusKind::RightOnly))
+            | (MergeDirection::RightToLeft, Some(FileStatusKind::LeftOnly))
+    );
+    if source_missing {
+        let source_name = match direction {
+            MergeDirection::LeftToRight => "left (source)",
+            MergeDirection::RightToLeft => "right (source)",
+        };
+        anyhow::bail!(
+            "File '{}' does not exist on {} side. Cannot merge a non-existent source file.",
+            path,
+            source_name
+        );
+    }
+    Ok(())
+}
+
+/// 単一マージに必要なコンテキスト
+struct MergeContext<'a> {
+    left: &'a Side,
+    right: &'a Side,
+    direction: MergeDirection,
+    core: &'a mut CoreRuntime,
     with_permissions: bool,
-) -> anyhow::Result<MergeFileResult> {
+    force: bool,
+    statuses: &'a [FileStatus],
+}
+
+/// 単一ファイルのマージを実行する
+fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Result<MergeFileResult> {
+    // ソース側にファイルが存在するか確認
+    check_source_exists(path, ctx.direction, ctx.statuses)?;
+
     // ソース側・ターゲット側の決定
-    let (source, target) = match direction {
-        MergeDirection::LeftToRight => (left, right),
-        MergeDirection::RightToLeft => (right, left),
+    let (source, target) = match ctx.direction {
+        MergeDirection::LeftToRight => (ctx.left, ctx.right),
+        MergeDirection::RightToLeft => (ctx.right, ctx.left),
     };
 
-    // コンテンツ読み込み（ソース側）
-    let content = core.read_file(source, path)?;
+    // バイト列でコンテンツ読み込み（ソース側） — バイナリファイルも破壊しない
+    let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
 
     // バックアップ（ターゲット側）
-    let backup_path = if core.config.backup.enabled {
+    let backup_path = if ctx.core.config.backup.enabled {
         let paths = vec![path.to_string()];
-        match core.create_backups(target, &paths) {
+        match ctx.core.create_backups(target, &paths) {
             Ok(()) => {
                 let ts = crate::backup::backup_timestamp();
                 Some(format!("{}.{}.bak", path, ts))
@@ -260,12 +319,12 @@ fn execute_single_merge(
         None
     };
 
-    // 書き込み（ターゲット側）
-    core.write_file(target, path, &content)?;
+    // バイト列で書き込み（ターゲット側） — バイナリファイルも破壊しない
+    ctx.core.write_file_bytes(target, path, &content)?;
 
     // パーミッションコピー（--with-permissions 指定時）
-    if with_permissions {
-        copy_permissions(source, target, path, core);
+    if ctx.with_permissions {
+        copy_permissions(source, target, path, ctx.core);
     }
 
     Ok(MergeFileResult {
@@ -480,5 +539,129 @@ mod tests {
         }];
         let result = filter_changed_files(&targets, &statuses);
         assert!(result.is_empty());
+    }
+
+    // ── r2r guard tests ──
+
+    // ── check_source_exists tests ──
+
+    #[test]
+    fn test_check_source_exists_left_to_right_right_only_fails() {
+        // LeftToRight + RightOnly = ソース(left)にファイルがない → エラー
+        let statuses = vec![FileStatus {
+            path: "new_file.rs".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let err = check_source_exists("new_file.rs", MergeDirection::LeftToRight, &statuses);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(
+            msg.contains("does not exist on left (source) side"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_check_source_exists_right_to_left_left_only_fails() {
+        // RightToLeft + LeftOnly = ソース(right)にファイルがない → エラー
+        let statuses = vec![FileStatus {
+            path: "old_file.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let err = check_source_exists("old_file.rs", MergeDirection::RightToLeft, &statuses);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(
+            msg.contains("does not exist on right (source) side"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_check_source_exists_left_to_right_left_only_ok() {
+        // LeftToRight + LeftOnly = ソース(left)にファイルがある → OK
+        let statuses = vec![FileStatus {
+            path: "file.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_check_source_exists_right_to_left_right_only_ok() {
+        // RightToLeft + RightOnly = ソース(right)にファイルがある → OK
+        let statuses = vec![FileStatus {
+            path: "file.rs".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_check_source_exists_modified_ok() {
+        // Modified = 両側にある → どちらの方向でもOK
+        let statuses = vec![FileStatus {
+            path: "file.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+        assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_check_source_exists_unknown_path_ok() {
+        // ステータスに存在しないパス → チェックをスキップ（OK扱い）
+        let statuses = vec![];
+        assert!(check_source_exists("unknown.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_r2r_guard_blocks_without_force_or_dry_run() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        assert!(needs_r2r_guard(&left, &right, false, false));
+    }
+
+    #[test]
+    fn test_r2r_guard_skipped_with_force() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        assert!(!needs_r2r_guard(&left, &right, false, true));
+    }
+
+    #[test]
+    fn test_r2r_guard_skipped_with_dry_run() {
+        let left = Side::Remote("develop".into());
+        let right = Side::Remote("staging".into());
+        assert!(!needs_r2r_guard(&left, &right, true, false));
+    }
+
+    #[test]
+    fn test_r2r_guard_not_triggered_for_local_to_remote() {
+        let left = Side::Local;
+        let right = Side::Remote("staging".into());
+        assert!(!needs_r2r_guard(&left, &right, false, false));
+    }
+
+    #[test]
+    fn test_r2r_guard_not_triggered_for_local_to_local() {
+        assert!(!needs_r2r_guard(&Side::Local, &Side::Local, false, false));
     }
 }
