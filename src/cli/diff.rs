@@ -55,8 +55,10 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     if !paths_to_compare.is_empty() {
         let mut compare_pairs = HashMap::new();
         for path in &paths_to_compare {
-            let (left_content, _) = read_file_tolerant(&mut core, &pair.left, path);
-            let (right_content, _) = read_file_tolerant(&mut core, &pair.right, path);
+            let (left_content, _) =
+                read_file_tolerant(&mut core, &pair.left, path, /* quiet */ true);
+            let (right_content, _) =
+                read_file_tolerant(&mut core, &pair.right, path, /* quiet */ true);
             compare_pairs.insert(path.clone(), (left_content, right_content));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);
@@ -96,8 +98,10 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut file_diffs = Vec::new();
     let mut has_read_error = false;
     for path in process_files {
-        let (left_content, left_ok) = read_file_tolerant(&mut core, &pair.left, path);
-        let (right_content, right_ok) = read_file_tolerant(&mut core, &pair.right, path);
+        let (left_content, left_ok) =
+            read_file_tolerant(&mut core, &pair.left, path, /* quiet */ false);
+        let (right_content, right_ok) =
+            read_file_tolerant(&mut core, &pair.right, path, /* quiet */ false);
         // 両方読めなかったファイルはエラーとして記録
         if !left_ok && !right_ok {
             has_read_error = true;
@@ -156,23 +160,34 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     Ok(code)
 }
 
-/// ファイル読み込みを試み、失敗時は警告を出して空文字列を返す。
+/// ファイル読み込みを試み、失敗時は空文字列を返す。
 ///
 /// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空文字列にフォールバックする。
 /// diff は読み取り専用操作であり、片側が読めなくても全行追加/削除として表示できるため、
-/// エラー種別による分岐は行わない。警告は eprintln で常にユーザーに通知される。
+/// エラー種別による分岐は行わない。
+///
+/// `quiet` が false の場合、失敗時に stderr に Warning を出力する。
+/// content compare フェーズではターゲット外ファイルも含むため quiet=true で抑制し、
+/// diff build フェーズではターゲットファイルのみなので quiet=false で警告する。
 ///
 /// 返り値: (コンテンツ, 読み込み成功したか)
-fn read_file_tolerant(core: &mut CoreRuntime, side: &Side, path: &str) -> (String, bool) {
+fn read_file_tolerant(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    quiet: bool,
+) -> (String, bool) {
     match core.read_file(side, path) {
         Ok(content) => (content, true),
         Err(e) => {
-            eprintln!(
-                "Warning: {}: {}: {:#} (treating as empty)",
-                side.display_name(),
-                path,
-                e
-            );
+            if !quiet {
+                eprintln!(
+                    "Warning: {}: {}: {:#} (treating as empty)",
+                    side.display_name(),
+                    path,
+                    e
+                );
+            }
             (String::new(), false)
         }
     }

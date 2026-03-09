@@ -143,7 +143,14 @@ enum Commands {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    if let Err(e) = try_main() {
+        eprintln!("Error: {e:#}");
+        std::process::exit(remote_merge::service::types::exit_code::ERROR);
+    }
+}
+
+fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.command.is_none());
 

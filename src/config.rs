@@ -295,7 +295,7 @@ fn merge_configs(
         .or(global.local.as_ref())
         .ok_or_else(|| AppError::ConfigValidation {
             field: "local".into(),
-            message: "[local] セクションが設定されていません".into(),
+            message: "[local] section is required".into(),
         })?;
     let local = LocalConfig {
         root_dir: expand_tilde(&local_raw.root_dir),
@@ -407,7 +407,7 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
     if port == 0 {
         bail!(AppError::ConfigValidation {
             field: format!("servers.{}.port", name),
-            message: "port は 1 以上である必要があります".into(),
+            message: "port must be >= 1".into(),
         });
     }
 
@@ -419,7 +419,7 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
             bail!(AppError::ConfigValidation {
                 field: format!("servers.{}.auth", name),
                 message: format!(
-                    "不正な auth 値: '{}' (key または password を指定してください)",
+                    "invalid auth value: '{}' (expected 'key' or 'password')",
                     other
                 ),
             });
@@ -430,7 +430,7 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
     if raw.root_dir.is_empty() {
         bail!(AppError::ConfigValidation {
             field: format!("servers.{}.root_dir", name),
-            message: "root_dir が空です".into(),
+            message: "root_dir must not be empty".into(),
         });
     }
 
@@ -829,6 +829,92 @@ timeout_sec = 60
         assert_eq!(config.servers["production"].user, "admin");
         assert_eq!(config.local.root_dir, PathBuf::from("/home/user/project"));
         assert_eq!(config.ssh.timeout_sec, 60);
+    }
+
+    #[test]
+    fn test_error_messages_are_english() {
+        // [local] 未設定 → "[local] section is required" を含む
+        let no_local = write_temp_config(
+            r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+"#,
+        );
+        let err = load_config_from_paths(Some(no_local.path()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("[local] section is required"),
+            "Expected '[local] section is required', got: {}",
+            err
+        );
+
+        // port=0 → "port must be >= 1" を含む
+        let bad_port = write_temp_config(
+            r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+port = 0
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#,
+        );
+        let err = load_config_from_paths(Some(bad_port.path()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("port must be >= 1"),
+            "Expected 'port must be >= 1', got: {}",
+            err
+        );
+
+        // 不正auth → "invalid auth value" を含む
+        let bad_auth = write_temp_config(
+            r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+auth = "magic"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#,
+        );
+        let err = load_config_from_paths(Some(bad_auth.path()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("invalid auth value"),
+            "Expected 'invalid auth value', got: {}",
+            err
+        );
+
+        // root_dir空 → "root_dir must not be empty" を含む
+        let empty_root = write_temp_config(
+            r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = ""
+
+[local]
+root_dir = "/home/user/app"
+"#,
+        );
+        let err = load_config_from_paths(Some(empty_root.path()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("root_dir must not be empty"),
+            "Expected 'root_dir must not be empty', got: {}",
+            err
+        );
     }
 
     #[test]
