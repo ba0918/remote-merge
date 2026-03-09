@@ -20,6 +20,7 @@ use crate::service::status::{
     refine_status_with_content,
 };
 use crate::service::types::{FileStatus, FileStatusKind, MergeFailure, MergeFileResult};
+use crate::tree::{FileTree, NodeKind};
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
@@ -97,29 +98,34 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // Refine statuses with content comparison for metadata-ambiguous files
+    // バイト列比較でバイナリファイルも正しく判定する
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     if !paths_to_compare.is_empty() {
-        let mut compare_pairs = HashMap::new();
+        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
-            let left_content = core.read_file(&pair.left, path).unwrap_or_else(|e| {
-                tracing::debug!(
-                    "Failed to read {} from {} for status refinement: {}",
-                    path,
-                    pair.left.display_name(),
-                    e
-                );
-                String::new()
-            });
-            let right_content = core.read_file(&pair.right, path).unwrap_or_else(|e| {
-                tracing::debug!(
-                    "Failed to read {} from {} for status refinement: {}",
-                    path,
-                    pair.right.display_name(),
-                    e
-                );
-                String::new()
-            });
-            compare_pairs.insert(path.clone(), (left_content, right_content));
+            let left_bytes = core
+                .read_file_bytes(&pair.left, path, false)
+                .unwrap_or_else(|e| {
+                    tracing::debug!(
+                        "Failed to read {} from {} for status refinement: {}",
+                        path,
+                        pair.left.display_name(),
+                        e
+                    );
+                    Vec::new()
+                });
+            let right_bytes = core
+                .read_file_bytes(&pair.right, path, false)
+                .unwrap_or_else(|e| {
+                    tracing::debug!(
+                        "Failed to read {} from {} for status refinement: {}",
+                        path,
+                        pair.right.display_name(),
+                        e
+                    );
+                    Vec::new()
+                });
+            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);
     }
@@ -215,6 +221,8 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
         let mut ctx = MergeContext {
             left: &pair.left,
             right: &pair.right,
+            left_tree: &left_tree,
+            right_tree: &right_tree,
             direction,
             core: &mut core,
             with_permissions: args.with_permissions,
@@ -277,10 +285,64 @@ fn check_source_exists(
     Ok(())
 }
 
+/// ツリーからパスに対応する symlink のターゲットを取得する純粋関数
+fn find_symlink_target(tree: &FileTree, path: &str) -> Option<String> {
+    let node = tree.find_node(path)?;
+    match &node.kind {
+        NodeKind::Symlink { target } => Some(target.clone()),
+        _ => None,
+    }
+}
+
+/// symlink merge のアクション判定結果
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MergeAction {
+    /// ソースが symlink → ターゲットに symlink を作成
+    CreateSymlink {
+        link_target: String,
+        /// ターゲット側にファイルまたは symlink が存在するか（ディレクトリは除外）
+        target_exists: bool,
+    },
+    /// ターゲットが symlink でソースが通常ファイル → symlink を削除してからファイル書き込み
+    ReplaceSymlinkWithFile,
+    /// 通常のファイルマージ（symlink なし）
+    Normal,
+}
+
+/// ソース/ターゲットのツリーとパスからマージアクションを決定する純粋関数
+///
+/// - ソースが symlink → `CreateSymlink`
+/// - ターゲットが symlink でソースが通常ファイル → `ReplaceSymlinkWithFile`
+/// - どちらも symlink でない → `Normal`
+pub(crate) fn determine_merge_action(
+    source_tree: &FileTree,
+    target_tree: &FileTree,
+    path: &str,
+) -> MergeAction {
+    if let Some(link_target) = find_symlink_target(source_tree, path) {
+        // ターゲット側にファイル/symlink が存在するか（ディレクトリは remove_file で削除できないため除外）
+        // create_symlink は内部で ln -sfn（リモート）/ remove_file + symlink（ローカル）を行うため、
+        // ファイル/symlink の上書きは安全に処理される
+        let target_exists = target_tree
+            .find_node(path)
+            .is_some_and(|node| !matches!(node.kind, NodeKind::Directory));
+        return MergeAction::CreateSymlink {
+            link_target,
+            target_exists,
+        };
+    }
+    if find_symlink_target(target_tree, path).is_some() {
+        return MergeAction::ReplaceSymlinkWithFile;
+    }
+    MergeAction::Normal
+}
+
 /// 単一マージに必要なコンテキスト
 struct MergeContext<'a> {
     left: &'a Side,
     right: &'a Side,
+    left_tree: &'a FileTree,
+    right_tree: &'a FileTree,
     direction: MergeDirection,
     core: &'a mut CoreRuntime,
     with_permissions: bool,
@@ -298,6 +360,85 @@ fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Resul
         MergeDirection::LeftToRight => (ctx.left, ctx.right),
         MergeDirection::RightToLeft => (ctx.right, ctx.left),
     };
+
+    // ソース側・ターゲット側のツリーを決定
+    let (source_tree, target_tree) = match ctx.direction {
+        MergeDirection::LeftToRight => (ctx.left_tree, ctx.right_tree),
+        MergeDirection::RightToLeft => (ctx.right_tree, ctx.left_tree),
+    };
+
+    // symlink 分岐を純粋関数で判定
+    let action = determine_merge_action(source_tree, target_tree, path);
+
+    match action {
+        MergeAction::CreateSymlink {
+            link_target,
+            target_exists,
+        } => {
+            // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
+            let backup_path = if target_exists && ctx.core.config.backup.enabled {
+                let paths = vec![path.to_string()];
+                match ctx.core.create_backups(target, &paths) {
+                    Ok(()) => {
+                        let ts = crate::backup::backup_timestamp();
+                        Some(format!("{}.{}.bak", path, ts))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Backup failed (continuing): {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if target_exists {
+                ctx.core.remove_file(target, path)?;
+            }
+            ctx.core.create_symlink(target, path, &link_target)?;
+            return Ok(MergeFileResult {
+                path: path.to_string(),
+                status: "ok".into(),
+                backup: backup_path,
+                ref_badge: None,
+            });
+        }
+        MergeAction::ReplaceSymlinkWithFile => {
+            // ターゲットが symlink でソースが通常ファイル → バックアップしてから symlink を削除
+            // バックアップは symlink 削除前に行う（削除後ではバックアップ対象が存在しない）
+            let symlink_backup = if ctx.core.config.backup.enabled {
+                let paths = vec![path.to_string()];
+                match ctx.core.create_backups(target, &paths) {
+                    Ok(()) => {
+                        let ts = crate::backup::backup_timestamp();
+                        Some(format!("{}.{}.bak", path, ts))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Backup failed for symlink target (continuing): {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            ctx.core.remove_file(target, path)?;
+
+            // symlink 削除後は通常ファイル書き込み — バックアップ済みなのでスキップ
+            let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
+            ctx.core.write_file_bytes(target, path, &content)?;
+            if ctx.with_permissions {
+                copy_permissions(source, target, path, ctx.core);
+            }
+            return Ok(MergeFileResult {
+                path: path.to_string(),
+                status: "ok".into(),
+                backup: symlink_backup,
+                ref_badge: None,
+            });
+        }
+        MergeAction::Normal => {
+            // 通常マージ — 何もせずそのまま後続処理へ
+        }
+    }
 
     // バイト列でコンテンツ読み込み（ソース側） — バイナリファイルも破壊しない
     let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
@@ -663,5 +804,180 @@ mod tests {
     #[test]
     fn test_r2r_guard_not_triggered_for_local_to_local() {
         assert!(!needs_r2r_guard(&Side::Local, &Side::Local, false, false));
+    }
+
+    // ── find_symlink_target tests ──
+
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_tree_with_nodes(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_find_symlink_target_returns_target_for_symlink() {
+        let tree = make_tree_with_nodes(vec![FileNode::new_symlink("link.txt", "/real/target")]);
+        let result = find_symlink_target(&tree, "link.txt");
+        assert_eq!(result, Some("/real/target".to_string()));
+    }
+
+    #[test]
+    fn test_find_symlink_target_returns_none_for_regular_file() {
+        let tree = make_tree_with_nodes(vec![FileNode::new_file("regular.txt")]);
+        let result = find_symlink_target(&tree, "regular.txt");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_symlink_target_returns_none_for_directory() {
+        let tree = make_tree_with_nodes(vec![FileNode::new_dir_with_children("mydir", vec![])]);
+        let result = find_symlink_target(&tree, "mydir");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_symlink_target_returns_none_for_missing_path() {
+        let tree = make_tree_with_nodes(vec![FileNode::new_file("exists.txt")]);
+        let result = find_symlink_target(&tree, "nonexistent.txt");
+        assert_eq!(result, None);
+    }
+
+    // ── determine_merge_action tests ──
+
+    #[test]
+    fn test_determine_merge_action_source_symlink_target_regular_file() {
+        // ソースが symlink、ターゲットが通常ファイル
+        // → CreateSymlink（ターゲットに symlink を作成、既存ファイルあり）
+        let source_tree =
+            make_tree_with_nodes(vec![FileNode::new_symlink("app.conf", "/etc/app.conf")]);
+        let target_tree = make_tree_with_nodes(vec![FileNode::new_file("app.conf")]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "app.conf");
+        assert_eq!(
+            action,
+            MergeAction::CreateSymlink {
+                link_target: "/etc/app.conf".to_string(),
+                target_exists: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_determine_merge_action_source_symlink_target_not_exists() {
+        // ソースが symlink、ターゲットにファイルなし
+        // → CreateSymlink（target_exists = false）
+        let source_tree =
+            make_tree_with_nodes(vec![FileNode::new_symlink("link.txt", "/tmp/data")]);
+        let target_tree = make_tree_with_nodes(vec![]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "link.txt");
+        assert_eq!(
+            action,
+            MergeAction::CreateSymlink {
+                link_target: "/tmp/data".to_string(),
+                target_exists: false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_determine_merge_action_source_regular_file_target_symlink() {
+        // ソースが通常ファイル、ターゲットが symlink
+        // → ReplaceSymlinkWithFile（symlink を削除してからファイル書き込み）
+        let source_tree = make_tree_with_nodes(vec![FileNode::new_file("config.yml")]);
+        let target_tree =
+            make_tree_with_nodes(vec![FileNode::new_symlink("config.yml", "/old/target")]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "config.yml");
+        assert_eq!(action, MergeAction::ReplaceSymlinkWithFile);
+    }
+
+    #[test]
+    fn test_determine_merge_action_both_symlinks() {
+        // ソースもターゲットも symlink（リンク先が異なる）
+        // → CreateSymlink（ソース側の symlink で上書き）
+        let source_tree = make_tree_with_nodes(vec![FileNode::new_symlink("link", "/new/target")]);
+        let target_tree = make_tree_with_nodes(vec![FileNode::new_symlink("link", "/old/target")]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "link");
+        assert_eq!(
+            action,
+            MergeAction::CreateSymlink {
+                link_target: "/new/target".to_string(),
+                target_exists: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_determine_merge_action_both_symlinks_same_target() {
+        // ソースもターゲットも同じリンク先の symlink
+        // → CreateSymlink（同一でもソースの symlink を再作成する）
+        let source_tree =
+            make_tree_with_nodes(vec![FileNode::new_symlink("link", "/shared/target")]);
+        let target_tree =
+            make_tree_with_nodes(vec![FileNode::new_symlink("link", "/shared/target")]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "link");
+        assert_eq!(
+            action,
+            MergeAction::CreateSymlink {
+                link_target: "/shared/target".to_string(),
+                target_exists: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_determine_merge_action_both_regular_files() {
+        // 両方とも通常ファイル → Normal
+        let source_tree = make_tree_with_nodes(vec![FileNode::new_file("data.txt")]);
+        let target_tree = make_tree_with_nodes(vec![FileNode::new_file("data.txt")]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "data.txt");
+        assert_eq!(action, MergeAction::Normal);
+    }
+
+    #[test]
+    fn test_determine_merge_action_source_only_regular_file() {
+        // ソースにのみ通常ファイルが存在（ターゲットなし） → Normal
+        let source_tree = make_tree_with_nodes(vec![FileNode::new_file("new_file.txt")]);
+        let target_tree = make_tree_with_nodes(vec![]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "new_file.txt");
+        assert_eq!(action, MergeAction::Normal);
+    }
+
+    #[test]
+    fn test_determine_merge_action_source_not_found() {
+        // ソースにもターゲットにもパスが存在しない → Normal
+        // （ソース存在チェックは check_source_exists が担当）
+        let source_tree = make_tree_with_nodes(vec![]);
+        let target_tree = make_tree_with_nodes(vec![]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "missing.txt");
+        assert_eq!(action, MergeAction::Normal);
+    }
+
+    #[test]
+    fn test_determine_merge_action_source_symlink_target_is_directory() {
+        // ソースが symlink、ターゲットがディレクトリ
+        // → CreateSymlink（target_exists = false: ディレクトリは remove_file で削除不可のため除外）
+        let source_tree = make_tree_with_nodes(vec![FileNode::new_symlink("logs", "/var/log/app")]);
+        let target_tree =
+            make_tree_with_nodes(vec![FileNode::new_dir_with_children("logs", vec![])]);
+
+        let action = determine_merge_action(&source_tree, &target_tree, "logs");
+        assert_eq!(
+            action,
+            MergeAction::CreateSymlink {
+                link_target: "/var/log/app".to_string(),
+                target_exists: false,
+            }
+        );
     }
 }

@@ -31,8 +31,9 @@ pub struct ScanOutput {
     /// CLI と共通の差分ステータス（path → FileStatusKind）
     statuses: HashMap<String, FileStatusKind>,
     /// Undetermined ファイルのコンテンツ比較結果（path → (left, right)）
-    /// キャッシュに反映するために保持する
-    resolved_contents: HashMap<String, (String, String)>,
+    /// バイト列で保持し、バイナリファイルも正しく比較する。
+    /// キャッシュ反映時に String に変換する。
+    resolved_contents: HashMap<String, (Vec<u8>, Vec<u8>)>,
 }
 
 /// 変更ファイルフィルターの切替処理（Shift+F）
@@ -229,6 +230,8 @@ fn build_temp_tree(root: &std::path::Path, nodes: &[FileNode]) -> FileTree {
 }
 
 /// 左右のコンテンツを Side に応じた方法で取得してペアにまとめる。
+///
+/// バイト列で返すため、バイナリファイルも正しく比較できる。
 #[allow(clippy::too_many_arguments)]
 fn fetch_contents_both_sides(
     paths: &[String],
@@ -239,7 +242,7 @@ fn fetch_contents_both_sides(
     right_root: &std::path::Path,
     right_client: &mut Option<SshClient>,
     rt: &tokio::runtime::Runtime,
-) -> HashMap<String, (String, String)> {
+) -> HashMap<String, (Vec<u8>, Vec<u8>)> {
     let left_contents =
         fetch_side_contents(left_source, paths, left_root, left_client.as_mut(), rt);
     let right_contents =
@@ -254,22 +257,23 @@ fn fetch_contents_both_sides(
     result
 }
 
-/// 片側のコンテンツを取得する。
+/// 片側のコンテンツをバイト列で取得する。
 ///
 /// Local → ファイルシステムから読み込み、Remote → SSH 経由でバッチ読み込み。
+/// バイト列で返すため、バイナリファイルも lossy 変換なしで扱える。
 fn fetch_side_contents(
     side: &Side,
     paths: &[String],
     root: &std::path::Path,
     client: Option<&mut SshClient>,
     rt: &tokio::runtime::Runtime,
-) -> HashMap<String, String> {
+) -> HashMap<String, Vec<u8>> {
     match side {
         Side::Local => {
             let mut contents = HashMap::new();
             for path in paths {
                 let full = root.join(path);
-                if let Ok(content) = std::fs::read_to_string(&full) {
+                if let Ok(content) = std::fs::read(&full) {
                     contents.insert(path.clone(), content);
                 }
             }
@@ -291,10 +295,11 @@ fn fetch_side_contents(
                 .unwrap_or_default();
 
             // リモートのフルパスキーを相対パスキーに変換
+            // SSH バッチ読み込みは String を返すため、バイト列に変換する
             let mut contents = HashMap::new();
             for (i, path) in paths.iter().enumerate() {
                 if let Some(content) = remote_contents.get(&full_paths[i]) {
-                    contents.insert(path.clone(), content.clone());
+                    contents.insert(path.clone(), content.as_bytes().to_vec());
                 }
             }
             contents
@@ -315,12 +320,16 @@ pub fn poll_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
 
     match rx.try_recv() {
         Ok(Ok(scan_result)) => {
-            // コンテンツ比較結果をキャッシュに反映
-            for (path, (left_content, right_content)) in &scan_result.resolved_contents {
-                state.left_cache.insert(path.clone(), left_content.clone());
-                state
-                    .right_cache
-                    .insert(path.clone(), right_content.clone());
+            // コンテンツ比較結果をキャッシュに反映（バイト列 → String 変換）
+            for (path, (left_bytes, right_bytes)) in &scan_result.resolved_contents {
+                state.left_cache.insert(
+                    path.clone(),
+                    String::from_utf8_lossy(left_bytes).into_owned(),
+                );
+                state.right_cache.insert(
+                    path.clone(),
+                    String::from_utf8_lossy(right_bytes).into_owned(),
+                );
             }
 
             if scan_result.left_trunc || scan_result.right_trunc {

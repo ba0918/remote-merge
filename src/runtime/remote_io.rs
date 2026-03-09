@@ -305,6 +305,30 @@ impl CoreRuntime {
         Ok(results)
     }
 
+    /// リモートでファイルまたはシンボリックリンクを削除する（rm -f）。
+    ///
+    /// `rm -f` を使用する理由: ファイルが存在しない場合にもエラーにならず、
+    /// かつ symlink 自体を（参照先ではなく）削除できるため。
+    ///
+    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `remove_file(side, path)` を使うこと。
+    pub(crate) fn remove_remote_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<()> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let cmd = format!(
+            "rm -f {}",
+            crate::ssh::tree_parser::shell_escape(&full_path)
+        );
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        self.rt.block_on(client.exec(&cmd))?;
+        Ok(())
+    }
+
     /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_symlink(side, path, target)` を使うこと。

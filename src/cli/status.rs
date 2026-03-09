@@ -95,9 +95,9 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         HashMap::new()
     };
 
-    // コンテンツ比較で status を精緻化
+    // コンテンツ比較で status を精緻化（バイト列比較でバイナリも正しく判定）
     if !paths_to_compare.is_empty() {
-        let mut compare_pairs = HashMap::new();
+        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
             if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {
                 compare_pairs.insert(path.clone(), (l.clone(), r.clone()));

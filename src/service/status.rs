@@ -165,18 +165,19 @@ pub fn needs_content_compare(
 
 /// コンテンツ比較結果で FileStatus を更新する（純粋関数）。
 ///
-/// `contents` には左右のコンテンツペアが格納されている。
-/// 内容が一致すれば Equal、異なれば Modified のまま。
+/// `contents` には左右のバイト列ペアが格納されている。
+/// バイト列が完全一致すれば Equal、異なれば Modified のまま。
+/// バイナリファイルでも lossy 変換なしで正しく比較できる。
 pub fn refine_status_with_content(
     files: &mut [FileStatus],
-    contents: &std::collections::HashMap<String, (String, String)>,
+    contents: &std::collections::HashMap<String, (Vec<u8>, Vec<u8>)>,
 ) {
     for file in files.iter_mut() {
         if file.status != FileStatusKind::Modified {
             continue;
         }
-        if let Some((left_content, right_content)) = contents.get(&file.path) {
-            if left_content == right_content {
+        if let Some((left_bytes, right_bytes)) = contents.get(&file.path) {
+            if left_bytes == right_bytes {
                 file.status = FileStatusKind::Equal;
             }
         }
@@ -206,9 +207,9 @@ pub fn compute_ref_badges(
     left_tree: &FileTree,
     right_tree: &FileTree,
     ref_tree: &FileTree,
-    left_contents: &HashMap<String, String>,
-    right_contents: &HashMap<String, String>,
-    ref_contents: &HashMap<String, String>,
+    left_contents: &HashMap<String, Vec<u8>>,
+    right_contents: &HashMap<String, Vec<u8>>,
+    ref_contents: &HashMap<String, Vec<u8>>,
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for file in files {
@@ -647,7 +648,7 @@ mod tests {
         let mut contents = std::collections::HashMap::new();
         contents.insert(
             "a.rs".to_string(),
-            ("same content".to_string(), "same content".to_string()),
+            (b"same content".to_vec(), b"same content".to_vec()),
         );
         refine_status_with_content(&mut files, &contents);
         assert_eq!(files[0].status, FileStatusKind::Equal);
@@ -665,7 +666,7 @@ mod tests {
         let mut contents = std::collections::HashMap::new();
         contents.insert(
             "a.rs".to_string(),
-            ("old content".to_string(), "new content".to_string()),
+            (b"old content".to_vec(), b"new content".to_vec()),
         );
         refine_status_with_content(&mut files, &contents);
         assert_eq!(files[0].status, FileStatusKind::Modified);
@@ -681,10 +682,78 @@ mod tests {
             ref_badge: None,
         }];
         let mut contents = std::collections::HashMap::new();
-        contents.insert("a.rs".to_string(), ("same".to_string(), "same".to_string()));
+        contents.insert("a.rs".to_string(), (b"same".to_vec(), b"same".to_vec()));
         refine_status_with_content(&mut files, &contents);
         // LeftOnly はコンテンツ比較で変更されない
         assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_refine_status_binary_identical_is_equal() {
+        // 同一バイナリ（バイト列完全一致）が Equal と判定される
+        let mut files = vec![FileStatus {
+            path: "image.png".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let binary_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x03];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert("image.png".to_string(), (binary_data.clone(), binary_data));
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_status_binary_different_is_modified() {
+        // 異なるバイナリ（同サイズ）が Modified と判定される
+        let mut files = vec![FileStatus {
+            path: "image.png".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x03];
+        let right_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x04];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert("image.png".to_string(), (left_data, right_data));
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_status_text_still_works() {
+        // テキストファイルの比較が引き続き正常に動作すること
+        let mut files = vec![
+            FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"fn main() {}".to_vec(), b"fn main() {}".to_vec()),
+        );
+        contents.insert(
+            "b.rs".to_string(),
+            (b"old code".to_vec(), b"new code".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+        assert_eq!(files[1].status, FileStatusKind::Modified);
     }
 
     // ── compute_ref_badges ──
@@ -702,11 +771,11 @@ mod tests {
         let right = make_tree(vec![FileNode::new_file("a.rs")]);
         let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
         let mut left_c = HashMap::new();
-        left_c.insert("a.rs".into(), "content".into());
+        left_c.insert("a.rs".into(), b"content".to_vec());
         let mut right_c = HashMap::new();
-        right_c.insert("a.rs".into(), "content".into());
+        right_c.insert("a.rs".into(), b"content".to_vec());
         let mut ref_c = HashMap::new();
-        ref_c.insert("a.rs".into(), "content".into());
+        ref_c.insert("a.rs".into(), b"content".to_vec());
 
         let badges =
             compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
@@ -726,11 +795,11 @@ mod tests {
         let right = make_tree(vec![FileNode::new_file("a.rs")]);
         let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
         let mut left_c = HashMap::new();
-        left_c.insert("a.rs".into(), "left_content".into());
+        left_c.insert("a.rs".into(), b"left_content".to_vec());
         let mut right_c = HashMap::new();
-        right_c.insert("a.rs".into(), "right_content".into());
+        right_c.insert("a.rs".into(), b"right_content".to_vec());
         let mut ref_c = HashMap::new();
-        ref_c.insert("a.rs".into(), "ref_content".into());
+        ref_c.insert("a.rs".into(), b"ref_content".to_vec());
 
         let badges =
             compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);

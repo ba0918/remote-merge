@@ -114,7 +114,22 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     lines.push(format!("+++ b/{} ({})", output.path, output.right.label));
 
     if output.binary {
-        lines.push("Binary files differ".into());
+        let msg = match (&output.left_hash, &output.right_hash) {
+            (Some(lh), Some(rh)) => {
+                format!(
+                    "Binary files differ (left: sha256={}, right: sha256={})",
+                    lh, rh
+                )
+            }
+            (Some(lh), None) => {
+                format!("Binary files differ (left: sha256={}, right: missing)", lh)
+            }
+            (None, Some(rh)) => {
+                format!("Binary files differ (left: missing, right: sha256={})", rh)
+            }
+            (None, None) => "Binary files differ".into(),
+        };
+        lines.push(msg);
         return lines.join("\n");
     }
 
@@ -385,6 +400,8 @@ mod tests {
                 ],
             }],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -413,6 +430,8 @@ mod tests {
             truncated: true,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -581,6 +600,8 @@ mod tests {
                     },
                 ],
             }]),
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -607,6 +628,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
@@ -632,6 +655,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -660,6 +685,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Symbolic link targets differ"));
@@ -758,6 +785,8 @@ mod tests {
                 ],
             }],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         }
     }
 
@@ -861,5 +890,146 @@ mod tests {
         // JSON の構造は正しい
         assert!(json.contains("\"label\""));
         assert!(json.contains("\"local\""));
+    }
+
+    // ── binary diff with SHA-256 hashes ──
+
+    #[test]
+    fn test_format_diff_text_binary_with_hashes() {
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: Some("abc123def456".into()),
+            right_hash: Some("789xyz000111".into()),
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains(
+            "Binary files differ (left: sha256=abc123def456, right: sha256=789xyz000111)"
+        ));
+        assert!(!text.contains("@@"));
+    }
+
+    #[test]
+    fn test_format_diff_text_binary_left_only_hash() {
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: Some("abc123".into()),
+            right_hash: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
+    }
+
+    #[test]
+    fn test_format_diff_text_binary_no_hashes_fallback() {
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("Binary files differ"));
+        assert!(!text.contains("sha256="));
+    }
+
+    #[test]
+    fn test_diff_output_binary_hash_serialization() {
+        let output = DiffOutput {
+            path: "image.png".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: true,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: Some("aaa".into()),
+            right_hash: Some("bbb".into()),
+        };
+        let json = format_json(&output).unwrap();
+        assert!(json.contains("\"left_hash\""));
+        assert!(json.contains("\"aaa\""));
+        assert!(json.contains("\"right_hash\""));
+        assert!(json.contains("\"bbb\""));
+    }
+
+    #[test]
+    fn test_diff_output_text_no_hash_in_json() {
+        // テキストファイルの diff では left_hash/right_hash は None → JSON に含まれない
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+        };
+        let json = format_json(&output).unwrap();
+        assert!(!json.contains("left_hash"));
+        assert!(!json.contains("right_hash"));
     }
 }

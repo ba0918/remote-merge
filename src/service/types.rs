@@ -84,6 +84,12 @@ pub struct DiffOutput {
     pub hunks: Vec<DiffHunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_hunks: Option<Vec<DiffHunk>>,
+    /// バイナリファイルの左側 SHA-256 ハッシュ
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_hash: Option<String>,
+    /// バイナリファイルの右側 SHA-256 ハッシュ
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right_hash: Option<String>,
 }
 
 /// diff のハンク
@@ -301,6 +307,8 @@ mod tests {
                 ],
             }],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -443,6 +451,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![]),
+            left_hash: None,
+            right_hash: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -468,6 +478,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
@@ -544,6 +556,8 @@ mod tests {
                 truncated: false,
                 hunks: vec![],
                 ref_hunks: None,
+                left_hash: None,
+                right_hash: None,
             }],
             summary: MultiDiffSummary {
                 total_files: 5,

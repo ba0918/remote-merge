@@ -70,6 +70,8 @@ pub fn build_diff_output(
         truncated,
         hunks,
         ref_hunks: ref_hunks_out,
+        left_hash: None,
+        right_hash: None,
     }
 }
 
@@ -365,6 +367,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -383,6 +387,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -404,6 +410,8 @@ mod tests {
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
         };
         assert!(output.symlink);
         assert!(!output.binary);

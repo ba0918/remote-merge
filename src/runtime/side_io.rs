@@ -151,6 +151,21 @@ impl CoreRuntime {
         }
     }
 
+    // ── 削除 ──
+
+    /// Side に基づいてファイルまたはシンボリックリンクを削除する
+    pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
+        match side {
+            Side::Local => {
+                let full = self.config.local.root_dir.join(rel_path);
+                let normalized =
+                    executor::validate_path_within_root(&self.config.local.root_dir, &full)?;
+                remove_local_file(&normalized)
+            }
+            Side::Remote(name) => self.remove_remote_file(name, rel_path),
+        }
+    }
+
     // ── シンボリックリンク ──
 
     /// Side に基づいてシンボリックリンクを作成する
@@ -290,6 +305,13 @@ fn create_local_backups(root_dir: &Path, rel_paths: &[String]) -> anyhow::Result
     Ok(())
 }
 
+/// ローカルファイルまたはシンボリックリンクを削除する
+fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
+    use anyhow::Context;
+    std::fs::remove_file(full_path)
+        .with_context(|| format!("Failed to remove file: {}", full_path.display()))
+}
+
 /// ローカルにシンボリックリンクを作成する（既存リンクは削除してから作成）
 fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
     // 既存のファイル/リンクがあれば削除
@@ -357,6 +379,10 @@ impl TuiRuntime {
 
     pub fn create_backups(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<()> {
         self.core.create_backups(side, rel_paths)
+    }
+
+    pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
+        self.core.remove_file(side, rel_path)
     }
 
     pub fn create_symlink(
@@ -633,6 +659,55 @@ mod tests {
         let mut rt = CoreRuntime::new_for_test();
         // ローカルの場合は何もしないことを確認（パニックしない）
         rt.disconnect_if_remote(&Side::Local);
+    }
+
+    #[test]
+    fn test_remove_file_local_regular_file() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("to_remove.txt");
+        std::fs::write(&file_path, "will be removed").unwrap();
+        assert!(file_path.exists());
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.remove_file(&Side::Local, "to_remove.txt").unwrap();
+        assert!(!file_path.exists());
+    }
+
+    #[test]
+    fn test_remove_file_local_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let target_path = tmp.path().join("target.txt");
+        std::fs::write(&target_path, "target content").unwrap();
+
+        let link_path = tmp.path().join("link.txt");
+        std::os::unix::fs::symlink("target.txt", &link_path).unwrap();
+        assert!(link_path.symlink_metadata().is_ok());
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.remove_file(&Side::Local, "link.txt").unwrap();
+
+        // シンボリックリンクが削除されていること
+        assert!(!link_path.exists());
+        assert!(link_path.symlink_metadata().is_err());
+        // リンク先は残っていること
+        assert!(target_path.exists());
+    }
+
+    #[test]
+    fn test_remove_file_path_traversal_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+
+        let result = rt.remove_file(&Side::Local, "../outside.txt");
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("Path escapes root_dir")
+                || err.contains("Path traversal")
+                || err.contains("path not found"),
+            "Unexpected error: {}",
+            err
+        );
     }
 
     #[test]

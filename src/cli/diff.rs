@@ -3,6 +3,8 @@
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::config::AppConfig;
+use crate::diff::binary::compute_sha256;
+use crate::diff::engine::is_binary;
 use crate::runtime::CoreRuntime;
 use crate::service::diff::build_diff_output;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
@@ -13,7 +15,9 @@ use crate::service::source_pair::{
 use crate::service::status::{
     compute_status_from_trees, is_sensitive, needs_content_compare, refine_status_with_content,
 };
-use crate::service::types::{exit_code, FileStatusKind, MultiDiffOutput, MultiDiffSummary};
+use crate::service::types::{
+    exit_code, DiffOutput, FileStatusKind, MultiDiffOutput, MultiDiffSummary,
+};
 use std::collections::HashMap;
 
 /// diff サブコマンドの引数
@@ -51,15 +55,16 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // Refine statuses with content comparison for metadata-ambiguous files
+    // バイト列比較でバイナリファイルも正しく判定する
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     if !paths_to_compare.is_empty() {
-        let mut compare_pairs = HashMap::new();
+        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
-            let (left_content, _) =
-                read_file_tolerant(&mut core, &pair.left, path, /* quiet */ true);
-            let (right_content, _) =
-                read_file_tolerant(&mut core, &pair.right, path, /* quiet */ true);
-            compare_pairs.insert(path.clone(), (left_content, right_content));
+            let (left_bytes, _) =
+                read_file_bytes_tolerant(&mut core, &pair.left, path, /* quiet */ true);
+            let (right_bytes, _) =
+                read_file_bytes_tolerant(&mut core, &pair.right, path, /* quiet */ true);
+            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);
     }
@@ -109,32 +114,74 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
         let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
         let (left_quiet, right_quiet) = quiet_flags_for_status(status);
 
-        let (left_content, left_ok) = read_file_tolerant(&mut core, &pair.left, path, left_quiet);
-        let (right_content, right_ok) =
-            read_file_tolerant(&mut core, &pair.right, path, right_quiet);
+        // バイト列で読み込み、事前にバイナリ判定を行う
+        let (left_bytes, left_ok) =
+            read_file_bytes_tolerant(&mut core, &pair.left, path, left_quiet);
+        let (right_bytes, right_ok) =
+            read_file_bytes_tolerant(&mut core, &pair.right, path, right_quiet);
         // 両方読めなかったファイルはエラーとして記録
         if !left_ok && !right_ok {
             has_read_error = true;
         }
         let sensitive = is_sensitive(path, &config.filter.sensitive);
 
-        let ref_content = if let Some(ref_s) = &ref_side {
-            core.read_file(ref_s, path).ok()
-        } else {
-            None
-        };
+        let output = if is_binary(&left_bytes) || is_binary(&right_bytes) {
+            // バイナリファイル: SHA-256 ハッシュを計算して直接 DiffOutput を構築
+            let left_hash = if !left_bytes.is_empty() || left_ok {
+                Some(compute_sha256(&left_bytes))
+            } else {
+                None
+            };
+            let right_hash = if !right_bytes.is_empty() || right_ok {
+                Some(compute_sha256(&right_bytes))
+            } else {
+                None
+            };
 
-        let output = build_diff_output(
-            path,
-            left_info.clone(),
-            right_info.clone(),
-            &left_content,
-            &right_content,
-            sensitive,
-            args.max_lines,
-            ref_info_opt.clone(),
-            ref_content.as_deref(),
-        );
+            // ref server 指定時のバイナリ diff では ref_hunks を None にする
+            let (ref_info_out, ref_hunks_out) = if let Some(ri) = ref_info_opt.clone() {
+                (Some(ri), None)
+            } else {
+                (None, None)
+            };
+
+            DiffOutput {
+                path: path.to_string(),
+                left: left_info.clone(),
+                right: right_info.clone(),
+                ref_: ref_info_out,
+                sensitive,
+                binary: true,
+                symlink: false,
+                truncated: false,
+                hunks: vec![],
+                ref_hunks: ref_hunks_out,
+                left_hash,
+                right_hash,
+            }
+        } else {
+            // テキストファイル: String に変換して既存の build_diff_output を呼ぶ
+            let left_content = String::from_utf8_lossy(&left_bytes).into_owned();
+            let right_content = String::from_utf8_lossy(&right_bytes).into_owned();
+
+            let ref_content = if let Some(ref_s) = &ref_side {
+                core.read_file(ref_s, path).ok()
+            } else {
+                None
+            };
+
+            build_diff_output(
+                path,
+                left_info.clone(),
+                right_info.clone(),
+                &left_content,
+                &right_content,
+                sensitive,
+                args.max_lines,
+                ref_info_opt.clone(),
+                ref_content.as_deref(),
+            )
+        };
         file_diffs.push(output);
     }
 
@@ -179,24 +226,25 @@ fn quiet_flags_for_status(status: Option<FileStatusKind>) -> (bool, bool) {
     (left_quiet, right_quiet)
 }
 
-/// ファイル読み込みを試み、失敗時は空文字列を返す。
+/// バイト列でファイル読み込みを試み、失敗時は空バイト列を返す。
 ///
-/// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空文字列にフォールバックする。
+/// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空バイト列にフォールバックする。
 /// diff は読み取り専用操作であり、片側が読めなくても全行追加/削除として表示できるため、
 /// エラー種別による分岐は行わない。
 ///
-/// `quiet` が false の場合、失敗時に stderr に Warning を出力する。
-/// content compare フェーズではターゲット外ファイルも含むため quiet=true で抑制し、
-/// diff build フェーズではターゲットファイルのみなので quiet=false で警告する。
+/// バイト列で返すことで、バイナリファイルの NUL バイトが lossy 変換で消えることを防ぐ。
+/// `is_binary()` 判定が正しく動作し、テキストファイルは呼び出し側で String に変換する。
 ///
-/// 返り値: (コンテンツ, 読み込み成功したか)
-fn read_file_tolerant(
+/// `quiet` が false の場合、失敗時に stderr に Warning を出力する。
+///
+/// 返り値: (バイト列, 読み込み成功したか)
+fn read_file_bytes_tolerant(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
     quiet: bool,
-) -> (String, bool) {
-    match core.read_file(side, path) {
+) -> (Vec<u8>, bool) {
+    match core.read_file_bytes(side, path, false) {
         Ok(content) => (content, true),
         Err(e) => {
             if !quiet {
@@ -207,7 +255,7 @@ fn read_file_tolerant(
                     e
                 );
             }
-            (String::new(), false)
+            (Vec::new(), false)
         }
     }
 }
