@@ -151,6 +151,8 @@ pub struct AppState {
     pub showing_ref_diff: bool,
     /// コンフリクト情報キャッシュ（パス → ConflictInfo）
     pub conflict_cache: HashMap<String, crate::diff::conflict::ConflictInfo>,
+    /// Agent が接続済みのサーバ名の集合（UI 表示用）
+    pub agent_connected_servers: HashSet<String>,
 }
 
 impl AppState {
@@ -222,6 +224,7 @@ impl AppState {
             ref_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
             showing_ref_diff: false,
             conflict_cache: HashMap::new(),
+            agent_connected_servers: HashSet::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -254,6 +257,17 @@ impl AppState {
     /// ref diff 表示中かどうか
     pub fn is_showing_ref_diff(&self) -> bool {
         self.showing_ref_diff
+    }
+
+    /// Agent 接続状態を同期する。
+    ///
+    /// `connected_names` に含まれるサーバ名を `agent_connected_servers` に設定する。
+    /// CoreRuntime の agent_clients.keys() を渡す想定。
+    pub fn sync_agent_status<'a>(&mut self, connected_names: impl Iterator<Item = &'a String>) {
+        self.agent_connected_servers.clear();
+        for name in connected_names {
+            self.agent_connected_servers.insert(name.clone());
+        }
     }
 
     /// reference サーバをクリアする
@@ -374,5 +388,29 @@ mod tests {
             crate::theme::DEFAULT_THEME,
         );
         assert!(!state.is_remote_to_remote());
+    }
+
+    #[test]
+    fn test_sync_agent_status() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert!(state.agent_connected_servers.is_empty());
+
+        // サーバ名を同期
+        let names = ["develop".to_string(), "staging".to_string()];
+        state.sync_agent_status(names.iter());
+        assert_eq!(state.agent_connected_servers.len(), 2);
+        assert!(state.agent_connected_servers.contains("develop"));
+        assert!(state.agent_connected_servers.contains("staging"));
+
+        // 空で再同期するとクリアされる
+        let empty: Vec<String> = vec![];
+        state.sync_agent_status(empty.iter());
+        assert!(state.agent_connected_servers.is_empty());
     }
 }

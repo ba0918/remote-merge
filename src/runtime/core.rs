@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::os::unix::net::UnixStream;
 
 use crate::agent::client::AgentClient;
+use crate::agent::deploy::{self, VersionCheck};
+use crate::agent::ssh_transport::{SshAgentTransport, TransportGuard};
 use crate::config::{AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
 use crate::tree::FileTree;
@@ -25,6 +27,9 @@ pub struct CoreRuntime {
     pub config: AppConfig,
     /// サーバ名 -> Agent クライアントのマップ（Agent 利用可能時のみ登録）
     pub(crate) agent_clients: HashMap<String, BoxedAgentClient>,
+    /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
+    #[cfg(unix)]
+    transport_guards: HashMap<String, TransportGuard>,
 }
 
 impl CoreRuntime {
@@ -34,6 +39,8 @@ impl CoreRuntime {
             ssh_clients: HashMap::new(),
             config,
             agent_clients: HashMap::new(),
+            #[cfg(unix)]
+            transport_guards: HashMap::new(),
         }
     }
 
@@ -102,17 +109,152 @@ impl CoreRuntime {
 
     /// SSH exec 経由で Agent プロセスを起動し、AgentClient を返す。
     ///
-    /// 現時点ではスタブ実装。SSH チャネルの async ↔ sync ブリッジは
-    /// `agent::ssh_transport` モジュールで別途実装予定。
+    /// 1. バージョンチェック → 不一致または未配置なら自動デプロイ
+    /// 2. SSH exec チャネルで Agent プロセスを起動
+    /// 3. SshAgentTransport でブリッジスレッドを起動し、UnixStream ペアを取得
+    /// 4. AgentClient::connect でハンドシェイク
+    #[cfg(unix)]
+    fn start_agent_via_ssh(&mut self, server_name: &str) -> anyhow::Result<BoxedAgentClient> {
+        // サーバー設定を取得（借用を先に解決）
+        let server_config = self.get_server_config(server_name)?;
+        let user = server_config.user.clone();
+        let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let deploy_dir = self.config.agent.deploy_dir.clone();
+
+        // リモートバイナリパスを計算
+        let remote_path = deploy::remote_binary_path(&deploy_dir, &user);
+        tracing::debug!(
+            "Agent deploy target: server={}, path={}",
+            server_name,
+            remote_path.display()
+        );
+
+        // バージョンチェック
+        let version_cmd = deploy::check_version_command(&remote_path);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let version_output = self.rt.block_on(ssh_client.exec(&version_cmd))?;
+        let version_check = deploy::parse_version_output(&version_output);
+
+        match &version_check {
+            VersionCheck::Match => {
+                tracing::info!("Agent binary version matches: server={}", server_name);
+            }
+            VersionCheck::Mismatch { remote_version } => {
+                tracing::info!(
+                    "Agent binary version mismatch: server={}, remote={}",
+                    server_name,
+                    remote_version
+                );
+            }
+            VersionCheck::NotFound => {
+                tracing::info!("Agent binary not found: server={}", server_name);
+            }
+        }
+
+        // デプロイが必要な場合
+        if version_check != VersionCheck::Match {
+            self.deploy_agent_binary(server_name, &remote_path)?;
+        }
+
+        // Agent プロセスを起動
+        let agent_command = deploy::build_agent_command(&remote_path, &root_dir);
+        tracing::debug!(
+            "Starting agent: server={}, command={}",
+            server_name,
+            agent_command
+        );
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let channel = self
+            .rt
+            .block_on(ssh_client.open_exec_channel(&agent_command))?;
+
+        // ブリッジスレッドを起動し、UnixStream ペアを取得
+        let handle = self.rt.handle().clone();
+        let transport = SshAgentTransport::start(handle, channel)?;
+        let (read_stream, write_stream, guard) = transport.into_streams();
+
+        // AgentClient を接続（ハンドシェイク）
+        let client = AgentClient::connect(read_stream, write_stream)?;
+        tracing::info!(
+            "Agent client connected: server={}, protocol_version={}",
+            server_name,
+            client.protocol_version()
+        );
+
+        // TransportGuard を保持してブリッジスレッドのライフサイクルを管理
+        self.transport_guards.insert(server_name.to_string(), guard);
+
+        Ok(client)
+    }
+
+    /// Agent バイナリをリモートにデプロイする。
+    ///
+    /// mkdir → symlink チェック → バイナリ転送 → chmod → バージョン検証 の順で実行する。
+    ///
+    /// NOTE: `require_ssh_client` を各ステップで呼び直しているのは Rust の借用チェッカー制約による。
+    /// `&mut self.ssh_clients` と `&self.rt` を同時に借用できないため、各ステップで
+    /// 一時的に借用を解放する必要がある。部分的なデプロイ状態になる可能性はあるが、
+    /// 再実行でリカバリ可能（冪等性あり）。
+    #[cfg(unix)]
+    fn deploy_agent_binary(
+        &mut self,
+        server_name: &str,
+        remote_path: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        let cmds = deploy::build_deploy_commands(remote_path);
+
+        // ディレクトリ作成
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        self.rt.block_on(ssh_client.exec(&cmds.mkdir_cmd))?;
+
+        // シンボリックリンクチェック（セキュリティ対策）
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let symlink_output = self.rt.block_on(ssh_client.exec(&cmds.symlink_check_cmd))?;
+        if !symlink_output.contains("OK") {
+            anyhow::bail!(
+                "Security check failed: {} is a symlink on {}",
+                remote_path.display(),
+                server_name
+            );
+        }
+
+        // ローカルバイナリを読み込み、リモートに転送
+        let local_path = deploy::local_binary_path()?;
+        tracing::info!(
+            "Deploying agent binary: {} -> {}:{}",
+            local_path.display(),
+            server_name,
+            remote_path.display()
+        );
+        let binary_bytes = std::fs::read(&local_path)?;
+        let remote_path_str = remote_path.to_string_lossy().to_string();
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        self.rt
+            .block_on(ssh_client.write_file_bytes(&remote_path_str, &binary_bytes))?;
+
+        // 実行権限を付与
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        self.rt.block_on(ssh_client.exec(&cmds.chmod_cmd))?;
+
+        // デプロイ後のバージョン確認
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let verify_output = self.rt.block_on(ssh_client.exec(&cmds.verify_cmd))?;
+        let verify_check = deploy::parse_version_output(&verify_output);
+        if verify_check != VersionCheck::Match {
+            anyhow::bail!(
+                "Agent deploy verification failed: server={}, output={}",
+                server_name,
+                verify_output.trim()
+            );
+        }
+        tracing::info!("Agent binary deployed successfully: server={}", server_name);
+        Ok(())
+    }
+
+    /// Unix 以外のプラットフォームではエージェントは利用不可
+    #[cfg(not(unix))]
     fn start_agent_via_ssh(&mut self, _server_name: &str) -> anyhow::Result<BoxedAgentClient> {
-        // TODO: SSH exec チャネルで Agent バイナリを起動し、
-        //       UnixStream ペア + ブリッジスレッドで AgentClient を接続する。
-        //       1. remote_binary_path でバイナリパスを決定
-        //       2. バージョンチェック → 不一致なら SCP デプロイ
-        //       3. SSH exec で Agent 起動
-        //       4. SshAgentTransport でストリームペアを取得
-        //       5. AgentClient::connect で handshake
-        anyhow::bail!("Agent SSH transport not yet implemented")
+        anyhow::bail!("Agent SSH transport is only supported on Unix platforms")
     }
 
     /// Agent が利用可能か（接続済みか）を返す
@@ -132,6 +274,9 @@ impl CoreRuntime {
                 tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
             }
         }
+        // TransportGuard を drop してブリッジスレッドをシャットダウン
+        #[cfg(unix)]
+        self.transport_guards.remove(server_name);
     }
 
     /// Agent 操作が失敗した場合に呼ばれる。Agent を無効化して SSH フォールバックに切り替える。
@@ -145,6 +290,9 @@ impl CoreRuntime {
                 server_name
             );
         }
+        // TransportGuard を drop してブリッジスレッドをシャットダウン
+        #[cfg(unix)]
+        self.transport_guards.remove(server_name);
     }
 
     /// SSH 接続を確立する
@@ -310,6 +458,19 @@ impl CoreRuntime {
     }
 }
 
+/// ssh_clients マップから指定サーバの SSH クライアントを取得する。
+///
+/// `CoreRuntime` のメソッド内で `self.rt` と `self.ssh_clients` を
+/// 同時に借用する必要がある場合に、借用分離のためにフリー関数として提供する。
+fn require_ssh_client<'a>(
+    clients: &'a mut HashMap<String, SshClient>,
+    server_name: &str,
+) -> anyhow::Result<&'a mut SshClient> {
+    clients
+        .get_mut(server_name)
+        .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))
+}
+
 impl Drop for CoreRuntime {
     fn drop(&mut self) {
         let has_connections = !self.ssh_clients.is_empty() || !self.agent_clients.is_empty();
@@ -411,12 +572,49 @@ mod tests {
     }
 
     #[test]
-    fn test_try_start_agent_stub_returns_false() {
-        // Agent 有効だが start_agent_via_ssh がスタブ → フォールバックで Ok(false)
+    fn test_try_start_agent_no_ssh_client_returns_false() {
+        // Agent 有効だが SSH クライアント未接続 → フォールバックで Ok(false)
         let mut runtime = CoreRuntime::new_for_test();
         let result = runtime.try_start_agent("develop").unwrap();
         assert!(!result);
         assert!(!runtime.has_agent("develop"));
+    }
+
+    #[test]
+    fn test_start_agent_via_ssh_no_server_config() {
+        // サーバー設定が無い場合はエラー
+        let mut runtime = CoreRuntime::new_for_test();
+        let result = runtime.start_agent_via_ssh("nonexistent");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("not found"),
+            "should report server not found"
+        );
+    }
+
+    #[test]
+    fn test_start_agent_via_ssh_no_ssh_connection() {
+        // サーバー設定はあるが SSH 未接続 → get_client でエラー
+        use std::path::PathBuf;
+        let mut runtime = CoreRuntime::new_for_test();
+        runtime.config.servers.insert(
+            "test-server".to_string(),
+            crate::config::ServerConfig {
+                host: "localhost".to_string(),
+                port: 22,
+                user: "testuser".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: PathBuf::from("/var/www"),
+                ssh_options: None,
+            },
+        );
+        let result = runtime.start_agent_via_ssh("test-server");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("not connected"),
+            "should report SSH not connected"
+        );
     }
 
     #[test]

@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 
 // ── status ──
 
+/// Agent 接続状態
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentStatus {
+    Connected,
+    Fallback,
+}
+
 /// status コマンドの出力
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusOutput {
@@ -14,6 +22,9 @@ pub struct StatusOutput {
     pub right: SourceInfo,
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<SourceInfo>,
+    /// Agent 接続状態
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<FileStatus>>,
     pub summary: StatusSummary,
@@ -227,6 +238,7 @@ mod tests {
                 root: "dev.example.com:/var/www/app".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(vec![FileStatus {
                 path: "src/config.ts".into(),
                 status: FileStatusKind::Modified,
@@ -277,6 +289,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             ref_: None,
+            agent: None,
             files: None,
             summary: StatusSummary {
                 modified: 2,
@@ -394,6 +407,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(vec![]),
             summary: StatusSummary::default(),
         };
@@ -401,6 +415,26 @@ mod tests {
         let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.left.label, "local");
         assert_eq!(parsed.right.label, "dev");
+    }
+
+    #[test]
+    fn test_agent_status_serialize() {
+        let connected = AgentStatus::Connected;
+        let json = serde_json::to_string(&connected).unwrap();
+        assert_eq!(json, "\"connected\"");
+
+        let fallback = AgentStatus::Fallback;
+        let json = serde_json::to_string(&fallback).unwrap();
+        assert_eq!(json, "\"fallback\"");
+    }
+
+    #[test]
+    fn test_agent_status_deserialize() {
+        let connected: AgentStatus = serde_json::from_str("\"connected\"").unwrap();
+        assert_eq!(connected, AgentStatus::Connected);
+
+        let fallback: AgentStatus = serde_json::from_str("\"fallback\"").unwrap();
+        assert_eq!(fallback, AgentStatus::Fallback);
     }
 
     // ── ref field serialization ──
@@ -420,6 +454,7 @@ mod tests {
                 label: "staging".into(),
                 root: "stg:/var/www".into(),
             }),
+            agent: None,
             files: None,
             summary: StatusSummary {
                 modified: 1,
@@ -451,6 +486,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             ref_: None,
+            agent: None,
             files: None,
             summary: StatusSummary::default(),
         };
@@ -672,6 +708,7 @@ mod tests {
                 label: "staging".into(),
                 root: "/s".into(),
             }),
+            agent: None,
             files: Some(vec![]),
             summary: StatusSummary {
                 modified: 0,

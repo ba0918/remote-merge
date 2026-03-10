@@ -39,6 +39,9 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     state.showing_ref_diff = false;
     state.clear_scan_cache();
 
+    // Agent 接続状態を同期
+    state.sync_agent_status(runtime.core.agent_clients.keys());
+
     // reference サーバのキャッシュ・ツリーをクリアして再取得
     if state.ref_source.is_some() {
         state.ref_tree = None;
@@ -429,6 +432,9 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
     };
 
     state.switch_server(new_side, tree);
+
+    // Agent 接続状態を同期
+    state.sync_agent_status(runtime.core.agent_clients.keys());
 
     // reference サーバを自動再選択 + ツリー取得
     // 注: left/right と同じ深さ（浅いスキャン）で取得する

@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::AppConfig;
@@ -20,7 +21,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
-    refine_status_with_content, status_exit_code,
+    needs_content_compare_all, refine_status_with_content, status_exit_code,
 };
 use crate::service::types::FileStatusKind;
 
@@ -35,6 +36,8 @@ pub struct StatusArgs {
     pub format: String,
     pub summary: bool,
     pub all: bool,
+    /// 全ファイルのコンテンツ比較を強制する（メタデータベースの quick check をバイパス）
+    pub checksum: bool,
 }
 
 /// status サブコマンドを実行する
@@ -65,7 +68,12 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut files = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // コンテンツ比較が必要なファイルを抽出
-    let paths_to_compare = needs_content_compare(&files, &left_tree, &right_tree);
+    // --checksum: 全ファイルを比較（メタデータ quick check をバイパス）
+    let paths_to_compare = if args.checksum {
+        needs_content_compare_all(&files)
+    } else {
+        needs_content_compare(&files, &left_tree, &right_tree)
+    };
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
@@ -146,6 +154,10 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         ref_info,
         ref_badges.as_ref(),
     );
+
+    // Agent 接続状態を設定
+    output.agent = determine_agent_status(&pair.right, &core);
+
     let code = status_exit_code(&output.summary);
 
     // Filter out Equal files unless --all is specified
@@ -160,6 +172,26 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// 右側ソースの Agent 接続状態を判定する。
+///
+/// リモートサーバの場合のみ判定し、ローカルの場合は None を返す。
+fn determine_agent_status(
+    right: &Side,
+    core: &CoreRuntime,
+) -> Option<crate::service::types::AgentStatus> {
+    use crate::service::types::AgentStatus;
+    match right.server_name() {
+        Some(name) => {
+            if core.has_agent(name) {
+                Some(AgentStatus::Connected)
+            } else {
+                Some(AgentStatus::Fallback)
+            }
+        }
+        None => None, // ローカル同士の比較
+    }
 }
 
 /// StatusOutput から Equal ファイルを除外する。
@@ -199,6 +231,7 @@ mod tests {
                 root: "dev:/app".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(files),
             summary,
         }
@@ -225,6 +258,22 @@ mod tests {
         ]);
         super::filter_equal_files(&mut output, true);
         assert_eq!(output.files.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_determine_agent_status_remote_no_agent() {
+        let core = crate::runtime::CoreRuntime::new_for_test();
+        let side = crate::app::Side::Remote("develop".to_string());
+        let result = super::determine_agent_status(&side, &core);
+        assert_eq!(result, Some(crate::service::types::AgentStatus::Fallback));
+    }
+
+    #[test]
+    fn test_determine_agent_status_local() {
+        let core = crate::runtime::CoreRuntime::new_for_test();
+        let side = crate::app::Side::Local;
+        let result = super::determine_agent_status(&side, &core);
+        assert_eq!(result, None);
     }
 
     #[test]

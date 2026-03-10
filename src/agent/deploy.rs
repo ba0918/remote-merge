@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
 use super::protocol::PROTOCOL_VERSION;
+use crate::ssh::tree_parser::shell_escape;
 
 /// デプロイ先のディレクトリパス（デフォルト: /var/tmp）
 pub const DEFAULT_DEPLOY_DIR: &str = "/var/tmp";
@@ -82,6 +83,59 @@ pub fn parse_version_output(output: &str) -> VersionCheck {
 /// ローカルの実行バイナリパスを取得する
 pub fn local_binary_path() -> Result<PathBuf> {
     std::env::current_exe().map_err(|e| anyhow::anyhow!("failed to get current exe path: {e}"))
+}
+
+/// デプロイ結果
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeployResult {
+    /// デプロイ先のリモートパス
+    pub remote_path: PathBuf,
+    /// true ならバイナリ転送が発生した
+    pub deployed: bool,
+    /// リモートでエージェントを起動するコマンド
+    pub agent_command: String,
+}
+
+/// デプロイ時に必要な一連のコマンド
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeployCommands {
+    /// デプロイディレクトリを作成するコマンド
+    pub mkdir_cmd: String,
+    /// シンボリックリンクでないことを確認するコマンド
+    pub symlink_check_cmd: String,
+    /// 実行権限を付与するコマンド
+    pub chmod_cmd: String,
+    /// デプロイ後のバージョン確認コマンド
+    pub verify_cmd: String,
+}
+
+/// リモートのバージョンチェック用 SSH コマンドを生成する。
+/// バイナリが存在しない場合は `__NOT_FOUND__` を返す。
+pub fn check_version_command(remote_path: &Path) -> String {
+    let escaped = shell_escape(&remote_path.to_string_lossy());
+    format!("{escaped} --version 2>/dev/null || echo __NOT_FOUND__")
+}
+
+/// デプロイに必要なコマンド群を生成する。
+/// 各コマンドは個別に SSH exec で実行されることを想定。
+pub fn build_deploy_commands(remote_path: &Path) -> DeployCommands {
+    let escaped = shell_escape(&remote_path.to_string_lossy());
+    let parent = remote_path.parent().unwrap_or(Path::new("/"));
+    let escaped_parent = shell_escape(&parent.to_string_lossy());
+
+    DeployCommands {
+        mkdir_cmd: format!("mkdir -p {escaped_parent}"),
+        symlink_check_cmd: format!("test -L {escaped} && echo SYMLINK || echo OK"),
+        chmod_cmd: format!("chmod +x {escaped}"),
+        verify_cmd: format!("{escaped} --version"),
+    }
+}
+
+/// エージェント起動コマンドを生成する。
+pub fn build_agent_command(remote_path: &Path, root_dir: &str) -> String {
+    let escaped_path = shell_escape(&remote_path.to_string_lossy());
+    let escaped_root = shell_escape(root_dir);
+    format!("{escaped_path} agent --root {escaped_root}")
 }
 
 // ---------------------------------------------------------------------------
@@ -177,5 +231,97 @@ mod tests {
         let config = DeployConfig::default();
         assert_eq!(config.deploy_dir, "/var/tmp");
         assert_eq!(config.timeout_secs, 30);
+    }
+
+    // --- DeployResult ---
+
+    #[test]
+    fn deploy_result_fields() {
+        let result = DeployResult {
+            remote_path: PathBuf::from("/var/tmp/remote-merge-user/remote-merge"),
+            deployed: true,
+            agent_command: "'/var/tmp/remote-merge-user/remote-merge' agent --root '/app'".into(),
+        };
+        assert!(result.deployed);
+        assert!(result.agent_command.contains("agent --root"));
+    }
+
+    // --- check_version_command ---
+
+    #[test]
+    fn check_version_command_basic() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmd = check_version_command(&path);
+        assert_eq!(
+            cmd,
+            "'/var/tmp/remote-merge-user/remote-merge' --version 2>/dev/null || echo __NOT_FOUND__"
+        );
+    }
+
+    #[test]
+    fn check_version_command_escapes_special_chars() {
+        let path = PathBuf::from("/opt/my dir/remote-merge");
+        let cmd = check_version_command(&path);
+        assert!(cmd.starts_with("'/opt/my dir/remote-merge'"));
+        assert!(cmd.contains("__NOT_FOUND__"));
+    }
+
+    // --- build_deploy_commands ---
+
+    #[test]
+    fn build_deploy_commands_basic() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/var/tmp/remote-merge-user'");
+        assert_eq!(
+            cmds.symlink_check_cmd,
+            "test -L '/var/tmp/remote-merge-user/remote-merge' && echo SYMLINK || echo OK"
+        );
+        assert_eq!(
+            cmds.chmod_cmd,
+            "chmod +x '/var/tmp/remote-merge-user/remote-merge'"
+        );
+        assert_eq!(
+            cmds.verify_cmd,
+            "'/var/tmp/remote-merge-user/remote-merge' --version"
+        );
+    }
+
+    #[test]
+    fn build_deploy_commands_custom_dir() {
+        let path = PathBuf::from("/opt/tools/bin/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/opt/tools/bin'");
+    }
+
+    // --- build_agent_command ---
+
+    #[test]
+    fn build_agent_command_basic() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmd = build_agent_command(&path, "/var/www/app");
+        assert_eq!(
+            cmd,
+            "'/var/tmp/remote-merge-user/remote-merge' agent --root '/var/www/app'"
+        );
+    }
+
+    #[test]
+    fn build_agent_command_escapes_root_dir() {
+        let path = PathBuf::from("/var/tmp/rm/remote-merge");
+        let cmd = build_agent_command(&path, "/var/www/my app");
+        assert_eq!(
+            cmd,
+            "'/var/tmp/rm/remote-merge' agent --root '/var/www/my app'"
+        );
+    }
+
+    #[test]
+    fn build_agent_command_with_quotes_in_path() {
+        let path = PathBuf::from("/var/tmp/rm/remote-merge");
+        let cmd = build_agent_command(&path, "/var/www/it's");
+        // shell_escape は ' を '\'' にエスケープする
+        assert!(cmd.contains("agent --root"));
+        assert!(cmd.contains("it"));
     }
 }

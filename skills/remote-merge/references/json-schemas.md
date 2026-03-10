@@ -6,19 +6,28 @@
 {
   "left":  { "label": "local", "root": "/home/user/app" },
   "right": { "label": "develop", "root": "dev:/var/www/app" },
+  "ref":   { "label": "staging", "root": "stg:/var/www/app" },
+  "agent": "connected",
   "files": [
     { "path": "src/config.ts", "status": "modified", "sensitive": false, "hunks": null },
     { "path": ".env", "status": "modified", "sensitive": true, "hunks": null }
   ],
-  "summary": { "modified": 2, "left_only": 0, "right_only": 1, "equal": 10 }
+  "summary": { "modified": 2, "left_only": 0, "right_only": 1, "equal": 10, "ref_differs": 1, "ref_only": 0, "ref_missing": 0 }
 }
 ```
 
 File status values: `modified`, `left_only`, `right_only`, `equal`.
 
+Optional fields (omitted when null/not applicable):
+- `ref` — reference server info (present only with `--ref`)
+- `agent` — Agent connection status: `"connected"` or `"fallback"` (present only for remote servers)
+- `summary.ref_differs`, `summary.ref_only`, `summary.ref_missing` — reference comparison counts (present only with `--ref`)
+
 With `--summary`, `files` is omitted.
 
 With `--all`, Equal files are included in `files`. By default, Equal files are excluded.
+
+With `--checksum`, all files are compared by content regardless of mtime/size. Files that appear `equal` by metadata may become `modified`.
 
 ## diff
 

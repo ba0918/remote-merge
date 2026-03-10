@@ -163,22 +163,42 @@ pub fn needs_content_compare(
         .collect()
 }
 
+/// 全ファイルのコンテンツ比較が必要なパスを抽出する（--checksum 用）。
+///
+/// 両側に存在するファイル（Modified または Equal）をすべて返す。
+/// メタデータで Equal と判定されたファイルも含めて再比較する。
+pub fn needs_content_compare_all(files: &[FileStatus]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|f| f.status == FileStatusKind::Modified || f.status == FileStatusKind::Equal)
+        .map(|f| f.path.clone())
+        .collect()
+}
+
 /// コンテンツ比較結果で FileStatus を更新する（純粋関数）。
 ///
 /// `contents` には左右のバイト列ペアが格納されている。
 /// バイト列が完全一致すれば Equal、異なれば Modified のまま。
 /// バイナリファイルでも lossy 変換なしで正しく比較できる。
+///
+/// Modified と Equal の両方を対象とする。--checksum モード使用時、
+/// タイムスタンプベースで Equal だったファイルが実際のコンテンツ比較で
+/// Modified に変更される場合がある。呼び出し元は適切なファイルのみを
+/// contents マップに含めること。
 pub fn refine_status_with_content(
     files: &mut [FileStatus],
     contents: &std::collections::HashMap<String, (Vec<u8>, Vec<u8>)>,
 ) {
     for file in files.iter_mut() {
-        if file.status != FileStatusKind::Modified {
+        // LeftOnly / RightOnly はコンテンツ比較対象外
+        if file.status != FileStatusKind::Modified && file.status != FileStatusKind::Equal {
             continue;
         }
         if let Some((left_bytes, right_bytes)) = contents.get(&file.path) {
             if left_bytes == right_bytes {
                 file.status = FileStatusKind::Equal;
+            } else {
+                file.status = FileStatusKind::Modified;
             }
         }
     }
@@ -292,6 +312,7 @@ pub fn build_status_output(
         left: left_info,
         right: right_info,
         ref_: ref_info,
+        agent: None,
         files: if summary_only {
             None
         } else {
@@ -634,7 +655,57 @@ mod tests {
         assert!(need_compare.contains(&"b.rs".to_string()));
     }
 
+    // ── needs_content_compare_all ──
+
+    #[test]
+    fn test_needs_content_compare_all_includes_equal() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let left = make_tree(vec![
+            make_file_with_meta("a.rs", 100, Some(ts)),
+            make_file_with_meta("b.rs", 200, Some(ts)),
+        ]);
+        let right = make_tree(vec![
+            make_file_with_meta("a.rs", 100, Some(ts)), // Equal by metadata
+            make_file_with_meta("b.rs", 999, Some(ts)), // Modified by size
+        ]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        // needs_content_compare_all は Equal + Modified の両方を返す
+        let all = needs_content_compare_all(&files);
+        assert!(all.contains(&"a.rs".to_string())); // Equal
+        assert!(all.contains(&"b.rs".to_string())); // Modified
+    }
+
+    #[test]
+    fn test_needs_content_compare_all_excludes_left_right_only() {
+        let left = make_tree(vec![FileNode::new_file("only_left.rs")]);
+        let right = make_tree(vec![FileNode::new_file("only_right.rs")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        let all = needs_content_compare_all(&files);
+        assert!(all.is_empty());
+    }
+
     // ── refine_status_with_content ──
+
+    #[test]
+    fn test_refine_status_equal_to_modified_when_content_differs() {
+        // --checksum 用: メタデータで Equal だが内容が異なるファイルを Modified に変更
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"old content".to_vec(), b"new content".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
 
     #[test]
     fn test_refine_status_equal_when_content_matches() {

@@ -277,6 +277,32 @@ impl SshClient {
         Ok(result.stdout)
     }
 
+    /// Agent プロセス起動用の exec チャネルを開く。
+    ///
+    /// コマンドを実行し、チャネルを返す。チャネルの stdout/stdin は
+    /// Agent プロトコル通信に使われる。
+    ///
+    /// 通常の `exec()` と異なり、チャネルの出力を消費せずにそのまま返す。
+    pub async fn open_exec_channel(
+        &mut self,
+        command: &str,
+    ) -> crate::error::Result<russh::Channel<russh::client::Msg>> {
+        let channel = self.open_channel_with_retry().await?;
+
+        channel.exec(true, command).await.map_err(|e| {
+            tracing::debug!(
+                "SSH exec failed for agent channel: cmd={}, error={}",
+                command,
+                e
+            );
+            AppError::SshExec {
+                command: command.to_string(),
+            }
+        })?;
+
+        Ok(channel)
+    }
+
     /// ディレクトリ取得のデフォルトタイムアウト（秒）
     pub const DIR_TIMEOUT_SECS: u64 = 30;
     /// ディレクトリ取得のデフォルト最大エントリ数

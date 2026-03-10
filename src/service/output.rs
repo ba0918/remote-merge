@@ -103,6 +103,15 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
         ));
     }
 
+    // Agent 接続状態
+    if let Some(agent) = output.agent {
+        let label = match agent {
+            AgentStatus::Connected => "Agent: connected",
+            AgentStatus::Fallback => "Agent: fallback (SSH exec)",
+        };
+        lines.push(label.to_string());
+    }
+
     lines.join("\n")
 }
 
@@ -354,6 +363,7 @@ mod tests {
                 root: "dev:/var/www".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(vec![
                 FileStatus {
                     path: "src/config.ts".into(),
@@ -406,6 +416,45 @@ mod tests {
     }
 
     #[test]
+    fn test_format_status_text_agent_connected() {
+        let mut output = sample_status();
+        output.agent = Some(AgentStatus::Connected);
+        let text = format_status_text(&output, false);
+        assert!(text.contains("Agent: connected"));
+    }
+
+    #[test]
+    fn test_format_status_text_agent_fallback() {
+        let mut output = sample_status();
+        output.agent = Some(AgentStatus::Fallback);
+        let text = format_status_text(&output, false);
+        assert!(text.contains("Agent: fallback (SSH exec)"));
+    }
+
+    #[test]
+    fn test_format_status_text_no_agent() {
+        let output = sample_status();
+        let text = format_status_text(&output, false);
+        assert!(!text.contains("Agent:"));
+    }
+
+    #[test]
+    fn test_status_json_agent_field() {
+        let mut output = sample_status();
+        output.agent = Some(AgentStatus::Connected);
+        let json = format_json(&output).unwrap();
+        assert!(json.contains("\"agent\""));
+        assert!(json.contains("\"connected\""));
+    }
+
+    #[test]
+    fn test_status_json_no_agent_field_when_none() {
+        let output = sample_status();
+        let json = format_json(&output).unwrap();
+        assert!(!json.contains("\"agent\""));
+    }
+
+    #[test]
     fn test_format_status_text_with_hunks() {
         let output = StatusOutput {
             left: SourceInfo {
@@ -417,6 +466,7 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(vec![FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
@@ -565,6 +615,7 @@ mod tests {
                 label: "staging".into(),
                 root: "/s".into(),
             }),
+            agent: None,
             files: Some(vec![
                 FileStatus {
                     path: "a.rs".into(),
@@ -618,6 +669,7 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
+            agent: None,
             files: Some(vec![FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
@@ -956,6 +1008,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/d".into(),
             }),
+            agent: None,
             files: Some(vec![]),
             summary: StatusSummary::default(),
         };

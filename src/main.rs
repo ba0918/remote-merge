@@ -78,6 +78,9 @@ enum Commands {
         /// Include equal files in output (default: omitted)
         #[arg(long)]
         all: bool,
+        /// Force content comparison for all files (bypass mtime/size quick check)
+        #[arg(long)]
+        checksum: bool,
     },
 
     /// Show diff for file(s) or directory
@@ -199,6 +202,7 @@ fn try_main() -> anyhow::Result<()> {
             format,
             summary,
             all,
+            checksum,
         }) => {
             let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
             let code = remote_merge::cli::status::run_status(
@@ -209,6 +213,7 @@ fn try_main() -> anyhow::Result<()> {
                     format,
                     summary,
                     all,
+                    checksum,
                 },
                 cfg,
             )?;

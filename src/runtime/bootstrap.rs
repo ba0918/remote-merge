@@ -58,6 +58,9 @@ pub fn bootstrap_tui(
     app_state.exclude_patterns = config.filter.exclude.clone();
     app_state.sensitive_patterns = config.filter.sensitive.clone();
 
+    // Agent 接続状態を同期
+    app_state.sync_agent_status(runtime.core.agent_clients.keys());
+
     if !is_connected {
         app_state.status_message = format!("{} (offline) | s: server | q: quit", label);
     }

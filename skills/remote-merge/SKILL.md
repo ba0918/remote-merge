@@ -40,6 +40,7 @@ Options:
 - `--summary` — counts only (saves tokens), omits `files` array
 - `--left <side> --right <side>` — specify comparison sides (e.g., `local`, `develop`, `staging`, `release`)
 - `--all` — include Equal files in output (by default, Equal files are excluded)
+- `--checksum` — force content comparison for all files (bypass mtime/size quick check). Useful when timestamps are unreliable.
 
 ### 2. Inspect diffs
 

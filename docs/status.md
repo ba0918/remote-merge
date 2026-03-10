@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 21:00:00
+**Last Updated:** 2026-03-10 21:11:33
 
 ---
 
@@ -8,17 +8,23 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260310190552` |
-| **Feature** | Remote Agent Protocol（高速メタデータ一括取得 + Quick Check） |
-| **Started** | 2026-03-10 19:05:52 |
-| **Completed** | 2026-03-10 |
-| **Phase** | 🟢 Completed |
-| **Plan** | [docs/cycles/20260310190552_remote-agent-protocol.md](./cycles/20260310190552_remote-agent-protocol.md) |
+| **Cycle ID** | `20260310211133` |
+| **Feature** | Agent SSH Transport + Quick Check + TUI/CLI 統合 |
+| **Started** | 2026-03-10 21:11:33 |
+| **Phase** | 🟡 Planning |
+| **Plan** | [docs/cycles/20260310211133_agent-ssh-transport-and-quick-check.md](./cycles/20260310211133_agent-ssh-transport-and-quick-check.md) |
 
-**Summary:**
-Agent プロトコル基盤 Cycle 1 完了。protocol/framing/tree_scan/file_io/dispatch/server/client/deploy/config/CLI の11モジュール新規作成。CoreRuntime + side_io.rs に Agent-first-SSH-fallback パターンを統合。152テスト追加（合計1319テスト）。ssh_transport は Cycle 2 で実装予定。
+**Current Focus:**
+Cycle 1 で構築した Agent プロトコル基盤を SSH 経由で動作させる。SSH exec↔sync ブリッジ、バイナリデプロイ、Quick Check、TUI/CLI 統合。
 
 ---
+
+### 20260310190552 - Remote Agent Protocol（高速メタデータ一括取得 + Quick Check）
+- **Started:** 2026-03-10 19:05:52
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310190552_remote-agent-protocol.md)
+- **Summary:** Agent プロトコル基盤 Cycle 1 完了。protocol/framing/tree_scan/file_io/dispatch/server/client/deploy/config/CLI の11モジュール新規作成。152テスト追加（合計1319テスト）。
 
 ### 20260310154632 - 再接続後ディレクトリマージで [3-] バッジ不具合修正
 - **Started:** 2026-03-10 15:46:32
@@ -495,8 +501,7 @@ Agent プロトコル基盤 Cycle 1 完了。protocol/framing/tree_scan/file_io/
 |------------|------|------|
 | **A** | プロトコル基盤 + agent サブコマンド | 🟢 Done |
 | **B** | クライアント + デプロイ + 統合 | 🟢 Done |
-| **C** | SSH Transport（async↔sync ブリッジ） | ⚪ Pending |
-| **D** | Quick Check + TUI統合 | ⚪ Pending |
+| **C** | SSH Transport + Quick Check + TUI/CLI統合 | 🟡 In Progress |
 
 ---
 
