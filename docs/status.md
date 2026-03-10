@@ -1,10 +1,17 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 23:33:45
+**Last Updated:** 2026-03-11 00:00:08
 
 ---
 
 ## 🎯 Current Session
+
+### 20260311000008 - Agent デプロイ堅牢性強化
+- **Started:** 2026-03-11 00:00:08
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311000008_agent-deploy-robustness.md)
+
+---
 
 ### 20260310233345 - SSH 大容量ファイル書き込みバグ修正
 - **Started:** 2026-03-10 23:33:45
