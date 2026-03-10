@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Result};
+use sha2::{Digest, Sha256};
 
 use super::protocol::PROTOCOL_VERSION;
 use crate::ssh::tree_parser::shell_escape;
@@ -145,12 +146,20 @@ pub struct DeployCommands {
     pub mkdir_cmd: String,
     /// シンボリックリンクでないことを確認するコマンド
     pub symlink_check_cmd: String,
-    /// 実行権限を付与するコマンド（所有者のみ rwx）
+    /// 実行権限を付与するコマンド（所有者のみ rwx、.tmp パスに対して実行）
     pub chmod_cmd: String,
-    /// デプロイ後のバージョン確認コマンド
+    /// デプロイ後のバージョン確認コマンド（.tmp パスに対して実行）
     pub verify_cmd: String,
-    /// デプロイ後のチェックサム確認コマンド
+    /// デプロイ後のチェックサム確認コマンド（.tmp パスに対して、フォールバック付き）
     pub checksum_cmd: String,
+    /// Temporary file path used during atomic write (`{remote_path}.tmp`).
+    ///
+    /// **Not shell-escaped.** Apply `shell_escape()` before embedding in shell commands.
+    pub tmp_path: String,
+    /// Command to atomically move the temp file to the final path
+    pub mv_cmd: String,
+    /// Command to clean up the temp file on failure
+    pub rm_tmp_cmd: String,
 }
 
 /// リモートのバージョンチェック用 SSH コマンドを生成する。
@@ -162,17 +171,27 @@ pub fn check_version_command(remote_path: &Path) -> String {
 
 /// デプロイに必要なコマンド群を生成する。
 /// 各コマンドは個別に SSH exec で実行されることを想定。
+/// chmod / verify / checksum は `.tmp` パスに対して実行し、
+/// 検証完了後に `mv` で本番パスへ atomic に移動する。
 pub fn build_deploy_commands(remote_path: &Path) -> DeployCommands {
     let escaped = shell_escape(&remote_path.to_string_lossy());
     let parent = remote_path.parent().unwrap_or(Path::new("/"));
     let escaped_parent = shell_escape(&parent.to_string_lossy());
 
+    let tmp_path = format!("{}.tmp", remote_path.display());
+    let escaped_tmp = shell_escape(&tmp_path);
+
     DeployCommands {
         mkdir_cmd: format!("mkdir -p {escaped_parent}"),
         symlink_check_cmd: format!("test -L {escaped} && echo SYMLINK || echo OK"),
-        chmod_cmd: format!("chmod 700 {escaped}"),
-        verify_cmd: format!("{escaped} --version"),
-        checksum_cmd: format!("sha256sum {escaped}"),
+        chmod_cmd: format!("chmod 700 {escaped_tmp}"),
+        verify_cmd: format!("{escaped_tmp} --version"),
+        checksum_cmd: format!(
+            "sha256sum {escaped_tmp} 2>/dev/null || shasum -a 256 {escaped_tmp} 2>/dev/null || echo __UNSUPPORTED__"
+        ),
+        tmp_path,
+        mv_cmd: format!("mv {escaped_tmp} {escaped}"),
+        rm_tmp_cmd: format!("rm -f {escaped_tmp}"),
     }
 }
 
@@ -181,6 +200,71 @@ pub fn build_agent_command(remote_path: &Path, root_dir: &str) -> String {
     let escaped_path = shell_escape(&remote_path.to_string_lossy());
     let escaped_root = shell_escape(root_dir);
     format!("{escaped_path} agent --root {escaped_root}")
+}
+
+/// Parse a remote checksum command output and extract the SHA-256 hex digest.
+///
+/// Returns `Some(hash)` if the first 64 characters are valid hex digits,
+/// `None` otherwise. Handles both GNU (`hash  path`) and BSD (`hash path`) formats.
+pub fn parse_checksum_output(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    if trimmed.len() < 64 {
+        return None;
+    }
+    let candidate = &trimmed[..64];
+    if candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
+}
+
+/// Compare a locally computed SHA-256 hash with a remote one (case-insensitive).
+pub fn verify_checksum(local_hash: &str, remote_hash: &str) -> bool {
+    local_hash.to_lowercase() == remote_hash.to_lowercase()
+}
+
+/// Compute the SHA-256 hash of a byte slice, returning a lowercase hex string.
+pub fn sha256_of_bytes(data: &[u8]) -> String {
+    use std::fmt::Write;
+    let digest = Sha256::digest(data);
+    let mut s = String::with_capacity(64);
+    for b in digest.iter() {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    s
+}
+
+/// Compute the SHA-256 hash of a file on disk (streaming).
+///
+/// Only available in test builds.
+#[cfg(test)]
+pub fn compute_file_sha256(path: &std::path::Path) -> anyhow::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    use std::fmt::Write;
+    let mut s = String::with_capacity(64);
+    for b in digest.iter() {
+        write!(s, "{:02x}", b).unwrap();
+    }
+    Ok(s)
+}
+
+/// Check whether a binary is likely a debug build based on file size.
+///
+/// Returns `true` if `size_bytes` exceeds 50 MB (52_428_800 bytes).
+pub fn is_debug_binary(size_bytes: u64) -> bool {
+    size_bytes > 50 * 1024 * 1024
 }
 
 // ---------------------------------------------------------------------------
@@ -324,15 +408,23 @@ mod tests {
         );
         assert_eq!(
             cmds.chmod_cmd,
-            "chmod 700 '/var/tmp/remote-merge-user/remote-merge'"
+            "chmod 700 '/var/tmp/remote-merge-user/remote-merge.tmp'"
         );
         assert_eq!(
             cmds.verify_cmd,
-            "'/var/tmp/remote-merge-user/remote-merge' --version"
+            "'/var/tmp/remote-merge-user/remote-merge.tmp' --version"
+        );
+        assert!(cmds
+            .checksum_cmd
+            .contains("sha256sum '/var/tmp/remote-merge-user/remote-merge.tmp'"));
+        assert_eq!(cmds.tmp_path, "/var/tmp/remote-merge-user/remote-merge.tmp");
+        assert_eq!(
+            cmds.mv_cmd,
+            "mv '/var/tmp/remote-merge-user/remote-merge.tmp' '/var/tmp/remote-merge-user/remote-merge'"
         );
         assert_eq!(
-            cmds.checksum_cmd,
-            "sha256sum '/var/tmp/remote-merge-user/remote-merge'"
+            cmds.rm_tmp_cmd,
+            "rm -f '/var/tmp/remote-merge-user/remote-merge.tmp'"
         );
     }
 
@@ -341,6 +433,7 @@ mod tests {
         let path = PathBuf::from("/opt/tools/bin/remote-merge");
         let cmds = build_deploy_commands(&path);
         assert_eq!(cmds.mkdir_cmd, "mkdir -p '/opt/tools/bin'");
+        assert_eq!(cmds.tmp_path, "/opt/tools/bin/remote-merge.tmp");
     }
 
     #[test]
@@ -348,7 +441,99 @@ mod tests {
         let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
         let cmds = build_deploy_commands(&path);
         assert!(cmds.checksum_cmd.contains("sha256sum"));
-        assert!(cmds.checksum_cmd.contains("remote-merge"));
+        assert!(cmds.checksum_cmd.contains("remote-merge.tmp"));
+        assert!(cmds.checksum_cmd.contains("shasum -a 256"));
+        assert!(cmds.checksum_cmd.contains("__UNSUPPORTED__"));
+    }
+
+    #[test]
+    fn build_deploy_commands_has_tmp_path() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(cmds.tmp_path, "/var/tmp/rm-user/remote-merge.tmp");
+    }
+
+    #[test]
+    fn build_deploy_commands_has_mv_cmd() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(
+            cmds.mv_cmd,
+            "mv '/var/tmp/rm-user/remote-merge.tmp' '/var/tmp/rm-user/remote-merge'"
+        );
+    }
+
+    #[test]
+    fn build_deploy_commands_has_rm_tmp_cmd() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(cmds.rm_tmp_cmd, "rm -f '/var/tmp/rm-user/remote-merge.tmp'");
+    }
+
+    #[test]
+    fn build_deploy_commands_chmod_targets_tmp() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert!(cmds.chmod_cmd.contains(".tmp"));
+        assert_eq!(
+            cmds.chmod_cmd,
+            "chmod 700 '/var/tmp/rm-user/remote-merge.tmp'"
+        );
+    }
+
+    #[test]
+    fn build_deploy_commands_verify_targets_tmp() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        assert!(cmds.verify_cmd.contains(".tmp"));
+        assert_eq!(
+            cmds.verify_cmd,
+            "'/var/tmp/rm-user/remote-merge.tmp' --version"
+        );
+    }
+
+    #[test]
+    fn build_deploy_commands_checksum_has_fallback() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        // sha256sum || shasum -a 256 || echo __UNSUPPORTED__
+        assert!(cmds.checksum_cmd.contains("sha256sum"));
+        assert!(cmds.checksum_cmd.contains("shasum -a 256"));
+        assert!(cmds.checksum_cmd.contains("echo __UNSUPPORTED__"));
+    }
+
+    #[test]
+    fn build_deploy_commands_existing_tests_still_pass() {
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path);
+        // mkdir_cmd と symlink_check_cmd は本番パスのまま
+        assert_eq!(cmds.mkdir_cmd, "mkdir -p '/var/tmp/rm-user'");
+        assert_eq!(
+            cmds.symlink_check_cmd,
+            "test -L '/var/tmp/rm-user/remote-merge' && echo SYMLINK || echo OK"
+        );
+    }
+
+    #[test]
+    fn build_deploy_commands_with_spaces_in_path() {
+        let path = PathBuf::from("/var/tmp/my dir/remote merge");
+        let cmds = build_deploy_commands(&path);
+        assert_eq!(cmds.tmp_path, "/var/tmp/my dir/remote merge.tmp");
+        assert!(cmds
+            .chmod_cmd
+            .contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(cmds
+            .verify_cmd
+            .contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(cmds.mv_cmd.contains("'/var/tmp/my dir/remote merge'"));
+        assert!(cmds
+            .rm_tmp_cmd
+            .contains("'/var/tmp/my dir/remote merge.tmp'"));
+        assert!(cmds.mkdir_cmd.contains("'/var/tmp/my dir'"));
+        assert!(cmds
+            .symlink_check_cmd
+            .contains("'/var/tmp/my dir/remote merge'"));
     }
 
     // --- build_agent_command ---
@@ -450,4 +635,133 @@ mod tests {
     // TODO: local_binary_path_with_env_override — REMOTE_MERGE_AGENT_BINARY 環境変数を
     // 使ったテストは並列実行で競合するため serial_test クレートが必要。
     // dev-dependencies に serial_test を追加した後に実装する。
+
+    // --- parse_checksum_output ---
+
+    #[test]
+    fn parse_checksum_output_gnu_format() {
+        let hash = "a".repeat(64);
+        let output = format!("{hash}  /path/to/file");
+        assert_eq!(parse_checksum_output(&output), Some(hash));
+    }
+
+    #[test]
+    fn parse_checksum_output_bsd_format() {
+        let hash = "b".repeat(64);
+        let output = format!("{hash} /path/to/file");
+        assert_eq!(parse_checksum_output(&output), Some(hash));
+    }
+
+    #[test]
+    fn parse_checksum_output_binary_mode() {
+        let hash = "c".repeat(64);
+        let output = format!("{hash} */path/to/file");
+        assert_eq!(parse_checksum_output(&output), Some(hash));
+    }
+
+    #[test]
+    fn parse_checksum_output_unsupported() {
+        assert_eq!(parse_checksum_output("__UNSUPPORTED__"), None);
+    }
+
+    #[test]
+    fn parse_checksum_output_empty() {
+        assert_eq!(parse_checksum_output(""), None);
+    }
+
+    #[test]
+    fn parse_checksum_output_error_message() {
+        assert_eq!(parse_checksum_output("sha256sum: command not found"), None);
+    }
+
+    #[test]
+    fn parse_checksum_output_short_hash() {
+        // 63文字のhex — 足りない
+        let hash = "a".repeat(63);
+        assert_eq!(parse_checksum_output(&hash), None);
+    }
+
+    #[test]
+    fn parse_checksum_output_non_hex() {
+        // 64文字だが 'g' を含む
+        let hash = format!("{}g", "a".repeat(63));
+        assert_eq!(parse_checksum_output(&hash), None);
+    }
+
+    // --- verify_checksum ---
+
+    #[test]
+    fn verify_checksum_match() {
+        let hash = "abcdef1234567890".repeat(4);
+        assert!(verify_checksum(&hash, &hash));
+    }
+
+    #[test]
+    fn verify_checksum_mismatch() {
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        assert!(!verify_checksum(&a, &b));
+    }
+
+    #[test]
+    fn verify_checksum_case_insensitive() {
+        let lower = "abcdef1234567890".repeat(4);
+        let upper = lower.to_uppercase();
+        assert!(verify_checksum(&lower, &upper));
+    }
+
+    // --- sha256_of_bytes ---
+
+    #[test]
+    fn sha256_of_bytes_known_input() {
+        assert_eq!(
+            sha256_of_bytes(b"hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn sha256_of_bytes_empty() {
+        assert_eq!(
+            sha256_of_bytes(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    // --- compute_file_sha256 ---
+
+    #[test]
+    fn compute_file_sha256_matches_sha256_of_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test-data");
+        let data = b"test data for sha256";
+        std::fs::write(&file_path, data).unwrap();
+
+        let from_file = compute_file_sha256(&file_path).unwrap();
+        let from_bytes = sha256_of_bytes(data);
+        assert_eq!(from_file, from_bytes);
+    }
+
+    #[test]
+    fn compute_file_sha256_nonexistent_file() {
+        let result = compute_file_sha256(Path::new("/nonexistent/path/file"));
+        assert!(result.is_err());
+    }
+
+    // --- is_debug_binary ---
+
+    #[test]
+    fn is_debug_binary_large() {
+        assert!(is_debug_binary(52_428_801));
+    }
+
+    #[test]
+    fn is_debug_binary_small() {
+        assert!(!is_debug_binary(52_428_800));
+    }
+
+    #[test]
+    fn is_debug_binary_zero() {
+        assert!(!is_debug_binary(0));
+    }
 }

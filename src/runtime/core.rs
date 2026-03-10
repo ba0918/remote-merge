@@ -187,14 +187,13 @@ impl CoreRuntime {
         Ok(client)
     }
 
-    /// Agent バイナリをリモートにデプロイする。
+    /// リモートサーバにエージェントバイナリをデプロイする（atomic write 方式）。
     ///
-    /// mkdir → symlink チェック → バイナリ転送 → chmod → バージョン検証 の順で実行する。
+    /// `.tmp` パスに書き込み → チェックサム照合 → バージョン検証 → `mv` でアトミックリネーム。
+    /// 検証失敗時は `.tmp` を削除し、本番バイナリは無傷のまま。
     ///
-    /// NOTE: `require_ssh_client` を各ステップで呼び直しているのは Rust の借用チェッカー制約による。
     /// `&mut self.ssh_clients` と `&self.rt` を同時に借用できないため、各ステップで
-    /// 一時的に借用を解放する必要がある。部分的なデプロイ状態になる可能性はあるが、
-    /// 再実行でリカバリ可能（冪等性あり）。
+    /// 一時的に借用を解放する必要がある。
     #[cfg(unix)]
     fn deploy_agent_binary(
         &mut self,
@@ -218,35 +217,88 @@ impl CoreRuntime {
             );
         }
 
-        // ローカルバイナリを読み込み、リモートに転送
+        // ローカルバイナリ読み込み
         let local_path = deploy::local_binary_path()?;
+        let metadata = std::fs::metadata(&local_path)?;
+        if deploy::is_debug_binary(metadata.len()) {
+            tracing::warn!(
+                "Deploying a likely debug binary ({:.1} MB). Consider using a release build.",
+                metadata.len() as f64 / (1024.0 * 1024.0)
+            );
+        }
+
         tracing::info!(
-            "Deploying agent binary: {} -> {}:{}",
+            "Deploying agent binary: {} -> {}:{} (via atomic write)",
             local_path.display(),
             server_name,
             remote_path.display()
         );
         let binary_bytes = std::fs::read(&local_path)?;
-        let remote_path_str = remote_path.to_string_lossy().to_string();
+        let local_hash = deploy::sha256_of_bytes(&binary_bytes);
+
+        // .tmp パスに書き込み（atomic write の第1段階）
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
-            .block_on(ssh_client.write_file_bytes(&remote_path_str, &binary_bytes))?;
+            .block_on(ssh_client.write_file_bytes(&cmds.tmp_path, &binary_bytes))?;
 
-        // 実行権限を付与
+        // .tmp に実行権限を付与
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt.block_on(ssh_client.exec(&cmds.chmod_cmd))?;
 
-        // デプロイ後のバージョン確認
+        // リモート SHA-256 照合
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let checksum_output = self.rt.block_on(ssh_client.exec(&cmds.checksum_cmd))?;
+        if let Some(remote_hash) = deploy::parse_checksum_output(&checksum_output) {
+            if !deploy::verify_checksum(&local_hash, &remote_hash) {
+                // チェックサム不一致 → .tmp をクリーンアップ
+                let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+                if let Err(e) = self.rt.block_on(ssh_client.exec(&cmds.rm_tmp_cmd)) {
+                    tracing::warn!("Failed to clean up {}: {}", cmds.tmp_path, e);
+                }
+                anyhow::bail!(
+                    "Checksum mismatch after transfer: local={}, remote={}, server={}",
+                    local_hash,
+                    remote_hash,
+                    server_name
+                );
+            }
+            tracing::info!("Checksum verified: {}", &local_hash[..12]);
+        } else {
+            tracing::warn!(
+                "Checksum verification not available on {}; skipping",
+                server_name
+            );
+        }
+
+        // .tmp に対してバージョン検証（mv 前に実行）
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let verify_output = self.rt.block_on(ssh_client.exec(&cmds.verify_cmd))?;
-        let verify_check = deploy::parse_version_output(&verify_output);
-        if verify_check != VersionCheck::Match {
+        if deploy::parse_version_output(&verify_output) != VersionCheck::Match {
+            // verify 失敗 → .tmp をクリーンアップ
+            let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+            if let Err(e) = self.rt.block_on(ssh_client.exec(&cmds.rm_tmp_cmd)) {
+                tracing::warn!("Failed to clean up {}: {}", cmds.tmp_path, e);
+            }
             anyhow::bail!(
                 "Agent deploy verification failed: server={}, output={}",
                 server_name,
                 verify_output.trim()
             );
         }
+
+        // Atomic rename: .tmp → 本番パス
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        self.rt
+            .block_on(ssh_client.exec_strict(&cmds.mv_cmd))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Atomic rename failed: {} -> {}: {}",
+                    cmds.tmp_path,
+                    remote_path.display(),
+                    e
+                )
+            })?;
+
         tracing::info!("Agent binary deployed successfully: server={}", server_name);
         Ok(())
     }
