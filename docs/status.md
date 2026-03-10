@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 12:01:32
+**Last Updated:** 2026-03-10 13:57:16
 
 ---
 
@@ -8,16 +8,23 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260310120132` |
-| **Feature** | TUI バグ修正: Enter 連打で diff 消失 + 再接続後マージで [3-] バッジ |
-| **Started** | 2026-03-10 12:01:32 |
-| **Phase** | 🟢 Completed |
-| **Plan** | [docs/cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md](./cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md) |
+| **Cycle ID** | `20260310135716` |
+| **Feature** | E2E テスト充実化 |
+| **Started** | 2026-03-10 13:57:16 |
+| **Phase** | 🟢 Done |
+| **Plan** | [docs/cycles/20260310135716_e2e-test-enrichment.md](./cycles/20260310135716_e2e-test-enrichment.md) |
 
 **Current Focus:**
-TUI 実運用テストで発見した2件のバグ修正: Enter連打でdiff消失（カーソル復元不備）、再接続後マージで[3-]バッジ（ref_tree深さ不一致+conflict_cache残留）。
+E2Eテスト充実化完了。111テスト（SSH不要23 + SSH必要88）をテストシナリオごとに15ファイルに分離。共通ヘルパー抽出、CLI/TUI両方の網羅的テスト、既存テスト移行・削除まで完了。clippy警告ゼロ。
 
 ---
+
+### 20260310120132 - TUI バグ修正: Enter 連打で diff 消失 + 再接続後マージで [3-] バッジ
+- **Started:** 2026-03-10 12:01:32
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md)
+- **Summary:** Enter連打でdiff消失（カーソル復元不備）、再接続後マージで[3-]バッジ（ref_tree深さ不一致+conflict_cache残留）を修正。
 
 ### 20260310114351 - CLI 品質改善（merge . / バイナリ diff / help 説明追加）
 - **Started:** 2026-03-10 11:43:51
