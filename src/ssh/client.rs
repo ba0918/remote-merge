@@ -33,6 +33,12 @@ pub struct SshClient {
     channel_timeout_sec: u64,
 }
 
+/// SSH チャネルの data 送信チャンクサイズ（32KB）。
+///
+/// SSH チャネルのウィンドウサイズ（デフォルト64KB）より小さく設定し、
+/// 大容量データ転送時のウィンドウサイズ超過を防ぐ。
+const CHANNEL_DATA_CHUNK_SIZE: usize = 32 * 1024;
+
 impl SshClient {
     /// サーバに接続してSSHクライアントを返す
     pub async fn connect(
@@ -563,39 +569,12 @@ impl SshClient {
                 command: command.clone(),
             })?;
 
-        channel
-            .data(content.as_bytes())
-            .await
-            .map_err(|e| AppError::SshConnection {
-                host: self.server_name.clone(),
-                message: format!("Failed to send data: {}", e),
-            })?;
-
-        channel.eof().await.map_err(|e| AppError::SshConnection {
-            host: self.server_name.clone(),
-            message: format!("Failed to send EOF: {}", e),
-        })?;
-
-        let mut exit_code = None;
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-            if let ChannelMsg::ExitStatus { exit_status } = msg {
-                exit_code = Some(exit_status);
-            }
-        }
-
-        // チャネルを明示的に閉じてリソースを解放
-        let _ = channel.close().await;
-
-        if let Some(code) = exit_code {
-            if code != 0 {
-                anyhow::bail!(AppError::SshExec {
-                    command: format!("cat > {}: exit={}", remote_path, code),
-                });
-            }
-        }
+        self.send_and_finish_channel(
+            &mut channel,
+            content.as_bytes(),
+            &format!("cat > {}", remote_path),
+        )
+        .await?;
 
         tracing::info!("Remote file write completed: {}", remote_path);
         Ok(())
@@ -644,19 +623,44 @@ impl SshClient {
         // openssl base64 -d は入力末尾に改行が必要（改行がないとデコードしない）
         let mut encoded_with_newline = encoded.into_bytes();
         encoded_with_newline.push(b'\n');
-        channel
-            .data(encoded_with_newline.as_slice())
-            .await
-            .map_err(|e| AppError::SshConnection {
+
+        self.send_and_finish_channel(
+            &mut channel,
+            &encoded_with_newline,
+            &format!("openssl base64 -d > {}", remote_path),
+        )
+        .await?;
+
+        tracing::info!("Remote file write (bytes) completed: {}", remote_path);
+        Ok(())
+    }
+
+    /// データ送信 → EOF → 終了コード待ち → チャネル close を一括で行う。
+    ///
+    /// エラー発生時もチャネルを確実に close してリソースリークを防ぐ。
+    async fn send_and_finish_channel(
+        &self,
+        channel: &mut russh::Channel<russh::client::Msg>,
+        data: &[u8],
+        description: &str,
+    ) -> crate::error::Result<()> {
+        // データ送信（エラー時は close してから return）
+        if let Err(e) = self.send_data_chunked(channel, data).await {
+            let _ = channel.close().await;
+            return Err(e);
+        }
+
+        // EOF 送信
+        if let Err(e) = channel.eof().await {
+            let _ = channel.close().await;
+            return Err(AppError::SshConnection {
                 host: self.server_name.clone(),
-                message: format!("Failed to send data: {}", e),
-            })?;
+                message: format!("Failed to send EOF: {}", e),
+            }
+            .into());
+        }
 
-        channel.eof().await.map_err(|e| AppError::SshConnection {
-            host: self.server_name.clone(),
-            message: format!("Failed to send EOF: {}", e),
-        })?;
-
+        // 終了コード待ち
         let mut exit_code = None;
         loop {
             let Some(msg) = channel.wait().await else {
@@ -667,17 +671,39 @@ impl SshClient {
             }
         }
 
+        // チャネルを明示的に閉じてリソースを解放
         let _ = channel.close().await;
 
+        // 終了コードチェック
         if let Some(code) = exit_code {
             if code != 0 {
                 anyhow::bail!(AppError::SshExec {
-                    command: format!("openssl base64 -d > {}: exit={}", remote_path, code),
+                    command: format!("{}: exit={}", description, code),
                 });
             }
         }
 
-        tracing::info!("Remote file write (bytes) completed: {}", remote_path);
+        Ok(())
+    }
+
+    /// チャネルにデータをチャンク分割で送信する。
+    ///
+    /// SSH チャネルのウィンドウサイズ制限を超えないよう、
+    /// `CHANNEL_DATA_CHUNK_SIZE` ごとに分割して送信する。
+    async fn send_data_chunked(
+        &self,
+        channel: &mut russh::Channel<russh::client::Msg>,
+        data: &[u8],
+    ) -> crate::error::Result<()> {
+        for chunk in data.chunks(CHANNEL_DATA_CHUNK_SIZE) {
+            channel
+                .data(chunk)
+                .await
+                .map_err(|e| AppError::SshConnection {
+                    host: self.server_name.clone(),
+                    message: format!("Failed to send data: {}", e),
+                })?;
+        }
         Ok(())
     }
 
@@ -861,6 +887,17 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(&binary_data);
         let result = decode_base64_output(&encoded).unwrap();
         assert_eq!(result, binary_data);
+    }
+
+    #[test]
+    fn test_channel_data_chunk_size_is_within_ssh_window() {
+        // SSH デフォルトウィンドウサイズ (64KB) より小さいことを保証
+        // const assert で定数の妥当性をコンパイル時に検証
+        const {
+            assert!(CHANNEL_DATA_CHUNK_SIZE > 0);
+            assert!(CHANNEL_DATA_CHUNK_SIZE <= 64 * 1024);
+        }
+        assert_eq!(CHANNEL_DATA_CHUNK_SIZE, 32 * 1024);
     }
 
     // build_preferred テストは ssh::preferred モジュールに移動

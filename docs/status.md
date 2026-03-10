@@ -1,12 +1,17 @@
 # Project Status
 
-**Last Updated:** 2026-03-11 00:15:00
+**Last Updated:** 2026-03-10 23:33:45
 
 ---
 
 ## 🎯 Current Session
 
-*No active session*
+### 20260310233345 - SSH 大容量ファイル書き込みバグ修正
+- **Started:** 2026-03-10 23:33:45
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310233345_fix-ssh-large-file-write.md)
+- **Summary:** write_file/write_file_bytes で channel.data() を 32KB チャンク分割送信に変更。send_data_chunked + send_and_finish_channel ヘルパーで DRY 化 + エラー時 channel.close() 保証。TestServer に data/eof ハンドラ追加、write_file E2E テスト3件 + 定数テスト1件追加。1476テスト通過、clippy警告ゼロ。
 
 ---
 
