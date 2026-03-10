@@ -610,7 +610,9 @@ impl SshClient {
         let encoded = base64::engine::general_purpose::STANDARD.encode(content);
 
         // base64 文字列を stdin 経由で渡して openssl base64 -d で書き込む
-        let command = format!("openssl base64 -d -out {}", escaped);
+        // -A: 改行なしの1行 base64 を受け付けるモード（Rust の base64::STANDARD.encode は
+        //      改行を挿入しないため必須。-A なしだと内部バッファ 80 文字で切り捨てられる）
+        let command = format!("openssl base64 -d -A -out {}", escaped);
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
