@@ -34,14 +34,27 @@ impl AppState {
 
     /// ファイルツリーをフラット化して flat_nodes を再構築する
     pub fn rebuild_flat_nodes(&mut self) {
+        // 再構築前のカーソル位置のパスを保持
+        let cursor_path = self
+            .flat_nodes
+            .get(self.tree_cursor)
+            .map(|n| n.path.clone());
+
         let mut nodes = Vec::new();
         let merged = self.merge_tree_nodes();
         for node in &merged {
             self.flatten_node(node, "", 0, &mut nodes);
         }
         self.flat_nodes = nodes;
-        // カーソル位置を範囲内に収める
-        if self.tree_cursor >= self.flat_nodes.len() && !self.flat_nodes.is_empty() {
+
+        // パスベースでカーソル位置を復元
+        if let Some(path) = cursor_path {
+            if let Some(idx) = self.flat_nodes.iter().position(|n| n.path == path) {
+                self.tree_cursor = idx;
+            } else if self.tree_cursor >= self.flat_nodes.len() && !self.flat_nodes.is_empty() {
+                self.tree_cursor = self.flat_nodes.len() - 1;
+            }
+        } else if self.tree_cursor >= self.flat_nodes.len() && !self.flat_nodes.is_empty() {
             self.tree_cursor = self.flat_nodes.len() - 1;
         }
     }
@@ -619,6 +632,186 @@ mod tests {
             .find(|n| n.name == "main.rs")
             .expect("main.rs should be in flat_nodes");
         assert!(!main_node.ref_only, "main.rs exists in all three trees");
+    }
+
+    // ── rebuild_flat_nodes カーソル復元テスト ──
+
+    #[test]
+    fn test_rebuild_preserves_cursor_path() {
+        // カーソルを特定のファイルに置いて rebuild → 同じパスを指すことを確認
+        let local_nodes = vec![
+            FileNode::new_file("a.rs"),
+            FileNode::new_file("b.rs"),
+            FileNode::new_file("c.rs"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        // カーソルを b.rs (index 1) に設定
+        state.tree_cursor = 1;
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "b.rs");
+
+        // rebuild 後も b.rs を指す
+        state.rebuild_flat_nodes();
+        assert_eq!(
+            state.flat_nodes[state.tree_cursor].path, "b.rs",
+            "Cursor should still point to b.rs after rebuild"
+        );
+    }
+
+    #[test]
+    fn test_rebuild_clamps_cursor_when_node_removed() {
+        // 検索フィルターでカーソル位置のノードが消えた場合、範囲内にクランプされる
+        let local_nodes = vec![
+            FileNode::new_file("alpha.rs"),
+            FileNode::new_file("beta.rs"),
+            FileNode::new_file("gamma.rs"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        // カーソルを gamma.rs (index 2) に設定
+        state.tree_cursor = 2;
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "gamma.rs");
+
+        // 検索フィルターで alpha のみに絞る → gamma.rs が消える
+        state.search_state.query = "alpha".to_string();
+        state.rebuild_flat_nodes();
+
+        assert_eq!(state.flat_nodes.len(), 1);
+        assert!(
+            state.tree_cursor < state.flat_nodes.len(),
+            "Cursor should be clamped within bounds, got {}",
+            state.tree_cursor
+        );
+    }
+
+    #[test]
+    fn test_rebuild_empty_flat_nodes_no_panic() {
+        // flat_nodes が空でもパニックしない
+        let mut state = AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.tree_cursor = 0;
+        state.rebuild_flat_nodes();
+        assert!(state.flat_nodes.is_empty());
+        // パニックしなければ OK
+    }
+
+    #[test]
+    fn test_rebuild_cursor_zero_preserves_first_node() {
+        // tree_cursor=0 で rebuild → flat_nodes[0] のパスを指し続ける（サーバー切替パターン）
+        let local_nodes = vec![
+            FileNode::new_file("config.toml"),
+            FileNode::new_file("main.rs"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+        state.tree_cursor = 0;
+
+        let first_path = state.flat_nodes[0].path.clone();
+        state.rebuild_flat_nodes();
+
+        assert_eq!(state.tree_cursor, 0);
+        assert_eq!(
+            state.flat_nodes[0].path, first_path,
+            "First node should remain the same after rebuild"
+        );
+    }
+
+    #[test]
+    fn test_rebuild_cursor_on_directory_preserved() {
+        // ディレクトリにカーソルを置いて展開 → rebuild 後もそのディレクトリを指す（toggle_expand パターン）
+        let local_nodes = vec![
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
+            FileNode::new_file("README.md"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        // src ディレクトリにカーソルを置く (index 0, ディレクトリ優先ソート)
+        state.tree_cursor = 0;
+        assert_eq!(state.flat_nodes[0].path, "src");
+        assert!(state.flat_nodes[0].is_dir);
+
+        // ディレクトリを展開して rebuild
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        assert_eq!(
+            state.flat_nodes[state.tree_cursor].path, "src",
+            "Cursor should still point to 'src' directory after expand"
+        );
+        assert!(state.flat_nodes[state.tree_cursor].is_dir);
+    }
+
+    #[test]
+    fn test_rebuild_cursor_path_gone_but_index_in_range() {
+        // カーソルが指していたパスが消えても、インデックスが範囲内なら
+        // カーソルはそのままのインデックスに留まる（別のノードを指す）。
+        // これは意図的な動作: カーソルが「近く」に留まることで
+        // ユーザーの位置感覚を保つ。
+        let local_nodes = vec![
+            FileNode::new_file("a.rs"),
+            FileNode::new_file("b.rs"),
+            FileNode::new_file("c.rs"),
+        ];
+        let mut state = AppState::new(
+            make_tree(local_nodes),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        // カーソルを b.rs (index 1) に設定
+        state.tree_cursor = 1;
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "b.rs");
+
+        // left_tree から b.rs を除去して rebuild
+        // → flat_nodes は [a.rs, c.rs] になり、index 1 は c.rs を指す
+        state.left_tree = make_tree(vec![FileNode::new_file("a.rs"), FileNode::new_file("c.rs")]);
+        state.rebuild_flat_nodes();
+
+        // インデックスは変わらない（範囲内なのでクランプされない）
+        assert_eq!(
+            state.tree_cursor, 1,
+            "Cursor index should stay at 1 (still in range)"
+        );
+        // ただし指すノードは b.rs ではなく c.rs に変わっている
+        assert_eq!(
+            state.flat_nodes[state.tree_cursor].path, "c.rs",
+            "Cursor should now point to c.rs (the node at index 1 after b.rs was removed)"
+        );
     }
 
     /// develop → staging シナリオ: right にしかないファイルが展開後に見えるか

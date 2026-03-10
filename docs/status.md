@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 11:43:51
+**Last Updated:** 2026-03-10 12:01:32
 
 ---
 
@@ -8,14 +8,23 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260310114351` |
-| **Feature** | CLI 品質改善（merge . / バイナリ diff / help 説明追加） |
-| **Started** | 2026-03-10 11:43:51 |
+| **Cycle ID** | `20260310120132` |
+| **Feature** | TUI バグ修正: Enter 連打で diff 消失 + 再接続後マージで [3-] バッジ |
+| **Started** | 2026-03-10 12:01:32 |
 | **Phase** | 🟡 Planning |
-| **Plan** | [docs/cycles/20260310114351_cli-quality-improvements.md](./cycles/20260310114351_cli-quality-improvements.md) |
+| **Plan** | [docs/cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md](./cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md) |
 
 **Current Focus:**
-CLI 検証で発見した3件の問題を修正: merge . パス解決、バイナリ diff 文字化け防止、help テキスト改善。
+TUI 実運用テストで発見した2件のバグ修正: Enter連打でdiff消失（カーソル復元不備）、再接続後マージで[3-]バッジ（ref_tree深さ不一致+conflict_cache残留）。
+
+---
+
+### 20260310114351 - CLI 品質改善（merge . / バイナリ diff / help 説明追加）
+- **Started:** 2026-03-10 11:43:51
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310114351_cli-quality-improvements.md)
+- **Summary:** "." パス解決（path_resolver has_root_marker）、is_binary 不正UTF-8検出追加、CLIヘルプテキスト全オプション説明追加。1142テスト通過。コミット d62cd21。
 
 ---
 

@@ -312,6 +312,8 @@ impl AppState {
                     .insert(path.to_string(), content.to_string());
             }
         }
+        // マージ後は left == right なのでコンフリクトは解消
+        self.conflict_cache.remove(path);
     }
 
     /// フィルターパネルを表示する (f キー)
@@ -955,6 +957,49 @@ mod tests {
             }
             other => panic!("Expected BatchConfirm dialog, got: {:?}", other),
         }
+    }
+
+    // --- sync_cache_after_merge: conflict_cache クリアのテスト ---
+
+    #[test]
+    fn test_sync_cache_clears_conflict_left_to_right() {
+        use crate::diff::conflict::ConflictInfo;
+
+        let mut state = make_state();
+        state
+            .conflict_cache
+            .insert("a.rs".to_string(), ConflictInfo::default());
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::LeftToRight);
+        assert!(
+            !state.conflict_cache.contains_key("a.rs"),
+            "conflict_cache should be cleared after LeftToRight merge"
+        );
+        assert_eq!(state.right_cache.get("a.rs").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_sync_cache_clears_conflict_right_to_left() {
+        use crate::diff::conflict::ConflictInfo;
+
+        let mut state = make_state();
+        state
+            .conflict_cache
+            .insert("a.rs".to_string(), ConflictInfo::default());
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::RightToLeft);
+        assert!(
+            !state.conflict_cache.contains_key("a.rs"),
+            "conflict_cache should be cleared after RightToLeft merge"
+        );
+        assert_eq!(state.left_cache.get("a.rs").unwrap(), "content");
+    }
+
+    #[test]
+    fn test_sync_cache_no_panic_when_no_conflict() {
+        let mut state = make_state();
+        // conflict_cache にエントリがなくても panic しないことを確認
+        assert!(!state.conflict_cache.contains_key("a.rs"));
+        state.sync_cache_after_merge("a.rs", "content", MergeDirection::LeftToRight);
+        assert_eq!(state.right_cache.get("a.rs").unwrap(), "content");
     }
 
     // --- open_three_way_summary テスト ---

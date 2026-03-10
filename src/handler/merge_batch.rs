@@ -247,6 +247,14 @@ pub fn execute_batch_merge(
     if state.selected_path.is_some() {
         state.select_file();
     }
+    // ref_tree の深さ同期（マージしたファイルのディレクトリについて ref 子ノードをロード）
+    if state.has_reference() {
+        let dirs = collect_merge_dirs(&files);
+        for dir in &dirs {
+            super::merge_tree_load::load_ref_children(state, runtime, dir);
+        }
+    }
+
     state.rebuild_flat_nodes();
 
     let left = state.left_source.display_name();
@@ -280,6 +288,21 @@ pub fn execute_batch_merge(
             success_count, fail_count, dir_str, skip_suffix
         );
     }
+}
+
+/// マージ対象ファイルのディレクトリパスを収集する（ref_tree 同期用）
+///
+/// ルートディレクトリのファイル（パスに `/` を含まない）は `""` として返す。
+/// `load_ref_children("")` はルートノードが既にロード済みのため no-op となる。
+fn collect_merge_dirs(files: &[(String, crate::app::Badge)]) -> std::collections::BTreeSet<String> {
+    files
+        .iter()
+        .map(|(path, _)| {
+            path.rsplit_once('/')
+                .map(|(dir, _)| dir.to_string())
+                .unwrap_or_default() // ルートファイルは "" として返す（load_ref_children で no-op）
+        })
+        .collect()
 }
 
 /// バッチマージ対象から同一内容の Unchecked ファイルを除外する。
@@ -416,5 +439,52 @@ mod tests {
         assert_eq!(filtered[0].0, "diff.rs");
         assert_eq!(filtered[1].0, "known.rs");
         assert_eq!(filtered[2].0, "no_cache.rs");
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_nested() {
+        let files = vec![("src/app/foo.rs".to_string(), Badge::Modified)];
+        let dirs = collect_merge_dirs(&files);
+        assert_eq!(dirs.len(), 1);
+        assert!(dirs.contains("src/app"));
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_root_files() {
+        let files = vec![("README.md".to_string(), Badge::Modified)];
+        let dirs = collect_merge_dirs(&files);
+        assert_eq!(dirs.len(), 1);
+        assert!(dirs.contains(""));
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_mixed() {
+        let files = vec![
+            ("config.toml".to_string(), Badge::Modified),
+            ("src/main.rs".to_string(), Badge::LeftOnly),
+        ];
+        let dirs = collect_merge_dirs(&files);
+        assert_eq!(dirs.len(), 2);
+        assert!(dirs.contains(""));
+        assert!(dirs.contains("src"));
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_dedup() {
+        let files = vec![
+            ("src/a.rs".to_string(), Badge::Modified),
+            ("src/b.rs".to_string(), Badge::Modified),
+            ("src/c.rs".to_string(), Badge::LeftOnly),
+        ];
+        let dirs = collect_merge_dirs(&files);
+        assert_eq!(dirs.len(), 1);
+        assert!(dirs.contains("src"));
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_empty() {
+        let files: Vec<(String, Badge)> = vec![];
+        let dirs = collect_merge_dirs(&files);
+        assert!(dirs.is_empty());
     }
 }
