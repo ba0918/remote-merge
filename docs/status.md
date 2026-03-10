@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 13:57:16
+**Last Updated:** 2026-03-10 15:46:32
 
 ---
 
@@ -8,16 +8,23 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260310135716` |
-| **Feature** | E2E テスト充実化 |
-| **Started** | 2026-03-10 13:57:16 |
-| **Phase** | 🟢 Done |
-| **Plan** | [docs/cycles/20260310135716_e2e-test-enrichment.md](./cycles/20260310135716_e2e-test-enrichment.md) |
+| **Cycle ID** | `20260310154632` |
+| **Feature** | 再接続後ディレクトリマージで [3-] バッジ不具合修正 |
+| **Started** | 2026-03-10 15:46:32 |
+| **Phase** | 🟡 In Progress |
+| **Plan** | [docs/cycles/20260310154632_fix-reconnect-dir-merge-badge.md](./cycles/20260310154632_fix-reconnect-dir-merge-badge.md) |
 
 **Current Focus:**
-E2Eテスト充実化完了。111テスト（SSH不要23 + SSH必要88）をテストシナリオごとに15ファイルに分離。共通ヘルパー抽出、CLI/TUI両方の網羅的テスト、既存テスト移行・削除まで完了。clippy警告ゼロ。
+再接続後ディレクトリマージで [3-] バッジが表示される不具合の修正。load_subtree_contents が ref コンテンツを再ロードしないことが原因。
 
 ---
+
+### 20260310135716 - E2E テスト充実化
+- **Started:** 2026-03-10 13:57:16
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310135716_e2e-test-enrichment.md)
+- **Summary:** E2Eテスト充実化完了。111テスト（SSH不要23 + SSH必要88）をテストシナリオごとに15ファイルに分離。
 
 ### 20260310120132 - TUI バグ修正: Enter 連打で diff 消失 + 再接続後マージで [3-] バッジ
 - **Started:** 2026-03-10 12:01:32

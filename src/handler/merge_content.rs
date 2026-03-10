@@ -35,6 +35,11 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     // ── 右側ファイルをバッチ読み込み ──
     load_right_files(state, runtime, &file_paths);
 
+    // ── ref コンテンツの読み込み（3way バッジ用） ──
+    // 再接続後に ref_cache がクリアされている場合を考慮して、
+    // left/right の読み込みと合わせて ref も明示的にロードする。
+    load_ref_files(state, runtime, &file_paths);
+
     // ── エラーパス判定 ──
     for path in &file_paths {
         let has_local = state.left_cache.contains_key(path);
@@ -145,6 +150,40 @@ fn load_right_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: 
                 state.status_message = format!("Connection lost: {} | Press 'c' to reconnect", e);
                 state.dialog = DialogState::None;
             }
+        }
+    }
+}
+
+/// ref コンテンツの一括読み込み（ディレクトリマージ準備用）
+///
+/// ref_source が設定されていない場合は何もしない。
+/// 再接続後に ref_cache がクリアされたケースで、マージ前に ref コンテンツを
+/// 明示的にロードしておくことで、マージ後のバッジ計算（3way）が正確になる。
+fn load_ref_files(state: &mut AppState, runtime: &mut TuiRuntime, file_paths: &[String]) {
+    let ref_source = match &state.ref_source {
+        Some(source) => source.clone(),
+        None => return,
+    };
+
+    let uncached_paths: Vec<String> = file_paths
+        .iter()
+        .filter(|p| !state.ref_cache.contains_key(p))
+        .cloned()
+        .collect();
+
+    if uncached_paths.is_empty() {
+        return;
+    }
+
+    match runtime.read_files_batch(&ref_source, &uncached_paths) {
+        Ok(batch_result) => {
+            for (path, content) in batch_result {
+                state.ref_cache.insert(path.clone(), content);
+            }
+        }
+        Err(e) => {
+            tracing::debug!("Ref batch read skipped: {}", e);
+            // ref 読み込み失敗は graceful degradation（エラーにしない）
         }
     }
 }

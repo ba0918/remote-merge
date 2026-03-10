@@ -135,6 +135,129 @@ fn test_3way_conflict_badge_survives_reenter() {
     eprintln!("SUCCESS: 3way [C!] badge survives re-Enter");
 }
 
+/// 再接続後にディレクトリマージすると [3-] バッジが出る不具合のリグレッションテスト
+///
+/// シナリオ:
+/// 1. develop <-> staging (ref: local) で起動
+/// 2. shared/ を展開、config.json 選択 → diff 表示
+/// 3. 'r' で再接続
+/// 4. shared/ に対しディレクトリマージ (L→R) 実行
+/// 5. マージ後に config.json のバッジが [3-] にならないことを確認
+#[test]
+#[ignore]
+fn test_3way_reconnect_then_dir_merge_no_3minus_badge() {
+    let env = E2eEnv::new_3way(
+        // local (ref): 元のバージョン
+        &[("shared/config.json", "shared config content\n")],
+        // develop (left): develop 版
+        &[(
+            "shared/config.json",
+            "shared config content (develop version)\n",
+        )],
+        // staging (right): staging 版（develop と異なる）
+        &[(
+            "shared/config.json",
+            "shared config content (staging version)\n",
+        )],
+    );
+
+    let mut session =
+        env.spawn_tui_with_args(&["--left", "develop", "--right", "staging", "--ref", "local"]);
+    session.set_expect_timeout(Some(Duration::from_secs(15)));
+
+    // ファイルツリーに shared/ が表示されるのを待つ
+    let result = session.expect("shared");
+    assert!(result.is_ok(), "Should see 'shared': {:?}", result.err());
+
+    // shared/ を展開 (Enter)
+    session.send("\r").expect("Failed to send Enter for expand");
+    thread::sleep(Duration::from_secs(1));
+
+    // j で config.json に移動
+    session.send("j").expect("Failed to send j");
+    thread::sleep(Duration::from_millis(500));
+
+    // Enter で config.json を選択 → diff 表示（フォーカスは FileTree のまま）
+    session.send("\r").expect("Failed to send Enter");
+    thread::sleep(Duration::from_secs(3));
+
+    // diff が表示されることを確認
+    let result = session.expect("develop version");
+    assert!(
+        result.is_ok(),
+        "Should see 'develop version' in diff: {:?}",
+        result.err()
+    );
+
+    // config.json 上（ファイル）で 'r' → 再接続（ツリーフォーカスのまま）
+    // Note: ディレクトリ上の 'r' は refresh_directory になるのでファイル上で押す
+    session.send("r").expect("Failed to send r for reconnect");
+
+    // 再接続完了を待つ（少し長めに待機）
+    thread::sleep(Duration::from_secs(5));
+
+    // 再接続後のカーソルは config.json に復元されているはず
+    // k で shared/ ディレクトリに移動
+    thread::sleep(Duration::from_secs(1));
+    session.send("k").expect("Failed to send k");
+    thread::sleep(Duration::from_millis(500));
+
+    // 'R' (Shift+R) で LeftToRight ディレクトリマージ
+    session
+        .send("R")
+        .expect("Failed to send R for LeftToRight merge");
+    thread::sleep(Duration::from_secs(5));
+
+    // マージ確認ダイアログの表示を待つ
+    let result = session.expect("Confirm");
+    assert!(
+        result.is_ok(),
+        "Should see merge confirmation dialog: {:?}",
+        result.err()
+    );
+
+    // 'y' でマージ確認
+    session.send("y").expect("Failed to send y for confirm");
+
+    // マージ完了メッセージを待つ
+    let result = session.expect("Batch merge");
+    assert!(
+        result.is_ok(),
+        "Should see 'Batch merge' completion message: {:?}",
+        result.err()
+    );
+    eprintln!("Batch merge completed");
+
+    // マージ後のカーソルは shared/ ディレクトリにいるはず
+    // shared/ は展開されたままなので、j で config.json に移動して選択
+    thread::sleep(Duration::from_secs(1));
+    session.send("j").expect("Failed to send j");
+    thread::sleep(Duration::from_millis(500));
+
+    session
+        .send("\r")
+        .expect("Failed to send Enter to select file");
+    thread::sleep(Duration::from_secs(3));
+
+    // マージ後は left == right (Equal) → ref diff が自動表示される
+    // （Equal + ref に差分あり → 自動で ref diff モードに切り替わる仕様）
+    // [3-] (MissingInRef) が出ていないことを確認
+    // "develop version" が表示されていれば ref diff が正しく機能している
+    let result = session.expect("develop version");
+    assert!(
+        result.is_ok(),
+        "After merge, should see 'develop version' in ref diff. \
+         If not visible, ref_cache may not be loaded (was [3-] badge bug)."
+    );
+
+    eprintln!("Merge result shows ref diff correctly (no [3-] degradation)");
+
+    session.send("q").expect("Failed to send quit");
+    thread::sleep(Duration::from_millis(500));
+
+    eprintln!("SUCCESS: reconnect + dir merge does not produce [3-] badge");
+}
+
 /// 3way で "X" キーを押すと左右がスワップする
 #[test]
 #[ignore]
