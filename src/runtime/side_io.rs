@@ -8,6 +8,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 
+use crate::agent::protocol::FileReadResult;
 use crate::app::Side;
 use crate::local;
 use crate::merge::executor;
@@ -17,6 +18,9 @@ use super::core::CoreRuntime;
 use super::TuiRuntime;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
+//
+// Remote ブランチでは Agent を優先的に使用し、失敗時は SSH にフォールバックする。
+// Agent が無い場合は直接 SSH パスを通る。
 
 impl CoreRuntime {
     // ── 読み込み ──
@@ -24,11 +28,13 @@ impl CoreRuntime {
     /// Side に基づいてファイルを読み込む
     pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
         match side {
-            Side::Local => {
-                // バリデーションは executor::read_local_file 内部で行われる
-                executor::read_local_file(&self.config.local.root_dir, rel_path)
+            Side::Local => executor::read_local_file(&self.config.local.root_dir, rel_path),
+            Side::Remote(name) => {
+                if let Some(content) = self.try_agent_read_file(name, rel_path) {
+                    return content;
+                }
+                self.read_remote_file(name, rel_path)
             }
-            Side::Remote(name) => self.read_remote_file(name, rel_path),
         }
     }
 
@@ -42,13 +48,17 @@ impl CoreRuntime {
             Side::Local => {
                 let mut result = HashMap::with_capacity(rel_paths.len());
                 for rel_path in rel_paths {
-                    // バリデーションは executor::read_local_file 内部で行われる
                     let content = executor::read_local_file(&self.config.local.root_dir, rel_path)?;
                     result.insert(rel_path.clone(), content);
                 }
                 Ok(result)
             }
-            Side::Remote(name) => self.read_remote_files_batch(name, rel_paths),
+            Side::Remote(name) => {
+                if let Some(batch) = self.try_agent_read_files_batch(name, rel_paths) {
+                    return batch;
+                }
+                self.read_remote_files_batch(name, rel_paths)
+            }
         }
     }
 
@@ -65,7 +75,12 @@ impl CoreRuntime {
             Side::Local => {
                 executor::read_local_file_bytes(&self.config.local.root_dir, rel_path, force)
             }
-            Side::Remote(name) => self.read_remote_file_bytes(name, rel_path, force),
+            Side::Remote(name) => {
+                if let Some(bytes) = self.try_agent_read_file_bytes(name, rel_path) {
+                    return bytes;
+                }
+                self.read_remote_file_bytes(name, rel_path, force)
+            }
         }
     }
 
@@ -75,10 +90,16 @@ impl CoreRuntime {
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
         match side {
             Side::Local => {
-                // バリデーションは executor::write_local_file 内部で行われる
                 executor::write_local_file(&self.config.local.root_dir, rel_path, content)
             }
-            Side::Remote(name) => self.write_remote_file(name, rel_path, content),
+            Side::Remote(name) => {
+                if let Some(result) =
+                    self.try_agent_write_file(name, rel_path, content.as_bytes(), false)
+                {
+                    return result;
+                }
+                self.write_remote_file(name, rel_path, content)
+            }
         }
     }
 
@@ -93,7 +114,12 @@ impl CoreRuntime {
             Side::Local => {
                 executor::write_local_file_bytes(&self.config.local.root_dir, rel_path, content)
             }
-            Side::Remote(name) => self.write_remote_file_bytes(name, rel_path, content),
+            Side::Remote(name) => {
+                if let Some(result) = self.try_agent_write_file(name, rel_path, content, true) {
+                    return result;
+                }
+                self.write_remote_file_bytes(name, rel_path, content)
+            }
         }
     }
 
@@ -108,14 +134,18 @@ impl CoreRuntime {
         match side {
             Side::Local => {
                 let root = &self.config.local.root_dir;
-                // パストラバーサルチェック
                 for rel_path in rel_paths {
                     let full = root.join(rel_path);
                     executor::validate_path_within_root(root, &full)?;
                 }
                 stat_local_files(root, rel_paths)
             }
-            Side::Remote(name) => self.stat_remote_files(name, rel_paths),
+            Side::Remote(name) => {
+                if let Some(stats) = self.try_agent_stat_files(name, rel_paths) {
+                    return stats;
+                }
+                self.stat_remote_files(name, rel_paths)
+            }
         }
     }
 
@@ -128,6 +158,7 @@ impl CoreRuntime {
                 let normalized = executor::validate_path_within_root(root, &full)?;
                 chmod_local_file(&normalized, mode)
             }
+            // Agent プロトコルに chmod は未定義のため、常に SSH を使用
             Side::Remote(name) => self.chmod_remote_file(name, rel_path, mode),
         }
     }
@@ -139,7 +170,6 @@ impl CoreRuntime {
         match side {
             Side::Local => {
                 let root = &self.config.local.root_dir;
-                // パストラバーサルチェック
                 for rel_path in rel_paths {
                     let full = root.join(rel_path);
                     executor::validate_path_within_root(root, &full)?;
@@ -147,7 +177,12 @@ impl CoreRuntime {
                 create_local_backups(root, rel_paths)?;
                 Ok(())
             }
-            Side::Remote(name) => self.create_remote_backups(name, rel_paths),
+            Side::Remote(name) => {
+                if let Some(result) = self.try_agent_backup(name, rel_paths) {
+                    return result;
+                }
+                self.create_remote_backups(name, rel_paths)
+            }
         }
     }
 
@@ -162,6 +197,7 @@ impl CoreRuntime {
                     executor::validate_path_within_root(&self.config.local.root_dir, &full)?;
                 remove_local_file(&normalized)
             }
+            // Agent プロトコルに remove は未定義のため、常に SSH を使用
             Side::Remote(name) => self.remove_remote_file(name, rel_path),
         }
     }
@@ -182,7 +218,12 @@ impl CoreRuntime {
                 let normalized = executor::validate_path_within_root(root, &full)?;
                 create_local_symlink(&normalized, target)
             }
-            Side::Remote(name) => self.create_remote_symlink(name, rel_path, target),
+            Side::Remote(name) => {
+                if let Some(result) = self.try_agent_symlink(name, rel_path, target) {
+                    return result;
+                }
+                self.create_remote_symlink(name, rel_path, target)
+            }
         }
     }
 
@@ -194,6 +235,8 @@ impl CoreRuntime {
             Side::Local => {
                 local::scan_local_tree(&self.config.local.root_dir, &self.config.filter.exclude)
             }
+            // fetch_tree は1階層のみ — Agent の ListTree は再帰的なので不適合。
+            // SSH exec (find) を使用する。
             Side::Remote(name) => self.fetch_remote_tree(name),
         }
     }
@@ -218,7 +261,13 @@ impl CoreRuntime {
                 tree.sort();
                 Ok(tree)
             }
-            Side::Remote(name) => self.fetch_remote_tree_recursive(name, max_entries),
+            Side::Remote(name) => {
+                // Agent の ListTree はフルツリー走査に最適
+                if let Some(tree) = self.try_agent_fetch_tree_recursive(name, max_entries) {
+                    return tree;
+                }
+                self.fetch_remote_tree_recursive(name, max_entries)
+            }
         }
     }
 
@@ -235,6 +284,7 @@ impl CoreRuntime {
                 let nodes = local::scan_dir(&dir, &self.config.filter.exclude, dir_rel_path)?;
                 Ok(nodes)
             }
+            // fetch_children は1階層のみ — Agent は再帰走査なのでここでは SSH を使用
             Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path),
         }
     }
@@ -262,6 +312,306 @@ impl CoreRuntime {
             Side::Local => true,
             Side::Remote(name) => self.has_client(name),
         }
+    }
+}
+
+// ── Agent 経由 I/O ヘルパー ──
+//
+// 各メソッドは Agent が接続されている場合にのみ操作を試みる。
+// - 成功 → Some(Ok(result))
+// - Agent エラー → Agent を無効化して None を返す（呼び出し元が SSH にフォールバック）
+// - Agent 未接続 → None
+//
+// `&mut self` の借用の衝突を避けるため、agent_clients の操作は一時変数を介して行う。
+
+impl CoreRuntime {
+    /// Agent 経由で単一ファイルを読み込む
+    fn try_agent_read_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> Option<anyhow::Result<String>> {
+        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.read_files(&[full_path], 0) {
+            Ok(results) => {
+                let first: Option<FileReadResult> = results.into_iter().next();
+                if let Some(FileReadResult::Ok { content, .. }) = first {
+                    Some(String::from_utf8(content).map_err(Into::into))
+                } else {
+                    // FileReadResult::Error — Agent は生きているがファイル読み込み失敗
+                    None
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent read_file failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由で複数ファイルをバッチ読み込む
+    fn try_agent_read_files_batch(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<HashMap<String, String>>> {
+        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.read_files(&full_paths, 0) {
+            Ok(results) => {
+                let mut map: HashMap<String, String> = HashMap::with_capacity(results.len());
+                for (i, result) in results.into_iter().enumerate() {
+                    match result {
+                        FileReadResult::Ok { content, .. } => match String::from_utf8(content) {
+                            Ok(s) => {
+                                map.insert(rel_paths[i].clone(), s);
+                            }
+                            Err(e) => return Some(Err(e.into())),
+                        },
+                        FileReadResult::Error { .. } => {
+                            // ファイル単位のエラー → SSH フォールバックに委ねる
+                            return None;
+                        }
+                    }
+                }
+                Some(Ok(map))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent read_files_batch failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でバイト列を読み込む
+    fn try_agent_read_file_bytes(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> Option<anyhow::Result<Vec<u8>>> {
+        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.read_files(&[full_path], 0) {
+            Ok(results) => {
+                let first: Option<FileReadResult> = results.into_iter().next();
+                if let Some(FileReadResult::Ok { content, .. }) = first {
+                    Some(Ok(content))
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent read_file_bytes failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でファイルを書き込む
+    fn try_agent_write_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        content: &[u8],
+        is_binary: bool,
+    ) -> Option<anyhow::Result<()>> {
+        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.write_file(&full_path, content, is_binary) {
+            Ok(()) => Some(Ok(())),
+            Err(e) => {
+                tracing::warn!(
+                    "Agent write_file failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由で stat を取得する
+    #[allow(clippy::type_complexity)]
+    fn try_agent_stat_files(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
+        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.stat_files(&full_paths) {
+            Ok(stats) => {
+                if stats.len() != rel_paths.len() {
+                    tracing::warn!(
+                        "Agent stat_files returned {} results for {} paths, falling back to SSH",
+                        stats.len(),
+                        rel_paths.len()
+                    );
+                    return None;
+                }
+                let results: Vec<(String, Option<DateTime<Utc>>)> = rel_paths
+                    .iter()
+                    .enumerate()
+                    .map(|(i, rel)| {
+                        let mtime = stats
+                            .get(i)
+                            .and_then(|s| DateTime::from_timestamp(s.mtime_secs, s.mtime_nanos));
+                        (rel.clone(), mtime)
+                    })
+                    .collect();
+                Some(Ok(results))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent stat_files failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でバックアップを作成する
+    fn try_agent_backup(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<()>> {
+        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        let remote_root = self
+            .config
+            .servers
+            .get(server_name)
+            .map(|s| s.root_dir.to_string_lossy().to_string())?;
+        let backup_dir = format!(
+            "{}/{}",
+            remote_root.trim_end_matches('/'),
+            crate::backup::BACKUP_DIR_NAME
+        );
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.backup(&full_paths, &backup_dir) {
+            Ok(()) => Some(Ok(())),
+            Err(e) => {
+                tracing::warn!(
+                    "Agent backup failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でシンボリックリンクを作成する
+    fn try_agent_symlink(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        target: &str,
+    ) -> Option<anyhow::Result<()>> {
+        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.symlink(&full_path, target) {
+            Ok(()) => Some(Ok(())),
+            Err(e) => {
+                tracing::warn!(
+                    "Agent symlink failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でツリーを再帰取得する
+    fn try_agent_fetch_tree_recursive(
+        &mut self,
+        server_name: &str,
+        max_entries: usize,
+    ) -> Option<anyhow::Result<FileTree>> {
+        let root_dir = self
+            .config
+            .servers
+            .get(server_name)
+            .map(|s| s.root_dir.clone())?;
+        let root_str = root_dir.to_string_lossy().to_string();
+        let exclude = self.config.filter.exclude.clone();
+        let agent = self.agent_clients.get_mut(server_name)?;
+
+        match agent.list_tree(&root_str, &exclude, max_entries) {
+            Ok(entries) => {
+                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let mut tree = FileTree::new(&root_dir);
+                tree.nodes = nodes;
+                tree.sort();
+                Some(Ok(tree))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent list_tree failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    // ── Agent パス解決ヘルパー ──
+
+    /// Agent 向けにサーバの root_dir + rel_path をフルパスに解決する。
+    /// サーバ設定が存在しない場合は None を返す。
+    fn resolve_agent_path(&self, server_name: &str, rel_path: &str) -> Option<String> {
+        let server_config = self.config.servers.get(server_name)?;
+        let remote_root = server_config.root_dir.to_string_lossy();
+        Some(format!(
+            "{}/{}",
+            remote_root.trim_end_matches('/'),
+            rel_path.trim_start_matches('/')
+        ))
+    }
+
+    /// Agent 向けに複数の rel_path をフルパスに解決する
+    fn resolve_agent_paths(&self, server_name: &str, rel_paths: &[String]) -> Option<Vec<String>> {
+        let server_config = self.config.servers.get(server_name)?;
+        let remote_root = server_config.root_dir.to_string_lossy();
+        let root = remote_root.trim_end_matches('/');
+        Some(
+            rel_paths
+                .iter()
+                .map(|rel| format!("{}/{}", root, rel.trim_start_matches('/')))
+                .collect(),
+        )
     }
 }
 

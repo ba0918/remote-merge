@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub filter: FilterConfig,
     pub ssh: SshConfig,
     pub backup: BackupConfig,
+    pub agent: AgentConfig,
 }
 
 /// サーバ接続設定
@@ -72,6 +73,21 @@ pub struct BackupConfig {
     pub retention_days: u32,
 }
 
+/// Agent 設定
+#[derive(Debug, Clone)]
+pub struct AgentConfig {
+    /// Agent 使用の有効/無効（デフォルト: true）
+    pub enabled: bool,
+    /// デプロイ先ディレクトリ（デフォルト: /var/tmp）
+    pub deploy_dir: String,
+    /// Ping タイムアウト秒数（デフォルト: 30）
+    pub timeout_secs: u64,
+    /// ListTree の1チャンクあたりエントリ数（デフォルト: 1000）
+    pub tree_chunk_size: usize,
+    /// ファイルチャンク最大サイズ（デフォルト: 4MB）
+    pub max_file_chunk_bytes: usize,
+}
+
 // ── デフォルト値 ──
 
 impl Default for LocalConfig {
@@ -113,6 +129,24 @@ impl Default for BackupConfig {
     }
 }
 
+/// AgentConfig のデフォルト定数
+const DEFAULT_AGENT_DEPLOY_DIR: &str = "/var/tmp";
+const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_AGENT_TREE_CHUNK_SIZE: usize = 1000;
+const DEFAULT_AGENT_MAX_FILE_CHUNK_BYTES: usize = 4 * 1024 * 1024; // 4MB
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            deploy_dir: DEFAULT_AGENT_DEPLOY_DIR.to_string(),
+            timeout_secs: DEFAULT_AGENT_TIMEOUT_SECS,
+            tree_chunk_size: DEFAULT_AGENT_TREE_CHUNK_SIZE,
+            max_file_chunk_bytes: DEFAULT_AGENT_MAX_FILE_CHUNK_BYTES,
+        }
+    }
+}
+
 // ── TOML デシリアライズ用の中間構造体 ──
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +156,7 @@ struct RawConfig {
     filter: Option<RawFilterConfig>,
     ssh: Option<RawSshConfig>,
     backup: Option<RawBackupConfig>,
+    agent: Option<RawAgentConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,6 +198,15 @@ struct RawSshConfig {
 struct RawBackupConfig {
     enabled: Option<bool>,
     retention_days: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAgentConfig {
+    enabled: Option<bool>,
+    deploy_dir: Option<String>,
+    timeout_secs: Option<u64>,
+    tree_chunk_size: Option<usize>,
+    max_file_chunk_bytes: Option<usize>,
 }
 
 // ── パース・マージロジック ──
@@ -392,13 +436,40 @@ fn merge_configs(
             })
     };
 
+    // agent: プロジェクトで上書き
+    let agent = if let Some(ref proj) = project {
+        proj.agent.as_ref().map_or_else(
+            || convert_agent_config(global.agent.as_ref()),
+            |a| convert_agent_config(Some(a)),
+        )
+    } else {
+        convert_agent_config(global.agent.as_ref())
+    };
+
     Ok(AppConfig {
         servers,
         local,
         filter,
         ssh,
         backup,
+        agent,
     })
+}
+
+fn convert_agent_config(raw: Option<&RawAgentConfig>) -> AgentConfig {
+    let defaults = AgentConfig::default();
+    match raw {
+        None => defaults,
+        Some(r) => AgentConfig {
+            enabled: r.enabled.unwrap_or(defaults.enabled),
+            deploy_dir: r.deploy_dir.clone().unwrap_or(defaults.deploy_dir),
+            timeout_secs: r.timeout_secs.unwrap_or(defaults.timeout_secs),
+            tree_chunk_size: r.tree_chunk_size.unwrap_or(defaults.tree_chunk_size),
+            max_file_chunk_bytes: r
+                .max_file_chunk_bytes
+                .unwrap_or(defaults.max_file_chunk_bytes),
+        },
+    }
 }
 
 fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Result<ServerConfig> {
@@ -915,6 +986,118 @@ root_dir = "/home/user/app"
             "Expected 'root_dir must not be empty', got: {}",
             err
         );
+    }
+
+    #[test]
+    fn test_agent_config_defaults_when_absent() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+
+        assert!(config.agent.enabled);
+        assert_eq!(config.agent.deploy_dir, "/var/tmp");
+        assert_eq!(config.agent.timeout_secs, 30);
+        assert_eq!(config.agent.tree_chunk_size, 1000);
+        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_agent_config_full() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[agent]
+enabled = false
+deploy_dir = "/opt/agents"
+timeout_secs = 60
+tree_chunk_size = 500
+max_file_chunk_bytes = 1048576
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+
+        assert!(!config.agent.enabled);
+        assert_eq!(config.agent.deploy_dir, "/opt/agents");
+        assert_eq!(config.agent.timeout_secs, 60);
+        assert_eq!(config.agent.tree_chunk_size, 500);
+        assert_eq!(config.agent.max_file_chunk_bytes, 1_048_576);
+    }
+
+    #[test]
+    fn test_agent_config_partial() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[agent]
+enabled = false
+tree_chunk_size = 2000
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+
+        // 明示的に指定した値
+        assert!(!config.agent.enabled);
+        assert_eq!(config.agent.tree_chunk_size, 2000);
+        // 未指定フィールドはデフォルト
+        assert_eq!(config.agent.deploy_dir, "/var/tmp");
+        assert_eq!(config.agent.timeout_secs, 30);
+        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_agent_config_project_overrides_global() {
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[agent]
+enabled = true
+deploy_dir = "/var/tmp"
+timeout_secs = 30
+"#;
+        let project = r#"
+[agent]
+enabled = false
+deploy_dir = "/opt/custom"
+timeout_secs = 120
+tree_chunk_size = 500
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+
+        // プロジェクト設定で上書き
+        assert!(!config.agent.enabled);
+        assert_eq!(config.agent.deploy_dir, "/opt/custom");
+        assert_eq!(config.agent.timeout_secs, 120);
+        assert_eq!(config.agent.tree_chunk_size, 500);
+        // プロジェクト設定にない項目はデフォルト（グローバルからは引き継がない）
+        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
     }
 
     #[test]

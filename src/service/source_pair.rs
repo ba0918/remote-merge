@@ -222,6 +222,7 @@ mod tests {
             filter: FilterConfig::default(),
             ssh: SshConfig::default(),
             backup: BackupConfig::default(),
+            agent: AgentConfig::default(),
         }
     }
 
@@ -348,6 +349,7 @@ mod tests {
             filter: FilterConfig::default(),
             ssh: SshConfig::default(),
             backup: BackupConfig::default(),
+            agent: AgentConfig::default(),
         };
         let args = SourceArgs::default();
         let result = resolve_source_pair(&args, &config);

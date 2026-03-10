@@ -1,6 +1,6 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 15:46:32
+**Last Updated:** 2026-03-10 21:00:00
 
 ---
 
@@ -8,16 +8,24 @@
 
 | Field | Value |
 |-------|-------|
-| **Cycle ID** | `20260310154632` |
-| **Feature** | 再接続後ディレクトリマージで [3-] バッジ不具合修正 |
-| **Started** | 2026-03-10 15:46:32 |
-| **Phase** | 🟡 In Progress |
-| **Plan** | [docs/cycles/20260310154632_fix-reconnect-dir-merge-badge.md](./cycles/20260310154632_fix-reconnect-dir-merge-badge.md) |
+| **Cycle ID** | `20260310190552` |
+| **Feature** | Remote Agent Protocol（高速メタデータ一括取得 + Quick Check） |
+| **Started** | 2026-03-10 19:05:52 |
+| **Completed** | 2026-03-10 |
+| **Phase** | 🟢 Completed |
+| **Plan** | [docs/cycles/20260310190552_remote-agent-protocol.md](./cycles/20260310190552_remote-agent-protocol.md) |
 
-**Current Focus:**
-再接続後ディレクトリマージで [3-] バッジが表示される不具合の修正。load_subtree_contents が ref コンテンツを再ロードしないことが原因。
+**Summary:**
+Agent プロトコル基盤 Cycle 1 完了。protocol/framing/tree_scan/file_io/dispatch/server/client/deploy/config/CLI の11モジュール新規作成。CoreRuntime + side_io.rs に Agent-first-SSH-fallback パターンを統合。152テスト追加（合計1319テスト）。ssh_transport は Cycle 2 で実装予定。
 
 ---
+
+### 20260310154632 - 再接続後ディレクトリマージで [3-] バッジ不具合修正
+- **Started:** 2026-03-10 15:46:32
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310154632_fix-reconnect-dir-merge-badge.md)
+- **Summary:** 再接続後ディレクトリマージで [3-] バッジが表示される不具合の修正。コミット 6dcede2。
 
 ### 20260310135716 - E2E テスト充実化
 - **Started:** 2026-03-10 13:57:16
@@ -481,6 +489,14 @@
 | **5-3** | rollback CLIサブコマンド | ⚪ Pending |
 | **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
 | **5-5** | --delete オプション（完全同期） | ⚪ Pending |
+
+### Phase 6: Remote Agent Protocol 🟡 In Progress
+| サブフェーズ | 内容 | 状態 |
+|------------|------|------|
+| **A** | プロトコル基盤 + agent サブコマンド | 🟢 Done |
+| **B** | クライアント + デプロイ + 統合 | 🟢 Done |
+| **C** | SSH Transport（async↔sync ブリッジ） | ⚪ Pending |
+| **D** | Quick Check + TUI統合 | ⚪ Pending |
 
 ---
 

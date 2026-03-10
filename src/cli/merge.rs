@@ -514,6 +514,7 @@ mod tests {
             filter: crate::config::FilterConfig::default(),
             ssh: crate::config::SshConfig::default(),
             backup: crate::config::BackupConfig::default(),
+            agent: crate::config::AgentConfig::default(),
         }
     }
 

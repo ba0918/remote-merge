@@ -105,7 +105,9 @@ pub fn start_merge_scan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AppConfig, BackupConfig, FilterConfig, LocalConfig, SshConfig};
+    use crate::config::{
+        AgentConfig, AppConfig, BackupConfig, FilterConfig, LocalConfig, SshConfig,
+    };
     use crate::tree::{FileNode, FileTree};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
@@ -126,6 +128,7 @@ mod tests {
             filter: FilterConfig::default(),
             ssh: SshConfig::default(),
             backup: BackupConfig::default(),
+            agent: AgentConfig::default(),
         }
     }
 

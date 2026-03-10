@@ -17,6 +17,38 @@ impl AppState {
         };
     }
 
+    /// 現在のノードの親ディレクトリにカーソルを移動して折りたたむ。
+    /// ファイル or 閉じたディレクトリから呼ばれる想定。
+    /// 親が見つかった場合は true を返す。
+    pub fn goto_parent_dir(&mut self) -> bool {
+        let current = match self.flat_nodes.get(self.tree_cursor) {
+            Some(n) => n,
+            None => return false,
+        };
+
+        // 親パスを算出（"src/app/mod.rs" → "src/app"）
+        let parent_path = match current.path.rsplit_once('/') {
+            Some((parent, _)) => parent.to_string(),
+            None => return false, // ルート直下 → 親なし
+        };
+
+        // flat_nodes から親ディレクトリを探してカーソル移動
+        if let Some(idx) = self
+            .flat_nodes
+            .iter()
+            .position(|n| n.is_dir && n.path == parent_path)
+        {
+            self.tree_cursor = idx;
+            // 親を折りたたむ
+            self.expanded_dirs.remove(&parent_path);
+            self.rebuild_flat_nodes();
+            self.ensure_tree_cursor_visible();
+            true
+        } else {
+            false
+        }
+    }
+
     /// ツリーカーソルを上に移動
     pub fn cursor_up(&mut self) {
         if self.tree_cursor > 0 {
@@ -535,5 +567,128 @@ mod tests {
         state.ensure_cursor_visible();
         assert_eq!(state.diff_cursor, 0);
         assert_eq!(state.diff_scroll, 0);
+    }
+
+    // --- goto_parent_dir テスト ---
+
+    fn make_state_with_tree(local: Vec<FileNode>) -> AppState {
+        AppState::new(
+            make_test_tree(local),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    #[test]
+    fn test_goto_parent_from_file() {
+        let local = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
+        )];
+        let mut state = make_state_with_tree(local);
+
+        // src を展開
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        assert_eq!(state.flat_nodes.len(), 3);
+
+        // src/main.rs にカーソル
+        state.tree_cursor = 1;
+        assert_eq!(state.flat_nodes[1].path, "src/lib.rs");
+
+        let result = state.goto_parent_dir();
+        assert!(result);
+        assert_eq!(state.tree_cursor, 0);
+        assert_eq!(state.flat_nodes[0].path, "src");
+        assert!(!state.expanded_dirs.contains("src"));
+        assert_eq!(state.flat_nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_goto_parent_from_closed_dir() {
+        let local = vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir_with_children(
+                "app",
+                vec![FileNode::new_file("mod.rs")],
+            )],
+        )];
+        let mut state = make_state_with_tree(local);
+
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        assert_eq!(state.flat_nodes.len(), 2);
+
+        // src/app（閉じた状態）
+        state.tree_cursor = 1;
+        assert!(state.flat_nodes[1].is_dir);
+        assert!(!state.flat_nodes[1].expanded);
+
+        let result = state.goto_parent_dir();
+        assert!(result);
+        assert_eq!(state.tree_cursor, 0);
+        assert!(!state.expanded_dirs.contains("src"));
+        assert_eq!(state.flat_nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_goto_parent_at_root_returns_false() {
+        let local = vec![FileNode::new_file("README.md"), FileNode::new_dir("src")];
+        let mut state = make_state_with_tree(local);
+
+        // ルート直下のファイル → 親なし
+        state.tree_cursor = 0;
+        let result = state.goto_parent_dir();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_goto_parent_deeply_nested() {
+        let local = vec![FileNode::new_dir_with_children(
+            "a",
+            vec![FileNode::new_dir_with_children(
+                "b",
+                vec![FileNode::new_dir_with_children(
+                    "c",
+                    vec![FileNode::new_file("file.txt")],
+                )],
+            )],
+        )];
+        let mut state = make_state_with_tree(local);
+
+        // 全展開
+        state.tree_cursor = 0;
+        state.toggle_expand();
+        state.tree_cursor = 1;
+        state.toggle_expand();
+        state.tree_cursor = 2;
+        state.toggle_expand();
+        assert_eq!(state.flat_nodes.len(), 4);
+
+        // file.txt → c → b → a と順に閉じる
+        state.tree_cursor = 3;
+        assert_eq!(state.flat_nodes[3].path, "a/b/c/file.txt");
+
+        let result = state.goto_parent_dir();
+        assert!(result);
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "a/b/c");
+
+        let result = state.goto_parent_dir();
+        assert!(result);
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "a/b");
+
+        let result = state.goto_parent_dir();
+        assert!(result);
+        assert_eq!(state.flat_nodes[state.tree_cursor].path, "a");
+        assert_eq!(state.flat_nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_goto_parent_empty_tree() {
+        let mut state = make_state();
+        let result = state.goto_parent_dir();
+        assert!(!result);
     }
 }

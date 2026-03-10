@@ -152,6 +152,13 @@ enum Commands {
         format: String,
     },
 
+    /// Start agent server (used internally via SSH)
+    Agent {
+        /// Root directory for file operations
+        #[arg(long)]
+        root: PathBuf,
+    },
+
     /// Show TUI events
     Events {
         /// Filter by event type (key_press, error, render_slow, ssh_exec, state_change, dialog)
@@ -275,6 +282,9 @@ fn try_main() -> anyhow::Result<()> {
                 format,
             })?;
             std::process::exit(code);
+        }
+        Some(Commands::Agent { root }) => {
+            remote_merge::agent::server::run_agent_server(root)?;
         }
         Some(Commands::Events {
             event_type,

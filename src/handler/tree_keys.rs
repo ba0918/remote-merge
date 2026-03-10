@@ -104,7 +104,11 @@ pub fn handle_tree_key(
                 .get(state.tree_cursor)
                 .is_some_and(|n| n.is_dir && n.expanded)
             {
+                // 展開中のディレクトリ → 折りたたむ
                 state.toggle_expand();
+            } else {
+                // ファイル or 閉じたディレクトリ → 親ディレクトリに移動して折りたたむ
+                state.goto_parent_dir();
             }
         }
         KeyCode::Char('r') => {
