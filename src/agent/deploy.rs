@@ -3,7 +3,6 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{bail, Result};
 use sha2::{Digest, Sha256};
 
-use super::protocol::PROTOCOL_VERSION;
 use crate::ssh::tree_parser::shell_escape;
 
 /// デプロイ先のディレクトリパス（デフォルト: /var/tmp）
@@ -46,33 +45,38 @@ pub fn remote_binary_path(deploy_dir: &str, user: &str) -> PathBuf {
 }
 
 /// `remote-merge --version` の期待出力を生成する。
-/// 例: "remote-merge 0.1.0 (protocol v1)"
+///
+/// clap が生成する実際の出力形式に合わせる: `remote-merge X.Y.Z`
 pub fn expected_version_line() -> String {
     let pkg_version = env!("CARGO_PKG_VERSION");
-    format!("remote-merge {pkg_version} (protocol v{PROTOCOL_VERSION})")
+    format!("remote-merge {pkg_version}")
 }
 
 /// リモートのバージョン確認コマンド出力をパースする。
 ///
-/// 期待フォーマット: `remote-merge X.Y.Z (protocol vN)`
-/// - 完全一致 → `Match`
+/// 期待フォーマット: `remote-merge X.Y.Z`（clap の `--version` 出力）
+/// - CARGO_PKG_VERSION と一致 → `Match`
 /// - "remote-merge" で始まるがバージョンが異なる → `Mismatch`
 /// - それ以外（空文字列、"command not found" 等） → `NotFound`
 pub fn parse_version_output(output: &str) -> VersionCheck {
     let trimmed = output.trim();
 
     // "remote-merge " プレフィックスが無ければ NotFound
-    let Some(rest) = trimmed.strip_prefix("remote-merge ") else {
+    let Some(version_str) = trimmed.strip_prefix("remote-merge ") else {
         return VersionCheck::NotFound;
     };
 
     // バージョン部分が空なら NotFound
-    if rest.is_empty() {
+    if version_str.is_empty() {
         return VersionCheck::NotFound;
     }
 
-    let expected = expected_version_line();
-    if trimmed == expected {
+    // バージョン番号部分のみ抽出（スペース以降は無視）
+    // "0.1.0" や "0.1.0 (protocol v1)" の両方に対応
+    let remote_version = version_str.split_whitespace().next().unwrap_or("");
+    let expected_version = env!("CARGO_PKG_VERSION");
+
+    if remote_version == expected_version {
         VersionCheck::Match
     } else {
         VersionCheck::Mismatch {
@@ -352,7 +356,15 @@ mod tests {
     fn expected_version_line_format() {
         let line = expected_version_line();
         assert!(line.starts_with("remote-merge "));
-        assert!(line.contains("protocol v"));
+        // clap の --version 出力形式: "remote-merge X.Y.Z"
+        assert_eq!(line, format!("remote-merge {}", env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn version_match_with_protocol_suffix() {
+        // リモートバイナリが "(protocol vN)" を含む出力を返しても、バージョン番号が一致すれば Match
+        let line = format!("remote-merge {} (protocol v1)", env!("CARGO_PKG_VERSION"));
+        assert_eq!(parse_version_output(&line), VersionCheck::Match);
     }
 
     #[test]
