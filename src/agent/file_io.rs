@@ -25,6 +25,11 @@ use crate::agent::protocol::{AgentFileStat, FileReadResult};
 /// 現在のユースケース（単一ユーザー操作）ではリスクは低いが、マルチテナント環境
 /// では追加の対策が必要。
 pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
+    // 絶対パスを拒否 — root_dir 外のファイルアクセスを防止
+    if Path::new(rel_path).is_absolute() {
+        bail!("absolute path not allowed: {rel_path}");
+    }
+
     // コンポーネントレベルで .. を拒否
     for component in Path::new(rel_path).components() {
         if matches!(component, Component::ParentDir) {

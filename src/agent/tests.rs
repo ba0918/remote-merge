@@ -44,18 +44,15 @@ fn full_protocol_roundtrip() {
     let mut client = create_pair(&tmp);
 
     // ListTree
-    let entries = client
-        .list_tree(tmp.path().to_str().unwrap(), &[], 10000)
-        .unwrap();
+    let entries = client.list_tree("", &[], 10000).unwrap();
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains(&"hello.txt"));
     assert!(paths.contains(&"sub"));
     assert!(paths.contains(&"sub/inner.txt"));
 
     // ReadFiles
-    let abs_path = tmp.path().join("hello.txt");
     let results = client
-        .read_files(&[abs_path.to_str().unwrap().to_string()], 1_048_576)
+        .read_files(&["hello.txt".to_string()], 1_048_576)
         .unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
@@ -64,16 +61,16 @@ fn full_protocol_roundtrip() {
     }
 
     // WriteFile
-    let new_file = tmp.path().join("written.txt");
     client
-        .write_file(new_file.to_str().unwrap(), b"new content", false)
+        .write_file("written.txt", b"new content", false)
         .unwrap();
-    assert_eq!(fs::read_to_string(&new_file).unwrap(), "new content");
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("written.txt")).unwrap(),
+        "new content"
+    );
 
     // StatFiles
-    let stats = client
-        .stat_files(&[new_file.to_str().unwrap().to_string()])
-        .unwrap();
+    let stats = client.stat_files(&["written.txt".to_string()]).unwrap();
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].size, 11); // "new content".len()
 
@@ -102,9 +99,7 @@ fn tree_scan_and_convert_to_file_nodes() {
     std::os::unix::fs::symlink("root.txt", tmp.path().join("link")).unwrap();
 
     let mut client = create_pair(&tmp);
-    let entries = client
-        .list_tree(tmp.path().to_str().unwrap(), &[], 10000)
-        .unwrap();
+    let entries = client.list_tree("", &[], 10000).unwrap();
 
     // エントリ種類の検証
     let file_entry = entries.iter().find(|e| e.path == "root.txt").unwrap();
@@ -142,24 +137,21 @@ fn tree_scan_and_convert_to_file_nodes() {
 #[test]
 fn chunked_write_and_read_roundtrip() {
     let tmp = TempDir::new().unwrap();
-    let file_path = tmp.path().join("large.bin");
 
     // 4MB + 1000 バイト → 自動チャンク分割される
     let data = vec![0xCDu8; 4 * 1024 * 1024 + 1000];
 
     let mut client = create_pair(&tmp);
-    client
-        .write_file(file_path.to_str().unwrap(), &data, true)
-        .unwrap();
+    client.write_file("large.bin", &data, true).unwrap();
 
     // ファイルシステム上で検証
-    let written = fs::read(&file_path).unwrap();
+    let written = fs::read(tmp.path().join("large.bin")).unwrap();
     assert_eq!(written.len(), data.len());
     assert_eq!(written, data);
 
     // ReadFiles で読み返して検証
     let results = client
-        .read_files(&[file_path.to_str().unwrap().to_string()], 16 * 1024 * 1024)
+        .read_files(&["large.bin".to_string()], 16 * 1024 * 1024)
         .unwrap();
     let mut reassembled = Vec::new();
     for r in &results {
@@ -187,11 +179,7 @@ fn exclude_patterns_filter_entries() {
 
     let mut client = create_pair(&tmp);
     let entries = client
-        .list_tree(
-            tmp.path().to_str().unwrap(),
-            &["node_modules".to_string(), ".git".to_string()],
-            10000,
-        )
+        .list_tree("", &["node_modules".to_string(), ".git".to_string()], 10000)
         .unwrap();
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
@@ -234,9 +222,8 @@ fn write_path_traversal_returns_error() {
     let tmp = TempDir::new().unwrap();
     let mut client = create_pair(&tmp);
 
-    // パストラバーサルを含むパスで WriteFile → エラーになるがクラッシュしない
-    let traversal_path = tmp.path().join("../../../tmp/evil.txt");
-    let result = client.write_file(traversal_path.to_str().unwrap(), b"evil", false);
+    // パストラバーサルを含む相対パスで WriteFile → エラーになるがクラッシュしない
+    let result = client.write_file("../../tmp/evil.txt", b"evil", false);
     // write_file はエラーを返す（WriteResult.success=false → bail!）
     assert!(result.is_err());
 }
@@ -269,16 +256,12 @@ fn symlink_create_and_list_and_read() {
 
     let mut client = create_pair(&tmp);
 
-    // シンボリックリンク作成
+    // シンボリックリンク作成（相対パスで指定）
     let link_rel = "mylink.txt";
-    client
-        .symlink(tmp.path().join(link_rel).to_str().unwrap(), "target.txt")
-        .unwrap();
+    client.symlink(link_rel, "target.txt").unwrap();
 
     // ListTree でシンボリックリンクが表示される
-    let entries = client
-        .list_tree(tmp.path().to_str().unwrap(), &[], 10000)
-        .unwrap();
+    let entries = client.list_tree("", &[], 10000).unwrap();
     let link_entry = entries
         .iter()
         .find(|e| e.path == link_rel)
@@ -287,9 +270,8 @@ fn symlink_create_and_list_and_read() {
     assert_eq!(link_entry.symlink_target.as_deref(), Some("target.txt"));
 
     // ReadFiles でシンボリックリンクを読む → ターゲットの内容が返る
-    let link_abs = tmp.path().join(link_rel);
     let results = client
-        .read_files(&[link_abs.to_str().unwrap().to_string()], 1_048_576)
+        .read_files(&[link_rel.to_string()], 1_048_576)
         .unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
@@ -333,13 +315,13 @@ fn read_50_files_in_single_request() {
     let tmp = TempDir::new().unwrap();
     let count = 50;
 
-    // 50 ファイルを作成
+    // 50 ファイルを作成（相対パスで管理）
     let mut paths = Vec::new();
     for i in 0..count {
         let name = format!("file_{i:03}.txt");
         let content = format!("content of file {i}");
         fs::write(tmp.path().join(&name), &content).unwrap();
-        paths.push(tmp.path().join(&name).to_str().unwrap().to_string());
+        paths.push(name);
     }
 
     let mut client = create_pair(&tmp);

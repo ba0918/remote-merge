@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::file_io;
-use super::protocol::{AgentFileEntry, AgentRequest, AgentResponse, FileReadResult};
+use super::protocol::{AgentRequest, AgentResponse, FileReadResult};
 use super::tree_scan::{self, ScanOptions};
 
 /// Agent ディスパッチャー。root_dir を保持し、リクエストを適切なハンドラに振り分ける。
@@ -25,11 +25,13 @@ impl Dispatcher {
         }
     }
 
-    /// リクエストを処理してレスポンスを返す。
+    /// リクエストを処理してレスポンスのリストを返す。
     /// Shutdown の場合は None を返す（呼び出し元がループを終了する合図）。
-    pub fn dispatch(&mut self, request: AgentRequest) -> Option<AgentResponse> {
+    /// ListTree は複数の TreeChunk を返すことがある（マルチチャンクストリーミング）。
+    /// その他のリクエストは常に要素1つの Vec を返す。
+    pub fn dispatch(&mut self, request: AgentRequest) -> Option<Vec<AgentResponse>> {
         match request {
-            AgentRequest::Ping => Some(AgentResponse::Pong),
+            AgentRequest::Ping => Some(vec![AgentResponse::Pong]),
             AgentRequest::Shutdown => None,
             AgentRequest::ListTree {
                 root,
@@ -39,31 +41,41 @@ impl Dispatcher {
             AgentRequest::ReadFiles {
                 paths,
                 chunk_size_limit,
-            } => Some(self.handle_read_files(&paths, chunk_size_limit)),
+            } => Some(vec![self.handle_read_files(&paths, chunk_size_limit)]),
             AgentRequest::WriteFile {
                 path,
                 content,
                 // TODO: is_binary は将来のバイナリファイル最適化で使用予定
                 is_binary: _,
                 more_to_follow,
-            } => Some(self.handle_write_file(&path, &content, more_to_follow)),
-            AgentRequest::StatFiles { paths } => Some(self.handle_stat_files(&paths)),
+            } => Some(vec![self.handle_write_file(
+                &path,
+                &content,
+                more_to_follow,
+            )]),
+            AgentRequest::StatFiles { paths } => Some(vec![self.handle_stat_files(&paths)]),
             AgentRequest::Backup { paths, backup_dir } => {
-                Some(self.handle_backup(&paths, &backup_dir))
+                Some(vec![self.handle_backup(&paths, &backup_dir)])
             }
-            AgentRequest::Symlink { path, target } => Some(self.handle_symlink(&path, &target)),
+            AgentRequest::Symlink { path, target } => {
+                Some(vec![self.handle_symlink(&path, &target)])
+            }
         }
     }
 
+    /// ListTree をストリーミングで処理し、複数の TreeChunk を返す。
+    ///
+    /// `scan_tree` が生成する各チャンクをそのまま個別の `TreeChunk` レスポンスにマッピングする。
+    /// これにより大規模ディレクトリでも1フレームが MAX_FRAME_SIZE を超えない。
     fn handle_list_tree(
         &self,
         root: &str,
         exclude: &[String],
         max_entries: usize,
-    ) -> AgentResponse {
+    ) -> Vec<AgentResponse> {
         let scan_root = match resolve_scan_root(&self.root_dir, root) {
             Ok(p) => p,
-            Err(e) => return AgentResponse::Error { message: e },
+            Err(e) => return vec![AgentResponse::Error { message: e }],
         };
         let options = ScanOptions {
             root: scan_root,
@@ -72,28 +84,36 @@ impl Dispatcher {
             ..Default::default()
         };
 
-        let mut all_entries: Vec<AgentFileEntry> = Vec::new();
-        let mut total_scanned = 0;
+        let mut responses: Vec<AgentResponse> = Vec::new();
 
         for chunk_result in tree_scan::scan_tree(&options) {
             match chunk_result {
                 Ok(chunk) => {
-                    total_scanned = chunk.total_scanned;
-                    all_entries.extend(chunk.entries);
+                    responses.push(AgentResponse::TreeChunk {
+                        nodes: chunk.entries,
+                        is_last: chunk.is_last,
+                        total_scanned: chunk.total_scanned,
+                    });
                 }
                 Err(e) => {
-                    return AgentResponse::Error {
+                    return vec![AgentResponse::Error {
                         message: format!("tree scan error: {e}"),
-                    };
+                    }];
                 }
             }
         }
 
-        AgentResponse::TreeChunk {
-            nodes: all_entries,
-            is_last: true,
-            total_scanned,
+        // 空ディレクトリの場合 scan_tree は空エントリの is_last=true チャンクを1つ返すが、
+        // 念のため responses が空の場合もガードする
+        if responses.is_empty() {
+            responses.push(AgentResponse::TreeChunk {
+                nodes: vec![],
+                is_last: true,
+                total_scanned: 0,
+            });
         }
+
+        responses
     }
 
     fn handle_read_files(&self, paths: &[String], chunk_size_limit: usize) -> AgentResponse {
@@ -209,6 +229,11 @@ fn resolve_scan_root(root_dir: &Path, root: &str) -> Result<PathBuf, String> {
         return Ok(root_dir.to_path_buf());
     }
 
+    // 絶対パスを拒否 — root_dir 外のディレクトリ走査を防止
+    if Path::new(root).is_absolute() {
+        return Err(format!("absolute path not allowed: {root}"));
+    }
+
     // file_io::validate_path と同等のパストラバーサル検出
     for component in Path::new(root).components() {
         if matches!(component, std::path::Component::ParentDir) {
@@ -255,13 +280,26 @@ mod tests {
         (tmp, dispatcher)
     }
 
+    // ── ヘルパー: 単一レスポンスを取り出す ──
+
+    /// `dispatch()` の結果から要素1つのみの Vec であることを確認して取り出す。
+    fn single(responses: Vec<AgentResponse>) -> AgentResponse {
+        assert_eq!(
+            responses.len(),
+            1,
+            "expected exactly 1 response, got {}",
+            responses.len()
+        );
+        responses.into_iter().next().unwrap()
+    }
+
     // ── Ping / Shutdown ──
 
     #[test]
     fn ping_returns_pong() {
         let (_tmp, mut d) = setup();
-        let resp = d.dispatch(AgentRequest::Ping);
-        assert_eq!(resp, Some(AgentResponse::Pong));
+        let resps = d.dispatch(AgentRequest::Ping).unwrap();
+        assert_eq!(single(resps), AgentResponse::Pong);
     }
 
     #[test]
@@ -280,7 +318,7 @@ mod tests {
         fs::create_dir(tmp.path().join("sub")).unwrap();
         fs::write(tmp.path().join("sub/b.txt"), "world").unwrap();
 
-        let resp = d
+        let resps = d
             .dispatch(AgentRequest::ListTree {
                 root: String::new(),
                 exclude: vec![],
@@ -288,16 +326,110 @@ mod tests {
             })
             .unwrap();
 
-        match resp {
-            AgentResponse::TreeChunk { nodes, is_last, .. } => {
-                assert!(is_last);
-                let paths: Vec<&str> = nodes.iter().map(|n| n.path.as_str()).collect();
-                assert!(paths.contains(&"a.txt"));
-                assert!(paths.contains(&"sub"));
-                assert!(paths.contains(&"sub/b.txt"));
+        // 全チャンクからエントリを収集
+        let mut all_paths: Vec<String> = Vec::new();
+        let mut last_count = 0;
+        for resp in &resps {
+            match resp {
+                AgentResponse::TreeChunk { nodes, is_last, .. } => {
+                    all_paths.extend(nodes.iter().map(|n| n.path.clone()));
+                    if *is_last {
+                        last_count += 1;
+                    }
+                }
+                other => panic!("expected TreeChunk, got {other:?}"),
+            }
+        }
+        // 最後のチャンクだけ is_last=true
+        assert_eq!(last_count, 1, "exactly one chunk should have is_last=true");
+        assert!(resps
+            .last()
+            .is_some_and(|r| matches!(r, AgentResponse::TreeChunk { is_last: true, .. })));
+
+        let paths: Vec<&str> = all_paths.iter().map(|s| s.as_str()).collect();
+        assert!(paths.contains(&"a.txt"));
+        assert!(paths.contains(&"sub"));
+        assert!(paths.contains(&"sub/b.txt"));
+    }
+
+    #[test]
+    fn list_tree_empty_dir_returns_single_chunk() {
+        let (_tmp, mut d) = setup();
+
+        let resps = d
+            .dispatch(AgentRequest::ListTree {
+                root: String::new(),
+                exclude: vec![],
+                max_entries: 10000,
+            })
+            .unwrap();
+
+        assert_eq!(resps.len(), 1, "empty dir should return exactly one chunk");
+        match &resps[0] {
+            AgentResponse::TreeChunk {
+                nodes,
+                is_last,
+                total_scanned,
+            } => {
+                assert!(nodes.is_empty());
+                assert!(*is_last);
+                assert_eq!(*total_scanned, 0);
             }
             other => panic!("expected TreeChunk, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn list_tree_multi_chunk() {
+        let (tmp, mut d) = setup();
+        // デフォルト chunk_size=1000 を超えるファイル数を作成するのは重いため、
+        // chunk_size を小さくしたオプションは dispatch から直接指定できない。
+        // ここでは handle_list_tree を間接的に呼ぶのではなく、
+        // scan_tree の chunk_size=2 相当になるよう十分なファイルを作成して
+        // dispatch の経路を通る統合テストとする。
+        // (chunk_size はデフォルト 1000 なので、複数チャンクを強制するには
+        //  1001 ファイルが必要 — 代わりに handle_list_tree の内部動作は
+        //  tree_scan::tests で検証済みのため、ここでは 3 ファイルで基本動作を確認する)
+        for i in 0..3 {
+            fs::write(tmp.path().join(format!("f{i}.txt")), "x").unwrap();
+        }
+
+        let resps = d
+            .dispatch(AgentRequest::ListTree {
+                root: String::new(),
+                exclude: vec![],
+                max_entries: 10000,
+            })
+            .unwrap();
+
+        // 全チャンクのうち最後だけ is_last=true であること
+        let last_flags: Vec<bool> = resps
+            .iter()
+            .map(|r| match r {
+                AgentResponse::TreeChunk { is_last, .. } => *is_last,
+                other => panic!("expected TreeChunk, got {other:?}"),
+            })
+            .collect();
+
+        let true_count = last_flags.iter().filter(|&&b| b).count();
+        assert_eq!(
+            true_count, 1,
+            "exactly one chunk should have is_last=true, flags={last_flags:?}"
+        );
+        assert!(
+            *last_flags.last().unwrap(),
+            "the last chunk should have is_last=true"
+        );
+
+        // 全エントリが収集できること
+        let total_entries: usize = resps
+            .iter()
+            .map(|r| match r {
+                AgentResponse::TreeChunk { nodes, .. } => nodes.len(),
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(total_entries, 3);
     }
 
     // ── ReadFiles ──
@@ -307,12 +439,13 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::ReadFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::ReadFiles {
                 paths: vec!["hello.txt".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::FileContents { results } => {
@@ -332,12 +465,13 @@ mod tests {
     fn read_files_nonexistent_returns_error_variant() {
         let (_tmp, mut d) = setup();
 
-        let resp = d
-            .dispatch(AgentRequest::ReadFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::ReadFiles {
                 paths: vec!["nonexistent.txt".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::FileContents { results } => {
@@ -352,12 +486,13 @@ mod tests {
     fn read_files_path_traversal_returns_error_variant() {
         let (_tmp, mut d) = setup();
 
-        let resp = d
-            .dispatch(AgentRequest::ReadFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::ReadFiles {
                 paths: vec!["../etc/passwd".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::FileContents { results } => {
@@ -379,14 +514,15 @@ mod tests {
     fn write_file_single() {
         let (tmp, mut d) = setup();
 
-        let resp = d
-            .dispatch(AgentRequest::WriteFile {
+        let resp = single(
+            d.dispatch(AgentRequest::WriteFile {
                 path: "out.txt".into(),
                 content: b"data".to_vec(),
                 is_binary: false,
                 more_to_follow: false,
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         assert_eq!(
             resp,
@@ -406,14 +542,15 @@ mod tests {
         let (tmp, mut d) = setup();
 
         // 最初のチャンク（more_to_follow=true）
-        let resp1 = d
-            .dispatch(AgentRequest::WriteFile {
+        let resp1 = single(
+            d.dispatch(AgentRequest::WriteFile {
                 path: "chunked.bin".into(),
                 content: b"chunk1".to_vec(),
                 is_binary: true,
                 more_to_follow: true,
             })
-            .unwrap();
+            .unwrap(),
+        );
         assert_eq!(
             resp1,
             AgentResponse::WriteResult {
@@ -423,14 +560,15 @@ mod tests {
         );
 
         // 2番目のチャンク（more_to_follow=false で完了）
-        let resp2 = d
-            .dispatch(AgentRequest::WriteFile {
+        let resp2 = single(
+            d.dispatch(AgentRequest::WriteFile {
                 path: "chunked.bin".into(),
                 content: b"chunk2".to_vec(),
                 is_binary: true,
                 more_to_follow: false,
             })
-            .unwrap();
+            .unwrap(),
+        );
         assert_eq!(
             resp2,
             AgentResponse::WriteResult {
@@ -471,14 +609,15 @@ mod tests {
     fn write_file_path_traversal_returns_error() {
         let (_tmp, mut d) = setup();
 
-        let resp = d
-            .dispatch(AgentRequest::WriteFile {
+        let resp = single(
+            d.dispatch(AgentRequest::WriteFile {
                 path: "../escape.txt".into(),
                 content: b"evil".to_vec(),
                 is_binary: false,
                 more_to_follow: false,
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::WriteResult { success, error } => {
@@ -496,11 +635,12 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("s.txt"), "12345").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::StatFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::StatFiles {
                 paths: vec!["s.txt".into()],
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::Stats { entries } => {
@@ -519,12 +659,13 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("orig.txt"), "backup me").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::Backup {
+        let resp = single(
+            d.dispatch(AgentRequest::Backup {
                 paths: vec!["orig.txt".into()],
                 backup_dir: "backups".into(),
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         assert_eq!(
             resp,
@@ -546,12 +687,13 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("target.txt"), "link target").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::Symlink {
+        let resp = single(
+            d.dispatch(AgentRequest::Symlink {
                 path: "link.txt".into(),
                 target: "target.txt".into(),
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         assert_eq!(
             resp,
@@ -570,12 +712,13 @@ mod tests {
     fn symlink_traversal_returns_error() {
         let (_tmp, mut d) = setup();
 
-        let resp = d
-            .dispatch(AgentRequest::Symlink {
+        let resp = single(
+            d.dispatch(AgentRequest::Symlink {
                 path: "link".into(),
                 target: "../etc/passwd".into(),
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::SymlinkResult { success, error } => {
@@ -592,7 +735,7 @@ mod tests {
     fn list_tree_path_traversal_returns_error() {
         let (_tmp, mut d) = setup();
 
-        let resp = d
+        let resps = d
             .dispatch(AgentRequest::ListTree {
                 root: "../../etc".into(),
                 exclude: vec![],
@@ -600,7 +743,8 @@ mod tests {
             })
             .unwrap();
 
-        match resp {
+        assert_eq!(resps.len(), 1);
+        match &resps[0] {
             AgentResponse::Error { message } => {
                 assert!(
                     message.contains("path traversal"),
@@ -617,11 +761,12 @@ mod tests {
         // 正常なファイルも一緒に送り、トラバーサルパスがスキップされることを確認
         fs::write(tmp.path().join("ok.txt"), "data").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::StatFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::StatFiles {
                 paths: vec!["../etc/passwd".into(), "ok.txt".into()],
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::Stats { entries } => {
@@ -638,12 +783,13 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("file.txt"), "data").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::Backup {
+        let resp = single(
+            d.dispatch(AgentRequest::Backup {
                 paths: vec!["file.txt".into()],
                 backup_dir: "../../tmp/evil".into(),
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::BackupResult { success, error } => {
@@ -659,15 +805,40 @@ mod tests {
     }
 
     #[test]
+    fn list_tree_absolute_path_returns_error() {
+        let (_tmp, mut d) = setup();
+
+        let resps = d
+            .dispatch(AgentRequest::ListTree {
+                root: "/etc".into(),
+                exclude: vec![],
+                max_entries: 10000,
+            })
+            .unwrap();
+
+        assert_eq!(resps.len(), 1);
+        match &resps[0] {
+            AgentResponse::Error { message } => {
+                assert!(
+                    message.contains("absolute path not allowed"),
+                    "expected absolute path error, got: {message}"
+                );
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn stat_files_nonexistent_skips_with_no_abort() {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("exists.txt"), "hello").unwrap();
 
-        let resp = d
-            .dispatch(AgentRequest::StatFiles {
+        let resp = single(
+            d.dispatch(AgentRequest::StatFiles {
                 paths: vec!["nonexistent.txt".into(), "exists.txt".into()],
             })
-            .unwrap();
+            .unwrap(),
+        );
 
         match resp {
             AgentResponse::Stats { entries } => {

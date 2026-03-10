@@ -76,9 +76,11 @@ pub(crate) fn run_agent_loop(
         tracing::debug!(?request, "received request");
 
         match dispatcher.dispatch(request) {
-            Some(response) => {
-                tracing::debug!("sending response");
-                send_response(&mut writer, &response)?;
+            Some(responses) => {
+                tracing::debug!(count = responses.len(), "sending responses");
+                for response in &responses {
+                    send_response(&mut writer, response)?;
+                }
             }
             None => {
                 // Shutdown

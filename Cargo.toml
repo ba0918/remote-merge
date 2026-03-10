@@ -42,3 +42,10 @@ expectrl = "0.8.0"
 [[test]]
 name = "ssh_integration"
 required-features = ["test-utils"]
+
+[[test]]
+name = "agent_ssh_deploy"
+required-features = ["test-utils"]
+
+[profile.release]
+strip = true

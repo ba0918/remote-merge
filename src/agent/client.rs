@@ -63,24 +63,39 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// ListTree を送信し、全エントリを返す。
     ///
-    /// 現在のサーバー実装は単一の `TreeChunk { is_last: true }` を返す。
-    /// 将来サーバー側がストリーミングチャンクを返すようになった場合、
-    /// この関数をマルチレスポンス対応に拡張する必要がある（TODO）。
+    /// サーバーは大規模ディレクトリを複数の `TreeChunk` フレームにストリーミングする。
+    /// `is_last: true` のチャンクを受信するまでループして全エントリを収集する。
     pub fn list_tree(
         &mut self,
         root: &str,
         exclude: &[String],
         max_entries: usize,
     ) -> Result<Vec<AgentFileEntry>> {
-        let resp = self.request(&AgentRequest::ListTree {
+        // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
+        let data = protocol::serialize_request(&AgentRequest::ListTree {
             root: root.to_string(),
             exclude: exclude.to_vec(),
             max_entries,
         })?;
-        match resp {
-            AgentResponse::TreeChunk { nodes, .. } => Ok(nodes),
-            other => bail!("unexpected response to ListTree: {other:?}"),
+        framing::write_frame(&mut self.writer, &data)?;
+
+        // is_last=true になるまでチャンクを読み続ける
+        let mut all_nodes = Vec::new();
+        loop {
+            let frame = framing::read_frame(&mut self.reader)?;
+            let resp = protocol::deserialize_response(&frame)?;
+            match resp {
+                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::TreeChunk { nodes, is_last, .. } => {
+                    all_nodes.extend(nodes);
+                    if is_last {
+                        break;
+                    }
+                }
+                other => bail!("unexpected response to ListTree: {other:?}"),
+            }
         }
+        Ok(all_nodes)
     }
 
     /// 複数ファイルを読み込む。
@@ -328,9 +343,7 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let entries = client
-            .list_tree(tmp.path().to_str().unwrap(), &[], 10000)
-            .unwrap();
+        let entries = client.list_tree("", &[], 10000).unwrap();
         assert!(entries.is_empty());
     }
 
@@ -342,9 +355,7 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let entries = client
-            .list_tree(tmp.path().to_str().unwrap(), &[], 10000)
-            .unwrap();
+        let entries = client.list_tree("", &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));
@@ -357,12 +368,11 @@ mod tests {
     #[test]
     fn read_files_single() {
         let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("test.txt");
-        std::fs::write(&file_path, "hello agent").unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "hello agent").unwrap();
 
         let mut client = create_pair(&tmp);
         let results = client
-            .read_files(&[file_path.to_str().unwrap().to_string()], 1_048_576)
+            .read_files(&["test.txt".to_string()], 1_048_576)
             .unwrap();
         assert_eq!(results.len(), 1);
         match &results[0] {
@@ -380,44 +390,37 @@ mod tests {
     #[test]
     fn write_file_small() {
         let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("out.txt");
 
         let mut client = create_pair(&tmp);
         client
-            .write_file(file_path.to_str().unwrap(), b"written data", false)
+            .write_file("out.txt", b"written data", false)
             .unwrap();
 
-        let content = std::fs::read_to_string(&file_path).unwrap();
+        let content = std::fs::read_to_string(tmp.path().join("out.txt")).unwrap();
         assert_eq!(content, "written data");
     }
 
     #[test]
     fn write_file_empty() {
         let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("empty.txt");
 
         let mut client = create_pair(&tmp);
-        client
-            .write_file(file_path.to_str().unwrap(), b"", false)
-            .unwrap();
+        client.write_file("empty.txt", b"", false).unwrap();
 
-        let content = std::fs::read(&file_path).unwrap();
+        let content = std::fs::read(tmp.path().join("empty.txt")).unwrap();
         assert!(content.is_empty());
     }
 
     #[test]
     fn write_file_auto_chunking() {
         let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("large.bin");
         // WRITE_CHUNK_SIZE を超えるデータ → 複数チャンクに分割される
         let data = vec![0xABu8; WRITE_CHUNK_SIZE + 1000];
 
         let mut client = create_pair(&tmp);
-        client
-            .write_file(file_path.to_str().unwrap(), &data, true)
-            .unwrap();
+        client.write_file("large.bin", &data, true).unwrap();
 
-        let written = std::fs::read(&file_path).unwrap();
+        let written = std::fs::read(tmp.path().join("large.bin")).unwrap();
         assert_eq!(written, data);
     }
 
@@ -426,13 +429,10 @@ mod tests {
     #[test]
     fn stat_files_existing() {
         let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("stat_me.txt");
-        std::fs::write(&file_path, "data").unwrap();
+        std::fs::write(tmp.path().join("stat_me.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let stats = client
-            .stat_files(&[file_path.to_str().unwrap().to_string()])
-            .unwrap();
+        let stats = client.stat_files(&["stat_me.txt".to_string()]).unwrap();
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].size, 4);
     }

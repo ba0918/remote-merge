@@ -1,23 +1,30 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 21:11:33
+**Last Updated:** 2026-03-11 00:15:00
 
 ---
 
 ## 🎯 Current Session
 
-| Field | Value |
-|-------|-------|
-| **Cycle ID** | `20260310211133` |
-| **Feature** | Agent SSH Transport + Quick Check + TUI/CLI 統合 |
-| **Started** | 2026-03-10 21:11:33 |
-| **Phase** | 🟡 Planning |
-| **Plan** | [docs/cycles/20260310211133_agent-ssh-transport-and-quick-check.md](./cycles/20260310211133_agent-ssh-transport-and-quick-check.md) |
-
-**Current Focus:**
-Cycle 1 で構築した Agent プロトコル基盤を SSH 経由で動作させる。SSH exec↔sync ブリッジ、バイナリデプロイ、Quick Check、TUI/CLI 統合。
+*No active session*
 
 ---
+
+### 20260310220840 - Agent クロスコンパイル + E2E 動作確認
+- **Started:** 2026-03-10 22:08:40
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310220840_agent-cross-compile-and-e2e.md)
+- **Summary:** musl 静的リンクビルド成功（arboard feature gate 不要、strip後11MB）。resolve_binary_path() + 環境変数オーバーライド、checksum_cmd + chmod 700、ListTree マルチチャンクストリーミング、E2E プロセステスト8件 + SSH E2Eテスト4件追加。resolve_scan_root + validate_path に絶対パス拒否を追加（セキュリティ改善）。CI/release に musl ターゲット追加。1471テスト通過。
+
+---
+
+### 20260310211133 - Agent SSH Transport + Quick Check + TUI/CLI 統合
+- **Started:** 2026-03-10 21:11:33
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310211133_agent-ssh-transport-and-quick-check.md)
+- **Summary:** SshAgentTransport（async↔sync ブリッジ + TransportGuard）、deploy.rs 純粋関数、core.rs start_agent_via_ssh() 完全実装、TUI Agent ステータスフッター、CLI agent フィールド（AgentStatus enum）、--checksum オプション。1358テスト通過。コミット aeab147。
 
 ### 20260310190552 - Remote Agent Protocol（高速メタデータ一括取得 + Quick Check）
 - **Started:** 2026-03-10 19:05:52
@@ -496,12 +503,13 @@ Cycle 1 で構築した Agent プロトコル基盤を SSH 経由で動作させ
 | **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
 | **5-5** | --delete オプション（完全同期） | ⚪ Pending |
 
-### Phase 6: Remote Agent Protocol 🟡 In Progress
+### Phase 6: Remote Agent Protocol 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **A** | プロトコル基盤 + agent サブコマンド | 🟢 Done |
 | **B** | クライアント + デプロイ + 統合 | 🟢 Done |
-| **C** | SSH Transport + Quick Check + TUI/CLI統合 | 🟡 In Progress |
+| **C** | SSH Transport + Quick Check + TUI/CLI統合 | 🟢 Done |
+| **D** | クロスコンパイル + E2E 動作確認 | 🟢 Done |
 
 ---
 
