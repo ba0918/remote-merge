@@ -12,15 +12,18 @@ use ratatui::text::Span;
 
 use crate::app::three_way::ThreeWayLineBadge;
 use crate::app::AppState;
+use crate::diff::conflict::ConflictInfo;
 use crate::diff::engine::DiffTag;
 
 /// 3way line badge 計算に必要な reference 情報。
 ///
-/// left-ref / right-ref 間の diff マッピングを保持する。
+/// left-ref / right-ref 間の diff マッピングとコンフリクト情報を保持する。
 pub struct RefContext {
     /// left の行番号 → reference の対応行内容
     /// Equal 行のみマッピングされる。変更/追加/削除行はキーが存在しない。
     left_to_ref: HashMap<usize, String>,
+    /// コンフリクト情報（ref を基準に left/right 両方が異なる変更をした領域）
+    conflict_info: Option<ConflictInfo>,
 }
 
 /// left (or right) と ref の diff からマッピングを構築する。
@@ -56,8 +59,12 @@ pub fn build_ref_context(state: &AppState) -> Option<RefContext> {
     let ref_content = state.ref_cache.get(path)?;
 
     let left_to_ref = build_line_mapping(left_content, ref_content);
+    let conflict_info = state.conflict_cache.get(path).cloned();
 
-    Some(RefContext { left_to_ref })
+    Some(RefContext {
+        left_to_ref,
+        conflict_info,
+    })
 }
 
 /// Unified モードの行に対して 3way badge Span を返す。
@@ -66,7 +73,7 @@ pub fn unified_line_badge(
     tag: DiffTag,
     line_value: &str,
     old_index: Option<usize>,
-    _new_index: Option<usize>,
+    new_index: Option<usize>,
 ) -> Span<'static> {
     let badge = match tag {
         DiffTag::Equal => {
@@ -77,8 +84,30 @@ pub fn unified_line_badge(
                 _ => ThreeWayLineBadge::Differs,
             }
         }
-        // Delete/Insert 行は left!=right なので必ず 3way 差分あり
-        DiffTag::Delete | DiffTag::Insert => ThreeWayLineBadge::Differs,
+        DiffTag::Delete => {
+            // Delete 行: left 側の行。old_index = left ファイル行番号
+            if let Some(ci) = &ctx.conflict_info {
+                if old_index.is_some_and(|idx| ci.is_left_file_line_in_conflict(idx)) {
+                    ThreeWayLineBadge::Conflict
+                } else {
+                    ThreeWayLineBadge::Differs
+                }
+            } else {
+                ThreeWayLineBadge::Differs
+            }
+        }
+        DiffTag::Insert => {
+            // Insert 行: right 側の行。new_index = right ファイル行番号
+            if let Some(ci) = &ctx.conflict_info {
+                if new_index.is_some_and(|idx| ci.is_right_file_line_in_conflict(idx)) {
+                    ThreeWayLineBadge::Conflict
+                } else {
+                    ThreeWayLineBadge::Differs
+                }
+            } else {
+                ThreeWayLineBadge::Differs
+            }
+        }
     };
 
     badge_to_span(badge)
@@ -90,7 +119,7 @@ pub fn side_by_side_line_badge(
     left_value: Option<&str>,
     right_value: Option<&str>,
     old_index: Option<usize>,
-    _new_index: Option<usize>,
+    new_index: Option<usize>,
 ) -> Span<'static> {
     // Equal行（left == right）の場合のみ ref と比較
     if let (Some(lv), Some(rv)) = (left_value, right_value) {
@@ -104,7 +133,15 @@ pub fn side_by_side_line_badge(
         }
     }
 
-    // 差分行は必ず 3way 差分あり
+    // 差分行: コンフリクト判定
+    if let Some(ci) = &ctx.conflict_info {
+        let left_conflict = old_index.is_some_and(|idx| ci.is_left_file_line_in_conflict(idx));
+        let right_conflict = new_index.is_some_and(|idx| ci.is_right_file_line_in_conflict(idx));
+        if left_conflict || right_conflict {
+            return badge_to_span(ThreeWayLineBadge::Conflict);
+        }
+    }
+
     badge_to_span(ThreeWayLineBadge::Differs)
 }
 
@@ -112,7 +149,9 @@ pub fn side_by_side_line_badge(
 fn badge_to_span(badge: ThreeWayLineBadge) -> Span<'static> {
     match badge {
         ThreeWayLineBadge::AllEqual => Span::raw(""),
-        ThreeWayLineBadge::Differs => Span::styled(format!(" {}", badge.label()), badge.style()),
+        ThreeWayLineBadge::Differs | ThreeWayLineBadge::Conflict => {
+            Span::styled(format!(" {}", badge.label()), badge.style())
+        }
     }
 }
 
@@ -122,7 +161,24 @@ mod tests {
 
     fn build_ctx(left: &str, _right: &str, reference: &str) -> RefContext {
         let left_to_ref = build_line_mapping(left, reference);
-        RefContext { left_to_ref }
+        RefContext {
+            left_to_ref,
+            conflict_info: None,
+        }
+    }
+
+    fn build_ctx_with_conflict(left: &str, right: &str, reference: &str) -> RefContext {
+        let left_to_ref = build_line_mapping(left, reference);
+        let conflict_info = crate::diff::conflict::detect_conflicts(Some(reference), left, right);
+        let conflict_info = if conflict_info.is_empty() {
+            None
+        } else {
+            Some(conflict_info)
+        };
+        RefContext {
+            left_to_ref,
+            conflict_info,
+        }
     }
 
     #[test]
@@ -216,5 +272,107 @@ mod tests {
         assert!(mapping.contains_key(&0));
         assert!(!mapping.contains_key(&1));
         assert!(mapping.contains_key(&2));
+    }
+
+    // ── conflict badge tests ──
+
+    #[test]
+    fn unified_conflict_badge_on_conflicted_delete() {
+        // ref="A\n", left="B\n", right="C\n"
+        // left→right diff: Delete(B, old=0) Insert(C, new=0)
+        // 両方が ref の "A" を異なる内容に変更 → コンフリクト
+        let reference = "A\n";
+        let left = "B\n";
+        let right = "C\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        // Delete 行（left 側 line 0）→ [C!]
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None);
+        assert!(
+            span.content.contains("[C!]"),
+            "Delete on conflicted left line should show [C!], got: {:?}",
+            span.content,
+        );
+    }
+
+    #[test]
+    fn unified_conflict_badge_on_conflicted_insert() {
+        let reference = "A\n";
+        let left = "B\n";
+        let right = "C\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        // Insert 行（right 側 line 0）→ [C!]
+        let span = unified_line_badge(&ctx, DiffTag::Insert, "C", None, Some(0));
+        assert!(
+            span.content.contains("[C!]"),
+            "Insert on conflicted right line should show [C!], got: {:?}",
+            span.content,
+        );
+    }
+
+    #[test]
+    fn unified_no_conflict_when_only_one_side_changed() {
+        // left が変更、right は ref と同じ → コンフリクトなし
+        let reference = "A\n";
+        let left = "B\n";
+        let right = "A\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        // Delete 行 → [3≠]（コンフリクトではない）
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None);
+        assert!(
+            span.content.contains("[3\u{2260}]"),
+            "Non-conflicted change should show [3≠], got: {:?}",
+            span.content,
+        );
+    }
+
+    #[test]
+    fn unified_non_conflicted_line_in_conflicted_file() {
+        // ref="a\nb\n", left="X\nb\n", right="a\nY\n"
+        // line 0: left changed, right didn't → no conflict
+        // line 1: right changed, left didn't → no conflict
+        let reference = "a\nb\n";
+        let left = "X\nb\n";
+        let right = "a\nY\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        // Delete of "X" (left line 0) → not conflicted
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "X", Some(0), None);
+        assert!(
+            !span.content.contains("[C!]"),
+            "Non-conflicted delete should not show [C!]"
+        );
+    }
+
+    #[test]
+    fn side_by_side_conflict_badge() {
+        let reference = "A\n";
+        let left = "B\n";
+        let right = "C\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        // side-by-side で left="B", right="C" → コンフリクト
+        let span = side_by_side_line_badge(&ctx, Some("B"), Some("C"), Some(0), Some(0));
+        assert!(
+            span.content.contains("[C!]"),
+            "Side-by-side conflicted pair should show [C!], got: {:?}",
+            span.content,
+        );
+    }
+
+    #[test]
+    fn side_by_side_no_conflict_one_side_changed() {
+        let reference = "A\n";
+        let left = "B\n";
+        let right = "A\n";
+        let ctx = build_ctx_with_conflict(left, right, reference);
+        let span = side_by_side_line_badge(&ctx, Some("B"), Some("A"), Some(0), Some(0));
+        assert!(
+            !span.content.contains("[C!]"),
+            "Non-conflicted side-by-side should not show [C!]"
+        );
+    }
+
+    #[test]
+    fn badge_to_span_conflict_has_label() {
+        let span = badge_to_span(ThreeWayLineBadge::Conflict);
+        assert!(span.content.contains("[C!]"));
     }
 }

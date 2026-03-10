@@ -40,8 +40,19 @@ pub fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
         state.right_binary_cache.insert(path, info);
     }
 
-    // ref キャッシュ反映
+    // ref キャッシュ反映 + コンフリクト検出
     for (path, content) in result.ref_cache {
+        // コンフリクト情報を計算してキャッシュ
+        if let (Some(left), Some(right)) =
+            (state.left_cache.get(&path), state.right_cache.get(&path))
+        {
+            let info = crate::diff::conflict::detect_conflicts(Some(&content), left, right);
+            if !info.is_empty() {
+                state.conflict_cache.insert(path.clone(), info);
+            } else {
+                state.conflict_cache.remove(&path);
+            }
+        }
         state.ref_cache.insert(path, content);
     }
     for (path, info) in result.ref_binary_cache {

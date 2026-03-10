@@ -196,6 +196,8 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
                 left_hash,
                 right_hash,
                 note: None,
+                conflict_count: 0,
+                conflict_regions: vec![],
             }
         } else {
             // テキストファイル: String に変換して既存の build_diff_output を呼ぶ

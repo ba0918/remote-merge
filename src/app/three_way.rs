@@ -4,7 +4,7 @@
 //! 差分状態を示す ThreeWayBadge を返す。
 //! reference サーバは「表示ペア以外のサーバ」を指す。
 
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 /// 3way ファイル単位バッジ
 ///
@@ -52,6 +52,8 @@ pub enum ThreeWayLineBadge {
     AllEqual,
     /// 3way で差分あり
     Differs,
+    /// ref から見て left/right 両方が変更し、かつ変更内容が異なる
+    Conflict,
 }
 
 impl ThreeWayLineBadge {
@@ -60,6 +62,7 @@ impl ThreeWayLineBadge {
         match self {
             Self::AllEqual => "",
             Self::Differs => "[3\u{2260}]",
+            Self::Conflict => "[C!]",
         }
     }
 
@@ -68,6 +71,7 @@ impl ThreeWayLineBadge {
         match self {
             Self::AllEqual => Style::default(),
             Self::Differs => Style::default().fg(Color::Yellow),
+            Self::Conflict => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         }
     }
 }
@@ -252,6 +256,7 @@ mod tests {
     fn line_badge_labels() {
         assert_eq!(ThreeWayLineBadge::AllEqual.label(), "");
         assert_eq!(ThreeWayLineBadge::Differs.label(), "[3\u{2260}]");
+        assert_eq!(ThreeWayLineBadge::Conflict.label(), "[C!]");
     }
 
     #[test]
@@ -277,6 +282,10 @@ mod tests {
         assert_eq!(
             ThreeWayLineBadge::Differs.style(),
             Style::default().fg(Color::Yellow)
+        );
+        assert_eq!(
+            ThreeWayLineBadge::Conflict.style(),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
         );
     }
 }

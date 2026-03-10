@@ -88,6 +88,7 @@ impl AppState {
             self.ref_tree = None;
             self.ref_cache.clear();
             self.ref_binary_cache.clear();
+            self.conflict_cache.clear();
         } else {
             self.clear_reference();
         }

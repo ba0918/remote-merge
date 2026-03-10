@@ -42,6 +42,7 @@ impl AppState {
         // diff 状態リセット
         self.current_diff = None;
         self.showing_ref_diff = false;
+        self.conflict_cache.clear();
 
         // flat_nodes 再構築
         self.rebuild_flat_nodes();

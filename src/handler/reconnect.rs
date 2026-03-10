@@ -43,6 +43,7 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
     if state.ref_source.is_some() {
         state.ref_tree = None;
         state.ref_cache.clear();
+        state.conflict_cache.clear();
         execute_ref_connect(state, runtime);
     }
 

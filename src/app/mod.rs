@@ -149,6 +149,8 @@ pub struct AppState {
     pub ref_binary_cache: BoundedCache<crate::diff::binary::BinaryInfo>,
     /// ref diff 表示中フラグ（left/right Equal + ref 差分あり時に自動セット）
     pub showing_ref_diff: bool,
+    /// コンフリクト情報キャッシュ（パス → ConflictInfo）
+    pub conflict_cache: HashMap<String, crate::diff::conflict::ConflictInfo>,
 }
 
 impl AppState {
@@ -219,6 +221,7 @@ impl AppState {
             ref_cache: BoundedCache::new(MAX_TEXT_CACHE_ENTRIES),
             ref_binary_cache: BoundedCache::new(MAX_BINARY_CACHE_ENTRIES),
             showing_ref_diff: false,
+            conflict_cache: HashMap::new(),
         };
         state.rebuild_flat_nodes();
         state
@@ -245,6 +248,7 @@ impl AppState {
         self.ref_tree = Some(tree);
         self.ref_cache.clear();
         self.ref_binary_cache.clear();
+        self.conflict_cache.clear();
     }
 
     /// ref diff 表示中かどうか
@@ -258,6 +262,7 @@ impl AppState {
         self.ref_tree = None;
         self.ref_cache.clear();
         self.ref_binary_cache.clear();
+        self.conflict_cache.clear();
     }
 }
 

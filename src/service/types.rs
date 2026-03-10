@@ -63,6 +63,10 @@ pub struct StatusSummary {
     pub ref_missing: Option<usize>,
 }
 
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
 // ── diff ──
 
 /// diff コマンドの出力
@@ -93,6 +97,12 @@ pub struct DiffOutput {
     /// 補足情報（sensitive マスク時・type mismatch 時等）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// コンフリクト数（3way diff 時のみ）
+    #[serde(skip_serializing_if = "is_zero")]
+    pub conflict_count: usize,
+    /// コンフリクト領域（3way diff 時のみ。空なら省略）
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub conflict_regions: Vec<crate::diff::conflict::ConflictRegion>,
 }
 
 /// diff のハンク
@@ -324,11 +334,16 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
         assert!(json.contains("\"removed\""));
         assert!(json.contains("\"added\""));
+        // conflict_count=0 は JSON に含まれない
+        assert!(!json.contains("\"conflict_count\""));
+        assert!(!json.contains("\"conflict_regions\""));
     }
 
     #[test]
@@ -469,6 +484,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -497,6 +514,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
@@ -576,6 +595,8 @@ mod tests {
                 left_hash: None,
                 right_hash: None,
                 note: None,
+                conflict_count: 0,
+                conflict_regions: vec![],
             }],
             summary: MultiDiffSummary {
                 total_files: 5,
@@ -666,5 +687,45 @@ mod tests {
         let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.ref_.as_ref().unwrap().label, "staging");
         assert_eq!(parsed.summary.ref_differs, Some(0));
+    }
+
+    #[test]
+    fn test_diff_output_conflict_count_nonzero_serialized() {
+        use crate::diff::conflict::ConflictRegion;
+
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+            conflict_count: 1,
+            conflict_regions: vec![ConflictRegion {
+                ref_range: 0..1,
+                left_lines: vec!["B".into()],
+                right_lines: vec!["C".into()],
+                left_diff_range: Some(0..1),
+                right_diff_range: Some(0..1),
+                left_file_lines: Default::default(),
+                right_file_lines: Default::default(),
+            }],
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"conflict_count\":1"));
+        assert!(json.contains("\"conflict_regions\""));
     }
 }

@@ -3,6 +3,7 @@
 //! 既存の diff エンジン (`diff::engine::compute_diff`) を呼び出し、
 //! 結果を Service 層の出力型 (`DiffOutput`) に変換する純粋関数群。
 
+use crate::diff::conflict::detect_conflicts;
 use crate::diff::engine::{self, DiffTag};
 
 use super::types::*;
@@ -59,6 +60,13 @@ pub fn build_diff_output(
         _ => (None, None),
     };
 
+    // テキストファイルの場合のみコンフリクト検出（binary/symlink は除外）
+    let conflict_info = if !binary && !symlink {
+        detect_conflicts(ref_content, left_content, right_content)
+    } else {
+        Default::default()
+    };
+
     DiffOutput {
         path: path.to_string(),
         left: left_info,
@@ -73,6 +81,8 @@ pub fn build_diff_output(
         left_hash: None,
         right_hash: None,
         note: None,
+        conflict_count: conflict_info.conflict_count(),
+        conflict_regions: conflict_info.regions,
     }
 }
 
@@ -191,6 +201,8 @@ pub fn build_symlink_diff_output(
         left_hash: None,
         right_hash: None,
         note,
+        conflict_count: 0,
+        conflict_regions: vec![],
     }
 }
 
@@ -214,6 +226,8 @@ pub fn build_masked_diff_output(
         left_hash: None,
         right_hash: None,
         note: Some("Content hidden (sensitive file). Use --force to show.".to_string()),
+        conflict_count: 0,
+        conflict_regions: vec![],
     }
 }
 
@@ -456,6 +470,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -477,6 +493,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -501,6 +519,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         assert!(output.symlink);
         assert!(!output.binary);
@@ -697,7 +717,64 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         assert_eq!(diff_exit_code(&output), exit_code::SUCCESS);
+    }
+
+    // ── conflict detection in build_diff_output ──
+
+    #[test]
+    fn test_conflict_count_with_ref() {
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "B\n",
+            "C\n",
+            false,
+            None,
+            Some(info("ref")),
+            Some("A\n"),
+        );
+        assert_eq!(output.conflict_count, 1);
+        assert!(!output.conflict_regions.is_empty());
+    }
+
+    #[test]
+    fn test_conflict_count_without_ref() {
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "B\n",
+            "C\n",
+            false,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(output.conflict_count, 0);
+        assert!(output.conflict_regions.is_empty());
+    }
+
+    #[test]
+    fn test_conflict_count_binary_is_zero() {
+        let binary_content = "hello\x00world";
+        let output = build_diff_output(
+            "image.png",
+            info("l"),
+            info("r"),
+            binary_content,
+            "different\x00data",
+            false,
+            None,
+            Some(info("ref")),
+            Some("original\x00content"),
+        );
+        assert!(output.binary);
+        assert_eq!(output.conflict_count, 0);
+        assert!(output.conflict_regions.is_empty());
     }
 }

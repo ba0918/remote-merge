@@ -293,6 +293,7 @@ impl AppState {
             self.right_cache.remove(path);
             self.left_binary_cache.remove(path);
             self.right_binary_cache.remove(path);
+            self.conflict_cache.remove(path);
         }
     }
 
@@ -303,6 +304,7 @@ impl AppState {
         self.left_binary_cache.clear();
         self.right_binary_cache.clear();
         self.error_paths.clear();
+        self.conflict_cache.clear();
     }
 
     /// コンテンツキャッシュをクリアする (r キー)

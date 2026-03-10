@@ -206,6 +206,15 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         }
     }
 
+    // Show conflict count if any
+    if output.conflict_count > 0 {
+        lines.push(String::new());
+        lines.push(format!(
+            "Conflicts: {} region(s) where both sides changed the same lines differently",
+            output.conflict_count
+        ));
+    }
+
     lines.join("\n")
 }
 
@@ -231,6 +240,15 @@ pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
         "\n{} file(s) with changes out of {} total\n",
         output.summary.files_with_changes, output.summary.total_files
     ));
+
+    let total_conflicts: usize = output.files.iter().map(|f| f.conflict_count).sum();
+    if total_conflicts > 0 {
+        result.push_str(&format!(
+            "{} conflict(s) detected across files\n",
+            total_conflicts
+        ));
+    }
+
     result
 }
 
@@ -455,6 +473,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -486,6 +506,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -657,6 +679,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -686,6 +710,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
@@ -714,6 +740,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -745,6 +773,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Symbolic link targets differ"));
@@ -846,6 +876,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         }
     }
 
@@ -975,6 +1007,8 @@ mod tests {
             left_hash: Some("abc123def456".into()),
             right_hash: Some("789xyz000111".into()),
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains(
@@ -1005,6 +1039,8 @@ mod tests {
             left_hash: Some("abc123".into()),
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
@@ -1032,6 +1068,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -1060,6 +1098,8 @@ mod tests {
             left_hash: Some("aaa".into()),
             right_hash: Some("bbb".into()),
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let json = format_json(&output).unwrap();
         assert!(json.contains("\"left_hash\""));
@@ -1091,6 +1131,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("left_hash"));
@@ -1192,6 +1234,8 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: Some("Content hidden (sensitive file). Use --force to show.".into()),
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/.env (local)"));
@@ -1222,8 +1266,172 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("Content hidden"));
+    }
+
+    // ── conflict output tests ──
+
+    #[test]
+    fn test_format_diff_text_with_conflicts() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+            conflict_count: 2,
+            conflict_regions: vec![],
+        };
+        let text = format_diff_text(&output);
+        assert!(text.contains("Conflicts: 2 region(s)"));
+    }
+
+    #[test]
+    fn test_format_diff_text_no_conflicts() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
+        };
+        let text = format_diff_text(&output);
+        assert!(!text.contains("Conflicts"));
+    }
+
+    #[test]
+    fn test_format_multi_diff_text_with_conflicts() {
+        let mut diff = sample_diff("a.rs");
+        diff.conflict_count = 3;
+        let output = MultiDiffOutput {
+            files: vec![diff],
+            summary: MultiDiffSummary {
+                total_files: 1,
+                files_with_changes: 1,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let text = format_multi_diff_text(&output);
+        assert!(text.contains("3 conflict(s) detected"));
+    }
+
+    #[test]
+    fn test_format_multi_diff_text_no_conflicts() {
+        let output = MultiDiffOutput {
+            files: vec![sample_diff("a.rs")],
+            summary: MultiDiffSummary {
+                total_files: 1,
+                files_with_changes: 1,
+            },
+            truncated: false,
+            total_files: None,
+        };
+        let text = format_multi_diff_text(&output);
+        assert!(!text.contains("conflict(s) detected"));
+    }
+
+    #[test]
+    fn test_diff_output_conflict_count_zero_omitted_in_json() {
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+            conflict_count: 0,
+            conflict_regions: vec![],
+        };
+        let json = format_json(&output).unwrap();
+        assert!(!json.contains("conflict_count"));
+        assert!(!json.contains("conflict_regions"));
+    }
+
+    #[test]
+    fn test_diff_output_conflict_count_nonzero_in_json() {
+        use crate::diff::conflict::ConflictRegion;
+
+        let output = DiffOutput {
+            path: "a.rs".into(),
+            left: SourceInfo {
+                label: "l".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "r".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            sensitive: false,
+            binary: false,
+            symlink: false,
+            truncated: false,
+            hunks: vec![],
+            ref_hunks: None,
+            left_hash: None,
+            right_hash: None,
+            note: None,
+            conflict_count: 1,
+            conflict_regions: vec![ConflictRegion {
+                ref_range: 10..15,
+                left_lines: vec!["changed left".into()],
+                right_lines: vec!["changed right".into()],
+                left_diff_range: None,
+                right_diff_range: None,
+                left_file_lines: Default::default(),
+                right_file_lines: Default::default(),
+            }],
+        };
+        let json = format_json(&output).unwrap();
+        assert!(json.contains("\"conflict_count\""));
+        assert!(json.contains("\"conflict_regions\""));
     }
 }

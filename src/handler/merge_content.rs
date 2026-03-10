@@ -225,7 +225,18 @@ fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &
 
     match runtime.read_file(&ref_source, path) {
         Ok(content) => {
-            state.ref_cache.insert(path.to_string(), content);
+            state.ref_cache.insert(path.to_string(), content.clone());
+            // コンフリクト情報を計算してキャッシュ
+            if let (Some(left), Some(right)) =
+                (state.left_cache.get(path), state.right_cache.get(path))
+            {
+                let info = crate::diff::conflict::detect_conflicts(Some(&content), left, right);
+                if !info.is_empty() {
+                    state.conflict_cache.insert(path.to_string(), info);
+                } else {
+                    state.conflict_cache.remove(path);
+                }
+            }
         }
         Err(e) => {
             tracing::debug!("Ref file read skipped: {} - {}", path, e);
