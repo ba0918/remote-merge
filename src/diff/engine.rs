@@ -110,7 +110,13 @@ pub struct DiffStats {
 /// NUL バイトが含まれないことは十分信頼できる前提。
 pub fn is_binary(content: &[u8]) -> bool {
     let check_len = content.len().min(8192);
-    content[..check_len].contains(&0)
+    let slice = &content[..check_len];
+    // NUL バイト検出
+    if slice.contains(&0) {
+        return true;
+    }
+    // 不正 UTF-8 シーケンス検出（画像・コンパイル済みバイナリ等の文字化け防止）
+    std::str::from_utf8(slice).is_err()
 }
 
 /// 2つのテキストの行単位 diff を計算する
@@ -386,11 +392,30 @@ mod tests {
 
     #[test]
     fn test_binary_detection() {
+        // NUL バイト検出
         assert!(is_binary(b"hello\x00world"));
         assert!(is_binary(b"\x00"));
+        // 正常テキスト
         assert!(!is_binary(b"hello world"));
         assert!(!is_binary(b""));
         assert!(!is_binary("日本語テキスト".as_bytes()));
+    }
+
+    #[test]
+    fn test_binary_detection_invalid_utf8() {
+        // 不正 UTF-8 バイト列（NUL なし）→ バイナリ判定されるべき
+        assert!(is_binary(&[0xFF, 0xFE, 0x80, 0x90]));
+        assert!(is_binary(&[0x80, 0x81, 0x82])); // 先頭バイトなしの継続バイト
+        assert!(is_binary(b"text\xC0\xAF")); // overlong encoding
+    }
+
+    #[test]
+    fn test_binary_detection_valid_utf8_not_affected() {
+        // 有効な UTF-8 がバイナリ判定されないことを確認
+        assert!(!is_binary("Hello, World!".as_bytes()));
+        assert!(!is_binary("こんにちは世界".as_bytes()));
+        assert!(!is_binary("émojis: 🎉🚀".as_bytes()));
+        assert!(!is_binary("mixed: abc日本語def".as_bytes()));
     }
 
     #[test]

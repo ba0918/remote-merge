@@ -69,8 +69,10 @@ enum Commands {
         /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
+        /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
+        /// Show only summary counts instead of file list
         #[arg(long)]
         summary: bool,
         /// Include equal files in output (default: omitted)
@@ -80,6 +82,7 @@ enum Commands {
 
     /// Show diff for file(s) or directory
     Diff {
+        /// File or directory paths to diff (use "." for all files)
         #[arg(num_args = 0..)]
         paths: Vec<String>,
         /// Left side of comparison [default: local]. When specified alone, --right falls back to the default server
@@ -91,8 +94,10 @@ enum Commands {
         /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
+        /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
+        /// Maximum number of lines per file diff (truncates long diffs)
         #[arg(long)]
         max_lines: Option<usize>,
         /// Maximum number of files to process (0 for unlimited)
@@ -105,6 +110,7 @@ enum Commands {
 
     /// Merge files
     Merge {
+        /// File or directory paths to merge (use "." for all files)
         #[arg(required = true, num_args = 1..)]
         paths: Vec<String>,
         /// Source side of merge (required)
@@ -116,8 +122,10 @@ enum Commands {
         /// Reference server for 3-way comparison (shows [ref≠] badges)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
+        /// Preview merge without writing files
         #[arg(long)]
         dry_run: bool,
+        /// Skip safety confirmations (remote-to-remote, sensitive files)
         #[arg(long)]
         force: bool,
         /// Copy source file permissions to destination

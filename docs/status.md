@@ -1,14 +1,30 @@
 # Project Status
 
-**Last Updated:** 2026-03-10 12:00:00
+**Last Updated:** 2026-03-10 11:43:51
 
 ---
 
 ## 🎯 Current Session
 
-_（現在アクティブなセッションなし）_
+| Field | Value |
+|-------|-------|
+| **Cycle ID** | `20260310114351` |
+| **Feature** | CLI 品質改善（merge . / バイナリ diff / help 説明追加） |
+| **Started** | 2026-03-10 11:43:51 |
+| **Phase** | 🟡 Planning |
+| **Plan** | [docs/cycles/20260310114351_cli-quality-improvements.md](./cycles/20260310114351_cli-quality-improvements.md) |
+
+**Current Focus:**
+CLI 検証で発見した3件の問題を修正: merge . パス解決、バイナリ diff 文字化け防止、help テキスト改善。
 
 ---
+
+### 20260310001606 - コンフリクト検知・表示（3way diff）
+- **Started:** 2026-03-10 00:16:06
+- **Completed:** 2026-03-10
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260310001606_conflict-detection.md)
+- **Summary:** ref（共通祖先）と left/right の差分を比較し、両側が同じ行を異なる内容に変更した領域をコンフリクトとして検出・表示。diff/conflict.rs 純粋関数、TUI [C!] バッジ、CLI conflict_count/regions 出力。1136テスト通過。コミット 85ea8f4。
 
 ### 20260309235718 - グローバルログレベルオプション（--debug / -v / --log-level）
 - **Started:** 2026-03-09 23:57:18
@@ -384,13 +400,13 @@ _（現在アクティブなセッションなし）_
 | **4-6** | ログ + イベントストリーム | 🟢 Done |
 | **4-7** | Skill ファイル | 🟢 Done |
 
-### Phase 2 残タスク 🟡 ほぼ完了
+### Phase 2 残タスク 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **3way-1** | 3way diff バッジ表示 + ペア切り替え | 🟢 Done |
 | **3way-1.5** | Right↔Ref Swap + Equal時ref diff + バッジ色分け | 🟢 Done |
 | **3way-2** | 3way サマリーパネル (W キー) | 🟢 Done |
-| **conflict** | コンフリクト検知・表示 | ⚪ Pending |
+| **conflict** | コンフリクト検知・表示 | 🟢 Done |
 
 ### Phase 4 追加: CLI ref サーバ対応 🟢 Complete
 | サブフェーズ | 内容 | 状態 |

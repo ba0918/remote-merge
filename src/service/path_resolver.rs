@@ -8,6 +8,16 @@ use std::collections::BTreeSet;
 use crate::service::types::{FileStatus, FileStatusKind};
 use crate::tree::{FileNode, FileTree};
 
+/// パスリストに `"."` や `"./"` などのルートマーカーが含まれているかを判定する。
+///
+/// ルートマーカーが含まれている場合、全ファイルを対象にする。
+fn has_root_marker(paths: &[String]) -> bool {
+    paths.iter().any(|p| {
+        let n = p.trim_end_matches('/');
+        n == "." || n.is_empty()
+    })
+}
+
 /// パスにトラバーサルコンポーネント（`..`）が含まれていないか検証する。
 ///
 /// `../foo`, `foo/..`, `foo/../bar` のいずれもエラーとして拒否する。
@@ -31,7 +41,8 @@ fn check_path_traversal(paths: &[String]) -> anyhow::Result<()> {
 pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result<Vec<String>> {
     check_path_traversal(paths)?;
 
-    if paths.is_empty() {
+    // "." or "./" → treat as "all files" (same as empty paths)
+    if paths.is_empty() || has_root_marker(paths) {
         let mut all = collect_all_files(tree);
         all.sort();
         return Ok(all);
@@ -126,8 +137,8 @@ pub fn resolve_target_files_from_statuses(
 ) -> anyhow::Result<Vec<String>> {
     check_path_traversal(paths)?;
 
-    // Empty paths = all files from statuses
-    if paths.is_empty() {
+    // Empty paths or "." / "./" = all files from statuses
+    if paths.is_empty() || has_root_marker(paths) {
         let mut all: Vec<String> = statuses.iter().map(|s| s.path.clone()).collect();
         all.sort();
         return Ok(all);
@@ -513,13 +524,21 @@ mod tests {
     }
 
     #[test]
-    fn slash_only_treated_as_empty_result() {
+    fn slash_only_treated_as_all_files() {
         let tree = make_test_tree();
         let paths = vec!["/".to_string()];
         let result = resolve_target_files(&paths, &tree).unwrap();
-        // "/" normalizes to empty string, which is not a directory in the tree
-        // Since it's not a dir, it's inserted as-is (normalized to empty -> original "/" kept)
-        assert_eq!(result, vec!["/"]);
+        // "/" normalizes to empty string via trim_end_matches('/'),
+        // which is treated as a root marker → returns all files
+        assert_eq!(
+            result,
+            vec![
+                "config.toml",
+                "src/lib.rs",
+                "src/main.rs",
+                "src/utils/helper.rs",
+            ]
+        );
     }
 
     #[test]
@@ -619,5 +638,73 @@ mod tests {
             result,
             vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
         );
+    }
+
+    // ── "." root marker tests ──
+
+    #[test]
+    fn dot_returns_all_files() {
+        let tree = make_test_tree();
+        let paths = vec![".".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "config.toml",
+                "src/lib.rs",
+                "src/main.rs",
+                "src/utils/helper.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn dot_slash_returns_all_files() {
+        let tree = make_test_tree();
+        let paths = vec!["./".to_string()];
+        let result = resolve_target_files(&paths, &tree).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                "config.toml",
+                "src/lib.rs",
+                "src/main.rs",
+                "src/utils/helper.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn from_statuses_dot_returns_all_status_files() {
+        let left_tree = make_test_tree();
+        let right_tree = FileTree {
+            root: PathBuf::from("/remote"),
+            nodes: vec![],
+        };
+        let statuses = vec![
+            make_status("config.toml", FileStatusKind::Modified),
+            make_status("src/main.rs", FileStatusKind::LeftOnly),
+        ];
+        let paths = vec![".".to_string()];
+        let result =
+            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+        assert_eq!(result, vec!["config.toml", "src/main.rs"]);
+    }
+
+    #[test]
+    fn from_statuses_dot_slash_returns_all_status_files() {
+        let left_tree = make_test_tree();
+        let right_tree = FileTree {
+            root: PathBuf::from("/remote"),
+            nodes: vec![],
+        };
+        let statuses = vec![
+            make_status("config.toml", FileStatusKind::Modified),
+            make_status("src/main.rs", FileStatusKind::LeftOnly),
+        ];
+        let paths = vec!["./".to_string()];
+        let result =
+            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+        assert_eq!(result, vec!["config.toml", "src/main.rs"]);
     }
 }
