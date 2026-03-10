@@ -11,7 +11,7 @@
 | **Cycle ID** | `20260310120132` |
 | **Feature** | TUI バグ修正: Enter 連打で diff 消失 + 再接続後マージで [3-] バッジ |
 | **Started** | 2026-03-10 12:01:32 |
-| **Phase** | 🟡 Planning |
+| **Phase** | 🟢 Completed |
 | **Plan** | [docs/cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md](./cycles/20260310120132_tui-bugfix-enter-and-ref-badge.md) |
 
 **Current Focus:**

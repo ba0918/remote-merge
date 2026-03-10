@@ -2,7 +2,7 @@
 
 **Cycle ID:** `20260310120132`
 **Started:** 2026-03-10 12:01:32
-**Status:** 🟡 Implementation
+**Status:** 🟢 Completed
 
 ---
 
@@ -226,6 +226,6 @@ src/
 | 2 | dialog_ops.rs — conflict_cache クリア | 🟢 |
 | 3 | merge_batch.rs — ref_tree 深さ同期 + collect_merge_dirs 抽出 | 🟢 |
 | Review | Round 1 BLOCK 3件修正 → Round 2 ALL PASS | 🟢 |
-| Commit | | ⚪ |
+| Commit | 2589d72 | 🟢 |
 
 **Legend:** ⚪ Pending · 🟡 In Progress · 🟢 Done

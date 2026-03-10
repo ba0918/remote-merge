@@ -214,7 +214,15 @@ pub fn load_file_content(state: &mut AppState, runtime: &mut TuiRuntime) {
 /// reference サーバが未設定の場合は何もしない。
 /// 取得失敗時はバッジ非表示（エラーにしない、graceful degradation）。
 fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &str) {
-    if !state.has_reference() || state.ref_cache.contains_key(path) {
+    if !state.has_reference() {
+        return;
+    }
+
+    // ref_cache が既にある場合はネットワーク再取得をスキップするが、
+    // conflict_cache が消えている場合は再計算する（Bug fix: Enter 再押しで
+    // invalidate_cache_for_paths が conflict_cache を消すケースに対応）
+    if state.ref_cache.contains_key(path) {
+        recalculate_conflict_if_needed(state, path);
         return;
     }
 
@@ -225,21 +233,28 @@ fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &
 
     match runtime.read_file(&ref_source, path) {
         Ok(content) => {
-            state.ref_cache.insert(path.to_string(), content.clone());
-            // コンフリクト情報を計算してキャッシュ
-            if let (Some(left), Some(right)) =
-                (state.left_cache.get(path), state.right_cache.get(path))
-            {
-                let info = crate::diff::conflict::detect_conflicts(Some(&content), left, right);
-                if !info.is_empty() {
-                    state.conflict_cache.insert(path.to_string(), info);
-                } else {
-                    state.conflict_cache.remove(path);
-                }
-            }
+            state.ref_cache.insert(path.to_string(), content);
+            recalculate_conflict_if_needed(state, path);
         }
         Err(e) => {
             tracing::debug!("Ref file read skipped: {} - {}", path, e);
+        }
+    }
+}
+
+/// ref/left/right の3キャッシュが揃っていて conflict_cache がない場合に再計算する。
+fn recalculate_conflict_if_needed(state: &mut AppState, path: &str) {
+    if state.conflict_cache.contains_key(path) {
+        return;
+    }
+    if let (Some(ref_content), Some(left), Some(right)) = (
+        state.ref_cache.get(path),
+        state.left_cache.get(path),
+        state.right_cache.get(path),
+    ) {
+        let info = crate::diff::conflict::detect_conflicts(Some(ref_content), left, right);
+        if !info.is_empty() {
+            state.conflict_cache.insert(path.to_string(), info);
         }
     }
 }

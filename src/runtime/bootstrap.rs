@@ -24,6 +24,9 @@ pub fn bootstrap_tui(
     params: TuiBootstrapParams,
     config: AppConfig,
 ) -> anyhow::Result<(AppState, TuiRuntime)> {
+    // サーバー名が config に存在するか起動時にバリデーション
+    validate_server_params(&params, &config)?;
+
     let available_servers: Vec<String> = config.servers.keys().cloned().collect();
     let mut runtime = TuiRuntime::new(config.clone());
 
@@ -256,6 +259,40 @@ fn apply_reference_from_runtime(
         app_state.set_reference(ref_source, tree);
         tracing::info!("Reference server set: {}", ref_name);
     }
+}
+
+/// --left / --right / --ref のサーバー名が config に存在するか検証する。
+///
+/// "local" は常に有効。config にないリモートサーバー名はエラーにして
+/// 「offline mode で起動してしまう」問題を防ぐ。
+fn validate_server_params(params: &TuiBootstrapParams, config: &AppConfig) -> anyhow::Result<()> {
+    let check = |name: &str, flag: &str| -> anyhow::Result<()> {
+        if name != "local" && !config.servers.contains_key(name) {
+            anyhow::bail!(
+                "Server '{}' specified by {} not found in config. \
+                 Available servers: {}",
+                name,
+                flag,
+                config
+                    .servers
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(())
+    };
+
+    check(&params.right_server, "--right")?;
+    if let Some(ref left) = params.left_server {
+        check(left, "--left")?;
+    }
+    if let Some(ref ref_server) = params.ref_server {
+        check(ref_server, "--ref")?;
+    }
+
+    Ok(())
 }
 
 /// 起動時に古いバックアップをクリーンアップする
