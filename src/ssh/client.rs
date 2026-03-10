@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::Context;
 use russh::keys::load_secret_key;
 use russh::keys::PrivateKeyWithHashAlg;
-use russh::{client, ChannelMsg, Disconnect, Preferred};
+use russh::{client, ChannelMsg, Disconnect};
 
 use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
@@ -74,7 +74,7 @@ impl SshClient {
         };
 
         if let Some(ref opts) = server_config.ssh_options {
-            config.preferred = build_preferred(opts);
+            config.preferred = super::preferred::build_preferred(opts);
         }
 
         let config = Arc::new(config);
@@ -705,11 +705,7 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-/// russh の Preferred を ssh_options から構築する
-fn build_preferred(_opts: &crate::config::SshOptions) -> Preferred {
-    // NOTE: レガシーアルゴリズム対応は Phase 3 で本格実装する
-    Preferred::default()
-}
+// build_preferred は ssh::preferred モジュールに移動
 
 /// リモートパスの親ディレクトリを作成する `mkdir -p` コマンドを構築する。
 ///
@@ -841,15 +837,5 @@ mod tests {
         assert_eq!(result, binary_data);
     }
 
-    #[test]
-    fn test_build_preferred_returns_default() {
-        let opts = crate::config::SshOptions {
-            kex_algorithms: None,
-            host_key_algorithms: None,
-            ciphers: None,
-            mac_algorithms: None,
-        };
-        let _preferred = build_preferred(&opts);
-        // Phase 3 までデフォルトを返すことを確認（パニックしない）
-    }
+    // build_preferred テストは ssh::preferred モジュールに移動
 }
