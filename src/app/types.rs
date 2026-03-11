@@ -116,6 +116,8 @@ pub enum MergeScanMsg {
     Done(Box<MergeScanResult>),
     /// エラー
     Error(String),
+    /// Agent 操作失敗（SSH フォールバック後に送信）
+    AgentFailed { server_name: String },
 }
 
 /// マージ走査完了時の結果
@@ -265,5 +267,18 @@ mod tests {
         };
         assert_eq!(parent.children.len(), 1);
         assert_eq!(parent.children[0].name, "file.rs");
+    }
+
+    #[test]
+    fn test_merge_scan_msg_agent_failed_variant() {
+        let msg = MergeScanMsg::AgentFailed {
+            server_name: "develop".to_string(),
+        };
+        match msg {
+            MergeScanMsg::AgentFailed { server_name } => {
+                assert_eq!(server_name, "develop");
+            }
+            _ => panic!("Expected AgentFailed variant"),
+        }
     }
 }

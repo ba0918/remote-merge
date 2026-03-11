@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex};
 
 use crate::agent::client::AgentClient;
 use crate::agent::deploy::{self, VersionCheck};
@@ -26,7 +27,7 @@ pub struct CoreRuntime {
     pub ssh_clients: HashMap<String, SshClient>,
     pub config: AppConfig,
     /// サーバ名 -> Agent クライアントのマップ（Agent 利用可能時のみ登録）
-    pub(crate) agent_clients: HashMap<String, BoxedAgentClient>,
+    pub(crate) agent_clients: HashMap<String, Arc<Mutex<BoxedAgentClient>>>,
     /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
     #[cfg(unix)]
     transport_guards: HashMap<String, TransportGuard>,
@@ -93,7 +94,8 @@ impl CoreRuntime {
         match self.start_agent_via_ssh(server_name) {
             Ok(client) => {
                 tracing::info!("Agent connected: server={}", server_name);
-                self.agent_clients.insert(server_name.to_string(), client);
+                self.agent_clients
+                    .insert(server_name.to_string(), Arc::new(Mutex::new(client)));
                 Ok(true)
             }
             Err(e) => {
@@ -314,16 +316,18 @@ impl CoreRuntime {
         self.agent_clients.contains_key(server_name)
     }
 
-    /// Agent クライアントの可変参照を取得する
-    pub fn get_agent(&mut self, server_name: &str) -> Option<&mut BoxedAgentClient> {
-        self.agent_clients.get_mut(server_name)
+    /// Agent クライアントの Arc<Mutex<>> を取得する
+    pub fn get_agent(&self, server_name: &str) -> Option<Arc<Mutex<BoxedAgentClient>>> {
+        self.agent_clients.get(server_name).cloned()
     }
 
     /// Agent を切断する
     pub fn disconnect_agent(&mut self, server_name: &str) {
-        if let Some(mut client) = self.agent_clients.remove(server_name) {
-            if let Err(e) = client.shutdown() {
-                tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
+        if let Some(client_arc) = self.agent_clients.remove(server_name) {
+            if let Ok(mut client) = client_arc.lock() {
+                if let Err(e) = client.shutdown() {
+                    tracing::debug!("Agent shutdown error for {}: {}", server_name, e);
+                }
             }
         }
         // TransportGuard を drop してブリッジスレッドをシャットダウン
@@ -334,9 +338,11 @@ impl CoreRuntime {
     /// Agent 操作が失敗した場合に呼ばれる。Agent を無効化して SSH フォールバックに切り替える。
     /// best-effort で shutdown を送信し、失敗しても無視する。
     pub fn invalidate_agent(&mut self, server_name: &str) {
-        if let Some(mut client) = self.agent_clients.remove(server_name) {
+        if let Some(client_arc) = self.agent_clients.remove(server_name) {
             // best-effort shutdown — 失敗しても構わない
-            let _ = client.shutdown();
+            if let Ok(mut client) = client_arc.lock() {
+                let _ = client.shutdown();
+            }
             tracing::warn!(
                 "Agent invalidated for {}, future operations will use SSH fallback",
                 server_name
@@ -595,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_get_agent_returns_none_initially() {
-        let mut runtime = CoreRuntime::new_for_test();
+        let runtime = CoreRuntime::new_for_test();
         assert!(runtime.get_agent("develop").is_none());
     }
 
@@ -675,5 +681,38 @@ mod tests {
         // agent_clients は空だが disconnect_all がパニックしないことを確認
         runtime.disconnect_all();
         assert!(runtime.agent_clients.is_empty());
+    }
+
+    // ── Arc<Mutex<BoxedAgentClient>> 型テスト ──
+
+    #[test]
+    fn boxed_agent_client_is_send() {
+        fn assert_send<T: Send>() {}
+        // BoxedAgentClient = AgentClient<UnixStream, UnixStream>
+        // UnixStream: Send + Sync → AgentClient: Send
+        assert_send::<BoxedAgentClient>();
+    }
+
+    #[test]
+    fn arc_mutex_agent_client_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        // Arc<Mutex<BoxedAgentClient>> は Send + Sync であることを確認
+        assert_send_sync::<Arc<Mutex<BoxedAgentClient>>>();
+    }
+
+    #[test]
+    fn arc_mutex_agent_client_cloneable() {
+        // Arc<Mutex<>> の clone が同一リソースを共有し、
+        // スレッド間で安全にアクセスできることを確認
+        let data: Arc<Mutex<i32>> = Arc::new(Mutex::new(42));
+        let cloned = Arc::clone(&data);
+        assert_eq!(Arc::strong_count(&data), 2);
+
+        // 別スレッドから書き込み → メインスレッドで読み取り
+        let handle = std::thread::spawn(move || {
+            *cloned.lock().unwrap() = 99;
+        });
+        handle.join().unwrap();
+        assert_eq!(*data.lock().unwrap(), 99);
     }
 }

@@ -81,9 +81,18 @@ pub fn start_merge_scan(
     let dir_path = dir_path.to_string();
     let ref_source = build_ref_source(state, &config);
 
+    // Agent が利用可能なら Arc::clone を渡す
+    let agent = runtime.core.get_agent(&server_name);
+    let ref_agent = match &ref_source {
+        Some(task::RefSource::Remote(ref_name)) => runtime.core.get_agent(ref_name),
+        _ => None,
+    };
+
     std::thread::spawn(move || {
         let result = task::run_merge_scan(
             &tx,
+            agent,
+            ref_agent,
             &local_root,
             &exclude,
             &config,

@@ -2,6 +2,7 @@
 
 use crate::app::Side;
 use crate::cli::ref_guard;
+use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::AppConfig;
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
@@ -64,12 +65,12 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     // バイト列比較でバイナリファイルも正しく判定する
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     if !paths_to_compare.is_empty() {
+        let left_batch = fetch_contents_tolerant(&pair.left, &paths_to_compare, &mut core);
+        let right_batch = fetch_contents_tolerant(&pair.right, &paths_to_compare, &mut core);
         let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
-            let (left_bytes, _) =
-                read_file_bytes_tolerant(&mut core, &pair.left, path, /* quiet */ true);
-            let (right_bytes, _) =
-                read_file_bytes_tolerant(&mut core, &pair.right, path, /* quiet */ true);
+            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
+            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
             compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);

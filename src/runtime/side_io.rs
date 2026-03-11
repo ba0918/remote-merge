@@ -84,6 +84,45 @@ impl CoreRuntime {
         }
     }
 
+    /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
+    ///
+    /// `read_files_batch` と同じ strict セマンティクス:
+    /// ファイル単位の読み込みエラーは即座に `Err` として伝播する。
+    /// エラートレラントな読み込みが必要な場合は `cli::tolerant_io::fetch_contents_tolerant` を使うこと。
+    pub fn read_files_bytes_batch(
+        &mut self,
+        side: &Side,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        match side {
+            Side::Local => {
+                let mut result = HashMap::with_capacity(rel_paths.len());
+                for rel_path in rel_paths {
+                    let bytes = executor::read_local_file_bytes(
+                        &self.config.local.root_dir,
+                        rel_path,
+                        false,
+                    )?;
+                    result.insert(rel_path.clone(), bytes);
+                }
+                Ok(result)
+            }
+            Side::Remote(name) => {
+                // Agent バッチを試行
+                if let Some(batch_result) = self.try_agent_read_files_bytes_batch(name, rel_paths) {
+                    return batch_result;
+                }
+                // SSH fallback: 1ファイルずつ
+                let mut result = HashMap::with_capacity(rel_paths.len());
+                for rel_path in rel_paths {
+                    let bytes = self.read_remote_file_bytes(name, rel_path, false)?;
+                    result.insert(rel_path.clone(), bytes);
+                }
+                Ok(result)
+            }
+        }
+    }
+
     // ── 書き込み ──
 
     /// Side に基づいてファイルを書き込む
@@ -332,9 +371,19 @@ impl CoreRuntime {
         rel_path: &str,
     ) -> Option<anyhow::Result<String>> {
         let full_path = self.resolve_agent_path(server_name, rel_path)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.read_files(&[full_path], 0) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.read_files(&[full_path], 0);
+        drop(agent);
+
+        match result {
             Ok(results) => {
                 let first: Option<FileReadResult> = results.into_iter().next();
                 if let Some(FileReadResult::Ok { content, .. }) = first {
@@ -363,9 +412,19 @@ impl CoreRuntime {
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, String>>> {
         let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.read_files(&full_paths, 0) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.read_files(&full_paths, 0);
+        drop(agent);
+
+        match result {
             Ok(results) => {
                 let mut map: HashMap<String, String> = HashMap::with_capacity(results.len());
                 for (i, result) in results.into_iter().enumerate() {
@@ -403,9 +462,19 @@ impl CoreRuntime {
         rel_path: &str,
     ) -> Option<anyhow::Result<Vec<u8>>> {
         let full_path = self.resolve_agent_path(server_name, rel_path)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.read_files(&[full_path], 0) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.read_files(&[full_path], 0);
+        drop(agent);
+
+        match result {
             Ok(results) => {
                 let first: Option<FileReadResult> = results.into_iter().next();
                 if let Some(FileReadResult::Ok { content, .. }) = first {
@@ -426,6 +495,55 @@ impl CoreRuntime {
         }
     }
 
+    /// Agent 経由で複数ファイルのバイト列をバッチ読み込む
+    fn try_agent_read_files_bytes_batch(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
+        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
+
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.read_files(&full_paths, 0);
+        drop(agent);
+
+        match result {
+            Ok(results) => {
+                let mut map: HashMap<String, Vec<u8>> = HashMap::with_capacity(results.len());
+                for (i, file_result) in results.into_iter().enumerate() {
+                    match file_result {
+                        FileReadResult::Ok { content, .. } => {
+                            if i < rel_paths.len() {
+                                map.insert(rel_paths[i].clone(), content);
+                            }
+                        }
+                        FileReadResult::Error { .. } => {
+                            // ファイル単位のエラー → SSH フォールバックに委ねる
+                            return None;
+                        }
+                    }
+                }
+                Some(Ok(map))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent read_files_bytes_batch failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
     /// Agent 経由でファイルを書き込む
     fn try_agent_write_file(
         &mut self,
@@ -435,9 +553,19 @@ impl CoreRuntime {
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
         let full_path = self.resolve_agent_path(server_name, rel_path)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.write_file(&full_path, content, is_binary) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.write_file(&full_path, content, is_binary);
+        drop(agent);
+
+        match result {
             Ok(()) => Some(Ok(())),
             Err(e) => {
                 tracing::warn!(
@@ -459,9 +587,19 @@ impl CoreRuntime {
         rel_paths: &[String],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
         let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.stat_files(&full_paths) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.stat_files(&full_paths);
+        drop(agent);
+
+        match result {
             Ok(stats) => {
                 if stats.len() != rel_paths.len() {
                     tracing::warn!(
@@ -512,9 +650,19 @@ impl CoreRuntime {
             remote_root.trim_end_matches('/'),
             crate::backup::BACKUP_DIR_NAME
         );
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.backup(&full_paths, &backup_dir) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.backup(&full_paths, &backup_dir);
+        drop(agent);
+
+        match result {
             Ok(()) => Some(Ok(())),
             Err(e) => {
                 tracing::warn!(
@@ -536,9 +684,19 @@ impl CoreRuntime {
         target: &str,
     ) -> Option<anyhow::Result<()>> {
         let full_path = self.resolve_agent_path(server_name, rel_path)?;
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.symlink(&full_path, target) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.symlink(&full_path, target);
+        drop(agent);
+
+        match result {
             Ok(()) => Some(Ok(())),
             Err(e) => {
                 tracing::warn!(
@@ -565,9 +723,19 @@ impl CoreRuntime {
             .map(|s| s.root_dir.clone())?;
         let root_str = root_dir.to_string_lossy().to_string();
         let exclude = self.config.filter.exclude.clone();
-        let agent = self.agent_clients.get_mut(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
 
-        match agent.list_tree(&root_str, &exclude, max_entries) {
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.list_tree(&root_str, &exclude, max_entries);
+        drop(agent);
+
+        match result {
             Ok(entries) => {
                 let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
                 let mut tree = FileTree::new(&root_dir);
@@ -691,6 +859,14 @@ impl TuiRuntime {
         rel_paths: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
         self.core.read_files_batch(side, rel_paths)
+    }
+
+    pub fn read_files_bytes_batch(
+        &mut self,
+        side: &Side,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        self.core.read_files_bytes_batch(side, rel_paths)
     }
 
     pub fn read_file_bytes(
@@ -1058,6 +1234,44 @@ mod tests {
             "Unexpected error: {}",
             err
         );
+    }
+
+    #[test]
+    fn test_read_files_bytes_batch_local() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.bin"), vec![0x00, 0x01, 0x02]).unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "hello").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let paths = vec!["a.bin".to_string(), "b.txt".to_string()];
+        let batch = rt.read_files_bytes_batch(&Side::Local, &paths).unwrap();
+
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch["a.bin"], vec![0x00, 0x01, 0x02]);
+        assert_eq!(batch["b.txt"], b"hello".to_vec());
+    }
+
+    #[test]
+    fn test_read_files_bytes_batch_strict_error() {
+        // strict セマンティクス: 存在しないファイルが含まれると Err を返す
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("exists.txt"), "content").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
+        let result = rt.read_files_bytes_batch(&Side::Local, &paths);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_files_bytes_batch_empty() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        let paths: Vec<String> = vec![];
+        let batch = rt.read_files_bytes_batch(&Side::Local, &paths).unwrap();
+
+        assert!(batch.is_empty());
     }
 
     #[test]

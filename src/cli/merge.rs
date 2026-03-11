@@ -97,30 +97,12 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     // バイト列比較でバイナリファイルも正しく判定する
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     if !paths_to_compare.is_empty() {
+        let left_batch = fetch_contents_tolerant(&pair.left, &paths_to_compare, &mut core);
+        let right_batch = fetch_contents_tolerant(&pair.right, &paths_to_compare, &mut core);
         let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
-            let left_bytes = core
-                .read_file_bytes(&pair.left, path, false)
-                .unwrap_or_else(|e| {
-                    tracing::debug!(
-                        "Failed to read {} from {} for status refinement: {}",
-                        path,
-                        pair.left.display_name(),
-                        e
-                    );
-                    Vec::new()
-                });
-            let right_bytes = core
-                .read_file_bytes(&pair.right, path, false)
-                .unwrap_or_else(|e| {
-                    tracing::debug!(
-                        "Failed to read {} from {} for status refinement: {}",
-                        path,
-                        pair.right.display_name(),
-                        e
-                    );
-                    Vec::new()
-                });
+            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
+            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
             compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
         }
         refine_status_with_content(&mut statuses, &compare_pairs);

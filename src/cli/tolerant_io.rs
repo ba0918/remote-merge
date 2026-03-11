@@ -18,16 +18,24 @@ pub fn fetch_contents_tolerant(
     paths: &[String],
     core: &mut CoreRuntime,
 ) -> HashMap<String, Vec<u8>> {
-    let mut contents = HashMap::new();
-    for path in paths {
-        match core.read_file_bytes(side, path, false) {
-            Ok(content) => {
-                contents.insert(path.clone(), content);
+    // バッチバイト列読み込みを試行
+    match core.read_files_bytes_batch(side, paths) {
+        Ok(batch) => batch,
+        Err(e) => {
+            tracing::debug!("Batch read failed, falling back to individual reads: {}", e);
+            // フォールバック: 1ファイルずつ（既存ロジック）
+            let mut contents = HashMap::new();
+            for path in paths {
+                match core.read_file_bytes(side, path, false) {
+                    Ok(content) => {
+                        contents.insert(path.clone(), content);
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to read {}: {}", path, e);
+                    }
+                }
             }
-            Err(e) => {
-                tracing::debug!("Failed to read {}: {}", path, e);
-            }
+            contents
         }
     }
-    contents
 }

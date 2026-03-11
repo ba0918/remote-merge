@@ -43,6 +43,13 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             Ok(MergeScanMsg::ContentPhase { total }) => {
                 content_phase_total = Some(total);
             }
+            Ok(MergeScanMsg::AgentFailed { server_name }) => {
+                tracing::warn!(
+                    "Agent failed during merge scan for {}, invalidating",
+                    server_name
+                );
+                runtime.core.invalidate_agent(&server_name);
+            }
             Ok(msg @ MergeScanMsg::Done(_)) | Ok(msg @ MergeScanMsg::Error(_)) => {
                 final_msg = Some(msg);
                 break;
@@ -87,7 +94,9 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
                 state.dialog = DialogState::None;
                 state.status_message = format!("Merge scan error: {}", e);
             }
-            MergeScanMsg::Progress { .. } | MergeScanMsg::ContentPhase { .. } => unreachable!(),
+            MergeScanMsg::Progress { .. }
+            | MergeScanMsg::ContentPhase { .. }
+            | MergeScanMsg::AgentFailed { .. } => unreachable!(),
         }
         runtime.merge_scan_receiver = None;
     }

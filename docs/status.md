@@ -1,15 +1,26 @@
 # Project Status
 
-**Last Updated:** 2026-03-11 00:00:08
+**Last Updated:** 2026-03-11 00:48:29
 
 ---
 
 ## 🎯 Current Session
 
+### 20260311004829 - Merge Scan Agent 統合（SSH exec 1200回 → 3回）
+- **Started:** 2026-03-11 00:48:29
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260311004829_merge-scan-agent-integration.md)
+- **Summary:** agent_clients を Arc<Mutex<>> に変更し、TUI merge scan と CLI で Agent バッチ API を活用。agent_read_files_batch 共通ヘルパー（256ファイルずつ）、error_paths 交差セマンティクス（local∩remote 両方失敗のみ）、poison-safe lock パターン、AgentFailed メッセージ経由の invalidation。CLI は fetch_contents_tolerant でバッチ化。1414テスト通過、clippy警告ゼロ。
+
+---
+
 ### 20260311000008 - Agent デプロイ堅牢性強化
 - **Started:** 2026-03-11 00:00:08
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260311000008_agent-deploy-robustness.md)
+- **Summary:** atomic write（.tmp → verify → mv）方式導入。SHA-256チェックサム照合、デバッグバイナリ検出、sha256sum不在時graceful degradation。openssl base64 -d の -A フラグ欠落によるbase64デコード破損を発見・修正。バージョン検証をclap出力形式に修正。1395テスト通過。
 
 ---
 
@@ -515,13 +526,15 @@
 | **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
 | **5-5** | --delete オプション（完全同期） | ⚪ Pending |
 
-### Phase 6: Remote Agent Protocol 🟢 Complete
+### Phase 6: Remote Agent Protocol 🟢 Complete (All Steps)
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **A** | プロトコル基盤 + agent サブコマンド | 🟢 Done |
 | **B** | クライアント + デプロイ + 統合 | 🟢 Done |
 | **C** | SSH Transport + Quick Check + TUI/CLI統合 | 🟢 Done |
 | **D** | クロスコンパイル + E2E 動作確認 | 🟢 Done |
+| **E** | デプロイ堅牢性（atomic write + checksum） | 🟢 Done |
+| **F** | Merge Scan Agent 統合 | 🟢 Done |
 
 ---
 
