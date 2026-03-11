@@ -2,7 +2,15 @@
 //!
 //! Service層の出力型を人間向けテキストまたはJSON文字列に変換する。
 
+use serde::Serialize;
+
 use super::types::*;
+
+/// JSON エラーレスポンス（`--format json` 指定時のエラー出力用）
+#[derive(Debug, Serialize)]
+pub struct JsonError {
+    pub error: String,
+}
 
 /// 出力フォーマット
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,8 +69,8 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
             for file in files {
                 let prefix = match file.status {
                     FileStatusKind::Modified => "M ",
-                    FileStatusKind::LeftOnly => "+ ",
-                    FileStatusKind::RightOnly => "- ",
+                    FileStatusKind::LeftOnly => "L ",
+                    FileStatusKind::RightOnly => "R ",
                     FileStatusKind::Equal => "= ",
                 };
                 let sensitive_mark = if file.sensitive { " [SENSITIVE]" } else { "" };
@@ -393,13 +401,17 @@ pub fn format_backup_list_text(output: &BackupListOutput) -> String {
     }
 
     for session in &output.sessions {
-        let file_count = session.files.len();
-        let file_word = if file_count == 1 { "file" } else { "files" };
+        let file_count = session.file_count;
         let expired_tag = if session.expired { " [expired]" } else { "" };
-        lines.push(format!(
-            "  {} ({} {}){expired_tag}",
-            session.session_id, file_count, file_word,
-        ));
+        if file_count == 0 {
+            lines.push(format!("  {} (empty){expired_tag}", session.session_id,));
+        } else {
+            let file_word = if file_count == 1 { "file" } else { "files" };
+            lines.push(format!(
+                "  {} ({} {}){expired_tag}",
+                session.session_id, file_count, file_word,
+            ));
+        }
         for entry in &session.files {
             lines.push(format!("    {} ({} bytes)", entry.path, entry.size));
         }
@@ -609,7 +621,7 @@ mod tests {
     fn test_format_status_text() {
         let text = format_status_text(&sample_status(), false);
         assert!(text.contains("M src/config.ts"));
-        assert!(text.contains("+ src/new.ts"));
+        assert!(text.contains("L src/new.ts"));
         assert!(text.contains("M .env [SENSITIVE]"));
         assert!(text.contains("Summary: 2 modified, 1 left only"));
     }
@@ -1669,9 +1681,9 @@ mod tests {
                 root: "/var/www".into(),
             },
             sessions: vec![
-                BackupSession {
-                    session_id: "20240115-140000".into(),
-                    files: vec![
+                BackupSession::new(
+                    "20240115-140000".into(),
+                    vec![
                         BackupEntry {
                             path: "src/config.ts".into(),
                             size: 1234,
@@ -1681,16 +1693,16 @@ mod tests {
                             size: 5678,
                         },
                     ],
-                    expired: false,
-                },
-                BackupSession {
-                    session_id: "20240114-100000".into(),
-                    files: vec![BackupEntry {
+                    false,
+                ),
+                BackupSession::new(
+                    "20240114-100000".into(),
+                    vec![BackupEntry {
                         path: "src/old.ts".into(),
                         size: 456,
                     }],
-                    expired: true,
-                },
+                    true,
+                ),
             ],
         };
         let text = format_backup_list_text(&output);
@@ -1978,8 +1990,8 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_output_json_deleted_empty_omitted() {
-        // deleted が空のとき JSON に含まれない（後方互換性）
+    fn test_merge_output_json_deleted_empty_included() {
+        // deleted は空でも常に JSON に含まれる
         let output = MergeOutput {
             merged: vec![],
             skipped: vec![],
@@ -1989,8 +2001,8 @@ mod tests {
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(
-            !json.contains("\"deleted\""),
-            "empty deleted should be omitted: {}",
+            json.contains("\"deleted\""),
+            "empty deleted should be included: {}",
             json
         );
     }
@@ -2297,5 +2309,103 @@ mod tests {
         assert!(text.contains("D!"));
         assert!(text.contains("locked.txt"));
         assert!(text.contains("[server1] partial"));
+    }
+
+    // ── Step 1: JsonError serialization ──
+
+    #[test]
+    fn test_json_error_serialize() {
+        let err = JsonError {
+            error: "something went wrong".to_string(),
+        };
+        let json = serde_json::to_string(&err).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["error"], "something went wrong");
+        // Verify no extra fields
+        assert_eq!(parsed.as_object().unwrap().len(), 1);
+    }
+
+    // ── Step 7: L/R symbol regression ──
+
+    #[test]
+    fn test_status_text_left_only_symbol() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            agent: None,
+            files: Some(vec![FileStatus {
+                path: "only_left.rs".into(),
+                status: FileStatusKind::LeftOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            }]),
+            summary: StatusSummary {
+                modified: 0,
+                left_only: 1,
+                right_only: 0,
+                equal: 0,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
+            },
+        };
+        let text = format_status_text(&output, false);
+        assert!(
+            text.contains("L only_left.rs"),
+            "left_only should use 'L ' prefix"
+        );
+        assert!(
+            !text.contains("+ only_left.rs"),
+            "should not use old '+' prefix"
+        );
+    }
+
+    #[test]
+    fn test_status_text_right_only_symbol() {
+        let output = StatusOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            right: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            ref_: None,
+            agent: None,
+            files: Some(vec![FileStatus {
+                path: "only_right.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            }]),
+            summary: StatusSummary {
+                modified: 0,
+                left_only: 0,
+                right_only: 1,
+                equal: 0,
+                ref_differs: None,
+                ref_only: None,
+                ref_missing: None,
+            },
+        };
+        let text = format_status_text(&output, false);
+        assert!(
+            text.contains("R only_right.rs"),
+            "right_only should use 'R ' prefix"
+        );
+        assert!(
+            !text.contains("- only_right.rs"),
+            "should not use old '-' prefix"
+        );
     }
 }

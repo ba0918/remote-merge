@@ -4,8 +4,11 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     // ── 設定エラー ──
-    #[error("Config file not found: {path}")]
-    ConfigNotFound { path: PathBuf },
+    #[error("Config file not found.\n  Searched:\n  - {project_path}\n  - {global_path}")]
+    ConfigNotFound {
+        project_path: PathBuf,
+        global_path: PathBuf,
+    },
 
     #[error("Failed to parse config file: {source}")]
     ConfigParse {
@@ -109,5 +112,25 @@ mod tests {
     fn test_non_app_error_is_not_connection() {
         let err = anyhow::anyhow!("some random error");
         assert!(!is_connection_error(&err));
+    }
+
+    // ── Step 5: config error message contains both paths ──
+
+    #[test]
+    fn test_config_not_found_error_message_contains_both_paths() {
+        let err = AppError::ConfigNotFound {
+            project_path: PathBuf::from("/home/user/project/.remote-merge.toml"),
+            global_path: PathBuf::from("/home/user/.config/remote-merge/config.toml"),
+        };
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains(".remote-merge.toml"),
+            "should contain project path"
+        );
+        assert!(msg.contains("config.toml"), "should contain global path");
+        assert!(
+            msg.contains("Searched:"),
+            "should contain 'Searched:' label"
+        );
     }
 }

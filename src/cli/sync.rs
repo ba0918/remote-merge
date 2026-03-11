@@ -26,7 +26,7 @@ use crate::tree::FileTree;
 /// sync サブコマンドの引数
 pub struct SyncArgs {
     pub paths: Vec<String>,
-    pub left: String,
+    pub left: Option<String>,
     pub right: Vec<String>,
     pub dry_run: bool,
     pub force: bool,
@@ -37,6 +37,9 @@ pub struct SyncArgs {
 
 /// sync 引数のバリデーション
 fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<()> {
+    if args.left.is_none() {
+        anyhow::bail!("--left is required for sync command");
+    }
     if args.right.is_empty() {
         anyhow::bail!("--right requires at least one target server for sync command");
     }
@@ -63,7 +66,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
 
     // ソースペア解決（サーバ名バリデーション・重複チェック・left==right チェック）
-    let pairs = resolve_source_pairs(&args.left, &args.right, &config)?;
+    let pairs = resolve_source_pairs(args.left.as_deref().unwrap(), &args.right, &config)?;
 
     // R2R ガード: 全ペアをチェック
     for pair in &pairs {
@@ -427,7 +430,7 @@ mod tests {
     fn make_args() -> SyncArgs {
         SyncArgs {
             paths: vec![".".into()],
-            left: "local".into(),
+            left: Some("local".into()),
             right: vec!["develop".into()],
             dry_run: false,
             force: false,
@@ -435,6 +438,18 @@ mod tests {
             with_permissions: false,
             format: "text".into(),
         }
+    }
+
+    #[test]
+    fn validate_missing_left() {
+        let mut args = make_args();
+        args.left = None;
+        let err = validate_sync_args(&args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("--left is required"),
+            "unexpected error: {}",
+            err
+        );
     }
 
     #[test]

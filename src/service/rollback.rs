@@ -151,17 +151,14 @@ mod tests {
     use chrono::TimeZone;
 
     fn make_session(id: &str, paths: &[&str]) -> BackupSession {
-        BackupSession {
-            session_id: id.into(),
-            files: paths
-                .iter()
-                .map(|p| BackupEntry {
-                    path: (*p).into(),
-                    size: 100,
-                })
-                .collect(),
-            expired: false,
-        }
+        let files: Vec<BackupEntry> = paths
+            .iter()
+            .map(|p| BackupEntry {
+                path: (*p).into(),
+                size: 100,
+            })
+            .collect();
+        BackupSession::new(id.into(), files, false)
     }
 
     fn now() -> DateTime<Utc> {

@@ -287,10 +287,16 @@ pub fn load_config_from_paths(
         .transpose()?;
 
     if global_raw.is_none() && project_raw.is_none() {
-        let path = global_path
+        let gp = global_path
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("(none)"));
-        bail!(AppError::ConfigNotFound { path });
+            .unwrap_or_else(|| PathBuf::from("~/.config/remote-merge/config.toml"));
+        let pp = std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".remote-merge.toml");
+        bail!(AppError::ConfigNotFound {
+            project_path: pp,
+            global_path: gp,
+        });
     }
 
     merge_configs(global_raw, project_raw)

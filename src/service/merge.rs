@@ -292,8 +292,8 @@ mod tests {
             None,
         );
         let json = serde_json::to_string(&output).unwrap();
-        // deleted が空のとき JSON に含まれない（後方互換性）
-        assert!(!json.contains("\"deleted\""));
+        // deleted は空でも常に JSON に含まれる
+        assert!(json.contains("\"deleted\""));
     }
 
     // ── find_symlink_target tests ──

@@ -41,8 +41,8 @@ fn test_status_text_shows_left_only() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("+ "),
-        "left-only file should be shown with '+ ' prefix, got: {}",
+        stdout.contains("L "),
+        "left-only file should be shown with 'L ' prefix, got: {}",
         stdout,
     );
     assert!(
@@ -52,7 +52,7 @@ fn test_status_text_shows_left_only() {
     );
 }
 
-/// リモートにのみ存在するファイルが "- " プレフィックスで表示される
+/// リモートにのみ存在するファイルが "R " プレフィックスで表示される
 #[test]
 #[ignore]
 fn test_status_text_shows_right_only() {
@@ -62,8 +62,8 @@ fn test_status_text_shows_right_only() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("- "),
-        "right-only file should be shown with '- ' prefix, got: {}",
+        stdout.contains("R "),
+        "right-only file should be shown with 'R ' prefix, got: {}",
         stdout,
     );
     assert!(
@@ -286,9 +286,9 @@ fn test_status_empty_tree_both_sides() {
 
     assert_exit_success(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // ファイル情報がない（M/+/- プレフィックス行が表示されない）
+    // ファイル情報がない（M/L/R プレフィックス行が表示されない）
     assert!(
-        !stdout.contains("M ") && !stdout.contains("+ ") && !stdout.contains("- "),
+        !stdout.contains("M ") && !stdout.contains("L ") && !stdout.contains("R "),
         "empty tree should have no file entries, got: {}",
         stdout,
     );

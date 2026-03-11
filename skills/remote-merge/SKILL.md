@@ -29,6 +29,7 @@ Options:
 - `--left <side> --right <side>` — specify comparison sides (e.g., `local`, `develop`, `staging`, `release`)
 - `--all` — include Equal files in output (by default, Equal files are excluded)
 - `--checksum` — force content comparison for all files (bypass mtime/size quick check). Useful when timestamps are unreliable.
+- `--verbose` (`-v`) — include additional fields in JSON output (e.g., `agent` connection status)
 
 ### 2. Inspect diffs
 
@@ -110,7 +111,7 @@ remote-merge sync . --left local --right server1 server2 --dry-run --format json
 ```
 
 Options:
-- `--left <side>` — source side (required, exactly one)
+- `--left <side>` — source side (required, exactly one; omitting produces error: "--left is required for sync command")
 - `--right <side>...` — target servers (required, one or more)
 - `--dry-run` — preview without writing
 - `--force` — skip safety confirmations (remote-to-remote, sensitive files)
@@ -201,8 +202,13 @@ Event types: `key_press`, `render_slow`, `error`, `dialog`, `state_change`.
 
 0 = success (no diff), 1 = success (diffs found), 2 = error.
 
+## JSON Error Handling
+
+When `--format json` is specified and an error occurs, stdout returns `{"error": "..."}` with exit code `2`. This applies to all subcommands: status, diff, merge, sync, rollback, logs. Always check the exit code.
+
 ## Error Recovery
 
+- **Config not found** -> error message shows both searched paths (`.remote-merge.toml` and `~/.config/remote-merge/config.toml`)
 - **SSH connection failed** -> check `.remote-merge.toml`
 - **Sensitive file skipped** -> add `--force`
 - **Optimistic lock failed** -> retry (file changed during merge)

@@ -169,7 +169,7 @@ pub struct MultiDiffSummary {
 pub struct MergeOutput {
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub deleted: Vec<DeleteFileResult>,
     pub failed: Vec<MergeFailure>,
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
@@ -225,9 +225,23 @@ pub struct BackupListOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupSession {
     pub session_id: String,
+    pub file_count: usize,
     pub files: Vec<BackupEntry>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub expired: bool,
+}
+
+impl BackupSession {
+    /// file_count を files.len() から自動算出して生成する。
+    pub fn new(session_id: String, files: Vec<BackupEntry>, expired: bool) -> Self {
+        let file_count = files.len();
+        Self {
+            session_id,
+            file_count,
+            files,
+            expired,
+        }
+    }
 }
 
 /// バックアップエントリ（セッション内の1ファイル）
@@ -284,7 +298,7 @@ pub struct SyncTargetResult {
     pub target: SourceInfo,
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub deleted: Vec<DeleteFileResult>,
     pub failed: Vec<MergeFailure>,
     pub status: SyncTargetStatus,
@@ -496,6 +510,11 @@ mod tests {
         assert!(json.contains("\"merged\""));
         assert!(json.contains("\"skipped\""));
         assert!(json.contains("\"sensitive file\""));
+        // deleted は空でも常に含まれる
+        assert!(
+            json.contains("\"deleted\""),
+            "empty deleted should be included in JSON"
+        );
     }
 
     #[test]
@@ -927,19 +946,15 @@ mod tests {
                 root: "/var/www".into(),
             },
             sessions: vec![
-                BackupSession {
-                    session_id: "20240115-140000".into(),
-                    files: vec![BackupEntry {
+                BackupSession::new(
+                    "20240115-140000".into(),
+                    vec![BackupEntry {
                         path: "src/app.rs".into(),
                         size: 1024,
                     }],
-                    expired: false,
-                },
-                BackupSession {
-                    session_id: "20240101-100000".into(),
-                    files: vec![],
-                    expired: true,
-                },
+                    false,
+                ),
+                BackupSession::new("20240101-100000".into(), vec![], true),
             ],
         };
         let json = serde_json::to_string(&output).unwrap();
@@ -951,11 +966,7 @@ mod tests {
 
     #[test]
     fn test_backup_session_expired_false_skip_serializing() {
-        let session = BackupSession {
-            session_id: "20240115-140000".into(),
-            files: vec![],
-            expired: false,
-        };
+        let session = BackupSession::new("20240115-140000".into(), vec![], false);
         let json = serde_json::to_string(&session).unwrap();
         // expired=false のとき JSON に含まれない（skip_serializing_if）
         assert!(!json.contains("\"expired\""));
@@ -1019,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_target_result_deleted_empty_omitted() {
+    fn sync_target_result_deleted_empty_included() {
         let result = SyncTargetResult {
             target: SourceInfo {
                 label: "server1".to_string(),
@@ -1033,8 +1044,8 @@ mod tests {
         };
         let json = serde_json::to_string(&result).unwrap();
         assert!(
-            !json.contains("\"deleted\""),
-            "empty deleted should be omitted"
+            json.contains("\"deleted\""),
+            "empty deleted should be included"
         );
     }
 
@@ -1075,5 +1086,80 @@ mod tests {
             serde_json::to_string(&DeleteStatus::Failed).unwrap(),
             "\"failed\""
         );
+    }
+
+    // ── Step 2: deleted field always present when empty ──
+
+    #[test]
+    fn test_merge_output_deleted_always_present_when_empty() {
+        let output = MergeOutput {
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![],
+            failed: vec![],
+            ref_: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(
+            json.contains("\"deleted\":[]"),
+            "deleted should always be present, even when empty"
+        );
+    }
+
+    #[test]
+    fn test_sync_target_result_deleted_always_present_when_empty() {
+        let result = SyncTargetResult {
+            target: SourceInfo {
+                label: "s1".into(),
+                root: "/app".into(),
+            },
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![],
+            failed: vec![],
+            status: SyncTargetStatus::Success,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            json.contains("\"deleted\":[]"),
+            "deleted should always be present"
+        );
+    }
+
+    // ── Step 4: file_count / empty sessions ──
+
+    #[test]
+    fn test_backup_session_new_sets_file_count() {
+        let session = BackupSession::new(
+            "20240115-140000".into(),
+            vec![BackupEntry {
+                path: "a.rs".into(),
+                size: 100,
+            }],
+            false,
+        );
+        assert_eq!(session.file_count, 1);
+        assert_eq!(session.files.len(), 1);
+    }
+
+    #[test]
+    fn test_backup_session_new_empty_files() {
+        let session = BackupSession::new("20240115-140000".into(), vec![], false);
+        assert_eq!(session.file_count, 0);
+        assert!(session.files.is_empty());
+    }
+
+    #[test]
+    fn test_backup_session_file_count_serialized() {
+        let session = BackupSession::new(
+            "20240115-140000".into(),
+            vec![BackupEntry {
+                path: "a.rs".into(),
+                size: 100,
+            }],
+            false,
+        );
+        let json = serde_json::to_string(&session).unwrap();
+        assert!(json.contains("\"file_count\":1"));
     }
 }

@@ -498,11 +498,7 @@ impl CoreRuntime {
             let mut files = parse_backup_file_entries(&file_output);
             files.sort_by(|a, b| a.path.cmp(&b.path));
 
-            sessions.push(BackupSession {
-                session_id,
-                files,
-                expired: false,
-            });
+            sessions.push(BackupSession::new(session_id, files, false));
         }
 
         Ok(sessions)

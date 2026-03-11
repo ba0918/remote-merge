@@ -93,8 +93,8 @@ fn test_tui_shows_badge_for_left_only() {
         .expect("Failed to run status");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("+ local_only.txt"),
-        "Left-only file should show + badge in status: {}",
+        stdout.contains("L local_only.txt"),
+        "Left-only file should show L badge in status: {}",
         stdout
     );
 

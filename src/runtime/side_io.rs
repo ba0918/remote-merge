@@ -252,7 +252,7 @@ impl CoreRuntime {
                 Ok(local_sessions
                     .into_iter()
                     .map(|s| {
-                        let files = s
+                        let files: Vec<BackupEntry> = s
                             .files
                             .iter()
                             .map(|path| {
@@ -265,11 +265,7 @@ impl CoreRuntime {
                                 }
                             })
                             .collect();
-                        BackupSession {
-                            session_id: s.session_id,
-                            files,
-                            expired: false,
-                        }
+                        BackupSession::new(s.session_id, files, false)
                     })
                     .collect())
             }
@@ -1028,17 +1024,16 @@ fn convert_agent_backup_sessions(
 ) -> Vec<crate::service::types::BackupSession> {
     agent_sessions
         .into_iter()
-        .map(|s| crate::service::types::BackupSession {
-            session_id: s.session_id,
-            files: s
+        .map(|s| {
+            let files: Vec<crate::service::types::BackupEntry> = s
                 .files
                 .into_iter()
                 .map(|f| crate::service::types::BackupEntry {
                     path: f.path,
                     size: f.size,
                 })
-                .collect(),
-            expired: false,
+                .collect();
+            crate::service::types::BackupSession::new(s.session_id, files, false)
         })
         .collect()
 }

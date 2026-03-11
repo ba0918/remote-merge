@@ -1,5 +1,15 @@
 # JSON Output Schemas
 
+## Error Response
+
+When `--format json` is specified and an error occurs, all subcommands (status, diff, merge, sync, rollback, logs) return a JSON error object on stdout:
+
+```json
+{"error": "error message here"}
+```
+
+Exit code is `2` on error. Config-not-found errors display both searched paths (project `.remote-merge.toml` and global `~/.config/remote-merge/config.toml`).
+
 ## status
 
 ```json
@@ -7,7 +17,6 @@
   "left":  { "label": "local", "root": "/home/user/app" },
   "right": { "label": "develop", "root": "dev:/var/www/app" },
   "ref":   { "label": "staging", "root": "stg:/var/www/app" },
-  "agent": "connected",
   "files": [
     { "path": "src/config.ts", "status": "modified", "sensitive": false },
     { "path": ".env", "status": "modified", "sensitive": true, "ref_badge": "ref_differs" }
@@ -28,7 +37,7 @@ File status values: `modified`, `left_only`, `right_only`, `equal`.
 
 Optional fields (omitted when null/not applicable):
 - `ref` — reference server info (present only with `--ref`)
-- `agent` — Agent connection status: `"connected"` or `"fallback"` (present only for remote servers)
+- `agent` — Agent connection status: `"connected"` or `"fallback"`. Only included with `--verbose` (`-v`).
 - `files[].ref_badge` — reference badge (present only with `--ref`)
 - `summary.ref_differs`, `summary.ref_only`, `summary.ref_missing` — reference comparison counts (present only with `--ref`)
 
@@ -142,7 +151,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `merged[].status`: `"ok"` on success, `"would merge"` in dry-run mode
 - `merged[].ref_badge`: optional reference badge (present only with `--ref`)
 - `skipped`: files skipped (sensitive files without `--force`, remote-to-remote without `--force`)
-- `deleted`: files deleted by `--delete` flag. Omitted when empty. Each entry has `path`, `status` (`"ok"` or `"failed"`), and optional `backup` path.
+- `deleted`: files deleted by `--delete` flag. Always present (empty array `[]` when no files are deleted). Each entry has `path`, `status` (`"ok"` or `"failed"`), and optional `backup` path.
 - `failed`: files that failed to merge or delete with error details
 - `ref`: optional reference server info (present only with `--ref`)
 
@@ -172,6 +181,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
       "target": { "label": "server2", "root": "srv2:/var/www/app" },
       "merged": [],
       "skipped": [],
+      "deleted": [],
       "failed": [
         { "path": "src/config.ts", "error": "connection lost" }
       ],
@@ -190,7 +200,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 
 - `targets[]`: per-server sync results
 - `targets[].status`: `"success"` (all files OK or no changes), `"partial"` (some merged, some failed), `"failed"` (all failed)
-- `targets[].deleted`: files deleted by `--delete`. Omitted when empty.
+- `targets[].deleted`: files deleted by `--delete`. Always present (empty array `[]` when no files are deleted).
 - `targets[].deleted[].status`: `"ok"` or `"failed"`
 - `targets[].deleted[].backup`: backup path (omitted when backup is disabled or not applicable)
 - `summary`: aggregate counts across all servers
@@ -204,6 +214,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
   "sessions": [
     {
       "session_id": "20260311-140000",
+      "file_count": 1,
       "files": [
         { "path": "src/config.ts", "size": 1234 }
       ]
@@ -214,6 +225,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 
 - `target`: SourceInfo object with `label` and `root`
 - `sessions`: array of backup sessions, sorted newest first
+- `sessions[].file_count`: number of files in the session
 - `sessions[].expired`: boolean, present when true (session older than retention period). Omitted when false.
 - `sessions[].files`: list of backed-up files with their sizes. May be empty if the merge created a new file on the target (no original to back up).
 
@@ -270,7 +282,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
-Badges: `[M]` modified, `[=]` equal, `[+]` left only, `[-]` right only, `[?]` unchecked, `[!]` error.
+Badges: `[M]` modified, `[=]` equal, `[L]` left only, `[R]` right only, `[?]` unchecked, `[!]` error.
 
 ## debug.log (JSONL)
 

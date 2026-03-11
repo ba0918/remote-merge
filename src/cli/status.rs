@@ -38,6 +38,8 @@ pub struct StatusArgs {
     pub all: bool,
     /// 全ファイルのコンテンツ比較を強制する（メタデータベースの quick check をバイパス）
     pub checksum: bool,
+    /// 冗長出力レベル（0=通常, 1+=agent 情報を含む）
+    pub verbose: u8,
 }
 
 /// status サブコマンドを実行する
@@ -155,8 +157,10 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         ref_badges.as_ref(),
     );
 
-    // Agent 接続状態を設定
-    output.agent = determine_agent_status(&pair.right, &core);
+    // Agent 接続状態を設定（verbose 時のみ）
+    if args.verbose > 0 {
+        output.agent = determine_agent_status(&pair.right, &core);
+    }
 
     let code = status_exit_code(&output.summary);
 

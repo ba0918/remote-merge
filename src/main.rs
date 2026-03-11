@@ -148,8 +148,8 @@ enum Commands {
         #[arg(required = true, num_args = 1..)]
         paths: Vec<String>,
         /// Source side
-        #[arg(long, required = true)]
-        left: String,
+        #[arg(long)]
+        left: Option<String>,
         /// Target servers (one or more, required)
         #[arg(long, num_args = 1..)]
         right: Vec<String>,
@@ -241,6 +241,27 @@ fn main() {
     }
 }
 
+/// format 引数を持つサブコマンドのエラーを適切にフォーマットする。
+/// 成功時は exit code を返し、エラー時は JSON/text でエラー出力して exit code を返す。
+fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            if format == "json" {
+                let err = remote_merge::service::output::JsonError {
+                    error: format!("{e:#}"),
+                };
+                let json = serde_json::to_string_pretty(&err)
+                    .unwrap_or_else(|_| r#"{"error": "internal serialization error"}"#.to_string());
+                println!("{}", json);
+            } else {
+                eprintln!("Error: {e:#}");
+            }
+            remote_merge::service::types::exit_code::ERROR
+        }
+    }
+}
+
 fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let log_level = resolve_log_level(cli.log_level.as_deref(), cli.debug, cli.verbose);
@@ -262,19 +283,26 @@ fn try_main() -> anyhow::Result<()> {
             all,
             checksum,
         }) => {
-            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
-            let code = remote_merge::cli::status::run_status(
-                remote_merge::cli::status::StatusArgs {
-                    left,
-                    right,
-                    ref_server: r#ref,
-                    format,
-                    summary,
-                    all,
-                    checksum,
-                },
-                cfg,
-            )?;
+            let format_str = format.clone();
+            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let code = handle_with_format(
+                &format_str,
+                cfg.and_then(|cfg| {
+                    remote_merge::cli::status::run_status(
+                        remote_merge::cli::status::StatusArgs {
+                            left,
+                            right,
+                            ref_server: r#ref,
+                            format,
+                            summary,
+                            all,
+                            checksum,
+                            verbose: cli.verbose,
+                        },
+                        cfg,
+                    )
+                }),
+            );
             std::process::exit(code);
         }
         Some(Commands::Diff {
@@ -287,20 +315,26 @@ fn try_main() -> anyhow::Result<()> {
             max_files,
             force,
         }) => {
-            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
-            let code = remote_merge::cli::diff::run_diff(
-                remote_merge::cli::diff::DiffArgs {
-                    paths,
-                    left,
-                    right,
-                    ref_server: r#ref,
-                    format,
-                    max_lines,
-                    max_files,
-                    force,
-                },
-                cfg,
-            )?;
+            let format_str = format.clone();
+            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let code = handle_with_format(
+                &format_str,
+                cfg.and_then(|cfg| {
+                    remote_merge::cli::diff::run_diff(
+                        remote_merge::cli::diff::DiffArgs {
+                            paths,
+                            left,
+                            right,
+                            ref_server: r#ref,
+                            format,
+                            max_lines,
+                            max_files,
+                            force,
+                        },
+                        cfg,
+                    )
+                }),
+            );
             std::process::exit(code);
         }
         Some(Commands::Merge {
@@ -314,21 +348,27 @@ fn try_main() -> anyhow::Result<()> {
             with_permissions,
             format,
         }) => {
-            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
-            let code = remote_merge::cli::merge::run_merge(
-                remote_merge::cli::merge::MergeArgs {
-                    paths,
-                    left,
-                    right,
-                    ref_server: r#ref,
-                    dry_run,
-                    force,
-                    delete,
-                    with_permissions,
-                    format,
-                },
-                cfg,
-            )?;
+            let format_str = format.clone();
+            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let code = handle_with_format(
+                &format_str,
+                cfg.and_then(|cfg| {
+                    remote_merge::cli::merge::run_merge(
+                        remote_merge::cli::merge::MergeArgs {
+                            paths,
+                            left,
+                            right,
+                            ref_server: r#ref,
+                            dry_run,
+                            force,
+                            delete,
+                            with_permissions,
+                            format,
+                        },
+                        cfg,
+                    )
+                }),
+            );
             std::process::exit(code);
         }
         Some(Commands::Sync {
@@ -341,18 +381,24 @@ fn try_main() -> anyhow::Result<()> {
             with_permissions,
             format,
         }) => {
-            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
-            let args = remote_merge::cli::sync::SyncArgs {
-                paths,
-                left,
-                right,
-                dry_run,
-                force,
-                delete,
-                with_permissions,
-                format,
-            };
-            let code = remote_merge::cli::sync::run_sync(args, cfg)?;
+            let format_str = format.clone();
+            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let code = handle_with_format(
+                &format_str,
+                cfg.and_then(|cfg| {
+                    let args = remote_merge::cli::sync::SyncArgs {
+                        paths,
+                        left,
+                        right,
+                        dry_run,
+                        force,
+                        delete,
+                        with_permissions,
+                        format,
+                    };
+                    remote_merge::cli::sync::run_sync(args, cfg)
+                }),
+            );
             std::process::exit(code);
         }
         Some(Commands::Rollback {
@@ -363,18 +409,24 @@ fn try_main() -> anyhow::Result<()> {
             force,
             format,
         }) => {
-            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
-            let code = remote_merge::cli::rollback::run_rollback(
-                remote_merge::cli::rollback::RollbackArgs {
-                    target,
-                    list,
-                    session,
-                    dry_run,
-                    force,
-                    format,
-                },
-                cfg,
-            )?;
+            let format_str = format.clone();
+            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let code = handle_with_format(
+                &format_str,
+                cfg.and_then(|cfg| {
+                    remote_merge::cli::rollback::run_rollback(
+                        remote_merge::cli::rollback::RollbackArgs {
+                            target,
+                            list,
+                            session,
+                            dry_run,
+                            force,
+                            format,
+                        },
+                        cfg,
+                    )
+                }),
+            );
             std::process::exit(code);
         }
         Some(Commands::Logs {
@@ -386,12 +438,15 @@ fn try_main() -> anyhow::Result<()> {
             if cli.config.is_some() {
                 eprintln!("Warning: --config is ignored for the 'logs' subcommand");
             }
-            let code = remote_merge::cli::logs::run_logs(remote_merge::cli::logs::LogsArgs {
-                level,
-                since,
-                tail,
-                format,
-            })?;
+            let format_str = format.clone();
+            let code = handle_with_format(&format_str, {
+                remote_merge::cli::logs::run_logs(remote_merge::cli::logs::LogsArgs {
+                    level,
+                    since,
+                    tail,
+                    format,
+                })
+            });
             std::process::exit(code);
         }
         Some(Commands::Agent { root }) => {
@@ -694,5 +749,26 @@ mod tests {
     fn test_cli_parse_debug_with_subcommand() {
         let cli = Cli::try_parse_from(["remote-merge", "--debug", "status"]).unwrap();
         assert!(cli.debug);
+    }
+
+    #[test]
+    fn test_handle_with_format_ok_returns_code() {
+        let code = handle_with_format("text", Ok(0));
+        assert_eq!(code, 0);
+
+        let code = handle_with_format("json", Ok(1));
+        assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn test_handle_with_format_err_text_returns_error_code() {
+        let code = handle_with_format("text", Err(anyhow::anyhow!("something failed")));
+        assert_eq!(code, remote_merge::service::types::exit_code::ERROR);
+    }
+
+    #[test]
+    fn test_handle_with_format_err_json_returns_error_code() {
+        let code = handle_with_format("json", Err(anyhow::anyhow!("something failed")));
+        assert_eq!(code, remote_merge::service::types::exit_code::ERROR);
     }
 }
