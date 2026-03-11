@@ -69,7 +69,6 @@ pub fn run_merge_scan(
             config,
             server_name,
             dir_path,
-            &remote_root,
             &ref_source,
         ) {
             Ok(result) => {
@@ -260,15 +259,12 @@ type AgentReadFullResult = (
 /// `tx` が Some の場合は進捗メッセージを送信する。
 fn agent_read_files_batch(
     agent: &Arc<Mutex<BoxedAgentClient>>,
-    remote_root: &str,
     file_paths: &[String],
     label: &str,
     tx: Option<&mpsc::Sender<MergeScanMsg>>,
 ) -> Result<AgentReadFullResult, String> {
-    let full_paths: Vec<String> = file_paths
-        .iter()
-        .map(|p| format!("{}/{}", remote_root.trim_end_matches('/'), p))
-        .collect();
+    // Agent は --root で起動時にルートディレクトリ設定済みなので、相対パスをそのまま渡す
+    let full_paths: Vec<String> = file_paths.to_vec();
 
     let mut text_cache = HashMap::new();
     let mut binary_cache = HashMap::new();
@@ -336,7 +332,6 @@ fn run_merge_scan_via_agent(
     config: &AppConfig,
     server_name: &str,
     dir_path: &str,
-    remote_root: &str,
     ref_source: &Option<RefSource>,
 ) -> Result<MergeScanResult, String> {
     tracing::info!(
@@ -346,12 +341,9 @@ fn run_merge_scan_via_agent(
     );
 
     // 1. Agent list_tree でリモートのサブツリーを一括取得
-    let scan_root = format!(
-        "{}/{}",
-        remote_root.trim_end_matches('/'),
-        dir_path.trim_matches('/')
-    );
-    let entries = agent_list_tree(agent, &scan_root, exclude, MAX_FILES)?;
+    // Agent は --root で起動時にルートディレクトリ設定済みなので、相対パスを渡す
+    let scan_root = dir_path.trim_matches('/');
+    let entries = agent_list_tree(agent, scan_root, exclude, MAX_FILES)?;
 
     // エントリを FileNode に変換し、ツリー更新を構築
     let (remote_tree_updates, file_paths_from_remote) =
@@ -390,7 +382,7 @@ fn run_merge_scan_via_agent(
 
     // リモートコンテンツを Agent でバッチ読み込み
     let (remote_cache, remote_binary_cache, remote_failed_paths) =
-        agent_read_files_batch(agent, remote_root, &file_paths, server_name, Some(tx))?;
+        agent_read_files_batch(agent, &file_paths, server_name, Some(tx))?;
 
     // error_paths: SSH パスと同じセマンティクス — 両方とも読み込めなかった場合のみエラー
     let error_paths: HashSet<String> = local_failed_paths
@@ -402,9 +394,8 @@ fn run_merge_scan_via_agent(
     let (ref_cache, ref_binary_cache) = if let Some(RefSource::Remote(ref_name)) = ref_source {
         if let Some(ra) = ref_agent {
             let ref_config = config.servers.get(ref_name.as_str());
-            if let Some(rc) = ref_config {
-                let ref_root = rc.root_dir.to_string_lossy().to_string();
-                match agent_read_files_batch(ra, &ref_root, &file_paths, "ref", None) {
+            if ref_config.is_some() {
+                match agent_read_files_batch(ra, &file_paths, "ref", None) {
                     Ok((tc, bc, _)) => (tc, bc),
                     Err(e) => {
                         tracing::warn!("Agent ref read failed (skipping ref): {}", e);

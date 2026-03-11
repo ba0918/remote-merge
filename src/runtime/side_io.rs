@@ -721,7 +721,6 @@ impl CoreRuntime {
             .servers
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
-        let root_str = root_dir.to_string_lossy().to_string();
         let exclude = self.config.filter.exclude.clone();
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
@@ -732,7 +731,9 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.list_tree(&root_str, &exclude, max_entries);
+        // Agent は --root で起動時にルートディレクトリ設定済み。
+        // 空文字列を渡すとルート全体を走査する。
+        let result = agent.list_tree("", &exclude, max_entries);
         drop(agent);
 
         match result {
