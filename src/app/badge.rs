@@ -337,14 +337,30 @@ impl AppState {
     /// reference サーバが未設定なら None。
     /// 内容キャッシュが揃っていない場合も None（不正確な表示を避ける）。
     /// ファイルが片方に存在しない場合のみ、キャッシュなしでも存在バッジを返す。
+    /// ツリーが未ロード（親ディレクトリの children が None）の場合も None（判定不能）。
     pub fn compute_ref_file_badge(&self, path: &str) -> Option<ThreeWayFileBadge> {
+        use crate::tree::NodePresence;
+
         let ref_tree = self.ref_tree.as_ref()?;
         // ref_source が設定されていることを確認
         self.ref_source.as_ref()?;
 
-        let left_exists = self.left_tree.find_node(path).is_some();
-        let right_exists = self.right_tree.find_node(path).is_some();
-        let ref_exists = ref_tree.find_node(path).is_some();
+        let p = std::path::Path::new(path);
+        let left_presence = self.left_tree.find_node_or_unloaded(p);
+        let right_presence = self.right_tree.find_node_or_unloaded(p);
+        let ref_presence = ref_tree.find_node_or_unloaded(p);
+
+        // いずれかのツリーが未ロードなら判定不能
+        if left_presence == NodePresence::Unloaded
+            || right_presence == NodePresence::Unloaded
+            || ref_presence == NodePresence::Unloaded
+        {
+            return None;
+        }
+
+        let left_exists = left_presence == NodePresence::Found;
+        let right_exists = right_presence == NodePresence::Found;
+        let ref_exists = ref_presence == NodePresence::Found;
 
         let all_exist = left_exists && right_exists && ref_exists;
 
@@ -1360,6 +1376,239 @@ mod tests {
         assert_eq!(
             state.compute_ref_badge("src", true),
             Some(ThreeWayFileBadge::Differs)
+        );
+    }
+
+    // ── ref ツリー未ロード時のバッジ判定 ──
+
+    /// ref ツリーのディレクトリが未展開（children: None）のとき、
+    /// 配下ファイルの ref バッジは None（判定不能）になるべき。
+    /// 修正前は find_node が None を返し「存在しない」と誤判定して MissingInRef になっていた。
+    #[test]
+    fn test_ref_file_badge_none_when_ref_dir_unloaded() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // ref: src ディレクトリは存在するが未展開（children: None）
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_dir("src")]),
+        );
+        // ref ツリーの src が未ロードなので判定不能 → None
+        assert_eq!(
+            state.compute_ref_file_badge("src/main.rs"),
+            None,
+            "ref dir is unloaded, badge should be None (not MissingInRef)"
+        );
+    }
+
+    /// ref ツリーが未展開のとき、ディレクトリバッジも None になるべき。
+    /// 修正前は配下ファイルが全て MissingInRef → Differs になっていた。
+    #[test]
+    fn test_ref_dir_badge_none_when_ref_dir_unloaded() {
+        let local = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let remote = make_test_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        // ref: src が未展開
+        let ref_tree = make_test_tree(vec![FileNode::new_dir("src")]);
+        let mut state = AppState::new(
+            local,
+            remote,
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(Side::Remote("staging".to_string()), ref_tree);
+        // ref の src が未ロード → 配下ファイルは全て判定不能 → ディレクトリも None
+        assert_eq!(
+            state.compute_ref_badge("src", true),
+            None,
+            "ref dir is unloaded, dir badge should be None (not Differs)"
+        );
+    }
+
+    /// left/right のディレクトリが未展開のとき、ファイルバッジは None になるべき。
+    #[test]
+    fn test_ref_file_badge_none_when_left_dir_unloaded() {
+        let mut state = AppState::new(
+            // left: src が未展開
+            make_test_tree(vec![FileNode::new_dir("src")]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "src",
+                vec![FileNode::new_file("main.rs")],
+            )]),
+        );
+        assert_eq!(
+            state.compute_ref_file_badge("src/main.rs"),
+            None,
+            "left dir is unloaded, badge should be None"
+        );
+    }
+
+    /// 全ディレクトリが同一内容で展開済みのとき、[3≠] が表示されないこと。
+    /// ディレクトリマージ後のスクリーンショットで全ディレクトリに [3≠] が
+    /// 表示されるバグの E2E 再現テスト。
+    #[test]
+    fn test_ref_dir_badge_not_differs_when_all_equal_fully_loaded() {
+        // 3つのツリーが完全に同じ構造・同じ内容
+        let tree_nodes = vec![
+            FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_dir_with_children(
+                        "app",
+                        vec![FileNode::new_file("mod.rs"), FileNode::new_file("state.rs")],
+                    ),
+                    FileNode::new_dir_with_children("handler", vec![FileNode::new_file("key.rs")]),
+                    FileNode::new_file("main.rs"),
+                    FileNode::new_file("lib.rs"),
+                ],
+            ),
+            FileNode::new_dir_with_children("config", vec![FileNode::new_file("settings.toml")]),
+        ];
+        let mut state = AppState::new(
+            make_test_tree(tree_nodes.clone()),
+            make_test_tree(tree_nodes.clone()),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(tree_nodes),
+        );
+
+        // 全ファイルのキャッシュを同一内容で設定
+        let all_files = [
+            "src/app/mod.rs",
+            "src/app/state.rs",
+            "src/handler/key.rs",
+            "src/main.rs",
+            "src/lib.rs",
+            "config/settings.toml",
+        ];
+        for f in &all_files {
+            state.left_cache.insert(f.to_string(), "same".to_string());
+            state.right_cache.insert(f.to_string(), "same".to_string());
+            state.ref_cache.insert(f.to_string(), "same".to_string());
+        }
+
+        // 全ディレクトリのバッジが AllEqual であること（[3≠] が出ないこと）
+        let dirs = ["src", "src/app", "src/handler", "config"];
+        for dir in &dirs {
+            assert_eq!(
+                state.compute_ref_badge(dir, true),
+                Some(ThreeWayFileBadge::AllEqual),
+                "Directory '{}' should be AllEqual, not Differs",
+                dir
+            );
+        }
+    }
+
+    /// ref ツリーだけ未展開の複数ディレクトリで、誤って [3≠] が出ないこと。
+    /// これが実際のバグのシナリオ: ディレクトリマージ比較後、ref ツリーの
+    /// サブディレクトリが未展開のままバッジが計算される。
+    #[test]
+    fn test_ref_dir_badge_not_differs_when_ref_partially_unloaded() {
+        let expanded_nodes = vec![
+            FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_dir_with_children("app", vec![FileNode::new_file("mod.rs")]),
+                    FileNode::new_dir_with_children("handler", vec![FileNode::new_file("key.rs")]),
+                    FileNode::new_file("main.rs"),
+                ],
+            ),
+            FileNode::new_dir_with_children("config", vec![FileNode::new_file("settings.toml")]),
+        ];
+
+        // ref ツリー: ルートのディレクトリは存在するが、サブディレクトリは未展開
+        let ref_nodes = vec![
+            FileNode::new_dir_with_children(
+                "src",
+                vec![
+                    FileNode::new_dir("app"),     // 未展開
+                    FileNode::new_dir("handler"), // 未展開
+                    FileNode::new_file("main.rs"),
+                ],
+            ),
+            FileNode::new_dir("config"), // 未展開
+        ];
+
+        let mut state = AppState::new(
+            make_test_tree(expanded_nodes.clone()),
+            make_test_tree(expanded_nodes),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.set_reference(
+            Side::Remote("staging".to_string()),
+            make_test_tree(ref_nodes),
+        );
+
+        // main.rs は全ツリーで展開済みなので判定可能
+        state
+            .left_cache
+            .insert("src/main.rs".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("src/main.rs".to_string(), "same".to_string());
+        state
+            .ref_cache
+            .insert("src/main.rs".to_string(), "same".to_string());
+
+        // src/app は ref で未展開 → src/app/mod.rs は判定不能
+        assert_eq!(
+            state.compute_ref_file_badge("src/app/mod.rs"),
+            None,
+            "src/app/mod.rs: ref's app dir is unloaded"
+        );
+
+        // src/app ディレクトリバッジ: 配下に判定不能ファイルあり → None
+        assert_eq!(
+            state.compute_ref_badge("src/app", true),
+            None,
+            "src/app dir should be None (not Differs) when ref is unloaded"
+        );
+
+        // src ディレクトリバッジ: main.rs は AllEqual だが app/handler の配下が判定不能 → None
+        assert_eq!(
+            state.compute_ref_badge("src", true),
+            None,
+            "src dir should be None when some children are in unloaded ref dirs"
+        );
+
+        // config ディレクトリ: ref が未展開 → None
+        assert_eq!(
+            state.compute_ref_badge("config", true),
+            None,
+            "config dir should be None when ref is unloaded"
         );
     }
 }
