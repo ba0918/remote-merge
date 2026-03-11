@@ -88,10 +88,12 @@ pub fn build_diff_output(
 
 /// engine::DiffHunk を service::DiffHunk に変換する。
 ///
-/// `max_lines` が指定された場合、累計行数が上限を超えたらトランケートする。
+/// `max_lines` が指定された場合、Added/Removed 行の累計がその上限を超えたらトランケートする。
+/// Context（Equal）行はカウントせず、常に出力に含める。
+/// `max_lines = Some(0)` は無制限として扱う（None と同等）。
 fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<DiffHunk>, bool) {
     let mut result = Vec::new();
-    let mut total_lines = 0usize;
+    let mut change_lines = 0usize;
     let mut truncated = false;
 
     for (i, hunk) in hunks.iter().enumerate() {
@@ -99,7 +101,7 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
 
         for line in &hunk.lines {
             if let Some(max) = max_lines {
-                if total_lines >= max {
+                if max > 0 && change_lines >= max {
                     truncated = true;
                     break;
                 }
@@ -113,7 +115,10 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
                 },
                 content: line.value.clone(),
             });
-            total_lines += 1;
+            // Added/Removed のみカウント（Context はカウントしない）
+            if line.tag != DiffTag::Equal {
+                change_lines += 1;
+            }
         }
 
         if !lines.is_empty() {
@@ -289,6 +294,7 @@ mod tests {
 
     #[test]
     fn test_max_lines_truncation() {
+        // 100行すべてが変更行（old_N → new_N）→ max_lines=5 で truncate される
         let old = (0..100)
             .map(|i| format!("old_{}", i))
             .collect::<Vec<_>>()
@@ -310,8 +316,92 @@ mod tests {
             None,
         );
         assert!(output.truncated);
-        let total_lines: usize = output.hunks.iter().map(|h| h.lines.len()).sum();
-        assert!(total_lines <= 5);
+        // 変更行（Added/Removed）が 5 行以下であること
+        let change_lines: usize = output
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .filter(|l| l.line_type != DiffLineType::Context)
+            .count();
+        assert!(change_lines <= 5);
+    }
+
+    #[test]
+    fn test_max_lines_zero_is_unlimited() {
+        // max_lines=Some(0) は制限なし（None と同等）
+        let old = (0..20)
+            .map(|i| format!("old_{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let new = (0..20)
+            .map(|i| format!("new_{}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let output = build_diff_output(
+            "file.rs",
+            info("l"),
+            info("r"),
+            &old,
+            &new,
+            false,
+            Some(0),
+            None,
+            None,
+        );
+        assert!(
+            !output.truncated,
+            "max_lines=0 should be treated as unlimited"
+        );
+    }
+
+    #[test]
+    fn test_max_lines_counts_only_change_lines_not_context() {
+        // left と right で 1 行だけ変更、前後に context が多数ある場合
+        // max_lines=3 → context は 3 行未満の変更行ではトランケートしない
+        let old = "ctx1\nctx2\nctx3\nORIG\nctx4\nctx5\nctx6\n";
+        let new = "ctx1\nctx2\nctx3\nMODIF\nctx4\nctx5\nctx6\n";
+
+        let output = build_diff_output(
+            "file.rs",
+            info("l"),
+            info("r"),
+            old,
+            new,
+            false,
+            Some(3),
+            None,
+            None,
+        );
+        // 変更行は removed + added = 2 行だけなので truncated にならない
+        assert!(
+            !output.truncated,
+            "2 change lines should not trigger max_lines=3"
+        );
+        // context 行は出力に含まれる
+        let has_context = output
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .any(|l| l.line_type == DiffLineType::Context);
+        assert!(has_context, "context lines should appear in output");
+    }
+
+    #[test]
+    fn test_max_lines_larger_than_actual_changes_no_truncation() {
+        // 変更行が max_lines より少ない場合は truncated=false
+        let output = build_diff_output(
+            "a.rs",
+            info("l"),
+            info("r"),
+            "aaa\nbbb\nccc\n",
+            "aaa\nBBB\nccc\n",
+            false,
+            Some(100),
+            None,
+            None,
+        );
+        assert!(!output.truncated);
     }
 
     #[test]
@@ -563,6 +653,7 @@ mod tests {
 
     #[test]
     fn test_max_lines_applied_independently_to_ref_hunks() {
+        // ref_hunks も max_lines の制限を受け、変更行のみカウントされる
         let old = (0..100)
             .map(|i| format!("old_{}", i))
             .collect::<Vec<_>>()
@@ -587,16 +678,31 @@ mod tests {
             Some(info("ref")),
             Some(&ref_content),
         );
-        let main_lines: usize = output.hunks.iter().map(|h| h.lines.len()).sum();
-        let ref_lines: usize = output
+        // 変更行（Added/Removed）が 5 行以下であること
+        let main_change_lines: usize = output
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .filter(|l| l.line_type != DiffLineType::Context)
+            .count();
+        let ref_change_lines: usize = output
             .ref_hunks
             .as_ref()
             .unwrap()
             .iter()
-            .map(|h| h.lines.len())
-            .sum();
-        assert!(main_lines <= 5);
-        assert!(ref_lines <= 5);
+            .flat_map(|h| &h.lines)
+            .filter(|l| l.line_type != DiffLineType::Context)
+            .count();
+        assert!(
+            main_change_lines <= 5,
+            "main hunks: {} change lines",
+            main_change_lines
+        );
+        assert!(
+            ref_change_lines <= 5,
+            "ref hunks: {} change lines",
+            ref_change_lines
+        );
     }
 
     // ── build_symlink_diff_output tests ──

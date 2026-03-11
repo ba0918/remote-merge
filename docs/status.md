@@ -6,10 +6,20 @@
 
 ## 🎯 Current Session
 
+### 20260311160242 - CLI 改善: リモート rollback + 品質向上
+- **Started:** 2026-03-11 16:02:42
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311160242_cli-improvements-remote-rollback.md)
+- **Focus:** リモート rollback 未対応（致命的）、diff --max-lines 改善、status 3-way sensitive ref_badge、merge text format 出力改善
+
+---
+
 ### 20260311144819 - バックアップ・ロールバック E2E テスト充実化
 - **Started:** 2026-03-11 14:48:19
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260311144819_backup-rollback-e2e-tests.md)
+- **Summary:** cli_rollback_local.rs（SSH不要6件）、cli_rollback.rs（SSH12件）を新設。cli_merge.rs にバックアップ構造検証テスト2件追加。merge→rollbackラウンドトリップ、--list/--dry-run/--force/--session、JSON出力構造、sensitiveスキップ、exit code、セッションディレクトリ構造を網羅。1494テスト通過、clippy警告ゼロ。
 
 ---
 
@@ -539,6 +549,7 @@
 | **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
 | **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | ⚪ Pending |
 | **5-3** | rollback CLIサブコマンド | 🟢 Done |
+| **5-3.5** | リモート rollback + CLI 品質改善 | 🟡 In Progress |
 | **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
 | **5-5** | --delete オプション（完全同期） | ⚪ Pending |
 

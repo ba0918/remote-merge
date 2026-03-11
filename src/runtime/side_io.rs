@@ -273,9 +273,27 @@ impl CoreRuntime {
                     })
                     .collect())
             }
-            Side::Remote(_name) => {
-                // TODO: Agent 対応後に差し替え
-                anyhow::bail!("Remote backup listing is not yet supported (requires agent)")
+            Side::Remote(name) => {
+                let name = name.clone();
+                // Agent 経由で取得を試みる
+                if let Some(result) = self.try_agent_list_backup_sessions(&name) {
+                    return result.map(|mut sessions| {
+                        crate::service::rollback::mark_expired(
+                            &mut sessions,
+                            self.config.backup.retention_days,
+                            chrono::Utc::now(),
+                        );
+                        sessions
+                    });
+                }
+                // SSH フォールバック
+                let mut sessions = self.list_remote_backup_sessions_ssh(&name)?;
+                crate::service::rollback::mark_expired(
+                    &mut sessions,
+                    self.config.backup.retention_days,
+                    chrono::Utc::now(),
+                );
+                Ok(sessions)
             }
         }
     }
@@ -333,10 +351,27 @@ impl CoreRuntime {
                 )?;
                 Ok((result.restored, result.failures))
             }
-            Side::Remote(_name) => {
-                // Remote 復元は Agent プロトコル (ListBackups/RestoreBackup) で定義済みだが、
-                // runtime 層のクライアント統合は Phase 5-4 (sync) と合わせて実装予定。
-                anyhow::bail!("Remote backup restore is not yet supported (requires agent integration in runtime layer)")
+            Side::Remote(name) => {
+                let name = name.clone();
+                let backup_enabled = self.config.backup.enabled;
+                // Agent 経由で復元を試みる
+                if let Some(result) = self.try_agent_restore_backup(
+                    &name,
+                    session_id,
+                    files,
+                    &pre_session_id,
+                    backup_enabled,
+                ) {
+                    return result;
+                }
+                // SSH フォールバック
+                self.restore_remote_backup_ssh(
+                    &name,
+                    session_id,
+                    files,
+                    &pre_session_id,
+                    backup_enabled,
+                )
             }
         }
     }
@@ -828,6 +863,89 @@ impl CoreRuntime {
         }
     }
 
+    /// Agent 経由でバックアップセッション一覧を取得する
+    fn try_agent_list_backup_sessions(
+        &mut self,
+        server_name: &str,
+    ) -> Option<anyhow::Result<Vec<crate::service::types::BackupSession>>> {
+        // Agent には root_dir からの相対パスを渡す（絶対パスは拒否される）
+        let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
+
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.list_backups(&backup_dir);
+        drop(agent);
+
+        match result {
+            Ok(agent_sessions) => {
+                let sessions = convert_agent_backup_sessions(agent_sessions);
+                Some(Ok(sessions))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent list_backups failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
+    /// Agent 経由でバックアップからファイルを復元する
+    fn try_agent_restore_backup(
+        &mut self,
+        server_name: &str,
+        session_id: &str,
+        files: &[String],
+        pre_session_id: &str,
+        backup_enabled: bool,
+    ) -> Option<
+        anyhow::Result<(
+            Vec<crate::service::types::RollbackFileResult>,
+            Vec<crate::service::types::RollbackFailure>,
+        )>,
+    > {
+        // Agent には root_dir からの相対パスを渡す（絶対パスは拒否される）
+        // root_dir パラメータは Agent 側で無視され、Agent 起動時の --root が使用される
+        let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
+
+        let mut agent = match agent_arc.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.invalidate_agent(server_name);
+                return None;
+            }
+        };
+        let result = agent.restore_backup(&backup_dir, session_id, files, "");
+        drop(agent);
+
+        match result {
+            Ok(agent_results) => {
+                let (restored, failures) =
+                    convert_agent_restore_results(agent_results, pre_session_id, backup_enabled);
+                Some(Ok((restored, failures)))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Agent restore_backup failed for {}, falling back to SSH: {}",
+                    server_name,
+                    e
+                );
+                self.invalidate_agent(server_name);
+                None
+            }
+        }
+    }
+
     /// Agent 経由でツリーを再帰取得する
     fn try_agent_fetch_tree_recursive(
         &mut self,
@@ -900,6 +1018,62 @@ impl CoreRuntime {
                 .collect(),
         )
     }
+}
+
+// ── Agent 変換ヘルパー（純粋関数） ──
+
+/// `AgentBackupSession` のリストを `BackupSession` のリストに変換する。
+fn convert_agent_backup_sessions(
+    agent_sessions: Vec<crate::agent::protocol::AgentBackupSession>,
+) -> Vec<crate::service::types::BackupSession> {
+    agent_sessions
+        .into_iter()
+        .map(|s| crate::service::types::BackupSession {
+            session_id: s.session_id,
+            files: s
+                .files
+                .into_iter()
+                .map(|f| crate::service::types::BackupEntry {
+                    path: f.path,
+                    size: f.size,
+                })
+                .collect(),
+            expired: false,
+        })
+        .collect()
+}
+
+/// `AgentRestoreFileResult` のリストを `(Vec<RollbackFileResult>, Vec<RollbackFailure>)` に変換する。
+fn convert_agent_restore_results(
+    agent_results: Vec<crate::agent::protocol::AgentRestoreFileResult>,
+    pre_session_id: &str,
+    backup_enabled: bool,
+) -> (
+    Vec<crate::service::types::RollbackFileResult>,
+    Vec<crate::service::types::RollbackFailure>,
+) {
+    let mut restored = Vec::new();
+    let mut failures = Vec::new();
+
+    for r in agent_results {
+        if r.success {
+            restored.push(crate::service::types::RollbackFileResult {
+                path: r.path,
+                pre_rollback_backup: if backup_enabled {
+                    Some(pre_session_id.to_string())
+                } else {
+                    None
+                },
+            });
+        } else {
+            failures.push(crate::service::types::RollbackFailure {
+                path: r.path,
+                error: r.error.unwrap_or_else(|| "unknown error".to_string()),
+            });
+        }
+    }
+
+    (restored, failures)
 }
 
 // ── ローカル I/O ヘルパー（純粋関数） ──
@@ -1510,5 +1684,242 @@ mod tests {
 
         let content = std::fs::read_to_string(tmp.path().join("a/b/c/deep.txt")).unwrap();
         assert_eq!(content, "deep content");
+    }
+
+    // ── convert_agent_backup_sessions のテスト ──
+
+    #[test]
+    fn test_convert_agent_backup_sessions_empty() {
+        let result = convert_agent_backup_sessions(vec![]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_convert_agent_backup_sessions_single_session_with_files() {
+        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
+
+        let agent_sessions = vec![AgentBackupSession {
+            session_id: "session-001".to_string(),
+            files: vec![
+                AgentBackupFile {
+                    path: "src/main.rs".to_string(),
+                    size: 1024,
+                },
+                AgentBackupFile {
+                    path: "src/lib.rs".to_string(),
+                    size: 2048,
+                },
+            ],
+        }];
+
+        let result = convert_agent_backup_sessions(agent_sessions);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].session_id, "session-001");
+        assert_eq!(result[0].files.len(), 2);
+        assert_eq!(result[0].files[0].path, "src/main.rs");
+        assert_eq!(result[0].files[0].size, 1024);
+        assert_eq!(result[0].files[1].path, "src/lib.rs");
+        assert_eq!(result[0].files[1].size, 2048);
+    }
+
+    #[test]
+    fn test_convert_agent_backup_sessions_multiple_sessions() {
+        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
+
+        let agent_sessions = vec![
+            AgentBackupSession {
+                session_id: "session-A".to_string(),
+                files: vec![AgentBackupFile {
+                    path: "a.txt".to_string(),
+                    size: 100,
+                }],
+            },
+            AgentBackupSession {
+                session_id: "session-B".to_string(),
+                files: vec![
+                    AgentBackupFile {
+                        path: "b1.txt".to_string(),
+                        size: 200,
+                    },
+                    AgentBackupFile {
+                        path: "b2.txt".to_string(),
+                        size: 300,
+                    },
+                ],
+            },
+        ];
+
+        let result = convert_agent_backup_sessions(agent_sessions);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].session_id, "session-A");
+        assert_eq!(result[0].files.len(), 1);
+        assert_eq!(result[1].session_id, "session-B");
+        assert_eq!(result[1].files.len(), 2);
+    }
+
+    #[test]
+    fn test_convert_agent_backup_sessions_expired_is_false() {
+        // mark_expired は別途呼ばれるため、変換直後は expired = false でなければならない
+        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
+
+        let agent_sessions = vec![AgentBackupSession {
+            session_id: "session-X".to_string(),
+            files: vec![AgentBackupFile {
+                path: "x.txt".to_string(),
+                size: 42,
+            }],
+        }];
+
+        let result = convert_agent_backup_sessions(agent_sessions);
+
+        assert!(!result[0].expired);
+    }
+
+    // ── convert_agent_restore_results のテスト ──
+
+    #[test]
+    fn test_convert_agent_restore_results_all_success() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        let agent_results = vec![
+            AgentRestoreFileResult {
+                path: "file1.txt".to_string(),
+                success: true,
+                error: None,
+            },
+            AgentRestoreFileResult {
+                path: "file2.txt".to_string(),
+                success: true,
+                error: None,
+            },
+        ];
+
+        let (restored, failures) =
+            convert_agent_restore_results(agent_results, "pre-session-001", false);
+
+        assert_eq!(restored.len(), 2);
+        assert!(failures.is_empty());
+        assert_eq!(restored[0].path, "file1.txt");
+        assert_eq!(restored[1].path, "file2.txt");
+    }
+
+    #[test]
+    fn test_convert_agent_restore_results_all_failure() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        let agent_results = vec![
+            AgentRestoreFileResult {
+                path: "bad1.txt".to_string(),
+                success: false,
+                error: Some("permission denied".to_string()),
+            },
+            AgentRestoreFileResult {
+                path: "bad2.txt".to_string(),
+                success: false,
+                error: Some("file not found".to_string()),
+            },
+        ];
+
+        let (restored, failures) =
+            convert_agent_restore_results(agent_results, "pre-session-001", false);
+
+        assert!(restored.is_empty());
+        assert_eq!(failures.len(), 2);
+        assert_eq!(failures[0].path, "bad1.txt");
+        assert_eq!(failures[0].error, "permission denied");
+        assert_eq!(failures[1].path, "bad2.txt");
+        assert_eq!(failures[1].error, "file not found");
+    }
+
+    #[test]
+    fn test_convert_agent_restore_results_mixed() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        let agent_results = vec![
+            AgentRestoreFileResult {
+                path: "ok.txt".to_string(),
+                success: true,
+                error: None,
+            },
+            AgentRestoreFileResult {
+                path: "fail.txt".to_string(),
+                success: false,
+                error: Some("disk full".to_string()),
+            },
+            AgentRestoreFileResult {
+                path: "ok2.txt".to_string(),
+                success: true,
+                error: None,
+            },
+        ];
+
+        let (restored, failures) =
+            convert_agent_restore_results(agent_results, "pre-session-002", false);
+
+        assert_eq!(restored.len(), 2);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(restored[0].path, "ok.txt");
+        assert_eq!(restored[1].path, "ok2.txt");
+        assert_eq!(failures[0].path, "fail.txt");
+        assert_eq!(failures[0].error, "disk full");
+    }
+
+    #[test]
+    fn test_convert_agent_restore_results_with_pre_rollback_backup() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        let agent_results = vec![AgentRestoreFileResult {
+            path: "src/app.rs".to_string(),
+            success: true,
+            error: None,
+        }];
+
+        let (restored, _) =
+            convert_agent_restore_results(agent_results, "pre-backup-session-42", true);
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(
+            restored[0].pre_rollback_backup,
+            Some("pre-backup-session-42".to_string())
+        );
+    }
+
+    #[test]
+    fn test_convert_agent_restore_results_without_pre_rollback_backup() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        let agent_results = vec![AgentRestoreFileResult {
+            path: "src/app.rs".to_string(),
+            success: true,
+            error: None,
+        }];
+
+        // backup_enabled = false → pre_rollback_backup は None
+        let (restored, _) =
+            convert_agent_restore_results(agent_results, "pre-backup-session-99", false);
+
+        assert_eq!(restored.len(), 1);
+        assert!(restored[0].pre_rollback_backup.is_none());
+    }
+
+    #[test]
+    fn test_convert_agent_restore_results_failure_with_no_error_message() {
+        use crate::agent::protocol::AgentRestoreFileResult;
+
+        // error フィールドが None でも "unknown error" にフォールバックされる
+        let agent_results = vec![AgentRestoreFileResult {
+            path: "mystery.txt".to_string(),
+            success: false,
+            error: None,
+        }];
+
+        let (restored, failures) =
+            convert_agent_restore_results(agent_results, "pre-session-000", false);
+
+        assert!(restored.is_empty());
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].error, "unknown error");
     }
 }

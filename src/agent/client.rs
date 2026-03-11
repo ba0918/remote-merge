@@ -9,7 +9,8 @@ use anyhow::{bail, Result};
 
 use super::framing;
 use super::protocol::{
-    self, AgentFileEntry, AgentFileStat, AgentRequest, AgentResponse, FileReadResult,
+    self, AgentBackupSession, AgentFileEntry, AgentFileStat, AgentRequest, AgentResponse,
+    AgentRestoreFileResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -170,6 +171,37 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 Ok(())
             }
             other => bail!("unexpected response to Backup: {other:?}"),
+        }
+    }
+
+    /// バックアップセッション一覧を取得する。
+    pub fn list_backups(&mut self, backup_dir: &str) -> Result<Vec<AgentBackupSession>> {
+        let resp = self.request(&AgentRequest::ListBackups {
+            backup_dir: backup_dir.to_string(),
+        })?;
+        match resp {
+            AgentResponse::BackupList { sessions } => Ok(sessions),
+            other => bail!("unexpected response to ListBackups: {other:?}"),
+        }
+    }
+
+    /// バックアップからファイルを復元する。
+    pub fn restore_backup(
+        &mut self,
+        backup_dir: &str,
+        session_id: &str,
+        files: &[String],
+        root_dir: &str,
+    ) -> Result<Vec<AgentRestoreFileResult>> {
+        let resp = self.request(&AgentRequest::RestoreBackup {
+            backup_dir: backup_dir.to_string(),
+            session_id: session_id.to_string(),
+            files: files.to_vec(),
+            root_dir: root_dir.to_string(),
+        })?;
+        match resp {
+            AgentResponse::RestoreResult { results } => Ok(results),
+            other => bail!("unexpected response to RestoreBackup: {other:?}"),
         }
     }
 
@@ -457,6 +489,116 @@ mod tests {
             }
             _ => {
                 // 実装によっては ok を返す場合もあるため panic はしない
+            }
+        }
+    }
+
+    // ---- Backup ----
+
+    #[test]
+    fn backup_creates_session_dir() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "content").unwrap();
+
+        let mut client = create_pair(&tmp);
+        client
+            .backup(
+                &["test.txt".to_string()],
+                ".remote-merge-backup/20260311-120000",
+            )
+            .unwrap();
+
+        let backup_path = tmp
+            .path()
+            .join(".remote-merge-backup/20260311-120000/test.txt");
+        assert!(backup_path.exists());
+    }
+
+    // ---- ListBackups ----
+
+    #[test]
+    fn list_backups_empty() {
+        let tmp = TempDir::new().unwrap();
+        let mut client = create_pair(&tmp);
+        // Agent には root_dir からの相対パスを渡す（絶対パスは拒否される）
+        let sessions = client.list_backups(".remote-merge-backup").unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn list_backups_with_sessions() {
+        let tmp = TempDir::new().unwrap();
+
+        // バックアップセッションを事前作成
+        let session_dir = tmp.path().join(".remote-merge-backup/20260311-120000");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(session_dir.join("test.txt"), "content").unwrap();
+
+        let mut client = create_pair(&tmp);
+        // Agent には root_dir からの相対パスを渡す
+        let sessions = client.list_backups(".remote-merge-backup").unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "20260311-120000");
+        assert_eq!(sessions[0].files.len(), 1);
+        assert_eq!(sessions[0].files[0].path, "test.txt");
+    }
+
+    // ---- RestoreBackup ----
+
+    #[test]
+    fn restore_backup_success() {
+        let tmp = TempDir::new().unwrap();
+
+        // バックアップを事前作成
+        let session_dir = tmp.path().join(".remote-merge-backup/20260311-120000");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(session_dir.join("hello.txt"), "backup content").unwrap();
+
+        // 現在のファイルは別の内容
+        std::fs::write(tmp.path().join("hello.txt"), "current content").unwrap();
+
+        let mut client = create_pair(&tmp);
+        // Agent には root_dir からの相対パスを渡す
+        // root_dir パラメータは Agent 側で無視される（dispatch.rs 参照）
+        let results = client
+            .restore_backup(
+                ".remote-merge-backup",
+                "20260311-120000",
+                &["hello.txt".to_string()],
+                "",
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success, "restore should succeed");
+        assert_eq!(results[0].path, "hello.txt");
+
+        // ファイルが復元されていることを確認
+        let content = std::fs::read_to_string(tmp.path().join("hello.txt")).unwrap();
+        assert_eq!(content, "backup content");
+    }
+
+    #[test]
+    fn restore_backup_nonexistent_session() {
+        let tmp = TempDir::new().unwrap();
+        let mut client = create_pair(&tmp);
+
+        // 存在しないセッションで復元 → 全ファイルが failure になる
+        let result = client.restore_backup(
+            ".remote-merge-backup",
+            "99991231-235959",
+            &["test.txt".to_string()],
+            "",
+        );
+        // エラーになるか、結果が全て失敗になるかのいずれか
+        match result {
+            Err(_) => {} // エラーレスポンスの場合
+            Ok(results) => {
+                // 全て失敗
+                for r in &results {
+                    assert!(!r.success, "expected failure for missing session");
+                }
             }
         }
     }

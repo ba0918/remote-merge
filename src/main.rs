@@ -100,7 +100,7 @@ enum Commands {
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
-        /// Maximum number of lines per file diff (truncates long diffs)
+        /// Maximum number of change lines (added/removed) per file diff. Context lines are not counted. Use 0 for unlimited.
         #[arg(long)]
         max_lines: Option<usize>,
         /// Maximum number of files to process (0 for unlimited)
