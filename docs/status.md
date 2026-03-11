@@ -6,11 +6,21 @@
 
 ## 🎯 Current Session
 
+### 20260311212707 - テストカバレッジ向上（78% → 85%）
+- **Started:** 2026-03-11 21:27:07
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260311212707_test-coverage-improvement.md)
+- **Summary:** handler 層 0% カバレッジ解消（純粋関数切り出し）、CLI/Service/UI/Runtime テスト拡充。+209テスト（1624→1833）、15ファイル変更、+2,179行。オーケストレーターパターン（実装Agent→レビューAgent→修正ループ×5回）で品質管理。
+
+---
+
 ### 20260311193028 - merge dry-run の RightOnly ファイル処理修正
 - **Started:** 2026-03-11 19:30:28
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260311193028_fix-merge-dryrun-rightonly-handling.md)
-- **Focus:** QA テスト（67パターン）で発見した dry-run 不整合2件を修正。RightOnly ファイルの merge/delete 処理を一貫させる。
+- **Summary:** QA テスト（67パターン）で発見した dry-run 不整合2件を修正。RightOnly ファイルの merge/delete 処理を一貫化。
 
 ---
 
@@ -570,7 +580,7 @@
 | **fix-2** | diff.rs ステータス精緻化 | 🟢 Done |
 | **fix-3** | merge.rs ステータス精緻化 | 🟢 Done |
 
-### Phase 5: 運用・同期機能 🟡 In Progress
+### Phase 5: 運用・同期機能 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
