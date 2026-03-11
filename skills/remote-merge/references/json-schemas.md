@@ -129,6 +129,9 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
   "skipped": [
     { "path": ".env", "reason": "sensitive file" }
   ],
+  "deleted": [
+    { "path": "old-file.ts", "status": "ok", "backup": "20260311-140000/old-file.ts" }
+  ],
   "failed": [
     { "path": "broken.ts", "error": "optimistic lock failed" }
   ]
@@ -139,8 +142,59 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `merged[].status`: `"ok"` on success, `"would merge"` in dry-run mode
 - `merged[].ref_badge`: optional reference badge (present only with `--ref`)
 - `skipped`: files skipped (sensitive files without `--force`, remote-to-remote without `--force`)
-- `failed`: files that failed to merge with error details
+- `deleted`: files deleted by `--delete` flag. Omitted when empty. Each entry has `path`, `status` (`"ok"` or `"failed"`), and optional `backup` path.
+- `failed`: files that failed to merge or delete with error details
 - `ref`: optional reference server info (present only with `--ref`)
+
+## sync
+
+```json
+{
+  "left": { "label": "local", "root": "/home/user/app" },
+  "targets": [
+    {
+      "target": { "label": "server1", "root": "srv1:/var/www/app" },
+      "merged": [
+        { "path": "src/config.ts", "status": "ok", "backup": "20260311-140000/src/config.ts" }
+      ],
+      "skipped": [
+        { "path": ".env", "reason": "sensitive file (use --force to include)" }
+      ],
+      "deleted": [
+        { "path": "old-file.ts", "status": "ok", "backup": "20260311-140000/old-file.ts" }
+      ],
+      "failed": [
+        { "path": "broken.ts", "error": "permission denied" }
+      ],
+      "status": "success"
+    },
+    {
+      "target": { "label": "server2", "root": "srv2:/var/www/app" },
+      "merged": [],
+      "skipped": [],
+      "failed": [
+        { "path": "src/config.ts", "error": "connection lost" }
+      ],
+      "status": "failed"
+    }
+  ],
+  "summary": {
+    "total_servers": 2,
+    "successful_servers": 1,
+    "total_files_merged": 1,
+    "total_files_deleted": 1,
+    "total_files_failed": 1
+  }
+}
+```
+
+- `targets[]`: per-server sync results
+- `targets[].status`: `"success"` (all files OK or no changes), `"partial"` (some merged, some failed), `"failed"` (all failed)
+- `targets[].deleted`: files deleted by `--delete`. Omitted when empty.
+- `targets[].deleted[].status`: `"ok"` or `"failed"`
+- `targets[].deleted[].backup`: backup path (omitted when backup is disabled or not applicable)
+- `summary`: aggregate counts across all servers
+- Connection failures appear as targets with empty `merged` and error details in `failed`
 
 ## rollback --list
 

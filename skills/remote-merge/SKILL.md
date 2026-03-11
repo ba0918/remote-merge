@@ -70,9 +70,63 @@ remote-merge merge src/main.rs src/lib.rs --left local --right develop
 
 # Directory
 remote-merge merge src/ --left local --right develop
+
+# Delete files that exist only on target (rsync --delete equivalent)
+remote-merge merge . --left local --right develop --delete
+
+# Delete + dry-run preview
+remote-merge merge . --left local --right develop --delete --dry-run
 ```
 
+Options:
+- `--dry-run` — preview without writing
+- `--force` — skip safety confirmations (sensitive files, remote-to-remote)
+- `--delete` — delete files that exist only on the target side (RightOnly). Without this flag, RightOnly files are kept. Sensitive files require `--force` to delete.
+- `--with-permissions` — copy source file permissions to destination
+- `--format text|json` — output format (default: text)
+- `--ref <server>` — reference server for 3-way comparison
+
 Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.
+
+### 3.5. Sync (1:N multi-server synchronization)
+
+Sync one source to multiple target servers sequentially.
+
+```bash
+# Dry-run: preview what would be synced
+remote-merge sync . --left local --right server1 server2 server3 --dry-run
+
+# Sync all files
+remote-merge sync . --left local --right server1 server2 server3
+
+# Sync specific paths
+remote-merge sync src/ README.md --left local --right server1 server2
+
+# Sync with delete (remove RightOnly files from targets)
+remote-merge sync . --left local --right server1 server2 --delete
+
+# JSON output
+remote-merge sync . --left local --right server1 server2 --dry-run --format json
+```
+
+Options:
+- `--left <side>` — source side (required, exactly one)
+- `--right <side>...` — target servers (required, one or more)
+- `--dry-run` — preview without writing
+- `--force` — skip safety confirmations (remote-to-remote, sensitive files)
+- `--delete` — delete RightOnly files from targets (default: keep)
+- `--with-permissions` — copy source file permissions
+- `--format text|json` — output format (default: text)
+
+Behavior:
+- Servers are processed **sequentially** (server1 → server2 → ...)
+- **Connection failures are tolerated**: if one server fails, others continue
+- Confirmation prompt shows all servers' plans, then asks once (use `--force` to skip)
+- Backups are created per-server with independent session IDs
+- Remote-to-remote pairs are blocked unless `--force` or `--dry-run` is used
+- Duplicate `--right` values are rejected
+
+Exit codes: 0 = all servers succeeded, 2 = one or more servers failed (partial or total).
 
 ### 4. Rollback
 

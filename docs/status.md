@@ -6,11 +6,20 @@
 
 ## 🎯 Current Session
 
+### 20260311181905 - CLI QA テスト結果に基づく改善
+- **Started:** 2026-03-11 18:19:05
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311181905_cli-qa-improvements.md)
+- **Focus:** 65パターンの実機テストで発見した BUG 1件 + 改善 8件を一括修正。JSON出力の安全性・一貫性向上。
+
+---
+
 ### 20260311170035 - sync CLIサブコマンド + 削除セマンティクス + --delete
 - **Started:** 2026-03-11 17:00:35
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260311170035_sync-cli-and-delete-semantics.md)
-- **Focus:** 1:N マルチサーバ同期 sync コマンド、削除セマンティクス明文化、--delete オプション（sync/merge 両方）
+- **Summary:** 1:N マルチサーバ同期 sync コマンド、削除セマンティクス明文化、--delete オプション（sync/merge 両方）
 
 ---
 
@@ -556,11 +565,12 @@
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
 | **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
-| **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | ⚪ Pending |
+| **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | 🟢 Done |
 | **5-3** | rollback CLIサブコマンド | 🟢 Done |
 | **5-3.5** | リモート rollback + CLI 品質改善 | 🟢 Done |
-| **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | 🟡 In Progress |
-| **5-5** | --delete オプション（完全同期） | 🟡 In Progress |
+| **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | 🟢 Done |
+| **5-5** | --delete オプション（完全同期） | 🟢 Done |
+| **5-6** | CLI QA テスト改善（JSON安全性・出力一貫性） | 🟡 In Progress |
 
 ### Phase 6: Remote Agent Protocol 🟢 Complete (All Steps)
 | サブフェーズ | 内容 | 状態 |
