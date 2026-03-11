@@ -9,10 +9,18 @@
   "ref":   { "label": "staging", "root": "stg:/var/www/app" },
   "agent": "connected",
   "files": [
-    { "path": "src/config.ts", "status": "modified", "sensitive": false, "hunks": null },
-    { "path": ".env", "status": "modified", "sensitive": true, "hunks": null }
+    { "path": "src/config.ts", "status": "modified", "sensitive": false },
+    { "path": ".env", "status": "modified", "sensitive": true, "ref_badge": "ref_differs" }
   ],
-  "summary": { "modified": 2, "left_only": 0, "right_only": 1, "equal": 10, "ref_differs": 1, "ref_only": 0, "ref_missing": 0 }
+  "summary": {
+    "modified": 2,
+    "left_only": 0,
+    "right_only": 1,
+    "equal": 10,
+    "ref_differs": 1,
+    "ref_only": 0,
+    "ref_missing": 0
+  }
 }
 ```
 
@@ -21,11 +29,10 @@ File status values: `modified`, `left_only`, `right_only`, `equal`.
 Optional fields (omitted when null/not applicable):
 - `ref` — reference server info (present only with `--ref`)
 - `agent` — Agent connection status: `"connected"` or `"fallback"` (present only for remote servers)
+- `files[].ref_badge` — reference badge (present only with `--ref`)
 - `summary.ref_differs`, `summary.ref_only`, `summary.ref_missing` — reference comparison counts (present only with `--ref`)
 
 With `--summary`, `files` is omitted.
-
-With `--all`, Equal files are included in `files`. By default, Equal files are excluded.
 
 With `--checksum`, all files are compared by content regardless of mtime/size. Files that appear `equal` by metadata may become `modified`.
 
@@ -38,8 +45,8 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
   "files": [
     {
       "path": "src/config.ts",
-      "left":  { "label": "local", "root": "." },
-      "right": { "label": "develop", "root": "/var/www" },
+      "left":  { "label": "local", "root": "/home/user/app" },
+      "right": { "label": "develop", "root": "dev:/var/www/app" },
       "sensitive": false,
       "truncated": false,
       "hunks": [
@@ -57,27 +64,67 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
     }
   ],
   "summary": {
-    "total_files": 1,
+    "scanned_files": 5,
     "files_with_changes": 1
   },
-  "truncated": false,
-  "total_files": 1
+  "truncated": true,
+  "changed_files_total": 3
 }
 ```
 
 - `files`: array of per-file diff outputs
-- `summary.total_files`: number of files included in output
+- `summary.scanned_files`: total number of files scanned (including equal/unchanged files)
 - `summary.files_with_changes`: number of files that have at least one hunk
-- `truncated`: true when `--max-files` limit was reached (default: 100; use `--max-files 0` for unlimited)
-- `total_files`: total number of matching files before truncation (present only when truncated)
+- `truncated`: true when `--max-files` limit was reached (default: 100; use `--max-files 0` for unlimited). Omitted when false.
+- `changed_files_total`: total number of changed files before truncation. Present only when `truncated` is true.
 - Line types within hunks: `context`, `added`, `removed`. Per-file `truncated` is true when `--max-lines` was hit.
+
+### Sensitive file (without --force)
+
+```json
+{
+  "path": ".env",
+  "sensitive": true,
+  "truncated": false,
+  "hunks": [],
+  "note": "Content hidden (sensitive file). Use --force to show."
+}
+```
+
+### Binary file
+
+```json
+{
+  "path": "assets.bin",
+  "sensitive": false,
+  "binary": true,
+  "truncated": false,
+  "hunks": [],
+  "left_hash": "149d4736...",
+  "right_hash": "d6d73d23..."
+}
+```
+
+### Symlink
+
+```json
+{
+  "path": "readme_link",
+  "sensitive": false,
+  "symlink": true,
+  "truncated": false,
+  "hunks": [],
+  "left_symlink_target": "../README.md",
+  "right_symlink_target": "../README.md"
+}
+```
 
 ## merge
 
 ```json
 {
   "merged": [
-    { "path": "src/config.ts", "status": "ok", "backup": "src/config.ts.20260307.bak" }
+    { "path": "src/config.ts", "status": "ok", "backup": "20260311-140000/src/config.ts" }
   ],
   "skipped": [
     { "path": ".env", "reason": "sensitive file" }
@@ -88,18 +135,21 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
+- `merged[].backup`: backup path in format `{session_id}/{relative_path}` (inside `.remote-merge-backup/` directory)
+- `merged[].status`: `"ok"` on success, `"would merge"` in dry-run mode
+- `merged[].ref_badge`: optional reference badge (present only with `--ref`)
+- `skipped`: files skipped (sensitive files without `--force`, remote-to-remote without `--force`)
+- `failed`: files that failed to merge with error details
+- `ref`: optional reference server info (present only with `--ref`)
+
 ## rollback --list
 
 ```json
 {
-  "target": "develop",
-  "backup_dir": ".remote-merge-backup",
+  "target": { "label": "develop", "root": "dev:/var/www/app" },
   "sessions": [
     {
       "session_id": "20260311-140000",
-      "timestamp": "2026-03-11T14:00:00",
-      "file_count": 3,
-      "expired": false,
       "files": [
         { "path": "src/config.ts", "size": 1234 }
       ]
@@ -108,18 +158,19 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
+- `target`: SourceInfo object with `label` and `root`
 - `sessions`: array of backup sessions, sorted newest first
-- `expired`: true when session is older than retention period (default: 7 days)
-- `files`: list of backed-up files with their sizes
+- `sessions[].expired`: boolean, present when true (session older than retention period). Omitted when false.
+- `sessions[].files`: list of backed-up files with their sizes. May be empty if the merge created a new file on the target (no original to back up).
 
 ## rollback (restore)
 
 ```json
 {
-  "target": "develop",
+  "target": { "label": "develop", "root": "dev:/var/www/app" },
   "session_id": "20260311-140000",
   "restored": [
-    { "path": "src/config.ts", "status": "ok" }
+    { "path": "src/config.ts", "pre_rollback_backup": "20260311-150000" }
   ],
   "skipped": [
     { "path": ".env", "reason": "sensitive file (use --force to override)" }
@@ -130,9 +181,10 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
-- `restored`: files successfully restored from backup
-- `skipped`: files skipped (sensitive, expired without --force)
-- `failed`: files that failed to restore with error details
+- `target`: SourceInfo object with `label` and `root`
+- `restored[].pre_rollback_backup`: session ID of the safety backup created before restoring (so the restore itself can be undone)
+- `skipped`: files skipped. Omitted when empty.
+- `failed`: files that failed to restore. Omitted when empty.
 
 ## state.json (TUI dump)
 

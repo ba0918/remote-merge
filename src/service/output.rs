@@ -237,7 +237,7 @@ pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
         result.push_str(&format_diff_text(diff));
     }
     if output.truncated {
-        if let Some(total) = output.total_files {
+        if let Some(total) = output.changed_files_total {
             result.push_str(&format!(
                 "\n... and {} more files (truncated, use --max-files 0 for all)\n",
                 total - output.files.len()
@@ -247,7 +247,7 @@ pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
     // Summary line
     result.push_str(&format!(
         "\n{} file(s) with changes out of {} total\n",
-        output.summary.files_with_changes, output.summary.total_files
+        output.summary.files_with_changes, output.summary.scanned_files
     ));
 
     let total_conflicts: usize = output.files.iter().map(|f| f.conflict_count).sum();
@@ -1020,11 +1020,11 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
             summary: MultiDiffSummary {
-                total_files: 1,
+                scanned_files: 1,
                 files_with_changes: 1,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let text = format_multi_diff_text(&output);
         assert!(text.contains("--- a/a.rs"));
@@ -1039,11 +1039,11 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs"), sample_diff("b.rs")],
             summary: MultiDiffSummary {
-                total_files: 5,
+                scanned_files: 5,
                 files_with_changes: 2,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let text = format_multi_diff_text(&output);
         assert!(text.contains("--- a/a.rs"));
@@ -1056,11 +1056,11 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
             summary: MultiDiffSummary {
-                total_files: 10,
+                scanned_files: 10,
                 files_with_changes: 1,
             },
             truncated: true,
-            total_files: Some(10),
+            changed_files_total: Some(10),
         };
         let text = format_multi_diff_text(&output);
         assert!(text.contains("... and 9 more files (truncated, use --max-files 0 for all)"));
@@ -1475,11 +1475,11 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![diff],
             summary: MultiDiffSummary {
-                total_files: 1,
+                scanned_files: 1,
                 files_with_changes: 1,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let text = format_multi_diff_text(&output);
         assert!(text.contains("3 conflict(s) detected"));
@@ -1490,11 +1490,11 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
             summary: MultiDiffSummary {
-                total_files: 1,
+                scanned_files: 1,
                 files_with_changes: 1,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let text = format_multi_diff_text(&output);
         assert!(!text.contains("conflict(s) detected"));

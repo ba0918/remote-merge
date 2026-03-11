@@ -97,7 +97,7 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     // Apply max-files truncation
     let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
-    let total_files = if truncated {
+    let changed_files_total = if truncated {
         Some(diff_files.len())
     } else {
         None
@@ -234,12 +234,12 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
         .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
-            total_files: existing_files.len(),
+            scanned_files: existing_files.len(),
             files_with_changes,
         },
         files: file_diffs,
         truncated,
-        total_files,
+        changed_files_total,
     };
 
     let code = if has_read_error {

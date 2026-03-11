@@ -152,13 +152,13 @@ pub struct MultiDiffOutput {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_files: Option<usize>,
+    pub changed_files_total: Option<usize>,
 }
 
 /// MultiDiffOutput のサマリー
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiDiffSummary {
-    pub total_files: usize,
+    pub scanned_files: usize,
     pub files_with_changes: usize,
 }
 
@@ -691,14 +691,14 @@ mod tests {
                 conflict_regions: vec![],
             }],
             summary: MultiDiffSummary {
-                total_files: 5,
+                scanned_files: 5,
                 files_with_changes: 1,
             },
             truncated: true,
-            total_files: Some(5),
+            changed_files_total: Some(5),
         };
         let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains("\"total_files\":5"));
+        assert!(json.contains("\"scanned_files\":5"));
         assert!(json.contains("\"files_with_changes\":1"));
         assert!(json.contains("\"truncated\":true"));
         assert!(json.contains("\"a.rs\""));
@@ -709,32 +709,32 @@ mod tests {
         let output = MultiDiffOutput {
             files: vec![],
             summary: MultiDiffSummary {
-                total_files: 0,
+                scanned_files: 0,
                 files_with_changes: 0,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"truncated\""));
     }
 
     #[test]
-    fn test_multi_diff_output_total_files_none_omitted() {
+    fn test_multi_diff_output_changed_files_total_none_omitted() {
         let output = MultiDiffOutput {
             files: vec![],
             summary: MultiDiffSummary {
-                total_files: 0,
+                scanned_files: 0,
                 files_with_changes: 0,
             },
             truncated: false,
-            total_files: None,
+            changed_files_total: None,
         };
         let json = serde_json::to_string(&output).unwrap();
-        // total_files at the top level should be omitted when None
-        // (summary.total_files is always present)
+        // changed_files_total at the top level should be omitted when None
+        // (summary.scanned_files is always present)
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(v.get("total_files").is_none());
+        assert!(v.get("changed_files_total").is_none());
     }
 
     #[test]

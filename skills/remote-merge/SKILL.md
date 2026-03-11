@@ -12,15 +12,6 @@ description: >
 
 CLI/TUI tool for comparing and merging files between local and remote servers via SSH.
 
-## Global Options
-
-These options apply to all subcommands (except `init`, `logs`, `events` where `--config` is ignored with a warning):
-
-- `--config <path>` — Path to project config file. Overrides `.remote-merge.toml` in CWD. Useful for CI/CD or running from a different directory.
-- `--left <side>` — Left side of comparison (default: `local`)
-- `--right <side>` — Right side of comparison (default: first server in config, alphabetical)
-- `--ref <server>` — Reference server for 3-way comparison
-
 ## Autonomous Workflow
 
 Follow this progression. Always use `--format json` for machine-parseable output.
@@ -29,9 +20,6 @@ Follow this progression. Always use `--format json` for machine-parseable output
 
 ```bash
 remote-merge status --format json
-
-# With custom config file
-remote-merge --config /path/to/config.toml status --format json
 ```
 
 Exit codes: 0 = no diff, 1 = diffs found, 2 = error.
@@ -62,7 +50,7 @@ remote-merge diff --left local --right develop --format json
 
 `--max-files 100` is the default limit. Use `--max-files 0` for unlimited.
 
-The output is a `MultiDiffOutput` containing a `files` array, `summary`, `truncated` flag, and `total_files`. See [references/json-schemas.md](references/json-schemas.md) for the full schema.
+The output is a `MultiDiffOutput` containing a `files` array, `summary`, `truncated` flag, and `changed_files_total`. See [references/json-schemas.md](references/json-schemas.md) for the full schema.
 
 **Note on glob:** Shell glob expansion is used (the CLI does not implement glob internally). Remote path glob is not supported — always specify explicit paths or directories.
 
