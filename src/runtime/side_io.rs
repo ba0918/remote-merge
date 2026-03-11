@@ -205,7 +205,15 @@ impl CoreRuntime {
     // ── バックアップ ──
 
     /// Side に基づいてバックアップを作成する
-    pub fn create_backups(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<()> {
+    ///
+    /// `session_id` はマージ単位で1度だけ生成されたタイムスタンプ。
+    /// 全ファイルが同一セッションディレクトリに格納される。
+    pub fn create_backups(
+        &mut self,
+        side: &Side,
+        rel_paths: &[String],
+        session_id: &str,
+    ) -> anyhow::Result<()> {
         match side {
             Side::Local => {
                 let root = &self.config.local.root_dir;
@@ -213,14 +221,122 @@ impl CoreRuntime {
                     let full = root.join(rel_path);
                     executor::validate_path_within_root(root, &full)?;
                 }
-                create_local_backups(root, rel_paths)?;
+                create_local_backups(root, rel_paths, session_id)?;
                 Ok(())
             }
             Side::Remote(name) => {
-                if let Some(result) = self.try_agent_backup(name, rel_paths) {
+                if let Some(result) = self.try_agent_backup(name, rel_paths, session_id) {
                     return result;
                 }
-                self.create_remote_backups(name, rel_paths)
+                self.create_remote_backups(name, rel_paths, session_id)
+            }
+        }
+    }
+
+    // ── バックアップ一覧・復元 ──
+
+    /// バックアップセッション一覧を取得する。
+    /// Local: ローカルの backup_dir を走査
+    /// Remote: 現状は未対応（Agent 対応後に差し替え）
+    pub fn list_backup_sessions(
+        &mut self,
+        side: &Side,
+    ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
+        use crate::backup;
+        use crate::service::types::{BackupEntry, BackupSession};
+
+        match side {
+            Side::Local => {
+                let backup_dir = self.config.local.root_dir.join(backup::BACKUP_DIR_NAME);
+                let local_sessions = backup::list_local_sessions(&backup_dir)?;
+                Ok(local_sessions
+                    .into_iter()
+                    .map(|s| {
+                        let files = s
+                            .files
+                            .iter()
+                            .map(|path| {
+                                let full =
+                                    backup::session_backup_path(&backup_dir, &s.session_id, path);
+                                let size = std::fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
+                                BackupEntry {
+                                    path: path.clone(),
+                                    size,
+                                }
+                            })
+                            .collect();
+                        BackupSession {
+                            session_id: s.session_id,
+                            files,
+                            expired: false,
+                        }
+                    })
+                    .collect())
+            }
+            Side::Remote(_name) => {
+                // TODO: Agent 対応後に差し替え
+                anyhow::bail!("Remote backup listing is not yet supported (requires agent)")
+            }
+        }
+    }
+
+    /// バックアップからファイルを復元する。
+    /// 復元前に現在のファイルを自動バックアップ（pre-rollback backup）。
+    /// 成功ファイルと失敗ファイルの両方を返す。
+    pub fn restore_backup(
+        &mut self,
+        side: &Side,
+        session_id: &str,
+        files: &[String],
+    ) -> anyhow::Result<(
+        Vec<crate::service::types::RollbackFileResult>,
+        Vec<crate::service::types::RollbackFailure>,
+    )> {
+        use crate::backup;
+
+        // 復元前バックアップ（pre-rollback backup）
+        let pre_session_id = backup::backup_timestamp();
+        if self.config.backup.enabled && !files.is_empty() {
+            // 存在するファイルのみバックアップ（復元先にファイルがない場合はスキップ）
+            let existing: Vec<String> = files
+                .iter()
+                .filter(|f| match side {
+                    Side::Local => self.config.local.root_dir.join(f).exists(),
+                    Side::Remote(_) => true, // リモートは存在確認が困難なので常にバックアップ試行
+                })
+                .cloned()
+                .collect();
+            if !existing.is_empty() {
+                if let Err(e) = self.create_backups(side, &existing, &pre_session_id) {
+                    tracing::warn!("Pre-rollback backup failed (continuing): {}", e);
+                }
+            }
+        }
+
+        // session_id のフォーマット検証
+        if backup::extract_timestamp(session_id).is_none() {
+            anyhow::bail!("Invalid session_id format: {}", session_id);
+        }
+
+        match side {
+            Side::Local => {
+                let root = self.config.local.root_dir.clone();
+                let backup_dir = root.join(backup::BACKUP_DIR_NAME);
+                let backup_enabled = self.config.backup.enabled;
+                let result = restore_local_files(
+                    &root,
+                    &backup_dir,
+                    session_id,
+                    files,
+                    backup_enabled,
+                    &pre_session_id,
+                )?;
+                Ok((result.restored, result.failures))
+            }
+            Side::Remote(_name) => {
+                // Remote 復元は Agent プロトコル (ListBackups/RestoreBackup) で定義済みだが、
+                // runtime 層のクライアント統合は Phase 5-4 (sync) と合わせて実装予定。
+                anyhow::bail!("Remote backup restore is not yet supported (requires agent integration in runtime layer)")
             }
         }
     }
@@ -638,6 +754,7 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         rel_paths: &[String],
+        session_id: &str,
     ) -> Option<anyhow::Result<()>> {
         let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
         let remote_root = self
@@ -646,9 +763,10 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.to_string_lossy().to_string())?;
         let backup_dir = format!(
-            "{}/{}",
+            "{}/{}/{}",
             remote_root.trim_end_matches('/'),
-            crate::backup::BACKUP_DIR_NAME
+            crate::backup::BACKUP_DIR_NAME,
+            session_id,
         );
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
@@ -815,13 +933,115 @@ fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// ローカルファイルのバックアップを作成する
-fn create_local_backups(root_dir: &Path, rel_paths: &[String]) -> anyhow::Result<()> {
+/// ローカルファイルのバックアップをセッションディレクトリに作成する
+fn create_local_backups(
+    root_dir: &Path,
+    rel_paths: &[String],
+    session_id: &str,
+) -> anyhow::Result<()> {
     let backup_dir = root_dir.join(crate::backup::BACKUP_DIR_NAME);
     for rel_path in rel_paths {
-        crate::backup::create_local_backup(root_dir, rel_path, &backup_dir)?;
+        crate::backup::create_local_backup(root_dir, &backup_dir, session_id, rel_path)?;
     }
     Ok(())
+}
+
+/// ローカルバックアップからファイルを復元する。
+/// Component レベルのパストラバーサル検証 + canonicalize による復元先検証を行う。
+/// 個別ファイルの失敗は記録して続行する（部分成功に対応）。
+/// ローカル復元の結果（成功 + 失敗を両方含む）
+struct LocalRestoreResult {
+    restored: Vec<crate::service::types::RollbackFileResult>,
+    failures: Vec<crate::service::types::RollbackFailure>,
+}
+
+fn restore_local_files(
+    root: &Path,
+    backup_dir: &Path,
+    session_id: &str,
+    files: &[String],
+    backup_enabled: bool,
+    pre_session_id: &str,
+) -> anyhow::Result<LocalRestoreResult> {
+    use crate::backup;
+    use crate::service::types::{RollbackFailure, RollbackFileResult};
+
+    let mut restored = Vec::new();
+    let mut failures = Vec::new();
+
+    for file in files {
+        // パストラバーサル検証（Component レベルで ParentDir を拒否）
+        let has_parent_dir = std::path::Path::new(file)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir));
+        if has_parent_dir {
+            tracing::warn!("Skipping file with path traversal: {}", file);
+            failures.push(RollbackFailure {
+                path: file.clone(),
+                error: "path traversal detected".to_string(),
+            });
+            continue;
+        }
+
+        let source = backup::session_backup_path(backup_dir, session_id, file);
+        let dest = root.join(file);
+
+        // 親ディレクトリを作成してから canonicalize で復元先検証
+        if let Some(parent) = dest.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!("Failed to create dir for {}: {}", file, e);
+                failures.push(RollbackFailure {
+                    path: file.clone(),
+                    error: format!("failed to create directory: {}", e),
+                });
+                continue;
+            }
+            // canonicalize ベースの復元先検証
+            if let (Ok(parent_canon), Ok(root_canon)) = (parent.canonicalize(), root.canonicalize())
+            {
+                if !parent_canon.starts_with(&root_canon) {
+                    tracing::warn!("Skipping file outside root: {}", file);
+                    failures.push(RollbackFailure {
+                        path: file.clone(),
+                        error: "restore path is outside project root".to_string(),
+                    });
+                    continue;
+                }
+            }
+        }
+
+        if !source.exists() {
+            tracing::warn!("Backup file not found, skipping: {}", file);
+            failures.push(RollbackFailure {
+                path: file.clone(),
+                error: "backup file not found".to_string(),
+            });
+            continue;
+        }
+
+        match std::fs::copy(&source, &dest) {
+            Ok(_) => {
+                tracing::debug!("Restored: {} from session {}", file, session_id);
+                restored.push(RollbackFileResult {
+                    path: file.clone(),
+                    pre_rollback_backup: if backup_enabled {
+                        Some(pre_session_id.to_string())
+                    } else {
+                        None
+                    },
+                });
+            }
+            Err(e) => {
+                tracing::warn!("Failed to restore {}: {}", file, e);
+                failures.push(RollbackFailure {
+                    path: file.clone(),
+                    error: format!("copy failed: {}", e),
+                });
+            }
+        }
+    }
+
+    Ok(LocalRestoreResult { restored, failures })
 }
 
 /// ローカルファイルまたはシンボリックリンクを削除する
@@ -904,8 +1124,13 @@ impl TuiRuntime {
         self.core.chmod_file(side, rel_path, mode)
     }
 
-    pub fn create_backups(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<()> {
-        self.core.create_backups(side, rel_paths)
+    pub fn create_backups(
+        &mut self,
+        side: &Side,
+        rel_paths: &[String],
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        self.core.create_backups(side, rel_paths, session_id)
     }
 
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {

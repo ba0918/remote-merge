@@ -139,6 +139,33 @@ enum Commands {
         format: String,
     },
 
+    /// Restore files from a backup session
+    Rollback {
+        /// Target side (server name or "local")
+        #[arg(long)]
+        target: Option<String>,
+
+        /// List backup sessions instead of restoring
+        #[arg(long)]
+        list: bool,
+
+        /// Specific session ID to restore (default: latest)
+        #[arg(long)]
+        session: Option<String>,
+
+        /// Preview what would be restored without executing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompt and force restore of expired/sensitive files
+        #[arg(long)]
+        force: bool,
+
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
     /// Show debug logs
     Logs {
         /// Filter by log level (info, warn, error, debug, trace)
@@ -265,6 +292,28 @@ fn try_main() -> anyhow::Result<()> {
                     dry_run,
                     force,
                     with_permissions,
+                    format,
+                },
+                cfg,
+            )?;
+            std::process::exit(code);
+        }
+        Some(Commands::Rollback {
+            target,
+            list,
+            session,
+            dry_run,
+            force,
+            format,
+        }) => {
+            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
+            let code = remote_merge::cli::rollback::run_rollback(
+                remote_merge::cli::rollback::RollbackArgs {
+                    target,
+                    list,
+                    session,
+                    dry_run,
+                    force,
                     format,
                 },
                 cfg,

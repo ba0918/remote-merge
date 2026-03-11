@@ -198,6 +198,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     // マージ実行
     let mut merged = Vec::new();
     let mut failed = Vec::new();
+    let session_id = crate::backup::backup_timestamp();
 
     {
         let mut ctx = MergeContext {
@@ -210,6 +211,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
             with_permissions: args.with_permissions,
             force: args.force,
             statuses: &statuses,
+            session_id: &session_id,
         };
 
         for path in &plan.files {
@@ -278,6 +280,7 @@ struct MergeContext<'a> {
     with_permissions: bool,
     force: bool,
     statuses: &'a [FileStatus],
+    session_id: &'a str,
 }
 
 /// 単一ファイルのマージを実行する
@@ -308,11 +311,8 @@ fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Resul
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
             let backup_path = if target_exists && ctx.core.config.backup.enabled {
                 let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths) {
-                    Ok(()) => {
-                        let ts = crate::backup::backup_timestamp();
-                        Some(format!("{}.{}.bak", path, ts))
-                    }
+                match ctx.core.create_backups(target, &paths, ctx.session_id) {
+                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
                     Err(e) => {
                         tracing::warn!("Backup failed (continuing): {}", e);
                         None
@@ -337,11 +337,8 @@ fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Resul
             // バックアップは symlink 削除前に行う（削除後ではバックアップ対象が存在しない）
             let symlink_backup = if ctx.core.config.backup.enabled {
                 let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths) {
-                    Ok(()) => {
-                        let ts = crate::backup::backup_timestamp();
-                        Some(format!("{}.{}.bak", path, ts))
-                    }
+                match ctx.core.create_backups(target, &paths, ctx.session_id) {
+                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
                     Err(e) => {
                         tracing::warn!("Backup failed for symlink target (continuing): {}", e);
                         None
@@ -376,11 +373,8 @@ fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Resul
     // バックアップ（ターゲット側）
     let backup_path = if ctx.core.config.backup.enabled {
         let paths = vec![path.to_string()];
-        match ctx.core.create_backups(target, &paths) {
-            Ok(()) => {
-                let ts = crate::backup::backup_timestamp();
-                Some(format!("{}.{}.bak", path, ts))
-            }
+        match ctx.core.create_backups(target, &paths, ctx.session_id) {
+            Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
             Err(e) => {
                 tracing::warn!("Backup failed (continuing): {}", e);
                 None

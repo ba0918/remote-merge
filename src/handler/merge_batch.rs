@@ -73,6 +73,9 @@ pub fn execute_batch_merge(
         MergeDirection::RightToLeft => state.left_source.clone(),
     };
 
+    // セッションIDを1度だけ生成（全ファイルで共有）
+    let session_id = crate::backup::backup_timestamp();
+
     // バックアップ（マージ前に一括実行）
     // symlink ファイルは execute_symlink_merge 内で個別バックアップするため除外
     if runtime.core.config.backup.enabled {
@@ -85,11 +88,11 @@ pub fn execute_batch_merge(
             match direction {
                 MergeDirection::LeftToRight => {
                     if runtime.is_side_available(&state.right_source) {
-                        backup_right(state, runtime, &backup_paths);
+                        backup_right(state, runtime, &backup_paths, &session_id);
                     }
                 }
                 MergeDirection::RightToLeft => {
-                    backup_left(state, runtime, &backup_paths);
+                    backup_left(state, runtime, &backup_paths, &session_id);
                 }
             }
         }
@@ -120,6 +123,7 @@ pub fn execute_batch_merge(
                     action,
                     &source_side,
                     &target_side,
+                    &session_id,
                 );
                 if ok {
                     success_count += 1;

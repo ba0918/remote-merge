@@ -86,7 +86,37 @@ remote-merge merge src/ --left local --right develop
 
 Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.
 
-### 4. Verify
+### 4. Rollback
+
+Undo a merge by restoring files from backup sessions.
+
+```bash
+# List backup sessions
+remote-merge rollback --list --target develop --format json
+
+# Preview what would be restored (dry-run)
+remote-merge rollback --target develop --dry-run --format json
+
+# Restore latest session
+remote-merge rollback --target develop --force --format json
+
+# Restore specific session
+remote-merge rollback --target develop --session 20260311-140000 --force --format json
+```
+
+Options:
+- `--target <side>` — restore target (required except for `--list`)
+- `--list` — list backup sessions without restoring
+- `--session <id>` — specific session to restore (default: latest non-expired)
+- `--dry-run` — preview without executing
+- `--force` — skip confirmation, allow expired/sensitive files
+- `--format text|json` — output format (default: text)
+
+Exit codes: 0 = success, 2 = error (partial or total failure).
+
+Backup structure: `.remote-merge-backup/{session_id}/{relative_path}` (session directory per merge operation).
+
+### 5. Verify
 
 ```bash
 remote-merge status --format json

@@ -53,16 +53,21 @@ pub fn stat_left_file(
 
 /// 左側のバックアップを作成する。
 /// Side ベースの統一 API に委譲。
-pub fn backup_left(state: &AppState, runtime: &mut TuiRuntime, paths: &[String]) {
-    if let Err(e) = runtime.create_backups(&state.left_source, paths) {
+pub fn backup_left(state: &AppState, runtime: &mut TuiRuntime, paths: &[String], session_id: &str) {
+    if let Err(e) = runtime.create_backups(&state.left_source, paths, session_id) {
         tracing::warn!("Left backup failed (continuing): {}", e);
     }
 }
 
 /// 右側のバックアップを作成する。
 /// Side ベースの統一 API に委譲。
-pub fn backup_right(state: &AppState, runtime: &mut TuiRuntime, paths: &[String]) {
-    if let Err(e) = runtime.create_backups(&state.right_source, paths) {
+pub fn backup_right(
+    state: &AppState,
+    runtime: &mut TuiRuntime,
+    paths: &[String],
+    session_id: &str,
+) {
+    if let Err(e) = runtime.create_backups(&state.right_source, paths, session_id) {
         tracing::warn!("Right backup failed (continuing): {}", e);
     }
 }

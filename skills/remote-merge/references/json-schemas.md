@@ -88,6 +88,52 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
+## rollback --list
+
+```json
+{
+  "target": "develop",
+  "backup_dir": ".remote-merge-backup",
+  "sessions": [
+    {
+      "session_id": "20260311-140000",
+      "timestamp": "2026-03-11T14:00:00",
+      "file_count": 3,
+      "expired": false,
+      "files": [
+        { "path": "src/config.ts", "size": 1234 }
+      ]
+    }
+  ]
+}
+```
+
+- `sessions`: array of backup sessions, sorted newest first
+- `expired`: true when session is older than retention period (default: 7 days)
+- `files`: list of backed-up files with their sizes
+
+## rollback (restore)
+
+```json
+{
+  "target": "develop",
+  "session_id": "20260311-140000",
+  "restored": [
+    { "path": "src/config.ts", "status": "ok" }
+  ],
+  "skipped": [
+    { "path": ".env", "reason": "sensitive file (use --force to override)" }
+  ],
+  "failed": [
+    { "path": "broken.ts", "error": "file not found in backup" }
+  ]
+}
+```
+
+- `restored`: files successfully restored from backup
+- `skipped`: files skipped (sensitive, expired without --force)
+- `failed`: files that failed to restore with error details
+
 ## state.json (TUI dump)
 
 ```json

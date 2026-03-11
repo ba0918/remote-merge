@@ -343,6 +343,78 @@ pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<Strin
     }
 }
 
+/// BackupListOutput をテキストフォーマットする
+pub fn format_backup_list_text(output: &BackupListOutput) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("Backup sessions for {}:", output.target.label));
+    lines.push(String::new());
+
+    if output.sessions.is_empty() {
+        lines.push("  (no backup sessions found)".into());
+        return lines.join("\n");
+    }
+
+    for session in &output.sessions {
+        let file_count = session.files.len();
+        let file_word = if file_count == 1 { "file" } else { "files" };
+        let expired_tag = if session.expired { " [expired]" } else { "" };
+        lines.push(format!(
+            "  {} ({} {}){expired_tag}",
+            session.session_id, file_count, file_word,
+        ));
+        for entry in &session.files {
+            lines.push(format!("    {} ({} bytes)", entry.path, entry.size));
+        }
+        lines.push(String::new());
+    }
+
+    lines.join("\n")
+}
+
+/// RollbackOutput をテキストフォーマットする
+pub fn format_rollback_text(output: &RollbackOutput) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Rollback session {} for {}:",
+        output.session_id, output.target.label
+    ));
+    lines.push(String::new());
+
+    for result in &output.restored {
+        let backup_info = result
+            .pre_rollback_backup
+            .as_ref()
+            .map(|b| format!(" (pre-rollback backup: {})", b))
+            .unwrap_or_default();
+        lines.push(format!("  \u{2713} {}{}", result.path, backup_info));
+    }
+
+    for s in &output.skipped {
+        lines.push(format!("  - {} (skipped: {})", s.path, s.reason));
+    }
+
+    for f in &output.failed {
+        lines.push(format!("  \u{2717} {} (error: {})", f.path, f.error));
+    }
+
+    lines.push(String::new());
+    let restored = output.restored.len();
+    let skipped = output.skipped.len();
+    let failed = output.failed.len();
+
+    let mut summary_parts = Vec::new();
+    summary_parts.push(format!("Restored {} file(s)", restored));
+    if skipped > 0 {
+        summary_parts.push(format!("skipped {}", skipped));
+    }
+    if failed > 0 {
+        summary_parts.push(format!("failed {}", failed));
+    }
+    lines.push(format!("{}.", summary_parts.join(", ")));
+
+    lines.join("\n")
+}
+
 /// 任意の Serialize 可能な型を JSON 文字列にする
 pub fn format_json<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(value)?)
@@ -1446,6 +1518,114 @@ mod tests {
         let json = format_json(&output).unwrap();
         assert!(!json.contains("conflict_count"));
         assert!(!json.contains("conflict_regions"));
+    }
+
+    // ── backup list / rollback text tests ──
+
+    #[test]
+    fn test_format_backup_list_text_with_sessions() {
+        let output = BackupListOutput {
+            target: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            sessions: vec![
+                BackupSession {
+                    session_id: "20240115-140000".into(),
+                    files: vec![
+                        BackupEntry {
+                            path: "src/config.ts".into(),
+                            size: 1234,
+                        },
+                        BackupEntry {
+                            path: "src/index.ts".into(),
+                            size: 5678,
+                        },
+                    ],
+                    expired: false,
+                },
+                BackupSession {
+                    session_id: "20240114-100000".into(),
+                    files: vec![BackupEntry {
+                        path: "src/old.ts".into(),
+                        size: 456,
+                    }],
+                    expired: true,
+                },
+            ],
+        };
+        let text = format_backup_list_text(&output);
+        assert!(text.contains("Backup sessions for develop:"));
+        assert!(text.contains("20240115-140000 (2 files)"));
+        assert!(text.contains("src/config.ts (1234 bytes)"));
+        assert!(text.contains("20240114-100000 (1 file) [expired]"));
+    }
+
+    #[test]
+    fn test_format_backup_list_text_empty() {
+        let output = BackupListOutput {
+            target: SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            sessions: vec![],
+        };
+        let text = format_backup_list_text(&output);
+        assert!(text.contains("no backup sessions found"));
+    }
+
+    #[test]
+    fn test_format_rollback_text_success() {
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            session_id: "20240115-140000".into(),
+            restored: vec![
+                RollbackFileResult {
+                    path: "src/config.ts".into(),
+                    pre_rollback_backup: Some("20240116-090000".into()),
+                },
+                RollbackFileResult {
+                    path: "src/index.ts".into(),
+                    pre_rollback_backup: Some("20240116-090000".into()),
+                },
+            ],
+            skipped: vec![RollbackSkipped {
+                path: "src/app.ts".into(),
+                reason: "sensitive".into(),
+            }],
+            failed: vec![],
+        };
+        let text = format_rollback_text(&output);
+        assert!(text.contains("Rollback session 20240115-140000 for develop:"));
+        assert!(text.contains("\u{2713} src/config.ts (pre-rollback backup: 20240116-090000)"));
+        assert!(text.contains("- src/app.ts (skipped: sensitive)"));
+        assert!(text.contains("Restored 2 file(s), skipped 1."));
+    }
+
+    #[test]
+    fn test_format_rollback_text_with_failures() {
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            session_id: "20240115-140000".into(),
+            restored: vec![RollbackFileResult {
+                path: "a.rs".into(),
+                pre_rollback_backup: None,
+            }],
+            skipped: vec![],
+            failed: vec![RollbackFailure {
+                path: "b.rs".into(),
+                error: "permission denied".into(),
+            }],
+        };
+        let text = format_rollback_text(&output);
+        assert!(text.contains("\u{2717} b.rs (error: permission denied)"));
+        assert!(text.contains("Restored 1 file(s), failed 1."));
     }
 
     #[test]

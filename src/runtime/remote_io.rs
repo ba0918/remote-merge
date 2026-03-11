@@ -204,6 +204,7 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         rel_paths: &[String],
+        session_id: &str,
     ) -> anyhow::Result<()> {
         if rel_paths.is_empty() {
             return Ok(());
@@ -211,14 +212,13 @@ impl CoreRuntime {
 
         let server_config = self.get_server_config(server_name)?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
-        let ts = crate::backup::backup_timestamp();
 
         let pairs: Vec<(String, String)> = rel_paths
             .iter()
-            .map(|rel| {
-                let src = format!("{}/{}", remote_root.trim_end_matches('/'), rel,);
-                let dst = crate::backup::remote_backup_path(&remote_root, rel, &ts);
-                (src, dst)
+            .filter_map(|rel| {
+                let src = format!("{}/{}", remote_root.trim_end_matches('/'), rel);
+                let dst = crate::backup::remote_backup_path(&remote_root, session_id, rel)?;
+                Some((src, dst))
             })
             .collect();
 

@@ -841,37 +841,156 @@ diff取得時点から変更されていた場合はマージを中断する。
 
 マージ操作の取り消しを安全に行うための CLI サブコマンド。
 
-### 基本コマンド
+### バックアップ構造（セッションディレクトリ方式）
+
+バックアップはセッションディレクトリ方式で管理する。
+1回のマージ操作 = 1セッション（= 1ディレクトリ）として保存される。
+
+```
+.remote-merge-backup/
+  20240115-140000/          # セッション1（= 1回のマージ操作）
+    src/config.ts           # 元ファイルの相対パスをそのまま保持
+    src/index.ts
+  20240116-100000/          # セッション2
+    src/config.ts
+```
+
+セッションID = タイムスタンプ。マージ操作の開始時に1度だけ生成し、
+同一マージ内の全ファイルに同一セッションIDを適用する。
+グルーピングロジックやファイル名パースが不要になり、
+セッション単位の削除は `remove_dir_all()` で完結する。
+
+### CLI インターフェース
 
 ```bash
-# 直近のマージ操作を確認（何が復元されるか表示）
-remote-merge rollback --dry-run
-
-# 直近のマージ操作を取り消し
-remote-merge rollback
-
-# 特定のバックアップを指定して復元
-remote-merge rollback --backup src/config.ts.20240115-140000.bak
-
-# バックアップ一覧を表示
+# バックアップ一覧表示（セッション単位）
 remote-merge rollback --list
-remote-merge rollback --list --server develop
+remote-merge rollback --list --target develop
+
+# 直近のマージ操作を復元（確認プロンプト付き）
+remote-merge rollback --target develop
+
+# 特定セッションを復元
+remote-merge rollback --target develop --session 20240115-140000
+
+# プレビュー（何が復元されるか表示、実行しない）
+remote-merge rollback --target develop --dry-run
+
+# 確認プロンプトをスキップ
+remote-merge rollback --target develop --force
+
+# JSON 出力
+remote-merge rollback --list --target develop --format json
+```
+
+### CLIオプション
+
+| オプション | 必須 | 説明 |
+|-----------|------|------|
+| `--target <side>` | `--list` 以外は必須 | 復元先サイド（local / サーバ名） |
+| `--list` | - | バックアップ一覧表示（復元しない） |
+| `--session <id>` | - | 復元対象セッションID。省略時は直近セッション |
+| `--dry-run` | - | 復元対象のプレビュー（実行しない） |
+| `--force` | - | 確認プロンプトスキップ + expired/sensitive 強制復元 |
+| `--format <fmt>` | - | 出力形式（text / json）。デフォルト: text |
+
+### Exit code
+
+| 状態 | Code | 説明 |
+|------|------|------|
+| 復元成功（全ファイル） | 0 | 全ファイルの復元に成功 |
+| 復元部分成功（一部失敗） | 2 | 一部ファイルの復元に失敗 |
+| バックアップなし / セッションなし | 2 | 対象セッションが見つからない |
+| `--dry-run`（復元対象あり） | 0 | プレビューのみ |
+| `--list` | 0 | 一覧表示のみ |
+
+### テキスト出力フォーマット
+
+**`--list` モード:**
+
+```
+Backup sessions for develop:
+
+  20240115-140000 (2 files)
+    src/config.ts (1234 bytes)
+    src/index.ts (5678 bytes)
+
+  20240114-100000 (1 file) [expired]
+    src/old.ts (456 bytes)
+```
+
+**復元実行時:**
+
+```
+Rollback session 20240115-140000 for develop:
+
+  ✓ src/config.ts (pre-rollback backup: 20240116-090000)
+  ✓ src/index.ts (pre-rollback backup: 20240116-090000)
+  - src/app.ts (skipped: sensitive)
+
+Restored 2 file(s), skipped 1.
+```
+
+### JSON 出力フォーマット
+
+**`--list --format json`:**
+
+```json
+{
+  "target": { "label": "develop", "root": "dev:/var/www" },
+  "sessions": [
+    {
+      "session_id": "20240115-140000",
+      "files": [
+        { "path": "src/config.ts", "size": 1234 },
+        { "path": "src/index.ts", "size": 5678 }
+      ],
+      "expired": false
+    }
+  ]
+}
+```
+
+**復元実行 `--format json`:**
+
+```json
+{
+  "target": { "label": "develop", "root": "dev:/var/www" },
+  "session_id": "20240115-140000",
+  "restored": [
+    { "path": "src/config.ts", "pre_rollback_backup": "20240116-090000" },
+    { "path": "src/index.ts", "pre_rollback_backup": "20240116-090000" }
+  ],
+  "skipped": [
+    { "path": "src/app.ts", "reason": "sensitive" }
+  ],
+  "failed": []
+}
 ```
 
 ### 動作仕様
 
 | 項目 | 内容 |
 |------|------|
-| 対象 | `.remote-merge-backup/` 内のバックアップファイル |
-| デフォルト | 直近のマージ操作（同一タイムスタンプのバックアップ群）を一括復元 |
+| 対象 | `.remote-merge-backup/` 内のセッションディレクトリ |
+| デフォルト | 直近の non-expired セッションを一括復元 |
 | 確認 | 復元対象を一覧表示し、確認プロンプトを表示（`--force` で省略可） |
-| 安全策 | 復元前に現在のファイルのバックアップを自動作成（rollback の rollback が可能） |
+| 安全策 | 復元前に現在のファイルのバックアップを新セッションとして自動作成（rollback の rollback が可能） |
+| sensitive | merge と同様に `is_sensitive()` でフィルタし、`--force` なしではスキップ |
+| expired | 保持期間超過セッションは `--list` で `[expired]` 表示、復元はブロック（`--force` で上書き可） |
+
+### Agent プロトコル統合
+
+rollback はリモートサーバの操作にも対応しており、Agent プロトコル v2 の
+`ListBackups` / `RestoreBackup` リクエストで高速化される。
 
 ### 制約事項
 
-- バックアップの保持期間（`retention_days`）を超えたファイルは復元不可
+- バックアップの保持期間（`retention_days`）を超えたセッションは `--force` なしで復元不可
 - マージ後にファイルが別途編集されている場合は警告を表示
 - TUI の `u` キーは Diff View 内のハンクマージ undo（既存機能）であり、rollback とは別物
+- セッションID はタイムスタンプ形式（`YYYYMMDD-HHMMSS`）のみ受け付ける
+- パストラバーサル攻撃対策として、Agent 側で `validate_path()` を適用
 
 ---
 
@@ -1131,6 +1250,7 @@ remote-merge/
 │   │   ├── status.rs        #   ステータス集計
 │   │   ├── diff.rs          #   diff 出力
 │   │   ├── merge.rs         #   マージ制御
+│   │   ├── rollback.rs      #   ロールバック純粋関数（mark_expired, plan_restore, rollback_exit_code）
 │   │   ├── output.rs        #   JSON/テキスト出力
 │   │   └── source_pair.rs   #   ソースペア解析
 │   │
@@ -1139,6 +1259,7 @@ remote-merge/
 │   │   ├── status.rs        #   status サブコマンド
 │   │   ├── diff.rs          #   diff サブコマンド
 │   │   ├── merge.rs         #   merge サブコマンド（--dry-run, --force）
+│   │   ├── rollback.rs      #   rollback サブコマンド（--list, --dry-run, --force, --session）
 │   │   ├── logs.rs          #   logs サブコマンド（構造化ログ取得）
 │   │   └── events.rs        #   events サブコマンド（イベント取得）
 │   │
@@ -1292,7 +1413,7 @@ remote-merge/
 
 - [x] `--debug` / `-v` / `--log-level` グローバルオプション
 - [ ] ディレクトリマージ時の削除セマンティクス明文化（デフォルト: 削除しない）
-- [ ] `rollback` CLIサブコマンド（バックアップからの即時復元）
+- [x] `rollback` CLIサブコマンド（バックアップからの即時復元）
 - [ ] `sync` CLIサブコマンド（1:N マルチサーバ同期）
 - [ ] `--delete` オプション（ディレクトリマージ時の完全同期）
 

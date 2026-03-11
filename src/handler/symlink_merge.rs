@@ -12,6 +12,8 @@ use crate::service::merge::MergeAction;
 /// `source_side` / `target_side` は borrow checker 対策で引数で受け取る
 /// （`state: &mut AppState` と `state.left_source` / `state.right_source` の
 ///  immutable borrow が競合するため）。
+/// `session_id` はバッチマージ時に全ファイルで共有するセッションIDを外部から渡す。
+#[allow(clippy::too_many_arguments)]
 pub fn execute_symlink_merge(
     state: &mut AppState,
     runtime: &mut TuiRuntime,
@@ -20,6 +22,7 @@ pub fn execute_symlink_merge(
     action: MergeAction,
     source_side: &Side,
     target_side: &Side,
+    session_id: &str,
 ) -> bool {
     // リモート側への書き込み時は接続チェック
     if !runtime.is_side_available(target_side) {
@@ -45,7 +48,8 @@ pub fn execute_symlink_merge(
         } => {
             // バックアップ（target_exists の場合）
             if target_exists {
-                if let Err(e) = runtime.create_backups(target_side, &[path.to_string()]) {
+                if let Err(e) = runtime.create_backups(target_side, &[path.to_string()], session_id)
+                {
                     tracing::warn!("Backup failed (continuing): {}", e);
                 }
                 if let Err(e) = runtime.remove_file(target_side, path) {
@@ -69,7 +73,7 @@ pub fn execute_symlink_merge(
         }
         MergeAction::ReplaceSymlinkWithFile => {
             // バックアップ → symlink 削除 → ファイル書き込み
-            if let Err(e) = runtime.create_backups(target_side, &[path.to_string()]) {
+            if let Err(e) = runtime.create_backups(target_side, &[path.to_string()], session_id) {
                 tracing::warn!("Backup failed (continuing): {}", e);
             }
             if let Err(e) = runtime.remove_file(target_side, path) {
@@ -149,6 +153,7 @@ mod tests {
             MergeAction::Normal,
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(!result, "Normal action should return false");
@@ -175,6 +180,7 @@ mod tests {
             },
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(!result);
@@ -205,6 +211,7 @@ mod tests {
             },
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(result);
@@ -250,6 +257,7 @@ mod tests {
             },
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(result);
@@ -279,6 +287,7 @@ mod tests {
             MergeAction::ReplaceSymlinkWithFile,
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(!result);
@@ -320,6 +329,7 @@ mod tests {
             MergeAction::ReplaceSymlinkWithFile,
             &source,
             &target,
+            "20260311-120000",
         );
 
         // source == target (Local) の場合: remove 後に read するため失敗する
@@ -352,6 +362,7 @@ mod tests {
             },
             &source,
             &target,
+            "20260311-120000",
         );
 
         assert!(result);

@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 /// プロトコルバージョン（破壊的変更時にインクリメント）
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -39,6 +39,18 @@ pub enum AgentRequest {
         path: String,
         target: String,
     },
+    ListBackups {
+        backup_dir: String,
+    },
+    RestoreBackup {
+        backup_dir: String,
+        session_id: String,
+        files: Vec<String>,
+        /// NOTE: クライアント指定の root_dir は安全のため dispatch 側で無視される。
+        /// Agent 起動時の --root (self.root_dir) が常に復元先として使用される。
+        /// プロトコル互換性のためフィールドは残す。
+        root_dir: String,
+    },
     Shutdown,
     Ping,
 }
@@ -67,6 +79,12 @@ pub enum AgentResponse {
     SymlinkResult {
         success: bool,
         error: Option<String>,
+    },
+    BackupList {
+        sessions: Vec<AgentBackupSession>,
+    },
+    RestoreResult {
+        results: Vec<AgentRestoreFileResult>,
     },
     Pong,
     Error {
@@ -118,6 +136,29 @@ pub struct AgentFileStat {
     pub mtime_secs: i64,
     pub mtime_nanos: u32,
     pub permissions: u32,
+}
+
+/// バックアップセッション情報（ListBackups レスポンス用）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentBackupSession {
+    pub session_id: String,
+    pub files: Vec<AgentBackupFile>,
+}
+
+/// バックアップセッション内の個別ファイル情報。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentBackupFile {
+    pub path: String,
+    pub size: u64,
+}
+
+/// 個別ファイルの復元結果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentRestoreFileResult {
+    pub path: String,
+    pub success: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -187,14 +228,14 @@ mod tests {
     #[test]
     fn handshake_format_and_parse() {
         let hs = format_handshake();
-        assert_eq!(hs, "remote-merge agent v1");
+        assert_eq!(hs, "remote-merge agent v2");
         let ver = parse_handshake(&hs).unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
     #[test]
     fn handshake_parse_with_trailing_whitespace() {
-        let ver = parse_handshake("  remote-merge agent v1  ").unwrap();
+        let ver = parse_handshake("  remote-merge agent v2  ").unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
@@ -485,5 +526,110 @@ mod tests {
         });
         roundtrip_response(&AgentResponse::FileContents { results: vec![] });
         roundtrip_response(&AgentResponse::Stats { entries: vec![] });
+    }
+
+    // ---- Protocol version ----
+
+    #[test]
+    fn protocol_version_is_2() {
+        assert_eq!(PROTOCOL_VERSION, 2);
+    }
+
+    // ---- ListBackups / BackupList roundtrip ----
+
+    #[test]
+    fn request_list_backups_roundtrip() {
+        roundtrip_request(&AgentRequest::ListBackups {
+            backup_dir: "/var/www/.remote-merge-backup".into(),
+        });
+    }
+
+    #[test]
+    fn response_backup_list_roundtrip() {
+        roundtrip_response(&AgentResponse::BackupList {
+            sessions: vec![AgentBackupSession {
+                session_id: "20260311-120000".into(),
+                files: vec![
+                    AgentBackupFile {
+                        path: "index.html".into(),
+                        size: 1024,
+                    },
+                    AgentBackupFile {
+                        path: "css/style.css".into(),
+                        size: 512,
+                    },
+                ],
+            }],
+        });
+    }
+
+    #[test]
+    fn response_backup_list_empty_roundtrip() {
+        roundtrip_response(&AgentResponse::BackupList { sessions: vec![] });
+    }
+
+    // ---- RestoreBackup / RestoreResult roundtrip ----
+
+    #[test]
+    fn request_restore_backup_roundtrip() {
+        roundtrip_request(&AgentRequest::RestoreBackup {
+            backup_dir: "/var/www/.remote-merge-backup".into(),
+            session_id: "20260311-120000".into(),
+            files: vec!["index.html".into(), "css/style.css".into()],
+            root_dir: "/var/www".into(),
+        });
+    }
+
+    #[test]
+    fn response_restore_result_roundtrip() {
+        roundtrip_response(&AgentResponse::RestoreResult {
+            results: vec![
+                AgentRestoreFileResult {
+                    path: "index.html".into(),
+                    success: true,
+                    error: None,
+                },
+                AgentRestoreFileResult {
+                    path: "missing.txt".into(),
+                    success: false,
+                    error: Some("file not found".into()),
+                },
+            ],
+        });
+    }
+
+    // ---- AgentBackupSession / AgentBackupFile roundtrip ----
+
+    #[test]
+    fn agent_backup_session_serde_roundtrip() {
+        let session = AgentBackupSession {
+            session_id: "20260311-153000".into(),
+            files: vec![
+                AgentBackupFile {
+                    path: "app/main.rs".into(),
+                    size: 2048,
+                },
+                AgentBackupFile {
+                    path: "config.toml".into(),
+                    size: 256,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        let decoded: AgentBackupSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(session, decoded);
+    }
+
+    // ---- AgentRestoreFileResult skip_serializing_if ----
+
+    #[test]
+    fn restore_file_result_skips_none_error() {
+        let result = AgentRestoreFileResult {
+            path: "test.txt".into(),
+            success: true,
+            error: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("error"));
     }
 }

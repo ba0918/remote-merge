@@ -210,6 +210,62 @@ pub enum MergeOutcome {
     R2rBlocked { left: String, right: String },
 }
 
+// ── rollback ──
+
+/// rollback --list の出力
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupListOutput {
+    pub target: SourceInfo,
+    pub sessions: Vec<BackupSession>,
+}
+
+/// バックアップセッション（= 1回のマージ操作）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupSession {
+    pub session_id: String,
+    pub files: Vec<BackupEntry>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expired: bool,
+}
+
+/// バックアップエントリ（セッション内の1ファイル）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupEntry {
+    pub path: String,
+    pub size: u64,
+}
+
+/// rollback 実行結果の出力
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackOutput {
+    pub target: SourceInfo,
+    pub session_id: String,
+    pub restored: Vec<RollbackFileResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<RollbackSkipped>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed: Vec<RollbackFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackFileResult {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_rollback_backup: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollbackSkipped {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackFailure {
+    pub path: String,
+    pub error: String,
+}
+
 // ── exit codes ──
 
 /// CLI exit code 定義
@@ -764,5 +820,104 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"conflict_count\":1"));
         assert!(json.contains("\"conflict_regions\""));
+    }
+
+    // ── rollback types ──
+
+    #[test]
+    fn test_rollback_output_roundtrip() {
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            session_id: "20240115-140000".into(),
+            restored: vec![RollbackFileResult {
+                path: "src/config.ts".into(),
+                pre_rollback_backup: Some("20240120-100000".into()),
+            }],
+            skipped: vec![RollbackSkipped {
+                path: ".env".into(),
+                reason: "sensitive".into(),
+            }],
+            failed: vec![RollbackFailure {
+                path: "locked.rs".into(),
+                error: "permission denied".into(),
+            }],
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        let parsed: RollbackOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.session_id, "20240115-140000");
+        assert_eq!(parsed.restored.len(), 1);
+        assert_eq!(parsed.skipped.len(), 1);
+        assert_eq!(parsed.failed.len(), 1);
+        assert_eq!(
+            parsed.restored[0].pre_rollback_backup.as_deref(),
+            Some("20240120-100000")
+        );
+    }
+
+    #[test]
+    fn test_backup_list_output_roundtrip() {
+        let output = BackupListOutput {
+            target: SourceInfo {
+                label: "staging".into(),
+                root: "/var/www".into(),
+            },
+            sessions: vec![
+                BackupSession {
+                    session_id: "20240115-140000".into(),
+                    files: vec![BackupEntry {
+                        path: "src/app.rs".into(),
+                        size: 1024,
+                    }],
+                    expired: false,
+                },
+                BackupSession {
+                    session_id: "20240101-100000".into(),
+                    files: vec![],
+                    expired: true,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        let parsed: BackupListOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.sessions.len(), 2);
+        assert_eq!(parsed.sessions[0].session_id, "20240115-140000");
+        assert!(parsed.sessions[1].expired);
+    }
+
+    #[test]
+    fn test_backup_session_expired_false_skip_serializing() {
+        let session = BackupSession {
+            session_id: "20240115-140000".into(),
+            files: vec![],
+            expired: false,
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        // expired=false のとき JSON に含まれない（skip_serializing_if）
+        assert!(!json.contains("\"expired\""));
+    }
+
+    #[test]
+    fn test_rollback_output_empty_skipped_and_failed_omitted() {
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "dev".into(),
+                root: "/r".into(),
+            },
+            session_id: "20240115-140000".into(),
+            restored: vec![RollbackFileResult {
+                path: "a.rs".into(),
+                pre_rollback_backup: None,
+            }],
+            skipped: vec![],
+            failed: vec![],
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(!json.contains("\"skipped\""));
+        assert!(!json.contains("\"failed\""));
+        // pre_rollback_backup が None のときも省略
+        assert!(!json.contains("\"pre_rollback_backup\""));
     }
 }

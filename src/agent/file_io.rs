@@ -8,7 +8,9 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
-use crate::agent::protocol::{AgentFileStat, FileReadResult};
+use crate::agent::protocol::{
+    AgentBackupFile, AgentBackupSession, AgentFileStat, AgentRestoreFileResult, FileReadResult,
+};
 
 // ---------------------------------------------------------------------------
 // Path validation
@@ -199,6 +201,182 @@ pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<(
     std::os::unix::fs::symlink(target, &link_path)
         .with_context(|| format!("failed to create symlink: {}", link_path.display()))?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Backup session operations
+// ---------------------------------------------------------------------------
+
+/// バックアップセッション一覧を取得する。
+///
+/// `backup_dir` 内のタイムスタンプ形式ディレクトリを走査し、
+/// 各セッション内のファイル一覧を返す。新しい順（降順）にソート。
+pub fn list_backup_sessions(backup_dir: &Path) -> Result<Vec<AgentBackupSession>> {
+    if !backup_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut sessions = Vec::new();
+
+    let entries = fs::read_dir(backup_dir)
+        .with_context(|| format!("failed to read backup dir: {}", backup_dir.display()))?;
+
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if !file_type.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+
+        // タイムスタンプ形式のディレクトリ名のみ対象
+        if crate::backup::extract_timestamp(&name_str).is_none() {
+            continue;
+        }
+
+        let session_dir = entry.path();
+        let files = collect_session_files(&session_dir, &session_dir)?;
+
+        sessions.push(AgentBackupSession {
+            session_id: name_str.into_owned(),
+            files,
+        });
+    }
+
+    // 新しい順（降順）でソート
+    sessions.sort_by(|a, b| b.session_id.cmp(&a.session_id));
+
+    Ok(sessions)
+}
+
+/// セッションディレクトリ内のファイルを再帰的に収集する。
+fn collect_session_files(dir: &Path, session_root: &Path) -> Result<Vec<AgentBackupFile>> {
+    let mut files = Vec::new();
+
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("failed to read dir: {}", dir.display()))?;
+
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+
+        // symlink は無視（バックアップdir内の symlink はセキュリティリスク）
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        let path = entry.path();
+
+        if file_type.is_dir() {
+            files.extend(collect_session_files(&path, session_root)?);
+        } else if file_type.is_file() {
+            let rel = path
+                .strip_prefix(session_root)
+                .map_err(|_| anyhow::anyhow!("failed to strip prefix"))?;
+            let meta = fs::metadata(&path)
+                .with_context(|| format!("failed to stat: {}", path.display()))?;
+            files.push(AgentBackupFile {
+                path: rel.to_string_lossy().into_owned(),
+                size: meta.len(),
+            });
+        }
+    }
+
+    Ok(files)
+}
+
+/// バックアップからファイルを復元する。
+///
+/// `session_dir` 内のファイルを `root_dir` 配下にコピーする。
+/// パストラバーサル検証を行い、個別ファイルの失敗は記録して続行する。
+pub fn restore_backup(
+    backup_dir: &Path,
+    session_id: &str,
+    files: &[String],
+    root_dir: &Path,
+) -> Vec<AgentRestoreFileResult> {
+    // session_id のパストラバーサル検証
+    if session_id.contains("..") || session_id.contains('/') || session_id.contains('\\') {
+        return vec![AgentRestoreFileResult {
+            path: String::new(),
+            success: false,
+            error: Some(format!(
+                "invalid session_id (path traversal detected): {}",
+                session_id
+            )),
+        }];
+    }
+    // タイムスタンプ形式の検証
+    if crate::backup::extract_timestamp(session_id).is_none() {
+        return vec![AgentRestoreFileResult {
+            path: String::new(),
+            success: false,
+            error: Some(format!("invalid session_id format: {}", session_id)),
+        }];
+    }
+
+    let session_dir = backup_dir.join(session_id);
+
+    files
+        .iter()
+        .map(|rel_path| restore_single_file(&session_dir, rel_path, root_dir))
+        .collect()
+}
+
+/// 単一ファイルの復元を実行する。
+fn restore_single_file(
+    session_dir: &Path,
+    rel_path: &str,
+    root_dir: &Path,
+) -> AgentRestoreFileResult {
+    let make_error = |msg: String| AgentRestoreFileResult {
+        path: rel_path.to_string(),
+        success: false,
+        error: Some(msg),
+    };
+
+    // パストラバーサル検証（復元先）
+    let dest = match validate_path(root_dir, rel_path) {
+        Ok(p) => p,
+        Err(e) => return make_error(e.to_string()),
+    };
+
+    // パストラバーサル検証（バックアップ元）
+    let src = match validate_path(session_dir, rel_path) {
+        Ok(p) => p,
+        Err(e) => return make_error(e.to_string()),
+    };
+
+    // バックアップ元の存在確認
+    if !src.exists() {
+        return make_error(format!("backup file not found: {}", src.display()));
+    }
+
+    // 復元先ディレクトリの自動作成
+    if let Some(parent) = dest.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            return make_error(format!(
+                "failed to create directory {}: {e}",
+                parent.display()
+            ));
+        }
+    }
+
+    // コピー実行
+    match fs::copy(&src, &dest) {
+        Ok(_) => AgentRestoreFileResult {
+            path: rel_path.to_string(),
+            success: true,
+            error: None,
+        },
+        Err(e) => make_error(format!(
+            "failed to copy {} -> {}: {e}",
+            src.display(),
+            dest.display()
+        )),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -455,5 +633,167 @@ mod tests {
         // validate_path は .. を弾くので、create_backup のエラーを直接テスト
         let result = create_backup(tmp.path(), "../escape", &backup_dir);
         assert!(result.is_err());
+    }
+
+    // ── list_backup_sessions ──
+
+    #[test]
+    fn list_backup_sessions_returns_sessions() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+
+        // セッションディレクトリを作成
+        let s1 = backup_dir.join("20260311-100000");
+        let s2 = backup_dir.join("20260311-120000");
+        fs::create_dir_all(s1.join("sub")).unwrap();
+        fs::write(s1.join("a.txt"), "aaa").unwrap();
+        fs::write(s1.join("sub/b.txt"), "bbbbb").unwrap();
+        fs::create_dir_all(&s2).unwrap();
+        fs::write(s2.join("c.txt"), "cc").unwrap();
+
+        // 非タイムスタンプディレクトリは無視されるべき
+        fs::create_dir_all(backup_dir.join("not-a-session")).unwrap();
+
+        let sessions = list_backup_sessions(&backup_dir).unwrap();
+        assert_eq!(sessions.len(), 2);
+        // 新しい順
+        assert_eq!(sessions[0].session_id, "20260311-120000");
+        assert_eq!(sessions[1].session_id, "20260311-100000");
+        // ファイル一覧
+        assert_eq!(sessions[0].files.len(), 1);
+        assert_eq!(sessions[0].files[0].path, "c.txt");
+        assert_eq!(sessions[0].files[0].size, 2);
+        assert_eq!(sessions[1].files.len(), 2);
+    }
+
+    #[test]
+    fn list_backup_sessions_empty_dir() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&backup_dir).unwrap();
+        let sessions = list_backup_sessions(&backup_dir).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn list_backup_sessions_nonexistent_dir() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("no-such-dir");
+        let sessions = list_backup_sessions(&backup_dir).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    // ── restore_backup ──
+
+    #[test]
+    fn restore_backup_copies_files() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(session_dir.join("sub")).unwrap();
+        fs::write(session_dir.join("a.txt"), "restored-a").unwrap();
+        fs::write(session_dir.join("sub/b.txt"), "restored-b").unwrap();
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["a.txt".into(), "sub/b.txt".into()],
+            &root_dir,
+        );
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.success));
+        assert_eq!(
+            fs::read_to_string(root_dir.join("a.txt")).unwrap(),
+            "restored-a"
+        );
+        assert_eq!(
+            fs::read_to_string(root_dir.join("sub/b.txt")).unwrap(),
+            "restored-b"
+        );
+    }
+
+    #[test]
+    fn restore_backup_path_traversal_rejected() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(&session_dir).unwrap();
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["../etc/passwd".into()],
+            &root_dir,
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].success);
+        assert!(results[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("path traversal"));
+    }
+
+    #[test]
+    fn restore_backup_creates_parent_dirs() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(session_dir.join("deep/nested")).unwrap();
+        fs::write(session_dir.join("deep/nested/file.txt"), "deep").unwrap();
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["deep/nested/file.txt".into()],
+            &root_dir,
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        assert_eq!(
+            fs::read_to_string(root_dir.join("deep/nested/file.txt")).unwrap(),
+            "deep"
+        );
+    }
+
+    #[test]
+    fn restore_backup_partial_failure() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(session_dir.join("exists.txt"), "ok").unwrap();
+        // missing.txt は作成しない
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["exists.txt".into(), "missing.txt".into()],
+            &root_dir,
+        );
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].success);
+        assert!(!results[1].success);
+        assert!(results[1]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("backup file not found"));
     }
 }

@@ -45,6 +45,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     (state.right_source.clone(), state.left_source.clone())
                 }
             };
+            let symlink_session_id = crate::backup::backup_timestamp();
             let _ = super::symlink_merge::execute_symlink_merge(
                 state,
                 runtime,
@@ -53,6 +54,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 action,
                 &source_side,
                 &target_side,
+                &symlink_session_id,
             );
             return;
         }
@@ -66,6 +68,9 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
         state.status_message = format!("{}: binary file merge is not yet supported", path);
         return;
     }
+
+    // セッションIDを1度だけ生成
+    let session_id = crate::backup::backup_timestamp();
 
     match direction {
         MergeDirection::LeftToRight => {
@@ -83,7 +88,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             }
 
             if runtime.core.config.backup.enabled {
-                backup_right(state, runtime, &[path.to_string()]);
+                backup_right(state, runtime, &[path.to_string()], &session_id);
             }
 
             match write_right_file(state, runtime, path, &content) {
@@ -110,7 +115,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             };
 
             if runtime.core.config.backup.enabled {
-                backup_left(state, runtime, &[path.to_string()]);
+                backup_left(state, runtime, &[path.to_string()], &session_id);
             }
 
             match write_left_file(state, runtime, path, &content) {
@@ -137,14 +142,16 @@ pub fn execute_hunk_merge(
     direction: HunkDirection,
 ) {
     if let Some(path) = state.apply_hunk_merge(direction) {
+        let session_id = crate::backup::backup_timestamp();
+
         if runtime.core.config.backup.enabled {
             match direction {
                 HunkDirection::RightToLeft => {
-                    backup_left(state, runtime, std::slice::from_ref(&path));
+                    backup_left(state, runtime, std::slice::from_ref(&path), &session_id);
                 }
                 HunkDirection::LeftToRight => {
                     if runtime.is_side_available(&state.right_source) {
-                        backup_right(state, runtime, std::slice::from_ref(&path));
+                        backup_right(state, runtime, std::slice::from_ref(&path), &session_id);
                     }
                 }
             }
@@ -221,11 +228,12 @@ pub fn execute_hunk_merge(
 pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
     if let Some(path) = state.selected_path.clone() {
         let changes = state.undo_stack.len();
+        let session_id = crate::backup::backup_timestamp();
 
         if runtime.core.config.backup.enabled {
-            backup_left(state, runtime, std::slice::from_ref(&path));
+            backup_left(state, runtime, std::slice::from_ref(&path), &session_id);
             if runtime.is_side_available(&state.right_source) {
-                backup_right(state, runtime, std::slice::from_ref(&path));
+                backup_right(state, runtime, std::slice::from_ref(&path), &session_id);
             }
         }
 
