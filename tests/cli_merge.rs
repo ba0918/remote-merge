@@ -421,3 +421,149 @@ fn test_merge_r2r_with_dry_run_skips_guard() {
         stdout
     );
 }
+
+/// merge 後のバックアップがセッションディレクトリ構造に従っていることを確認
+#[test]
+#[ignore]
+fn test_merge_backup_session_directory_structure() {
+    let env = CliEnv::new(
+        &[("sub/file.txt", "local content\n")],
+        &[("sub/file.txt", "remote content\n")],
+    );
+
+    let output = env
+        .cmd_with("merge")
+        .args([
+            "sub/file.txt",
+            "--left",
+            "local",
+            "--right",
+            "develop",
+            "--force",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert_exit_success(&output);
+
+    // .remote-merge-backup/ ディレクトリが存在することを確認
+    let backup_dir = env.remote_dir.join(".remote-merge-backup");
+    assert!(
+        backup_dir.exists(),
+        "Backup directory should exist at {:?}",
+        backup_dir
+    );
+
+    // セッションディレクトリが YYYYMMDD-HHMMSS 形式（15文字）であることを確認
+    let session_entries: Vec<_> = fs::read_dir(&backup_dir)
+        .expect("failed to read backup dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .collect();
+    assert_eq!(
+        session_entries.len(),
+        1,
+        "Expected exactly 1 session directory, found {}",
+        session_entries.len()
+    );
+
+    let session_name = session_entries[0].file_name();
+    let session_name_str = session_name.to_string_lossy();
+    assert_eq!(
+        session_name_str.len(),
+        15,
+        "Session directory name should be 15 chars (YYYYMMDD-HHMMSS), got '{}' ({})",
+        session_name_str,
+        session_name_str.len()
+    );
+    assert!(
+        session_name_str
+            .chars()
+            .enumerate()
+            .all(|(i, c)| if i == 8 { c == '-' } else { c.is_ascii_digit() }),
+        "Session directory should match YYYYMMDD-HHMMSS format, got '{}'",
+        session_name_str
+    );
+
+    // セッションディレクトリ内にバックアップファイルが相対パスで存在することを確認
+    let backup_file = session_entries[0].path().join("sub/file.txt");
+    assert!(
+        backup_file.exists(),
+        "Backup file should exist at {:?}",
+        backup_file
+    );
+
+    // バックアップファイルがマージ前のリモート内容を保持していることを確認
+    let backup_content = fs::read_to_string(&backup_file).unwrap();
+    assert_eq!(
+        backup_content, "remote content\n",
+        "Backup should contain original remote content"
+    );
+}
+
+/// 複数ファイルのマージで全バックアップが同一セッションディレクトリに格納されることを確認
+#[test]
+#[ignore]
+fn test_merge_multiple_files_same_session() {
+    let env = CliEnv::new(
+        &[("a.txt", "aaa local\n"), ("b.txt", "bbb local\n")],
+        &[("a.txt", "aaa remote\n"), ("b.txt", "bbb remote\n")],
+    );
+
+    let output = env
+        .cmd_with("merge")
+        .args([
+            "a.txt", "b.txt", "--left", "local", "--right", "develop", "--force",
+        ])
+        .output()
+        .expect("failed to execute");
+
+    assert_exit_success(&output);
+
+    let backup_dir = env.remote_dir.join(".remote-merge-backup");
+    assert!(
+        backup_dir.exists(),
+        "Backup directory should exist at {:?}",
+        backup_dir
+    );
+
+    // セッションディレクトリが1つだけ存在することを確認
+    let session_entries: Vec<_> = fs::read_dir(&backup_dir)
+        .expect("failed to read backup dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .collect();
+    assert_eq!(
+        session_entries.len(),
+        1,
+        "All backups should be under the same session directory, found {} session dirs",
+        session_entries.len()
+    );
+
+    let session_path = session_entries[0].path();
+
+    // 各バックアップファイルが存在し、元のリモート内容を保持していることを確認
+    let backup_a = session_path.join("a.txt");
+    let backup_b = session_path.join("b.txt");
+    assert!(
+        backup_a.exists(),
+        "Backup for a.txt should exist at {:?}",
+        backup_a
+    );
+    assert!(
+        backup_b.exists(),
+        "Backup for b.txt should exist at {:?}",
+        backup_b
+    );
+
+    let content_a = fs::read_to_string(&backup_a).unwrap();
+    let content_b = fs::read_to_string(&backup_b).unwrap();
+    assert_eq!(
+        content_a, "aaa remote\n",
+        "Backup of a.txt should contain original remote content"
+    );
+    assert_eq!(
+        content_b, "bbb remote\n",
+        "Backup of b.txt should contain original remote content"
+    );
+}

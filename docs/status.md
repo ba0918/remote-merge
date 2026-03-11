@@ -1,10 +1,26 @@
 # Project Status
 
-**Last Updated:** 2026-03-11 00:48:29
+**Last Updated:** 2026-03-11
 
 ---
 
 ## 🎯 Current Session
+
+### 20260311144819 - バックアップ・ロールバック E2E テスト充実化
+- **Started:** 2026-03-11 14:48:19
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311144819_backup-rollback-e2e-tests.md)
+
+---
+
+### 20260311124242 - rollback CLIサブコマンド
+- **Started:** 2026-03-11 12:42:42
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260311124242_rollback-cli-subcommand.md)
+- **Summary:** バックアップ構造をセッションディレクトリ方式に変更（フラットファイル → session_id/rel_path）。rollback CLIサブコマンド（--list/--dry-run/--force/--session/--format）。service/rollback.rs 純粋関数（mark_expired/plan_restore/rollback_exit_code）。Agent プロトコル v2（ListBackups/RestoreBackup）。セキュリティ: shell_escape/パストラバーサル防御/session_id 検証。1476テスト通過、clippy警告ゼロ。
+
+---
 
 ### 20260311004829 - Merge Scan Agent 統合（SSH exec 1200回 → 3回）
 - **Started:** 2026-03-11 00:48:29
@@ -522,7 +538,7 @@
 |------------|------|------|
 | **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
 | **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | ⚪ Pending |
-| **5-3** | rollback CLIサブコマンド | ⚪ Pending |
+| **5-3** | rollback CLIサブコマンド | 🟢 Done |
 | **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
 | **5-5** | --delete オプション（完全同期） | ⚪ Pending |
 
