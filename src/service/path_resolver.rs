@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::service::types::{FileStatus, FileStatusKind};
+use crate::service::types::{FileStatus, FileStatusKind, MergeSkipped};
 use crate::tree::{FileNode, FileTree};
 
 /// パスリストに `"."` や `"./"` などのルートマーカーが含まれているかを判定する。
@@ -200,6 +200,46 @@ pub fn filter_changed_files(target_files: &[String], statuses: &[FileStatus]) ->
         .filter(|path| !matches!(status_map.get(path.as_str()), Some(FileStatusKind::Equal)))
         .cloned()
         .collect()
+}
+
+/// merge 対象のファイルを選別する。
+///
+/// Equal ファイルは無条件に除外する。
+/// RightOnly ファイルは merge 対象から除外し、`delete=false` 時のみ skipped に記録する。
+/// `delete=true` 時は `plan_deletions()` で別途処理されるため skipped にも含めない。
+/// statuses に存在しないパスは merge 対象に含める（上流で検証済みの前提）。
+///
+/// 戻り値: (merge対象ファイル, RightOnlyスキップ情報)
+pub fn filter_merge_candidates(
+    target_files: &[String],
+    statuses: &[FileStatus],
+    delete: bool,
+) -> (Vec<String>, Vec<MergeSkipped>) {
+    let status_map: std::collections::HashMap<&str, &FileStatusKind> = statuses
+        .iter()
+        .map(|s| (s.path.as_str(), &s.status))
+        .collect();
+
+    let mut merge_files = Vec::new();
+    let mut skipped = Vec::new();
+
+    for path in target_files {
+        match status_map.get(path.as_str()) {
+            Some(FileStatusKind::Equal) => continue,
+            Some(FileStatusKind::RightOnly) => {
+                if !delete {
+                    skipped.push(MergeSkipped {
+                        path: path.clone(),
+                        reason: "right-only file (use --delete to remove)".into(),
+                    });
+                }
+                // --delete あり → plan_deletions() で処理するのでここでは何もしない
+            }
+            _ => merge_files.push(path.clone()),
+        }
+    }
+
+    (merge_files, skipped)
 }
 
 #[cfg(test)]
@@ -706,5 +746,72 @@ mod tests {
         let result =
             resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
         assert_eq!(result, vec!["config.toml", "src/main.rs"]);
+    }
+
+    // ── filter_merge_candidates tests ──
+
+    #[test]
+    fn filter_merge_candidates_excludes_equal_and_right_only() {
+        let targets = vec![
+            "a.txt".into(),
+            "b.txt".into(),
+            "c.txt".into(),
+            "d.txt".into(),
+        ];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("b.txt", FileStatusKind::Equal),
+            make_status("c.txt", FileStatusKind::LeftOnly),
+            make_status("d.txt", FileStatusKind::RightOnly),
+        ];
+        let (merge_files, skipped) = filter_merge_candidates(&targets, &statuses, false);
+        assert_eq!(merge_files, vec!["a.txt", "c.txt"]);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].path, "d.txt");
+        assert!(skipped[0].reason.contains("right-only"));
+    }
+
+    #[test]
+    fn filter_merge_candidates_delete_true_no_skipped() {
+        let targets = vec!["a.txt".into(), "b.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("b.txt", FileStatusKind::RightOnly),
+        ];
+        let (merge_files, skipped) = filter_merge_candidates(&targets, &statuses, true);
+        assert_eq!(merge_files, vec!["a.txt"]);
+        assert!(
+            skipped.is_empty(),
+            "delete=true should not add RightOnly to skipped"
+        );
+    }
+
+    #[test]
+    fn filter_merge_candidates_equal_excluded() {
+        let targets = vec!["a.txt".into()];
+        let statuses = vec![make_status("a.txt", FileStatusKind::Equal)];
+        let (merge_files, skipped) = filter_merge_candidates(&targets, &statuses, false);
+        assert!(merge_files.is_empty());
+        assert!(
+            skipped.is_empty(),
+            "Equal files should not appear in skipped"
+        );
+    }
+
+    #[test]
+    fn filter_merge_candidates_empty_input() {
+        let (merge_files, skipped) = filter_merge_candidates(&[], &[], false);
+        assert!(merge_files.is_empty());
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn filter_merge_candidates_unknown_path_included() {
+        // statuses に存在しないパスは merge 対象に含まれる（filter_changed_files と同じ挙動）
+        let targets = vec!["unknown.txt".into()];
+        let statuses = vec![];
+        let (merge_files, skipped) = filter_merge_candidates(&targets, &statuses, false);
+        assert_eq!(merge_files, vec!["unknown.txt"]);
+        assert!(skipped.is_empty());
     }
 }

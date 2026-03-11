@@ -6,6 +6,14 @@
 
 ## 🎯 Current Session
 
+### 20260311193028 - merge dry-run の RightOnly ファイル処理修正
+- **Started:** 2026-03-11 19:30:28
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311193028_fix-merge-dryrun-rightonly-handling.md)
+- **Focus:** QA テスト（67パターン）で発見した dry-run 不整合2件を修正。RightOnly ファイルの merge/delete 処理を一貫させる。
+
+---
+
 ### 20260311181905 - CLI QA テスト結果に基づく改善
 - **Started:** 2026-03-11 18:19:05
 - **Status:** 🟢 Completed

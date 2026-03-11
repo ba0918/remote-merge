@@ -12,7 +12,7 @@ use crate::runtime::CoreRuntime;
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
-use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
+use crate::service::path_resolver::{filter_merge_candidates, resolve_target_files_from_statuses};
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
     compute_status_from_trees, needs_content_compare, refine_status_with_content,
@@ -57,6 +57,7 @@ struct ServerPlan {
     plan: MergePlan,
     delete_targets: Vec<String>,
     delete_skipped: Vec<MergeSkipped>,
+    right_only_skipped: Vec<MergeSkipped>,
     target_info: SourceInfo,
 }
 
@@ -138,19 +139,9 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
         // パス解決 + 差分フィルタ
         let resolved_paths =
             resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
-        let diff_files: Vec<String> = if args.delete {
-            // --delete 指定時、RightOnly ファイルは削除パスで処理するため merge 対象から除外
-            filter_changed_files(&resolved_paths, &statuses)
-                .into_iter()
-                .filter(|path| {
-                    !statuses
-                        .iter()
-                        .any(|s| s.path == *path && s.status == FileStatusKind::RightOnly)
-                })
-                .collect()
-        } else {
-            filter_changed_files(&resolved_paths, &statuses)
-        };
+        // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
+        let (diff_files, right_only_skipped) =
+            filter_merge_candidates(&resolved_paths, &statuses, args.delete);
 
         // マージ計画（センシティブファイルのフィルタリング）
         let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
@@ -175,6 +166,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
             plan,
             delete_targets,
             delete_skipped,
+            right_only_skipped,
             target_info,
         });
     }
@@ -189,6 +181,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
             .iter()
             .map(|sp| {
                 let mut skipped = sp.plan.skipped.clone();
+                skipped.extend(sp.right_only_skipped.clone());
                 skipped.extend(sp.delete_skipped.clone());
                 SyncTargetResult {
                     target: sp.target_info.clone(),
@@ -290,6 +283,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
         failed.extend(delete_failures);
 
         let mut skipped = sp.plan.skipped.clone();
+        skipped.extend(sp.right_only_skipped.clone());
         skipped.extend(sp.delete_skipped.clone());
 
         let mut result = SyncTargetResult {
@@ -368,6 +362,7 @@ fn build_dry_run_targets(
                 .collect();
 
             let mut skipped = sp.plan.skipped.clone();
+            skipped.extend(sp.right_only_skipped.clone());
             skipped.extend(sp.delete_skipped.clone());
 
             SyncTargetResult {
@@ -520,6 +515,7 @@ mod tests {
             plan,
             delete_targets: vec![],
             delete_skipped: vec![],
+            right_only_skipped: vec![],
             target_info: SourceInfo {
                 label: "develop".into(),
                 root: "/var/www".into(),
@@ -575,6 +571,7 @@ mod tests {
                 path: ".env".into(),
                 reason: "sensitive file (use --force to include)".into(),
             }],
+            right_only_skipped: vec![],
             target_info: SourceInfo {
                 label: "develop".into(),
                 root: "/var/www".into(),
@@ -616,6 +613,7 @@ mod tests {
             plan,
             delete_targets: vec!["old.rs".into()],
             delete_skipped: vec![],
+            right_only_skipped: vec![],
             target_info: SourceInfo {
                 label: "develop".into(),
                 root: "/var/www".into(),

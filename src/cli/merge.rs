@@ -13,7 +13,7 @@ use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
 };
-use crate::service::path_resolver::{filter_changed_files, resolve_target_files_from_statuses};
+use crate::service::path_resolver::{filter_merge_candidates, resolve_target_files_from_statuses};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
@@ -110,33 +110,14 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
-    let diff_files = if args.delete {
-        // --delete 指定時、RightOnly ファイルは削除パスで処理するため merge 対象から除外
-        filter_changed_files(&resolved_paths, &statuses)
-            .into_iter()
-            .filter(|path| {
-                !statuses
-                    .iter()
-                    .any(|s| s.path == *path && s.status == FileStatusKind::RightOnly)
-            })
-            .collect()
-    } else {
-        filter_changed_files(&resolved_paths, &statuses)
-    };
+    // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
+    let (diff_files, right_only_skipped) =
+        filter_merge_candidates(&resolved_paths, &statuses, args.delete);
 
-    if diff_files.is_empty() {
-        let outcome = MergeOutcome::NoFilesToMerge;
-        match format {
-            OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
-            OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
-        }
-        core.disconnect_all();
-        return Ok(crate::service::types::exit_code::SUCCESS);
-    }
-
+    // マージ計画（センシティブファイルのフィルタリング）
     let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
-    // --delete: RightOnly ファイルの削除計画
+    // BUG 2 fix: plan_deletions を早期リターンの前に実行
     let (delete_targets, delete_skipped) = if args.delete {
         plan_deletions(
             &statuses,
@@ -148,9 +129,30 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
         (vec![], vec![])
     };
 
-    // merge と delete のスキップを統合
+    // merge と delete のスキップを統合（right_only_skipped を含む）
     let mut all_skipped = plan.skipped;
+    all_skipped.extend(right_only_skipped);
     all_skipped.extend(delete_skipped);
+
+    // BUG 2 fix: merge も delete も何もない場合のみ早期リターン
+    if diff_files.is_empty() && delete_targets.is_empty() {
+        if all_skipped.is_empty() {
+            let outcome = MergeOutcome::NoFilesToMerge;
+            match format {
+                OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
+                OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
+            }
+        } else {
+            // RightOnly スキップなど、スキップ理由を含む出力
+            let output = build_merge_output(vec![], all_skipped, vec![], vec![], None);
+            match format {
+                OutputFormat::Text => println!("{}", format_merge_text(&output)),
+                OutputFormat::Json => println!("{}", format_json(&output)?),
+            }
+        }
+        core.disconnect_all();
+        return Ok(crate::service::types::exit_code::SUCCESS);
+    }
 
     // スキップされたセンシティブファイル数を表示（text 形式のみ。JSON は出力自体に含まれる）
     if !all_skipped.is_empty() && !args.force && format == OutputFormat::Text {
@@ -291,7 +293,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 mod tests {
     use super::*;
     use crate::service::merge_flow::check_source_exists;
-    use crate::service::path_resolver::filter_changed_files;
+    use crate::service::path_resolver::{filter_changed_files, filter_merge_candidates};
 
     fn make_args(left: Option<&str>, right: Option<&str>) -> MergeArgs {
         MergeArgs {
@@ -684,5 +686,152 @@ mod tests {
         let (targets, skipped) = plan_deletions(&statuses, &resolved, &patterns, true);
         assert_eq!(targets, vec![".env"]);
         assert!(skipped.is_empty());
+    }
+
+    // ── filter_merge_candidates integration tests ──
+
+    #[test]
+    fn test_merge_candidates_right_only_skipped_without_delete() {
+        let resolved = vec!["modified.rs".to_string(), "right_only.rs".to_string()];
+        let statuses = vec![
+            FileStatus {
+                path: "modified.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "right_only.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let (merge_files, skipped) = filter_merge_candidates(&resolved, &statuses, false);
+        assert_eq!(merge_files, vec!["modified.rs"]);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].path, "right_only.rs");
+        assert!(skipped[0].reason.contains("right-only"));
+    }
+
+    #[test]
+    fn test_merge_candidates_right_only_not_skipped_with_delete() {
+        let resolved = vec!["modified.rs".to_string(), "right_only.rs".to_string()];
+        let statuses = vec![
+            FileStatus {
+                path: "modified.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "right_only.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let (merge_files, skipped) = filter_merge_candidates(&resolved, &statuses, true);
+        assert_eq!(merge_files, vec!["modified.rs"]);
+        assert!(
+            skipped.is_empty(),
+            "delete=true should not produce skipped for RightOnly"
+        );
+    }
+
+    #[test]
+    fn test_bug2_right_only_delete_triggers_plan_deletions() {
+        // BUG 2 scenario: RightOnly ファイル + --delete → 削除対象あり
+        // filter_merge_candidates で diff_files=[], plan_deletions で delete_targets=[...]
+        // → 早期リターンせず削除が実行される
+        use crate::service::sync::plan_deletions;
+
+        let statuses = vec![FileStatus {
+            path: "remote_only.rs".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let resolved = vec!["remote_only.rs".into()];
+
+        // Step 1: filter_merge_candidates で merge 対象から除外される
+        let (diff_files, skipped) = filter_merge_candidates(&resolved, &statuses, true);
+        assert!(
+            diff_files.is_empty(),
+            "RightOnly should not be in merge files"
+        );
+        assert!(skipped.is_empty(), "delete=true should not produce skipped");
+
+        // Step 2: plan_deletions で削除対象に含まれる
+        let (delete_targets, _delete_skipped) = plan_deletions(&statuses, &resolved, &[], false);
+        assert_eq!(delete_targets, vec!["remote_only.rs"]);
+
+        // Step 3: 早期リターン条件 — diff_files は空だが delete_targets は空でない
+        let should_early_return = diff_files.is_empty() && delete_targets.is_empty();
+        assert!(
+            !should_early_return,
+            "BUG 2: early return must NOT trigger when delete_targets exist"
+        );
+    }
+
+    #[test]
+    fn test_right_only_without_delete_exit_success() {
+        // RightOnly のみ merge（--delete なし）→ exit 0（スキップ）
+
+        let statuses = vec![FileStatus {
+            path: "remote_only.rs".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let resolved = vec!["remote_only.rs".into()];
+
+        let (diff_files, right_only_skipped) = filter_merge_candidates(&resolved, &statuses, false);
+        assert!(diff_files.is_empty());
+        assert_eq!(right_only_skipped.len(), 1);
+
+        // diff_files も delete_targets も空 → 早期リターンで exit 0
+        let delete_targets: Vec<String> = vec![];
+        assert!(diff_files.is_empty() && delete_targets.is_empty());
+        // exit code は SUCCESS (0)
+        assert_eq!(crate::service::types::exit_code::SUCCESS, 0);
+    }
+
+    #[test]
+    fn test_right_only_plus_modified_merge_candidates() {
+        // RightOnly + Modified → Modified のみ merge 対象
+        let statuses = vec![
+            FileStatus {
+                path: "modified.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "remote_only.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let resolved = vec!["modified.rs".into(), "remote_only.rs".into()];
+
+        let (diff_files, skipped) = filter_merge_candidates(&resolved, &statuses, false);
+        assert_eq!(diff_files, vec!["modified.rs"]);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].path, "remote_only.rs");
+
+        // Modified がある → diff_files は空でない → 早期リターンしない
+        let delete_targets: Vec<String> = vec![];
+        let should_early_return = diff_files.is_empty() && delete_targets.is_empty();
+        assert!(!should_early_return);
     }
 }
