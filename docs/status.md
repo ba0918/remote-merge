@@ -6,6 +6,15 @@
 
 ## 🎯 Current Session
 
+### 20260311225740 - パフォーマンスチューニング
+- **Started:** 2026-03-11 22:57:40
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
+- **Plan:** [Link](./cycles/20260311225740_performance-tuning.md)
+- **Summary:** Agent デプロイ SSH 6→2 exec、SSH フォールバック ツリー展開 D→1回、コンテンツ読み込み N→バッチ（batch_read共通ヘルパー）、rollback N→ceil(N/1000) exec、セッション一覧 N+1→1回。純粋関数8つ追加、+33テスト（1766テスト通過）、clippy警告ゼロ。
+
+---
+
 ### 20260311212707 - テストカバレッジ向上（78% → 85%）
 - **Started:** 2026-03-11 21:27:07
 - **Completed:** 2026-03-11

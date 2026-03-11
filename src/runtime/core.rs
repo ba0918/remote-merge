@@ -191,35 +191,21 @@ impl CoreRuntime {
 
     /// リモートサーバにエージェントバイナリをデプロイする（atomic write 方式）。
     ///
-    /// `.tmp` パスに書き込み → チェックサム照合 → バージョン検証 → `mv` でアトミックリネーム。
-    /// 検証失敗時は `.tmp` を削除し、本番バイナリは無傷のまま。
+    /// 2 exec + 1 write の3ステップで実行する:
+    /// 1. `build_pre_write_command`: mkdir + symlink チェックを1 exec で実施
+    /// 2. `write_file_bytes`: .tmp パスにバイナリ書き込み
+    /// 3. `build_post_write_script`: chmod + checksum + version + mv を1 exec で実施
     ///
-    /// `&mut self.ssh_clients` と `&self.rt` を同時に借用できないため、各ステップで
-    /// 一時的に借用を解放する必要がある。
+    /// 検証失敗時はスクリプト内で `.tmp` を削除し、本番バイナリは無傷のまま。
     #[cfg(unix)]
     fn deploy_agent_binary(
         &mut self,
         server_name: &str,
         remote_path: &std::path::Path,
     ) -> anyhow::Result<()> {
-        let cmds = deploy::build_deploy_commands(remote_path);
+        let tmp_path = format!("{}.tmp", remote_path.display());
 
-        // ディレクトリ作成
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        self.rt.block_on(ssh_client.exec(&cmds.mkdir_cmd))?;
-
-        // シンボリックリンクチェック（セキュリティ対策）
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        let symlink_output = self.rt.block_on(ssh_client.exec(&cmds.symlink_check_cmd))?;
-        if !symlink_output.contains("OK") {
-            anyhow::bail!(
-                "Security check failed: {} is a symlink on {}",
-                remote_path.display(),
-                server_name
-            );
-        }
-
-        // ローカルバイナリ読み込み
+        // ローカルバイナリ読み込み（I/O先行）
         let local_path = deploy::local_binary_path()?;
         let metadata = std::fs::metadata(&local_path)?;
         if deploy::is_debug_binary(metadata.len()) {
@@ -228,7 +214,6 @@ impl CoreRuntime {
                 metadata.len() as f64 / (1024.0 * 1024.0)
             );
         }
-
         tracing::info!(
             "Deploying agent binary: {} -> {}:{} (via atomic write)",
             local_path.display(),
@@ -238,64 +223,41 @@ impl CoreRuntime {
         let binary_bytes = std::fs::read(&local_path)?;
         let local_hash = deploy::sha256_of_bytes(&binary_bytes);
 
-        // .tmp パスに書き込み（atomic write の第1段階）
+        // Step 1: mkdir + symlink チェック（1 exec）
+        let pre_cmd = deploy::build_pre_write_command(remote_path);
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        self.rt
-            .block_on(ssh_client.write_file_bytes(&cmds.tmp_path, &binary_bytes))?;
-
-        // .tmp に実行権限を付与
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        self.rt.block_on(ssh_client.exec(&cmds.chmod_cmd))?;
-
-        // リモート SHA-256 照合
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        let checksum_output = self.rt.block_on(ssh_client.exec(&cmds.checksum_cmd))?;
-        if let Some(remote_hash) = deploy::parse_checksum_output(&checksum_output) {
-            if !deploy::verify_checksum(&local_hash, &remote_hash) {
-                // チェックサム不一致 → .tmp をクリーンアップ
-                let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-                if let Err(e) = self.rt.block_on(ssh_client.exec(&cmds.rm_tmp_cmd)) {
-                    tracing::warn!("Failed to clean up {}: {}", cmds.tmp_path, e);
-                }
+        let pre_output = self.rt.block_on(ssh_client.exec(&pre_cmd))?;
+        if !pre_output.contains("OK") {
+            // fail-closed: "OK" を含まない出力は全て拒否する（SYMLINK、空出力、エラーメッセージ等）
+            if pre_output.contains("SYMLINK") {
                 anyhow::bail!(
-                    "Checksum mismatch after transfer: local={}, remote={}, server={}",
-                    local_hash,
-                    remote_hash,
+                    "Security check failed: {} is a symlink on {}",
+                    remote_path.display(),
                     server_name
                 );
             }
-            tracing::info!("Checksum verified: {}", &local_hash[..12]);
-        } else {
-            tracing::warn!(
-                "Checksum verification not available on {}; skipping",
+            anyhow::bail!(
+                "Pre-write check failed: unexpected output '{}' for {} on {}",
+                pre_output.trim(),
+                remote_path.display(),
                 server_name
             );
         }
 
-        // .tmp に対してバージョン検証（mv 前に実行）
-        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        let verify_output = self.rt.block_on(ssh_client.exec(&cmds.verify_cmd))?;
-        if deploy::parse_version_output(&verify_output) != VersionCheck::Match {
-            // verify 失敗 → .tmp をクリーンアップ
-            let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-            if let Err(e) = self.rt.block_on(ssh_client.exec(&cmds.rm_tmp_cmd)) {
-                tracing::warn!("Failed to clean up {}: {}", cmds.tmp_path, e);
-            }
-            anyhow::bail!(
-                "Agent deploy verification failed: server={}, output={}",
-                server_name,
-                verify_output.trim()
-            );
-        }
-
-        // Atomic rename: .tmp → 本番パス
+        // Step 2: .tmp パスに書き込み
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
-            .block_on(ssh_client.exec_strict(&cmds.mv_cmd))
+            .block_on(ssh_client.write_file_bytes(&tmp_path, &binary_bytes))?;
+
+        // Step 3: chmod + checksum + version + mv（1 exec）
+        let post_script = deploy::build_post_write_script(remote_path, &tmp_path, &local_hash);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        self.rt
+            .block_on(ssh_client.exec_strict(&post_script))
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "Atomic rename failed: {} -> {}: {}",
-                    cmds.tmp_path,
+                    "Agent deploy post-write script failed: server={}, path={}, error={}",
+                    server_name,
                     remote_path.display(),
                     e
                 )

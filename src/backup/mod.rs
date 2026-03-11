@@ -200,6 +200,93 @@ pub struct LocalBackupSession {
     pub files: Vec<String>,
 }
 
+/// リモートバックアップセッション（1回の find で全セッション分を取得）
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteBackupSession {
+    pub session_id: String,
+    pub files: Vec<RemoteBackupEntry>,
+}
+
+/// リモートバックアップエントリ（セッション内の1ファイル）
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteBackupEntry {
+    pub rel_path: String,
+    pub size: u64,
+}
+
+/// `find -mindepth 2 -type f -printf '%P\t%s\n'` 出力を全セッション分まとめてパースする（純粋関数）。
+///
+/// 行フォーマット: `session_id/rel_path\tsize`
+/// 例: `20240115-140000/src/a.ts\t1234`
+///
+/// - session_id のバリデーション: `extract_timestamp()` で検証。不正な session_id の行はスキップ
+/// - パストラバーサル防御: `..` を含む行はスキップ
+/// - サイズが不正な行はスキップ
+/// - 結果は session_id の降順ソート
+/// - 各セッション内のファイルリストは `RemoteBackupEntry` として構築
+pub fn parse_all_backup_entries(find_output: &str) -> Vec<RemoteBackupSession> {
+    use std::collections::BTreeMap;
+
+    // session_id → entries のマップ（挿入順保持のため BTreeMap で後からソート）
+    let mut map: BTreeMap<String, Vec<RemoteBackupEntry>> = BTreeMap::new();
+
+    for line in find_output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // タブでパス部分とサイズに分割
+        let (path_part, size_str) = match line.split_once('\t') {
+            Some(pair) => pair,
+            None => continue,
+        };
+
+        // サイズパース（不正な値はスキップ）
+        let size = match size_str.trim().parse::<u64>() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // パス部分を session_id と rel_path に分割（最初の '/' で分割）
+        let (session_id, rel_path) = match path_part.split_once('/') {
+            Some(pair) => pair,
+            None => continue,
+        };
+
+        // session_id バリデーション
+        if extract_timestamp(session_id).is_none() {
+            continue;
+        }
+
+        // パストラバーサル防御（rel_path に `..` コンポーネントが含まれる場合はスキップ）
+        let has_traversal = std::path::Path::new(rel_path)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir));
+        if has_traversal {
+            tracing::warn!("Skipping backup entry with path traversal: {:?}", rel_path);
+            continue;
+        }
+
+        // セッションのエントリリストに追加
+        map.entry(session_id.to_string())
+            .or_default()
+            .push(RemoteBackupEntry {
+                rel_path: rel_path.to_string(),
+                size,
+            });
+    }
+
+    // session_id 降順ソート（新しいセッションが先頭）
+    let mut sessions: Vec<RemoteBackupSession> = map
+        .into_iter()
+        .map(|(session_id, files)| RemoteBackupSession { session_id, files })
+        .collect();
+    sessions.sort_by(|a, b| b.session_id.cmp(&a.session_id));
+
+    sessions
+}
+
 /// ローカルバックアップのセッション一覧を取得する（タイムスタンプ降順）。
 ///
 /// ディレクトリ不在時は空 Vec。
@@ -510,6 +597,95 @@ mod tests {
 
         let sessions = list_local_sessions(&backup_dir).unwrap();
         assert!(sessions.is_empty());
+    }
+
+    // ── parse_all_backup_entries ──
+
+    #[test]
+    fn test_parse_all_backup_entries_multiple_sessions() {
+        let output = "20240116-100000/src/a.ts\t1234\n\
+                      20240116-100000/src/b.ts\t5678\n\
+                      20240115-140000/config.ts\t999\n";
+        let sessions = parse_all_backup_entries(output);
+        // 降順ソート: 20240116 が先
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].session_id, "20240116-100000");
+        assert_eq!(sessions[0].files.len(), 2);
+        assert_eq!(sessions[1].session_id, "20240115-140000");
+        assert_eq!(sessions[1].files.len(), 1);
+        assert_eq!(sessions[1].files[0].rel_path, "config.ts");
+        assert_eq!(sessions[1].files[0].size, 999);
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_empty_output() {
+        assert!(parse_all_backup_entries("").is_empty());
+        assert!(parse_all_backup_entries("   \n  \n  ").is_empty());
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_rejects_path_traversal() {
+        // rel_path に `..` コンポーネントが含まれる行はスキップ
+        let output = "20240115-140000/../etc/passwd\t100\n\
+                      20240115-140000/src/safe.ts\t200\n";
+        let sessions = parse_all_backup_entries(output);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].files.len(), 1);
+        assert_eq!(sessions[0].files[0].rel_path, "src/safe.ts");
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_rejects_invalid_session_id() {
+        // タイムスタンプ形式でない session_id はスキップ
+        let output = "not-a-timestamp/file.ts\t100\n\
+                      20240115-140000/valid.ts\t200\n";
+        let sessions = parse_all_backup_entries(output);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "20240115-140000");
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_all_filtered_yields_empty_session() {
+        // session のファイルが全てフィルタされた場合、そのセッション自体が除外される
+        let output = "20240115-140000/../etc/passwd\t100\n\
+                      20240115-140000/../../etc/shadow\t200\n";
+        let sessions = parse_all_backup_entries(output);
+        // 全ファイルがフィルタされたので session 自体が生成されない
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_descending_order() {
+        let output = "20240101-000000/a.ts\t1\n\
+                      20240120-120000/b.ts\t2\n\
+                      20240110-080000/c.ts\t3\n";
+        let sessions = parse_all_backup_entries(output);
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions[0].session_id, "20240120-120000");
+        assert_eq!(sessions[1].session_id, "20240110-080000");
+        assert_eq!(sessions[2].session_id, "20240101-000000");
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_invalid_size_skipped() {
+        // サイズが不正な行はスキップ（エントリごとスキップ）
+        let output = "20240115-140000/bad.ts\tnot-a-number\n\
+                      20240115-140000/good.ts\t500\n";
+        let sessions = parse_all_backup_entries(output);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].files.len(), 1);
+        assert_eq!(sessions[0].files[0].rel_path, "good.ts");
+        assert_eq!(sessions[0].files[0].size, 500);
+    }
+
+    #[test]
+    fn test_parse_all_backup_entries_no_slash_in_path_skipped() {
+        // session_id/rel_path の形式でない行（スラッシュなし）はスキップ
+        let output = "no-slash-at-all\t100\n\
+                      20240115-140000/valid.ts\t200\n";
+        let sessions = parse_all_backup_entries(output);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].files.len(), 1);
     }
 
     #[test]

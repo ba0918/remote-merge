@@ -199,6 +199,58 @@ pub fn build_deploy_commands(remote_path: &Path) -> DeployCommands {
     }
 }
 
+/// `.tmp` 書き込み前に実行する1つの複合コマンドを生成する。
+///
+/// mkdir -p と symlink チェックを1コマンドに結合する。
+/// symlink が検出された場合は `SYMLINK`、問題なければ `OK` を出力する。
+pub fn build_pre_write_command(remote_path: &Path) -> String {
+    let parent = remote_path.parent().unwrap_or(Path::new("/"));
+    let escaped_parent = shell_escape(&parent.to_string_lossy());
+    let escaped = shell_escape(&remote_path.to_string_lossy());
+    format!("mkdir -p {escaped_parent} && (test -L {escaped} && echo SYMLINK || echo OK)")
+}
+
+/// `.tmp` 書き込み後に実行する1つの複合スクリプトを生成する。
+///
+/// chmod 700 + checksum 検証 + version 検証 + atomic mv を1スクリプトに結合する。
+/// - sha256sum 不在時は graceful degradation（checksum スキップ）
+/// - 失敗時は .tmp を削除して非ゼロ exit
+pub fn build_post_write_script(remote_path: &Path, tmp_path: &str, local_hash: &str) -> String {
+    // 防御的バリデーション: local_hash は 64文字の hex でなければならない
+    assert!(
+        local_hash.len() == 64 && local_hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "local_hash must be a 64-character hex string, got: {}",
+        local_hash,
+    );
+
+    let escaped = shell_escape(&remote_path.to_string_lossy());
+    let escaped_tmp = shell_escape(tmp_path);
+    let expected_version = expected_version_line();
+
+    // sha256sum / shasum -a 256 / __UNSUPPORTED__ のフォールバックチェーン
+    // チェックサムが取得できれば検証し、__UNSUPPORTED__ なら graceful degradation（スキップ）
+    format!(
+        r#"set -e
+chmod 700 {escaped_tmp}
+_cksum=$(sha256sum {escaped_tmp} 2>/dev/null || shasum -a 256 {escaped_tmp} 2>/dev/null || echo __UNSUPPORTED__)
+if [ "$_cksum" != "__UNSUPPORTED__" ]; then
+  _hash=$(echo "$_cksum" | cut -c1-64)
+  if [ "$_hash" != "{local_hash}" ]; then
+    rm -f {escaped_tmp} || true
+    echo "checksum mismatch: expected {local_hash}, got $_hash" >&2
+    exit 1
+  fi
+fi
+_ver=$({escaped_tmp} --version 2>/dev/null || echo __NOT_FOUND__)
+if [ "$_ver" != "{expected_version}" ]; then
+  rm -f {escaped_tmp} || true
+  echo "version mismatch: expected {expected_version}, got $_ver" >&2
+  exit 1
+fi
+mv {escaped_tmp} {escaped}"#
+    )
+}
+
 /// エージェント起動コマンドを生成する。
 pub fn build_agent_command(remote_path: &Path, root_dir: &str) -> String {
     let escaped_path = shell_escape(&remote_path.to_string_lossy());
@@ -546,6 +598,157 @@ mod tests {
         assert!(cmds
             .symlink_check_cmd
             .contains("'/var/tmp/my dir/remote merge'"));
+    }
+
+    // --- build_pre_write_command ---
+
+    #[test]
+    fn build_pre_write_command_combines_mkdir_and_symlink_check() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmd = build_pre_write_command(&path);
+        // mkdir -p と symlink チェックが1コマンドに結合されていること
+        assert!(
+            cmd.contains("mkdir -p '/var/tmp/remote-merge-user'"),
+            "cmd={cmd}"
+        );
+        assert!(
+            cmd.contains("test -L '/var/tmp/remote-merge-user/remote-merge'"),
+            "cmd={cmd}"
+        );
+        assert!(cmd.contains("echo SYMLINK"), "cmd={cmd}");
+        assert!(cmd.contains("echo OK"), "cmd={cmd}");
+    }
+
+    #[test]
+    fn build_pre_write_command_single_command_structure() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmd = build_pre_write_command(&path);
+        // && で結合された単一コマンドであること
+        assert!(cmd.contains("&&"), "should use && to combine: cmd={cmd}");
+    }
+
+    #[test]
+    fn build_pre_write_command_escapes_spaces_in_path() {
+        let path = PathBuf::from("/var/tmp/my dir/remote merge");
+        let cmd = build_pre_write_command(&path);
+        assert!(
+            cmd.contains("'/var/tmp/my dir'"),
+            "parent should be escaped: cmd={cmd}"
+        );
+        assert!(
+            cmd.contains("'/var/tmp/my dir/remote merge'"),
+            "path should be escaped: cmd={cmd}"
+        );
+    }
+
+    // --- build_post_write_script ---
+
+    #[test]
+    fn build_post_write_script_contains_chmod_checksum_verify_mv() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let tmp = "/var/tmp/remote-merge-user/remote-merge.tmp";
+        let hash = "a".repeat(64);
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        assert!(
+            script.contains("chmod 700"),
+            "should contain chmod: script={script}"
+        );
+        assert!(
+            script.contains("sha256sum"),
+            "should contain sha256sum: script={script}"
+        );
+        assert!(
+            script.contains("--version"),
+            "should contain --version: script={script}"
+        );
+        assert!(script.contains("mv "), "should contain mv: script={script}");
+    }
+
+    #[test]
+    fn build_post_write_script_escapes_paths() {
+        let path = PathBuf::from("/var/tmp/my dir/remote merge");
+        let tmp = "/var/tmp/my dir/remote merge.tmp";
+        let hash = "b".repeat(64);
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        assert!(
+            script.contains("'/var/tmp/my dir/remote merge.tmp'"),
+            "tmp path should be escaped: script={script}"
+        );
+        assert!(
+            script.contains("'/var/tmp/my dir/remote merge'"),
+            "final path should be escaped: script={script}"
+        );
+    }
+
+    #[test]
+    fn build_post_write_script_checksum_mismatch_removes_tmp_and_exits_nonzero() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let tmp = "/var/tmp/remote-merge-user/remote-merge.tmp";
+        let hash = "a".repeat(64);
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        // チェックサム不一致時に rm -f と exit 1 が含まれること
+        assert!(
+            script.contains("rm -f"),
+            "should contain rm -f: script={script}"
+        );
+        assert!(
+            script.contains("exit 1"),
+            "should contain exit 1: script={script}"
+        );
+    }
+
+    #[test]
+    fn build_post_write_script_graceful_degradation_on_no_sha256sum() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let tmp = "/var/tmp/remote-merge-user/remote-merge.tmp";
+        let hash = "c".repeat(64);
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        // sha256sum 不在時のフォールバック: shasum -a 256 または __UNSUPPORTED__
+        assert!(
+            script.contains("shasum -a 256"),
+            "should have shasum fallback: script={script}"
+        );
+        assert!(
+            script.contains("__UNSUPPORTED__"),
+            "should handle unsupported case: script={script}"
+        );
+        // __UNSUPPORTED__ の場合はチェックサムをスキップする分岐があること
+        assert!(
+            script.contains("__UNSUPPORTED__") && script.contains("if"),
+            "should skip checksum when unsupported: script={script}"
+        );
+    }
+
+    #[test]
+    fn build_post_write_script_embeds_local_hash() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let tmp = "/var/tmp/remote-merge-user/remote-merge.tmp";
+        let hash = "deadbeef".repeat(8); // 64 hex chars
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        assert!(
+            script.contains(&hash),
+            "should embed local hash: script={script}"
+        );
+    }
+
+    #[test]
+    fn build_post_write_script_includes_expected_version() {
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let tmp = "/var/tmp/remote-merge-user/remote-merge.tmp";
+        let hash = "a".repeat(64);
+        let script = build_post_write_script(&path, tmp, &hash);
+
+        let expected = expected_version_line();
+        assert!(
+            script.contains(&expected),
+            "should embed expected version '{}': script={script}",
+            expected
+        );
     }
 
     // --- build_agent_command ---
