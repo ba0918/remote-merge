@@ -393,4 +393,65 @@ mod tests {
         assert!(!left_quiet);
         assert!(!right_quiet);
     }
+
+    // ── additional quiet_flags tests ──
+
+    #[test]
+    fn test_quiet_flags_equal_no_suppression() {
+        // Equal ステータスでは両方 quiet=false
+        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::Equal));
+        assert!(!left_quiet, "left should not be quiet for Equal");
+        assert!(!right_quiet, "right should not be quiet for Equal");
+    }
+
+    // ── additional filter tests ──
+
+    #[test]
+    fn test_filter_all_equal_returns_empty() {
+        // 全ファイルが Equal → filter 後は空
+        let targets = vec!["a.txt".into(), "b.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Equal),
+            make_status("b.txt", FileStatusKind::Equal),
+        ];
+        let result = filter_changed_files(&targets, &statuses);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_filter_empty_statuses() {
+        // statuses が空 → 全ファイルが通過（unknown 扱い）
+        let targets = vec!["x.txt".into(), "y.txt".into()];
+        let statuses: Vec<FileStatus> = vec![];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["x.txt", "y.txt"]);
+    }
+
+    // ── additional partition tests ──
+
+    #[test]
+    fn test_partition_mixed_files() {
+        // 一部存在・一部不在
+        let target_files = vec!["a.txt".into(), "b.txt".into(), "c.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("c.txt", FileStatusKind::LeftOnly),
+        ];
+        let (existing, missing) = partition_existing_files(&target_files, &statuses);
+        assert_eq!(existing, vec!["a.txt", "c.txt"]);
+        assert_eq!(missing, vec!["b.txt"]);
+    }
+
+    #[test]
+    fn test_partition_all_existing() {
+        // 全ファイルが存在 → missing が空
+        let target_files = vec!["a.txt".into(), "b.txt".into()];
+        let statuses = vec![
+            make_status("a.txt", FileStatusKind::Modified),
+            make_status("b.txt", FileStatusKind::RightOnly),
+        ];
+        let (existing, missing) = partition_existing_files(&target_files, &statuses);
+        assert_eq!(existing, vec!["a.txt", "b.txt"]);
+        assert!(missing.is_empty());
+    }
 }

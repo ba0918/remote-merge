@@ -715,4 +715,195 @@ mod tests {
         handle.join().unwrap();
         assert_eq!(*data.lock().unwrap(), 99);
     }
+
+    // ── サーバー設定付きテスト ──
+
+    /// テスト用にサーバー設定を追加したランタイムを作成する
+    fn runtime_with_server(name: &str, root: &str) -> CoreRuntime {
+        let mut rt = CoreRuntime::new_for_test();
+        rt.config.servers.insert(
+            name.to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".to_string(),
+                port: 22,
+                user: "deploy".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: std::path::PathBuf::from(root),
+                ssh_options: None,
+            },
+        );
+        rt
+    }
+
+    #[test]
+    fn test_get_server_config_found() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let cfg = rt.get_server_config("develop").unwrap();
+        assert_eq!(cfg.host, "10.0.0.1");
+        assert_eq!(cfg.user, "deploy");
+        assert_eq!(cfg.root_dir, std::path::PathBuf::from("/var/www/app"));
+    }
+
+    #[test]
+    fn test_get_server_config_multiple_servers() {
+        let mut rt = runtime_with_server("develop", "/var/www/dev");
+        rt.config.servers.insert(
+            "staging".to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.2".to_string(),
+                port: 2222,
+                user: "stg".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: std::path::PathBuf::from("/var/www/stg"),
+                ssh_options: None,
+            },
+        );
+        assert!(rt.get_server_config("develop").is_ok());
+        assert!(rt.get_server_config("staging").is_ok());
+        assert!(rt.get_server_config("production").is_err());
+    }
+
+    #[test]
+    fn test_get_client_not_connected() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.get_client("develop");
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("not connected"));
+    }
+
+    #[test]
+    fn test_has_client_returns_false_for_multiple_names() {
+        let rt = CoreRuntime::new_for_test();
+        assert!(!rt.has_client("develop"));
+        assert!(!rt.has_client("staging"));
+        assert!(!rt.has_client("production"));
+        assert!(!rt.has_client(""));
+    }
+
+    #[test]
+    fn test_drive_runtime_does_not_panic() {
+        let rt = CoreRuntime::new_for_test();
+        rt.drive_runtime();
+    }
+
+    #[test]
+    fn test_disconnect_nonexistent_server_noop() {
+        let mut rt = CoreRuntime::new_for_test();
+        // パニックしないことを確認
+        rt.disconnect("nonexistent");
+        assert!(rt.ssh_clients.is_empty());
+    }
+
+    #[test]
+    fn test_disconnect_all_multiple_times_noop() {
+        let mut rt = CoreRuntime::new_for_test();
+        rt.disconnect_all();
+        rt.disconnect_all();
+        rt.disconnect_all();
+        assert!(rt.ssh_clients.is_empty());
+        assert!(rt.agent_clients.is_empty());
+    }
+
+    // ── require_ssh_client フリー関数テスト ──
+
+    #[test]
+    fn test_require_ssh_client_not_found() {
+        let mut clients: HashMap<String, SshClient> = HashMap::new();
+        let result = require_ssh_client(&mut clients, "develop");
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("not connected"));
+    }
+
+    #[test]
+    fn test_require_ssh_client_empty_name() {
+        let mut clients: HashMap<String, SshClient> = HashMap::new();
+        let result = require_ssh_client(&mut clients, "");
+        assert!(result.is_err());
+    }
+
+    // ── new_for_test / new_for_test_no_agent 設定検証 ──
+
+    #[test]
+    fn test_new_for_test_has_default_config() {
+        let rt = CoreRuntime::new_for_test();
+        assert!(rt.config.servers.is_empty());
+        assert!(rt.config.filter.exclude.is_empty());
+        assert!(rt.ssh_clients.is_empty());
+        assert!(rt.agent_clients.is_empty());
+    }
+
+    #[test]
+    fn test_new_for_test_agent_enabled_by_default() {
+        let rt = CoreRuntime::new_for_test();
+        assert!(
+            rt.config.agent.enabled,
+            "new_for_test should have agent enabled by default"
+        );
+        let rt_no = CoreRuntime::new_for_test_no_agent();
+        assert!(
+            !rt_no.config.agent.enabled,
+            "new_for_test_no_agent should have agent disabled"
+        );
+    }
+
+    #[test]
+    fn test_fetch_remote_tree_no_server_config() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.fetch_remote_tree("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_fetch_remote_tree_no_ssh_connection() {
+        let mut rt = runtime_with_server("develop", "/var/www");
+        let result = rt.fetch_remote_tree("develop");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not connected"));
+    }
+
+    #[test]
+    fn test_fetch_remote_tree_recursive_no_server_config() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.fetch_remote_tree_recursive("nonexistent", 10000);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_fetch_remote_tree_recursive_no_ssh_connection() {
+        let mut rt = runtime_with_server("develop", "/var/www");
+        let result = rt.fetch_remote_tree_recursive("develop", 10000);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not connected"));
+    }
+
+    #[test]
+    fn test_check_connection_unknown_server() {
+        let mut rt = CoreRuntime::new_for_test();
+        assert!(!rt.check_connection("unknown"));
+    }
+
+    #[test]
+    fn test_try_reconnect_unknown_server() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.try_reconnect("unknown");
+        assert!(result.is_err());
+    }
+
+    // ── Drop の動作確認（has_connections フラグ） ──
+
+    #[test]
+    fn test_drop_logs_nothing_when_empty() {
+        // 空のランタイムは drop 時に disconnect_all を呼ばない
+        let rt = CoreRuntime::new_for_test();
+        let has_connections = !rt.ssh_clients.is_empty() || !rt.agent_clients.is_empty();
+        assert!(!has_connections);
+        drop(rt);
+        // パニックしなければOK
+    }
 }

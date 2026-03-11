@@ -286,12 +286,12 @@ fn recalculate_conflict_if_needed(state: &mut AppState, path: &str) {
     if state.conflict_cache.contains_key(path) {
         return;
     }
-    if let (Some(ref_content), Some(left), Some(right)) = (
-        state.ref_cache.get(path),
-        state.left_cache.get(path),
-        state.right_cache.get(path),
-    ) {
-        let info = crate::diff::conflict::detect_conflicts(Some(ref_content), left, right);
+    let info = crate::diff::conflict::compute_conflict_if_complete(
+        state.ref_cache.get(path).map(|s| s.as_str()),
+        state.left_cache.get(path).map(|s| s.as_str()),
+        state.right_cache.get(path).map(|s| s.as_str()),
+    );
+    if let Some(info) = info {
         if !info.is_empty() {
             state.conflict_cache.insert(path.to_string(), info);
         }

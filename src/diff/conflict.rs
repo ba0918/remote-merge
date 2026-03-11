@@ -291,6 +291,20 @@ fn merge_ranges(a: &Option<Range<usize>>, b: &Option<Range<usize>>) -> Option<Ra
     }
 }
 
+/// 3-way の内容が揃った時点でコンフリクト情報を計算する。
+/// いずれか 1 つでも None なら None を返す（データ不完全）。
+/// コンフリクトが 0 件でも Some(ConflictInfo) を返す（呼び出し側が判定）。
+///
+/// 引数順は [`detect_conflicts`] に合わせて `(ref, left, right)` とする。
+pub fn compute_conflict_if_complete(
+    ref_content: Option<&str>,
+    left: Option<&str>,
+    right: Option<&str>,
+) -> Option<ConflictInfo> {
+    let (base, l, r) = (ref_content?, left?, right?);
+    Some(detect_conflicts(Some(base), l, r))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,5 +564,49 @@ mod tests {
         assert_eq!(info.conflict_count(), 1);
         assert!(info.is_left_file_line_in_conflict(1));
         assert!(info.is_right_file_line_in_conflict(1));
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_with_conflict() {
+        // 引数順: ref, left, right
+        let result = compute_conflict_if_complete(Some("A\n"), Some("B\n"), Some("C\n"));
+        let info = result.expect("should return Some when all inputs present");
+        assert_eq!(info.conflict_count(), 1);
+        assert_eq!(info.regions[0].left_lines, vec!["B"]);
+        assert_eq!(info.regions[0].right_lines, vec!["C"]);
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_no_conflict() {
+        // left のみ変更、right は ref と同一 → コンフリクトなし
+        let result = compute_conflict_if_complete(Some("A\n"), Some("B\n"), Some("A\n"));
+        let info = result.expect("should return Some when all inputs present");
+        assert!(info.is_empty());
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_all_identical() {
+        // ref = left = right（全同一）→ コンフリクトなし
+        let result = compute_conflict_if_complete(Some("A\n"), Some("A\n"), Some("A\n"));
+        let info = result.expect("should return Some when all inputs present");
+        assert!(info.is_empty());
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_left_none() {
+        let result = compute_conflict_if_complete(Some("A\n"), None, Some("C\n"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_right_none() {
+        let result = compute_conflict_if_complete(Some("A\n"), Some("B\n"), None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compute_conflict_if_complete_ref_none() {
+        let result = compute_conflict_if_complete(None, Some("B\n"), Some("C\n"));
+        assert!(result.is_none());
     }
 }

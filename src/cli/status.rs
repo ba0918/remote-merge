@@ -294,4 +294,47 @@ mod tests {
         // summary は変わらない
         assert_eq!(output.summary.equal, 2);
     }
+
+    // ── additional filter_equal_files tests ──
+
+    #[test]
+    fn test_filter_equal_files_empty() {
+        // 空のファイルリスト → 変化なし
+        let mut output = make_output(vec![]);
+        super::filter_equal_files(&mut output, false);
+        assert!(output.files.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_filter_equal_files_all_equal() {
+        // 全 Equal → all=false で空になる
+        let mut output = make_output(vec![
+            make_file("a.txt", FileStatusKind::Equal),
+            make_file("b.txt", FileStatusKind::Equal),
+            make_file("c.txt", FileStatusKind::Equal),
+        ]);
+        super::filter_equal_files(&mut output, false);
+        assert!(output.files.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_filter_equal_files_no_equal() {
+        // Equal がない → all=false でも変化なし
+        let mut output = make_output(vec![
+            make_file("a.txt", FileStatusKind::Modified),
+            make_file("b.txt", FileStatusKind::LeftOnly),
+            make_file("c.txt", FileStatusKind::RightOnly),
+        ]);
+        super::filter_equal_files(&mut output, false);
+        assert_eq!(output.files.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_filter_equal_files_none_files() {
+        // output.files が None → パニックしない
+        let mut output = make_output(vec![]);
+        output.files = None;
+        super::filter_equal_files(&mut output, false);
+        assert!(output.files.is_none());
+    }
 }

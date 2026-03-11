@@ -359,3 +359,291 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
         DialogState::None => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::app::three_way_summary::{SummaryLine, ThreeWaySummaryPanel};
+    use crate::app::AppState;
+    use crate::app::Side;
+    use crate::tree::FileTree;
+    use crate::ui::dialog::{BatchConfirmDialog, DialogState, FilterPanel, HelpOverlay};
+
+    fn make_test_state() -> AppState {
+        AppState::new(
+            FileTree::default(),
+            FileTree::default(),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    // -------------------------------------------------------
+    // Help dialog
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_help_dialog_close() {
+        let mut state = make_test_state();
+        state.dialog = DialogState::Help(HelpOverlay::new());
+        assert!(matches!(state.dialog, DialogState::Help(_)));
+        state.close_dialog();
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_help_dialog_scroll_down_and_up() {
+        let mut help = HelpOverlay::new();
+        assert_eq!(help.scroll, 0);
+
+        help.scroll_down();
+        assert_eq!(help.scroll, 1);
+
+        help.scroll_down();
+        assert_eq!(help.scroll, 2);
+
+        help.scroll_up();
+        assert_eq!(help.scroll, 1);
+
+        help.scroll_up();
+        assert_eq!(help.scroll, 0);
+
+        // 0 未満にはならない
+        help.scroll_up();
+        assert_eq!(help.scroll, 0);
+    }
+
+    // -------------------------------------------------------
+    // Info dialog
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_info_dialog_close() {
+        let mut state = make_test_state();
+        state.dialog = DialogState::Info("test message".to_string());
+        assert!(matches!(state.dialog, DialogState::Info(_)));
+        state.close_dialog();
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    // -------------------------------------------------------
+    // UnsavedChanges dialog
+    // -------------------------------------------------------
+
+    // NOTE: handle_dialog_key() は TuiRuntime を要求するため直接呼べない。
+    // 以下は UnsavedChanges ダイアログに関連する AppState メソッドの動作テスト。
+
+    #[test]
+    fn test_has_unsaved_changes_with_undo_stack() {
+        let mut state = make_test_state();
+        assert!(!state.has_unsaved_changes());
+
+        state.undo_stack.push_back(crate::app::CacheSnapshot {
+            local_content: String::new(),
+            remote_content: String::new(),
+            diff: None,
+        });
+        assert!(state.has_unsaved_changes());
+
+        state.undo_stack.clear();
+        assert!(!state.has_unsaved_changes());
+    }
+
+    #[test]
+    fn test_unsaved_changes_dialog_opens_on_quit_attempt() {
+        let mut state = make_test_state();
+        // undo_stack に変更があるとき、quit 試行で UnsavedChanges ダイアログが開く
+        state.undo_stack.push_back(crate::app::CacheSnapshot {
+            local_content: String::new(),
+            remote_content: String::new(),
+            diff: None,
+        });
+
+        // handle_diff_key の q パス相当: has_unsaved_changes() → UnsavedChanges
+        if state.has_unsaved_changes() {
+            state.dialog = DialogState::UnsavedChanges;
+        } else {
+            state.should_quit = true;
+        }
+
+        assert!(!state.should_quit);
+        assert!(matches!(state.dialog, DialogState::UnsavedChanges));
+    }
+
+    #[test]
+    fn test_close_dialog_returns_to_none() {
+        let mut state = make_test_state();
+        state.dialog = DialogState::UnsavedChanges;
+        state.close_dialog();
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    // -------------------------------------------------------
+    // FilterPanel
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_filter_panel_cursor_navigation() {
+        let mut panel = FilterPanel::new(&[
+            "node_modules".to_string(),
+            ".git".to_string(),
+            "dist".to_string(),
+        ]);
+        assert_eq!(panel.cursor, 0);
+
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 1);
+
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 2);
+
+        // 最下端で止まる
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 2);
+
+        panel.cursor_up();
+        assert_eq!(panel.cursor, 1);
+
+        panel.cursor_up();
+        assert_eq!(panel.cursor, 0);
+
+        // 最上端で止まる
+        panel.cursor_up();
+        assert_eq!(panel.cursor, 0);
+    }
+
+    #[test]
+    fn test_filter_panel_toggle() {
+        let mut panel = FilterPanel::new(&["*.log".to_string(), "*.tmp".to_string()]);
+        assert!(panel.patterns[0].1); // 初期状態: 全て有効
+
+        panel.toggle();
+        assert!(!panel.patterns[0].1); // cursor=0 のパターンが無効に
+        assert_eq!(panel.active_patterns(), vec!["*.tmp"]);
+
+        panel.toggle();
+        assert!(panel.patterns[0].1); // 再トグルで有効に戻る
+        assert_eq!(panel.active_patterns().len(), 2);
+    }
+
+    // -------------------------------------------------------
+    // ThreeWaySummary
+    // -------------------------------------------------------
+
+    fn make_summary_lines(n: usize) -> Vec<SummaryLine> {
+        (0..n)
+            .map(|i| SummaryLine {
+                display_line_number: Some(i + 1),
+                diff_line_index: i * 2,
+                left_content: Some(format!("left_{}", i)),
+                right_content: Some(format!("right_{}", i)),
+                ref_content: Some(format!("ref_{}", i)),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_three_way_summary_cursor_movement() {
+        let mut panel = ThreeWaySummaryPanel::new(
+            "test.rs".to_string(),
+            make_summary_lines(5),
+            "local".to_string(),
+            "develop".to_string(),
+            "release".to_string(),
+        );
+        assert_eq!(panel.cursor, 0);
+
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 1);
+
+        panel.cursor_down();
+        panel.cursor_down();
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 4);
+
+        // 最下端で止まる
+        panel.cursor_down();
+        assert_eq!(panel.cursor, 4);
+
+        panel.cursor_up();
+        assert_eq!(panel.cursor, 3);
+    }
+
+    #[test]
+    fn test_three_way_summary_close() {
+        let mut state = make_test_state();
+        let panel = ThreeWaySummaryPanel::new(
+            "test.rs".to_string(),
+            make_summary_lines(3),
+            "local".to_string(),
+            "develop".to_string(),
+            "release".to_string(),
+        );
+        state.dialog = DialogState::ThreeWaySummary(panel);
+        assert!(matches!(state.dialog, DialogState::ThreeWaySummary(_)));
+
+        state.close_dialog();
+        assert!(matches!(state.dialog, DialogState::None));
+    }
+
+    #[test]
+    fn test_three_way_summary_selected_diff_line_index() {
+        let mut panel = ThreeWaySummaryPanel::new(
+            "test.rs".to_string(),
+            make_summary_lines(3),
+            "local".to_string(),
+            "develop".to_string(),
+            "release".to_string(),
+        );
+        // cursor=0 → diff_line_index = 0*2 = 0
+        assert_eq!(panel.selected_diff_line_index(), Some(0));
+
+        panel.cursor_down();
+        // cursor=1 → diff_line_index = 1*2 = 2
+        assert_eq!(panel.selected_diff_line_index(), Some(2));
+    }
+
+    // -------------------------------------------------------
+    // BatchConfirmDialog scroll
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_batch_confirm_scroll() {
+        use crate::app::Badge;
+        use crate::merge::executor::MergeDirection;
+
+        let files: Vec<(String, Badge)> = (0..30)
+            .map(|i| (format!("file{}.txt", i), Badge::Modified))
+            .collect();
+        let mut batch = BatchConfirmDialog::new(
+            files,
+            MergeDirection::LeftToRight,
+            "local".to_string(),
+            "develop".to_string(),
+            0,
+        );
+        assert_eq!(batch.scroll, 0);
+
+        batch.scroll_down();
+        assert_eq!(batch.scroll, 1);
+
+        batch.scroll_down();
+        assert_eq!(batch.scroll, 2);
+
+        batch.scroll_up();
+        assert_eq!(batch.scroll, 1);
+
+        batch.scroll_up();
+        assert_eq!(batch.scroll, 0);
+
+        // 0 未満にはならない
+        batch.scroll_up();
+        assert_eq!(batch.scroll, 0);
+
+        // 最大値で止まる
+        for _ in 0..50 {
+            batch.scroll_down();
+        }
+        assert_eq!(batch.scroll, 29); // files.len() - 1
+    }
+}

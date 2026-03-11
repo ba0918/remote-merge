@@ -491,4 +491,53 @@ mod tests {
         let dirs = collect_merge_dirs(&files);
         assert!(dirs.is_empty());
     }
+
+    #[test]
+    fn test_filter_unchecked_equal_empty_files() {
+        // 空のファイルリスト → (空vec, 0)
+        let files: Vec<(String, Badge)> = vec![];
+        let local = BoundedCache::new(100);
+        let remote = BoundedCache::new(100);
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert!(filtered.is_empty());
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_empty_content_identical() {
+        // 空文字列同士もキャッシュ比較で同一扱い → スキップされる
+        let files = vec![("empty.rs".to_string(), Badge::Unchecked)];
+        let local = make_cache(vec![("empty.rs", "")]);
+        let remote = make_cache(vec![("empty.rs", "")]);
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        assert!(filtered.is_empty());
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn test_collect_merge_dirs_deeply_nested() {
+        // 3階層以上のネスト → 最後の / までがディレクトリ
+        let files = vec![("a/b/c/d/file.rs".to_string(), Badge::Modified)];
+        let dirs = collect_merge_dirs(&files);
+        assert_eq!(dirs.len(), 1);
+        assert!(dirs.contains("a/b/c/d"));
+    }
+
+    #[test]
+    fn test_filter_unchecked_equal_only_equal_badge_skipped() {
+        // Equal バッジは Unchecked ではないのでフィルタされない（通過する）
+        let files = vec![
+            ("a.rs".to_string(), Badge::Equal),
+            ("b.rs".to_string(), Badge::Equal),
+        ];
+        let local = make_cache(vec![("a.rs", "same"), ("b.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same"), ("b.rs", "same")]);
+
+        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        // Equal バッジは badge != Unchecked なので無条件通過
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(skipped, 0);
+    }
 }

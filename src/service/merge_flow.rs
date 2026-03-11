@@ -260,18 +260,22 @@ pub fn execute_deletions(
 mod tests {
     use super::*;
 
+    fn make_status(path: &str, kind: FileStatusKind) -> FileStatus {
+        FileStatus {
+            path: path.to_string(),
+            status: kind,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }
+    }
+
     // ── check_source_exists tests ──
 
     #[test]
     fn test_check_source_exists_left_to_right_right_only_fails() {
         // LeftToRight + RightOnly = ソース(left)にファイルがない → エラー
-        let statuses = vec![FileStatus {
-            path: "new_file.rs".into(),
-            status: FileStatusKind::RightOnly,
-            sensitive: false,
-            hunks: None,
-            ref_badge: None,
-        }];
+        let statuses = vec![make_status("new_file.rs", FileStatusKind::RightOnly)];
         let err = check_source_exists("new_file.rs", MergeDirection::LeftToRight, &statuses);
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
@@ -284,14 +288,7 @@ mod tests {
 
     #[test]
     fn test_check_source_exists_right_to_left_left_only_fails() {
-        // RightToLeft + LeftOnly = ソース(right)にファイルがない → エラー
-        let statuses = vec![FileStatus {
-            path: "old_file.rs".into(),
-            status: FileStatusKind::LeftOnly,
-            sensitive: false,
-            hunks: None,
-            ref_badge: None,
-        }];
+        let statuses = vec![make_status("old_file.rs", FileStatusKind::LeftOnly)];
         let err = check_source_exists("old_file.rs", MergeDirection::RightToLeft, &statuses);
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
@@ -304,40 +301,19 @@ mod tests {
 
     #[test]
     fn test_check_source_exists_left_to_right_left_only_ok() {
-        // LeftToRight + LeftOnly = ソース(left)にファイルがある → OK
-        let statuses = vec![FileStatus {
-            path: "file.rs".into(),
-            status: FileStatusKind::LeftOnly,
-            sensitive: false,
-            hunks: None,
-            ref_badge: None,
-        }];
+        let statuses = vec![make_status("file.rs", FileStatusKind::LeftOnly)];
         assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
     }
 
     #[test]
     fn test_check_source_exists_right_to_left_right_only_ok() {
-        // RightToLeft + RightOnly = ソース(right)にファイルがある → OK
-        let statuses = vec![FileStatus {
-            path: "file.rs".into(),
-            status: FileStatusKind::RightOnly,
-            sensitive: false,
-            hunks: None,
-            ref_badge: None,
-        }];
+        let statuses = vec![make_status("file.rs", FileStatusKind::RightOnly)];
         assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
     }
 
     #[test]
     fn test_check_source_exists_modified_ok() {
-        // Modified = 両側にある → どちらの方向でもOK
-        let statuses = vec![FileStatus {
-            path: "file.rs".into(),
-            status: FileStatusKind::Modified,
-            sensitive: false,
-            hunks: None,
-            ref_badge: None,
-        }];
+        let statuses = vec![make_status("file.rs", FileStatusKind::Modified)];
         assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
         assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
     }
@@ -352,4 +328,78 @@ mod tests {
     // ── execute_deletions tests ──
     // execute_deletions は CoreRuntime の I/O メソッドを使用するため、
     // 統合テストで検証する。純粋関数部分（check_source_exists）はここでカバー。
+
+    // ── additional check_source_exists tests ──
+
+    #[test]
+    fn test_check_source_exists_equal_ok() {
+        let statuses = vec![make_status("file.rs", FileStatusKind::Equal)];
+        assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+        assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_check_source_exists_multiple_statuses() {
+        let statuses = vec![
+            make_status("ok.rs", FileStatusKind::Modified),
+            make_status("bad.rs", FileStatusKind::RightOnly),
+            make_status("also_ok.rs", FileStatusKind::LeftOnly),
+        ];
+        // ok.rs は Modified なので両方向 OK
+        assert!(check_source_exists("ok.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+        // bad.rs は RightOnly なので LeftToRight はエラー
+        assert!(check_source_exists("bad.rs", MergeDirection::LeftToRight, &statuses).is_err());
+        // bad.rs は RightOnly なので RightToLeft は OK（ソースは right）
+        assert!(check_source_exists("bad.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+        // also_ok.rs は LeftOnly なので LeftToRight は OK
+        assert!(check_source_exists("also_ok.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+        // also_ok.rs は LeftOnly なので RightToLeft はエラー
+        assert!(check_source_exists("also_ok.rs", MergeDirection::RightToLeft, &statuses).is_err());
+    }
+
+    #[test]
+    fn test_check_source_error_message_left() {
+        let statuses = vec![make_status("file.rs", FileStatusKind::RightOnly)];
+        let err =
+            check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("left (source)"),
+            "expected 'left (source)' in: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_check_source_error_message_right() {
+        let statuses = vec![make_status("file.rs", FileStatusKind::LeftOnly)];
+        let err =
+            check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("right (source)"),
+            "expected 'right (source)' in: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_check_source_exists_sensitive_file_ok() {
+        // sensitive フラグは check_source_exists には影響しない
+        let mut status = make_status(".env", FileStatusKind::Modified);
+        status.sensitive = true;
+        let statuses = vec![status];
+        assert!(check_source_exists(".env", MergeDirection::LeftToRight, &statuses).is_ok());
+        assert!(check_source_exists(".env", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
+
+    #[test]
+    fn test_check_source_exists_with_hunks() {
+        // hunks フィールドは check_source_exists には影響しない
+        let mut status = make_status("file.rs", FileStatusKind::Modified);
+        status.hunks = Some(5);
+        let statuses = vec![status];
+        assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
+        assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
 }

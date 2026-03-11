@@ -1917,4 +1917,472 @@ mod tests {
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].error, "unknown error");
     }
+
+    // ── resolve_agent_path / resolve_agent_paths テスト ──
+
+    /// テスト用にサーバー設定を追加した CoreRuntime を作成する
+    fn runtime_with_server(name: &str, root: &str) -> CoreRuntime {
+        let mut rt = CoreRuntime::new_for_test();
+        rt.config.servers.insert(
+            name.to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".to_string(),
+                port: 22,
+                user: "deploy".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: std::path::PathBuf::from(root),
+                ssh_options: None,
+            },
+        );
+        rt
+    }
+
+    #[test]
+    fn test_resolve_agent_path_basic() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let result = rt.resolve_agent_path("develop", "src/main.rs");
+        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_agent_path_trailing_slash_in_root() {
+        let rt = runtime_with_server("develop", "/var/www/app/");
+        let result = rt.resolve_agent_path("develop", "src/main.rs");
+        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_agent_path_leading_slash_in_rel_path() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let result = rt.resolve_agent_path("develop", "/src/main.rs");
+        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_agent_path_both_slashes() {
+        let rt = runtime_with_server("develop", "/var/www/app/");
+        let result = rt.resolve_agent_path("develop", "/src/main.rs");
+        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_agent_path_empty_rel_path() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let result = rt.resolve_agent_path("develop", "");
+        assert_eq!(result, Some("/var/www/app/".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_agent_path_unknown_server() {
+        let rt = CoreRuntime::new_for_test();
+        let result = rt.resolve_agent_path("nonexistent", "file.txt");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_agent_paths_basic() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let paths = vec!["src/main.rs".to_string(), "Cargo.toml".to_string()];
+        let result = rt.resolve_agent_paths("develop", &paths).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], "/var/www/app/src/main.rs");
+        assert_eq!(result[1], "/var/www/app/Cargo.toml");
+    }
+
+    #[test]
+    fn test_resolve_agent_paths_empty() {
+        let rt = runtime_with_server("develop", "/var/www/app");
+        let paths: Vec<String> = vec![];
+        let result = rt.resolve_agent_paths("develop", &paths).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_agent_paths_unknown_server() {
+        let rt = CoreRuntime::new_for_test();
+        let paths = vec!["file.txt".to_string()];
+        let result = rt.resolve_agent_paths("nonexistent", &paths);
+        assert!(result.is_none());
+    }
+
+    // ── stat_local_files テスト ──
+
+    #[test]
+    fn test_stat_local_files_empty_paths() {
+        let tmp = TempDir::new().unwrap();
+        let results = stat_local_files(tmp.path(), &[]).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_stat_local_files_existing_file_has_mtime() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "content").unwrap();
+        let paths = vec!["a.txt".to_string()];
+        let results = stat_local_files(tmp.path(), &paths).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "a.txt");
+        assert!(results[0].1.is_some());
+    }
+
+    #[test]
+    fn test_stat_local_files_missing_file_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let paths = vec!["nonexistent.txt".to_string()];
+        let results = stat_local_files(tmp.path(), &paths).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].1.is_none());
+    }
+
+    #[test]
+    fn test_stat_local_files_mixed() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("exists.txt"), "data").unwrap();
+        let paths = vec![
+            "exists.txt".to_string(),
+            "missing.txt".to_string(),
+            "also_missing.txt".to_string(),
+        ];
+        let results = stat_local_files(tmp.path(), &paths).unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results[0].1.is_some());
+        assert!(results[1].1.is_none());
+        assert!(results[2].1.is_none());
+    }
+
+    // ── chmod_local_file テスト ──
+
+    #[test]
+    fn test_chmod_local_file_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let result = chmod_local_file(&tmp.path().join("nonexistent.txt"), 0o644);
+        assert!(result.is_err());
+    }
+
+    // ── remove_local_file テスト ──
+
+    #[test]
+    fn test_remove_local_file_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let result = remove_local_file(&tmp.path().join("nonexistent.txt"));
+        assert!(result.is_err());
+    }
+
+    // ── create_local_symlink テスト ──
+
+    #[test]
+    fn test_create_local_symlink_replaces_existing_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let link_path = tmp.path().join("link.txt");
+
+        // 最初のシンボリックリンクを作成
+        std::os::unix::fs::symlink("target1.txt", &link_path).unwrap();
+        assert_eq!(
+            std::fs::read_link(&link_path).unwrap().to_string_lossy(),
+            "target1.txt"
+        );
+
+        // 別のターゲットで上書き
+        create_local_symlink(&link_path, "target2.txt").unwrap();
+        assert_eq!(
+            std::fs::read_link(&link_path).unwrap().to_string_lossy(),
+            "target2.txt"
+        );
+    }
+
+    #[test]
+    fn test_create_local_symlink_replaces_regular_file() {
+        let tmp = TempDir::new().unwrap();
+        let file_path = tmp.path().join("file.txt");
+        std::fs::write(&file_path, "regular content").unwrap();
+
+        create_local_symlink(&file_path, "new_target").unwrap();
+        assert!(file_path.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(
+            std::fs::read_link(&file_path).unwrap().to_string_lossy(),
+            "new_target"
+        );
+    }
+
+    #[test]
+    fn test_create_local_symlink_creates_parent_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let link_path = tmp.path().join("a").join("b").join("link.txt");
+
+        create_local_symlink(&link_path, "target").unwrap();
+        assert!(link_path.symlink_metadata().unwrap().is_symlink());
+    }
+
+    // ── restore_local_files テスト ──
+
+    #[test]
+    fn test_restore_local_files_path_traversal_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let files = vec!["../../../etc/passwd".to_string()];
+
+        let result =
+            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
+                .unwrap();
+        assert!(result.restored.is_empty());
+        assert_eq!(result.failures.len(), 1);
+        assert!(result.failures[0].error.contains("path traversal"));
+    }
+
+    #[test]
+    fn test_restore_local_files_missing_backup_file() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        // バックアップディレクトリは存在するがファイルが無い
+        std::fs::create_dir_all(backup_dir.join("session-001")).unwrap();
+
+        let files = vec!["missing.txt".to_string()];
+        let result =
+            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
+                .unwrap();
+        assert!(result.restored.is_empty());
+        assert_eq!(result.failures.len(), 1);
+        assert!(result.failures[0].error.contains("backup file not found"));
+    }
+
+    #[test]
+    fn test_restore_local_files_success() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let session_dir = backup_dir.join("session-001");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        // バックアップファイルを作成
+        std::fs::write(session_dir.join("file.txt"), "backup content").unwrap();
+
+        let files = vec!["file.txt".to_string()];
+        let result = restore_local_files(
+            tmp.path(),
+            &backup_dir,
+            "session-001",
+            &files,
+            true,
+            "pre-session",
+        )
+        .unwrap();
+        assert_eq!(result.restored.len(), 1);
+        assert!(result.failures.is_empty());
+        assert_eq!(result.restored[0].path, "file.txt");
+        assert_eq!(
+            result.restored[0].pre_rollback_backup,
+            Some("pre-session".to_string())
+        );
+
+        // 復元先にファイルが存在すること
+        let restored_content = std::fs::read_to_string(tmp.path().join("file.txt")).unwrap();
+        assert_eq!(restored_content, "backup content");
+    }
+
+    #[test]
+    fn test_restore_local_files_backup_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let session_dir = backup_dir.join("session-001");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(session_dir.join("file.txt"), "content").unwrap();
+
+        let files = vec!["file.txt".to_string()];
+        let result = restore_local_files(
+            tmp.path(),
+            &backup_dir,
+            "session-001",
+            &files,
+            false, // backup_enabled = false
+            "pre-session",
+        )
+        .unwrap();
+        assert_eq!(result.restored.len(), 1);
+        // backup_enabled が false なので pre_rollback_backup は None
+        assert!(result.restored[0].pre_rollback_backup.is_none());
+    }
+
+    #[test]
+    fn test_restore_local_files_mixed_success_and_failure() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let session_dir = backup_dir.join("session-001");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        // file1.txt のバックアップは存在する
+        std::fs::write(session_dir.join("file1.txt"), "backup1").unwrap();
+        // file2.txt のバックアップは存在しない
+
+        let files = vec!["file1.txt".to_string(), "file2.txt".to_string()];
+        let result =
+            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
+                .unwrap();
+        assert_eq!(result.restored.len(), 1);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.restored[0].path, "file1.txt");
+        assert_eq!(result.failures[0].path, "file2.txt");
+    }
+
+    #[test]
+    fn test_restore_local_files_empty_list() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let files: Vec<String> = vec![];
+
+        let result =
+            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
+                .unwrap();
+        assert!(result.restored.is_empty());
+        assert!(result.failures.is_empty());
+    }
+
+    #[test]
+    fn test_restore_local_files_nested_path() {
+        let tmp = TempDir::new().unwrap();
+        let backup_dir = tmp.path().join(".remote-merge-backup");
+        let session_dir = backup_dir.join("session-001");
+        // ネストしたディレクトリ構造のバックアップ
+        std::fs::create_dir_all(session_dir.join("src/deep")).unwrap();
+        std::fs::write(session_dir.join("src/deep/nested.rs"), "fn main() {}").unwrap();
+
+        let files = vec!["src/deep/nested.rs".to_string()];
+        let result =
+            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
+                .unwrap();
+        assert_eq!(result.restored.len(), 1);
+        let content = std::fs::read_to_string(tmp.path().join("src/deep/nested.rs")).unwrap();
+        assert_eq!(content, "fn main() {}");
+    }
+
+    // ── connect_if_remote / disconnect_if_remote テスト ──
+
+    #[test]
+    fn test_connect_if_remote_unknown_remote_server() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.connect_if_remote(&Side::Remote("nonexistent".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_disconnect_if_remote_remote_noop_when_not_connected() {
+        let mut rt = CoreRuntime::new_for_test();
+        // パニックしないことを確認
+        rt.disconnect_if_remote(&Side::Remote("nonexistent".to_string()));
+    }
+
+    // ── fetch_tree_recursive ローカルテスト ──
+
+    #[test]
+    fn test_fetch_tree_recursive_local() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("root.txt"), "root").unwrap();
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("child.txt"), "child").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let tree = rt.fetch_tree_recursive(&Side::Local, 10000).unwrap();
+
+        assert_eq!(tree.root, tmp.path());
+        // ノードが2つ以上あること（root.txt, sub/ の少なくとも2つ）
+        assert!(tree.nodes.len() >= 2);
+    }
+
+    #[test]
+    fn test_fetch_tree_recursive_remote_not_connected() {
+        let mut rt = CoreRuntime::new_for_test();
+        let result = rt.fetch_tree_recursive(&Side::Remote("nonexistent".to_string()), 10000);
+        assert!(result.is_err());
+    }
+
+    // ── create_local_backups テスト ──
+
+    #[test]
+    fn test_create_local_backups_success() {
+        let tmp = TempDir::new().unwrap();
+        // バックアップ対象ファイルを作成
+        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
+
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        create_local_backups(tmp.path(), &paths, "session-001").unwrap();
+
+        // バックアップディレクトリが作成されていること
+        let backup_dir = tmp.path().join(crate::backup::BACKUP_DIR_NAME);
+        assert!(backup_dir.exists());
+
+        // バックアップファイルが正しい内容でコピーされていること
+        let session_dir = backup_dir.join("session-001");
+        assert!(session_dir.exists(), "session directory should be created");
+        let backup_a = session_dir.join("a.txt");
+        let backup_b = session_dir.join("b.txt");
+        assert!(backup_a.exists(), "a.txt should be backed up");
+        assert!(backup_b.exists(), "b.txt should be backed up");
+        assert_eq!(std::fs::read_to_string(&backup_a).unwrap(), "aaa");
+        assert_eq!(std::fs::read_to_string(&backup_b).unwrap(), "bbb");
+    }
+
+    // ── write_file_bytes_local 追加エッジケース ──
+
+    #[test]
+    fn test_write_file_bytes_creates_parent_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+
+        let binary = vec![0xFF, 0xFE, 0xFD];
+        rt.write_file_bytes(&Side::Local, "deep/nested/dir/file.bin", &binary)
+            .unwrap();
+
+        let written = std::fs::read(tmp.path().join("deep/nested/dir/file.bin")).unwrap();
+        assert_eq!(written, binary);
+    }
+
+    // ── convert_agent_restore_results 追加テスト ──
+
+    #[test]
+    fn test_convert_agent_restore_results_empty() {
+        let (restored, failures) = convert_agent_restore_results(vec![], "pre", false);
+        assert!(restored.is_empty());
+        assert!(failures.is_empty());
+    }
+
+    // ── read_file_bytes ローカルエッジケース ──
+
+    #[test]
+    fn test_read_file_bytes_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.read_file_bytes(&Side::Local, "nonexistent.bin", false);
+        assert!(result.is_err());
+    }
+
+    // ── chmod パストラバーサル ──
+
+    #[test]
+    fn test_chmod_file_path_traversal_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.chmod_file(&Side::Local, "../outside.sh", 0o755);
+        assert!(result.is_err());
+    }
+
+    // ── stat_files パストラバーサル ──
+
+    #[test]
+    fn test_stat_files_path_traversal_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        let paths = vec!["../../../etc/passwd".to_string()];
+        let result = rt.stat_files(&Side::Local, &paths);
+        assert!(result.is_err());
+    }
+
+    // ── is_side_available remote with server but no SSH ──
+
+    #[test]
+    fn test_is_side_available_remote_with_config_but_no_ssh() {
+        let rt = runtime_with_server("develop", "/var/www");
+        // サーバー設定はあるが SSH 未接続 → false
+        assert!(!rt.is_side_available(&Side::Remote("develop".to_string())));
+    }
 }

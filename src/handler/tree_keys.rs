@@ -481,4 +481,283 @@ mod tests {
         let node = FileNode::new_dir_with_children("empty", vec![]);
         assert!(!check_node_unloaded(&node));
     }
+
+    // -------------------------------------------------------
+    // check_node_unloaded / has_unloaded_children 追加テスト
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_check_node_unloaded_deeply_nested_3_levels() {
+        // 3階層: src/app/sub/deep — deep は未ロード
+        let deep = FileNode::new_dir("deep");
+        let sub = FileNode::new_dir_with_children("sub", vec![deep]);
+        let app = FileNode::new_dir_with_children("app", vec![sub]);
+        let tree = make_tree(vec![FileNode::new_dir_with_children("src", vec![app])]);
+        assert!(has_unloaded_children(&tree, "src"));
+    }
+
+    #[test]
+    fn test_check_node_unloaded_deeply_nested_all_loaded() {
+        // 3階層すべてロード済み
+        let deep = FileNode::new_dir_with_children("deep", vec![FileNode::new_file("leaf.rs")]);
+        let sub = FileNode::new_dir_with_children("sub", vec![deep]);
+        let app = FileNode::new_dir_with_children("app", vec![sub]);
+        let tree = make_tree(vec![FileNode::new_dir_with_children("src", vec![app])]);
+        assert!(!has_unloaded_children(&tree, "src"));
+    }
+
+    // -------------------------------------------------------
+    // count_subtree_files テスト
+    // -------------------------------------------------------
+
+    use crate::app::side::Side;
+    use crate::app::types::{Badge, FlatNode};
+    use crate::app::AppState;
+
+    fn make_test_state() -> AppState {
+        AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![]),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    fn make_flat_file(path: &str) -> FlatNode {
+        FlatNode {
+            path: path.to_string(),
+            name: path.rsplit('/').next().unwrap_or(path).to_string(),
+            depth: path.matches('/').count(),
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Unchecked,
+            ref_only: false,
+        }
+    }
+
+    fn make_flat_dir(path: &str, expanded: bool) -> FlatNode {
+        FlatNode {
+            path: path.to_string(),
+            name: path.rsplit('/').next().unwrap_or(path).to_string(),
+            depth: path.matches('/').count(),
+            is_dir: true,
+            is_symlink: false,
+            expanded,
+            badge: Badge::Unchecked,
+            ref_only: false,
+        }
+    }
+
+    #[test]
+    fn test_count_subtree_files_empty_flat_nodes() {
+        let state = make_test_state();
+        // flat_nodes が空 → (0, false)
+        let (count, has_unloaded) = count_subtree_files(&state, "src");
+        assert_eq!(count, 0);
+        assert!(!has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_single_file() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![make_flat_dir("src", true), make_flat_file("src/main.rs")];
+        let (count, has_unloaded) = count_subtree_files(&state, "src");
+        assert_eq!(count, 1);
+        assert!(!has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_multiple_files_in_dir() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", true),
+            make_flat_file("src/main.rs"),
+            make_flat_file("src/lib.rs"),
+            make_flat_file("src/util.rs"),
+        ];
+        let (count, has_unloaded) = count_subtree_files(&state, "src");
+        assert_eq!(count, 3);
+        assert!(!has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_nested_dirs() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", true),
+            make_flat_file("src/main.rs"),
+            make_flat_dir("src/app", true),
+            make_flat_file("src/app/mod.rs"),
+            make_flat_file("src/app/state.rs"),
+            make_flat_dir("src/app/sub", true),
+            make_flat_file("src/app/sub/deep.rs"),
+        ];
+        let (count, has_unloaded) = count_subtree_files(&state, "src");
+        // main.rs + mod.rs + state.rs + deep.rs = 4
+        assert_eq!(count, 4);
+        assert!(!has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_with_unloaded_subdir() {
+        let mut state = make_test_state();
+        // left_tree に未ロードのサブディレクトリを設定
+        state.left_tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_dir("app")], // app は children=None（未ロード）
+        )]);
+        state.flat_nodes = vec![make_flat_dir("src", true), make_flat_file("src/main.rs")];
+        let (count, has_unloaded) = count_subtree_files(&state, "src");
+        assert_eq!(count, 1);
+        assert!(has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_nonexistent_path() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![make_flat_dir("src", true), make_flat_file("src/main.rs")];
+        // 存在しないパス → 配下ファイルなし
+        let (count, has_unloaded) = count_subtree_files(&state, "nonexistent");
+        assert_eq!(count, 0);
+        assert!(!has_unloaded);
+    }
+
+    #[test]
+    fn test_count_subtree_files_does_not_count_dirs() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", true),
+            make_flat_dir("src/app", true),
+            make_flat_dir("src/handler", true),
+        ];
+        // ディレクトリのみ → ファイル数 0
+        let (count, _) = count_subtree_files(&state, "src");
+        assert_eq!(count, 0);
+    }
+
+    // -------------------------------------------------------
+    // AppState メソッド単体テスト
+    // NOTE: handle_tree_key() は TuiRuntime を要求するため直接呼べない。
+    // 以下は handle_tree_key から呼び出される AppState メソッドの動作テスト。
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_toggle_focus() {
+        let mut state = make_test_state();
+        assert_eq!(state.focus, crate::app::types::Focus::FileTree);
+        state.toggle_focus();
+        assert_eq!(state.focus, crate::app::types::Focus::DiffView);
+        state.toggle_focus();
+        assert_eq!(state.focus, crate::app::types::Focus::FileTree);
+    }
+
+    #[test]
+    fn test_cursor_down_and_up() {
+        let mut state = make_test_state();
+        state.flat_nodes = vec![
+            make_flat_dir("src", true),
+            make_flat_file("src/a.rs"),
+            make_flat_file("src/b.rs"),
+        ];
+        assert_eq!(state.tree_cursor, 0);
+        state.cursor_down();
+        assert_eq!(state.tree_cursor, 1);
+        state.cursor_down();
+        assert_eq!(state.tree_cursor, 2);
+        // 末尾を超えない
+        state.cursor_down();
+        assert_eq!(state.tree_cursor, 2);
+        state.cursor_up();
+        assert_eq!(state.tree_cursor, 1);
+        state.cursor_up();
+        assert_eq!(state.tree_cursor, 0);
+        // 先頭を超えない
+        state.cursor_up();
+        assert_eq!(state.tree_cursor, 0);
+    }
+
+    #[test]
+    fn test_cycle_theme() {
+        let mut state = make_test_state();
+        let initial_theme = state.theme_name.clone();
+        state.cycle_theme();
+        // テーマが変わったことを確認（次のテーマに遷移）
+        assert_ne!(state.theme_name, initial_theme);
+    }
+
+    #[test]
+    fn test_toggle_syntax_highlight() {
+        let mut state = make_test_state();
+        let initial = state.syntax_highlight_enabled;
+        state.toggle_syntax_highlight();
+        assert_ne!(state.syntax_highlight_enabled, initial);
+        state.toggle_syntax_highlight();
+        assert_eq!(state.syntax_highlight_enabled, initial);
+    }
+
+    #[test]
+    fn test_show_help() {
+        let mut state = make_test_state();
+        assert!(matches!(state.dialog, crate::ui::dialog::DialogState::None));
+        state.show_help();
+        assert!(matches!(
+            state.dialog,
+            crate::ui::dialog::DialogState::Help(_)
+        ));
+    }
+
+    #[test]
+    fn test_toggle_diff_filter() {
+        let mut state = make_test_state();
+        assert!(!state.diff_filter_mode);
+        state.toggle_diff_filter();
+        assert!(state.diff_filter_mode);
+        state.toggle_diff_filter();
+        assert!(!state.diff_filter_mode);
+    }
+
+    #[test]
+    fn test_toggle_diff_mode() {
+        let mut state = make_test_state();
+        assert_eq!(state.diff_mode, crate::app::types::DiffMode::Unified);
+        state.toggle_diff_mode();
+        assert_eq!(state.diff_mode, crate::app::types::DiffMode::SideBySide);
+        state.toggle_diff_mode();
+        assert_eq!(state.diff_mode, crate::app::types::DiffMode::Unified);
+    }
+
+    // -------------------------------------------------------
+    // handle_clipboard_copy ロジック分岐テスト
+    // -------------------------------------------------------
+
+    #[test]
+    fn test_clipboard_copy_no_file_selected() {
+        let mut state = make_test_state();
+        state.selected_path = None;
+        handle_clipboard_copy(&mut state);
+        assert_eq!(state.status_message, "No file selected");
+    }
+
+    #[test]
+    fn test_clipboard_copy_sensitive_file() {
+        let mut state = make_test_state();
+        state.selected_path = Some(".env".to_string());
+        state.sensitive_patterns = vec![".env".to_string()];
+        handle_clipboard_copy(&mut state);
+        assert_eq!(
+            state.status_message,
+            "Warning: sensitive file — content not copied"
+        );
+    }
+
+    #[test]
+    fn test_clipboard_copy_no_diff_available() {
+        let mut state = make_test_state();
+        state.selected_path = Some("src/main.rs".to_string());
+        state.current_diff = None;
+        handle_clipboard_copy(&mut state);
+        assert_eq!(state.status_message, "No diff available for this file");
+    }
 }

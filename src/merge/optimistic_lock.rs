@@ -64,6 +64,47 @@ pub fn check_mtimes_batch(
         .collect()
 }
 
+/// mtime が変わったかを判定する純粋関数（秒精度比較）。
+///
+/// [`check_mtime`] との違い:
+/// - `check_mtime` は path を受け取り `Option<MtimeConflict>` を返す（バッチ処理向け）
+/// - `check_mtime_changed` は path を取らず `MtimeCheckResult` enum で詳細な状態を返す
+///   （handler 層での分岐判定向け）
+///
+/// `None` の解釈も異なる: `check_mtime` は `(Some, None)` を「衝突なし」とするが、
+/// `check_mtime_changed` は `StatFailed` を返す（呼び出し側がファイル削除等を区別できる）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum MtimeCheckResult {
+    /// キャッシュされた mtime がない（初回取得時）
+    NoCachedMtime,
+    /// stat 取得に失敗した（ファイル削除等）
+    StatFailed,
+    /// mtime は変更されていない
+    Unchanged,
+    /// mtime が変更された
+    Changed {
+        cached: DateTime<Utc>,
+        actual: DateTime<Utc>,
+    },
+}
+
+pub fn check_mtime_changed(
+    cached_mtime: Option<DateTime<Utc>>,
+    current_mtime: Option<DateTime<Utc>>,
+) -> MtimeCheckResult {
+    match (cached_mtime, current_mtime) {
+        (None, _) => MtimeCheckResult::NoCachedMtime,
+        (_, None) => MtimeCheckResult::StatFailed,
+        (Some(c), Some(a)) if truncate_to_secs(c) == truncate_to_secs(a) => {
+            MtimeCheckResult::Unchanged
+        }
+        (Some(c), Some(a)) => MtimeCheckResult::Changed {
+            cached: c,
+            actual: a,
+        },
+    }
+}
+
 /// ローカルファイルの現在の mtime を取得する。
 pub fn stat_local_file(root_dir: &std::path::Path, rel_path: &str) -> Option<DateTime<Utc>> {
     let full_path = root_dir.join(rel_path);
@@ -162,5 +203,87 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let result = stat_local_file(dir.path(), "nonexistent.txt");
         assert!(result.is_none());
+    }
+
+    // --- check_mtime_changed tests ---
+
+    #[test]
+    fn test_check_mtime_changed_no_cached_mtime() {
+        let current = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+        assert_eq!(
+            check_mtime_changed(None, Some(current)),
+            MtimeCheckResult::NoCachedMtime,
+        );
+    }
+
+    #[test]
+    fn test_check_mtime_changed_no_cached_mtime_both_none() {
+        assert_eq!(
+            check_mtime_changed(None, None),
+            MtimeCheckResult::NoCachedMtime,
+        );
+    }
+
+    #[test]
+    fn test_check_mtime_changed_stat_failed() {
+        let cached = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+        assert_eq!(
+            check_mtime_changed(Some(cached), None),
+            MtimeCheckResult::StatFailed,
+        );
+    }
+
+    #[test]
+    fn test_check_mtime_changed_unchanged() {
+        let dt = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+        assert_eq!(
+            check_mtime_changed(Some(dt), Some(dt)),
+            MtimeCheckResult::Unchanged,
+        );
+    }
+
+    #[test]
+    fn test_check_mtime_changed_unchanged_with_nanos() {
+        // 同じエポック秒、異なるナノ秒 → Unchanged
+        let cached = Utc.timestamp_opt(1705312800, 123_456_789).single().unwrap();
+        let current = Utc.timestamp_opt(1705312800, 987_654_321).single().unwrap();
+        assert_eq!(
+            check_mtime_changed(Some(cached), Some(current)),
+            MtimeCheckResult::Unchanged,
+        );
+    }
+
+    #[test]
+    fn test_check_mtime_changed_changed() {
+        let cached = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+        let current = Utc.with_ymd_and_hms(2024, 1, 15, 14, 23, 0).unwrap();
+        assert!(matches!(
+            check_mtime_changed(Some(cached), Some(current)),
+            MtimeCheckResult::Changed { .. },
+        ));
+    }
+
+    #[test]
+    fn test_check_mtime_changed_changed_by_one_second() {
+        let cached = Utc.timestamp_opt(1705312800, 0).single().unwrap();
+        let current = Utc.timestamp_opt(1705312801, 0).single().unwrap();
+        assert!(matches!(
+            check_mtime_changed(Some(cached), Some(current)),
+            MtimeCheckResult::Changed { .. },
+        ));
+    }
+
+    #[test]
+    fn test_check_mtime_changed_changed_verify_values() {
+        let cached = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+        let current = Utc.with_ymd_and_hms(2024, 1, 15, 15, 0, 0).unwrap();
+        let result = check_mtime_changed(Some(cached), Some(current));
+        assert_eq!(
+            result,
+            MtimeCheckResult::Changed {
+                cached,
+                actual: current,
+            },
+        );
     }
 }

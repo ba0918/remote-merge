@@ -8,7 +8,7 @@ use crate::theme::palette::ensure_contrast;
 use crate::ui::dialog::{
     centered_rect, BatchConfirmDialogWidget, ConfirmDialogWidget, DialogState, FilterPanelWidget,
     HelpOverlayWidget, HunkMergePreviewWidget, MtimeWarningDialogWidget, PairServerMenuWidget,
-    ProgressDialog, ServerMenuWidget, ThreeWaySummaryWidget,
+    ProgressDialog, ProgressPhase, ServerMenuWidget, ThreeWaySummaryWidget,
 };
 use crate::ui::diff_view::DiffView;
 use crate::ui::layout::AppLayout;
@@ -286,44 +286,8 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
 
     let bar_width = (chunks[1].width as usize).saturating_sub(4);
 
-    // バー文字列と進捗テキストを分岐で生成し、描画は共通化
-    let (bar, text) = match progress.total {
-        Some(total) if total > 0 => {
-            let filled = (progress.current as f64 / total as f64 * bar_width as f64) as usize;
-            let bar = format!(
-                "  [{}{}]",
-                "█".repeat(filled.min(bar_width)),
-                "░".repeat(bar_width.saturating_sub(filled))
-            );
-            let pct = (progress.current as f64 / total as f64 * 100.0).min(100.0);
-            let text = format!("{} / {} files ({:.0}%)", progress.current, total, pct);
-            (bar, text)
-        }
-        _ => {
-            // バウンスアニメーション: current を使って位置をずらす
-            let marker_width = 4.min(bar_width);
-            let travel = bar_width.saturating_sub(marker_width);
-            let pos = if travel > 0 {
-                let cycle = travel * 2;
-                let raw = progress.current % cycle.max(1);
-                if raw < travel {
-                    raw
-                } else {
-                    cycle - raw
-                }
-            } else {
-                0
-            };
-            let bar = format!(
-                "  [{}{}{}]",
-                "░".repeat(pos),
-                "━".repeat(marker_width),
-                "░".repeat(bar_width.saturating_sub(pos + marker_width)),
-            );
-            let text = progress.phase.indeterminate_text(progress.current);
-            (bar, text)
-        }
-    };
+    let (bar, text) =
+        compute_progress_bar(progress.current, progress.total, bar_width, &progress.phase);
 
     let bar_para = Paragraph::new(Line::from(Span::styled(
         bar,
@@ -371,6 +335,55 @@ fn truncate_path(path: &str, max_len: usize) -> String {
     let skip = path.chars().count().saturating_sub(suffix_len);
     let suffix: String = path.chars().skip(skip).collect();
     format!("...{}", suffix)
+}
+
+/// 進捗バーの表示文字列とテキストを生成する（純粋関数）
+///
+/// `total` が `Some(n)` (n > 0) の場合は確定プログレスバー、
+/// それ以外はバウンスアニメーション（不定形式）を返す。
+fn compute_progress_bar(
+    current: usize,
+    total: Option<usize>,
+    bar_width: usize,
+    phase: &ProgressPhase,
+) -> (String, String) {
+    match total {
+        Some(total) if total > 0 => {
+            let filled = (current as f64 / total as f64 * bar_width as f64) as usize;
+            let bar = format!(
+                "  [{}{}]",
+                "█".repeat(filled.min(bar_width)),
+                "░".repeat(bar_width.saturating_sub(filled))
+            );
+            let pct = (current as f64 / total as f64 * 100.0).min(100.0);
+            let text = format!("{} / {} files ({:.0}%)", current, total, pct);
+            (bar, text)
+        }
+        _ => {
+            // バウンスアニメーション: current を使って位置をずらす
+            let marker_width = 4.min(bar_width);
+            let travel = bar_width.saturating_sub(marker_width);
+            let pos = if travel > 0 {
+                let cycle = travel * 2;
+                let raw = current % cycle.max(1);
+                if raw < travel {
+                    raw
+                } else {
+                    cycle - raw
+                }
+            } else {
+                0
+            };
+            let bar = format!(
+                "  [{}{}{}]",
+                "░".repeat(pos),
+                "━".repeat(marker_width),
+                "░".repeat(bar_width.saturating_sub(pos + marker_width)),
+            );
+            let text = phase.indeterminate_text(current);
+            (bar, text)
+        }
+    }
 }
 
 /// シンプルな Y/n 確認ダイアログを描画する
@@ -508,5 +521,170 @@ mod tests {
         assert_eq!(dialog.total, Some(46));
         assert_eq!(dialog.current, 10);
         assert_eq!(dialog.display_title(), "Loading files");
+    }
+
+    // --- truncate_path エッジケース ---
+
+    #[test]
+    fn test_truncate_path_empty_string() {
+        assert_eq!(truncate_path("", 10), "");
+    }
+
+    #[test]
+    fn test_truncate_path_max_len_one() {
+        // max_len=1 → suffix_len = 1-3 = 0 (saturating_sub)
+        // skip = 全文字数 → suffix は空 → "..."
+        let result = truncate_path("src/main.rs", 1);
+        assert!(result.starts_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_path_max_len_zero() {
+        let result = truncate_path("src/main.rs", 0);
+        assert!(result.starts_with("..."));
+    }
+
+    // --- compute_progress_bar テスト ---
+
+    #[test]
+    fn test_progress_bar_zero_percent() {
+        let (bar, text) = compute_progress_bar(0, Some(10), 20, &ProgressPhase::LoadingFiles);
+        // 0% → filled=0, 全て ░
+        assert!(bar.contains('['));
+        assert!(bar.contains(']'));
+        assert!(text.contains("0 / 10 files (0%)"));
+    }
+
+    #[test]
+    fn test_progress_bar_fifty_percent() {
+        let (bar, text) = compute_progress_bar(5, Some(10), 20, &ProgressPhase::LoadingFiles);
+        assert!(text.contains("5 / 10 files (50%)"));
+        // filled=10, bar_width=20 → 10 █ と 10 ░
+        assert!(bar.contains("██████████"));
+        assert!(bar.contains("░░░░░░░░░░"));
+    }
+
+    #[test]
+    fn test_progress_bar_hundred_percent() {
+        let (bar, text) = compute_progress_bar(10, Some(10), 20, &ProgressPhase::LoadingFiles);
+        assert!(text.contains("10 / 10 files (100%)"));
+        // 全て █
+        assert!(bar.contains("████████████████████"));
+        assert!(!bar.contains('░'));
+    }
+
+    #[test]
+    fn test_progress_bar_over_hundred_percent() {
+        // current > total の場合も 100% を超えない
+        let (_bar, text) = compute_progress_bar(15, Some(10), 20, &ProgressPhase::LoadingFiles);
+        assert!(text.contains("100%"));
+    }
+
+    #[test]
+    fn test_progress_bar_total_zero_division() {
+        // total=Some(0) → _ ブランチへフォールバック（ゼロ除算回避）
+        let (bar, text) = compute_progress_bar(5, Some(0), 20, &ProgressPhase::Scanning);
+        assert!(bar.contains('['));
+        assert!(text.contains("Discovering files... 5 found"));
+    }
+
+    #[test]
+    fn test_progress_bar_total_none_indeterminate() {
+        let (bar, text) = compute_progress_bar(0, None, 20, &ProgressPhase::Scanning);
+        // バウンスアニメーション
+        assert!(bar.contains("━"));
+        assert!(text.contains("Discovering files... 0 found"));
+    }
+
+    #[test]
+    fn test_progress_bar_indeterminate_bounce_forward() {
+        // current=3, travel=16, cycle=32, raw=3 < 16 → pos=3
+        let (bar, _text) = compute_progress_bar(3, None, 20, &ProgressPhase::Scanning);
+        assert!(bar.contains("━━━━"));
+    }
+
+    #[test]
+    fn test_progress_bar_indeterminate_bounce_backward() {
+        // bar_width=20, marker_width=4, travel=16, cycle=32
+        // current=20 → raw=20 % 32 = 20 ≥ 16 → pos = 32 - 20 = 12
+        let (bar, _text) = compute_progress_bar(20, None, 20, &ProgressPhase::Scanning);
+        assert!(bar.contains("━━━━"));
+    }
+
+    #[test]
+    fn test_progress_bar_bar_width_zero() {
+        // bar_width=0 → marker_width=0, travel=0, pos=0
+        let (bar, text) = compute_progress_bar(5, None, 0, &ProgressPhase::Scanning);
+        assert_eq!(bar, "  []");
+        assert!(text.contains("Discovering files... 5 found"));
+    }
+
+    #[test]
+    fn test_progress_bar_bar_width_zero_with_total() {
+        let (bar, text) = compute_progress_bar(5, Some(10), 0, &ProgressPhase::LoadingFiles);
+        assert_eq!(bar, "  []");
+        assert!(text.contains("5 / 10 files (50%)"));
+    }
+
+    #[test]
+    fn test_progress_bar_small_bar_width() {
+        // bar_width=3 → marker_width=3, travel=0, pos=0
+        let (bar, _text) = compute_progress_bar(0, None, 3, &ProgressPhase::Scanning);
+        assert!(bar.contains("━━━"));
+    }
+
+    // --- ProgressPhase テスト ---
+
+    #[test]
+    fn test_progress_phase_titles() {
+        assert_eq!(ProgressPhase::Scanning.title(), "Scanning");
+        assert_eq!(ProgressPhase::LoadingFiles.title(), "Loading files");
+        assert_eq!(ProgressPhase::LoadingRemote.title(), "Loading remote files");
+        assert_eq!(ProgressPhase::Merging.title(), "Merging");
+    }
+
+    #[test]
+    fn test_progress_phase_indeterminate_text() {
+        assert_eq!(
+            ProgressPhase::Scanning.indeterminate_text(42),
+            "Discovering files... 42 found"
+        );
+        assert_eq!(
+            ProgressPhase::LoadingFiles.indeterminate_text(7),
+            "Processing... 7"
+        );
+        assert_eq!(
+            ProgressPhase::LoadingRemote.indeterminate_text(0),
+            "Processing... 0"
+        );
+        assert_eq!(
+            ProgressPhase::Merging.indeterminate_text(3),
+            "Processing... 3"
+        );
+    }
+
+    // --- ProgressDialog メソッドテスト ---
+
+    #[test]
+    fn test_progress_dialog_display_title_with_context() {
+        let dialog = ProgressDialog::new(ProgressPhase::Scanning, "/var/www", true);
+        assert_eq!(dialog.display_title(), "Scanning /var/www");
+    }
+
+    #[test]
+    fn test_progress_dialog_display_title_empty_context() {
+        let dialog = ProgressDialog::new(ProgressPhase::Merging, "", false);
+        assert_eq!(dialog.display_title(), "Merging");
+    }
+
+    #[test]
+    fn test_progress_dialog_new_defaults() {
+        let dialog = ProgressDialog::new(ProgressPhase::LoadingRemote, "server", true);
+        assert_eq!(dialog.current, 0);
+        assert_eq!(dialog.total, None);
+        assert_eq!(dialog.current_path, None);
+        assert!(dialog.cancelable);
+        assert_eq!(dialog.phase, ProgressPhase::LoadingRemote);
+        assert_eq!(dialog.context, "server");
     }
 }

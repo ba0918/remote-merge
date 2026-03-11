@@ -145,3 +145,168 @@ pub fn handle_diff_key(state: &mut AppState, runtime: &mut TuiRuntime, code: Key
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{AppState, Side};
+    use crate::diff::engine::{DiffLine, DiffResult, DiffStats, DiffTag, HunkDirection};
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_test_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    fn make_test_state() -> AppState {
+        AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        )
+    }
+
+    fn make_diff_lines(n: usize) -> Vec<DiffLine> {
+        (0..n)
+            .map(|i| DiffLine {
+                tag: DiffTag::Equal,
+                value: format!("line {}", i),
+                old_index: Some(i),
+                new_index: Some(i),
+            })
+            .collect()
+    }
+
+    fn make_state_with_diff_lines(n: usize) -> AppState {
+        let mut state = make_test_state();
+        state.current_diff = Some(DiffResult::Modified {
+            hunks: vec![],
+            stats: DiffStats {
+                insertions: 0,
+                deletions: 0,
+                equal: n,
+            },
+            lines: make_diff_lines(n),
+            merge_hunks: vec![],
+            merge_hunk_line_indices: vec![],
+        });
+        state
+    }
+
+    // 1. scroll_up / scroll_down で diff_cursor が変化する
+    #[test]
+    fn test_scroll_up_down() {
+        let mut state = make_state_with_diff_lines(30);
+        assert_eq!(state.diff_cursor, 0);
+
+        state.scroll_down();
+        assert_eq!(state.diff_cursor, 1);
+
+        state.scroll_down();
+        assert_eq!(state.diff_cursor, 2);
+
+        state.scroll_up();
+        assert_eq!(state.diff_cursor, 1);
+
+        // 0 で scroll_up しても 0 のまま
+        state.scroll_up();
+        state.scroll_up();
+        assert_eq!(state.diff_cursor, 0);
+    }
+
+    // 2. scroll_to_home → 0, scroll_to_end → max
+    #[test]
+    fn test_scroll_to_home_end() {
+        let mut state = make_state_with_diff_lines(50);
+
+        state.scroll_to_end();
+        assert_eq!(state.diff_cursor, 49);
+
+        state.scroll_to_home();
+        assert_eq!(state.diff_cursor, 0);
+        assert_eq!(state.diff_scroll, 0);
+    }
+
+    // NOTE: toggle_focus, toggle_diff_mode, show_help は
+    // handler/tree_keys.rs のテストでカバー済み
+
+    // 3. diff_search_state.activate() で active=true
+    #[test]
+    fn test_search_activate() {
+        let mut state = make_test_state();
+        assert!(!state.diff_search_state.active);
+
+        state.diff_search_state.activate();
+        assert!(state.diff_search_state.active);
+        assert!(state.diff_search_state.query.is_empty());
+    }
+
+    // 7. diff_search_state.clear() で active=false, query が空
+    #[test]
+    fn test_search_clear() {
+        let mut state = make_test_state();
+        state.diff_search_state.activate();
+        state.diff_search_state.query = "test query".to_string();
+        assert!(state.diff_search_state.active);
+        assert!(!state.diff_search_state.query.is_empty());
+
+        state.diff_search_state.clear();
+        assert!(!state.diff_search_state.active);
+        assert!(state.diff_search_state.query.is_empty());
+        assert_eq!(state.diff_search_state.match_cursor, 0);
+    }
+
+    // 8. cancel_hunk_merge() で pending_hunk_merge=None
+    #[test]
+    fn test_cancel_hunk_merge() {
+        let mut state = make_test_state();
+        state.pending_hunk_merge = Some(HunkDirection::LeftToRight);
+
+        state.cancel_hunk_merge();
+        assert!(state.pending_hunk_merge.is_none());
+
+        // 既に None の場合は何も変わらない
+        let msg_before = state.status_message.clone();
+        state.cancel_hunk_merge();
+        assert_eq!(state.status_message, msg_before);
+    }
+
+    // 9. has_unsaved_changes() の初期値は false
+    #[test]
+    fn test_unsaved_changes_check() {
+        let state = make_test_state();
+        assert!(!state.has_unsaved_changes());
+        assert!(state.undo_stack.is_empty());
+    }
+
+    // 10. scroll_page_down / scroll_page_up
+    #[test]
+    fn test_page_scroll() {
+        let mut state = make_state_with_diff_lines(100);
+        assert_eq!(state.diff_cursor, 0);
+
+        state.scroll_page_down(20);
+        assert_eq!(state.diff_cursor, 20);
+
+        state.scroll_page_down(20);
+        assert_eq!(state.diff_cursor, 40);
+
+        state.scroll_page_up(20);
+        assert_eq!(state.diff_cursor, 20);
+
+        state.scroll_page_up(20);
+        assert_eq!(state.diff_cursor, 0);
+
+        // 0 未満にはならない
+        state.scroll_page_up(20);
+        assert_eq!(state.diff_cursor, 0);
+
+        // 末尾を超えない
+        state.scroll_page_down(200);
+        assert_eq!(state.diff_cursor, 99);
+    }
+}

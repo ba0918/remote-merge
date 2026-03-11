@@ -255,4 +255,90 @@ mod tests {
         let err = run_rollback(args, config).unwrap_err();
         assert!(format!("{}", err).contains("Unknown format"));
     }
+
+    // ── additional resolve_target tests ──
+
+    #[test]
+    fn test_resolve_target_staging() {
+        let side = resolve_target(Some("staging"), false).unwrap();
+        assert_eq!(side, Side::Remote("staging".into()));
+    }
+
+    // ── rollback_exit_code tests ──
+
+    #[test]
+    fn test_rollback_exit_code_success() {
+        // restored が非空で failed が空 → 0
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "local".into(),
+                root: "/tmp".into(),
+            },
+            session_id: "20260301_120000".into(),
+            restored: vec![crate::service::types::RollbackFileResult {
+                path: "a.txt".into(),
+                pre_rollback_backup: None,
+            }],
+            skipped: vec![],
+            failed: vec![],
+        };
+        assert_eq!(rollback_exit_code(&output), 0);
+    }
+
+    #[test]
+    fn test_rollback_exit_code_failure_with_failed() {
+        // failed が非空 → 2
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "local".into(),
+                root: "/tmp".into(),
+            },
+            session_id: "20260301_120000".into(),
+            restored: vec![crate::service::types::RollbackFileResult {
+                path: "a.txt".into(),
+                pre_rollback_backup: None,
+            }],
+            skipped: vec![],
+            failed: vec![RollbackFailure {
+                path: "b.txt".into(),
+                error: "permission denied".into(),
+            }],
+        };
+        assert_eq!(rollback_exit_code(&output), 2);
+    }
+
+    #[test]
+    fn test_rollback_exit_code_empty_restored() {
+        // restored が空で failed も空 → 2（restored.is_empty() で非0）
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "local".into(),
+                root: "/tmp".into(),
+            },
+            session_id: "20260301_120000".into(),
+            restored: vec![],
+            skipped: vec![],
+            failed: vec![],
+        };
+        assert_eq!(rollback_exit_code(&output), 2);
+    }
+
+    #[test]
+    fn test_rollback_exit_code_only_failed() {
+        // restored が空、failed のみ → 2
+        let output = RollbackOutput {
+            target: SourceInfo {
+                label: "local".into(),
+                root: "/tmp".into(),
+            },
+            session_id: "20260301_120000".into(),
+            restored: vec![],
+            skipped: vec![],
+            failed: vec![RollbackFailure {
+                path: "c.txt".into(),
+                error: "not found".into(),
+            }],
+        };
+        assert_eq!(rollback_exit_code(&output), 2);
+    }
 }
