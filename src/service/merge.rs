@@ -43,12 +43,14 @@ pub fn plan_merge(paths: &[String], sensitive_patterns: &[String], force: bool) 
 pub fn build_merge_output(
     merged: Vec<MergeFileResult>,
     skipped: Vec<MergeSkipped>,
+    deleted: Vec<DeleteFileResult>,
     failed: Vec<MergeFailure>,
     ref_info: Option<SourceInfo>,
 ) -> MergeOutput {
     MergeOutput {
         merged,
         skipped,
+        deleted,
         failed,
         ref_: ref_info,
     }
@@ -177,6 +179,7 @@ mod tests {
             }],
             vec![],
             vec![],
+            vec![],
             None,
         );
         assert_eq!(output.merged.len(), 1);
@@ -194,6 +197,7 @@ mod tests {
             }],
             vec![],
             vec![],
+            vec![],
             None,
         );
         assert_eq!(merge_exit_code(&output), exit_code::SUCCESS);
@@ -202,6 +206,7 @@ mod tests {
     #[test]
     fn test_merge_exit_code_failure() {
         let output = build_merge_output(
+            vec![],
             vec![],
             vec![],
             vec![MergeFailure {
@@ -222,6 +227,7 @@ mod tests {
                 backup: None,
                 ref_badge: Some("differs".into()),
             }],
+            vec![],
             vec![],
             vec![],
             Some(SourceInfo {
@@ -245,12 +251,49 @@ mod tests {
             }],
             vec![],
             vec![],
+            vec![],
             None,
         );
         assert!(output.ref_.is_none());
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
         assert!(!json.contains("\"ref_badge\""));
+    }
+
+    #[test]
+    fn test_build_merge_output_with_deleted() {
+        let output = build_merge_output(
+            vec![],
+            vec![],
+            vec![DeleteFileResult {
+                path: "old.txt".into(),
+                status: DeleteStatus::Ok,
+                backup: Some("session/old.txt".into()),
+            }],
+            vec![],
+            None,
+        );
+        assert_eq!(output.deleted.len(), 1);
+        assert_eq!(output.deleted[0].path, "old.txt");
+    }
+
+    #[test]
+    fn test_build_merge_output_deleted_empty_backward_compat() {
+        let output = build_merge_output(
+            vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            vec![],
+            vec![],
+            vec![],
+            None,
+        );
+        let json = serde_json::to_string(&output).unwrap();
+        // deleted が空のとき JSON に含まれない（後方互換性）
+        assert!(!json.contains("\"deleted\""));
     }
 
     // ── find_symlink_target tests ──

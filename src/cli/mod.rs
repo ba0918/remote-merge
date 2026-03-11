@@ -9,4 +9,5 @@ pub mod merge;
 pub mod ref_guard;
 pub mod rollback;
 pub mod status;
+pub mod sync;
 pub mod tolerant_io;

@@ -297,6 +297,32 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
         ));
     }
 
+    // 削除済み / 削除予定ファイル（--delete 時）
+    // dry-run 判定: merged に "would merge" エントリがあれば dry-run モード
+    // NOTE: merged が空で deleted のみのケースは実際には発生しない
+    // （diff_files が空の場合、早期リターンで削除計画も実行されないため）
+    let is_merge_dry_run = output
+        .merged
+        .first()
+        .is_some_and(|f| f.status == "would merge");
+    for del in &output.deleted {
+        if is_merge_dry_run {
+            lines.push(format!("Would delete: {}", del.path));
+        } else {
+            let status_badge = match del.status {
+                DeleteStatus::Ok => {
+                    let mut line = format!("Deleted: {}", del.path);
+                    if let Some(ref backup) = del.backup {
+                        line.push_str(&format!(" (backup: {})", backup));
+                    }
+                    line
+                }
+                DeleteStatus::Failed => format!("Delete failed: {}", del.path),
+            };
+            lines.push(status_badge);
+        }
+    }
+
     for skip in &output.skipped {
         lines.push(format!("Skipped: {} ({})", skip.path, skip.reason));
     }
@@ -330,6 +356,7 @@ pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<Strin
             let output = MergeOutput {
                 merged: vec![],
                 skipped: vec![],
+                deleted: vec![],
                 failed: vec![],
                 ref_: None,
             };
@@ -339,6 +366,7 @@ pub fn format_merge_outcome_json(outcome: &MergeOutcome) -> anyhow::Result<Strin
             let output = MergeOutput {
                 merged: vec![],
                 skipped: vec![],
+                deleted: vec![],
                 failed: vec![MergeFailure {
                     path: String::new(),
                     error: format!(
@@ -421,6 +449,102 @@ pub fn format_rollback_text(output: &RollbackOutput) -> String {
         summary_parts.push(format!("failed {}", failed));
     }
     lines.push(format!("{}.", summary_parts.join(", ")));
+
+    lines.join("\n")
+}
+
+/// SyncOutput をテキストフォーマットする
+pub fn format_sync_text(output: &SyncOutput) -> String {
+    let mut lines = Vec::new();
+
+    // ヘッダ: "Sync: {left} → {target1}, {target2}, ..."
+    let target_names: Vec<&str> = output
+        .targets
+        .iter()
+        .map(|t| t.target.label.as_str())
+        .collect();
+    lines.push(format!(
+        "Sync: {} \u{2192} {}",
+        output.left.label,
+        target_names.join(", ")
+    ));
+    lines.push(String::new());
+
+    // 各ターゲットの結果
+    for target_result in &output.targets {
+        let status_str = match target_result.status {
+            SyncTargetStatus::Success => "success",
+            SyncTargetStatus::Partial => "partial",
+            SyncTargetStatus::Failed => "failed",
+        };
+        lines.push(format!("[{}] {}", target_result.target.label, status_str));
+
+        // マージ済みファイル
+        for file in &target_result.merged {
+            let badge = if file.status == "would merge" {
+                "plan"
+            } else {
+                "ok"
+            };
+            let mut line = format!("  {:<6} {}", badge, file.path);
+            if let Some(ref backup) = file.backup {
+                line.push_str(&format!(" (backup: {})", backup));
+            }
+            lines.push(line);
+        }
+
+        // 削除済み / 削除予定ファイル
+        // dry-run 判定: merged に "would merge" エントリがあれば dry-run モード
+        let is_dry_run = target_result
+            .merged
+            .first()
+            .is_some_and(|f| f.status == "would merge");
+        for file in &target_result.deleted {
+            if is_dry_run {
+                lines.push(format!("  {:<6} {} (would delete)", "D", file.path));
+            } else {
+                let status_badge = match file.status {
+                    DeleteStatus::Ok => "D",
+                    DeleteStatus::Failed => "D!",
+                };
+                let mut line = format!("  {:<6} {} (deleted", status_badge, file.path);
+                if let Some(ref backup) = file.backup {
+                    line.push_str(&format!(", backup: {}", backup));
+                }
+                line.push(')');
+                lines.push(line);
+            }
+        }
+
+        // スキップファイル
+        for skip in &target_result.skipped {
+            lines.push(format!("  skip   {} ({})", skip.path, skip.reason));
+        }
+
+        // 失敗ファイル
+        for fail in &target_result.failed {
+            lines.push(format!("  FAILED {} ({})", fail.path, fail.error));
+        }
+
+        lines.push(String::new());
+    }
+
+    // サマリー行
+    let s = &output.summary;
+    let mut summary_parts = vec![
+        format!(
+            "{}/{} servers successful",
+            s.successful_servers, s.total_servers
+        ),
+        format!("{} files merged", s.total_files_merged),
+    ];
+    if s.total_files_deleted > 0 {
+        summary_parts.push(format!("{} files deleted", s.total_files_deleted));
+    }
+    if s.total_files_failed > 0 {
+        summary_parts.push(format!("{} files failed", s.total_files_failed));
+    }
+    lines.push(format!("Summary: {}", summary_parts.join(", ")));
 
     lines.join("\n")
 }
@@ -658,6 +782,7 @@ mod tests {
                 path: ".env".into(),
                 reason: "sensitive file".into(),
             }],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -925,6 +1050,7 @@ mod tests {
                 ref_badge: None,
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -943,6 +1069,7 @@ mod tests {
                 ref_badge: Some("differs".into()),
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: Some(SourceInfo {
                 label: "staging".into(),
@@ -963,6 +1090,7 @@ mod tests {
                 ref_badge: Some("differs".into()),
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: Some(SourceInfo {
                 label: "staging".into(),
@@ -1303,6 +1431,7 @@ mod tests {
                 ref_badge: None,
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -1691,6 +1820,7 @@ mod tests {
                 ref_badge: None,
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -1710,6 +1840,7 @@ mod tests {
                 ref_badge: None,
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -1729,6 +1860,7 @@ mod tests {
                 ref_badge: None,
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -1752,11 +1884,418 @@ mod tests {
                     reason: "sensitive file".into(),
                 },
             ],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
         let text = format_merge_text(&output);
         assert!(text.contains("Skipped: .env (sensitive file)"));
         assert!(text.contains("Skipped: certs/server.pem (sensitive file)"));
+    }
+
+    // ── format_merge_text: --delete 表示 ──
+
+    #[test]
+    fn test_format_merge_text_with_deleted() {
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "updated.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            skipped: vec![],
+            deleted: vec![DeleteFileResult {
+                path: "old-file.txt".into(),
+                status: DeleteStatus::Ok,
+                backup: Some("session123/old-file.txt".into()),
+            }],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_text(&output);
+        assert!(
+            text.contains("Deleted: old-file.txt (backup: session123/old-file.txt)"),
+            "text: {}",
+            text
+        );
+        assert!(text.contains("Merged: updated.rs"));
+    }
+
+    #[test]
+    fn test_format_merge_text_deleted_no_backup() {
+        let output = MergeOutput {
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![DeleteFileResult {
+                path: "remove-me.txt".into(),
+                status: DeleteStatus::Ok,
+                backup: None,
+            }],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_text(&output);
+        assert!(text.contains("Deleted: remove-me.txt"), "text: {}", text);
+        assert!(!text.contains("backup"));
+    }
+
+    #[test]
+    fn test_format_merge_text_deleted_failed() {
+        let output = MergeOutput {
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![DeleteFileResult {
+                path: "locked.txt".into(),
+                status: DeleteStatus::Failed,
+                backup: None,
+            }],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_text(&output);
+        assert!(text.contains("Delete failed: locked.txt"), "text: {}", text);
+    }
+
+    #[test]
+    fn test_format_merge_text_no_deleted_field_when_empty() {
+        // deleted が空のときは何も表示しない
+        let output = MergeOutput {
+            merged: vec![MergeFileResult {
+                path: "a.rs".into(),
+                status: "ok".into(),
+                backup: None,
+                ref_badge: None,
+            }],
+            skipped: vec![],
+            deleted: vec![],
+            failed: vec![],
+            ref_: None,
+        };
+        let text = format_merge_text(&output);
+        assert!(!text.contains("Deleted"));
+        assert!(!text.contains("Delete"));
+    }
+
+    #[test]
+    fn test_merge_output_json_deleted_empty_omitted() {
+        // deleted が空のとき JSON に含まれない（後方互換性）
+        let output = MergeOutput {
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![],
+            failed: vec![],
+            ref_: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(
+            !json.contains("\"deleted\""),
+            "empty deleted should be omitted: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn test_merge_output_json_deleted_present() {
+        // deleted がある場合 JSON に含まれる
+        let output = MergeOutput {
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![DeleteFileResult {
+                path: "old.txt".into(),
+                status: DeleteStatus::Ok,
+                backup: Some("session/old.txt".into()),
+            }],
+            failed: vec![],
+            ref_: None,
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(json.contains("\"deleted\""), "json: {}", json);
+        assert!(json.contains("\"old.txt\""), "json: {}", json);
+        assert!(json.contains("\"session/old.txt\""), "json: {}", json);
+    }
+
+    // ── format_sync_text ──
+
+    #[test]
+    fn format_sync_text_basic() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![MergeFileResult {
+                    path: "a.txt".into(),
+                    status: "ok".into(),
+                    backup: None,
+                    ref_badge: None,
+                }],
+                skipped: vec![],
+                deleted: vec![],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 1,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("Sync: local \u{2192} server1"));
+        assert!(text.contains("[server1] success"));
+        assert!(text.contains("ok"));
+        assert!(text.contains("a.txt"));
+        assert!(text.contains("1/1 servers successful"));
+    }
+
+    #[test]
+    fn format_sync_text_with_delete() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![],
+                skipped: vec![],
+                deleted: vec![DeleteFileResult {
+                    path: "old.txt".into(),
+                    status: DeleteStatus::Ok,
+                    backup: Some("session123/old.txt".into()),
+                }],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 0,
+                total_files_deleted: 1,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("deleted"));
+        assert!(text.contains("backup: session123/old.txt"));
+        assert!(text.contains("1 files deleted"));
+    }
+
+    #[test]
+    fn format_sync_text_multiple_servers() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![
+                SyncTargetResult {
+                    target: SourceInfo {
+                        label: "server1".into(),
+                        root: "/app".into(),
+                    },
+                    merged: vec![MergeFileResult {
+                        path: "a.txt".into(),
+                        status: "ok".into(),
+                        backup: None,
+                        ref_badge: None,
+                    }],
+                    skipped: vec![],
+                    deleted: vec![],
+                    failed: vec![],
+                    status: SyncTargetStatus::Success,
+                },
+                SyncTargetResult {
+                    target: SourceInfo {
+                        label: "server2".into(),
+                        root: "/app".into(),
+                    },
+                    merged: vec![],
+                    skipped: vec![],
+                    deleted: vec![],
+                    failed: vec![MergeFailure {
+                        path: "b.txt".into(),
+                        error: "connection lost".into(),
+                    }],
+                    status: SyncTargetStatus::Failed,
+                },
+            ],
+            summary: SyncSummary {
+                total_servers: 2,
+                successful_servers: 1,
+                total_files_merged: 1,
+                total_files_deleted: 0,
+                total_files_failed: 1,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("Sync: local \u{2192} server1, server2"));
+        assert!(text.contains("[server1] success"));
+        assert!(text.contains("[server2] failed"));
+        assert!(text.contains("1/2 servers successful"));
+        assert!(text.contains("1 files failed"));
+    }
+
+    #[test]
+    fn format_sync_text_with_skipped() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![],
+                skipped: vec![MergeSkipped {
+                    path: ".env".into(),
+                    reason: "sensitive file".into(),
+                }],
+                deleted: vec![],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 0,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("skip"));
+        assert!(text.contains(".env"));
+        assert!(text.contains("sensitive file"));
+    }
+
+    #[test]
+    fn format_sync_text_dry_run() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![
+                    MergeFileResult {
+                        path: "src/config.ts".into(),
+                        status: "would merge".into(),
+                        backup: None,
+                        ref_badge: None,
+                    },
+                    MergeFileResult {
+                        path: "src/index.ts".into(),
+                        status: "would merge".into(),
+                        backup: None,
+                        ref_badge: None,
+                    },
+                ],
+                skipped: vec![],
+                deleted: vec![],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 2,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        // dry-run ではバッジが "plan" になる
+        assert!(text.contains("plan"));
+        assert!(text.contains("src/config.ts"));
+        assert!(text.contains("src/index.ts"));
+    }
+
+    #[test]
+    fn format_sync_text_with_backup() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![MergeFileResult {
+                    path: "a.txt".into(),
+                    status: "ok".into(),
+                    backup: Some("20260311-120000/a.txt".into()),
+                    ref_badge: None,
+                }],
+                skipped: vec![],
+                deleted: vec![],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 1,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("backup: 20260311-120000/a.txt"));
+    }
+
+    #[test]
+    fn format_sync_text_delete_failed() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".into(),
+                    root: "/app".into(),
+                },
+                merged: vec![],
+                skipped: vec![],
+                deleted: vec![DeleteFileResult {
+                    path: "locked.txt".into(),
+                    status: DeleteStatus::Failed,
+                    backup: None,
+                }],
+                failed: vec![],
+                status: SyncTargetStatus::Partial,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 0,
+                total_files_merged: 0,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let text = format_sync_text(&output);
+        assert!(text.contains("D!"));
+        assert!(text.contains("locked.txt"));
+        assert!(text.contains("[server1] partial"));
     }
 }

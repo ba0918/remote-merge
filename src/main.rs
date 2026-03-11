@@ -131,6 +131,37 @@ enum Commands {
         /// Skip safety confirmations (remote-to-remote, sensitive files)
         #[arg(long)]
         force: bool,
+        /// Delete files that exist only on target (rsync --delete equivalent)
+        #[arg(long)]
+        delete: bool,
+        /// Copy source file permissions to destination
+        #[arg(long)]
+        with_permissions: bool,
+        /// Output format (text, json)
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
+    /// Sync files to multiple servers (1:N synchronization)
+    Sync {
+        /// File or directory paths to sync (use "." for all files)
+        #[arg(required = true, num_args = 1..)]
+        paths: Vec<String>,
+        /// Source side
+        #[arg(long, required = true)]
+        left: String,
+        /// Target servers (one or more, required)
+        #[arg(long, num_args = 1..)]
+        right: Vec<String>,
+        /// Preview sync without writing files
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip safety confirmations (remote-to-remote, sensitive files)
+        #[arg(long)]
+        force: bool,
+        /// Delete files that exist only on target (rsync --delete equivalent)
+        #[arg(long)]
+        delete: bool,
         /// Copy source file permissions to destination
         #[arg(long)]
         with_permissions: bool,
@@ -279,6 +310,7 @@ fn try_main() -> anyhow::Result<()> {
             r#ref,
             dry_run,
             force,
+            delete,
             with_permissions,
             format,
         }) => {
@@ -291,11 +323,36 @@ fn try_main() -> anyhow::Result<()> {
                     ref_server: r#ref,
                     dry_run,
                     force,
+                    delete,
                     with_permissions,
                     format,
                 },
                 cfg,
             )?;
+            std::process::exit(code);
+        }
+        Some(Commands::Sync {
+            paths,
+            left,
+            right,
+            dry_run,
+            force,
+            delete,
+            with_permissions,
+            format,
+        }) => {
+            let cfg = config::load_config_with_project_override(cli.config.as_deref())?;
+            let args = remote_merge::cli::sync::SyncArgs {
+                paths,
+                left,
+                right,
+                dry_run,
+                force,
+                delete,
+                with_permissions,
+                format,
+            };
+            let code = remote_merge::cli::sync::run_sync(args, cfg)?;
             std::process::exit(code);
         }
         Some(Commands::Rollback {

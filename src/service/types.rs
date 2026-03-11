@@ -169,6 +169,8 @@ pub struct MultiDiffSummary {
 pub struct MergeOutput {
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<DeleteFileResult>,
     pub failed: Vec<MergeFailure>,
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<SourceInfo>,
@@ -264,6 +266,64 @@ pub struct RollbackSkipped {
 pub struct RollbackFailure {
     pub path: String,
     pub error: String,
+}
+
+// ── sync ──
+
+/// sync コマンドの出力
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncOutput {
+    pub left: SourceInfo,
+    pub targets: Vec<SyncTargetResult>,
+    pub summary: SyncSummary,
+}
+
+/// 各ターゲットサーバの同期結果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncTargetResult {
+    pub target: SourceInfo,
+    pub merged: Vec<MergeFileResult>,
+    pub skipped: Vec<MergeSkipped>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deleted: Vec<DeleteFileResult>,
+    pub failed: Vec<MergeFailure>,
+    pub status: SyncTargetStatus,
+}
+
+/// 削除結果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteFileResult {
+    pub path: String,
+    pub status: DeleteStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<String>,
+}
+
+/// 削除ステータス
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeleteStatus {
+    Ok,
+    Failed,
+}
+
+/// 各ターゲットの最終ステータス
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncTargetStatus {
+    Success,
+    Partial,
+    Failed,
+}
+
+/// sync サマリー
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSummary {
+    pub total_servers: usize,
+    pub successful_servers: usize,
+    pub total_files_merged: usize,
+    pub total_files_deleted: usize,
+    pub total_files_failed: usize,
 }
 
 // ── exit codes ──
@@ -428,6 +488,7 @@ mod tests {
                 path: ".env".into(),
                 reason: "sensitive file".into(),
             }],
+            deleted: vec![],
             failed: vec![],
             ref_: None,
         };
@@ -624,6 +685,7 @@ mod tests {
                 ref_badge: Some("differs".into()),
             }],
             skipped: vec![],
+            deleted: vec![],
             failed: vec![],
             ref_: Some(SourceInfo {
                 label: "staging".into(),
@@ -919,5 +981,99 @@ mod tests {
         assert!(!json.contains("\"failed\""));
         // pre_rollback_backup が None のときも省略
         assert!(!json.contains("\"pre_rollback_backup\""));
+    }
+
+    // ── sync types ──
+
+    #[test]
+    fn sync_output_json_roundtrip() {
+        let output = SyncOutput {
+            left: SourceInfo {
+                label: "local".to_string(),
+                root: "/app".to_string(),
+            },
+            targets: vec![SyncTargetResult {
+                target: SourceInfo {
+                    label: "server1".to_string(),
+                    root: "/app".to_string(),
+                },
+                merged: vec![],
+                skipped: vec![],
+                deleted: vec![],
+                failed: vec![],
+                status: SyncTargetStatus::Success,
+            }],
+            summary: SyncSummary {
+                total_servers: 1,
+                successful_servers: 1,
+                total_files_merged: 0,
+                total_files_deleted: 0,
+                total_files_failed: 0,
+            },
+        };
+        let json = serde_json::to_string(&output).unwrap();
+        let parsed: SyncOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.left.label, "local");
+        assert_eq!(parsed.targets.len(), 1);
+        assert_eq!(parsed.targets[0].status, SyncTargetStatus::Success);
+    }
+
+    #[test]
+    fn sync_target_result_deleted_empty_omitted() {
+        let result = SyncTargetResult {
+            target: SourceInfo {
+                label: "server1".to_string(),
+                root: "/app".to_string(),
+            },
+            merged: vec![],
+            skipped: vec![],
+            deleted: vec![],
+            failed: vec![],
+            status: SyncTargetStatus::Success,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            !json.contains("\"deleted\""),
+            "empty deleted should be omitted"
+        );
+    }
+
+    #[test]
+    fn sync_target_status_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&SyncTargetStatus::Success).unwrap(),
+            "\"success\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SyncTargetStatus::Partial).unwrap(),
+            "\"partial\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SyncTargetStatus::Failed).unwrap(),
+            "\"failed\""
+        );
+    }
+
+    #[test]
+    fn delete_file_result_backup_none_omitted() {
+        let result = DeleteFileResult {
+            path: "old.txt".to_string(),
+            status: DeleteStatus::Ok,
+            backup: None,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            !json.contains("\"backup\""),
+            "None backup should be omitted"
+        );
+    }
+
+    #[test]
+    fn delete_status_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&DeleteStatus::Ok).unwrap(), "\"ok\"");
+        assert_eq!(
+            serde_json::to_string(&DeleteStatus::Failed).unwrap(),
+            "\"failed\""
+        );
     }
 }

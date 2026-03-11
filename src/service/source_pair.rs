@@ -172,6 +172,43 @@ pub fn resolve_ref_source(
     Ok(Some(Side::Remote(name.to_string())))
 }
 
+/// 複数の right サーバを解決する（sync 用）
+/// 各サーバ名をバリデーションし、重複チェックも行う
+pub fn resolve_source_pairs(
+    left: &str,
+    rights: &[String],
+    config: &AppConfig,
+) -> anyhow::Result<Vec<SourcePair>> {
+    use std::collections::HashSet;
+
+    // left のバリデーション
+    validate_server(left, config)?;
+    let left_side = Side::new(left);
+
+    // right の重複チェック
+    let mut seen = HashSet::new();
+    for name in rights {
+        if !seen.insert(name.as_str()) {
+            anyhow::bail!("Duplicate target server: {}", name);
+        }
+    }
+
+    // 各 right を解決
+    rights
+        .iter()
+        .map(|right| {
+            validate_server(right, config)?;
+            let pair = SourcePair {
+                left: left_side.clone(),
+                right: Side::new(right),
+            };
+            // left == right チェック（明示的指定なので implicit_right は None）
+            check_same_side(&pair, None)?;
+            Ok(pair)
+        })
+        .collect()
+}
+
 /// サーバ名が config に存在するか検証する
 fn validate_server(name: &str, config: &AppConfig) -> anyhow::Result<()> {
     if name == "local" {
@@ -422,6 +459,61 @@ mod tests {
         let result = resolve_source_pair(&args, &test_config());
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("must be different"));
+    }
+
+    // ── resolve_source_pairs ──
+
+    #[test]
+    fn resolve_source_pairs_two_servers() {
+        let config = test_config();
+        let pairs =
+            resolve_source_pairs("local", &["develop".into(), "staging".into()], &config).unwrap();
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].left, Side::Local);
+        assert_eq!(pairs[0].right, Side::Remote("develop".into()));
+        assert_eq!(pairs[1].left, Side::Local);
+        assert_eq!(pairs[1].right, Side::Remote("staging".into()));
+    }
+
+    #[test]
+    fn resolve_source_pairs_duplicate_server_error() {
+        let config = test_config();
+        let result = resolve_source_pairs("local", &["develop".into(), "develop".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Duplicate"),
+            "expected 'Duplicate' in error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn resolve_source_pairs_unknown_server_error() {
+        let config = test_config();
+        let result =
+            resolve_source_pairs("local", &["develop".into(), "nonexistent".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("not found"),
+            "expected 'not found' in error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn resolve_source_pairs_left_equals_right_error() {
+        let config = test_config();
+        let result =
+            resolve_source_pairs("develop", &["staging".into(), "develop".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("must be different"),
+            "expected 'must be different' in error: {}",
+            err_msg
+        );
     }
 
     #[test]

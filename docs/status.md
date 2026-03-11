@@ -6,11 +6,20 @@
 
 ## 🎯 Current Session
 
+### 20260311170035 - sync CLIサブコマンド + 削除セマンティクス + --delete
+- **Started:** 2026-03-11 17:00:35
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260311170035_sync-cli-and-delete-semantics.md)
+- **Focus:** 1:N マルチサーバ同期 sync コマンド、削除セマンティクス明文化、--delete オプション（sync/merge 両方）
+
+---
+
 ### 20260311160242 - CLI 改善: リモート rollback + 品質向上
 - **Started:** 2026-03-11 16:02:42
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-11
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260311160242_cli-improvements-remote-rollback.md)
-- **Focus:** リモート rollback 未対応（致命的）、diff --max-lines 改善、status 3-way sensitive ref_badge、merge text format 出力改善
+- **Summary:** Agent クライアント list_backups/restore_backup、Runtime リモート統合（SSH フォールバック付き）、diff --max-lines context除外カウント、status 3-way sensitive ref_badge、merge text format 改善、diff JSON total_files リネーム。1494テスト通過。
 
 ---
 
@@ -549,9 +558,9 @@
 | **5-1** | --debug / -v / --log-level グローバルオプション | 🟢 Done |
 | **5-2** | 削除セマンティクス明文化（デフォルト: 削除しない） | ⚪ Pending |
 | **5-3** | rollback CLIサブコマンド | 🟢 Done |
-| **5-3.5** | リモート rollback + CLI 品質改善 | 🟡 In Progress |
-| **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | ⚪ Pending |
-| **5-5** | --delete オプション（完全同期） | ⚪ Pending |
+| **5-3.5** | リモート rollback + CLI 品質改善 | 🟢 Done |
+| **5-4** | sync CLIサブコマンド（1:N マルチサーバ同期） | 🟡 In Progress |
+| **5-5** | --delete オプション（完全同期） | 🟡 In Progress |
 
 ### Phase 6: Remote Agent Protocol 🟢 Complete (All Steps)
 | サブフェーズ | 内容 | 状態 |

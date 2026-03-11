@@ -15,11 +15,13 @@
 
 pub mod diff;
 pub mod merge;
+pub mod merge_flow;
 pub mod output;
 pub mod path_resolver;
 pub mod rollback;
 pub mod source_pair;
 pub mod status;
+pub mod sync;
 pub mod types;
 
 pub use output::{format_json, OutputFormat};

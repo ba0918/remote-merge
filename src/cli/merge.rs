@@ -2,16 +2,13 @@
 
 use std::collections::HashMap;
 
-use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::AppConfig;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
-use crate::service::merge::{
-    build_merge_output, check_r2r_guard, determine_merge_action, merge_exit_code, plan_merge,
-    MergeAction,
-};
+use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
+use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -24,10 +21,11 @@ use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
     refine_status_with_content,
 };
+use crate::service::sync::plan_deletions;
 use crate::service::types::{
-    FileStatus, FileStatusKind, MergeFailure, MergeFileResult, MergeOutcome,
+    DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,
+    MergeOutcome,
 };
-use crate::tree::FileTree;
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
@@ -37,6 +35,7 @@ pub struct MergeArgs {
     pub ref_server: Option<String>,
     pub dry_run: bool,
     pub force: bool,
+    pub delete: bool,
     pub with_permissions: bool,
     pub format: String,
 }
@@ -111,7 +110,19 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
-    let diff_files = filter_changed_files(&resolved_paths, &statuses);
+    let diff_files = if args.delete {
+        // --delete 指定時、RightOnly ファイルは削除パスで処理するため merge 対象から除外
+        filter_changed_files(&resolved_paths, &statuses)
+            .into_iter()
+            .filter(|path| {
+                !statuses
+                    .iter()
+                    .any(|s| s.path == *path && s.status == FileStatusKind::RightOnly)
+            })
+            .collect()
+    } else {
+        filter_changed_files(&resolved_paths, &statuses)
+    };
 
     if diff_files.is_empty() {
         let outcome = MergeOutcome::NoFilesToMerge;
@@ -125,11 +136,27 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
+    // --delete: RightOnly ファイルの削除計画
+    let (delete_targets, delete_skipped) = if args.delete {
+        plan_deletions(
+            &statuses,
+            &resolved_paths,
+            &config.filter.sensitive,
+            args.force,
+        )
+    } else {
+        (vec![], vec![])
+    };
+
+    // merge と delete のスキップを統合
+    let mut all_skipped = plan.skipped;
+    all_skipped.extend(delete_skipped);
+
     // スキップされたセンシティブファイル数を表示（text 形式のみ。JSON は出力自体に含まれる）
-    if !plan.skipped.is_empty() && !args.force && format == OutputFormat::Text {
+    if !all_skipped.is_empty() && !args.force && format == OutputFormat::Text {
         eprintln!(
             "{} sensitive file(s) will be skipped. Use --force to include them.",
-            plan.skipped.len()
+            all_skipped.len()
         );
     }
 
@@ -173,6 +200,15 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
+        // dry-run: 削除対象を "would delete" として表示
+        let dry_deleted: Vec<DeleteFileResult> = delete_targets
+            .iter()
+            .map(|p| DeleteFileResult {
+                path: p.clone(),
+                status: DeleteStatus::Ok,
+                backup: None,
+            })
+            .collect();
         let output = build_merge_output(
             plan.files
                 .iter()
@@ -183,7 +219,8 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
                     ref_badge: ref_badge_map.as_ref().and_then(|m| m.get(p).cloned()),
                 })
                 .collect(),
-            plan.skipped,
+            all_skipped,
+            dry_deleted,
             vec![],
             ref_source_info,
         );
@@ -229,7 +266,17 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
         }
     }
 
-    let output = build_merge_output(merged, plan.skipped, failed, ref_source_info);
+    // --delete: 削除実行
+    let deleted = if !delete_targets.is_empty() {
+        let (deleted_results, delete_failures) =
+            execute_deletions(&mut core, &pair.right, &delete_targets, &session_id);
+        failed.extend(delete_failures);
+        deleted_results
+    } else {
+        vec![]
+    };
+
+    let output = build_merge_output(merged, all_skipped, deleted, failed, ref_source_info);
     let code = merge_exit_code(&output);
     match format {
         OutputFormat::Text => println!("{}", format_merge_text(&output)),
@@ -240,203 +287,10 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     Ok(code)
 }
 
-/// ソース側にファイルが存在しない方向のマージを検出する
-///
-/// - `LeftToRight` + `RightOnly` = ソース(left)にファイルがない
-/// - `RightToLeft` + `LeftOnly` = ソース(right)にファイルがない
-fn check_source_exists(
-    path: &str,
-    direction: MergeDirection,
-    statuses: &[FileStatus],
-) -> anyhow::Result<()> {
-    let status = statuses.iter().find(|s| s.path == path);
-    let source_missing = matches!(
-        (direction, status.map(|s| &s.status)),
-        (MergeDirection::LeftToRight, Some(FileStatusKind::RightOnly))
-            | (MergeDirection::RightToLeft, Some(FileStatusKind::LeftOnly))
-    );
-    if source_missing {
-        let source_name = match direction {
-            MergeDirection::LeftToRight => "left (source)",
-            MergeDirection::RightToLeft => "right (source)",
-        };
-        anyhow::bail!(
-            "File '{}' does not exist on {} side. Cannot merge a non-existent source file.",
-            path,
-            source_name
-        );
-    }
-    Ok(())
-}
-
-/// 単一マージに必要なコンテキスト
-struct MergeContext<'a> {
-    left: &'a Side,
-    right: &'a Side,
-    left_tree: &'a FileTree,
-    right_tree: &'a FileTree,
-    direction: MergeDirection,
-    core: &'a mut CoreRuntime,
-    with_permissions: bool,
-    force: bool,
-    statuses: &'a [FileStatus],
-    session_id: &'a str,
-}
-
-/// 単一ファイルのマージを実行する
-fn execute_single_merge(ctx: &mut MergeContext<'_>, path: &str) -> anyhow::Result<MergeFileResult> {
-    // ソース側にファイルが存在するか確認
-    check_source_exists(path, ctx.direction, ctx.statuses)?;
-
-    // ソース側・ターゲット側の決定
-    let (source, target) = match ctx.direction {
-        MergeDirection::LeftToRight => (ctx.left, ctx.right),
-        MergeDirection::RightToLeft => (ctx.right, ctx.left),
-    };
-
-    // ソース側・ターゲット側のツリーを決定
-    let (source_tree, target_tree) = match ctx.direction {
-        MergeDirection::LeftToRight => (ctx.left_tree, ctx.right_tree),
-        MergeDirection::RightToLeft => (ctx.right_tree, ctx.left_tree),
-    };
-
-    // symlink 分岐を純粋関数で判定
-    let action = determine_merge_action(source_tree, target_tree, path);
-
-    match action {
-        MergeAction::CreateSymlink {
-            link_target,
-            target_exists,
-        } => {
-            // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
-            let backup_path = if target_exists && ctx.core.config.backup.enabled {
-                let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths, ctx.session_id) {
-                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-                    Err(e) => {
-                        tracing::warn!("Backup failed (continuing): {}", e);
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            if target_exists {
-                ctx.core.remove_file(target, path)?;
-            }
-            ctx.core.create_symlink(target, path, &link_target)?;
-            return Ok(MergeFileResult {
-                path: path.to_string(),
-                status: "ok".into(),
-                backup: backup_path,
-                ref_badge: None,
-            });
-        }
-        MergeAction::ReplaceSymlinkWithFile => {
-            // ターゲットが symlink でソースが通常ファイル → バックアップしてから symlink を削除
-            // バックアップは symlink 削除前に行う（削除後ではバックアップ対象が存在しない）
-            let symlink_backup = if ctx.core.config.backup.enabled {
-                let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths, ctx.session_id) {
-                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-                    Err(e) => {
-                        tracing::warn!("Backup failed for symlink target (continuing): {}", e);
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            ctx.core.remove_file(target, path)?;
-
-            // symlink 削除後は通常ファイル書き込み — バックアップ済みなのでスキップ
-            let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
-            ctx.core.write_file_bytes(target, path, &content)?;
-            if ctx.with_permissions {
-                copy_permissions(source, target, path, ctx.core);
-            }
-            return Ok(MergeFileResult {
-                path: path.to_string(),
-                status: "ok".into(),
-                backup: symlink_backup,
-                ref_badge: None,
-            });
-        }
-        MergeAction::Normal => {
-            // 通常マージ — 何もせずそのまま後続処理へ
-        }
-    }
-
-    // バイト列でコンテンツ読み込み（ソース側） — バイナリファイルも破壊しない
-    let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
-
-    // バックアップ（ターゲット側）
-    let backup_path = if ctx.core.config.backup.enabled {
-        let paths = vec![path.to_string()];
-        match ctx.core.create_backups(target, &paths, ctx.session_id) {
-            Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-            Err(e) => {
-                tracing::warn!("Backup failed (continuing): {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    // バイト列で書き込み（ターゲット側） — バイナリファイルも破壊しない
-    ctx.core.write_file_bytes(target, path, &content)?;
-
-    // パーミッションコピー（--with-permissions 指定時）
-    if ctx.with_permissions {
-        copy_permissions(source, target, path, ctx.core);
-    }
-
-    Ok(MergeFileResult {
-        path: path.to_string(),
-        status: "ok".into(),
-        backup: backup_path,
-        ref_badge: None,
-    })
-}
-
-/// ソースからターゲットへパーミッションをコピーする
-fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut CoreRuntime) {
-    let mode = match source {
-        Side::Local => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let full = core.config.local.root_dir.join(path);
-                std::fs::metadata(&full)
-                    .map(|m| m.permissions().mode() & 0o777)
-                    .ok()
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = path;
-                None
-            }
-        }
-        Side::Remote(_) => {
-            // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。
-            // 現時点では未サポート（TUI 側では FileNode.permissions を使用）。
-            None
-        }
-    };
-
-    if let Some(m) = mode {
-        if m > 0 && m <= 0o777 {
-            if let Err(e) = core.chmod_file(target, path, m) {
-                tracing::warn!("Failed to set permissions for {}: {}", path, e);
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::merge_flow::check_source_exists;
     use crate::service::path_resolver::filter_changed_files;
 
     fn make_args(left: Option<&str>, right: Option<&str>) -> MergeArgs {
@@ -447,6 +301,7 @@ mod tests {
             ref_server: None,
             dry_run: false,
             force: false,
+            delete: false,
             with_permissions: false,
             format: "text".into(),
         }
@@ -503,6 +358,7 @@ mod tests {
             ref_server: None,
             dry_run: false,
             force: false,
+            delete: false,
             with_permissions: false,
             format: "yaml".into(),
         };
@@ -531,6 +387,7 @@ mod tests {
             ref_server: None,
             dry_run: false,
             force: false,
+            delete: false,
             with_permissions: false,
             format: "text".into(),
         };
@@ -699,4 +556,133 @@ mod tests {
     }
 
     // r2r guard のテストは service/merge.rs の check_r2r_guard テストに移動済み
+
+    // ── --delete 関連テスト ──
+
+    #[test]
+    fn test_plan_deletions_returns_right_only_files() {
+        // --delete 時に RightOnly ファイルが削除対象になる
+        use crate::service::sync::plan_deletions;
+        let statuses = vec![
+            FileStatus {
+                path: "keep.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "remove.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let resolved = vec!["keep.rs".into(), "remove.rs".into()];
+        let (targets, skipped) = plan_deletions(&statuses, &resolved, &[], false);
+        assert_eq!(targets, vec!["remove.rs"]);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn test_delete_false_returns_empty() {
+        // --delete なし → 削除対象なし
+        use crate::service::sync::plan_deletions;
+        let statuses = vec![FileStatus {
+            path: "file.rs".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let resolved = vec!["file.rs".into()];
+
+        // args.delete = false のとき plan_deletions を呼ばないフローを模倣
+        let delete = false;
+        let (targets, skipped) = if delete {
+            plan_deletions(&statuses, &resolved, &[], false)
+        } else {
+            (vec![], vec![])
+        };
+        assert!(targets.is_empty());
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn test_delete_sensitive_skipped_without_force() {
+        // --delete + sensitive ファイル → force なしでスキップ
+        use crate::service::sync::plan_deletions;
+        let statuses = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let resolved = vec![".env".into()];
+        let patterns = vec![".env".into()];
+
+        let (targets, skipped) = plan_deletions(&statuses, &resolved, &patterns, false);
+        assert!(targets.is_empty());
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].path, ".env");
+    }
+
+    #[test]
+    fn test_right_only_excluded_from_diff_files_when_delete() {
+        // --delete 時、RightOnly ファイルは merge 対象から除外される
+        let resolved = vec!["modified.rs".to_string(), "right_only.rs".to_string()];
+        let statuses = vec![
+            FileStatus {
+                path: "modified.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "right_only.rs".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+
+        // --delete = true: RightOnly should be excluded
+        let diff_files: Vec<String> = filter_changed_files(&resolved, &statuses)
+            .into_iter()
+            .filter(|path| {
+                !statuses
+                    .iter()
+                    .any(|s| s.path == *path && s.status == FileStatusKind::RightOnly)
+            })
+            .collect();
+        assert_eq!(diff_files, vec!["modified.rs"]);
+        assert!(!diff_files.contains(&"right_only.rs".to_string()));
+
+        // --delete = false: RightOnly should be included (existing behavior)
+        let diff_files_no_delete = filter_changed_files(&resolved, &statuses);
+        assert!(diff_files_no_delete.contains(&"right_only.rs".to_string()));
+    }
+
+    #[test]
+    fn test_delete_sensitive_included_with_force() {
+        // --delete --force + sensitive ファイル → 削除対象に含まれる
+        use crate::service::sync::plan_deletions;
+        let statuses = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::RightOnly,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let resolved = vec![".env".into()];
+        let patterns = vec![".env".into()];
+
+        let (targets, skipped) = plan_deletions(&statuses, &resolved, &patterns, true);
+        assert_eq!(targets, vec![".env"]);
+        assert!(skipped.is_empty());
+    }
 }
