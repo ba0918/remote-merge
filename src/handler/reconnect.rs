@@ -210,6 +210,16 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
 
     state.swap_right_ref();
 
+    // swap 後の新しい right サーバに Agent が未起動なら起動を試みる
+    if let Side::Remote(ref server_name) = state.right_source {
+        if runtime.core.get_agent(server_name).is_none() {
+            let _ = runtime.core.try_start_agent(server_name);
+        }
+    }
+
+    // Agent 接続状態を同期
+    state.sync_agent_status(runtime.core.agent_clients.keys());
+
     // ref_tree が None なら接続して取得
     if state.ref_tree.is_none() && state.ref_source.is_some() {
         execute_ref_connect(state, runtime);
@@ -307,6 +317,9 @@ pub fn execute_pair_switch(
     };
 
     state.switch_pair(new_left, new_right, left_tree, right_tree);
+
+    // Agent 接続状態を同期（connect() 内で Agent 起動済み）
+    state.sync_agent_status(runtime.core.agent_clients.keys());
 
     // reference サーバが自動選択されたら接続 + ツリー取得
     // 注: left/right と同じ深さ（浅いスキャン）で取得する
