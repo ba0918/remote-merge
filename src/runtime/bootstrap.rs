@@ -317,3 +317,118 @@ fn cleanup_old_backups(config: &AppConfig) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        AgentConfig, AuthMethod, BackupConfig, DefaultsConfig, FilterConfig, LocalConfig,
+        ServerConfig, SshConfig,
+    };
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    fn make_test_config_with_servers(names: &[&str]) -> AppConfig {
+        let mut servers = BTreeMap::new();
+        for name in names {
+            servers.insert(
+                name.to_string(),
+                ServerConfig {
+                    host: format!("{}.example.com", name),
+                    port: 22,
+                    user: "deploy".to_string(),
+                    auth: AuthMethod::Key,
+                    key: None,
+                    root_dir: PathBuf::from("/var/www"),
+                    ssh_options: None,
+                    sudo: false,
+                    file_permissions: None,
+                    dir_permissions: None,
+                },
+            );
+        }
+        AppConfig {
+            servers,
+            local: LocalConfig::default(),
+            filter: FilterConfig::default(),
+            ssh: SshConfig::default(),
+            backup: BackupConfig::default(),
+            agent: AgentConfig::default(),
+            defaults: DefaultsConfig::default(),
+        }
+    }
+
+    fn make_test_params(
+        right: &str,
+        left: Option<&str>,
+        ref_server: Option<&str>,
+    ) -> TuiBootstrapParams {
+        TuiBootstrapParams {
+            right_server: right.to_string(),
+            left_server: left.map(|s| s.to_string()),
+            ref_server: ref_server.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn validate_server_params_right_remote_ok() {
+        let config = make_test_config_with_servers(&["develop"]);
+        let params = make_test_params("develop", None, None);
+        assert!(validate_server_params(&params, &config).is_ok());
+    }
+
+    #[test]
+    fn validate_server_params_right_local_ok() {
+        let config = make_test_config_with_servers(&[]);
+        let params = make_test_params("local", None, None);
+        assert!(validate_server_params(&params, &config).is_ok());
+    }
+
+    #[test]
+    fn validate_server_params_right_not_found() {
+        let config = make_test_config_with_servers(&["develop"]);
+        let params = make_test_params("staging", None, None);
+        let err = validate_server_params(&params, &config).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("--right"), "expected '--right' in: {}", msg);
+        assert!(msg.contains("staging"), "expected 'staging' in: {}", msg);
+    }
+
+    #[test]
+    fn validate_server_params_left_not_found() {
+        let config = make_test_config_with_servers(&["develop"]);
+        let params = make_test_params("develop", Some("production"), None);
+        let err = validate_server_params(&params, &config).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("--left"), "expected '--left' in: {}", msg);
+        assert!(
+            msg.contains("production"),
+            "expected 'production' in: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn validate_server_params_ref_not_found() {
+        let config = make_test_config_with_servers(&["develop"]);
+        let params = make_test_params("develop", None, Some("release"));
+        let err = validate_server_params(&params, &config).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("--ref"), "expected '--ref' in: {}", msg);
+        assert!(msg.contains("release"), "expected 'release' in: {}", msg);
+    }
+
+    #[test]
+    fn validate_server_params_optional_none_ok() {
+        let config = make_test_config_with_servers(&["develop"]);
+        let params = make_test_params("develop", None, None);
+        assert!(validate_server_params(&params, &config).is_ok());
+    }
+
+    #[test]
+    fn validate_server_params_all_valid() {
+        let config = make_test_config_with_servers(&["develop", "staging", "release"]);
+        let params = make_test_params("develop", Some("staging"), Some("release"));
+        assert!(validate_server_params(&params, &config).is_ok());
+    }
+}

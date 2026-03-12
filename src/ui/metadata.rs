@@ -41,29 +41,6 @@ pub fn format_permissions(permissions: Option<u32>) -> String {
     }
 }
 
-/// ファイルサイズを人間が読みやすい形式にフォーマットする。
-/// 例: 0 → "0B", 1023 → "1023B", 1024 → "1.0KB", 1536 → "1.5KB"
-pub fn format_size(size: Option<u64>) -> String {
-    match size {
-        Some(bytes) => {
-            const KB: u64 = 1024;
-            const MB: u64 = 1024 * KB;
-            const GB: u64 = 1024 * MB;
-
-            if bytes >= GB {
-                format!("{:.1}GB", bytes as f64 / GB as f64)
-            } else if bytes >= MB {
-                format!("{:.1}MB", bytes as f64 / MB as f64)
-            } else if bytes >= KB {
-                format!("{:.1}KB", bytes as f64 / KB as f64)
-            } else {
-                format!("{}B", bytes)
-            }
-        }
-        None => "-".to_string(),
-    }
-}
-
 /// FileNode のメタデータを1行にフォーマットする。
 /// 例: "2024-01-15 14:00:23  rwxr-xr-x  1.2KB"
 pub fn format_metadata_line(
@@ -75,7 +52,7 @@ pub fn format_metadata_line(
         "{}  {}  {}",
         format_mtime(mtime),
         format_permissions(permissions),
-        format_size(size),
+        crate::format::format_size_or_dash(size),
     )
 }
 
@@ -112,34 +89,7 @@ mod tests {
         assert_eq!(format_permissions(None), "-");
     }
 
-    #[test]
-    fn test_format_size_bytes() {
-        assert_eq!(format_size(Some(0)), "0B");
-        assert_eq!(format_size(Some(1)), "1B");
-        assert_eq!(format_size(Some(1023)), "1023B");
-    }
-
-    #[test]
-    fn test_format_size_kb() {
-        assert_eq!(format_size(Some(1024)), "1.0KB");
-        assert_eq!(format_size(Some(1536)), "1.5KB");
-    }
-
-    #[test]
-    fn test_format_size_mb() {
-        assert_eq!(format_size(Some(1024 * 1024)), "1.0MB");
-        assert_eq!(format_size(Some(1024 * 1024 * 5)), "5.0MB");
-    }
-
-    #[test]
-    fn test_format_size_gb() {
-        assert_eq!(format_size(Some(1024 * 1024 * 1024)), "1.0GB");
-    }
-
-    #[test]
-    fn test_format_size_none() {
-        assert_eq!(format_size(None), "-");
-    }
+    // format_size / format_size_or_dash テストは crate::format::tests に集約済み
 
     #[test]
     fn test_format_metadata_line() {

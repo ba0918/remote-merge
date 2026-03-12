@@ -76,7 +76,7 @@ impl<'a> DiffView<'a> {
         left: &Option<crate::diff::binary::BinaryInfo>,
         right: &Option<crate::diff::binary::BinaryInfo>,
     ) {
-        use crate::diff::binary::format_size;
+        use crate::format::format_size;
 
         let mut lines: Vec<Line<'_>> = Vec::new();
         lines.push(Line::from(Span::styled(

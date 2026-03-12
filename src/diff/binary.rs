@@ -61,23 +61,6 @@ pub fn compute_sha256(content: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// バイト数を人間が読みやすい形式に変換する
-pub fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = 1024 * KB;
-    const GB: u64 = 1024 * MB;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,28 +113,5 @@ mod tests {
         assert_eq!(compare(&a, &b), BinaryComparison::Different);
     }
 
-    #[test]
-    fn test_format_size_bytes() {
-        assert_eq!(format_size(0), "0 B");
-        assert_eq!(format_size(512), "512 B");
-        assert_eq!(format_size(1023), "1023 B");
-    }
-
-    #[test]
-    fn test_format_size_kb() {
-        assert_eq!(format_size(1024), "1.0 KB");
-        assert_eq!(format_size(1536), "1.5 KB");
-        assert_eq!(format_size(10240), "10.0 KB");
-    }
-
-    #[test]
-    fn test_format_size_mb() {
-        assert_eq!(format_size(1048576), "1.0 MB");
-        assert_eq!(format_size(5 * 1048576), "5.0 MB");
-    }
-
-    #[test]
-    fn test_format_size_gb() {
-        assert_eq!(format_size(1073741824), "1.0 GB");
-    }
+    // format_size テストは crate::format::tests に集約済み
 }

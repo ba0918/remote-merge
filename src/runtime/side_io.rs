@@ -14,7 +14,7 @@ use crate::local;
 use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
-use super::core::CoreRuntime;
+use super::core::{BoxedAgentClient, CoreRuntime};
 use super::TuiRuntime;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
@@ -721,33 +721,9 @@ impl CoreRuntime {
         content: &[u8],
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
-        let result = agent.write_file(rel_path, content, is_binary);
-        drop(agent);
-
-        match result {
-            Ok(()) => Some(Ok(())),
-            Err(e) => {
-                tracing::warn!(
-                    "Agent write_file failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        self.with_agent(server_name, "write_file", |agent| {
+            agent.write_file(rel_path, content, is_binary)
+        })
     }
 
     /// Agent 経由で stat を取得する
@@ -814,35 +790,11 @@ impl CoreRuntime {
         rel_paths: &[String],
         session_id: &str,
     ) -> Option<anyhow::Result<()>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
         let backup_dir = crate::backup::agent_backup_session_dir(session_id)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
         let paths: Vec<String> = rel_paths.to_vec();
-        let result = agent.backup(&paths, &backup_dir);
-        drop(agent);
-
-        match result {
-            Ok(()) => Some(Ok(())),
-            Err(e) => {
-                tracing::warn!(
-                    "Agent backup failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        self.with_agent(server_name, "backup", |agent| {
+            agent.backup(&paths, &backup_dir)
+        })
     }
 
     /// Agent 経由でシンボリックリンクを作成する
@@ -852,33 +804,9 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> Option<anyhow::Result<()>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する
-        let result = agent.symlink(rel_path, target);
-        drop(agent);
-
-        match result {
-            Ok(()) => Some(Ok(())),
-            Err(e) => {
-                tracing::warn!(
-                    "Agent symlink failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        self.with_agent(server_name, "symlink", |agent| {
+            agent.symlink(rel_path, target)
+        })
     }
 
     /// Agent 経由でバックアップセッション一覧を取得する
@@ -886,35 +814,11 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
     ) -> Option<anyhow::Result<Vec<crate::service::types::BackupSession>>> {
-        // Agent には root_dir からの相対パスを渡す（絶対パスは拒否される）
         let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        let result = agent.list_backups(&backup_dir);
-        drop(agent);
-
-        match result {
-            Ok(agent_sessions) => {
-                let sessions = convert_agent_backup_sessions(agent_sessions);
-                Some(Ok(sessions))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent list_backups failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        self.with_agent(server_name, "list_backups", |agent| {
+            agent.list_backups(&backup_dir)
+        })
+        .map(|r| r.map(convert_agent_backup_sessions))
     }
 
     /// Agent 経由でバックアップからファイルを復元する
@@ -931,37 +835,16 @@ impl CoreRuntime {
             Vec<crate::service::types::RollbackFailure>,
         )>,
     > {
-        // Agent には root_dir からの相対パスを渡す（絶対パスは拒否される）
-        // root_dir パラメータは Agent 側で無視され、Agent 起動時の --root が使用される
         let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        let result = agent.restore_backup(&backup_dir, session_id, files, "");
-        drop(agent);
-
-        match result {
-            Ok(agent_results) => {
-                let (restored, failures) =
-                    convert_agent_restore_results(agent_results, pre_session_id, backup_enabled);
-                Some(Ok((restored, failures)))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent restore_backup failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        let pre_session_id = pre_session_id.to_string();
+        self.with_agent(server_name, "restore_backup", |agent| {
+            agent.restore_backup(&backup_dir, session_id, files, "")
+        })
+        .map(|r| {
+            r.map(|agent_results| {
+                convert_agent_restore_results(agent_results, &pre_session_id, backup_enabled)
+            })
+        })
     }
 
     /// Agent 経由でツリーを再帰取得する
@@ -976,8 +859,36 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
+        self.with_agent(server_name, "list_tree", |agent| {
+            agent.list_tree("", &exclude, max_entries)
+        })
+        .map(|r| {
+            r.map(|entries| {
+                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let mut tree = FileTree::new(&root_dir);
+                tree.nodes = nodes;
+                tree.sort();
+                tree
+            })
+        })
+    }
 
+    /// Agent のロック取得 + 操作実行 + エラーハンドリングの共通ヘルパー
+    ///
+    /// 成功: Some(Ok(T))
+    /// Agent 未設定/サーバ未設定: None
+    /// Agent lock 失敗/操作エラー: invalidate + None
+    fn with_agent<T, F>(
+        &mut self,
+        server_name: &str,
+        op_name: &str,
+        f: F,
+    ) -> Option<anyhow::Result<T>>
+    where
+        F: FnOnce(&mut BoxedAgentClient) -> anyhow::Result<T>,
+    {
+        self.config.servers.get(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
         let mut agent = match agent_arc.lock() {
             Ok(guard) => guard,
             Err(_) => {
@@ -985,22 +896,14 @@ impl CoreRuntime {
                 return None;
             }
         };
-        // Agent は --root で起動時にルートディレクトリ設定済み。
-        // 空文字列を渡すとルート全体を走査する。
-        let result = agent.list_tree("", &exclude, max_entries);
+        let result = f(&mut agent);
         drop(agent);
-
         match result {
-            Ok(entries) => {
-                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
-                let mut tree = FileTree::new(&root_dir);
-                tree.nodes = nodes;
-                tree.sort();
-                Some(Ok(tree))
-            }
+            Ok(val) => Some(Ok(val)),
             Err(e) => {
                 tracing::warn!(
-                    "Agent list_tree failed for {}, falling back to SSH: {}",
+                    "Agent {} failed for {}, falling back to SSH: {}",
+                    op_name,
                     server_name,
                     e
                 );
