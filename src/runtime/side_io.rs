@@ -529,7 +529,8 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<String>> {
-        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -539,7 +540,8 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.read_files(&[full_path], 0);
+        // Agent は root_dir からの相対パスを期待する
+        let result = agent.read_files(&[rel_path.to_string()], 0);
         drop(agent);
 
         match result {
@@ -570,7 +572,8 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, String>>> {
-        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -580,7 +583,9 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.read_files(&full_paths, 0);
+        // Agent は root_dir からの相対パスを期待する
+        let paths: Vec<String> = rel_paths.to_vec();
+        let result = agent.read_files(&paths, 0);
         drop(agent);
 
         match result {
@@ -620,7 +625,8 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<Vec<u8>>> {
-        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -630,7 +636,8 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.read_files(&[full_path], 0);
+        // Agent は root_dir からの相対パスを期待する
+        let result = agent.read_files(&[rel_path.to_string()], 0);
         drop(agent);
 
         match result {
@@ -660,7 +667,8 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -670,7 +678,9 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.read_files(&full_paths, 0);
+        // Agent は root_dir からの相対パスを期待する
+        let paths: Vec<String> = rel_paths.to_vec();
+        let result = agent.read_files(&paths, 0);
         drop(agent);
 
         match result {
@@ -711,7 +721,8 @@ impl CoreRuntime {
         content: &[u8],
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
-        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -721,7 +732,8 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.write_file(&full_path, content, is_binary);
+        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
+        let result = agent.write_file(rel_path, content, is_binary);
         drop(agent);
 
         match result {
@@ -745,7 +757,8 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -755,7 +768,9 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.stat_files(&full_paths);
+        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
+        let paths: Vec<String> = rel_paths.to_vec();
+        let result = agent.stat_files(&paths);
         drop(agent);
 
         match result {
@@ -799,7 +814,8 @@ impl CoreRuntime {
         rel_paths: &[String],
         session_id: &str,
     ) -> Option<anyhow::Result<()>> {
-        let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let backup_dir = crate::backup::agent_backup_session_dir(session_id)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
@@ -810,7 +826,9 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.backup(&full_paths, &backup_dir);
+        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
+        let paths: Vec<String> = rel_paths.to_vec();
+        let result = agent.backup(&paths, &backup_dir);
         drop(agent);
 
         match result {
@@ -834,7 +852,8 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> Option<anyhow::Result<()>> {
-        let full_path = self.resolve_agent_path(server_name, rel_path)?;
+        // サーバー設定の存在確認（Agent が有効かどうか）
+        self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
@@ -844,7 +863,8 @@ impl CoreRuntime {
                 return None;
             }
         };
-        let result = agent.symlink(&full_path, target);
+        // Agent は root_dir からの相対パスを期待する
+        let result = agent.symlink(rel_path, target);
         drop(agent);
 
         match result {
@@ -991,31 +1011,6 @@ impl CoreRuntime {
     }
 
     // ── Agent パス解決ヘルパー ──
-
-    /// Agent 向けにサーバの root_dir + rel_path をフルパスに解決する。
-    /// サーバ設定が存在しない場合は None を返す。
-    fn resolve_agent_path(&self, server_name: &str, rel_path: &str) -> Option<String> {
-        let server_config = self.config.servers.get(server_name)?;
-        let remote_root = server_config.root_dir.to_string_lossy();
-        Some(format!(
-            "{}/{}",
-            remote_root.trim_end_matches('/'),
-            rel_path.trim_start_matches('/')
-        ))
-    }
-
-    /// Agent 向けに複数の rel_path をフルパスに解決する
-    fn resolve_agent_paths(&self, server_name: &str, rel_paths: &[String]) -> Option<Vec<String>> {
-        let server_config = self.config.servers.get(server_name)?;
-        let remote_root = server_config.root_dir.to_string_lossy();
-        let root = remote_root.trim_end_matches('/');
-        Some(
-            rel_paths
-                .iter()
-                .map(|rel| format!("{}/{}", root, rel.trim_start_matches('/')))
-                .collect(),
-        )
-    }
 }
 
 // ── Agent 変換ヘルパー（純粋関数） ──
@@ -1920,8 +1915,6 @@ mod tests {
         assert_eq!(failures[0].error, "unknown error");
     }
 
-    // ── resolve_agent_path / resolve_agent_paths テスト ──
-
     /// テスト用にサーバー設定を追加した CoreRuntime を作成する
     fn runtime_with_server(name: &str, root: &str) -> CoreRuntime {
         let mut rt = CoreRuntime::new_for_test();
@@ -1941,74 +1934,6 @@ mod tests {
             },
         );
         rt
-    }
-
-    #[test]
-    fn test_resolve_agent_path_basic() {
-        let rt = runtime_with_server("develop", "/var/www/app");
-        let result = rt.resolve_agent_path("develop", "src/main.rs");
-        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_agent_path_trailing_slash_in_root() {
-        let rt = runtime_with_server("develop", "/var/www/app/");
-        let result = rt.resolve_agent_path("develop", "src/main.rs");
-        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_agent_path_leading_slash_in_rel_path() {
-        let rt = runtime_with_server("develop", "/var/www/app");
-        let result = rt.resolve_agent_path("develop", "/src/main.rs");
-        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_agent_path_both_slashes() {
-        let rt = runtime_with_server("develop", "/var/www/app/");
-        let result = rt.resolve_agent_path("develop", "/src/main.rs");
-        assert_eq!(result, Some("/var/www/app/src/main.rs".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_agent_path_empty_rel_path() {
-        let rt = runtime_with_server("develop", "/var/www/app");
-        let result = rt.resolve_agent_path("develop", "");
-        assert_eq!(result, Some("/var/www/app/".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_agent_path_unknown_server() {
-        let rt = CoreRuntime::new_for_test();
-        let result = rt.resolve_agent_path("nonexistent", "file.txt");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_resolve_agent_paths_basic() {
-        let rt = runtime_with_server("develop", "/var/www/app");
-        let paths = vec!["src/main.rs".to_string(), "Cargo.toml".to_string()];
-        let result = rt.resolve_agent_paths("develop", &paths).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "/var/www/app/src/main.rs");
-        assert_eq!(result[1], "/var/www/app/Cargo.toml");
-    }
-
-    #[test]
-    fn test_resolve_agent_paths_empty() {
-        let rt = runtime_with_server("develop", "/var/www/app");
-        let paths: Vec<String> = vec![];
-        let result = rt.resolve_agent_paths("develop", &paths).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_resolve_agent_paths_unknown_server() {
-        let rt = CoreRuntime::new_for_test();
-        let paths = vec!["file.txt".to_string()];
-        let result = rt.resolve_agent_paths("nonexistent", &paths);
-        assert!(result.is_none());
     }
 
     // ── stat_local_files テスト ──
