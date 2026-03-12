@@ -75,9 +75,10 @@ impl TuiRuntime {
         &mut self,
         server_name: &str,
         max_entries: usize,
+        fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
         self.core
-            .fetch_remote_tree_recursive(server_name, max_entries)
+            .fetch_remote_tree_recursive(server_name, max_entries, fail_on_truncation)
     }
 
     pub fn drive_runtime(&self) {

@@ -110,10 +110,12 @@ impl Dispatcher {
         for chunk_result in tree_scan::scan_tree(&options) {
             match chunk_result {
                 Ok(chunk) => {
+                    let truncated = chunk.is_last && chunk.total_scanned >= max_entries;
                     responses.push(AgentResponse::TreeChunk {
                         nodes: chunk.entries,
                         is_last: chunk.is_last,
                         total_scanned: chunk.total_scanned,
+                        truncated,
                     });
                 }
                 Err(e) => {
@@ -131,6 +133,7 @@ impl Dispatcher {
                 nodes: vec![],
                 is_last: true,
                 total_scanned: 0,
+                truncated: false,
             });
         }
 
@@ -466,10 +469,12 @@ mod tests {
                 nodes,
                 is_last,
                 total_scanned,
+                truncated,
             } => {
                 assert!(nodes.is_empty());
                 assert!(*is_last);
                 assert_eq!(*total_scanned, 0);
+                assert!(!*truncated);
             }
             other => panic!("expected TreeChunk, got {other:?}"),
         }

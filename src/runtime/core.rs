@@ -558,6 +558,7 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         max_entries: usize,
+        fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
         let server_config = self
             .config
@@ -578,15 +579,78 @@ impl CoreRuntime {
                 .block_on(client.list_tree_recursive(&root_dir, &exclude, max_entries, 120))?;
 
         if truncated {
-            tracing::warn!(
-                "Remote tree scan truncated at {} entries for {}",
-                max_entries,
-                server_name
-            );
+            super::side_io::check_truncation(max_entries, fail_on_truncation)?;
         }
 
         let mut tree = FileTree::new(&root_path);
         tree.nodes = nodes;
+        tree.sort();
+        Ok(tree)
+    }
+
+    /// リモートのサブパス配下のみツリーを走査する（SSH 経由）。
+    ///
+    /// `list_tree_recursive` に `root_dir/subpath` を渡してサブツリーのみ走査し、
+    /// 返却パスは root_dir からの相対パスに正規化する。
+    pub fn fetch_remote_tree_for_subpath(
+        &mut self,
+        server_name: &str,
+        subpath: &str,
+        max_entries: usize,
+        fail_on_truncation: bool,
+    ) -> anyhow::Result<FileTree> {
+        let server_config = self
+            .config
+            .servers
+            .get(server_name)
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
+        let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let root_path = server_config.root_dir.clone();
+        let exclude = self.config.filter.exclude.clone();
+
+        // root_dir/subpath を走査対象にする
+        let scan_path = if subpath.is_empty() {
+            root_dir.clone()
+        } else {
+            format!("{}/{}", root_dir.trim_end_matches('/'), subpath)
+        };
+
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+
+        // list_tree_recursive は scan_path を root として走査するため、
+        // 返却ノードのパスは scan_path からの相対になる。
+        // 存在しないパスの場合、list_tree_recursive の test -d チェックで失敗するため、
+        // その場合は空ツリーを返す。
+        let result =
+            self.rt
+                .block_on(client.list_tree_recursive(&scan_path, &exclude, max_entries, 120));
+
+        let (nodes, truncated) = match result {
+            Ok(pair) => pair,
+            Err(e) => {
+                // リモートパスが存在しない場合は空ツリーを返す（型安全に判定）
+                if e.downcast_ref::<crate::error::AppError>()
+                    .is_some_and(|ae| {
+                        matches!(ae, crate::error::AppError::RemoteRootNotFound { .. })
+                    })
+                {
+                    return Ok(FileTree::new(&root_path));
+                }
+                return Err(e);
+            }
+        };
+
+        if truncated {
+            super::side_io::check_truncation(max_entries, fail_on_truncation)?;
+        }
+
+        let mut tree = FileTree::new(&root_path);
+        // SSH の list_tree_recursive は scan_path をルートとして走査するため、
+        // 結果を subpath 配下にラップして root_dir からの相対パスにする
+        tree.nodes = super::side_io::wrap_nodes_in_subpath(subpath, nodes);
         tree.sort();
         Ok(tree)
     }
@@ -1005,7 +1069,7 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_server_config() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.fetch_remote_tree_recursive("nonexistent", 10000);
+        let result = rt.fetch_remote_tree_recursive("nonexistent", 10000, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -1013,7 +1077,7 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_ssh_connection() {
         let mut rt = runtime_with_server("develop", "/var/www");
-        let result = rt.fetch_remote_tree_recursive("develop", 10000);
+        let result = rt.fetch_remote_tree_recursive("develop", 10000, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not connected"));
     }

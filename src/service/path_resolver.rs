@@ -21,7 +21,7 @@ fn has_root_marker(paths: &[String]) -> bool {
 /// パスにトラバーサルコンポーネント（`..`）が含まれていないか検証する。
 ///
 /// `../foo`, `foo/..`, `foo/../bar` のいずれもエラーとして拒否する。
-fn check_path_traversal(paths: &[String]) -> anyhow::Result<()> {
+pub fn check_path_traversal(paths: &[String]) -> anyhow::Result<()> {
     for path in paths {
         let has_traversal = path.split('/').any(|component| component == "..");
         if has_traversal {

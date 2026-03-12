@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::AppConfig;
@@ -26,6 +27,10 @@ use crate::service::types::{
     DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,
     MergeOutcome,
 };
+use crate::service::{
+    fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
+};
+use crate::tree::FileTree;
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
@@ -85,27 +90,11 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
 
-    // ツリー取得してパス解決・差分フィルタ
-    let left_tree = core.fetch_tree_recursive(&pair.left, 50_000)?;
-    let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
-
-    // Compute statuses first (covers both left and right trees)
-    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
-
-    // Refine statuses with content comparison for metadata-ambiguous files
-    // バイト列比較でバイナリファイルも正しく判定する
-    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-    if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_tolerant(&pair.left, &paths_to_compare, &mut core);
-        let right_batch = fetch_contents_tolerant(&pair.right, &paths_to_compare, &mut core);
-        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-        for path in &paths_to_compare {
-            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
-            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
-            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
-        }
-        refine_status_with_content(&mut statuses, &compare_pairs);
-    }
+    // ScanStrategy で分岐: merge では FastPath → PartialScan にフォールバック
+    // （optimistic locking に tree の mtime が必要なため）
+    let strategy = resolve_scan_strategy(&args.paths, args.delete);
+    let (left_tree, right_tree, statuses) =
+        fetch_trees_and_statuses_for_merge(&strategy, &pair.left, &pair.right, &mut core, &config)?;
 
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
@@ -184,7 +173,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
             })
             .collect();
 
-        let ref_tree = core.fetch_tree_recursive(ref_s, 50_000)?;
+        let ref_tree = core.fetch_tree_recursive(ref_s, 50_000, true)?;
 
         let badges = compute_ref_badges(
             &file_statuses,
@@ -287,6 +276,86 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// ScanStrategy に基づいてツリー取得 + ステータス計算を行う。
+///
+/// merge では FastPath を PartialScan 相当に変換する（optimistic locking に tree の mtime が必要）。
+/// 各 FastPath ファイルの親ディレクトリで `fetch_tree_for_subpath` を呼び出す。
+/// ルート直下ファイルが含まれる場合は FullScan にフォールバックする。
+fn fetch_trees_and_statuses_for_merge(
+    strategy: &ScanStrategy,
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>)> {
+    let (left_tree, right_tree) = match strategy {
+        ScanStrategy::FastPath(ref target_paths) => {
+            // FastPath → 各ファイルの親ディレクトリで PartialScan
+            let dir_paths = fast_path_to_parent_dirs(target_paths);
+            // ルート直下ファイルがある場合、parent_dir が "." になり
+            // FullScan 相当になるので FullScan にフォールバック
+            if has_root_parent_dir(&dir_paths) {
+                let lt = core.fetch_tree_recursive(left, 50_000, true)?;
+                let rt = core.fetch_tree_recursive(right, 50_000, true)?;
+                (lt, rt)
+            } else {
+                fetch_partial_trees(&dir_paths, left, right, core, config)?
+            }
+        }
+        ScanStrategy::PartialScan(ref dir_paths) => {
+            fetch_partial_trees(dir_paths, left, right, core, config)?
+        }
+        ScanStrategy::FullScan => {
+            let lt = core.fetch_tree_recursive(left, 50_000, true)?;
+            let rt = core.fetch_tree_recursive(right, 50_000, true)?;
+            (lt, rt)
+        }
+    };
+
+    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+
+    // Refine statuses with content comparison for metadata-ambiguous files
+    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    if !paths_to_compare.is_empty() {
+        let left_batch = fetch_contents_tolerant(left, &paths_to_compare, core);
+        let right_batch = fetch_contents_tolerant(right, &paths_to_compare, core);
+        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
+        for path in &paths_to_compare {
+            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
+            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
+            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
+        }
+        refine_status_with_content(&mut statuses, &compare_pairs);
+    }
+
+    Ok((left_tree, right_tree, statuses))
+}
+
+/// 指定ディレクトリパスのサブツリーを取得して結合する。
+fn fetch_partial_trees(
+    dir_paths: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<(FileTree, FileTree)> {
+    let mut left_tree = FileTree::new(&config.local.root_dir);
+    let mut right_tree = FileTree::new(&config.local.root_dir);
+
+    for dir_path in dir_paths {
+        let lt = core.fetch_tree_for_subpath(left, dir_path, 50_000, true)?;
+        let rt = core.fetch_tree_for_subpath(right, dir_path, 50_000, true)?;
+        left_tree.nodes.extend(lt.nodes);
+        right_tree.nodes.extend(rt.nodes);
+    }
+    left_tree.sort();
+    left_tree.nodes.dedup_by_key(|n| n.name.clone());
+    right_tree.sort();
+    right_tree.nodes.dedup_by_key(|n| n.name.clone());
+
+    Ok((left_tree, right_tree))
 }
 
 #[cfg(test)]
@@ -835,4 +904,38 @@ mod tests {
         let should_early_return = diff_files.is_empty() && delete_targets.is_empty();
         assert!(!should_early_return);
     }
+
+    // ── ScanStrategy 分岐テスト ──
+
+    use crate::service::{resolve_scan_strategy, ScanStrategy};
+
+    #[test]
+    fn test_merge_delete_flag_forces_full_scan() {
+        // --delete フラグ → FullScan（RightOnly を知る必要がある）
+        let paths = vec!["file.txt".to_string()];
+        let strategy = resolve_scan_strategy(&paths, true);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    #[test]
+    fn test_merge_single_file_returns_fast_path() {
+        let paths = vec!["file.txt".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::FastPath(vec!["file.txt".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_merge_directory_returns_partial_scan() {
+        let paths = vec!["src/".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::PartialScan(vec!["src/".to_string()])
+        );
+    }
+
+    // fast_path_to_parent_dirs テストは service::fast_path に移動済み
 }

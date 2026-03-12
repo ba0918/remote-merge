@@ -13,18 +13,31 @@ use crate::service::diff::{
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
-    filter_changed_files, partition_existing_files, resolve_target_files_from_statuses,
+    check_path_traversal, filter_changed_files, partition_existing_files,
+    resolve_target_files_from_statuses,
 };
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
     compute_status_from_trees, is_sensitive, needs_content_compare, refine_status_with_content,
+    status_from_read_results,
 };
 use crate::service::types::{
-    exit_code, DiffOutput, FileStatusKind, MultiDiffOutput, MultiDiffSummary,
+    exit_code, DiffOutput, FileStatus, FileStatusKind, MultiDiffOutput, MultiDiffSummary,
 };
+use crate::service::{resolve_scan_strategy, ScanStrategy};
+use crate::tree::FileTree;
 use std::collections::HashMap;
+
+/// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files）
+type DiffScanResult = (
+    FileTree,
+    FileTree,
+    Vec<FileStatus>,
+    Vec<String>,
+    Vec<String>,
+);
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
@@ -52,48 +65,29 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
 
-    // Fetch trees and compute status to identify diff files
-    let left_tree = core.fetch_tree_recursive(&pair.left, 50_000)?;
-    let right_tree = core.fetch_tree_recursive(&pair.right, 50_000)?;
     let left_info = build_source_info(&pair.left, &core)?;
     let right_info = build_source_info(&pair.right, &core)?;
 
-    // Compute statuses first (covers both left and right trees)
-    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+    // ScanStrategy で分岐: FastPath / PartialScan / FullScan
+    let strategy = resolve_scan_strategy(&args.paths, false);
 
-    // Refine statuses with content comparison for metadata-ambiguous files
-    // バイト列比較でバイナリファイルも正しく判定する
-    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-    if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_tolerant(&pair.left, &paths_to_compare, &mut core);
-        let right_batch = fetch_contents_tolerant(&pair.right, &paths_to_compare, &mut core);
-        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-        for path in &paths_to_compare {
-            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
-            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
-            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
+    let (left_tree, right_tree, statuses, existing_files, diff_files) = match strategy {
+        ScanStrategy::FastPath(ref target_paths) => {
+            check_path_traversal(target_paths)?;
+            run_diff_fast_path(target_paths, &pair.left, &pair.right, &mut core, &config)?
         }
-        refine_status_with_content(&mut statuses, &compare_pairs);
-    }
-
-    // Resolve paths to file list using statuses (includes right-only files)
-    let target_files =
-        resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
-
-    // 指定パスの存在確認: status にないパスはどちら側にも存在しない
-    let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    for path in &missing_files {
-        eprintln!("Warning: '{}' not found on either side", path);
-    }
-
-    // 全パスが不在の場合はエラー
-    if existing_files.is_empty() && !args.paths.is_empty() {
-        core.disconnect_all();
-        anyhow::bail!("specified path(s) not found on either side");
-    }
-
-    // Filter to only files with differences (not Equal)
-    let diff_files = filter_changed_files(&existing_files, &statuses);
+        ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
+            dir_paths,
+            &args.paths,
+            &pair.left,
+            &pair.right,
+            &mut core,
+            &config,
+        )?,
+        ScanStrategy::FullScan => {
+            run_diff_full_scan(&args.paths, &pair.left, &pair.right, &mut core, &config)?
+        }
+    };
 
     // Apply max-files truncation
     let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
@@ -258,6 +252,158 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     core.disconnect_all();
     Ok(code)
+}
+
+/// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。
+///
+/// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files)
+/// ツリーは空（FastPath ではツリーを使わないため）。
+fn run_diff_fast_path(
+    target_paths: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<DiffScanResult> {
+    let left_tree = FileTree::new(&config.local.root_dir);
+    let right_tree = FileTree::new(&config.local.root_dir);
+
+    let mut statuses = Vec::new();
+    let mut existing = Vec::new();
+
+    for path in target_paths {
+        let (left_bytes, left_ok) = read_file_bytes_tolerant(core, left, path, true);
+        let (right_bytes, right_ok) = read_file_bytes_tolerant(core, right, path, true);
+
+        let left_exists = left_ok;
+        let right_exists = right_ok;
+
+        let left_content = if left_ok {
+            Some(left_bytes.as_slice())
+        } else {
+            None
+        };
+        let right_content = if right_ok {
+            Some(right_bytes.as_slice())
+        } else {
+            None
+        };
+
+        match status_from_read_results(left_exists, right_exists, left_content, right_content) {
+            Ok(kind) => {
+                statuses.push(FileStatus {
+                    path: path.clone(),
+                    status: kind,
+                    sensitive: is_sensitive(path, &config.filter.sensitive),
+                    hunks: None,
+                    ref_badge: None,
+                });
+                existing.push(path.clone());
+            }
+            Err(_) => {
+                // both missing → warn
+                eprintln!("Warning: '{}' not found on either side", path);
+            }
+        }
+    }
+
+    if existing.is_empty() && !target_paths.is_empty() {
+        anyhow::bail!("specified path(s) not found on either side");
+    }
+
+    let diff_files = filter_changed_files(&existing, &statuses);
+    Ok((left_tree, right_tree, statuses, existing, diff_files))
+}
+
+/// PartialScan: 指定ディレクトリ配下のみツリー取得して既存フローに接続する。
+fn run_diff_partial_scan(
+    dir_paths: &[String],
+    original_paths: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<DiffScanResult> {
+    // 各ディレクトリのサブツリーを取得して結合
+    let mut left_tree = FileTree::new(&config.local.root_dir);
+    let mut right_tree = FileTree::new(&config.local.root_dir);
+
+    for dir_path in dir_paths {
+        let lt = core.fetch_tree_for_subpath(left, dir_path, 50_000, true)?;
+        let rt = core.fetch_tree_for_subpath(right, dir_path, 50_000, true)?;
+        left_tree.nodes.extend(lt.nodes);
+        right_tree.nodes.extend(rt.nodes);
+    }
+    left_tree.sort();
+    left_tree.nodes.dedup_by_key(|n| n.name.clone());
+    right_tree.sort();
+    right_tree.nodes.dedup_by_key(|n| n.name.clone());
+
+    // 以降は FullScan と同じフロー
+    compute_statuses_and_resolve(
+        original_paths,
+        left,
+        right,
+        core,
+        config,
+        left_tree,
+        right_tree,
+    )
+}
+
+/// FullScan: 従来通り全ツリーを取得する。
+fn run_diff_full_scan(
+    paths: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<DiffScanResult> {
+    let left_tree = core.fetch_tree_recursive(left, 50_000, true)?;
+    let right_tree = core.fetch_tree_recursive(right, 50_000, true)?;
+    compute_statuses_and_resolve(paths, left, right, core, config, left_tree, right_tree)
+}
+
+/// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（PartialScan / FullScan 共通）
+fn compute_statuses_and_resolve(
+    paths: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+    left_tree: FileTree,
+    right_tree: FileTree,
+) -> anyhow::Result<DiffScanResult> {
+    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+
+    // Refine statuses with content comparison for metadata-ambiguous files
+    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    if !paths_to_compare.is_empty() {
+        let left_batch = fetch_contents_tolerant(left, &paths_to_compare, core);
+        let right_batch = fetch_contents_tolerant(right, &paths_to_compare, core);
+        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
+        for path in &paths_to_compare {
+            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
+            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
+            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
+        }
+        refine_status_with_content(&mut statuses, &compare_pairs);
+    }
+
+    let target_files =
+        resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
+
+    let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
+    for path in &missing_files {
+        eprintln!("Warning: '{}' not found on either side", path);
+    }
+
+    if existing_files.is_empty() && !paths.is_empty() {
+        anyhow::bail!("specified path(s) not found on either side");
+    }
+
+    let diff_files = filter_changed_files(&existing_files, &statuses);
+    Ok((left_tree, right_tree, statuses, existing_files, diff_files))
 }
 
 /// LeftOnly/RightOnly に基づき、存在しない側の quiet フラグを決定する。
@@ -453,5 +599,59 @@ mod tests {
         let (existing, missing) = partition_existing_files(&target_files, &statuses);
         assert_eq!(existing, vec!["a.txt", "b.txt"]);
         assert!(missing.is_empty());
+    }
+
+    // ── ScanStrategy 分岐テスト ──
+
+    use crate::service::{resolve_scan_strategy, ScanStrategy};
+
+    #[test]
+    fn test_diff_strategy_single_file_returns_fast_path() {
+        let paths = vec!["app/main.rs".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::FastPath(vec!["app/main.rs".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_diff_strategy_directory_returns_partial_scan() {
+        let paths = vec!["app/controllers/".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::PartialScan(vec!["app/controllers/".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_diff_strategy_dot_returns_full_scan() {
+        let paths = vec![".".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    #[test]
+    fn test_diff_strategy_empty_paths_returns_full_scan() {
+        let strategy = resolve_scan_strategy(&[], false);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    #[test]
+    fn test_diff_strategy_glob_returns_full_scan() {
+        let paths = vec!["*.php".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    #[test]
+    fn test_diff_strategy_multiple_files_returns_fast_path() {
+        let paths = vec!["a.rs".to_string(), "b.rs".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::FastPath(vec!["a.rs".to_string(), "b.rs".to_string()])
+        );
     }
 }

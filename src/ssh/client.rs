@@ -28,6 +28,12 @@ struct CommandOutput {
     exit_code: Option<u32>,
 }
 
+/// リモートコマンドの実行結果（バイト列版）
+struct CommandOutputBytes {
+    stdout: Vec<u8>,
+    exit_code: Option<u32>,
+}
+
 /// SSH接続を管理するクライアント
 pub struct SshClient {
     session: client::Handle<SshHandler>,
@@ -466,6 +472,26 @@ impl SshClient {
         Ok(result.stdout)
     }
 
+    /// リモートでコマンドを実行し、stdout をバイト列で返す
+    ///
+    /// `exec()` のバイト列版。バイナリデータを UTF-8 変換せずに保持する。
+    /// 非ゼロ終了コードはログに記録するがエラーにはしない。
+    pub async fn exec_bytes(&mut self, command: &str) -> crate::error::Result<Vec<u8>> {
+        let result = self.run_command_bytes(command).await?;
+
+        if let Some(code) = result.exit_code {
+            if code != 0 {
+                tracing::debug!(
+                    "Remote command (bytes) exited with non-zero: cmd='{}', code={}",
+                    command,
+                    code
+                );
+            }
+        }
+
+        Ok(result.stdout)
+    }
+
     /// Agent プロセス起動用の exec チャネルを開く。
     ///
     /// コマンドを実行し、チャネルを返す。チャネルの stdout/stdin は
@@ -650,6 +676,12 @@ impl SshClient {
     /// 区切り文字付き `cat` コマンドで1チャネルにまとめる。
     ///
     /// 読み込めなかったファイルは空文字列として返される。
+    /// 複数ファイルをテキストとしてバッチ読み込みする（チャンク分割対応）。
+    ///
+    /// パスを `chunk_paths()` でコマンド長上限に収まるチャンクに分割し、
+    /// 各チャンクの結果をマージして返す。
+    ///
+    /// チャンク途中で SSH エラーが発生した場合は全体エラーとして返す（部分結果を返さない）。
     pub async fn read_files_batch(
         &mut self,
         paths: &[String],
@@ -658,14 +690,54 @@ impl SshClient {
             return Ok(HashMap::new());
         }
 
-        let command = match batch_read::build_batch_cat_command(paths) {
-            Some(cmd) => cmd,
-            None => return Ok(HashMap::new()),
-        };
+        let chunks = batch_read::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN);
+        let mut merged = HashMap::with_capacity(paths.len());
 
-        // exec を使う（非ゼロ終了は許容：一部ファイル不在でも結果を返す）
-        let output = self.exec(&command).await?;
-        Ok(batch_read::parse_batch_output(&output, paths))
+        for chunk in &chunks {
+            let command = match batch_read::build_batch_cat_command(chunk) {
+                Some(cmd) => cmd,
+                None => continue,
+            };
+
+            // exec を使う（非ゼロ終了は許容：一部ファイル不在でも結果を返す）
+            let output = self.exec(&command).await?;
+            let chunk_result = batch_read::parse_batch_output(&output, chunk);
+            merged.extend(chunk_result);
+        }
+
+        Ok(merged)
+    }
+
+    /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。
+    ///
+    /// `read_files_batch()` のバイト列版。バイナリファイルを UTF-8 変換せずに読む。
+    /// パスを `chunk_paths()` でコマンド長上限に収まるチャンクに分割し、
+    /// 各チャンクの結果をマージして返す。
+    ///
+    /// チャンク途中で SSH エラーが発生した場合は全体エラーとして返す（部分結果を返さない）。
+    pub async fn read_files_batch_bytes(
+        &mut self,
+        paths: &[String],
+    ) -> crate::error::Result<HashMap<String, Vec<u8>>> {
+        if paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let chunks = batch_read::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN);
+        let mut merged = HashMap::with_capacity(paths.len());
+
+        for chunk in &chunks {
+            let command = match batch_read::build_batch_cat_command(chunk) {
+                Some(cmd) => cmd,
+                None => continue,
+            };
+
+            let output = self.exec_bytes(&command).await?;
+            let chunk_result = batch_read::parse_batch_output_bytes(&output, chunk);
+            merged.extend(chunk_result);
+        }
+
+        Ok(merged)
     }
 
     /// リモートでコマンドを実行し、非ゼロ終了コードをエラーとして返す
@@ -727,6 +799,46 @@ impl SshClient {
             stderr: String::from_utf8_lossy(&stderr).to_string(),
             exit_code,
         })
+    }
+
+    /// コマンドを実行してバイト列の stdout を返す共通関数。
+    ///
+    /// `run_command()` と同じだが、stdout を UTF-8 変換せずバイト列のまま保持する。
+    /// バイナリファイルのバッチ読み込みに使用する。
+    async fn run_command_bytes(
+        &mut self,
+        command: &str,
+    ) -> crate::error::Result<CommandOutputBytes> {
+        let mut channel = self.open_channel_with_retry().await?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|_e| AppError::SshExec {
+                command: command.to_string(),
+            })?;
+
+        let mut stdout = Vec::new();
+        let mut exit_code = None;
+
+        loop {
+            let Some(msg) = channel.wait().await else {
+                break;
+            };
+            match msg {
+                ChannelMsg::Data { ref data } => {
+                    stdout.extend_from_slice(data);
+                }
+                ChannelMsg::ExitStatus { exit_status } => {
+                    exit_code = Some(exit_status);
+                }
+                _ => {}
+            }
+        }
+
+        let _ = channel.close().await;
+
+        Ok(CommandOutputBytes { stdout, exit_code })
     }
 
     /// リモートファイルに内容を書き込む（stdin 経由の cat >）

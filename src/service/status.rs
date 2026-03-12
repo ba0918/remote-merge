@@ -328,6 +328,38 @@ pub fn build_status_output(
     }
 }
 
+/// stat + read 結果から個別ファイルのステータスを判定する純粋関数。
+/// fast path で使用（ツリー比較なしでステータスを判定）。
+///
+/// - left のみ存在 → LeftOnly
+/// - right のみ存在 → RightOnly
+/// - 両方存在 + 同一内容 → Equal
+/// - 両方存在 + 異なる内容 → Modified
+/// - 両方不在 → エラー（BothMissing）
+pub fn status_from_read_results(
+    left_exists: bool,
+    right_exists: bool,
+    left_content: Option<&[u8]>,
+    right_content: Option<&[u8]>,
+) -> anyhow::Result<FileStatusKind> {
+    match (left_exists, right_exists) {
+        (false, false) => anyhow::bail!("both sides missing"),
+        (true, false) => Ok(FileStatusKind::LeftOnly),
+        (false, true) => Ok(FileStatusKind::RightOnly),
+        (true, true) => match (left_content, right_content) {
+            (Some(l), Some(r)) => {
+                if l == r {
+                    Ok(FileStatusKind::Equal)
+                } else {
+                    Ok(FileStatusKind::Modified)
+                }
+            }
+            // コンテンツが取得できない場合は安全側に Modified とする
+            _ => Ok(FileStatusKind::Modified),
+        },
+    }
+}
+
 /// exit code を判定する。差分があれば 1、なければ 0。
 pub fn status_exit_code(summary: &StatusSummary) -> i32 {
     if summary.modified > 0 || summary.left_only > 0 || summary.right_only > 0 {
@@ -980,6 +1012,78 @@ mod tests {
             &HashMap::new(),
         );
         assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    // ── status_from_read_results ──
+
+    #[test]
+    fn test_status_from_read_results_equal() {
+        let result = status_from_read_results(true, true, Some(b"hello"), Some(b"hello")).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_modified() {
+        let result = status_from_read_results(true, true, Some(b"hello"), Some(b"world")).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_left_only() {
+        let result = status_from_read_results(true, false, Some(b"data"), None).unwrap();
+        assert_eq!(result, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_status_from_read_results_right_only() {
+        let result = status_from_read_results(false, true, None, Some(b"data")).unwrap();
+        assert_eq!(result, FileStatusKind::RightOnly);
+    }
+
+    #[test]
+    fn test_status_from_read_results_both_missing() {
+        let result = status_from_read_results(false, false, None, None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("both sides missing"));
+    }
+
+    #[test]
+    fn test_status_from_read_results_empty_content_equal() {
+        let result = status_from_read_results(true, true, Some(b""), Some(b"")).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_binary_content() {
+        // NUL バイトを含むバイナリコンテンツの比較
+        let left = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01];
+        let right = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x02];
+        let result = status_from_read_results(true, true, Some(left), Some(right)).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_binary_content_equal() {
+        let data = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01];
+        let result = status_from_read_results(true, true, Some(data), Some(data)).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_both_exist_no_content() {
+        // 両方存在するがコンテンツが取得できない → Modified（安全側）
+        let result = status_from_read_results(true, true, None, None).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_one_side_no_content() {
+        // 片方のコンテンツのみ取得できない → Modified（安全側）
+        let result = status_from_read_results(true, true, Some(b"data"), None).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
     }
 
     // ── symlink ステータス ──

@@ -428,7 +428,7 @@ async fn agent_ssh_list_tree_roundtrip() {
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
-    let entries = client.list_tree("", &[], 10_000).expect("list_tree failed");
+    let (entries, _truncated) = client.list_tree("", &[], 10_000).expect("list_tree failed");
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
 

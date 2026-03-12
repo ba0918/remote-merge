@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use crate::app::Side;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::AppConfig;
 use crate::merge::executor::MergeDirection;
@@ -21,6 +22,9 @@ use crate::service::sync::{
     compute_sync_summary, compute_target_status, plan_deletions, sync_exit_code,
 };
 use crate::service::types::*;
+use crate::service::{
+    fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
+};
 use crate::tree::FileTree;
 
 /// sync サブコマンドの引数
@@ -80,11 +84,15 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
         }
     }
 
+    // ScanStrategy で分岐: sync では FastPath → PartialScan にフォールバック
+    // （merge と同様、optimistic locking に tree の mtime が必要）
+    let strategy = resolve_scan_strategy(&args.paths, args.delete);
+
     // 接続 + left ツリー取得（全ペアで共有）
     let mut core = CoreRuntime::new(config.clone());
     let left_side = &pairs[0].left;
     core.connect_if_remote(left_side)?;
-    let left_tree = core.fetch_tree_recursive(left_side, 50_000)?;
+    let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config)?;
     let left_info = build_source_info(left_side, &core)?;
 
     // サーバごとの計画策定
@@ -105,8 +113,8 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
             continue;
         }
 
-        // right ツリー取得
-        let right_tree = match core.fetch_tree_recursive(right_side, 50_000) {
+        // right ツリー取得（ScanStrategy に基づく）
+        let right_tree = match fetch_tree_by_strategy(&strategy, right_side, &mut core, &config) {
             Ok(t) => t,
             Err(e) => {
                 let info = build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
@@ -394,6 +402,51 @@ fn build_dry_run_targets(
     targets
 }
 
+/// ScanStrategy に基づいてツリーを取得する。
+///
+/// sync では FastPath を PartialScan 相当に変換する（merge と同様）。
+/// ルート直下ファイルが含まれる場合は FullScan にフォールバックする。
+fn fetch_tree_by_strategy(
+    strategy: &ScanStrategy,
+    side: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<FileTree> {
+    match strategy {
+        ScanStrategy::FastPath(ref target_paths) => {
+            // FastPath → 各ファイルの親ディレクトリで PartialScan
+            let dir_paths = fast_path_to_parent_dirs(target_paths);
+            // ルート直下ファイルがある場合は FullScan にフォールバック
+            if has_root_parent_dir(&dir_paths) {
+                core.fetch_tree_recursive(side, 50_000, true)
+            } else {
+                fetch_partial_tree(&dir_paths, side, core, config)
+            }
+        }
+        ScanStrategy::PartialScan(ref dir_paths) => {
+            fetch_partial_tree(dir_paths, side, core, config)
+        }
+        ScanStrategy::FullScan => core.fetch_tree_recursive(side, 50_000, true),
+    }
+}
+
+/// 指定ディレクトリパスのサブツリーを取得して結合する。
+fn fetch_partial_tree(
+    dir_paths: &[String],
+    side: &Side,
+    core: &mut CoreRuntime,
+    config: &AppConfig,
+) -> anyhow::Result<FileTree> {
+    let mut tree = FileTree::new(&config.local.root_dir);
+    for dir_path in dir_paths {
+        let sub = core.fetch_tree_for_subpath(side, dir_path, 50_000, true)?;
+        tree.nodes.extend(sub.nodes);
+    }
+    tree.sort();
+    tree.nodes.dedup_by_key(|n| n.name.clone());
+    Ok(tree)
+}
+
 /// 確認プロンプト前の計画サマリーを stderr に出力する
 fn print_sync_plan(left_info: &SourceInfo, server_plans: &[ServerPlan]) {
     let target_labels: Vec<&str> = server_plans
@@ -623,4 +676,44 @@ mod tests {
         // パニックしなければ OK
         print_sync_plan(&left_info, &server_plans);
     }
+
+    // ── ScanStrategy 分岐テスト ──
+
+    use crate::service::{resolve_scan_strategy, ScanStrategy};
+
+    #[test]
+    fn test_sync_strategy_single_file_returns_fast_path() {
+        let paths = vec!["app/main.rs".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::FastPath(vec!["app/main.rs".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_sync_strategy_delete_flag_forces_full_scan() {
+        let paths = vec!["file.txt".to_string()];
+        let strategy = resolve_scan_strategy(&paths, true);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    #[test]
+    fn test_sync_strategy_directory_returns_partial_scan() {
+        let paths = vec!["src/".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(
+            strategy,
+            ScanStrategy::PartialScan(vec!["src/".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_sync_strategy_dot_returns_full_scan() {
+        let paths = vec![".".to_string()];
+        let strategy = resolve_scan_strategy(&paths, false);
+        assert_eq!(strategy, ScanStrategy::FullScan);
+    }
+
+    // sync_fast_path_to_parent_dirs テストは service::fast_path に移動済み
 }

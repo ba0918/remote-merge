@@ -62,16 +62,17 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         Ok(resp)
     }
 
-    /// ListTree を送信し、全エントリを返す。
+    /// ListTree を送信し、全エントリと truncation フラグを返す。
     ///
     /// サーバーは大規模ディレクトリを複数の `TreeChunk` フレームにストリーミングする。
     /// `is_last: true` のチャンクを受信するまでループして全エントリを収集する。
+    /// 戻り値の `bool` は、max_entries に達してスキャンが打ち切られた場合に `true`。
     pub fn list_tree(
         &mut self,
         root: &str,
         exclude: &[String],
         max_entries: usize,
-    ) -> Result<Vec<AgentFileEntry>> {
+    ) -> Result<(Vec<AgentFileEntry>, bool)> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
             root: root.to_string(),
@@ -82,21 +83,28 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
         // is_last=true になるまでチャンクを読み続ける
         let mut all_nodes = Vec::new();
+        let was_truncated: bool;
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
             let resp = protocol::deserialize_response(&frame)?;
             match resp {
                 AgentResponse::Error { message } => bail!("agent error: {message}"),
-                AgentResponse::TreeChunk { nodes, is_last, .. } => {
+                AgentResponse::TreeChunk {
+                    nodes,
+                    is_last,
+                    truncated,
+                    ..
+                } => {
                     all_nodes.extend(nodes);
                     if is_last {
+                        was_truncated = truncated;
                         break;
                     }
                 }
                 other => bail!("unexpected response to ListTree: {other:?}"),
             }
         }
-        Ok(all_nodes)
+        Ok((all_nodes, was_truncated))
     }
 
     /// 複数ファイルを読み込む。
@@ -381,8 +389,9 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let entries = client.list_tree("", &[], 10000).unwrap();
+        let (entries, truncated) = client.list_tree("", &[], 10000).unwrap();
         assert!(entries.is_empty());
+        assert!(!truncated);
     }
 
     #[test]
@@ -393,12 +402,13 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let entries = client.list_tree("", &[], 10000).unwrap();
+        let (entries, truncated) = client.list_tree("", &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));
         assert!(paths.contains(&"sub"));
         assert!(paths.contains(&"sub/inner.txt"));
+        assert!(!truncated);
     }
 
     // ---- ReadFiles ----

@@ -243,7 +243,8 @@ fn run_merge_scan_via_ssh(
 // Agent パス
 // ---------------------------------------------------------------------------
 
-/// Agent を使ってサブツリーのファイルリストを一括取得する
+/// Agent を使ってサブツリーのファイルリストを一括取得する。
+/// truncation フラグは現時点では無視する（merge_scan はサブツリー単位の走査のため）。
 fn agent_list_tree(
     agent: &Arc<Mutex<BoxedAgentClient>>,
     scan_root: &str,
@@ -253,9 +254,10 @@ fn agent_list_tree(
     let mut guard = agent
         .lock()
         .map_err(|_| "Agent mutex poisoned".to_string())?;
-    guard
+    let (entries, _truncated) = guard
         .list_tree(scan_root, exclude, max_entries)
-        .map_err(|e| format!("Agent list_tree failed: {}", e))
+        .map_err(|e| format!("Agent list_tree failed: {}", e))?;
+    Ok(entries)
 }
 
 /// Agent を使って全ファイルのリモートコンテンツをバッチ読み込みする

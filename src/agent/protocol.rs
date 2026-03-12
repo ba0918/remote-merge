@@ -61,6 +61,10 @@ pub enum AgentResponse {
         nodes: Vec<AgentFileEntry>,
         is_last: bool,
         total_scanned: usize,
+        /// max_entries に達してスキャンが打ち切られた場合 true。
+        /// 後方互換性のため、古いプロトコルからデシリアライズ時は false にフォールバック。
+        #[serde(default)]
+        truncated: bool,
     },
     FileContents {
         results: Vec<FileReadResult>,
@@ -375,6 +379,7 @@ mod tests {
             }],
             is_last: true,
             total_scanned: 1,
+            truncated: false,
         });
     }
 
@@ -392,6 +397,7 @@ mod tests {
             }],
             is_last: true,
             total_scanned: 1,
+            truncated: false,
         });
     }
 
@@ -501,6 +507,7 @@ mod tests {
             nodes,
             is_last: true,
             total_scanned: 1000,
+            truncated: false,
         };
         let data = serialize_response(&resp).unwrap();
         let decoded = deserialize_response(&data).unwrap();
@@ -523,6 +530,7 @@ mod tests {
             nodes: vec![],
             is_last: true,
             total_scanned: 0,
+            truncated: false,
         });
         roundtrip_response(&AgentResponse::FileContents { results: vec![] });
         roundtrip_response(&AgentResponse::Stats { entries: vec![] });

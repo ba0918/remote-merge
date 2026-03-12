@@ -59,11 +59,11 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     core.connect_if_remote(&pair.right)?;
 
     // 左側ツリー取得（再帰走査でメタデータ付き）
-    let left_tree = core.fetch_tree_recursive(&pair.left, MAX_SCAN_ENTRIES)?;
+    let left_tree = core.fetch_tree_recursive(&pair.left, MAX_SCAN_ENTRIES, false)?;
     let left_info = build_source_info(&pair.left, &core)?;
 
     // 右側ツリー取得（再帰走査でメタデータ付き）
-    let right_tree = core.fetch_tree_recursive(&pair.right, MAX_SCAN_ENTRIES)?;
+    let right_tree = core.fetch_tree_recursive(&pair.right, MAX_SCAN_ENTRIES, false)?;
     let right_info = build_source_info(&pair.right, &core)?;
 
     // ステータス計算（メタデータ比較）
@@ -124,7 +124,7 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         core.connect_if_remote(ref_s)?;
 
         // Fetch ref tree
-        let ref_tree = core.fetch_tree_recursive(ref_s, MAX_SCAN_ENTRIES)?;
+        let ref_tree = core.fetch_tree_recursive(ref_s, MAX_SCAN_ENTRIES, false)?;
         ref_info = Some(build_source_info(ref_s, &core)?);
 
         // Fetch ref contents for non-sensitive files

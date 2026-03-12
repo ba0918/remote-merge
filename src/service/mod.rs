@@ -14,6 +14,7 @@
 //! ```
 
 pub mod diff;
+pub mod fast_path;
 pub mod merge;
 pub mod merge_flow;
 pub mod output;
@@ -24,6 +25,9 @@ pub mod status;
 pub mod sync;
 pub mod types;
 
+pub use fast_path::{
+    fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
+};
 pub use output::{format_json, OutputFormat};
 pub use source_pair::{resolve_source_pair, SourceArgs, SourcePair};
 pub use types::*;

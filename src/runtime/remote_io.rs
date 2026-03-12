@@ -64,6 +64,41 @@ impl CoreRuntime {
         }
     }
 
+    /// 複数のリモートファイルをバイト列としてバッチ読み込みする（接続エラー時に1回自動再接続）。
+    ///
+    /// SSH の `read_files_batch_bytes()` を使い、チャンク分割されたバッチ読み込みを行う。
+    /// side_io.rs の統一 API 経由でのみ使用する。
+    pub(crate) fn read_remote_files_batch_bytes(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        if rel_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
+
+        match self.read_files_batch_bytes_inner(server_name, &full_paths) {
+            Ok(batch_result) => Ok(Self::map_to_rel_paths_bytes(
+                rel_paths,
+                &full_paths,
+                batch_result,
+            )),
+            Err(e) if crate::error::is_connection_error(&e) => {
+                tracing::info!("Batch read bytes failed (connection error), auto-reconnecting");
+                self.try_reconnect(server_name)?;
+                let batch_result = self.read_files_batch_bytes_inner(server_name, &full_paths)?;
+                Ok(Self::map_to_rel_paths_bytes(
+                    rel_paths,
+                    &full_paths,
+                    batch_result,
+                ))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// リモートファイルに書き込む（自動再接続なし — safety のため）
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `write_file(side, path, content)` を使うこと。
@@ -440,6 +475,32 @@ impl CoreRuntime {
         full_paths: &[String],
         mut batch_result: HashMap<String, String>,
     ) -> HashMap<String, String> {
+        let mut result = HashMap::with_capacity(batch_result.len());
+        for (i, rel_path) in rel_paths.iter().enumerate() {
+            if let Some(content) = batch_result.remove(&full_paths[i]) {
+                result.insert(rel_path.clone(), content);
+            }
+        }
+        result
+    }
+
+    fn read_files_batch_bytes_inner(
+        &mut self,
+        server_name: &str,
+        full_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        self.rt.block_on(client.read_files_batch_bytes(full_paths))
+    }
+
+    fn map_to_rel_paths_bytes(
+        rel_paths: &[String],
+        full_paths: &[String],
+        mut batch_result: HashMap<String, Vec<u8>>,
+    ) -> HashMap<String, Vec<u8>> {
         let mut result = HashMap::with_capacity(batch_result.len());
         for (i, rel_path) in rel_paths.iter().enumerate() {
             if let Some(content) = batch_result.remove(&full_paths[i]) {

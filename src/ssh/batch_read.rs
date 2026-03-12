@@ -10,6 +10,17 @@ use super::tree_parser::shell_escape;
 /// バッチ読み込みに使う区切り文字のプレフィックス
 const DELIMITER_PREFIX: &str = "___BATCH_DELIM___";
 
+/// SSH バッチ読み込みのコマンド長上限（バイト）。
+///
+/// ARG_MAX 128KB (CentOS 5) の半分。安全マージンを確保する。
+pub const SSH_BATCH_MAX_COMMAND_LEN: usize = 65536;
+
+/// Agent バッチ読み込みのパス数上限。
+///
+/// Agent はシェルコマンドを使わないため ARG_MAX 制約なし。
+/// プロトコルのシリアライズ負荷を考慮した値。
+pub const AGENT_BATCH_MAX_PATHS: usize = 2000;
+
 /// バッチ cat コマンドの区切り文字を生成する
 ///
 /// ファイルインデックスを含めることで、各区切りがユニークになる。
@@ -46,6 +57,79 @@ pub fn build_batch_cat_command(paths: &[String]) -> Option<String> {
     parts.push(format!("echo '{}'", end_delim));
 
     Some(parts.join(" ; "))
+}
+
+/// 1パスあたりのコマンド長を推定する（バイト単位）。
+///
+/// `build_batch_cat_command()` のロジックに基づいて、
+/// 各パスが追加するコマンド長を計算する。
+///
+/// 各パスのコマンド部分:
+///   `echo '___BATCH_DELIM___N' ; cat <escaped_path> 2>/dev/null ; echo '' ; `
+fn estimate_command_len_for_path(path: &str, index: usize) -> usize {
+    let delim = make_delimiter(index);
+    // "echo '<delim>'" の長さ
+    let echo_delim_len = "echo '".len() + delim.len() + "'".len();
+    // "cat <escaped> 2>/dev/null ; echo ''" の長さ
+    let escaped = shell_escape(path);
+    let cat_len = "cat ".len() + escaped.len() + " 2>/dev/null ; echo ''".len();
+    // セパレータ " ; " × 2（echo_delim ; cat_echo ; ）
+    echo_delim_len + " ; ".len() + cat_len + " ; ".len()
+}
+
+/// 終端マーカーのコマンド長を推定する。
+fn estimate_end_marker_len(path_count: usize) -> usize {
+    let delim = make_delimiter(path_count);
+    "echo '".len() + delim.len() + "'".len()
+}
+
+/// パスをコマンド長上限に収まるチャンクに分割する。
+///
+/// 各チャンクの合計コマンド長が `max_command_len` バイト以下になるように分割する。
+/// 1パスだけで上限を超える場合は、そのパスだけで1チャンクにする（パニックしない）。
+///
+/// # 引数
+/// - `paths`: 分割対象のパスリスト
+/// - `max_command_len`: チャンクあたりの最大コマンド長（バイト）
+pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>> {
+    if paths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut chunks: Vec<Vec<String>> = Vec::new();
+    let mut current_chunk: Vec<String> = Vec::new();
+    // 現在のチャンクのコマンド長（終端マーカーを除く）
+    let mut current_len: usize = 0;
+
+    for path in paths.iter() {
+        // チャンク内インデックスで推定する。
+        // `build_batch_cat_command()` はチャンク内 0-origin のインデックスを使うため、
+        // それと一致させる。
+        let chunk_local_index = current_chunk.len();
+        let path_len = estimate_command_len_for_path(path, chunk_local_index);
+        let end_marker_len = estimate_end_marker_len(current_chunk.len() + 1);
+
+        if current_chunk.is_empty() {
+            // チャンクが空の場合は必ず追加（1パスで上限超えでもパニックしない）
+            current_chunk.push(path.clone());
+            current_len = path_len;
+        } else if current_len + path_len + end_marker_len > max_command_len {
+            // 上限を超えるので新しいチャンクを開始
+            chunks.push(current_chunk);
+            current_chunk = vec![path.clone()];
+            // 新チャンクの先頭なのでインデックス 0 で再推定
+            current_len = estimate_command_len_for_path(path, 0);
+        } else {
+            current_chunk.push(path.clone());
+            current_len += path_len;
+        }
+    }
+
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk);
+    }
+
+    chunks
 }
 
 /// バッチ cat コマンドの出力をパースして、パス→内容の HashMap に変換する。
@@ -106,6 +190,63 @@ pub fn parse_batch_output(output: &str, paths: &[String]) -> HashMap<String, Str
         // echo '' が追加した末尾の \n を除去
         let content = content.strip_suffix('\n').unwrap_or(content);
         results.insert(paths[i].clone(), content.to_string());
+    }
+
+    results
+}
+
+/// バッチ cat コマンドのバイト列出力をパースして、パス→バイト列の HashMap に変換する。
+///
+/// `parse_batch_output` のバイト列版。バイナリファイルの内容をそのまま保持する。
+/// 区切り文字（ASCII のみ）をバイト列走査で検出し、区切り間の内容を `Vec<u8>` で返す。
+///
+/// # 引数
+/// - `output`: バッチ cat コマンドの stdout（生バイト列）
+/// - `paths`: ファイルパス（`build_batch_cat_command` に渡したものと同じ順序）
+pub fn parse_batch_output_bytes(output: &[u8], paths: &[String]) -> HashMap<String, Vec<u8>> {
+    let mut results = HashMap::new();
+
+    let delim_prefix_bytes = DELIMITER_PREFIX.as_bytes();
+
+    // 区切り文字行のバイトオフセットを収集する
+    let mut delim_ranges: Vec<(usize, usize)> = Vec::new(); // (line_start, line_end_incl_newline)
+
+    let mut pos = 0;
+    while pos < output.len() {
+        let line_start = pos;
+        let line_end = memchr_newline(output, pos);
+        let line = &output[line_start..line_end];
+        let next_pos = if line_end < output.len() {
+            line_end + 1
+        } else {
+            line_end
+        };
+
+        if line.starts_with(delim_prefix_bytes) {
+            delim_ranges.push((line_start, next_pos));
+        }
+        pos = next_pos;
+    }
+
+    // N個のファイル → N+1個の区切り文字が必要
+    if delim_ranges.len() != paths.len() + 1 {
+        tracing::warn!(
+            "Batch read (bytes): delimiter count mismatch: expected {}, found {}",
+            paths.len() + 1,
+            delim_ranges.len(),
+        );
+        return results;
+    }
+
+    // 各ファイルの内容を区切り文字の間からバイトスライスで取り出す
+    for i in 0..paths.len() {
+        let content_start = delim_ranges[i].1;
+        let content_end = delim_ranges[i + 1].0;
+
+        let content = &output[content_start..content_end];
+        // echo '' が追加した末尾の \n を除去
+        let content = content.strip_suffix(b"\n").unwrap_or(content);
+        results.insert(paths[i].clone(), content.to_vec());
     }
 
     results
@@ -366,5 +507,263 @@ ___BATCH_DELIM___2";
         let result = parse_batch_output(output, &paths);
         let single_read_result = "hello\nworld\n";
         assert_eq!(result.get("test.rs").unwrap(), single_read_result);
+    }
+
+    // ── chunk_paths テスト ──
+
+    #[test]
+    fn test_chunk_paths_empty() {
+        let result = chunk_paths(&[], 65536);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_chunk_paths_single_path() {
+        let paths = vec!["app/main.rs".to_string()];
+        let result = chunk_paths(&paths, 65536);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], paths);
+    }
+
+    #[test]
+    fn test_chunk_paths_fits_in_one_chunk() {
+        let paths = vec![
+            "file1.txt".to_string(),
+            "file2.txt".to_string(),
+            "file3.txt".to_string(),
+        ];
+        let result = chunk_paths(&paths, 65536);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 3);
+    }
+
+    #[test]
+    fn test_chunk_paths_exceeds_limit_splits() {
+        // 非常に小さい上限でチャンク分割を強制する
+        let paths = vec![
+            "file1.txt".to_string(),
+            "file2.txt".to_string(),
+            "file3.txt".to_string(),
+        ];
+        // 1パスあたりのコマンド長を計算し、2パスで超える上限を設定
+        let one_path_len = estimate_command_len_for_path("file1.txt", 0);
+        let end_marker_len = estimate_end_marker_len(2);
+        // 2パス + 終端マーカーがギリギリ超える上限
+        let limit = one_path_len * 2 + end_marker_len - 1;
+        let result = chunk_paths(&paths, limit);
+        assert!(result.len() >= 2);
+        // 全パスが含まれている
+        let total: usize = result.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_chunk_paths_extremely_long_path() {
+        // 1パスだけで上限を超える場合、そのパスだけで1チャンク
+        let long_path = "a".repeat(100_000);
+        let paths = vec![long_path.clone(), "short.txt".to_string()];
+        let result = chunk_paths(&paths, 1000);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], vec![long_path]);
+        assert_eq!(result[1], vec!["short.txt".to_string()]);
+    }
+
+    #[test]
+    fn test_chunk_paths_multibyte_paths() {
+        // マルチバイトパス名でバイト長が正しく計算される
+        let paths = vec![
+            "日本語/ファイル.txt".to_string(),
+            "中文/文件.txt".to_string(),
+        ];
+        let result = chunk_paths(&paths, 65536);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 2);
+
+        // 小さい上限でマルチバイトのバイト長が正しく計算されて分割される
+        let one_path_len = estimate_command_len_for_path(&paths[0], 0);
+        let end_marker_len = estimate_end_marker_len(1);
+        // 1パスだけ入る上限
+        let limit = one_path_len + end_marker_len + 1;
+        let result = chunk_paths(&paths, limit);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_paths_empty_string_path() {
+        // 空文字列パスも正常に処理される
+        let paths = vec!["".to_string(), "file.txt".to_string()];
+        let result = chunk_paths(&paths, 65536);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_paths_exactly_at_limit() {
+        // ちょうど上限のとき1チャンクに収まる
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let len0 = estimate_command_len_for_path("a.txt", 0);
+        let len1 = estimate_command_len_for_path("b.txt", 1);
+        let end_marker = estimate_end_marker_len(2);
+        let limit = len0 + len1 + end_marker;
+        let result = chunk_paths(&paths, limit);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].len(), 2);
+    }
+
+    // ── parse_batch_output_bytes テスト ──
+
+    #[test]
+    fn test_parse_bytes_basic() {
+        let paths = vec!["file.txt".to_string()];
+        let output = b"___BATCH_DELIM___0\nhello world\n\n___BATCH_DELIM___1";
+        let result = parse_batch_output_bytes(output, &paths);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get("file.txt").unwrap(), b"hello world\n");
+    }
+
+    #[test]
+    fn test_parse_bytes_binary_content() {
+        let paths = vec!["binary.bin".to_string()];
+        // バイナリコンテンツ（改行以外のバイト列）
+        let mut output = Vec::new();
+        output.extend_from_slice(b"___BATCH_DELIM___0\n");
+        output.extend_from_slice(&[0x00, 0x01, 0xFF, 0xFE, 0x0A]); // 0x0A = \n
+        output.extend_from_slice(b"\n___BATCH_DELIM___1");
+
+        let result = parse_batch_output_bytes(&output, &paths);
+        assert_eq!(result.len(), 1);
+        // echo '' の \n が strip されて、元のバイナリ内容が復元される
+        assert_eq!(
+            result.get("binary.bin").unwrap(),
+            &[0x00, 0x01, 0xFF, 0xFE, 0x0A]
+        );
+    }
+
+    #[test]
+    fn test_parse_bytes_multiple_files() {
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let output =
+            b"___BATCH_DELIM___0\ncontent_a\n\n___BATCH_DELIM___1\ncontent_b\n\n___BATCH_DELIM___2";
+        let result = parse_batch_output_bytes(output, &paths);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get("a.txt").unwrap(), b"content_a\n");
+        assert_eq!(result.get("b.txt").unwrap(), b"content_b\n");
+    }
+
+    #[test]
+    fn test_parse_bytes_delimiter_mismatch() {
+        let paths = vec!["file.txt".to_string()];
+        let output = b"___BATCH_DELIM___0\ncontent";
+        let result = parse_batch_output_bytes(output, &paths);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_bytes_empty() {
+        let paths: Vec<String> = vec![];
+        let result = parse_batch_output_bytes(b"", &paths);
+        assert!(result.is_empty());
+    }
+
+    // ── chunk_paths インデックス整合性テスト ──
+
+    /// チャンク分割後の各チャンクで `build_batch_cat_command()` が
+    /// 正しいコマンドを生成できることを検証する。
+    /// `chunk_paths()` がチャンク内 0-origin インデックスで推定しているため、
+    /// 生成されたコマンドがコマンド長上限を超えないことを確認する。
+    #[test]
+    fn test_chunk_paths_command_len_within_limit() {
+        // 多数のパスを用意し、小さい上限でチャンク分割を強制
+        let paths: Vec<String> = (0..50)
+            .map(|i| format!("app/controllers/file_{}.php", i))
+            .collect();
+        let max_len = 500;
+        let chunks = chunk_paths(&paths, max_len);
+
+        assert!(chunks.len() > 1, "テストには複数チャンクが必要");
+
+        // 各チャンクのコマンドが上限以内であること
+        for chunk in &chunks {
+            if let Some(cmd) = build_batch_cat_command(chunk) {
+                // 1パスだけのチャンクは上限超えが許容される（パニック回避のため）
+                if chunk.len() > 1 {
+                    assert!(
+                        cmd.len() <= max_len,
+                        "chunk command len {} exceeds limit {} (paths: {})",
+                        cmd.len(),
+                        max_len,
+                        chunk.len()
+                    );
+                }
+            }
+        }
+
+        // 全パスが含まれている
+        let total: usize = chunks.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 50);
+    }
+
+    /// チャンク分割後に各チャンクの結果をマージすると
+    /// 全パスの結果が得られることを検証する（テキスト版バッチ読み込みのシミュレーション）。
+    #[test]
+    fn test_chunk_paths_roundtrip_text_merge() {
+        let paths: Vec<String> = (0..10).map(|i| format!("file_{}.txt", i)).collect();
+        // 小さい上限で分割
+        let chunks = chunk_paths(&paths, 300);
+
+        let mut merged = HashMap::new();
+        for chunk in &chunks {
+            // 各チャンクの simulated 出力を生成
+            let mut output = String::new();
+            for (i, path) in chunk.iter().enumerate() {
+                output.push_str(&format!("___BATCH_DELIM___{}\n", i));
+                output.push_str(&format!("content of {}\n", path));
+                // echo '' が追加する改行
+                output.push('\n');
+            }
+            output.push_str(&format!("___BATCH_DELIM___{}", chunk.len()));
+
+            let chunk_result = parse_batch_output(&output, chunk);
+            merged.extend(chunk_result);
+        }
+
+        // 全パスの結果が含まれている
+        assert_eq!(merged.len(), 10);
+        for i in 0..10 {
+            let key = format!("file_{}.txt", i);
+            assert_eq!(merged.get(&key).unwrap(), &format!("content of {}\n", key));
+        }
+    }
+
+    /// チャンク分割後に各チャンクの結果をマージすると
+    /// 全パスの結果が得られることを検証する（バイト列版バッチ読み込みのシミュレーション）。
+    #[test]
+    fn test_chunk_paths_roundtrip_bytes_merge() {
+        let paths: Vec<String> = (0..10).map(|i| format!("file_{}.bin", i)).collect();
+        let chunks = chunk_paths(&paths, 300);
+
+        let mut merged: HashMap<String, Vec<u8>> = HashMap::new();
+        for chunk in &chunks {
+            let mut output = Vec::new();
+            for (i, path) in chunk.iter().enumerate() {
+                output.extend_from_slice(format!("___BATCH_DELIM___{}\n", i).as_bytes());
+                output.extend_from_slice(format!("bytes of {}\n", path).as_bytes());
+                // echo '' が追加する改行
+                output.push(b'\n');
+            }
+            output.extend_from_slice(format!("___BATCH_DELIM___{}", chunk.len()).as_bytes());
+
+            let chunk_result = parse_batch_output_bytes(&output, chunk);
+            merged.extend(chunk_result);
+        }
+
+        assert_eq!(merged.len(), 10);
+        for i in 0..10 {
+            let key = format!("file_{}.bin", i);
+            assert_eq!(
+                merged.get(&key).unwrap(),
+                format!("bytes of {}\n", key).as_bytes()
+            );
+        }
     }
 }

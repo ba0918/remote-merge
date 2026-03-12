@@ -115,14 +115,9 @@ impl CoreRuntime {
                 if let Some(batch_result) = self.try_agent_read_files_bytes_batch(name, rel_paths) {
                     return batch_result;
                 }
-                // SSH fallback: 1ファイルずつ
+                // SSH fallback: バッチ読み込み（チャンク分割対応）
                 self.check_sudo_fallback(name)?;
-                let mut result = HashMap::with_capacity(rel_paths.len());
-                for rel_path in rel_paths {
-                    let bytes = self.read_remote_file_bytes(name, rel_path, false)?;
-                    result.insert(rel_path.clone(), bytes);
-                }
-                Ok(result)
+                self.read_remote_files_batch_bytes(name, rel_paths)
             }
         }
     }
@@ -439,10 +434,14 @@ impl CoreRuntime {
     }
 
     /// Side に基づいてファイルツリーを再帰取得する
+    ///
+    /// `fail_on_truncation` が true の場合、max_entries で切り捨てが発生するとエラーを返す。
+    /// false の場合は warn ログのみで Ok を返す（従来動作）。
     pub fn fetch_tree_recursive(
         &mut self,
         side: &Side,
         max_entries: usize,
+        fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
         match side {
             Side::Local => {
@@ -451,7 +450,7 @@ impl CoreRuntime {
                 let (nodes, truncated) =
                     local::scan_local_tree_recursive(root, exclude, max_entries)?;
                 if truncated {
-                    tracing::warn!("Local tree scan truncated at {} entries", max_entries);
+                    check_truncation(max_entries, fail_on_truncation)?;
                 }
                 let mut tree = FileTree::new(root);
                 tree.nodes = nodes;
@@ -460,11 +459,76 @@ impl CoreRuntime {
             }
             Side::Remote(name) => {
                 // Agent の ListTree はフルツリー走査に最適
-                if let Some(tree) = self.try_agent_fetch_tree_recursive(name, max_entries) {
+                if let Some(tree) =
+                    self.try_agent_fetch_tree_recursive(name, max_entries, fail_on_truncation)
+                {
                     return tree;
                 }
                 self.check_sudo_fallback(name)?;
-                self.fetch_remote_tree_recursive(name, max_entries)
+                self.fetch_remote_tree_recursive(name, max_entries, fail_on_truncation)
+            }
+        }
+    }
+
+    /// 指定サブパス配下のみツリーを取得する。
+    /// ルート全体のスキャンを回避し、ディレクトリ指定時のパフォーマンスを改善する。
+    ///
+    /// - ローカル: scan_local_tree_recursive() に root_dir + subpath を渡す
+    /// - リモート Agent: list_tree に subpath を渡す
+    /// - リモート SSH: find -P <root_dir>/<subpath> でサブツリーのみ走査
+    /// - 存在しないサブパス → 空ツリー（エラーではない）
+    /// - truncation は fail_on_truncation に従う
+    pub fn fetch_tree_for_subpath(
+        &mut self,
+        side: &Side,
+        subpath: &str,
+        max_entries: usize,
+        fail_on_truncation: bool,
+    ) -> anyhow::Result<FileTree> {
+        // サブパスの正規化: 末尾スラッシュを除去
+        let subpath = subpath.trim_end_matches('/');
+
+        // path traversal チェック
+        let has_traversal = subpath.split('/').any(|component| component == "..");
+        if has_traversal {
+            anyhow::bail!("path traversal not allowed: {}", subpath);
+        }
+
+        match side {
+            Side::Local => {
+                let root = &self.config.local.root_dir;
+                let scan_root = root.join(subpath);
+
+                // 存在しないディレクトリ → 空ツリー
+                if !scan_root.exists() || !scan_root.is_dir() {
+                    return Ok(FileTree::new(root));
+                }
+
+                let exclude = &self.config.filter.exclude;
+                let (scanned_nodes, truncated) =
+                    local::scan_local_tree_recursive(&scan_root, exclude, max_entries)?;
+                if truncated {
+                    check_truncation(max_entries, fail_on_truncation)?;
+                }
+
+                // スキャン結果を subpath 配下のツリーとして root_dir からの相対に変換
+                let mut tree = FileTree::new(root);
+                tree.nodes = wrap_nodes_in_subpath(subpath, scanned_nodes);
+                tree.sort();
+                Ok(tree)
+            }
+            Side::Remote(name) => {
+                // Agent を優先
+                if let Some(tree) = self.try_agent_fetch_tree_for_subpath(
+                    name,
+                    subpath,
+                    max_entries,
+                    fail_on_truncation,
+                ) {
+                    return tree;
+                }
+                self.check_sudo_fallback(name)?;
+                self.fetch_remote_tree_for_subpath(name, subpath, max_entries, fail_on_truncation)
             }
         }
     }
@@ -661,12 +725,18 @@ impl CoreRuntime {
         }
     }
 
-    /// Agent 経由で複数ファイルのバイト列をバッチ読み込む
+    /// Agent 経由で複数ファイルのバイト列をバッチ読み込む（チャンク分割対応）
+    ///
+    /// パスを `AGENT_BATCH_MAX_PATHS` 件ごとにチャンク分割して Agent に送る。
+    /// チャンク途中でエラーが発生した場合は Agent を無効化して None を返す
+    /// （呼び出し元が SSH フォールバックで全件リトライ）。
     fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
+        use crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS;
+
         // サーバー設定の存在確認（Agent が有効かどうか）
         self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
@@ -678,39 +748,47 @@ impl CoreRuntime {
                 return None;
             }
         };
-        // Agent は root_dir からの相対パスを期待する
-        let paths: Vec<String> = rel_paths.to_vec();
-        let result = agent.read_files(&paths, 0);
-        drop(agent);
 
-        match result {
-            Ok(results) => {
-                let mut map: HashMap<String, Vec<u8>> = HashMap::with_capacity(results.len());
-                for (i, file_result) in results.into_iter().enumerate() {
-                    match file_result {
-                        FileReadResult::Ok { content, .. } => {
-                            if i < rel_paths.len() {
-                                map.insert(rel_paths[i].clone(), content);
+        let mut merged: HashMap<String, Vec<u8>> = HashMap::with_capacity(rel_paths.len());
+
+        // パス数ベースのチャンク分割
+        for chunk in rel_paths.chunks(AGENT_BATCH_MAX_PATHS) {
+            let paths: Vec<String> = chunk.to_vec();
+            let result = agent.read_files(&paths, 0);
+
+            match result {
+                Ok(results) => {
+                    for (i, file_result) in results.into_iter().enumerate() {
+                        match file_result {
+                            FileReadResult::Ok { content, .. } => {
+                                if i < chunk.len() {
+                                    merged.insert(chunk[i].clone(), content);
+                                }
                             }
-                        }
-                        FileReadResult::Error { .. } => {
-                            // ファイル単位のエラー → SSH フォールバックに委ねる
-                            return None;
+                            FileReadResult::Error { .. } => {
+                                // ファイル単位のエラー → Agent を無効化して SSH フォールバックに委ねる
+                                drop(agent);
+                                self.invalidate_agent(server_name);
+                                return None;
+                            }
                         }
                     }
                 }
-                Some(Ok(map))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent read_files_bytes_batch failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
+                Err(e) => {
+                    tracing::warn!(
+                        "Agent read_files_bytes_batch failed for {} (chunk), falling back to SSH: {}",
+                        server_name,
+                        e
+                    );
+                    drop(agent);
+                    self.invalidate_agent(server_name);
+                    return None;
+                }
             }
         }
+
+        drop(agent);
+        Some(Ok(merged))
     }
 
     /// Agent 経由でファイルを書き込む
@@ -852,6 +930,7 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         max_entries: usize,
+        fail_on_truncation: bool,
     ) -> Option<anyhow::Result<FileTree>> {
         let root_dir = self
             .config
@@ -863,12 +942,49 @@ impl CoreRuntime {
             agent.list_tree("", &exclude, max_entries)
         })
         .map(|r| {
-            r.map(|entries| {
+            r.and_then(|(entries, truncated)| {
+                if truncated {
+                    check_truncation(max_entries, fail_on_truncation)?;
+                }
                 let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
                 let mut tree = FileTree::new(&root_dir);
                 tree.nodes = nodes;
                 tree.sort();
-                tree
+                Ok(tree)
+            })
+        })
+    }
+
+    /// Agent 経由でサブパス配下のツリーを取得する
+    fn try_agent_fetch_tree_for_subpath(
+        &mut self,
+        server_name: &str,
+        subpath: &str,
+        max_entries: usize,
+        fail_on_truncation: bool,
+    ) -> Option<anyhow::Result<FileTree>> {
+        let root_dir = self
+            .config
+            .servers
+            .get(server_name)
+            .map(|s| s.root_dir.clone())?;
+        let exclude = self.config.filter.exclude.clone();
+        let subpath_owned = subpath.to_string();
+        self.with_agent(server_name, "list_tree", |agent| {
+            agent.list_tree(&subpath_owned, &exclude, max_entries)
+        })
+        .map(|r| {
+            r.and_then(|(entries, truncated)| {
+                if truncated {
+                    check_truncation(max_entries, fail_on_truncation)?;
+                }
+                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let mut tree = FileTree::new(&root_dir);
+                // Agent の list_tree は subpath をルートとして走査するため、
+                // 結果を subpath 配下にラップして root_dir からの相対パスにする
+                tree.nodes = wrap_nodes_in_subpath(&subpath_owned, nodes);
+                tree.sort();
+                Ok(tree)
             })
         })
     }
@@ -914,6 +1030,53 @@ impl CoreRuntime {
     }
 
     // ── Agent パス解決ヘルパー ──
+}
+
+// ── truncation 判定関数 ──
+
+/// ツリースキャンの truncation を検査する。
+///
+/// `fail_on_truncation` が true ならエラーを返し、false なら warn ログのみで Ok を返す。
+pub(crate) fn check_truncation(max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<()> {
+    if fail_on_truncation {
+        anyhow::bail!(
+            "Tree scan truncated at {} entries. Results may be incomplete. \
+             Use specific file paths instead of '.' to avoid this limit.",
+            max_entries
+        );
+    }
+    tracing::warn!(
+        "Tree scan truncated at {} entries. Results may be incomplete.",
+        max_entries
+    );
+    Ok(())
+}
+
+// ── subpath ツリー構築ヘルパー ──
+
+/// スキャン結果のノード群を subpath の階層構造でラップする。
+///
+/// 例: subpath="app/controllers", nodes=[file_0.php, file_1.php]
+/// → [app/ → [controllers/ → [file_0.php, file_1.php]]]
+///
+/// これにより、返却パスが root_dir からの相対パスになる。
+pub(crate) fn wrap_nodes_in_subpath(subpath: &str, nodes: Vec<FileNode>) -> Vec<FileNode> {
+    if subpath.is_empty() {
+        return nodes;
+    }
+
+    let parts: Vec<&str> = subpath.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return nodes;
+    }
+
+    // 最も深い部分から外側に向かってラップしていく
+    let mut current = nodes;
+    for part in parts.iter().rev() {
+        let dir = FileNode::new_dir_with_children(*part, current);
+        current = vec![dir];
+    }
+    current
 }
 
 // ── Agent 変換ヘルパー（純粋関数） ──
@@ -1240,8 +1403,21 @@ impl TuiRuntime {
         &mut self,
         side: &Side,
         max_entries: usize,
+        fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        self.core.fetch_tree_recursive(side, max_entries)
+        self.core
+            .fetch_tree_recursive(side, max_entries, fail_on_truncation)
+    }
+
+    pub fn fetch_tree_for_subpath(
+        &mut self,
+        side: &Side,
+        subpath: &str,
+        max_entries: usize,
+        fail_on_truncation: bool,
+    ) -> anyhow::Result<FileTree> {
+        self.core
+            .fetch_tree_for_subpath(side, subpath, max_entries, fail_on_truncation)
     }
 
     pub fn fetch_children(
@@ -2131,7 +2307,7 @@ mod tests {
         std::fs::write(sub.join("child.txt"), "child").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
-        let tree = rt.fetch_tree_recursive(&Side::Local, 10000).unwrap();
+        let tree = rt.fetch_tree_recursive(&Side::Local, 10000, false).unwrap();
 
         assert_eq!(tree.root, tmp.path());
         // ノードが2つ以上あること（root.txt, sub/ の少なくとも2つ）
@@ -2141,8 +2317,119 @@ mod tests {
     #[test]
     fn test_fetch_tree_recursive_remote_not_connected() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.fetch_tree_recursive(&Side::Remote("nonexistent".to_string()), 10000);
+        let result =
+            rt.fetch_tree_recursive(&Side::Remote("nonexistent".to_string()), 10000, false);
         assert!(result.is_err());
+    }
+
+    // ── check_truncation テスト ──
+
+    #[test]
+    fn test_check_truncation_fail_on_truncation_returns_error() {
+        let result = check_truncation(50_000, true);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("Tree scan truncated at 50000 entries"),
+            "expected truncation message, got: {msg}"
+        );
+        assert!(
+            msg.contains("Use specific file paths instead of '.'"),
+            "expected guidance about specific paths, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_check_truncation_no_fail_returns_ok() {
+        // fail_on_truncation = false → Ok（warn ログのみ）
+        let result = check_truncation(50_000, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_truncation_error_message_contains_max_entries() {
+        let result = check_truncation(12345, true);
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("12345"),
+            "error message should contain max_entries value, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_check_truncation_zero_max_entries() {
+        // max_entries=0 の境界値: fail_on_truncation=true → エラー
+        let result = check_truncation(0, true);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("truncated at 0 entries"),
+            "expected '0 entries' in message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_check_truncation_one_max_entry() {
+        // max_entries=1 の境界値（最小値）: fail_on_truncation=true → エラー
+        let result = check_truncation(1, true);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("truncated at 1 entries"),
+            "expected '1 entries' in message, got: {msg}"
+        );
+
+        // fail_on_truncation=false → Ok
+        let result = check_truncation(1, false);
+        assert!(result.is_ok());
+    }
+
+    // ── fetch_tree_recursive truncation テスト ──
+
+    #[test]
+    fn test_fetch_tree_recursive_local_truncated_fail_on_truncation() {
+        // max_entries=1 にして truncation を発生させる
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "a").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "b").unwrap();
+        std::fs::write(tmp.path().join("c.txt"), "c").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // fail_on_truncation = true → truncation 時にエラー
+        let result = rt.fetch_tree_recursive(&Side::Local, 1, true);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Tree scan truncated"));
+        assert!(msg.contains("Use specific file paths"));
+    }
+
+    #[test]
+    fn test_fetch_tree_recursive_local_truncated_no_fail() {
+        // max_entries=1 にして truncation を発生させる
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "a").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "b").unwrap();
+        std::fs::write(tmp.path().join("c.txt"), "c").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // fail_on_truncation = false → truncation 時も Ok
+        let result = rt.fetch_tree_recursive(&Side::Local, 1, false);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_fetch_tree_recursive_local_no_truncation_returns_ok_regardless() {
+        // ファイル数 < max_entries → truncation なし → どちらのフラグでも Ok
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "a").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // fail_on_truncation = true でも truncation が起きなければ Ok
+        let result = rt.fetch_tree_recursive(&Side::Local, 10000, true);
+        assert!(result.is_ok());
+        // fail_on_truncation = false でも当然 Ok
+        let result = rt.fetch_tree_recursive(&Side::Local, 10000, false);
+        assert!(result.is_ok());
     }
 
     // ── create_local_backups テスト ──
@@ -2234,5 +2521,201 @@ mod tests {
         let rt = runtime_with_server("develop", "/var/www");
         // サーバー設定はあるが SSH 未接続 → false
         assert!(!rt.is_side_available(&Side::Remote("develop".to_string())));
+    }
+
+    // ── wrap_nodes_in_subpath テスト ──
+
+    #[test]
+    fn test_wrap_nodes_in_subpath_empty_subpath() {
+        let nodes = vec![FileNode::new_file("file.txt")];
+        let result = wrap_nodes_in_subpath("", nodes.clone());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "file.txt");
+    }
+
+    #[test]
+    fn test_wrap_nodes_in_subpath_single_level() {
+        let nodes = vec![FileNode::new_file("file.txt")];
+        let result = wrap_nodes_in_subpath("app", nodes);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "app");
+        let children = result[0].children.as_ref().unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "file.txt");
+    }
+
+    #[test]
+    fn test_wrap_nodes_in_subpath_multi_level() {
+        let nodes = vec![
+            FileNode::new_file("file_0.php"),
+            FileNode::new_file("file_1.php"),
+        ];
+        let result = wrap_nodes_in_subpath("app/controllers", nodes);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "app");
+        let app_children = result[0].children.as_ref().unwrap();
+        assert_eq!(app_children.len(), 1);
+        assert_eq!(app_children[0].name, "controllers");
+        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        assert_eq!(ctrl_children.len(), 2);
+        assert_eq!(ctrl_children[0].name, "file_0.php");
+        assert_eq!(ctrl_children[1].name, "file_1.php");
+    }
+
+    #[test]
+    fn test_wrap_nodes_in_subpath_empty_nodes() {
+        let result = wrap_nodes_in_subpath("app/controllers", vec![]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "app");
+        let app_children = result[0].children.as_ref().unwrap();
+        assert_eq!(app_children.len(), 1);
+        assert_eq!(app_children[0].name, "controllers");
+        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        assert!(ctrl_children.is_empty());
+    }
+
+    // ── fetch_tree_for_subpath テスト ──
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_scans_only_subdirectory() {
+        let tmp = TempDir::new().unwrap();
+        // root 直下にファイルを作成
+        std::fs::write(tmp.path().join("root.txt"), "root").unwrap();
+        // サブディレクトリにファイルを作成
+        let sub = tmp.path().join("app").join("controllers");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("file_0.php"), "<?php").unwrap();
+        std::fs::write(sub.join("file_1.php"), "<?php").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let tree = rt
+            .fetch_tree_for_subpath(&Side::Local, "app/controllers", 10000, false)
+            .unwrap();
+
+        assert_eq!(tree.root, tmp.path());
+        // ツリーには app ノードのみが含まれる（root.txt は含まれない）
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.nodes[0].name, "app");
+        let app_children = tree.nodes[0].children.as_ref().unwrap();
+        assert_eq!(app_children.len(), 1);
+        assert_eq!(app_children[0].name, "controllers");
+        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        assert_eq!(ctrl_children.len(), 2);
+        let names: Vec<&str> = ctrl_children.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"file_0.php"));
+        assert!(names.contains(&"file_1.php"));
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_nonexistent_returns_empty() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("root.txt"), "root").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let tree = rt
+            .fetch_tree_for_subpath(&Side::Local, "nonexistent/path", 10000, false)
+            .unwrap();
+
+        assert_eq!(tree.root, tmp.path());
+        assert!(tree.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_paths_relative_to_root() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("src").join("main");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("app.rs"), "fn main() {}").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let tree = rt
+            .fetch_tree_for_subpath(&Side::Local, "src/main", 10000, false)
+            .unwrap();
+
+        // root は root_dir
+        assert_eq!(tree.root, tmp.path());
+        // ツリー構造: src/ → main/ → app.rs
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.nodes[0].name, "src");
+        let src_children = tree.nodes[0].children.as_ref().unwrap();
+        assert_eq!(src_children[0].name, "main");
+        let main_children = src_children[0].children.as_ref().unwrap();
+        assert_eq!(main_children[0].name, "app.rs");
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_truncation_fail() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("dir");
+        std::fs::create_dir_all(&sub).unwrap();
+        // 3ファイル作成して max_entries=1 で truncation を発生させる
+        std::fs::write(sub.join("a.txt"), "a").unwrap();
+        std::fs::write(sub.join("b.txt"), "b").unwrap();
+        std::fs::write(sub.join("c.txt"), "c").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.fetch_tree_for_subpath(&Side::Local, "dir", 1, true);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("Tree scan truncated"));
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_truncation_no_fail() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("dir");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("a.txt"), "a").unwrap();
+        std::fs::write(sub.join("b.txt"), "b").unwrap();
+        std::fs::write(sub.join("c.txt"), "c").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // fail_on_truncation=false → truncation が発生しても Ok
+        let result = rt.fetch_tree_for_subpath(&Side::Local, "dir", 1, false);
+        assert!(result.is_ok());
+        let tree = result.unwrap();
+        // truncation でも部分結果が返る
+        assert!(!tree.nodes.is_empty());
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_trailing_slash_stripped() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("app");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("test.txt"), "content").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // 末尾スラッシュがあっても正常動作する
+        let tree = rt
+            .fetch_tree_for_subpath(&Side::Local, "app/", 10000, false)
+            .unwrap();
+
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.nodes[0].name, "app");
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_path_traversal_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.fetch_tree_for_subpath(&Side::Local, "../outside", 10000, false);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("path traversal not allowed"));
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_file_as_subpath_returns_empty() {
+        // subpath がファイルを指す場合は空ツリー（ディレクトリではない）
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "content").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let tree = rt
+            .fetch_tree_for_subpath(&Side::Local, "file.txt", 10000, false)
+            .unwrap();
+
+        assert!(tree.nodes.is_empty());
     }
 }
