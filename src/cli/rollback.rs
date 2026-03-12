@@ -243,6 +243,7 @@ mod tests {
             ssh: crate::config::SshConfig::default(),
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
+            defaults: crate::config::DefaultsConfig::default(),
         };
         let args = RollbackArgs {
             target: Some("local".into()),

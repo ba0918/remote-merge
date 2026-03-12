@@ -17,6 +17,7 @@ pub struct AppConfig {
     pub ssh: SshConfig,
     pub backup: BackupConfig,
     pub agent: AgentConfig,
+    pub defaults: DefaultsConfig,
 }
 
 /// サーバ接続設定
@@ -29,6 +30,12 @@ pub struct ServerConfig {
     pub key: Option<PathBuf>,
     pub root_dir: PathBuf,
     pub ssh_options: Option<SshOptions>,
+    /// Agent を sudo で起動するか（デフォルト: false）
+    pub sudo: bool,
+    /// サーバー単位のファイルパーミッション上書き（パース済み u32）
+    pub file_permissions: Option<u32>,
+    /// サーバー単位のディレクトリパーミッション上書き（パース済み u32）
+    pub dir_permissions: Option<u32>,
 }
 
 /// SSH認証方式
@@ -71,6 +78,86 @@ pub struct SshConfig {
 pub struct BackupConfig {
     pub enabled: bool,
     pub retention_days: u32,
+}
+
+/// グローバルデフォルト設定
+#[derive(Debug, Clone)]
+pub struct DefaultsConfig {
+    /// ファイルパーミッション（デフォルト: 0o664）
+    pub file_permissions: u32,
+    /// ディレクトリパーミッション（デフォルト: 0o775）
+    pub dir_permissions: u32,
+}
+
+/// デフォルトパーミッション定数
+const DEFAULT_FILE_PERMISSIONS: u32 = 0o664;
+const DEFAULT_DIR_PERMISSIONS: u32 = 0o775;
+
+impl Default for DefaultsConfig {
+    fn default() -> Self {
+        Self {
+            file_permissions: DEFAULT_FILE_PERMISSIONS,
+            dir_permissions: DEFAULT_DIR_PERMISSIONS,
+        }
+    }
+}
+
+/// パーミッション文字列（"0o664", "0664", "664"）を u32 にパース
+pub fn parse_permissions(s: &str) -> Result<u32, String> {
+    let digits = if let Some(rest) = s.strip_prefix("0o") {
+        rest
+    } else {
+        s
+    };
+
+    if digits.is_empty() {
+        return Err(format!(
+            "invalid permissions string: '{}' (empty octal digits)",
+            s
+        ));
+    }
+
+    // from_str_radix も非8進数文字を拒否するが、手動チェックにより
+    // "must contain only octal digits 0-7" というより明確なエラーメッセージを提供する
+    if !digits.chars().all(|c| ('0'..='7').contains(&c)) {
+        return Err(format!(
+            "invalid permissions string: '{}' (must contain only octal digits 0-7)",
+            s
+        ));
+    }
+
+    let value = u32::from_str_radix(digits, 8)
+        .map_err(|e| format!("invalid permissions string: '{}' ({})", s, e))?;
+
+    if value > 0o777 {
+        return Err(format!(
+            "invalid permissions value: '{}' (must be <= 0o777, got 0o{:o})",
+            s, value
+        ));
+    }
+
+    Ok(value)
+}
+
+/// パーミッション文字列をパースし、フィールド名付きの AppError に変換するラッパー
+fn parse_permissions_field(value: &str, field_name: &str) -> crate::error::Result<u32> {
+    parse_permissions(value).map_err(|msg| {
+        AppError::ConfigValidation {
+            field: field_name.into(),
+            message: msg,
+        }
+        .into()
+    })
+}
+
+/// ファイルパーミッションを解決: サーバー設定 > グローバル defaults > ハードコードフォールバック
+pub fn resolve_file_permissions(server: &ServerConfig, defaults: &DefaultsConfig) -> u32 {
+    server.file_permissions.unwrap_or(defaults.file_permissions)
+}
+
+/// ディレクトリパーミッションを解決: サーバー設定 > グローバル defaults > ハードコードフォールバック
+pub fn resolve_dir_permissions(server: &ServerConfig, defaults: &DefaultsConfig) -> u32 {
+    server.dir_permissions.unwrap_or(defaults.dir_permissions)
 }
 
 /// Agent 設定
@@ -157,6 +244,7 @@ struct RawConfig {
     ssh: Option<RawSshConfig>,
     backup: Option<RawBackupConfig>,
     agent: Option<RawAgentConfig>,
+    defaults: Option<RawDefaultsConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +256,15 @@ struct RawServerConfig {
     key: Option<String>,
     root_dir: String,
     ssh_options: Option<RawSshOptions>,
+    sudo: Option<bool>,
+    file_permissions: Option<String>,
+    dir_permissions: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawDefaultsConfig {
+    file_permissions: Option<String>,
+    dir_permissions: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -452,6 +549,14 @@ fn merge_configs(
         convert_agent_config(global.agent.as_ref())
     };
 
+    // defaults: フィールド単位でマージ（プロジェクト側のフィールドを優先）
+    let defaults = {
+        let global_defaults = global.defaults.as_ref();
+        let project_defaults = project.as_ref().and_then(|p| p.defaults.as_ref());
+        let merged = merge_raw_defaults(global_defaults, project_defaults);
+        convert_defaults_config(merged.as_ref())?
+    };
+
     Ok(AppConfig {
         servers,
         local,
@@ -459,6 +564,7 @@ fn merge_configs(
         ssh,
         backup,
         agent,
+        defaults,
     })
 }
 
@@ -475,6 +581,60 @@ fn convert_agent_config(raw: Option<&RawAgentConfig>) -> AgentConfig {
                 .max_file_chunk_bytes
                 .unwrap_or(defaults.max_file_chunk_bytes),
         },
+    }
+}
+
+/// グローバルとプロジェクトの RawDefaultsConfig をフィールド単位でマージ
+/// プロジェクト側にフィールドがあればそれを優先、なければグローバルの値を使う
+fn merge_raw_defaults(
+    global: Option<&RawDefaultsConfig>,
+    project: Option<&RawDefaultsConfig>,
+) -> Option<RawDefaultsConfig> {
+    match (global, project) {
+        (None, None) => None,
+        (Some(g), None) => Some(RawDefaultsConfig {
+            file_permissions: g.file_permissions.clone(),
+            dir_permissions: g.dir_permissions.clone(),
+        }),
+        (None, Some(p)) => Some(RawDefaultsConfig {
+            file_permissions: p.file_permissions.clone(),
+            dir_permissions: p.dir_permissions.clone(),
+        }),
+        (Some(g), Some(p)) => Some(RawDefaultsConfig {
+            file_permissions: p
+                .file_permissions
+                .clone()
+                .or_else(|| g.file_permissions.clone()),
+            dir_permissions: p
+                .dir_permissions
+                .clone()
+                .or_else(|| g.dir_permissions.clone()),
+        }),
+    }
+}
+
+fn convert_defaults_config(
+    raw: Option<&RawDefaultsConfig>,
+) -> crate::error::Result<DefaultsConfig> {
+    let defaults = DefaultsConfig::default();
+    match raw {
+        None => Ok(defaults),
+        Some(r) => {
+            let file_permissions = if let Some(ref fp) = r.file_permissions {
+                parse_permissions_field(fp, "defaults.file_permissions")?
+            } else {
+                defaults.file_permissions
+            };
+            let dir_permissions = if let Some(ref dp) = r.dir_permissions {
+                parse_permissions_field(dp, "defaults.dir_permissions")?
+            } else {
+                defaults.dir_permissions
+            };
+            Ok(DefaultsConfig {
+                file_permissions,
+                dir_permissions,
+            })
+        }
     }
 }
 
@@ -522,6 +682,18 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
         mac_algorithms: opts.mac_algorithms,
     });
 
+    // パーミッション文字列のバリデーション＋パース済み u32 に変換
+    let file_permissions = raw
+        .file_permissions
+        .as_deref()
+        .map(|fp| parse_permissions_field(fp, &format!("servers.{}.file_permissions", name)))
+        .transpose()?;
+    let dir_permissions = raw
+        .dir_permissions
+        .as_deref()
+        .map(|dp| parse_permissions_field(dp, &format!("servers.{}.dir_permissions", name)))
+        .transpose()?;
+
     Ok(ServerConfig {
         host: raw.host,
         port,
@@ -530,6 +702,9 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
         key,
         root_dir: PathBuf::from(&raw.root_dir),
         ssh_options,
+        sudo: raw.sudo.unwrap_or(false),
+        file_permissions,
+        dir_permissions,
     })
 }
 
@@ -554,6 +729,22 @@ mod tests {
         f.write_all(content.as_bytes()).unwrap();
         f.flush().unwrap();
         f
+    }
+
+    /// テスト用のデフォルト ServerConfig を生成するヘルパー
+    fn default_server_config() -> ServerConfig {
+        ServerConfig {
+            host: "test".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Key,
+            key: None,
+            root_dir: PathBuf::from("/var/www"),
+            ssh_options: None,
+            sudo: false,
+            file_permissions: None,
+            dir_permissions: None,
+        }
     }
 
     #[test]
@@ -758,12 +949,7 @@ exclude = ["node_modules", ".git"]
         let mut servers = BTreeMap::new();
         let make_server = |host: &str| ServerConfig {
             host: host.into(),
-            port: 22,
-            user: "deploy".into(),
-            auth: AuthMethod::Key,
-            key: None,
-            root_dir: PathBuf::from("/var/www/app"),
-            ssh_options: None,
+            ..default_server_config()
         };
         servers.insert("staging".to_string(), make_server("stg.example.com"));
         servers.insert("develop".to_string(), make_server("dev.example.com"));
@@ -1131,5 +1317,565 @@ tree_chunk_size = 500
                 );
             }
         }
+    }
+
+    // ── DefaultsConfig + パーミッション + sudo テスト ──
+
+    #[test]
+    fn test_defaults_config_default_values() {
+        let defaults = DefaultsConfig::default();
+        assert_eq!(defaults.file_permissions, 0o664);
+        assert_eq!(defaults.dir_permissions, 0o775);
+    }
+
+    #[test]
+    fn test_parse_permissions_with_0o_prefix() {
+        assert_eq!(parse_permissions("0o664").unwrap(), 0o664);
+        assert_eq!(parse_permissions("0o755").unwrap(), 0o755);
+        assert_eq!(parse_permissions("0o777").unwrap(), 0o777);
+        assert_eq!(parse_permissions("0o000").unwrap(), 0o000);
+        assert_eq!(parse_permissions("0o644").unwrap(), 0o644);
+    }
+
+    #[test]
+    fn test_parse_permissions_with_leading_zero() {
+        assert_eq!(parse_permissions("0664").unwrap(), 0o664);
+        assert_eq!(parse_permissions("0755").unwrap(), 0o755);
+    }
+
+    #[test]
+    fn test_parse_permissions_bare_digits() {
+        assert_eq!(parse_permissions("664").unwrap(), 0o664);
+        assert_eq!(parse_permissions("755").unwrap(), 0o755);
+        assert_eq!(parse_permissions("777").unwrap(), 0o777);
+    }
+
+    #[test]
+    fn test_parse_permissions_invalid_strings() {
+        // 非8進数の数字
+        assert!(parse_permissions("0o888").is_err());
+        assert!(parse_permissions("0o999").is_err());
+        // 空文字列
+        assert!(parse_permissions("").is_err());
+        assert!(parse_permissions("0o").is_err());
+        // アルファベット
+        assert!(parse_permissions("abc").is_err());
+        assert!(parse_permissions("0oabc").is_err());
+        // 範囲外（0o777 超）
+        assert!(parse_permissions("0o7777").is_err());
+        assert!(parse_permissions("1000").is_err());
+    }
+
+    #[test]
+    fn test_resolve_file_permissions_server_override() {
+        let defaults = DefaultsConfig::default();
+        let server = ServerConfig {
+            file_permissions: Some(0o644),
+            ..default_server_config()
+        };
+        assert_eq!(resolve_file_permissions(&server, &defaults), 0o644);
+    }
+
+    #[test]
+    fn test_resolve_file_permissions_defaults_used() {
+        let defaults = DefaultsConfig {
+            file_permissions: 0o600,
+            dir_permissions: 0o700,
+        };
+        let server = default_server_config();
+        assert_eq!(resolve_file_permissions(&server, &defaults), 0o600);
+    }
+
+    #[test]
+    fn test_resolve_file_permissions_hardcoded_fallback() {
+        let defaults = DefaultsConfig::default();
+        let server = default_server_config();
+        // デフォルト値 = ハードコードフォールバック
+        assert_eq!(resolve_file_permissions(&server, &defaults), 0o664);
+    }
+
+    #[test]
+    fn test_resolve_dir_permissions_server_override() {
+        let defaults = DefaultsConfig::default();
+        let server = ServerConfig {
+            dir_permissions: Some(0o755),
+            ..default_server_config()
+        };
+        assert_eq!(resolve_dir_permissions(&server, &defaults), 0o755);
+    }
+
+    #[test]
+    fn test_resolve_dir_permissions_defaults_used() {
+        let defaults = DefaultsConfig {
+            file_permissions: 0o664,
+            dir_permissions: 0o700,
+        };
+        let server = default_server_config();
+        assert_eq!(resolve_dir_permissions(&server, &defaults), 0o700);
+    }
+
+    #[test]
+    fn test_resolve_dir_permissions_hardcoded_fallback() {
+        let defaults = DefaultsConfig::default();
+        let server = default_server_config();
+        assert_eq!(resolve_dir_permissions(&server, &defaults), 0o775);
+    }
+
+    #[test]
+    fn test_sudo_deserialization_true() {
+        let content = r#"
+[servers.production]
+host = "prod.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+sudo = true
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(config.servers["production"].sudo);
+    }
+
+    #[test]
+    fn test_sudo_deserialization_false() {
+        let content = r#"
+[servers.production]
+host = "prod.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+sudo = false
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(!config.servers["production"].sudo);
+    }
+
+    #[test]
+    fn test_sudo_deserialization_absent_defaults_to_false() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(!config.servers["develop"].sudo);
+    }
+
+    #[test]
+    fn test_server_permissions_in_config() {
+        let content = r#"
+[servers.production]
+host = "prod.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+sudo = true
+file_permissions = "0o644"
+dir_permissions = "0o755"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        let prod = &config.servers["production"];
+        assert_eq!(prod.file_permissions, Some(0o644));
+        assert_eq!(prod.dir_permissions, Some(0o755));
+    }
+
+    #[test]
+    fn test_invalid_server_file_permissions_rejected() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+file_permissions = "0o999"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("file_permissions"),
+            "Expected error about file_permissions, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_invalid_server_dir_permissions_rejected() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+dir_permissions = "abc"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("dir_permissions"),
+            "Expected error about dir_permissions, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_defaults_section_in_config() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o600"
+dir_permissions = "0o700"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o600);
+        assert_eq!(config.defaults.dir_permissions, 0o700);
+    }
+
+    #[test]
+    fn test_defaults_absent_uses_hardcoded_fallback() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o664);
+        assert_eq!(config.defaults.dir_permissions, 0o775);
+    }
+
+    #[test]
+    fn test_defaults_partial_uses_fallback_for_missing() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o600"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o600);
+        assert_eq!(config.defaults.dir_permissions, 0o775); // フォールバック
+    }
+
+    #[test]
+    fn test_invalid_defaults_file_permissions_rejected() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "invalid"
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("defaults.file_permissions"),
+            "Expected error about defaults.file_permissions, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_merge_configs_defaults_project_overrides_global() {
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o644"
+dir_permissions = "0o755"
+"#;
+        let project = r#"
+[defaults]
+file_permissions = "0o600"
+dir_permissions = "0o700"
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o600);
+        assert_eq!(config.defaults.dir_permissions, 0o700);
+    }
+
+    #[test]
+    fn test_merge_configs_defaults_global_used_when_project_absent() {
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o600"
+dir_permissions = "0o700"
+"#;
+        let project = r#"
+[filter]
+exclude = ["dist"]
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o600);
+        assert_eq!(config.defaults.dir_permissions, 0o700);
+    }
+
+    #[test]
+    fn test_sudo_false_preserves_existing_behavior() {
+        // sudo=false（デフォルト）時に既存の挙動が完全に維持される回帰テスト
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[ssh]
+timeout_sec = 15
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+
+        // sudo はデフォルト false
+        assert!(!config.servers["develop"].sudo);
+        // パーミッションはサーバー単位未設定
+        assert!(config.servers["develop"].file_permissions.is_none());
+        assert!(config.servers["develop"].dir_permissions.is_none());
+        // defaults はハードコードフォールバック
+        assert_eq!(config.defaults.file_permissions, 0o664);
+        assert_eq!(config.defaults.dir_permissions, 0o775);
+
+        // 既存フィールドが正常に読み込まれること
+        assert_eq!(config.servers["develop"].host, "dev.example.com");
+        assert_eq!(config.servers["develop"].port, 22);
+        assert_eq!(config.servers["develop"].user, "deploy");
+        assert_eq!(config.servers["develop"].auth, AuthMethod::Key);
+        assert_eq!(config.ssh.timeout_sec, 15);
+        assert!(config.backup.enabled);
+        assert!(config.agent.enabled);
+    }
+
+    #[test]
+    fn test_resolve_permissions_end_to_end() {
+        // defaults のみ指定 → resolve がデフォルト値を使う
+        let defaults = DefaultsConfig {
+            file_permissions: 0o600,
+            dir_permissions: 0o700,
+        };
+        let server_no_override = default_server_config();
+        assert_eq!(
+            resolve_file_permissions(&server_no_override, &defaults),
+            0o600
+        );
+        assert_eq!(
+            resolve_dir_permissions(&server_no_override, &defaults),
+            0o700
+        );
+
+        // サーバー単位オーバーライド → resolve がサーバー値を使う
+        let server_with_override = ServerConfig {
+            sudo: true,
+            file_permissions: Some(0o644),
+            dir_permissions: Some(0o755),
+            ..default_server_config()
+        };
+        assert_eq!(
+            resolve_file_permissions(&server_with_override, &defaults),
+            0o644
+        );
+        assert_eq!(
+            resolve_dir_permissions(&server_with_override, &defaults),
+            0o755
+        );
+    }
+
+    // ── merge_raw_defaults テスト ──
+
+    #[test]
+    fn test_merge_raw_defaults_both_none() {
+        let result = merge_raw_defaults(None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_global_only() {
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: Some("0o700".into()),
+        };
+        let result = merge_raw_defaults(Some(&global), None).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o700"));
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_only() {
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: None,
+        };
+        let result = merge_raw_defaults(None, Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o644"));
+        assert!(result.dir_permissions.is_none());
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_partial_override() {
+        // グローバル: file=0o644, dir=0o755
+        // プロジェクト: file=0o600 のみ指定
+        // 結果: file=0o600 (プロジェクト優先), dir=0o755 (グローバルフォールバック)
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: Some("0o755".into()),
+        };
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: None,
+        };
+        let result = merge_raw_defaults(Some(&global), Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o755"));
+    }
+
+    #[test]
+    fn test_merge_raw_defaults_project_full_override() {
+        let global = RawDefaultsConfig {
+            file_permissions: Some("0o644".into()),
+            dir_permissions: Some("0o755".into()),
+        };
+        let project = RawDefaultsConfig {
+            file_permissions: Some("0o600".into()),
+            dir_permissions: Some("0o700".into()),
+        };
+        let result = merge_raw_defaults(Some(&global), Some(&project)).unwrap();
+        assert_eq!(result.file_permissions.as_deref(), Some("0o600"));
+        assert_eq!(result.dir_permissions.as_deref(), Some("0o700"));
+    }
+
+    #[test]
+    fn test_defaults_merge_field_level_via_config_load() {
+        // グローバル: file=0o644, dir=0o755
+        // プロジェクト: dir=0o700 のみ指定
+        // 結果: file=0o644 (グローバルから継承), dir=0o700 (プロジェクト優先)
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o644"
+dir_permissions = "0o755"
+"#;
+        let project = r#"
+[defaults]
+dir_permissions = "0o700"
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o644);
+        assert_eq!(config.defaults.dir_permissions, 0o700);
+    }
+
+    #[test]
+    fn test_defaults_merge_field_level_file_only_override() {
+        // グローバル: file=0o644, dir=0o755
+        // プロジェクト: file=0o600 のみ指定
+        // 結果: file=0o600 (プロジェクト優先), dir=0o755 (グローバルから継承)
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[defaults]
+file_permissions = "0o644"
+dir_permissions = "0o755"
+"#;
+        let project = r#"
+[defaults]
+file_permissions = "0o600"
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        assert_eq!(config.defaults.file_permissions, 0o600);
+        assert_eq!(config.defaults.dir_permissions, 0o755);
+    }
+
+    #[test]
+    fn test_parse_permissions_field_wrapper() {
+        // 正常系
+        let result = parse_permissions_field("0o644", "test.field");
+        assert_eq!(result.unwrap(), 0o644);
+
+        // 異常系: フィールド名がエラーメッセージに含まれる
+        let result = parse_permissions_field("invalid", "servers.prod.file_permissions");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("servers.prod.file_permissions"));
     }
 }

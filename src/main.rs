@@ -218,6 +218,18 @@ enum Commands {
         /// Root directory for file operations
         #[arg(long)]
         root: PathBuf,
+        /// Default UID for new files
+        #[arg(long)]
+        default_uid: Option<u32>,
+        /// Default GID for new files
+        #[arg(long)]
+        default_gid: Option<u32>,
+        /// Default permissions for new files (decimal)
+        #[arg(long)]
+        file_permissions: Option<u32>,
+        /// Default permissions for new directories (decimal)
+        #[arg(long)]
+        dir_permissions: Option<u32>,
     },
 
     /// Show TUI events
@@ -449,8 +461,20 @@ fn try_main() -> anyhow::Result<()> {
             });
             std::process::exit(code);
         }
-        Some(Commands::Agent { root }) => {
-            remote_merge::agent::server::run_agent_server(root)?;
+        Some(Commands::Agent {
+            root,
+            default_uid,
+            default_gid,
+            file_permissions,
+            dir_permissions,
+        }) => {
+            let metadata_config = remote_merge::agent::server::MetadataConfig {
+                default_uid,
+                default_gid,
+                file_permissions,
+                dir_permissions,
+            };
+            remote_merge::agent::server::run_agent_server(root, metadata_config)?;
         }
         Some(Commands::Events {
             event_type,
@@ -770,5 +794,95 @@ mod tests {
     fn test_handle_with_format_err_json_returns_error_code() {
         let code = handle_with_format("json", Err(anyhow::anyhow!("something failed")));
         assert_eq!(code, remote_merge::service::types::exit_code::ERROR);
+    }
+
+    // ── Agent サブコマンド引数パース ──
+
+    #[test]
+    fn test_agent_parse_all_metadata_args() {
+        let cli = Cli::try_parse_from([
+            "remote-merge",
+            "agent",
+            "--root",
+            "/app",
+            "--default-uid",
+            "1000",
+            "--default-gid",
+            "1000",
+            "--file-permissions",
+            "436",
+            "--dir-permissions",
+            "509",
+        ])
+        .unwrap();
+
+        match cli.command.unwrap() {
+            Commands::Agent {
+                root,
+                default_uid,
+                default_gid,
+                file_permissions,
+                dir_permissions,
+            } => {
+                assert_eq!(root, PathBuf::from("/app"));
+                assert_eq!(default_uid, Some(1000));
+                assert_eq!(default_gid, Some(1000));
+                assert_eq!(file_permissions, Some(436));
+                assert_eq!(dir_permissions, Some(509));
+            }
+            other => panic!("expected Agent command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_agent_parse_no_optional_args() {
+        let cli = Cli::try_parse_from(["remote-merge", "agent", "--root", "/app"]).unwrap();
+
+        match cli.command.unwrap() {
+            Commands::Agent {
+                default_uid,
+                default_gid,
+                file_permissions,
+                dir_permissions,
+                ..
+            } => {
+                assert_eq!(default_uid, None);
+                assert_eq!(default_gid, None);
+                assert_eq!(file_permissions, None);
+                assert_eq!(dir_permissions, None);
+            }
+            other => panic!("expected Agent command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_agent_parse_partial_args() {
+        let cli = Cli::try_parse_from([
+            "remote-merge",
+            "agent",
+            "--root",
+            "/app",
+            "--default-uid",
+            "500",
+            "--file-permissions",
+            "436",
+        ])
+        .unwrap();
+
+        match cli.command.unwrap() {
+            Commands::Agent {
+                default_uid,
+                default_gid,
+                file_permissions,
+                dir_permissions,
+                ..
+            } => {
+                assert_eq!(default_uid, Some(500));
+                assert_eq!(default_gid, None);
+                assert_eq!(file_permissions, Some(436));
+                assert_eq!(dir_permissions, None);
+            }
+            other => panic!("expected Agent command, got {other:?}"),
+        }
     }
 }

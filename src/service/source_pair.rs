@@ -239,6 +239,9 @@ mod tests {
                 key: None,
                 root_dir: PathBuf::from("/var/www/app"),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         servers.insert(
@@ -251,6 +254,9 @@ mod tests {
                 key: None,
                 root_dir: PathBuf::from("/var/www/app"),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         AppConfig {
@@ -260,6 +266,7 @@ mod tests {
             ssh: SshConfig::default(),
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
+            defaults: DefaultsConfig::default(),
         }
     }
 
@@ -387,6 +394,7 @@ mod tests {
             ssh: SshConfig::default(),
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
+            defaults: DefaultsConfig::default(),
         };
         let args = SourceArgs::default();
         let result = resolve_source_pair(&args, &config);

@@ -341,6 +341,9 @@ fn make_ssh_config(port: u16, key_path: PathBuf) -> (ServerConfig, SshConfig) {
         key: Some(key_path),
         root_dir: "/tmp".into(),
         ssh_options: None,
+        sudo: false,
+        file_permissions: None,
+        dir_permissions: None,
     };
     let ssh = SshConfig { timeout_sec: 10 };
     (server, ssh)

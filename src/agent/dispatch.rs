@@ -3,11 +3,12 @@
 //! `AgentRequest` を受け取り、適切なハンドラに振り分けて `AgentResponse` を返す。
 //! サービス層として動作し、stdin/stdout の知識は持たない。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::file_io;
+use super::file_io::{self, SavedMetadata};
 use super::protocol::{AgentRequest, AgentResponse, FileReadResult};
+use super::server::MetadataConfig;
 use super::tree_scan::{self, ScanOptions};
 
 /// Agent ディスパッチャー。root_dir を保持し、リクエストを適切なハンドラに振り分ける。
@@ -15,13 +16,20 @@ pub struct Dispatcher {
     root_dir: PathBuf,
     /// チャンク書き込みで最初の書き込み済みパスを追跡する
     written_paths: HashSet<String>,
+    /// ファイル書き込み時のメタデータ設定
+    metadata_config: MetadataConfig,
+    /// チャンク転送中のファイルの保存メタデータ
+    /// Some(SavedMetadata) = 既存ファイル、None = 新規ファイル
+    saved_metadata: HashMap<String, Option<SavedMetadata>>,
 }
 
 impl Dispatcher {
-    pub fn new(root_dir: PathBuf) -> Self {
+    pub fn new(root_dir: PathBuf, metadata_config: MetadataConfig) -> Self {
         Self {
             root_dir,
             written_paths: HashSet::new(),
+            metadata_config,
+            saved_metadata: HashMap::new(),
         }
     }
 
@@ -154,14 +162,37 @@ impl Dispatcher {
         more_to_follow: bool,
     ) -> AgentResponse {
         let is_first_chunk = !self.written_paths.contains(rel_path);
+        let is_last_chunk = !more_to_follow;
 
-        match file_io::write_file(&self.root_dir, rel_path, content, is_first_chunk) {
-            Ok(()) => {
+        // チャンク転送の場合、最初のチャンクで保存したメタデータを取得
+        let prev_saved = if !is_first_chunk {
+            self.saved_metadata
+                .get(rel_path)
+                .and_then(|opt| opt.as_ref())
+        } else {
+            None
+        };
+
+        match file_io::write_file_with_metadata(
+            &self.root_dir,
+            rel_path,
+            content,
+            is_first_chunk,
+            is_last_chunk,
+            prev_saved,
+            &self.metadata_config,
+        ) {
+            Ok(captured) => {
                 if more_to_follow {
                     self.written_paths.insert(rel_path.to_string());
+                    // 最初のチャンクで保存したメタデータを記録
+                    if is_first_chunk {
+                        self.saved_metadata.insert(rel_path.to_string(), captured);
+                    }
                 } else {
                     // 転送完了 — 次回の書き込みは新規扱いにする
                     self.written_paths.remove(rel_path);
+                    self.saved_metadata.remove(rel_path);
                 }
                 AgentResponse::WriteResult {
                     success: true,
@@ -170,6 +201,7 @@ impl Dispatcher {
             }
             Err(e) => {
                 self.written_paths.remove(rel_path);
+                self.saved_metadata.remove(rel_path);
                 AgentResponse::WriteResult {
                     success: false,
                     error: Some(e.to_string()),
@@ -222,7 +254,14 @@ impl Dispatcher {
     }
 
     fn handle_symlink(&self, rel_path: &str, target: &str) -> AgentResponse {
-        match file_io::create_symlink(&self.root_dir, rel_path, target) {
+        match file_io::create_symlink_with_metadata(
+            &self.root_dir,
+            rel_path,
+            target,
+            self.metadata_config.default_uid,
+            self.metadata_config.default_gid,
+            self.metadata_config.dir_permissions,
+        ) {
             Ok(()) => AgentResponse::SymlinkResult {
                 success: true,
                 error: None,
@@ -268,7 +307,13 @@ impl Dispatcher {
         // 復元先は常に Agent の root_dir を使用（クライアント指定を許可しない）
         let root_path = self.root_dir.clone();
 
-        let results = file_io::restore_backup(&backup_path, session_id, files, &root_path);
+        let results = file_io::restore_backup(
+            &backup_path,
+            session_id,
+            files,
+            &root_path,
+            &self.metadata_config,
+        );
         AgentResponse::RestoreResult { results }
     }
 }
@@ -327,7 +372,7 @@ mod tests {
 
     fn setup() -> (TempDir, Dispatcher) {
         let tmp = TempDir::new().unwrap();
-        let dispatcher = Dispatcher::new(tmp.path().to_path_buf());
+        let dispatcher = Dispatcher::new(tmp.path().to_path_buf(), MetadataConfig::default());
         (tmp, dispatcher)
     }
 
@@ -1004,5 +1049,151 @@ mod tests {
             }
             other => panic!("expected Error, got {other:?}"),
         }
+    }
+
+    // ── WriteFile with MetadataConfig ──
+
+    #[test]
+    fn write_file_propagates_metadata_config() {
+        let (tmp, mut d) = setup_with_config(MetadataConfig {
+            default_uid: Some(1000),
+            default_gid: Some(1000),
+            file_permissions: Some(0o644),
+            dir_permissions: Some(0o755),
+        });
+
+        let resp = single(
+            d.dispatch(AgentRequest::WriteFile {
+                path: "new_file.txt".into(),
+                content: b"hello".to_vec(),
+                is_binary: false,
+                more_to_follow: false,
+            })
+            .unwrap(),
+        );
+
+        assert_eq!(
+            resp,
+            AgentResponse::WriteResult {
+                success: true,
+                error: None,
+            }
+        );
+        // ファイルが書き込まれていること
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("new_file.txt")).unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn write_file_chunked_saved_metadata_management() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (tmp, mut d) = setup_with_config(MetadataConfig {
+            default_uid: None,
+            default_gid: None,
+            file_permissions: Some(0o600),
+            dir_permissions: None,
+        });
+
+        // 既存ファイルを作成
+        fs::write(tmp.path().join("existing.txt"), "old content").unwrap();
+        // パーミッションを設定
+        fs::set_permissions(
+            tmp.path().join("existing.txt"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+
+        // 1st chunk: is_first_chunk=true → SavedMetadata を保存する
+        let resp1 = single(
+            d.dispatch(AgentRequest::WriteFile {
+                path: "existing.txt".into(),
+                content: b"chunk1".to_vec(),
+                is_binary: false,
+                more_to_follow: true,
+            })
+            .unwrap(),
+        );
+        assert_eq!(
+            resp1,
+            AgentResponse::WriteResult {
+                success: true,
+                error: None,
+            }
+        );
+
+        // SavedMetadata がディスパッチャーに保存されていることを確認
+        assert!(d.saved_metadata.contains_key("existing.txt"));
+        assert!(d.saved_metadata["existing.txt"].is_some());
+
+        // 2nd chunk: is_last_chunk=true → SavedMetadata を使ってメタデータを復元
+        let resp2 = single(
+            d.dispatch(AgentRequest::WriteFile {
+                path: "existing.txt".into(),
+                content: b"chunk2".to_vec(),
+                is_binary: false,
+                more_to_follow: false,
+            })
+            .unwrap(),
+        );
+        assert_eq!(
+            resp2,
+            AgentResponse::WriteResult {
+                success: true,
+                error: None,
+            }
+        );
+
+        // コンテンツが正しく結合されていること
+        assert_eq!(
+            fs::read(tmp.path().join("existing.txt")).unwrap(),
+            b"chunk1chunk2"
+        );
+
+        // 転送完了後、saved_metadata がクリーンアップされていること
+        assert!(!d.saved_metadata.contains_key("existing.txt"));
+        assert!(!d.written_paths.contains("existing.txt"));
+    }
+
+    #[test]
+    fn write_file_new_file_uses_config_defaults() {
+        let (tmp, mut d) = setup_with_config(MetadataConfig {
+            default_uid: None,
+            default_gid: None,
+            file_permissions: Some(0o600),
+            dir_permissions: None,
+        });
+
+        let resp = single(
+            d.dispatch(AgentRequest::WriteFile {
+                path: "brand_new.txt".into(),
+                content: b"data".to_vec(),
+                is_binary: false,
+                more_to_follow: false,
+            })
+            .unwrap(),
+        );
+        assert_eq!(
+            resp,
+            AgentResponse::WriteResult {
+                success: true,
+                error: None,
+            }
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("brand_new.txt")).unwrap(),
+            "data"
+        );
+        // saved_metadata はクリーンアップ済み
+        assert!(!d.saved_metadata.contains_key("brand_new.txt"));
+    }
+
+    /// MetadataConfig を指定してセットアップするヘルパー
+    fn setup_with_config(config: MetadataConfig) -> (TempDir, Dispatcher) {
+        let tmp = TempDir::new().unwrap();
+        let dispatcher = Dispatcher::new(tmp.path().to_path_buf(), config);
+        (tmp, dispatcher)
     }
 }

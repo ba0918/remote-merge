@@ -104,6 +104,9 @@ port     = 22
 user     = "deploy"
 key      = "~/.ssh/id_rsa"
 root_dir = "/var/www/app"
+sudo     = true               # Agent を sudo で起動（NOPASSWD 必須）
+file_permissions = "0o644"    # 新規ファイルのパーミッション（サーバー単位オーバーライド）
+dir_permissions  = "0o755"    # 新規ディレクトリのパーミッション
 
 # レガシーサーバ向け設定例（古いSSHバージョン対応）
 [servers.legacy]
@@ -124,6 +127,10 @@ host_key_algorithms    = ["ssh-rsa", "ssh-dss"]
 ciphers                = ["aes128-cbc", "3des-cbc", "aes192-cbc", "aes256-cbc"]
 # MACアルゴリズム
 mac_algorithms         = ["hmac-sha1", "hmac-md5"]
+
+[defaults]
+file_permissions = "0o664"    # 新規ファイルのデフォルトパーミッション
+dir_permissions  = "0o775"    # 新規ディレクトリのデフォルトパーミッション
 
 [local]
 root_dir = "/home/user/projects/app"
@@ -1233,17 +1240,172 @@ Total: 7 merge operations across 3 servers
 
 ---
 
-## ファイルパーミッションの扱い
+## sudo 対応 + ファイルパーミッション管理
 
-マージ時のパーミッション処理はオプションで制御する。
+### 概要
 
-| オプション | 動作 |
-|-----------|------|
-| デフォルト | パーミッションは変更しない（内容のみ上書き） |
-| `--with-permissions` | パーミッションもコピー元に合わせる |
+root 権限が必要なファイルへの書き込みを、Agent プロセスを `sudo` で起動することで実現する。
+あわせて、マージ時のファイルパーミッション（owner / group / mode）を自動管理する。
 
-リモート間マージ時は意図しないパーミッション変更を防ぐため、
-デフォルトで内容のみ上書きとする。
+### sudo Agent 起動
+
+サーバー設定に `sudo = true` を指定すると、Agent プロセスを `sudo` で起動する。
+
+| 項目 | 内容 |
+|------|------|
+| 前提条件 | NOPASSWD 設定済み（`sudo -n true` で事前チェック） |
+| 起動方式 | `sudo '/path/to/remote-merge' agent --root <dir> [options]` |
+| スコープ | Agent プロセス全体が root で動作。個別操作ごとの sudo は不要 |
+| デフォルト | `sudo = false`（明示的に有効化が必要） |
+
+#### Pre-flight チェック（Agent 起動前）
+
+```
+1. sudo=true の場合: `sudo -n true` を実行
+   → 失敗時: エラーで即停止（フォールバックしない）
+   → メッセージで NOPASSWD 設定を案内
+2. `id -u {user} && id -g {user}` で SSH ユーザーの uid/gid を取得
+3. config からパーミッション設定を resolve
+4. Agent 起動コマンドに uid/gid/permissions を引数として渡す
+```
+
+### ファイルパーミッション管理
+
+Agent がファイル書き込み後に自動的にメタデータ（owner / group / permissions）を設定する。
+
+#### 挙動ルール
+
+| ケース | owner/group | permissions |
+|--------|-------------|-------------|
+| 既存ファイル上書き | 元の owner/group を維持（chown） | 元の permissions を維持（chmod） |
+| 新規ファイル作成 | SSH 接続ユーザーの uid/gid | 設定値（デフォルト `0o664`） |
+| 新規ディレクトリ作成 | SSH 接続ユーザーの uid/gid | 設定値（デフォルト `0o775`） |
+| Symlink 作成 | lchown で SSH 接続ユーザーの uid/gid を設定 | symlink 自体に chmod は不可（無視） |
+| Backup 作成 | Agent プロセスの uid で作成 | デフォルト umask に従う |
+| Backup 復元 | 既存ファイル上書きルールに従う | 同上 |
+
+#### パーミッション解決フロー（Agent 内）
+
+```
+WriteFile リクエスト受信
+├─ ファイルが存在する？
+│  ├─ YES: stat で uid/gid/mode 取得 → 書き込み → (euid==0の場合のみ) chown + chmod で復元
+│  └─ NO:  書き込み（create_dir_all で親ディレクトリも作成）
+│          → 起動引数の default_permissions で chmod
+│          → 起動引数の default_uid/gid で chown（euid==0 の場合のみ）
+│          → 親ディレクトリも dir_permissions + chown を適用
+└─ euid != 0 の場合: chown はそもそも実行しない（後述「非 root 時の挙動」参照）
+```
+
+#### 非 root 時の挙動
+
+euid != 0 の場合（sudo 未使用時）:
+- chown は **実行しない**（euid == 0 の場合のみ chown を実行する）
+- chmod はファイル所有者であれば成功するため実行する
+- chown をスキップした旨は `tracing::debug` でログに記録する
+
+### 設定構造
+
+#### グローバルデフォルト
+
+```toml
+[defaults]
+file_permissions = "0o664"    # 新規ファイルのデフォルトパーミッション
+dir_permissions  = "0o775"    # 新規ディレクトリのデフォルトパーミッション
+```
+
+#### サーバー単位オーバーライド
+
+```toml
+[servers.production]
+host     = "prod-server"
+user     = "deploy"
+sudo     = true               # Agent を sudo で起動
+file_permissions = "0o644"     # このサーバーでのファイルパーミッション
+dir_permissions  = "0o755"     # このサーバーでのディレクトリパーミッション
+```
+
+#### パーミッション文字列のフォーマット
+
+以下のフォーマットを受け付ける:
+
+| フォーマット | 例 | 説明 |
+|-------------|-----|------|
+| `0o` prefix + 3桁の8進数 | `0o664` | Rust リテラル形式（推奨） |
+| `0` prefix + 3桁 | `0664` | POSIX 慣習形式 |
+| 3桁のみ | `664` | 省略形式 |
+
+- 各桁は 0-7 の範囲
+- `0o777` を超える値は拒否
+- setuid/setgid/sticky bit（4桁目）は許可しない
+- 不正な値は config ロード時にエラーで停止
+
+#### 優先順位
+
+```
+サーバー設定 > グローバル [defaults] > ハードコードフォールバック（0o664 / 0o775）
+```
+
+### デフォルト値の伝搬方式
+
+**Protocol v2 は変更しない。** デフォルト値は Agent 起動時の CLI 引数で渡す。
+
+```bash
+# sudo なし
+'/var/tmp/remote-merge-deploy/remote-merge' agent --root '/app' \
+  --default-uid 1000 --default-gid 1000 \
+  --file-permissions 0o664 --dir-permissions 0o775
+
+# sudo あり
+sudo '/var/tmp/remote-merge-deploy/remote-merge' agent --root '/app' \
+  --default-uid 1000 --default-gid 1000 \
+  --file-permissions 0o644 --dir-permissions 0o755
+```
+
+WriteFile のペイロードは変更なし。Protocol バージョンも 2 のまま維持。
+
+### SSH フォールバック時の挙動
+
+Agent 非使用時（SSH exec によるファイル書き込み）は **sudo 対応しない**。
+
+| 条件 | 挙動 |
+|------|------|
+| `sudo = false` + Agent 有効 | 通常動作（パーミッション管理あり、chown は非 root では skip） |
+| `sudo = false` + Agent 無効 | SSH exec フォールバック（パーミッション管理なし） |
+| `sudo = true` + Agent 有効 | sudo で Agent 起動（フルパーミッション管理） |
+| `sudo = true` + Agent 起動失敗 | **エラーで停止（SSH フォールバック禁止）** |
+| `sudo = true` + Agent 無効 | **設定エラー（config ロード時にサーバー接続前で拒否）** |
+
+`sudo = true` が指定されている場合、Agent なしでの動作は許可しない。
+`sudo = true` かつ `agent.enabled = false` の組み合わせは **config ロード時（サーバー接続前）** に検出し、エラーで即停止する。
+エラーメッセージで Agent の有効化と NOPASSWD 設定を案内する。
+
+### `--with-permissions` との関係
+
+CLI の `--with-permissions` フラグとの棲み分けは以下の通り。
+
+| 経路 | パーミッション管理 | `--with-permissions` |
+|------|-------------------|---------------------|
+| Agent 経由（sudo あり/なし問わず） | **常時有効** — Agent が自動的にパーミッション管理を行う | 不要（指定しても無視） |
+| SSH フォールバック（Agent 未使用時） | `--with-permissions` 指定時のみ chmod を実行 | 従来通り明示的に指定 |
+
+Agent 経由の場合は `--with-permissions` の有無にかかわらず常にパーミッションが保存される。
+SSH フォールバック経由の場合は `--with-permissions` を明示的に指定した場合のみ chmod が走る。
+
+### Agent デプロイ時の sudo 対応
+
+Agent バイナリのデプロイ時（`mkdir -p`, `mv` 等のファイル操作）も `sudo = true` の場合は `sudo` prefix を付与する。
+これにより、デプロイ先ディレクトリに root 権限が必要な場合でもバイナリ配置が可能になる。
+
+### セキュリティ考慮事項
+
+- `sudo` 起動は設定ファイルで明示的に `sudo = true` の場合のみ（デフォルト false）
+- `sudo -n true` 事前チェック必須 — NOPASSWD 未設定ならエラーで即停止
+- chown / chmod は **validate_path が返す canonical path に対してのみ実行** — root_dir 外へのパストラバーサルを防止
+- Agent プロセスが root で動作する場合も validate_path によるパストラバーサル防止は維持
+- sudo 使用時は `tracing::warn` でログを出力（意図的な使用であることの記録）
+- パーミッション設定値のバリデーション（不正な値は起動時に拒否）
+- **TOCTOU リスクの許容:** stat → write → chown/chmod の間に TOCTOU（Time-of-Check-to-Time-of-Use）リスクがあるが、Agent が単一プロセスでファイルを操作する前提のため許容する。外部プロセスが同時にファイルを操作するケースは楽観的ロック（mtime 再チェック）で検出する
 
 ---
 
@@ -1628,6 +1790,17 @@ remote-merge/
 - [x] `sync` CLIサブコマンド（1:N マルチサーバ同期）
 - [x] `--delete` オプション（merge / sync でマージ先のみのファイルを削除）
 
+### Phase 6: sudo Agent 起動 + ファイルパーミッション管理
+
+- [ ] `sudo = true` 設定の config バリデーション（`agent.enabled = false` との排他チェック）
+- [ ] `sudo -n true` Pre-flight チェック
+- [ ] Agent プロセスの sudo 起動
+- [ ] Agent デプロイ時の sudo prefix 対応
+- [ ] ファイルパーミッション自動管理（既存ファイル維持 / 新規ファイルにデフォルト適用）
+- [ ] chown の euid==0 ガード
+- [ ] パーミッション文字列のパース・バリデーション
+- [ ] `--with-permissions` と Agent 経路の統合
+
 ### CI/CD・品質管理
 - [x] GitHub Actions CI（push/PR 時: fmt + clippy + test）
 - [x] GitHub Actions Release（v* タグ時: Linux/macOS/Windows クロスビルド）
@@ -1645,4 +1818,5 @@ remote-merge/
 | Phase 4: CLI + Skill | 完了 | — |
 | Phase 4.5: Agent プロトコル | 完了 | — |
 | Phase 5: 運用・同期 | 完了 | — |
+| Phase 6: sudo + パーミッション管理 | 未着手 | sudo Agent 起動、パーミッション自動管理、バリデーション |
 | CI/CD・品質管理 | 完了 | — |

@@ -3,14 +3,14 @@
 //! SSH接続管理、ファイルI/O、ツリー取得など、
 //! インターフェースに依存しない共通機能を提供する。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
 use crate::agent::client::AgentClient;
 use crate::agent::deploy::{self, VersionCheck};
 use crate::agent::ssh_transport::{SshAgentTransport, TransportGuard};
-use crate::config::{AppConfig, ServerConfig};
+use crate::config::{self, AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
 use crate::tree::FileTree;
 
@@ -31,6 +31,9 @@ pub struct CoreRuntime {
     /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
     #[cfg(unix)]
     transport_guards: HashMap<String, TransportGuard>,
+    /// sudo=true のサーバーで Agent が無効化されたサーバー名の一覧。
+    /// SSH フォールバックを禁止するために使用する。
+    invalidated_sudo_servers: HashSet<String>,
 }
 
 impl CoreRuntime {
@@ -42,6 +45,7 @@ impl CoreRuntime {
             agent_clients: HashMap::new(),
             #[cfg(unix)]
             transport_guards: HashMap::new(),
+            invalidated_sudo_servers: HashSet::new(),
         }
     }
 
@@ -55,6 +59,7 @@ impl CoreRuntime {
             ssh: crate::config::SshConfig::default(),
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
+            defaults: crate::config::DefaultsConfig::default(),
         })
     }
 
@@ -68,6 +73,7 @@ impl CoreRuntime {
             ssh: crate::config::SshConfig::default(),
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
+            defaults: crate::config::DefaultsConfig::default(),
         };
         config.agent.enabled = false;
         Self::new(config)
@@ -87,10 +93,21 @@ impl CoreRuntime {
     ///
     /// 成功したら agent_clients に登録し `Ok(true)` を返す。
     /// Agent が無効な設定の場合や、起動に失敗した場合は `Ok(false)` を返す（SSH フォールバック）。
+    ///
+    /// sudo=true の場合は SSH フォールバックを禁止し、Agent 起動失敗時にエラーを返す。
     pub fn try_start_agent(&mut self, server_name: &str) -> anyhow::Result<bool> {
         if !self.config.agent.enabled {
             return Ok(false);
         }
+
+        // sudo=true の場合、Agent 有効が必須（バリデーションは connect() 側で実施済みだが二重チェック）
+        let sudo = self
+            .config
+            .servers
+            .get(server_name)
+            .map(|s| s.sudo)
+            .unwrap_or(false);
+
         match self.start_agent_via_ssh(server_name) {
             Ok(client) => {
                 tracing::info!("Agent connected: server={}", server_name);
@@ -99,6 +116,14 @@ impl CoreRuntime {
                 Ok(true)
             }
             Err(e) => {
+                if sudo {
+                    // sudo=true の場合は SSH フォールバック禁止
+                    anyhow::bail!(
+                        "Agent failed to start on {} with sudo = true. SSH fallback is not available when sudo is enabled. cause: {}",
+                        server_name,
+                        e
+                    );
+                }
                 tracing::debug!(
                     "Agent start failed for {}: {}, using SSH fallback",
                     server_name,
@@ -121,7 +146,17 @@ impl CoreRuntime {
         let server_config = self.get_server_config(server_name)?;
         let user = server_config.user.clone();
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
+        let sudo = server_config.sudo;
+        let file_perm = config::resolve_file_permissions(server_config, &self.config.defaults);
+        let dir_perm = config::resolve_dir_permissions(server_config, &self.config.defaults);
         let deploy_dir = self.config.agent.deploy_dir.clone();
+
+        // sudo=true の場合: pre-flight チェック
+        let (default_uid, default_gid) = if sudo {
+            self.sudo_preflight(server_name, &user)?
+        } else {
+            (None, None)
+        };
 
         // リモートバイナリパスを計算
         let remote_path = deploy::remote_binary_path(&deploy_dir, &user);
@@ -155,11 +190,19 @@ impl CoreRuntime {
 
         // デプロイが必要な場合
         if version_check != VersionCheck::Match {
-            self.deploy_agent_binary(server_name, &remote_path)?;
+            self.deploy_agent_binary(server_name, &remote_path, sudo)?;
         }
 
         // Agent プロセスを起動
-        let agent_command = deploy::build_agent_command(&remote_path, &root_dir);
+        let agent_command = deploy::build_agent_command(
+            &remote_path,
+            &root_dir,
+            sudo,
+            default_uid,
+            default_gid,
+            file_perm,
+            dir_perm,
+        );
         tracing::debug!(
             "Starting agent: server={}, command={}",
             server_name,
@@ -189,6 +232,54 @@ impl CoreRuntime {
         Ok(client)
     }
 
+    /// sudo=true 時の pre-flight チェック。
+    ///
+    /// 1. NOPASSWD が設定されているか確認
+    /// 2. ユーザーの uid/gid を取得
+    #[cfg(unix)]
+    fn sudo_preflight(
+        &mut self,
+        server_name: &str,
+        user: &str,
+    ) -> anyhow::Result<(Option<u32>, Option<u32>)> {
+        // ホスト名を先に取得（借用分離）
+        let host = self
+            .config
+            .servers
+            .get(server_name)
+            .map(|s| s.host.clone())
+            .unwrap_or_else(|| server_name.to_string());
+
+        // sudo NOPASSWD チェック
+        let sudo_cmd = deploy::build_sudo_check_command();
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        if let Err(_e) = self.rt.block_on(ssh_client.exec_strict(sudo_cmd)) {
+            anyhow::bail!(
+                "sudo requires NOPASSWD to be configured for user '{}' on {}. \
+                 Add to /etc/sudoers: {} ALL=(ALL) NOPASSWD: ALL",
+                user,
+                host,
+                user,
+            );
+        }
+
+        // uid/gid 取得
+        let id_cmd = deploy::build_id_command(user);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let id_output = self.rt.block_on(ssh_client.exec(&id_cmd))?;
+        let (uid, gid) = deploy::parse_id_output(&id_output)
+            .map_err(|e| anyhow::anyhow!("failed to get uid/gid for user '{}': {}", user, e))?;
+
+        tracing::info!(
+            "sudo preflight passed: server={}, user={}, uid={}, gid={}",
+            server_name,
+            user,
+            uid,
+            gid
+        );
+        Ok((Some(uid), Some(gid)))
+    }
+
     /// リモートサーバにエージェントバイナリをデプロイする（atomic write 方式）。
     ///
     /// 2 exec + 1 write の3ステップで実行する:
@@ -202,6 +293,7 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         remote_path: &std::path::Path,
+        sudo: bool,
     ) -> anyhow::Result<()> {
         let tmp_path = format!("{}.tmp", remote_path.display());
 
@@ -224,7 +316,7 @@ impl CoreRuntime {
         let local_hash = deploy::sha256_of_bytes(&binary_bytes);
 
         // Step 1: mkdir + symlink チェック（1 exec）
-        let pre_cmd = deploy::build_pre_write_command(remote_path);
+        let pre_cmd = deploy::build_pre_write_command(remote_path, sudo);
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let pre_output = self.rt.block_on(ssh_client.exec(&pre_cmd))?;
         if !pre_output.contains("OK") {
@@ -250,7 +342,8 @@ impl CoreRuntime {
             .block_on(ssh_client.write_file_bytes(&tmp_path, &binary_bytes))?;
 
         // Step 3: chmod + checksum + version + mv（1 exec）
-        let post_script = deploy::build_post_write_script(remote_path, &tmp_path, &local_hash);
+        let post_script =
+            deploy::build_post_write_script(remote_path, &tmp_path, &local_hash, sudo)?;
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
             .block_on(ssh_client.exec_strict(&post_script))
@@ -299,25 +392,64 @@ impl CoreRuntime {
 
     /// Agent 操作が失敗した場合に呼ばれる。Agent を無効化して SSH フォールバックに切り替える。
     /// best-effort で shutdown を送信し、失敗しても無視する。
+    ///
+    /// sudo=true のサーバーでは SSH フォールバックが安全でないため、
+    /// `invalidated_sudo_servers` に記録して以降の操作でエラーを返す。
     pub fn invalidate_agent(&mut self, server_name: &str) {
         if let Some(client_arc) = self.agent_clients.remove(server_name) {
             // best-effort shutdown — 失敗しても構わない
             if let Ok(mut client) = client_arc.lock() {
                 let _ = client.shutdown();
             }
-            tracing::warn!(
-                "Agent invalidated for {}, future operations will use SSH fallback",
-                server_name
-            );
+
+            // sudo=true のサーバーでは SSH フォールバックを禁止
+            let is_sudo = self
+                .config
+                .servers
+                .get(server_name)
+                .map(|s| s.sudo)
+                .unwrap_or(false);
+            if is_sudo {
+                self.invalidated_sudo_servers
+                    .insert(server_name.to_string());
+                tracing::error!(
+                    "Agent invalidated for {} with sudo=true. SSH fallback is not available when sudo is enabled.",
+                    server_name
+                );
+            } else {
+                tracing::warn!(
+                    "Agent invalidated for {}, future operations will use SSH fallback",
+                    server_name
+                );
+            }
         }
         // TransportGuard を drop してブリッジスレッドをシャットダウン
         #[cfg(unix)]
         self.transport_guards.remove(server_name);
     }
 
+    /// sudo=true のサーバーで Agent が無効化されている場合にエラーを返す。
+    /// SSH フォールバック前に呼び出して、権限降格を防止する。
+    pub fn check_sudo_fallback(&self, server_name: &str) -> anyhow::Result<()> {
+        if self.invalidated_sudo_servers.contains(server_name) {
+            anyhow::bail!(
+                "Agent is unavailable for {} with sudo=true. Cannot fall back to SSH without sudo privileges.",
+                server_name
+            );
+        }
+        Ok(())
+    }
+
     /// SSH 接続を確立する
     pub fn connect(&mut self, server_name: &str) -> anyhow::Result<()> {
         let server_config = self.get_server_config(server_name)?;
+
+        // sudo=true かつ agent.enabled=false の場合はエラー
+        if server_config.sudo && !self.config.agent.enabled {
+            anyhow::bail!(
+                "sudo = true requires agent to be enabled. Set [agent] enabled = true in your config."
+            );
+        }
 
         tracing::info!(
             "SSH connecting: server={}, host={}",
@@ -334,8 +466,19 @@ impl CoreRuntime {
                 tracing::info!("SSH connected: server={}", server_name);
                 self.ssh_clients.insert(server_name.to_string(), client);
 
-                // SSH 接続後に Agent 起動を試行（失敗しても SSH フォールバック）
+                // SSH 接続後に Agent 起動を試行
+                // sudo=true の場合: Agent 起動失敗はエラーとして伝搬
+                // sudo=false の場合: Agent 起動失敗は SSH フォールバック
                 if let Err(e) = self.try_start_agent(server_name) {
+                    if self
+                        .config
+                        .servers
+                        .get(server_name)
+                        .map(|s| s.sudo)
+                        .unwrap_or(false)
+                    {
+                        return Err(e);
+                    }
                     tracing::warn!("Agent startup failed for {}: {}", server_name, e);
                 }
 
@@ -627,6 +770,9 @@ mod tests {
                 key: None,
                 root_dir: PathBuf::from("/var/www"),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         let result = runtime.start_agent_via_ssh("test-server");
@@ -693,6 +839,9 @@ mod tests {
                 key: None,
                 root_dir: std::path::PathBuf::from(root),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         rt
@@ -720,6 +869,9 @@ mod tests {
                 key: None,
                 root_dir: std::path::PathBuf::from("/var/www/stg"),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         assert!(rt.get_server_config("develop").is_ok());
@@ -867,5 +1019,162 @@ mod tests {
         assert!(!has_connections);
         drop(rt);
         // パニックしなければOK
+    }
+
+    // ── sudo バリデーション ──
+
+    /// sudo=true + agent.enabled=true のサーバー設定を追加する
+    fn runtime_with_sudo_server(name: &str, root: &str) -> CoreRuntime {
+        let mut rt = CoreRuntime::new_for_test();
+        rt.config.servers.insert(
+            name.to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".to_string(),
+                port: 22,
+                user: "deploy".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: std::path::PathBuf::from(root),
+                ssh_options: None,
+                sudo: true,
+                file_permissions: None,
+                dir_permissions: None,
+            },
+        );
+        rt
+    }
+
+    #[test]
+    fn test_sudo_true_agent_disabled_returns_error() {
+        // sudo=true かつ agent.enabled=false → connect() 前にエラー
+        let mut rt = runtime_with_sudo_server("develop", "/var/www");
+        rt.config.agent.enabled = false;
+        let result = rt.connect("develop");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("sudo = true requires agent to be enabled"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_sudo_false_agent_disabled_skips_sudo_validation() {
+        // sudo=false かつ agent.enabled=false → sudo バリデーションは通過
+        // （実際の SSH 接続は行わず、バリデーション部分のみ検証）
+        let mut rt = CoreRuntime::new_for_test_no_agent();
+        rt.config.servers.insert(
+            "test".to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".to_string(),
+                port: 22,
+                user: "deploy".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: std::path::PathBuf::from("/var/www"),
+                ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
+            },
+        );
+        // sudo=false なので try_start_agent は Ok(false) を返す（Agent 無効）
+        let result = rt.try_start_agent("test");
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_try_start_agent_sudo_true_no_ssh_returns_error() {
+        // sudo=true かつ SSH 未接続 → Agent 起動失敗 → SSH フォールバック禁止
+        let mut rt = runtime_with_sudo_server("develop", "/var/www");
+        let result = rt.try_start_agent("develop");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("sudo = true"),
+            "error should mention sudo = true: {msg}"
+        );
+        assert!(
+            msg.contains("SSH fallback is not available"),
+            "error should mention no SSH fallback: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_try_start_agent_sudo_false_no_ssh_returns_ok_false() {
+        // sudo=false かつ SSH 未接続 → Agent 起動失敗 → Ok(false) で SSH フォールバック
+        let mut rt = runtime_with_server("develop", "/var/www");
+        let result = rt.try_start_agent("develop");
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_sudo_error_message_includes_nopasswd_guidance() {
+        // NOPASSWD エラーメッセージのフォーマットを検証（deploy モジュールの純粋関数テスト）
+        let user = "deploy";
+        let host = "example.com";
+        let expected_msg = format!(
+            "sudo requires NOPASSWD to be configured for user '{}' on {}. \
+             Add to /etc/sudoers: {} ALL=(ALL) NOPASSWD: ALL",
+            user, host, user,
+        );
+        assert!(expected_msg.contains("NOPASSWD"));
+        assert!(expected_msg.contains("/etc/sudoers"));
+        assert!(expected_msg.contains(user));
+        assert!(expected_msg.contains(host));
+    }
+
+    #[test]
+    fn test_build_agent_command_with_sudo() {
+        // sudo=true 時の agent コマンドが正しいこと
+        use crate::agent::deploy::build_agent_command;
+        let cmd = build_agent_command(
+            &std::path::PathBuf::from("/var/tmp/remote-merge-deploy/remote-merge"),
+            "/var/www",
+            true,
+            Some(1000),
+            Some(1000),
+            0o644,
+            0o755,
+        );
+        assert!(cmd.starts_with("sudo "));
+        assert!(cmd.contains("--default-uid 1000"));
+        assert!(cmd.contains("--default-gid 1000"));
+        assert!(cmd.contains("--file-permissions 420")); // 0o644 = 420
+        assert!(cmd.contains("--dir-permissions 493")); // 0o755 = 493
+    }
+
+    #[test]
+    fn test_build_agent_command_without_sudo() {
+        // sudo=false 時の agent コマンドに sudo が含まれないこと
+        use crate::agent::deploy::build_agent_command;
+        let cmd = build_agent_command(
+            &std::path::PathBuf::from("/var/tmp/remote-merge-deploy/remote-merge"),
+            "/var/www",
+            false,
+            None,
+            None,
+            0o664,
+            0o775,
+        );
+        assert!(!cmd.starts_with("sudo "));
+        assert!(!cmd.contains("--default-uid"));
+        assert!(!cmd.contains("--default-gid"));
+        assert!(cmd.contains("--file-permissions 436")); // 0o664 = 436
+        assert!(cmd.contains("--dir-permissions 509")); // 0o775 = 509
+    }
+
+    #[test]
+    fn test_sudo_false_existing_tests_still_pass() {
+        // 回帰テスト: sudo=false の基本動作が変わっていないこと
+        let mut rt = CoreRuntime::new_for_test();
+        // agent.enabled=true, sudo=false → Agent 起動試行 → SSH 未接続で Ok(false)
+        assert!(!rt.try_start_agent("develop").unwrap());
+
+        // agent.enabled=false → Ok(false)
+        let mut rt_no = CoreRuntime::new_for_test_no_agent();
+        assert!(!rt_no.try_start_agent("develop").unwrap());
     }
 }

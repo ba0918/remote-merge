@@ -13,6 +13,24 @@ use super::framing;
 use super::protocol::{self, AgentResponse};
 
 // ---------------------------------------------------------------------------
+// MetadataConfig
+// ---------------------------------------------------------------------------
+
+/// Agent 起動時に渡されるメタデータ設定。
+///
+/// ファイル書き込み時の所有者・パーミッションのデフォルト値を保持する。
+/// None の場合は Agent 内ではデフォルト適用しない（OS デフォルトを使用）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetadataConfig {
+    pub default_uid: Option<u32>,
+    pub default_gid: Option<u32>,
+    /// 新規ファイルのデフォルトパーミッション（10進数）
+    pub file_permissions: Option<u32>,
+    /// 新規ディレクトリのデフォルトパーミッション（10進数）
+    pub dir_permissions: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -21,12 +39,12 @@ use super::protocol::{self, AgentResponse};
 /// 1. ハンドシェイク文字列を stdout に出力
 /// 2. stdin からフレームを読み、ディスパッチし、レスポンスを stdout に書き出す
 /// 3. Shutdown リクエストまたは stdin EOF でループ終了
-pub fn run_agent_server(root_dir: PathBuf) -> Result<()> {
+pub fn run_agent_server(root_dir: PathBuf, metadata_config: MetadataConfig) -> Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let reader = BufReader::new(stdin.lock());
     let writer = BufWriter::new(stdout.lock());
-    run_agent_loop(reader, writer, root_dir)
+    run_agent_loop(reader, writer, root_dir, metadata_config)
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +56,7 @@ pub(crate) fn run_agent_loop(
     mut reader: impl Read,
     mut writer: impl Write,
     root_dir: PathBuf,
+    metadata_config: MetadataConfig,
 ) -> Result<()> {
     // 1. Handshake — プレーンテキスト行（フレームではない）
     let handshake = protocol::format_handshake();
@@ -45,7 +64,7 @@ pub(crate) fn run_agent_loop(
     writer.flush()?;
 
     // 2. Main loop
-    let mut dispatcher = Dispatcher::new(root_dir);
+    let mut dispatcher = Dispatcher::new(root_dir, metadata_config);
 
     loop {
         let frame = match framing::read_frame(&mut reader) {
@@ -166,7 +185,13 @@ mod tests {
         write_request_frame(&mut input, &AgentRequest::Ping);
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         // 出力の先頭はハンドシェイク行（改行終端）
         let handshake_expected = format!("{}\n", protocol::format_handshake());
@@ -183,7 +208,13 @@ mod tests {
         write_request_frame(&mut input, &AgentRequest::Ping);
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         let response_bytes = extract_response_bytes(&output);
         let mut reader = Cursor::new(response_bytes);
@@ -199,7 +230,13 @@ mod tests {
         write_request_frame(&mut input, &AgentRequest::Ping);
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         let response_bytes = extract_response_bytes(&output);
         assert!(
@@ -217,7 +254,13 @@ mod tests {
         write_request_frame(&mut input, &AgentRequest::Shutdown);
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         let response_bytes = extract_response_bytes(&output);
         let mut reader = Cursor::new(response_bytes);
@@ -241,7 +284,13 @@ mod tests {
         write_request_frame(&mut input, &AgentRequest::Ping);
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         let response_bytes = extract_response_bytes(&output);
         let mut reader = Cursor::new(response_bytes);
@@ -268,10 +317,95 @@ mod tests {
         let input = Vec::new(); // 空 — 即座に EOF
 
         let mut output = Vec::new();
-        run_agent_loop(Cursor::new(input), &mut output, tmp.path().to_path_buf()).unwrap();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            MetadataConfig::default(),
+        )
+        .unwrap();
 
         // ハンドシェイク行だけが出力される
         let handshake_expected = format!("{}\n", protocol::format_handshake());
         assert_eq!(output, handshake_expected.as_bytes());
+    }
+
+    // ── MetadataConfig ──
+
+    #[test]
+    fn metadata_config_default_all_none() {
+        let config = MetadataConfig::default();
+        assert_eq!(config.default_uid, None);
+        assert_eq!(config.default_gid, None);
+        assert_eq!(config.file_permissions, None);
+        assert_eq!(config.dir_permissions, None);
+    }
+
+    #[test]
+    fn metadata_config_with_values() {
+        let config = MetadataConfig {
+            default_uid: Some(1000),
+            default_gid: Some(1000),
+            file_permissions: Some(0o644),
+            dir_permissions: Some(0o755),
+        };
+        assert_eq!(config.default_uid, Some(1000));
+        assert_eq!(config.default_gid, Some(1000));
+        assert_eq!(config.file_permissions, Some(0o644));
+        assert_eq!(config.dir_permissions, Some(0o755));
+    }
+
+    #[test]
+    fn metadata_config_partial_values() {
+        let config = MetadataConfig {
+            default_uid: Some(500),
+            default_gid: None,
+            file_permissions: Some(436),
+            dir_permissions: None,
+        };
+        assert_eq!(config.default_uid, Some(500));
+        assert_eq!(config.default_gid, None);
+        assert_eq!(config.file_permissions, Some(436));
+        assert_eq!(config.dir_permissions, None);
+    }
+
+    #[test]
+    fn metadata_config_clone_and_eq() {
+        let config = MetadataConfig {
+            default_uid: Some(1000),
+            default_gid: Some(1000),
+            file_permissions: Some(436),
+            dir_permissions: Some(509),
+        };
+        let cloned = config.clone();
+        assert_eq!(config, cloned);
+    }
+
+    #[test]
+    fn agent_loop_with_metadata_config() {
+        // MetadataConfig を渡しても正常にループが動作することを確認
+        let tmp = TempDir::new().unwrap();
+        let config = MetadataConfig {
+            default_uid: Some(1000),
+            default_gid: Some(1000),
+            file_permissions: Some(436),
+            dir_permissions: Some(509),
+        };
+
+        let mut input = Vec::new();
+        write_request_frame(&mut input, &AgentRequest::Ping);
+
+        let mut output = Vec::new();
+        run_agent_loop(
+            Cursor::new(input),
+            &mut output,
+            tmp.path().to_path_buf(),
+            config,
+        )
+        .unwrap();
+
+        let response_bytes = extract_response_bytes(&output);
+        let mut reader = Cursor::new(response_bytes);
+        assert_eq!(read_response_frame(&mut reader), AgentResponse::Pong);
     }
 }

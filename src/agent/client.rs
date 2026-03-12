@@ -285,7 +285,7 @@ fn check_write_result(resp: AgentResponse) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::server::run_agent_loop;
+    use crate::agent::server::{run_agent_loop, MetadataConfig};
     use std::os::unix::net::UnixStream;
     use tempfile::TempDir;
 
@@ -297,7 +297,13 @@ mod tests {
         let server_reader = server_stream.try_clone().unwrap();
         let server_writer = server_stream;
         std::thread::spawn(move || {
-            run_agent_loop(server_reader, server_writer, root).ok();
+            run_agent_loop(
+                server_reader,
+                server_writer,
+                root,
+                MetadataConfig::default(),
+            )
+            .ok();
         });
         AgentClient::connect(client_stream.try_clone().unwrap(), client_stream).unwrap()
     }

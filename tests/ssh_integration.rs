@@ -278,6 +278,9 @@ fn make_server_config(port: u16, auth: AuthMethod, key_path: Option<PathBuf>) ->
         key: key_path,
         root_dir: PathBuf::from("/var/www/app"),
         ssh_options: None,
+        sudo: false,
+        file_permissions: None,
+        dir_permissions: None,
     }
 }
 
@@ -404,6 +407,9 @@ async fn test_ssh_connection_timeout() {
         key: None,
         root_dir: PathBuf::from("/tmp"),
         ssh_options: None,
+        sudo: false,
+        file_permissions: None,
+        dir_permissions: None,
     };
     let ssh_config = SshConfig { timeout_sec: 1 };
 

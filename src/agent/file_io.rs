@@ -2,6 +2,7 @@
 //!
 //! 全操作は `validate_path` を経由し、パストラバーサルを防止する。
 
+use std::ffi::CString;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
@@ -11,6 +12,30 @@ use anyhow::{bail, Context, Result};
 use crate::agent::protocol::{
     AgentBackupFile, AgentBackupSession, AgentFileStat, AgentRestoreFileResult, FileReadResult,
 };
+use crate::agent::server::MetadataConfig;
+
+// ---------------------------------------------------------------------------
+// Saved metadata (for write_file restore)
+// ---------------------------------------------------------------------------
+
+/// 既存ファイルの書き込み前メタデータ。write_file の最終チャンクで復元に使用。
+#[derive(Debug, Clone)]
+pub struct SavedMetadata {
+    pub uid: u32,
+    pub gid: u32,
+    pub mode: u32,
+}
+
+impl SavedMetadata {
+    /// ファイルが存在する場合にメタデータを取得して保存する。
+    pub fn from_path(path: &Path) -> Option<Self> {
+        fs::symlink_metadata(path).ok().map(|meta| Self {
+            uid: meta.uid(),
+            gid: meta.gid(),
+            mode: meta.mode(),
+        })
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Path validation
@@ -79,6 +104,93 @@ pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// Metadata operations
+// ---------------------------------------------------------------------------
+
+/// 現在のプロセスの effective UID が 0 (root) かどうかを返す。
+fn is_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+/// パスを CString に変換する。NUL バイトを含む場合は None を返す。
+fn path_to_cstring(path: &Path) -> Option<CString> {
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(path.as_os_str().as_bytes()).ok()
+}
+
+/// ファイルの owner/group/permissions を設定する。
+///
+/// - `canonical_path`: `validate_path` 経由で検証済みのパス
+/// - euid == 0 の場合のみ chown を実行
+/// - chmod/chown 失敗はセキュリティ上重要なので warn レベルでログ出力し、エラーにはしない
+pub fn apply_metadata(
+    canonical_path: &Path,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    mode: Option<u32>,
+) -> std::io::Result<()> {
+    // chmod
+    if let Some(m) = mode {
+        // mode の下位12ビットのみ使用（permission bits）
+        let perms = fs::Permissions::from_mode(m & 0o7777);
+        if let Err(e) = fs::set_permissions(canonical_path, perms) {
+            tracing::warn!("chmod failed for {}: {e}", canonical_path.display());
+        }
+    }
+
+    // chown（root のみ）
+    if is_root() && (uid.is_some() || gid.is_some()) {
+        apply_chown(canonical_path, uid, gid);
+    }
+
+    Ok(())
+}
+
+/// chown を実行する。失敗時は warn レベルでログ出力のみ。
+fn apply_chown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
+    let Some(c_path) = path_to_cstring(path) else {
+        tracing::warn!("chown skipped: path contains NUL byte: {}", path.display());
+        return;
+    };
+    let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
+    let gid_val = gid.map(|g| g as libc::gid_t).unwrap_or(u32::MAX);
+    let ret = unsafe { libc::chown(c_path.as_ptr(), uid_val, gid_val) };
+    if ret != 0 {
+        let err = std::io::Error::last_os_error();
+        tracing::warn!("chown failed for {}: {err}", path.display());
+    }
+}
+
+/// lchown を実行する（シンボリックリンク自体の所有権を変更）。失敗時は warn レベルでログ出力のみ。
+fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
+    let Some(c_path) = path_to_cstring(path) else {
+        tracing::warn!("lchown skipped: path contains NUL byte: {}", path.display());
+        return;
+    };
+    let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
+    let gid_val = gid.map(|g| g as libc::gid_t).unwrap_or(u32::MAX);
+    let ret = unsafe { libc::lchown(c_path.as_ptr(), uid_val, gid_val) };
+    if ret != 0 {
+        let err = std::io::Error::last_os_error();
+        tracing::warn!("lchown failed for {}: {err}", path.display());
+    }
+}
+
+/// ディレクトリにパーミッションを適用する。
+///
+/// `create_dir_all` で作成された新規ディレクトリに対して、`dir_permissions` を設定する。
+/// 既存ディレクトリは変更しない。
+pub fn apply_dir_permissions(path: &Path, mode: Option<u32>) -> std::io::Result<()> {
+    if let Some(m) = mode {
+        let perms = fs::Permissions::from_mode(m & 0o7777);
+        if let Err(e) = fs::set_permissions(path, perms) {
+            tracing::debug!("chmod failed for directory {}: {e}", path.display());
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // File operations
 // ---------------------------------------------------------------------------
 
@@ -144,6 +256,110 @@ pub fn write_file(
     Ok(())
 }
 
+/// メタデータ復元付きファイル書き込み。チャンク転送に対応。
+///
+/// `write_file` と同等の書き込みを行い、追加で以下を実行:
+/// - `is_first_chunk=true`: 既存ファイルのメタデータを `saved_metadata` に保存して返す
+/// - `is_first_chunk=true`: 新規ディレクトリに `config.dir_permissions` を適用
+/// - `is_last_chunk=true`（最終チャンク）: メタデータを復元/適用
+///   - 既存ファイルだった場合: `saved_metadata` の uid/gid/mode で復元
+///   - 新規ファイルだった場合: `config` のデフォルト値で設定
+pub fn write_file_with_metadata(
+    root_dir: &Path,
+    rel_path: &str,
+    content: &[u8],
+    is_first_chunk: bool,
+    is_last_chunk: bool,
+    saved_metadata: Option<&SavedMetadata>,
+    config: &MetadataConfig,
+) -> Result<Option<SavedMetadata>> {
+    let path = validate_path(root_dir, rel_path)?;
+
+    let mut captured_metadata = None;
+
+    if is_first_chunk {
+        // 既存ファイルのメタデータを保存
+        captured_metadata = SavedMetadata::from_path(&path);
+
+        // 親ディレクトリの作成（新規ディレクトリにはパーミッション適用）
+        if let Some(parent) = path.parent() {
+            // create_dir_all 前に新規作成されるディレクトリを特定
+            let new_dirs = if config.dir_permissions.is_some() {
+                find_dirs_to_create(root_dir, parent)
+            } else {
+                vec![]
+            };
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create dirs: {}", parent.display()))?;
+            // 新規作成されたディレクトリに dir_permissions を適用
+            if !new_dirs.is_empty() {
+                apply_dir_permissions_recursive(&new_dirs, config.dir_permissions)?;
+            }
+        }
+        fs::write(&path, content)
+            .with_context(|| format!("failed to write: {}", path.display()))?;
+    } else {
+        use std::io::Write;
+        let mut f = fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .with_context(|| format!("failed to open for append: {}", path.display()))?;
+        f.write_all(content)?;
+    }
+
+    // 最終チャンクでメタデータを適用
+    if is_last_chunk {
+        let effective_saved = saved_metadata.or(captured_metadata.as_ref());
+        match effective_saved {
+            Some(meta) => {
+                // 既存ファイルだった: 保存したメタデータで復元
+                let _ = apply_metadata(&path, Some(meta.uid), Some(meta.gid), Some(meta.mode));
+            }
+            None => {
+                // 新規ファイルだった: config のデフォルト値で設定
+                let _ = apply_metadata(
+                    &path,
+                    config.default_uid,
+                    config.default_gid,
+                    config.file_permissions,
+                );
+            }
+        }
+    }
+
+    Ok(captured_metadata)
+}
+
+/// root_dir から dir までの各ディレクトリに対してパーミッションを適用する。
+///
+/// `create_dir_all` で複数階層が新規作成された場合、`newly_created` で
+/// 指定された新規ディレクトリにのみ `dir_permissions` を適用する。
+/// root_dir 自体は除外する。
+fn apply_dir_permissions_recursive(newly_created: &[PathBuf], mode: Option<u32>) -> Result<()> {
+    for dir in newly_created {
+        let _ = apply_dir_permissions(dir, mode);
+    }
+    Ok(())
+}
+
+/// root_dir から parent までのパスを列挙し、事前に存在しなかったディレクトリを特定する。
+///
+/// `create_dir_all` の前に呼び出し、戻り値を `apply_dir_permissions_recursive` に渡す。
+fn find_dirs_to_create(root_dir: &Path, parent: &Path) -> Vec<PathBuf> {
+    let Ok(rel) = parent.strip_prefix(root_dir) else {
+        return vec![];
+    };
+    let mut dirs_to_create = Vec::new();
+    let mut current = root_dir.to_path_buf();
+    for component in rel.components() {
+        current = current.join(component);
+        if !current.exists() {
+            dirs_to_create.push(current.clone());
+        }
+    }
+    dirs_to_create
+}
+
 /// ファイルのメタデータ（stat）を取得する。
 pub fn stat_file(root_dir: &Path, rel_path: &str) -> Result<AgentFileStat> {
     let path = validate_path(root_dir, rel_path)?;
@@ -180,6 +396,21 @@ pub fn create_backup(root_dir: &Path, rel_path: &str, backup_dir: &Path) -> Resu
 
 /// シンボリックリンクを作成する。ターゲットが root_dir 外に逃げないことを検証する。
 pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<()> {
+    create_symlink_with_metadata(root_dir, rel_path, target, None, None, None)
+}
+
+/// メタデータ付きシンボリックリンクを作成する。
+///
+/// symlink 作成後、euid==0 の場合のみ lchown で uid/gid を設定する。
+/// `dir_permissions` が指定されている場合、新規作成されたディレクトリにパーミッションを適用する。
+pub fn create_symlink_with_metadata(
+    root_dir: &Path,
+    rel_path: &str,
+    target: &str,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    dir_permissions: Option<u32>,
+) -> Result<()> {
     let link_path = validate_path(root_dir, rel_path)?;
 
     // ターゲットの安全性検証: root_dir からの相対として解決
@@ -190,7 +421,17 @@ pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<(
     }
 
     if let Some(parent) = link_path.parent() {
+        // create_dir_all 前に新規作成されるディレクトリを特定
+        let new_dirs = if dir_permissions.is_some() {
+            find_dirs_to_create(root_dir, parent)
+        } else {
+            vec![]
+        };
         fs::create_dir_all(parent)?;
+        // 新規作成されたディレクトリに dir_permissions を適用
+        if !new_dirs.is_empty() {
+            apply_dir_permissions_recursive(&new_dirs, dir_permissions)?;
+        }
     }
 
     // 既存のリンクがあれば削除
@@ -200,6 +441,12 @@ pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<(
 
     std::os::unix::fs::symlink(target, &link_path)
         .with_context(|| format!("failed to create symlink: {}", link_path.display()))?;
+
+    // lchown（root のみ）
+    if is_root() && (uid.is_some() || gid.is_some()) {
+        apply_lchown(&link_path, uid, gid);
+    }
+
     Ok(())
 }
 
@@ -291,11 +538,13 @@ fn collect_session_files(dir: &Path, session_root: &Path) -> Result<Vec<AgentBac
 ///
 /// `session_dir` 内のファイルを `root_dir` 配下にコピーする。
 /// パストラバーサル検証を行い、個別ファイルの失敗は記録して続行する。
+/// `metadata_config` が指定されている場合、復元先ファイルのメタデータを保持/適用する。
 pub fn restore_backup(
     backup_dir: &Path,
     session_id: &str,
     files: &[String],
     root_dir: &Path,
+    metadata_config: &MetadataConfig,
 ) -> Vec<AgentRestoreFileResult> {
     // session_id のパストラバーサル検証
     if session_id.contains("..") || session_id.contains('/') || session_id.contains('\\') {
@@ -321,15 +570,19 @@ pub fn restore_backup(
 
     files
         .iter()
-        .map(|rel_path| restore_single_file(&session_dir, rel_path, root_dir))
+        .map(|rel_path| restore_single_file(&session_dir, rel_path, root_dir, metadata_config))
         .collect()
 }
 
 /// 単一ファイルの復元を実行する。
+///
+/// 復元先に既存ファイルがある場合、そのメタデータ（owner/permissions）を保存し、
+/// コピー後に復元する。
 fn restore_single_file(
     session_dir: &Path,
     rel_path: &str,
     root_dir: &Path,
+    metadata_config: &MetadataConfig,
 ) -> AgentRestoreFileResult {
     let make_error = |msg: String| AgentRestoreFileResult {
         path: rel_path.to_string(),
@@ -354,6 +607,9 @@ fn restore_single_file(
         return make_error(format!("backup file not found: {}", src.display()));
     }
 
+    // 復元先に既存ファイルがあればメタデータを保存
+    let existing_metadata = SavedMetadata::from_path(&dest);
+
     // 復元先ディレクトリの自動作成
     if let Some(parent) = dest.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
@@ -366,11 +622,29 @@ fn restore_single_file(
 
     // コピー実行
     match fs::copy(&src, &dest) {
-        Ok(_) => AgentRestoreFileResult {
-            path: rel_path.to_string(),
-            success: true,
-            error: None,
-        },
+        Ok(_) => {
+            // メタデータを復元/適用
+            match existing_metadata {
+                Some(meta) => {
+                    // 既存ファイルだった: 保存したメタデータで復元
+                    let _ = apply_metadata(&dest, Some(meta.uid), Some(meta.gid), Some(meta.mode));
+                }
+                None => {
+                    // 新規ファイルだった: config のデフォルト値で設定
+                    let _ = apply_metadata(
+                        &dest,
+                        metadata_config.default_uid,
+                        metadata_config.default_gid,
+                        metadata_config.file_permissions,
+                    );
+                }
+            }
+            AgentRestoreFileResult {
+                path: rel_path.to_string(),
+                success: true,
+                error: None,
+            }
+        }
         Err(e) => make_error(format!(
             "failed to copy {} -> {}: {e}",
             src.display(),
@@ -613,6 +887,348 @@ mod tests {
         assert_eq!(content, b"chunk1chunk2chunk3");
     }
 
+    // ── apply_metadata ──
+
+    #[test]
+    fn apply_metadata_sets_permissions() {
+        let tmp = setup();
+        let path = tmp.path().join("perm.txt");
+        fs::write(&path, "data").unwrap();
+
+        apply_metadata(&path, None, None, Some(0o644)).unwrap();
+
+        let meta = fs::metadata(&path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o644);
+    }
+
+    #[test]
+    fn apply_metadata_sets_restrictive_permissions() {
+        let tmp = setup();
+        let path = tmp.path().join("secret.txt");
+        fs::write(&path, "secret").unwrap();
+
+        apply_metadata(&path, None, None, Some(0o600)).unwrap();
+
+        let meta = fs::metadata(&path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o600);
+    }
+
+    #[test]
+    fn apply_metadata_skips_chown_when_uid_gid_none() {
+        let tmp = setup();
+        let path = tmp.path().join("no_chown.txt");
+        fs::write(&path, "data").unwrap();
+
+        let meta_before = fs::metadata(&path).unwrap();
+        let uid_before = meta_before.uid();
+        let gid_before = meta_before.gid();
+
+        // uid/gid = None で呼び出し — chown は実行されない
+        apply_metadata(&path, None, None, Some(0o644)).unwrap();
+
+        let meta_after = fs::metadata(&path).unwrap();
+        assert_eq!(meta_after.uid(), uid_before);
+        assert_eq!(meta_after.gid(), gid_before);
+    }
+
+    #[test]
+    fn apply_metadata_mode_none_does_not_change_permissions() {
+        let tmp = setup();
+        let path = tmp.path().join("keep_mode.txt");
+        fs::write(&path, "data").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        apply_metadata(&path, None, None, None).unwrap();
+
+        let meta = fs::metadata(&path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
+    }
+
+    #[test]
+    fn apply_metadata_chown_graceful_on_non_root() {
+        // 非 root 環境では chown が失敗してもエラーにならないことを確認
+        let tmp = setup();
+        let path = tmp.path().join("chown_test.txt");
+        fs::write(&path, "data").unwrap();
+
+        // root でない場合、uid=0 への chown は失敗するはずだが、エラーにはならない
+        let result = apply_metadata(&path, Some(0), Some(0), Some(0o644));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn apply_metadata_euid_nonroot_skips_chown() {
+        // 非 root（通常のテスト環境）では chown がスキップされ、
+        // uid/gid が変わらないことを確認
+        if is_root() {
+            // root で実行されている場合はスキップ
+            return;
+        }
+
+        let tmp = setup();
+        let path = tmp.path().join("skip_chown.txt");
+        fs::write(&path, "data").unwrap();
+
+        let meta_before = fs::metadata(&path).unwrap();
+
+        // uid/gid を指定しても、非 root なので chown は実行されない
+        apply_metadata(&path, Some(0), Some(0), None).unwrap();
+
+        let meta_after = fs::metadata(&path).unwrap();
+        assert_eq!(meta_after.uid(), meta_before.uid());
+        assert_eq!(meta_after.gid(), meta_before.gid());
+    }
+
+    // ── write_file_with_metadata ──
+
+    #[test]
+    fn write_file_with_metadata_new_file_applies_default_permissions() {
+        let tmp = setup();
+        let config = MetadataConfig {
+            file_permissions: Some(0o644),
+            ..Default::default()
+        };
+
+        let saved = write_file_with_metadata(
+            tmp.path(),
+            "new.txt",
+            b"hello",
+            true, // is_first_chunk
+            true, // is_last_chunk
+            None,
+            &config,
+        )
+        .unwrap();
+
+        // 新規ファイルなので saved_metadata は None
+        assert!(saved.is_none());
+
+        let meta = fs::metadata(tmp.path().join("new.txt")).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o644);
+    }
+
+    #[test]
+    fn write_file_with_metadata_existing_file_restores_permissions() {
+        let tmp = setup();
+        let file_path = tmp.path().join("existing.txt");
+        fs::write(&file_path, "old content").unwrap();
+        fs::set_permissions(&file_path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let config = MetadataConfig {
+            file_permissions: Some(0o644), // これは使われないはず
+            ..Default::default()
+        };
+
+        let saved = write_file_with_metadata(
+            tmp.path(),
+            "existing.txt",
+            b"new content",
+            true, // is_first_chunk
+            true, // is_last_chunk
+            None,
+            &config,
+        )
+        .unwrap();
+
+        // 既存ファイルの metadata が保存されているはず
+        assert!(saved.is_some());
+        let saved = saved.unwrap();
+        assert_eq!(saved.mode & 0o7777, 0o755);
+
+        // パーミッションが復元されているはず（元の 0o755）
+        let meta = fs::metadata(tmp.path().join("existing.txt")).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
+    }
+
+    #[test]
+    fn write_file_with_metadata_chunked_transfer() {
+        let tmp = setup();
+        let config = MetadataConfig {
+            file_permissions: Some(0o600),
+            ..Default::default()
+        };
+
+        // 最初のチャンク（is_last_chunk=false なのでメタデータ適用されない）
+        let saved = write_file_with_metadata(
+            tmp.path(),
+            "chunked.bin",
+            b"chunk1",
+            true,  // is_first_chunk
+            false, // is_last_chunk
+            None,
+            &config,
+        )
+        .unwrap();
+        assert!(saved.is_none()); // 新規ファイル
+
+        // 2番目のチャンク（最終、メタデータ適用）
+        write_file_with_metadata(
+            tmp.path(),
+            "chunked.bin",
+            b"chunk2",
+            false, // is_first_chunk
+            true,  // is_last_chunk
+            None,  // saved_metadata (新規なので None)
+            &config,
+        )
+        .unwrap();
+
+        let content = fs::read(tmp.path().join("chunked.bin")).unwrap();
+        assert_eq!(content, b"chunk1chunk2");
+
+        let meta = fs::metadata(tmp.path().join("chunked.bin")).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o600);
+    }
+
+    #[test]
+    fn write_file_with_metadata_new_dir_permissions() {
+        let tmp = setup();
+        let config = MetadataConfig {
+            file_permissions: Some(0o644),
+            dir_permissions: Some(0o755),
+            ..Default::default()
+        };
+
+        write_file_with_metadata(
+            tmp.path(),
+            "newdir/subdir/file.txt",
+            b"data",
+            true,
+            true,
+            None,
+            &config,
+        )
+        .unwrap();
+
+        // 新規作成された中間ディレクトリ (newdir) にも dir_permissions が適用されている
+        let parent_dir_meta = fs::metadata(tmp.path().join("newdir")).unwrap();
+        assert_eq!(
+            parent_dir_meta.permissions().mode() & 0o7777,
+            0o755,
+            "intermediate directory 'newdir' should have dir_permissions applied"
+        );
+
+        // 末端ディレクトリ (newdir/subdir) にも dir_permissions が適用されている
+        let dir_meta = fs::metadata(tmp.path().join("newdir/subdir")).unwrap();
+        assert_eq!(dir_meta.permissions().mode() & 0o7777, 0o755);
+
+        // ファイルにも file_permissions が適用されている
+        let file_meta = fs::metadata(tmp.path().join("newdir/subdir/file.txt")).unwrap();
+        assert_eq!(file_meta.permissions().mode() & 0o7777, 0o644);
+    }
+
+    #[test]
+    fn write_file_with_metadata_existing_intermediate_dir_not_changed() {
+        let tmp = setup();
+        // 既存の中間ディレクトリを先に作成（パーミッション 0o700）
+        fs::create_dir(tmp.path().join("existing_parent")).unwrap();
+        fs::set_permissions(
+            tmp.path().join("existing_parent"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+
+        let config = MetadataConfig {
+            file_permissions: Some(0o644),
+            dir_permissions: Some(0o755),
+            ..Default::default()
+        };
+
+        write_file_with_metadata(
+            tmp.path(),
+            "existing_parent/newchild/file.txt",
+            b"data",
+            true,
+            true,
+            None,
+            &config,
+        )
+        .unwrap();
+
+        // 既存ディレクトリは変更されないこと
+        let parent_meta = fs::metadata(tmp.path().join("existing_parent")).unwrap();
+        assert_eq!(
+            parent_meta.permissions().mode() & 0o7777,
+            0o700,
+            "existing directory should NOT have permissions changed"
+        );
+
+        // 新規作成された子ディレクトリには dir_permissions が適用されること
+        let child_meta = fs::metadata(tmp.path().join("existing_parent/newchild")).unwrap();
+        assert_eq!(
+            child_meta.permissions().mode() & 0o7777,
+            0o755,
+            "newly created directory should have dir_permissions applied"
+        );
+    }
+
+    // ── apply_dir_permissions ──
+
+    #[test]
+    fn apply_dir_permissions_sets_mode() {
+        let tmp = setup();
+        let dir = tmp.path().join("testdir");
+        fs::create_dir(&dir).unwrap();
+
+        apply_dir_permissions(&dir, Some(0o755)).unwrap();
+
+        let meta = fs::metadata(&dir).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
+    }
+
+    #[test]
+    fn apply_dir_permissions_none_does_nothing() {
+        let tmp = setup();
+        let dir = tmp.path().join("testdir2");
+        fs::create_dir(&dir).unwrap();
+
+        let meta_before = fs::metadata(&dir).unwrap();
+        let mode_before = meta_before.permissions().mode() & 0o7777;
+
+        apply_dir_permissions(&dir, None).unwrap();
+
+        let meta_after = fs::metadata(&dir).unwrap();
+        assert_eq!(meta_after.permissions().mode() & 0o7777, mode_before);
+    }
+
+    // ── create_symlink_with_metadata ──
+
+    #[test]
+    fn symlink_with_metadata_creation() {
+        let tmp = setup();
+        fs::write(tmp.path().join("target.txt"), "link target").unwrap();
+
+        create_symlink_with_metadata(tmp.path(), "meta_link.txt", "target.txt", None, None, None)
+            .unwrap();
+
+        let link = tmp.path().join("meta_link.txt");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&link).unwrap(), "link target");
+    }
+
+    // ── SavedMetadata ──
+
+    #[test]
+    fn saved_metadata_from_existing_file() {
+        let tmp = setup();
+        let path = tmp.path().join("meta_test.txt");
+        fs::write(&path, "data").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+
+        let saved = SavedMetadata::from_path(&path);
+        assert!(saved.is_some());
+        let saved = saved.unwrap();
+        assert_eq!(saved.mode & 0o7777, 0o640);
+    }
+
+    #[test]
+    fn saved_metadata_from_nonexistent_file() {
+        let tmp = setup();
+        let path = tmp.path().join("no_such_file.txt");
+        let saved = SavedMetadata::from_path(&path);
+        assert!(saved.is_none());
+    }
+
     #[test]
     fn symlink_absolute_target_rejected() {
         let tmp = setup();
@@ -702,6 +1318,7 @@ mod tests {
             "20260311-120000",
             &["a.txt".into(), "sub/b.txt".into()],
             &root_dir,
+            &MetadataConfig::default(),
         );
 
         assert_eq!(results.len(), 2);
@@ -731,6 +1348,7 @@ mod tests {
             "20260311-120000",
             &["../etc/passwd".into()],
             &root_dir,
+            &MetadataConfig::default(),
         );
 
         assert_eq!(results.len(), 1);
@@ -758,6 +1376,7 @@ mod tests {
             "20260311-120000",
             &["deep/nested/file.txt".into()],
             &root_dir,
+            &MetadataConfig::default(),
         );
 
         assert_eq!(results.len(), 1);
@@ -785,6 +1404,7 @@ mod tests {
             "20260311-120000",
             &["exists.txt".into(), "missing.txt".into()],
             &root_dir,
+            &MetadataConfig::default(),
         );
 
         assert_eq!(results.len(), 2);
@@ -795,5 +1415,115 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("backup file not found"));
+    }
+
+    #[test]
+    fn restore_backup_preserves_existing_file_metadata() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(session_dir.join("a.txt"), "restored content").unwrap();
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        // 既存ファイルをパーミッション 0o755 で作成
+        fs::write(root_dir.join("a.txt"), "old content").unwrap();
+        fs::set_permissions(root_dir.join("a.txt"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["a.txt".into()],
+            &root_dir,
+            &MetadataConfig::default(),
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        // コンテンツが復元されていること
+        assert_eq!(
+            fs::read_to_string(root_dir.join("a.txt")).unwrap(),
+            "restored content"
+        );
+        // 既存ファイルのパーミッションが保持されていること
+        let meta = fs::metadata(root_dir.join("a.txt")).unwrap();
+        assert_eq!(
+            meta.permissions().mode() & 0o7777,
+            0o755,
+            "existing file permissions should be preserved after restore"
+        );
+    }
+
+    #[test]
+    fn restore_backup_new_file_applies_config_permissions() {
+        let tmp = setup();
+        let backup_dir = tmp.path().join("backups");
+        let session_dir = backup_dir.join("20260311-120000");
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(session_dir.join("new.txt"), "new content").unwrap();
+
+        let root_dir = tmp.path().join("root");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let config = MetadataConfig {
+            file_permissions: Some(0o600),
+            ..Default::default()
+        };
+
+        let results = restore_backup(
+            &backup_dir,
+            "20260311-120000",
+            &["new.txt".into()],
+            &root_dir,
+            &config,
+        );
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].success);
+        // 新規ファイルには config のデフォルトパーミッションが適用されること
+        let meta = fs::metadata(root_dir.join("new.txt")).unwrap();
+        assert_eq!(
+            meta.permissions().mode() & 0o7777,
+            0o600,
+            "new file should get config default permissions"
+        );
+    }
+
+    // ── create_symlink_with_metadata dir_permissions ──
+
+    #[test]
+    fn symlink_with_metadata_applies_dir_permissions() {
+        let tmp = setup();
+        fs::write(tmp.path().join("target.txt"), "link target").unwrap();
+
+        create_symlink_with_metadata(
+            tmp.path(),
+            "newparent/nested/link.txt",
+            "target.txt",
+            None,
+            None,
+            Some(0o755),
+        )
+        .unwrap();
+
+        // 新規作成されたディレクトリに dir_permissions が適用されている
+        let parent_meta = fs::metadata(tmp.path().join("newparent")).unwrap();
+        assert_eq!(
+            parent_meta.permissions().mode() & 0o7777,
+            0o755,
+            "intermediate directory should have dir_permissions applied"
+        );
+        let nested_meta = fs::metadata(tmp.path().join("newparent/nested")).unwrap();
+        assert_eq!(
+            nested_meta.permissions().mode() & 0o7777,
+            0o755,
+            "nested directory should have dir_permissions applied"
+        );
+
+        // symlink が正しく作成されていること
+        let link = tmp.path().join("newparent/nested/link.txt");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
     }
 }

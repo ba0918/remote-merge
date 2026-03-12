@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-03-12
 
 ---
 
 ## 🎯 Current Session
+
+### 20260312004348 - sudo Agent 起動 + ファイルパーミッション設定
+- **Started:** 2026-03-12 00:43:48
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260312004348_sudo-agent-and-permissions.md)
+- **Focus:** サーバー設定の `sudo = true` で Agent を sudo 起動、既存ファイルの owner/permissions 自動復元、新規ファイルのデフォルトパーミッション設定（グローバル + サーバー単位オーバーライド）
+
+---
 
 ### 20260311225740 - パフォーマンスチューニング
 - **Started:** 2026-03-11 22:57:40

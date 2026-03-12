@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 use super::client::AgentClient;
 use super::protocol::{FileKind, FileReadResult};
-use super::server::run_agent_loop;
+use super::server::{run_agent_loop, MetadataConfig};
 use super::tree_scan::convert_agent_entries_to_nodes;
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,13 @@ fn create_pair(tmp: &TempDir) -> AgentClient<UnixStream, UnixStream> {
     let server_reader = server_stream.try_clone().unwrap();
     let server_writer = server_stream;
     std::thread::spawn(move || {
-        run_agent_loop(server_reader, server_writer, root).ok();
+        run_agent_loop(
+            server_reader,
+            server_writer,
+            root,
+            MetadataConfig::default(),
+        )
+        .ok();
     });
     AgentClient::connect(client_stream.try_clone().unwrap(), client_stream).unwrap()
 }

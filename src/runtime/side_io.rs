@@ -33,6 +33,7 @@ impl CoreRuntime {
                 if let Some(content) = self.try_agent_read_file(name, rel_path) {
                     return content;
                 }
+                self.check_sudo_fallback(name)?;
                 self.read_remote_file(name, rel_path)
             }
         }
@@ -57,6 +58,7 @@ impl CoreRuntime {
                 if let Some(batch) = self.try_agent_read_files_batch(name, rel_paths) {
                     return batch;
                 }
+                self.check_sudo_fallback(name)?;
                 self.read_remote_files_batch(name, rel_paths)
             }
         }
@@ -79,6 +81,7 @@ impl CoreRuntime {
                 if let Some(bytes) = self.try_agent_read_file_bytes(name, rel_path) {
                     return bytes;
                 }
+                self.check_sudo_fallback(name)?;
                 self.read_remote_file_bytes(name, rel_path, force)
             }
         }
@@ -113,6 +116,7 @@ impl CoreRuntime {
                     return batch_result;
                 }
                 // SSH fallback: 1ファイルずつ
+                self.check_sudo_fallback(name)?;
                 let mut result = HashMap::with_capacity(rel_paths.len());
                 for rel_path in rel_paths {
                     let bytes = self.read_remote_file_bytes(name, rel_path, false)?;
@@ -137,6 +141,7 @@ impl CoreRuntime {
                 {
                     return result;
                 }
+                self.check_sudo_fallback(name)?;
                 self.write_remote_file(name, rel_path, content)
             }
         }
@@ -157,6 +162,7 @@ impl CoreRuntime {
                 if let Some(result) = self.try_agent_write_file(name, rel_path, content, true) {
                     return result;
                 }
+                self.check_sudo_fallback(name)?;
                 self.write_remote_file_bytes(name, rel_path, content)
             }
         }
@@ -183,6 +189,7 @@ impl CoreRuntime {
                 if let Some(stats) = self.try_agent_stat_files(name, rel_paths) {
                     return stats;
                 }
+                self.check_sudo_fallback(name)?;
                 self.stat_remote_files(name, rel_paths)
             }
         }
@@ -228,6 +235,7 @@ impl CoreRuntime {
                 if let Some(result) = self.try_agent_backup(name, rel_paths, session_id) {
                     return result;
                 }
+                self.check_sudo_fallback(name)?;
                 self.create_remote_backups(name, rel_paths, session_id)
             }
         }
@@ -283,6 +291,7 @@ impl CoreRuntime {
                     });
                 }
                 // SSH フォールバック
+                self.check_sudo_fallback(&name)?;
                 let mut sessions = self.list_remote_backup_sessions_ssh(&name)?;
                 crate::service::rollback::mark_expired(
                     &mut sessions,
@@ -361,6 +370,7 @@ impl CoreRuntime {
                     return result;
                 }
                 // SSH フォールバック
+                self.check_sudo_fallback(&name)?;
                 self.restore_remote_backup_ssh(
                     &name,
                     session_id,
@@ -408,6 +418,7 @@ impl CoreRuntime {
                 if let Some(result) = self.try_agent_symlink(name, rel_path, target) {
                     return result;
                 }
+                self.check_sudo_fallback(name)?;
                 self.create_remote_symlink(name, rel_path, target)
             }
         }
@@ -452,6 +463,7 @@ impl CoreRuntime {
                 if let Some(tree) = self.try_agent_fetch_tree_recursive(name, max_entries) {
                     return tree;
                 }
+                self.check_sudo_fallback(name)?;
                 self.fetch_remote_tree_recursive(name, max_entries)
             }
         }
@@ -1933,6 +1945,9 @@ mod tests {
                 key: None,
                 root_dir: std::path::PathBuf::from(root),
                 ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
             },
         );
         rt

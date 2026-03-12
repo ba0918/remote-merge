@@ -2797,6 +2797,7 @@ dependencies = [
  "expectrl",
  "glob-match",
  "hmac",
+ "libc",
  "ratatui",
  "rmp-serde",
  "russh",
