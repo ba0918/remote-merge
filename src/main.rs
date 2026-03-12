@@ -492,13 +492,27 @@ fn try_main() -> anyhow::Result<()> {
             file_permissions,
             dir_permissions,
         }) => {
-            let metadata_config = remote_merge::agent::server::MetadataConfig {
-                default_uid,
-                default_gid,
-                file_permissions,
-                dir_permissions,
-            };
-            remote_merge::agent::server::run_agent_server(root, metadata_config)?;
+            #[cfg(unix)]
+            {
+                let metadata_config = remote_merge::agent::server::MetadataConfig {
+                    default_uid,
+                    default_gid,
+                    file_permissions,
+                    dir_permissions,
+                };
+                remote_merge::agent::server::run_agent_server(root, metadata_config)?;
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = (
+                    root,
+                    default_uid,
+                    default_gid,
+                    file_permissions,
+                    dir_permissions,
+                );
+                anyhow::bail!("The agent subcommand is only supported on Unix platforms");
+            }
         }
         Some(Commands::Events {
             event_type,

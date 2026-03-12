@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! rollback サブコマンドのローカル E2E テスト。
 //!
 //! SSH 接続不要（--target local のみ）のため `#[ignore]` なし。

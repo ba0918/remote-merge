@@ -994,11 +994,18 @@ fn stat_local_files(
 }
 
 /// ローカルファイルのパーミッションを変更する
+#[cfg(unix)]
 fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     let perms = std::fs::Permissions::from_mode(mode);
     std::fs::set_permissions(full_path, perms)?;
+    Ok(())
+}
+
+/// Windows ではパーミッション変更は no-op
+#[cfg(not(unix))]
+fn chmod_local_file(_full_path: &Path, _mode: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -1132,7 +1139,17 @@ fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
 
+    #[cfg(unix)]
     std::os::unix::fs::symlink(target, full_path)?;
+    #[cfg(not(unix))]
+    {
+        // Windows では symlink 作成は未サポート
+        anyhow::bail!(
+            "Symlink creation is not supported on this platform: {} -> {}",
+            full_path.display(),
+            target
+        );
+    }
     Ok(())
 }
 

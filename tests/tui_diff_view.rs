@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! TUI diff ビューテスト（PTY ベース E2E）
 //!
 //! ファイル選択後の diff 表示、Enter 連打リグレッション、

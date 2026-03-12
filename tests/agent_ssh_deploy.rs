@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Agent SSH E2E テスト (D-5b)
 //!
 //! インプロセス SSH テストサーバーを使って `remote-merge agent` を SSH exec 経由で

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 // tests/cli_error_handling.rs
 //
 // CLI エラーハンドリングの E2E テスト。

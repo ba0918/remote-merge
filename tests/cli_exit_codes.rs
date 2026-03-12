@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! CLI exit code セマンティクスの E2E テスト。
 //!
 //! SSH 接続（localhost）を使用するため `#[ignore]` 付き。

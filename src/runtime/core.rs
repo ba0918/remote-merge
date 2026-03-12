@@ -4,11 +4,13 @@
 //! インターフェースに依存しない共通機能を提供する。
 
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
 use crate::agent::client::AgentClient;
 use crate::agent::deploy::{self, VersionCheck};
+#[cfg(unix)]
 use crate::agent::ssh_transport::{SshAgentTransport, TransportGuard};
 use crate::config::{self, AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
@@ -16,7 +18,12 @@ use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileTree;
 
 /// Agent クライアントの型エイリアス（UnixStream ペアで通信）
+#[cfg(unix)]
 pub type BoxedAgentClient = AgentClient<UnixStream, UnixStream>;
+
+/// Windows 向けの Agent クライアント型（プレースホルダー: Agent は Unix のみサポート）
+#[cfg(not(unix))]
+pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Cursor<Vec<u8>>>;
 
 /// TUI/CLI 共通のランタイム基盤。
 ///

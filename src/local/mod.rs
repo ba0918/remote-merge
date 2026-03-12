@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
@@ -114,7 +115,16 @@ pub fn scan_dir_with_limit(
 /// メタデータをノードに適用
 fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
     node.size = Some(meta.len());
-    node.permissions = Some(meta.mode());
+
+    #[cfg(unix)]
+    {
+        node.permissions = Some(meta.mode());
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        node.permissions = None;
+    }
 
     // mtime を DateTime<Utc> に変換
     if let Ok(mtime) = meta.modified() {

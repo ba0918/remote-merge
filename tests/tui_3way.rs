@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! TUI 3way 比較テスト（PTY ベース E2E）
 //!
 //! 3サーバー構成（develop <-> staging + local(ref)）の TUI 動作を検証する。
