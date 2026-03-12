@@ -12,20 +12,22 @@ pub fn ssh_algorithm_hint(error_message: &str) -> Option<String> {
 
     if lower.contains("no matching key exchange") || lower.contains("kex") {
         hints.push(
-            "  kex_algorithms = \"curve25519-sha256,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1\"",
+            "  kex_algorithms = [\"curve25519-sha256\", \"diffie-hellman-group14-sha256\", \"diffie-hellman-group14-sha1\"]",
         );
     }
 
     if lower.contains("no matching host key") || lower.contains("host key algorithm") {
-        hints.push("  host_key_algorithms = \"ssh-ed25519,rsa-sha2-256,rsa-sha2-512,ssh-rsa\"");
+        hints.push("  host_key_algorithms = [\"ssh-ed25519\", \"rsa-sha2-256\", \"rsa-sha2-512\", \"ssh-rsa\"]");
     }
 
     if lower.contains("no matching cipher") || lower.contains("encryption") {
-        hints.push("  ciphers = \"aes256-ctr,aes128-ctr,chacha20-poly1305@openssh.com\"");
+        hints.push(
+            "  ciphers = [\"aes256-ctr\", \"aes128-ctr\", \"chacha20-poly1305@openssh.com\"]",
+        );
     }
 
     if lower.contains("no matching mac") || lower.contains("message authentication code") {
-        hints.push("  mac_algorithms = \"hmac-sha2-256,hmac-sha2-512,hmac-sha1\"");
+        hints.push("  mac_algorithms = [\"hmac-sha2-256\", \"hmac-sha2-512\", \"hmac-sha1\"]");
     }
 
     if hints.is_empty() {
