@@ -1,10 +1,26 @@
 # Project Status
 
-**Last Updated:** 2026-03-12 16:33
+**Last Updated:** 2026-03-12 21:20
 
 ---
 
 ## 🎯 Current Session
+
+### 20260312212041 - CLI Targeted I/O（フルスキャン廃止 + batch_read チャンク分割）
+- **Started:** 2026-03-12 21:20:41
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260312212041_cli-targeted-io.md)
+- **Summary:** CentOS 5 テスト環境（testenv/）で P1（1ファイル diff でフルスキャン）と P2（ARG_MAX 超過）を再現確認。指定パス時は fast path（ツリースキャンなし）、フルスキャン時は batch_read チャンク分割で安全化。6ステップ実装計画。
+
+---
+
+### 20260312203010 - CentOS 5 問題分析（問題記録）
+- **Started:** 2026-03-12 20:30:10
+- **Status:** 📋 Analysis Complete → 20260312212041 に引き継ぎ
+- **Plan:** [Link](./cycles/20260312203010_cli-targeted-io-no-fullscan.md)
+- **Summary:** CentOS 5 実機検証で発見した致命的問題4件の記録。P1-P4 の問題分析と初期方針。
+
+---
 
 ### 20260312163332 - コード品質改善 — Cycle C
 - **Started:** 2026-03-12 16:33:32

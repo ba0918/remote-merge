@@ -133,6 +133,47 @@ config/*.toml や vendor/legacy/** のようなパスパターンが
 filter.rs を新設し、should_exclude と is_path_excluded を集約。
 ```
 
+## Test Environment (testenv/)
+
+CentOS 5.11 Docker コンテナによるレガシー環境負荷テスト。
+
+### 前提
+
+- WSL2: `.wslconfig` に `kernelCommandLine = vsyscall=emulate` が必要
+- Docker
+
+### Quick Start
+
+```bash
+cd testenv && ./setup.sh          # フルセットアップ（10万ファイル生成含む、数分かかる）
+docker compose down               # 停止
+```
+
+### テストコマンド
+
+```bash
+# 1ファイル diff（P1: フルスキャン問題の検証）
+cargo run -- --config testenv/config.toml diff --right centos5 app/controllers/file_0.php
+
+# ステータス（P2: batch_read チャンク分割の検証）
+cargo run -- --config testenv/config.toml status --right centos5
+```
+
+### 環境スペック
+
+| 項目 | 値 |
+|------|-----|
+| OS | CentOS 5.11 (bash 3.2, OpenSSH 4.3) |
+| ARG_MAX | 131072 (128KB) |
+| リモートファイル数 | 100,000 |
+| ローカルファイル数 | 500 |
+| RightOnly | ~99,600 |
+
+### 注意
+
+- CentOS 5 の OpenSSH 4.3 は **ed25519 未対応**（RSA 鍵を使用）
+- レガシー Kex のみ対応 → config.toml に `ssh_options.kex_algorithms` 設定済み
+
 ## Implementation Phases
 
 Phase 1 (MVP) → Phase 2 (hunk merge, 3-way diff) → Phase 3 (UX/robustness) → Phase 4 (CLI subcommands for LLM agents). See spec.md "実装フェーズ" section for details.

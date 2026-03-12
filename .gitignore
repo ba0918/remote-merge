@@ -20,3 +20,10 @@ demo
 # Coverage
 lcov.info
 /coverage/.claude/worktrees/
+
+# Test environment
+testenv/data/
+testenv/rpms/
+testenv/.ssh/id_rsa
+testenv/.ssh/id_rsa.pub
+logs/
