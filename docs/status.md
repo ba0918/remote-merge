@@ -6,11 +6,20 @@
 
 ## 🎯 Current Session
 
+### 20260312110725 - Agent シェル互換性 + バックアップパス修正
+- **Started:** 2026-03-12 11:07:25
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260312110725_agent-shell-compat-and-backup-path.md)
+- **Focus:** CLI 実機検証で発見した2つのバグ修正。Agent デプロイコマンドの fish シェル互換性 + Agent backup の絶対パスエラー修正
+
+---
+
 ### 20260312004348 - sudo Agent 起動 + ファイルパーミッション設定
 - **Started:** 2026-03-12 00:43:48
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-12
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260312004348_sudo-agent-and-permissions.md)
-- **Focus:** サーバー設定の `sudo = true` で Agent を sudo 起動、既存ファイルの owner/permissions 自動復元、新規ファイルのデフォルトパーミッション設定（グローバル + サーバー単位オーバーライド）
+- **Summary:** sudo=true で Agent を sudo 起動、ファイル書き込み時の owner/group/permissions 自動復元、DefaultsConfig + parse_permissions + MetadataConfig、pre-flight チェック（NOPASSWD + uid/gid 取得）、invalidated_sudo_servers でフォールバック禁止。+62テスト（1853テスト通過）、clippy警告ゼロ。
 
 ---
 
