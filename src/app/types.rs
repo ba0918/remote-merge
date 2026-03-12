@@ -1,18 +1,17 @@
 //! TUI アプリケーションで使用する型定義。
 
-use crate::diff::engine::DiffResult;
 use crate::tree::FileNode;
 
 /// undo スタックの最大保持数
 pub const MAX_UNDO_STACK: usize = 50;
 
 /// キャッシュのスナップショット（undo 用）
+///
+/// diff は保存せず、復元時に `compute_diff()` で再計算する。
 #[derive(Debug, Clone)]
 pub struct CacheSnapshot {
     pub local_content: String,
     pub remote_content: String,
-    /// 適用時の diff 結果
-    pub diff: Option<DiffResult>,
 }
 
 /// TUI のフォーカス対象
@@ -241,12 +240,10 @@ mod tests {
         let snapshot = CacheSnapshot {
             local_content: "hello".to_string(),
             remote_content: "world".to_string(),
-            diff: None,
         };
         let cloned = snapshot.clone();
         assert_eq!(cloned.local_content, "hello");
         assert_eq!(cloned.remote_content, "world");
-        assert!(cloned.diff.is_none());
     }
 
     #[test]

@@ -351,7 +351,6 @@ mod tests {
             },
             lines: make_diff_lines(20),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.diff_cursor = 5;
         state.scroll_up();
@@ -378,7 +377,6 @@ mod tests {
             },
             lines: make_diff_lines(20),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.diff_cursor = 5;
         state.scroll_down();
@@ -397,7 +395,6 @@ mod tests {
             },
             lines: make_diff_lines(10),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.diff_cursor = 9;
         state.scroll_down();
@@ -432,7 +429,6 @@ mod tests {
             },
             lines: make_diff_lines(15),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         assert_eq!(state.diff_line_count(), 15);
     }
@@ -478,7 +474,6 @@ mod tests {
             },
             lines: make_diff_lines(5),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         let hints = state.build_key_hints();
         assert!(hints.contains("hunk"));
@@ -505,7 +500,6 @@ mod tests {
             },
             lines: make_diff_lines(100),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.diff_cursor = 0;
         state.scroll_page_down(20);
@@ -524,7 +518,6 @@ mod tests {
             },
             lines: make_diff_lines(100),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.diff_cursor = 30;
         state.scroll_page_up(20);
@@ -553,7 +546,6 @@ mod tests {
             },
             lines: make_diff_lines(20),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state.scroll_to_end();
         assert_eq!(state.diff_cursor, 19);

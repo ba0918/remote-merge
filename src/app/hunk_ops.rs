@@ -1,6 +1,6 @@
 //! ハンクマージ、ハンクカーソル操作。
 
-use crate::diff::engine::{self, DiffHunk, DiffLine, DiffResult, HunkDirection};
+use crate::diff::engine::{self, DiffResult, HunkDirection};
 
 use super::types::CacheSnapshot;
 use super::AppState;
@@ -46,15 +46,12 @@ impl AppState {
 
     /// カーソル位置に最も近いハンクにハンクカーソルを同期する（二分探索）
     pub fn sync_hunk_cursor_to_scroll(&mut self) {
-        if let Some(DiffResult::Modified {
-            merge_hunk_line_indices,
-            ..
-        }) = &self.current_diff
-        {
-            if merge_hunk_line_indices.is_empty() {
+        if let Some(DiffResult::Modified { merge_hunks, .. }) = &self.current_diff {
+            if merge_hunks.is_empty() {
                 return;
             }
-            let pos = merge_hunk_line_indices.partition_point(|&idx| idx <= self.diff_cursor);
+            let indices: Vec<usize> = merge_hunks.iter().map(|h| h.line_range.start).collect();
+            let pos = indices.partition_point(|&idx| idx <= self.diff_cursor);
             self.hunk_cursor = if pos == 0 { 0 } else { pos - 1 };
         }
     }
@@ -78,36 +75,14 @@ impl AppState {
 
     /// ハンクカーソル位置に diff_cursor を合わせ、ビューポートも追従させる
     fn scroll_to_hunk(&mut self) {
-        if let Some(DiffResult::Modified {
-            merge_hunks, lines, ..
-        }) = &self.current_diff
-        {
+        if let Some(DiffResult::Modified { merge_hunks, .. }) = &self.current_diff {
             if let Some(hunk) = merge_hunks.get(self.hunk_cursor) {
-                if !hunk.lines.is_empty() {
-                    let target = self.find_hunk_start_in_lines(lines, hunk);
-                    self.diff_cursor = target;
+                if !hunk.is_empty() {
+                    self.diff_cursor = hunk.line_range.start;
                     self.ensure_cursor_visible();
                 }
             }
         }
-    }
-
-    /// ハンクの開始位置を lines 内で探す（内容ベース）
-    fn find_hunk_start_in_lines(&self, lines: &[DiffLine], hunk: &DiffHunk) -> usize {
-        if hunk.lines.is_empty() {
-            return 0;
-        }
-        let first = &hunk.lines[0];
-        for (i, line) in lines.iter().enumerate() {
-            if line.tag == first.tag
-                && line.value == first.value
-                && line.old_index == first.old_index
-                && line.new_index == first.new_index
-            {
-                return i;
-            }
-        }
-        0
     }
 
     /// ハンクマージ後にシンタックスハイライトキャッシュを再構築する。
@@ -129,19 +104,28 @@ impl AppState {
     pub fn preview_hunk_merge(&self, direction: HunkDirection) -> Option<(String, String)> {
         let path = self.selected_path.as_ref()?;
 
-        let hunks = match &self.current_diff {
-            Some(DiffResult::Modified { merge_hunks, .. }) => merge_hunks.clone(),
+        let (hunk_lines_cloned, old_start, new_start) = match &self.current_diff {
+            Some(DiffResult::Modified {
+                merge_hunks, lines, ..
+            }) => {
+                let hunk = merge_hunks.get(self.hunk_cursor)?;
+                (hunk.lines(lines).to_vec(), hunk.old_start, hunk.new_start)
+            }
             _ => return None,
         };
-
-        let hunk = hunks.get(self.hunk_cursor)?;
 
         let original = match direction {
             HunkDirection::RightToLeft => self.left_cache.get(path)?.clone(),
             HunkDirection::LeftToRight => self.right_cache.get(path)?.clone(),
         };
 
-        let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
+        let new_text = engine::apply_hunk_to_text(
+            &original,
+            &hunk_lines_cloned,
+            old_start,
+            new_start,
+            direction,
+        );
         Some((original, new_text))
     }
 
@@ -149,12 +133,16 @@ impl AppState {
     pub fn apply_hunk_merge(&mut self, direction: HunkDirection) -> Option<String> {
         let path = self.selected_path.clone()?;
 
-        let hunks = match &self.current_diff {
-            Some(DiffResult::Modified { merge_hunks, .. }) => merge_hunks.clone(),
+        // DiffResult から必要なデータを事前にクローンして借用を解消
+        let (hunk_lines_cloned, old_start, new_start) = match &self.current_diff {
+            Some(DiffResult::Modified {
+                merge_hunks, lines, ..
+            }) => {
+                let hunk = merge_hunks.get(self.hunk_cursor)?;
+                (hunk.lines(lines).to_vec(), hunk.old_start, hunk.new_start)
+            }
             _ => return None,
         };
-
-        let hunk = hunks.get(self.hunk_cursor)?;
 
         // undo 用スナップショットを保存
         let local_content = self.left_cache.get(&path)?.clone();
@@ -163,7 +151,6 @@ impl AppState {
         self.push_undo_snapshot(CacheSnapshot {
             local_content: local_content.clone(),
             remote_content: remote_content.clone(),
-            diff: self.current_diff.clone(),
         });
 
         // 適用先テキストを取得
@@ -172,7 +159,13 @@ impl AppState {
             HunkDirection::LeftToRight => remote_content,
         };
 
-        let new_text = engine::apply_hunk_to_text(&original, hunk, direction);
+        let new_text = engine::apply_hunk_to_text(
+            &original,
+            &hunk_lines_cloned,
+            old_start,
+            new_start,
+            direction,
+        );
 
         // キャッシュを更新
         match direction {
@@ -220,7 +213,7 @@ mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode, MAX_UNDO_STACK};
     use crate::app::Side;
-    use crate::diff::engine;
+    use crate::diff::engine::{self, DiffHunk};
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -502,16 +495,14 @@ mod tests {
     }
 
     #[test]
-    fn test_find_hunk_start_in_lines_returns_zero_for_empty_hunk() {
-        let state = make_state_with_diff("a\nb\n", "a\nx\n");
-        if let Some(DiffResult::Modified { lines, .. }) = &state.current_diff {
-            let empty_hunk = DiffHunk {
-                lines: vec![],
-                old_start: 0,
-                new_start: 0,
-            };
-            assert_eq!(state.find_hunk_start_in_lines(lines, &empty_hunk), 0);
-        }
+    fn test_empty_hunk_is_empty() {
+        let empty_hunk = DiffHunk {
+            line_range: 0..0,
+            old_start: 0,
+            new_start: 0,
+        };
+        assert!(empty_hunk.is_empty());
+        assert_eq!(empty_hunk.len(), 0);
     }
 
     #[test]
@@ -522,7 +513,6 @@ mod tests {
             state.undo_stack.push_back(CacheSnapshot {
                 local_content: "x".to_string(),
                 remote_content: "y".to_string(),
-                diff: None,
             });
         }
         assert_eq!(state.undo_stack.len(), MAX_UNDO_STACK);
@@ -531,5 +521,69 @@ mod tests {
             state.apply_hunk_merge(HunkDirection::RightToLeft);
             assert_eq!(state.undo_stack.len(), MAX_UNDO_STACK);
         }
+    }
+
+    #[test]
+    fn test_undo_last_recomputes_diff() {
+        // apply_hunk_merge で変更 → undo_last → diff が元の状態に再計算されること
+        let mut state = make_state_with_diff("line1\nold\n", "line1\nnew\n");
+        let hunk_count_before = state.hunk_count();
+        assert!(hunk_count_before > 0);
+
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        // マージ後は diff が変わっている（ハンクが減る = Equal になる）
+        assert_ne!(state.hunk_count(), hunk_count_before);
+
+        // undo → diff が元の状態に再計算される
+        state.undo_last();
+        assert_eq!(state.hunk_count(), hunk_count_before);
+    }
+
+    #[test]
+    fn test_undo_all_recomputes_diff() {
+        let mut state = make_state_with_diff("a\nb\nc\n", "a\nx\nc\n");
+        let original_hunk_count = state.hunk_count();
+        assert!(original_hunk_count > 0);
+
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        // マージ後はハンクが減っている
+        assert_ne!(state.hunk_count(), original_hunk_count);
+
+        state.undo_all();
+        // undo_all → 初期状態の diff が再計算される
+        assert_eq!(state.hunk_count(), original_hunk_count);
+    }
+
+    #[test]
+    fn test_apply_undo_roundtrip_preserves_content() {
+        let left = "line1\nold\nline3\n";
+        let right = "line1\nnew\nline3\n";
+        let mut state = make_state_with_diff(left, right);
+
+        // apply
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        // undo
+        state.undo_last();
+
+        // キャッシュの内容が元に戻っていること
+        assert_eq!(state.left_cache.get("a.rs").unwrap(), left);
+        assert_eq!(state.right_cache.get("a.rs").unwrap(), right);
+        // diff も正しく再計算されていること
+        assert!(state.current_diff.is_some());
+        assert!(state.hunk_count() > 0);
+    }
+
+    #[test]
+    fn test_undo_last_with_no_selected_path() {
+        let mut state = make_state_with_diff("a\n", "b\n");
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert_eq!(state.undo_stack.len(), 1);
+
+        // selected_path を None にする
+        state.selected_path = None;
+        let result = state.undo_last();
+        // pop_back は実行されるがパス不明で復元不可
+        assert!(!result);
+        assert!(state.undo_stack.is_empty());
     }
 }

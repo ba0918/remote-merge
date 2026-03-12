@@ -1,6 +1,8 @@
 //! similar クレートを使った行単位 diff 計算エンジン。
 //! ファイル内容の比較、ハンク生成、バイナリ判定を担当する。
 
+use std::ops::Range;
+
 use similar::{ChangeTag, TextDiff};
 
 /// ハンク適用の方向
@@ -39,12 +41,34 @@ pub struct DiffLine {
 /// 連続する変更行のグループ（ハンク）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffHunk {
-    /// ハンク内の行
-    pub lines: Vec<DiffLine>,
+    /// 全行リスト内でのこのハンクの範囲
+    pub line_range: Range<usize>,
     /// 左側の開始行番号
     pub old_start: usize,
     /// 右側の開始行番号
     pub new_start: usize,
+}
+
+impl DiffHunk {
+    /// ハンク内の行スライスを取得するアクセサ
+    pub fn lines<'a>(&self, all_lines: &'a [DiffLine]) -> &'a [DiffLine] {
+        all_lines.get(self.line_range.clone()).unwrap_or(&[])
+    }
+
+    /// ハンク内の行数
+    pub fn len(&self) -> usize {
+        self.line_range.len()
+    }
+
+    /// ハンクが空かどうか
+    pub fn is_empty(&self) -> bool {
+        self.line_range.is_empty()
+    }
+
+    /// 行インデックスがこのハンクの範囲内にあるかを O(1) で判定
+    pub fn contains_line(&self, line_index: usize) -> bool {
+        self.line_range.contains(&line_index)
+    }
 }
 
 /// diff 計算の結果
@@ -61,8 +85,6 @@ pub enum DiffResult {
         /// 全行（コンテキスト含む）
         lines: Vec<DiffLine>,
         stats: DiffStats,
-        /// 各 merge_hunk の全行リスト内での開始行インデックス（二分探索用キャッシュ）
-        merge_hunk_line_indices: Vec<usize>,
     },
     /// バイナリファイル（diff 不可、SHA-256ハッシュ+サイズで比較）
     Binary {
@@ -183,16 +205,15 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
     };
 
     // 表示用ハンク（コンテキスト3行でグループ化）
-    let (hunks, _) = build_hunks(&lines, 3);
+    let hunks = build_hunks(&lines, 3);
     // 操作用ハンク（コンテキスト0行、変更ブロック単位）
-    let (merge_hunks, merge_hunk_line_indices) = build_hunks(&lines, 0);
+    let merge_hunks = build_hunks(&lines, 0);
 
     DiffResult::Modified {
         hunks,
         merge_hunks,
         lines,
         stats,
-        merge_hunk_line_indices,
     }
 }
 
@@ -200,7 +221,13 @@ pub fn compute_diff(old: &str, new: &str) -> DiffResult {
 ///
 /// - `RightToLeft`: left テキストに対して、ハンク内の Delete 行を Insert 行で置換する
 /// - `LeftToRight`: right テキストに対して、ハンク内の Insert 行を Delete 行で置換する
-pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirection) -> String {
+pub fn apply_hunk_to_text(
+    original: &str,
+    hunk_lines: &[DiffLine],
+    old_start: usize,
+    new_start: usize,
+    direction: HunkDirection,
+) -> String {
     let original_lines: Vec<&str> = if original.is_empty() {
         Vec::new()
     } else {
@@ -211,8 +238,8 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
 
     // ハンク適用の開始行を決定
     let (start_line, keep_tag, replace_tag) = match direction {
-        HunkDirection::RightToLeft => (hunk.old_start, DiffTag::Insert, DiffTag::Delete),
-        HunkDirection::LeftToRight => (hunk.new_start, DiffTag::Delete, DiffTag::Insert),
+        HunkDirection::RightToLeft => (old_start, DiffTag::Insert, DiffTag::Delete),
+        HunkDirection::LeftToRight => (new_start, DiffTag::Delete, DiffTag::Insert),
     };
 
     // ハンクの前の行をそのまま追加
@@ -223,7 +250,7 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
     // ハンク内の行を処理
     // 元テキストで消費する行数を計算するため、Equal + replace_tag の行数をカウント
     let mut consumed = 0;
-    for diff_line in &hunk.lines {
+    for diff_line in hunk_lines {
         match diff_line.tag {
             DiffTag::Equal => {
                 result.push(diff_line.value.clone());
@@ -257,10 +284,9 @@ pub fn apply_hunk_to_text(original: &str, hunk: &DiffHunk, direction: HunkDirect
 }
 
 /// diff 行をハンク（変更グループ + コンテキスト行）に分割する。
-/// 各ハンクの全行リスト内での開始行インデックスも同時に返す（O(n+m)）。
-fn build_hunks(lines: &[DiffLine], context: usize) -> (Vec<DiffHunk>, Vec<usize>) {
+fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
     if lines.is_empty() {
-        return (Vec::new(), Vec::new());
+        return Vec::new();
     }
 
     // 変更行のインデックスを収集
@@ -272,11 +298,10 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> (Vec<DiffHunk>, Vec<usize>
         .collect();
 
     if change_indices.is_empty() {
-        return (Vec::new(), Vec::new());
+        return Vec::new();
     }
 
     let mut hunks = Vec::new();
-    let mut line_indices = Vec::new();
     let mut hunk_start = change_indices[0].saturating_sub(context);
     let mut hunk_end = (change_indices[0] + context + 1).min(lines.len());
 
@@ -287,20 +312,18 @@ fn build_hunks(lines: &[DiffLine], context: usize) -> (Vec<DiffHunk>, Vec<usize>
             hunk_end = (ci + context + 1).min(lines.len());
         } else {
             // 前のハンクを確定、新しいハンクを開始
-            line_indices.push(hunk_start);
-            hunks.push(make_hunk(&lines[hunk_start..hunk_end], hunk_start, lines));
+            hunks.push(make_hunk(hunk_start, hunk_end, lines));
             hunk_start = ci_start;
             hunk_end = (ci + context + 1).min(lines.len());
         }
     }
     // 最後のハンク
-    line_indices.push(hunk_start);
-    hunks.push(make_hunk(&lines[hunk_start..hunk_end], hunk_start, lines));
+    hunks.push(make_hunk(hunk_start, hunk_end, lines));
 
-    (hunks, line_indices)
+    hunks
 }
 
-fn make_hunk(hunk_lines: &[DiffLine], start_in_all: usize, all_lines: &[DiffLine]) -> DiffHunk {
+fn make_hunk(start_in_all: usize, end_in_all: usize, all_lines: &[DiffLine]) -> DiffHunk {
     let old_start = if start_in_all == 0 {
         0
     } else {
@@ -320,7 +343,7 @@ fn make_hunk(hunk_lines: &[DiffLine], start_in_all: usize, all_lines: &[DiffLine
     };
 
     DiffHunk {
-        lines: hunk_lines.to_vec(),
+        line_range: start_in_all..end_in_all,
         old_start,
         new_start,
     }
@@ -447,7 +470,10 @@ mod tests {
         let diff = compute_diff(old, new);
 
         if let DiffResult::Modified {
-            merge_hunks, hunks, ..
+            merge_hunks,
+            hunks,
+            lines,
+            ..
         } = &diff
         {
             // 表示用 hunks はコンテキスト3行で結合されうる
@@ -458,9 +484,15 @@ mod tests {
                 "2つの離れた変更は別々の merge_hunk に"
             );
             // b→X のハンク
-            assert!(merge_hunks[0].lines.iter().any(|l| l.value.contains("X")));
+            assert!(merge_hunks[0]
+                .lines(lines)
+                .iter()
+                .any(|l| l.value.contains("X")));
             // i→Y のハンク
-            assert!(merge_hunks[1].lines.iter().any(|l| l.value.contains("Y")));
+            assert!(merge_hunks[1]
+                .lines(lines)
+                .iter()
+                .any(|l| l.value.contains("Y")));
 
             // 表示用は1つに結合されてもよい（コンテキスト次第）
             assert!(hunks.len() <= merge_hunks.len());
@@ -505,9 +537,15 @@ mod tests {
         let new = "line1\nlineX\nline3\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
-            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            let result = apply_hunk_to_text(
+                old,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::RightToLeft,
+            );
             assert_eq!(result, "line1\nlineX\nline3\n");
         } else {
             panic!("Modified を期待");
@@ -522,9 +560,15 @@ mod tests {
         let new = "line1\nlineX\nline3\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
-            let result = apply_hunk_to_text(new, &hunks[0], HunkDirection::LeftToRight);
+            let result = apply_hunk_to_text(
+                new,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::LeftToRight,
+            );
             assert_eq!(result, "line1\nline2\nline3\n");
         } else {
             panic!("Modified を期待");
@@ -538,8 +582,14 @@ mod tests {
         let new = "aaa\nbbb\nXXX\nddd\neee\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
-            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
+            let result = apply_hunk_to_text(
+                old,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::RightToLeft,
+            );
             assert_eq!(result, "aaa\nbbb\nXXX\nddd\neee\n");
             // コンテキスト行 aaa, bbb, ddd, eee がそのまま残っている
             assert!(result.contains("aaa"));
@@ -557,8 +607,14 @@ mod tests {
         let new = "NEW\nsecond\nthird\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
-            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
+            let result = apply_hunk_to_text(
+                old,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::RightToLeft,
+            );
             assert_eq!(result, "NEW\nsecond\nthird\n");
         } else {
             panic!("Modified を期待");
@@ -571,8 +627,14 @@ mod tests {
         let new = "first\nsecond\nNEW_LAST\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
-            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
+            let result = apply_hunk_to_text(
+                old,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::RightToLeft,
+            );
             assert_eq!(result, "first\nsecond\nNEW_LAST\n");
         } else {
             panic!("Modified を期待");
@@ -586,13 +648,25 @@ mod tests {
         let new = "a\nX\nY\nd\n";
         let diff = compute_diff(old, new);
 
-        if let DiffResult::Modified { hunks, .. } = &diff {
+        if let DiffResult::Modified { hunks, lines, .. } = &diff {
             assert_eq!(hunks.len(), 1);
-            let result = apply_hunk_to_text(old, &hunks[0], HunkDirection::RightToLeft);
+            let result = apply_hunk_to_text(
+                old,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::RightToLeft,
+            );
             assert_eq!(result, "a\nX\nY\nd\n");
 
             // 逆方向も検証
-            let result2 = apply_hunk_to_text(new, &hunks[0], HunkDirection::LeftToRight);
+            let result2 = apply_hunk_to_text(
+                new,
+                hunks[0].lines(lines),
+                hunks[0].old_start,
+                hunks[0].new_start,
+                HunkDirection::LeftToRight,
+            );
             assert_eq!(result2, "a\nb\nc\nd\n");
         } else {
             panic!("Modified を期待");
@@ -707,26 +781,22 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_hunk_line_indices_correct() {
-        // 2つの離れた変更 → merge_hunk_line_indices が正しい位置を指すこと
+    fn test_merge_hunk_line_range_start_correct() {
+        // 2つの離れた変更 → line_range.start が正しい位置を指すこと
         let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
         let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
         let result = compute_diff(old, new);
 
         if let DiffResult::Modified {
-            lines,
-            merge_hunks,
-            merge_hunk_line_indices,
-            ..
+            lines, merge_hunks, ..
         } = &result
         {
             assert_eq!(merge_hunks.len(), 2);
-            assert_eq!(merge_hunk_line_indices.len(), 2);
 
-            // 各インデックスが実際のハンク先頭行と一致すること
-            for (hunk, &idx) in merge_hunks.iter().zip(merge_hunk_line_indices.iter()) {
-                let first = &hunk.lines[0];
-                let line_at_idx = &lines[idx];
+            // 各 line_range.start が実際のハンク先頭行と一致すること
+            for hunk in merge_hunks {
+                let first = &hunk.lines(lines)[0];
+                let line_at_idx = &lines[hunk.line_range.start];
                 assert_eq!(first.tag, line_at_idx.tag);
                 assert_eq!(first.value, line_at_idx.value);
                 assert_eq!(first.old_index, line_at_idx.old_index);
@@ -738,8 +808,8 @@ mod tests {
     }
 
     #[test]
-    fn test_build_hunks_returns_correct_line_indices() {
-        // build_hunks が返す line_indices が hunk_start と一致することを直接検証
+    fn test_build_hunks_returns_correct_line_ranges() {
+        // build_hunks が返す line_range.start が hunk_start と一致することを直接検証
         let lines = vec![
             DiffLine {
                 tag: DiffTag::Equal,
@@ -792,12 +862,79 @@ mod tests {
         ];
 
         // context=0: 各変更ブロックは独立
-        let (hunks, indices) = build_hunks(&lines, 0);
+        let hunks = build_hunks(&lines, 0);
         assert_eq!(hunks.len(), 2);
-        assert_eq!(indices.len(), 2);
         // 最初の変更ブロックは行1から
-        assert_eq!(indices[0], 1);
+        assert_eq!(hunks[0].line_range.start, 1);
         // 2番目の変更ブロックは行5から
-        assert_eq!(indices[1], 5);
+        assert_eq!(hunks[1].line_range.start, 5);
+    }
+
+    #[test]
+    fn test_diff_hunk_lines_out_of_bounds_returns_empty() {
+        let all_lines = vec![DiffLine {
+            tag: DiffTag::Equal,
+            value: "a".into(),
+            old_index: Some(0),
+            new_index: Some(0),
+        }];
+        // 不正な line_range（範囲外）で空スライスを返すこと
+        let hunk = DiffHunk {
+            line_range: 5..10,
+            old_start: 0,
+            new_start: 0,
+        };
+        assert!(hunk.lines(&all_lines).is_empty());
+    }
+
+    #[test]
+    fn test_diff_hunk_lines_boundary_start_equals_len() {
+        let all_lines = vec![DiffLine {
+            tag: DiffTag::Equal,
+            value: "a".into(),
+            old_index: Some(0),
+            new_index: Some(0),
+        }];
+        // start == all_lines.len() で空スライスを返すこと
+        let hunk = DiffHunk {
+            line_range: 1..1,
+            old_start: 0,
+            new_start: 0,
+        };
+        assert!(hunk.lines(&all_lines).is_empty());
+    }
+
+    #[test]
+    fn test_diff_hunk_contains_line_boundary() {
+        let hunk = DiffHunk {
+            line_range: 3..7,
+            old_start: 0,
+            new_start: 0,
+        };
+        // 範囲外
+        assert!(!hunk.contains_line(2));
+        // 範囲内（開始）
+        assert!(hunk.contains_line(3));
+        // 範囲内（中央）
+        assert!(hunk.contains_line(5));
+        // 範囲内（末尾 -1）
+        assert!(hunk.contains_line(6));
+        // 範囲外（末尾、exclusive）
+        assert!(!hunk.contains_line(7));
+        // 空ハンク
+        let empty = DiffHunk {
+            line_range: 0..0,
+            old_start: 0,
+            new_start: 0,
+        };
+        assert!(!empty.contains_line(0));
+    }
+
+    #[test]
+    fn test_apply_hunk_to_text_empty_hunk_lines() {
+        let original = "line1\nline2\nline3\n";
+        // 空の hunk_lines を渡すとオリジナルをそのまま返す
+        let result = apply_hunk_to_text(original, &[], 0, 0, HunkDirection::RightToLeft);
+        assert_eq!(result, original);
     }
 }

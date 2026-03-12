@@ -323,7 +323,7 @@ impl<'a> DiffView<'a> {
                 .take(visible_height.saturating_sub(1))
                 .map(|(line_idx, line)| {
                     let in_current_hunk = current_hunk
-                        .map(|h| is_line_in_hunk(line, h))
+                        .map(|h| is_line_in_hunk(line_idx, h))
                         .unwrap_or(false);
                     let is_cursor = line_idx == cursor;
                     let bg = resolve_bg(
@@ -370,10 +370,12 @@ impl<'a> DiffView<'a> {
                     .map(|(pair_idx, (left, right))| {
                         let in_current_hunk = current_hunk
                             .map(|h| {
-                                let left_match =
-                                    left.map(|l| is_line_in_hunk(l, h)).unwrap_or(false);
-                                let right_match =
-                                    right.map(|r| is_line_in_hunk(r, h)).unwrap_or(false);
+                                let left_match = left
+                                    .map(|(_, idx)| is_line_in_hunk(idx, h))
+                                    .unwrap_or(false);
+                                let right_match = right
+                                    .map(|(_, idx)| is_line_in_hunk(idx, h))
+                                    .unwrap_or(false);
                                 left_match || right_match
                             })
                             .unwrap_or(false);
@@ -395,8 +397,8 @@ impl<'a> DiffView<'a> {
                         line_bgs.push(hunk_bg.or(cursor_bg));
                         let mut rendered = render_side_by_side_line(
                             self.state,
-                            *left,
-                            *right,
+                            left.map(|(l, _)| l),
+                            right.map(|(r, _)| r),
                             half_width,
                             in_current_hunk,
                             is_focused,
@@ -405,10 +407,10 @@ impl<'a> DiffView<'a> {
                         );
                         // 3way line badge を追加
                         if let Some(ctx) = &ref_ctx {
-                            let left_val = left.map(|l| l.value.as_str());
-                            let right_val = right.map(|r| r.value.as_str());
-                            let old_idx = left.and_then(|l| l.old_index);
-                            let new_idx = right.and_then(|r| r.new_index);
+                            let left_val = left.map(|(l, _)| l.value.as_str());
+                            let right_val = right.map(|(r, _)| r.value.as_str());
+                            let old_idx = left.and_then(|(l, _)| l.old_index);
+                            let new_idx = right.and_then(|(r, _)| r.new_index);
                             let badge =
                                 side_by_side_line_badge(ctx, left_val, right_val, old_idx, new_idx);
                             if !badge.content.is_empty() {
@@ -569,7 +571,6 @@ mod tests {
                 deletions: 1,
                 equal: 2,
             },
-            merge_hunk_line_indices: vec![],
         };
 
         let state = make_test_state_with_diff(Some(diff));

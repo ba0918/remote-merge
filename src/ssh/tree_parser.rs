@@ -67,12 +67,46 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
 /// フラットなノードリスト（相対パス含む名前）から再帰ツリーを構築する
 ///
 /// `parse_find_line` が返す `name` は "src/main.rs" のような相対パスになる。
-/// これを "/" で分割して再帰的にディレクトリ構造に埋め込む。
+/// これを "/" で分割して BTreeMap ベースの中間構造に挿入し、
+/// 最終段階で一括変換することで Vec↔BTreeMap 往復を排除する。
 pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
     use std::collections::BTreeMap;
 
+    /// ディレクトリ優先ソート（dir before file, 同種内はアルファベット順）
+    fn dir_first_sort(a: &FileNode, b: &FileNode) -> std::cmp::Ordering {
+        match (a.is_dir(), b.is_dir()) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        }
+    }
+
+    /// BTreeMap ベースの中間ツリーノード
+    struct TreeNode {
+        file_node: FileNode,
+        children: BTreeMap<String, TreeNode>,
+    }
+
+    impl TreeNode {
+        /// 中間構造から FileNode に一括変換（ディレクトリ優先ソート付き）
+        fn into_sorted_file_node(self) -> FileNode {
+            let mut node = self.file_node;
+            if node.is_dir() {
+                let mut children: Vec<FileNode> = self
+                    .children
+                    .into_values()
+                    .map(|tn| tn.into_sorted_file_node())
+                    .collect();
+                children.sort_by(dir_first_sort);
+                node.children = Some(children);
+            }
+            node
+        }
+    }
+
+    /// パスの各セグメントに沿って中間ツリーにノードを挿入する
     fn insert_into_tree(
-        tree: &mut BTreeMap<String, FileNode>,
+        tree: &mut BTreeMap<String, TreeNode>,
         parts: &[&str],
         original_node: &FileNode,
     ) {
@@ -83,56 +117,54 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
         let name = parts[0];
 
         if parts.len() == 1 {
-            let mut node = original_node.clone();
-            node.name = name.to_string();
-            if node.is_dir() && node.children.is_none() {
-                node.children = Some(Vec::new());
-            }
+            // 末端ノード: 既存エントリがあればメタデータを後勝ちでマージ
+            // （後勝ち: 後から来た値が Some なら上書き、None なら既存値を保持）
             if let Some(existing) = tree.get_mut(name) {
-                existing.size = original_node.size.or(existing.size);
-                existing.mtime = original_node.mtime.or(existing.mtime);
-                existing.permissions = original_node.permissions.or(existing.permissions);
+                existing.file_node.size = original_node.size.or(existing.file_node.size);
+                existing.file_node.mtime = original_node.mtime.or(existing.file_node.mtime);
+                existing.file_node.permissions =
+                    original_node.permissions.or(existing.file_node.permissions);
             } else {
-                tree.insert(name.to_string(), node);
+                let mut node = original_node.clone();
+                node.name = name.to_string();
+                if node.is_dir() && node.children.is_none() {
+                    node.children = Some(Vec::new());
+                }
+                tree.insert(
+                    name.to_string(),
+                    TreeNode {
+                        file_node: node,
+                        children: BTreeMap::new(),
+                    },
+                );
             }
         } else {
+            // 中間ディレクトリ: 存在しなければ暗黙に作成
             let dir = tree.entry(name.to_string()).or_insert_with(|| {
                 let mut d = FileNode::new_dir(name);
                 d.children = Some(Vec::new());
-                d
+                TreeNode {
+                    file_node: d,
+                    children: BTreeMap::new(),
+                }
             });
-            if dir.children.is_none() {
-                dir.children = Some(Vec::new());
-            }
-            let children = dir.children.take().unwrap_or_default();
-            let mut child_map: BTreeMap<String, FileNode> = BTreeMap::new();
-            for child in children {
-                child_map.insert(child.name.clone(), child);
-            }
-            insert_into_tree(&mut child_map, &parts[1..], original_node);
-            let mut sorted: Vec<FileNode> = child_map.into_values().collect();
-            sorted.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            });
-            dir.children = Some(sorted);
+            insert_into_tree(&mut dir.children, &parts[1..], original_node);
         }
     }
 
-    let mut root_map: BTreeMap<String, FileNode> = BTreeMap::new();
+    let mut root_map: BTreeMap<String, TreeNode> = BTreeMap::new();
 
     for node in &flat_nodes {
         let parts: Vec<&str> = node.name.split('/').collect();
         insert_into_tree(&mut root_map, &parts, node);
     }
 
-    let mut result: Vec<FileNode> = root_map.into_values().collect();
-    result.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.cmp(&b.name),
-    });
+    // 最終段階で一括変換 + ソート
+    let mut result: Vec<FileNode> = root_map
+        .into_values()
+        .map(|tn| tn.into_sorted_file_node())
+        .collect();
+    result.sort_by(dir_first_sort);
     result
 }
 
@@ -264,5 +296,134 @@ mod tests {
         assert_eq!(c.name, "c");
         let deep = &c.children.as_ref().unwrap()[0];
         assert_eq!(deep.name, "deep.txt");
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_empty() {
+        let tree = build_tree_from_flat(vec![]);
+        assert!(tree.is_empty());
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_duplicate_dir_last_wins() {
+        // 同名ディレクトリ "src" が2回来た場合、後勝ちセマンティクス
+        use chrono::{TimeZone, Utc};
+
+        let mut src1 = FileNode::new_dir("src");
+        src1.children = Some(Vec::new());
+        src1.size = Some(100);
+        src1.mtime = Some(Utc.timestamp_opt(1000, 0).unwrap());
+        src1.permissions = Some(0o755);
+
+        let mut src2 = FileNode::new_dir("src");
+        src2.children = Some(Vec::new());
+        src2.size = Some(200);
+        src2.mtime = Some(Utc.timestamp_opt(2000, 0).unwrap());
+        src2.permissions = Some(0o700);
+
+        let tree = build_tree_from_flat(vec![src1, src2]);
+        assert_eq!(tree.len(), 1);
+        let src = &tree[0];
+        assert_eq!(src.name, "src");
+        assert!(src.is_dir());
+        // 後勝ち: src2 の値が優先される
+        assert_eq!(src.size, Some(200));
+        assert_eq!(src.mtime, Some(Utc.timestamp_opt(2000, 0).unwrap()));
+        assert_eq!(src.permissions, Some(0o700));
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_dir_before_file_sort() {
+        // ディレクトリ優先ソート: dir が file より前、同種内はアルファベット順
+        let flat = vec![
+            FileNode::new_file("z_file.txt"),
+            FileNode::new_file("a_file.txt"),
+            {
+                let mut d = FileNode::new_dir("m_dir");
+                d.children = Some(Vec::new());
+                d
+            },
+            {
+                let mut d = FileNode::new_dir("b_dir");
+                d.children = Some(Vec::new());
+                d
+            },
+        ];
+        let tree = build_tree_from_flat(flat);
+        assert_eq!(tree.len(), 4);
+        // ディレクトリが先
+        assert_eq!(tree[0].name, "b_dir");
+        assert!(tree[0].is_dir());
+        assert_eq!(tree[1].name, "m_dir");
+        assert!(tree[1].is_dir());
+        // ファイルが後
+        assert_eq!(tree[2].name, "a_file.txt");
+        assert!(tree[2].is_file());
+        assert_eq!(tree[3].name, "z_file.txt");
+        assert!(tree[3].is_file());
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_root_mixed() {
+        // ルートレベル混在: ディレクトリ + ファイル + 空ディレクトリ
+        let flat = vec![
+            FileNode::new_file("readme.md"),
+            {
+                let mut d = FileNode::new_dir("empty_dir");
+                d.children = Some(Vec::new());
+                d
+            },
+            {
+                let mut n = FileNode::new_file("lib.rs");
+                n.name = "src/lib.rs".to_string();
+                n
+            },
+            FileNode::new_file("Cargo.toml"),
+        ];
+        let tree = build_tree_from_flat(flat);
+        assert_eq!(tree.len(), 4);
+
+        // ディレクトリが先（empty_dir, src）、ファイルが後（Cargo.toml, readme.md）
+        assert_eq!(tree[0].name, "empty_dir");
+        assert!(tree[0].is_dir());
+        assert!(tree[0].children.as_ref().unwrap().is_empty());
+
+        assert_eq!(tree[1].name, "src");
+        assert!(tree[1].is_dir());
+        assert_eq!(tree[1].children.as_ref().unwrap().len(), 1);
+        assert_eq!(tree[1].children.as_ref().unwrap()[0].name, "lib.rs");
+
+        assert_eq!(tree[2].name, "Cargo.toml");
+        assert!(tree[2].is_file());
+        assert_eq!(tree[3].name, "readme.md");
+        assert!(tree[3].is_file());
+    }
+
+    #[test]
+    fn test_build_tree_from_flat_duplicate_dir_none_fallback() {
+        // 後から来た値が None の場合、既存値を保持する（後勝ち + フォールバック）
+        use chrono::{TimeZone, Utc};
+
+        let mut src1 = FileNode::new_dir("src");
+        src1.children = Some(Vec::new());
+        src1.size = Some(100);
+        src1.mtime = Some(Utc.timestamp_opt(1000, 0).unwrap());
+        src1.permissions = Some(0o755);
+
+        let mut src2 = FileNode::new_dir("src");
+        src2.children = Some(Vec::new());
+        src2.size = None; // 後から来たが None → src1 の値にフォールバック
+        src2.mtime = Some(Utc.timestamp_opt(2000, 0).unwrap());
+        src2.permissions = None;
+
+        let tree = build_tree_from_flat(vec![src1, src2]);
+        assert_eq!(tree.len(), 1);
+        let src = &tree[0];
+        // size: src2 が None なので src1 の 100 にフォールバック
+        assert_eq!(src.size, Some(100));
+        // mtime: src2 が Some なので後勝ち
+        assert_eq!(src.mtime, Some(Utc.timestamp_opt(2000, 0).unwrap()));
+        // permissions: src2 が None なので src1 の 755 にフォールバック
+        assert_eq!(src.permissions, Some(0o755));
     }
 }

@@ -192,7 +192,6 @@ mod tests {
             },
             lines: make_diff_lines(n),
             merge_hunks: vec![],
-            merge_hunk_line_indices: vec![],
         });
         state
     }

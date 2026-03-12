@@ -696,16 +696,16 @@ fn test_split_for_side_by_side() {
     // 最初のペア: Equal
     assert!(pairs[0].0.is_some());
     assert!(pairs[0].1.is_some());
-    assert_eq!(pairs[0].0.as_ref().unwrap().tag, DiffTag::Equal);
+    assert_eq!(pairs[0].0.as_ref().unwrap().0.tag, DiffTag::Equal);
 
     // 2番目: Delete + Insert がペアリング
     assert!(pairs[1].0.is_some());
     assert!(pairs[1].1.is_some());
-    assert_eq!(pairs[1].0.as_ref().unwrap().tag, DiffTag::Delete);
-    assert_eq!(pairs[1].1.as_ref().unwrap().tag, DiffTag::Insert);
+    assert_eq!(pairs[1].0.as_ref().unwrap().0.tag, DiffTag::Delete);
+    assert_eq!(pairs[1].1.as_ref().unwrap().0.tag, DiffTag::Insert);
 
     // 3番目: Equal
-    assert_eq!(pairs[2].0.as_ref().unwrap().tag, DiffTag::Equal);
+    assert_eq!(pairs[2].0.as_ref().unwrap().0.tag, DiffTag::Equal);
 }
 
 #[test]
@@ -733,7 +733,10 @@ fn test_side_by_side_equal_lines_both_sides() {
     for (left, right) in &pairs {
         assert!(left.is_some());
         assert!(right.is_some());
-        assert_eq!(left.as_ref().unwrap().value, right.as_ref().unwrap().value);
+        assert_eq!(
+            left.as_ref().unwrap().0.value,
+            right.as_ref().unwrap().0.value
+        );
     }
 }
 
@@ -951,15 +954,12 @@ fn test_hunk_cursor_follows_scroll_position() {
     assert_eq!(state.hunk_cursor, 0);
 
     // 2番目のハンクの実際の開始位置を取得
-    let second_hunk_line = if let Some(DiffResult::Modified {
-        merge_hunk_line_indices,
-        ..
-    }) = &state.current_diff
-    {
-        merge_hunk_line_indices[1]
-    } else {
-        panic!("Modified を期待");
-    };
+    let second_hunk_line =
+        if let Some(DiffResult::Modified { merge_hunks, .. }) = &state.current_diff {
+            merge_hunks[1].line_range.start
+        } else {
+            panic!("Modified を期待");
+        };
 
     // カーソルを2番目のハンク位置に移動
     state.diff_cursor = second_hunk_line;
@@ -986,16 +986,10 @@ fn test_hunk_start_line_cache_computed() {
     let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
     let diff = compute_diff(old, new);
 
-    if let DiffResult::Modified {
-        merge_hunks,
-        merge_hunk_line_indices,
-        ..
-    } = &diff
-    {
+    if let DiffResult::Modified { merge_hunks, .. } = &diff {
         assert_eq!(merge_hunks.len(), 2);
-        assert_eq!(merge_hunk_line_indices.len(), 2);
-        // 最初のハンクのインデックスは2番目より小さい
-        assert!(merge_hunk_line_indices[0] < merge_hunk_line_indices[1]);
+        // 最初のハンクの line_range.start は2番目より小さい
+        assert!(merge_hunks[0].line_range.start < merge_hunks[1].line_range.start);
     } else {
         panic!("Modified を期待");
     }

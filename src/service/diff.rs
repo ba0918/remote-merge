@@ -25,8 +25,8 @@ pub fn build_diff_output(
 
     let (hunks, truncated, binary, symlink) = match result {
         engine::DiffResult::Equal => (vec![], false, false, false),
-        engine::DiffResult::Modified { hunks, .. } => {
-            let (h, t) = convert_hunks(&hunks, max_lines);
+        engine::DiffResult::Modified { hunks, lines, .. } => {
+            let (h, t) = convert_hunks(&hunks, &lines, max_lines);
             (h, t, false, false)
         }
         engine::DiffResult::Binary { .. } => {
@@ -45,8 +45,12 @@ pub fn build_diff_output(
             let ref_result = engine::compute_diff(left_content, rc);
             let ref_hunks = match ref_result {
                 engine::DiffResult::Equal => Some(vec![]),
-                engine::DiffResult::Modified { hunks: rh, .. } => {
-                    let (converted, _) = convert_hunks(&rh, max_lines);
+                engine::DiffResult::Modified {
+                    hunks: rh,
+                    lines: rl,
+                    ..
+                } => {
+                    let (converted, _) = convert_hunks(&rh, &rl, max_lines);
                     Some(converted)
                 }
                 _ => Some(vec![]),
@@ -91,7 +95,11 @@ pub fn build_diff_output(
 /// `max_lines` が指定された場合、Added/Removed 行の累計がその上限を超えたらトランケートする。
 /// Context（Equal）行はカウントせず、常に出力に含める。
 /// `max_lines = Some(0)` は無制限として扱う（None と同等）。
-fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<DiffHunk>, bool) {
+fn convert_hunks(
+    hunks: &[engine::DiffHunk],
+    all_lines: &[engine::DiffLine],
+    max_lines: Option<usize>,
+) -> (Vec<DiffHunk>, bool) {
     let mut result = Vec::new();
     let mut change_lines = 0usize;
     let mut truncated = false;
@@ -99,7 +107,7 @@ fn convert_hunks(hunks: &[engine::DiffHunk], max_lines: Option<usize>) -> (Vec<D
     for (i, hunk) in hunks.iter().enumerate() {
         let mut lines = Vec::new();
 
-        for line in &hunk.lines {
+        for line in hunk.lines(all_lines) {
             if let Some(max) = max_lines {
                 if max > 0 && change_lines >= max {
                     truncated = true;

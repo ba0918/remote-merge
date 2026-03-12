@@ -8,19 +8,17 @@ use crate::diff::engine::{DiffHunk, DiffLine, DiffTag};
 use crate::highlight::StyledSegment;
 use crate::theme::palette::ensure_contrast;
 
+/// Side-by-Side ペアリング結果の型。各ペアは (左側の行+インデックス, 右側の行+インデックス)。
+pub type SideBySidePair<'a> = (Option<(&'a DiffLine, usize)>, Option<(&'a DiffLine, usize)>);
+
 use super::search::apply_search_highlight;
 use super::style_utils::{
     base_bg, format_line_num, prefix_style, resolve_bg, style_with_bg, tag_char, truncate_or_pad,
 };
 
-/// 行が指定ハンク内に含まれるかチェック
-pub fn is_line_in_hunk(line: &DiffLine, hunk: &DiffHunk) -> bool {
-    hunk.lines.iter().any(|hl| {
-        hl.tag == line.tag
-            && hl.value == line.value
-            && hl.old_index == line.old_index
-            && hl.new_index == line.new_index
-    })
+/// 行インデックスが指定ハンクの範囲内にあるかチェック（O(1)）
+pub fn is_line_in_hunk(line_index: usize, hunk: &DiffHunk) -> bool {
+    hunk.contains_line(line_index)
 }
 
 /// テキスト部分の Span リストを構築する（ハイライト + 検索マッチ対応）
@@ -143,15 +141,16 @@ pub fn render_diff_line_highlighted(
     Line::from(spans)
 }
 
-/// Side-by-Side 用に diff 行を左右にペアリングする
-pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Option<&DiffLine>)> {
+/// Side-by-Side 用に diff 行を左右にペアリングする。
+/// 各行に元の lines 配列内でのインデックスを付与する（ハンクハイライト用）。
+pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<SideBySidePair<'_>> {
     let mut result = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
         match lines[i].tag {
             DiffTag::Equal => {
-                result.push((Some(&lines[i]), Some(&lines[i])));
+                result.push((Some((&lines[i], i)), Some((&lines[i], i))));
                 i += 1;
             }
             DiffTag::Delete => {
@@ -169,12 +168,12 @@ pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Opt
                 let max_len = delete_count.max(insert_count);
                 for j in 0..max_len {
                     let left = if j < delete_count {
-                        Some(&lines[delete_start + j])
+                        Some((&lines[delete_start + j], delete_start + j))
                     } else {
                         None
                     };
                     let right = if j < insert_count {
-                        Some(&lines[delete_end + j])
+                        Some((&lines[delete_end + j], delete_end + j))
                     } else {
                         None
                     };
@@ -182,7 +181,7 @@ pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<(Option<&DiffLine>, Opt
                 }
             }
             DiffTag::Insert => {
-                result.push((None, Some(&lines[i])));
+                result.push((None, Some((&lines[i], i))));
                 i += 1;
             }
         }
@@ -446,7 +445,101 @@ mod tests {
         ];
         let pairs = split_for_side_by_side(&lines);
         assert_eq!(pairs.len(), 1);
-        assert_eq!(pairs[0].0.unwrap().value, "old");
-        assert_eq!(pairs[0].1.unwrap().value, "new");
+        assert_eq!(pairs[0].0.unwrap().0.value, "old");
+        assert_eq!(pairs[0].0.unwrap().1, 0); // 元インデックス
+        assert_eq!(pairs[0].1.unwrap().0.value, "new");
+        assert_eq!(pairs[0].1.unwrap().1, 1); // 元インデックス
+    }
+
+    #[test]
+    fn test_split_for_side_by_side_delete2_insert3() {
+        // Delete×2 + Insert×3 のペアリングで各行の元インデックスが正確
+        let lines = vec![
+            DiffLine {
+                tag: DiffTag::Delete,
+                value: "d0".into(),
+                old_index: Some(0),
+                new_index: None,
+            },
+            DiffLine {
+                tag: DiffTag::Delete,
+                value: "d1".into(),
+                old_index: Some(1),
+                new_index: None,
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "i0".into(),
+                old_index: None,
+                new_index: Some(0),
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "i1".into(),
+                old_index: None,
+                new_index: Some(1),
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "i2".into(),
+                old_index: None,
+                new_index: Some(2),
+            },
+        ];
+        let pairs = split_for_side_by_side(&lines);
+        // max(2, 3) = 3 ペア
+        assert_eq!(pairs.len(), 3);
+        // ペア0: left=d0(idx=0), right=i0(idx=2)
+        assert_eq!(pairs[0].0.unwrap().0.value, "d0");
+        assert_eq!(pairs[0].0.unwrap().1, 0);
+        assert_eq!(pairs[0].1.unwrap().0.value, "i0");
+        assert_eq!(pairs[0].1.unwrap().1, 2);
+        // ペア1: left=d1(idx=1), right=i1(idx=3)
+        assert_eq!(pairs[1].0.unwrap().0.value, "d1");
+        assert_eq!(pairs[1].0.unwrap().1, 1);
+        assert_eq!(pairs[1].1.unwrap().0.value, "i1");
+        assert_eq!(pairs[1].1.unwrap().1, 3);
+        // ペア2: left=None, right=i2(idx=4)
+        assert!(pairs[2].0.is_none());
+        assert_eq!(pairs[2].1.unwrap().0.value, "i2");
+        assert_eq!(pairs[2].1.unwrap().1, 4);
+    }
+
+    #[test]
+    fn test_split_for_side_by_side_insert_only() {
+        // Insert単独ブロック（前にDeleteなし）でインデックスが正確
+        let lines = vec![
+            DiffLine {
+                tag: DiffTag::Equal,
+                value: "ctx".into(),
+                old_index: Some(0),
+                new_index: Some(0),
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "new1".into(),
+                old_index: None,
+                new_index: Some(1),
+            },
+            DiffLine {
+                tag: DiffTag::Insert,
+                value: "new2".into(),
+                old_index: None,
+                new_index: Some(2),
+            },
+        ];
+        let pairs = split_for_side_by_side(&lines);
+        assert_eq!(pairs.len(), 3);
+        // ペア0: Equal(idx=0)
+        assert_eq!(pairs[0].0.unwrap().1, 0);
+        assert_eq!(pairs[0].1.unwrap().1, 0);
+        // ペア1: left=None, right=new1(idx=1)
+        assert!(pairs[1].0.is_none());
+        assert_eq!(pairs[1].1.unwrap().0.value, "new1");
+        assert_eq!(pairs[1].1.unwrap().1, 1);
+        // ペア2: left=None, right=new2(idx=2)
+        assert!(pairs[2].0.is_none());
+        assert_eq!(pairs[2].1.unwrap().0.value, "new2");
+        assert_eq!(pairs[2].1.unwrap().1, 2);
     }
 }

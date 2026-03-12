@@ -171,7 +171,6 @@ mod tests {
         state.undo_stack.push_back(CacheSnapshot {
             local_content: "old".to_string(),
             remote_content: "old-remote".to_string(),
-            diff: None,
         });
         let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
         state.switch_server(Side::new("staging"), new_tree);
@@ -291,7 +290,6 @@ mod tests {
         state.undo_stack.push_back(CacheSnapshot {
             local_content: "old".to_string(),
             remote_content: "old".to_string(),
-            diff: None,
         });
         state.switch_pair(
             Side::Local,

@@ -5,6 +5,7 @@
 
 use super::types::{CacheSnapshot, MAX_UNDO_STACK};
 use super::AppState;
+use crate::diff::engine;
 
 impl AppState {
     /// undo 用スナップショットをスタックに保存する
@@ -58,12 +59,19 @@ impl AppState {
     }
 
     /// スナップショットからキャッシュ・diff・ハンクカーソルを復元する
+    ///
+    /// diff は保存していないため `compute_diff()` で再計算する。
     fn restore_snapshot(&mut self, snapshot: CacheSnapshot, path: &str) {
+        // 先に diff を計算（参照のみで clone 不要）
+        self.current_diff = Some(engine::compute_diff(
+            &snapshot.local_content,
+            &snapshot.remote_content,
+        ));
+        // move で insert（所有権移動により clone 不要）
         self.left_cache
             .insert(path.to_string(), snapshot.local_content);
         self.right_cache
             .insert(path.to_string(), snapshot.remote_content);
-        self.current_diff = snapshot.diff;
 
         self.clamp_hunk_cursor();
 

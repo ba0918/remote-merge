@@ -1,10 +1,19 @@
 # Project Status
 
-**Last Updated:** 2026-03-12 13:14
+**Last Updated:** 2026-03-12 15:24
 
 ---
 
 ## 🎯 Current Session
+
+### 20260312152430 - パフォーマンス最適化 — Cycle B (Step 5-8)
+- **Started:** 2026-03-12 15:24:30
+- **Completed:** 2026-03-12
+- **Status:** 🟢 Complete
+- **Plan:** [Link](./cycles/20260312152430_perf-optimization-cycle-b.md)
+- **Summary:** undo_stack から DiffResult 削除（compute_diff 再計算方式）、build_tree_from_flat() BTreeMap 中間構造体で往復変換排除、DiffHunk.lines を line_range: Range<usize> に変更（行データ一元化）、is_line_in_hunk() O(1) 化（line_range.contains）、merge_hunk_line_indices 削除。+15テスト（1959テスト通過）、clippy警告ゼロ。
+
+---
 
 ### 20260312131426 - MVP品質改善（Major Issues 全9件）— Cycle A 完了
 - **Started:** 2026-03-12 13:14:26

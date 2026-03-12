@@ -188,7 +188,6 @@ mod tests {
                 deletions: 0,
                 equal: 0,
             },
-            merge_hunk_line_indices: vec![],
         }
     }
 

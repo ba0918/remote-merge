@@ -123,7 +123,6 @@ mod tests {
                 deletions: 1,
                 equal: 0,
             },
-            merge_hunk_line_indices: vec![],
         };
         let result = format_diff_for_clipboard(&ctx(), &diff);
         assert!(result.contains("```diff"));

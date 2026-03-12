@@ -441,7 +441,6 @@ mod tests {
         state.undo_stack.push_back(crate::app::CacheSnapshot {
             local_content: String::new(),
             remote_content: String::new(),
-            diff: None,
         });
         assert!(state.has_unsaved_changes());
 
@@ -456,7 +455,6 @@ mod tests {
         state.undo_stack.push_back(crate::app::CacheSnapshot {
             local_content: String::new(),
             remote_content: String::new(),
-            diff: None,
         });
 
         // handle_diff_key の q パス相当: has_unsaved_changes() → UnsavedChanges

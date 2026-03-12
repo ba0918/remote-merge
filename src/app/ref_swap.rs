@@ -153,7 +153,6 @@ mod tests {
         state.undo_stack.push_back(crate::app::CacheSnapshot {
             local_content: String::new(),
             remote_content: String::new(),
-            diff: None,
         });
         state.swap_right_ref();
         assert!(state.undo_stack.is_empty());
