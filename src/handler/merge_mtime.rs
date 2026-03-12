@@ -97,37 +97,40 @@ pub fn check_mtime_for_write(
         None => return false,
     };
 
-    let mut conflicts = Vec::new();
-
-    // 左側の mtime チェック（ローカル or リモート）
+    // 左側・右側の mtime を取得
     let left_expected = state
         .left_tree
         .find_node(std::path::Path::new(&path))
         .and_then(|n| n.mtime);
     let left_actual = stat_left_file(state, runtime, &path);
-    if let Some(c) = optimistic_lock::check_mtime(&path, left_expected, left_actual) {
-        conflicts.push(c);
-    }
 
-    // リモート側の mtime チェック
-    if runtime.is_side_available(&state.right_source) {
-        let remote_expected = state
+    let has_right = runtime.is_side_available(&state.right_source);
+    let (right_expected, right_actual) = if has_right {
+        let expected = state
             .right_tree
             .find_node(std::path::Path::new(&path))
             .and_then(|n| n.mtime);
-        match runtime.stat_files(&state.right_source, std::slice::from_ref(&path)) {
-            Ok(results) => {
-                let remote_actual = results.first().and_then(|(_, dt)| *dt);
-                if let Some(c) = optimistic_lock::check_mtime(&path, remote_expected, remote_actual)
-                {
-                    conflicts.push(c);
-                }
-            }
+        let actual = match runtime.stat_files(&state.right_source, std::slice::from_ref(&path)) {
+            Ok(results) => results.first().and_then(|(_, dt)| *dt),
             Err(e) => {
                 tracing::warn!("mtime check failed (continuing): {}", e);
+                None
             }
-        }
-    }
+        };
+        (expected, actual)
+    } else {
+        (None, None)
+    };
+
+    // 純粋関数で衝突判定
+    let conflicts = super::merge_mtime_logic::collect_write_conflicts(
+        &path,
+        left_expected,
+        left_actual,
+        right_expected,
+        right_actual,
+        has_right,
+    );
 
     if conflicts.is_empty() {
         return false;

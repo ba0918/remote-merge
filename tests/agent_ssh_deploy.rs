@@ -345,7 +345,10 @@ fn make_ssh_config(port: u16, key_path: PathBuf) -> (ServerConfig, SshConfig) {
         file_permissions: None,
         dir_permissions: None,
     };
-    let ssh = SshConfig { timeout_sec: 10 };
+    let ssh = SshConfig {
+        timeout_sec: 10,
+        ..SshConfig::default()
+    };
     (server, ssh)
 }
 

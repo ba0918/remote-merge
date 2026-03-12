@@ -71,6 +71,22 @@ pub struct FilterConfig {
 #[derive(Debug, Clone)]
 pub struct SshConfig {
     pub timeout_sec: u64,
+    pub strict_host_key_checking: StrictHostKeyChecking,
+    /// `--yes` フラグ: 未知ホストキーを自動承認する
+    pub auto_yes: bool,
+    /// TUI モードかどうか（TUI では stdin ベースの CliVerifier を使わない）
+    pub is_tui: bool,
+}
+
+/// ホストキー確認ポリシー
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrictHostKeyChecking {
+    /// 未知ホストでプロンプト表示（デフォルト）
+    Ask,
+    /// 未知ホストを自動拒否
+    Yes,
+    /// 未知ホストを自動承認（既存の TOFU 動作）
+    No,
 }
 
 /// バックアップ設定
@@ -203,7 +219,12 @@ impl Default for FilterConfig {
 
 impl Default for SshConfig {
     fn default() -> Self {
-        Self { timeout_sec: 300 }
+        Self {
+            timeout_sec: 300,
+            strict_host_key_checking: StrictHostKeyChecking::Ask,
+            auto_yes: false,
+            is_tui: false,
+        }
     }
 }
 
@@ -289,6 +310,7 @@ struct RawFilterConfig {
 #[derive(Debug, Deserialize)]
 struct RawSshConfig {
     timeout_sec: Option<u64>,
+    strict_host_key_checking: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -495,21 +517,17 @@ fn merge_configs(
                 global
                     .ssh
                     .as_ref()
-                    .map_or_else(SshConfig::default, |s| SshConfig {
-                        timeout_sec: s.timeout_sec.unwrap_or(300),
-                    })
+                    .map(convert_raw_ssh_config)
+                    .unwrap_or_else(SshConfig::default)
             },
-            |s| SshConfig {
-                timeout_sec: s.timeout_sec.unwrap_or(300),
-            },
+            convert_raw_ssh_config,
         )
     } else {
         global
             .ssh
             .as_ref()
-            .map_or_else(SshConfig::default, |s| SshConfig {
-                timeout_sec: s.timeout_sec.unwrap_or(300),
-            })
+            .map(convert_raw_ssh_config)
+            .unwrap_or_else(SshConfig::default)
     };
 
     // backup: プロジェクトで上書き
@@ -581,6 +599,39 @@ fn convert_agent_config(raw: Option<&RawAgentConfig>) -> AgentConfig {
                 .max_file_chunk_bytes
                 .unwrap_or(defaults.max_file_chunk_bytes),
         },
+    }
+}
+
+/// RawSshConfig を SshConfig に変換する
+fn convert_raw_ssh_config(raw: &RawSshConfig) -> SshConfig {
+    SshConfig {
+        timeout_sec: raw.timeout_sec.unwrap_or(300),
+        strict_host_key_checking: raw
+            .strict_host_key_checking
+            .as_deref()
+            .map(parse_strict_host_key_checking)
+            .unwrap_or(StrictHostKeyChecking::Ask),
+        // auto_yes / is_tui は TOML から設定しない（CLI フラグで上書きする）
+        auto_yes: false,
+        is_tui: false,
+    }
+}
+
+/// strict_host_key_checking 文字列を enum に変換する
+///
+/// 不正な値は警告を出して Ask にフォールバックする。
+pub fn parse_strict_host_key_checking(s: &str) -> StrictHostKeyChecking {
+    match s.to_lowercase().as_str() {
+        "ask" => StrictHostKeyChecking::Ask,
+        "yes" | "true" => StrictHostKeyChecking::Yes,
+        "no" | "false" => StrictHostKeyChecking::No,
+        _ => {
+            tracing::warn!(
+                "Unknown strict_host_key_checking value: '{}', falling back to 'ask'",
+                s
+            );
+            StrictHostKeyChecking::Ask
+        }
     }
 }
 
@@ -1877,5 +1928,128 @@ file_permissions = "0o600"
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("servers.prod.file_permissions"));
+    }
+
+    // ── StrictHostKeyChecking テスト ──
+
+    #[test]
+    fn test_parse_strict_host_key_checking_values() {
+        assert_eq!(
+            parse_strict_host_key_checking("ask"),
+            StrictHostKeyChecking::Ask
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("yes"),
+            StrictHostKeyChecking::Yes
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("no"),
+            StrictHostKeyChecking::No
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("true"),
+            StrictHostKeyChecking::Yes
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("false"),
+            StrictHostKeyChecking::No
+        );
+        // 大文字小文字
+        assert_eq!(
+            parse_strict_host_key_checking("ASK"),
+            StrictHostKeyChecking::Ask
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("YES"),
+            StrictHostKeyChecking::Yes
+        );
+        assert_eq!(
+            parse_strict_host_key_checking("NO"),
+            StrictHostKeyChecking::No
+        );
+    }
+
+    #[test]
+    fn test_parse_strict_host_key_checking_unknown_falls_back_to_ask() {
+        assert_eq!(
+            parse_strict_host_key_checking("invalid"),
+            StrictHostKeyChecking::Ask
+        );
+        assert_eq!(
+            parse_strict_host_key_checking(""),
+            StrictHostKeyChecking::Ask
+        );
+    }
+
+    #[test]
+    fn test_ssh_config_default_is_ask() {
+        let config = SshConfig::default();
+        assert_eq!(config.strict_host_key_checking, StrictHostKeyChecking::Ask);
+    }
+
+    #[test]
+    fn test_ssh_config_strict_host_key_checking_from_toml() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[ssh]
+strict_host_key_checking = "yes"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(
+            config.ssh.strict_host_key_checking,
+            StrictHostKeyChecking::Yes
+        );
+    }
+
+    #[test]
+    fn test_ssh_config_strict_host_key_checking_default_when_omitted() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[ssh]
+timeout_sec = 60
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(
+            config.ssh.strict_host_key_checking,
+            StrictHostKeyChecking::Ask
+        );
+    }
+
+    #[test]
+    fn test_ssh_config_strict_host_key_checking_no() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[ssh]
+strict_host_key_checking = "no"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(
+            config.ssh.strict_host_key_checking,
+            StrictHostKeyChecking::No
+        );
     }
 }

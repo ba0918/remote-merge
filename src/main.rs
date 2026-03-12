@@ -37,6 +37,10 @@ struct Cli {
     #[arg(long, alias = "reference")]
     r#ref: Option<String>,
 
+    /// Auto-accept prompts (e.g., unknown host key verification)
+    #[arg(short = 'y', long = "yes", global = true)]
+    yes: bool,
+
     /// Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
     #[arg(short = 'v', long = "verbose", action = ArgAction::Count, global = true)]
     verbose: u8,
@@ -296,7 +300,11 @@ fn try_main() -> anyhow::Result<()> {
             checksum,
         }) => {
             let format_str = format.clone();
-            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let cfg =
+                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
+                    c.ssh.auto_yes = cli.yes;
+                    c
+                });
             let code = handle_with_format(
                 &format_str,
                 cfg.and_then(|cfg| {
@@ -328,7 +336,11 @@ fn try_main() -> anyhow::Result<()> {
             force,
         }) => {
             let format_str = format.clone();
-            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let cfg =
+                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
+                    c.ssh.auto_yes = cli.yes;
+                    c
+                });
             let code = handle_with_format(
                 &format_str,
                 cfg.and_then(|cfg| {
@@ -361,7 +373,11 @@ fn try_main() -> anyhow::Result<()> {
             format,
         }) => {
             let format_str = format.clone();
-            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let cfg =
+                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
+                    c.ssh.auto_yes = cli.yes;
+                    c
+                });
             let code = handle_with_format(
                 &format_str,
                 cfg.and_then(|cfg| {
@@ -394,7 +410,11 @@ fn try_main() -> anyhow::Result<()> {
             format,
         }) => {
             let format_str = format.clone();
-            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let cfg =
+                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
+                    c.ssh.auto_yes = cli.yes;
+                    c
+                });
             let code = handle_with_format(
                 &format_str,
                 cfg.and_then(|cfg| {
@@ -422,7 +442,11 @@ fn try_main() -> anyhow::Result<()> {
             format,
         }) => {
             let format_str = format.clone();
-            let cfg = config::load_config_with_project_override(cli.config.as_deref());
+            let cfg =
+                config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
+                    c.ssh.auto_yes = cli.yes;
+                    c
+                });
             let code = handle_with_format(
                 &format_str,
                 cfg.and_then(|cfg| {
@@ -493,7 +517,9 @@ fn try_main() -> anyhow::Result<()> {
             std::process::exit(code);
         }
         None => {
-            let config = config::load_config_with_project_override(cli.config.as_deref())?;
+            let mut config = config::load_config_with_project_override(cli.config.as_deref())?;
+            config.ssh.auto_yes = cli.yes;
+            config.ssh.is_tui = true;
             let right_server = cli.right.map(Ok).unwrap_or_else(|| {
                 config.servers.keys().next().cloned().ok_or_else(|| {
                     anyhow::anyhow!(
@@ -884,5 +910,32 @@ mod tests {
             }
             other => panic!("expected Agent command, got {other:?}"),
         }
+    }
+
+    // ── --yes フラグ ──
+
+    #[test]
+    fn test_cli_parse_yes_flag() {
+        let cli = Cli::try_parse_from(["remote-merge", "--yes"]).unwrap();
+        assert!(cli.yes);
+    }
+
+    #[test]
+    fn test_cli_parse_yes_short_flag() {
+        let cli = Cli::try_parse_from(["remote-merge", "-y"]).unwrap();
+        assert!(cli.yes);
+    }
+
+    #[test]
+    fn test_cli_parse_yes_flag_with_subcommand() {
+        let cli = Cli::try_parse_from(["remote-merge", "-y", "status"]).unwrap();
+        assert!(cli.yes);
+        assert!(cli.command.is_some());
+    }
+
+    #[test]
+    fn test_cli_parse_yes_default_false() {
+        let cli = Cli::try_parse_from(["remote-merge"]).unwrap();
+        assert!(!cli.yes);
     }
 }

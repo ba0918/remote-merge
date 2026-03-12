@@ -87,6 +87,7 @@ pub fn start_merge_scan(
         Some(task::RefSource::Remote(ref_name)) => runtime.core.get_agent(ref_name),
         _ => None,
     };
+    let pp = runtime.core.passphrase_provider.clone();
 
     std::thread::spawn(move || {
         let result = task::run_merge_scan(
@@ -99,6 +100,7 @@ pub fn start_merge_scan(
             &server_name,
             &dir_path,
             ref_source,
+            pp.as_deref(),
         );
         match result {
             Ok(scan_result) => {

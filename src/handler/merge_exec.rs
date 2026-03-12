@@ -20,13 +20,13 @@ pub use super::merge_tree_load::{expand_subtree_for_merge, load_children_to, loa
 
 /// マージを実行する
 pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &ConfirmDialog) {
-    use crate::diff::engine::DiffResult;
-    use crate::service::merge::{determine_merge_action, MergeAction};
+    use super::merge_exec_logic::{determine_merge_execution, MergeExecutionPlan};
+    use crate::service::merge::determine_merge_action;
 
     let path = &confirm.file_path;
     let direction = confirm.direction;
 
-    // symlink 判定を最初に行う（ハンクマージ・通常マージより先）
+    // ソース/ターゲットのツリーから MergeAction を決定
     let action = {
         let (source_tree, target_tree) = match direction {
             MergeDirection::LeftToRight => (&state.left_tree, &state.right_tree),
@@ -35,8 +35,20 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
         determine_merge_action(source_tree, target_tree, path)
     };
 
-    match action {
-        MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
+    // 純粋関数で前判定
+    let has_source_cache = match direction {
+        MergeDirection::LeftToRight => state.left_cache.contains_key(path),
+        MergeDirection::RightToLeft => state.right_cache.contains_key(path),
+    };
+    let plan = determine_merge_execution(
+        &action,
+        state.current_diff.as_ref(),
+        has_source_cache,
+        direction,
+    );
+
+    match plan {
+        MergeExecutionPlan::SymlinkMerge => {
             let (source_side, target_side) = match direction {
                 MergeDirection::LeftToRight => {
                     (state.left_source.clone(), state.right_source.clone())
@@ -58,15 +70,17 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             );
             return;
         }
-        MergeAction::Normal => {
-            // 既存の通常マージフローへ
+        MergeExecutionPlan::BinaryReject => {
+            state.status_message = format!("{}: binary file merge is not yet supported", path);
+            return;
         }
-    }
-
-    // バイナリファイルのマージは未対応
-    if let Some(DiffResult::Binary { .. }) = &state.current_diff {
-        state.status_message = format!("{}: binary file merge is not yet supported", path);
-        return;
+        MergeExecutionPlan::CacheMissing { side } => {
+            state.status_message = format!("{}: {} content not loaded", path, side);
+            return;
+        }
+        MergeExecutionPlan::TextMerge => {
+            // 通常のテキストマージフローへ
+        }
     }
 
     // セッションIDを1度だけ生成
@@ -74,10 +88,13 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
 
     match direction {
         MergeDirection::LeftToRight => {
-            let content = match state.left_cache.get(path) {
-                Some(c) => c.clone(),
+            // determine_merge_execution で has_source_cache=true を確認済みだが、
+            // panic 防止のため defensive に処理する
+            let content = match state.left_cache.get(path).cloned() {
+                Some(c) => c,
                 None => {
-                    state.status_message = format!("{}: left content not loaded", path);
+                    state.status_message =
+                        format!("{}: left content not loaded, cannot merge", path);
                     return;
                 }
             };
@@ -106,10 +123,13 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             }
         }
         MergeDirection::RightToLeft => {
-            let content = match state.right_cache.get(path) {
-                Some(c) => c.clone(),
+            // determine_merge_execution で has_source_cache=true を確認済みだが、
+            // panic 防止のため defensive に処理する
+            let content = match state.right_cache.get(path).cloned() {
+                Some(c) => c,
                 None => {
-                    state.status_message = format!("{}: right content not loaded", path);
+                    state.status_message =
+                        format!("{}: right content not loaded, cannot merge", path);
                     return;
                 }
             };
@@ -159,7 +179,14 @@ pub fn execute_hunk_merge(
 
         match direction {
             HunkDirection::RightToLeft => {
-                let content = state.left_cache.get(&path).cloned().unwrap_or_default();
+                let content = match state.left_cache.get(&path).cloned() {
+                    Some(c) => c,
+                    None => {
+                        state.status_message =
+                            format!("{}: left content not loaded, cannot write", path);
+                        return;
+                    }
+                };
                 match write_left_file(state, runtime, &path, &content) {
                     Ok(()) => {
                         let left = state.left_source.display_name();
@@ -190,7 +217,14 @@ pub fn execute_hunk_merge(
                 }
             }
             HunkDirection::LeftToRight => {
-                let content = state.right_cache.get(&path).cloned().unwrap_or_default();
+                let content = match state.right_cache.get(&path).cloned() {
+                    Some(c) => c,
+                    None => {
+                        state.status_message =
+                            format!("{}: right content not loaded, cannot write", path);
+                        return;
+                    }
+                };
                 match write_right_file(state, runtime, &path, &content) {
                     Ok(()) => {
                         let left = state.left_source.display_name();

@@ -18,6 +18,7 @@ use crate::service::status::{
 };
 use crate::service::types::FileStatusKind;
 use crate::ssh::client::SshClient;
+use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::{FileNode, FileTree};
 
 use super::TuiRuntime;
@@ -74,6 +75,7 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
     let exclude = state.active_exclude_patterns();
     let sensitive_patterns = state.sensitive_patterns.clone();
     let config = runtime.core.config.clone();
+    let pp = runtime.core.passphrase_provider.clone();
 
     std::thread::spawn(move || {
         let result = run_scan(
@@ -82,6 +84,7 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
             &exclude,
             &sensitive_patterns,
             &config,
+            pp.as_deref(),
         );
         let _ = tx.send(result);
     });
@@ -97,6 +100,7 @@ fn run_scan(
     exclude: &[String],
     sensitive_patterns: &[String],
     config: &AppConfig,
+    passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<ScanOutput, String> {
     let scan_start = std::time::Instant::now();
     tracing::info!(
@@ -111,11 +115,11 @@ fn run_scan(
 
     // 左側スキャン
     let (left_nodes, left_trunc, left_root, mut left_client) =
-        scan_side(left_source, exclude, config, &rt)?;
+        scan_side(left_source, exclude, config, &rt, passphrase_provider)?;
 
     // 右側スキャン
     let (right_nodes, right_trunc, right_root, mut right_client) =
-        scan_side(right_source, exclude, config, &rt)?;
+        scan_side(right_source, exclude, config, &rt, passphrase_provider)?;
 
     // === CLI と同じ service/status.rs のフローで差分計算 ===
 
@@ -192,6 +196,7 @@ fn scan_side(
     exclude: &[String],
     config: &AppConfig,
     rt: &tokio::runtime::Runtime,
+    passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<(Vec<FileNode>, bool, PathBuf, Option<SshClient>), String> {
     match side {
         Side::Local => {
@@ -207,7 +212,12 @@ fn scan_side(
                 .ok_or_else(|| format!("Server '{}' not found in config", server_name))?;
 
             let mut client = rt
-                .block_on(SshClient::connect(server_name, server_config, &config.ssh))
+                .block_on(SshClient::connect_with_passphrase(
+                    server_name,
+                    server_config,
+                    &config.ssh,
+                    passphrase_provider,
+                ))
                 .map_err(|e| format!("SSH connection failed ({}): {}", server_name, e))?;
 
             let root = server_config.root_dir.clone();

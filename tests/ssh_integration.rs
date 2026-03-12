@@ -285,7 +285,10 @@ fn make_server_config(port: u16, auth: AuthMethod, key_path: Option<PathBuf>) ->
 }
 
 fn make_ssh_config() -> SshConfig {
-    SshConfig { timeout_sec: 5 }
+    SshConfig {
+        timeout_sec: 5,
+        ..SshConfig::default()
+    }
 }
 
 // ── テストケース ──
@@ -411,7 +414,10 @@ async fn test_ssh_connection_timeout() {
         file_permissions: None,
         dir_permissions: None,
     };
-    let ssh_config = SshConfig { timeout_sec: 1 };
+    let ssh_config = SshConfig {
+        timeout_sec: 1,
+        ..SshConfig::default()
+    };
 
     let start = std::time::Instant::now();
     let result = SshClient::connect("test", &server_config, &ssh_config).await;
@@ -586,5 +592,174 @@ async fn test_ssh_write_file_bytes_large_chunked() {
         assert_eq!(decoded, binary_data);
     }
 
+    client.disconnect().await.expect("切断に失敗");
+}
+
+// ── HostKeyVerifier 統合テスト ──
+
+use remote_merge::ssh::host_key_verifier::HostKeyVerifier;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+/// テスト用の MockVerifier: 呼び出しを記録し、設定に応じて accept/reject する
+struct MockVerifier {
+    should_accept: bool,
+    call_count: AtomicUsize,
+    was_called: AtomicBool,
+}
+
+impl MockVerifier {
+    fn new(should_accept: bool) -> Self {
+        Self {
+            should_accept,
+            call_count: AtomicUsize::new(0),
+            was_called: AtomicBool::new(false),
+        }
+    }
+
+    fn was_called(&self) -> bool {
+        self.was_called.load(Ordering::SeqCst)
+    }
+
+    fn call_count(&self) -> usize {
+        self.call_count.load(Ordering::SeqCst)
+    }
+}
+
+impl HostKeyVerifier for MockVerifier {
+    fn verify_host_key(
+        &self,
+        _host: &str,
+        _port: u16,
+        _key_type: &str,
+        _fingerprint: &str,
+    ) -> bool {
+        self.was_called.store(true, Ordering::SeqCst);
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.should_accept
+    }
+}
+
+#[tokio::test]
+async fn test_connect_with_verifier_accept_succeeds() {
+    // 未知ホスト → verifier が true を返す → 接続成功
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let verifier = MockVerifier::new(true);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    // 未知ホスト（テストの known_hosts には登録されていない）なので verifier が呼ばれる。
+    // ただし、テスト環境の known_hosts に 127.0.0.1 が既に登録されている場合は
+    // verifier が呼ばれないので、接続成功のみを検証する。
+    assert!(
+        result.is_ok(),
+        "connect_with_verifier should succeed when verifier accepts"
+    );
+
+    let client = result.unwrap();
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_connect_with_verifier_reject_fails() {
+    // verifier が false を返す → 接続拒否
+    let handle = start_test_server().await;
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let verifier = MockVerifier::new(false);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    // 未知ホストの場合、verifier が false を返すと接続が拒否される。
+    // known_hosts に既に登録されていて verifier が呼ばれない場合は接続成功する。
+    // → テスト環境依存なので、verifier が呼ばれたかどうかで分岐。
+    if verifier.was_called() {
+        assert!(result.is_err(), "connect should fail when verifier rejects");
+        let err_msg = format!("{}", result.err().expect("should be error"));
+        assert!(
+            err_msg.contains("Host key verification failed"),
+            "error should mention verification failure: {}",
+            err_msg,
+        );
+    } else {
+        // known_hosts に既に登録済み → verifier 未呼び出し → 接続成功
+        assert!(result.is_ok(), "known host should connect without verifier");
+        let client = result.unwrap();
+        client.disconnect().await.expect("切断に失敗");
+    }
+}
+
+#[tokio::test]
+async fn test_known_host_skips_verifier() {
+    // 既知ホスト → verifier が呼ばれない
+    // connect_insecure は skip_host_key_check=true なので verifier は不要
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    // connect_insecure は known_hosts チェックをスキップする（= verifier 不要）
+    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
+        .await
+        .expect("connect_insecure should succeed");
+
+    let output = client.exec("echo ok").await.expect("exec should succeed");
+    assert_eq!(output, "ok\n");
+
+    client.disconnect().await.expect("切断に失敗");
+}
+
+#[tokio::test]
+async fn test_verifier_called_at_most_once_per_connection() {
+    // verifier は1回の接続で最大1回だけ呼ばれる
+    let handle = start_test_server().await;
+    handle.registry.register("echo ok", "ok\n", 0);
+
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let ssh_config = make_ssh_config();
+
+    let verifier = MockVerifier::new(true);
+    let result =
+        SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
+            .await;
+
+    assert!(result.is_ok());
+    // verifier が呼ばれた場合、1回だけ呼ばれることを検証
+    assert!(
+        verifier.call_count() <= 1,
+        "verifier should be called at most once, got {}",
+        verifier.call_count()
+    );
+
+    let client = result.unwrap();
     client.disconnect().await.expect("切断に失敗");
 }

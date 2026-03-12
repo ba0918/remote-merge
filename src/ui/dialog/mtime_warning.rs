@@ -9,7 +9,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::merge::optimistic_lock::MtimeConflict;
+use crate::merge::optimistic_lock::{ConflictReason, MtimeConflict};
 use crate::ui::metadata::format_mtime;
 
 use super::render_dialog_frame;
@@ -82,18 +82,37 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
             ]));
-            lines.push(Line::from(vec![
-                Span::raw("    diff: "),
-                Span::styled(
-                    format_mtime(conflict.expected),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::raw("  now: "),
-                Span::styled(
-                    format_mtime(conflict.actual),
-                    Style::default().fg(Color::Red),
-                ),
-            ]));
+            match conflict.reason {
+                ConflictReason::FileDeleted => {
+                    lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(
+                            "FILE DELETED",
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::raw(" (was: "),
+                        Span::styled(
+                            format_mtime(conflict.expected),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::raw(")"),
+                    ]));
+                }
+                ConflictReason::Changed => {
+                    lines.push(Line::from(vec![
+                        Span::raw("    diff: "),
+                        Span::styled(
+                            format_mtime(conflict.expected),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::raw("  now: "),
+                        Span::styled(
+                            format_mtime(conflict.actual),
+                            Style::default().fg(Color::Red),
+                        ),
+                    ]));
+                }
+            }
         }
 
         lines.push(Line::from(""));
@@ -140,6 +159,7 @@ mod tests {
                 path: "src/config.ts".to_string(),
                 expected: Some(dt1),
                 actual: Some(dt2),
+                reason: ConflictReason::Changed,
             }],
             merge_context: MtimeWarningMergeContext::Single {
                 path: "src/config.ts".to_string(),
@@ -176,6 +196,7 @@ mod tests {
                 path: "src/diff/engine.rs".to_string(),
                 expected: Some(dt1),
                 actual: Some(dt2),
+                reason: ConflictReason::Changed,
             }],
             merge_context: MtimeWarningMergeContext::Single {
                 path: "src/diff/engine.rs".to_string(),
@@ -219,5 +240,37 @@ mod tests {
             }
         }
         assert!(found_now_line, "Could not find 'now:' in rendered dialog");
+    }
+
+    #[test]
+    fn test_mtime_warning_dialog_renders_file_deleted() {
+        let dt1 = Utc.with_ymd_and_hms(2024, 1, 15, 14, 0, 0).unwrap();
+
+        let dialog = MtimeWarningDialog {
+            conflicts: vec![MtimeConflict {
+                path: "deleted_file.rs".to_string(),
+                expected: Some(dt1),
+                actual: None,
+                reason: ConflictReason::FileDeleted,
+            }],
+            merge_context: MtimeWarningMergeContext::Single {
+                path: "deleted_file.rs".to_string(),
+                direction: crate::merge::executor::MergeDirection::LeftToRight,
+            },
+        };
+
+        let area = Rect::new(0, 0, 80, 24);
+        let mut buf = Buffer::empty(area);
+
+        let widget = MtimeWarningDialogWidget {
+            dialog: &dialog,
+            border_color: Color::Yellow,
+            bg: Color::Black,
+        };
+        widget.render(area, &mut buf);
+
+        let content = buf.content().iter().map(|c| c.symbol()).collect::<String>();
+        assert!(content.contains("deleted_file.rs"));
+        assert!(content.contains("FILE DELETED"));
     }
 }

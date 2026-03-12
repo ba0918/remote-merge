@@ -41,11 +41,15 @@ pub fn load_subtree_contents(state: &mut AppState, runtime: &mut TuiRuntime, dir
     load_ref_files(state, runtime, &file_paths);
 
     // ── エラーパス判定 ──
-    for path in &file_paths {
-        let has_local = state.left_cache.contains_key(path);
-        let has_remote = state.right_cache.contains_key(path);
-        if !has_local && !has_remote {
-            state.error_paths.insert(path.clone());
+    {
+        let left_cached: std::collections::HashSet<&str> =
+            state.left_cache.keys().map(|k| k.as_str()).collect();
+        let right_cached: std::collections::HashSet<&str> =
+            state.right_cache.keys().map(|k| k.as_str()).collect();
+        for p in
+            super::merge_content_logic::detect_error_paths(&file_paths, &left_cached, &right_cached)
+        {
+            state.error_paths.insert(p.to_string());
         }
     }
 
@@ -283,7 +287,13 @@ fn load_ref_file_content(state: &mut AppState, runtime: &mut TuiRuntime, path: &
 
 /// ref/left/right の3キャッシュが揃っていて conflict_cache がない場合に再計算する。
 fn recalculate_conflict_if_needed(state: &mut AppState, path: &str) {
-    if state.conflict_cache.contains_key(path) {
+    let needs = super::merge_content_logic::needs_conflict_recalculation(
+        state.ref_cache.contains_key(path),
+        state.left_cache.contains_key(path),
+        state.right_cache.contains_key(path),
+        state.conflict_cache.contains_key(path),
+    );
+    if !needs {
         return;
     }
     let info = crate::diff::conflict::compute_conflict_if_complete(

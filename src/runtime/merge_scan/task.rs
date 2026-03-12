@@ -14,6 +14,7 @@ use crate::config::AppConfig;
 use crate::diff::binary::BinaryInfo;
 use crate::runtime::core::BoxedAgentClient;
 use crate::ssh::client::SshClient;
+use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileNode;
 
 /// ファイル数上限（DoS 防止）
@@ -43,6 +44,7 @@ pub fn run_merge_scan(
     server_name: &str,
     dir_path: &str,
     ref_source: Option<RefSource>,
+    passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<MergeScanResult, String> {
     let scan_start = std::time::Instant::now();
     tracing::info!(
@@ -97,6 +99,7 @@ pub fn run_merge_scan(
         &remote_root,
         ref_source,
         scan_start,
+        passphrase_provider,
     )
 }
 
@@ -127,6 +130,7 @@ fn run_merge_scan_via_ssh(
     remote_root: &str,
     ref_source: Option<RefSource>,
     scan_start: std::time::Instant,
+    passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<MergeScanResult, String> {
     let server_config = config
         .servers
@@ -137,7 +141,12 @@ fn run_merge_scan_via_ssh(
         .map_err(|e| format!("tokio runtime creation failed: {}", e))?;
 
     let mut client = rt
-        .block_on(SshClient::connect(server_name, server_config, &config.ssh))
+        .block_on(SshClient::connect_with_passphrase(
+            server_name,
+            server_config,
+            &config.ssh,
+            passphrase_provider,
+        ))
         .map_err(|e| format!("SSH connection failed: {}", e))?;
 
     // ref がリモートの場合、追加の SSH 接続を確立（失敗してもメインスキャンは続行）
@@ -145,7 +154,12 @@ fn run_merge_scan_via_ssh(
         Some(RefSource::Remote(ref_name)) => match config.servers.get(ref_name) {
             Some(ref_config) => {
                 let root = ref_config.root_dir.to_string_lossy().to_string();
-                match rt.block_on(SshClient::connect(ref_name, ref_config, &config.ssh)) {
+                match rt.block_on(SshClient::connect_with_passphrase(
+                    ref_name,
+                    ref_config,
+                    &config.ssh,
+                    passphrase_provider,
+                )) {
                     Ok(c) => (Some(c), Some(root)),
                     Err(e) => {
                         tracing::warn!("Ref SSH connection failed (skipping ref): {}", e);

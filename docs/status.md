@@ -1,16 +1,25 @@
 # Project Status
 
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-12 13:14
 
 ---
 
 ## 🎯 Current Session
 
+### 20260312131426 - MVP品質改善（Major Issues 全9件）— Cycle A 完了
+- **Started:** 2026-03-12 13:14:26
+- **Status:** 🟢 Cycle A Complete
+- **Plan:** [Link](./cycles/20260312131426_mvp-quality-improvements.md)
+- **Summary:** Cycle A (Step 1-4) 完了。TOFU ホストキー確認（HostKeyVerifier trait + oneshot channel + --yes）、パスフレーズ付き SSH 鍵（PassphraseProvider trait + Zeroizing + rpassword）、optimistic_lock ファイル削除検出（ConflictReason enum）、handler 層テスト追加（45テスト + unwrap_or_default 修正）。+91テスト（1853→1944テスト通過）、clippy警告ゼロ。
+
+---
+
 ### 20260312110725 - Agent シェル互換性 + バックアップパス修正
 - **Started:** 2026-03-12 11:07:25
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-12
+- **Status:** 🟢 Completed
 - **Plan:** [Link](./cycles/20260312110725_agent-shell-compat-and-backup-path.md)
-- **Focus:** CLI 実機検証で発見した2つのバグ修正。Agent デプロイコマンドの fish シェル互換性 + Agent backup の絶対パスエラー修正
+- **Summary:** CLI 実機検証で発見した2つのバグ修正。Agent デプロイコマンドの fish シェル互換性 + Agent backup の絶対パスエラー修正
 
 ---
 

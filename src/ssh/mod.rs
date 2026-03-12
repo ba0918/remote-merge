@@ -1,6 +1,9 @@
 pub mod batch_read;
 pub mod client;
 pub mod hint;
+pub mod host_key_verifier;
 pub(crate) mod known_hosts;
+pub(crate) mod known_hosts_io;
+pub mod passphrase_provider;
 pub(crate) mod preferred;
 pub(crate) mod tree_parser;

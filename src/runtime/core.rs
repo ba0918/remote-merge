@@ -12,6 +12,7 @@ use crate::agent::deploy::{self, VersionCheck};
 use crate::agent::ssh_transport::{SshAgentTransport, TransportGuard};
 use crate::config::{self, AppConfig, ServerConfig};
 use crate::ssh::client::SshClient;
+use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileTree;
 
 /// Agent クライアントの型エイリアス（UnixStream ペアで通信）
@@ -34,6 +35,10 @@ pub struct CoreRuntime {
     /// sudo=true のサーバーで Agent が無効化されたサーバー名の一覧。
     /// SSH フォールバックを禁止するために使用する。
     invalidated_sudo_servers: HashSet<String>,
+    /// パスフレーズ付き SSH 鍵のパスフレーズ取得プロバイダ。
+    /// TUI/CLI モードに応じて適切なプロバイダが注入される。
+    /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
+    pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
 }
 
 impl CoreRuntime {
@@ -46,7 +51,15 @@ impl CoreRuntime {
             #[cfg(unix)]
             transport_guards: HashMap::new(),
             invalidated_sudo_servers: HashSet::new(),
+            passphrase_provider: Some(Arc::new(
+                crate::ssh::passphrase_provider::build_default_provider(),
+            )),
         }
+    }
+
+    /// PassphraseProvider を設定する
+    pub fn set_passphrase_provider(&mut self, provider: Arc<dyn PassphraseProvider>) {
+        self.passphrase_provider = Some(provider);
     }
 
     /// テスト用: SSH 接続なしの最小ランタイムを作成する
@@ -457,10 +470,12 @@ impl CoreRuntime {
             server_config.host
         );
 
-        match self.rt.block_on(SshClient::connect(
+        let provider = self.passphrase_provider.as_ref().map(|p| p.as_ref());
+        match self.rt.block_on(SshClient::connect_with_passphrase(
             server_name,
             server_config,
             &self.config.ssh,
+            provider,
         )) {
             Ok(client) => {
                 tracing::info!("SSH connected: server={}", server_name);
