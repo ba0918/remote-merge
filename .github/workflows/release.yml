@@ -30,9 +30,10 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            archive: zip
+          # TODO: Windows support (separate cycle)
+          # - target: x86_64-pc-windows-msvc
+          #   os: windows-latest
+          #   archive: zip
 
     steps:
       - uses: actions/checkout@v5
