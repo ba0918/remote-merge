@@ -16,6 +16,16 @@ use crate::ssh::tree_parser::shell_escape;
 /// バックアップディレクトリ名
 pub const BACKUP_DIR_NAME: &str = ".remote-merge-backup";
 
+/// Agent に渡す backup セッションディレクトリの相対パスを生成する。
+/// session_id が不正な場合は None を返す。
+///
+/// 例: `session_id = "20240115-140000"`
+///      → `Some(".remote-merge-backup/20240115-140000")`
+pub fn agent_backup_session_dir(session_id: &str) -> Option<String> {
+    extract_timestamp(session_id)?;
+    Some(format!("{}/{}", BACKUP_DIR_NAME, session_id))
+}
+
 /// セッションディレクトリ内のバックアップパスを生成する（純粋関数）。
 ///
 /// 例: `backup_dir = "/project/.remote-merge-backup"`,
@@ -686,6 +696,56 @@ mod tests {
         let sessions = parse_all_backup_entries(output);
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].files.len(), 1);
+    }
+
+    // ── agent_backup_session_dir ──
+
+    #[test]
+    fn test_agent_backup_session_dir_is_relative() {
+        let dir = agent_backup_session_dir("20240115-140000").unwrap();
+        assert!(
+            !dir.starts_with('/'),
+            "should be a relative path (no leading /): {dir}"
+        );
+    }
+
+    #[test]
+    fn test_agent_backup_session_dir_format() {
+        let dir = agent_backup_session_dir("20240115-140000").unwrap();
+        assert_eq!(dir, format!("{}/20240115-140000", BACKUP_DIR_NAME));
+    }
+
+    #[test]
+    fn test_agent_backup_session_dir_rejects_invalid_session_id() {
+        // パストラバーサル
+        assert_eq!(agent_backup_session_dir("../hack"), None);
+        // 空文字列
+        assert_eq!(agent_backup_session_dir(""), None);
+        // 不正なフォーマット
+        assert_eq!(agent_backup_session_dir("abc"), None);
+        // 長さは合うが非数字
+        assert_eq!(agent_backup_session_dir("abcdefgh-ijklmn"), None);
+    }
+
+    #[test]
+    fn test_backup_dir_name_starts_with_dot() {
+        // BACKUP_DIR_NAME が `.` で始まること（隠しディレクトリ = 相対パス）
+        assert!(
+            BACKUP_DIR_NAME.starts_with('.'),
+            "BACKUP_DIR_NAME should start with '.': {BACKUP_DIR_NAME}"
+        );
+    }
+
+    #[test]
+    fn test_agent_backup_session_dir_with_valid_timestamp() {
+        // session_id が extract_timestamp で検証可能なフォーマットであること
+        let session_id = "20260312-020446";
+        assert!(
+            extract_timestamp(session_id).is_some(),
+            "session_id should be a valid timestamp format"
+        );
+        let dir = agent_backup_session_dir(session_id).unwrap();
+        assert_eq!(dir, format!("{}/{}", BACKUP_DIR_NAME, session_id));
     }
 
     #[test]

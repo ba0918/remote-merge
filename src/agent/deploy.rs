@@ -214,7 +214,7 @@ pub fn build_pre_write_command(remote_path: &Path, sudo: bool) -> String {
     let escaped_parent = shell_escape(&parent.to_string_lossy());
     let escaped = shell_escape(&remote_path.to_string_lossy());
     let pfx = if sudo { "sudo " } else { "" };
-    format!("{pfx}mkdir -p {escaped_parent} && (test -L {escaped} && echo SYMLINK || echo OK)")
+    format!("{pfx}mkdir -p {escaped_parent} && {{ test -L {escaped} && echo SYMLINK || echo OK; }}")
 }
 
 /// `.tmp` 書き込み後に実行する1つの複合スクリプトを生成する。
@@ -1164,6 +1164,54 @@ mod tests {
         assert!(
             cmd.starts_with("mkdir"),
             "should start with 'mkdir': cmd={cmd}"
+        );
+    }
+
+    #[test]
+    fn build_pre_write_command_uses_posix_grouping() {
+        // fish シェル互換性: 括弧を含まないこと
+        let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
+        let cmd_no_sudo = build_pre_write_command(&path, false);
+        assert!(
+            !cmd_no_sudo.contains('(') && !cmd_no_sudo.contains(')'),
+            "should not contain parentheses (fish incompatible): cmd={cmd_no_sudo}"
+        );
+        let cmd_sudo = build_pre_write_command(&path, true);
+        assert!(
+            !cmd_sudo.contains('(') && !cmd_sudo.contains(')'),
+            "should not contain parentheses (fish incompatible): cmd={cmd_sudo}"
+        );
+        // POSIX { } グルーピングが使われていること
+        assert!(
+            cmd_no_sudo.contains("&& {"),
+            "symlink check should be grouped with {{ }}: cmd={cmd_no_sudo}"
+        );
+        assert!(
+            cmd_no_sudo.ends_with("; }"),
+            "grouping should end with '; }}': cmd={cmd_no_sudo}"
+        );
+    }
+
+    #[test]
+    fn build_pre_write_command_groups_symlink_check() {
+        let cmd = build_pre_write_command(Path::new("/opt/bin/agent"), false);
+        // mkdir 失敗時に echo OK が実行されないよう、symlink check が { } でグルーピングされていること
+        assert!(
+            cmd.contains("&& {"),
+            "symlink check should be grouped with {{ }}"
+        );
+        assert!(cmd.ends_with("; }"), "grouping should end with '; }}'");
+    }
+
+    #[test]
+    fn build_deploy_commands_symlink_check_no_parentheses() {
+        // build_deploy_commands の symlink_check_cmd も括弧不使用であること
+        let path = PathBuf::from("/var/tmp/rm-user/remote-merge");
+        let cmds = build_deploy_commands(&path, false);
+        assert!(
+            !cmds.symlink_check_cmd.contains('(') && !cmds.symlink_check_cmd.contains(')'),
+            "symlink_check_cmd should not contain parentheses: {}",
+            cmds.symlink_check_cmd
         );
     }
 

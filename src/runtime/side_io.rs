@@ -800,17 +800,7 @@ impl CoreRuntime {
         session_id: &str,
     ) -> Option<anyhow::Result<()>> {
         let full_paths = self.resolve_agent_paths(server_name, rel_paths)?;
-        let remote_root = self
-            .config
-            .servers
-            .get(server_name)
-            .map(|s| s.root_dir.to_string_lossy().to_string())?;
-        let backup_dir = format!(
-            "{}/{}/{}",
-            remote_root.trim_end_matches('/'),
-            crate::backup::BACKUP_DIR_NAME,
-            session_id,
-        );
+        let backup_dir = crate::backup::agent_backup_session_dir(session_id)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
 
         let mut agent = match agent_arc.lock() {
