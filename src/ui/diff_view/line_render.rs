@@ -13,7 +13,7 @@ pub type SideBySidePair<'a> = (Option<(&'a DiffLine, usize)>, Option<(&'a DiffLi
 
 use super::search::apply_search_highlight;
 use super::style_utils::{
-    base_bg, format_line_num, prefix_style, resolve_bg, style_with_bg, tag_char, truncate_or_pad,
+    base_bg, format_line_num, prefix_style, resolve_bg, style_with_bg, tag_char, truncate_spans,
 };
 
 /// 行インデックスが指定ハンクの範囲内にあるかチェック（O(1)）
@@ -190,6 +190,56 @@ pub fn split_for_side_by_side(lines: &[DiffLine]) -> Vec<SideBySidePair<'_>> {
     result
 }
 
+/// Side-by-Side の片側（左または右）の Span リストを構築する。
+///
+/// - `None` の場合：空パディング Span を返す
+/// - `Some(line)` の場合：行番号 + プレフィックス + ハイライト済みテキスト（幅制限付き）
+fn render_sbs_half(
+    state: &AppState,
+    line_opt: Option<&DiffLine>,
+    content_width: usize,
+    hunk_bg: Option<Color>,
+    cursor_bg: Option<Color>,
+) -> Vec<Span<'static>> {
+    let p = &state.palette;
+    match line_opt {
+        Some(line) => {
+            let num = format_line_num(match line.tag {
+                DiffTag::Delete => line.old_index,
+                DiffTag::Insert => line.new_index,
+                DiffTag::Equal => line.old_index,
+            });
+            let prefix = tag_char(line.tag);
+
+            let line_base_bg = base_bg(p, line.tag);
+            let bg = hunk_bg.or(line_base_bg).or(cursor_bg);
+
+            let num_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
+            let pstyle = style_with_bg(prefix_style(p, line.tag), bg);
+            let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
+
+            // ハイライト + 検索ハイライト済み Span を取得し、幅制限 + パディング
+            let content_spans = text_spans(state, line, bg);
+            let truncated = truncate_spans(content_spans, content_width, bg);
+
+            let mut spans = vec![
+                Span::styled(num, num_style),
+                Span::styled(prefix.to_string(), pstyle),
+                Span::styled(" ", gap_style),
+            ];
+            spans.extend(truncated);
+            spans
+        }
+        None => {
+            let bg = hunk_bg.or(cursor_bg);
+            // 行番号(5) + プレフィックス(1) + ギャップ(1) + コンテンツ幅 = content_width + 7
+            let empty = format!("{:<width$}", "", width = content_width + 7);
+            let empty_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
+            vec![Span::styled(empty, empty_style)]
+        }
+    }
+}
+
 /// Side-by-Side 用の1行を Line に変換（パレット対応）
 #[allow(clippy::too_many_arguments)]
 pub fn render_side_by_side_line(
@@ -220,47 +270,6 @@ pub fn render_side_by_side_line(
         None
     };
 
-    let render_half = |line_opt: Option<&DiffLine>| -> Vec<Span<'static>> {
-        match line_opt {
-            Some(line) => {
-                let num = format_line_num(match line.tag {
-                    DiffTag::Delete => line.old_index,
-                    DiffTag::Insert => line.new_index,
-                    DiffTag::Equal => line.old_index,
-                });
-                let prefix = tag_char(line.tag);
-                let value = &line.value;
-                let truncated = truncate_or_pad(value, content_width);
-
-                let base_bg = base_bg(p, line.tag);
-                let bg = hunk_bg.or(base_bg).or(cursor_bg);
-
-                let fg = match line.tag {
-                    DiffTag::Equal => p.fg,
-                    DiffTag::Insert => p.diff_insert_fg,
-                    DiffTag::Delete => p.diff_delete_fg,
-                };
-                let style = style_with_bg(Style::default().fg(fg), bg);
-                let num_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
-                let pstyle = style_with_bg(prefix_style(p, line.tag), bg);
-                let gap_style = bg.map(|b| Style::default().bg(b)).unwrap_or_default();
-
-                vec![
-                    Span::styled(num, num_style),
-                    Span::styled(prefix.to_string(), pstyle),
-                    Span::styled(" ", gap_style),
-                    Span::styled(truncated, style),
-                ]
-            }
-            None => {
-                let bg = hunk_bg.or(cursor_bg);
-                let empty = format!("{:<width$}", "", width = content_width + 7);
-                let empty_style = style_with_bg(Style::default().fg(p.gutter_fg), bg);
-                vec![Span::styled(empty, empty_style)]
-            }
-        }
-    };
-
     let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
         if is_pending {
             ("⏎", Color::Yellow)
@@ -274,9 +283,21 @@ pub fn render_side_by_side_line(
     let indicator_style = style_with_bg(Style::default().fg(indicator_color), indicator_bg);
 
     let mut spans = vec![Span::styled(indicator_char, indicator_style)];
-    spans.extend(render_half(left));
+    spans.extend(render_sbs_half(
+        state,
+        left,
+        content_width,
+        hunk_bg,
+        cursor_bg,
+    ));
     spans.push(Span::styled("│", Style::default().fg(p.gutter_fg)));
-    spans.extend(render_half(right));
+    spans.extend(render_sbs_half(
+        state,
+        right,
+        content_width,
+        hunk_bg,
+        cursor_bg,
+    ));
 
     Line::from(spans)
 }
@@ -541,5 +562,193 @@ mod tests {
         assert!(pairs[2].0.is_none());
         assert_eq!(pairs[2].1.unwrap().0.value, "new2");
         assert_eq!(pairs[2].1.unwrap().1, 2);
+    }
+
+    // --- render_sbs_half tests ---
+
+    #[test]
+    fn test_sbs_half_none_returns_empty_padding() {
+        let state = make_test_state();
+        let content_width = 20;
+        let spans = render_sbs_half(&state, None, content_width, None, None);
+        // None → 単一の空パディング Span（content_width + 7 幅）
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.len(), content_width + 7);
+    }
+
+    #[test]
+    fn test_sbs_half_highlight_enabled_with_cache() {
+        use crate::highlight::engine::StyledSegment;
+        use ratatui::style::Modifier;
+
+        let mut state = make_test_state();
+        state.selected_path = Some("test.rs".to_string());
+        let highlight_data = vec![vec![
+            StyledSegment {
+                text: "fn".to_string(),
+                fg: Some(Color::Rgb(180, 142, 173)),
+                modifier: Modifier::empty(),
+            },
+            StyledSegment {
+                text: " main".to_string(),
+                fg: Some(Color::Rgb(143, 161, 179)),
+                modifier: Modifier::empty(),
+            },
+        ]];
+        state
+            .highlight_cache_left
+            .insert("test.rs".to_string(), highlight_data);
+
+        let line = DiffLine {
+            tag: DiffTag::Delete,
+            value: "fn main".to_string(),
+            old_index: Some(0),
+            new_index: None,
+        };
+
+        let content_width = 30;
+        let spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+        // 行番号(1) + プレフィックス(1) + ギャップ(1) + ハイライト Span(2) + パディング(1) = 6 以上
+        assert!(
+            spans.len() >= 5,
+            "ハイライト有効+キャッシュあり → 複数 Span 生成 (got {})",
+            spans.len()
+        );
+        // 先頭3つは行番号・プレフィックス・ギャップ
+        // 4番目以降がハイライト済みテキスト
+        let fn_span = &spans[3];
+        assert_eq!(fn_span.style.fg, Some(Color::Rgb(180, 142, 173)));
+    }
+
+    #[test]
+    fn test_sbs_half_highlight_disabled_fallback() {
+        let mut state = make_test_state();
+        state.syntax_highlight_enabled = false;
+
+        let line = DiffLine {
+            tag: DiffTag::Equal,
+            value: "hello".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        };
+
+        let content_width = 20;
+        let spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+        // 行番号(1) + プレフィックス(1) + ギャップ(1) + テキスト Span(1) + パディング(1) = 5
+        // テキスト部分はプレーンテキストの単一 Span + パディング
+        assert!(
+            spans.len() >= 4,
+            "ハイライト無効 → フォールバック Span (got {})",
+            spans.len()
+        );
+        // テキスト部分にプレーンテキストが含まれる
+        let text_content: String = spans[3..].iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            text_content.starts_with("hello"),
+            "フォールバック時はプレーンテキストが含まれるべき"
+        );
+    }
+
+    #[test]
+    fn test_sbs_half_no_cache_fallback() {
+        let mut state = make_test_state();
+        // ハイライト有効だがキャッシュなし → フォールバック
+        state.syntax_highlight_enabled = true;
+        state.selected_path = Some("test.rs".to_string());
+        // highlight_cache_left は空のまま
+
+        let line = DiffLine {
+            tag: DiffTag::Delete,
+            value: "fn main".to_string(),
+            old_index: Some(0),
+            new_index: None,
+        };
+
+        let content_width = 20;
+        let spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+        // キャッシュミス → plain_text_span フォールバック
+        // 行番号(1) + プレフィックス(1) + ギャップ(1) + テキスト(1) + パディング(1) = 5
+        assert!(
+            spans.len() >= 4,
+            "キャッシュなし → フォールバック Span (got {})",
+            spans.len()
+        );
+        let text_content: String = spans[3..].iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            text_content.starts_with("fn main"),
+            "フォールバック時はプレーンテキストが含まれるべき"
+        );
+    }
+
+    #[test]
+    fn test_sbs_half_search_highlight_applied() {
+        let mut state = make_test_state();
+        state.diff_search_state.query = "hello".to_string();
+
+        let line = DiffLine {
+            tag: DiffTag::Equal,
+            value: "say hello world".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        };
+
+        let content_width = 30;
+        let spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+        // 検索クエリあり → text_spans 内で検索ハイライトが適用される
+        // 元の1 Span が分割されるので、テキスト部分の Span 数 > 1
+        let text_spans: Vec<&Span> = spans[3..].iter().collect();
+        assert!(
+            text_spans.len() > 1,
+            "検索ハイライトにより Span が分割されるべき (got {})",
+            text_spans.len()
+        );
+        // 検索マッチ部分に accent 色の背景が適用されている
+        let has_accent_bg = text_spans
+            .iter()
+            .any(|s| s.style.bg == Some(state.palette.accent));
+        assert!(has_accent_bg, "検索マッチに accent 背景色が適用されるべき");
+    }
+
+    #[test]
+    fn test_sbs_half_equal_line_same_highlight_both_sides() {
+        use crate::highlight::engine::StyledSegment;
+        use ratatui::style::Modifier;
+
+        let mut state = make_test_state();
+        state.selected_path = Some("test.rs".to_string());
+        // Equal 行は left キャッシュを使う（get_highlight_segments の仕様）
+        let highlight_data = vec![vec![
+            StyledSegment {
+                text: "let".to_string(),
+                fg: Some(Color::Rgb(180, 142, 173)),
+                modifier: Modifier::empty(),
+            },
+            StyledSegment {
+                text: " x = 1".to_string(),
+                fg: Some(Color::Rgb(200, 200, 200)),
+                modifier: Modifier::empty(),
+            },
+        ]];
+        state
+            .highlight_cache_left
+            .insert("test.rs".to_string(), highlight_data);
+
+        let line = DiffLine {
+            tag: DiffTag::Equal,
+            value: "let x = 1".to_string(),
+            old_index: Some(0),
+            new_index: Some(0),
+        };
+
+        let content_width = 30;
+        let left_spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+        let right_spans = render_sbs_half(&state, Some(&line), content_width, None, None);
+
+        // Equal 行は左右とも同じキャッシュ（left）を参照するため、同一の Span が生成される
+        assert_eq!(left_spans.len(), right_spans.len());
+        for (l, r) in left_spans.iter().zip(right_spans.iter()) {
+            assert_eq!(l.content, r.content);
+            assert_eq!(l.style, r.style);
+        }
     }
 }

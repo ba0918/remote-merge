@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-13 21:00
+**Last Updated:** 2026-03-13 22:04
 
 ---
 
 ## 🎯 Current Session
+
+### 20260313220450 - Side-by-Side シンタックスハイライト
+- **Started:** 2026-03-13 22:04:50
+- **Status:** 🔵 Implementing
+- **Plan:** [Link](./cycles/20260313220450_side-by-side-syntax-highlight.md)
+- **Summary:** TUI の Side-by-Side diff 表示にシンタックスハイライトを適用。既存の Unified 用ハイライト基盤を再利用し、幅制限対応のセグメントトランケーション関数を追加。検索ハイライトも Side-by-Side で動作させる。
+
+---
 
 ### 20260313204742 - include フィルタ（ホワイトリスト方式スキャン制限）
 - **Started:** 2026-03-13 20:47:42
