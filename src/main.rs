@@ -85,6 +85,9 @@ enum Commands {
         /// Force content comparison for all files (bypass mtime/size quick check)
         #[arg(long)]
         checksum: bool,
+        /// Maximum number of entries to scan (1-1,000,000). Overrides config.
+        #[arg(long, value_name = "N")]
+        max_entries: Option<usize>,
     },
 
     /// Show diff for file(s) or directory
@@ -113,6 +116,9 @@ enum Commands {
         /// Override safety guards (show sensitive file contents)
         #[arg(long)]
         force: bool,
+        /// Maximum number of entries to scan (1-1,000,000). Overrides config.
+        #[arg(long, value_name = "N")]
+        max_entries: Option<usize>,
     },
 
     /// Merge files
@@ -144,6 +150,9 @@ enum Commands {
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
+        /// Maximum number of entries to scan (1-1,000,000). Overrides config.
+        #[arg(long, value_name = "N")]
+        max_entries: Option<usize>,
     },
 
     /// Sync files to multiple servers (1:N synchronization)
@@ -172,6 +181,9 @@ enum Commands {
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
+        /// Maximum number of entries to scan (1-1,000,000). Overrides config.
+        #[arg(long, value_name = "N")]
+        max_entries: Option<usize>,
     },
 
     /// Restore files from a backup session
@@ -298,6 +310,7 @@ fn try_main() -> anyhow::Result<()> {
             summary,
             all,
             checksum,
+            max_entries,
         }) => {
             let format_str = format.clone();
             let cfg =
@@ -318,6 +331,7 @@ fn try_main() -> anyhow::Result<()> {
                             all,
                             checksum,
                             verbose: cli.verbose,
+                            max_entries,
                         },
                         cfg,
                     )
@@ -334,6 +348,7 @@ fn try_main() -> anyhow::Result<()> {
             max_lines,
             max_files,
             force,
+            max_entries,
         }) => {
             let format_str = format.clone();
             let cfg =
@@ -354,6 +369,7 @@ fn try_main() -> anyhow::Result<()> {
                             max_lines,
                             max_files,
                             force,
+                            max_entries,
                         },
                         cfg,
                     )
@@ -371,6 +387,7 @@ fn try_main() -> anyhow::Result<()> {
             delete,
             with_permissions,
             format,
+            max_entries,
         }) => {
             let format_str = format.clone();
             let cfg =
@@ -392,6 +409,7 @@ fn try_main() -> anyhow::Result<()> {
                             delete,
                             with_permissions,
                             format,
+                            max_entries,
                         },
                         cfg,
                     )
@@ -408,6 +426,7 @@ fn try_main() -> anyhow::Result<()> {
             delete,
             with_permissions,
             format,
+            max_entries,
         }) => {
             let format_str = format.clone();
             let cfg =
@@ -427,6 +446,7 @@ fn try_main() -> anyhow::Result<()> {
                         delete,
                         with_permissions,
                         format,
+                        max_entries,
                     };
                     remote_merge::cli::sync::run_sync(args, cfg)
                 }),

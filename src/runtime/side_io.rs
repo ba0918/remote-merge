@@ -4,6 +4,7 @@
 //! swap 後に right=local になっても同じ API でアクセスできるようにする。
 
 use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 
 use chrono::{DateTime, Utc};
@@ -14,7 +15,7 @@ use crate::local;
 use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
-use super::core::{BoxedAgentClient, CoreRuntime};
+use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
 use super::TuiRuntime;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
@@ -993,7 +994,12 @@ impl CoreRuntime {
     ///
     /// 成功: Some(Ok(T))
     /// Agent 未設定/サーバ未設定: None
-    /// Agent lock 失敗/操作エラー: invalidate + None
+    /// Agent lock 失敗/操作エラー: invalidate + None（SSH フォールバック）
+    ///
+    /// エラーの種類に応じて invalidate 判定を行う:
+    /// - BrokenPipe / ConnectionReset / ConnectionAborted → 致命的: OperationFailed を記録して invalidate
+    /// - 不明エラー → 安全側: OperationFailed を記録して invalidate
+    /// - それ以外の io::Error → 非致命的: warn のみ。invalidate しない
     fn with_agent<T, F>(
         &mut self,
         server_name: &str,
@@ -1008,6 +1014,10 @@ impl CoreRuntime {
         let mut agent = match agent_arc.lock() {
             Ok(guard) => guard,
             Err(_) => {
+                self.agent_unavailable.insert(
+                    server_name.to_string(),
+                    AgentUnavailableReason::OperationFailed,
+                );
                 self.invalidate_agent(server_name);
                 return None;
             }
@@ -1017,19 +1027,54 @@ impl CoreRuntime {
         match result {
             Ok(val) => Some(Ok(val)),
             Err(e) => {
-                tracing::warn!(
-                    "Agent {} failed for {}, falling back to SSH: {}",
-                    op_name,
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
+                // エラー種別を純粋関数で判定
+                let should_invalidate = should_invalidate_agent_error(&e);
+
+                if should_invalidate {
+                    tracing::warn!("Agent invalidated for {}: {}", server_name, e);
+                    // invalidate_agent() 内で agent_unavailable を設定する
+                    // （sudo=true の場合は SudoInvalidated、それ以外は OperationFailed）
+                    self.invalidate_agent(server_name);
+                } else {
+                    tracing::warn!(
+                        "Agent {} temporary error for {}, falling back to SSH: {}",
+                        op_name,
+                        server_name,
+                        e
+                    );
+                }
                 None
             }
         }
     }
 
     // ── Agent パス解決ヘルパー ──
+}
+
+// ── Agent エラー判定関数 ──
+
+/// Agent の操作エラーが接続を invalidate すべきかを判定する純粋関数。
+///
+/// anyhow のエラーチェーン全体を探索し、`io::Error` を検出する。
+///
+/// 判定基準:
+/// - `io::Error` で BrokenPipe / ConnectionReset / ConnectionAborted / UnexpectedEof → true（致命的接続エラー）
+/// - `io::Error` でそれ以外 → false（一時的エラー、invalidate 不要）
+/// - チェーン内に `io::Error` なし → true（安全側: 不明エラーは invalidate する）
+pub(crate) fn should_invalidate_agent_error(e: &anyhow::Error) -> bool {
+    for cause in e.chain() {
+        if let Some(io_err) = cause.downcast_ref::<io::Error>() {
+            return matches!(
+                io_err.kind(),
+                io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::ConnectionAborted
+                    | io::ErrorKind::UnexpectedEof
+            );
+        }
+    }
+    // チェーン内に io::Error なし → 安全側に倒して invalidate
+    true
 }
 
 // ── truncation 判定関数 ──
@@ -1041,7 +1086,9 @@ pub(crate) fn check_truncation(max_entries: usize, fail_on_truncation: bool) -> 
     if fail_on_truncation {
         anyhow::bail!(
             "Tree scan truncated at {} entries. Results may be incomplete. \
-             Use specific file paths instead of '.' to avoid this limit.",
+             Use --max-entries <value> to increase the limit, \
+             or set max_scan_entries in config, \
+             or specify file paths instead of scanning all.",
             max_entries
         );
     }
@@ -2334,8 +2381,8 @@ mod tests {
             "expected truncation message, got: {msg}"
         );
         assert!(
-            msg.contains("Use specific file paths instead of '.'"),
-            "expected guidance about specific paths, got: {msg}"
+            msg.contains("Use --max-entries <value> to increase the limit"),
+            "expected guidance about --max-entries, got: {msg}"
         );
     }
 
@@ -2400,7 +2447,7 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("Tree scan truncated"));
-        assert!(msg.contains("Use specific file paths"));
+        assert!(msg.contains("Use --max-entries"));
     }
 
     #[test]
@@ -2717,5 +2764,106 @@ mod tests {
             .unwrap();
 
         assert!(tree.nodes.is_empty());
+    }
+
+    // ── should_invalidate_agent_error テスト ──
+
+    #[test]
+    fn test_should_invalidate_broken_pipe() {
+        // BrokenPipe → invalidate すべき
+        let io_err = io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe");
+        let e = anyhow::Error::from(io_err);
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_connection_reset() {
+        // ConnectionReset → invalidate すべき
+        let io_err = io::Error::new(io::ErrorKind::ConnectionReset, "connection reset");
+        let e = anyhow::Error::from(io_err);
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_connection_aborted() {
+        // ConnectionAborted → invalidate すべき
+        let io_err = io::Error::new(io::ErrorKind::ConnectionAborted, "connection aborted");
+        let e = anyhow::Error::from(io_err);
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_not_invalidate_non_fatal_io_error() {
+        // WouldBlock など → invalidate しない（一時的エラー）
+        let io_err = io::Error::new(io::ErrorKind::WouldBlock, "would block");
+        let e = anyhow::Error::from(io_err);
+        assert!(!should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_unknown_error() {
+        // io::Error 以外の不明エラー → 安全側で invalidate
+        let e = anyhow::anyhow!("some unknown error");
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_anyhow_wrapped_non_io_error() {
+        // anyhow でラップした文字列エラー → 不明扱いで invalidate
+        let e = anyhow::Error::msg("protocol error: unexpected frame");
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_unexpected_eof() {
+        // UnexpectedEof → invalidate すべき（Agent プロセスのクラッシュ）
+        let io_err = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected eof");
+        let e = anyhow::Error::from(io_err);
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_chained_io_error() {
+        // anyhow チェーンの内部に io::Error がある場合でも検出できること
+        let io_err = io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe");
+        let inner = anyhow::Error::from(io_err);
+        let outer = inner.context("agent operation failed");
+        assert!(should_invalidate_agent_error(&outer));
+    }
+
+    #[test]
+    fn test_should_not_invalidate_chained_non_fatal_io_error() {
+        // チェーン内部の非致命的 io::Error は invalidate しない
+        let io_err = io::Error::new(io::ErrorKind::TimedOut, "timed out");
+        let inner = anyhow::Error::from(io_err);
+        let outer = inner.context("agent operation timed out");
+        assert!(!should_invalidate_agent_error(&outer));
+    }
+
+    // ── with_agent のキャッシュ動作（間接テスト）──
+
+    #[test]
+    fn test_write_file_remote_no_agent_no_ssh_returns_error() {
+        // Agent なし + SSH 未接続 のリモートサーバーへの書き込み → エラー
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+        rt.config.servers.insert(
+            "develop".to_string(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".to_string(),
+                port: 22,
+                user: "deploy".to_string(),
+                auth: crate::config::AuthMethod::Key,
+                key: None,
+                root_dir: tmp.path().to_path_buf(),
+                ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
+            },
+        );
+        // Agent なし → try_agent_write_file は None → check_sudo_fallback 通過 → SSH 未接続でエラー
+        let result = rt.write_file(&Side::Remote("develop".to_string()), "test.txt", "content");
+        assert!(result.is_err());
     }
 }

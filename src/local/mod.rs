@@ -453,7 +453,9 @@ mod tests {
         std::fs::write(root.join("vendor/current/new.rs"), "").unwrap();
 
         let exclude = vec!["vendor/legacy/**".to_string()];
-        let (nodes, _) = scan_local_tree_recursive(root, &exclude, 50_000).unwrap();
+        let (nodes, _) =
+            scan_local_tree_recursive(root, &exclude, crate::config::DEFAULT_MAX_SCAN_ENTRIES)
+                .unwrap();
 
         // vendor は残る
         let vendor = nodes.iter().find(|n| n.name == "vendor").unwrap();
@@ -472,8 +474,12 @@ mod tests {
     fn test_scan_local_tree_recursive() {
         let dir = create_test_tree();
 
-        let (nodes, truncated) =
-            scan_local_tree_recursive(dir.path(), &["node_modules".to_string()], 50_000).unwrap();
+        let (nodes, truncated) = scan_local_tree_recursive(
+            dir.path(),
+            &["node_modules".to_string()],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
 
         assert!(!truncated);
 
@@ -517,7 +523,11 @@ mod tests {
 
     #[test]
     fn test_scan_local_tree_recursive_nonexistent() {
-        let result = scan_local_tree_recursive(Path::new("/nonexistent/path"), &[], 50_000);
+        let result = scan_local_tree_recursive(
+            Path::new("/nonexistent/path"),
+            &[],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        );
         assert!(result.is_err());
     }
 }

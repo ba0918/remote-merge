@@ -267,6 +267,7 @@ mod tests {
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
+            max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
         }
     }
 
@@ -395,6 +396,7 @@ mod tests {
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
+            max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
         };
         let args = SourceArgs::default();
         let result = resolve_source_pair(&args, &config);

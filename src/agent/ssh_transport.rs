@@ -207,6 +207,24 @@ impl Drop for SshAgentTransport {
 // ブリッジループ
 // ---------------------------------------------------------------------------
 
+/// pipe に対してバックプレッシャー対応の書き込みを行う。
+///
+/// OS の blocking I/O が自然にバッファ空きを待つ。
+/// 部分書き込み（write が小さい値を返す場合）はループで再試行する。
+#[cfg(unix)]
+fn write_all_with_backpressure(writer: &mut impl Write, data: &[u8]) -> io::Result<()> {
+    let mut remaining = data;
+    while !remaining.is_empty() {
+        match writer.write(remaining) {
+            Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "pipe closed")),
+            Ok(n) => remaining = &remaining[n..],
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 /// bridge スレッド: channel を排他所有し、`tokio::select!` で
 /// SSH 受信データの読み取りと mpsc 経由の書き込みを多重化する。
 #[cfg(unix)]
@@ -227,8 +245,8 @@ fn bridge_loop(
                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { ref data }) => {
-                            if bridge_write.write_all(data).is_err() {
-                                tracing::debug!("bridge_loop: write to pipe failed");
+                            if let Err(e) = write_all_with_backpressure(&mut bridge_write, data) {
+                                tracing::warn!("bridge_loop: write to pipe failed: {e}");
                                 break;
                             }
                             let _ = bridge_write.flush();
@@ -251,7 +269,7 @@ fn bridge_loop(
                     match data {
                         Some(bytes) => {
                             if let Err(e) = channel.data(&bytes[..]).await {
-                                tracing::debug!("bridge_loop: channel.data() failed: {e}");
+                                tracing::warn!("bridge_loop: channel.data() failed: {e}");
                                 break;
                             }
                         }
@@ -295,12 +313,12 @@ fn writer_relay_loop(
                 continue;
             }
             Err(e) => {
-                tracing::debug!("writer_relay_loop: read error: {e}");
+                tracing::warn!("writer_relay_loop: read error: {e}");
                 break;
             }
         };
         if write_tx.send(buf[..n].to_vec()).is_err() {
-            tracing::debug!("writer_relay_loop: mpsc send failed (bridge closed)");
+            tracing::warn!("writer_relay_loop: mpsc send failed (bridge closed)");
             break;
         }
     }
@@ -522,6 +540,108 @@ mod tests {
 
         // タイムアウト + shutdown チェックで終了するはず
         handle.join().expect("writer_relay should exit on shutdown");
+    }
+
+    // -----------------------------------------------------------------------
+    // write_all_with_backpressure テスト
+    // -----------------------------------------------------------------------
+
+    /// 正常な書き込みが成功することを確認
+    #[test]
+    fn write_all_with_backpressure_normal() {
+        let mut buf = Vec::new();
+        let data = b"hello world";
+        write_all_with_backpressure(&mut buf, data).unwrap();
+        assert_eq!(buf, data);
+    }
+
+    /// 空スライスを書き込んでも成功することを確認
+    #[test]
+    fn write_all_with_backpressure_empty() {
+        let mut buf = Vec::new();
+        write_all_with_backpressure(&mut buf, b"").unwrap();
+        assert!(buf.is_empty());
+    }
+
+    /// WriteZero エラー（pipe closed）を返すライターのスタブ
+    struct WriteZeroWriter;
+    impl Write for WriteZeroWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Ok(0)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// write が 0 を返した場合に WriteZero エラーになることを確認
+    #[test]
+    fn write_all_with_backpressure_write_zero_returns_err() {
+        let mut w = WriteZeroWriter;
+        let err = write_all_with_backpressure(&mut w, b"data").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+    }
+
+    /// Interrupted エラー後にリトライして成功することを確認
+    struct InterruptedThenSuccessWriter {
+        interrupted_count: usize,
+        max_interrupted: usize,
+        written: Vec<u8>,
+    }
+    impl Write for InterruptedThenSuccessWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.interrupted_count < self.max_interrupted {
+                self.interrupted_count += 1;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "interrupted"));
+            }
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Interrupted が発生してもリトライして正常完了することを確認
+    #[test]
+    fn write_all_with_backpressure_interrupted_then_retry() {
+        let mut w = InterruptedThenSuccessWriter {
+            interrupted_count: 0,
+            max_interrupted: 3,
+            written: Vec::new(),
+        };
+        let data = b"retry data";
+        write_all_with_backpressure(&mut w, data).unwrap();
+        assert_eq!(w.written, data);
+        assert_eq!(w.interrupted_count, 3);
+    }
+
+    /// 部分書き込み（write が小さい値を返す）を正しくリトライして全データを書き込むことを確認
+    struct PartialWriter {
+        chunk_size: usize,
+        written: Vec<u8>,
+    }
+    impl Write for PartialWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let n = buf.len().min(self.chunk_size);
+            self.written.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// 部分書き込みがループで補完されて全データが揃うことを確認
+    #[test]
+    fn write_all_with_backpressure_partial_write() {
+        let mut w = PartialWriter {
+            chunk_size: 3,
+            written: Vec::new(),
+        };
+        let data = b"hello world";
+        write_all_with_backpressure(&mut w, data).unwrap();
+        assert_eq!(w.written, data);
     }
 
     /// Drop がタイムアウト内に完了することを確認（ハング防止）

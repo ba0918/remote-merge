@@ -3,7 +3,7 @@
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config::AppConfig;
+use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
 use crate::runtime::CoreRuntime;
@@ -49,11 +49,14 @@ pub struct DiffArgs {
     pub max_lines: Option<usize>,
     pub max_files: usize,
     pub force: bool,
+    /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
+    pub max_entries: Option<usize>,
 }
 
 /// diff サブコマンドを実行する
 pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
+    let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     let source_args = SourceArgs {
         left: args.left,
@@ -83,10 +86,16 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
             &pair.right,
             &mut core,
             &config,
+            max_entries,
         )?,
-        ScanStrategy::FullScan => {
-            run_diff_full_scan(&args.paths, &pair.left, &pair.right, &mut core, &config)?
-        }
+        ScanStrategy::FullScan => run_diff_full_scan(
+            &args.paths,
+            &pair.left,
+            &pair.right,
+            &mut core,
+            &config,
+            max_entries,
+        )?,
     };
 
     // Apply max-files truncation
@@ -323,14 +332,15 @@ fn run_diff_partial_scan(
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<DiffScanResult> {
     // 各ディレクトリのサブツリーを取得して結合
     let mut left_tree = FileTree::new(&config.local.root_dir);
     let mut right_tree = FileTree::new(&config.local.root_dir);
 
     for dir_path in dir_paths {
-        let lt = core.fetch_tree_for_subpath(left, dir_path, 50_000, true)?;
-        let rt = core.fetch_tree_for_subpath(right, dir_path, 50_000, true)?;
+        let lt = core.fetch_tree_for_subpath(left, dir_path, max_entries, true)?;
+        let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
         left_tree.nodes.extend(lt.nodes);
         right_tree.nodes.extend(rt.nodes);
     }
@@ -358,9 +368,10 @@ fn run_diff_full_scan(
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<DiffScanResult> {
-    let left_tree = core.fetch_tree_recursive(left, 50_000, true)?;
-    let right_tree = core.fetch_tree_recursive(right, 50_000, true)?;
+    let left_tree = core.fetch_tree_recursive(left, max_entries, true)?;
+    let right_tree = core.fetch_tree_recursive(right, max_entries, true)?;
     compute_statuses_and_resolve(paths, left, right, core, config, left_tree, right_tree)
 }
 

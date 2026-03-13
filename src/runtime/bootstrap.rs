@@ -323,7 +323,7 @@ mod tests {
     use super::*;
     use crate::config::{
         AgentConfig, AuthMethod, BackupConfig, DefaultsConfig, FilterConfig, LocalConfig,
-        ServerConfig, SshConfig,
+        ServerConfig, SshConfig, DEFAULT_MAX_SCAN_ENTRIES,
     };
     use std::collections::BTreeMap;
     use std::path::PathBuf;
@@ -355,6 +355,7 @@ mod tests {
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
+            max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
         }
     }
 

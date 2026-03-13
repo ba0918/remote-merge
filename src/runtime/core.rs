@@ -3,7 +3,7 @@
 //! SSH接続管理、ファイルI/O、ツリー取得など、
 //! インターフェースに依存しない共通機能を提供する。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,19 @@ pub type BoxedAgentClient = AgentClient<UnixStream, UnixStream>;
 #[cfg(not(unix))]
 pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Cursor<Vec<u8>>>;
 
+/// Agent が利用不可になった理由。
+///
+/// `agent_unavailable` キャッシュに記録し、再試行を抑制するために使用する。
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentUnavailableReason {
+    /// デプロイ失敗（バイナリ配置不可、glibc 非互換など）
+    DeployFailed,
+    /// sudo=true で Agent が無効化された
+    SudoInvalidated,
+    /// 操作中の致命的エラー（pipe 破壊など）で既存接続が破壊
+    OperationFailed,
+}
+
 /// TUI/CLI 共通のランタイム基盤。
 ///
 /// SSH接続管理、ファイルI/O、ツリー取得を担当する。
@@ -39,9 +52,9 @@ pub struct CoreRuntime {
     /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
     #[cfg(unix)]
     transport_guards: HashMap<String, TransportGuard>,
-    /// sudo=true のサーバーで Agent が無効化されたサーバー名の一覧。
-    /// SSH フォールバックを禁止するために使用する。
-    invalidated_sudo_servers: HashSet<String>,
+    /// Agent が利用不可になったサーバー名とその理由のマップ。
+    /// try_start_agent の再試行抑制と SSH フォールバック禁止に使用する。
+    pub(crate) agent_unavailable: HashMap<String, AgentUnavailableReason>,
     /// パスフレーズ付き SSH 鍵のパスフレーズ取得プロバイダ。
     /// TUI/CLI モードに応じて適切なプロバイダが注入される。
     /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
@@ -57,7 +70,7 @@ impl CoreRuntime {
             agent_clients: HashMap::new(),
             #[cfg(unix)]
             transport_guards: HashMap::new(),
-            invalidated_sudo_servers: HashSet::new(),
+            agent_unavailable: HashMap::new(),
             passphrase_provider: Some(Arc::new(
                 crate::ssh::passphrase_provider::build_default_provider(),
             )),
@@ -80,6 +93,7 @@ impl CoreRuntime {
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
             defaults: crate::config::DefaultsConfig::default(),
+            max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
         })
     }
 
@@ -94,6 +108,7 @@ impl CoreRuntime {
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
             defaults: crate::config::DefaultsConfig::default(),
+            max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
         };
         config.agent.enabled = false;
         Self::new(config)
@@ -117,6 +132,16 @@ impl CoreRuntime {
     /// sudo=true の場合は SSH フォールバックを禁止し、Agent 起動失敗時にエラーを返す。
     pub fn try_start_agent(&mut self, server_name: &str) -> anyhow::Result<bool> {
         if !self.config.agent.enabled {
+            return Ok(false);
+        }
+
+        // 過去に失敗していた場合は即スキップ（再試行しない）
+        if let Some(reason) = self.agent_unavailable.get(server_name) {
+            tracing::debug!(
+                "Agent previously unavailable for {} ({:?}), skipping",
+                server_name,
+                reason
+            );
             return Ok(false);
         }
 
@@ -144,6 +169,11 @@ impl CoreRuntime {
                         e
                     );
                 }
+                // デプロイ失敗をキャッシュして以降の再試行を抑制する
+                self.agent_unavailable.insert(
+                    server_name.to_string(),
+                    AgentUnavailableReason::DeployFailed,
+                );
                 tracing::debug!(
                     "Agent start failed for {}: {}, using SSH fallback",
                     server_name,
@@ -414,7 +444,7 @@ impl CoreRuntime {
     /// best-effort で shutdown を送信し、失敗しても無視する。
     ///
     /// sudo=true のサーバーでは SSH フォールバックが安全でないため、
-    /// `invalidated_sudo_servers` に記録して以降の操作でエラーを返す。
+    /// `agent_unavailable` に `SudoInvalidated` を記録して以降の操作でエラーを返す。
     pub fn invalidate_agent(&mut self, server_name: &str) {
         if let Some(client_arc) = self.agent_clients.remove(server_name) {
             // best-effort shutdown — 失敗しても構わない
@@ -430,13 +460,19 @@ impl CoreRuntime {
                 .map(|s| s.sudo)
                 .unwrap_or(false);
             if is_sudo {
-                self.invalidated_sudo_servers
-                    .insert(server_name.to_string());
+                self.agent_unavailable.insert(
+                    server_name.to_string(),
+                    AgentUnavailableReason::SudoInvalidated,
+                );
                 tracing::error!(
                     "Agent invalidated for {} with sudo=true. SSH fallback is not available when sudo is enabled.",
                     server_name
                 );
             } else {
+                // 既にキャッシュされていなければ OperationFailed を記録
+                self.agent_unavailable
+                    .entry(server_name.to_string())
+                    .or_insert(AgentUnavailableReason::OperationFailed);
                 tracing::warn!(
                     "Agent invalidated for {}, future operations will use SSH fallback",
                     server_name
@@ -451,7 +487,10 @@ impl CoreRuntime {
     /// sudo=true のサーバーで Agent が無効化されている場合にエラーを返す。
     /// SSH フォールバック前に呼び出して、権限降格を防止する。
     pub fn check_sudo_fallback(&self, server_name: &str) -> anyhow::Result<()> {
-        if self.invalidated_sudo_servers.contains(server_name) {
+        if matches!(
+            self.agent_unavailable.get(server_name),
+            Some(AgentUnavailableReason::SudoInvalidated)
+        ) {
             anyhow::bail!(
                 "Agent is unavailable for {} with sudo=true. Cannot fall back to SSH without sudo privileges.",
                 server_name
@@ -1262,5 +1301,116 @@ mod tests {
         // agent.enabled=false → Ok(false)
         let mut rt_no = CoreRuntime::new_for_test_no_agent();
         assert!(!rt_no.try_start_agent("develop").unwrap());
+    }
+
+    // ── AgentUnavailableReason テスト ──
+
+    #[test]
+    fn test_agent_unavailable_reason_debug_output() {
+        // 各 variant が Debug 出力されること
+        let deploy_failed = AgentUnavailableReason::DeployFailed;
+        let sudo_invalidated = AgentUnavailableReason::SudoInvalidated;
+        let op_failed = AgentUnavailableReason::OperationFailed;
+
+        assert_eq!(format!("{:?}", deploy_failed), "DeployFailed");
+        assert_eq!(format!("{:?}", sudo_invalidated), "SudoInvalidated");
+        assert_eq!(format!("{:?}", op_failed), "OperationFailed");
+    }
+
+    #[test]
+    fn test_agent_unavailable_reason_clone_and_eq() {
+        let reason = AgentUnavailableReason::DeployFailed;
+        let cloned = reason.clone();
+        assert_eq!(reason, cloned);
+        assert_ne!(reason, AgentUnavailableReason::SudoInvalidated);
+    }
+
+    #[test]
+    fn test_try_start_agent_skips_when_cached_as_unavailable() {
+        // agent_unavailable にキャッシュされているサーバーは即 Ok(false) を返す
+        let mut rt = runtime_with_server("develop", "/var/www");
+        rt.agent_unavailable
+            .insert("develop".to_string(), AgentUnavailableReason::DeployFailed);
+        let result = rt.try_start_agent("develop").unwrap();
+        assert!(
+            !result,
+            "should return Ok(false) when cached as unavailable"
+        );
+        // agent_clients には登録されていないこと
+        assert!(!rt.has_agent("develop"));
+    }
+
+    #[test]
+    fn test_try_start_agent_skips_when_operation_failed_cached() {
+        // OperationFailed でキャッシュされている場合も即スキップ
+        let mut rt = runtime_with_server("develop", "/var/www");
+        rt.agent_unavailable.insert(
+            "develop".to_string(),
+            AgentUnavailableReason::OperationFailed,
+        );
+        let result = rt.try_start_agent("develop").unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_try_start_agent_records_deploy_failed_on_ssh_failure() {
+        // SSH 未接続の場合 start_agent_via_ssh が失敗し、DeployFailed がキャッシュされる
+        let mut rt = runtime_with_server("develop", "/var/www");
+        // sudo=false なので SSH フォールバックが許可される（エラーにならず Ok(false)）
+        let result = rt.try_start_agent("develop").unwrap();
+        assert!(!result);
+        // キャッシュに DeployFailed が記録されていること
+        assert_eq!(
+            rt.agent_unavailable.get("develop"),
+            Some(&AgentUnavailableReason::DeployFailed)
+        );
+    }
+
+    #[test]
+    fn test_try_start_agent_second_call_uses_cache() {
+        // 1回目の失敗後、2回目は start_agent_via_ssh を呼ばずにキャッシュから即返す
+        let mut rt = runtime_with_server("develop", "/var/www");
+        // 1回目: SSH 未接続で失敗 → DeployFailed をキャッシュ
+        assert!(!rt.try_start_agent("develop").unwrap());
+        assert!(rt.agent_unavailable.contains_key("develop"));
+        // 2回目: キャッシュヒットで即 Ok(false)（SSH の再試行なし）
+        assert!(!rt.try_start_agent("develop").unwrap());
+    }
+
+    #[test]
+    fn test_invalidate_agent_noop_records_nothing_when_no_agent_client() {
+        // agent_clients が空の場合、invalidate_agent は agent_unavailable に何も記録しない
+        // （agent_clients にエントリがないと is_sudo チェックまで到達しない）
+        let mut rt = runtime_with_sudo_server("develop", "/var/www");
+        rt.invalidate_agent("develop");
+        // agent_clients が空なので agent_unavailable にも記録されない
+        assert!(rt.agent_unavailable.is_empty());
+    }
+
+    #[test]
+    fn test_check_sudo_fallback_blocks_sudo_invalidated() {
+        // SudoInvalidated がキャッシュされている場合、check_sudo_fallback がエラーを返す
+        let mut rt = runtime_with_sudo_server("develop", "/var/www");
+        rt.agent_unavailable.insert(
+            "develop".to_string(),
+            AgentUnavailableReason::SudoInvalidated,
+        );
+        let result = rt.check_sudo_fallback("develop");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("sudo=true"),
+            "error should mention sudo=true: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_check_sudo_fallback_allows_deploy_failed() {
+        // DeployFailed がキャッシュされていても check_sudo_fallback は通過する（sudo フラグと無関係）
+        let mut rt = runtime_with_server("develop", "/var/www");
+        rt.agent_unavailable
+            .insert("develop".to_string(), AgentUnavailableReason::DeployFailed);
+        // sudo=false なのでエラーにならない
+        assert!(rt.check_sudo_fallback("develop").is_ok());
     }
 }

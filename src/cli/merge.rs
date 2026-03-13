@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config::AppConfig;
+use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
@@ -43,6 +43,8 @@ pub struct MergeArgs {
     pub delete: bool,
     pub with_permissions: bool,
     pub format: String,
+    /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
+    pub max_entries: Option<usize>,
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
@@ -64,6 +66,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     // フォーマットを先にパースして不正値を早期エラーにする
     let format = OutputFormat::parse(&args.format)?;
+    let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     let source_args = SourceArgs {
         left: args.left,
@@ -93,8 +96,14 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     // ScanStrategy で分岐: merge では FastPath → PartialScan にフォールバック
     // （optimistic locking に tree の mtime が必要なため）
     let strategy = resolve_scan_strategy(&args.paths, args.delete);
-    let (left_tree, right_tree, statuses) =
-        fetch_trees_and_statuses_for_merge(&strategy, &pair.left, &pair.right, &mut core, &config)?;
+    let (left_tree, right_tree, statuses) = fetch_trees_and_statuses_for_merge(
+        &strategy,
+        &pair.left,
+        &pair.right,
+        &mut core,
+        &config,
+        max_entries,
+    )?;
 
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
@@ -173,7 +182,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
             })
             .collect();
 
-        let ref_tree = core.fetch_tree_recursive(ref_s, 50_000, true)?;
+        let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
 
         let badges = compute_ref_badges(
             &file_statuses,
@@ -289,6 +298,7 @@ fn fetch_trees_and_statuses_for_merge(
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>)> {
     let (left_tree, right_tree) = match strategy {
         ScanStrategy::FastPath(ref target_paths) => {
@@ -297,19 +307,19 @@ fn fetch_trees_and_statuses_for_merge(
             // ルート直下ファイルがある場合、parent_dir が "." になり
             // FullScan 相当になるので FullScan にフォールバック
             if has_root_parent_dir(&dir_paths) {
-                let lt = core.fetch_tree_recursive(left, 50_000, true)?;
-                let rt = core.fetch_tree_recursive(right, 50_000, true)?;
+                let lt = core.fetch_tree_recursive(left, max_entries, true)?;
+                let rt = core.fetch_tree_recursive(right, max_entries, true)?;
                 (lt, rt)
             } else {
-                fetch_partial_trees(&dir_paths, left, right, core, config)?
+                fetch_partial_trees(&dir_paths, left, right, core, config, max_entries)?
             }
         }
         ScanStrategy::PartialScan(ref dir_paths) => {
-            fetch_partial_trees(dir_paths, left, right, core, config)?
+            fetch_partial_trees(dir_paths, left, right, core, config, max_entries)?
         }
         ScanStrategy::FullScan => {
-            let lt = core.fetch_tree_recursive(left, 50_000, true)?;
-            let rt = core.fetch_tree_recursive(right, 50_000, true)?;
+            let lt = core.fetch_tree_recursive(left, max_entries, true)?;
+            let rt = core.fetch_tree_recursive(right, max_entries, true)?;
             (lt, rt)
         }
     };
@@ -340,13 +350,14 @@ fn fetch_partial_trees(
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<(FileTree, FileTree)> {
     let mut left_tree = FileTree::new(&config.local.root_dir);
     let mut right_tree = FileTree::new(&config.local.root_dir);
 
     for dir_path in dir_paths {
-        let lt = core.fetch_tree_for_subpath(left, dir_path, 50_000, true)?;
-        let rt = core.fetch_tree_for_subpath(right, dir_path, 50_000, true)?;
+        let lt = core.fetch_tree_for_subpath(left, dir_path, max_entries, true)?;
+        let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
         left_tree.nodes.extend(lt.nodes);
         right_tree.nodes.extend(rt.nodes);
     }
@@ -375,6 +386,7 @@ mod tests {
             delete: false,
             with_permissions: false,
             format: "text".into(),
+            max_entries: None,
         }
     }
 
@@ -418,6 +430,7 @@ mod tests {
             backup: crate::config::BackupConfig::default(),
             agent: crate::config::AgentConfig::default(),
             defaults: crate::config::DefaultsConfig::default(),
+            max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
         }
     }
 
@@ -433,6 +446,7 @@ mod tests {
             delete: false,
             with_permissions: false,
             format: "yaml".into(),
+            max_entries: None,
         };
         // run_merge は config 読み込みより前に format をパースするため、
         // 不正な format 値で即座にエラーを返す
@@ -462,6 +476,7 @@ mod tests {
             delete: false,
             with_permissions: false,
             format: "text".into(),
+            max_entries: None,
         };
         let err = validate_merge_args(&args).unwrap_err();
         assert!(

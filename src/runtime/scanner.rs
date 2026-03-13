@@ -201,8 +201,9 @@ fn scan_side(
     match side {
         Side::Local => {
             let root = config.local.root_dir.clone();
-            let (nodes, trunc) = crate::local::scan_local_tree_recursive(&root, exclude, 50_000)
-                .map_err(|e| format!("Local scan error: {}", e))?;
+            let (nodes, trunc) =
+                crate::local::scan_local_tree_recursive(&root, exclude, config.max_scan_entries)
+                    .map_err(|e| format!("Local scan error: {}", e))?;
             Ok((nodes, trunc, root, None))
         }
         Side::Remote(server_name) => {
@@ -223,7 +224,12 @@ fn scan_side(
             let root = server_config.root_dir.clone();
             let root_str = root.to_string_lossy().to_string();
             let (nodes, trunc) = rt
-                .block_on(client.list_tree_recursive(&root_str, exclude, 50_000, 60))
+                .block_on(client.list_tree_recursive(
+                    &root_str,
+                    exclude,
+                    config.max_scan_entries,
+                    60,
+                ))
                 .map_err(|e| format!("Remote scan error ({}): {}", server_name, e))?;
 
             Ok((nodes, trunc, root, Some(client)))

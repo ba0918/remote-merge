@@ -447,7 +447,8 @@ mod tests {
 
         let paths: Vec<&str> = all_paths.iter().map(|s| s.as_str()).collect();
         assert!(paths.contains(&"a.txt"));
-        assert!(paths.contains(&"sub"));
+        // ディレクトリ "sub" は buffer に含まれない
+        assert!(!paths.contains(&"sub"));
         assert!(paths.contains(&"sub/b.txt"));
     }
 

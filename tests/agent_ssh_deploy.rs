@@ -436,7 +436,11 @@ async fn agent_ssh_list_tree_roundtrip() {
         paths.contains(&"hello.txt"),
         "expected hello.txt, got: {paths:?}"
     );
-    assert!(paths.contains(&"subdir"), "expected subdir, got: {paths:?}");
+    // ディレクトリ "subdir" は buffer に含まれない（ファイル+シンボリックリンクのみ）
+    assert!(
+        !paths.contains(&"subdir"),
+        "subdir directory should not appear in entries, got: {paths:?}"
+    );
     assert!(
         paths.contains(&"subdir/inner.txt"),
         "expected subdir/inner.txt, got: {paths:?}"

@@ -406,7 +406,8 @@ mod tests {
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));
-        assert!(paths.contains(&"sub"));
+        // ディレクトリ "sub" は buffer に含まれない
+        assert!(!paths.contains(&"sub"));
         assert!(paths.contains(&"sub/inner.txt"));
         assert!(!truncated);
     }

@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config::AppConfig;
+use crate::config::{resolve_max_entries, AppConfig};
 use crate::runtime::CoreRuntime;
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
@@ -24,9 +24,6 @@ use crate::service::status::{
     needs_content_compare_all, refine_status_with_content, status_exit_code,
 };
 use crate::service::types::FileStatusKind;
-
-/// 再帰走査の最大エントリ数
-const MAX_SCAN_ENTRIES: usize = 50_000;
 
 /// status サブコマンドの引数
 pub struct StatusArgs {
@@ -40,6 +37,8 @@ pub struct StatusArgs {
     pub checksum: bool,
     /// 冗長出力レベル（0=通常, 1+=agent 情報を含む）
     pub verbose: u8,
+    /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
+    pub max_entries: Option<usize>,
 }
 
 /// status サブコマンドを実行する
@@ -52,6 +51,8 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     };
     let pair = resolve_source_pair(&source_args, &config)?;
 
+    let max_entries = resolve_max_entries(args.max_entries, &config)?;
+
     let mut core = CoreRuntime::new(config.clone());
 
     // 接続
@@ -59,11 +60,11 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     core.connect_if_remote(&pair.right)?;
 
     // 左側ツリー取得（再帰走査でメタデータ付き）
-    let left_tree = core.fetch_tree_recursive(&pair.left, MAX_SCAN_ENTRIES, false)?;
+    let left_tree = core.fetch_tree_recursive(&pair.left, max_entries, true)?;
     let left_info = build_source_info(&pair.left, &core)?;
 
     // 右側ツリー取得（再帰走査でメタデータ付き）
-    let right_tree = core.fetch_tree_recursive(&pair.right, MAX_SCAN_ENTRIES, false)?;
+    let right_tree = core.fetch_tree_recursive(&pair.right, max_entries, true)?;
     let right_info = build_source_info(&pair.right, &core)?;
 
     // ステータス計算（メタデータ比較）
@@ -124,7 +125,7 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         core.connect_if_remote(ref_s)?;
 
         // Fetch ref tree
-        let ref_tree = core.fetch_tree_recursive(ref_s, MAX_SCAN_ENTRIES, false)?;
+        let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
         ref_info = Some(build_source_info(ref_s, &core)?);
 
         // Fetch ref contents for non-sensitive files

@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub backup: BackupConfig,
     pub agent: AgentConfig,
     pub defaults: DefaultsConfig,
+    /// ツリースキャンの最大エントリ数（デフォルト: 50,000）
+    pub max_scan_entries: usize,
 }
 
 /// サーバ接続設定
@@ -108,6 +110,33 @@ pub struct DefaultsConfig {
 /// デフォルトパーミッション定数
 const DEFAULT_FILE_PERMISSIONS: u32 = 0o664;
 const DEFAULT_DIR_PERMISSIONS: u32 = 0o775;
+
+/// ツリースキャンのデフォルト最大エントリ数
+pub const DEFAULT_MAX_SCAN_ENTRIES: usize = 50_000;
+
+/// max_scan_entries の有効範囲: 1 以上 1,000,000 以下
+pub fn validate_max_scan_entries(n: usize) -> Result<(), String> {
+    if n == 0 || n > 1_000_000 {
+        return Err(format!(
+            "max_scan_entries must be between 1 and 1,000,000, got {}",
+            n
+        ));
+    }
+    Ok(())
+}
+
+/// CLI --max-entries > config > default の優先度で max_scan_entries を解決する。
+///
+/// `cli_override` が Some の場合はその値を使い、バリデーションを行う。
+/// None の場合は `config.max_scan_entries`（すでにバリデーション済み）を使う。
+pub fn resolve_max_entries(
+    cli_override: Option<usize>,
+    config: &AppConfig,
+) -> anyhow::Result<usize> {
+    let n = cli_override.unwrap_or(config.max_scan_entries);
+    validate_max_scan_entries(n).map_err(|e| anyhow::anyhow!(e))?;
+    Ok(n)
+}
 
 impl Default for DefaultsConfig {
     fn default() -> Self {
@@ -266,6 +295,7 @@ struct RawConfig {
     backup: Option<RawBackupConfig>,
     agent: Option<RawAgentConfig>,
     defaults: Option<RawDefaultsConfig>,
+    max_scan_entries: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -575,6 +605,22 @@ fn merge_configs(
         convert_defaults_config(merged.as_ref())?
     };
 
+    // max_scan_entries: プロジェクトで上書き、バリデーション付き
+    let max_scan_entries = {
+        let raw_val = project
+            .as_ref()
+            .and_then(|p| p.max_scan_entries)
+            .or(global.max_scan_entries)
+            .unwrap_or(DEFAULT_MAX_SCAN_ENTRIES);
+        if let Err(msg) = validate_max_scan_entries(raw_val) {
+            bail!(AppError::ConfigValidation {
+                field: "max_scan_entries".into(),
+                message: msg,
+            });
+        }
+        raw_val
+    };
+
     Ok(AppConfig {
         servers,
         local,
@@ -583,6 +629,7 @@ fn merge_configs(
         backup,
         agent,
         defaults,
+        max_scan_entries,
     })
 }
 
@@ -2051,5 +2098,130 @@ strict_host_key_checking = "no"
             config.ssh.strict_host_key_checking,
             StrictHostKeyChecking::No
         );
+    }
+
+    // ── max_scan_entries テスト ──
+
+    #[test]
+    fn test_default_max_scan_entries_is_50000() {
+        assert_eq!(DEFAULT_MAX_SCAN_ENTRIES, 50_000);
+    }
+
+    #[test]
+    fn test_validate_max_scan_entries_zero_is_err() {
+        assert!(validate_max_scan_entries(0).is_err());
+    }
+
+    #[test]
+    fn test_validate_max_scan_entries_one_is_ok() {
+        assert!(validate_max_scan_entries(1).is_ok());
+    }
+
+    #[test]
+    fn test_validate_max_scan_entries_default_is_ok() {
+        assert!(validate_max_scan_entries(50_000).is_ok());
+    }
+
+    #[test]
+    fn test_validate_max_scan_entries_max_is_ok() {
+        assert!(validate_max_scan_entries(1_000_000).is_ok());
+    }
+
+    #[test]
+    fn test_validate_max_scan_entries_over_max_is_err() {
+        assert!(validate_max_scan_entries(1_000_001).is_err());
+    }
+
+    #[test]
+    fn test_resolve_max_entries_none_uses_config_default() {
+        let config = make_minimal_app_config();
+        let result = resolve_max_entries(None, &config).unwrap();
+        assert_eq!(result, DEFAULT_MAX_SCAN_ENTRIES);
+    }
+
+    #[test]
+    fn test_resolve_max_entries_some_value_overrides() {
+        let config = make_minimal_app_config();
+        let result = resolve_max_entries(Some(100_000), &config).unwrap();
+        assert_eq!(result, 100_000);
+    }
+
+    #[test]
+    fn test_resolve_max_entries_zero_is_err() {
+        let config = make_minimal_app_config();
+        let result = resolve_max_entries(Some(0), &config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_scan_entries_toml_default() {
+        // max_scan_entries なし → DEFAULT_MAX_SCAN_ENTRIES
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.max_scan_entries, DEFAULT_MAX_SCAN_ENTRIES);
+    }
+
+    #[test]
+    fn test_max_scan_entries_toml_custom() {
+        // max_scan_entries = 100000 → 100,000
+        // トップレベルキーはセクション宣言より前に書く必要がある（TOML 仕様）
+        let content = r#"
+max_scan_entries = 100000
+
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.max_scan_entries, 100_000);
+    }
+
+    #[test]
+    fn test_max_scan_entries_toml_invalid_zero_is_err() {
+        // トップレベルキーはセクション宣言より前に書く必要がある（TOML 仕様）
+        let content = r#"
+max_scan_entries = 0
+
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let result = load_config_from_paths(Some(f.path()), None);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("max_scan_entries"), "got: {msg}");
+    }
+
+    /// テスト用の最小限の AppConfig を生成するヘルパー
+    fn make_minimal_app_config() -> AppConfig {
+        AppConfig {
+            servers: BTreeMap::new(),
+            local: LocalConfig::default(),
+            filter: FilterConfig::default(),
+            ssh: SshConfig::default(),
+            backup: BackupConfig::default(),
+            agent: AgentConfig::default(),
+            defaults: DefaultsConfig::default(),
+            max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
+        }
     }
 }

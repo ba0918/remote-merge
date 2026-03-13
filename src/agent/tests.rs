@@ -53,7 +53,8 @@ fn full_protocol_roundtrip() {
     let (entries, _truncated) = client.list_tree("", &[], 10000).unwrap();
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains(&"hello.txt"));
-    assert!(paths.contains(&"sub"));
+    // ディレクトリ "sub" は buffer に含まれない（走査キューにのみ追加）
+    assert!(!paths.contains(&"sub"));
     assert!(paths.contains(&"sub/inner.txt"));
 
     // ReadFiles
@@ -111,8 +112,8 @@ fn tree_scan_and_convert_to_file_nodes() {
     let file_entry = entries.iter().find(|e| e.path == "root.txt").unwrap();
     assert_eq!(file_entry.kind, FileKind::File);
 
-    let dir_entry = entries.iter().find(|e| e.path == "a").unwrap();
-    assert_eq!(dir_entry.kind, FileKind::Directory);
+    // ディレクトリ "a" は buffer に含まれない
+    assert!(!entries.iter().any(|e| e.path == "a"));
 
     let link_entry = entries.iter().find(|e| e.path == "link").unwrap();
     assert_eq!(link_entry.kind, FileKind::Symlink);
@@ -126,8 +127,8 @@ fn tree_scan_and_convert_to_file_nodes() {
     let root_node = nodes.iter().find(|n| n.name == "root.txt").unwrap();
     assert!(matches!(root_node.kind, NodeKind::File));
 
-    let dir_node = nodes.iter().find(|n| n.name == "a").unwrap();
-    assert!(matches!(dir_node.kind, NodeKind::Directory));
+    // ディレクトリ "a" は entries に含まれないため nodes にも含まれない
+    assert!(!nodes.iter().any(|n| n.name == "a"));
 
     let link_node = nodes.iter().find(|n| n.name == "link").unwrap();
     match &link_node.kind {

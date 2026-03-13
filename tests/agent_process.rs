@@ -256,9 +256,10 @@ fn agent_list_tree_roundtrip() {
         paths.contains(&"hello.txt"),
         "expected hello.txt in entries, got: {paths:?}"
     );
+    // ディレクトリ "sub" は buffer に含まれない（ファイル+シンボリックリンクのみ）
     assert!(
-        paths.contains(&"sub"),
-        "expected sub/ in entries, got: {paths:?}"
+        !paths.contains(&"sub"),
+        "sub directory should not appear in entries, got: {paths:?}"
     );
     assert!(
         paths.contains(&"sub/inner.txt"),

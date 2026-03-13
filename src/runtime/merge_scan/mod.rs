@@ -118,6 +118,7 @@ mod tests {
     use super::*;
     use crate::config::{
         AgentConfig, AppConfig, BackupConfig, DefaultsConfig, FilterConfig, LocalConfig, SshConfig,
+        DEFAULT_MAX_SCAN_ENTRIES,
     };
     use crate::tree::{FileNode, FileTree};
     use std::collections::BTreeMap;
@@ -141,6 +142,7 @@ mod tests {
             backup: BackupConfig::default(),
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
+            max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
         }
     }
 

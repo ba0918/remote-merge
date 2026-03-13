@@ -134,7 +134,8 @@ impl<'a> ScanIterator<'a> {
     }
 
     /// 1エントリを処理してバッファに追加する。
-    /// 追加した場合 true、除外等でスキップした場合 false を返す。
+    /// ファイル/シンボリックリンクをバッファに追加した場合 true、
+    /// ディレクトリ（走査キューに追加）・除外等でスキップした場合 false を返す。
     fn process_entry(&mut self, path: &Path) -> bool {
         let meta = match path.symlink_metadata() {
             Ok(m) => m,
@@ -155,14 +156,18 @@ impl<'a> ScanIterator<'a> {
         }
 
         let file_type = meta.file_type();
+
+        // ディレクトリは走査キューに追加するだけで buffer には入れない
+        if file_type.is_dir() {
+            self.dir_stack.push(path.to_path_buf());
+            return false;
+        }
+
         let (kind, symlink_target) = if file_type.is_symlink() {
             let target = std::fs::read_link(path)
                 .ok()
                 .map(|t| t.to_string_lossy().replace('\\', "/"));
             (FileKind::Symlink, target)
-        } else if file_type.is_dir() {
-            self.dir_stack.push(path.to_path_buf());
-            (FileKind::Directory, None)
         } else {
             (FileKind::File, None)
         };
@@ -191,6 +196,7 @@ impl<'a> ScanIterator<'a> {
             permissions,
             symlink_target,
         });
+        // ファイルとシンボリックリンクのみカウント（ディレクトリは含まない）
         self.total_scanned += 1;
         true
     }
@@ -341,11 +347,18 @@ mod tests {
         assert!(chunks[0].is_last);
 
         let all_paths: Vec<&str> = chunks[0].entries.iter().map(|e| e.path.as_str()).collect();
+        // ファイルのみ含まれる（ディレクトリはバッファに入らない）
         assert!(all_paths.contains(&"file1.txt"));
         assert!(all_paths.contains(&"file2.rs"));
-        assert!(all_paths.contains(&"sub"));
+        assert!(
+            !all_paths.contains(&"sub"),
+            "directory should not appear in entries"
+        );
         assert!(all_paths.contains(&"sub/nested.txt"));
-        assert!(all_paths.contains(&"sub/deep"));
+        assert!(
+            !all_paths.contains(&"sub/deep"),
+            "directory should not appear in entries"
+        );
         assert!(all_paths.contains(&"sub/deep/leaf.txt"));
     }
 
@@ -457,7 +470,8 @@ mod tests {
     #[test]
     fn chunking_works() {
         let dir = create_test_tree();
-        // create_test_tree: file1.txt, file2.rs, sub, sub/nested.txt, sub/deep, sub/deep/leaf.txt = 6 entries
+        // create_test_tree のファイル: file1.txt, file2.rs, sub/nested.txt, sub/deep/leaf.txt = 4 entries
+        // ディレクトリ (sub, sub/deep) は buffer に入らない
         let options = ScanOptions {
             root: dir.path().to_path_buf(),
             chunk_size: 2,
@@ -465,7 +479,7 @@ mod tests {
         };
 
         let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
-        // chunk_size=2 で 6 エントリ → 3チャンク（2+2+2）または 4チャンク等
+        // chunk_size=2 で 4 ファイル → 2チャンク
         assert!(
             chunks.len() >= 2,
             "expected multiple chunks, got {}",
@@ -479,9 +493,9 @@ mod tests {
         }
         assert!(chunks.last().unwrap().is_last);
 
-        // 全エントリが揃っていること
+        // ファイルエントリのみ（ディレクトリ除く）4件が揃っていること
         let total: usize = chunks.iter().map(|c| c.entries.len()).sum();
-        assert_eq!(total, 6);
+        assert_eq!(total, 4, "expected 4 file entries (no directories)");
     }
 
     #[test]
@@ -685,5 +699,156 @@ mod tests {
         assert_eq!(nodes[0].name, "file.txt");
         assert_eq!(nodes[1].name, "dir");
         assert_eq!(nodes[2].name, "nested.txt"); // パスの最後のセグメント
+    }
+
+    // ── total_scanned カウント方式テスト ──
+
+    /// ディレクトリエントリは total_scanned にカウントされないこと
+    #[test]
+    fn directories_not_counted_in_total_scanned() {
+        let dir = create_test_tree();
+        // create_test_tree: ファイル4件 (file1.txt, file2.rs, sub/nested.txt, sub/deep/leaf.txt)
+        //                   ディレクトリ2件 (sub, sub/deep)
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(chunks.len(), 1);
+
+        let total_scanned = chunks[0].total_scanned;
+        // ファイル4件のみカウント。ディレクトリは含まない
+        assert_eq!(
+            total_scanned, 4,
+            "total_scanned should count files only, got {total_scanned}"
+        );
+
+        // バッファにもディレクトリは含まれない
+        let dir_entries: Vec<_> = chunks[0]
+            .entries
+            .iter()
+            .filter(|e| e.kind == FileKind::Directory)
+            .collect();
+        assert!(
+            dir_entries.is_empty(),
+            "no directory entries should appear in buffer"
+        );
+    }
+
+    /// FileKind::File と FileKind::Symlink のみ total_scanned が増加すること
+    #[cfg(unix)]
+    #[test]
+    fn only_file_and_symlink_counted() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        fs::write(root.join("a.txt"), "a").unwrap();
+        fs::write(root.join("b.txt"), "b").unwrap();
+        std::os::unix::fs::symlink("a.txt", root.join("link_a")).unwrap();
+        fs::create_dir(root.join("subdir")).unwrap();
+        fs::write(root.join("subdir/c.txt"), "c").unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(chunks.len(), 1);
+
+        // ファイル3件 + シンボリックリンク1件 = 4件
+        let total_scanned = chunks[0].total_scanned;
+        assert_eq!(
+            total_scanned, 4,
+            "files(3) + symlinks(1) = 4, got {total_scanned}"
+        );
+
+        let kinds: Vec<_> = chunks[0].entries.iter().map(|e| &e.kind).collect();
+        assert!(
+            kinds.iter().all(|k| **k != FileKind::Directory),
+            "no Directory entries should be in buffer"
+        );
+    }
+
+    /// 除外パターンに一致したエントリが total_scanned に含まれないこと
+    #[test]
+    fn excluded_entries_not_counted() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        fs::write(root.join("keep.txt"), "keep").unwrap();
+        fs::write(root.join("skip.log"), "skip").unwrap();
+        fs::create_dir(root.join("logs")).unwrap();
+        fs::write(root.join("logs/app.log"), "log").unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            // セグメント除外: logs ディレクトリ全体と skip.log
+            exclude: vec!["logs".to_string(), "skip.log".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        assert_eq!(chunks.len(), 1);
+
+        // keep.txt のみが残る → total_scanned = 1
+        let total_scanned = chunks[0].total_scanned;
+        assert_eq!(
+            total_scanned, 1,
+            "only keep.txt should be counted, got {total_scanned}"
+        );
+
+        let all_paths: Vec<&str> = chunks[0].entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(all_paths, vec!["keep.txt"]);
+    }
+
+    /// max_entries 到達時の truncated フラグがディレクトリを除外した正しいカウントで判定されること
+    #[test]
+    fn max_entries_uses_file_only_count() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+
+        // サブディレクトリ + ファイル構成: ディレクトリ1 + ファイル3
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub/a.txt"), "a").unwrap();
+        fs::write(root.join("sub/b.txt"), "b").unwrap();
+        fs::write(root.join("sub/c.txt"), "c").unwrap();
+
+        // max_entries=2 でファイル3件中2件で打ち切りになること
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            max_entries: 2,
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        // max_entries=2 なのでファイルが2件でチャンクが終わる
+        let total_files: usize = chunks.iter().map(|c| c.entries.len()).sum();
+        assert!(
+            total_files <= 2,
+            "should have at most 2 file entries, got {total_files}"
+        );
+
+        // 最後のチャンクの total_scanned はファイル件数のみ
+        let last = chunks.last().unwrap();
+        assert!(last.is_last);
+        assert_eq!(
+            last.total_scanned,
+            last.entries.len(),
+            // total_scanned は全チャンク累計だが、このケースはチャンクが1つなのでバッファ件数と一致する
+            "total_scanned should match entries count (files only)"
+        );
+
+        // バッファにディレクトリが混入していないこと
+        let has_dir = chunks
+            .iter()
+            .flat_map(|c| c.entries.iter())
+            .any(|e| e.kind == FileKind::Directory);
+        assert!(!has_dir, "no directory entries should appear");
     }
 }

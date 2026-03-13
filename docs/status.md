@@ -1,10 +1,19 @@
 # Project Status
 
-**Last Updated:** 2026-03-12 21:20
+**Last Updated:** 2026-03-13 00:25
 
 ---
 
 ## 🎯 Current Session
+
+### 20260313002514 - スキャン信頼性・Agent 堅牢性の致命的バグ修正
+- **Started:** 2026-03-13 00:25:14
+- **Completed:** 2026-03-13
+- **Status:** 🟢 Complete
+- **Plan:** [Link](./cycles/20260313002514_fix-scan-agent-reliability.md)
+- **Summary:** testenv 100,000ファイル環境で発見された致命的バグ4件を修正。(1) status truncation エラー化 + `--max-entries` 設定可能化、(2) Agent pipe 部分書き込み対応、(3) tree_scan ディレクトリ除外でカウント一致、(4) `agent_unavailable` HashMap で失敗キャッシュ。`should_invalidate_agent_error()` でエラーチェーン探索。+24テスト（2093テスト通過）、clippy警告ゼロ。
+
+---
 
 ### 20260312212041 - CLI Targeted I/O（フルスキャン廃止 + batch_read チャンク分割）
 - **Started:** 2026-03-12 21:20:41

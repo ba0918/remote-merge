@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use crate::app::Side;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
-use crate::config::AppConfig;
+use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
@@ -37,6 +37,8 @@ pub struct SyncArgs {
     pub delete: bool,
     pub with_permissions: bool,
     pub format: String,
+    /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
+    pub max_entries: Option<usize>,
 }
 
 /// sync 引数のバリデーション
@@ -69,6 +71,7 @@ struct ServerPlan {
 pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     validate_sync_args(&args)?;
     let format = OutputFormat::parse(&args.format)?;
+    let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     // ソースペア解決（サーバ名バリデーション・重複チェック・left==right チェック）
     let pairs = resolve_source_pairs(args.left.as_deref().unwrap(), &args.right, &config)?;
@@ -92,7 +95,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     let mut core = CoreRuntime::new(config.clone());
     let left_side = &pairs[0].left;
     core.connect_if_remote(left_side)?;
-    let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config)?;
+    let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config, max_entries)?;
     let left_info = build_source_info(left_side, &core)?;
 
     // サーバごとの計画策定
@@ -114,17 +117,19 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
         }
 
         // right ツリー取得（ScanStrategy に基づく）
-        let right_tree = match fetch_tree_by_strategy(&strategy, right_side, &mut core, &config) {
-            Ok(t) => t,
-            Err(e) => {
-                let info = build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
-                    label: right_side.display_name().to_string(),
-                    root: String::new(),
-                });
-                connection_failures.push((info, format!("{}", e)));
-                continue;
-            }
-        };
+        let right_tree =
+            match fetch_tree_by_strategy(&strategy, right_side, &mut core, &config, max_entries) {
+                Ok(t) => t,
+                Err(e) => {
+                    let info =
+                        build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
+                            label: right_side.display_name().to_string(),
+                            root: String::new(),
+                        });
+                    connection_failures.push((info, format!("{}", e)));
+                    continue;
+                }
+            };
 
         // ステータス計算
         let mut statuses =
@@ -411,6 +416,7 @@ fn fetch_tree_by_strategy(
     side: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<FileTree> {
     match strategy {
         ScanStrategy::FastPath(ref target_paths) => {
@@ -418,15 +424,15 @@ fn fetch_tree_by_strategy(
             let dir_paths = fast_path_to_parent_dirs(target_paths);
             // ルート直下ファイルがある場合は FullScan にフォールバック
             if has_root_parent_dir(&dir_paths) {
-                core.fetch_tree_recursive(side, 50_000, true)
+                core.fetch_tree_recursive(side, max_entries, true)
             } else {
-                fetch_partial_tree(&dir_paths, side, core, config)
+                fetch_partial_tree(&dir_paths, side, core, config, max_entries)
             }
         }
         ScanStrategy::PartialScan(ref dir_paths) => {
-            fetch_partial_tree(dir_paths, side, core, config)
+            fetch_partial_tree(dir_paths, side, core, config, max_entries)
         }
-        ScanStrategy::FullScan => core.fetch_tree_recursive(side, 50_000, true),
+        ScanStrategy::FullScan => core.fetch_tree_recursive(side, max_entries, true),
     }
 }
 
@@ -436,10 +442,11 @@ fn fetch_partial_tree(
     side: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    max_entries: usize,
 ) -> anyhow::Result<FileTree> {
     let mut tree = FileTree::new(&config.local.root_dir);
     for dir_path in dir_paths {
-        let sub = core.fetch_tree_for_subpath(side, dir_path, 50_000, true)?;
+        let sub = core.fetch_tree_for_subpath(side, dir_path, max_entries, true)?;
         tree.nodes.extend(sub.nodes);
     }
     tree.sort();
@@ -485,6 +492,7 @@ mod tests {
             delete: false,
             with_permissions: false,
             format: "text".into(),
+            max_entries: None,
         }
     }
 
