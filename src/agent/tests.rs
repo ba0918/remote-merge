@@ -50,7 +50,7 @@ fn full_protocol_roundtrip() {
     let mut client = create_pair(&tmp);
 
     // ListTree
-    let (entries, _truncated) = client.list_tree("", &[], 10000).unwrap();
+    let (entries, _truncated) = client.list_tree("", &[], &[], 10000).unwrap();
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains(&"hello.txt"));
     // ディレクトリ "sub" は buffer に含まれない（走査キューにのみ追加）
@@ -106,7 +106,7 @@ fn tree_scan_and_convert_to_file_nodes() {
     std::os::unix::fs::symlink("root.txt", tmp.path().join("link")).unwrap();
 
     let mut client = create_pair(&tmp);
-    let (entries, _truncated) = client.list_tree("", &[], 10000).unwrap();
+    let (entries, _truncated) = client.list_tree("", &[], &[], 10000).unwrap();
 
     // エントリ種類の検証
     let file_entry = entries.iter().find(|e| e.path == "root.txt").unwrap();
@@ -186,7 +186,12 @@ fn exclude_patterns_filter_entries() {
 
     let mut client = create_pair(&tmp);
     let (entries, _truncated) = client
-        .list_tree("", &["node_modules".to_string(), ".git".to_string()], 10000)
+        .list_tree(
+            "",
+            &["node_modules".to_string(), ".git".to_string()],
+            &[],
+            10000,
+        )
         .unwrap();
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
@@ -268,7 +273,7 @@ fn symlink_create_and_list_and_read() {
     client.symlink(link_rel, "target.txt").unwrap();
 
     // ListTree でシンボリックリンクが表示される
-    let (entries, _truncated) = client.list_tree("", &[], 10000).unwrap();
+    let (entries, _truncated) = client.list_tree("", &[], &[], 10000).unwrap();
     let link_entry = entries
         .iter()
         .find(|e| e.path == link_rel)

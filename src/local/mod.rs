@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use chrono::{TimeZone, Utc};
@@ -134,27 +134,150 @@ fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
     }
 }
 
+/// include パスからスキャンルートを解決する。
+///
+/// - `include_paths` が空の場合は `root` 自体を返す
+/// - 各 include パスを `root` に結合して正規化し、`root` 配下であることを確認する
+/// - 存在しないパスは警告ログを出してスキップ
+/// - シンボリックリンクが `root` 外を指す場合は拒否
+pub fn resolve_scan_roots(root: &Path, include_paths: &[String]) -> Vec<PathBuf> {
+    if include_paths.is_empty() {
+        return vec![root.to_path_buf()];
+    }
+
+    let canonical_root = match root.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("Cannot canonicalize root path {}: {}", root.display(), e);
+            return vec![root.to_path_buf()];
+        }
+    };
+
+    let mut scan_roots: Vec<PathBuf> = Vec::new();
+
+    for include_path in include_paths {
+        let joined = root.join(include_path);
+        match joined.canonicalize() {
+            Ok(canonical) => {
+                // root 配下であることを確認（シンボリックリンク脱出防止）
+                if !canonical.starts_with(&canonical_root) {
+                    tracing::warn!(
+                        "Include path escapes root directory: {} -> {}",
+                        include_path,
+                        canonical.display()
+                    );
+                    continue;
+                }
+                if !scan_roots.contains(&canonical) {
+                    scan_roots.push(canonical);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Include path does not exist, skipping: {} ({})",
+                    include_path,
+                    e
+                );
+            }
+        }
+    }
+
+    // 祖先パスが既にリストにある場合、子孫パスを除去する
+    // 例: ["/root/vendor", "/root/vendor/current"] → ["/root/vendor"]
+    scan_roots.sort();
+    scan_roots.dedup();
+    let filtered: Vec<PathBuf> = scan_roots
+        .iter()
+        .filter(|path| {
+            !scan_roots
+                .iter()
+                .any(|other| other != *path && path.starts_with(other))
+        })
+        .cloned()
+        .collect();
+
+    filtered
+}
+
 /// ローカルディレクトリを再帰的に全走査する（変更ファイルフィルター用）
 ///
 /// walkdir クレートを使用して全ファイルのメタデータを取得する。
 /// 戻り値の bool は打ち切りが発生したかどうか。
+///
+/// `include` が空でない場合、`resolve_scan_roots` でスキャンルートを絞り込み、
+/// 各ルート配下のみを走査する。`max_entries` は全ルート横断の累計カウント。
 pub fn scan_local_tree_recursive(
     root: &Path,
     exclude: &[String],
     max_entries: usize,
 ) -> crate::error::Result<(Vec<FileNode>, bool)> {
-    use walkdir::WalkDir;
+    scan_local_tree_recursive_with_include(root, exclude, &[], max_entries)
+}
 
+/// include フィルター付きのローカル再帰スキャン
+///
+/// - `include` が空: root 全体をスキャン（従来動作）
+/// - `include` が非空: `resolve_scan_roots` で得たディレクトリのみスキャン
+/// - `max_entries` は全スキャンルート横断の累計カウント
+/// - 結果のパスは `root` からの相対パス
+pub fn scan_local_tree_recursive_with_include(
+    root: &Path,
+    exclude: &[String],
+    include: &[String],
+    max_entries: usize,
+) -> crate::error::Result<(Vec<FileNode>, bool)> {
     if !root.exists() {
         anyhow::bail!(crate::error::AppError::PathNotFound {
             path: root.to_path_buf(),
         });
     }
 
+    let scan_roots = resolve_scan_roots(root, include);
+
+    // strip_prefix の失敗を防ぐため、original_root も正規化する
+    // （scan_roots は resolve_scan_roots 内で canonicalize 済み）
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
     let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
     let mut truncated = false;
 
-    for entry in WalkDir::new(root)
+    for scan_root in &scan_roots {
+        if truncated {
+            break;
+        }
+        let (entries, trunc) = walk_single_root(
+            scan_root,
+            &canonical_root,
+            exclude,
+            max_entries - flat_entries.len(),
+        )?;
+        flat_entries.extend(entries);
+        if trunc {
+            truncated = true;
+        }
+    }
+
+    // フラットリストから再帰ツリーを構築
+    let tree = build_local_tree_from_flat(flat_entries);
+    Ok((tree, truncated))
+}
+
+/// 単一のスキャンルートを WalkDir で走査し、フラットエントリリストを返す。
+///
+/// パスは `original_root` からの相対パスとして格納される。
+/// `remaining` は残りエントリ数上限。
+fn walk_single_root(
+    scan_root: &Path,
+    original_root: &Path,
+    exclude: &[String],
+    remaining: usize,
+) -> crate::error::Result<(Vec<(String, FileNode)>, bool)> {
+    use walkdir::WalkDir;
+
+    let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
+    let mut truncated = false;
+
+    for entry in WalkDir::new(scan_root)
         .min_depth(1)
         .follow_links(false)
         .into_iter()
@@ -163,7 +286,7 @@ pub fn scan_local_tree_recursive(
             // 相対パスが取れる場合はパスパターンも適用し、ディレクトリ配下を丸ごとスキップ。
             let rel = e
                 .path()
-                .strip_prefix(root)
+                .strip_prefix(original_root)
                 .unwrap_or(e.path())
                 .to_string_lossy();
             if rel.is_empty() {
@@ -180,19 +303,18 @@ pub fn scan_local_tree_recursive(
             }
         };
 
-        if flat_entries.len() >= max_entries {
+        if flat_entries.len() >= remaining {
             truncated = true;
             tracing::warn!(
-                "Recursive scan: entry count reached limit {}: {}",
-                max_entries,
-                root.display()
+                "Recursive scan: entry count reached limit: {}",
+                scan_root.display()
             );
             break;
         }
 
         let rel_path = entry
             .path()
-            .strip_prefix(root)
+            .strip_prefix(original_root)
             .unwrap_or(entry.path())
             .to_string_lossy()
             .to_string();
@@ -221,9 +343,7 @@ pub fn scan_local_tree_recursive(
         flat_entries.push((rel_path, node));
     }
 
-    // フラットリストから再帰ツリーを構築
-    let tree = build_local_tree_from_flat(flat_entries);
-    Ok((tree, truncated))
+    Ok((flat_entries, truncated))
 }
 
 /// フラットなエントリリスト（相対パス付き）から再帰ツリーを構築する
@@ -529,5 +649,261 @@ mod tests {
             crate::config::DEFAULT_MAX_SCAN_ENTRIES,
         );
         assert!(result.is_err());
+    }
+
+    // ── resolve_scan_roots ──
+
+    #[test]
+    fn test_resolve_scan_roots_empty_includes() {
+        let root = PathBuf::from("/tmp");
+        let result = resolve_scan_roots(&root, &[]);
+        assert_eq!(result, vec![PathBuf::from("/tmp")]);
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_with_existing_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let sub_a = root.join("a");
+        let sub_b = root.join("b");
+        std::fs::create_dir(&sub_a).unwrap();
+        std::fs::create_dir(&sub_b).unwrap();
+
+        let include = vec!["a".to_string(), "b".to_string()];
+        let result = resolve_scan_roots(root, &include);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&sub_a.canonicalize().unwrap()));
+        assert!(result.contains(&sub_b.canonicalize().unwrap()));
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_nonexistent_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let sub_a = root.join("a");
+        std::fs::create_dir(&sub_a).unwrap();
+
+        let include = vec!["a".to_string(), "nonexistent".to_string()];
+        let result = resolve_scan_roots(root, &include);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], sub_a.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_dedup() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let sub_a = root.join("a");
+        std::fs::create_dir(&sub_a).unwrap();
+
+        let include = vec!["a".to_string(), "a".to_string()];
+        let result = resolve_scan_roots(root, &include);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_symlink_escape() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir(&outside).unwrap();
+
+        // project/escape -> ../outside（root 外を指すシンボリックリンク）
+        symlink(&outside, root.join("escape")).unwrap();
+        let include = vec!["escape".to_string()];
+        let result = resolve_scan_roots(&root, &include);
+        assert!(
+            result.is_empty(),
+            "Symlink escaping root should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_overlapping_paths_deduplicated() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let vendor = root.join("vendor");
+        let vendor_current = root.join("vendor/current");
+        std::fs::create_dir_all(&vendor_current).unwrap();
+
+        // vendor と vendor/current の両方を include → vendor だけ残る
+        let include = vec!["vendor".to_string(), "vendor/current".to_string()];
+        let result = resolve_scan_roots(root, &include);
+        assert_eq!(result.len(), 1, "Descendant path should be removed");
+        assert_eq!(result[0], vendor.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_non_overlapping_preserved() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+
+        // 重複しないパスは両方残る
+        let include = vec!["src".to_string(), "docs".to_string()];
+        let result = resolve_scan_roots(root, &include);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_all_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+        let include = vec!["no1".to_string(), "no2".to_string()];
+        let result = resolve_scan_roots(tmp.path(), &include);
+        assert!(result.is_empty());
+    }
+
+    // ── scan_local_tree_recursive_with_include ──
+
+    /// テスト用ツリー構造:
+    /// root/
+    ///   src/
+    ///     main.rs
+    ///     lib.rs
+    ///   docs/
+    ///     readme.txt
+    ///   vendor/
+    ///     legacy/
+    ///       old.js
+    ///     current/
+    ///       new.js
+    ///   top.txt
+    fn create_include_test_tree() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(root.join("src/lib.rs"), "// lib").unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(root.join("docs/readme.txt"), "readme").unwrap();
+        std::fs::create_dir_all(root.join("vendor/legacy")).unwrap();
+        std::fs::create_dir_all(root.join("vendor/current")).unwrap();
+        std::fs::write(root.join("vendor/legacy/old.js"), "").unwrap();
+        std::fs::write(root.join("vendor/current/new.js"), "").unwrap();
+        std::fs::write(root.join("top.txt"), "top").unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_include_scans_only_specified_subdirs() {
+        let dir = create_include_test_tree();
+        let include = vec!["src".to_string()];
+        let (nodes, truncated) = scan_local_tree_recursive_with_include(
+            dir.path(),
+            &[],
+            &include,
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
+
+        assert!(!truncated);
+        // src ディレクトリだけが含まれる
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "src");
+        let children = nodes[0].children.as_ref().unwrap();
+        let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"main.rs"));
+        assert!(names.contains(&"lib.rs"));
+    }
+
+    #[test]
+    fn test_include_multiple_paths_merged() {
+        let dir = create_include_test_tree();
+        let include = vec!["src".to_string(), "docs".to_string()];
+        let (nodes, truncated) = scan_local_tree_recursive_with_include(
+            dir.path(),
+            &[],
+            &include,
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
+
+        assert!(!truncated);
+        let names: Vec<&str> = nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"docs"));
+        // top.txt や vendor は含まれない
+        assert!(!names.contains(&"top.txt"));
+        assert!(!names.contains(&"vendor"));
+    }
+
+    #[test]
+    fn test_include_with_exclude_combined() {
+        let dir = create_include_test_tree();
+        // vendor 配下を include しつつ legacy を exclude
+        let include = vec!["vendor".to_string()];
+        let exclude = vec!["vendor/legacy/**".to_string()];
+        let (nodes, truncated) = scan_local_tree_recursive_with_include(
+            dir.path(),
+            &exclude,
+            &include,
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
+
+        assert!(!truncated);
+        let vendor = nodes.iter().find(|n| n.name == "vendor").unwrap();
+        let vendor_children = vendor.children.as_ref().unwrap();
+        let child_names: Vec<&str> = vendor_children.iter().map(|n| n.name.as_str()).collect();
+        assert!(child_names.contains(&"current"));
+        assert!(
+            !child_names.contains(&"legacy"),
+            "legacy should be excluded"
+        );
+    }
+
+    #[test]
+    fn test_include_nonexistent_path_skipped() {
+        let dir = create_include_test_tree();
+        // nonexistent は存在しない → スキップ、src だけスキャン
+        let include = vec!["nonexistent".to_string(), "src".to_string()];
+        let (nodes, _) = scan_local_tree_recursive_with_include(
+            dir.path(),
+            &[],
+            &include,
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].name, "src");
+    }
+
+    #[test]
+    fn test_include_max_entries_cumulative() {
+        let dir = create_include_test_tree();
+        // src (2 files) + docs (1 file) = 3 ファイル + 中間ディレクトリ
+        // max_entries=2 で打ち切り確認（累計カウント）
+        let include = vec!["src".to_string(), "docs".to_string()];
+        let (_, truncated) =
+            scan_local_tree_recursive_with_include(dir.path(), &[], &include, 2).unwrap();
+
+        assert!(
+            truncated,
+            "Should truncate when cumulative entries exceed max"
+        );
+    }
+
+    #[test]
+    fn test_include_empty_scans_all() {
+        let dir = create_include_test_tree();
+        // include 空 → 従来通り全スキャン
+        let (nodes_all, _) = scan_local_tree_recursive_with_include(
+            dir.path(),
+            &[],
+            &[],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        )
+        .unwrap();
+
+        let (nodes_legacy, _) =
+            scan_local_tree_recursive(dir.path(), &[], crate::config::DEFAULT_MAX_SCAN_ENTRIES)
+                .unwrap();
+
+        // 同じ結果になるはず
+        assert_eq!(count_all_nodes(&nodes_all), count_all_nodes(&nodes_legacy));
     }
 }

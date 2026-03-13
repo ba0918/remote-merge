@@ -248,7 +248,7 @@ fn agent_list_tree_roundtrip() {
 
     let (entries, _truncated) = proc
         .client
-        .list_tree("", &[], 10_000)
+        .list_tree("", &[], &[], 10_000)
         .expect("list_tree should succeed");
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();

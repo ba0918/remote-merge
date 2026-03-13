@@ -16,6 +16,8 @@ pub enum AgentRequest {
     ListTree {
         root: String,
         exclude: Vec<String>,
+        #[serde(default)]
+        include: Vec<String>,
         max_entries: usize,
     },
     ReadFiles {
@@ -292,8 +294,35 @@ mod tests {
         roundtrip_request(&AgentRequest::ListTree {
             root: "/var/www".into(),
             exclude: vec!["node_modules".into(), ".git".into()],
+            include: vec![],
             max_entries: 5000,
         });
+    }
+
+    #[test]
+    fn request_list_tree_with_include_roundtrip() {
+        roundtrip_request(&AgentRequest::ListTree {
+            root: "/var/www".into(),
+            exclude: vec![".git".into()],
+            include: vec!["src".into(), "config".into()],
+            max_entries: 10000,
+        });
+    }
+
+    /// include フィールドなしのデータをデシリアライズ → デフォルト空配列（後方互換性）
+    #[test]
+    fn list_tree_without_include_backward_compat() {
+        // include フィールドなしの ListTree を JSON でシミュレート
+        // （msgpack でもフィールドが省略されたときに #[serde(default)] が効く）
+        let json =
+            r#"{"ListTree":{"root":"/var/www","exclude":["node_modules"],"max_entries":5000}}"#;
+        let req: AgentRequest = serde_json::from_str(json).unwrap();
+        match req {
+            AgentRequest::ListTree { include, .. } => {
+                assert!(include.is_empty(), "include should default to empty vec");
+            }
+            other => panic!("expected ListTree, got {other:?}"),
+        }
     }
 
     #[test]
@@ -519,6 +548,7 @@ mod tests {
         roundtrip_request(&AgentRequest::ListTree {
             root: "/".into(),
             exclude: vec![],
+            include: vec![],
             max_entries: 0,
         });
         roundtrip_request(&AgentRequest::ReadFiles {

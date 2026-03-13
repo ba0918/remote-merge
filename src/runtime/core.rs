@@ -648,15 +648,20 @@ impl CoreRuntime {
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let root_path = server_config.root_dir.clone();
         let exclude = self.config.filter.exclude.clone();
+        let include = self.config.filter.include.clone();
 
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
-        let (nodes, truncated) =
-            self.rt
-                .block_on(client.list_tree_recursive(&root_dir, &exclude, max_entries, 120))?;
+        let (nodes, truncated) = self.rt.block_on(client.list_tree_recursive(
+            &root_dir,
+            &exclude,
+            &include,
+            max_entries,
+            120,
+        ))?;
 
         if truncated {
             super::side_io::check_truncation(max_entries, fail_on_truncation)?;
@@ -704,9 +709,15 @@ impl CoreRuntime {
         // 返却ノードのパスは scan_path からの相対になる。
         // 存在しないパスの場合、list_tree_recursive の test -d チェックで失敗するため、
         // その場合は空ツリーを返す。
-        let result =
-            self.rt
-                .block_on(client.list_tree_recursive(&scan_path, &exclude, max_entries, 120));
+        // サブパス走査では include フィルターは適用しない
+        // （既に特定サブディレクトリを直接指定しているため）
+        let result = self.rt.block_on(client.list_tree_recursive(
+            &scan_path,
+            &exclude,
+            &[],
+            max_entries,
+            120,
+        ));
 
         let (nodes, truncated) = match result {
             Ok(pair) => pair,

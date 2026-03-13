@@ -1,8 +1,16 @@
-//! 除外パターンのマッチング（純粋関数）。
+//! フィルタリング関連の純粋関数。
+//!
+//! ## 除外パターン
 //!
 //! パターンの種類:
 //! - **セグメントパターン**（`/` を含まない）: `*.log`, `node_modules` → ファイル名/ディレクトリ名単体でマッチ
 //! - **パスパターン**（`/` を含む）: `vendor/legacy/**`, `**/*.generated.rs` → パス全体でマッチ
+//!
+//! ## include フィルター
+//!
+//! スキャン対象を特定のパス配下に限定する。
+
+use std::path::{Component, Path};
 
 /// ファイル名が除外パターン（セグメントパターン）にマッチするか。
 ///
@@ -66,6 +74,95 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
     }
 
     false
+}
+
+/// include パスを正規化し、不正なパスを警告として返す。
+///
+/// 戻り値: `(正規化済みパス一覧, 警告メッセージ一覧)`
+///
+/// 正規化処理:
+/// - 末尾スラッシュ除去
+/// - 先頭 `./` 除去
+/// - 空文字列除去
+/// - 重複排除
+/// - プレフィックス包含除去（`["ja", "ja/Back"]` → `["ja"]`）
+///
+/// 拒否（警告に追加）:
+/// - パストラバーサル（`..` を含むパス）
+/// - 絶対パス
+/// - glob 文字（`*`, `?`, `[`）
+pub fn normalize_include_paths(paths: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut warnings: Vec<String> = Vec::new();
+    let mut normalized: Vec<String> = Vec::new();
+
+    for raw in paths {
+        // 空文字列除去
+        if raw.is_empty() {
+            continue;
+        }
+
+        // 先頭 `./` 正規化 + 末尾 `/` 正規化
+        let mut s = raw.as_str();
+        while let Some(rest) = s.strip_prefix("./") {
+            s = rest;
+        }
+        let s = s.trim_end_matches('/');
+
+        // 正規化後に空になった場合はスキップ
+        if s.is_empty() {
+            continue;
+        }
+
+        let path = Path::new(s);
+
+        // 絶対パス拒否
+        if path.is_absolute() {
+            warnings.push(format!(
+                "Absolute path is not allowed in include filter: {}",
+                raw
+            ));
+            continue;
+        }
+
+        // パストラバーサル拒否
+        let has_parent_dir = path.components().any(|c| matches!(c, Component::ParentDir));
+        if has_parent_dir {
+            warnings.push(format!(
+                "Path traversal is not allowed in include filter: {}",
+                raw
+            ));
+            continue;
+        }
+
+        // glob 文字警告
+        if s.contains('*') || s.contains('?') || s.contains('[') {
+            warnings.push(format!(
+                "Glob patterns are not supported in include filter: {}",
+                raw
+            ));
+            continue;
+        }
+
+        // 重複排除
+        let owned = s.to_string();
+        if !normalized.contains(&owned) {
+            normalized.push(owned);
+        }
+    }
+
+    // プレフィックス包含除去: ソートして、親が既にリストにあれば子を除去
+    normalized.sort();
+    let mut result: Vec<String> = Vec::new();
+    for path in &normalized {
+        let is_child = result.iter().any(|parent| {
+            path.starts_with(parent.as_str()) && path.as_bytes().get(parent.len()) == Some(&b'/')
+        });
+        if !is_child {
+            result.push(path.clone());
+        }
+    }
+
+    (result, warnings)
 }
 
 #[cfg(test)]
@@ -192,5 +289,140 @@ mod tests {
         assert!(is_path_excluded("vendor/pkg/index.js", &patterns));
         assert!(is_path_excluded("vendor/deep/nested/util.js", &patterns));
         assert!(!is_path_excluded("src/app.js", &patterns));
+    }
+
+    // ── normalize_include_paths ──
+
+    #[test]
+    fn test_normalize_empty_input() {
+        let (paths, warnings) = normalize_include_paths(&[]);
+        assert!(paths.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_trailing_slash() {
+        let input = vec!["ja/Back/".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_leading_dot_slash() {
+        let input = vec!["./ja/Back".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_multiple_leading_dot_slash() {
+        let input = vec!["././ja/Back".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_rejects_traversal() {
+        let input = vec![
+            "..".to_string(),
+            "foo/../bar".to_string(),
+            "./../../etc".to_string(),
+        ];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert!(paths.is_empty());
+        assert_eq!(warnings.len(), 3);
+        for w in &warnings {
+            assert!(w.contains("Path traversal"));
+        }
+    }
+
+    #[test]
+    fn test_normalize_rejects_absolute_path() {
+        let input = vec!["/etc/passwd".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert!(paths.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Absolute path"));
+    }
+
+    #[test]
+    fn test_normalize_prefix_dedup() {
+        let input = vec!["ja/Back".to_string(), "ja".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        // "ja" は "ja/Back" の親なので、"ja" だけが残る
+        assert_eq!(paths, vec!["ja"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_prefix_dedup_with_trailing_slash() {
+        let input = vec!["ja/".to_string(), "ja/Back/".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_dedup_identical() {
+        let input = vec!["ja/Back/".to_string(), "ja/Back".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_empty_strings_removed() {
+        let input = vec!["".to_string(), "ja/Back/".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back"]);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_glob_warning() {
+        let input = vec![
+            "src/*.rs".to_string(),
+            "test?".to_string(),
+            "lib[0]".to_string(),
+        ];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert!(paths.is_empty());
+        assert_eq!(warnings.len(), 3);
+        for w in &warnings {
+            assert!(w.contains("Glob patterns"));
+        }
+    }
+
+    #[test]
+    fn test_normalize_mixed_valid_and_invalid() {
+        let input = vec![
+            "ja/Back".to_string(),
+            "../escape".to_string(),
+            "src/lib".to_string(),
+            "/absolute".to_string(),
+        ];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja/Back", "src/lib"]);
+        assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn test_normalize_all_invalid() {
+        let input = vec!["../a".to_string(), "/b".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert!(paths.is_empty());
+        assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn test_normalize_prefix_no_false_positive() {
+        // "japan" は "ja" のプレフィックスだが、パスセグメント境界ではない
+        let input = vec!["ja".to_string(), "japan".to_string()];
+        let (paths, warnings) = normalize_include_paths(&input);
+        assert_eq!(paths, vec!["ja", "japan"]);
+        assert!(warnings.is_empty());
     }
 }

@@ -5,6 +5,7 @@ use anyhow::{bail, Context};
 use serde::Deserialize;
 
 use crate::error::AppError;
+use crate::filter::normalize_include_paths;
 
 // ── 設定ファイル構造体 ──
 
@@ -67,6 +68,8 @@ pub struct LocalConfig {
 pub struct FilterConfig {
     pub exclude: Vec<String>,
     pub sensitive: Vec<String>,
+    /// include フィルター: 指定時はこれらのパス配下のみをスキャン対象にする
+    pub include: Vec<String>,
 }
 
 /// SSH接続設定
@@ -242,6 +245,7 @@ impl Default for FilterConfig {
                 "credentials.*".into(),
                 "*secret*".into(),
             ],
+            include: Vec::new(),
         }
     }
 }
@@ -335,6 +339,7 @@ struct RawLocalConfig {
 struct RawFilterConfig {
     exclude: Option<Vec<String>>,
     sensitive: Option<Vec<String>>,
+    include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -514,6 +519,13 @@ fn merge_configs(
                 }
             }
         }
+        if let Some(inc) = gf.include {
+            for i in inc {
+                if !filter.include.contains(&i) {
+                    filter.include.push(i);
+                }
+            }
+        }
     }
     if let Some(ref mut proj) = project {
         if let Some(pf) = proj.filter.take() {
@@ -531,6 +543,13 @@ fn merge_configs(
                     }
                 }
             }
+            if let Some(inc) = pf.include {
+                for i in inc {
+                    if !filter.include.contains(&i) {
+                        filter.include.push(i);
+                    }
+                }
+            }
         }
     }
 
@@ -538,6 +557,15 @@ fn merge_configs(
     let backup = crate::backup::BACKUP_DIR_NAME.to_string();
     if !filter.exclude.contains(&backup) {
         filter.exclude.push(backup);
+    }
+
+    // include パスの正規化（パストラバーサル・絶対パス・glob を拒否）
+    if !filter.include.is_empty() {
+        let (normalized, warnings) = normalize_include_paths(&filter.include);
+        for w in &warnings {
+            tracing::warn!("{}", w);
+        }
+        filter.include = normalized;
     }
 
     // ssh: プロジェクトで上書き
@@ -2209,6 +2237,77 @@ root_dir = "/home/user/app"
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("max_scan_entries"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_include_default_empty() {
+        let filter = FilterConfig::default();
+        assert!(filter.include.is_empty());
+    }
+
+    #[test]
+    fn test_include_parsed_from_toml() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+include = ["ja/Back", "src/lib"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.filter.include, vec!["ja/Back", "src/lib"]);
+    }
+
+    #[test]
+    fn test_include_not_specified_defaults_to_empty() {
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+exclude = ["*.log"]
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert!(config.filter.include.is_empty());
+    }
+
+    #[test]
+    fn test_include_merged_from_global_and_project() {
+        let global = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+
+[filter]
+include = ["ja/Back"]
+"#;
+        let project = r#"
+[filter]
+include = ["src/lib", "ja/Back"]
+"#;
+        let gf = write_temp_config(global);
+        let pf = write_temp_config(project);
+        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
+        // 和集合: グローバルの "ja/Back" + プロジェクトの "src/lib"（重複除去）
+        assert!(config.filter.include.contains(&"ja/Back".to_string()));
+        assert!(config.filter.include.contains(&"src/lib".to_string()));
+        assert_eq!(config.filter.include.len(), 2);
     }
 
     /// テスト用の最小限の AppConfig を生成するヘルパー

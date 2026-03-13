@@ -254,8 +254,9 @@ fn agent_list_tree(
     let mut guard = agent
         .lock()
         .map_err(|_| "Agent mutex poisoned".to_string())?;
+    // merge_scan はサブツリー単位の走査のため include は空（サブパス指定で十分）
     let (entries, _truncated) = guard
-        .list_tree(scan_root, exclude, max_entries)
+        .list_tree(scan_root, exclude, &[], max_entries)
         .map_err(|e| format!("Agent list_tree failed: {}", e))?;
     Ok(entries)
 }
@@ -826,7 +827,7 @@ fn expand_subtree_recursive(
 
     // リモートサブツリーを1回の SSH exec で取得
     let remote_abs = format!("{}/{}", remote_root.trim_end_matches('/'), dir_path);
-    match rt.block_on(client.list_tree_recursive(&remote_abs, exclude, MAX_FILES, 60)) {
+    match rt.block_on(client.list_tree_recursive(&remote_abs, exclude, &[], MAX_FILES, 60)) {
         Ok((tree, truncated)) => {
             if truncated {
                 tracing::warn!("Remote tree truncated at {}: {}", MAX_FILES, dir_path);

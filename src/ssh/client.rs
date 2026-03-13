@@ -18,7 +18,7 @@ use super::batch_read;
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::{append_known_hosts_entry, SshHandler};
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
-use super::tree_parser::{build_tree_from_flat, parse_find_line, shell_escape};
+use super::tree_parser::{build_find_command, build_tree_from_flat, parse_find_line, shell_escape};
 use zeroize::Zeroizing;
 
 /// リモートコマンドの実行結果
@@ -602,6 +602,7 @@ impl SshClient {
         &mut self,
         remote_path: &str,
         exclude: &[String],
+        include: &[String],
         max_entries: usize,
         timeout_secs: u64,
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
@@ -615,10 +616,7 @@ impl SshClient {
             .into());
         }
 
-        let command = format!(
-            "find -P {} -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
-            shell_escape(remote_path)
-        );
+        let command = build_find_command(remote_path, include);
 
         let output = match tokio::time::timeout(
             Duration::from_secs(timeout_secs),

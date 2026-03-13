@@ -173,6 +173,30 @@ pub fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// `find` コマンド文字列を生成する（再帰スキャン用）
+///
+/// - `include` が空の場合: `root_dir` 単体を走査対象にする
+/// - `include` が非空の場合: 各 include パスを `root_dir` と結合して複数の開始パスにする
+///
+/// 全パスは `shell_escape` でエスケープされる。
+pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
+    let start_paths = if include.is_empty() {
+        shell_escape(root_dir)
+    } else {
+        let root = root_dir.trim_end_matches('/');
+        include
+            .iter()
+            .map(|p| shell_escape(&format!("{}/{}", root, p)))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    format!(
+        "find -P {} -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
+        start_paths
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,5 +449,57 @@ mod tests {
         assert_eq!(src.mtime, Some(Utc.timestamp_opt(2000, 0).unwrap()));
         // permissions: src2 が None なので src1 の 755 にフォールバック
         assert_eq!(src.permissions, Some(0o755));
+    }
+
+    // ── build_find_command ──
+
+    #[test]
+    fn test_build_find_command_no_include() {
+        // include 空 → root_dir のみ（従来通り）
+        let cmd = build_find_command("/var/www", &[]);
+        assert_eq!(
+            cmd,
+            "find -P '/var/www' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        );
+    }
+
+    #[test]
+    fn test_build_find_command_with_include() {
+        // include あり → 複数の開始パス
+        let include = vec!["ja/Back".to_string(), "ja/API".to_string()];
+        let cmd = build_find_command("/var/www", &include);
+        assert_eq!(
+            cmd,
+            "find -P '/var/www/ja/Back' '/var/www/ja/API' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        );
+    }
+
+    #[test]
+    fn test_build_find_command_include_single() {
+        let include = vec!["src".to_string()];
+        let cmd = build_find_command("/var/www", &include);
+        assert_eq!(
+            cmd,
+            "find -P '/var/www/src' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        );
+    }
+
+    #[test]
+    fn test_build_find_command_include_with_special_chars() {
+        // スペースや特殊文字を含むパス → shell_escape で保護
+        let include = vec!["my dir/sub".to_string(), "it's here".to_string()];
+        let cmd = build_find_command("/var/www", &include);
+        assert!(cmd.contains("'/var/www/my dir/sub'"));
+        assert!(cmd.contains("'/var/www/it'\\''s here'"));
+    }
+
+    #[test]
+    fn test_build_find_command_root_trailing_slash() {
+        // root_dir の末尾スラッシュが重複しない
+        let include = vec!["src".to_string()];
+        let cmd = build_find_command("/var/www/", &include);
+        assert!(cmd.contains("'/var/www/src'"));
+        // "/var/www//src" にならないことを確認
+        assert!(!cmd.contains("//"));
     }
 }

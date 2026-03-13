@@ -448,8 +448,13 @@ impl CoreRuntime {
             Side::Local => {
                 let root = &self.config.local.root_dir;
                 let exclude = &self.config.filter.exclude;
-                let (nodes, truncated) =
-                    local::scan_local_tree_recursive(root, exclude, max_entries)?;
+                let include = &self.config.filter.include;
+                let (nodes, truncated) = local::scan_local_tree_recursive_with_include(
+                    root,
+                    exclude,
+                    include,
+                    max_entries,
+                )?;
                 if truncated {
                     check_truncation(max_entries, fail_on_truncation)?;
                 }
@@ -939,8 +944,9 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
+        let include = self.config.filter.include.clone();
         self.with_agent(server_name, "list_tree", |agent| {
-            agent.list_tree("", &exclude, max_entries)
+            agent.list_tree("", &exclude, &include, max_entries)
         })
         .map(|r| {
             r.and_then(|(entries, truncated)| {
@@ -970,9 +976,11 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
+        // サブパス走査では include フィルターは適用しない
+        // （既に特定サブディレクトリを直接指定しているため）
         let subpath_owned = subpath.to_string();
         self.with_agent(server_name, "list_tree", |agent| {
-            agent.list_tree(&subpath_owned, &exclude, max_entries)
+            agent.list_tree(&subpath_owned, &exclude, &[], max_entries)
         })
         .map(|r| {
             r.and_then(|(entries, truncated)| {

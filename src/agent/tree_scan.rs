@@ -17,6 +17,9 @@ use crate::filter;
 pub struct ScanOptions {
     pub root: PathBuf,
     pub exclude: Vec<String>,
+    /// include が空の場合は root 全体をスキャン。
+    /// 非空の場合は指定パスのみをスキャンルートとして使用する。
+    pub include: Vec<String>,
     pub max_entries: usize,
     pub chunk_size: usize,
 }
@@ -26,6 +29,7 @@ impl Default for ScanOptions {
         Self {
             root: PathBuf::from("."),
             exclude: Vec::new(),
+            include: Vec::new(),
             max_entries: usize::MAX,
             chunk_size: 1000,
         }
@@ -67,9 +71,10 @@ struct ScanIterator<'a> {
 
 impl<'a> ScanIterator<'a> {
     fn new(options: &'a ScanOptions) -> Self {
+        let initial_dirs = resolve_include_roots(&options.root, &options.include);
         Self {
             options,
-            dir_stack: vec![options.root.clone()],
+            dir_stack: initial_dirs,
             current_read_dir: None,
             buffer: Vec::new(),
             total_scanned: 0,
@@ -256,6 +261,78 @@ fn get_permissions(_meta: &std::fs::Metadata, kind: &FileKind) -> u32 {
         FileKind::Directory => 0o755,
         _ => 0o644,
     }
+}
+
+/// include パスからスキャン起点を解決する。
+///
+/// - include が空: root をそのまま返す
+/// - include が非空: 各パスを root に結合し、存在確認 + root 配下チェックを行う
+/// - 祖先パスが既にリストにある場合、子孫パスは除去する
+fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
+    if include.is_empty() {
+        return vec![root.to_path_buf()];
+    }
+
+    let canonical_root = match root.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("cannot canonicalize root {}: {e}", root.display());
+            return vec![root.to_path_buf()];
+        }
+    };
+
+    let mut roots: Vec<PathBuf> = Vec::new();
+
+    for path_str in include {
+        // 絶対パスおよびパストラバーサルを拒否
+        if Path::new(path_str).is_absolute() {
+            tracing::warn!("include: absolute path not allowed: {path_str}");
+            continue;
+        }
+        if Path::new(path_str)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            tracing::warn!("include: path traversal detected: {path_str}");
+            continue;
+        }
+
+        let joined = root.join(path_str);
+        match joined.canonicalize() {
+            Ok(canonical) => {
+                if !canonical.starts_with(&canonical_root) {
+                    tracing::warn!(
+                        "include path escapes root: {} -> {}",
+                        path_str,
+                        canonical.display()
+                    );
+                    continue;
+                }
+                if !roots.contains(&canonical) {
+                    roots.push(canonical);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("include path does not exist, skipping: {path_str} ({e})");
+            }
+        }
+    }
+
+    // 祖先パスが既にリストにある場合、子孫パスを除去する
+    roots.sort();
+    roots.dedup();
+    let filtered: Vec<PathBuf> = roots
+        .iter()
+        .filter(|path| {
+            !roots
+                .iter()
+                .any(|other| other != *path && path.starts_with(other))
+        })
+        .cloned()
+        .collect();
+
+    // 全ての include パスが無効だった場合は空を返す（スキャンなし）
+    filtered
 }
 
 // ---------------------------------------------------------------------------
@@ -850,5 +927,173 @@ mod tests {
             .flat_map(|c| c.entries.iter())
             .any(|e| e.kind == FileKind::Directory);
         assert!(!has_dir, "no directory entries should appear");
+    }
+
+    // ── include フィルター テスト ──
+
+    /// include 指定時に対象ディレクトリ配下のみスキャンされること
+    #[test]
+    fn include_restricts_scan_roots() {
+        let dir = create_test_tree();
+        // create_test_tree: file1.txt, file2.rs, sub/nested.txt, sub/deep/leaf.txt
+
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            include: vec!["sub".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let all_paths: Vec<&str> = chunks
+            .iter()
+            .flat_map(|c| c.entries.iter().map(|e| e.path.as_str()))
+            .collect();
+
+        // sub 配下のファイルのみ含まれる
+        assert!(all_paths.contains(&"sub/nested.txt"));
+        assert!(all_paths.contains(&"sub/deep/leaf.txt"));
+        // root 直下のファイルは除外される
+        assert!(!all_paths.contains(&"file1.txt"));
+        assert!(!all_paths.contains(&"file2.rs"));
+    }
+
+    /// include + exclude の組み合わせ
+    #[test]
+    fn include_combined_with_exclude() {
+        let dir = create_test_tree();
+        // sub/nested.txt, sub/deep/leaf.txt が include 対象
+        // sub/deep/** を exclude で除外
+
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            include: vec!["sub".to_string()],
+            exclude: vec!["sub/deep/**".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let all_paths: Vec<&str> = chunks
+            .iter()
+            .flat_map(|c| c.entries.iter().map(|e| e.path.as_str()))
+            .collect();
+
+        assert!(all_paths.contains(&"sub/nested.txt"));
+        assert!(!all_paths.contains(&"sub/deep/leaf.txt"));
+        assert!(!all_paths.contains(&"file1.txt"));
+    }
+
+    /// 存在しない include パスはスキップされること
+    #[test]
+    fn include_nonexistent_path_skipped() {
+        let dir = create_test_tree();
+
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            include: vec!["nonexistent".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let total: usize = chunks.iter().map(|c| c.entries.len()).sum();
+        assert_eq!(total, 0, "nonexistent include path should yield no entries");
+    }
+
+    /// include で複数ディレクトリを指定した場合のマージ
+    #[test]
+    fn include_multiple_directories() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("alpha")).unwrap();
+        fs::write(root.join("alpha/a.txt"), "a").unwrap();
+        fs::create_dir(root.join("beta")).unwrap();
+        fs::write(root.join("beta/b.txt"), "b").unwrap();
+        fs::write(root.join("root_file.txt"), "r").unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            include: vec!["alpha".to_string(), "beta".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let all_paths: Vec<&str> = chunks
+            .iter()
+            .flat_map(|c| c.entries.iter().map(|e| e.path.as_str()))
+            .collect();
+
+        assert!(all_paths.contains(&"alpha/a.txt"));
+        assert!(all_paths.contains(&"beta/b.txt"));
+        assert!(!all_paths.contains(&"root_file.txt"));
+    }
+
+    /// include の max_entries が全 include パスの累計で適用されること
+    #[test]
+    fn include_max_entries_cumulative() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("d1")).unwrap();
+        fs::write(root.join("d1/a.txt"), "a").unwrap();
+        fs::write(root.join("d1/b.txt"), "b").unwrap();
+        fs::create_dir(root.join("d2")).unwrap();
+        fs::write(root.join("d2/c.txt"), "c").unwrap();
+        fs::write(root.join("d2/d.txt"), "d").unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            include: vec!["d1".to_string(), "d2".to_string()],
+            max_entries: 2,
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let total: usize = chunks.iter().map(|c| c.entries.len()).sum();
+        assert!(
+            total <= 2,
+            "max_entries=2 should limit total across all include paths, got {total}"
+        );
+    }
+
+    // ── resolve_include_roots テスト ──
+
+    #[test]
+    fn resolve_include_roots_empty_returns_root() {
+        let dir = TempDir::new().unwrap();
+        let result = resolve_include_roots(dir.path(), &[]);
+        assert_eq!(result, vec![dir.path().to_path_buf()]);
+    }
+
+    #[test]
+    fn resolve_include_roots_rejects_path_traversal() {
+        let dir = TempDir::new().unwrap();
+        let result = resolve_include_roots(dir.path(), &["../escape".to_string()]);
+        assert!(result.is_empty(), "path traversal should be rejected");
+    }
+
+    #[test]
+    fn resolve_include_roots_rejects_absolute_path() {
+        let dir = TempDir::new().unwrap();
+        let result = resolve_include_roots(dir.path(), &["/etc".to_string()]);
+        assert!(result.is_empty(), "absolute path should be rejected");
+    }
+
+    #[test]
+    fn resolve_include_roots_dedup_overlapping() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+
+        let result = resolve_include_roots(root, &["a".to_string(), "a/b".to_string()]);
+        // a/b は a の子孫なので除去される
+        assert_eq!(result.len(), 1);
+        assert!(
+            result[0].ends_with("a"),
+            "should keep ancestor, got: {}",
+            result[0].display()
+        );
     }
 }

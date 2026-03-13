@@ -71,12 +71,14 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         &mut self,
         root: &str,
         exclude: &[String],
+        include: &[String],
         max_entries: usize,
     ) -> Result<(Vec<AgentFileEntry>, bool)> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
             root: root.to_string(),
             exclude: exclude.to_vec(),
+            include: include.to_vec(),
             max_entries,
         })?;
         framing::write_frame(&mut self.writer, &data)?;
@@ -389,7 +391,7 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let (entries, truncated) = client.list_tree("", &[], 10000).unwrap();
+        let (entries, truncated) = client.list_tree("", &[], &[], 10000).unwrap();
         assert!(entries.is_empty());
         assert!(!truncated);
     }
@@ -402,7 +404,7 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let (entries, truncated) = client.list_tree("", &[], 10000).unwrap();
+        let (entries, truncated) = client.list_tree("", &[], &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));

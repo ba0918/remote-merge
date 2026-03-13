@@ -44,8 +44,9 @@ impl Dispatcher {
             AgentRequest::ListTree {
                 root,
                 exclude,
+                include,
                 max_entries,
-            } => Some(self.handle_list_tree(&root, &exclude, max_entries)),
+            } => Some(self.handle_list_tree(&root, &exclude, &include, max_entries)),
             AgentRequest::ReadFiles {
                 paths,
                 chunk_size_limit,
@@ -92,6 +93,7 @@ impl Dispatcher {
         &self,
         root: &str,
         exclude: &[String],
+        include: &[String],
         max_entries: usize,
     ) -> Vec<AgentResponse> {
         let scan_root = match resolve_scan_root(&self.root_dir, root) {
@@ -101,6 +103,7 @@ impl Dispatcher {
         let options = ScanOptions {
             root: scan_root,
             exclude: exclude.to_vec(),
+            include: include.to_vec(),
             max_entries,
             ..Default::default()
         };
@@ -421,6 +424,7 @@ mod tests {
             .dispatch(AgentRequest::ListTree {
                 root: String::new(),
                 exclude: vec![],
+                include: vec![],
                 max_entries: 10000,
             })
             .unwrap();
@@ -460,6 +464,7 @@ mod tests {
             .dispatch(AgentRequest::ListTree {
                 root: String::new(),
                 exclude: vec![],
+                include: vec![],
                 max_entries: 10000,
             })
             .unwrap();
@@ -500,6 +505,7 @@ mod tests {
             .dispatch(AgentRequest::ListTree {
                 root: String::new(),
                 exclude: vec![],
+                include: vec![],
                 max_entries: 10000,
             })
             .unwrap();
@@ -841,6 +847,7 @@ mod tests {
             .dispatch(AgentRequest::ListTree {
                 root: "../../etc".into(),
                 exclude: vec![],
+                include: vec![],
                 max_entries: 10000,
             })
             .unwrap();
@@ -914,6 +921,7 @@ mod tests {
             .dispatch(AgentRequest::ListTree {
                 root: "/etc".into(),
                 exclude: vec![],
+                include: vec![],
                 max_entries: 10000,
             })
             .unwrap();
