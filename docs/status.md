@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-13 00:25
+**Last Updated:** 2026-03-13 17:17
 
 ---
 
 ## 🎯 Current Session
+
+### 20260313171720 - クロスプラットフォーム Agent デプロイ
+- **Started:** 2026-03-13 17:17:20
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260313171720_cross-platform-agent-deploy.md)
+- **Summary:** Agent デプロイをクロスプラットフォーム対応に。リモートの OS/arch を検出し適切なバイナリを選択してデプロイ。インストールスクリプトで Linux musl Agent バイナリを同梱。5ステップ実装計画。
+
+---
 
 ### 20260313002514 - スキャン信頼性・Agent 堅牢性の致命的バグ修正
 - **Started:** 2026-03-13 00:25:14

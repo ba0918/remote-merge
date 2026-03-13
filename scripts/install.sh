@@ -34,15 +34,11 @@ detect_target() {
 
     case "$os" in
         Linux)
-            # Prefer musl for maximum portability
-            if ldd --version 2>&1 | grep -qi musl; then
-                target="x86_64-unknown-linux-musl"
-            else
-                case "$arch" in
-                    x86_64)  target="x86_64-unknown-linux-gnu" ;;
-                    *)       error "unsupported architecture: $arch (Linux)" ;;
-                esac
-            fi
+            # Always use musl for maximum portability (works on glibc too)
+            case "$arch" in
+                x86_64)  target="x86_64-unknown-linux-musl" ;;
+                *)       error "unsupported architecture: $arch (Linux)" ;;
+            esac
             ;;
         Darwin)
             case "$arch" in

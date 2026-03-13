@@ -216,11 +216,45 @@ impl CoreRuntime {
             remote_path.display()
         );
 
-        // バージョンチェック
+        // uname + version check を1回の SSH exec で実行
+        let uname_cmd = deploy::detect_remote_target_command();
         let version_cmd = deploy::check_version_command(&remote_path);
+        let combined = format!("{{ {uname_cmd}; }} 2>/dev/null; {version_cmd}");
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        let version_output = self.rt.block_on(ssh_client.exec(&version_cmd))?;
-        let version_check = deploy::parse_version_output(&version_output);
+        let combined_output = self.rt.block_on(ssh_client.exec(&combined))?;
+        let (uname_result, version_check) = deploy::parse_uname_and_version(&combined_output);
+
+        // リモートターゲットの解決
+        let remote_target = match uname_result {
+            None => {
+                // uname 失敗: ローカルターゲットにフォールバック
+                let fallback = deploy::current_target();
+                tracing::warn!(
+                    "Failed to detect remote target via uname: server={}, falling back to local target '{}'",
+                    server_name,
+                    fallback
+                );
+                fallback
+            }
+            Some(Ok(target)) => {
+                tracing::info!(
+                    "Detected remote target: server={}, target={}",
+                    server_name,
+                    target
+                );
+                target
+            }
+            Some(Err(e)) => {
+                let local = deploy::current_target();
+                tracing::warn!(
+                    "Unknown remote target: server={}, error={}, falling back to local target '{}'",
+                    server_name,
+                    e,
+                    local
+                );
+                local
+            }
+        };
 
         match &version_check {
             VersionCheck::Match => {
@@ -240,7 +274,7 @@ impl CoreRuntime {
 
         // デプロイが必要な場合
         if version_check != VersionCheck::Match {
-            self.deploy_agent_binary(server_name, &remote_path, sudo)?;
+            self.deploy_agent_binary(server_name, &remote_path, sudo, remote_target)?;
         }
 
         // Agent プロセスを起動
@@ -344,11 +378,18 @@ impl CoreRuntime {
         server_name: &str,
         remote_path: &std::path::Path,
         sudo: bool,
+        remote_target: &str,
     ) -> anyhow::Result<()> {
         let tmp_path = format!("{}.tmp", remote_path.display());
 
-        // ローカルバイナリ読み込み（I/O先行）
-        let local_path = deploy::local_binary_path()?;
+        // リモートターゲットに対応するバイナリを解決
+        let resolved = deploy::resolve_agent_binary(remote_target)?;
+        tracing::info!(
+            "Resolved agent binary: source={:?}, path={}",
+            resolved.source,
+            resolved.path.display()
+        );
+        let local_path = resolved.path;
         let metadata = std::fs::metadata(&local_path)?;
         if deploy::is_debug_binary(metadata.len()) {
             tracing::warn!(
