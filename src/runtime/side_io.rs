@@ -599,41 +599,12 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<String>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する
-        let result = agent.read_files(&[rel_path.to_string()], 0);
-        drop(agent);
-
-        match result {
-            Ok(results) => {
-                let first: Option<FileReadResult> = results.into_iter().next();
-                if let Some(FileReadResult::Ok { content, .. }) = first {
-                    Some(String::from_utf8(content).map_err(Into::into))
-                } else {
-                    // FileReadResult::Error — Agent は生きているがファイル読み込み失敗
-                    None
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent read_file failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        let rel = rel_path.to_string();
+        let agent_result = self.with_agent(server_name, "read_file", |agent| {
+            agent.read_files(&[rel], 0)
+        });
+        // with_agent の結果 → FileReadResult の後処理（純粋関数）
+        flatten_agent_read_result(agent_result, extract_single_file_as_string)
     }
 
     /// Agent 経由で複数ファイルをバッチ読み込む
@@ -642,51 +613,14 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, String>>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する
-        let paths: Vec<String> = rel_paths.to_vec();
-        let result = agent.read_files(&paths, 0);
-        drop(agent);
-
-        match result {
-            Ok(results) => {
-                let mut map: HashMap<String, String> = HashMap::with_capacity(results.len());
-                for (i, result) in results.into_iter().enumerate() {
-                    match result {
-                        FileReadResult::Ok { content, .. } => match String::from_utf8(content) {
-                            Ok(s) => {
-                                map.insert(rel_paths[i].clone(), s);
-                            }
-                            Err(e) => return Some(Err(e.into())),
-                        },
-                        FileReadResult::Error { .. } => {
-                            // ファイル単位のエラー → SSH フォールバックに委ねる
-                            return None;
-                        }
-                    }
-                }
-                Some(Ok(map))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent read_files_batch failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        let paths = rel_paths.to_vec();
+        let owned_rel_paths: Vec<String> = rel_paths.to_vec();
+        let agent_result = self.with_agent(server_name, "read_files_batch", |agent| {
+            agent.read_files(&paths, 0)
+        });
+        flatten_agent_read_result(agent_result, |results| {
+            extract_batch_files_as_string(results, &owned_rel_paths)
+        })
     }
 
     /// Agent 経由でバイト列を読み込む
@@ -695,40 +629,11 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<Vec<u8>>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する
-        let result = agent.read_files(&[rel_path.to_string()], 0);
-        drop(agent);
-
-        match result {
-            Ok(results) => {
-                let first: Option<FileReadResult> = results.into_iter().next();
-                if let Some(FileReadResult::Ok { content, .. }) = first {
-                    Some(Ok(content))
-                } else {
-                    None
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent read_file_bytes failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
+        let rel = rel_path.to_string();
+        let agent_result = self.with_agent(server_name, "read_file_bytes", |agent| {
+            agent.read_files(&[rel], 0)
+        });
+        flatten_agent_read_result(agent_result, extract_single_file_as_bytes)
     }
 
     /// Agent 経由で複数ファイルのバイト列をバッチ読み込む（チャンク分割対応）
@@ -764,19 +669,18 @@ impl CoreRuntime {
 
             match result {
                 Ok(results) => {
-                    for (i, file_result) in results.into_iter().enumerate() {
-                        match file_result {
-                            FileReadResult::Ok { content, .. } => {
-                                if i < chunk.len() {
-                                    merged.insert(chunk[i].clone(), content);
-                                }
-                            }
-                            FileReadResult::Error { .. } => {
-                                // ファイル単位のエラー → Agent を無効化して SSH フォールバックに委ねる
-                                drop(agent);
-                                self.invalidate_agent(server_name);
-                                return None;
-                            }
+                    match extract_batch_files_as_bytes(results, chunk) {
+                        Some(Ok(batch)) => merged.extend(batch),
+                        Some(Err(e)) => {
+                            // 変換エラー → 伝播
+                            drop(agent);
+                            return Some(Err(e));
+                        }
+                        None => {
+                            // FileReadResult::Error → SSH フォールバック
+                            drop(agent);
+                            self.invalidate_agent(server_name);
+                            return None;
                         }
                     }
                 }
@@ -817,53 +721,15 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        // Agent は root_dir からの相対パスを期待する（絶対パスは validate_path で拒否される）
-        let paths: Vec<String> = rel_paths.to_vec();
-        let result = agent.stat_files(&paths);
-        drop(agent);
-
-        match result {
-            Ok(stats) => {
-                if stats.len() != rel_paths.len() {
-                    tracing::warn!(
-                        "Agent stat_files returned {} results for {} paths, falling back to SSH",
-                        stats.len(),
-                        rel_paths.len()
-                    );
-                    return None;
-                }
-                let results: Vec<(String, Option<DateTime<Utc>>)> = rel_paths
-                    .iter()
-                    .enumerate()
-                    .map(|(i, rel)| {
-                        let mtime = stats
-                            .get(i)
-                            .and_then(|s| DateTime::from_timestamp(s.mtime_secs, s.mtime_nanos));
-                        (rel.clone(), mtime)
-                    })
-                    .collect();
-                Some(Ok(results))
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "Agent stat_files failed for {}, falling back to SSH: {}",
-                    server_name,
-                    e
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
+        let paths = rel_paths.to_vec();
+        let owned_rel_paths: Vec<String> = rel_paths.to_vec();
+        let agent_result =
+            self.with_agent(server_name, "stat_files", |agent| agent.stat_files(&paths));
+        // with_agent の結果に対して後処理を適用
+        match agent_result {
+            Some(Ok(stats)) => transform_stat_results(stats, &owned_rel_paths),
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
         }
     }
 
@@ -1083,6 +949,130 @@ pub(crate) fn should_invalidate_agent_error(e: &anyhow::Error) -> bool {
     }
     // チェーン内に io::Error なし → 安全側に倒して invalidate
     true
+}
+
+// ── Agent read 結果変換ヘルパー（純粋関数） ──
+
+/// `with_agent` の結果（`Option<Result<Vec<FileReadResult>>>`）に対して
+/// 変換関数を適用し、最終結果を `Option<Result<T>>` として返す。
+///
+/// - `None` → そのまま `None`（Agent 未接続/エラー）
+/// - `Some(Err(e))` → `Some(Err(e))`（Agent 操作エラー）
+/// - `Some(Ok(results))` → `transform(results)` を適用
+fn flatten_agent_read_result<T, F>(
+    agent_result: Option<anyhow::Result<Vec<FileReadResult>>>,
+    transform: F,
+) -> Option<anyhow::Result<T>>
+where
+    F: FnOnce(Vec<FileReadResult>) -> Option<anyhow::Result<T>>,
+{
+    match agent_result {
+        Some(Ok(results)) => transform(results),
+        Some(Err(e)) => Some(Err(e)),
+        None => None,
+    }
+}
+
+/// 単一ファイルの `FileReadResult` を `String` に変換する。
+///
+/// - `FileReadResult::Ok` → `Some(Ok(String))` （UTF-8 変換エラーは `Some(Err)` で伝播）
+/// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
+fn extract_single_file_as_string(results: Vec<FileReadResult>) -> Option<anyhow::Result<String>> {
+    let first = results.into_iter().next()?;
+    match first {
+        FileReadResult::Ok { content, .. } => Some(String::from_utf8(content).map_err(Into::into)),
+        FileReadResult::Error { .. } => None,
+    }
+}
+
+/// 単一ファイルの `FileReadResult` をバイト列として取得する。
+///
+/// - `FileReadResult::Ok` → `Some(Ok(Vec<u8>))`
+/// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
+fn extract_single_file_as_bytes(results: Vec<FileReadResult>) -> Option<anyhow::Result<Vec<u8>>> {
+    let first = results.into_iter().next()?;
+    match first {
+        FileReadResult::Ok { content, .. } => Some(Ok(content)),
+        FileReadResult::Error { .. } => None,
+    }
+}
+
+/// 複数ファイルの `FileReadResult` を `HashMap<String, String>` に変換する。
+///
+/// - 全ファイル成功 → `Some(Ok(HashMap))`
+/// - UTF-8 変換エラー → `Some(Err)`
+/// - `FileReadResult::Error` → `None`（SSH フォールバック）
+fn extract_batch_files_as_string(
+    results: Vec<FileReadResult>,
+    rel_paths: &[String],
+) -> Option<anyhow::Result<HashMap<String, String>>> {
+    let mut map = HashMap::with_capacity(results.len());
+    for (i, result) in results.into_iter().enumerate() {
+        match result {
+            FileReadResult::Ok { content, .. } => match String::from_utf8(content) {
+                Ok(s) => {
+                    if i < rel_paths.len() {
+                        map.insert(rel_paths[i].clone(), s);
+                    }
+                }
+                Err(e) => return Some(Err(e.into())),
+            },
+            FileReadResult::Error { .. } => return None,
+        }
+    }
+    Some(Ok(map))
+}
+
+/// 複数ファイルの `FileReadResult` をバイト列の `HashMap` に変換する。
+///
+/// - 全ファイル成功 → `Some(Ok(HashMap))`
+/// - `FileReadResult::Error` → `None`（SSH フォールバック）
+fn extract_batch_files_as_bytes(
+    results: Vec<FileReadResult>,
+    rel_paths: &[String],
+) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
+    let mut map = HashMap::with_capacity(results.len());
+    for (i, result) in results.into_iter().enumerate() {
+        match result {
+            FileReadResult::Ok { content, .. } => {
+                if i < rel_paths.len() {
+                    map.insert(rel_paths[i].clone(), content);
+                }
+            }
+            FileReadResult::Error { .. } => return None,
+        }
+    }
+    Some(Ok(map))
+}
+
+/// Agent stat 結果を `(path, Option<DateTime>)` のベクタに変換する。
+///
+/// - 結果数がパス数と一致 → `Some(Ok(Vec))`
+/// - 結果数不一致 → `None`（SSH フォールバック）
+#[allow(clippy::type_complexity)]
+fn transform_stat_results(
+    stats: Vec<crate::agent::protocol::AgentFileStat>,
+    rel_paths: &[String],
+) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
+    if stats.len() != rel_paths.len() {
+        tracing::warn!(
+            "Agent stat_files returned {} results for {} paths, falling back to SSH",
+            stats.len(),
+            rel_paths.len()
+        );
+        return None;
+    }
+    let results: Vec<(String, Option<DateTime<Utc>>)> = rel_paths
+        .iter()
+        .enumerate()
+        .map(|(i, rel)| {
+            let mtime = stats
+                .get(i)
+                .and_then(|s| DateTime::from_timestamp(s.mtime_secs, s.mtime_nanos));
+            (rel.clone(), mtime)
+        })
+        .collect();
+    Some(Ok(results))
 }
 
 // ── truncation 判定関数 ──
@@ -2873,5 +2863,241 @@ mod tests {
         // Agent なし → try_agent_write_file は None → check_sudo_fallback 通過 → SSH 未接続でエラー
         let result = rt.write_file(&Side::Remote("develop".to_string()), "test.txt", "content");
         assert!(result.is_err());
+    }
+
+    // ── extract_single_file_as_string テスト ──
+
+    #[test]
+    fn test_extract_single_file_as_string_ok() {
+        let results = vec![FileReadResult::Ok {
+            path: "test.txt".to_string(),
+            content: b"hello world".to_vec(),
+            more_to_follow: false,
+        }];
+        let result = extract_single_file_as_string(results);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_extract_single_file_as_string_error_returns_none() {
+        let results = vec![FileReadResult::Error {
+            path: "test.txt".to_string(),
+            message: "not found".to_string(),
+        }];
+        let result = extract_single_file_as_string(results);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_single_file_as_string_empty_returns_none() {
+        let result = extract_single_file_as_string(vec![]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_single_file_as_string_invalid_utf8() {
+        let results = vec![FileReadResult::Ok {
+            path: "bad.txt".to_string(),
+            content: vec![0xFF, 0xFE, 0x00, 0x80],
+            more_to_follow: false,
+        }];
+        let result = extract_single_file_as_string(results);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_err()); // UTF-8 変換エラー
+    }
+
+    // ── extract_single_file_as_bytes テスト ──
+
+    #[test]
+    fn test_extract_single_file_as_bytes_ok() {
+        let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let results = vec![FileReadResult::Ok {
+            path: "data.bin".to_string(),
+            content: data.clone(),
+            more_to_follow: false,
+        }];
+        let result = extract_single_file_as_bytes(results);
+        assert_eq!(result.unwrap().unwrap(), data);
+    }
+
+    #[test]
+    fn test_extract_single_file_as_bytes_error_returns_none() {
+        let results = vec![FileReadResult::Error {
+            path: "data.bin".to_string(),
+            message: "permission denied".to_string(),
+        }];
+        assert!(extract_single_file_as_bytes(results).is_none());
+    }
+
+    // ── extract_batch_files_as_string テスト ──
+
+    #[test]
+    fn test_extract_batch_files_as_string_all_ok() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"aaa".to_vec(),
+                more_to_follow: false,
+            },
+            FileReadResult::Ok {
+                path: "b.txt".to_string(),
+                content: b"bbb".to_vec(),
+                more_to_follow: false,
+            },
+        ];
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let result = extract_batch_files_as_string(results, &paths);
+        let map = result.unwrap().unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["a.txt"], "aaa");
+        assert_eq!(map["b.txt"], "bbb");
+    }
+
+    #[test]
+    fn test_extract_batch_files_as_string_with_error_returns_none() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"aaa".to_vec(),
+                more_to_follow: false,
+            },
+            FileReadResult::Error {
+                path: "b.txt".to_string(),
+                message: "not found".to_string(),
+            },
+        ];
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        assert!(extract_batch_files_as_string(results, &paths).is_none());
+    }
+
+    #[test]
+    fn test_extract_batch_files_as_string_utf8_error() {
+        let results = vec![FileReadResult::Ok {
+            path: "bad.txt".to_string(),
+            content: vec![0xFF, 0xFE],
+            more_to_follow: false,
+        }];
+        let paths = vec!["bad.txt".to_string()];
+        let result = extract_batch_files_as_string(results, &paths);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_err());
+    }
+
+    // ── extract_batch_files_as_bytes テスト ──
+
+    #[test]
+    fn test_extract_batch_files_as_bytes_all_ok() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "a.bin".to_string(),
+                content: vec![0x01],
+                more_to_follow: false,
+            },
+            FileReadResult::Ok {
+                path: "b.bin".to_string(),
+                content: vec![0x02],
+                more_to_follow: false,
+            },
+        ];
+        let paths = vec!["a.bin".to_string(), "b.bin".to_string()];
+        let map = extract_batch_files_as_bytes(results, &paths)
+            .unwrap()
+            .unwrap();
+        assert_eq!(map["a.bin"], vec![0x01]);
+        assert_eq!(map["b.bin"], vec![0x02]);
+    }
+
+    #[test]
+    fn test_extract_batch_files_as_bytes_error_returns_none() {
+        let results = vec![FileReadResult::Error {
+            path: "a.bin".to_string(),
+            message: "read failed".to_string(),
+        }];
+        let paths = vec!["a.bin".to_string()];
+        assert!(extract_batch_files_as_bytes(results, &paths).is_none());
+    }
+
+    // ── flatten_agent_read_result テスト ──
+
+    #[test]
+    fn test_flatten_agent_read_result_none_passthrough() {
+        let result: Option<anyhow::Result<String>> =
+            flatten_agent_read_result(None, extract_single_file_as_string);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_flatten_agent_read_result_some_err_passthrough() {
+        let err = Some(Err(anyhow::anyhow!("agent error")));
+        let result: Option<anyhow::Result<String>> =
+            flatten_agent_read_result(err, extract_single_file_as_string);
+        assert!(result.is_some());
+        assert!(result.unwrap().is_err());
+    }
+
+    #[test]
+    fn test_flatten_agent_read_result_some_ok_transforms() {
+        let ok = Some(Ok(vec![FileReadResult::Ok {
+            path: "x.txt".to_string(),
+            content: b"content".to_vec(),
+            more_to_follow: false,
+        }]));
+        let result: Option<anyhow::Result<String>> =
+            flatten_agent_read_result(ok, extract_single_file_as_string);
+        assert_eq!(result.unwrap().unwrap(), "content");
+    }
+
+    // ── transform_stat_results テスト ──
+
+    #[test]
+    fn test_transform_stat_results_matching_count() {
+        use crate::agent::protocol::AgentFileStat;
+        let stats = vec![
+            AgentFileStat {
+                path: "a.txt".to_string(),
+                mtime_secs: 1000000,
+                mtime_nanos: 0,
+                size: 100,
+                permissions: 0o644,
+            },
+            AgentFileStat {
+                path: "b.txt".to_string(),
+                mtime_secs: 2000000,
+                mtime_nanos: 0,
+                size: 200,
+                permissions: 0o755,
+            },
+        ];
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let result = transform_stat_results(stats, &paths);
+        let vec = result.unwrap().unwrap();
+        assert_eq!(vec.len(), 2);
+        assert_eq!(vec[0].0, "a.txt");
+        assert!(vec[0].1.is_some());
+        assert_eq!(vec[1].0, "b.txt");
+        assert!(vec[1].1.is_some());
+    }
+
+    #[test]
+    fn test_transform_stat_results_count_mismatch_returns_none() {
+        use crate::agent::protocol::AgentFileStat;
+        let stats = vec![AgentFileStat {
+            path: "a.txt".to_string(),
+            mtime_secs: 1000000,
+            mtime_nanos: 0,
+            size: 100,
+            permissions: 0o644,
+        }];
+        // 2パスに対して1結果 → None
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        assert!(transform_stat_results(stats, &paths).is_none());
+    }
+
+    #[test]
+    fn test_transform_stat_results_empty() {
+        let result = transform_stat_results(vec![], &[]);
+        let vec = result.unwrap().unwrap();
+        assert!(vec.is_empty());
     }
 }
