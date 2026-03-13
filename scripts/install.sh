@@ -89,7 +89,7 @@ download_and_install() {
     local tmpdir
 
     tmpdir="$(mktemp -d)"
-    trap 'rm -rf "$tmpdir"' EXIT
+    trap 'rm -rf "${tmpdir:-}"' EXIT
 
     info "downloading ${BINARY} ${version} for ${target}..."
     curl -fSL "${base_url}/${archive}" -o "${tmpdir}/${archive}" \
