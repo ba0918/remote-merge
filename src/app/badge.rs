@@ -118,26 +118,8 @@ impl AppState {
                     return Badge::Unchecked;
                 }
 
-                // 各ファイルのバッジを集計
-                let mut all_checked = true;
-                for file_path in &all_files {
-                    let badge = self.compute_badge(file_path, false);
-                    match badge {
-                        Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
-                            return Badge::Modified;
-                        }
-                        Badge::Unchecked => {
-                            all_checked = false;
-                        }
-                        Badge::Equal | Badge::Loading => {}
-                    }
-                }
-
-                if all_checked {
-                    Badge::Equal
-                } else {
-                    Badge::Unchecked
-                }
+                let badges = all_files.iter().map(|f| self.compute_badge(f, false));
+                aggregate_dir_badges(badges)
             }
         }
     }
@@ -149,18 +131,7 @@ impl AppState {
         local_node: &crate::tree::FileNode,
         remote_node: &crate::tree::FileNode,
     ) -> Badge {
-        use crate::tree::NodeKind;
-        match (&local_node.kind, &remote_node.kind) {
-            (NodeKind::Symlink { target: lt }, NodeKind::Symlink { target: rt }) => {
-                if lt == rt {
-                    Badge::Equal
-                } else {
-                    Badge::Modified
-                }
-            }
-            // 片方だけsymlink → 型が異なるので Modified
-            _ => Badge::Modified,
-        }
+        symlink_badge(&local_node.kind, &remote_node.kind)
     }
 
     /// 走査結果を使ったバッジ計算（CLI と共通の差分ステータスを使用）
@@ -185,17 +156,7 @@ impl AppState {
 
     /// scan_statuses からファイルのバッジを引く
     fn badge_from_scan_statuses(&self, path: &str) -> Badge {
-        if let Some(statuses) = &self.scan_statuses {
-            if let Some(status) = statuses.get(path) {
-                return match status {
-                    FileStatusKind::Equal => Badge::Equal,
-                    FileStatusKind::Modified => Badge::Modified,
-                    FileStatusKind::LeftOnly => Badge::LeftOnly,
-                    FileStatusKind::RightOnly => Badge::RightOnly,
-                };
-            }
-        }
-        Badge::Unchecked
+        badge_from_status_kind(self.scan_statuses.as_ref().and_then(|s| s.get(path)))
     }
 
     /// スキャン結果を使ったディレクトリバッジ計算。
@@ -210,50 +171,25 @@ impl AppState {
         };
 
         let prefix = format!("{}/", path);
-        let mut has_children = false;
-        let mut all_equal = true;
-
-        for (file_path, status) in statuses {
-            if !file_path.starts_with(&prefix) {
-                continue;
-            }
-            has_children = true;
-
-            // キャッシュがあればキャッシュを優先（ユーザーが diff を開いた後の更新を反映）
-            let badge = {
+        let child_badges: Vec<Badge> = statuses
+            .iter()
+            .filter(|(file_path, _)| file_path.starts_with(&prefix))
+            .map(|(file_path, status)| {
+                // キャッシュがあればキャッシュを優先（ユーザーが diff を開いた後の更新を反映）
                 let cache_b = self.compute_badge(file_path, false);
                 if cache_b != Badge::Unchecked {
                     cache_b
                 } else {
-                    match status {
-                        FileStatusKind::Equal => Badge::Equal,
-                        FileStatusKind::Modified => Badge::Modified,
-                        FileStatusKind::LeftOnly => Badge::LeftOnly,
-                        FileStatusKind::RightOnly => Badge::RightOnly,
-                    }
+                    badge_from_status_kind(Some(status))
                 }
-            };
+            })
+            .collect();
 
-            match badge {
-                Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
-                    return Badge::Modified;
-                }
-                Badge::Equal => {}
-                Badge::Unchecked | Badge::Loading => {
-                    all_equal = false;
-                }
-            }
-        }
-
-        if !has_children {
+        if child_badges.is_empty() {
             return self.compute_dir_badge(path);
         }
 
-        if all_equal {
-            Badge::Equal
-        } else {
-            Badge::Unchecked
-        }
+        aggregate_dir_badges(child_badges.into_iter())
     }
 
     /// ディレクトリ配下に差分のある子ノードが存在するか（再帰チェック）
@@ -390,6 +326,64 @@ impl AppState {
             left_eq_right,
             left_eq_ref,
         ))
+    }
+}
+
+// ── バッジ計算の純粋関数 ──
+
+/// シンボリックリンクのバッジを計算する純粋関数。
+///
+/// - 両方 symlink → ターゲット比較（Equal or Modified）
+/// - 片方のみ symlink → Modified（型が異なる）
+fn symlink_badge(left_kind: &crate::tree::NodeKind, right_kind: &crate::tree::NodeKind) -> Badge {
+    use crate::tree::NodeKind;
+    match (left_kind, right_kind) {
+        (NodeKind::Symlink { target: lt }, NodeKind::Symlink { target: rt }) => {
+            if lt == rt {
+                Badge::Equal
+            } else {
+                Badge::Modified
+            }
+        }
+        _ => Badge::Modified,
+    }
+}
+
+/// `FileStatusKind` からバッジに変換する純粋関数。
+///
+/// `None` の場合は `Unchecked` を返す。
+fn badge_from_status_kind(status: Option<&FileStatusKind>) -> Badge {
+    match status {
+        Some(FileStatusKind::Equal) => Badge::Equal,
+        Some(FileStatusKind::Modified) => Badge::Modified,
+        Some(FileStatusKind::LeftOnly) => Badge::LeftOnly,
+        Some(FileStatusKind::RightOnly) => Badge::RightOnly,
+        None => Badge::Unchecked,
+    }
+}
+
+/// ディレクトリ配下のバッジを集約する純粋関数。
+///
+/// - 1つでも Modified/LeftOnly/RightOnly/Error → `Modified`（早期return）
+/// - 全て Equal → `Equal`
+/// - Unchecked/Loading が残っている → `Unchecked`
+fn aggregate_dir_badges(badges: impl Iterator<Item = Badge>) -> Badge {
+    let mut all_checked = true;
+    for badge in badges {
+        match badge {
+            Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
+                return Badge::Modified;
+            }
+            Badge::Unchecked | Badge::Loading => {
+                all_checked = false;
+            }
+            Badge::Equal => {}
+        }
+    }
+    if all_checked {
+        Badge::Equal
+    } else {
+        Badge::Unchecked
     }
 }
 
@@ -1610,5 +1604,98 @@ mod tests {
             None,
             "config dir should be None when ref is unloaded"
         );
+    }
+
+    // ── 純粋関数テスト ──
+
+    #[test]
+    fn test_symlink_badge_both_symlink_equal() {
+        use crate::tree::NodeKind;
+        let left = NodeKind::Symlink {
+            target: "/target/path".to_string(),
+        };
+        let right = NodeKind::Symlink {
+            target: "/target/path".to_string(),
+        };
+        assert_eq!(symlink_badge(&left, &right), Badge::Equal);
+    }
+
+    #[test]
+    fn test_symlink_badge_both_symlink_different() {
+        use crate::tree::NodeKind;
+        let left = NodeKind::Symlink {
+            target: "/target/a".to_string(),
+        };
+        let right = NodeKind::Symlink {
+            target: "/target/b".to_string(),
+        };
+        assert_eq!(symlink_badge(&left, &right), Badge::Modified);
+    }
+
+    #[test]
+    fn test_symlink_badge_mixed_types() {
+        use crate::tree::NodeKind;
+        let left = NodeKind::File;
+        let right = NodeKind::Symlink {
+            target: "/target".to_string(),
+        };
+        assert_eq!(symlink_badge(&left, &right), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_from_status_kind_all_variants() {
+        assert_eq!(
+            badge_from_status_kind(Some(&FileStatusKind::Equal)),
+            Badge::Equal
+        );
+        assert_eq!(
+            badge_from_status_kind(Some(&FileStatusKind::Modified)),
+            Badge::Modified
+        );
+        assert_eq!(
+            badge_from_status_kind(Some(&FileStatusKind::LeftOnly)),
+            Badge::LeftOnly
+        );
+        assert_eq!(
+            badge_from_status_kind(Some(&FileStatusKind::RightOnly)),
+            Badge::RightOnly
+        );
+        assert_eq!(badge_from_status_kind(None), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_all_equal() {
+        let badges = vec![Badge::Equal, Badge::Equal, Badge::Equal];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Equal);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_with_modified() {
+        let badges = vec![Badge::Equal, Badge::Modified, Badge::Equal];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Modified);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_with_left_only() {
+        let badges = vec![Badge::Equal, Badge::LeftOnly];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Modified);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_with_unchecked() {
+        let badges = vec![Badge::Equal, Badge::Unchecked, Badge::Equal];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_empty() {
+        let badges: Vec<Badge> = vec![];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Equal);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_error_triggers_modified() {
+        let badges = vec![Badge::Equal, Badge::Error];
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Modified);
     }
 }
