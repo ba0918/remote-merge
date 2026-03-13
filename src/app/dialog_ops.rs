@@ -82,32 +82,15 @@ impl AppState {
                 &node.path,
             );
 
-            // Badge を計算してフィルタリング（Unchecked は除外）
-            // マージ方向に応じて不要な *-Only ファイルも除外する:
-            //   LeftToRight: LeftOnly + Modified のみ（RightOnly は上書き対象がない）
-            //   RightToLeft: RightOnly + Modified のみ（LeftOnly は上書き対象がない）
-            let mut unchecked_count = 0usize;
-            let diff_files: Vec<(String, Badge)> = all_files
+            // Badge を計算して方向に応じたフィルタリング
+            let badged_files: Vec<(String, Badge)> = all_files
                 .into_iter()
                 .map(|path| {
                     let badge = self.compute_badge(&path, false);
                     (path, badge)
                 })
-                .filter(|(_, badge)| {
-                    if *badge == Badge::Unchecked {
-                        unchecked_count += 1;
-                        return false;
-                    }
-                    match direction {
-                        MergeDirection::LeftToRight => {
-                            matches!(badge, Badge::Modified | Badge::LeftOnly)
-                        }
-                        MergeDirection::RightToLeft => {
-                            matches!(badge, Badge::Modified | Badge::RightOnly)
-                        }
-                    }
-                })
                 .collect();
+            let (diff_files, unchecked_count) = filter_merge_candidates(&badged_files, direction);
 
             if diff_files.is_empty() {
                 if unchecked_count > 0 {
@@ -350,6 +333,44 @@ impl AppState {
             .cloned()
             .collect()
     }
+}
+
+// ── マージ候補フィルタリング（純粋関数） ──
+
+/// バッジ付きファイル一覧からマージ候補をフィルタリングする純粋関数。
+///
+/// マージ方向に応じて不要なファイルを除外する:
+/// - `LeftToRight`: `Modified` + `LeftOnly` のみ（`RightOnly` は上書き対象がない）
+/// - `RightToLeft`: `Modified` + `RightOnly` のみ（`LeftOnly` は上書き対象がない）
+/// - `Unchecked` は常に除外（カウントのみ返す）
+///
+/// 戻り値: (フィルタ済みファイル, Unchecked カウント)
+fn filter_merge_candidates(
+    files: &[(String, Badge)],
+    direction: MergeDirection,
+) -> (Vec<(String, Badge)>, usize) {
+    let mut result = Vec::new();
+    let mut unchecked_count = 0usize;
+
+    for (path, badge) in files {
+        if *badge == Badge::Unchecked {
+            unchecked_count += 1;
+            continue;
+        }
+        let include = match direction {
+            MergeDirection::LeftToRight => {
+                matches!(badge, Badge::Modified | Badge::LeftOnly)
+            }
+            MergeDirection::RightToLeft => {
+                matches!(badge, Badge::Modified | Badge::RightOnly)
+            }
+        };
+        if include {
+            result.push((path.clone(), *badge));
+        }
+    }
+
+    (result, unchecked_count)
 }
 
 #[cfg(test)]
@@ -1104,5 +1125,69 @@ mod tests {
             "Expected ThreeWaySummary dialog, got: {:?}",
             state.dialog
         );
+    }
+
+    // ── filter_merge_candidates テスト ──
+
+    #[test]
+    fn test_filter_merge_candidates_left_to_right() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Modified),
+            ("b.rs".to_string(), Badge::LeftOnly),
+            ("c.rs".to_string(), Badge::RightOnly),
+            ("d.rs".to_string(), Badge::Equal),
+            ("e.rs".to_string(), Badge::Unchecked),
+        ];
+        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "a.rs");
+        assert_eq!(result[1].0, "b.rs");
+        assert_eq!(unchecked, 1);
+    }
+
+    #[test]
+    fn test_filter_merge_candidates_right_to_left() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Modified),
+            ("b.rs".to_string(), Badge::LeftOnly),
+            ("c.rs".to_string(), Badge::RightOnly),
+            ("d.rs".to_string(), Badge::Equal),
+            ("e.rs".to_string(), Badge::Unchecked),
+        ];
+        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::RightToLeft);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "a.rs");
+        assert_eq!(result[1].0, "c.rs");
+        assert_eq!(unchecked, 1);
+    }
+
+    #[test]
+    fn test_filter_merge_candidates_empty() {
+        let files: Vec<(String, Badge)> = vec![];
+        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        assert!(result.is_empty());
+        assert_eq!(unchecked, 0);
+    }
+
+    #[test]
+    fn test_filter_merge_candidates_all_unchecked() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Unchecked),
+            ("b.rs".to_string(), Badge::Unchecked),
+        ];
+        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        assert!(result.is_empty());
+        assert_eq!(unchecked, 2);
+    }
+
+    #[test]
+    fn test_filter_merge_candidates_all_equal_excluded() {
+        let files = vec![
+            ("a.rs".to_string(), Badge::Equal),
+            ("b.rs".to_string(), Badge::Equal),
+        ];
+        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        assert!(result.is_empty());
+        assert_eq!(unchecked, 0);
     }
 }
