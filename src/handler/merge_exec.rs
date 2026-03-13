@@ -114,7 +114,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     let left = state.left_source.display_name();
                     let right = state.right_source.display_name();
                     tracing::info!("Merge ok: {} ({} -> {})", path, left, right);
-                    state.status_message = format!("{}: {} -> {} merged", path, left, right);
+                    state.status_message = format_merge_success(path, left, right, direction);
                 }
                 Err(e) => {
                     tracing::error!("Merge failed: path={}, error={}", path, e);
@@ -144,7 +144,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     let left = state.left_source.display_name();
                     let right = state.right_source.display_name();
                     tracing::info!("Merge ok: {} ({} -> {})", path, right, left);
-                    state.status_message = format!("{}: {} -> {} merged", path, right, left);
+                    state.status_message = format_merge_success(path, left, right, direction);
                 }
                 Err(e) => {
                     tracing::error!("Merge failed: path={}, error={}", path, e);
@@ -198,11 +198,11 @@ pub fn execute_hunk_merge(
                             left,
                             state.hunk_count()
                         );
-                        state.status_message = format!(
-                            "Hunk merged: {} -> {} ({}) | {} hunks left",
-                            right,
+                        state.status_message = format_hunk_merge_success(
                             left,
-                            path,
+                            right,
+                            &path,
+                            direction,
                             state.hunk_count(),
                         );
                     }
@@ -236,11 +236,11 @@ pub fn execute_hunk_merge(
                             right,
                             state.hunk_count()
                         );
-                        state.status_message = format!(
-                            "Hunk merged: {} -> {} ({}) | {} hunks left",
+                        state.status_message = format_hunk_merge_success(
                             left,
                             right,
-                            path,
+                            &path,
+                            direction,
                             state.hunk_count(),
                         );
                     }
@@ -256,6 +256,37 @@ pub fn execute_hunk_merge(
             }
         }
     }
+}
+
+/// マージ成功時のステータスメッセージを生成する（純粋関数）。
+fn format_merge_success(
+    path: &str,
+    left_name: &str,
+    right_name: &str,
+    direction: MergeDirection,
+) -> String {
+    match direction {
+        MergeDirection::LeftToRight => format!("{}: {} -> {} merged", path, left_name, right_name),
+        MergeDirection::RightToLeft => format!("{}: {} -> {} merged", path, right_name, left_name),
+    }
+}
+
+/// ハンクマージ成功時のステータスメッセージを生成する（純粋関数）。
+fn format_hunk_merge_success(
+    left_name: &str,
+    right_name: &str,
+    path: &str,
+    direction: HunkDirection,
+    hunks_left: usize,
+) -> String {
+    let (src, dst) = match direction {
+        HunkDirection::RightToLeft => (right_name, left_name),
+        HunkDirection::LeftToRight => (left_name, right_name),
+    };
+    format!(
+        "Hunk merged: {} -> {} ({}) | {} hunks left",
+        src, dst, path, hunks_left,
+    )
 }
 
 /// 変更をファイルに書き込む（w キー確定後）
@@ -294,5 +325,47 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
             changes,
             state.hunk_count()
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── format_merge_success ──
+
+    #[test]
+    fn test_format_merge_success_left_to_right() {
+        let msg = format_merge_success("app.rs", "local", "remote", MergeDirection::LeftToRight);
+        assert_eq!(msg, "app.rs: local -> remote merged");
+    }
+
+    #[test]
+    fn test_format_merge_success_right_to_left() {
+        let msg = format_merge_success("app.rs", "local", "remote", MergeDirection::RightToLeft);
+        assert_eq!(msg, "app.rs: remote -> local merged");
+    }
+
+    // ── format_hunk_merge_success ──
+
+    #[test]
+    fn test_format_hunk_merge_success_right_to_left() {
+        let msg =
+            format_hunk_merge_success("local", "remote", "app.rs", HunkDirection::RightToLeft, 3);
+        assert_eq!(msg, "Hunk merged: remote -> local (app.rs) | 3 hunks left");
+    }
+
+    #[test]
+    fn test_format_hunk_merge_success_left_to_right() {
+        let msg =
+            format_hunk_merge_success("local", "remote", "app.rs", HunkDirection::LeftToRight, 0);
+        assert_eq!(msg, "Hunk merged: local -> remote (app.rs) | 0 hunks left");
+    }
+
+    #[test]
+    fn test_format_hunk_merge_success_zero_hunks() {
+        let msg =
+            format_hunk_merge_success("dev", "staging", "main.rs", HunkDirection::RightToLeft, 0);
+        assert_eq!(msg, "Hunk merged: staging -> dev (main.rs) | 0 hunks left");
     }
 }

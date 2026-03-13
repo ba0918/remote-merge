@@ -77,13 +77,8 @@ pub fn execute_batch_merge(
     let session_id = crate::backup::backup_timestamp();
 
     // バックアップ（マージ前に一括実行）
-    // symlink ファイルは execute_symlink_merge 内で個別バックアップするため除外
     if runtime.core.config.backup.enabled {
-        let backup_paths: Vec<String> = symlink_actions
-            .iter()
-            .filter(|(_, action)| matches!(action, MergeAction::Normal))
-            .map(|(p, _)| p.clone())
-            .collect();
+        let backup_paths = collect_backup_paths(&symlink_actions);
         if !backup_paths.is_empty() {
             match direction {
                 MergeDirection::LeftToRight => {
@@ -268,12 +263,6 @@ pub fn execute_batch_merge(
         MergeDirection::RightToLeft => format!("{} -> {}", right, left),
     };
 
-    let skip_suffix = if skipped_equal > 0 {
-        format!(", {} identical skipped", skipped_equal)
-    } else {
-        String::new()
-    };
-
     tracing::info!(
         "Batch merge completed: success={}, failed={}, skipped_identical={}",
         success_count,
@@ -281,17 +270,44 @@ pub fn execute_batch_merge(
         skipped_equal
     );
 
+    state.status_message = format_batch_summary(success_count, fail_count, skipped_equal, &dir_str);
+}
+
+/// バッチマージ結果のサマリーメッセージを生成する（純粋関数）。
+fn format_batch_summary(
+    success_count: usize,
+    fail_count: usize,
+    skipped_equal: usize,
+    dir_str: &str,
+) -> String {
+    let skip_suffix = if skipped_equal > 0 {
+        format!(", {} identical skipped", skipped_equal)
+    } else {
+        String::new()
+    };
+
     if fail_count == 0 {
-        state.status_message = format!(
+        format!(
             "Batch merge complete: {} files merged ({}){}",
             success_count, dir_str, skip_suffix
-        );
+        )
     } else {
-        state.status_message = format!(
+        format!(
             "Batch merge complete: {} succeeded/{} failed ({}){}",
             success_count, fail_count, dir_str, skip_suffix
-        );
+        )
     }
+}
+
+/// symlink 以外のバックアップ対象パスを収集する（純粋関数）。
+///
+/// symlink ファイルは `execute_symlink_merge` 内で個別バックアップするため除外する。
+fn collect_backup_paths(symlink_actions: &[(String, MergeAction)]) -> Vec<String> {
+    symlink_actions
+        .iter()
+        .filter(|(_, action)| matches!(action, MergeAction::Normal))
+        .map(|(p, _)| p.clone())
+        .collect()
 }
 
 /// マージ対象ファイルのディレクトリパスを収集する（ref_tree 同期用）
@@ -523,6 +539,87 @@ mod tests {
         let dirs = collect_merge_dirs(&files);
         assert_eq!(dirs.len(), 1);
         assert!(dirs.contains("a/b/c/d"));
+    }
+
+    // ── format_batch_summary ──
+
+    #[test]
+    fn test_format_batch_summary_all_success() {
+        let msg = format_batch_summary(5, 0, 0, "local -> remote");
+        assert_eq!(
+            msg,
+            "Batch merge complete: 5 files merged (local -> remote)"
+        );
+    }
+
+    #[test]
+    fn test_format_batch_summary_with_failures() {
+        let msg = format_batch_summary(3, 2, 0, "local -> remote");
+        assert_eq!(
+            msg,
+            "Batch merge complete: 3 succeeded/2 failed (local -> remote)"
+        );
+    }
+
+    #[test]
+    fn test_format_batch_summary_with_skipped() {
+        let msg = format_batch_summary(5, 0, 3, "remote -> local");
+        assert_eq!(
+            msg,
+            "Batch merge complete: 5 files merged (remote -> local), 3 identical skipped"
+        );
+    }
+
+    #[test]
+    fn test_format_batch_summary_with_failures_and_skipped() {
+        let msg = format_batch_summary(2, 1, 4, "local -> remote");
+        assert_eq!(
+            msg,
+            "Batch merge complete: 2 succeeded/1 failed (local -> remote), 4 identical skipped"
+        );
+    }
+
+    // ── collect_backup_paths ──
+
+    #[test]
+    fn test_collect_backup_paths_filters_symlinks() {
+        let actions = vec![
+            ("normal.rs".to_string(), MergeAction::Normal),
+            (
+                "link.rs".to_string(),
+                MergeAction::CreateSymlink {
+                    link_target: "/target".to_string(),
+                    target_exists: false,
+                },
+            ),
+            (
+                "replace.rs".to_string(),
+                MergeAction::ReplaceSymlinkWithFile,
+            ),
+            ("normal2.rs".to_string(), MergeAction::Normal),
+        ];
+        let paths = collect_backup_paths(&actions);
+        assert_eq!(paths, vec!["normal.rs", "normal2.rs"]);
+    }
+
+    #[test]
+    fn test_collect_backup_paths_empty() {
+        let actions: Vec<(String, MergeAction)> = vec![];
+        let paths = collect_backup_paths(&actions);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_collect_backup_paths_all_symlinks() {
+        let actions = vec![(
+            "link.rs".to_string(),
+            MergeAction::CreateSymlink {
+                link_target: "/target".to_string(),
+                target_exists: true,
+            },
+        )];
+        let paths = collect_backup_paths(&actions);
+        assert!(paths.is_empty());
     }
 
     #[test]

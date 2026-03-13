@@ -6,6 +6,14 @@
 
 ## 🎯 Current Session
 
+### 20260314002623 - コードベース品質改善リファクタリング
+- **Started:** 2026-03-14 00:26:23
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314002623_codebase-refactoring.md)
+- **Summary:** コードベース全体の品質改善。side_io.rs（2877行）の try_agent_* ボイラープレート統一、badge.rs（1614行）の純粋関数化、Handler 層の薄化、dialog_ops.rs の Service 層移行、selection.rs の I/O オフロード、クローン削減。7ステップ段階的リファクタリング。
+
+---
+
 ### 20260313220450 - Side-by-Side シンタックスハイライト
 - **Started:** 2026-03-13 22:04:50
 - **Status:** 🟢 Complete
