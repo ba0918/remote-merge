@@ -8,9 +8,10 @@
 
 ### 20260313220450 - Side-by-Side シンタックスハイライト
 - **Started:** 2026-03-13 22:04:50
-- **Status:** 🔵 Implementing
+- **Status:** 🟢 Complete
+- **Completed:** 2026-03-13
 - **Plan:** [Link](./cycles/20260313220450_side-by-side-syntax-highlight.md)
-- **Summary:** TUI の Side-by-Side diff 表示にシンタックスハイライトを適用。既存の Unified 用ハイライト基盤を再利用し、幅制限対応のセグメントトランケーション関数を追加。検索ハイライトも Side-by-Side で動作させる。
+- **Summary:** TUI の Side-by-Side diff 表示にシンタックスハイライトを適用。truncate_spans() 純粋関数で Span ベースの幅制限＋パディングを実現し、render_sbs_half() 抽出で text_spans() → truncate_spans() パイプラインを統合。検索ハイライトも Side-by-Side で動作。+20テスト（2198テスト通過）、clippy 警告ゼロ。
 
 ---
 
