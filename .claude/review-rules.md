@@ -1,6 +1,6 @@
 # Project Review Rules
 
-plan-reviewer がこのプロジェクトの計画をレビューする際に適用する追加ルール。
+plan-reviewer および コードレビュー でこのプロジェクトをレビューする際に適用するプロジェクト固有ルール。
 （generate-review-rules スキルにより自動生成。手動で調整可能）
 
 ## Architecture
