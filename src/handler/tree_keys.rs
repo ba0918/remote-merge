@@ -55,43 +55,7 @@ pub fn handle_tree_key(
                 .get(state.tree_cursor)
                 .is_some_and(|n| n.is_dir)
             {
-                if let Some(path) = state.current_path() {
-                    let local_needs_load = state
-                        .left_tree
-                        .find_node(std::path::Path::new(&path))
-                        .is_some_and(|n| n.is_dir() && !n.is_loaded());
-                    let remote_needs_load = state
-                        .right_tree
-                        .find_node(std::path::Path::new(&path))
-                        .is_some_and(|n| n.is_dir() && !n.is_loaded());
-
-                    if local_needs_load {
-                        if state.left_source.is_local() {
-                            state.load_local_children(&path);
-                        } else {
-                            let left_source = state.left_source.clone();
-                            super::merge_exec::load_children_to(
-                                state,
-                                runtime,
-                                &path,
-                                &left_source,
-                                true,
-                            );
-                        }
-                    }
-                    if remote_needs_load && runtime.is_side_available(&state.right_source) {
-                        let right_source = state.right_source.clone();
-                        super::merge_exec::load_children_to(
-                            state,
-                            runtime,
-                            &path,
-                            &right_source,
-                            false,
-                        );
-                    }
-                    // ref_tree も同期ロード（3way マージ整合性維持）
-                    super::merge_tree_load::load_ref_children(state, runtime, &path);
-                }
+                expand_directory(state, runtime);
                 state.toggle_expand();
             } else {
                 load_file_content(state, runtime);
@@ -155,6 +119,40 @@ pub fn handle_tree_key(
         }
         _ => {}
     }
+}
+
+/// ディレクトリ展開時に未ロードの子ノードを読み込む
+///
+/// left/right/ref の3ツリーそれぞれで未ロードならロードを実行。
+fn expand_directory(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let path = match state.current_path() {
+        Some(p) => p,
+        None => return,
+    };
+
+    let left_needs_load = needs_children_load(&state.left_tree, &path);
+    let right_needs_load = needs_children_load(&state.right_tree, &path);
+
+    if left_needs_load {
+        if state.left_source.is_local() {
+            state.load_local_children(&path);
+        } else {
+            let left_source = state.left_source.clone();
+            super::merge_exec::load_children_to(state, runtime, &path, &left_source, true);
+        }
+    }
+    if right_needs_load && runtime.is_side_available(&state.right_source) {
+        let right_source = state.right_source.clone();
+        super::merge_exec::load_children_to(state, runtime, &path, &right_source, false);
+    }
+    // ref_tree も同期ロード（3way マージ整合性維持）
+    super::merge_tree_load::load_ref_children(state, runtime, &path);
+}
+
+/// ツリー内のディレクトリが子ノードのロードを必要としているか判定する純粋関数
+fn needs_children_load(tree: &crate::tree::FileTree, path: &str) -> bool {
+    tree.find_node(std::path::Path::new(path))
+        .is_some_and(|n| n.is_dir() && !n.is_loaded())
 }
 
 /// ツリーマージ操作 (L/R キー)
@@ -759,5 +757,37 @@ mod tests {
         state.current_diff = None;
         handle_clipboard_copy(&mut state);
         assert_eq!(state.status_message, "No diff available for this file");
+    }
+
+    // ── needs_children_load テスト ──
+
+    #[test]
+    fn test_needs_children_load_unloaded_dir() {
+        let tree = make_tree(vec![FileNode::new_dir("src")]);
+        assert!(needs_children_load(&tree, "src"));
+    }
+
+    #[test]
+    fn test_needs_children_load_loaded_dir() {
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        assert!(!needs_children_load(&tree, "src"));
+    }
+
+    #[test]
+    fn test_needs_children_load_nonexistent() {
+        let tree = make_tree(vec![]);
+        assert!(!needs_children_load(&tree, "src"));
+    }
+
+    #[test]
+    fn test_needs_children_load_file_returns_false() {
+        let tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        assert!(!needs_children_load(&tree, "src/a.rs"));
     }
 }
