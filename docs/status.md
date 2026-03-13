@@ -1,10 +1,19 @@
 # Project Status
 
-**Last Updated:** 2026-03-13 19:44
+**Last Updated:** 2026-03-13 21:00
 
 ---
 
 ## 🎯 Current Session
+
+### 20260313204742 - include フィルタ（ホワイトリスト方式スキャン制限）
+- **Started:** 2026-03-13 20:47:42
+- **Status:** 🟢 Complete
+- **Completed:** 2026-03-13
+- **Plan:** [Link](./cycles/20260313204742_include-filter.md)
+- **Summary:** `[filter] include` パターンを追加し、スキャン対象をホワイトリスト方式で限定。20万件超プロジェクトでのスキャン破綻を解決。SSH find コマンドの起点パス自体を絞り、リモート負荷も削減。FilterConfig + normalize_include_paths 純粋関数、ローカル/SSH/Agent 全スキャンパスに include 伝播、三重セキュリティ防御（config正規化 + canonicalize + root_prefix_check）。+48テスト（2225テスト通過）、17ファイル変更、+1122行、clippy警告ゼロ。
+
+---
 
 ### 20260313194427 - plan-reviewer 汎用化 + review loop 強化
 - **Started:** 2026-03-13 19:44:27

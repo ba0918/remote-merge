@@ -29,7 +29,6 @@ Options:
 - `--left <side> --right <side>` — specify comparison sides (e.g., `local`, `develop`, `staging`, `release`)
 - `--all` — include Equal files in output (by default, Equal files are excluded)
 - `--checksum` — force content comparison for all files (bypass mtime/size quick check). Useful when timestamps are unreliable.
-- `--verbose` (`-v`) — include additional fields in JSON output (e.g., `agent` connection status)
 
 ### 2. Inspect diffs
 
@@ -111,7 +110,7 @@ remote-merge sync . --left local --right server1 server2 --dry-run --format json
 ```
 
 Options:
-- `--left <side>` — source side (required, exactly one; omitting produces error: "--left is required for sync command")
+- `--left <side>` — source side (required, exactly one)
 - `--right <side>...` — target servers (required, one or more)
 - `--dry-run` — preview without writing
 - `--force` — skip safety confirmations (remote-to-remote, sensitive files)
@@ -198,17 +197,130 @@ Read directly at `~/.cache/remote-merge/`:
 
 Event types: `key_press`, `render_slow`, `error`, `dialog`, `state_change`.
 
+## Configuration
+
+Two config files (project overrides global; `[filter]` sections are merged as union):
+- **Global:** `~/.config/remote-merge/config.toml`
+- **Project:** `.remote-merge.toml`
+
+Use `remote-merge init` to generate a project config interactively.
+
+### Minimal example
+
+```toml
+[local]
+root_dir = "."
+
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+[filter]
+exclude = ["node_modules", "*.log", "vendor/**"]
+include = ["src/", "config/"]  # Whitelist: scan only these dirs (empty = scan all)
+```
+
+### Full reference
+
+```toml
+# ── Local ──
+[local]
+root_dir = "."                          # Local project root (default: ".")
+
+# ── Servers ──
+[servers.develop]
+host = "dev.example.com"
+port = 22                               # SSH port (default: 22)
+user = "deploy"
+auth = "key"                            # "key" (default) or "password"
+key = "~/.ssh/id_rsa"                   # SSH key path (default: ~/.ssh/id_rsa)
+root_dir = "/var/www/app"               # Remote project root
+sudo = false                            # Run Agent with sudo (default: false)
+file_permissions = "0644"               # Per-server file permission override
+dir_permissions = "0755"                # Per-server dir permission override
+
+[servers.develop.ssh_options]           # Legacy SSH algorithm overrides
+kex_algorithms = ["diffie-hellman-group14-sha1"]
+host_key_algorithms = ["ssh-rsa"]
+ciphers = ["aes128-ctr"]
+
+[servers.staging]
+host = "staging.example.com"
+user = "deploy"
+root_dir = "/var/www/app"
+
+# ── Filter ──
+[filter]
+exclude = ["node_modules", "*.log", "vendor/**"]
+include = ["src/", "config/"]           # Whitelist dirs (default: [] = scan all)
+sensitive = [".env", "*.pem", "*.key"]  # Warn before merge/diff (has defaults)
+
+# ── SSH ──
+[ssh]
+timeout_sec = 300                       # Connection timeout (default: 300)
+strict_host_key_checking = "ask"        # "ask" (default), "yes", "no"
+
+# ── Backup ──
+[backup]
+enabled = true                          # Auto-backup before merge (default: true)
+retention_days = 7                      # Backup expiry (default: 7)
+
+# ── Defaults ──
+[defaults]
+file_permissions = "0664"               # Default file perms (default: 0664)
+dir_permissions = "0775"                # Default dir perms (default: 0775)
+
+# ── Agent ──
+[agent]
+enabled = true                          # Use Agent for fast scanning (default: true)
+deploy_dir = "/var/tmp"                 # Agent binary location (default: /var/tmp)
+timeout_secs = 30                       # Agent ping timeout (default: 30)
+
+# ── Scan ──
+max_scan_entries = 50000                # Max files per scan (default: 50000)
+```
+
+### Filter semantics
+
+- **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
+- **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
+- **sensitive**: Glob patterns for files requiring `--force` to merge/diff. Has sensible defaults (`.env`, `*.pem`, etc.).
+
+## Global CLI Options
+
+These options apply to all subcommands and TUI mode:
+
+```bash
+remote-merge [OPTIONS] [COMMAND]
+
+--config <PATH>        # Project config file (overrides .remote-merge.toml in CWD)
+--left <SIDE>          # Left side of comparison (default: local)
+--right <SIDE>         # Right side of comparison (default: first server in config)
+--ref <SERVER>         # Reference server for 3-way comparison
+-y, --yes              # Auto-accept prompts (host key verification, etc.)
+-v, --verbose          # Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
+--debug                # Shorthand for --log-level debug
+--log-level <LEVEL>    # Set log level (error, warn, info, debug, trace)
+```
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `REMOTE_MERGE_PASSWORD_{SERVER}` | SSH password for password auth (e.g., `REMOTE_MERGE_PASSWORD_DEVELOP`) |
+| `REMOTE_MERGE_KEY_PASSPHRASE_{SERVER}` | SSH key passphrase (e.g., `REMOTE_MERGE_KEY_PASSPHRASE_STAGING`). Server name is uppercased, `-` and `.` become `_` |
+| `REMOTE_MERGE_AGENT_BINARY` | Override Agent binary path (for development/testing) |
+| `REMOTE_MERGE_AGENT_DIR` | Override Agent binary search directory (absolute path, no `..`) |
+
+These environment variables are useful for non-interactive CI/CD pipelines and automated agent workflows where prompting is not possible.
+
 ## Exit Codes
 
 0 = success (no diff), 1 = success (diffs found), 2 = error.
 
-## JSON Error Handling
-
-When `--format json` is specified and an error occurs, stdout returns `{"error": "..."}` with exit code `2`. This applies to all subcommands: status, diff, merge, sync, rollback, logs. Always check the exit code.
-
 ## Error Recovery
 
-- **Config not found** -> error message shows both searched paths (`.remote-merge.toml` and `~/.config/remote-merge/config.toml`)
 - **SSH connection failed** -> check `.remote-merge.toml`
 - **Sensitive file skipped** -> add `--force`
 - **Optimistic lock failed** -> retry (file changed during merge)
