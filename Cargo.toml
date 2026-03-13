@@ -1,6 +1,6 @@
 [package]
 name = "remote-merge"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "TUI tool for comparing and merging files between local and remote servers via SSH"
 
