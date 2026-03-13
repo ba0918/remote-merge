@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-13 17:17
+**Last Updated:** 2026-03-13 19:44
 
 ---
 
 ## 🎯 Current Session
+
+### 20260313194427 - plan-reviewer 汎用化 + review loop 強化
+- **Started:** 2026-03-13 19:44:27
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260313194427_plan-reviewer-generalization.md)
+- **Summary:** plan-reviewer の review-dimensions.md を言語非依存に書き直し、`.claude/review-rules.md` によるプロジェクト固有ルール追加の仕組みを実装。review-timestamped-plan-loop をイテレーション制限・差分レビュー・責務明確化で強化。
+
+---
 
 ### 20260313171720 - クロスプラットフォーム Agent デプロイ
 - **Started:** 2026-03-13 17:17:20
