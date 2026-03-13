@@ -23,7 +23,5 @@ lcov.info
 
 # Test environment
 testenv/data/
-testenv/rpms/
-testenv/.ssh/id_rsa
-testenv/.ssh/id_rsa.pub
+testenv/.ssh/
 logs/

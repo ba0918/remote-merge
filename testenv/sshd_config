@@ -1,0 +1,26 @@
+# sshd_config for CentOS 5 test environment
+# Minimal config for remote-merge testing
+
+Port 22
+Protocol 2
+
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_dsa_key
+
+SyslogFacility AUTHPRIV
+LogLevel INFO
+
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication yes
+
+ChallengeResponseAuthentication no
+UsePAM yes
+UseDNS no
+
+
+Subsystem sftp /usr/libexec/openssh/sftp-server
+
+# Accept env variables
+AcceptEnv LANG LC_*

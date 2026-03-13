@@ -1,0 +1,14 @@
+# remote-merge 負荷テスト環境
+#
+# 使い方:
+#   cd testenv && docker compose up -d
+#   ssh -i .ssh/id_ed25519 -p 2222 testuser@localhost
+#   ./generate_testdata.sh   (コンテナ内に10万ファイル生成)
+
+services:
+  centos5:
+    build: .
+    container_name: rm-testenv-centos5
+    ports:
+      - "2222:22"
+    restart: unless-stopped

@@ -1,0 +1,26 @@
+# remote-merge 負荷テスト用設定
+#
+# 使い方:
+#   remote-merge --config testenv/config.toml status
+#   remote-merge --config testenv/config.toml diff src/app/controllers/file_0.php
+#   remote-merge --config testenv/config.toml diff .
+
+[local]
+root_dir = "./testenv/data/local"
+
+[servers.centos5]
+host = "localhost"
+port = 2222
+user = "testuser"
+auth = "key"
+key = "./testenv/.ssh/id_rsa"
+root_dir = "/srv/testdata"
+
+[servers.centos5.ssh_options]
+kex_algorithms = ["diffie-hellman-group14-sha1", "diffie-hellman-group1-sha1"]
+
+[filter]
+exclude = [".git", "node_modules"]
+
+[ssh]
+timeout_sec = 300
