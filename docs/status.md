@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-14 20:20
+**Last Updated:** 2026-03-14 22:27
 
 ---
 
 ## 🎯 Current Session
+
+### 20260314222758 - DIFFモード相対パスroot_dir露出バグ修正
+- **Started:** 2026-03-14 22:27:58
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314222758_fix-diff-mode-root-path-leak.md)
+- **Summary:** DIFFモード（Shift+F）でroot_dirが相対パスの場合にプロジェクト構造がUIに露出するセキュリティバグ。resolve_scan_rootsのinclude空ケースでcanonicalizeが欠落。
+
+---
 
 ### 20260314202016 - バッジスキャン上限の UX 改善
 - **Started:** 2026-03-14 20:20:16

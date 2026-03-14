@@ -142,7 +142,10 @@ fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
 /// - シンボリックリンクが `root` 外を指す場合は拒否
 pub fn resolve_scan_roots(root: &Path, include_paths: &[String]) -> Vec<PathBuf> {
     if include_paths.is_empty() {
-        return vec![root.to_path_buf()];
+        return match root.canonicalize() {
+            Ok(p) => vec![p],
+            Err(_) => vec![root.to_path_buf()],
+        };
     }
 
     let canonical_root = match root.canonicalize() {
@@ -655,9 +658,48 @@ mod tests {
 
     #[test]
     fn test_resolve_scan_roots_empty_includes() {
-        let root = PathBuf::from("/tmp");
-        let result = resolve_scan_roots(&root, &[]);
-        assert_eq!(result, vec![PathBuf::from("/tmp")]);
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let result = resolve_scan_roots(root, &[]);
+        // canonicalize() が適用されるので、正規化済みパスが返る
+        assert_eq!(result, vec![root.canonicalize().unwrap()]);
+    }
+
+    #[test]
+    fn test_resolve_scan_roots_relative_path_canonicalized() {
+        // 相対パスの root が canonicalize() で絶対パスに正規化されることを確認
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        // TempDir 内にサブディレクトリを作成し、相対パスで参照する
+        let subdir = root.join("project");
+        std::fs::create_dir(&subdir).unwrap();
+
+        // 相対パスを構築するために CWD を root に変更してテスト
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+
+        let relative_root = Path::new("project");
+        let result = resolve_scan_roots(relative_root, &[]);
+
+        // 元の CWD を復元
+        std::env::set_current_dir(&original_cwd).unwrap();
+
+        // 結果は絶対パスであること
+        assert_eq!(result.len(), 1);
+        assert!(
+            result[0].is_absolute(),
+            "resolve_scan_roots should return absolute path for relative root, got: {:?}",
+            result[0]
+        );
+        // パスコンポーネントに "." や ".." が含まれないこと
+        for component in result[0].components() {
+            if let std::path::Component::CurDir | std::path::Component::ParentDir = component {
+                panic!(
+                    "Canonicalized path should not contain . or .. components: {:?}",
+                    result[0]
+                );
+            }
+        }
     }
 
     #[test]
@@ -905,5 +947,153 @@ mod tests {
 
         // 同じ結果になるはず
         assert_eq!(count_all_nodes(&nodes_all), count_all_nodes(&nodes_legacy));
+    }
+
+    // ── 相対パス root_dir でのスキャンテスト ──
+
+    #[test]
+    fn test_scan_local_tree_recursive_with_relative_root() {
+        // 相対パスの root_dir でスキャンしてもツリーに "." が混入しないことを確認
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("project/src")).unwrap();
+        std::fs::write(root.join("project/src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(root.join("project/top.txt"), "hello").unwrap();
+
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+
+        let relative_root = Path::new("project");
+        let result = scan_local_tree_recursive_with_include(
+            relative_root,
+            &[],
+            &[],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        );
+
+        std::env::set_current_dir(&original_cwd).unwrap();
+
+        let (nodes, _) = result.unwrap();
+
+        // "." ディレクトリが存在しないこと
+        assert!(
+            !nodes.iter().any(|n| n.name == "."),
+            "Tree should not contain '.' directory, got: {:?}",
+            nodes.iter().map(|n| &n.name).collect::<Vec<_>>()
+        );
+
+        // "project" ディレクトリが存在しないこと（root からの相対パスであるべき）
+        assert!(
+            !nodes.iter().any(|n| n.name == "project"),
+            "Tree should not contain 'project' as root-level entry"
+        );
+
+        // 実際の内容が正しく含まれること
+        let names: Vec<&str> = nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"src"), "Should contain 'src' directory");
+        assert!(names.contains(&"top.txt"), "Should contain 'top.txt'");
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive_relative_root_no_project_path_leak() {
+        // スキャン結果のパスにプロジェクトルート構造が含まれないことを確認
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        // 深めのネスト構造: base/deep/nested/app/file.php
+        std::fs::create_dir_all(root.join("base/deep/nested/app")).unwrap();
+        std::fs::write(root.join("base/deep/nested/app/file.php"), "<?php").unwrap();
+
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+
+        // "./base/deep/nested" という相対パスで root を指定
+        let relative_root = Path::new("./base/deep/nested");
+        let result = scan_local_tree_recursive_with_include(
+            relative_root,
+            &[],
+            &[],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        );
+
+        std::env::set_current_dir(&original_cwd).unwrap();
+
+        let (nodes, _) = result.unwrap();
+
+        // ツリーのルートに "base", "deep", "nested", "." が存在しないこと
+        for bad_name in &[".", "base", "deep", "nested"] {
+            assert!(
+                !nodes.iter().any(|n| n.name == *bad_name),
+                "Tree should not contain '{}' as root-level entry, got: {:?}",
+                bad_name,
+                nodes.iter().map(|n| &n.name).collect::<Vec<_>>()
+            );
+        }
+
+        // "app" ディレクトリが正しくルートレベルに存在すること
+        assert!(
+            nodes.iter().any(|n| n.name == "app"),
+            "Should contain 'app' directory at root level"
+        );
+
+        // app/file.php が存在すること
+        let app = nodes.iter().find(|n| n.name == "app").unwrap();
+        let app_children = app.children.as_ref().unwrap();
+        assert!(app_children.iter().any(|n| n.name == "file.php"));
+    }
+
+    #[test]
+    fn test_scan_local_tree_recursive_relative_root_strip_prefix_safety() {
+        // strip_prefix 結果にフルパスや ".." セグメントが含まれないことを検証
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("myapp/controllers")).unwrap();
+        std::fs::write(root.join("myapp/controllers/home.rs"), "// home").unwrap();
+        std::fs::write(root.join("myapp/main.rs"), "fn main() {}").unwrap();
+
+        let original_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(root).unwrap();
+
+        let relative_root = Path::new("./myapp");
+        let result = scan_local_tree_recursive_with_include(
+            relative_root,
+            &[],
+            &[],
+            crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+        );
+
+        std::env::set_current_dir(&original_cwd).unwrap();
+
+        let (nodes, _) = result.unwrap();
+
+        // 全ノードを再帰的に走査して不正なパスセグメントがないことを確認
+        fn assert_no_bad_segments(nodes: &[FileNode]) {
+            for node in nodes {
+                assert!(
+                    !node.name.contains(".."),
+                    "Node name should not contain '..': {}",
+                    node.name
+                );
+                assert!(
+                    !node.name.starts_with('/'),
+                    "Node name should not be absolute path: {}",
+                    node.name
+                );
+                assert!(
+                    node.name != ".",
+                    "Node name should not be '.': {}",
+                    node.name
+                );
+                if let Some(children) = &node.children {
+                    assert_no_bad_segments(children);
+                }
+            }
+        }
+
+        assert_no_bad_segments(&nodes);
+
+        // 正しいツリー構造であること
+        let names: Vec<&str> = nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"controllers"));
+        assert!(names.contains(&"main.rs"));
     }
 }
