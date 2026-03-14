@@ -618,6 +618,9 @@ fn run_event_loop(
     let mut event_recorder = telemetry::EventRecorder::new(&dump_dir.join("events.jsonl"));
     let mut frame_count: u64 = 0;
 
+    // 起動直後にルートディレクトリのバッジスキャンを自動起動
+    badge_scan::start_badge_scan(state, runtime, "");
+
     loop {
         // tokio Runtime を駆動して SSH keepalive 等の pending タスクを処理
         runtime.drive_runtime();
