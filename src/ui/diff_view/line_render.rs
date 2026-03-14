@@ -116,7 +116,7 @@ pub fn render_diff_line_highlighted(
     // インジケータ
     let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
         if is_pending {
-            ("⏎ ", Color::Yellow)
+            ("⏎ ", state.palette.dialog_accent)
         } else {
             ("▶ ", p.accent)
         }
@@ -272,7 +272,7 @@ pub fn render_side_by_side_line(
 
     let (indicator_char, indicator_color) = if is_current_hunk && is_focused {
         if is_pending {
-            ("⏎", Color::Yellow)
+            ("⏎", state.palette.dialog_accent)
         } else {
             ("▶", p.accent)
         }

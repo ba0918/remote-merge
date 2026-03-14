@@ -81,7 +81,7 @@ impl<'a> DiffView<'a> {
         let mut lines: Vec<Line<'_>> = Vec::new();
         lines.push(Line::from(Span::styled(
             "  Binary file - content diff not available",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(self.state.palette.dialog_accent),
         )));
         lines.push(Line::from(""));
 
