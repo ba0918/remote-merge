@@ -5,7 +5,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -100,12 +100,12 @@ impl PairServerMenu {
 /// ペアサーバ選択メニューウィジェット
 pub struct PairServerMenuWidget<'a> {
     menu: &'a PairServerMenu,
-    bg: Color,
+    palette: &'a crate::theme::palette::TuiPalette,
 }
 
 impl<'a> PairServerMenuWidget<'a> {
-    pub fn new(menu: &'a PairServerMenu, bg: Color) -> Self {
-        Self { menu, bg }
+    pub fn new(menu: &'a PairServerMenu, palette: &'a crate::theme::palette::TuiPalette) -> Self {
+        Self { menu, palette }
     }
 }
 
@@ -115,14 +115,15 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
         // ヘッダー(2行) + サーバリスト + フッター(2行) + ペア表示(1行)
         let height = server_count + 6;
         let width = 60u16;
+        let p = self.palette;
         let inner = render_dialog_frame(
             " Server Pair Select ",
-            Color::Cyan,
+            p.info,
             width,
             height,
             area,
             buf,
-            self.bg,
+            p.bg,
         );
 
         let mut lines: Vec<Line> = Vec::new();
@@ -130,17 +131,17 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
         // ヘッダー: LEFT / RIGHT 列タイトル
         let left_style = if self.menu.active_column == Column::Left {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(p.info)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(p.muted)
         };
         let right_style = if self.menu.active_column == Column::Right {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(p.info)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(p.muted)
         };
 
         let col_width = (inner.width as usize).saturating_sub(4) / 2;
@@ -165,26 +166,22 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
 
             let left_cell_style = if left_selected && self.menu.active_column == Column::Left {
                 Style::default()
-                    .fg(Color::White)
+                    .fg(p.fg)
                     .add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else if left_selected {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(p.positive).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(p.fg)
             };
 
             let right_cell_style = if right_selected && self.menu.active_column == Column::Right {
                 Style::default()
-                    .fg(Color::White)
+                    .fg(p.fg)
                     .add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else if right_selected {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(p.positive).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(p.fg)
             };
 
             let left_text = format!(
@@ -214,9 +211,9 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
         let left_name = self.menu.selected_left().unwrap_or("?");
         let right_name = self.menu.selected_right().unwrap_or("?");
         let pair_style = if self.menu.is_same_pair() {
-            Style::default().fg(Color::Red)
+            Style::default().fg(p.negative)
         } else {
-            Style::default().fg(Color::Green)
+            Style::default().fg(p.positive)
         };
         lines.push(Line::from(vec![
             Span::raw("  "),
@@ -227,7 +224,7 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
         let warn = if self.menu.is_same_pair() {
             Span::styled(
                 "  (same server)",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default().fg(p.negative).add_modifier(Modifier::BOLD),
             )
         } else {
             Span::raw("")
@@ -237,21 +234,17 @@ impl<'a> Widget for PairServerMenuWidget<'a> {
             Span::raw("  "),
             Span::styled(
                 "[Tab]",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(p.info).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Column  "),
             Span::styled(
                 "[Enter]",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(p.positive).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" OK  "),
             Span::styled(
                 "[Esc]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default().fg(p.negative).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Cancel"),
             warn,
@@ -352,7 +345,10 @@ mod tests {
         let menu = PairServerMenu::new(make_servers(), "local", "develop");
         let area = Rect::new(0, 0, 80, 20);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = PairServerMenuWidget::new(&menu, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette =
+            crate::theme::palette::TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = PairServerMenuWidget::new(&menu, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

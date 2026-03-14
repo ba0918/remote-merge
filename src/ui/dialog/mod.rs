@@ -21,6 +21,7 @@ pub use server_menu::{ServerMenu, ServerMenuWidget};
 pub use three_way_summary::ThreeWaySummaryWidget;
 
 use crate::app::three_way_summary::ThreeWaySummaryPanel;
+use crate::theme::palette::TuiPalette;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -137,19 +138,21 @@ impl ProgressDialog {
 /// `[Y] Confirm  [n/Esc] Cancel` フッターガイドを生成する。
 ///
 /// `suffix` が `Some` の場合、末尾に追加テキストを付与する（例: "(large batch)"）。
-pub fn confirm_cancel_guide(suffix: Option<(&str, Color)>) -> Line<'static> {
+pub fn confirm_cancel_guide(palette: &TuiPalette, suffix: Option<(&str, Color)>) -> Line<'static> {
     let mut spans = vec![
         Span::raw("  "),
         Span::styled(
             "[Y]",
             Style::default()
-                .fg(Color::Green)
+                .fg(palette.positive)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Confirm  "),
         Span::styled(
             "[n/Esc]",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.negative)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Cancel"),
     ];
@@ -161,13 +164,13 @@ pub fn confirm_cancel_guide(suffix: Option<(&str, Color)>) -> Line<'static> {
 }
 
 /// `[Enter/Esc] OK` フッターガイドを生成する。
-pub fn ok_guide() -> Line<'static> {
+pub fn ok_guide(palette: &TuiPalette) -> Line<'static> {
     Line::from(vec![
         Span::raw("  "),
         Span::styled(
             "[Enter/Esc]",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(palette.info)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" OK"),
@@ -175,12 +178,14 @@ pub fn ok_guide() -> Line<'static> {
 }
 
 /// `[Esc] Cancel` フッターガイドを生成する。
-pub fn cancel_guide() -> Line<'static> {
+pub fn cancel_guide(palette: &TuiPalette) -> Line<'static> {
     Line::from(vec![
         Span::raw("  "),
         Span::styled(
             "[Esc]",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.negative)
+                .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" Cancel"),
     ])
@@ -287,9 +292,15 @@ mod tests {
         assert_eq!(dialog.display_title(), "Loading files");
     }
 
+    fn test_palette() -> TuiPalette {
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        TuiPalette::from_theme(&ts.themes["base16-ocean.dark"])
+    }
+
     #[test]
     fn test_confirm_cancel_guide_without_suffix() {
-        let line = confirm_cancel_guide(None);
+        let palette = test_palette();
+        let line = confirm_cancel_guide(&palette, None);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("[Y]"));
         assert!(text.contains("Confirm"));
@@ -299,14 +310,16 @@ mod tests {
 
     #[test]
     fn test_confirm_cancel_guide_with_suffix() {
-        let line = confirm_cancel_guide(Some(("(large batch)", Color::Yellow)));
+        let palette = test_palette();
+        let line = confirm_cancel_guide(&palette, Some(("(large batch)", Color::Yellow)));
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("(large batch)"));
     }
 
     #[test]
     fn test_ok_guide_content() {
-        let line = ok_guide();
+        let palette = test_palette();
+        let line = ok_guide(&palette);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("[Enter/Esc]"));
         assert!(text.contains("OK"));
@@ -314,9 +327,47 @@ mod tests {
 
     #[test]
     fn test_cancel_guide_content() {
-        let line = cancel_guide();
+        let palette = test_palette();
+        let line = cancel_guide(&palette);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("[Esc]"));
         assert!(text.contains("Cancel"));
+    }
+
+    #[test]
+    fn test_confirm_cancel_guide_uses_palette_positive() {
+        let palette = test_palette();
+        let line = confirm_cancel_guide(&palette, None);
+        // [Y] span は positive 色を使う
+        let y_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.contains("[Y]"))
+            .unwrap();
+        assert_eq!(y_span.style.fg, Some(palette.positive));
+    }
+
+    #[test]
+    fn test_ok_guide_uses_palette_info() {
+        let palette = test_palette();
+        let line = ok_guide(&palette);
+        let enter_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.contains("[Enter/Esc]"))
+            .unwrap();
+        assert_eq!(enter_span.style.fg, Some(palette.info));
+    }
+
+    #[test]
+    fn test_cancel_guide_uses_palette_negative() {
+        let palette = test_palette();
+        let line = cancel_guide(&palette);
+        let esc_span = line
+            .spans
+            .iter()
+            .find(|s| s.content.contains("[Esc]"))
+            .unwrap();
+        assert_eq!(esc_span.style.fg, Some(palette.negative));
     }
 }

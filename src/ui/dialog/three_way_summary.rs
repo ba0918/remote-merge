@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
@@ -69,7 +69,10 @@ impl Widget for ThreeWaySummaryWidget<'_> {
             // 空の場合のメッセージ
             let msg_line = Line::from(vec![
                 Span::raw("  "),
-                Span::styled("No differences found", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "No differences found",
+                    Style::default().fg(self.palette.muted),
+                ),
             ]);
             buf.set_line(inner.x, inner.y, &msg_line, inner.width);
         } else {
@@ -87,7 +90,7 @@ impl Widget for ThreeWaySummaryWidget<'_> {
 
                 // カーソル行の背景色
                 let line_bg = if is_cursor {
-                    Color::DarkGray
+                    self.palette.cursor_line_bg
                 } else {
                     self.palette.bg
                 };
@@ -106,7 +109,7 @@ impl Widget for ThreeWaySummaryWidget<'_> {
 
                 let mut spans = vec![Span::styled(
                     format!(" {}", line_num),
-                    Style::default().fg(Color::DarkGray).bg(line_bg),
+                    Style::default().fg(self.palette.muted).bg(line_bg),
                 )];
 
                 // 3つのカラム: left, right, ref
@@ -116,7 +119,11 @@ impl Widget for ThreeWaySummaryWidget<'_> {
                     &self.panel.ref_label,
                 ];
                 let contents = [&line.left_content, &line.right_content, &line.ref_content];
-                let colors = [Color::Green, Color::Blue, Color::Magenta];
+                let colors = [
+                    self.palette.positive,
+                    self.palette.info,
+                    self.palette.dialog_accent,
+                ];
 
                 for i in 0..3 {
                     let val = match contents[i] {
@@ -132,7 +139,7 @@ impl Widget for ThreeWaySummaryWidget<'_> {
                     ));
                     spans.push(Span::styled(
                         format!("\"{}\"", val),
-                        Style::default().fg(Color::White).bg(line_bg),
+                        Style::default().fg(self.palette.fg).bg(line_bg),
                     ));
                 }
 
@@ -148,13 +155,15 @@ impl Widget for ThreeWaySummaryWidget<'_> {
             Span::styled(
                 "[Enter]",
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.palette.positive)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Jump to line  "),
             Span::styled(
                 "[W/Esc]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.palette.negative)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" Close"),
         ]);

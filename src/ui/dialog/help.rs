@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -170,7 +170,7 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
 
         let inner = render_dialog_frame(
             title,
-            Color::Cyan,
+            self.palette.info,
             width,
             height,
             area,
@@ -194,8 +194,11 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
             for (key, desc) in &section.bindings {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(format!("{:<16}", key), Style::default().fg(Color::Cyan)),
-                    Span::styled(desc.clone(), Style::default().fg(Color::White)),
+                    Span::styled(
+                        format!("{:<16}", key),
+                        Style::default().fg(self.palette.info),
+                    ),
+                    Span::styled(desc.clone(), Style::default().fg(self.palette.fg)),
                 ]));
             }
 

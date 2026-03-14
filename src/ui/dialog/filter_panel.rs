@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -59,20 +59,20 @@ impl FilterPanel {
 /// フィルターパネルウィジェット
 pub struct FilterPanelWidget<'a> {
     panel: &'a FilterPanel,
-    bg: Color,
+    palette: &'a crate::theme::palette::TuiPalette,
 }
 
 impl<'a> FilterPanelWidget<'a> {
-    pub fn new(panel: &'a FilterPanel, bg: Color) -> Self {
-        Self { panel, bg }
+    pub fn new(panel: &'a FilterPanel, palette: &'a crate::theme::palette::TuiPalette) -> Self {
+        Self { panel, palette }
     }
 }
 
 impl<'a> Widget for FilterPanelWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let p = self.palette;
         let height = (self.panel.patterns.len() as u16) + 6;
-        let inner =
-            render_dialog_frame(" Filters ", Color::Magenta, 50, height, area, buf, self.bg);
+        let inner = render_dialog_frame(" Filters ", p.dialog_accent, 50, height, area, buf, p.bg);
 
         let constraints: Vec<Constraint> = (0..self.panel.patterns.len())
             .map(|_| Constraint::Length(1))
@@ -91,12 +91,12 @@ impl<'a> Widget for FilterPanelWidget<'a> {
 
             let style = if is_selected {
                 Style::default()
-                    .fg(Color::White)
+                    .fg(p.fg)
                     .add_modifier(Modifier::BOLD | Modifier::REVERSED)
             } else if *enabled {
-                Style::default().fg(Color::White)
+                Style::default().fg(p.fg)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(p.muted)
             };
 
             let line = Paragraph::new(Line::from(vec![
@@ -112,16 +112,12 @@ impl<'a> Widget for FilterPanelWidget<'a> {
                 Span::raw("  "),
                 Span::styled(
                     "Space",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(p.info).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(": toggle  "),
                 Span::styled(
                     "Esc",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(p.info).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(": close"),
             ]));
@@ -191,7 +187,10 @@ mod tests {
 
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = FilterPanelWidget::new(&panel, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette =
+            crate::theme::palette::TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = FilterPanelWidget::new(&panel, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

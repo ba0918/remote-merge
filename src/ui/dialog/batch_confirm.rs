@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -164,7 +164,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         // メッセージ行
         let msg = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(self.dialog.message(), Style::default().fg(Color::White)),
+            Span::styled(self.dialog.message(), Style::default().fg(self.palette.fg)),
         ]));
         msg.render(chunks[row], buf);
         row += 1;
@@ -183,7 +183,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         let caution_color = if has_unchecked {
             self.palette.dialog_accent
         } else {
-            Color::Green
+            self.palette.positive
         };
         let caution = Paragraph::new(Line::from(vec![
             Span::raw("  "),
@@ -217,7 +217,9 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                         "⚠ {} sensitive file(s) included",
                         self.dialog.sensitive_files.len()
                     ),
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(self.palette.negative)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]));
             warn.render(chunks[row], buf);
@@ -235,7 +237,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                     Badge::Modified => Style::default().fg(self.palette.badge_modified),
                     Badge::LeftOnly => Style::default().fg(self.palette.badge_left_only),
                     Badge::RightOnly => Style::default().fg(self.palette.badge_right_only),
-                    _ => Style::default().fg(Color::White),
+                    _ => Style::default().fg(self.palette.fg),
                 };
                 let is_sensitive = self.dialog.sensitive_files.contains(path);
                 let sensitive_mark = if is_sensitive { " ⚠" } else { "" };
@@ -244,8 +246,8 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                     Span::raw("  "),
                     Span::styled(badge.label(), badge_style),
                     Span::raw(" "),
-                    Span::styled(path.as_str(), Style::default().fg(Color::White)),
-                    Span::styled(sensitive_mark, Style::default().fg(Color::Red)),
+                    Span::styled(path.as_str(), Style::default().fg(self.palette.fg)),
+                    Span::styled(sensitive_mark, Style::default().fg(self.palette.negative)),
                 ]));
                 line.render(chunks[row], buf);
             }
@@ -261,7 +263,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                         "  ...and {} more (j/k to scroll)",
                         file_count - visible_files
                     ),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(self.palette.muted),
                 ),
             ]));
             more.render(chunks[row], buf);
@@ -277,7 +279,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
             } else {
                 None
             };
-            let guide = Paragraph::new(super::confirm_cancel_guide(suffix));
+            let guide = Paragraph::new(super::confirm_cancel_guide(self.palette, suffix));
             guide.render(chunks[row], buf);
         }
     }

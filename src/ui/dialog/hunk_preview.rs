@@ -59,15 +59,10 @@ impl<'a> HunkMergePreviewWidget<'a> {
     }
 
     /// before/after テキストから差分がある行のみを抽出して表示用行を生成
-    fn build_preview_lines(text: &str, max_lines: usize) -> Vec<Line<'static>> {
+    fn build_preview_lines(text: &str, max_lines: usize, fg: Color) -> Vec<Line<'static>> {
         text.lines()
             .take(max_lines)
-            .map(|line| {
-                Line::from(Span::styled(
-                    line.to_string(),
-                    Style::default().fg(Color::White),
-                ))
-            })
+            .map(|line| Line::from(Span::styled(line.to_string(), Style::default().fg(fg))))
             .collect()
     }
 }
@@ -101,10 +96,12 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
             .constraints(constraints)
             .split(inner);
 
+        let p = self.palette;
+
         // ファイルパス
         let path_line = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(&self.preview.file_path, Style::default().fg(Color::Cyan)),
+            Span::styled(&self.preview.file_path, Style::default().fg(p.info)),
         ]));
         path_line.render(chunks[0], buf);
 
@@ -113,16 +110,15 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
             Span::raw("  "),
             Span::styled(
                 "Before:",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default().fg(p.negative).add_modifier(Modifier::BOLD),
             ),
         ]));
         before_label.render(chunks[1], buf);
 
         // Before テキスト
         let before_lines =
-            Self::build_preview_lines(&self.preview.before_text, half_height as usize);
-        let before_para =
-            Paragraph::new(before_lines).style(Style::default().bg(Color::Rgb(30, 0, 0)));
+            Self::build_preview_lines(&self.preview.before_text, half_height as usize, p.fg);
+        let before_para = Paragraph::new(before_lines).style(Style::default().bg(p.diff_delete_bg));
         before_para.render(chunks[2], buf);
 
         // After ラベル
@@ -130,22 +126,20 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
             Span::raw("  "),
             Span::styled(
                 "After:",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(p.positive).add_modifier(Modifier::BOLD),
             ),
         ]));
         after_label.render(chunks[3], buf);
 
         // After テキスト
-        let after_lines = Self::build_preview_lines(&self.preview.after_text, half_height as usize);
-        let after_para =
-            Paragraph::new(after_lines).style(Style::default().bg(Color::Rgb(0, 30, 0)));
+        let after_lines =
+            Self::build_preview_lines(&self.preview.after_text, half_height as usize, p.fg);
+        let after_para = Paragraph::new(after_lines).style(Style::default().bg(p.diff_insert_bg));
         after_para.render(chunks[4], buf);
 
         // ガイド行
         if chunks.len() > 5 {
-            let guide = Paragraph::new(super::confirm_cancel_guide(None));
+            let guide = Paragraph::new(super::confirm_cancel_guide(p, None));
             guide.render(chunks[5], buf);
         }
     }
@@ -183,7 +177,8 @@ mod tests {
 
     #[test]
     fn test_build_preview_lines() {
-        let lines = HunkMergePreviewWidget::build_preview_lines("line1\nline2\nline3", 10);
+        let lines =
+            HunkMergePreviewWidget::build_preview_lines("line1\nline2\nline3", 10, Color::White);
         assert_eq!(lines.len(), 3);
     }
 
@@ -193,7 +188,7 @@ mod tests {
             .map(|i| format!("line {}", i))
             .collect::<Vec<_>>()
             .join("\n");
-        let lines = HunkMergePreviewWidget::build_preview_lines(&text, 5);
+        let lines = HunkMergePreviewWidget::build_preview_lines(&text, 5, Color::White);
         assert_eq!(lines.len(), 5);
     }
 

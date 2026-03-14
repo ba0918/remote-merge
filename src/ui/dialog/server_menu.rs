@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -52,27 +52,20 @@ impl ServerMenu {
 /// サーバ選択メニューウィジェット
 pub struct ServerMenuWidget<'a> {
     menu: &'a ServerMenu,
-    bg: Color,
+    palette: &'a crate::theme::palette::TuiPalette,
 }
 
 impl<'a> ServerMenuWidget<'a> {
-    pub fn new(menu: &'a ServerMenu, bg: Color) -> Self {
-        Self { menu, bg }
+    pub fn new(menu: &'a ServerMenu, palette: &'a crate::theme::palette::TuiPalette) -> Self {
+        Self { menu, palette }
     }
 }
 
 impl<'a> Widget for ServerMenuWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let p = self.palette;
         let height = (self.menu.servers.len() as u16) + 4;
-        let inner = render_dialog_frame(
-            " Server Select ",
-            Color::Cyan,
-            40,
-            height,
-            area,
-            buf,
-            self.bg,
-        );
+        let inner = render_dialog_frame(" Server Select ", p.info, 40, height, area, buf, p.bg);
 
         let lines: Vec<Line> = self
             .menu
@@ -88,12 +81,12 @@ impl<'a> Widget for ServerMenuWidget<'a> {
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(Color::White)
+                        .fg(p.fg)
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                 } else if is_connected {
-                    Style::default().fg(Color::Green)
+                    Style::default().fg(p.positive)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(p.fg)
                 };
 
                 Line::from(vec![
@@ -163,7 +156,10 @@ mod tests {
 
         let area = Rect::new(0, 0, 60, 15);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = ServerMenuWidget::new(&menu, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette =
+            crate::theme::palette::TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = ServerMenuWidget::new(&menu, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

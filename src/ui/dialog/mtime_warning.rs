@@ -5,7 +5,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -89,7 +89,9 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
                         Span::raw("    "),
                         Span::styled(
                             "FILE DELETED",
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(self.palette.negative)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::raw(" (was: "),
                         Span::styled(
@@ -109,7 +111,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
                         Span::raw("  now: "),
                         Span::styled(
                             format_mtime(conflict.actual),
-                            Style::default().fg(Color::Red),
+                            Style::default().fg(self.palette.negative),
                         ),
                     ]));
                 }
@@ -121,7 +123,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
             Span::styled(
                 " [r]",
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.palette.positive)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("eload  "),
@@ -134,7 +136,9 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
             Span::raw("orce  "),
             Span::styled(
                 "[c]",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.palette.negative)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw("ancel"),
         ]));

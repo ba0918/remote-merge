@@ -157,11 +157,11 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, frame.area());
         }
         DialogState::ServerSelect(menu) => {
-            let widget = ServerMenuWidget::new(menu, state.palette.bg);
+            let widget = ServerMenuWidget::new(menu, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Filter(panel) => {
-            let widget = FilterPanelWidget::new(panel, state.palette.bg);
+            let widget = FilterPanelWidget::new(panel, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Help(help) => {
@@ -173,23 +173,18 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, frame.area());
         }
         DialogState::Info(ref msg) => {
-            render_info_dialog(frame, msg, state.palette.bg);
+            render_info_dialog(frame, msg, &state.palette);
         }
         DialogState::Progress(ref progress) => {
-            render_progress_dialog(
-                frame,
-                progress,
-                state.palette.bg,
-                state.palette.dialog_accent,
-            );
+            render_progress_dialog(frame, progress, &state.palette);
         }
         DialogState::WriteConfirmation => {
             render_simple_dialog(
                 frame,
                 " Write Changes ",
                 &format!("Write {} changes to files?", state.undo_stack.len()),
-                Color::Green,
-                state.palette.bg,
+                state.palette.positive,
+                &state.palette,
             );
         }
         DialogState::UnsavedChanges => {
@@ -198,7 +193,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
                 " Unsaved Changes ",
                 "You have unsaved changes. Discard and quit?",
                 state.palette.dialog_accent,
-                state.palette.bg,
+                &state.palette,
             );
         }
         DialogState::MtimeWarning(ref dialog) => {
@@ -209,7 +204,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, frame.area());
         }
         DialogState::PairServerSelect(menu) => {
-            let widget = PairServerMenuWidget::new(menu, state.palette.bg);
+            let widget = PairServerMenuWidget::new(menu, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::ThreeWaySummary(ref panel) => {
@@ -221,7 +216,11 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
 }
 
 /// 情報表示ダイアログ（Esc/Enter で閉じるだけ）
-fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
+fn render_info_dialog(
+    frame: &mut Frame,
+    message: &str,
+    palette: &crate::theme::palette::TuiPalette,
+) {
     let dialog_area = centered_rect(60, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -230,10 +229,10 @@ fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
         .borders(Borders::ALL)
         .border_style(
             Style::default()
-                .fg(Color::Cyan)
+                .fg(palette.info)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(bg));
+        .style(Style::default().bg(palette.bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
@@ -250,16 +249,20 @@ fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
 
     let msg = Paragraph::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled(message, Style::default().fg(Color::White)),
+        Span::styled(message, Style::default().fg(palette.fg)),
     ]));
     frame.render_widget(msg, chunks[1]);
 
-    let guide = Paragraph::new(crate::ui::dialog::ok_guide());
+    let guide = Paragraph::new(crate::ui::dialog::ok_guide(palette));
     frame.render_widget(guide, chunks[3]);
 }
 
 /// プログレスダイアログを描画する
-fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Color, accent: Color) {
+fn render_progress_dialog(
+    frame: &mut Frame,
+    progress: &ProgressDialog,
+    palette: &crate::theme::palette::TuiPalette,
+) {
     let dialog_area = centered_rect(50, 8, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -268,10 +271,10 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
         .borders(Borders::ALL)
         .border_style(
             Style::default()
-                .fg(Color::Cyan)
+                .fg(palette.info)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(bg));
+        .style(Style::default().bg(palette.bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
@@ -295,7 +298,7 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
 
     let bar_para = Paragraph::new(Line::from(Span::styled(
         bar,
-        Style::default().fg(Color::Cyan),
+        Style::default().fg(palette.info),
     )));
     frame.render_widget(bar_para, chunks[1]);
 
@@ -303,7 +306,9 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
         Span::raw("  "),
         Span::styled(
             text,
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(palette.dialog_accent)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     frame.render_widget(msg, chunks[2]);
@@ -314,14 +319,14 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
         let display_path = truncate_path(path, max_len);
         let path_para = Paragraph::new(Line::from(vec![
             Span::raw("  "),
-            Span::styled(display_path, Style::default().fg(Color::DarkGray)),
+            Span::styled(display_path, Style::default().fg(palette.muted)),
         ]));
         frame.render_widget(path_para, chunks[3]);
     }
 
     // キャンセルヒント
     if progress.cancelable {
-        let guide = Paragraph::new(crate::ui::dialog::cancel_guide());
+        let guide = Paragraph::new(crate::ui::dialog::cancel_guide(palette));
         frame.render_widget(guide, chunks[4]);
     }
 }
@@ -389,7 +394,13 @@ fn compute_progress_bar(
 }
 
 /// シンプルな Y/n 確認ダイアログを描画する
-fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Color, bg: Color) {
+fn render_simple_dialog(
+    frame: &mut Frame,
+    title: &str,
+    message: &str,
+    color: Color,
+    palette: &crate::theme::palette::TuiPalette,
+) {
     let dialog_area = centered_rect(60, 7, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -397,7 +408,7 @@ fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Co
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(color).add_modifier(Modifier::BOLD))
-        .style(Style::default().bg(bg));
+        .style(Style::default().bg(palette.bg));
 
     let inner = block.inner(dialog_area);
     frame.render_widget(block, dialog_area);
@@ -414,11 +425,11 @@ fn render_simple_dialog(frame: &mut Frame, title: &str, message: &str, color: Co
 
     let msg = Paragraph::new(Line::from(vec![
         Span::raw("  "),
-        Span::styled(message, Style::default().fg(Color::White)),
+        Span::styled(message, Style::default().fg(palette.fg)),
     ]));
     frame.render_widget(msg, chunks[1]);
 
-    let guide = Paragraph::new(crate::ui::dialog::confirm_cancel_guide(None));
+    let guide = Paragraph::new(crate::ui::dialog::confirm_cancel_guide(palette, None));
     frame.render_widget(guide, chunks[3]);
 }
 

@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -111,14 +111,14 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
             .map(|l| {
                 Line::from(vec![
                     Span::raw("  "),
-                    Span::styled(l.as_str(), Style::default().fg(Color::White)),
+                    Span::styled(l.as_str(), Style::default().fg(self.palette.fg)),
                 ])
             })
             .collect();
         let msg = Paragraph::new(msg_lines);
         msg.render(chunks[1], buf);
 
-        let guide = Paragraph::new(super::confirm_cancel_guide(None));
+        let guide = Paragraph::new(super::confirm_cancel_guide(self.palette, None));
         guide.render(chunks[3], buf);
     }
 }
