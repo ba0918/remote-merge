@@ -223,7 +223,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         for i in start..end {
             if let Some((path, badge)) = self.dialog.files.get(i) {
                 let badge_style = match badge {
-                    Badge::Modified => Style::default().fg(Color::Yellow),
+                    Badge::Modified => Style::default().fg(Color::Yellow), // Step 4 でパレット化
                     Badge::LeftOnly => Style::default().fg(Color::Green),
                     Badge::RightOnly => Style::default().fg(Color::Red),
                     _ => Style::default().fg(Color::White),

@@ -351,6 +351,7 @@ impl<'a> DiffView<'a> {
                             &line.value,
                             line.old_index,
                             line.new_index,
+                            &self.state.palette,
                         );
                         if !badge.content.is_empty() {
                             rendered.spans.push(badge);
@@ -411,8 +412,14 @@ impl<'a> DiffView<'a> {
                             let right_val = right.map(|(r, _)| r.value.as_str());
                             let old_idx = left.and_then(|(l, _)| l.old_index);
                             let new_idx = right.and_then(|(r, _)| r.new_index);
-                            let badge =
-                                side_by_side_line_badge(ctx, left_val, right_val, old_idx, new_idx);
+                            let badge = side_by_side_line_badge(
+                                ctx,
+                                left_val,
+                                right_val,
+                                old_idx,
+                                new_idx,
+                                &self.state.palette,
+                            );
                             if !badge.content.is_empty() {
                                 rendered.spans.push(badge);
                             }

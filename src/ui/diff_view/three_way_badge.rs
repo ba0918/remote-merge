@@ -14,6 +14,7 @@ use crate::app::three_way::ThreeWayLineBadge;
 use crate::app::AppState;
 use crate::diff::conflict::ConflictInfo;
 use crate::diff::engine::DiffTag;
+use crate::theme::palette::TuiPalette;
 
 /// 3way line badge 計算に必要な reference 情報。
 ///
@@ -74,6 +75,7 @@ pub fn unified_line_badge(
     line_value: &str,
     old_index: Option<usize>,
     new_index: Option<usize>,
+    palette: &TuiPalette,
 ) -> Span<'static> {
     let badge = match tag {
         DiffTag::Equal => {
@@ -110,7 +112,7 @@ pub fn unified_line_badge(
         }
     };
 
-    badge_to_span(badge)
+    badge_to_span(badge, palette)
 }
 
 /// Side-by-Side モードのペアに対して 3way badge Span を返す。
@@ -120,6 +122,7 @@ pub fn side_by_side_line_badge(
     right_value: Option<&str>,
     old_index: Option<usize>,
     new_index: Option<usize>,
+    palette: &TuiPalette,
 ) -> Span<'static> {
     // Equal行（left == right）の場合のみ ref と比較
     if let (Some(lv), Some(rv)) = (left_value, right_value) {
@@ -129,7 +132,7 @@ pub fn side_by_side_line_badge(
                 Some(ref_val) if ref_val.trim_end() == lv => ThreeWayLineBadge::AllEqual,
                 _ => ThreeWayLineBadge::Differs,
             };
-            return badge_to_span(badge);
+            return badge_to_span(badge, palette);
         }
     }
 
@@ -138,19 +141,19 @@ pub fn side_by_side_line_badge(
         let left_conflict = old_index.is_some_and(|idx| ci.is_left_file_line_in_conflict(idx));
         let right_conflict = new_index.is_some_and(|idx| ci.is_right_file_line_in_conflict(idx));
         if left_conflict || right_conflict {
-            return badge_to_span(ThreeWayLineBadge::Conflict);
+            return badge_to_span(ThreeWayLineBadge::Conflict, palette);
         }
     }
 
-    badge_to_span(ThreeWayLineBadge::Differs)
+    badge_to_span(ThreeWayLineBadge::Differs, palette)
 }
 
-/// ThreeWayLineBadge → Span 変換
-fn badge_to_span(badge: ThreeWayLineBadge) -> Span<'static> {
+/// ThreeWayLineBadge → Span 変換（パレット参照）
+fn badge_to_span(badge: ThreeWayLineBadge, palette: &TuiPalette) -> Span<'static> {
     match badge {
         ThreeWayLineBadge::AllEqual => Span::raw(""),
         ThreeWayLineBadge::Differs | ThreeWayLineBadge::Conflict => {
-            Span::styled(format!(" {}", badge.label()), badge.style())
+            Span::styled(format!(" {}", badge.label()), badge.style(palette))
         }
     }
 }
@@ -158,6 +161,12 @@ fn badge_to_span(badge: ThreeWayLineBadge) -> Span<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_palette() -> TuiPalette {
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        TuiPalette::from_theme(theme)
+    }
 
     fn build_ctx(left: &str, _right: &str, reference: &str) -> RefContext {
         let left_to_ref = build_line_mapping(left, reference);
@@ -183,29 +192,30 @@ mod tests {
 
     #[test]
     fn all_three_identical() {
+        let p = test_palette();
         let content = "aaa\nbbb\nccc\n";
         let ctx = build_ctx(content, content, content);
-        let span = unified_line_badge(&ctx, DiffTag::Equal, "aaa", Some(0), Some(0));
+        let span = unified_line_badge(&ctx, DiffTag::Equal, "aaa", Some(0), Some(0), &p);
         assert_eq!(span.content.as_ref(), "");
     }
 
     #[test]
     fn equal_line_ref_differs() {
+        let p = test_palette();
         let left = "aaa\nbbb\nccc\n";
         let reference = "aaa\nXXX\nccc\n";
         let ctx = build_ctx(left, left, reference);
-        // bbb は left==right だが ref では XXX → [3≠]
-        let span = unified_line_badge(&ctx, DiffTag::Equal, "bbb", Some(1), Some(1));
+        let span = unified_line_badge(&ctx, DiffTag::Equal, "bbb", Some(1), Some(1), &p);
         assert!(span.content.contains("[3\u{2260}]"));
     }
 
     #[test]
     fn equal_line_all_same_in_shifted_context() {
+        let p = test_palette();
         let left = "aaa\nbbb\nccc\n";
         let reference = "aaa\nINSERTED\nbbb\nccc\n";
         let ctx = build_ctx(left, left, reference);
-        // bbb は diff マッピングで対応 → AllEqual → 空
-        let span = unified_line_badge(&ctx, DiffTag::Equal, "bbb", Some(1), Some(1));
+        let span = unified_line_badge(&ctx, DiffTag::Equal, "bbb", Some(1), Some(1), &p);
         assert_eq!(
             span.content.as_ref(),
             "",
@@ -215,52 +225,56 @@ mod tests {
 
     #[test]
     fn delete_line_badge() {
+        let p = test_palette();
         let left = "aaa\nbbb\nccc\n";
         let right = "aaa\nccc\n";
         let reference = "aaa\nbbb\nccc\n";
         let ctx = build_ctx(left, right, reference);
-        // Delete行 → 必ず [3≠]
-        let span = unified_line_badge(&ctx, DiffTag::Delete, "bbb", Some(1), None);
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "bbb", Some(1), None, &p);
         assert!(span.content.contains("[3\u{2260}]"));
     }
 
     #[test]
     fn insert_line_badge() {
+        let p = test_palette();
         let left = "aaa\nccc\n";
         let right = "aaa\nNEW\nccc\n";
         let reference = "aaa\nccc\n";
         let ctx = build_ctx(left, right, reference);
-        // Insert行 → 必ず [3≠]
-        let span = unified_line_badge(&ctx, DiffTag::Insert, "NEW", None, Some(1));
+        let span = unified_line_badge(&ctx, DiffTag::Insert, "NEW", None, Some(1), &p);
         assert!(span.content.contains("[3\u{2260}]"));
     }
 
     #[test]
     fn side_by_side_equal_all_same() {
+        let p = test_palette();
         let content = "aaa\nbbb\n";
         let ctx = build_ctx(content, content, content);
-        let span = side_by_side_line_badge(&ctx, Some("aaa"), Some("aaa"), Some(0), Some(0));
+        let span = side_by_side_line_badge(&ctx, Some("aaa"), Some("aaa"), Some(0), Some(0), &p);
         assert_eq!(span.content.as_ref(), "");
     }
 
     #[test]
     fn side_by_side_equal_ref_differs() {
+        let p = test_palette();
         let left = "aaa\nbbb\n";
         let reference = "aaa\nXXX\n";
         let ctx = build_ctx(left, left, reference);
-        let span = side_by_side_line_badge(&ctx, Some("bbb"), Some("bbb"), Some(1), Some(1));
+        let span = side_by_side_line_badge(&ctx, Some("bbb"), Some("bbb"), Some(1), Some(1), &p);
         assert!(span.content.contains("[3\u{2260}]"));
     }
 
     #[test]
     fn badge_to_span_all_equal_is_empty() {
-        let span = badge_to_span(ThreeWayLineBadge::AllEqual);
+        let p = test_palette();
+        let span = badge_to_span(ThreeWayLineBadge::AllEqual, &p);
         assert_eq!(span.content.as_ref(), "");
     }
 
     #[test]
     fn badge_to_span_differs_has_label() {
-        let span = badge_to_span(ThreeWayLineBadge::Differs);
+        let p = test_palette();
+        let span = badge_to_span(ThreeWayLineBadge::Differs, &p);
         assert!(span.content.contains("[3\u{2260}]"));
     }
 
@@ -278,15 +292,12 @@ mod tests {
 
     #[test]
     fn unified_conflict_badge_on_conflicted_delete() {
-        // ref="A\n", left="B\n", right="C\n"
-        // left→right diff: Delete(B, old=0) Insert(C, new=0)
-        // 両方が ref の "A" を異なる内容に変更 → コンフリクト
+        let p = test_palette();
         let reference = "A\n";
         let left = "B\n";
         let right = "C\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        // Delete 行（left 側 line 0）→ [C!]
-        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None);
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None, &p);
         assert!(
             span.content.contains("[C!]"),
             "Delete on conflicted left line should show [C!], got: {:?}",
@@ -296,12 +307,12 @@ mod tests {
 
     #[test]
     fn unified_conflict_badge_on_conflicted_insert() {
+        let p = test_palette();
         let reference = "A\n";
         let left = "B\n";
         let right = "C\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        // Insert 行（right 側 line 0）→ [C!]
-        let span = unified_line_badge(&ctx, DiffTag::Insert, "C", None, Some(0));
+        let span = unified_line_badge(&ctx, DiffTag::Insert, "C", None, Some(0), &p);
         assert!(
             span.content.contains("[C!]"),
             "Insert on conflicted right line should show [C!], got: {:?}",
@@ -311,13 +322,12 @@ mod tests {
 
     #[test]
     fn unified_no_conflict_when_only_one_side_changed() {
-        // left が変更、right は ref と同じ → コンフリクトなし
+        let p = test_palette();
         let reference = "A\n";
         let left = "B\n";
         let right = "A\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        // Delete 行 → [3≠]（コンフリクトではない）
-        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None);
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "B", Some(0), None, &p);
         assert!(
             span.content.contains("[3\u{2260}]"),
             "Non-conflicted change should show [3≠], got: {:?}",
@@ -327,15 +337,12 @@ mod tests {
 
     #[test]
     fn unified_non_conflicted_line_in_conflicted_file() {
-        // ref="a\nb\n", left="X\nb\n", right="a\nY\n"
-        // line 0: left changed, right didn't → no conflict
-        // line 1: right changed, left didn't → no conflict
+        let p = test_palette();
         let reference = "a\nb\n";
         let left = "X\nb\n";
         let right = "a\nY\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        // Delete of "X" (left line 0) → not conflicted
-        let span = unified_line_badge(&ctx, DiffTag::Delete, "X", Some(0), None);
+        let span = unified_line_badge(&ctx, DiffTag::Delete, "X", Some(0), None, &p);
         assert!(
             !span.content.contains("[C!]"),
             "Non-conflicted delete should not show [C!]"
@@ -344,12 +351,12 @@ mod tests {
 
     #[test]
     fn side_by_side_conflict_badge() {
+        let p = test_palette();
         let reference = "A\n";
         let left = "B\n";
         let right = "C\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        // side-by-side で left="B", right="C" → コンフリクト
-        let span = side_by_side_line_badge(&ctx, Some("B"), Some("C"), Some(0), Some(0));
+        let span = side_by_side_line_badge(&ctx, Some("B"), Some("C"), Some(0), Some(0), &p);
         assert!(
             span.content.contains("[C!]"),
             "Side-by-side conflicted pair should show [C!], got: {:?}",
@@ -359,11 +366,12 @@ mod tests {
 
     #[test]
     fn side_by_side_no_conflict_one_side_changed() {
+        let p = test_palette();
         let reference = "A\n";
         let left = "B\n";
         let right = "A\n";
         let ctx = build_ctx_with_conflict(left, right, reference);
-        let span = side_by_side_line_badge(&ctx, Some("B"), Some("A"), Some(0), Some(0));
+        let span = side_by_side_line_badge(&ctx, Some("B"), Some("A"), Some(0), Some(0), &p);
         assert!(
             !span.content.contains("[C!]"),
             "Non-conflicted side-by-side should not show [C!]"
@@ -372,7 +380,8 @@ mod tests {
 
     #[test]
     fn badge_to_span_conflict_has_label() {
-        let span = badge_to_span(ThreeWayLineBadge::Conflict);
+        let p = test_palette();
+        let span = badge_to_span(ThreeWayLineBadge::Conflict, &p);
         assert!(span.content.contains("[C!]"));
     }
 }

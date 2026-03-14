@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use crate::app::{AppState, Badge, Focus};
+use crate::theme::palette::TuiPalette;
 
 /// ファイルツリーウィジェット
 pub struct TreeView<'a> {
@@ -19,16 +20,18 @@ impl<'a> TreeView<'a> {
         Self { state }
     }
 
-    /// バッジの色を返す
-    fn badge_style(badge: Badge) -> Style {
+    /// バッジの色を返す（パレット参照）
+    fn badge_style(badge: Badge, palette: &TuiPalette) -> Style {
         match badge {
-            Badge::Modified => Style::default().fg(Color::Yellow),
-            Badge::Equal => Style::default().fg(Color::Green),
-            Badge::LeftOnly => Style::default().fg(Color::Cyan),
-            Badge::RightOnly => Style::default().fg(Color::Magenta),
-            Badge::Unchecked => Style::default().fg(Color::DarkGray),
-            Badge::Loading => Style::default().fg(Color::Blue),
-            Badge::Error => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Badge::Modified => Style::default().fg(palette.badge_modified),
+            Badge::Equal => Style::default().fg(palette.badge_equal),
+            Badge::LeftOnly => Style::default().fg(palette.badge_left_only),
+            Badge::RightOnly => Style::default().fg(palette.badge_right_only),
+            Badge::Unchecked => Style::default().fg(palette.badge_unchecked),
+            Badge::Loading => Style::default().fg(palette.badge_loading),
+            Badge::Error => Style::default()
+                .fg(palette.badge_error)
+                .add_modifier(Modifier::BOLD),
         }
     }
 }
@@ -111,7 +114,7 @@ impl<'a> Widget for TreeView<'a> {
                     // left/right は Equal だが ref に差分あり → DarkGray の [M]
                     ("[M]", Style::default().fg(Color::DarkGray))
                 } else {
-                    (node.badge.label(), Self::badge_style(node.badge))
+                    (node.badge.label(), Self::badge_style(node.badge, p))
                 };
 
                 let p = &self.state.palette;
@@ -148,7 +151,7 @@ impl<'a> Widget for TreeView<'a> {
                 // 3way reference バッジ（reference サーバが設定されている場合のみ）
                 if let Some(ref_badge) = &ref_badge_opt {
                     spans.push(Span::raw(" "));
-                    spans.push(Span::styled(ref_badge.label(), ref_badge.style()));
+                    spans.push(Span::styled(ref_badge.label(), ref_badge.style(p)));
                 }
 
                 Line::from(spans)

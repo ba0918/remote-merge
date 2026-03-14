@@ -4,7 +4,9 @@
 //! 差分状態を示す ThreeWayBadge を返す。
 //! reference サーバは「表示ペア以外のサーバ」を指す。
 
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
+
+use crate::theme::palette::TuiPalette;
 
 /// 3way ファイル単位バッジ
 ///
@@ -32,13 +34,13 @@ impl ThreeWayFileBadge {
         }
     }
 
-    /// バッジのスタイル（色）
-    pub fn style(&self) -> Style {
+    /// バッジのスタイル（色、パレット参照）
+    pub fn style(&self, palette: &TuiPalette) -> Style {
         match self {
             Self::AllEqual => Style::default(),
-            Self::Differs => Style::default().fg(Color::Yellow),
-            Self::ExistsOnlyInRef => Style::default().fg(Color::Cyan),
-            Self::MissingInRef => Style::default().fg(Color::Magenta),
+            Self::Differs => Style::default().fg(palette.badge_differs),
+            Self::ExistsOnlyInRef => Style::default().fg(palette.badge_ref_exists),
+            Self::MissingInRef => Style::default().fg(palette.badge_ref_missing),
         }
     }
 }
@@ -66,12 +68,14 @@ impl ThreeWayLineBadge {
         }
     }
 
-    /// バッジのスタイル（色）
-    pub fn style(&self) -> Style {
+    /// バッジのスタイル（色、パレット参照）
+    pub fn style(&self, palette: &TuiPalette) -> Style {
         match self {
             Self::AllEqual => Style::default(),
-            Self::Differs => Style::default().fg(Color::Yellow),
-            Self::Conflict => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            Self::Differs => Style::default().fg(palette.badge_differs),
+            Self::Conflict => Style::default()
+                .fg(palette.badge_conflict)
+                .add_modifier(Modifier::BOLD),
         }
     }
 }
@@ -145,6 +149,21 @@ pub fn compute_line_badge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::Color;
+
+    /// テスト用のダークテーマパレットを生成する
+    fn dark_palette() -> TuiPalette {
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        TuiPalette::from_theme(theme)
+    }
+
+    /// テスト用のライトテーマパレットを生成する
+    fn light_palette() -> TuiPalette {
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        TuiPalette::from_theme(theme)
+    }
 
     // ── compute_line_badge ──
 
@@ -260,32 +279,46 @@ mod tests {
     }
 
     #[test]
-    fn file_badge_styles() {
-        assert_eq!(ThreeWayFileBadge::AllEqual.style(), Style::default());
+    fn file_badge_styles_dark() {
+        let p = dark_palette();
+        assert_eq!(ThreeWayFileBadge::AllEqual.style(&p), Style::default());
         assert_eq!(
-            ThreeWayFileBadge::Differs.style(),
-            Style::default().fg(Color::Yellow)
+            ThreeWayFileBadge::Differs.style(&p),
+            Style::default().fg(p.badge_differs)
         );
         assert_eq!(
-            ThreeWayFileBadge::ExistsOnlyInRef.style(),
-            Style::default().fg(Color::Cyan)
+            ThreeWayFileBadge::ExistsOnlyInRef.style(&p),
+            Style::default().fg(p.badge_ref_exists)
         );
         assert_eq!(
-            ThreeWayFileBadge::MissingInRef.style(),
-            Style::default().fg(Color::Magenta)
+            ThreeWayFileBadge::MissingInRef.style(&p),
+            Style::default().fg(p.badge_ref_missing)
         );
     }
 
     #[test]
-    fn line_badge_styles() {
-        assert_eq!(ThreeWayLineBadge::AllEqual.style(), Style::default());
+    fn file_badge_styles_light() {
+        let p = light_palette();
+        // ライトテーマではバッジ色が紫系
         assert_eq!(
-            ThreeWayLineBadge::Differs.style(),
-            Style::default().fg(Color::Yellow)
+            ThreeWayFileBadge::Differs.style(&p).fg,
+            Some(Color::Rgb(0x7c, 0x3a, 0xed))
+        );
+    }
+
+    #[test]
+    fn line_badge_styles_dark() {
+        let p = dark_palette();
+        assert_eq!(ThreeWayLineBadge::AllEqual.style(&p), Style::default());
+        assert_eq!(
+            ThreeWayLineBadge::Differs.style(&p),
+            Style::default().fg(p.badge_differs)
         );
         assert_eq!(
-            ThreeWayLineBadge::Conflict.style(),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            ThreeWayLineBadge::Conflict.style(&p),
+            Style::default()
+                .fg(p.badge_conflict)
+                .add_modifier(Modifier::BOLD)
         );
     }
 }
