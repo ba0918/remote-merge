@@ -8,7 +8,8 @@
 
 ### 20260314175606 - ハードコード色のパレット集約（ライトテーマ視認性修正）
 - **Started:** 2026-03-14 17:56:06
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-14
+- **Status:** 🟢 Complete
 - **Plan:** [Link](./cycles/20260314175606_fix-binary-hash-color-light-theme.md)
 - **Summary:** lightテーマでバイナリハッシュ値やサーバ選択ダイアログが背景と同化する問題。src/ui/ 全体のハードコード Color:: をセマンティックパレットフィールド（positive/negative/info/muted/warning）に集約。3ステップ実装。
 
