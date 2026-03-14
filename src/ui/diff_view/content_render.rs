@@ -86,8 +86,8 @@ impl<'a> DiffView<'a> {
         lines.push(Line::from(""));
 
         let half_width = inner.width as usize / 2;
-        let label_style = Style::default().fg(Color::DarkGray);
-        let value_style = Style::default().fg(Color::White);
+        let label_style = Style::default().fg(self.state.palette.muted);
+        let value_style = Style::default().fg(self.state.palette.fg);
 
         // サイズ行
         let left_size = left
@@ -126,12 +126,11 @@ impl<'a> DiffView<'a> {
         // 比較結果
         if let (Some(l), Some(r)) = (left, right) {
             let cmp = crate::diff::binary::compare(l, r);
+            let p = &self.state.palette;
             let (msg, color) = match cmp {
-                crate::diff::binary::BinaryComparison::Equal => {
-                    ("  Status: identical", Color::Green)
-                }
+                crate::diff::binary::BinaryComparison::Equal => ("  Status: identical", p.positive),
                 crate::diff::binary::BinaryComparison::Different => {
-                    ("  Status: different", Color::Red)
+                    ("  Status: different", p.negative)
                 }
             };
             lines.push(Line::from(""));
@@ -150,14 +149,15 @@ impl<'a> DiffView<'a> {
         right_target: &Option<String>,
     ) {
         let mut lines: Vec<Line<'_>> = Vec::new();
+        let p = &self.state.palette;
         lines.push(Line::from(Span::styled(
             "  Symbolic link",
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(p.info),
         )));
         lines.push(Line::from(""));
 
         let half_width = inner.width as usize / 2;
-        let arrow_style = Style::default().fg(Color::Cyan);
+        let arrow_style = Style::default().fg(p.info);
 
         let left_str = left_target.as_deref().unwrap_or("(not present)");
         let right_str = right_target.as_deref().unwrap_or("(not present)");
@@ -176,9 +176,9 @@ impl<'a> DiffView<'a> {
         // 比較結果
         let is_same = left_target == right_target;
         let (msg, color) = if is_same {
-            ("  Status: identical", Color::Green)
+            ("  Status: identical", p.positive)
         } else {
-            ("  Status: different", Color::Red)
+            ("  Status: different", p.negative)
         };
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(msg, Style::default().fg(color))));
@@ -647,5 +647,87 @@ mod tests {
             content.contains("Binary"),
             "バイナリメッセージが表示されるべき"
         );
+    }
+
+    #[test]
+    fn test_binary_hash_uses_palette_fg_not_white() {
+        // バイナリ表示の value_style が palette.fg を使うことを確認
+        let state = make_test_state_with_diff(Some(DiffResult::Binary {
+            left: Some(crate::diff::binary::BinaryInfo::from_bytes(b"\x00\x01\x02")),
+            right: Some(crate::diff::binary::BinaryInfo::from_bytes(b"\x00\x01\x02")),
+        }));
+        let area = Rect::new(0, 0, 80, 15);
+        let mut buf = Buffer::empty(area);
+        let widget = DiffView::new(&state);
+        widget.render(area, &mut buf);
+
+        // SHA-256 行が描画されていて Color::White ではなく palette.fg が使われていることを確認
+        // sha256 の行を探す
+        let mut found_sha = false;
+        for y in 0..area.height {
+            let row: String = (0..area.width)
+                .map(|x| {
+                    buf.cell((x, y))
+                        .map(|c| c.symbol().to_string())
+                        .unwrap_or_default()
+                })
+                .collect();
+            if row.contains("sha256") {
+                found_sha = true;
+                // sha256 行の前景色が palette.fg であることを確認
+                for x in 0..area.width {
+                    if let Some(cell) = buf.cell((x, y)) {
+                        if cell.symbol().contains("sha") {
+                            // Color::White(ANSI) ではなく Rgb であること
+                            assert!(
+                                !matches!(cell.fg, Color::White),
+                                "SHA-256 hash should use palette.fg (Rgb), not Color::White"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found_sha, "SHA-256 行が描画されるべき");
+    }
+
+    #[test]
+    fn test_symlink_diff_uses_palette_info() {
+        let state = make_test_state_with_diff(Some(DiffResult::SymlinkDiff {
+            left_target: Some("/usr/bin/target1".to_string()),
+            right_target: Some("/usr/bin/target2".to_string()),
+        }));
+        let area = Rect::new(0, 0, 80, 15);
+        let mut buf = Buffer::empty(area);
+        let widget = DiffView::new(&state);
+        widget.render(area, &mut buf);
+
+        // "Symbolic link" が表示されること
+        let content = render_to_string(&state, 80, 15);
+        assert!(content.contains("Symbolic link"));
+        // Color::Cyan ではなく palette.info(Rgb) が使われていることを確認
+        for y in 0..area.height {
+            for x in 0..area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    if cell.symbol() == "S" {
+                        let row: String = (x..area.width)
+                            .map(|xx| {
+                                buf.cell((xx, y))
+                                    .map(|c| c.symbol().to_string())
+                                    .unwrap_or_default()
+                            })
+                            .collect();
+                        if row.starts_with("Symbolic") {
+                            assert!(
+                                !matches!(cell.fg, Color::Cyan),
+                                "Symlink text should use palette.info, not Color::Cyan"
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
+        }
     }
 }

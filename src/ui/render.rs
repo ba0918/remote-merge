@@ -37,12 +37,12 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
     let p = &state.palette;
     let conn_indicator = if state.is_connected { "●" } else { "○" };
     let conn_color = if state.is_connected {
-        Color::Green
+        p.positive
     } else {
-        Color::Red
+        p.negative
     };
 
-    let local_color = ensure_contrast(Color::Green, p.header_bg);
+    let local_color = ensure_contrast(p.positive, p.header_bg);
     let server_color = ensure_contrast(p.badge_modified, p.header_bg);
     let conn_color = ensure_contrast(conn_color, p.header_bg);
 
@@ -130,9 +130,9 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
             Style::default().fg(p.status_bar_fg).bg(p.status_bar_bg),
         ));
         let agent_color = if agent_text.starts_with("Agent:") {
-            Color::Green
+            p.positive
         } else {
-            state.palette.dialog_accent
+            p.dialog_accent
         };
         let agent_color = crate::theme::palette::ensure_contrast(agent_color, p.status_bar_bg);
         spans.push(Span::styled(

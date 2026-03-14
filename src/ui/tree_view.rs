@@ -105,14 +105,14 @@ impl<'a> Widget for TreeView<'a> {
                 let is_ref_only_file = node.ref_only && !node.is_dir;
 
                 let (badge_text, badge_style) = if is_ref_only_file {
-                    ("[M]", Style::default().fg(Color::DarkGray))
+                    ("[M]", Style::default().fg(p.muted))
                 } else if node.badge == Badge::Equal
                     && ref_badge_opt.as_ref().is_some_and(|b| {
                         !matches!(b, crate::app::three_way::ThreeWayFileBadge::AllEqual)
                     })
                 {
-                    // left/right は Equal だが ref に差分あり → DarkGray の [M]
-                    ("[M]", Style::default().fg(Color::DarkGray))
+                    // left/right は Equal だが ref に差分あり → muted の [M]
+                    ("[M]", Style::default().fg(p.muted))
                 } else {
                     (node.badge.label(), Self::badge_style(node.badge, p))
                 };
@@ -125,7 +125,7 @@ impl<'a> Widget for TreeView<'a> {
                         .add_modifier(Modifier::BOLD | Modifier::REVERSED)
                 } else if is_ref_only_file {
                     // ref_only ファイルは行全体グレイ
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(p.muted)
                 } else if node.is_dir {
                     Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
                 } else {
@@ -145,7 +145,7 @@ impl<'a> Widget for TreeView<'a> {
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(badge_text, badge_style));
                 if node.is_symlink {
-                    spans.push(Span::styled(" [L]", Style::default().fg(Color::Cyan)));
+                    spans.push(Span::styled(" [L]", Style::default().fg(p.info)));
                 }
 
                 // 3way reference バッジ（reference サーバが設定されている場合のみ）
@@ -326,5 +326,73 @@ mod tests {
             content.contains("no files"),
             "空ツリーメッセージが表示されるべき"
         );
+    }
+
+    #[test]
+    fn test_ref_only_file_uses_palette_muted() {
+        let state = make_test_state(vec![FlatNode {
+            path: "ref_only.rs".to_string(),
+            name: "ref_only.rs".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: false,
+            expanded: false,
+            badge: Badge::Equal,
+            ref_only: true,
+        }]);
+
+        let area = Rect::new(0, 0, 50, 10);
+        let mut buf = Buffer::empty(area);
+        let widget = TreeView::new(&state);
+        widget.render(area, &mut buf);
+
+        // ref_only ファイルの [M] バッジが Color::DarkGray ではなく palette.muted (Rgb) を使う
+        for y in 0..area.height {
+            for x in 0..area.width {
+                if let Some(cell) = buf.cell((x, y)) {
+                    if cell.symbol() == "[" {
+                        // [M] バッジの前景色が ANSI DarkGray ではないこと
+                        assert!(
+                            !matches!(cell.fg, Color::DarkGray),
+                            "ref_only badge should use palette.muted, not Color::DarkGray"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_symlink_badge_uses_palette_info() {
+        let state = make_test_state(vec![FlatNode {
+            path: "link.txt".to_string(),
+            name: "link.txt".to_string(),
+            depth: 0,
+            is_dir: false,
+            is_symlink: true,
+            expanded: false,
+            badge: Badge::Equal,
+            ref_only: false,
+        }]);
+
+        let area = Rect::new(0, 0, 50, 10);
+        let mut buf = Buffer::empty(area);
+        let widget = TreeView::new(&state);
+        widget.render(area, &mut buf);
+
+        // [L] バッジが描画されていて Color::Cyan ではなく palette.info (Rgb) を使う
+        let content: String = (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map(|c| c.symbol().to_string())
+                            .unwrap_or_default()
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(content.contains("[L]"), "[L] バッジが表示されるべき");
     }
 }
