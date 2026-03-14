@@ -648,7 +648,8 @@ fn run_event_loop(
         let _ = telemetry::state_dumper::dump_state_to_file(state, &state_path);
 
         let is_scanning = matches!(state.scan_state, ScanState::Scanning)
-            || !matches!(state.merge_scan_state, MergeScanState::Idle);
+            || !matches!(state.merge_scan_state, MergeScanState::Idle)
+            || !runtime.badge_scans.is_empty();
         let timeout = if is_scanning {
             std::time::Duration::from_millis(100)
         } else {
