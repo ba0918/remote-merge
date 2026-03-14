@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-14 22:27
+**Last Updated:** 2026-03-14 23:03
 
 ---
 
 ## 🎯 Current Session
+
+### 20260314230357 - リモートバイナリファイルの lossy 変換によるバッジ誤判定修正
+- **Started:** 2026-03-14 23:03:57
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314230357_fix-remote-binary-lossy-conversion.md)
+- **Summary:** バッジスキャンのリモート読み込みで read_files_batch() の lossy 変換によりバイナリ判定が失敗する問題。read_files_batch_bytes() を使いバイト列のまま判定するよう修正。
+
+---
 
 ### 20260314222758 - DIFFモード相対パスroot_dir露出バグ修正
 - **Started:** 2026-03-14 22:27:58

@@ -13,7 +13,7 @@ use crate::app::BadgeScanMsg;
 use crate::config::AppConfig;
 use crate::diff::binary::BinaryInfo;
 use crate::diff::engine::is_binary;
-use crate::merge::executor::read_local_file;
+use crate::merge::executor::read_local_file_bytes;
 use crate::ssh::client::SshClient;
 use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileTree;
@@ -179,16 +179,20 @@ fn read_side_content(
     }
 }
 
+/// バイト列からコンテンツ/バイナリを判定する純粋関数。
+/// ローカル・リモート共通で使用。
+fn classify_content_bytes(bytes: &[u8]) -> (Option<String>, Option<BinaryInfo>) {
+    if is_binary(bytes) {
+        (None, Some(BinaryInfo::from_bytes(bytes)))
+    } else {
+        (Some(String::from_utf8_lossy(bytes).into_owned()), None)
+    }
+}
+
 /// ローカルファイルを読み込む
 fn read_local_content(local_root: &Path, rel_path: &str) -> (Option<String>, Option<BinaryInfo>) {
-    match read_local_file(local_root, rel_path) {
-        Ok(content) => {
-            if is_binary(content.as_bytes()) {
-                (None, Some(BinaryInfo::from_bytes(content.as_bytes())))
-            } else {
-                (Some(content), None)
-            }
-        }
+    match read_local_file_bytes(local_root, rel_path, false) {
+        Ok(bytes) => classify_content_bytes(&bytes),
         Err(_) => (None, None),
     }
 }
@@ -201,15 +205,9 @@ fn read_remote_content(
     rel_path: &str,
 ) -> (Option<String>, Option<BinaryInfo>) {
     let abs_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
-    match rt.block_on(client.read_files_batch(std::slice::from_ref(&abs_path))) {
+    match rt.block_on(client.read_files_batch_bytes(std::slice::from_ref(&abs_path))) {
         Ok(map) => match map.get(&abs_path) {
-            Some(content) if !content.is_empty() => {
-                if is_binary(content.as_bytes()) {
-                    (None, Some(BinaryInfo::from_bytes(content.as_bytes())))
-                } else {
-                    (Some(content.clone()), None)
-                }
-            }
+            Some(bytes) if !bytes.is_empty() => classify_content_bytes(bytes),
             _ => (None, None),
         },
         Err(e) => {
@@ -243,6 +241,42 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes,
         }
+    }
+
+    #[test]
+    fn classify_content_bytes_binary_with_nul() {
+        let mut data = vec![0u8; 100];
+        data[0] = 0x00; // NUL バイト
+        let (content, binary) = classify_content_bytes(&data);
+        assert!(content.is_none());
+        assert!(binary.is_some());
+    }
+
+    #[test]
+    fn classify_content_bytes_normal_text() {
+        let data = b"hello world";
+        let (content, binary) = classify_content_bytes(data);
+        assert_eq!(content, Some("hello world".to_string()));
+        assert!(binary.is_none());
+    }
+
+    #[test]
+    fn classify_content_bytes_empty() {
+        let data = b"";
+        let (content, binary) = classify_content_bytes(data);
+        assert_eq!(content, Some("".to_string()));
+        assert!(binary.is_none());
+    }
+
+    #[test]
+    fn classify_content_bytes_non_utf8_shift_jis() {
+        // Shift-JIS "テスト" = 0x83, 0x65, 0x83, 0x58, 0x83, 0x67
+        // is_binary() は不正 UTF-8 シーケンスもバイナリと判定するため、
+        // Shift-JIS バイト列はバイナリとして分類される
+        let data: &[u8] = &[0x83, 0x65, 0x83, 0x58, 0x83, 0x67];
+        let (content, binary) = classify_content_bytes(data);
+        assert!(content.is_none());
+        assert!(binary.is_some());
     }
 
     #[test]
