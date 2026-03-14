@@ -217,6 +217,9 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
         return;
     }
 
+    // 旧 right のバッジスキャンをキャンセル（結果が新 right に誤適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
+
     // 選択中のパスを保持（swap 後にカーソル位置と diff を再計算するため）
     let selected_path = state.selected_path.clone();
 
@@ -250,6 +253,13 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
             state.current_diff = None;
         }
     }
+
+    // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
+    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+    for dir in scan_dirs {
+        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
+    }
+    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
 }
 
 /// ペアサーバ切替を実行する（LEFT/RIGHT 両方を変更）
@@ -740,6 +750,85 @@ mod tests {
         assert!(
             runtime.badge_scans.is_empty(),
             "badge scans should be cancelled before server switch"
+        );
+    }
+
+    #[test]
+    fn ref_swap_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_root_file());
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "lib");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_ref_swap はスワップ前にバッジスキャンをキャンセルする
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // swap 後に新しいスキャンが起動されるため badge_scans は空ではないが、
+        // 旧エントリ（src, lib）はキャンセルされている。
+        // swap 後にルート直下のスキャンが起動されるため、"" キーは存在する。
+        // 旧エントリがキャンセルされたことは、cancel_all_badge_scans が
+        // swap_right_ref の前に呼ばれることで保証される。
+        // ここでは cancel 後に新しいスキャンだけが残ることを確認する。
+        assert!(
+            !runtime.badge_scans.contains_key("src"),
+            "old badge scan 'src' should be cancelled"
+        );
+        assert!(
+            !runtime.badge_scans.contains_key("lib"),
+            "old badge scan 'lib' should be cancelled"
+        );
+    }
+
+    #[test]
+    fn ref_swap_starts_badge_scans_for_expanded_dirs() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_dir();
+        let right = make_tree_with_dir();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_dir());
+
+        // 展開済みディレクトリを設定
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // 展開済みディレクトリのバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key("src"),
+            "expanded dir badge scan should be started after ref swap"
+        );
+    }
+
+    #[test]
+    fn ref_swap_starts_root_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_root_file());
+        state.rebuild_flat_nodes();
+
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // ルート直下のバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started after ref swap"
         );
     }
 
