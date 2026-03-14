@@ -198,13 +198,7 @@ fn restore_tree_state(
     }
 
     // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
-    // start_badge_scan が state を変更するため expanded_dirs を事前にクローン
-    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
-    for dir in scan_dirs {
-        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
-    }
-    // ルート直下は未展開でもトップレベルに表示されるため常にスキャン
-    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
+    start_badge_scans_for_visible_dirs(state, runtime);
 }
 
 /// right ↔ ref スワップを実行する（X キー）
@@ -255,11 +249,7 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 
     // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
-    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
-    for dir in scan_dirs {
-        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
-    }
-    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
+    start_badge_scans_for_visible_dirs(state, runtime);
 }
 
 /// ペアサーバ切替を実行する（LEFT/RIGHT 両方を変更）
@@ -422,6 +412,19 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
     if tree_acquired {
         state.rebuild_flat_nodes();
     }
+}
+
+/// 展開済みディレクトリ＋ルート直下のバッジスキャンをまとめて起動する。
+///
+/// expanded_dirs を事前にクローンしてからループするため、
+/// start_badge_scan 内での state 変更と衝突しない。
+fn start_badge_scans_for_visible_dirs(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+    for dir in scan_dirs {
+        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
+    }
+    // ルート直下は未展開でもトップレベルに表示されるため常にスキャン
+    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
 }
 
 /// サーバ切替を実行する（右側のサーバを切り替え）
