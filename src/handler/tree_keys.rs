@@ -55,8 +55,15 @@ pub fn handle_tree_key(
                 .get(state.tree_cursor)
                 .is_some_and(|n| n.is_dir)
             {
+                let dir_path = state.current_path();
                 expand_directory(state, runtime);
                 state.toggle_expand();
+                // 展開後にバッジスキャンを起動
+                if let Some(path) = dir_path {
+                    if state.expanded_dirs.contains(&path) {
+                        crate::runtime::badge_scan::start_badge_scan(state, runtime, &path);
+                    }
+                }
             } else {
                 load_file_content(state, runtime);
                 state.select_file();
@@ -68,6 +75,10 @@ pub fn handle_tree_key(
                 .get(state.tree_cursor)
                 .is_some_and(|n| n.is_dir && n.expanded)
             {
+                // 折りたたみ時にバッジスキャンをキャンセル
+                if let Some(path) = state.current_path() {
+                    crate::runtime::badge_scan::cancel_badge_scan(state, runtime, &path);
+                }
                 // 展開中のディレクトリ → 折りたたむ
                 state.toggle_expand();
             } else {
@@ -182,6 +193,9 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
         if let Some(path) = state.current_path() {
             // 展開済みファイル数と未ロードサブディレクトリの有無を判定
             let (file_count, has_unloaded) = count_subtree_files(state, &path);
+
+            // マージスキャン開始前にバッジスキャンをキャンセル
+            crate::runtime::badge_scan::cancel_badge_scan(state, runtime, &path);
 
             if file_count <= SYNC_FILE_THRESHOLD && !has_unloaded {
                 // 同期処理（プログレスダイアログ表示）

@@ -8,6 +8,7 @@ pub mod remote_io;
 pub mod scanner;
 pub mod side_io;
 
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use crate::app::MergeScanMsg;
@@ -28,6 +29,8 @@ pub struct TuiRuntime {
     pub scan_receiver: Option<mpsc::Receiver<ScanResult>>,
     /// マージ走査の結果受信チャネル
     pub merge_scan_receiver: Option<mpsc::Receiver<MergeScanMsg>>,
+    /// バッジスキャンの進行中エントリ（ディレクトリパス → エントリ）
+    pub badge_scans: HashMap<String, badge_scan::BadgeScanEntry>,
 }
 
 // ── CoreRuntime へのデリゲート ──
@@ -40,6 +43,7 @@ impl TuiRuntime {
             core: CoreRuntime::new(config),
             scan_receiver: None,
             merge_scan_receiver: None,
+            badge_scans: HashMap::new(),
         }
     }
 
@@ -49,6 +53,7 @@ impl TuiRuntime {
             core: CoreRuntime::new_for_test(),
             scan_receiver: None,
             merge_scan_receiver: None,
+            badge_scans: HashMap::new(),
         }
     }
 
@@ -139,6 +144,7 @@ mod tests {
         let runtime = TuiRuntime::new_for_test();
         assert!(runtime.scan_receiver.is_none());
         assert!(runtime.merge_scan_receiver.is_none());
+        assert!(runtime.badge_scans.is_empty());
         assert!(runtime.core.ssh_clients.is_empty());
     }
 }

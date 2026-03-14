@@ -13,7 +13,7 @@ use remote_merge::config;
 use remote_merge::handler::{dialog_keys, diff_keys, tree_keys};
 use remote_merge::runtime::bootstrap::{self, TuiBootstrapParams};
 use remote_merge::runtime::TuiRuntime;
-use remote_merge::runtime::{merge_scan, scanner};
+use remote_merge::runtime::{badge_scan, merge_scan, scanner};
 use remote_merge::telemetry;
 use remote_merge::ui::render::draw_ui;
 
@@ -624,6 +624,7 @@ fn run_event_loop(
 
         scanner::poll_scan_result(state, runtime);
         merge_scan::poll_merge_scan_result(state, runtime);
+        badge_scan::poll::poll_badge_scan_results(state, runtime);
 
         // 描画 + 描画時間計測
         let render_start = std::time::Instant::now();
