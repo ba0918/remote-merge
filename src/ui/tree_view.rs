@@ -32,6 +32,7 @@ impl<'a> TreeView<'a> {
             Badge::Error => Style::default()
                 .fg(palette.badge_error)
                 .add_modifier(Modifier::BOLD),
+            Badge::ScanSkipped => Style::default().fg(palette.badge_scan_skipped),
         }
     }
 }

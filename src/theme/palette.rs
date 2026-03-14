@@ -58,6 +58,8 @@ pub struct TuiPalette {
     pub badge_loading: Color,
     /// Error バッジの色
     pub badge_error: Color,
+    /// ScanSkipped バッジの色
+    pub badge_scan_skipped: Color,
     /// Conflict バッジの色
     pub badge_conflict: Color,
     /// 3way RefExists バッジの色
@@ -179,6 +181,11 @@ impl TuiPalette {
                 Color::Rgb(0xdc, 0x26, 0x26) // red-600
             } else {
                 Color::Red
+            },
+            badge_scan_skipped: if is_light {
+                Color::Rgb(0xd9, 0x73, 0x06) // amber-600
+            } else {
+                Color::Rgb(0xd0, 0x8c, 0x40) // amber
             },
             badge_conflict: if is_light {
                 Color::Rgb(0xdc, 0x26, 0x26) // red-600

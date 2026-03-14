@@ -48,6 +48,8 @@ pub enum Badge {
     Loading,
     /// `[!]` Error - 取得失敗
     Error,
+    /// `[~]` ScanSkipped - スキャン上限超過でスキップ
+    ScanSkipped,
 }
 
 impl Badge {
@@ -61,6 +63,7 @@ impl Badge {
             Badge::Unchecked => "[?]",
             Badge::Loading => "[..]",
             Badge::Error => "[!]",
+            Badge::ScanSkipped => "[~]",
         }
     }
 }
@@ -199,6 +202,7 @@ mod tests {
         assert_eq!(Badge::Unchecked.label(), "[?]");
         assert_eq!(Badge::Loading.label(), "[..]");
         assert_eq!(Badge::Error.label(), "[!]");
+        assert_eq!(Badge::ScanSkipped.label(), "[~]");
     }
 
     #[test]

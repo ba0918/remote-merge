@@ -51,6 +51,7 @@ pub fn start_badge_scan(state: &mut AppState, runtime: &mut TuiRuntime, dir_path
     // ファイル数上限チェック（設定値を参照）
     let max_files = runtime.core.config.badge_scan_max_files;
     if all_files.len() > max_files {
+        state.scan_skipped_dirs.insert(dir_path.to_string());
         state.status_message = format!(
             "Badge scan skipped: {} ({} files, limit: {})",
             dir_path,
@@ -128,6 +129,7 @@ pub fn cancel_all_badge_scans(state: &mut AppState, runtime: &mut TuiRuntime) {
     for dir_path in dir_paths {
         cancel_badge_scan(state, runtime, &dir_path);
     }
+    state.scan_skipped_dirs.clear();
 }
 
 /// Side を ScanSource に変換する
@@ -363,6 +365,44 @@ mod tests {
             runtime.core.config.badge_scan_max_files,
             crate::config::DEFAULT_BADGE_SCAN_MAX_FILES
         );
+    }
+
+    #[test]
+    fn start_badge_scan_records_skipped_dir() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let file_count = crate::config::DEFAULT_BADGE_SCAN_MAX_FILES + 1;
+        let files: Vec<FileNode> = (0..file_count)
+            .map(|i| FileNode::new_file(format!("file_{}.rs", i)))
+            .collect();
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_dir_with_children("big", files.clone())]),
+            make_tree(vec![FileNode::new_dir_with_children("big", files)]),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.expanded_dirs.insert("big".to_string());
+        state.rebuild_flat_nodes();
+
+        start_badge_scan(&mut state, &mut runtime, "big");
+        assert!(state.scan_skipped_dirs.contains("big"));
+    }
+
+    #[test]
+    fn cancel_all_badge_scans_clears_skipped_dirs() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![]),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_skipped_dirs.insert("big".to_string());
+        state.scan_skipped_dirs.insert("huge".to_string());
+
+        cancel_all_badge_scans(&mut state, &mut runtime);
+        assert!(state.scan_skipped_dirs.is_empty());
     }
 
     fn make_config(local_root: &str) -> crate::config::AppConfig {

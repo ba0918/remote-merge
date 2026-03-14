@@ -52,6 +52,7 @@ impl AppState {
         self.clear_scan_cache();
         // ツリー状態のリセット
         self.expanded_dirs.clear();
+        self.scan_skipped_dirs.clear();
         self.search_state.clear();
         self.diff_search_state.clear();
         self.tree_scroll = 0;
@@ -478,6 +479,18 @@ mod tests {
         assert!(state.flat_nodes.is_empty() || !state.flat_nodes.is_empty());
         assert_eq!(state.tree_scroll, 0);
         assert_eq!(state.tree_cursor, 0);
+    }
+
+    #[test]
+    fn test_switch_server_clears_scan_skipped_dirs() {
+        let mut state = make_state();
+        state.scan_skipped_dirs.insert("big_dir".to_string());
+        let new_tree = make_test_tree(vec![FileNode::new_file("b.txt")]);
+        state.switch_server(Side::new("staging"), new_tree);
+        assert!(
+            state.scan_skipped_dirs.is_empty(),
+            "scan_skipped_dirs should be cleared after switch_server"
+        );
     }
 
     #[test]

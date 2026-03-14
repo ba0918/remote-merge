@@ -153,6 +153,8 @@ pub struct AppState {
     pub conflict_cache: HashMap<String, crate::diff::conflict::ConflictInfo>,
     /// Agent が接続済みのサーバ名の集合（UI 表示用）
     pub agent_connected_servers: HashSet<String>,
+    /// バッジスキャン上限超過でスキップされたディレクトリパスの集合
+    pub scan_skipped_dirs: HashSet<String>,
 }
 
 impl AppState {
@@ -225,6 +227,7 @@ impl AppState {
             showing_ref_diff: false,
             conflict_cache: HashMap::new(),
             agent_connected_servers: HashSet::new(),
+            scan_skipped_dirs: HashSet::new(),
         };
         state.rebuild_flat_nodes();
         state

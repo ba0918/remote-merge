@@ -155,7 +155,7 @@ pub fn count_badges(nodes: &[FlatNode]) -> FileCounts {
             Badge::Equal => counts.equal += 1,
             Badge::LeftOnly => counts.left_only += 1,
             Badge::RightOnly => counts.right_only += 1,
-            Badge::Unchecked | Badge::Loading => counts.unchecked += 1,
+            Badge::Unchecked | Badge::Loading | Badge::ScanSkipped => counts.unchecked += 1,
             Badge::Error => counts.error += 1,
         }
     }

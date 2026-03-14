@@ -2,7 +2,7 @@
 
 **Cycle ID:** `20260314202016`
 **Started:** 2026-03-14 20:20:16
-**Status:** 🟡 In Progress
+**Status:** 🟢 Done
 
 ---
 
@@ -126,7 +126,7 @@ src/ui/tree_view.rs                - Badge::ScanSkipped の表示スタイル追
 |------|-------------|--------|
 | 1 | 設定ファイルに `badge_scan_max_files` 追加 | 🟢 |
 | 2 | デフォルト値を 500 に変更 | 🟢 |
-| 3 | 上限超過時の視覚フィードバック（`scan_skipped_dirs` + バッジ表示） | ⚪ |
+| 3 | 上限超過時の視覚フィードバック（`scan_skipped_dirs` + バッジ表示） | 🟢 |
 
 **Legend:** ⚪ Pending · 🟡 In Progress · 🟢 Done
 

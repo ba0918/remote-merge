@@ -93,6 +93,11 @@ impl AppState {
     /// - `[=]` — 配下の全ファイルがキャッシュ済みかつ全部Equal
     /// - `[?]` — 未確認ファイルが残っている、またはキャッシュが空
     fn compute_dir_badge(&self, path: &str) -> Badge {
+        // バッジスキャン上限超過でスキップされたディレクトリ
+        if self.scan_skipped_dirs.contains(path) {
+            return Badge::ScanSkipped;
+        }
+
         let in_local = self
             .left_tree
             .find_node(std::path::Path::new(path))
@@ -374,7 +379,7 @@ fn aggregate_dir_badges(badges: impl Iterator<Item = Badge>) -> Badge {
             Badge::Modified | Badge::LeftOnly | Badge::RightOnly | Badge::Error => {
                 return Badge::Modified;
             }
-            Badge::Unchecked | Badge::Loading => {
+            Badge::Unchecked | Badge::Loading | Badge::ScanSkipped => {
                 all_checked = false;
             }
             Badge::Equal => {}
@@ -1697,5 +1702,52 @@ mod tests {
     fn test_aggregate_dir_badges_error_triggers_modified() {
         let badges = vec![Badge::Equal, Badge::Error];
         assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Modified);
+    }
+
+    // ── scan_skipped_dirs ──
+
+    #[test]
+    fn test_compute_dir_badge_scan_skipped() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "big",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "big",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.scan_skipped_dirs.insert("big".to_string());
+        assert_eq!(state.compute_badge("big", true), Badge::ScanSkipped);
+    }
+
+    #[test]
+    fn test_compute_dir_badge_not_skipped() {
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "small",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "small",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // scan_skipped_dirs に含まれていなければ通常のバッジ
+        assert_ne!(state.compute_badge("small", true), Badge::ScanSkipped);
+    }
+
+    #[test]
+    fn test_aggregate_dir_badges_scan_skipped_treated_as_unchecked() {
+        let badges = vec![Badge::Equal, Badge::ScanSkipped];
+        // ScanSkipped は Unchecked と同様に扱われ、all_checked が false になる
+        assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Unchecked);
     }
 }
