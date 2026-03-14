@@ -257,6 +257,9 @@ pub fn execute_pair_switch(
     let cursor_path = state.current_path();
     let scroll_backup = state.tree_scroll;
 
+    // 旧サーバのバッジスキャンをキャンセル（結果が新サーバに適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
+
     // Side を構築
     let new_left = Side::new(left_name);
     let new_right = Side::new(right_name);
@@ -413,6 +416,9 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
     let cursor_path = state.current_path();
     let scroll_backup = state.tree_scroll;
 
+    // 旧サーバのバッジスキャンをキャンセル（結果が新サーバに適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
+
     // 古い右側接続を切断
     if let Side::Remote(old_name) = &state.right_source {
         runtime.disconnect(old_name);
@@ -480,8 +486,12 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
 mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode};
+    use crate::runtime::badge_scan::BadgeScanEntry;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+    use std::sync::Arc;
 
     /// テスト用の FlatNode を作成するヘルパー
     fn make_flat_node(path: &str) -> FlatNode {
@@ -559,5 +569,56 @@ mod tests {
 
         // tree_cursor は変わらない
         assert_eq!(state.tree_cursor, 0);
+    }
+
+    /// runtime にダミーのバッジスキャンエントリを挿入するヘルパー
+    fn insert_dummy_badge_scan(runtime: &mut TuiRuntime, dir: &str) {
+        let (_tx, rx) = mpsc::channel();
+        let flag = Arc::new(AtomicBool::new(false));
+        runtime.badge_scans.insert(
+            dir.to_string(),
+            BadgeScanEntry {
+                receiver: rx,
+                cancel_flag: flag,
+            },
+        );
+    }
+
+    #[test]
+    fn server_switch_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "lib");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_server_switch は Remote 接続に失敗して早期リターンするが、
+        // cancel_all_badge_scans は接続前に呼ばれるのでクリアされる
+        execute_server_switch(&mut state, &mut runtime, "staging");
+        assert!(
+            runtime.badge_scans.is_empty(),
+            "badge scans should be cancelled before server switch"
+        );
+    }
+
+    #[test]
+    fn pair_switch_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "tests");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_pair_switch は接続に失敗して早期リターンするが、
+        // cancel_all_badge_scans は接続前に呼ばれるのでクリアされる
+        execute_pair_switch(&mut state, &mut runtime, "staging", "release");
+        assert!(
+            runtime.badge_scans.is_empty(),
+            "badge scans should be cancelled before pair switch"
+        );
     }
 }
