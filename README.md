@@ -65,6 +65,7 @@ Commands:
   sync      Sync files to multiple servers (1:N synchronization)
   rollback  Restore files from a backup session
   logs      Show debug logs
+  events    Show TUI events
   help      Print this message or the help of the given subcommand(s)
 
 Options:
@@ -73,6 +74,8 @@ Options:
       --right <RIGHT>    Right side of comparison
       --ref <REF>        Reference server for 3-way comparison
   -y, --yes              Auto-accept prompts
+      --debug              Shorthand for --log-level debug
+      --log-level <LEVEL>  Set log level (error, warn, info, debug, trace)
   -v, --verbose...       Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
   -h, --help             Print help
   -V, --version          Print version

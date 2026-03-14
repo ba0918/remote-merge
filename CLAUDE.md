@@ -15,7 +15,7 @@ Rust, ratatui, tokio, russh, similar, toml+serde, anyhow, tracing
 ```
 cargo build / cargo run / cargo test / cargo clippy / cargo fmt
 cargo nextest run              # nextest でテスト実行（推奨）
-cargo run -- --server develop      # specify server
+cargo run -- --right develop       # specify server
 cargo test <name>                  # single test
 ```
 
@@ -61,20 +61,19 @@ cargo test <name>                  # single test
 ## Architecture
 
 ### Connection Model
-- SSH exec: tree listing + file content retrieval (lightweight)
-- SFTP: file transfer (merge operations only)
+- SSH exec: tree listing, file content retrieval, and file writes (via `cat >` or agent protocol)
 - Lazy loading: directory contents on expand, file contents on demand
 
 ### Dual Interface
 1. TUI (default): two-pane diff viewer with file tree, hunk-level merge
-2. CLI (subcommands: `status`, `diff`, `merge`): JSON output for LLM agent integration
+2. CLI (subcommands: `status`, `diff`, `merge`, `sync`, `rollback`, `logs`, `events`, `init`, `agent`): JSON output for LLM agent integration
 
 ### Config Hierarchy
 - Global: `~/.config/remote-merge/config.toml`
 - Project: `.remote-merge.toml` (overrides global; `[filter]` merged as union)
 
 ### Key Design Decisions
-- No auto-reconnect on SSH disconnect (safety)
+- Auto-reconnect on SSH disconnect (single retry on connection error during read operations)
 - Optimistic locking on merge (re-check remote mtime before write)
 - Symlinks compared by link target path, not dereferenced content
 - Binary files use SHA-256 hash comparison

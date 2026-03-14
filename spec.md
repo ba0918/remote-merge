@@ -138,6 +138,8 @@ root_dir = "/home/user/projects/app"
 [filter]
 # ツリー表示・比較から除外するパターン
 exclude = ["node_modules", ".git", "dist", "*.log", "*.lock"]
+# スキャン対象をホワイトリスト方式で限定（指定時は include に一致するパスのみスキャン）
+# include = ["src", "config"]
 
 [ssh]
 timeout_sec = 10   # 接続タイムアウト（デフォルト: 10秒）
@@ -220,7 +222,7 @@ CLIフラグが環境変数（`RUST_LOG`）より優先される。
 
 ```bash
 remote-merge                                  # 設定ファイルを自動検出
-remote-merge --server develop                 # サーバを指定して起動
+remote-merge --right develop                  # サーバを指定して起動
 remote-merge --left develop --right staging   # サーバ間比較で起動
 ```
 
@@ -229,7 +231,7 @@ remote-merge --left develop --right staging   # サーバ間比較で起動
 ```bash
 # 差分があるファイルの一覧
 remote-merge status
-remote-merge status --server develop           # サーバ指定（localとの比較）
+remote-merge status --right develop            # サーバ指定（localとの比較）
 remote-merge status --left develop --right staging  # サーバ間比較
 remote-merge status --left develop --right staging --ref release  # 3way比較
 remote-merge status --format json
@@ -269,7 +271,7 @@ remote-merge rollback --list --format json                # JSON出力
 # ログ・イベント表示
 remote-merge logs                              # デバッグログ表示
 remote-merge logs --level warn                 # レベルフィルタ
-remote-merge logs --since 2024-01-15           # 日時フィルタ
+remote-merge logs --since 1h                   # 期間フィルタ（5m, 1h, 30s）
 remote-merge logs --tail 50                    # 最新N行
 remote-merge logs --format json                # JSON出力
 
@@ -1806,7 +1808,7 @@ remote-merge/
 - [x] GitHub Actions Release（v* タグ時: Linux/macOS/Windows クロスビルド）
 - [x] pre-commit / pre-push フック（fmt + clippy）
 - [x] cargo-llvm-cov テストカバレッジ基盤（行カバレッジ 76%+）
-- [x] 1,783 ユニットテスト
+- [x] 2,300+ ユニットテスト
 
 ### 進捗サマリー
 
