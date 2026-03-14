@@ -14,6 +14,7 @@ Rust, ratatui, tokio, russh, similar, toml+serde, anyhow, tracing
 
 ```
 cargo build / cargo run / cargo test / cargo clippy / cargo fmt
+cargo nextest run              # nextest でテスト実行（推奨）
 cargo run -- --server develop      # specify server
 cargo test <name>                  # single test
 ```
