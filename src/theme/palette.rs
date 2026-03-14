@@ -46,6 +46,26 @@ pub struct TuiPalette {
     pub badge_modified: Color,
     /// Equal バッジの色
     pub badge_equal: Color,
+    /// 3way Differs バッジの色
+    pub badge_differs: Color,
+    /// LeftOnly バッジの色
+    pub badge_left_only: Color,
+    /// RightOnly バッジの色
+    pub badge_right_only: Color,
+    /// Unchecked バッジの色
+    pub badge_unchecked: Color,
+    /// Loading バッジの色
+    pub badge_loading: Color,
+    /// Error バッジの色
+    pub badge_error: Color,
+    /// Conflict バッジの色
+    pub badge_conflict: Color,
+    /// 3way RefExists バッジの色
+    pub badge_ref_exists: Color,
+    /// 3way RefMissing バッジの色
+    pub badge_ref_missing: Color,
+    /// ダイアログ枠・ラベル用アクセント色
+    pub dialog_accent: Color,
     /// ステータスバーの背景色
     pub status_bar_bg: Color,
     /// ステータスバーの前景色（背景とのコントラスト確保）
@@ -108,8 +128,66 @@ impl TuiPalette {
             hunk_select_bg: blend(bg, Color::Rgb(80, 80, 200), 0.25),
             hunk_pending_bg: blend(bg, Color::Rgb(200, 150, 50), 0.25),
             cursor_line_bg: cursor_line_color(bg, line_highlight, is_light),
-            badge_modified: Color::Rgb(0xeb, 0xcb, 0x8b), // yellow
-            badge_equal: Color::Rgb(0xa3, 0xbe, 0x8c),    // green
+            badge_modified: if is_light {
+                Color::Rgb(0x7c, 0x3a, 0xed) // violet-600
+            } else {
+                Color::Rgb(0xeb, 0xcb, 0x8b) // yellow
+            },
+            badge_equal: if is_light {
+                Color::Rgb(0x16, 0xa3, 0x4a) // green-600
+            } else {
+                Color::Rgb(0xa3, 0xbe, 0x8c) // green
+            },
+            badge_differs: if is_light {
+                Color::Rgb(0x7c, 0x3a, 0xed) // violet-600
+            } else {
+                Color::Rgb(0xeb, 0xcb, 0x8b) // yellow
+            },
+            badge_left_only: if is_light {
+                Color::Rgb(0x0d, 0x94, 0x88) // teal
+            } else {
+                Color::Cyan
+            },
+            badge_right_only: if is_light {
+                Color::Rgb(0xdb, 0x27, 0x77) // pink
+            } else {
+                Color::Magenta
+            },
+            badge_unchecked: if is_light {
+                Color::Rgb(0x6b, 0x72, 0x80) // gray-500
+            } else {
+                Color::DarkGray
+            },
+            badge_loading: if is_light {
+                Color::Rgb(0x25, 0x63, 0xeb) // blue-600
+            } else {
+                Color::Blue
+            },
+            badge_error: if is_light {
+                Color::Rgb(0xdc, 0x26, 0x26) // red-600
+            } else {
+                Color::Red
+            },
+            badge_conflict: if is_light {
+                Color::Rgb(0xdc, 0x26, 0x26) // red-600
+            } else {
+                Color::Red
+            },
+            badge_ref_exists: if is_light {
+                Color::Rgb(0x0d, 0x94, 0x88) // teal
+            } else {
+                Color::Cyan
+            },
+            badge_ref_missing: if is_light {
+                Color::Rgb(0xdb, 0x27, 0x77) // pink
+            } else {
+                Color::Magenta
+            },
+            dialog_accent: if is_light {
+                Color::Rgb(0x7c, 0x3a, 0xed) // violet-600
+            } else {
+                Color::Rgb(0xeb, 0xcb, 0x8b) // yellow
+            },
             status_bar_bg: bar_bg,
             status_bar_fg: contrast_fg(bar_bg),
             header_bg: bar_bg,
@@ -306,5 +384,81 @@ mod tests {
     fn test_dim_color() {
         let result = dim_color(Color::Rgb(100, 200, 50), 0.5);
         assert_eq!(result, Color::Rgb(50, 100, 25));
+    }
+
+    #[test]
+    fn test_palette_light_theme_badge_colors_purple() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+
+        // ライトテーマではバッジ色が紫系
+        assert_eq!(palette.badge_modified, Color::Rgb(0x7c, 0x3a, 0xed));
+        assert_eq!(palette.badge_differs, Color::Rgb(0x7c, 0x3a, 0xed));
+        assert_eq!(palette.dialog_accent, Color::Rgb(0x7c, 0x3a, 0xed));
+    }
+
+    #[test]
+    fn test_palette_dark_theme_badge_colors_yellow() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        let palette = TuiPalette::from_theme(theme);
+
+        // ダークテーマではバッジ色が黄色系
+        assert_eq!(palette.badge_modified, Color::Rgb(0xeb, 0xcb, 0x8b));
+        assert_eq!(palette.badge_differs, Color::Rgb(0xeb, 0xcb, 0x8b));
+        assert_eq!(palette.dialog_accent, Color::Rgb(0xeb, 0xcb, 0x8b));
+    }
+
+    #[test]
+    fn test_palette_light_theme_badge_equal_green() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+
+        assert_eq!(palette.badge_equal, Color::Rgb(0x16, 0xa3, 0x4a));
+    }
+
+    #[test]
+    fn test_palette_dark_theme_badge_equal_green() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        let palette = TuiPalette::from_theme(theme);
+
+        assert_eq!(palette.badge_equal, Color::Rgb(0xa3, 0xbe, 0x8c));
+    }
+
+    #[test]
+    fn test_palette_light_theme_all_badge_fields() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+
+        // ライトテーマ固有の色が設定されていること
+        assert_eq!(palette.badge_left_only, Color::Rgb(0x0d, 0x94, 0x88));
+        assert_eq!(palette.badge_right_only, Color::Rgb(0xdb, 0x27, 0x77));
+        assert_eq!(palette.badge_unchecked, Color::Rgb(0x6b, 0x72, 0x80));
+        assert_eq!(palette.badge_loading, Color::Rgb(0x25, 0x63, 0xeb));
+        assert_eq!(palette.badge_error, Color::Rgb(0xdc, 0x26, 0x26));
+        assert_eq!(palette.badge_conflict, Color::Rgb(0xdc, 0x26, 0x26));
+        assert_eq!(palette.badge_ref_exists, Color::Rgb(0x0d, 0x94, 0x88));
+        assert_eq!(palette.badge_ref_missing, Color::Rgb(0xdb, 0x27, 0x77));
+    }
+
+    #[test]
+    fn test_palette_dark_theme_all_badge_fields() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        let palette = TuiPalette::from_theme(theme);
+
+        // ダークテーマではデフォルト色が設定されていること
+        assert_eq!(palette.badge_left_only, Color::Cyan);
+        assert_eq!(palette.badge_right_only, Color::Magenta);
+        assert_eq!(palette.badge_unchecked, Color::DarkGray);
+        assert_eq!(palette.badge_loading, Color::Blue);
+        assert_eq!(palette.badge_error, Color::Red);
+        assert_eq!(palette.badge_conflict, Color::Red);
+        assert_eq!(palette.badge_ref_exists, Color::Cyan);
+        assert_eq!(palette.badge_ref_missing, Color::Magenta);
     }
 }
