@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use crate::config::{
         AgentConfig, AppConfig, BackupConfig, DefaultsConfig, FilterConfig, LocalConfig, SshConfig,
-        DEFAULT_MAX_SCAN_ENTRIES,
+        DEFAULT_BADGE_SCAN_MAX_FILES, DEFAULT_MAX_SCAN_ENTRIES,
     };
     use crate::tree::{FileNode, FileTree};
     use std::collections::BTreeMap;
@@ -143,6 +143,7 @@ mod tests {
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
+            badge_scan_max_files: DEFAULT_BADGE_SCAN_MAX_FILES,
         }
     }
 

@@ -362,6 +362,7 @@ mod tests {
             agent: crate::config::AgentConfig::default(),
             defaults: crate::config::DefaultsConfig::default(),
             max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+            badge_scan_max_files: crate::config::DEFAULT_BADGE_SCAN_MAX_FILES,
         }
     }
 

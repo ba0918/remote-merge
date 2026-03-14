@@ -1,14 +1,23 @@
 # Project Status
 
-**Last Updated:** 2026-03-14 19:38
+**Last Updated:** 2026-03-14 20:20
 
 ---
 
 ## 🎯 Current Session
 
+### 20260314202016 - バッジスキャン上限の UX 改善
+- **Started:** 2026-03-14 20:20:16
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314202016_badge-scan-limit-ux.md)
+- **Summary:** バッジスキャン上限(100件)が少なすぎ＋スキップがサイレント＋ハードコードの問題を修正。デフォルト500に引上げ、設定可能化、上限超過時の視覚フィードバック追加。
+
+---
+
 ### 20260314193829 - nextest 導入と並列テスト安全性確保
 - **Started:** 2026-03-14 19:38:29
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-14
+- **Status:** 🟢 Complete
 - **Plan:** [Link](./cycles/20260314193829_nextest-serial-test.md)
 - **Summary:** pre-commit/pre-push のテストタイムアウト問題を根治。`serial_test` で環境変数テスト4個を並列安全化、`cargo-nextest` でテスト実行を高速化、フック更新。
 
