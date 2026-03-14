@@ -217,11 +217,6 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
         .push(russh::keys::PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
     let config = Arc::new(config);
 
-    // ランダムポートで bind → ポート取得 → そのポートでサーバー起動
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener); // ポートを解放
-
     let mut server = TestServer {
         id: 0,
         registry: registry.clone(),
@@ -230,14 +225,18 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
         exec_commands: exec_commands.clone(),
     };
 
-    // run_on_address は所有権ベースなのでライフタイム問題なし
-    let addr = format!("127.0.0.1:{}", port);
+    // bind と run_on_socket を同一 async ブロック内で実行し、
+    // ポートだけ oneshot channel で通知する。
+    // これにより drop → 再バインドの TOCTOU レースと sleep の不確実性を両方解消。
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        let _ = server.run_on_address(config, &addr).await;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _ = port_tx.send(port);
+        // listener は同一 async ブロック内で借用されるためライフタイム問題なし
+        let _ = server.run_on_socket(config, &listener).await;
     });
-
-    // サーバーの起動を少し待つ
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let port = port_rx.await.unwrap();
 
     TestServerHandle {
         port,
