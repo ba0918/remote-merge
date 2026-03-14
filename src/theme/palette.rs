@@ -74,6 +74,18 @@ pub struct TuiPalette {
     pub header_bg: Color,
     /// アクセントカラー（タイトル等）
     pub accent: Color,
+
+    // -- セマンティック色 --
+    /// 肯定色（接続OK, identical, Yes ボタン等）
+    pub positive: Color,
+    /// 否定色（接続NG, different, No ボタン等）
+    pub negative: Color,
+    /// 情報色（ダイアログ枠, ヒント, リンク等）
+    pub info: Color,
+    /// 控えめテキスト（非アクティブ, 補足, スクロール続き等）
+    pub muted: Color,
+    /// 警告色（バッチ件数, mtime 不一致等）
+    pub warning: Color,
 }
 
 impl TuiPalette {
@@ -192,6 +204,31 @@ impl TuiPalette {
             status_bar_fg: contrast_fg(bar_bg),
             header_bg: bar_bg,
             accent,
+            positive: if is_light {
+                Color::Rgb(0x15, 0x80, 0x3d) // green-700
+            } else {
+                Color::Rgb(0x00, 0xc8, 0x00) // Green 相当
+            },
+            negative: if is_light {
+                Color::Rgb(0xb9, 0x1c, 0x1c) // red-700
+            } else {
+                Color::Rgb(0xdc, 0x50, 0x50) // Red 相当
+            },
+            info: if is_light {
+                Color::Rgb(0x1d, 0x4e, 0xd8) // blue-700
+            } else {
+                Color::Rgb(0x00, 0xd7, 0xd7) // Cyan 相当
+            },
+            muted: if is_light {
+                Color::Rgb(0x6b, 0x72, 0x80) // gray-500
+            } else {
+                Color::Rgb(0x58, 0x58, 0x58) // DarkGray 相当
+            },
+            warning: if is_light {
+                Color::Rgb(0xb4, 0x5a, 0x09) // amber-700
+            } else {
+                Color::Rgb(0xd7, 0xd7, 0x00) // Yellow 相当
+            },
         }
     }
 }
@@ -460,5 +497,86 @@ mod tests {
         assert_eq!(palette.badge_conflict, Color::Red);
         assert_eq!(palette.badge_ref_exists, Color::Cyan);
         assert_eq!(palette.badge_ref_missing, Color::Magenta);
+    }
+
+    #[test]
+    fn test_palette_light_theme_semantic_positive() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.positive, Color::Rgb(0x15, 0x80, 0x3d)); // green-700
+    }
+
+    #[test]
+    fn test_palette_dark_theme_semantic_positive() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.dark"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.positive, Color::Rgb(0x00, 0xc8, 0x00));
+    }
+
+    #[test]
+    fn test_palette_light_theme_semantic_negative() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.negative, Color::Rgb(0xb9, 0x1c, 0x1c)); // red-700
+    }
+
+    #[test]
+    fn test_palette_light_theme_semantic_info() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.info, Color::Rgb(0x1d, 0x4e, 0xd8)); // blue-700
+    }
+
+    #[test]
+    fn test_palette_light_theme_semantic_muted() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.muted, Color::Rgb(0x6b, 0x72, 0x80)); // gray-500
+    }
+
+    #[test]
+    fn test_palette_light_theme_semantic_warning() {
+        let ts = ThemeSet::load_defaults();
+        let theme = &ts.themes["base16-ocean.light"];
+        let palette = TuiPalette::from_theme(theme);
+        assert_eq!(palette.warning, Color::Rgb(0xb4, 0x5a, 0x09)); // amber-700
+    }
+
+    #[test]
+    fn test_palette_all_builtin_themes_semantic_fields_are_rgb() {
+        let ts = ThemeSet::load_defaults();
+        for (name, theme) in &ts.themes {
+            let palette = TuiPalette::from_theme(theme);
+            assert!(
+                matches!(palette.positive, Color::Rgb(_, _, _)),
+                "theme '{}' positive should be Rgb",
+                name
+            );
+            assert!(
+                matches!(palette.negative, Color::Rgb(_, _, _)),
+                "theme '{}' negative should be Rgb",
+                name
+            );
+            assert!(
+                matches!(palette.info, Color::Rgb(_, _, _)),
+                "theme '{}' info should be Rgb",
+                name
+            );
+            assert!(
+                matches!(palette.muted, Color::Rgb(_, _, _)),
+                "theme '{}' muted should be Rgb",
+                name
+            );
+            assert!(
+                matches!(palette.warning, Color::Rgb(_, _, _)),
+                "theme '{}' warning should be Rgb",
+                name
+            );
+        }
     }
 }

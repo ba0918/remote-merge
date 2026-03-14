@@ -1,10 +1,28 @@
 # Project Status
 
-**Last Updated:** 2026-03-14 14:00
+**Last Updated:** 2026-03-14 17:56
 
 ---
 
 ## 🎯 Current Session
+
+### 20260314175606 - ハードコード色のパレット集約（ライトテーマ視認性修正）
+- **Started:** 2026-03-14 17:56:06
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314175606_fix-binary-hash-color-light-theme.md)
+- **Summary:** lightテーマでバイナリハッシュ値やサーバ選択ダイアログが背景と同化する問題。src/ui/ 全体のハードコード Color:: をセマンティックパレットフィールド（positive/negative/info/muted/warning）に集約。3ステップ実装。
+
+---
+
+### 20260314171406 - ディレクトリ展開時の非同期バッジスキャン
+- **Started:** 2026-03-14 17:14:06
+- **Completed:** 2026-03-14
+- **Status:** 🟢 Complete
+- **Plan:** [Link](./cycles/20260314171406_async-badge-scan-on-expand.md)
+- **Result:** [Link](./cycles/20260314171406_async-badge-scan-on-expand_result.md)
+- **Summary:** ディレクトリ展開時にその直下ファイルのみ非同期でdiffスキャンし、バッジを `[?]` → `[..]` → `[M]`/`[=]` 等に順次更新。UIブロックなし、折りたたみ時キャンセル、キャッシュ活用、再接続時全スキャンキャンセル。badge_scan モジュール新設（helpers/task/mod/poll）、+49テスト、4コミット。
+
+---
 
 ### 20260314133920 - バッジ色のライトテーマ対応
 - **Started:** 2026-03-14 13:39:20
@@ -704,6 +722,14 @@
 | **dir-6** | merge ディレクトリ・複数パス対応 | 🟢 Done |
 | **dir-7** | Skill ファイル更新 | 🟢 Done |
 
+### TUI UX: 非同期バッジスキャン 🟢 Complete
+| サブフェーズ | 内容 | 状態 |
+|------------|------|------|
+| **badge-1** | BadgeScanMsg 型定義 + 純粋関数 | 🟢 Done |
+| **badge-2** | ワーカースレッド + start/cancel + ポーリング | 🟢 Done |
+| **badge-3** | TuiRuntime 統合 + ハンドラ連携 | 🟢 Done |
+| **badge-4** | 再接続時全スキャンキャンセル | 🟢 Done |
+
 ### CLI バグ修正: 末尾スラッシュ + ステータス精緻化 🟢 Complete
 | サブフェーズ | 内容 | 状態 |
 |------------|------|------|
@@ -743,4 +769,4 @@
 
 ---
 
-**Note:** このファイルは `timestamped-plan` skill によって自動管理されています。
+**Note:** このファイルは `plan` skill によって自動管理されています。
