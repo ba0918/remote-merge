@@ -125,7 +125,7 @@ src/ui/tree_view.rs                - Badge::ScanSkipped の表示スタイル追
 | Step | Description | Status |
 |------|-------------|--------|
 | 1 | 設定ファイルに `badge_scan_max_files` 追加 | 🟢 |
-| 2 | デフォルト値を 500 に変更 | ⚪ |
+| 2 | デフォルト値を 500 に変更 | 🟢 |
 | 3 | 上限超過時の視覚フィードバック（`scan_skipped_dirs` + バッジ表示） | ⚪ |
 
 **Legend:** ⚪ Pending · 🟡 In Progress · 🟢 Done

@@ -392,7 +392,8 @@ mod tests {
     #[test]
     fn poll_max_files_status_message() {
         let mut runtime = TuiRuntime::new_for_test();
-        let files: Vec<FileNode> = (0..101)
+        let file_count = crate::config::DEFAULT_BADGE_SCAN_MAX_FILES + 1;
+        let files: Vec<FileNode> = (0..file_count)
             .map(|i| FileNode::new_file(format!("file_{}.rs", i)))
             .collect();
         let mut state = AppState::new(
@@ -406,7 +407,7 @@ mod tests {
         state.rebuild_flat_nodes();
 
         super::super::start_badge_scan(&mut state, &mut runtime, "big");
-        assert!(state.status_message.contains("Too many files (101)"));
+        assert!(state.status_message.contains("Badge scan skipped"));
     }
 
     #[test]

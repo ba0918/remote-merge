@@ -20,8 +20,7 @@ use crate::app::{AppState, BadgeScanMsg, Side};
 
 use super::TuiRuntime;
 use helpers::{
-    collect_direct_children_files, filter_uncached_paths, revert_loading_badges,
-    set_loading_badges, BADGE_SCAN_MAX_FILES,
+    collect_direct_children_files, filter_uncached_paths, revert_loading_badges, set_loading_badges,
 };
 use task::{BadgeScanParams, ScanSource};
 
@@ -49,9 +48,15 @@ pub fn start_badge_scan(state: &mut AppState, runtime: &mut TuiRuntime, dir_path
         return;
     }
 
-    // ファイル数上限チェック
-    if all_files.len() > BADGE_SCAN_MAX_FILES {
-        state.status_message = format!("Too many files ({}) — badge scan skipped", all_files.len());
+    // ファイル数上限チェック（設定値を参照）
+    let max_files = runtime.core.config.badge_scan_max_files;
+    if all_files.len() > max_files {
+        state.status_message = format!(
+            "Badge scan skipped: {} ({} files, limit: {})",
+            dir_path,
+            all_files.len(),
+            max_files
+        );
         return;
     }
 
@@ -330,8 +335,9 @@ mod tests {
     fn start_badge_scan_skips_over_max_files() {
         let mut runtime = TuiRuntime::new_for_test();
 
-        // BADGE_SCAN_MAX_FILES (100) を超えるファイル数のディレクトリ
-        let files: Vec<FileNode> = (0..101)
+        // badge_scan_max_files (デフォルト 500) を超えるファイル数のディレクトリ
+        let file_count = crate::config::DEFAULT_BADGE_SCAN_MAX_FILES + 1;
+        let files: Vec<FileNode> = (0..file_count)
             .map(|i| FileNode::new_file(format!("file_{}.rs", i)))
             .collect();
         let mut state = AppState::new(
@@ -346,7 +352,17 @@ mod tests {
 
         start_badge_scan(&mut state, &mut runtime, "big");
         assert!(runtime.badge_scans.is_empty());
-        assert!(state.status_message.contains("Too many files"));
+        assert!(state.status_message.contains("Badge scan skipped"));
+    }
+
+    #[test]
+    fn start_badge_scan_uses_config_max_files() {
+        // runtime の config.badge_scan_max_files を参照することを確認
+        let runtime = TuiRuntime::new_for_test();
+        assert_eq!(
+            runtime.core.config.badge_scan_max_files,
+            crate::config::DEFAULT_BADGE_SCAN_MAX_FILES
+        );
     }
 
     fn make_config(local_root: &str) -> crate::config::AppConfig {

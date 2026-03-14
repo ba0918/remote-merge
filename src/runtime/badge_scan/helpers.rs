@@ -112,9 +112,6 @@ pub fn revert_loading_badges(flat_nodes: &mut [FlatNode], dir_path: &str) {
     }
 }
 
-/// バッジスキャンのファイル数上限
-pub const BADGE_SCAN_MAX_FILES: usize = 100;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,10 +382,10 @@ mod tests {
         assert!(flag.load(Ordering::Relaxed));
     }
 
-    // ── BADGE_SCAN_MAX_FILES ──
+    // ── DEFAULT_BADGE_SCAN_MAX_FILES ──
 
     #[test]
-    fn badge_scan_max_files_value() {
-        assert_eq!(BADGE_SCAN_MAX_FILES, 100);
+    fn badge_scan_max_files_default_is_500() {
+        assert_eq!(crate::config::DEFAULT_BADGE_SCAN_MAX_FILES, 500);
     }
 }
