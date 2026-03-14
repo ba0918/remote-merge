@@ -12,6 +12,8 @@ use ratatui::widgets::{Paragraph, Widget};
 use crate::merge::optimistic_lock::{ConflictReason, MtimeConflict};
 use crate::ui::metadata::format_mtime;
 
+use crate::theme::palette::TuiPalette;
+
 use super::render_dialog_frame;
 
 /// mtime 警告ダイアログの状態
@@ -46,8 +48,7 @@ pub enum MtimeWarningMergeContext {
 /// mtime 警告ダイアログ Widget
 pub struct MtimeWarningDialogWidget<'a> {
     pub dialog: &'a MtimeWarningDialog,
-    pub border_color: Color,
-    pub bg: Color,
+    pub palette: &'a TuiPalette,
 }
 
 impl<'a> Widget for MtimeWarningDialogWidget<'a> {
@@ -58,12 +59,12 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
 
         let inner = render_dialog_frame(
             " ⚠ File Changed ",
-            self.border_color,
+            self.palette.dialog_accent,
             width,
             height,
             area,
             buf,
-            self.bg,
+            self.palette.bg,
         );
 
         let mut lines = Vec::new();
@@ -93,7 +94,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
                         Span::raw(" (was: "),
                         Span::styled(
                             format_mtime(conflict.expected),
-                            Style::default().fg(Color::Yellow),
+                            Style::default().fg(self.palette.dialog_accent),
                         ),
                         Span::raw(")"),
                     ]));
@@ -103,7 +104,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
                         Span::raw("    diff: "),
                         Span::styled(
                             format_mtime(conflict.expected),
-                            Style::default().fg(Color::Yellow),
+                            Style::default().fg(self.palette.dialog_accent),
                         ),
                         Span::raw("  now: "),
                         Span::styled(
@@ -127,7 +128,7 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
             Span::styled(
                 "[f]",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.palette.dialog_accent)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("orce  "),
@@ -170,10 +171,11 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
 
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
         let widget = MtimeWarningDialogWidget {
             dialog: &dialog,
-            border_color: Color::Yellow,
-            bg: Color::Black,
+            palette: &palette,
         };
 
         widget.render(area, &mut buf);
@@ -208,10 +210,11 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
 
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
         let widget = MtimeWarningDialogWidget {
             dialog: &dialog,
-            border_color: Color::Yellow,
-            bg: Color::Black,
+            palette: &palette,
         };
         widget.render(area, &mut buf);
 
@@ -262,10 +265,11 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         let mut buf = Buffer::empty(area);
 
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
         let widget = MtimeWarningDialogWidget {
             dialog: &dialog,
-            border_color: Color::Yellow,
-            bg: Color::Black,
+            palette: &palette,
         };
         widget.render(area, &mut buf);
 

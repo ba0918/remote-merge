@@ -7,16 +7,17 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use crate::app::three_way_summary::ThreeWaySummaryPanel;
+use crate::theme::palette::TuiPalette;
 
 /// 3way サマリーパネルの描画ウィジェット
 pub struct ThreeWaySummaryWidget<'a> {
     panel: &'a ThreeWaySummaryPanel,
-    bg: Color,
+    palette: &'a TuiPalette,
 }
 
 impl<'a> ThreeWaySummaryWidget<'a> {
-    pub fn new(panel: &'a ThreeWaySummaryPanel, bg: Color) -> Self {
-        Self { panel, bg }
+    pub fn new(panel: &'a ThreeWaySummaryPanel, palette: &'a TuiPalette) -> Self {
+        Self { panel, palette }
     }
 }
 
@@ -47,8 +48,15 @@ impl Widget for ThreeWaySummaryWidget<'_> {
             .unwrap_or(&self.panel.file_path);
         let title = format!(" 3way Summary: {} ", file_name);
 
-        let inner =
-            super::render_dialog_frame(&title, Color::Yellow, width, height, area, buf, self.bg);
+        let inner = super::render_dialog_frame(
+            &title,
+            self.palette.dialog_accent,
+            width,
+            height,
+            area,
+            buf,
+            self.palette.bg,
+        );
 
         if inner.height < 2 {
             return;
@@ -78,7 +86,11 @@ impl Widget for ThreeWaySummaryWidget<'_> {
                 let is_cursor = idx == self.panel.cursor;
 
                 // カーソル行の背景色
-                let line_bg = if is_cursor { Color::DarkGray } else { self.bg };
+                let line_bg = if is_cursor {
+                    Color::DarkGray
+                } else {
+                    self.palette.bg
+                };
 
                 // 行全体を背景色で塗る
                 let bg_style = Style::default().bg(line_bg);

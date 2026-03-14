@@ -6,6 +6,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::theme::palette::TuiPalette;
+
 use super::render_dialog_frame;
 
 /// ヘルプオーバーレイのセクション
@@ -143,12 +145,12 @@ impl HelpOverlay {
 /// ヘルプオーバーレイウィジェット
 pub struct HelpOverlayWidget<'a> {
     help: &'a HelpOverlay,
-    bg: Color,
+    palette: &'a TuiPalette,
 }
 
 impl<'a> HelpOverlayWidget<'a> {
-    pub fn new(help: &'a HelpOverlay, bg: Color) -> Self {
-        Self { help, bg }
+    pub fn new(help: &'a HelpOverlay, palette: &'a TuiPalette) -> Self {
+        Self { help, palette }
     }
 }
 
@@ -166,7 +168,15 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
             " Help (? to close) "
         };
 
-        let inner = render_dialog_frame(title, Color::Cyan, width, height, area, buf, self.bg);
+        let inner = render_dialog_frame(
+            title,
+            Color::Cyan,
+            width,
+            height,
+            area,
+            buf,
+            self.palette.bg,
+        );
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -176,7 +186,7 @@ impl<'a> Widget for HelpOverlayWidget<'a> {
                 Span::styled(
                     format!("── {} ──", section.title),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.palette.dialog_accent)
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
@@ -237,7 +247,9 @@ mod tests {
         let help = HelpOverlay::new();
         let area = Rect::new(0, 0, 80, 40);
         let mut buf = Buffer::empty(area);
-        let widget = HelpOverlayWidget::new(&help, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = HelpOverlayWidget::new(&help, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

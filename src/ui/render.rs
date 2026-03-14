@@ -132,7 +132,7 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         let agent_color = if agent_text.starts_with("Agent:") {
             Color::Green
         } else {
-            Color::Yellow
+            state.palette.dialog_accent
         };
         let agent_color = crate::theme::palette::ensure_contrast(agent_color, p.status_bar_bg);
         spans.push(Span::styled(
@@ -149,11 +149,11 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
 fn draw_dialog(frame: &mut Frame, state: &AppState) {
     match &state.dialog {
         DialogState::Confirm(confirm) => {
-            let widget = ConfirmDialogWidget::new(confirm, state.palette.bg);
+            let widget = ConfirmDialogWidget::new(confirm, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::BatchConfirm(batch) => {
-            let widget = BatchConfirmDialogWidget::new(batch, state.palette.bg);
+            let widget = BatchConfirmDialogWidget::new(batch, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::ServerSelect(menu) => {
@@ -165,18 +165,23 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, frame.area());
         }
         DialogState::Help(help) => {
-            let widget = HelpOverlayWidget::new(help, state.palette.bg);
+            let widget = HelpOverlayWidget::new(help, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::HunkMergePreview(preview) => {
-            let widget = HunkMergePreviewWidget::new(preview, state.palette.bg);
+            let widget = HunkMergePreviewWidget::new(preview, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::Info(ref msg) => {
             render_info_dialog(frame, msg, state.palette.bg);
         }
         DialogState::Progress(ref progress) => {
-            render_progress_dialog(frame, progress, state.palette.bg);
+            render_progress_dialog(
+                frame,
+                progress,
+                state.palette.bg,
+                state.palette.dialog_accent,
+            );
         }
         DialogState::WriteConfirmation => {
             render_simple_dialog(
@@ -192,15 +197,14 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
                 frame,
                 " Unsaved Changes ",
                 "You have unsaved changes. Discard and quit?",
-                Color::Yellow,
+                state.palette.dialog_accent,
                 state.palette.bg,
             );
         }
         DialogState::MtimeWarning(ref dialog) => {
             let widget = MtimeWarningDialogWidget {
                 dialog,
-                border_color: Color::Yellow,
-                bg: state.palette.bg,
+                palette: &state.palette,
             };
             frame.render_widget(widget, frame.area());
         }
@@ -209,7 +213,7 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             frame.render_widget(widget, frame.area());
         }
         DialogState::ThreeWaySummary(ref panel) => {
-            let widget = ThreeWaySummaryWidget::new(panel, state.palette.bg);
+            let widget = ThreeWaySummaryWidget::new(panel, &state.palette);
             frame.render_widget(widget, frame.area());
         }
         DialogState::None => {}
@@ -255,7 +259,7 @@ fn render_info_dialog(frame: &mut Frame, message: &str, bg: Color) {
 }
 
 /// プログレスダイアログを描画する
-fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Color) {
+fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Color, accent: Color) {
     let dialog_area = centered_rect(50, 8, frame.area());
     frame.render_widget(Clear, dialog_area);
 
@@ -299,9 +303,7 @@ fn render_progress_dialog(frame: &mut Frame, progress: &ProgressDialog, bg: Colo
         Span::raw("  "),
         Span::styled(
             text,
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ),
     ]));
     frame.render_widget(msg, chunks[2]);

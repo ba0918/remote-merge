@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
 use crate::diff::engine::HunkDirection;
+use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
 
@@ -49,12 +50,12 @@ impl HunkMergePreview {
 /// ハンクマージプレビューウィジェット
 pub struct HunkMergePreviewWidget<'a> {
     preview: &'a HunkMergePreview,
-    bg: Color,
+    palette: &'a TuiPalette,
 }
 
 impl<'a> HunkMergePreviewWidget<'a> {
-    pub fn new(preview: &'a HunkMergePreview, bg: Color) -> Self {
-        Self { preview, bg }
+    pub fn new(preview: &'a HunkMergePreview, palette: &'a TuiPalette) -> Self {
+        Self { preview, palette }
     }
 
     /// before/after テキストから差分がある行のみを抽出して表示用行を生成
@@ -76,7 +77,15 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
         let width = area.width.min(76);
         let height = area.height.min(24);
         let title = format!(" Hunk Merge Preview ({}) ", self.preview.direction_label);
-        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf, self.bg);
+        let inner = render_dialog_frame(
+            &title,
+            self.palette.dialog_accent,
+            width,
+            height,
+            area,
+            buf,
+            self.palette.bg,
+        );
 
         let half_height = inner.height.saturating_sub(4) / 2;
         let constraints = vec![
@@ -198,7 +207,9 @@ mod tests {
         );
         let area = Rect::new(0, 0, 80, 30);
         let mut buf = Buffer::empty(area);
-        let widget = HunkMergePreviewWidget::new(&preview, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = HunkMergePreviewWidget::new(&preview, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

@@ -8,6 +8,7 @@ use ratatui::widgets::{Paragraph, Widget};
 
 use crate::app::Badge;
 use crate::merge::executor::MergeDirection;
+use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
 
@@ -97,12 +98,12 @@ impl BatchConfirmDialog {
 /// バッチマージ確認ダイアログウィジェット
 pub struct BatchConfirmDialogWidget<'a> {
     dialog: &'a BatchConfirmDialog,
-    bg: Color,
+    palette: &'a TuiPalette,
 }
 
 impl<'a> BatchConfirmDialogWidget<'a> {
-    pub fn new(dialog: &'a BatchConfirmDialog, bg: Color) -> Self {
-        Self { dialog, bg }
+    pub fn new(dialog: &'a BatchConfirmDialog, palette: &'a TuiPalette) -> Self {
+        Self { dialog, palette }
     }
 }
 
@@ -124,7 +125,15 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         let height = (visible_files as u16) + (warning_lines as u16) + 6;
         let width = area.width.min(70);
         let title = format!(" Batch Merge ({} files) ", file_count);
-        let inner = render_dialog_frame(&title, Color::Yellow, width, height, area, buf, self.bg);
+        let inner = render_dialog_frame(
+            &title,
+            self.palette.dialog_accent,
+            width,
+            height,
+            area,
+            buf,
+            self.palette.bg,
+        );
 
         let mut constraints: Vec<Constraint> = Vec::new();
         constraints.push(Constraint::Length(1)); // メッセージ行
@@ -172,7 +181,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
             "All files have been diff-checked"
         };
         let caution_color = if has_unchecked {
-            Color::Yellow
+            self.palette.dialog_accent
         } else {
             Color::Green
         };
@@ -192,7 +201,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                         "⚠ {} unchecked director(ies) found",
                         self.dialog.unchecked_count
                     ),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(self.palette.dialog_accent),
                 ),
             ]));
             warn.render(chunks[row], buf);
@@ -223,9 +232,9 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         for i in start..end {
             if let Some((path, badge)) = self.dialog.files.get(i) {
                 let badge_style = match badge {
-                    Badge::Modified => Style::default().fg(Color::Yellow), // Step 4 でパレット化
-                    Badge::LeftOnly => Style::default().fg(Color::Green),
-                    Badge::RightOnly => Style::default().fg(Color::Red),
+                    Badge::Modified => Style::default().fg(self.palette.badge_modified),
+                    Badge::LeftOnly => Style::default().fg(self.palette.badge_left_only),
+                    Badge::RightOnly => Style::default().fg(self.palette.badge_right_only),
                     _ => Style::default().fg(Color::White),
                 };
                 let is_sensitive = self.dialog.sensitive_files.contains(path);
@@ -264,7 +273,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         // ガイド行
         if row < chunks.len() {
             let suffix = if self.dialog.is_large_batch() {
-                Some(("(large batch)", Color::Yellow))
+                Some(("(large batch)", self.palette.dialog_accent))
             } else {
                 None
             };
@@ -331,7 +340,9 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 30);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = BatchConfirmDialogWidget::new(&batch, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = BatchConfirmDialogWidget::new(&batch, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)

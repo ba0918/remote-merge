@@ -7,6 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
 use crate::merge::executor::MergeDirection;
+use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
 
@@ -69,12 +70,12 @@ impl ConfirmDialog {
 /// 確認ダイアログウィジェット
 pub struct ConfirmDialogWidget<'a> {
     dialog: &'a ConfirmDialog,
-    bg: Color,
+    palette: &'a TuiPalette,
 }
 
 impl<'a> ConfirmDialogWidget<'a> {
-    pub fn new(dialog: &'a ConfirmDialog, bg: Color) -> Self {
-        Self { dialog, bg }
+    pub fn new(dialog: &'a ConfirmDialog, palette: &'a TuiPalette) -> Self {
+        Self { dialog, palette }
     }
 }
 
@@ -87,12 +88,12 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
 
         let inner = render_dialog_frame(
             " Merge Confirmation ",
-            Color::Yellow,
+            self.palette.dialog_accent,
             60,
             dialog_height,
             area,
             buf,
-            self.bg,
+            self.palette.bg,
         );
 
         let chunks = Layout::default()
@@ -201,7 +202,9 @@ mod tests {
 
         let area = Rect::new(0, 0, 80, 20);
         let mut buf = ratatui::buffer::Buffer::empty(area);
-        let widget = ConfirmDialogWidget::new(&dialog, Color::Rgb(0x2b, 0x30, 0x3b));
+        let ts = syntect::highlighting::ThemeSet::load_defaults();
+        let palette = TuiPalette::from_theme(&ts.themes["base16-ocean.dark"]);
+        let widget = ConfirmDialogWidget::new(&dialog, &palette);
         widget.render(area, &mut buf);
 
         let content: String = (0..area.height)
