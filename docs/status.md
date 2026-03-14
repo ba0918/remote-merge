@@ -1,16 +1,27 @@
 # Project Status
 
-**Last Updated:** 2026-03-13 22:04
+**Last Updated:** 2026-03-14 14:00
 
 ---
 
 ## 🎯 Current Session
 
+### 20260314133920 - バッジ色のライトテーマ対応
+- **Started:** 2026-03-14 13:39:20
+- **Completed:** 2026-03-14
+- **Status:** 🟢 Complete
+- **Plan:** [Link](./cycles/20260314133920_fix-badge-color-light-theme.md)
+- **Summary:** ライト系テーマで黄色バッジが背景に同化する問題を修正。バッジ色を TuiPalette に集約し、ライト時は紫系、ダーク時は従来の黄色系に切り替え。
+
+---
+
 ### 20260314002623 - コードベース品質改善リファクタリング
 - **Started:** 2026-03-14 00:26:23
-- **Status:** 🟡 Planning
+- **Completed:** 2026-03-14
+- **Status:** 🟢 Complete
 - **Plan:** [Link](./cycles/20260314002623_codebase-refactoring.md)
-- **Summary:** コードベース全体の品質改善。side_io.rs（2877行）の try_agent_* ボイラープレート統一、badge.rs（1614行）の純粋関数化、Handler 層の薄化、dialog_ops.rs の Service 層移行、selection.rs の I/O オフロード、クローン削減。7ステップ段階的リファクタリング。
+- **Result:** [Link](./cycles/20260314002623_codebase-refactoring_result.md)
+- **Summary:** コードベース全体の品質改善。side_io.rs の純粋関数抽出（6関数）、badge.rs のバッジ計算純粋関数化（3関数）、dialog_ops.rs のマージ候補フィルタリング純粋関数化、Handler 層薄化（tree_keys/merge_batch/merge_exec）、selection.rs の I/O と状態更新分離、ホットパスのクローン削減。7ステップ全完了、+56テスト（2254テスト通過）、7コミット、testenv QA全パス。
 
 ---
 
