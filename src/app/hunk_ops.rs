@@ -148,16 +148,17 @@ impl AppState {
         let local_content = self.left_cache.get(&path)?.clone();
         let remote_content = self.right_cache.get(&path)?.clone();
 
-        self.push_undo_snapshot(CacheSnapshot {
-            local_content: local_content.clone(),
-            remote_content: remote_content.clone(),
-        });
-
-        // 適用先テキストを取得
+        // 適用先テキストを先に取得（clone 1回で済ませるため snapshot push 前に分岐）
         let original = match direction {
-            HunkDirection::RightToLeft => local_content,
-            HunkDirection::LeftToRight => remote_content,
+            HunkDirection::RightToLeft => local_content.clone(),
+            HunkDirection::LeftToRight => remote_content.clone(),
         };
+
+        // snapshot は所有権移動で clone 不要
+        self.push_undo_snapshot(CacheSnapshot {
+            local_content,
+            remote_content,
+        });
 
         let new_text = engine::apply_hunk_to_text(
             &original,
@@ -571,6 +572,36 @@ mod tests {
         // diff も正しく再計算されていること
         assert!(state.current_diff.is_some());
         assert!(state.hunk_count() > 0);
+    }
+
+    #[test]
+    fn test_apply_hunk_snapshot_stores_original_content() {
+        // apply_hunk_merge のスナップショットが元のコンテンツを正しく保持していることを確認
+        // （クローン削減後も所有権移動で正しくスナップショットに保存される）
+        let left = "line1\noriginal_left\nline3\n";
+        let right = "line1\noriginal_right\nline3\n";
+        let mut state = make_state_with_diff(left, right);
+
+        state.apply_hunk_merge(HunkDirection::RightToLeft);
+        assert_eq!(state.undo_stack.len(), 1);
+
+        let snapshot = state.undo_stack.back().unwrap();
+        assert_eq!(snapshot.local_content, left);
+        assert_eq!(snapshot.remote_content, right);
+    }
+
+    #[test]
+    fn test_apply_hunk_snapshot_left_to_right() {
+        let left = "aaa\nbbb\n";
+        let right = "aaa\nccc\n";
+        let mut state = make_state_with_diff(left, right);
+
+        state.apply_hunk_merge(HunkDirection::LeftToRight);
+        assert_eq!(state.undo_stack.len(), 1);
+
+        let snapshot = state.undo_stack.back().unwrap();
+        assert_eq!(snapshot.local_content, left);
+        assert_eq!(snapshot.remote_content, right);
     }
 
     #[test]

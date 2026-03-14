@@ -218,18 +218,19 @@ impl AppState {
             }
             Some(DiffResult::Modified { lines, .. }) => {
                 let ref_content = match self.ref_cache.get(&path) {
-                    Some(content) => content.clone(),
+                    Some(content) => content.as_str(),
                     None => {
                         self.status_message =
                             "Reference content not loaded. Expand directory first.".to_string();
                         return;
                     }
                 };
-                let left_content = self.left_cache.get(&path).cloned().unwrap_or_default();
-                let right_content = self.right_cache.get(&path).cloned().unwrap_or_default();
+                let empty = String::new();
+                let left_content = self.left_cache.get(&path).unwrap_or(&empty);
+                let right_content = self.right_cache.get(&path).unwrap_or(&empty);
 
                 let summary_lines =
-                    collect_summary_lines(lines, &left_content, &right_content, &ref_content);
+                    collect_summary_lines(lines, left_content, right_content, ref_content);
                 if summary_lines.is_empty() {
                     self.status_message =
                         "All content is equal across all three servers".to_string();
