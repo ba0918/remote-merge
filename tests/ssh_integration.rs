@@ -194,6 +194,22 @@ impl server::Handler for TestHandler {
     }
 }
 
+/// 指定ホスト:ポートの known_hosts エントリを削除する。
+/// connect_with_verifier テストでポート再利用時の MITM 誤検知を防ぐ。
+fn remove_known_hosts_entry(host: &str, port: u16) {
+    let path = dirs::home_dir()
+        .map(|h| h.join(".ssh").join("known_hosts"))
+        .expect("home dir");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let pattern = format!("[{}]:{}", host, port);
+    let filtered: Vec<&str> = content.lines().filter(|l| !l.contains(&pattern)).collect();
+    if filtered.len() < content.lines().count() {
+        let _ = std::fs::write(&path, filtered.join("\n") + "\n");
+    }
+}
+
 /// テスト用 SSH サーバーを起動し、TestServerHandle を返す
 async fn start_test_server() -> TestServerHandle {
     start_test_server_with_password(None).await
@@ -227,7 +243,7 @@ async fn start_test_server_with_password(password: Option<String>) -> TestServer
 
     // bind と run_on_socket を同一 async ブロック内で実行し、
     // ポートだけ oneshot channel で通知する。
-    // これにより drop → 再バインドの TOCTOU レースと sleep の不確実性を両方解消。
+    // これにより drop → 再バインドの TOCTOU レースを解消。
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -645,6 +661,9 @@ async fn test_connect_with_verifier_accept_succeeds() {
     let handle = start_test_server().await;
     handle.registry.register("echo ok", "ok\n", 0);
 
+    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
+    remove_known_hosts_entry("127.0.0.1", handle.port);
+
     let key_file = generate_test_key();
     let server_config = make_server_config(
         handle.port,
@@ -659,8 +678,6 @@ async fn test_connect_with_verifier_accept_succeeds() {
             .await;
 
     // 未知ホスト（テストの known_hosts には登録されていない）なので verifier が呼ばれる。
-    // ただし、テスト環境の known_hosts に 127.0.0.1 が既に登録されている場合は
-    // verifier が呼ばれないので、接続成功のみを検証する。
     assert!(
         result.is_ok(),
         "connect_with_verifier should succeed when verifier accepts"
@@ -675,6 +692,9 @@ async fn test_connect_with_verifier_reject_fails() {
     // verifier が false を返す → 接続拒否
     let handle = start_test_server().await;
 
+    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
+    remove_known_hosts_entry("127.0.0.1", handle.port);
+
     let key_file = generate_test_key();
     let server_config = make_server_config(
         handle.port,
@@ -688,23 +708,18 @@ async fn test_connect_with_verifier_reject_fails() {
         SshClient::connect_with_verifier("test", &server_config, &ssh_config, &verifier, None)
             .await;
 
-    // 未知ホストの場合、verifier が false を返すと接続が拒否される。
-    // known_hosts に既に登録されていて verifier が呼ばれない場合は接続成功する。
-    // → テスト環境依存なので、verifier が呼ばれたかどうかで分岐。
-    if verifier.was_called() {
-        assert!(result.is_err(), "connect should fail when verifier rejects");
-        let err_msg = format!("{}", result.err().expect("should be error"));
-        assert!(
-            err_msg.contains("Host key verification failed"),
-            "error should mention verification failure: {}",
-            err_msg,
-        );
-    } else {
-        // known_hosts に既に登録済み → verifier 未呼び出し → 接続成功
-        assert!(result.is_ok(), "known host should connect without verifier");
-        let client = result.unwrap();
-        client.disconnect().await.expect("切断に失敗");
-    }
+    // 未知ホスト → verifier が false を返す → 接続拒否
+    assert!(
+        verifier.was_called(),
+        "verifier should be called for unknown host"
+    );
+    assert!(result.is_err(), "connect should fail when verifier rejects");
+    let err_msg = format!("{}", result.err().expect("should be error"));
+    assert!(
+        err_msg.contains("Host key verification failed"),
+        "error should mention verification failure: {}",
+        err_msg,
+    );
 }
 
 #[tokio::test]
@@ -738,6 +753,9 @@ async fn test_verifier_called_at_most_once_per_connection() {
     // verifier は1回の接続で最大1回だけ呼ばれる
     let handle = start_test_server().await;
     handle.registry.register("echo ok", "ok\n", 0);
+
+    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
+    remove_known_hosts_entry("127.0.0.1", handle.port);
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
