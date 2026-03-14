@@ -44,15 +44,21 @@ fn collect_file_names_from_tree(
     dir_path: &str,
     names: &mut std::collections::BTreeSet<String>,
 ) {
-    let node = match tree.find_node(Path::new(dir_path)) {
-        Some(n) => n,
-        None => return,
+    // ルート直下の場合は tree.nodes から直接収集
+    let children = if dir_path.is_empty() {
+        &tree.nodes
+    } else {
+        match tree.find_node(Path::new(dir_path)) {
+            Some(n) => match &n.children {
+                Some(c) => c,
+                None => return,
+            },
+            None => return,
+        }
     };
-    if let Some(children) = &node.children {
-        for child in children {
-            if !child.is_dir() && !child.is_symlink() {
-                names.insert(child.name.clone());
-            }
+    for child in children {
+        if !child.is_dir() && !child.is_symlink() {
+            names.insert(child.name.clone());
         }
     }
 }
@@ -138,6 +144,31 @@ mod tests {
     }
 
     // ── collect_direct_children_files ──
+
+    #[test]
+    fn collect_direct_children_files_root_returns_top_level_files() {
+        let left = make_tree(vec![
+            FileNode::new_file("readme.md"),
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
+        ]);
+        let right = make_tree(vec![FileNode::new_file("config.toml")]);
+
+        let result = collect_direct_children_files(&left, &right, "");
+        assert_eq!(result, vec!["config.toml", "readme.md"]);
+    }
+
+    #[test]
+    fn collect_direct_children_files_root_excludes_dirs_and_symlinks() {
+        let left = make_tree(vec![
+            FileNode::new_file("a.txt"),
+            FileNode::new_dir_with_children("src", vec![]),
+            FileNode::new_symlink("link", "target"),
+        ]);
+        let right = make_tree(vec![]);
+
+        let result = collect_direct_children_files(&left, &right, "");
+        assert_eq!(result, vec!["a.txt"]);
+    }
 
     #[test]
     fn collect_direct_children_files_returns_direct_files_only() {

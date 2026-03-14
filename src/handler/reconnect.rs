@@ -196,6 +196,15 @@ fn restore_tree_state(
     if let Some(path) = cursor_path {
         restore_cursor_position(state, &path);
     }
+
+    // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
+    // start_badge_scan が state を変更するため expanded_dirs を事前にクローン
+    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+    for dir in scan_dirs {
+        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
+    }
+    // ルート直下は未展開でもトップレベルに表示されるため常にスキャン
+    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
 }
 
 /// right ↔ ref スワップを実行する（X キー）
@@ -581,6 +590,137 @@ mod tests {
                 receiver: rx,
                 cancel_flag: flag,
             },
+        );
+    }
+
+    /// テスト用のツリーを作成するヘルパー（ルート直下にファイルあり）
+    fn make_tree_with_root_file() -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        }
+    }
+
+    /// テスト用のツリーを作成するヘルパー（ルート直下 + 展開可能なディレクトリ）
+    fn make_tree_with_dir() -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![
+                FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
+                FileNode::new_file("a.txt"),
+            ],
+        }
+    }
+
+    #[test]
+    fn restore_tree_state_starts_root_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_root_file();
+        let right = make_tree_with_root_file();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        let expanded = HashSet::new();
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // ルート直下のバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started"
+        );
+    }
+
+    #[test]
+    fn restore_tree_state_starts_expanded_dir_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_dir();
+        let right = make_tree_with_dir();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        let mut expanded = HashSet::new();
+        expanded.insert("src".to_string());
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // 展開済みディレクトリのバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key("src"),
+            "expanded dir badge scan should be started"
+        );
+        // ルート直下も起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should also be started"
+        );
+    }
+
+    #[test]
+    fn restore_tree_state_no_expanded_dirs_still_scans_root() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_root_file();
+        let right = make_tree_with_root_file();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        let expanded = HashSet::new();
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // 展開ディレクトリが0でもルート直下のスキャンは起動される
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started even with no expanded dirs"
         );
     }
 
