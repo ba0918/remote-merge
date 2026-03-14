@@ -31,10 +31,10 @@ cargo test <name>                  # single test
 - Upper modules compose domain logic only — no business logic in routing/wiring
 
 ### 3. Layer separation
-- **Domain**: pure logic, no side effects
-- **Service**: domain composition + I/O
-- **Handler**: thin event → service translation
-- **UI**: rendering only
+- **Domain** (`app/`): pure logic, no side effects
+- **Service** (`service/`, `runtime/`): domain composition + I/O
+- **Handler** (`handler/`): thin event → service translation
+- **UI** (`ui/`): rendering only
 
 ### 4. Testability
 - Small modules = easy to test. Few dependencies = no mocks needed
@@ -98,7 +98,7 @@ Rules:
 - Body: Japanese, explain why/context
 - No footer (no Co-Authored-By) by default
 - MUST pass pre-commit hooks (fmt + clippy + tests). `--no-verify` is FORBIDDEN
-- Pre-commit hook runs full test suite (2300+ tests). Use `timeout: 600000` (10 min) for `git commit` calls to avoid timeout failures
+- Pre-commit hook runs full test suite (2600+ tests). Use `timeout: 600000` (10 min) for `git commit` calls to avoid timeout failures
 
 Example:
 ```

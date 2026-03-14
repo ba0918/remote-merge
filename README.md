@@ -28,7 +28,7 @@ irm https://raw.githubusercontent.com/ba0918/remote-merge/main/scripts/install.p
 バージョン指定やインストール先の変更も可能:
 
 ```bash
-VERSION=v0.1.0 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
+VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
 ```
 
 **ソースからビルド:**
@@ -109,12 +109,12 @@ exclude = [".git", "node_modules", "vendor"]
 sensitive = [".env", "*.pem"]
 
 [ssh]
-timeout_sec = 10
+timeout_sec = 300
 strict_host_key_checking = "ask"  # "yes", "no", "ask"
 
 [backup]
 enabled = true
-retention_days = 30
+retention_days = 7
 ```
 
 ## License
