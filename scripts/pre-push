@@ -1,19 +1,13 @@
 #!/bin/sh
-# pre-push hook: unit tests + integration tests
 set -e
 
-echo "pre-push: unit tests..."
-cargo test --lib --all-features
-if [ $? -ne 0 ]; then
-    echo "ERROR: unit tests failed. Push aborted."
-    exit 1
-fi
-
-echo "pre-push: integration tests..."
-cargo test --test '*' --all-features
-if [ $? -ne 0 ]; then
-    echo "ERROR: integration tests failed. Push aborted."
-    exit 1
+echo "pre-push: tests..."
+if command -v cargo-nextest >/dev/null 2>&1; then
+    cargo nextest run --all-features
+else
+    echo "(nextest not found, falling back to cargo test)"
+    cargo test --lib --all-features
+    cargo test --test '*' --all-features
 fi
 
 echo "pre-push: OK"
