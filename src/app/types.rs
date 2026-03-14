@@ -1,5 +1,6 @@
 //! TUI アプリケーションで使用する型定義。
 
+use crate::diff::binary::BinaryInfo;
 use crate::tree::FileNode;
 
 /// undo スタックの最大保持数
@@ -168,6 +169,23 @@ pub struct MergedNode {
     pub ref_only: bool,
 }
 
+/// バッジスキャンの進捗メッセージ（ワーカースレッド → メインスレッド）
+#[derive(Debug)]
+pub enum BadgeScanMsg {
+    /// 1ファイルのスキャン結果（コンテンツ + バイナリ情報）
+    FileResult {
+        path: String,
+        left_content: Option<String>,
+        right_content: Option<String>,
+        left_binary: Option<BinaryInfo>,
+        right_binary: Option<BinaryInfo>,
+    },
+    /// スキャン完了
+    Done { dir_path: String },
+    /// エラー（致命的でない、ログのみ）
+    Error { path: String, message: String },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,6 +282,123 @@ mod tests {
         };
         assert_eq!(parent.children.len(), 1);
         assert_eq!(parent.children[0].name, "file.rs");
+    }
+
+    #[test]
+    fn test_badge_scan_msg_file_result() {
+        let msg = BadgeScanMsg::FileResult {
+            path: "src/main.rs".to_string(),
+            left_content: Some("hello".to_string()),
+            right_content: Some("world".to_string()),
+            left_binary: None,
+            right_binary: None,
+        };
+        match msg {
+            BadgeScanMsg::FileResult {
+                path,
+                left_content,
+                right_content,
+                ..
+            } => {
+                assert_eq!(path, "src/main.rs");
+                assert_eq!(left_content.unwrap(), "hello");
+                assert_eq!(right_content.unwrap(), "world");
+            }
+            _ => panic!("Expected FileResult variant"),
+        }
+    }
+
+    #[test]
+    fn test_badge_scan_msg_done() {
+        let msg = BadgeScanMsg::Done {
+            dir_path: "src".to_string(),
+        };
+        match msg {
+            BadgeScanMsg::Done { dir_path } => assert_eq!(dir_path, "src"),
+            _ => panic!("Expected Done variant"),
+        }
+    }
+
+    #[test]
+    fn test_badge_scan_msg_error() {
+        let msg = BadgeScanMsg::Error {
+            path: "src/main.rs".to_string(),
+            message: "read failed".to_string(),
+        };
+        match msg {
+            BadgeScanMsg::Error { path, message } => {
+                assert_eq!(path, "src/main.rs");
+                assert_eq!(message, "read failed");
+            }
+            _ => panic!("Expected Error variant"),
+        }
+    }
+
+    #[test]
+    fn test_badge_scan_msg_file_result_with_binary() {
+        let info = BinaryInfo::from_bytes(&[0u8; 32]);
+        let msg = BadgeScanMsg::FileResult {
+            path: "img.png".to_string(),
+            left_content: None,
+            right_content: None,
+            left_binary: Some(info.clone()),
+            right_binary: Some(info),
+        };
+        match msg {
+            BadgeScanMsg::FileResult {
+                left_binary,
+                right_binary,
+                ..
+            } => {
+                assert!(left_binary.is_some());
+                assert!(right_binary.is_some());
+            }
+            _ => panic!("Expected FileResult variant"),
+        }
+    }
+
+    #[test]
+    fn test_badge_scan_msg_file_result_left_only() {
+        let msg = BadgeScanMsg::FileResult {
+            path: "left_only.rs".to_string(),
+            left_content: Some("content".to_string()),
+            right_content: None,
+            left_binary: None,
+            right_binary: None,
+        };
+        match msg {
+            BadgeScanMsg::FileResult {
+                left_content,
+                right_content,
+                ..
+            } => {
+                assert!(left_content.is_some());
+                assert!(right_content.is_none());
+            }
+            _ => panic!("Expected FileResult variant"),
+        }
+    }
+
+    #[test]
+    fn test_badge_scan_msg_file_result_right_only() {
+        let msg = BadgeScanMsg::FileResult {
+            path: "right_only.rs".to_string(),
+            left_content: None,
+            right_content: Some("content".to_string()),
+            left_binary: None,
+            right_binary: None,
+        };
+        match msg {
+            BadgeScanMsg::FileResult {
+                left_content,
+                right_content,
+                ..
+            } => {
+                assert!(left_content.is_none());
+                assert!(right_content.is_some());
+            }
+            _ => panic!("Expected FileResult variant"),
+        }
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! Runtime: TUI/CLI 共通基盤 (CoreRuntime) + TUI 専用ランタイム (TuiRuntime)。
 
+pub mod badge_scan;
 pub mod bootstrap;
 pub mod core;
 pub mod merge_scan;

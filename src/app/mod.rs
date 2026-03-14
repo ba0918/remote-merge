@@ -37,8 +37,8 @@ use crate::ui::dialog::DialogState;
 pub use side::Side;
 
 pub use types::{
-    Badge, CacheSnapshot, DiffMode, FlatNode, Focus, MergeScanMsg, MergeScanResult, MergeScanState,
-    MergedNode, ScanState,
+    Badge, BadgeScanMsg, CacheSnapshot, DiffMode, FlatNode, Focus, MergeScanMsg, MergeScanResult,
+    MergeScanState, MergedNode, ScanState,
 };
 
 /// TUI アプリケーション全体の状態
