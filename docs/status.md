@@ -1,10 +1,18 @@
 # Project Status
 
-**Last Updated:** 2026-03-14 18:50
+**Last Updated:** 2026-03-14 19:38
 
 ---
 
 ## 🎯 Current Session
+
+### 20260314193829 - nextest 導入と並列テスト安全性確保
+- **Started:** 2026-03-14 19:38:29
+- **Status:** 🟡 Planning
+- **Plan:** [Link](./cycles/20260314193829_nextest-serial-test.md)
+- **Summary:** pre-commit/pre-push のテストタイムアウト問題を根治。`serial_test` で環境変数テスト4個を並列安全化、`cargo-nextest` でテスト実行を高速化、フック更新。
+
+---
 
 ### 20260314183104 - サーバ切替時の展開済みディレクトリ自動バッジスキャン
 - **Started:** 2026-03-14 18:31:04
