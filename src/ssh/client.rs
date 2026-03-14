@@ -1433,6 +1433,7 @@ mod tests {
     // ── W3: 環境変数の空文字列チェック ──
 
     #[test]
+    #[serial_test::serial]
     fn test_empty_env_var_is_ignored() {
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_EMPTYENVTEST";
         unsafe { std::env::set_var(env_key, "") };

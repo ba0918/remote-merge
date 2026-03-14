@@ -14,6 +14,7 @@ Rust, ratatui, tokio, russh, similar, toml+serde, anyhow, tracing
 
 ```
 cargo build / cargo run / cargo test / cargo clippy / cargo fmt
+cargo nextest run              # nextest でテスト実行（推奨）
 cargo run -- --server develop      # specify server
 cargo test <name>                  # single test
 ```
@@ -97,7 +98,8 @@ Rules:
 - Subject: concise Japanese
 - Body: Japanese, explain why/context
 - No footer (no Co-Authored-By) by default
-- MUST pass pre-commit hooks (fmt + clippy). `--no-verify` is FORBIDDEN
+- MUST pass pre-commit hooks (fmt + clippy + tests). `--no-verify` is FORBIDDEN
+- Pre-commit hook runs full test suite (2300+ tests). Use `timeout: 600000` (10 min) for `git commit` calls to avoid timeout failures
 
 Example:
 ```

@@ -196,6 +196,9 @@ fn restore_tree_state(
     if let Some(path) = cursor_path {
         restore_cursor_position(state, &path);
     }
+
+    // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
+    start_badge_scans_for_visible_dirs(state, runtime);
 }
 
 /// right ↔ ref スワップを実行する（X キー）
@@ -207,6 +210,9 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
         state.dialog = crate::ui::dialog::DialogState::UnsavedChanges;
         return;
     }
+
+    // 旧 right のバッジスキャンをキャンセル（結果が新 right に誤適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
 
     // 選択中のパスを保持（swap 後にカーソル位置と diff を再計算するため）
     let selected_path = state.selected_path.clone();
@@ -241,6 +247,9 @@ pub fn execute_ref_swap(state: &mut AppState, runtime: &mut TuiRuntime) {
             state.current_diff = None;
         }
     }
+
+    // 展開済みディレクトリ＋ルート直下のバッジスキャンを自動起動
+    start_badge_scans_for_visible_dirs(state, runtime);
 }
 
 /// ペアサーバ切替を実行する（LEFT/RIGHT 両方を変更）
@@ -256,6 +265,9 @@ pub fn execute_pair_switch(
     let expanded_backup = state.expanded_dirs.clone();
     let cursor_path = state.current_path();
     let scroll_backup = state.tree_scroll;
+
+    // 旧サーバのバッジスキャンをキャンセル（結果が新サーバに適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
 
     // Side を構築
     let new_left = Side::new(left_name);
@@ -402,6 +414,19 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
     }
 }
 
+/// 展開済みディレクトリ＋ルート直下のバッジスキャンをまとめて起動する。
+///
+/// expanded_dirs を事前にクローンしてからループするため、
+/// start_badge_scan 内での state 変更と衝突しない。
+fn start_badge_scans_for_visible_dirs(state: &mut AppState, runtime: &mut TuiRuntime) {
+    let scan_dirs: Vec<String> = state.expanded_dirs.iter().cloned().collect();
+    for dir in scan_dirs {
+        crate::runtime::badge_scan::start_badge_scan(state, runtime, &dir);
+    }
+    // ルート直下は未展開でもトップレベルに表示されるため常にスキャン
+    crate::runtime::badge_scan::start_badge_scan(state, runtime, "");
+}
+
 /// サーバ切替を実行する（右側のサーバを切り替え）
 pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, server_name: &str) {
     let new_side = Side::new(server_name);
@@ -412,6 +437,9 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
     let expanded_backup = state.expanded_dirs.clone();
     let cursor_path = state.current_path();
     let scroll_backup = state.tree_scroll;
+
+    // 旧サーバのバッジスキャンをキャンセル（結果が新サーバに適用されるのを防ぐ）
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
 
     // 古い右側接続を切断
     if let Side::Remote(old_name) = &state.right_source {
@@ -480,8 +508,12 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
 mod tests {
     use super::*;
     use crate::app::types::{Badge, FlatNode};
+    use crate::runtime::badge_scan::BadgeScanEntry;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+    use std::sync::Arc;
 
     /// テスト用の FlatNode を作成するヘルパー
     fn make_flat_node(path: &str) -> FlatNode {
@@ -559,5 +591,266 @@ mod tests {
 
         // tree_cursor は変わらない
         assert_eq!(state.tree_cursor, 0);
+    }
+
+    /// runtime にダミーのバッジスキャンエントリを挿入するヘルパー
+    fn insert_dummy_badge_scan(runtime: &mut TuiRuntime, dir: &str) {
+        let (_tx, rx) = mpsc::channel();
+        let flag = Arc::new(AtomicBool::new(false));
+        runtime.badge_scans.insert(
+            dir.to_string(),
+            BadgeScanEntry {
+                receiver: rx,
+                cancel_flag: flag,
+            },
+        );
+    }
+
+    /// テスト用のツリーを作成するヘルパー（ルート直下にファイルあり）
+    fn make_tree_with_root_file() -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        }
+    }
+
+    /// テスト用のツリーを作成するヘルパー（ルート直下 + 展開可能なディレクトリ）
+    fn make_tree_with_dir() -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![
+                FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs")]),
+                FileNode::new_file("a.txt"),
+            ],
+        }
+    }
+
+    #[test]
+    fn restore_tree_state_starts_root_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_root_file();
+        let right = make_tree_with_root_file();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        let expanded = HashSet::new();
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // ルート直下のバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started"
+        );
+    }
+
+    #[test]
+    fn restore_tree_state_starts_expanded_dir_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_dir();
+        let right = make_tree_with_dir();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        let mut expanded = HashSet::new();
+        expanded.insert("src".to_string());
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // 展開済みディレクトリのバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key("src"),
+            "expanded dir badge scan should be started"
+        );
+        // ルート直下も起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should also be started"
+        );
+    }
+
+    #[test]
+    fn restore_tree_state_no_expanded_dirs_still_scans_root() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_root_file();
+        let right = make_tree_with_root_file();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        state.rebuild_flat_nodes();
+
+        let expanded = HashSet::new();
+        let left_source = Side::Local;
+        let right_source = Side::Remote("test".to_string());
+
+        restore_tree_state(
+            &mut state,
+            &mut runtime,
+            expanded,
+            None,
+            0,
+            &left_source,
+            &right_source,
+        );
+
+        // 展開ディレクトリが0でもルート直下のスキャンは起動される
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started even with no expanded dirs"
+        );
+    }
+
+    #[test]
+    fn server_switch_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "lib");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_server_switch は Remote 接続に失敗して早期リターンするが、
+        // cancel_all_badge_scans は接続前に呼ばれるのでクリアされる
+        execute_server_switch(&mut state, &mut runtime, "staging");
+        assert!(
+            runtime.badge_scans.is_empty(),
+            "badge scans should be cancelled before server switch"
+        );
+    }
+
+    #[test]
+    fn ref_swap_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_root_file());
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "lib");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_ref_swap はスワップ前にバッジスキャンをキャンセルする
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // swap 後に新しいスキャンが起動されるため badge_scans は空ではないが、
+        // 旧エントリ（src, lib）はキャンセルされている。
+        // swap 後にルート直下のスキャンが起動されるため、"" キーは存在する。
+        // 旧エントリがキャンセルされたことは、cancel_all_badge_scans が
+        // swap_right_ref の前に呼ばれることで保証される。
+        // ここでは cancel 後に新しいスキャンだけが残ることを確認する。
+        assert!(
+            !runtime.badge_scans.contains_key("src"),
+            "old badge scan 'src' should be cancelled"
+        );
+        assert!(
+            !runtime.badge_scans.contains_key("lib"),
+            "old badge scan 'lib' should be cancelled"
+        );
+    }
+
+    #[test]
+    fn ref_swap_starts_badge_scans_for_expanded_dirs() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let left = make_tree_with_dir();
+        let right = make_tree_with_dir();
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_dir());
+
+        // 展開済みディレクトリを設定
+        state.expanded_dirs.insert("src".to_string());
+        state.rebuild_flat_nodes();
+
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // 展開済みディレクトリのバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key("src"),
+            "expanded dir badge scan should be started after ref swap"
+        );
+    }
+
+    #[test]
+    fn ref_swap_starts_root_badge_scan() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+        // ref_source を設定（swap_right_ref が動作するために必要）
+        state.ref_source = Some(Side::Remote("ref-server".to_string()));
+        state.ref_tree = Some(make_tree_with_root_file());
+        state.rebuild_flat_nodes();
+
+        execute_ref_swap(&mut state, &mut runtime);
+
+        // ルート直下のバッジスキャンが起動されている
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root badge scan should be started after ref swap"
+        );
+    }
+
+    #[test]
+    fn pair_switch_cancels_existing_badge_scans() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = make_state();
+
+        // ダミーのバッジスキャンエントリを挿入
+        insert_dummy_badge_scan(&mut runtime, "src");
+        insert_dummy_badge_scan(&mut runtime, "tests");
+        assert_eq!(runtime.badge_scans.len(), 2);
+
+        // execute_pair_switch は接続に失敗して早期リターンするが、
+        // cancel_all_badge_scans は接続前に呼ばれるのでクリアされる
+        execute_pair_switch(&mut state, &mut runtime, "staging", "release");
+        assert!(
+            runtime.badge_scans.is_empty(),
+            "badge scans should be cancelled before pair switch"
+        );
     }
 }

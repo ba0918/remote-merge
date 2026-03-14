@@ -384,4 +384,27 @@ mod tests {
             _ => panic!("Expected Remote"),
         }
     }
+
+    /// 起動直後にルートディレクトリ("") のバッジスキャンが起動されることを確認
+    #[test]
+    fn start_badge_scan_root_dir_adds_entry() {
+        let mut runtime = TuiRuntime::new_for_test();
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_file("README.md")]),
+            make_tree(vec![FileNode::new_file("README.md")]),
+            Side::Local,
+            Side::new("develop"),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.rebuild_flat_nodes();
+
+        // ルートディレクトリのバッジスキャンを起動
+        start_badge_scan(&mut state, &mut runtime, "");
+
+        // "" キーが badge_scans に追加される
+        assert!(
+            runtime.badge_scans.contains_key(""),
+            "root dir badge scan entry should be registered"
+        );
+    }
 }

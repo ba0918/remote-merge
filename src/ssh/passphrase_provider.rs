@@ -168,6 +168,7 @@ mod tests {
     // ── EnvPassphraseProvider テスト ──
 
     #[test]
+    #[serial_test::serial]
     fn test_env_provider_returns_value_when_set() {
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_ENVTEST";
         // safety: テスト用に環境変数をセット（シリアル実行前提）
@@ -190,6 +191,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_env_provider_returns_none_when_empty() {
         // W3: 空文字列の環境変数は None として扱う
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_EMPTYTEST";
@@ -202,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_env_provider_normalizes_server_name() {
         let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_MY_SERVER";
         unsafe { std::env::set_var(env_key, "secret") };
