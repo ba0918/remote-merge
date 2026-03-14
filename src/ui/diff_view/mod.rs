@@ -74,7 +74,8 @@ impl<'a> Widget for DiffView<'a> {
 
         match &self.state.current_diff {
             None => {
-                let msg = Paragraph::new("  Select a file to view diff");
+                let msg = Paragraph::new("  Select a file to view diff")
+                    .style(Style::default().fg(p.muted));
                 msg.render(inner, buf);
             }
             Some(DiffResult::Equal) => {
