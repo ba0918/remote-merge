@@ -30,6 +30,9 @@ pub fn execute_reconnect(state: &mut AppState, runtime: &mut TuiRuntime) {
         return;
     }
 
+    // 再接続時は全バッジスキャンをキャンセル
+    crate::runtime::badge_scan::cancel_all_badge_scans(state, runtime);
+
     state.clear_all_content_caches();
     state.current_diff = None;
     state.selected_path = None;
