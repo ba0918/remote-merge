@@ -92,11 +92,7 @@ impl AppState {
                 }
             }
             (Some(l), None) => {
-                if remote_absent {
-                    self.status_message = format!("{}: local only", path);
-                } else {
-                    self.status_message = format!("{}: remote content not loaded", path);
-                }
+                self.status_message = Self::one_sided_status(&path, remote_absent, "local");
                 if engine::is_binary(l.as_bytes()) {
                     let info = crate::diff::binary::BinaryInfo::from_bytes(l.as_bytes());
                     self.left_binary_cache.insert(path.clone(), info.clone());
@@ -110,11 +106,7 @@ impl AppState {
                 }
             }
             (None, Some(r)) => {
-                if local_absent {
-                    self.status_message = format!("{}: remote only", path);
-                } else {
-                    self.status_message = format!("{}: local content not loaded", path);
-                }
+                self.status_message = Self::one_sided_status(&path, local_absent, "remote");
                 if engine::is_binary(r.as_bytes()) {
                     let info = crate::diff::binary::BinaryInfo::from_bytes(r.as_bytes());
                     self.right_binary_cache.insert(path.clone(), info.clone());
@@ -177,6 +169,18 @@ impl AppState {
         }
     }
 
+    /// ファイル選択時のステータスメッセージを決定する（片側のみロード済みの場合）。
+    ///
+    /// ツリー上にノードが存在しない場合は "local/remote only"、
+    /// 存在するがキャッシュがない場合は "content not loaded" を返す。
+    fn one_sided_status(path: &str, absent: bool, side: &str) -> String {
+        if absent {
+            format!("{}: {} only", path, side)
+        } else {
+            format!("{}: {} content not loaded", path, side)
+        }
+    }
+
     /// 指定パスのシンタックスハイライトキャッシュを構築する
     pub(super) fn build_highlight_cache(&mut self, path: &str) {
         if let Some(content) = self.left_cache.get(path) {
@@ -201,14 +205,19 @@ impl AppState {
         let exclude = self.active_exclude_patterns();
         match crate::local::scan_dir(&full_path, &exclude, path) {
             Ok(children) => {
-                if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
-                    node.children = Some(children);
-                    node.sort_children();
-                }
+                self.apply_local_children(path, children);
             }
             Err(e) => {
                 self.status_message = format!("Local directory scan failed: {}", e);
             }
+        }
+    }
+
+    /// スキャン結果をローカルツリーに適用する（純粋な状態更新）
+    pub fn apply_local_children(&mut self, path: &str, children: Vec<crate::tree::FileNode>) {
+        if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
+            node.children = Some(children);
+            node.sort_children();
         }
     }
 
@@ -912,5 +921,76 @@ mod tests {
                 .is_loaded(),
             "ref_tree children should also be cleared by refresh_directory"
         );
+    }
+
+    // ── one_sided_status ──
+
+    #[test]
+    fn test_one_sided_status_absent_local() {
+        let msg = AppState::one_sided_status("a.rs", true, "local");
+        assert_eq!(msg, "a.rs: local only");
+    }
+
+    #[test]
+    fn test_one_sided_status_absent_remote() {
+        let msg = AppState::one_sided_status("a.rs", true, "remote");
+        assert_eq!(msg, "a.rs: remote only");
+    }
+
+    #[test]
+    fn test_one_sided_status_not_loaded_local() {
+        let msg = AppState::one_sided_status("a.rs", false, "local");
+        assert_eq!(msg, "a.rs: local content not loaded");
+    }
+
+    #[test]
+    fn test_one_sided_status_not_loaded_remote() {
+        let msg = AppState::one_sided_status("a.rs", false, "remote");
+        assert_eq!(msg, "a.rs: remote content not loaded");
+    }
+
+    // ── apply_local_children ──
+
+    #[test]
+    fn test_apply_local_children_sets_children() {
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir("src")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert!(
+            !state.left_tree.find_node("src").unwrap().is_loaded(),
+            "src should be unloaded initially"
+        );
+
+        let children = vec![FileNode::new_file("b.rs"), FileNode::new_file("a.rs")];
+        state.apply_local_children("src", children);
+
+        let node = state.left_tree.find_node("src").unwrap();
+        assert!(node.is_loaded());
+        let child_names: Vec<&str> = node
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        // sort_children でソートされている
+        assert_eq!(child_names, vec!["a.rs", "b.rs"]);
+    }
+
+    #[test]
+    fn test_apply_local_children_nonexistent_path() {
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // 存在しないパスに適用してもパニックしない
+        state.apply_local_children("nonexistent", vec![FileNode::new_file("a.rs")]);
     }
 }
