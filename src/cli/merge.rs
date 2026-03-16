@@ -954,4 +954,39 @@ mod tests {
     }
 
     // fast_path_to_parent_dirs テストは service::fast_path に移動済み
+
+    // ── CLI merge 回帰テスト: 同一ファイルがマージ候補にならない ──
+
+    #[test]
+    fn test_cli_merge_equal_file_excluded() {
+        // Equal ファイルは filter_changed_files で除外される（マージ対象にならない）
+        let targets = vec!["same.rs".to_string()];
+        let statuses = vec![FileStatus {
+            path: "same.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let result = filter_changed_files(&targets, &statuses);
+        assert!(
+            result.is_empty(),
+            "Equal file should not be a merge candidate"
+        );
+    }
+
+    #[test]
+    fn test_cli_merge_leftonly_included() {
+        // 本物の LeftOnly ファイルはマージ対象に含まれる
+        let targets = vec!["new.rs".to_string()];
+        let statuses = vec![FileStatus {
+            path: "new.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let result = filter_changed_files(&targets, &statuses);
+        assert_eq!(result, vec!["new.rs"]);
+    }
 }

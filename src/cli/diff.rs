@@ -665,4 +665,38 @@ mod tests {
             ScanStrategy::FastPath(vec!["a.rs".to_string(), "b.rs".to_string()])
         );
     }
+
+    // ── CLI 回帰テスト: 同一ファイルが LeftOnly にならない ──
+
+    use crate::service::status::status_from_read_results;
+
+    #[test]
+    fn test_cli_identical_file_not_leftonly() {
+        // CLI は直接バイト比較するため、同一内容のファイルが LeftOnly にならない
+        let content = b"same content";
+        let result = status_from_read_results(
+            true,
+            true,
+            Some(content.as_slice()),
+            Some(content.as_slice()),
+        )
+        .unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_cli_different_file_is_modified() {
+        let result =
+            status_from_read_results(true, true, Some(b"old".as_slice()), Some(b"new".as_slice()))
+                .unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_cli_real_leftonly() {
+        // 片方にしか存在しないファイルは正しく LeftOnly になる
+        let result =
+            status_from_read_results(true, false, Some(b"content".as_slice()), None).unwrap();
+        assert_eq!(result, FileStatusKind::LeftOnly);
+    }
 }
