@@ -545,16 +545,33 @@ impl CoreRuntime {
         side: &Side,
         dir_rel_path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
-        match side {
+        let nodes = match side {
             Side::Local => {
                 let root = &self.config.local.root_dir;
                 let dir = root.join(dir_rel_path);
-                let nodes = local::scan_dir(&dir, &self.config.filter.exclude, dir_rel_path)?;
-                Ok(nodes)
+                local::scan_dir(&dir, &self.config.filter.exclude, dir_rel_path)?
             }
             // fetch_children は1階層のみ — Agent は再帰走査なのでここでは SSH を使用
-            Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path),
+            Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path)?,
+        };
+
+        // include フィルターを適用（各 child の完全相対パスで判定）
+        let include = &self.config.filter.include;
+        if include.is_empty() {
+            return Ok(nodes);
         }
+        let filtered = nodes
+            .into_iter()
+            .filter(|node| {
+                let child_path = if dir_rel_path.is_empty() {
+                    node.name.clone()
+                } else {
+                    format!("{}/{}", dir_rel_path, node.name)
+                };
+                crate::filter::is_path_included(&child_path, include)
+            })
+            .collect();
+        Ok(filtered)
     }
 
     // ── 接続 ──
@@ -3099,5 +3116,69 @@ mod tests {
         let result = transform_stat_results(vec![], &[]);
         let vec = result.unwrap().unwrap();
         assert!(vec.is_empty());
+    }
+
+    // ── fetch_children include フィルター ──
+
+    #[test]
+    fn test_fetch_children_local_no_include_returns_all() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("parent");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::create_dir(sub.join("alpha")).unwrap();
+        std::fs::create_dir(sub.join("beta")).unwrap();
+        std::fs::write(sub.join("file.txt"), "x").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // include 空 → 全 children 表示
+        let children = rt.fetch_children(&Side::Local, "parent").unwrap();
+        assert_eq!(children.len(), 3);
+    }
+
+    #[test]
+    fn test_fetch_children_local_include_filters_children() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("parent");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::create_dir(sub.join("alpha")).unwrap();
+        std::fs::create_dir(sub.join("beta")).unwrap();
+        std::fs::write(sub.join("file.txt"), "x").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        // include = ["parent/alpha"] → parent 展開時は alpha のみ表示
+        rt.config.filter.include = vec!["parent/alpha".to_string()];
+        let children = rt.fetch_children(&Side::Local, "parent").unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "alpha");
+    }
+
+    #[test]
+    fn test_fetch_children_local_include_descendant_shows_all() {
+        let tmp = TempDir::new().unwrap();
+        // include = ["src"] で "src" 配下を展開すると全 children が表示される
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main(){}").unwrap();
+        std::fs::write(src.join("lib.rs"), "").unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.config.filter.include = vec!["src".to_string()];
+        let children = rt.fetch_children(&Side::Local, "src").unwrap();
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn test_fetch_children_root_with_include() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        std::fs::create_dir(tmp.path().join("docs")).unwrap();
+        std::fs::create_dir(tmp.path().join("tests")).unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        rt.config.filter.include = vec!["src".to_string()];
+        // ルート直下（dir_rel_path = ""）の展開で include フィルタ
+        let children = rt.fetch_children(&Side::Local, "").unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "src");
     }
 }
