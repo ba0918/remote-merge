@@ -222,6 +222,39 @@ impl FileTree {
         find_node_presence_recursive(&self.nodes, &components)
     }
 
+    /// 指定パスまでの全ディレクトリノードが存在しなければ作成する。
+    /// パスの全コンポーネントをディレクトリとして確保する（最後の要素も含む）。
+    /// 戻り値: 新規作成したノード数
+    pub fn ensure_path(&mut self, path: &Path) -> usize {
+        let components: Vec<&str> = path
+            .components()
+            .filter_map(|c| c.as_os_str().to_str())
+            .collect();
+        if components.is_empty() {
+            return 0;
+        }
+        let mut created = 0;
+        let mut current_nodes = &mut self.nodes;
+        for &part in &components {
+            let idx = current_nodes.iter().position(|n| n.name == part);
+            let idx = match idx {
+                Some(i) => i,
+                None => {
+                    // 中間ディレクトリを作成
+                    current_nodes.push(FileNode::new_dir(part));
+                    created += 1;
+                    current_nodes.len() - 1
+                }
+            };
+            let node = &mut current_nodes[idx];
+            if node.children.is_none() {
+                node.children = Some(Vec::new());
+            }
+            current_nodes = node.children.as_mut().unwrap();
+        }
+        created
+    }
+
     /// 指定パスのノードを可変参照で検索（相対パス）。
     ///
     /// `rel_path` には `&str`、`&Path`、`&PathBuf` など `AsRef<Path>` を実装する
@@ -588,5 +621,95 @@ mod tests {
         let l = FileNode::new_file("link");
         let r = FileNode::new_symlink("link", "target");
         assert_eq!(compare_metadata(&l, &r), MetadataCmp::Modified);
+    }
+
+    // ── ensure_path ──
+
+    #[test]
+    fn test_ensure_path_all_exist() {
+        // 全コンポーネントが既に存在する場合 → 何も作成しない
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "a",
+                vec![FileNode::new_dir_with_children(
+                    "b",
+                    vec![FileNode::new_dir_with_children("c", vec![])],
+                )],
+            )],
+        };
+        let created = tree.ensure_path(Path::new("a/b/c"));
+        assert_eq!(created, 0);
+    }
+
+    #[test]
+    fn test_ensure_path_one_missing() {
+        // 中間ディレクトリが1つ不在 → 作成して1返却
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "a",
+                vec![FileNode::new_dir_with_children("b", vec![])],
+            )],
+        };
+        let created = tree.ensure_path(Path::new("a/b/c"));
+        assert_eq!(created, 1);
+        assert!(tree.find_node(Path::new("a/b/c")).is_some());
+    }
+
+    #[test]
+    fn test_ensure_path_multiple_missing() {
+        // 複数レベル不在（a/b/c/d で a のみ存在）→ b, c, d を作成
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir("a")],
+        };
+        // a は未ロード（children: None）
+        let created = tree.ensure_path(Path::new("a/b/c/d"));
+        assert_eq!(created, 3); // b, c, d を作成
+        assert!(tree.find_node(Path::new("a/b/c/d")).is_some());
+    }
+
+    #[test]
+    fn test_ensure_path_empty() {
+        // 空パス → 0返却
+        let mut tree = FileTree::new("/test");
+        let created = tree.ensure_path(Path::new(""));
+        assert_eq!(created, 0);
+    }
+
+    #[test]
+    fn test_ensure_path_unloaded_gets_initialized() {
+        // 既存ノードが未ロード（children: None）→ Some(Vec::new()) に変更される
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir("a")], // children: None
+        };
+        assert!(!tree.find_node(Path::new("a")).unwrap().is_loaded());
+
+        tree.ensure_path(Path::new("a"));
+        // children が Some に変わる
+        assert!(tree.find_node(Path::new("a")).unwrap().is_loaded());
+    }
+
+    #[test]
+    fn test_ensure_path_loaded_preserves_children() {
+        // 既存ノードがロード済み（children: Some([...])）→ 既存の children は保持される
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_dir_with_children(
+                "a",
+                vec![FileNode::new_file("existing.txt")],
+            )],
+        };
+
+        let created = tree.ensure_path(Path::new("a/b"));
+        assert_eq!(created, 1);
+
+        // 既存の existing.txt は保持される
+        let a_node = tree.find_node(Path::new("a")).unwrap();
+        let children = a_node.children.as_ref().unwrap();
+        assert!(children.iter().any(|n| n.name == "existing.txt"));
+        assert!(children.iter().any(|n| n.name == "b"));
     }
 }
