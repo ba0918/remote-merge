@@ -103,7 +103,8 @@ pub fn expand_subtree_for_merge(
     let right_source = state.right_source.clone();
 
     while let Some(path) = dirs_to_load.pop() {
-        // 左側の未ロード子を読み込み
+        // 左側: 中間ディレクトリがなければ作成してから未ロード子を読み込み
+        state.left_tree.ensure_path(std::path::Path::new(&path));
         let left_needs_load = state
             .left_tree
             .find_node(std::path::Path::new(&path))
@@ -113,8 +114,9 @@ pub fn expand_subtree_for_merge(
             loaded += 1;
         }
 
-        // 右側の未ロード子を読み込み
+        // 右側: 中間ディレクトリがなければ作成してから未ロード子を読み込み
         if runtime.is_side_available(&right_source) {
+            state.right_tree.ensure_path(std::path::Path::new(&path));
             let right_needs_load = state
                 .right_tree
                 .find_node(std::path::Path::new(&path))
