@@ -7,7 +7,7 @@ use crate::app::side::comparison_label;
 use crate::app::{AppState, Side};
 use crate::config::AppConfig;
 use crate::tree::FileTree;
-use crate::{backup, local, state};
+use crate::{backup, filter, local, state};
 
 use super::TuiRuntime;
 
@@ -31,7 +31,7 @@ pub fn bootstrap_tui(
     let mut runtime = TuiRuntime::new(config.clone());
 
     // 左側: --left が指定されたらリモート、なければローカル
-    let (left_tree, left_source, left_connected) = fetch_left_side(
+    let (mut left_tree, left_source, left_connected) = fetch_left_side(
         &params.left_server,
         &params.right_server,
         &config,
@@ -40,7 +40,11 @@ pub fn bootstrap_tui(
 
     // 右側: "local" なら Side::Local、それ以外は Side::Remote
     let right_source = Side::new(&params.right_server);
-    let (right_tree, right_connected) = fetch_right_side(&right_source, &config, &mut runtime);
+    let (mut right_tree, right_connected) = fetch_right_side(&right_source, &config, &mut runtime);
+
+    // include フィルターを適用（浅いスキャン結果のルートノードを絞り込む）
+    filter::filter_tree_by_include(&mut left_tree, &config.filter.include);
+    filter::filter_tree_by_include(&mut right_tree, &config.filter.include);
     let is_connected = left_connected && right_connected;
 
     // 永続化された UI 状態を復元（テーマなど）
@@ -259,7 +263,8 @@ fn apply_reference_from_runtime(
         },
     };
 
-    if let Some(tree) = ref_tree {
+    if let Some(mut tree) = ref_tree {
+        filter::filter_tree_by_include(&mut tree, &runtime.core.config.filter.include);
         app_state.set_reference(ref_source, tree);
         tracing::info!("Reference server set: {}", ref_name);
     }
@@ -433,5 +438,76 @@ mod tests {
         let config = make_test_config_with_servers(&["develop", "staging", "release"]);
         let params = make_test_params("develop", Some("staging"), Some("release"));
         assert!(validate_server_params(&params, &config).is_ok());
+    }
+
+    #[test]
+    fn fetch_left_side_local_applies_no_include_filter_when_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        std::fs::create_dir(tmp.path().join("docs")).unwrap();
+        std::fs::write(tmp.path().join("README.md"), "hi").unwrap();
+
+        let mut config = make_test_config_with_servers(&["develop"]);
+        config.local.root_dir = tmp.path().to_path_buf();
+        // include 空 → フィルタなし
+        config.filter.include = vec![];
+
+        let mut runtime = super::super::TuiRuntime::new(config.clone());
+        let (tree, _, _) = fetch_left_side(&None, "develop", &config, &mut runtime).unwrap();
+
+        // 全ノード表示（include 空のため）
+        assert!(tree.nodes.len() >= 3);
+    }
+
+    #[test]
+    fn fetch_left_side_local_with_include_bootstrap_filters() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        std::fs::create_dir(tmp.path().join("docs")).unwrap();
+        std::fs::write(tmp.path().join("README.md"), "hi").unwrap();
+
+        let mut config = make_test_config_with_servers(&["develop"]);
+        config.local.root_dir = tmp.path().to_path_buf();
+        config.filter.include = vec!["src".to_string()];
+
+        let mut runtime = super::super::TuiRuntime::new(config.clone());
+        let (mut tree, _, _) = fetch_left_side(&None, "develop", &config, &mut runtime).unwrap();
+
+        // bootstrap で include フィルタを適用
+        filter::filter_tree_by_include(&mut tree, &config.filter.include);
+
+        let names: Vec<&str> = tree.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"src"), "src should be kept");
+        assert!(!names.contains(&"docs"), "docs should be filtered out");
+        assert!(
+            !names.contains(&"README.md"),
+            "README.md should be filtered out"
+        );
+    }
+
+    #[test]
+    fn fetch_left_side_local_with_deep_include_keeps_ancestor() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("vendor")).unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        std::fs::create_dir(tmp.path().join("tests")).unwrap();
+
+        let mut config = make_test_config_with_servers(&["develop"]);
+        config.local.root_dir = tmp.path().to_path_buf();
+        // "vendor/current" → root 直下の "vendor" は祖先として残る
+        config.filter.include = vec!["vendor/current".to_string(), "src".to_string()];
+
+        let mut runtime = super::super::TuiRuntime::new(config.clone());
+        let (mut tree, _, _) = fetch_left_side(&None, "develop", &config, &mut runtime).unwrap();
+
+        filter::filter_tree_by_include(&mut tree, &config.filter.include);
+
+        let names: Vec<&str> = tree.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"src"), "src should be kept (exact match)");
+        assert!(
+            names.contains(&"vendor"),
+            "vendor should be kept (ancestor of vendor/current)"
+        );
+        assert!(!names.contains(&"tests"), "tests should be filtered out");
     }
 }
