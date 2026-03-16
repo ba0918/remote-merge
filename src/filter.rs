@@ -165,6 +165,49 @@ pub fn normalize_include_paths(paths: &[String]) -> (Vec<String>, Vec<String>) {
     (result, warnings)
 }
 
+/// エントリの相対パスが include フィルターに基づいて表示すべきか判定する。
+///
+/// 表示条件（いずれかを満たす）:
+/// 1. include が空 → 常に true（フィルタなし）
+/// 2. エントリが include パスの祖先（例: "vendor" は "vendor/current" の祖先）
+/// 3. エントリが include パスと完全一致
+/// 4. エントリが include パス配下（例: "src/main.rs" は "src" の配下）
+pub fn is_path_included(entry_rel_path: &str, include_paths: &[String]) -> bool {
+    if include_paths.is_empty() {
+        return true;
+    }
+
+    for inc in include_paths {
+        // 完全一致
+        if entry_rel_path == inc {
+            return true;
+        }
+        // エントリが include パス配下（例: "src/main.rs" は "src" の配下）
+        if entry_rel_path.starts_with(inc.as_str())
+            && entry_rel_path.as_bytes().get(inc.len()) == Some(&b'/')
+        {
+            return true;
+        }
+        // エントリが include パスの祖先（例: "vendor" は "vendor/current" の祖先）
+        if inc.starts_with(entry_rel_path)
+            && inc.as_bytes().get(entry_rel_path.len()) == Some(&b'/')
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// FileTree のルートノードを include フィルターで絞り込む。
+pub fn filter_tree_by_include(tree: &mut crate::tree::FileTree, include: &[String]) {
+    if include.is_empty() {
+        return;
+    }
+    tree.nodes
+        .retain(|node| is_path_included(&node.name, include));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,5 +467,124 @@ mod tests {
         let (paths, warnings) = normalize_include_paths(&input);
         assert_eq!(paths, vec!["ja", "japan"]);
         assert!(warnings.is_empty());
+    }
+
+    // ── is_path_included ──
+
+    #[test]
+    fn test_is_path_included_empty_include() {
+        // include 空 → 常に true
+        assert!(is_path_included("anything", &[]));
+        assert!(is_path_included("src/main.rs", &[]));
+    }
+
+    #[test]
+    fn test_is_path_included_exact_match() {
+        let include = vec!["src".to_string()];
+        assert!(is_path_included("src", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_descendant() {
+        // 配下パス → true
+        let include = vec!["src".to_string()];
+        assert!(is_path_included("src/main.rs", &include));
+        assert!(is_path_included("src/deep/nested.rs", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_ancestor() {
+        // 祖先パス → true
+        let include = vec!["vendor/current".to_string()];
+        assert!(is_path_included("vendor", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_unrelated() {
+        // 無関係パス → false
+        let include = vec!["src".to_string()];
+        assert!(!is_path_included("docs", &include));
+        assert!(!is_path_included("tests/unit.rs", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_no_false_prefix() {
+        // 前方一致の誤爆防止（セグメント境界チェック）
+        let include = vec!["src".to_string()];
+        assert!(!is_path_included("srclib", &include));
+        assert!(!is_path_included("srclib/foo.rs", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_deep_ancestor() {
+        // 深い祖先チェーン
+        let include = vec!["a/b/c".to_string()];
+        assert!(is_path_included("a", &include));
+        assert!(is_path_included("a/b", &include));
+        assert!(is_path_included("a/b/c", &include));
+        assert!(is_path_included("a/b/c/d.rs", &include));
+        assert!(!is_path_included("a/x", &include));
+    }
+
+    #[test]
+    fn test_is_path_included_multiple_paths() {
+        // 複数 include パスの OR 評価
+        let include = vec!["src".to_string(), "docs".to_string()];
+        assert!(is_path_included("src", &include));
+        assert!(is_path_included("docs", &include));
+        assert!(is_path_included("src/main.rs", &include));
+        assert!(is_path_included("docs/guide.md", &include));
+        assert!(!is_path_included("tests", &include));
+    }
+
+    // ── filter_tree_by_include ──
+
+    #[test]
+    fn test_filter_tree_by_include_empty_include() {
+        use crate::tree::{FileNode, FileTree};
+        use std::path::PathBuf;
+
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![
+                FileNode::new_file("src"),
+                FileNode::new_file("docs"),
+                FileNode::new_file("vendor"),
+            ],
+        };
+        let original_len = tree.nodes.len();
+        filter_tree_by_include(&mut tree, &[]);
+        assert_eq!(
+            tree.nodes.len(),
+            original_len,
+            "empty include should not remove nodes"
+        );
+    }
+
+    #[test]
+    fn test_filter_tree_by_include_filters_nodes() {
+        use crate::tree::{FileNode, FileTree};
+        use std::path::PathBuf;
+
+        let mut tree = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![
+                FileNode::new_dir("src"),
+                FileNode::new_dir("docs"),
+                FileNode::new_dir("vendor"),
+                FileNode::new_file("README.md"),
+            ],
+        };
+        let include = vec!["src".to_string(), "vendor/current".to_string()];
+        filter_tree_by_include(&mut tree, &include);
+
+        let names: Vec<&str> = tree.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(names.contains(&"src"), "src should be kept (exact match)");
+        assert!(
+            names.contains(&"vendor"),
+            "vendor should be kept (ancestor of vendor/current)"
+        );
+        assert!(!names.contains(&"docs"), "docs should be removed");
+        assert!(!names.contains(&"README.md"), "README.md should be removed");
     }
 }
