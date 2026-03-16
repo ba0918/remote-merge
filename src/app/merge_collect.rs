@@ -4,6 +4,10 @@
 //! ディレクトリの展開状態 (`expanded_dirs`) に依存しないため、
 //! マージ走査後にツリーを展開せずにファイル一覧を取得できる。
 
+use std::collections::HashSet;
+
+use crate::app::cache::BoundedCache;
+use crate::diff::binary::BinaryInfo;
 use crate::tree::FileTree;
 
 /// 指定ディレクトリ配下のファイルパスをローカル・リモート両ツリーから収集する。
@@ -36,6 +40,77 @@ pub fn collect_merge_files_3way(
     if let Some(ref_t) = ref_tree {
         collect_from_tree(ref_t, dir_path, &mut files);
     }
+    files
+}
+
+/// キャッシュキーから prefix マッチでファイルパスを追加収集する内部ヘルパー。
+fn supplement_from_cache(
+    files: &mut Vec<String>,
+    dir_path: &str,
+    left_cache: &BoundedCache<String>,
+    right_cache: &BoundedCache<String>,
+    left_binary_cache: &BoundedCache<BinaryInfo>,
+    right_binary_cache: &BoundedCache<BinaryInfo>,
+) {
+    let prefix = format!("{}/", dir_path);
+    let mut existing: HashSet<String> = files.iter().cloned().collect();
+
+    for key in left_cache
+        .keys()
+        .chain(right_cache.keys())
+        .chain(left_binary_cache.keys())
+        .chain(right_binary_cache.keys())
+    {
+        if key.starts_with(&prefix) && existing.insert(key.clone()) {
+            files.push(key.clone());
+        }
+    }
+}
+
+/// ツリー + キャッシュの union でファイルパスを収集する（2-way）。
+#[allow(clippy::too_many_arguments)]
+pub fn collect_merge_files_with_cache(
+    local_tree: &FileTree,
+    remote_tree: &FileTree,
+    dir_path: &str,
+    left_cache: &BoundedCache<String>,
+    right_cache: &BoundedCache<String>,
+    left_binary_cache: &BoundedCache<BinaryInfo>,
+    right_binary_cache: &BoundedCache<BinaryInfo>,
+) -> Vec<String> {
+    let mut files = collect_merge_files(local_tree, remote_tree, dir_path);
+    supplement_from_cache(
+        &mut files,
+        dir_path,
+        left_cache,
+        right_cache,
+        left_binary_cache,
+        right_binary_cache,
+    );
+    files
+}
+
+/// ツリー + キャッシュの union でファイルパスを収集する（3-way）。
+#[allow(clippy::too_many_arguments)]
+pub fn collect_merge_files_3way_with_cache(
+    local_tree: &FileTree,
+    remote_tree: &FileTree,
+    ref_tree: Option<&FileTree>,
+    dir_path: &str,
+    left_cache: &BoundedCache<String>,
+    right_cache: &BoundedCache<String>,
+    left_binary_cache: &BoundedCache<BinaryInfo>,
+    right_binary_cache: &BoundedCache<BinaryInfo>,
+) -> Vec<String> {
+    let mut files = collect_merge_files_3way(local_tree, remote_tree, ref_tree, dir_path);
+    supplement_from_cache(
+        &mut files,
+        dir_path,
+        left_cache,
+        right_cache,
+        left_binary_cache,
+        right_binary_cache,
+    );
     files
 }
 
@@ -75,6 +150,8 @@ fn collect_children_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::cache::BoundedCache;
+    use crate::diff::binary::BinaryInfo;
     use crate::tree::{FileNode, FileTree};
     use std::path::PathBuf;
 
@@ -209,5 +286,186 @@ mod tests {
         let files_2way = collect_merge_files(&local, &remote, "src");
         let files_3way = collect_merge_files_3way(&local, &remote, None, "src");
         assert_eq!(files_2way, files_3way);
+    }
+
+    // ── supplement_from_cache / _with_cache テスト ──
+
+    fn empty_cache() -> BoundedCache<String> {
+        BoundedCache::new(100)
+    }
+
+    fn empty_binary_cache() -> BoundedCache<BinaryInfo> {
+        BoundedCache::new(100)
+    }
+
+    #[test]
+    fn test_with_cache_tree_only() {
+        // ツリーからのみ収集可能 → 既存動作と同じ
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "src",
+            &empty_cache(),
+            &empty_cache(),
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        assert_eq!(files, vec!["src/a.rs"]);
+    }
+
+    #[test]
+    fn test_with_cache_supplements_missing_tree_files() {
+        // ツリーにないがキャッシュにあるファイル → リストに追加される
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+
+        let mut right_cache = empty_cache();
+        right_cache.insert("src/b.rs".to_string(), "content".to_string());
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "src",
+            &empty_cache(),
+            &right_cache,
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        assert!(files.contains(&"src/a.rs".to_string()));
+        assert!(files.contains(&"src/b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_with_cache_deduplication() {
+        // 重複排除が正しく動作する（ツリー由来とキャッシュ由来の重複）
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+
+        let mut left_cache = empty_cache();
+        left_cache.insert("src/a.rs".to_string(), "content".to_string());
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "src",
+            &left_cache,
+            &empty_cache(),
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        // a.rs は1回だけ
+        assert_eq!(files.iter().filter(|f| *f == "src/a.rs").count(), 1);
+    }
+
+    #[test]
+    fn test_with_cache_empty_cache_same_as_tree_only() {
+        // 空キャッシュ → ツリーのみの結果と一致
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+
+        let tree_only = collect_merge_files(&local, &remote, "src");
+        let with_cache = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "src",
+            &empty_cache(),
+            &empty_cache(),
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        assert_eq!(tree_only, with_cache);
+    }
+
+    #[test]
+    fn test_3way_with_cache_includes_cache_files() {
+        // 3way 版: ref_tree にのみ存在 + キャッシュにのみ存在 → 両方リストに含まれる
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs")],
+        )]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let ref_tree = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("ref_only.rs")],
+        )]);
+
+        let mut right_cache = empty_cache();
+        right_cache.insert("src/cache_only.rs".to_string(), "content".to_string());
+
+        let files = collect_merge_files_3way_with_cache(
+            &local,
+            &remote,
+            Some(&ref_tree),
+            "src",
+            &empty_cache(),
+            &right_cache,
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        assert!(files.contains(&"src/a.rs".to_string()));
+        assert!(files.contains(&"src/ref_only.rs".to_string()));
+        assert!(files.contains(&"src/cache_only.rs".to_string()));
+    }
+
+    #[test]
+    fn test_with_cache_binary_cache_also_supplements() {
+        // バイナリキャッシュからも補完される
+        let local = make_tree(vec![FileNode::new_dir_with_children("img", vec![])]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("img", vec![])]);
+
+        let mut left_binary = empty_binary_cache();
+        left_binary.insert(
+            "img/photo.png".to_string(),
+            BinaryInfo::from_bytes(b"\x89PNG"),
+        );
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "img",
+            &empty_cache(),
+            &empty_cache(),
+            &left_binary,
+            &empty_binary_cache(),
+        );
+        assert!(files.contains(&"img/photo.png".to_string()));
+    }
+
+    #[test]
+    fn test_with_cache_ignores_unrelated_prefix() {
+        // dir_path に一致しないキャッシュキーは含まれない
+        let local = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+        let remote = make_tree(vec![FileNode::new_dir_with_children("src", vec![])]);
+
+        let mut left_cache = empty_cache();
+        left_cache.insert("other/file.rs".to_string(), "content".to_string());
+        left_cache.insert("src/valid.rs".to_string(), "content".to_string());
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "src",
+            &left_cache,
+            &empty_cache(),
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+        assert!(files.contains(&"src/valid.rs".to_string()));
+        assert!(!files.contains(&"other/file.rs".to_string()));
     }
 }

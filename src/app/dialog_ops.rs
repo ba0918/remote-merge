@@ -75,11 +75,15 @@ impl AppState {
                 return;
             }
 
-            // ツリーから直接ファイル収集（expanded_dirs に依存しない）
-            let all_files = super::merge_collect::collect_merge_files(
+            // ツリー + キャッシュの union でファイル収集（expanded_dirs に依存しない）
+            let all_files = super::merge_collect::collect_merge_files_with_cache(
                 &self.left_tree,
                 &self.right_tree,
                 &node.path,
+                &self.left_cache,
+                &self.right_cache,
+                &self.left_binary_cache,
+                &self.right_binary_cache,
             );
 
             // Badge を計算して方向に応じたフィルタリング

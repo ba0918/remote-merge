@@ -181,11 +181,15 @@ impl AppState {
             }
             (false, false) => Badge::Unchecked,
             (true, true) => {
-                // ツリーから配下の全ファイルを列挙
-                let all_files = super::merge_collect::collect_merge_files(
+                // ツリー + キャッシュの union で配下の全ファイルを列挙
+                let all_files = super::merge_collect::collect_merge_files_with_cache(
                     &self.left_tree,
                     &self.right_tree,
                     path,
+                    &self.left_cache,
+                    &self.right_cache,
+                    &self.left_binary_cache,
+                    &self.right_binary_cache,
                 );
 
                 if all_files.is_empty() {
@@ -308,11 +312,15 @@ impl AppState {
         self.ref_source.as_ref()?;
         self.ref_tree.as_ref()?;
 
-        let all_files = super::merge_collect::collect_merge_files_3way(
+        let all_files = super::merge_collect::collect_merge_files_3way_with_cache(
             &self.left_tree,
             &self.right_tree,
             self.ref_tree.as_ref(),
             path,
+            &self.left_cache,
+            &self.right_cache,
+            &self.left_binary_cache,
+            &self.right_binary_cache,
         );
 
         if all_files.is_empty() {
