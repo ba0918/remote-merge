@@ -468,4 +468,103 @@ mod tests {
         assert!(files.contains(&"src/valid.rs".to_string()));
         assert!(!files.contains(&"other/file.rs".to_string()));
     }
+
+    // ── 結合テスト: ツリーにローカルのみ + キャッシュに両方 ──
+
+    #[test]
+    fn test_integration_tree_local_only_cache_both() {
+        // シナリオ B: ツリーにはローカルファイルのみ、キャッシュに両方のコンテンツ
+        // → collect_merge_files_with_cache が両方のファイルを返す
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "app",
+            vec![FileNode::new_dir_with_children(
+                "controllers",
+                vec![FileNode::new_file("home.php")],
+            )],
+        )]);
+        // リモートツリーにはディレクトリが存在しない（中間ディレクトリ不在の状態を再現）
+        let remote = make_tree(vec![]);
+
+        let mut left_cache = empty_cache();
+        left_cache.insert(
+            "app/controllers/home.php".to_string(),
+            "<?php // local".to_string(),
+        );
+        let mut right_cache = empty_cache();
+        right_cache.insert(
+            "app/controllers/home.php".to_string(),
+            "<?php // remote".to_string(),
+        );
+        right_cache.insert(
+            "app/controllers/about.php".to_string(),
+            "<?php // remote only".to_string(),
+        );
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "app/controllers",
+            &left_cache,
+            &right_cache,
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+
+        // ツリーからは home.php のみ、キャッシュから about.php が補完される
+        assert!(files.contains(&"app/controllers/home.php".to_string()));
+        assert!(files.contains(&"app/controllers/about.php".to_string()));
+    }
+
+    #[test]
+    fn test_integration_deep_path_ensure_then_collect() {
+        // シナリオ A + B の統合: ensure_path でツリーを修正 → collect_merge_files_with_cache
+        let mut remote = make_tree(vec![FileNode::new_dir("ja")]);
+
+        // ensure_path で中間ディレクトリを作成
+        remote.ensure_path(std::path::Path::new("ja/Front/process/Common/pc"));
+        // children をセット
+        if let Some(node) = remote.find_node_mut(std::path::Path::new("ja/Front/process/Common/pc"))
+        {
+            node.children = Some(vec![
+                FileNode::new_file("index.php"),
+                FileNode::new_file("edit.php"),
+            ]);
+        }
+
+        let local = make_tree(vec![FileNode::new_dir_with_children(
+            "ja",
+            vec![FileNode::new_dir_with_children(
+                "Front",
+                vec![FileNode::new_dir_with_children(
+                    "process",
+                    vec![FileNode::new_dir_with_children(
+                        "Common",
+                        vec![FileNode::new_dir_with_children(
+                            "pc",
+                            vec![
+                                FileNode::new_file("index.php"),
+                                FileNode::new_file("list.php"),
+                            ],
+                        )],
+                    )],
+                )],
+            )],
+        )]);
+
+        let files = collect_merge_files_with_cache(
+            &local,
+            &remote,
+            "ja/Front/process/Common/pc",
+            &empty_cache(),
+            &empty_cache(),
+            &empty_binary_cache(),
+            &empty_binary_cache(),
+        );
+
+        // 両ツリーの union: index.php, list.php (local), edit.php (remote)
+        assert!(files.contains(&"ja/Front/process/Common/pc/index.php".to_string()));
+        assert!(files.contains(&"ja/Front/process/Common/pc/list.php".to_string()));
+        assert!(files.contains(&"ja/Front/process/Common/pc/edit.php".to_string()));
+        assert_eq!(files.len(), 3);
+    }
 }
