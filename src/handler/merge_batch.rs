@@ -15,8 +15,9 @@ use super::merge_file_io::{
 
 /// バッチマージを実行する（ディレクトリ選択時）
 ///
-/// `Badge::Unchecked` のファイルはマージ前にキャッシュの内容を比較し、
-/// 実際に差分があるもののみマージする。同一内容ならスキップする。
+/// `Badge::Unchecked` / `Badge::LeftOnly` / `Badge::RightOnly` のファイルは
+/// マージ前にキャッシュの内容を比較し、実際に差分があるもののみマージする。
+/// 同一内容ならスキップする（ツリーとキャッシュの不整合による誤マージを防止）。
 pub fn execute_batch_merge(
     state: &mut AppState,
     runtime: &mut TuiRuntime,
@@ -26,9 +27,9 @@ pub fn execute_batch_merge(
     let mut success_count = 0usize;
     let mut fail_count = 0usize;
 
-    // Unchecked ファイルの差分チェック: 同一内容のファイルを除外する
+    // 同一内容ファイルの除外: Unchecked/LeftOnly/RightOnly をキャッシュ比較してスキップ
     let (files, skipped_equal) =
-        filter_unchecked_equal(&batch.files, &state.left_cache, &state.right_cache);
+        filter_identical_files(&batch.files, &state.left_cache, &state.right_cache);
 
     let file_count = files.len();
 
@@ -325,21 +326,26 @@ fn collect_merge_dirs(files: &[(String, crate::app::Badge)]) -> std::collections
         .collect()
 }
 
-/// バッチマージ対象から同一内容の Unchecked ファイルを除外する。
+/// バッチマージ対象から同一内容のファイルを除外する。
 ///
-/// `Badge::Unchecked` のファイルについて、ローカル・リモート両方のキャッシュが
-/// 存在し内容が同一であればスキップする。
+/// `Badge::Unchecked` / `Badge::LeftOnly` / `Badge::RightOnly` のファイルについて、
+/// ローカル・リモート両方のキャッシュが存在し内容が同一であればスキップする。
+/// LeftOnly/RightOnly はツリーとキャッシュの不整合により誤判定されている可能性があるため、
+/// マージ前の安全弁としてキャッシュ比較を行う。
 /// 戻り値は `(フィルタ済みファイル一覧, スキップ数)`.
-pub fn filter_unchecked_equal(
+pub fn filter_identical_files(
     files: &[(String, crate::app::Badge)],
     local_cache: &crate::app::cache::BoundedCache<String>,
     remote_cache: &crate::app::cache::BoundedCache<String>,
 ) -> (Vec<(String, crate::app::Badge)>, usize) {
+    use crate::app::Badge;
     let mut skipped = 0usize;
     let filtered = files
         .iter()
         .filter(|(path, badge)| {
-            if *badge != crate::app::Badge::Unchecked {
+            let should_check =
+                matches!(badge, Badge::Unchecked | Badge::LeftOnly | Badge::RightOnly);
+            if !should_check {
                 return true;
             }
             match (local_cache.get(path), remote_cache.get(path)) {
@@ -374,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_unchecked_equal_skips_identical() {
+    fn test_filter_identical_files_skips_identical() {
         let files = vec![
             ("a.rs".to_string(), Badge::Unchecked),
             ("b.rs".to_string(), Badge::Modified),
@@ -382,53 +388,85 @@ mod tests {
         let local = make_cache(vec![("a.rs", "same")]);
         let remote = make_cache(vec![("a.rs", "same")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].0, "b.rs");
         assert_eq!(skipped, 1);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_keeps_different() {
+    fn test_filter_identical_files_keeps_different() {
         let files = vec![("a.rs".to_string(), Badge::Unchecked)];
         let local = make_cache(vec![("a.rs", "old")]);
         let remote = make_cache(vec![("a.rs", "new")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
         assert_eq!(skipped, 0);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_keeps_missing_cache() {
+    fn test_filter_identical_files_keeps_missing_cache() {
         // 片方しかキャッシュにない場合 → スキップしない（安全側に倒す）
         let files = vec![("a.rs".to_string(), Badge::Unchecked)];
         let local = make_cache(vec![("a.rs", "content")]);
         let remote = BoundedCache::new(100);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert_eq!(filtered.len(), 1);
         assert_eq!(skipped, 0);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_preserves_non_unchecked() {
-        // Modified / LocalOnly / RemoteOnly は無条件で通す
-        let files = vec![
-            ("a.rs".to_string(), Badge::Modified),
-            ("b.rs".to_string(), Badge::LeftOnly),
-            ("c.rs".to_string(), Badge::RightOnly),
-        ];
-        let local = BoundedCache::new(100);
-        let remote = BoundedCache::new(100);
+    fn test_filter_identical_files_preserves_modified() {
+        // Modified は無条件で通す
+        let files = vec![("a.rs".to_string(), Badge::Modified)];
+        let local = make_cache(vec![("a.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
-        assert_eq!(filtered.len(), 3);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
         assert_eq!(skipped, 0);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_all_identical() {
+    fn test_filter_identical_files_preserves_equal() {
+        // Equal は無条件で通す（フィルタ対象外）
+        let files = vec![("a.rs".to_string(), Badge::Equal)];
+        let local = make_cache(vec![("a.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same")]);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_identical_files_leftonly_no_cache_passes() {
+        // LeftOnly でキャッシュなし → 通常通り通過（安全側）
+        let files = vec![("a.rs".to_string(), Badge::LeftOnly)];
+        let local = BoundedCache::new(100);
+        let remote = BoundedCache::new(100);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_identical_files_rightonly_no_cache_passes() {
+        // RightOnly でキャッシュなし → 通常通り通過
+        let files = vec![("a.rs".to_string(), Badge::RightOnly)];
+        let local = BoundedCache::new(100);
+        let remote = BoundedCache::new(100);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_identical_files_all_identical() {
         let files = vec![
             ("a.rs".to_string(), Badge::Unchecked),
             ("b.rs".to_string(), Badge::Unchecked),
@@ -436,13 +474,13 @@ mod tests {
         let local = make_cache(vec![("a.rs", "x"), ("b.rs", "y")]);
         let remote = make_cache(vec![("a.rs", "x"), ("b.rs", "y")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert_eq!(filtered.len(), 0);
         assert_eq!(skipped, 2);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_mixed() {
+    fn test_filter_identical_files_mixed() {
         let files = vec![
             ("equal.rs".to_string(), Badge::Unchecked),
             ("diff.rs".to_string(), Badge::Unchecked),
@@ -453,7 +491,7 @@ mod tests {
         let remote = make_cache(vec![("equal.rs", "same"), ("diff.rs", "bbb")]);
         // no_cache.rs はキャッシュなし
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert_eq!(filtered.len(), 3); // diff.rs, known.rs, no_cache.rs
         assert_eq!(skipped, 1); // equal.rs
         assert_eq!(filtered[0].0, "diff.rs");
@@ -509,25 +547,25 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_unchecked_equal_empty_files() {
+    fn test_filter_identical_files_empty_files() {
         // 空のファイルリスト → (空vec, 0)
         let files: Vec<(String, Badge)> = vec![];
         let local = BoundedCache::new(100);
         let remote = BoundedCache::new(100);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert!(filtered.is_empty());
         assert_eq!(skipped, 0);
     }
 
     #[test]
-    fn test_filter_unchecked_equal_empty_content_identical() {
+    fn test_filter_identical_files_empty_content_identical() {
         // 空文字列同士もキャッシュ比較で同一扱い → スキップされる
         let files = vec![("empty.rs".to_string(), Badge::Unchecked)];
         let local = make_cache(vec![("empty.rs", "")]);
         let remote = make_cache(vec![("empty.rs", "")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
         assert!(filtered.is_empty());
         assert_eq!(skipped, 1);
     }
@@ -623,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_unchecked_equal_only_equal_badge_skipped() {
+    fn test_filter_identical_files_only_equal_badge_skipped() {
         // Equal バッジは Unchecked ではないのでフィルタされない（通過する）
         let files = vec![
             ("a.rs".to_string(), Badge::Equal),
@@ -632,9 +670,59 @@ mod tests {
         let local = make_cache(vec![("a.rs", "same"), ("b.rs", "same")]);
         let remote = make_cache(vec![("a.rs", "same"), ("b.rs", "same")]);
 
-        let (filtered, skipped) = filter_unchecked_equal(&files, &local, &remote);
-        // Equal バッジは badge != Unchecked なので無条件通過
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        // Equal バッジは無条件通過
         assert_eq!(filtered.len(), 2);
+        assert_eq!(skipped, 0);
+    }
+
+    // ── filter_identical_files: LeftOnly/RightOnly キャッシュ比較テスト ──
+
+    #[test]
+    fn test_filter_identical_files_leftonly_cache_same_skipped() {
+        // LeftOnly だがキャッシュ両方同一 → スキップされる
+        let files = vec![("a.rs".to_string(), Badge::LeftOnly)];
+        let local = make_cache(vec![("a.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same")]);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert!(filtered.is_empty());
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn test_filter_identical_files_leftonly_cache_one_side_passes() {
+        // LeftOnly でキャッシュ片方のみ → 通常通り通過（安全側）
+        let files = vec![("a.rs".to_string(), Badge::LeftOnly)];
+        let local = make_cache(vec![("a.rs", "content")]);
+        let remote = BoundedCache::new(100);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn test_filter_identical_files_rightonly_cache_same_skipped() {
+        // RightOnly だがキャッシュ両方同一 → スキップされる
+        let files = vec![("a.rs".to_string(), Badge::RightOnly)];
+        let local = make_cache(vec![("a.rs", "same")]);
+        let remote = make_cache(vec![("a.rs", "same")]);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert!(filtered.is_empty());
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn test_filter_identical_files_leftonly_cache_different_passes() {
+        // LeftOnly でキャッシュ両方異なる → 通過（マージ実行対象）
+        let files = vec![("a.rs".to_string(), Badge::LeftOnly)];
+        let local = make_cache(vec![("a.rs", "old")]);
+        let remote = make_cache(vec![("a.rs", "new")]);
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(filtered.len(), 1);
         assert_eq!(skipped, 0);
     }
 }
