@@ -10,14 +10,16 @@ use crate::app::{AppState, MergeScanResult};
 ///
 /// ref キャッシュが含まれている場合、state.ref_cache にも反映する。
 pub fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
-    // ツリー更新
+    // ツリー更新（中間ディレクトリを自動作成してから children をセット）
     for (path, children) in result.local_tree_updates {
+        state.left_tree.ensure_path(Path::new(&path));
         if let Some(node) = state.left_tree.find_node_mut(Path::new(&path)) {
             node.children = Some(children);
             node.sort_children();
         }
     }
     for (path, children) in result.remote_tree_updates {
+        state.right_tree.ensure_path(Path::new(&path));
         if let Some(node) = state.right_tree.find_node_mut(Path::new(&path)) {
             node.children = Some(children);
             node.sort_children();
@@ -164,5 +166,123 @@ mod tests {
 
         assert_eq!(state.ref_cache.get("old.txt").unwrap(), "old content");
         assert_eq!(state.ref_cache.get("new.txt").unwrap(), "new content");
+    }
+
+    #[test]
+    fn apply_remote_tree_updates_with_missing_intermediates() {
+        // リモートツリーに "a" のみ存在、remote_tree_updates に "a/b/c" がある
+        let mut state = AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![FileNode::new_dir("a")]), // a は未ロード
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        let mut result = make_empty_result();
+        result
+            .remote_tree_updates
+            .push(("a/b/c".to_string(), vec![FileNode::new_file("file.rs")]));
+
+        apply_merge_scan_result(&mut state, result);
+
+        // ensure_path により中間ディレクトリが作成され、children がセットされる
+        let node = state
+            .right_tree
+            .find_node(std::path::Path::new("a/b/c"))
+            .expect("a/b/c should exist after ensure_path");
+        assert!(node.is_dir());
+        assert!(node.is_loaded());
+        let children = node.children.as_ref().unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].name, "file.rs");
+    }
+
+    #[test]
+    fn apply_local_tree_updates_with_missing_intermediates() {
+        // ローカルツリーに "a" のみ存在
+        let mut state = AppState::new(
+            make_tree(vec![FileNode::new_dir("a")]),
+            make_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        let mut result = make_empty_result();
+        result
+            .local_tree_updates
+            .push(("a/b".to_string(), vec![FileNode::new_file("mod.rs")]));
+
+        apply_merge_scan_result(&mut state, result);
+
+        let node = state
+            .left_tree
+            .find_node(std::path::Path::new("a/b"))
+            .expect("a/b should exist");
+        assert_eq!(node.children.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn apply_tree_updates_all_intermediates_exist() {
+        // 全中間ディレクトリが既に存在する場合 → 既存動作と同じ
+        let mut state = AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![FileNode::new_dir_with_children(
+                "a",
+                vec![FileNode::new_dir("b")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        let mut result = make_empty_result();
+        result
+            .remote_tree_updates
+            .push(("a/b".to_string(), vec![FileNode::new_file("existing.rs")]));
+
+        apply_merge_scan_result(&mut state, result);
+
+        let node = state
+            .right_tree
+            .find_node(std::path::Path::new("a/b"))
+            .unwrap();
+        assert_eq!(node.children.as_ref().unwrap().len(), 1);
+        assert_eq!(node.children.as_ref().unwrap()[0].name, "existing.rs");
+    }
+
+    #[test]
+    fn apply_multiple_level_updates_order_independent() {
+        // "a/b/c" と "a/b/c/d" の順で更新 → 順序に関わらず正しくツリーが構築される
+        let mut state = AppState::new(
+            make_tree(vec![]),
+            make_tree(vec![FileNode::new_dir("a")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+
+        let mut result = make_empty_result();
+        result.remote_tree_updates.push((
+            "a/b/c".to_string(),
+            vec![FileNode::new_file("file1.rs"), FileNode::new_dir("d")],
+        ));
+        result
+            .remote_tree_updates
+            .push(("a/b/c/d".to_string(), vec![FileNode::new_file("file2.rs")]));
+
+        apply_merge_scan_result(&mut state, result);
+
+        assert!(state
+            .right_tree
+            .find_node(std::path::Path::new("a/b/c"))
+            .is_some());
+        let d_node = state
+            .right_tree
+            .find_node(std::path::Path::new("a/b/c/d"))
+            .unwrap();
+        assert_eq!(d_node.children.as_ref().unwrap().len(), 1);
+        assert_eq!(d_node.children.as_ref().unwrap()[0].name, "file2.rs");
     }
 }
