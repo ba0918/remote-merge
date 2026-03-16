@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use crate::app::side::comparison_label;
 use crate::app::{AppState, Side};
+use crate::filter;
 use crate::runtime::TuiRuntime;
 
 /// SSH 再接続を実行する（r キー）
@@ -83,7 +84,8 @@ fn reconnect_side(
                 &runtime.core.config.local.root_dir,
                 &runtime.core.config.filter.exclude,
             ) {
-                Ok(tree) => {
+                Ok(mut tree) => {
+                    filter::filter_tree_by_include(&mut tree, &runtime.core.config.filter.include);
                     if is_left {
                         state.left_tree = tree;
                     } else {
@@ -101,7 +103,11 @@ fn reconnect_side(
             runtime.disconnect(server_name);
             match runtime.connect(server_name) {
                 Ok(()) => match runtime.fetch_remote_tree(server_name) {
-                    Ok(tree) => {
+                    Ok(mut tree) => {
+                        filter::filter_tree_by_include(
+                            &mut tree,
+                            &runtime.core.config.filter.include,
+                        );
                         if is_left {
                             state.left_tree = tree;
                         } else {
@@ -274,7 +280,7 @@ pub fn execute_pair_switch(
     let new_right = Side::new(right_name);
 
     // 左側ツリーを取得
-    let left_tree = match &new_left {
+    let mut left_tree = match &new_left {
         Side::Local => {
             match crate::local::scan_local_tree(
                 &runtime.core.config.local.root_dir,
@@ -303,7 +309,7 @@ pub fn execute_pair_switch(
     };
 
     // 右側ツリーを取得
-    let right_tree = match &new_right {
+    let mut right_tree = match &new_right {
         Side::Local => {
             match crate::local::scan_local_tree(
                 &runtime.core.config.local.root_dir,
@@ -330,6 +336,10 @@ pub fn execute_pair_switch(
             }
         }
     };
+
+    // include フィルターを適用
+    filter::filter_tree_by_include(&mut left_tree, &runtime.core.config.filter.include);
+    filter::filter_tree_by_include(&mut right_tree, &runtime.core.config.filter.include);
 
     state.switch_pair(new_left, new_right, left_tree, right_tree);
 
@@ -380,7 +390,8 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
                 &runtime.core.config.local.root_dir,
                 &runtime.core.config.filter.exclude,
             ) {
-                Ok(tree) => {
+                Ok(mut tree) => {
+                    filter::filter_tree_by_include(&mut tree, &runtime.core.config.filter.include);
                     state.ref_tree = Some(tree);
                     true
                 }
@@ -396,7 +407,8 @@ pub fn execute_ref_connect(state: &mut AppState, runtime: &mut TuiRuntime) {
                 return;
             }
             match runtime.fetch_remote_tree(name) {
-                Ok(tree) => {
+                Ok(mut tree) => {
+                    filter::filter_tree_by_include(&mut tree, &runtime.core.config.filter.include);
                     state.ref_tree = Some(tree);
                     true
                 }
@@ -447,7 +459,7 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
     }
 
     // Side に応じてツリーを取得
-    let tree = match &new_side {
+    let mut tree = match &new_side {
         Side::Local => {
             match crate::local::scan_local_tree(
                 &runtime.core.config.local.root_dir,
@@ -474,6 +486,9 @@ pub fn execute_server_switch(state: &mut AppState, runtime: &mut TuiRuntime, ser
             }
         },
     };
+
+    // include フィルターを適用
+    filter::filter_tree_by_include(&mut tree, &runtime.core.config.filter.include);
 
     state.switch_server(new_side, tree);
 
@@ -852,5 +867,47 @@ mod tests {
             runtime.badge_scans.is_empty(),
             "badge scans should be cancelled before pair switch"
         );
+    }
+
+    #[test]
+    fn reconnect_side_local_applies_include_filter() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        std::fs::create_dir(tmp.path().join("docs")).unwrap();
+        std::fs::create_dir(tmp.path().join("vendor")).unwrap();
+
+        let mut runtime = TuiRuntime::new_for_test();
+        runtime.core.config.local.root_dir = tmp.path().to_path_buf();
+        runtime.core.config.filter.include = vec!["src".to_string()];
+
+        let left = FileTree {
+            root: tmp.path().to_path_buf(),
+            nodes: vec![],
+        };
+        let right = FileTree {
+            root: PathBuf::from("/test"),
+            nodes: vec![FileNode::new_file("a.txt")],
+        };
+        let mut state = AppState::new(
+            left,
+            right,
+            Side::Local,
+            Side::Remote("test".to_string()),
+            "default",
+        );
+
+        let ok = reconnect_side(&mut state, &mut runtime, &Side::Local, true);
+        assert!(ok, "reconnect should succeed");
+
+        // include フィルタが適用されて src のみ残る
+        let names: Vec<&str> = state
+            .left_tree
+            .nodes
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        assert!(names.contains(&"src"), "src should be kept");
+        assert!(!names.contains(&"docs"), "docs should be filtered out");
+        assert!(!names.contains(&"vendor"), "vendor should be filtered out");
     }
 }
