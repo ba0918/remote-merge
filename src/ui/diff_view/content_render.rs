@@ -38,11 +38,17 @@ impl<'a> DiffView<'a> {
 
         let local_meta = match local_node {
             Some(n) => metadata::format_metadata_line(n.mtime, n.permissions, n.size),
-            None => "not found".to_string(),
+            None => format_missing_meta(
+                self.state.left_cache.contains_key(path),
+                self.state.left_binary_cache.contains_key(path),
+            ),
         };
         let remote_meta = match remote_node {
             Some(n) => metadata::format_metadata_line(n.mtime, n.permissions, n.size),
-            None => "not found".to_string(),
+            None => format_missing_meta(
+                self.state.right_cache.contains_key(path),
+                self.state.right_binary_cache.contains_key(path),
+            ),
         };
 
         let line = Line::from(vec![
@@ -464,6 +470,18 @@ impl<'a> DiffView<'a> {
     }
 }
 
+/// ツリーにノードがない場合のメタデータ表示文字列を生成する。
+///
+/// キャッシュにコンテンツがあれば "cached (not in tree)" を返す。
+/// どちらのキャッシュにもなければ "not found" を返す。
+fn format_missing_meta(has_text_cache: bool, has_binary_cache: bool) -> String {
+    if has_text_cache || has_binary_cache {
+        "cached (not in tree)".to_string()
+    } else {
+        "not found".to_string()
+    }
+}
+
 /// 各行のテキスト末尾から行末まで背景色を塗りつぶす
 fn fill_line_backgrounds(area: Rect, buf: &mut Buffer, line_bgs: &[Option<Color>]) {
     for (row_idx, bg) in line_bgs.iter().enumerate() {
@@ -690,6 +708,62 @@ mod tests {
             }
         }
         assert!(found_sha, "SHA-256 行が描画されるべき");
+    }
+
+    // ── format_missing_meta ──
+
+    #[test]
+    fn test_format_missing_meta_with_text_cache() {
+        let result = format_missing_meta(true, false);
+        assert_eq!(result, "cached (not in tree)");
+    }
+
+    #[test]
+    fn test_format_missing_meta_with_binary_cache() {
+        let result = format_missing_meta(false, true);
+        assert_eq!(result, "cached (not in tree)");
+    }
+
+    #[test]
+    fn test_format_missing_meta_with_both_caches() {
+        let result = format_missing_meta(true, true);
+        assert_eq!(result, "cached (not in tree)");
+    }
+
+    #[test]
+    fn test_format_missing_meta_no_cache() {
+        let result = format_missing_meta(false, false);
+        assert_eq!(result, "not found");
+    }
+
+    #[test]
+    fn test_metadata_cached_not_in_tree_displayed() {
+        // ツリーにノードなし + キャッシュあり → "cached (not in tree)" が表示される
+        let mut state = make_test_state_with_diff(Some(DiffResult::Equal));
+        state
+            .left_cache
+            .insert("test.txt".to_string(), "content".to_string());
+        state
+            .right_cache
+            .insert("test.txt".to_string(), "content".to_string());
+
+        let content = render_to_string(&state, 80, 15);
+        // ツリーにノードがないので "cached (not in tree)" が表示される
+        assert!(
+            content.contains("cached (not in tree)"),
+            "キャッシュがあるがツリーにノードがない場合のメタデータ表示"
+        );
+    }
+
+    #[test]
+    fn test_metadata_not_found_displayed() {
+        // ツリーにノードなし + キャッシュなし → "not found" が表示される
+        let state = make_test_state_with_diff(Some(DiffResult::Equal));
+        let content = render_to_string(&state, 80, 15);
+        assert!(
+            content.contains("not found"),
+            "キャッシュもツリーもない場合は not found"
+        );
     }
 
     #[test]
