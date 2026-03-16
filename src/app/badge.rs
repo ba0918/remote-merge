@@ -151,8 +151,34 @@ impl AppState {
             .is_some();
 
         match (in_local, in_remote) {
-            (true, false) => Badge::LeftOnly,
-            (false, true) => Badge::RightOnly,
+            (true, false) => {
+                // 配下にキャッシュ済みファイルがあれば、実はリモートにも存在する可能性
+                // → 安全のため Unchecked に格下げ
+                let prefix = format!("{}/", path);
+                let has_cached_remote = self.right_cache.keys().any(|k| k.starts_with(&prefix))
+                    || self
+                        .right_binary_cache
+                        .keys()
+                        .any(|k| k.starts_with(&prefix));
+                if has_cached_remote {
+                    Badge::Unchecked
+                } else {
+                    Badge::LeftOnly
+                }
+            }
+            (false, true) => {
+                let prefix = format!("{}/", path);
+                let has_cached_local = self.left_cache.keys().any(|k| k.starts_with(&prefix))
+                    || self
+                        .left_binary_cache
+                        .keys()
+                        .any(|k| k.starts_with(&prefix));
+                if has_cached_local {
+                    Badge::Unchecked
+                } else {
+                    Badge::RightOnly
+                }
+            }
             (false, false) => Badge::Unchecked,
             (true, true) => {
                 // ツリーから配下の全ファイルを列挙
@@ -1981,5 +2007,81 @@ mod tests {
             .right_cache
             .insert("a.txt".to_string(), "content".to_string());
         assert_eq!(state.compute_badge("a.txt", false), Badge::RightOnly);
+    }
+
+    // ── Step 4: ディレクトリバッジ計算のキャッシュ補完テスト ──
+
+    #[test]
+    fn test_dir_badge_left_only_with_remote_text_cache_unchecked() {
+        // ディレクトリが left_tree のみ + 配下にリモートテキストキャッシュあり → Unchecked
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "mydir",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            make_test_tree(vec![]), // remote にはディレクトリなし
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .right_cache
+            .insert("mydir/a.txt".to_string(), "content".to_string());
+        assert_eq!(state.compute_badge("mydir", true), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_dir_badge_left_only_with_remote_binary_cache_unchecked() {
+        // ディレクトリが left_tree のみ + 配下にリモートバイナリキャッシュあり → Unchecked
+        use crate::diff::binary::BinaryInfo;
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "mydir",
+                vec![FileNode::new_file("a.bin")],
+            )]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .right_binary_cache
+            .insert("mydir/a.bin".to_string(), BinaryInfo::from_bytes(b"\x00"));
+        assert_eq!(state.compute_badge("mydir", true), Badge::Unchecked);
+    }
+
+    #[test]
+    fn test_dir_badge_left_only_no_remote_cache_leftonly() {
+        // ディレクトリが left_tree のみ + 配下にリモートキャッシュなし → LeftOnly（従来通り）
+        let state = AppState::new(
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "mydir",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        assert_eq!(state.compute_badge("mydir", true), Badge::LeftOnly);
+    }
+
+    #[test]
+    fn test_dir_badge_right_only_with_local_cache_unchecked() {
+        // ディレクトリが right_tree のみ + 配下にローカルキャッシュあり → Unchecked
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_dir_with_children(
+                "mydir",
+                vec![FileNode::new_file("a.txt")],
+            )]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("mydir/a.txt".to_string(), "content".to_string());
+        assert_eq!(state.compute_badge("mydir", true), Badge::Unchecked);
     }
 }
