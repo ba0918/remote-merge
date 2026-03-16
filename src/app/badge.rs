@@ -2084,4 +2084,101 @@ mod tests {
             .insert("mydir/a.txt".to_string(), "content".to_string());
         assert_eq!(state.compute_badge("mydir", true), Badge::Unchecked);
     }
+
+    // ── QA シナリオテスト ──
+
+    #[test]
+    fn test_scenario_a_lazy_load_false_leftonly() {
+        // シナリオ A: 遅延ロードによる偽 LeftOnly
+        // ローカルツリー展開済み、リモートツリー未展開
+        // バッジスキャンでキャッシュに両方のコンテンツが入った状態
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("app.php")]),
+            make_test_tree(vec![]), // リモートツリー未展開
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // バッジスキャンでファイル内容が取得され、両方のキャッシュに同一内容が入った状態
+        state
+            .left_cache
+            .insert("app.php".to_string(), "<?php echo 'hello';".to_string());
+        state
+            .right_cache
+            .insert("app.php".to_string(), "<?php echo 'hello';".to_string());
+
+        // 修正前: LeftOnly を返していた
+        // 修正後: キャッシュ比較で Equal を返す
+        assert_eq!(state.compute_badge("app.php", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_scenario_b_batch_merge_skips_false_leftonly() {
+        // シナリオ B: ディレクトリマージの安全性
+        // 偽 LeftOnly ファイルを含むバッチで、同一内容ファイルがスキップされる
+        use crate::handler::merge_exec::filter_identical_files;
+
+        let files: Vec<(String, Badge)> = vec![
+            ("same.rs".to_string(), Badge::LeftOnly),     // 偽 LeftOnly
+            ("diff.rs".to_string(), Badge::Modified),     // 本物の差分
+            ("real_new.rs".to_string(), Badge::LeftOnly), // 本物の LeftOnly
+        ];
+        let mut local = crate::app::cache::BoundedCache::new(100);
+        let mut remote = crate::app::cache::BoundedCache::new(100);
+
+        local.insert("same.rs".to_string(), "identical".to_string());
+        remote.insert("same.rs".to_string(), "identical".to_string());
+        local.insert("diff.rs".to_string(), "old".to_string());
+        remote.insert("diff.rs".to_string(), "new".to_string());
+        local.insert("real_new.rs".to_string(), "brand new".to_string());
+        // real_new.rs はリモートキャッシュなし → 通過
+
+        let (filtered, skipped) = filter_identical_files(&files, &local, &remote);
+        assert_eq!(skipped, 1, "同一内容の偽 LeftOnly がスキップされる");
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].0, "diff.rs");
+        assert_eq!(filtered[1].0, "real_new.rs");
+    }
+
+    #[test]
+    fn test_scenario_c_real_leftonly() {
+        // シナリオ C: 本物の LeftOnly
+        // ローカルにのみ存在するファイル（キャッシュに右側なし）
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("new_file.rs")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("new_file.rs".to_string(), "new content".to_string());
+        // right_cache は空 → キャッシュ比較できない → LeftOnly のまま
+
+        assert_eq!(state.compute_badge("new_file.rs", false), Badge::LeftOnly);
+    }
+
+    #[test]
+    fn test_scenario_d_badge_scan_updates_false_leftonly() {
+        // シナリオ D: バッジスキャン後、偽 LeftOnly が Equal に更新される
+        // compute_scan_badge は compute_badge を先に呼ぶため、
+        // キャッシュがあれば正確なバッジを返す
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("file.txt")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("file.txt".to_string(), "content".to_string());
+        state
+            .right_cache
+            .insert("file.txt".to_string(), "content".to_string());
+
+        // compute_scan_badge は compute_badge を先に呼ぶ
+        assert_eq!(state.compute_scan_badge("file.txt", false), Badge::Equal);
+    }
 }
