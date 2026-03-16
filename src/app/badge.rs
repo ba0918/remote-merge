@@ -65,8 +65,51 @@ impl AppState {
                     _ => Badge::Unchecked,
                 }
             }
-            (true, false) if remote_absent => Badge::LeftOnly,
-            (false, true) if local_absent => Badge::RightOnly,
+            (true, false) if remote_absent => {
+                // ツリー上は NotFound だが、キャッシュにコンテンツがある場合はコンテンツ比較を優先
+                // （遅延ロードでツリー未展開だがファイル内容は取得済みのケース）
+                if let (Some(l), Some(r)) = (self.left_cache.get(path), self.right_cache.get(path))
+                {
+                    return if l == r {
+                        Badge::Equal
+                    } else {
+                        Badge::Modified
+                    };
+                }
+                if let (Some(l), Some(r)) = (
+                    self.left_binary_cache.get(path),
+                    self.right_binary_cache.get(path),
+                ) {
+                    return if l.is_same_content(r) {
+                        Badge::Equal
+                    } else {
+                        Badge::Modified
+                    };
+                }
+                Badge::LeftOnly
+            }
+            (false, true) if local_absent => {
+                // ツリー上は NotFound だが、キャッシュにコンテンツがある場合はコンテンツ比較を優先
+                if let (Some(l), Some(r)) = (self.left_cache.get(path), self.right_cache.get(path))
+                {
+                    return if l == r {
+                        Badge::Equal
+                    } else {
+                        Badge::Modified
+                    };
+                }
+                if let (Some(l), Some(r)) = (
+                    self.left_binary_cache.get(path),
+                    self.right_binary_cache.get(path),
+                ) {
+                    return if l.is_same_content(r) {
+                        Badge::Equal
+                    } else {
+                        Badge::Modified
+                    };
+                }
+                Badge::RightOnly
+            }
             _ => {
                 // ツリー上で片方が Unloaded でも、キャッシュに両方あればコンテンツで判定。
                 // 検索時にリモートツリーが未展開でも、コンテンツ読み込み済みなら正しいバッジを返す。
@@ -1749,5 +1792,194 @@ mod tests {
         let badges = vec![Badge::Equal, Badge::ScanSkipped];
         // ScanSkipped は Unchecked と同様に扱われ、all_checked が false になる
         assert_eq!(aggregate_dir_badges(badges.into_iter()), Badge::Unchecked);
+    }
+
+    // ── Step 1: compute_badge キャッシュ優先判定テスト ──
+
+    #[test]
+    fn test_badge_found_notfound_text_cache_equal() {
+        // ツリー上 (Found, NotFound) だがテキストキャッシュ両方同一 → Equal
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]), // remote にはノードなし
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same content".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same content".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_found_notfound_text_cache_modified() {
+        // ツリー上 (Found, NotFound) だがテキストキャッシュ両方異なる → Modified
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_found_notfound_binary_cache_equal() {
+        // ツリー上 (Found, NotFound) だがバイナリキャッシュ両方同一 → Equal
+        use crate::diff::binary::BinaryInfo;
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.bin")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        let info = BinaryInfo::from_bytes(b"\x00\x01\x02");
+        state
+            .left_binary_cache
+            .insert("a.bin".to_string(), info.clone());
+        state.right_binary_cache.insert("a.bin".to_string(), info);
+        assert_eq!(state.compute_badge("a.bin", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_found_notfound_binary_cache_modified() {
+        // ツリー上 (Found, NotFound) だがバイナリキャッシュ両方異なる → Modified
+        use crate::diff::binary::BinaryInfo;
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.bin")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_binary_cache
+            .insert("a.bin".to_string(), BinaryInfo::from_bytes(b"aaa"));
+        state
+            .right_binary_cache
+            .insert("a.bin".to_string(), BinaryInfo::from_bytes(b"bbb"));
+        assert_eq!(state.compute_badge("a.bin", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_found_notfound_cache_one_side_only() {
+        // ツリー上 (Found, NotFound) でキャッシュ片方のみ → LeftOnly（従来通り）
+        let mut state = AppState::new(
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "content".to_string());
+        // right_cache は空
+        assert_eq!(state.compute_badge("a.txt", false), Badge::LeftOnly);
+    }
+
+    #[test]
+    fn test_badge_notfound_found_text_cache_equal() {
+        // ツリー上 (NotFound, Found) だがテキストキャッシュ両方同一 → Equal
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "same".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_notfound_found_text_cache_modified() {
+        // ツリー上 (NotFound, Found) だがテキストキャッシュ両方異なる → Modified
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_cache
+            .insert("a.txt".to_string(), "old".to_string());
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "new".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_notfound_found_binary_cache_equal() {
+        // ツリー上 (NotFound, Found) だがバイナリキャッシュ両方同一 → Equal
+        use crate::diff::binary::BinaryInfo;
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_file("a.bin")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        let info = BinaryInfo::from_bytes(b"\x00\x01\x02");
+        state
+            .left_binary_cache
+            .insert("a.bin".to_string(), info.clone());
+        state.right_binary_cache.insert("a.bin".to_string(), info);
+        assert_eq!(state.compute_badge("a.bin", false), Badge::Equal);
+    }
+
+    #[test]
+    fn test_badge_notfound_found_binary_cache_modified() {
+        // ツリー上 (NotFound, Found) だがバイナリキャッシュ両方異なる → Modified
+        use crate::diff::binary::BinaryInfo;
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_file("a.bin")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .left_binary_cache
+            .insert("a.bin".to_string(), BinaryInfo::from_bytes(b"xxx"));
+        state
+            .right_binary_cache
+            .insert("a.bin".to_string(), BinaryInfo::from_bytes(b"yyy"));
+        assert_eq!(state.compute_badge("a.bin", false), Badge::Modified);
+    }
+
+    #[test]
+    fn test_badge_notfound_found_cache_one_side_only() {
+        // ツリー上 (NotFound, Found) でキャッシュ片方のみ → RightOnly（従来通り）
+        let mut state = AppState::new(
+            make_test_tree(vec![]),
+            make_test_tree(vec![FileNode::new_file("a.txt")]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state
+            .right_cache
+            .insert("a.txt".to_string(), "content".to_string());
+        assert_eq!(state.compute_badge("a.txt", false), Badge::RightOnly);
     }
 }
