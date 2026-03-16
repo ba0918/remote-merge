@@ -95,6 +95,8 @@ pub struct AppState {
     pub is_connected: bool,
     /// 除外フィルターパターン（元の設定値）
     pub exclude_patterns: Vec<String>,
+    /// include フィルターパターン（元の設定値）
+    pub include_patterns: Vec<String>,
     /// 一時的に無効化されたパターン
     pub disabled_patterns: HashSet<String>,
     /// コンテンツ取得に失敗したパスの集合
@@ -199,6 +201,7 @@ impl AppState {
             dialog: DialogState::None,
             is_connected: false,
             exclude_patterns: Vec::new(),
+            include_patterns: Vec::new(),
             disabled_patterns: HashSet::new(),
             error_paths: HashSet::new(),
             hunk_cursor: 0,

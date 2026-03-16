@@ -56,6 +56,7 @@ pub fn bootstrap_tui(
     app_state.available_servers = available_servers;
     app_state.is_connected = is_connected;
     app_state.exclude_patterns = config.filter.exclude.clone();
+    app_state.include_patterns = config.filter.include.clone();
     app_state.sensitive_patterns = config.filter.sensitive.clone();
 
     // Agent 接続状態を同期
