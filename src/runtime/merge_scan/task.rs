@@ -13,6 +13,7 @@ use crate::app::{MergeScanMsg, MergeScanResult};
 use crate::config::AppConfig;
 use crate::diff::binary::BinaryInfo;
 use crate::runtime::core::BoxedAgentClient;
+use crate::runtime::side_io::AGENT_CHUNK_SIZE_LIMIT;
 use crate::ssh::client::SshClient;
 use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileNode;
@@ -30,7 +31,8 @@ pub enum RefSource {
 }
 
 /// Agent を使ったバッチ読み込みの1チャンクあたりのファイル数
-const AGENT_READ_BATCH_SIZE: usize = 256;
+/// side_io.rs と同じ値を使用（MAX_FRAME_SIZE 16MB を超えないための安全策）
+const AGENT_READ_BATCH_SIZE: usize = 100;
 
 /// 走査スレッドのメイン処理
 #[allow(clippy::too_many_arguments)]
@@ -287,50 +289,92 @@ fn agent_read_files_batch(
     let mut binary_cache = HashMap::new();
     let mut failed_paths = HashSet::new();
 
-    for (chunk_idx, chunk) in full_paths.chunks(AGENT_READ_BATCH_SIZE).enumerate() {
+    let mut processed_count = 0usize;
+    for chunk in full_paths.chunks(AGENT_READ_BATCH_SIZE) {
         let chunk_paths: Vec<String> = chunk.to_vec();
         let mut guard = agent
             .lock()
             .map_err(|_| "Agent mutex poisoned".to_string())?;
         let results = guard
-            .read_files(&chunk_paths, 0)
+            .read_files(&chunk_paths, AGENT_CHUNK_SIZE_LIMIT)
             .map_err(|e| format!("Agent read_files ({}) failed: {}", label, e))?;
         drop(guard); // ロック早期解放
 
-        let base_idx = chunk_idx * AGENT_READ_BATCH_SIZE;
-        for (i, read_result) in results.into_iter().enumerate() {
-            let rel_path = &file_paths[base_idx + i];
+        // more_to_follow チャンクを結合してファイル単位に再組立
+        let mut current_path: Option<String> = None;
+        let mut current_buf: Vec<u8> = Vec::new();
+
+        let flush_file = |path: String,
+                          content: Vec<u8>,
+                          text_cache: &mut HashMap<String, String>,
+                          binary_cache: &mut HashMap<String, BinaryInfo>| {
+            if crate::diff::engine::is_binary(&content) {
+                binary_cache.insert(path, BinaryInfo::from_bytes(&content));
+            } else {
+                match String::from_utf8(content) {
+                    Ok(text) => {
+                        text_cache.insert(path, text);
+                    }
+                    Err(e) => {
+                        let bytes = e.into_bytes();
+                        binary_cache.insert(path, BinaryInfo::from_bytes(&bytes));
+                    }
+                }
+            }
+        };
+
+        for read_result in results {
             match read_result {
-                FileReadResult::Ok { content, .. } => {
-                    if crate::diff::engine::is_binary(&content) {
-                        binary_cache.insert(rel_path.clone(), BinaryInfo::from_bytes(&content));
+                FileReadResult::Ok {
+                    path,
+                    content,
+                    more_to_follow,
+                } => {
+                    let is_new_file = current_path.as_ref() != Some(&path);
+                    if is_new_file {
+                        if let Some(prev_path) = current_path.take() {
+                            flush_file(
+                                prev_path,
+                                std::mem::take(&mut current_buf),
+                                &mut text_cache,
+                                &mut binary_cache,
+                            );
+                        }
+                        current_path = Some(path);
+                        current_buf = content;
                     } else {
-                        match String::from_utf8(content) {
-                            Ok(text) => {
-                                text_cache.insert(rel_path.clone(), text);
-                            }
-                            Err(e) => {
-                                // UTF-8 ではないがバイナリ判定を通過したケース
-                                let bytes = e.into_bytes();
-                                binary_cache
-                                    .insert(rel_path.clone(), BinaryInfo::from_bytes(&bytes));
-                            }
+                        current_buf.extend(content);
+                    }
+
+                    if !more_to_follow {
+                        if let Some(p) = current_path.take() {
+                            flush_file(
+                                p,
+                                std::mem::take(&mut current_buf),
+                                &mut text_cache,
+                                &mut binary_cache,
+                            );
                         }
                     }
                 }
                 FileReadResult::Error { path, message } => {
                     tracing::debug!("Agent ({}) failed to read {}: {}", label, path, message);
-                    failed_paths.insert(rel_path.clone());
+                    failed_paths.insert(path);
                 }
             }
         }
+        // 安全策: more_to_follow のまま終わったファイルをフラッシュ
+        if let Some(p) = current_path.take() {
+            flush_file(p, current_buf, &mut text_cache, &mut binary_cache);
+        }
 
+        processed_count += chunk.len();
         // 進捗更新（tx が提供されている場合のみ）
         if let Some(sender) = tx {
             let _ = sender.send(MergeScanMsg::Progress {
-                files_found: base_idx + chunk.len(),
+                files_found: processed_count,
                 // 相対パスで表示（UI 表示用）
-                current_path: file_paths.get(base_idx + chunk.len() - 1).cloned(),
+                current_path: chunk.last().cloned(),
             });
         }
     }
@@ -1034,7 +1078,7 @@ mod tests {
             assert!(AGENT_READ_BATCH_SIZE > 0);
             assert!(AGENT_READ_BATCH_SIZE <= 1024);
         }
-        assert_eq!(AGENT_READ_BATCH_SIZE, 256);
+        assert_eq!(AGENT_READ_BATCH_SIZE, 100);
     }
 
     // ── log_scan_completion テスト ──
@@ -1063,10 +1107,9 @@ mod tests {
         // AGENT_READ_BATCH_SIZE でチャンク分割されることを検証
         let paths: Vec<String> = (0..600).map(|i| format!("file_{}.txt", i)).collect();
         let chunks: Vec<&[String]> = paths.chunks(AGENT_READ_BATCH_SIZE).collect();
-        assert_eq!(chunks.len(), 3); // 600 / 256 = 2.34 → 3チャンク
-        assert_eq!(chunks[0].len(), 256);
-        assert_eq!(chunks[1].len(), 256);
-        assert_eq!(chunks[2].len(), 88);
+        assert_eq!(chunks.len(), 6); // 600 / 100 = 6チャンク
+        assert_eq!(chunks[0].len(), 100);
+        assert_eq!(chunks[5].len(), 100);
     }
 
     // ── group_nodes_by_parent テスト ──

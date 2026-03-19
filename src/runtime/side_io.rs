@@ -18,6 +18,20 @@ use crate::tree::{FileNode, FileTree};
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
 use super::TuiRuntime;
 
+/// Agent read_files のチャンクサイズ上限 (4 MB)。
+///
+/// 個別ファイルがこのサイズを超えると `more_to_follow` 付きの
+/// 複数 `FileReadResult::Ok` に分割される。
+/// `MAX_FRAME_SIZE` (16 MB) を超えないよう余裕を持たせた値。
+pub(crate) const AGENT_CHUNK_SIZE_LIMIT: usize = 4 * 1024 * 1024;
+
+/// Agent バッチ読み込みのパス数上限。
+///
+/// SSH バッチ読み込み用の `AGENT_BATCH_MAX_PATHS` (2000) とは別に、
+/// Agent プロトコルのフレームサイズ制限 (16 MB) を考慮した値。
+/// 100 ファイル × 平均ファイルサイズでフレームサイズを抑える。
+const AGENT_READ_BATCH_SIZE: usize = 100;
+
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
 // Remote ブランチでは Agent を優先的に使用し、失敗時は SSH にフォールバックする。
@@ -618,7 +632,7 @@ impl CoreRuntime {
     ) -> Option<anyhow::Result<String>> {
         let rel = rel_path.to_string();
         let agent_result = self.with_agent(server_name, "read_file", |agent| {
-            agent.read_files(&[rel], 0)
+            agent.read_files(&[rel], AGENT_CHUNK_SIZE_LIMIT)
         });
         // with_agent の結果 → FileReadResult の後処理（純粋関数）
         flatten_agent_read_result(agent_result, extract_single_file_as_string)
@@ -633,7 +647,7 @@ impl CoreRuntime {
         let paths = rel_paths.to_vec();
         let owned_rel_paths: Vec<String> = rel_paths.to_vec();
         let agent_result = self.with_agent(server_name, "read_files_batch", |agent| {
-            agent.read_files(&paths, 0)
+            agent.read_files(&paths, AGENT_CHUNK_SIZE_LIMIT)
         });
         flatten_agent_read_result(agent_result, |results| {
             extract_batch_files_as_string(results, &owned_rel_paths)
@@ -648,14 +662,14 @@ impl CoreRuntime {
     ) -> Option<anyhow::Result<Vec<u8>>> {
         let rel = rel_path.to_string();
         let agent_result = self.with_agent(server_name, "read_file_bytes", |agent| {
-            agent.read_files(&[rel], 0)
+            agent.read_files(&[rel], AGENT_CHUNK_SIZE_LIMIT)
         });
         flatten_agent_read_result(agent_result, extract_single_file_as_bytes)
     }
 
     /// Agent 経由で複数ファイルのバイト列をバッチ読み込む（チャンク分割対応）
     ///
-    /// パスを `AGENT_BATCH_MAX_PATHS` 件ごとにチャンク分割して Agent に送る。
+    /// パスを `AGENT_READ_BATCH_SIZE` 件ごとにチャンク分割して Agent に送る。
     /// チャンク途中でエラーが発生した場合は Agent を無効化して None を返す
     /// （呼び出し元が SSH フォールバックで全件リトライ）。
     fn try_agent_read_files_bytes_batch(
@@ -663,8 +677,6 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-        use crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS;
-
         // サーバー設定の存在確認（Agent が有効かどうか）
         self.config.servers.get(server_name)?;
         let agent_arc = self.agent_clients.get(server_name)?.clone();
@@ -679,10 +691,10 @@ impl CoreRuntime {
 
         let mut merged: HashMap<String, Vec<u8>> = HashMap::with_capacity(rel_paths.len());
 
-        // パス数ベースのチャンク分割
-        for chunk in rel_paths.chunks(AGENT_BATCH_MAX_PATHS) {
+        // パス数ベースのチャンク分割（フレームサイズ超過防止）
+        for chunk in rel_paths.chunks(AGENT_READ_BATCH_SIZE) {
             let paths: Vec<String> = chunk.to_vec();
-            let result = agent.read_files(&paths, 0);
+            let result = agent.read_files(&paths, AGENT_CHUNK_SIZE_LIMIT);
 
             match result {
                 Ok(results) => {
@@ -992,51 +1004,101 @@ where
     }
 }
 
+/// `more_to_follow` チャンクを結合し、ファイル単位の `(path, content)` ペアに再組立する。
+///
+/// Agent が `chunk_size_limit > 0` でファイルを読み込むと、大きなファイルが
+/// 同じパスの複数 `FileReadResult::Ok` に分割される（`more_to_follow: true`）。
+/// この関数はそれらを結合し、ファイル単位のバイト列に戻す。
+///
+/// - `FileReadResult::Error` が含まれている場合は `None` を返す（SSH フォールバック用）
+fn reassemble_chunked_results(results: Vec<FileReadResult>) -> Option<Vec<(String, Vec<u8>)>> {
+    let mut assembled: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_buf: Vec<u8> = Vec::new();
+
+    for result in results {
+        match result {
+            FileReadResult::Ok {
+                path,
+                content,
+                more_to_follow,
+            } => {
+                // 新しいファイルの開始を検出
+                let is_new_file = current_path.as_ref() != Some(&path);
+                if is_new_file {
+                    // 前のファイルがあれば確定
+                    if let Some(prev_path) = current_path.take() {
+                        assembled.push((prev_path, std::mem::take(&mut current_buf)));
+                    }
+                    current_path = Some(path);
+                    current_buf = content;
+                } else {
+                    // 同一ファイルの続きチャンク
+                    current_buf.extend(content);
+                }
+
+                if !more_to_follow {
+                    // ファイル完了 → 確定
+                    if let Some(p) = current_path.take() {
+                        assembled.push((p, std::mem::take(&mut current_buf)));
+                    }
+                }
+            }
+            FileReadResult::Error { .. } => return None,
+        }
+    }
+
+    // 最後のファイルが more_to_follow のまま終わった場合（通常は起きないが安全策）
+    if let Some(p) = current_path.take() {
+        assembled.push((p, current_buf));
+    }
+
+    Some(assembled)
+}
+
 /// 単一ファイルの `FileReadResult` を `String` に変換する。
+///
+/// `more_to_follow` チャンクを結合してから UTF-8 変換する。
 ///
 /// - `FileReadResult::Ok` → `Some(Ok(String))` （UTF-8 変換エラーは `Some(Err)` で伝播）
 /// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
 fn extract_single_file_as_string(results: Vec<FileReadResult>) -> Option<anyhow::Result<String>> {
-    let first = results.into_iter().next()?;
-    match first {
-        FileReadResult::Ok { content, .. } => Some(String::from_utf8(content).map_err(Into::into)),
-        FileReadResult::Error { .. } => None,
-    }
+    let assembled = reassemble_chunked_results(results)?;
+    let (_, content) = assembled.into_iter().next()?;
+    Some(String::from_utf8(content).map_err(Into::into))
 }
 
 /// 単一ファイルの `FileReadResult` をバイト列として取得する。
 ///
+/// `more_to_follow` チャンクを結合して返す。
+///
 /// - `FileReadResult::Ok` → `Some(Ok(Vec<u8>))`
 /// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
 fn extract_single_file_as_bytes(results: Vec<FileReadResult>) -> Option<anyhow::Result<Vec<u8>>> {
-    let first = results.into_iter().next()?;
-    match first {
-        FileReadResult::Ok { content, .. } => Some(Ok(content)),
-        FileReadResult::Error { .. } => None,
-    }
+    let assembled = reassemble_chunked_results(results)?;
+    let (_, content) = assembled.into_iter().next()?;
+    Some(Ok(content))
 }
 
 /// 複数ファイルの `FileReadResult` を `HashMap<String, String>` に変換する。
+///
+/// `more_to_follow` チャンクを結合してからファイル単位で UTF-8 変換する。
 ///
 /// - 全ファイル成功 → `Some(Ok(HashMap))`
 /// - UTF-8 変換エラー → `Some(Err)`
 /// - `FileReadResult::Error` → `None`（SSH フォールバック）
 fn extract_batch_files_as_string(
     results: Vec<FileReadResult>,
-    rel_paths: &[String],
+    _rel_paths: &[String],
 ) -> Option<anyhow::Result<HashMap<String, String>>> {
-    let mut map = HashMap::with_capacity(results.len());
-    for (i, result) in results.into_iter().enumerate() {
-        match result {
-            FileReadResult::Ok { content, .. } => match String::from_utf8(content) {
-                Ok(s) => {
-                    if i < rel_paths.len() {
-                        map.insert(rel_paths[i].clone(), s);
-                    }
-                }
-                Err(e) => return Some(Err(e.into())),
-            },
-            FileReadResult::Error { .. } => return None,
+    let assembled = reassemble_chunked_results(results)?;
+    let mut map = HashMap::with_capacity(assembled.len());
+    for (path, content) in assembled {
+        match String::from_utf8(content) {
+            Ok(s) => {
+                map.insert(path, s);
+            }
+            Err(e) => return Some(Err(e.into())),
         }
     }
     Some(Ok(map))
@@ -1044,22 +1106,18 @@ fn extract_batch_files_as_string(
 
 /// 複数ファイルの `FileReadResult` をバイト列の `HashMap` に変換する。
 ///
+/// `more_to_follow` チャンクを結合してからファイル単位の `HashMap` を返す。
+///
 /// - 全ファイル成功 → `Some(Ok(HashMap))`
 /// - `FileReadResult::Error` → `None`（SSH フォールバック）
 fn extract_batch_files_as_bytes(
     results: Vec<FileReadResult>,
-    rel_paths: &[String],
+    _rel_paths: &[String],
 ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-    let mut map = HashMap::with_capacity(results.len());
-    for (i, result) in results.into_iter().enumerate() {
-        match result {
-            FileReadResult::Ok { content, .. } => {
-                if i < rel_paths.len() {
-                    map.insert(rel_paths[i].clone(), content);
-                }
-            }
-            FileReadResult::Error { .. } => return None,
-        }
+    let assembled = reassemble_chunked_results(results)?;
+    let mut map = HashMap::with_capacity(assembled.len());
+    for (path, content) in assembled {
+        map.insert(path, content);
     }
     Some(Ok(map))
 }
@@ -3035,6 +3093,221 @@ mod tests {
         }];
         let paths = vec!["a.bin".to_string()];
         assert!(extract_batch_files_as_bytes(results, &paths).is_none());
+    }
+
+    // ── reassemble_chunked_results テスト ──
+
+    #[test]
+    fn test_reassemble_single_file_no_chunks() {
+        let results = vec![FileReadResult::Ok {
+            path: "a.txt".to_string(),
+            content: b"hello".to_vec(),
+            more_to_follow: false,
+        }];
+        let assembled = reassemble_chunked_results(results).unwrap();
+        assert_eq!(assembled.len(), 1);
+        assert_eq!(assembled[0].0, "a.txt");
+        assert_eq!(assembled[0].1, b"hello");
+    }
+
+    #[test]
+    fn test_reassemble_single_file_multiple_chunks() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "big.bin".to_string(),
+                content: vec![0x01, 0x02],
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "big.bin".to_string(),
+                content: vec![0x03, 0x04],
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "big.bin".to_string(),
+                content: vec![0x05],
+                more_to_follow: false,
+            },
+        ];
+        let assembled = reassemble_chunked_results(results).unwrap();
+        assert_eq!(assembled.len(), 1);
+        assert_eq!(assembled[0].0, "big.bin");
+        assert_eq!(assembled[0].1, vec![0x01, 0x02, 0x03, 0x04, 0x05]);
+    }
+
+    #[test]
+    fn test_reassemble_multiple_files_with_chunks() {
+        let results = vec![
+            // file_a: 2 chunks
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"hel".to_vec(),
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"lo".to_vec(),
+                more_to_follow: false,
+            },
+            // file_b: 1 chunk
+            FileReadResult::Ok {
+                path: "b.txt".to_string(),
+                content: b"world".to_vec(),
+                more_to_follow: false,
+            },
+            // file_c: 3 chunks
+            FileReadResult::Ok {
+                path: "c.txt".to_string(),
+                content: b"ab".to_vec(),
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "c.txt".to_string(),
+                content: b"cd".to_vec(),
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "c.txt".to_string(),
+                content: b"ef".to_vec(),
+                more_to_follow: false,
+            },
+        ];
+        let assembled = reassemble_chunked_results(results).unwrap();
+        assert_eq!(assembled.len(), 3);
+        assert_eq!(assembled[0], ("a.txt".to_string(), b"hello".to_vec()));
+        assert_eq!(assembled[1], ("b.txt".to_string(), b"world".to_vec()));
+        assert_eq!(assembled[2], ("c.txt".to_string(), b"abcdef".to_vec()));
+    }
+
+    #[test]
+    fn test_reassemble_error_returns_none() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"ok".to_vec(),
+                more_to_follow: false,
+            },
+            FileReadResult::Error {
+                path: "b.txt".to_string(),
+                message: "not found".to_string(),
+            },
+        ];
+        assert!(reassemble_chunked_results(results).is_none());
+    }
+
+    #[test]
+    fn test_reassemble_empty_results() {
+        let assembled = reassemble_chunked_results(vec![]).unwrap();
+        assert!(assembled.is_empty());
+    }
+
+    // ── extract with chunks テスト ──
+
+    #[test]
+    fn test_extract_single_file_as_string_with_chunks() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "test.txt".to_string(),
+                content: b"hel".to_vec(),
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "test.txt".to_string(),
+                content: b"lo world".to_vec(),
+                more_to_follow: false,
+            },
+        ];
+        let result = extract_single_file_as_string(results);
+        assert_eq!(result.unwrap().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_extract_single_file_as_bytes_with_chunks() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "data.bin".to_string(),
+                content: vec![0x01, 0x02],
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "data.bin".to_string(),
+                content: vec![0x03, 0x04],
+                more_to_follow: false,
+            },
+        ];
+        let result = extract_single_file_as_bytes(results);
+        assert_eq!(result.unwrap().unwrap(), vec![0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn test_extract_batch_files_as_string_with_chunks() {
+        let results = vec![
+            // a.txt: 2 chunks
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"hel".to_vec(),
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "a.txt".to_string(),
+                content: b"lo".to_vec(),
+                more_to_follow: false,
+            },
+            // b.txt: 1 chunk
+            FileReadResult::Ok {
+                path: "b.txt".to_string(),
+                content: b"world".to_vec(),
+                more_to_follow: false,
+            },
+        ];
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let map = extract_batch_files_as_string(results, &paths)
+            .unwrap()
+            .unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["a.txt"], "hello");
+        assert_eq!(map["b.txt"], "world");
+    }
+
+    #[test]
+    fn test_extract_batch_files_as_bytes_with_chunks() {
+        let results = vec![
+            FileReadResult::Ok {
+                path: "a.bin".to_string(),
+                content: vec![0x01],
+                more_to_follow: true,
+            },
+            FileReadResult::Ok {
+                path: "a.bin".to_string(),
+                content: vec![0x02],
+                more_to_follow: false,
+            },
+            FileReadResult::Ok {
+                path: "b.bin".to_string(),
+                content: vec![0x03],
+                more_to_follow: false,
+            },
+        ];
+        let paths = vec!["a.bin".to_string(), "b.bin".to_string()];
+        let map = extract_batch_files_as_bytes(results, &paths)
+            .unwrap()
+            .unwrap();
+        assert_eq!(map["a.bin"], vec![0x01, 0x02]);
+        assert_eq!(map["b.bin"], vec![0x03]);
+    }
+
+    #[test]
+    fn test_agent_chunk_size_limit_constant() {
+        // 定数が MAX_FRAME_SIZE (16MB) より十分小さいことを検証
+        assert_eq!(AGENT_CHUNK_SIZE_LIMIT, 4 * 1024 * 1024);
+        const { assert!(AGENT_CHUNK_SIZE_LIMIT < 16 * 1024 * 1024) };
+    }
+
+    #[test]
+    fn test_agent_read_batch_size_constant() {
+        assert_eq!(AGENT_READ_BATCH_SIZE, 100);
+        // SSH バッチ上限より小さいこと
+        const { assert!(AGENT_READ_BATCH_SIZE < crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS) };
     }
 
     // ── flatten_agent_read_result テスト ──
