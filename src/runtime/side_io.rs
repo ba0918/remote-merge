@@ -27,10 +27,10 @@ pub(crate) const AGENT_CHUNK_SIZE_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Agent バッチ読み込みのパス数上限。
 ///
-/// SSH バッチ読み込み用の `AGENT_BATCH_MAX_PATHS` (2000) とは別に、
-/// Agent プロトコルのフレームサイズ制限 (16 MB) を考慮した値。
-/// 100 ファイル × 平均ファイルサイズでフレームサイズを抑える。
-const AGENT_READ_BATCH_SIZE: usize = 100;
+/// ストリーミング対応により、サーバー側がレスポンスをフレームサイズ内に
+/// 自律的に分割するため、SSH と同じ `AGENT_BATCH_MAX_PATHS` (2000) を使用できる。
+/// 1リクエストで多数のファイルを送信し、往復回数を削減する。
+const AGENT_READ_BATCH_SIZE: usize = 2000;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
@@ -3457,9 +3457,12 @@ mod tests {
 
     #[test]
     fn test_agent_read_batch_size_constant() {
-        assert_eq!(AGENT_READ_BATCH_SIZE, 100);
-        // SSH バッチ上限より小さいこと
-        const { assert!(AGENT_READ_BATCH_SIZE < crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS) };
+        // ストリーミング対応後は SSH と同じ 2000 を使用
+        assert_eq!(AGENT_READ_BATCH_SIZE, 2000);
+        assert_eq!(
+            AGENT_READ_BATCH_SIZE,
+            crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS
+        );
     }
 
     // ── flatten_agent_read_result テスト ──

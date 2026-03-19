@@ -30,9 +30,11 @@ pub enum RefSource {
     Remote(String),
 }
 
-/// Agent を使ったバッチ読み込みの1チャンクあたりのファイル数
-/// side_io.rs と同じ値を使用（MAX_FRAME_SIZE 16MB を超えないための安全策）
-const AGENT_READ_BATCH_SIZE: usize = 100;
+/// Agent を使ったバッチ読み込みの1チャンクあたりのファイル数。
+///
+/// ストリーミング対応により、サーバー側がレスポンスをフレームサイズ内に
+/// 自律的に分割するため、SSH と同じ 2000 を使用できる。
+const AGENT_READ_BATCH_SIZE: usize = 2000;
 
 /// 走査スレッドのメイン処理
 #[allow(clippy::too_many_arguments)]
@@ -1073,12 +1075,12 @@ mod tests {
 
     #[test]
     fn agent_read_batch_size_is_reasonable() {
-        // 定数アサーションは const ブロックで検証
+        // ストリーミング対応後は SSH と同じ 2000 を使用
         const {
             assert!(AGENT_READ_BATCH_SIZE > 0);
-            assert!(AGENT_READ_BATCH_SIZE <= 1024);
+            assert!(AGENT_READ_BATCH_SIZE <= 4096);
         }
-        assert_eq!(AGENT_READ_BATCH_SIZE, 100);
+        assert_eq!(AGENT_READ_BATCH_SIZE, 2000);
     }
 
     // ── log_scan_completion テスト ──
@@ -1105,11 +1107,11 @@ mod tests {
     #[test]
     fn agent_read_batch_chunking_logic() {
         // AGENT_READ_BATCH_SIZE でチャンク分割されることを検証
-        let paths: Vec<String> = (0..600).map(|i| format!("file_{}.txt", i)).collect();
+        let paths: Vec<String> = (0..6000).map(|i| format!("file_{}.txt", i)).collect();
         let chunks: Vec<&[String]> = paths.chunks(AGENT_READ_BATCH_SIZE).collect();
-        assert_eq!(chunks.len(), 6); // 600 / 100 = 6チャンク
-        assert_eq!(chunks[0].len(), 100);
-        assert_eq!(chunks[5].len(), 100);
+        assert_eq!(chunks.len(), 3); // 6000 / 2000 = 3チャンク
+        assert_eq!(chunks[0].len(), 2000);
+        assert_eq!(chunks[2].len(), 2000);
     }
 
     // ── group_nodes_by_parent テスト ──
