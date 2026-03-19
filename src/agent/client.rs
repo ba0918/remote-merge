@@ -699,4 +699,67 @@ mod tests {
         let version = protocol::parse_handshake(&line).unwrap();
         assert_eq!(version, protocol::PROTOCOL_VERSION);
     }
+
+    // ---- HashFiles ----
+
+    #[test]
+    fn hash_files_basic() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
+
+        let mut client = create_pair(&tmp);
+        let results = client.hash_files(&["test.txt".to_string()]).unwrap();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            protocol::FileHashResult::Ok { path, hash } => {
+                assert_eq!(path, "test.txt");
+                assert!(!hash.is_empty());
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_symlink() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let mut client = create_pair(&tmp);
+        let results = client.hash_files(&["link.txt".to_string()]).unwrap();
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            protocol::FileHashResult::Symlink { path, target } => {
+                assert_eq!(path, "link.txt");
+                assert_eq!(target, "target.txt");
+            }
+            other => panic!("expected Symlink, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_nonexistent() {
+        let tmp = TempDir::new().unwrap();
+
+        let mut client = create_pair(&tmp);
+        let results = client.hash_files(&["nonexistent.txt".to_string()]).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(matches!(
+            &results[0],
+            protocol::FileHashResult::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn hash_files_version_too_old() {
+        // v2 ハンドシェイクで接続 → hash_files は protocol version エラー
+        let handshake = "remote-merge agent v2\n";
+        let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
+        let writer = Vec::new();
+        let mut client = AgentClient::connect(reader, writer).unwrap();
+        assert_eq!(client.protocol_version(), 2);
+
+        let err = client.hash_files(&["test.txt".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("protocol version"));
+    }
 }

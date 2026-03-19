@@ -176,20 +176,22 @@ impl Dispatcher {
         let mut results: Vec<FileHashResult> = Vec::with_capacity(paths.len());
 
         for rel_path in paths {
-            let validated = match file_io::validate_path(&self.root_dir, rel_path) {
-                Ok(p) => p,
-                Err(e) => {
-                    results.push(FileHashResult::Error {
-                        path: rel_path.clone(),
-                        reason: e.to_string(),
-                    });
-                    continue;
-                }
-            };
+            // validate_path は canonicalize するため、シンボリックリンクを解決してしまう。
+            // symlink 判定は canonicalize 前の raw パスで行う必要がある。
+            let raw_path = self.root_dir.join(rel_path);
 
-            // シンボリックリンク判定（dereference しない）
-            match std::fs::symlink_metadata(&validated) {
-                Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&validated) {
+            // パストラバーサル検証のみ validate_path を使用
+            if let Err(e) = file_io::validate_path(&self.root_dir, rel_path) {
+                results.push(FileHashResult::Error {
+                    path: rel_path.clone(),
+                    reason: e.to_string(),
+                });
+                continue;
+            }
+
+            // シンボリックリンク判定（raw パスで dereference せずチェック）
+            match std::fs::symlink_metadata(&raw_path) {
+                Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&raw_path) {
                     Ok(target) => {
                         results.push(FileHashResult::Symlink {
                             path: rel_path.clone(),
@@ -205,7 +207,7 @@ impl Dispatcher {
                 },
                 Ok(_) => {
                     // 通常ファイル: SHA-256 計算
-                    match std::fs::read(&validated) {
+                    match std::fs::read(&raw_path) {
                         Ok(content) => {
                             let hash = Sha256::digest(&content);
                             results.push(FileHashResult::Ok {
@@ -1284,5 +1286,170 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dispatcher = Dispatcher::new(tmp.path().to_path_buf(), config);
         (tmp, dispatcher)
+    }
+
+    // ── HashFiles ──
+
+    #[test]
+    fn hash_files_returns_correct_sha256() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["test.txt".into()],
+            })
+            .unwrap();
+
+        assert_eq!(resps.len(), 1);
+        match &resps[0] {
+            AgentResponse::FileHashes { results, is_last } => {
+                assert!(*is_last);
+                assert_eq!(results.len(), 1);
+                match &results[0] {
+                    FileHashResult::Ok { path, hash } => {
+                        assert_eq!(path, "test.txt");
+                        // SHA-256 of "hello world"
+                        let expected =
+                            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+                        assert_eq!(hash, expected);
+                    }
+                    other => panic!("expected Ok, got {other:?}"),
+                }
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_symlink_returns_symlink_variant() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("target.txt"), "data").unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["link.txt".into()],
+            })
+            .unwrap();
+
+        match &resps[0] {
+            AgentResponse::FileHashes { results, is_last } => {
+                assert!(*is_last);
+                assert_eq!(results.len(), 1);
+                match &results[0] {
+                    FileHashResult::Symlink { path, target } => {
+                        assert_eq!(path, "link.txt");
+                        assert_eq!(target, "target.txt");
+                    }
+                    other => panic!("expected Symlink, got {other:?}"),
+                }
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_nonexistent_returns_error_variant() {
+        let (_tmp, mut d) = setup();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["nonexistent.txt".into()],
+            })
+            .unwrap();
+
+        match &resps[0] {
+            AgentResponse::FileHashes { results, is_last } => {
+                assert!(*is_last);
+                assert_eq!(results.len(), 1);
+                assert!(matches!(&results[0], FileHashResult::Error { .. }));
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_path_traversal_returns_error() {
+        let (_tmp, mut d) = setup();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["../etc/passwd".into()],
+            })
+            .unwrap();
+
+        match &resps[0] {
+            AgentResponse::FileHashes { results, .. } => {
+                assert_eq!(results.len(), 1);
+                match &results[0] {
+                    FileHashResult::Error { reason, .. } => {
+                        assert!(reason.contains("path traversal"));
+                    }
+                    other => panic!("expected Error, got {other:?}"),
+                }
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_multiple_files() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
+        fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["a.txt".into(), "b.txt".into()],
+            })
+            .unwrap();
+
+        match &resps[0] {
+            AgentResponse::FileHashes { results, is_last } => {
+                assert!(*is_last);
+                assert_eq!(results.len(), 2);
+                // ハッシュは異なるべき
+                let h1 = match &results[0] {
+                    FileHashResult::Ok { hash, .. } => hash.clone(),
+                    other => panic!("expected Ok, got {other:?}"),
+                };
+                let h2 = match &results[1] {
+                    FileHashResult::Ok { hash, .. } => hash.clone(),
+                    other => panic!("expected Ok, got {other:?}"),
+                };
+                assert_ne!(h1, h2);
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hash_files_empty_file() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("empty.txt"), "").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["empty.txt".into()],
+            })
+            .unwrap();
+
+        match &resps[0] {
+            AgentResponse::FileHashes { results, .. } => {
+                assert_eq!(results.len(), 1);
+                match &results[0] {
+                    FileHashResult::Ok { hash, .. } => {
+                        // SHA-256 of empty string
+                        assert_eq!(
+                            hash,
+                            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                        );
+                    }
+                    other => panic!("expected Ok, got {other:?}"),
+                }
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
     }
 }

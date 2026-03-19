@@ -200,8 +200,8 @@ src/
 | Step | Description | Status |
 |------|-------------|--------|
 | 1 | プロトコル拡張 + バージョンネゴシエーション | 🟢 |
-| 2 | Agent ハンドラ — HashFiles | ⚪ |
-| 3 | クライアント — hash_files | ⚪ |
+| 2 | Agent ハンドラ — HashFiles | 🟢 |
+| 3 | クライアント — hash_files | 🟢 |
 | 4 | ランタイム統合 — hash 優先 status | ⚪ |
 | 5 | status サービス — hash 比較ロジック | ⚪ |
 | 6 | Agent ハンドラ — ストリーミング ReadFiles | ⚪ |
