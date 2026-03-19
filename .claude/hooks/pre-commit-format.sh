@@ -2,6 +2,8 @@
 # Pre-commit hook: auto-format and lint-fix before git commit
 # git commit を検知したら cargo fmt + cargo clippy --fix を自動実行する
 
+export PATH="$HOME/.cargo/bin:$PATH"
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command')
 
