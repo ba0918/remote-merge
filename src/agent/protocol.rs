@@ -2,7 +2,9 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 /// プロトコルバージョン（破壊的変更時にインクリメント）
-pub const PROTOCOL_VERSION: u32 = 2;
+///
+/// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -23,6 +25,9 @@ pub enum AgentRequest {
     ReadFiles {
         paths: Vec<String>,
         chunk_size_limit: usize,
+    },
+    HashFiles {
+        paths: Vec<String>,
     },
     WriteFile {
         path: String,
@@ -70,6 +75,15 @@ pub enum AgentResponse {
     },
     FileContents {
         results: Vec<FileReadResult>,
+        /// ストリーミング対応: true で最後のチャンク。
+        /// v2 エージェントとの後方互換性のため、未設定時は true にフォールバック。
+        #[serde(default = "default_is_last")]
+        is_last: bool,
+    },
+    FileHashes {
+        results: Vec<FileHashResult>,
+        /// ストリーミング対応: true で最後のチャンク。
+        is_last: bool,
     },
     WriteResult {
         success: bool,
@@ -133,6 +147,24 @@ pub enum FileReadResult {
     },
 }
 
+/// `is_last` フィールドのデフォルト値。
+/// v2 エージェントは `is_last` フィールドを送信しないため、
+/// デシリアライズ時に true にフォールバックする（単一チャンクとして扱う）。
+fn default_is_last() -> bool {
+    true
+}
+
+/// HashFiles レスポンス用のハッシュ結果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FileHashResult {
+    /// 通常ファイル: SHA-256 ハッシュ（hex string）
+    Ok { path: String, hash: String },
+    /// シンボリックリンク: リンクターゲットパス
+    Symlink { path: String, target: String },
+    /// エラー
+    Error { path: String, reason: String },
+}
+
 /// StatFiles レスポンス用のメタデータ。
 /// permissions を含む（楽観的ロック時にパーミッション変化も検知するため）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -193,12 +225,18 @@ pub fn parse_handshake(line: &str) -> Result<u32> {
     Ok(version)
 }
 
-/// パースしたバージョンが現在のプロトコルバージョンと一致するか検証する
-pub fn check_protocol_version(remote_version: u32) -> Result<()> {
-    if remote_version != PROTOCOL_VERSION {
-        bail!("protocol version mismatch: expected {PROTOCOL_VERSION}, got {remote_version}");
+/// パースしたバージョンが現在のプロトコルバージョン以上であるか検証し、
+/// ネゴシエーション済みバージョン（両者の最小値）を返す。
+///
+/// クライアントとサーバーのバージョンが異なる場合、低い方の機能セットで動作する。
+/// サーバーがクライアントより古い場合（例: サーバー v2、クライアント v3）でも接続を許可し、
+/// v2 の機能セットで動作する。ただしサーバーが v1 以下の場合は拒否する。
+pub fn check_protocol_version(remote_version: u32) -> Result<u32> {
+    if remote_version < 2 {
+        bail!("protocol version too old: got {remote_version}, minimum supported is 2");
     }
-    Ok(())
+    // ネゴシエーション: 両者の最小値
+    Ok(remote_version.min(PROTOCOL_VERSION))
 }
 
 // ---------------------------------------------------------------------------
@@ -234,14 +272,14 @@ mod tests {
     #[test]
     fn handshake_format_and_parse() {
         let hs = format_handshake();
-        assert_eq!(hs, "remote-merge agent v2");
+        assert_eq!(hs, "remote-merge agent v3");
         let ver = parse_handshake(&hs).unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
     #[test]
     fn handshake_parse_with_trailing_whitespace() {
-        let ver = parse_handshake("  remote-merge agent v2  ").unwrap();
+        let ver = parse_handshake("  remote-merge agent v3  ").unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
@@ -253,14 +291,29 @@ mod tests {
     }
 
     #[test]
-    fn check_protocol_version_mismatch() {
-        let err = check_protocol_version(999).unwrap_err();
-        assert!(err.to_string().contains("version mismatch"));
+    fn check_protocol_version_too_old() {
+        let err = check_protocol_version(1).unwrap_err();
+        assert!(err.to_string().contains("too old"));
     }
 
     #[test]
     fn check_protocol_version_match() {
-        check_protocol_version(PROTOCOL_VERSION).unwrap();
+        let negotiated = check_protocol_version(PROTOCOL_VERSION).unwrap();
+        assert_eq!(negotiated, PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn check_protocol_version_v2_accepted() {
+        // v2 Agent はまだ接続可能（HashFiles は使えないが ReadFiles は動作する）
+        let negotiated = check_protocol_version(2).unwrap();
+        assert_eq!(negotiated, 2);
+    }
+
+    #[test]
+    fn check_protocol_version_newer_agent() {
+        // Agent がクライアントより新しい場合 → クライアント側バージョンにネゴシエーション
+        let negotiated = check_protocol_version(999).unwrap();
+        assert_eq!(negotiated, PROTOCOL_VERSION);
     }
 
     #[test]
@@ -444,7 +497,75 @@ mod tests {
                     message: "permission denied".into(),
                 },
             ],
+            is_last: true,
         });
+    }
+
+    #[test]
+    fn response_file_contents_is_last_default_true() {
+        // v2 Agent が is_last を含めずに送信した場合、default_is_last() で true になること
+        let json = r#"{"FileContents":{"results":[]}}"#;
+        let resp: AgentResponse = serde_json::from_str(json).unwrap();
+        match resp {
+            AgentResponse::FileContents { is_last, .. } => {
+                assert!(
+                    is_last,
+                    "is_last should default to true for backward compatibility"
+                );
+            }
+            other => panic!("expected FileContents, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn response_file_contents_streaming_not_last() {
+        roundtrip_response(&AgentResponse::FileContents {
+            results: vec![FileReadResult::Ok {
+                path: "chunk.txt".into(),
+                content: b"partial".to_vec(),
+                more_to_follow: false,
+            }],
+            is_last: false,
+        });
+    }
+
+    #[test]
+    fn response_file_hashes_roundtrip() {
+        roundtrip_response(&AgentResponse::FileHashes {
+            results: vec![
+                FileHashResult::Ok {
+                    path: "a.txt".into(),
+                    hash: "abc123".into(),
+                },
+                FileHashResult::Symlink {
+                    path: "link".into(),
+                    target: "/opt/target".into(),
+                },
+                FileHashResult::Error {
+                    path: "missing.txt".into(),
+                    reason: "not found".into(),
+                },
+            ],
+            is_last: true,
+        });
+    }
+
+    #[test]
+    fn request_hash_files_roundtrip() {
+        roundtrip_request(&AgentRequest::HashFiles {
+            paths: vec!["a.txt".into(), "b.txt".into()],
+        });
+    }
+
+    #[test]
+    fn file_hash_result_symlink_roundtrip() {
+        let result = FileHashResult::Symlink {
+            path: "link".into(),
+            target: "/opt/target".into(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: FileHashResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(result, decoded);
     }
 
     #[test]
@@ -513,6 +634,7 @@ mod tests {
         };
         let resp = AgentResponse::FileContents {
             results: vec![result],
+            is_last: true,
         };
         let data = serialize_response(&resp).unwrap();
         let decoded = deserialize_response(&data).unwrap();
@@ -562,15 +684,18 @@ mod tests {
             total_scanned: 0,
             truncated: false,
         });
-        roundtrip_response(&AgentResponse::FileContents { results: vec![] });
+        roundtrip_response(&AgentResponse::FileContents {
+            results: vec![],
+            is_last: true,
+        });
         roundtrip_response(&AgentResponse::Stats { entries: vec![] });
     }
 
     // ---- Protocol version ----
 
     #[test]
-    fn protocol_version_is_2() {
-        assert_eq!(PROTOCOL_VERSION, 2);
+    fn protocol_version_is_3() {
+        assert_eq!(PROTOCOL_VERSION, 3);
     }
 
     // ---- ListBackups / BackupList roundtrip ----

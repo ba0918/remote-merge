@@ -10,7 +10,7 @@ use anyhow::{bail, Result};
 use super::framing;
 use super::protocol::{
     self, AgentBackupSession, AgentFileEntry, AgentFileStat, AgentRequest, AgentResponse,
-    AgentRestoreFileResult, FileReadResult,
+    AgentRestoreFileResult, FileHashResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -38,14 +38,16 @@ pub struct AgentClient<R: Read, W: Write> {
 
 impl<R: Read, W: Write> AgentClient<R, W> {
     /// ハンドシェイクを読み取り、バージョンを検証してクライアントを作成する。
+    ///
+    /// ネゴシエーション済みバージョン（クライアントとサーバーの最小値）を保持する。
     pub fn connect(mut reader: R, writer: W) -> Result<Self> {
         let line = read_handshake_line(&mut reader)?;
-        let version = protocol::parse_handshake(&line)?;
-        protocol::check_protocol_version(version)?;
+        let remote_version = protocol::parse_handshake(&line)?;
+        let negotiated = protocol::check_protocol_version(remote_version)?;
         Ok(Self {
             reader,
             writer,
-            protocol_version: version,
+            protocol_version: negotiated,
         })
     }
 
@@ -109,20 +111,72 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         Ok((all_nodes, was_truncated))
     }
 
-    /// 複数ファイルを読み込む。
+    /// 複数ファイルを読み込む（ストリーミング対応）。
+    ///
+    /// サーバーがレスポンスを複数チャンクに分割する場合、
+    /// `is_last: true` まで読み続けて全結果を収集する。
     pub fn read_files(
         &mut self,
         paths: &[String],
         chunk_size_limit: usize,
     ) -> Result<Vec<FileReadResult>> {
-        let resp = self.request(&AgentRequest::ReadFiles {
+        // リクエスト送信（ストリーミングのため self.request() は使わない）
+        let data = protocol::serialize_request(&AgentRequest::ReadFiles {
             paths: paths.to_vec(),
             chunk_size_limit,
         })?;
-        match resp {
-            AgentResponse::FileContents { results } => Ok(results),
-            other => bail!("unexpected response to ReadFiles: {other:?}"),
+        framing::write_frame(&mut self.writer, &data)?;
+
+        let mut all_results = Vec::new();
+        loop {
+            let frame = framing::read_frame(&mut self.reader)?;
+            let resp = protocol::deserialize_response(&frame)?;
+            match resp {
+                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::FileContents { results, is_last } => {
+                    all_results.extend(results);
+                    if is_last {
+                        break;
+                    }
+                }
+                other => bail!("unexpected response to ReadFiles: {other:?}"),
+            }
         }
+        Ok(all_results)
+    }
+
+    /// 複数ファイルの SHA-256 ハッシュを取得する（ストリーミング対応）。
+    ///
+    /// negotiated version < 3 の場合はエラーを返す（呼び出し元でフォールバック）。
+    pub fn hash_files(&mut self, paths: &[String]) -> Result<Vec<FileHashResult>> {
+        if self.protocol_version < 3 {
+            bail!(
+                "hash_files requires protocol version >= 3, negotiated version is {}",
+                self.protocol_version
+            );
+        }
+
+        let data = protocol::serialize_request(&AgentRequest::HashFiles {
+            paths: paths.to_vec(),
+        })?;
+        framing::write_frame(&mut self.writer, &data)?;
+
+        let mut all_results = Vec::new();
+        loop {
+            let frame = framing::read_frame(&mut self.reader)?;
+            let resp = protocol::deserialize_response(&frame)?;
+            match resp {
+                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::FileHashes { results, is_last } => {
+                    all_results.extend(results);
+                    if is_last {
+                        break;
+                    }
+                }
+                other => bail!("unexpected response to HashFiles: {other:?}"),
+            }
+        }
+        Ok(all_results)
     }
 
     /// ファイルを書き込む（大きいコンテンツは自動チャンク分割）。
@@ -328,12 +382,23 @@ mod tests {
     }
 
     #[test]
-    fn connect_version_mismatch() {
-        let handshake = "remote-merge agent v999\n";
+    fn connect_version_too_old() {
+        let handshake = "remote-merge agent v1\n";
         let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
         let writer = Vec::new();
         let err = AgentClient::connect(reader, writer).unwrap_err();
-        assert!(err.to_string().contains("version mismatch"));
+        assert!(err.to_string().contains("too old"));
+    }
+
+    #[test]
+    fn connect_newer_version_accepted() {
+        // v999 は受け入れられ、PROTOCOL_VERSION にネゴシエーションされる
+        // ただしサーバーがいないので実際の通信はできない（ここではハンドシェイクのみ検証）
+        let handshake = "remote-merge agent v999\n";
+        let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
+        let writer = Vec::new();
+        let client = AgentClient::connect(reader, writer).unwrap();
+        assert_eq!(client.protocol_version(), protocol::PROTOCOL_VERSION);
     }
 
     #[test]
@@ -627,7 +692,7 @@ mod tests {
     #[test]
     fn handshake_line_with_cr_lf() {
         // CR は行の一部としてバッファに残る — parse_handshake が trim する
-        let input = b"remote-merge agent v2\r\n";
+        let input = b"remote-merge agent v3\r\n";
         let mut reader = std::io::Cursor::new(input.to_vec());
         let line = read_handshake_line(&mut reader).unwrap();
         // '\r' が含まれるが、parse_handshake は trim するので問題ない

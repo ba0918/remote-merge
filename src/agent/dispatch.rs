@@ -6,8 +6,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use super::file_io::{self, SavedMetadata};
-use super::protocol::{AgentRequest, AgentResponse, FileReadResult};
+use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
 use super::server::MetadataConfig;
 use super::tree_scan::{self, ScanOptions};
 
@@ -51,6 +53,7 @@ impl Dispatcher {
                 paths,
                 chunk_size_limit,
             } => Some(vec![self.handle_read_files(&paths, chunk_size_limit)]),
+            AgentRequest::HashFiles { paths } => Some(self.handle_hash_files(&paths)),
             AgentRequest::WriteFile {
                 path,
                 content,
@@ -158,7 +161,79 @@ impl Dispatcher {
             }
         }
 
-        AgentResponse::FileContents { results }
+        AgentResponse::FileContents {
+            results,
+            is_last: true,
+        }
+    }
+
+    /// HashFiles: 各ファイルの SHA-256 ハッシュを計算して返す。
+    ///
+    /// シンボリックリンクはハッシュではなくリンクターゲットパスを返す。
+    /// 結果はストリーミング対応のため Vec<AgentResponse> を返すが、
+    /// 現時点では単一チャンクで全結果を返す。
+    fn handle_hash_files(&self, paths: &[String]) -> Vec<AgentResponse> {
+        let mut results: Vec<FileHashResult> = Vec::with_capacity(paths.len());
+
+        for rel_path in paths {
+            let validated = match file_io::validate_path(&self.root_dir, rel_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    results.push(FileHashResult::Error {
+                        path: rel_path.clone(),
+                        reason: e.to_string(),
+                    });
+                    continue;
+                }
+            };
+
+            // シンボリックリンク判定（dereference しない）
+            match std::fs::symlink_metadata(&validated) {
+                Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&validated) {
+                    Ok(target) => {
+                        results.push(FileHashResult::Symlink {
+                            path: rel_path.clone(),
+                            target: target.to_string_lossy().into_owned(),
+                        });
+                    }
+                    Err(e) => {
+                        results.push(FileHashResult::Error {
+                            path: rel_path.clone(),
+                            reason: format!("failed to read symlink: {e}"),
+                        });
+                    }
+                },
+                Ok(_) => {
+                    // 通常ファイル: SHA-256 計算
+                    match std::fs::read(&validated) {
+                        Ok(content) => {
+                            let hash = Sha256::digest(&content);
+                            results.push(FileHashResult::Ok {
+                                path: rel_path.clone(),
+                                hash: format!("{hash:x}"),
+                            });
+                        }
+                        Err(e) => {
+                            results.push(FileHashResult::Error {
+                                path: rel_path.clone(),
+                                reason: e.to_string(),
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    results.push(FileHashResult::Error {
+                        path: rel_path.clone(),
+                        reason: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        vec![AgentResponse::FileHashes {
+            results,
+            is_last: true,
+        }]
     }
 
     fn handle_write_file(
@@ -556,7 +631,7 @@ mod tests {
         );
 
         match resp {
-            AgentResponse::FileContents { results } => {
+            AgentResponse::FileContents { results, .. } => {
                 assert_eq!(results.len(), 1);
                 match &results[0] {
                     FileReadResult::Ok { content, .. } => {
@@ -582,7 +657,7 @@ mod tests {
         );
 
         match resp {
-            AgentResponse::FileContents { results } => {
+            AgentResponse::FileContents { results, .. } => {
                 assert_eq!(results.len(), 1);
                 assert!(matches!(&results[0], FileReadResult::Error { .. }));
             }
@@ -603,7 +678,7 @@ mod tests {
         );
 
         match resp {
-            AgentResponse::FileContents { results } => {
+            AgentResponse::FileContents { results, .. } => {
                 assert_eq!(results.len(), 1);
                 match &results[0] {
                     FileReadResult::Error { message, .. } => {
