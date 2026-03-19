@@ -2,7 +2,7 @@
 
 **Cycle ID:** `20260319230733`
 **Started:** 2026-03-19 23:07:33
-**Status:** 🟡 Planning
+**Status:** 🟢 Done
 **Issue:** 2026-03-19_agent-performance-optimization
 
 ---
@@ -202,11 +202,11 @@ src/
 | 1 | プロトコル拡張 + バージョンネゴシエーション | 🟢 |
 | 2 | Agent ハンドラ — HashFiles | 🟢 |
 | 3 | クライアント — hash_files | 🟢 |
-| 4 | ランタイム統合 — hash 優先 status | ⚪ |
-| 5 | status サービス — hash 比較ロジック | ⚪ |
-| 6 | Agent ハンドラ — ストリーミング ReadFiles | ⚪ |
-| 7 | クライアント — ストリーミング read_files | ⚪ |
-| 8 | ランタイム統合 — バッチサイズ撤廃 | ⚪ |
+| 4 | ランタイム統合 — hash 優先 status | 🟢 |
+| 5 | status サービス — hash 比較ロジック | 🟢 |
+| 6 | Agent ハンドラ — ストリーミング ReadFiles | 🟢 |
+| 7 | クライアント — ストリーミング read_files | 🟢 |
+| 8 | ランタイム統合 — バッチサイズ撤廃 | 🟢 |
 
 **Legend:** ⚪ Pending · 🟡 In Progress · 🟢 Done
 
