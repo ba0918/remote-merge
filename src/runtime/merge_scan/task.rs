@@ -488,12 +488,19 @@ fn build_tree_updates_from_agent_entries(
     }
 
     // 各ディレクトリの子ノードリストを FileNode に変換
+    // convert_agent_entries_to_nodes はフルパスを保持するため、
+    // ディレクトリ単位のツリー更新では最後のセグメント（ファイル名）に戻す
     let tree_updates: Vec<(String, Vec<FileNode>)> = dir_children
         .into_iter()
         .map(|(dir, dir_entries)| {
-            let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(
+            let mut nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(
                 &dir_entries.into_iter().cloned().collect::<Vec<_>>(),
             );
+            for node in &mut nodes {
+                if let Some(pos) = node.name.rfind('/') {
+                    node.name = node.name[pos + 1..].to_string();
+                }
+            }
             (dir, nodes)
         })
         .collect();

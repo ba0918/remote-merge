@@ -360,13 +360,7 @@ pub fn convert_agent_entries_to_nodes(entries: &[AgentFileEntry]) -> Vec<crate::
 
             let mtime = DateTime::from_timestamp(entry.mtime_secs, entry.mtime_nanos);
 
-            // パスの最後のセグメントを name にする
-            let name = entry
-                .path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&entry.path)
-                .to_string();
+            let name = entry.path.clone();
 
             FileNode {
                 name,
@@ -689,7 +683,7 @@ mod tests {
 
         let nodes = convert_agent_entries_to_nodes(&entries);
         assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].name, "main.rs");
+        assert_eq!(nodes[0].name, "src/main.rs");
         assert!(matches!(nodes[0].kind, NodeKind::File));
         assert_eq!(nodes[0].size, Some(1024));
         assert!(nodes[0].mtime.is_some());
@@ -775,7 +769,7 @@ mod tests {
         assert_eq!(nodes.len(), 3);
         assert_eq!(nodes[0].name, "file.txt");
         assert_eq!(nodes[1].name, "dir");
-        assert_eq!(nodes[2].name, "nested.txt"); // パスの最後のセグメント
+        assert_eq!(nodes[2].name, "dir/nested.txt"); // フルの相対パスを保持
     }
 
     // ── total_scanned カウント方式テスト ──
@@ -1095,5 +1089,72 @@ mod tests {
             "should keep ancestor, got: {}",
             result[0].display()
         );
+    }
+
+    /// パスにディレクトリ階層が含まれる場合でもフルパスが保持されること
+    #[test]
+    fn convert_preserves_full_relative_path() {
+        let entries = vec![
+            AgentFileEntry {
+                path: "ja/Front/template/Top.html".to_string(),
+                kind: FileKind::File,
+                size: 100,
+                mtime_secs: 1700000000,
+                mtime_nanos: 0,
+                permissions: 0o644,
+                symlink_target: None,
+            },
+            AgentFileEntry {
+                path: "Common/utils.php".to_string(),
+                kind: FileKind::File,
+                size: 200,
+                mtime_secs: 1700000000,
+                mtime_nanos: 0,
+                permissions: 0o644,
+                symlink_target: None,
+            },
+        ];
+        let nodes = convert_agent_entries_to_nodes(&entries);
+        // 各ノードはフルの相対パスを保持すべき
+        assert_eq!(nodes[0].name, "ja/Front/template/Top.html");
+        assert_eq!(nodes[1].name, "Common/utils.php");
+    }
+
+    /// convert → build_tree_from_flat で正しいツリー階層が構築されること
+    #[test]
+    fn convert_and_build_tree_produces_correct_hierarchy() {
+        use crate::ssh::tree_parser::build_tree_from_flat;
+
+        let entries = vec![
+            AgentFileEntry {
+                path: "src/main.rs".to_string(),
+                kind: FileKind::File,
+                size: 100,
+                mtime_secs: 1700000000,
+                mtime_nanos: 0,
+                permissions: 0o644,
+                symlink_target: None,
+            },
+            AgentFileEntry {
+                path: "src/lib.rs".to_string(),
+                kind: FileKind::File,
+                size: 200,
+                mtime_secs: 1700000000,
+                mtime_nanos: 0,
+                permissions: 0o644,
+                symlink_target: None,
+            },
+        ];
+        let flat_nodes = convert_agent_entries_to_nodes(&entries);
+        let tree = build_tree_from_flat(flat_nodes);
+
+        // ルートに "src" ディレクトリが1つ、その下に2つの子ファイル
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].name, "src");
+        assert!(tree[0].is_dir());
+        let children = tree[0].children.as_ref().unwrap();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].name, "lib.rs");
+        assert_eq!(children[1].name, "main.rs");
     }
 }

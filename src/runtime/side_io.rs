@@ -836,7 +836,8 @@ impl CoreRuntime {
                 if truncated {
                     check_truncation(max_entries, fail_on_truncation)?;
                 }
-                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
                 tree.nodes = nodes;
                 tree.sort();
@@ -870,7 +871,8 @@ impl CoreRuntime {
                 if truncated {
                     check_truncation(max_entries, fail_on_truncation)?;
                 }
-                let nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+                let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
                 // Agent の list_tree は subpath をルートとして走査するため、
                 // 結果を subpath 配下にラップして root_dir からの相対パスにする
