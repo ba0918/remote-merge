@@ -21,7 +21,8 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
-    needs_content_compare_all, refine_status_with_content, status_exit_code,
+    needs_content_compare_all, refine_status_with_content, refine_status_with_hashes,
+    status_exit_code,
 };
 use crate::service::types::FileStatusKind;
 
@@ -82,15 +83,32 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
+    // ハッシュ比較を試行（ref 未使用時のみ — ref 使用時はコンテンツも必要）
+    // ハッシュ比較が成功すれば全ファイルのコンテンツ転送を回避できる
+    let hash_resolved = if ref_side.is_none() && !paths_to_compare.is_empty() {
+        if let Some((local_hashes, remote_hashes)) =
+            core.try_hash_compare(&pair.left, &pair.right, &paths_to_compare)
+        {
+            refine_status_with_hashes(&mut files, &local_hashes, &remote_hashes);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     // ref 指定時は全非 sensitive ファイルのコンテンツが必要（badge 計算用）。
-    // ref 未指定時は paths_to_compare のみ読めばよい。
-    // いずれの場合も左右コンテンツを1回だけ読み、両方の用途で再利用する。
+    // ref 未指定時でハッシュ比較が失敗した場合は paths_to_compare のコンテンツが必要。
+    // ハッシュ比較が成功した場合はコンテンツ取得をスキップする。
     let content_paths = if ref_side.is_some() {
         files
             .iter()
             .filter(|f| !f.sensitive)
             .map(|f| f.path.clone())
             .collect::<Vec<_>>()
+    } else if hash_resolved {
+        vec![] // ハッシュ比較で解決済み — コンテンツ不要
     } else {
         paths_to_compare.clone()
     };
@@ -106,8 +124,8 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
         HashMap::new()
     };
 
-    // コンテンツ比較で status を精緻化（バイト列比較でバイナリも正しく判定）
-    if !paths_to_compare.is_empty() {
+    // コンテンツ比較で status を精緻化（ハッシュで未解決の場合のみ）
+    if !hash_resolved && !paths_to_compare.is_empty() {
         let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
         for path in &paths_to_compare {
             if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {

@@ -9,7 +9,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 
-use crate::agent::protocol::FileReadResult;
+use crate::agent::protocol::{FileHashResult, FileReadResult};
 use crate::app::Side;
 use crate::local;
 use crate::merge::executor;
@@ -788,6 +788,70 @@ impl CoreRuntime {
         })
     }
 
+    /// Agent 経由でファイルのハッシュを取得する。
+    ///
+    /// negotiated version < 3 の場合はエラーを返す（呼び出し元でフォールバック）。
+    /// 結果は `Vec<FileHashResult>` として返す。
+    pub fn try_agent_hash_files(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<Vec<crate::agent::protocol::FileHashResult>>> {
+        let paths = rel_paths.to_vec();
+        self.with_agent(server_name, "hash_files", |agent| agent.hash_files(&paths))
+    }
+
+    /// Agent ハッシュ比較を使って status を精緻化する。
+    ///
+    /// left/right の Side に応じてハッシュを取得し、一致するか比較する。
+    /// 成功した場合は `(local_hashes, remote_hashes)` を返す。
+    /// Agent が利用不可、または hash_files がサポートされていない場合は `None` を返す。
+    ///
+    /// 呼び出し元は `refine_status_with_hashes()` に結果を渡してステータスを更新する。
+    pub fn try_hash_compare(
+        &mut self,
+        left: &Side,
+        right: &Side,
+        paths: &[String],
+    ) -> Option<(HashMap<String, String>, HashMap<String, String>)> {
+        if paths.is_empty() {
+            return Some((HashMap::new(), HashMap::new()));
+        }
+
+        // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
+        let server_name = match right.server_name() {
+            Some(name) => name.to_string(),
+            None => return None, // 両方ローカル → ハッシュ比較のメリットなし
+        };
+
+        // リモート側のハッシュを Agent 経由で取得
+        let remote_results = match self.try_agent_hash_files(&server_name, paths) {
+            Some(Ok(results)) => results,
+            Some(Err(e)) => {
+                tracing::debug!("hash_files failed, falling back to content compare: {e}");
+                return None;
+            }
+            None => return None, // Agent なし
+        };
+
+        let remote_hashes = hash_results_to_map(&remote_results);
+
+        // ローカル側のハッシュを計算
+        let local_hashes = match left {
+            Side::Local => compute_local_hashes_batch(&self.config.local.root_dir, paths),
+            Side::Remote(name) => {
+                // left もリモートの場合は Agent 経由でハッシュ取得
+                let name = name.clone();
+                match self.try_agent_hash_files(&name, paths) {
+                    Some(Ok(results)) => hash_results_to_map(&results),
+                    _ => return None,
+                }
+            }
+        };
+
+        Some((local_hashes, remote_hashes))
+    }
+
     /// Agent 経由でバックアップセッション一覧を取得する
     fn try_agent_list_backup_sessions(
         &mut self,
@@ -1172,6 +1236,94 @@ pub(crate) fn check_truncation(max_entries: usize, fail_on_truncation: bool) -> 
         max_entries
     );
     Ok(())
+}
+
+// ── ローカルハッシュ計算 ──
+
+/// ローカルファイルの SHA-256 ハッシュを計算する（純粋関数）。
+///
+/// シンボリックリンクの場合はリンクターゲットパスを返す。
+/// 結果は `FileHashResult` として返す。
+pub(crate) fn compute_local_file_hash(
+    root_dir: &std::path::Path,
+    rel_path: &str,
+) -> FileHashResult {
+    use sha2::{Digest, Sha256};
+
+    let full_path = root_dir.join(rel_path);
+
+    // シンボリックリンク判定
+    match std::fs::symlink_metadata(&full_path) {
+        Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&full_path) {
+            Ok(target) => FileHashResult::Symlink {
+                path: rel_path.to_string(),
+                target: target.to_string_lossy().into_owned(),
+            },
+            Err(e) => FileHashResult::Error {
+                path: rel_path.to_string(),
+                reason: format!("failed to read symlink: {e}"),
+            },
+        },
+        Ok(_) => match std::fs::read(&full_path) {
+            Ok(content) => {
+                let hash = Sha256::digest(&content);
+                FileHashResult::Ok {
+                    path: rel_path.to_string(),
+                    hash: format!("{hash:x}"),
+                }
+            }
+            Err(e) => FileHashResult::Error {
+                path: rel_path.to_string(),
+                reason: e.to_string(),
+            },
+        },
+        Err(e) => FileHashResult::Error {
+            path: rel_path.to_string(),
+            reason: e.to_string(),
+        },
+    }
+}
+
+/// FileHashResult から (path, hash_or_target) ペアを抽出する。
+///
+/// Ok → hash 文字列、Symlink → target 文字列、Error → None。
+pub(crate) fn extract_hash_string(result: &FileHashResult) -> Option<(&str, &str)> {
+    match result {
+        FileHashResult::Ok { path, hash } => Some((path.as_str(), hash.as_str())),
+        FileHashResult::Symlink { path, target } => Some((path.as_str(), target.as_str())),
+        FileHashResult::Error { .. } => None,
+    }
+}
+
+/// 複数ファイルのローカルハッシュを一括計算する。
+///
+/// 結果は path → hash_or_target の HashMap として返す。
+/// エラーになったファイルはスキップする。
+pub(crate) fn compute_local_hashes_batch(
+    root_dir: &std::path::Path,
+    rel_paths: &[String],
+) -> HashMap<String, String> {
+    let mut hashes = HashMap::with_capacity(rel_paths.len());
+    for rel_path in rel_paths {
+        let result = compute_local_file_hash(root_dir, rel_path);
+        if let Some((path, hash)) = extract_hash_string(&result) {
+            hashes.insert(path.to_string(), hash.to_string());
+        }
+    }
+    hashes
+}
+
+/// Agent hash_files 結果を path → hash_or_target の HashMap に変換する。
+///
+/// エラーになったファイルはスキップする。
+pub(crate) fn hash_results_to_map(results: &[FileHashResult]) -> HashMap<String, String> {
+    let mut map = HashMap::with_capacity(results.len());
+    for result in results {
+        if let Some((path, hash)) = extract_hash_string(result) {
+            map.insert(path.to_string(), hash.to_string());
+        }
+    }
+    map
 }
 
 // ── subpath ツリー構築ヘルパー ──
@@ -3455,5 +3607,177 @@ mod tests {
         let children = rt.fetch_children(&Side::Local, "").unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "src");
+    }
+
+    // ── compute_local_file_hash テスト ──
+
+    #[test]
+    fn test_compute_local_file_hash_regular_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
+
+        let result = compute_local_file_hash(tmp.path(), "test.txt");
+        match result {
+            crate::agent::protocol::FileHashResult::Ok { path, hash } => {
+                assert_eq!(path, "test.txt");
+                assert_eq!(
+                    hash,
+                    "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+                );
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_compute_local_file_hash_symlink() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let result = compute_local_file_hash(tmp.path(), "link.txt");
+        match result {
+            crate::agent::protocol::FileHashResult::Symlink { path, target } => {
+                assert_eq!(path, "link.txt");
+                assert_eq!(target, "target.txt");
+            }
+            other => panic!("expected Symlink, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_compute_local_file_hash_nonexistent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+
+        let result = compute_local_file_hash(tmp.path(), "nonexistent.txt");
+        assert!(matches!(
+            result,
+            crate::agent::protocol::FileHashResult::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn test_compute_local_file_hash_empty_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
+
+        let result = compute_local_file_hash(tmp.path(), "empty.txt");
+        match result {
+            crate::agent::protocol::FileHashResult::Ok { hash, .. } => {
+                // SHA-256 of empty string
+                assert_eq!(
+                    hash,
+                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                );
+            }
+            other => panic!("expected Ok, got {other:?}"),
+        }
+    }
+
+    // ── extract_hash_string テスト ──
+
+    #[test]
+    fn test_extract_hash_string_ok() {
+        let result = crate::agent::protocol::FileHashResult::Ok {
+            path: "a.txt".into(),
+            hash: "abc123".into(),
+        };
+        let (path, hash) = extract_hash_string(&result).unwrap();
+        assert_eq!(path, "a.txt");
+        assert_eq!(hash, "abc123");
+    }
+
+    #[test]
+    fn test_extract_hash_string_symlink() {
+        let result = crate::agent::protocol::FileHashResult::Symlink {
+            path: "link".into(),
+            target: "/opt/target".into(),
+        };
+        let (path, target) = extract_hash_string(&result).unwrap();
+        assert_eq!(path, "link");
+        assert_eq!(target, "/opt/target");
+    }
+
+    #[test]
+    fn test_extract_hash_string_error() {
+        let result = crate::agent::protocol::FileHashResult::Error {
+            path: "fail.txt".into(),
+            reason: "error".into(),
+        };
+        assert!(extract_hash_string(&result).is_none());
+    }
+
+    // ── compute_local_hashes_batch テスト ──
+
+    #[test]
+    fn test_compute_local_hashes_batch_multiple_files() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
+
+        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
+        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
+        assert_eq!(hashes.len(), 2);
+        assert!(hashes.contains_key("a.txt"));
+        assert!(hashes.contains_key("b.txt"));
+        assert_ne!(hashes["a.txt"], hashes["b.txt"]);
+    }
+
+    #[test]
+    fn test_compute_local_hashes_batch_skips_errors() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("exists.txt"), "data").unwrap();
+
+        let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
+        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
+        assert_eq!(hashes.len(), 1);
+        assert!(hashes.contains_key("exists.txt"));
+    }
+
+    #[test]
+    fn test_compute_local_hashes_batch_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let hashes = compute_local_hashes_batch(tmp.path(), &[]);
+        assert!(hashes.is_empty());
+    }
+
+    #[test]
+    fn test_compute_local_hashes_batch_includes_symlinks() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let paths = vec!["link.txt".to_string()];
+        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
+        assert_eq!(hashes.len(), 1);
+        // シンボリックリンクはターゲットパスを返す
+        assert_eq!(hashes["link.txt"], "target.txt");
+    }
+
+    // ── hash_results_to_map テスト ──
+
+    #[test]
+    fn test_hash_results_to_map() {
+        use crate::agent::protocol::FileHashResult;
+
+        let results = vec![
+            FileHashResult::Ok {
+                path: "a.txt".into(),
+                hash: "hash_a".into(),
+            },
+            FileHashResult::Symlink {
+                path: "link".into(),
+                target: "/opt/target".into(),
+            },
+            FileHashResult::Error {
+                path: "fail.txt".into(),
+                reason: "error".into(),
+            },
+        ];
+        let map = hash_results_to_map(&results);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["a.txt"], "hash_a");
+        assert_eq!(map["link"], "/opt/target");
+        assert!(!map.contains_key("fail.txt"));
     }
 }

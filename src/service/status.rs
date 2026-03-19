@@ -360,6 +360,46 @@ pub fn status_from_read_results(
     }
 }
 
+/// ハッシュベースのステータス判定（純粋関数）。
+///
+/// ローカルとリモートのハッシュ文字列を比較して equal/modified を判定する。
+/// シンボリックリンクの場合はターゲットパス文字列の一致で判定する。
+///
+/// 入力はハッシュまたはシンボリックリンクターゲットの文字列ペア。
+/// 両方が同じ文字列であれば Equal、異なれば Modified。
+pub fn status_from_hash_comparison(local_hash: &str, remote_hash: &str) -> FileStatusKind {
+    if local_hash == remote_hash {
+        FileStatusKind::Equal
+    } else {
+        FileStatusKind::Modified
+    }
+}
+
+/// ハッシュベースで FileStatus を更新する（純粋関数）。
+///
+/// `local_hashes` と `remote_hashes` にはパス → ハッシュ文字列（またはシンボリックリンクターゲット）
+/// のマッピングが格納されている。両方にエントリがあるファイルについて
+/// `status_from_hash_comparison` で Equal/Modified を判定する。
+///
+/// LeftOnly / RightOnly のファイルは変更しない。
+/// 片方のハッシュが存在しない場合も変更しない（安全側に倒す）。
+pub fn refine_status_with_hashes(
+    files: &mut [FileStatus],
+    local_hashes: &HashMap<String, String>,
+    remote_hashes: &HashMap<String, String>,
+) {
+    for file in files.iter_mut() {
+        if file.status != FileStatusKind::Modified && file.status != FileStatusKind::Equal {
+            continue;
+        }
+        if let (Some(local_h), Some(remote_h)) =
+            (local_hashes.get(&file.path), remote_hashes.get(&file.path))
+        {
+            file.status = status_from_hash_comparison(local_h, remote_h);
+        }
+    }
+}
+
 /// exit code を判定する。差分があれば 1、なければ 0。
 pub fn status_exit_code(summary: &StatusSummary) -> i32 {
     if summary.modified > 0 || summary.left_only > 0 || summary.right_only > 0 {
@@ -1242,5 +1282,143 @@ mod tests {
         );
         // コンテンツ比較なし → badge なし
         assert!(!badges2.contains_key("secret.pem"));
+    }
+
+    // ── ハッシュベース比較 ──
+
+    #[test]
+    fn test_hash_comparison_equal() {
+        let result = status_from_hash_comparison("abc123", "abc123");
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_hash_comparison_modified() {
+        let result = status_from_hash_comparison("abc123", "def456");
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_hash_comparison_symlink_same_target() {
+        // シンボリックリンクのターゲットパスも同じロジックで比較
+        let result = status_from_hash_comparison("/opt/target", "/opt/target");
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_hash_comparison_symlink_different_target() {
+        let result = status_from_hash_comparison("/opt/old", "/opt/new");
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_hash_comparison_empty_strings() {
+        let result = status_from_hash_comparison("", "");
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    // ── refine_status_with_hashes ──
+
+    #[test]
+    fn test_refine_with_hashes_equal() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc123".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc123".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_modified() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "def".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_skips_left_only() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_missing_hash_keeps_status() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let local = HashMap::new(); // no hash for a.rs
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        // ハッシュなし → ステータス変更なし
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_symlink_comparison() {
+        let mut files = vec![FileStatus {
+            path: "link".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("link".into(), "/opt/target".into());
+        let mut remote = HashMap::new();
+        remote.insert("link".into(), "/opt/target".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_metadata_equal_to_modified() {
+        // メタデータで Equal と判定されたが、ハッシュが異なる場合 → Modified に変更
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "old_hash".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "new_hash".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
     }
 }
