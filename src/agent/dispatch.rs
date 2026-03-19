@@ -13,6 +13,13 @@ use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResul
 use super::server::MetadataConfig;
 use super::tree_scan::{self, ScanOptions};
 
+/// ストリーミングチャンクの閾値。
+///
+/// FileContents のシリアライズ後サイズが MAX_FRAME_SIZE (16 MB) を超えないよう、
+/// 余裕を持って 12 MB で分割する。msgpack のオーバーヘッド（パス名、メタデータ等）
+/// と Vec<u8> のシリアライズ膨張を考慮した値。
+const STREAMING_CHUNK_THRESHOLD: usize = 12 * 1024 * 1024;
+
 /// Agent ディスパッチャー。root_dir を保持し、リクエストを適切なハンドラに振り分ける。
 pub struct Dispatcher {
     root_dir: PathBuf,
@@ -52,7 +59,7 @@ impl Dispatcher {
             AgentRequest::ReadFiles {
                 paths,
                 chunk_size_limit,
-            } => Some(vec![self.handle_read_files(&paths, chunk_size_limit)]),
+            } => Some(self.handle_read_files(&paths, chunk_size_limit)),
             AgentRequest::HashFiles { paths } => Some(self.handle_hash_files(&paths)),
             AgentRequest::WriteFile {
                 path,
@@ -146,25 +153,51 @@ impl Dispatcher {
         responses
     }
 
-    fn handle_read_files(&self, paths: &[String], chunk_size_limit: usize) -> AgentResponse {
-        let mut results: Vec<FileReadResult> = Vec::new();
+    /// ReadFiles をストリーミングで処理し、フレームサイズ制限内で分割する。
+    ///
+    /// 累積コンテンツサイズが `STREAMING_CHUNK_THRESHOLD` を超えたタイミングで
+    /// 中間チャンク (`is_last: false`) を送出し、最後のチャンクに `is_last: true` を設定する。
+    fn handle_read_files(&self, paths: &[String], chunk_size_limit: usize) -> Vec<AgentResponse> {
+        let mut responses: Vec<AgentResponse> = Vec::new();
+        let mut current_results: Vec<FileReadResult> = Vec::new();
+        let mut current_size: usize = 0;
 
         for rel_path in paths {
-            match file_io::read_file_chunked(&self.root_dir, rel_path, chunk_size_limit) {
-                Ok(chunks) => results.extend(chunks),
-                Err(e) => {
-                    results.push(FileReadResult::Error {
-                        path: rel_path.clone(),
-                        message: e.to_string(),
+            let file_results =
+                match file_io::read_file_chunked(&self.root_dir, rel_path, chunk_size_limit) {
+                    Ok(chunks) => chunks,
+                    Err(e) => {
+                        vec![FileReadResult::Error {
+                            path: rel_path.clone(),
+                            message: e.to_string(),
+                        }]
+                    }
+                };
+
+            for result in file_results {
+                let result_size = estimate_read_result_size(&result);
+                // 現在のチャンクにデータがあり、追加すると閾値を超える場合は emit
+                if !current_results.is_empty()
+                    && current_size + result_size > STREAMING_CHUNK_THRESHOLD
+                {
+                    responses.push(AgentResponse::FileContents {
+                        results: std::mem::take(&mut current_results),
+                        is_last: false,
                     });
+                    current_size = 0;
                 }
+                current_size += result_size;
+                current_results.push(result);
             }
         }
 
-        AgentResponse::FileContents {
-            results,
+        // 最後のチャンク（空でも is_last: true を送出する）
+        responses.push(AgentResponse::FileContents {
+            results: current_results,
             is_last: true,
-        }
+        });
+
+        responses
     }
 
     /// HashFiles: 各ファイルの SHA-256 ハッシュを計算して返す。
@@ -443,6 +476,20 @@ fn resolve_scan_root(root_dir: &Path, root: &str) -> Result<PathBuf, String> {
     Ok(joined)
 }
 
+/// FileReadResult のおおよそのシリアライズサイズを見積もる。
+///
+/// msgpack ではバイト列は長さプレフィクス + raw bytes としてシリアライズされる。
+/// パス名とメタデータのオーバーヘッドとして追加のバイト数を加算する。
+fn estimate_read_result_size(result: &FileReadResult) -> usize {
+    match result {
+        FileReadResult::Ok { path, content, .. } => {
+            // content bytes + path + overhead (msgpack tags, more_to_follow flag, etc.)
+            content.len() + path.len() + 64
+        }
+        FileReadResult::Error { path, message } => path.len() + message.len() + 64,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -617,6 +664,33 @@ mod tests {
         assert_eq!(total_entries, 3);
     }
 
+    // ── ヘルパー: ストリーミング FileContents を収集 ──
+
+    /// ReadFiles レスポンスから全 FileReadResult を収集する。
+    /// 最後のチャンクのみ `is_last: true` であることも検証する。
+    fn collect_file_contents(responses: Vec<AgentResponse>) -> Vec<FileReadResult> {
+        let mut all_results = Vec::new();
+        let mut found_last = false;
+        for resp in &responses {
+            match resp {
+                AgentResponse::FileContents { results, is_last } => {
+                    all_results.extend(results.clone());
+                    if *is_last {
+                        assert!(!found_last, "multiple is_last=true found");
+                        found_last = true;
+                    }
+                }
+                other => panic!("expected FileContents, got {other:?}"),
+            }
+        }
+        assert!(found_last, "no is_last=true chunk found");
+        // 最後のレスポンスだけ is_last=true
+        assert!(responses
+            .last()
+            .is_some_and(|r| matches!(r, AgentResponse::FileContents { is_last: true, .. })));
+        all_results
+    }
+
     // ── ReadFiles ──
 
     #[test]
@@ -624,25 +698,20 @@ mod tests {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
 
-        let resp = single(
-            d.dispatch(AgentRequest::ReadFiles {
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
                 paths: vec!["hello.txt".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap(),
-        );
+            .unwrap();
+        let results = collect_file_contents(resps);
 
-        match resp {
-            AgentResponse::FileContents { results, .. } => {
-                assert_eq!(results.len(), 1);
-                match &results[0] {
-                    FileReadResult::Ok { content, .. } => {
-                        assert_eq!(content, b"hello world");
-                    }
-                    other => panic!("expected Ok, got {other:?}"),
-                }
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            FileReadResult::Ok { content, .. } => {
+                assert_eq!(content, b"hello world");
             }
-            other => panic!("expected FileContents, got {other:?}"),
+            other => panic!("expected Ok, got {other:?}"),
         }
     }
 
@@ -650,46 +719,36 @@ mod tests {
     fn read_files_nonexistent_returns_error_variant() {
         let (_tmp, mut d) = setup();
 
-        let resp = single(
-            d.dispatch(AgentRequest::ReadFiles {
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
                 paths: vec!["nonexistent.txt".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap(),
-        );
+            .unwrap();
+        let results = collect_file_contents(resps);
 
-        match resp {
-            AgentResponse::FileContents { results, .. } => {
-                assert_eq!(results.len(), 1);
-                assert!(matches!(&results[0], FileReadResult::Error { .. }));
-            }
-            other => panic!("expected FileContents, got {other:?}"),
-        }
+        assert_eq!(results.len(), 1);
+        assert!(matches!(&results[0], FileReadResult::Error { .. }));
     }
 
     #[test]
     fn read_files_path_traversal_returns_error_variant() {
         let (_tmp, mut d) = setup();
 
-        let resp = single(
-            d.dispatch(AgentRequest::ReadFiles {
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
                 paths: vec!["../etc/passwd".into()],
                 chunk_size_limit: 4096,
             })
-            .unwrap(),
-        );
+            .unwrap();
+        let results = collect_file_contents(resps);
 
-        match resp {
-            AgentResponse::FileContents { results, .. } => {
-                assert_eq!(results.len(), 1);
-                match &results[0] {
-                    FileReadResult::Error { message, .. } => {
-                        assert!(message.contains("path traversal"));
-                    }
-                    other => panic!("expected Error, got {other:?}"),
-                }
+        assert_eq!(results.len(), 1);
+        match &results[0] {
+            FileReadResult::Error { message, .. } => {
+                assert!(message.contains("path traversal"));
             }
-            other => panic!("expected FileContents, got {other:?}"),
+            other => panic!("expected Error, got {other:?}"),
         }
     }
 
@@ -1451,5 +1510,72 @@ mod tests {
             }
             other => panic!("expected FileHashes, got {other:?}"),
         }
+    }
+
+    // ── ReadFiles ストリーミング ──
+
+    #[test]
+    fn read_files_streaming_last_chunk_has_is_last_true() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
+        fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
+                paths: vec!["a.txt".into(), "b.txt".into()],
+                chunk_size_limit: 4096,
+            })
+            .unwrap();
+
+        // 最後のチャンクだけ is_last=true
+        let results = collect_file_contents(resps);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn read_files_empty_paths_returns_empty_chunk() {
+        let (_tmp, mut d) = setup();
+
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
+                paths: vec![],
+                chunk_size_limit: 4096,
+            })
+            .unwrap();
+
+        assert_eq!(resps.len(), 1);
+        match &resps[0] {
+            AgentResponse::FileContents { results, is_last } => {
+                assert!(results.is_empty());
+                assert!(*is_last);
+            }
+            other => panic!("expected FileContents, got {other:?}"),
+        }
+    }
+
+    // ── estimate_read_result_size ──
+
+    #[test]
+    fn estimate_size_ok_variant() {
+        let result = FileReadResult::Ok {
+            path: "test.txt".into(),
+            content: vec![0u8; 1000],
+            more_to_follow: false,
+        };
+        let size = super::estimate_read_result_size(&result);
+        // content (1000) + path (8) + overhead (64) = 1072
+        assert!(size >= 1000);
+        assert!(size < 2000);
+    }
+
+    #[test]
+    fn estimate_size_error_variant() {
+        let result = FileReadResult::Error {
+            path: "test.txt".into(),
+            message: "not found".into(),
+        };
+        let size = super::estimate_read_result_size(&result);
+        assert!(size > 0);
+        assert!(size < 200);
     }
 }
