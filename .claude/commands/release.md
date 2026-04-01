@@ -58,11 +58,29 @@ git push origin v{version}
 - `git push` にも `timeout: 600000` を設定（pre-push hook が全テストを走らせるため）
 - タグ push で GitHub Actions release.yml が自動起動する
 
-### 6. リリースノート生成 & GitHub Release 更新
+### 6. GitHub Actions の Release ワークフロー完了を待機
 
-タグ push 後、コミットログから Conventional Commits の type 別に分類したリリースノートを生成し、GitHub Release に反映する。
+タグ push で GitHub Actions の release.yml が自動起動する。
+**Actions がビルドアーティファクト付きで Release を作成するため、完了前に `gh release create` してはならない。**
 
-#### 6-1. コミットログの取得
+```bash
+# Release ワークフローの run ID を取得
+gh run list --workflow=release.yml --limit 1 --json databaseId,status,conclusion
+```
+
+- ワークフローが `completed` + `success` になるまでポーリングする（`gh run watch` を使用）
+- 失敗した場合はユーザーに報告して停止する
+
+```bash
+# 完了待機（自動ポーリング）
+gh run watch <run_id>
+```
+
+### 7. リリースノート生成 & GitHub Release 更新
+
+Actions が Release を作成した後、リリースノートを `gh release edit` で追加する。
+
+#### 7-1. コミットログの取得
 
 ```bash
 # 前のタグを取得（初回リリース時のフォールバックあり）
@@ -76,7 +94,7 @@ else
 fi
 ```
 
-#### 6-2. type 別にセクション化した Markdown を生成
+#### 7-2. type 別にセクション化した Markdown を生成
 
 各コミットを `^(feat|fix|refactor|perf|test|docs|chore|style):` の正規表現で分類し、以下のマッピングでセクション化する:
 
@@ -119,20 +137,19 @@ fi
 - 各エントリは `- {summary} ({short_hash})` 形式（type プレフィックスは除去）
 - prev_tag が空の場合は Full Changelog 行を省略する
 
-#### 6-3. GitHub Release の更新
+#### 7-3. GitHub Release の更新
+
+**`gh release create` は絶対に使わない** — Actions が作成した Release を `gh release edit` で更新する。
 
 ```bash
-# Release の存在を確認
-gh release view v{version} --json tagName 2>/dev/null
+gh release edit v{version} --notes-file /tmp/release-notes.md
 ```
 
-- **存在する場合**: 生成したノートを一時ファイルに書き出し、`gh release edit v{version} --notes-file /tmp/release-notes.md` で更新（シェル特殊文字の問題を回避）
-- **存在しない場合**（Actions がまだ作成していない）: 警告を表示し、手動で `gh release edit` するためのコマンドを出力
-
-### 7. 完了表示
+### 8. 完了表示
 
 ```
 Release v{version} tagged and pushed!
+Release workflow: success
 Release notes updated on GitHub.
 CI: https://github.com/ba0918/remote-merge/actions
 ```
