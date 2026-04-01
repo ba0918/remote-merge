@@ -109,6 +109,7 @@ pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
 
 /// 現在のプロセスの effective UID が 0 (root) かどうかを返す。
 fn is_root() -> bool {
+    // SAFETY: geteuid() は引数なしの POSIX 関数で、常にスレッドセーフに呼べる。
     unsafe { libc::geteuid() == 0 }
 }
 
@@ -154,6 +155,7 @@ fn apply_chown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     };
     let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
     let gid_val = gid.map(|g| g as libc::gid_t).unwrap_or(u32::MAX);
+    // SAFETY: c_path は path_to_cstring で NUL 終端保証済み。chown は POSIX 関数。
     let ret = unsafe { libc::chown(c_path.as_ptr(), uid_val, gid_val) };
     if ret != 0 {
         let err = std::io::Error::last_os_error();
@@ -169,6 +171,7 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     };
     let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
     let gid_val = gid.map(|g| g as libc::gid_t).unwrap_or(u32::MAX);
+    // SAFETY: c_path は path_to_cstring で NUL 終端保証済み。lchown は POSIX 関数。
     let ret = unsafe { libc::lchown(c_path.as_ptr(), uid_val, gid_val) };
     if ret != 0 {
         let err = std::io::Error::last_os_error();

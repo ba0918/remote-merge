@@ -15,16 +15,14 @@ use crate::ui::layout::AppLayout;
 use crate::ui::tree_view::TreeView;
 
 /// UI を描画する
-pub fn draw_ui(frame: &mut Frame, state: &mut AppState) {
+///
+/// ビューポートサイズは描画前に `layout::compute_viewport_heights` で設定済みであること。
+pub fn draw_ui(frame: &mut Frame, state: &AppState) {
     let layout = AppLayout::new(frame.area());
 
     // フレーム全体にテーマ背景色を塗る（ライトテーマ対応）
     let bg_block = Block::default().style(Style::default().bg(state.palette.bg));
     frame.render_widget(bg_block, frame.area());
-
-    // ビューポートサイズを記録（スクロール計算用）
-    state.tree_visible_height = layout.tree_pane.height.saturating_sub(2) as usize;
-    state.diff_visible_height = layout.diff_pane.height.saturating_sub(2) as usize;
 
     draw_header(frame, state, layout.header);
     draw_panes(frame, state, &layout);

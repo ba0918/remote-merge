@@ -13,7 +13,7 @@ use crate::app::{MergeScanMsg, MergeScanResult};
 use crate::config::AppConfig;
 use crate::diff::binary::BinaryInfo;
 use crate::runtime::core::BoxedAgentClient;
-use crate::runtime::side_io::AGENT_CHUNK_SIZE_LIMIT;
+use crate::runtime::side_io::{AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE};
 use crate::ssh::client::SshClient;
 use crate::ssh::passphrase_provider::PassphraseProvider;
 use crate::tree::FileNode;
@@ -29,12 +29,6 @@ pub enum RefSource {
     /// リモートサーバ（サーバ名）
     Remote(String),
 }
-
-/// Agent を使ったバッチ読み込みの1チャンクあたりのファイル数。
-///
-/// ストリーミング対応により、サーバー側がレスポンスをフレームサイズ内に
-/// 自律的に分割するため、SSH と同じ 2000 を使用できる。
-const AGENT_READ_BATCH_SIZE: usize = 2000;
 
 /// 走査スレッドのメイン処理
 #[allow(clippy::too_many_arguments)]

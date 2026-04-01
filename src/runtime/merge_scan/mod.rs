@@ -73,11 +73,16 @@ pub fn start_merge_scan(
     let local_root = state.left_tree.root.clone();
     let exclude = state.active_exclude_patterns();
     let config = runtime.core.config.clone();
-    let server_name = state
-        .right_source
-        .server_name()
-        .expect("merge scan requires remote right_source")
-        .to_string();
+    let server_name = match state.right_source.server_name() {
+        Some(name) => name.to_string(),
+        None => {
+            state.status_message =
+                "Merge scan requires a remote right_source (not local)".to_string();
+            state.merge_scan_state = MergeScanState::Idle;
+            state.dialog = DialogState::None;
+            return;
+        }
+    };
     let dir_path = dir_path.to_string();
     let ref_source = build_ref_source(state, &config);
 

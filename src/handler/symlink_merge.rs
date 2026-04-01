@@ -7,23 +7,32 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::TuiRuntime;
 use crate::service::merge::MergeAction;
 
-/// シンボリックリンクのマージを実行する（MergeAction ベース）。
+/// シンボリックリンクマージのパラメータ。
 ///
 /// `source_side` / `target_side` は borrow checker 対策で引数で受け取る
 /// （`state: &mut AppState` と `state.left_source` / `state.right_source` の
 ///  immutable borrow が競合するため）。
-/// `session_id` はバッチマージ時に全ファイルで共有するセッションIDを外部から渡す。
-#[allow(clippy::too_many_arguments)]
+pub struct SymlinkMergeParams<'a> {
+    pub path: &'a str,
+    pub direction: MergeDirection,
+    pub action: MergeAction,
+    pub source_side: &'a Side,
+    pub target_side: &'a Side,
+    pub session_id: &'a str,
+}
+
+/// シンボリックリンクのマージを実行する（MergeAction ベース）。
 pub fn execute_symlink_merge(
     state: &mut AppState,
     runtime: &mut TuiRuntime,
-    path: &str,
-    direction: MergeDirection,
-    action: MergeAction,
-    source_side: &Side,
-    target_side: &Side,
-    session_id: &str,
+    params: &SymlinkMergeParams<'_>,
 ) -> bool {
+    let path = params.path;
+    let direction = params.direction;
+    let action = params.action.clone();
+    let source_side = params.source_side;
+    let target_side = params.target_side;
+    let session_id = params.session_id;
     // リモート側への書き込み時は接続チェック
     if !runtime.is_side_available(target_side) {
         state.status_message = "SSH not connected: cannot merge symlink".to_string();
@@ -145,16 +154,15 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "test.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::Normal,
-            &source,
-            &target,
-            "20260311-120000",
-        );
+        let params = SymlinkMergeParams {
+            path: "test.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::Normal,
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(!result, "Normal action should return false");
     }
@@ -169,19 +177,18 @@ mod tests {
         let source = Side::Local;
         let target = Side::Remote("develop".to_string());
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "link.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::CreateSymlink {
+        let params = SymlinkMergeParams {
+            path: "link.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::CreateSymlink {
                 link_target: "/some/target".to_string(),
                 target_exists: false,
             },
-            &source,
-            &target,
-            "20260311-120000",
-        );
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(!result);
         assert_eq!(
@@ -200,19 +207,18 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "link.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::CreateSymlink {
+        let params = SymlinkMergeParams {
+            path: "link.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::CreateSymlink {
                 link_target: "/some/target".to_string(),
                 target_exists: false,
             },
-            &source,
-            &target,
-            "20260311-120000",
-        );
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(result);
 
@@ -246,19 +252,18 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "link.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::CreateSymlink {
+        let params = SymlinkMergeParams {
+            path: "link.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::CreateSymlink {
                 link_target: "/new/target".to_string(),
                 target_exists: true,
             },
-            &source,
-            &target,
-            "20260311-120000",
-        );
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(result);
 
@@ -279,16 +284,15 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "nonexistent.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::ReplaceSymlinkWithFile,
-            &source,
-            &target,
-            "20260311-120000",
-        );
+        let params = SymlinkMergeParams {
+            path: "nonexistent.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::ReplaceSymlinkWithFile,
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(!result);
         assert!(
@@ -321,16 +325,15 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "target.txt",
-            MergeDirection::LeftToRight,
-            MergeAction::ReplaceSymlinkWithFile,
-            &source,
-            &target,
-            "20260311-120000",
-        );
+        let params = SymlinkMergeParams {
+            path: "target.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::ReplaceSymlinkWithFile,
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         // source == target (Local) の場合: remove 後に read するため失敗する
         assert!(!result);
@@ -351,19 +354,18 @@ mod tests {
         let source = Side::Local;
         let target = Side::Local;
 
-        let result = execute_symlink_merge(
-            &mut state,
-            &mut runtime,
-            "link.txt",
-            MergeDirection::RightToLeft,
-            MergeAction::CreateSymlink {
+        let params = SymlinkMergeParams {
+            path: "link.txt",
+            direction: MergeDirection::RightToLeft,
+            action: MergeAction::CreateSymlink {
                 link_target: "/target/path".to_string(),
                 target_exists: false,
             },
-            &source,
-            &target,
-            "20260311-120000",
-        );
+            source_side: &source,
+            target_side: &target,
+            session_id: "20260311-120000",
+        };
+        let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
         assert!(result);
         // RightToLeft の場合、src_label = right_source, dst_label = left_source

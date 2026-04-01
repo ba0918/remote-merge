@@ -90,7 +90,7 @@ impl StderrGuard {
         use std::fs::File;
         use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd};
 
-        // safety: fd 2 (stderr) は常に有効
+        // SAFETY: fd 2 (stderr) はプロセス起動時から常に有効な fd である。
         let stderr_fd = unsafe { BorrowedFd::borrow_raw(2) };
 
         // 現在の stderr を複製して保存
@@ -102,8 +102,9 @@ impl StderrGuard {
                 // dup2 相当: devnull の fd を fd 2 に複製
                 // std には dup2 がないので nix も libc も使わず、
                 // プラットフォーム固有コードとして最小限の unsafe を使用
+                // SAFETY: devnull は直前に open 成功した有効な fd。fd 2 (stderr) も有効。
+                // dup2 は両方が有効な fd なら安全に呼べる POSIX 関数。
                 unsafe {
-                    // POSIX dup2: devnull_fd -> stderr(2)
                     let ret = dup2_raw(devnull.as_fd().as_raw_fd(), 2);
                     if ret < 0 {
                         return Self { saved_fd: None };
@@ -118,12 +119,14 @@ impl StderrGuard {
 
 #[cfg(unix)]
 /// POSIX dup2 の最小ラッパー。libc クレート不要。
+/// SAFETY: 呼び出し元は oldfd/newfd が有効な fd であることを保証する必要がある。
+/// dup2 は POSIX 標準関数であり、有効な fd に対しては安全に動作する。
 unsafe fn dup2_raw(oldfd: i32, newfd: i32) -> i32 {
-    // syscall を直接呼ぶのではなく libc の dup2 を使う…
-    // が、libc クレートに依存しない方針なので extern で直接リンクする
+    // libc クレートに依存しない方針のため extern で直接リンクする
     extern "C" {
         fn dup2(oldfd: i32, newfd: i32) -> i32;
     }
+    // SAFETY: 呼び出し元が fd の有効性を保証。dup2 は有効な fd 同士であればスレッドセーフ。
     unsafe { dup2(oldfd, newfd) }
 }
 
@@ -132,6 +135,7 @@ impl Drop for StderrGuard {
         #[cfg(unix)]
         if let Some(ref saved) = self.saved_fd {
             use std::os::unix::io::AsRawFd;
+            // SAFETY: saved は suppress_unix で dup 成功した有効な fd。fd 2 は常に有効。
             unsafe {
                 dup2_raw(saved.as_raw_fd(), 2);
             }

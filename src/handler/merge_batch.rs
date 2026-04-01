@@ -111,16 +111,15 @@ pub fn execute_batch_merge(
 
         match action {
             MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
-                let ok = super::symlink_merge::execute_symlink_merge(
-                    state,
-                    runtime,
+                let params = super::symlink_merge::SymlinkMergeParams {
                     path,
                     direction,
                     action,
-                    &source_side,
-                    &target_side,
-                    &session_id,
-                );
+                    source_side: &source_side,
+                    target_side: &target_side,
+                    session_id: &session_id,
+                };
+                let ok = super::symlink_merge::execute_symlink_merge(state, runtime, &params);
                 if ok {
                     success_count += 1;
                 } else {

@@ -27,8 +27,8 @@ pub fn scan_local_tree(root: &Path, exclude: &[String]) -> crate::error::Result<
     Ok(tree)
 }
 
-/// ディレクトリ取得のデフォルト最大エントリ数
-pub const MAX_DIR_ENTRIES: usize = 10_000;
+/// ディレクトリ取得のデフォルト最大エントリ数（後方互換エイリアス）
+pub const MAX_DIR_ENTRIES: usize = crate::config::DEFAULT_MAX_DIR_ENTRIES;
 
 /// 指定ディレクトリの直下エントリのみを取得する（1階層のみ）
 ///

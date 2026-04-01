@@ -30,7 +30,7 @@ pub(crate) const AGENT_CHUNK_SIZE_LIMIT: usize = 4 * 1024 * 1024;
 /// ストリーミング対応により、サーバー側がレスポンスをフレームサイズ内に
 /// 自律的に分割するため、SSH と同じ `AGENT_BATCH_MAX_PATHS` (2000) を使用できる。
 /// 1リクエストで多数のファイルを送信し、往復回数を削減する。
-const AGENT_READ_BATCH_SIZE: usize = 2000;
+pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
@@ -1591,128 +1591,59 @@ fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ── TuiRuntime デリゲート ──
+// ── TuiRuntime デリゲートマクロ ──
+//
+// TuiRuntime から CoreRuntime への 1:1 フォワードを宣言的に生成する。
+// 各メソッドのシグネチャを一箇所で管理し、同期漏れを防ぐ。
+
+/// `TuiRuntime` → `self.core` への委譲メソッドを一括生成するマクロ。
+///
+/// `&mut self` / `&self` の両方に対応し、任意の引数・戻り値型を受け取れる。
+macro_rules! delegate_to_core {
+    // &mut self バリアント
+    (mut fn $name:ident(&mut self $(, $arg:ident: $ty:ty)*) -> $ret:ty) => {
+        pub fn $name(&mut self $(, $arg: $ty)*) -> $ret {
+            self.core.$name($($arg),*)
+        }
+    };
+    // &self バリアント
+    (ref fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $ret:ty) => {
+        pub fn $name(&self $(, $arg: $ty)*) -> $ret {
+            self.core.$name($($arg),*)
+        }
+    };
+    // &mut self + 戻り値なし (void) バリアント
+    (mut fn $name:ident(&mut self $(, $arg:ident: $ty:ty)*)) => {
+        pub fn $name(&mut self $(, $arg: $ty)*) {
+            self.core.$name($($arg),*);
+        }
+    };
+    // 複数定義を連続して受け付ける
+    ($($kind:ident fn $name:ident($($rest:tt)*) $(-> $ret:ty)?;)*) => {
+        $(delegate_to_core!($kind fn $name($($rest)*) $(-> $ret)?);)*
+    };
+}
 
 impl TuiRuntime {
-    pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
-        self.core.read_file(side, rel_path)
-    }
-
-    pub fn read_files_batch(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        self.core.read_files_batch(side, rel_paths)
-    }
-
-    pub fn read_files_bytes_batch(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        self.core.read_files_bytes_batch(side, rel_paths)
-    }
-
-    pub fn read_file_bytes(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        force: bool,
-    ) -> anyhow::Result<Vec<u8>> {
-        self.core.read_file_bytes(side, rel_path, force)
-    }
-
-    pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
-        self.core.write_file(side, rel_path, content)
-    }
-
-    pub fn write_file_bytes(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        content: &[u8],
-    ) -> anyhow::Result<()> {
-        self.core.write_file_bytes(side, rel_path, content)
-    }
-
-    pub fn stat_files(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        self.core.stat_files(side, rel_paths)
-    }
-
-    pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
-        self.core.chmod_file(side, rel_path, mode)
-    }
-
-    pub fn create_backups(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-        session_id: &str,
-    ) -> anyhow::Result<()> {
-        self.core.create_backups(side, rel_paths, session_id)
-    }
-
-    pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
-        self.core.remove_file(side, rel_path)
-    }
-
-    pub fn create_symlink(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        target: &str,
-    ) -> anyhow::Result<()> {
-        self.core.create_symlink(side, rel_path, target)
-    }
-
-    pub fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree> {
-        self.core.fetch_tree(side)
-    }
-
-    pub fn fetch_tree_recursive(
-        &mut self,
-        side: &Side,
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> anyhow::Result<FileTree> {
-        self.core
-            .fetch_tree_recursive(side, max_entries, fail_on_truncation)
-    }
-
-    pub fn fetch_tree_for_subpath(
-        &mut self,
-        side: &Side,
-        subpath: &str,
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> anyhow::Result<FileTree> {
-        self.core
-            .fetch_tree_for_subpath(side, subpath, max_entries, fail_on_truncation)
-    }
-
-    pub fn fetch_children(
-        &mut self,
-        side: &Side,
-        dir_rel_path: &str,
-    ) -> anyhow::Result<Vec<FileNode>> {
-        self.core.fetch_children(side, dir_rel_path)
-    }
-
-    pub fn connect_if_remote(&mut self, side: &Side) -> anyhow::Result<()> {
-        self.core.connect_if_remote(side)
-    }
-
-    pub fn disconnect_if_remote(&mut self, side: &Side) {
-        self.core.disconnect_if_remote(side);
-    }
-
-    pub fn is_side_available(&self, side: &Side) -> bool {
-        self.core.is_side_available(side)
+    delegate_to_core! {
+        mut fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String>;
+        mut fn read_files_batch(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<HashMap<String, String>>;
+        mut fn read_files_bytes_batch(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<HashMap<String, Vec<u8>>>;
+        mut fn read_file_bytes(&mut self, side: &Side, rel_path: &str, force: bool) -> anyhow::Result<Vec<u8>>;
+        mut fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()>;
+        mut fn write_file_bytes(&mut self, side: &Side, rel_path: &str, content: &[u8]) -> anyhow::Result<()>;
+        mut fn stat_files(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>;
+        mut fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()>;
+        mut fn create_backups(&mut self, side: &Side, rel_paths: &[String], session_id: &str) -> anyhow::Result<()>;
+        mut fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()>;
+        mut fn create_symlink(&mut self, side: &Side, rel_path: &str, target: &str) -> anyhow::Result<()>;
+        mut fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree>;
+        mut fn fetch_tree_recursive(&mut self, side: &Side, max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<FileTree>;
+        mut fn fetch_tree_for_subpath(&mut self, side: &Side, subpath: &str, max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<FileTree>;
+        mut fn fetch_children(&mut self, side: &Side, dir_rel_path: &str) -> anyhow::Result<Vec<FileNode>>;
+        mut fn connect_if_remote(&mut self, side: &Side) -> anyhow::Result<()>;
+        mut fn disconnect_if_remote(&mut self, side: &Side);
+        ref fn is_side_available(&self, side: &Side) -> bool;
     }
 }
 

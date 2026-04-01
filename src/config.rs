@@ -119,6 +119,9 @@ const DEFAULT_DIR_PERMISSIONS: u32 = 0o775;
 /// ツリースキャンのデフォルト最大エントリ数
 pub const DEFAULT_MAX_SCAN_ENTRIES: usize = 50_000;
 
+/// ディレクトリ取得のデフォルト最大エントリ数（ローカル・リモート共通）
+pub const DEFAULT_MAX_DIR_ENTRIES: usize = 10_000;
+
 /// バッジスキャンのデフォルトファイル数上限
 pub const DEFAULT_BADGE_SCAN_MAX_FILES: usize = 500;
 
@@ -2167,6 +2170,11 @@ strict_host_key_checking = "no"
     #[test]
     fn test_default_max_scan_entries_is_50000() {
         assert_eq!(DEFAULT_MAX_SCAN_ENTRIES, 50_000);
+    }
+
+    #[test]
+    fn test_default_max_dir_entries_is_10000() {
+        assert_eq!(DEFAULT_MAX_DIR_ENTRIES, 10_000);
     }
 
     #[test]

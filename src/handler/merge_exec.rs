@@ -58,16 +58,19 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 }
             };
             let symlink_session_id = crate::backup::backup_timestamp();
-            let _ = super::symlink_merge::execute_symlink_merge(
-                state,
-                runtime,
+            // 戻り値 (成功=true) をログに記録。state.status_message は execute_symlink_merge 内で設定済み。
+            let params = super::symlink_merge::SymlinkMergeParams {
                 path,
                 direction,
                 action,
-                &source_side,
-                &target_side,
-                &symlink_session_id,
-            );
+                source_side: &source_side,
+                target_side: &target_side,
+                session_id: &symlink_session_id,
+            };
+            let ok = super::symlink_merge::execute_symlink_merge(state, runtime, &params);
+            if !ok {
+                tracing::warn!("symlink merge failed: {}", path);
+            }
             return;
         }
         MergeExecutionPlan::BinaryReject => {

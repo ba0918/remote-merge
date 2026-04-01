@@ -520,8 +520,8 @@ impl SshClient {
 
     /// ディレクトリ取得のデフォルトタイムアウト（秒）
     pub const DIR_TIMEOUT_SECS: u64 = 30;
-    /// ディレクトリ取得のデフォルト最大エントリ数
-    pub const MAX_DIR_ENTRIES: usize = 10_000;
+    /// ディレクトリ取得のデフォルト最大エントリ数（config::DEFAULT_MAX_DIR_ENTRIES と同値）
+    pub const MAX_DIR_ENTRIES: usize = crate::config::DEFAULT_MAX_DIR_ENTRIES;
 
     /// リモートディレクトリの直下エントリを取得する
     ///

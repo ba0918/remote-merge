@@ -188,8 +188,8 @@ pub fn build_batch_backup_command(pairs: &[(&str, &str)]) -> String {
 ///      `rel_path = "src/config.ts"`
 ///      → `Some("/var/www/.remote-merge-backup/20240115-140000/src/config.ts")`
 pub fn remote_backup_path(remote_root: &str, session_id: &str, rel_path: &str) -> Option<String> {
-    // パストラバーサル防止
-    if rel_path.contains("..") {
+    // パストラバーサル防止: rel_path と session_id の両方をチェック
+    if rel_path.contains("..") || session_id.contains("..") || session_id.contains('/') {
         return None;
     }
     Some(format!(
@@ -562,6 +562,20 @@ mod tests {
     #[test]
     fn test_remote_backup_path_rejects_path_traversal() {
         let result = remote_backup_path("/var/www", "20240115-140000", "../etc/passwd");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_remote_backup_path_rejects_session_id_traversal() {
+        // session_id に ".." を含む場合は拒否
+        let result = remote_backup_path("/var/www", "../../../etc", "passwd");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_remote_backup_path_rejects_session_id_with_slash() {
+        // session_id に "/" を含む場合は拒否（ディレクトリ脱出防止）
+        let result = remote_backup_path("/var/www", "abc/def", "config.ts");
         assert_eq!(result, None);
     }
 

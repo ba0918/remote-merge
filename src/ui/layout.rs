@@ -39,6 +39,19 @@ impl AppLayout {
     }
 }
 
+/// ターミナルサイズからビューポート高さを計算する（ハンドラ層で使用）。
+///
+/// `draw_ui` 内で `&mut AppState` を変更するのを避けるため、
+/// 描画前にこの関数で計算し `state` に設定する。
+///
+/// 戻り値: `(tree_visible_height, diff_visible_height)`
+pub fn compute_viewport_heights(terminal_area: Rect) -> (usize, usize) {
+    let layout = AppLayout::new(terminal_area);
+    let tree_h = layout.tree_pane.height.saturating_sub(2) as usize;
+    let diff_h = layout.diff_pane.height.saturating_sub(2) as usize;
+    (tree_h, diff_h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +69,23 @@ mod tests {
         assert_eq!(layout.tree_pane.height, layout.diff_pane.height);
         // メイン領域の高さ = 全体 - ヘッダ - ステータスバー
         assert_eq!(layout.tree_pane.height, 38);
+    }
+
+    #[test]
+    fn test_compute_viewport_heights() {
+        let area = Rect::new(0, 0, 120, 40);
+        let (tree_h, diff_h) = compute_viewport_heights(area);
+        // メイン領域 38行 - ボーダー2行 = 36行
+        assert_eq!(tree_h, 36);
+        assert_eq!(diff_h, 36);
+    }
+
+    #[test]
+    fn test_compute_viewport_heights_small_terminal() {
+        let area = Rect::new(0, 0, 40, 10);
+        let (tree_h, diff_h) = compute_viewport_heights(area);
+        // メイン領域 8行 - ボーダー2行 = 6行
+        assert_eq!(tree_h, 6);
+        assert_eq!(diff_h, 6);
     }
 }

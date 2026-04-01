@@ -17,6 +17,18 @@ use remote_merge::runtime::{badge_scan, merge_scan, scanner};
 use remote_merge::telemetry;
 use remote_merge::ui::render::draw_ui;
 
+/// デバッグログファイルの最大サイズ (10 MB)
+const MAX_DEBUG_LOG_BYTES: u64 = 10 * 1024 * 1024;
+
+/// イベントログの最大行数
+const MAX_EVENT_LOG_LINES: usize = 10_000;
+
+/// スキャン中のイベントポーリングタイムアウト (ミリ秒)
+const SCANNING_POLL_TIMEOUT_MS: u64 = 100;
+
+/// アイドル時のイベントポーリングタイムアウト (秒)
+const IDLE_POLL_TIMEOUT_SECS: u64 = 60;
+
 /// TUI tool for graphically displaying and merging file diffs between local and remote servers
 #[derive(Parser, Debug)]
 #[command(name = "remote-merge", version, about)]
@@ -587,11 +599,9 @@ fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
     // テレメトリ: ダンプディレクトリ準備 + 起動時トランケーション
     let dump_dir = telemetry::state_dumper::default_dump_dir();
     let _ = std::fs::create_dir_all(&dump_dir);
-    let _ = telemetry::truncate_file_lines(&dump_dir.join("events.jsonl"), 10_000);
-    let _ = telemetry::truncate::truncate_file_bytes(
-        &dump_dir.join("debug.log"),
-        10 * 1024 * 1024, // 10MB
-    );
+    let _ = telemetry::truncate_file_lines(&dump_dir.join("events.jsonl"), MAX_EVENT_LOG_LINES);
+    let _ =
+        telemetry::truncate::truncate_file_bytes(&dump_dir.join("debug.log"), MAX_DEBUG_LOG_BYTES);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -636,6 +646,13 @@ fn run_event_loop(
         merge_scan::poll_merge_scan_result(state, runtime);
         badge_scan::poll::poll_badge_scan_results(state, runtime);
 
+        // ビューポートサイズを描画前に計算（draw_ui は &AppState のみ受け取る）
+        let terminal_size = terminal.size()?;
+        let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
+        let (tree_h, diff_h) = remote_merge::ui::layout::compute_viewport_heights(terminal_area);
+        state.tree_visible_height = tree_h;
+        state.diff_visible_height = diff_h;
+
         // 描画 + 描画時間計測
         let render_start = std::time::Instant::now();
         terminal.draw(|frame| {
@@ -661,9 +678,9 @@ fn run_event_loop(
             || !matches!(state.merge_scan_state, MergeScanState::Idle)
             || !runtime.badge_scans.is_empty();
         let timeout = if is_scanning {
-            std::time::Duration::from_millis(100)
+            std::time::Duration::from_millis(SCANNING_POLL_TIMEOUT_MS)
         } else {
-            std::time::Duration::from_secs(60)
+            std::time::Duration::from_secs(IDLE_POLL_TIMEOUT_SECS)
         };
 
         if !event::poll(timeout)? {
