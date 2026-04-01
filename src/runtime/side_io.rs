@@ -644,10 +644,9 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, String>>> {
-        let paths = rel_paths.to_vec();
         let owned_rel_paths: Vec<String> = rel_paths.to_vec();
         let agent_result = self.with_agent(server_name, "read_files_batch", |agent| {
-            agent.read_files(&paths, AGENT_CHUNK_SIZE_LIMIT)
+            agent.read_files(&owned_rel_paths, AGENT_CHUNK_SIZE_LIMIT)
         });
         flatten_agent_read_result(agent_result, |results| {
             extract_batch_files_as_string(results, &owned_rel_paths)

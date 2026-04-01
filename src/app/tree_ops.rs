@@ -1,6 +1,6 @@
 //! ツリー操作（フラット化、マージ、展開/折りたたみ）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::tree::FileNode;
 
@@ -42,8 +42,34 @@ impl AppState {
 
         let mut nodes = Vec::new();
         let merged = self.merge_tree_nodes();
+
+        // 検索クエリの事前計算 (Step 3-2: 毎ノードでの to_lowercase() 排除)
+        let query_lower = if self.search_state.has_query() {
+            Some(self.search_state.query.to_lowercase())
+        } else {
+            None
+        };
+
+        // dir_has_search_matches のキャッシュ構築 (Step 3-2: O(n*d) → O(n) に改善)
+        let dir_match_cache = if let Some(ref ql) = query_lower {
+            let mut cache = HashMap::new();
+            for node in &merged {
+                build_dir_match_cache(node, ql, &mut cache);
+            }
+            cache
+        } else {
+            HashMap::new()
+        };
+
         for node in &merged {
-            self.flatten_node(node, "", 0, &mut nodes);
+            self.flatten_node(
+                node,
+                "",
+                0,
+                &mut nodes,
+                query_lower.as_deref(),
+                &dir_match_cache,
+            );
         }
         self.flat_nodes = nodes;
 
@@ -83,12 +109,17 @@ impl AppState {
     }
 
     /// 再帰的にフラット化する
+    ///
+    /// `query_lower`: 事前計算済みの検索クエリ (lowercase)。None の場合は検索なし。
+    /// `dir_match_cache`: ディレクトリパス → 配下にマッチするノードが存在するかのキャッシュ。
     fn flatten_node(
         &self,
         node: &MergedNode,
         parent_path: &str,
         depth: usize,
         out: &mut Vec<FlatNode>,
+        query_lower: Option<&str>,
+        dir_match_cache: &HashMap<String, bool>,
     ) {
         let path = if parent_path.is_empty() {
             node.name.clone()
@@ -119,15 +150,18 @@ impl AppState {
             return;
         }
 
-        // 検索フィルタリング: クエリにマッチしないファイルをスキップ
-        if self.search_state.has_query() {
-            let query_lower = self.search_state.query.to_lowercase();
+        // 検索フィルタリング: 事前計算済みクエリとキャッシュで判定
+        if let Some(ql) = query_lower {
             if !node.is_dir {
-                if !super::search::name_matches(&node.name, &query_lower) {
+                if !super::search::name_matches(&node.name, ql) {
                     return;
                 }
-            } else if !super::search::dir_has_search_matches(node, &self.search_state.query) {
-                return;
+            } else {
+                // キャッシュからディレクトリマッチ結果を取得
+                let has_match = dir_match_cache.get(&node.name).copied().unwrap_or(false);
+                if !has_match {
+                    return;
+                }
             }
         }
 
@@ -143,13 +177,35 @@ impl AppState {
         });
 
         // 検索中はマッチする子孫がいるディレクトリを自動展開する
-        let force_expand = self.search_state.has_query();
+        let force_expand = query_lower.is_some();
         if node.is_dir && (expanded || force_expand) {
             for child in &node.children {
-                self.flatten_node(child, &path, depth + 1, out);
+                self.flatten_node(child, &path, depth + 1, out, query_lower, dir_match_cache);
             }
         }
     }
+}
+
+/// ディレクトリの検索マッチキャッシュを再帰的に構築する。
+///
+/// 各ディレクトリノードについて、配下にクエリにマッチするファイルが存在するかを
+/// ボトムアップで計算し、結果をキャッシュに格納する。
+fn build_dir_match_cache(node: &MergedNode, query_lower: &str, cache: &mut HashMap<String, bool>) {
+    if !node.is_dir {
+        return;
+    }
+    let mut has_match = false;
+    for child in &node.children {
+        if child.is_dir {
+            build_dir_match_cache(child, query_lower, cache);
+            if cache.get(&child.name).copied().unwrap_or(false) {
+                has_match = true;
+            }
+        } else if super::search::name_matches(&child.name, query_lower) {
+            has_match = true;
+        }
+    }
+    cache.insert(node.name.clone(), has_match);
 }
 
 /// 2つの FileNode リストをマージして MergedNode リストを返す
@@ -854,5 +910,85 @@ mod tests {
             "staging_config.rs should be visible after expanding src/app, got: {:?}",
             names
         );
+    }
+
+    #[test]
+    fn test_build_dir_match_cache_basic() {
+        use super::{build_dir_match_cache, MergedNode};
+        use std::collections::HashMap;
+
+        // src/
+        //   app/
+        //     search.rs   ← matches "search"
+        //     other.rs    ← no match
+        //   lib.rs        ← no match
+        let tree = MergedNode {
+            name: "src".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            ref_only: false,
+            children: vec![
+                MergedNode {
+                    name: "app".to_string(),
+                    is_dir: true,
+                    is_symlink: false,
+                    ref_only: false,
+                    children: vec![
+                        MergedNode {
+                            name: "search.rs".to_string(),
+                            is_dir: false,
+                            is_symlink: false,
+                            ref_only: false,
+                            children: vec![],
+                        },
+                        MergedNode {
+                            name: "other.rs".to_string(),
+                            is_dir: false,
+                            is_symlink: false,
+                            ref_only: false,
+                            children: vec![],
+                        },
+                    ],
+                },
+                MergedNode {
+                    name: "lib.rs".to_string(),
+                    is_dir: false,
+                    is_symlink: false,
+                    ref_only: false,
+                    children: vec![],
+                },
+            ],
+        };
+
+        let mut cache = HashMap::new();
+        build_dir_match_cache(&tree, "search", &mut cache);
+
+        assert!(cache["src"], "src has descendant matching 'search'");
+        assert!(cache["app"], "app has child matching 'search'");
+    }
+
+    #[test]
+    fn test_build_dir_match_cache_no_match() {
+        use super::{build_dir_match_cache, MergedNode};
+        use std::collections::HashMap;
+
+        let tree = MergedNode {
+            name: "src".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            ref_only: false,
+            children: vec![MergedNode {
+                name: "main.rs".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                ref_only: false,
+                children: vec![],
+            }],
+        };
+
+        let mut cache = HashMap::new();
+        build_dir_match_cache(&tree, "nonexistent", &mut cache);
+
+        assert!(!cache["src"], "src has no descendant matching query");
     }
 }

@@ -4,6 +4,7 @@
 //! `BadgeScanMsg::FileResult` でメインスレッドに送信する。
 //! AppState には一切触らない（純粋な I/O + 送信）。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -82,18 +83,31 @@ fn run_badge_scan_inner(
     let left_root = get_root(&params.left_source, &params.config);
     let right_root = get_root(&params.right_source, &params.config);
 
-    // 各ファイルを処理
+    // キャンセルチェック
+    if params.cancel_flag.load(Ordering::Relaxed) {
+        tracing::debug!("Badge scan cancelled: dir={}", params.dir_path);
+        return Ok(());
+    }
+
+    // バッチ読み込み: 左右それぞれ全ファイルを一括取得 (N+1 SSH 問題の解消)
+    let left_contents = batch_read_side(&rt, &mut left_client, &left_root, &params.file_paths);
+    let right_contents = batch_read_side(&rt, &mut right_client, &right_root, &params.file_paths);
+
+    // 結果を分配
     for path in &params.file_paths {
-        // キャンセルチェック
         if params.cancel_flag.load(Ordering::Relaxed) {
             tracing::debug!("Badge scan cancelled: dir={}", params.dir_path);
             return Ok(());
         }
 
-        let (left_content, left_binary) =
-            read_side_content(&rt, &mut left_client, &left_root, path);
-        let (right_content, right_binary) =
-            read_side_content(&rt, &mut right_client, &right_root, path);
+        let (left_content, left_binary) = left_contents
+            .get(path.as_str())
+            .cloned()
+            .unwrap_or((None, None));
+        let (right_content, right_binary) = right_contents
+            .get(path.as_str())
+            .cloned()
+            .unwrap_or((None, None));
 
         let _ = tx.send(BadgeScanMsg::FileResult {
             path: path.clone(),
@@ -160,21 +174,59 @@ enum ScanRoot {
     Remote(String),
 }
 
-/// 1ファイルのコンテンツを読み込む
-fn read_side_content(
+/// 全ファイルのコンテンツを一括読み込みする。
+///
+/// ローカルの場合は個別読み込み、リモートの場合は `read_files_batch_bytes` でバッチ取得し、
+/// N+1 SSH コマンド問題を回避する。
+fn batch_read_side<'a>(
     rt: &tokio::runtime::Runtime,
     client: &mut Option<SshClient>,
     root: &ScanRoot,
-    rel_path: &str,
-) -> (Option<String>, Option<BinaryInfo>) {
+    rel_paths: &'a [String],
+) -> HashMap<&'a str, (Option<String>, Option<BinaryInfo>)> {
+    let mut results = HashMap::with_capacity(rel_paths.len());
     match root {
-        ScanRoot::Local(local_root) => read_local_content(local_root, rel_path),
+        ScanRoot::Local(local_root) => {
+            for path in rel_paths {
+                results.insert(path.as_str(), read_local_content(local_root, path));
+            }
+        }
         ScanRoot::Remote(remote_root) => {
             if let Some(client) = client.as_mut() {
-                read_remote_content(rt, client, remote_root, rel_path)
-            } else {
-                (None, None)
+                batch_read_remote(rt, client, remote_root, rel_paths, &mut results);
             }
+        }
+    }
+    results
+}
+
+/// リモートファイルを一括バッチ読み込みし、結果を HashMap に格納する。
+fn batch_read_remote<'a>(
+    rt: &tokio::runtime::Runtime,
+    client: &mut SshClient,
+    remote_root: &str,
+    rel_paths: &'a [String],
+    results: &mut HashMap<&'a str, (Option<String>, Option<BinaryInfo>)>,
+) {
+    let root = remote_root.trim_end_matches('/');
+    let abs_paths: Vec<String> = rel_paths
+        .iter()
+        .map(|p| format!("{}/{}", root, p))
+        .collect();
+
+    match rt.block_on(client.read_files_batch_bytes(&abs_paths)) {
+        Ok(map) => {
+            for (i, rel) in rel_paths.iter().enumerate() {
+                let abs = &abs_paths[i];
+                let classified = match map.get(abs.as_str()) {
+                    Some(bytes) if !bytes.is_empty() => classify_content_bytes(bytes),
+                    _ => (None, None),
+                };
+                results.insert(rel.as_str(), classified);
+            }
+        }
+        Err(e) => {
+            tracing::debug!("Badge scan batch remote read failed: {}", e);
         }
     }
 }
@@ -194,26 +246,6 @@ fn read_local_content(local_root: &Path, rel_path: &str) -> (Option<String>, Opt
     match read_local_file_bytes(local_root, rel_path, false) {
         Ok(bytes) => classify_content_bytes(&bytes),
         Err(_) => (None, None),
-    }
-}
-
-/// リモートファイルを SSH 経由で読み込む
-fn read_remote_content(
-    rt: &tokio::runtime::Runtime,
-    client: &mut SshClient,
-    remote_root: &str,
-    rel_path: &str,
-) -> (Option<String>, Option<BinaryInfo>) {
-    let abs_path = format!("{}/{}", remote_root.trim_end_matches('/'), rel_path);
-    match rt.block_on(client.read_files_batch_bytes(std::slice::from_ref(&abs_path))) {
-        Ok(map) => match map.get(&abs_path) {
-            Some(bytes) if !bytes.is_empty() => classify_content_bytes(bytes),
-            _ => (None, None),
-        },
-        Err(e) => {
-            tracing::debug!("Badge scan remote read failed: {} - {}", rel_path, e);
-            (None, None)
-        }
     }
 }
 
@@ -323,6 +355,41 @@ mod tests {
             vec![FileNode::new_file("main.rs")],
         )]);
         assert!(!check_file_presence(&tree, "src/lib.rs"));
+    }
+
+    #[test]
+    fn batch_read_side_local() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "world").unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root = ScanRoot::Local(dir.path().to_path_buf());
+        let paths = vec![
+            "a.txt".to_string(),
+            "b.txt".to_string(),
+            "missing.txt".to_string(),
+        ];
+        let mut client = None;
+
+        let results = batch_read_side(&rt, &mut client, &root, &paths);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results["a.txt"].0, Some("hello".to_string()));
+        assert_eq!(results["b.txt"].0, Some("world".to_string()));
+        assert!(results["missing.txt"].0.is_none());
+    }
+
+    #[test]
+    fn batch_read_side_remote_no_client() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let root = ScanRoot::Remote("/var/www".to_string());
+        let paths = vec!["a.txt".to_string()];
+        let mut client = None;
+
+        let results = batch_read_side(&rt, &mut client, &root, &paths);
+        // クライアントなしの場合は結果が空
+        assert!(results.is_empty());
     }
 
     #[test]
