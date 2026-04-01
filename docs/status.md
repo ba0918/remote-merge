@@ -6,19 +6,7 @@
 
 ## 🎯 Current Session
 
-**Plan:** [コードベースレビュー改善計画](./plans/20260401_codebase-review-improvements.md)
-**Status:** Complete
-**Goal:** codebase-review スコア 78 → 85+ (B → A ランク)
-
-| Step | 内容 | 状態 |
-|------|------|------|
-| **1** | セキュリティ即時修正 (shell_escape) | ✅ Done |
-| **2** | Flaky テスト修正 (#[serial]) | ✅ Done |
-| **3** | パフォーマンス・ホットパス最適化 | ✅ Done |
-| **4** | レイヤー違反の解消 (app/ → ui/) | ✅ Done |
-| **5** | God Module 分割 (side_io.rs) | ✅ Done (delegate macro) |
-| **6** | 定数重複・衛生改善 | ✅ Done |
-| **7** | Medium 指摘対応 | ✅ Done |
+_No active session. Create a new plan to start._
 
 ---
 
