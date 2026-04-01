@@ -419,6 +419,7 @@ fn build_local_tree_from_flat(entries: Vec<(String, FileNode)>) -> Vec<FileNode>
 mod tests {
     use super::*;
     use crate::tree::NodeKind;
+    use serial_test::serial;
     use std::os::unix::fs::symlink;
     use tempfile::TempDir;
 
@@ -666,6 +667,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_resolve_scan_roots_relative_path_canonicalized() {
         // 相対パスの root が canonicalize() で絶対パスに正規化されることを確認
         let tmp = TempDir::new().unwrap();
@@ -952,6 +954,7 @@ mod tests {
     // ── 相対パス root_dir でのスキャンテスト ──
 
     #[test]
+    #[serial]
     fn test_scan_local_tree_recursive_with_relative_root() {
         // 相対パスの root_dir でスキャンしてもツリーに "." が混入しないことを確認
         let tmp = TempDir::new().unwrap();
@@ -995,6 +998,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_scan_local_tree_recursive_relative_root_no_project_path_leak() {
         // スキャン結果のパスにプロジェクトルート構造が含まれないことを確認
         let tmp = TempDir::new().unwrap();
@@ -1042,6 +1046,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_scan_local_tree_recursive_relative_root_strip_prefix_safety() {
         // strip_prefix 結果にフルパスや ".." セグメントが含まれないことを検証
         let tmp = TempDir::new().unwrap();
