@@ -305,7 +305,10 @@ impl CoreRuntime {
 
         let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
 
-        let quoted: Vec<String> = full_paths.iter().map(|p| format!("'{}'", p)).collect();
+        let quoted: Vec<String> = full_paths
+            .iter()
+            .map(|p| crate::ssh::tree_parser::shell_escape(p))
+            .collect();
         let cmd = format!("stat -c '%Y %n' {} 2>/dev/null || true", quoted.join(" "));
 
         let client = self
@@ -319,6 +322,13 @@ impl CoreRuntime {
         let mut results: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> =
             rel_paths.iter().map(|p| (p.clone(), None)).collect();
 
+        // O(n) ルックアップ用 HashMap (Step 3-3: O(n*m) → O(n) に改善)
+        let path_index: HashMap<&str, usize> = full_paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.as_str(), i))
+            .collect();
+
         for line in output.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -327,11 +337,8 @@ impl CoreRuntime {
             if let Some((ts_str, path)) = line.split_once(' ') {
                 if let Ok(epoch) = ts_str.parse::<i64>() {
                     let dt = chrono::DateTime::from_timestamp(epoch, 0);
-                    for (i, full) in full_paths.iter().enumerate() {
-                        if path == full {
-                            results[i].1 = dt;
-                            break;
-                        }
+                    if let Some(&idx) = path_index.get(path) {
+                        results[idx].1 = dt;
                     }
                 }
             }
@@ -687,4 +694,78 @@ fn validate_file_size(bytes: &[u8], rel_path: &str, force: bool) -> anyhow::Resu
 // ── バックアップパース純粋関数 ──
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    /// shell_escape がシングルクォート含むパスを正しくエスケープすることを検証。
+    /// stat_remote_files で format!("'{}'", p) → shell_escape(p) に修正した安全性テスト。
+    #[test]
+    fn test_stat_quoting_uses_shell_escape_for_single_quotes() {
+        let paths = [
+            "/var/www/it's a file.txt".to_string(),
+            "/var/www/normal.txt".to_string(),
+        ];
+        let quoted: Vec<String> = paths
+            .iter()
+            .map(|p| crate::ssh::tree_parser::shell_escape(p))
+            .collect();
+        // シングルクォート含むパスが正しくエスケープされること
+        assert_eq!(quoted[0], "'/var/www/it'\\''s a file.txt'");
+        assert_eq!(quoted[1], "'/var/www/normal.txt'");
+
+        // 生成されるコマンドが安全であること
+        let cmd = format!("stat -c '%Y %n' {} 2>/dev/null || true", quoted.join(" "));
+        assert!(cmd.contains("'\\''"));
+        assert!(!cmd.contains("it's")); // 未エスケープのシングルクォートが含まれないこと
+    }
+
+    /// stat 出力パースで HashMap ベースのルックアップが正しく動作することを検証。
+    #[test]
+    fn test_stat_parse_hashmap_lookup() {
+        let full_paths = [
+            "/var/www/a.txt".to_string(),
+            "/var/www/b.txt".to_string(),
+            "/var/www/c.txt".to_string(),
+        ];
+        let rel_paths = [
+            "a.txt".to_string(),
+            "b.txt".to_string(),
+            "c.txt".to_string(),
+        ];
+
+        let mut results: Vec<(String, Option<chrono::DateTime<chrono::Utc>>)> =
+            rel_paths.iter().map(|p| (p.clone(), None)).collect();
+
+        let path_index: HashMap<&str, usize> = full_paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.as_str(), i))
+            .collect();
+
+        // 順序が入れ替わった出力をシミュレート
+        let output = "1705312800 /var/www/c.txt\n1705312900 /var/www/a.txt\n";
+
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some((ts_str, path)) = line.split_once(' ') {
+                if let Ok(epoch) = ts_str.parse::<i64>() {
+                    let dt = chrono::DateTime::from_timestamp(epoch, 0);
+                    if let Some(&idx) = path_index.get(path) {
+                        results[idx].1 = dt;
+                    }
+                }
+            }
+        }
+
+        // a.txt と c.txt は mtime が設定される
+        assert!(results[0].1.is_some(), "a.txt should have mtime");
+        assert!(results[1].1.is_none(), "b.txt should have no mtime");
+        assert!(results[2].1.is_some(), "c.txt should have mtime");
+        // 正しいタイムスタンプが設定されること
+        assert_eq!(results[0].1.unwrap().timestamp(), 1705312900);
+        assert_eq!(results[2].1.unwrap().timestamp(), 1705312800);
+    }
+}
