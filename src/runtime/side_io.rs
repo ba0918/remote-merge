@@ -1028,6 +1028,7 @@ impl CoreRuntime {
 ///
 /// 判定基準:
 /// - `io::Error` で BrokenPipe / ConnectionReset / ConnectionAborted / UnexpectedEof → true（致命的接続エラー）
+/// - `io::Error` で InvalidData → true（フレームプロトコル破損 — ストリーム同期不可能）
 /// - `io::Error` でそれ以外 → false（一時的エラー、invalidate 不要）
 /// - チェーン内に `io::Error` なし → true（安全側: 不明エラーは invalidate する）
 pub(crate) fn should_invalidate_agent_error(e: &anyhow::Error) -> bool {
@@ -1039,6 +1040,7 @@ pub(crate) fn should_invalidate_agent_error(e: &anyhow::Error) -> bool {
                     | io::ErrorKind::ConnectionReset
                     | io::ErrorKind::ConnectionAborted
                     | io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::InvalidData
             );
         }
     }
@@ -3045,6 +3047,17 @@ mod tests {
     fn test_should_invalidate_unexpected_eof() {
         // UnexpectedEof → invalidate すべき（Agent プロセスのクラッシュ）
         let io_err = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected eof");
+        let e = anyhow::Error::from(io_err);
+        assert!(should_invalidate_agent_error(&e));
+    }
+
+    #[test]
+    fn test_should_invalidate_invalid_data() {
+        // InvalidData → invalidate すべき（フレームプロトコル破損: ストリーム同期不可能）
+        let io_err = io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame length 458961517 exceeds maximum frame size 16777216",
+        );
         let e = anyhow::Error::from(io_err);
         assert!(should_invalidate_agent_error(&e));
     }

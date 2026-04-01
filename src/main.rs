@@ -293,7 +293,14 @@ fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
 fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let log_level = resolve_log_level(cli.log_level.as_deref(), cli.debug, cli.verbose);
-    init_tracing(cli.command.is_none(), log_level.as_deref());
+    let tracing_mode = if cli.command.is_none() {
+        TracingMode::Tui
+    } else if matches!(cli.command, Some(Commands::Agent { .. })) {
+        TracingMode::Agent
+    } else {
+        TracingMode::Cli
+    };
+    init_tracing(tracing_mode, log_level.as_deref());
 
     match cli.command {
         Some(Commands::Init) => {
@@ -714,12 +721,20 @@ fn resolve_log_level(log_level: Option<&str>, debug: bool, verbose: u8) -> Optio
     }
 }
 
-/// tracing を初期化する。
+/// tracing の出力先モード。
 ///
-/// TUI モードでは debug.log に JSONL 形式で出力（JsonLogLayer）。
-/// CLI モード（サブコマンド実行時）は従来どおり stderr にテキスト出力。
-/// `cli_level` が Some の場合は環境変数より優先する。
-fn init_tracing(is_tui: bool, cli_level: Option<&str>) {
+/// `Tui` / `Agent` / `Cli` は排他的 — 同時に複数のモードは成立しない。
+enum TracingMode {
+    /// TUI: debug.log に JSONL 形式で出力
+    Tui,
+    /// Agent: stderr 専用、ANSI 無効（stdout はバイナリフレームプロトコルが占有）
+    Agent,
+    /// CLI サブコマンド: stderr にテキスト出力
+    Cli,
+}
+
+/// tracing を初期化する。`cli_level` が Some の場合は環境変数より優先する。
+fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
@@ -730,24 +745,33 @@ fn init_tracing(is_tui: bool, cli_level: Option<&str>) {
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"))
     };
 
-    if is_tui {
-        let log_dir = dirs::cache_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-            .join("remote-merge");
-        let _ = std::fs::create_dir_all(&log_dir);
-        let log_path = log_dir.join("debug.log");
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .expect("Failed to open log file");
+    match mode {
+        TracingMode::Tui => {
+            let log_dir = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join("remote-merge");
+            let _ = std::fs::create_dir_all(&log_dir);
+            let log_path = log_dir.join("debug.log");
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .expect("Failed to open log file");
 
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(telemetry::JsonLogLayer::new(file))
-            .init();
-    } else {
-        tracing_subscriber::fmt().with_env_filter(env_filter).init();
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(telemetry::JsonLogLayer::new(file))
+                .init();
+        }
+        TracingMode::Agent | TracingMode::Cli => {
+            // Agent: ANSI 無効（SSH ExtendedData 経由で転送されるため）
+            let with_ansi = !matches!(mode, TracingMode::Agent);
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_ansi(with_ansi)
+                .with_env_filter(env_filter)
+                .init();
+        }
     }
 }
 
