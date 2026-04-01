@@ -5,8 +5,8 @@
 
 use std::sync::mpsc;
 
+use crate::app::dialog_types::{DialogState, ProgressPhase};
 use crate::app::{AppState, MergeScanMsg, MergeScanState};
-use crate::ui::dialog::{DialogState, ProgressPhase};
 
 use super::apply::apply_merge_scan_result;
 use crate::runtime::TuiRuntime;

@@ -14,9 +14,9 @@ pub mod task;
 
 use std::sync::mpsc;
 
+use crate::app::dialog_types::{DialogState, ProgressDialog, ProgressPhase};
 use crate::app::{AppState, MergeScanMsg, MergeScanState, Side};
 use crate::merge::executor::MergeDirection;
-use crate::ui::dialog::{DialogState, ProgressDialog, ProgressPhase};
 
 use super::TuiRuntime;
 

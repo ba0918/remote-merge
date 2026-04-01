@@ -1,4 +1,4 @@
-//! ペアサーバ選択メニュー（LEFT/RIGHT 2列選択）。
+//! ペアサーバ選択メニュー（Widget のみ。データ型は app/dialog_types.rs）。
 //!
 //! 3way diff でサーバペアを自由に切り替えるためのダイアログ。
 //! LEFT 列と RIGHT 列を Tab で切り替え、各列で独立にカーソル移動できる。
@@ -9,93 +9,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::app::dialog_types::{Column, PairServerMenu};
+
 use super::render_dialog_frame;
-
-/// アクティブ列
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Column {
-    Left,
-    Right,
-}
-
-/// ペアサーバ選択メニューの状態
-#[derive(Debug, Clone)]
-pub struct PairServerMenu {
-    /// 利用可能なサーバ名リスト（"local" を含む）
-    pub servers: Vec<String>,
-    /// LEFT 列のカーソル位置
-    pub left_cursor: usize,
-    /// RIGHT 列のカーソル位置
-    pub right_cursor: usize,
-    /// アクティブ列
-    pub active_column: Column,
-}
-
-impl PairServerMenu {
-    /// 新しい PairServerMenu を構築する。
-    /// カーソルは現在の left/right サーバに初期配置。
-    pub fn new(servers: Vec<String>, current_left: &str, current_right: &str) -> Self {
-        let left_cursor = servers.iter().position(|s| s == current_left).unwrap_or(0);
-        let right_cursor = servers
-            .iter()
-            .position(|s| s == current_right)
-            .unwrap_or(if servers.len() > 1 { 1 } else { 0 });
-        Self {
-            servers,
-            left_cursor,
-            right_cursor,
-            active_column: Column::Left,
-        }
-    }
-
-    /// アクティブ列を切り替える
-    pub fn toggle_column(&mut self) {
-        self.active_column = match self.active_column {
-            Column::Left => Column::Right,
-            Column::Right => Column::Left,
-        };
-    }
-
-    /// アクティブ列のカーソルを上に移動
-    pub fn cursor_up(&mut self) {
-        let cursor = self.active_cursor_mut();
-        if *cursor > 0 {
-            *cursor -= 1;
-        }
-    }
-
-    /// アクティブ列のカーソルを下に移動
-    pub fn cursor_down(&mut self) {
-        let max = self.servers.len().saturating_sub(1);
-        let cursor = self.active_cursor_mut();
-        if *cursor < max {
-            *cursor += 1;
-        }
-    }
-
-    /// LEFT 列の選択サーバ名
-    pub fn selected_left(&self) -> Option<&str> {
-        self.servers.get(self.left_cursor).map(|s| s.as_str())
-    }
-
-    /// RIGHT 列の選択サーバ名
-    pub fn selected_right(&self) -> Option<&str> {
-        self.servers.get(self.right_cursor).map(|s| s.as_str())
-    }
-
-    /// 左右が同じサーバを選択しているか
-    pub fn is_same_pair(&self) -> bool {
-        self.left_cursor == self.right_cursor
-    }
-
-    /// アクティブ列のカーソルへの可変参照
-    fn active_cursor_mut(&mut self) -> &mut usize {
-        match self.active_column {
-            Column::Left => &mut self.left_cursor,
-            Column::Right => &mut self.right_cursor,
-        }
-    }
-}
 
 /// ペアサーバ選択メニューウィジェット
 pub struct PairServerMenuWidget<'a> {

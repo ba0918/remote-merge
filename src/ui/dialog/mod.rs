@@ -10,130 +10,31 @@ mod pair_server_menu;
 mod server_menu;
 mod three_way_summary;
 
-pub use batch_confirm::{BatchConfirmDialog, BatchConfirmDialogWidget};
-pub use confirm::{ConfirmDialog, ConfirmDialogWidget};
-pub use filter_panel::{FilterPanel, FilterPanelWidget};
-pub use help::{HelpOverlay, HelpOverlayWidget, HelpSection};
-pub use hunk_preview::{HunkMergePreview, HunkMergePreviewWidget};
-pub use mtime_warning::{MtimeWarningDialog, MtimeWarningDialogWidget, MtimeWarningMergeContext};
-pub use pair_server_menu::{Column, PairServerMenu, PairServerMenuWidget};
-pub use server_menu::{ServerMenu, ServerMenuWidget};
+// ドメイン層のダイアログ型を re-export（後方互換性のため）
+// 正規の定義は app/dialog_types.rs にある。
+pub use crate::app::dialog_types::{
+    BatchConfirmDialog, Column, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, HelpSection,
+    HunkMergePreview, MtimeWarningDialog, MtimeWarningMergeContext, PairServerMenu, ProgressDialog,
+    ProgressPhase, ServerMenu,
+};
+
+// Widget 型は ui/dialog/ の各サブモジュールで定義
+pub use batch_confirm::BatchConfirmDialogWidget;
+pub use confirm::ConfirmDialogWidget;
+pub use filter_panel::FilterPanelWidget;
+pub use help::HelpOverlayWidget;
+pub use hunk_preview::HunkMergePreviewWidget;
+pub use mtime_warning::MtimeWarningDialogWidget;
+pub use pair_server_menu::PairServerMenuWidget;
+pub use server_menu::ServerMenuWidget;
 pub use three_way_summary::ThreeWaySummaryWidget;
 
-use crate::app::three_way_summary::ThreeWaySummaryPanel;
 use crate::theme::palette::TuiPalette;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Widget};
-
-/// アプリのダイアログ状態
-#[derive(Debug, Clone, Default)]
-pub enum DialogState {
-    /// ダイアログなし
-    #[default]
-    None,
-    /// マージ確認ダイアログ
-    Confirm(ConfirmDialog),
-    /// バッチマージ確認ダイアログ（ディレクトリ選択時）
-    BatchConfirm(BatchConfirmDialog),
-    /// サーバ選択メニュー（右側のみ切り替え、後方互換）
-    ServerSelect(ServerMenu),
-    /// ペアサーバ選択メニュー（LEFT/RIGHT 両方選択可能、3way diff 用）
-    PairServerSelect(PairServerMenu),
-    /// フィルターパネル
-    Filter(FilterPanel),
-    /// ハンクマージプレビュー
-    HunkMergePreview(HunkMergePreview),
-    /// ヘルプオーバーレイ
-    Help(HelpOverlay),
-    /// 情報ダイアログ（メッセージ表示のみ、Esc/Enter で閉じる）
-    Info(String),
-    /// プログレスダイアログ（走査・マージ進捗表示）
-    Progress(ProgressDialog),
-    /// 書き込み確認ダイアログ（w キー）
-    WriteConfirmation,
-    /// 未保存変更確認ダイアログ（q キー時）
-    UnsavedChanges,
-    /// mtime 衝突警告ダイアログ（楽観的ロック）
-    MtimeWarning(MtimeWarningDialog),
-    /// 3way サマリーパネル（W キー）
-    ThreeWaySummary(ThreeWaySummaryPanel),
-}
-
-/// プログレスダイアログのフェーズ（サービス層はフェーズだけ設定し、UI層が表示テキストを生成）
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProgressPhase {
-    /// ディレクトリ走査中（ファイル発見フェーズ）
-    Scanning,
-    /// ファイルコンテンツ読み込み中
-    LoadingFiles,
-    /// リモートファイル読み込み中
-    LoadingRemote,
-    /// マージ実行中
-    Merging,
-}
-
-impl ProgressPhase {
-    /// UI 表示用のタイトルテキストを生成する
-    pub fn title(&self) -> &'static str {
-        match self {
-            ProgressPhase::Scanning => "Scanning",
-            ProgressPhase::LoadingFiles => "Loading files",
-            ProgressPhase::LoadingRemote => "Loading remote files",
-            ProgressPhase::Merging => "Merging",
-        }
-    }
-
-    /// プログレスバーの不定形式テキスト（total 不明時）
-    pub fn indeterminate_text(&self, current: usize) -> String {
-        match self {
-            ProgressPhase::Scanning => format!("Discovering files... {} found", current),
-            _ => format!("Processing... {}", current),
-        }
-    }
-}
-
-/// プログレスダイアログの状態
-#[derive(Debug, Clone)]
-pub struct ProgressDialog {
-    /// 進捗フェーズ
-    pub phase: ProgressPhase,
-    /// 走査対象のコンテキスト（例: ディレクトリパス）
-    pub context: String,
-    /// 現在の進捗値
-    pub current: usize,
-    /// 全体の件数（不明な場合は None）
-    pub total: Option<usize>,
-    /// 現在処理中のパス（表示用）
-    pub current_path: Option<String>,
-    /// Esc でキャンセル可能か
-    pub cancelable: bool,
-}
-
-impl ProgressDialog {
-    /// 新しいプログレスダイアログを作成する
-    pub fn new(phase: ProgressPhase, context: impl Into<String>, cancelable: bool) -> Self {
-        Self {
-            phase,
-            context: context.into(),
-            current: 0,
-            total: None,
-            current_path: None,
-            cancelable,
-        }
-    }
-
-    /// UI 表示用のタイトルを生成する（フェーズ + コンテキスト）
-    pub fn display_title(&self) -> String {
-        if self.context.is_empty() {
-            self.phase.title().to_string()
-        } else {
-            format!("{} {}", self.phase.title(), self.context)
-        }
-    }
-}
 
 /// `[Y] Confirm  [n/Esc] Cancel` フッターガイドを生成する。
 ///

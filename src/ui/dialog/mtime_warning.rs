@@ -1,4 +1,4 @@
-//! mtime 衝突警告ダイアログ。
+//! mtime 衝突警告ダイアログ（Widget のみ。データ型は app/dialog_types.rs）。
 //!
 //! マージ実行直前にリモート/ローカルの mtime が変更されていた場合に表示する。
 //! ユーザーは [r]eload / [f]orce / [c]ancel から選択する。
@@ -9,41 +9,13 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::merge::optimistic_lock::{ConflictReason, MtimeConflict};
+use crate::app::dialog_types::MtimeWarningDialog;
+use crate::merge::optimistic_lock::ConflictReason;
 use crate::ui::metadata::format_mtime;
 
 use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
-
-/// mtime 警告ダイアログの状態
-#[derive(Debug, Clone)]
-pub struct MtimeWarningDialog {
-    /// 衝突したファイルのリスト
-    pub conflicts: Vec<MtimeConflict>,
-    /// 元のマージ操作を再試行するための情報
-    pub merge_context: MtimeWarningMergeContext,
-}
-
-/// 警告ダイアログから復帰するために必要なマージコンテキスト
-#[derive(Debug, Clone)]
-pub enum MtimeWarningMergeContext {
-    /// 単一ファイルマージ
-    Single {
-        path: String,
-        direction: crate::merge::executor::MergeDirection,
-    },
-    /// バッチマージ
-    Batch {
-        direction: crate::merge::executor::MergeDirection,
-    },
-    /// 変更書き込み（w キー）
-    Write,
-    /// ハンクマージ（HunkMergePreview 確認後）
-    HunkMerge {
-        direction: crate::diff::engine::HunkDirection,
-    },
-}
 
 /// mtime 警告ダイアログ Widget
 pub struct MtimeWarningDialogWidget<'a> {
@@ -150,6 +122,8 @@ impl<'a> Widget for MtimeWarningDialogWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::dialog_types::MtimeWarningMergeContext;
+    use crate::merge::optimistic_lock::MtimeConflict;
     use chrono::{TimeZone, Utc};
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;

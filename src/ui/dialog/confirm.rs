@@ -1,4 +1,4 @@
-//! マージ確認ダイアログ。
+//! マージ確認ダイアログ（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -6,66 +6,10 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::merge::executor::MergeDirection;
+use crate::app::dialog_types::ConfirmDialog;
 use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
-
-/// マージ確認ダイアログの状態
-#[derive(Debug, Clone)]
-pub struct ConfirmDialog {
-    /// マージ対象のファイルパス
-    pub file_path: String,
-    /// マージの方向
-    pub direction: MergeDirection,
-    /// ソース名（例: "local"）
-    pub source_name: String,
-    /// ターゲット名（例: "develop"）
-    pub target_name: String,
-    /// リモート間マージかどうか（追加の警告表示に使用）
-    pub is_remote_to_remote: bool,
-}
-
-impl ConfirmDialog {
-    pub fn new(
-        file_path: String,
-        direction: MergeDirection,
-        source_name: String,
-        target_name: String,
-    ) -> Self {
-        Self {
-            file_path,
-            direction,
-            source_name,
-            target_name,
-            is_remote_to_remote: false,
-        }
-    }
-
-    /// リモート間マージフラグを設定する
-    pub fn with_remote_to_remote(mut self, is_r2r: bool) -> Self {
-        self.is_remote_to_remote = is_r2r;
-        self
-    }
-
-    /// ダイアログのメッセージ行を生成
-    pub fn message_lines(&self) -> Vec<String> {
-        let mut lines = vec![
-            format!("Merge {} from", self.file_path),
-            format!("{} → {}?", self.source_name, self.target_name),
-        ];
-        if self.is_remote_to_remote {
-            lines.push(String::new());
-            lines.push("⚠ Remote-to-remote merge".to_string());
-        }
-        lines
-    }
-
-    /// ダイアログのメッセージを生成（テスト用の後方互換）
-    pub fn message(&self) -> String {
-        self.message_lines().join("\n")
-    }
-}
 
 /// 確認ダイアログウィジェット
 pub struct ConfirmDialogWidget<'a> {
@@ -126,6 +70,7 @@ impl<'a> Widget for ConfirmDialogWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::merge::executor::MergeDirection;
 
     #[test]
     fn test_confirm_dialog_message_lines_left_merge() {

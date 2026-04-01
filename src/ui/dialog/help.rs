@@ -1,4 +1,4 @@
-//! ヘルプオーバーレイ。
+//! ヘルプオーバーレイ（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -6,141 +6,10 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::app::dialog_types::HelpOverlay;
 use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
-
-/// ヘルプオーバーレイのセクション
-#[derive(Debug, Clone)]
-pub struct HelpSection {
-    pub title: String,
-    pub bindings: Vec<(String, String)>, // (キー, 説明)
-}
-
-/// ヘルプオーバーレイの状態
-#[derive(Debug, Clone)]
-pub struct HelpOverlay {
-    pub sections: Vec<HelpSection>,
-    /// スクロールオフセット（行単位）
-    pub scroll: usize,
-}
-
-impl Default for HelpOverlay {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HelpOverlay {
-    /// 全セクション合計の行数を計算する
-    pub fn total_lines(&self) -> usize {
-        self.sections
-            .iter()
-            .map(|s| s.bindings.len() + 2) // タイトル行 + 空行 + bindings
-            .sum()
-    }
-
-    /// 下にスクロール
-    pub fn scroll_down(&mut self) {
-        let max = self.total_lines().saturating_sub(1);
-        if self.scroll < max {
-            self.scroll += 1;
-        }
-    }
-
-    /// 上にスクロール
-    pub fn scroll_up(&mut self) {
-        self.scroll = self.scroll.saturating_sub(1);
-    }
-
-    /// ページ下スクロール
-    pub fn page_down(&mut self, page_size: usize) {
-        let max = self.total_lines().saturating_sub(1);
-        self.scroll = (self.scroll + page_size).min(max);
-    }
-
-    /// ページ上スクロール
-    pub fn page_up(&mut self, page_size: usize) {
-        self.scroll = self.scroll.saturating_sub(page_size);
-    }
-
-    pub fn new() -> Self {
-        Self {
-            scroll: 0,
-            sections: vec![
-                HelpSection {
-                    title: "File Tree".to_string(),
-                    bindings: vec![
-                        ("j/↓".to_string(), "Move cursor down".to_string()),
-                        ("k/↑".to_string(), "Move cursor up".to_string()),
-                        ("Enter/l/→".to_string(), "Expand / Select file".to_string()),
-                        ("h/←".to_string(), "Collapse".to_string()),
-                        (
-                            "L (Shift)".to_string(),
-                            "Merge remote → local (dir supported)".to_string(),
-                        ),
-                        (
-                            "R (Shift)".to_string(),
-                            "Merge local → remote (dir supported)".to_string(),
-                        ),
-                        (
-                            "F (Shift)".to_string(),
-                            "Show changed files only (full scan)".to_string(),
-                        ),
-                        ("c".to_string(), "Copy diff to clipboard".to_string()),
-                        ("r".to_string(), "Refresh dir / Reconnect SSH".to_string()),
-                        ("f".to_string(), "Filter panel".to_string()),
-                        ("s".to_string(), "Server select".to_string()),
-                        ("W (Shift)".to_string(), "3way summary panel".to_string()),
-                        (
-                            "X (Shift)".to_string(),
-                            "Swap right ↔ ref server".to_string(),
-                        ),
-                        ("/".to_string(), "Search files".to_string()),
-                        ("n".to_string(), "Next search match".to_string()),
-                        ("N (Shift)".to_string(), "Previous search match".to_string()),
-                        (
-                            "E (Shift)".to_string(),
-                            "Export report (Markdown)".to_string(),
-                        ),
-                    ],
-                },
-                HelpSection {
-                    title: "Diff View".to_string(),
-                    bindings: vec![
-                        ("j/k/↑/↓".to_string(), "Scroll one line".to_string()),
-                        ("n".to_string(), "Next hunk / search match".to_string()),
-                        ("N".to_string(), "Prev hunk / search match".to_string()),
-                        ("/".to_string(), "Search in diff".to_string()),
-                        ("PageDown".to_string(), "Page down".to_string()),
-                        ("PageUp".to_string(), "Page up".to_string()),
-                        ("Home".to_string(), "Go to top".to_string()),
-                        ("End".to_string(), "Go to bottom".to_string()),
-                        ("→/l".to_string(), "Hunk: apply remote → local".to_string()),
-                        ("←/h".to_string(), "Hunk: apply local → remote".to_string()),
-                        ("w".to_string(), "Write changes to file".to_string()),
-                        ("u".to_string(), "Undo last change".to_string()),
-                        ("U".to_string(), "Undo all changes".to_string()),
-                        ("d".to_string(), "Toggle Unified / Side-by-Side".to_string()),
-                        ("c".to_string(), "Copy diff to clipboard".to_string()),
-                        ("r".to_string(), "Reconnect SSH".to_string()),
-                        ("W (Shift)".to_string(), "3way summary panel".to_string()),
-                    ],
-                },
-                HelpSection {
-                    title: "Global".to_string(),
-                    bindings: vec![
-                        ("Tab".to_string(), "Toggle focus".to_string()),
-                        ("T".to_string(), "Cycle theme".to_string()),
-                        ("S".to_string(), "Syntax highlight ON/OFF".to_string()),
-                        ("?".to_string(), "Toggle help".to_string()),
-                        ("q".to_string(), "Quit".to_string()),
-                    ],
-                },
-            ],
-        }
-    }
-}
 
 /// ヘルプオーバーレイウィジェット
 pub struct HelpOverlayWidget<'a> {

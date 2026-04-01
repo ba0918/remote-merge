@@ -1,4 +1,4 @@
-//! ハンクマージプレビュー。
+//! ハンクマージプレビュー（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -6,46 +6,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::diff::engine::HunkDirection;
+use crate::app::dialog_types::HunkMergePreview;
 use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
-
-/// ハンクマージプレビューの状態
-#[derive(Debug, Clone)]
-pub struct HunkMergePreview {
-    /// 対象ファイルパス
-    pub file_path: String,
-    /// マージ方向
-    pub direction: HunkDirection,
-    /// 適用前テキスト（対象ファイルの変更部分周辺）
-    pub before_text: String,
-    /// 適用後テキスト
-    pub after_text: String,
-    /// マージ方向の文字列表示
-    pub direction_label: String,
-}
-
-impl HunkMergePreview {
-    pub fn new(
-        file_path: String,
-        direction: HunkDirection,
-        before_text: String,
-        after_text: String,
-    ) -> Self {
-        let direction_label = match direction {
-            HunkDirection::RightToLeft => "remote → local".to_string(),
-            HunkDirection::LeftToRight => "local → remote".to_string(),
-        };
-        Self {
-            file_path,
-            direction,
-            before_text,
-            after_text,
-            direction_label,
-        }
-    }
-}
 
 /// ハンクマージプレビューウィジェット
 pub struct HunkMergePreviewWidget<'a> {
@@ -148,6 +112,7 @@ impl<'a> Widget for HunkMergePreviewWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::engine::HunkDirection;
     use ratatui::buffer::Buffer;
 
     #[test]

@@ -1,4 +1,4 @@
-//! バッチマージ確認ダイアログ。
+//! バッチマージ確認ダイアログ（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -6,94 +6,11 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::app::dialog_types::BatchConfirmDialog;
 use crate::app::Badge;
-use crate::merge::executor::MergeDirection;
 use crate::theme::palette::TuiPalette;
 
 use super::render_dialog_frame;
-
-/// バッチマージ確認ダイアログの状態
-#[derive(Debug, Clone)]
-pub struct BatchConfirmDialog {
-    /// 対象ファイルとバッジ一覧
-    pub files: Vec<(String, Badge)>,
-    /// マージ方向
-    pub direction: MergeDirection,
-    /// ソース名
-    pub source_name: String,
-    /// ターゲット名
-    pub target_name: String,
-    /// スクロール位置（大量ファイル対応）
-    pub scroll: usize,
-    /// 未比較(Unchecked)ディレクトリ数（警告用）
-    pub unchecked_count: usize,
-    /// センシティブファイル一覧
-    pub sensitive_files: Vec<String>,
-}
-
-impl BatchConfirmDialog {
-    pub fn new(
-        files: Vec<(String, Badge)>,
-        direction: MergeDirection,
-        source_name: String,
-        target_name: String,
-        unchecked_count: usize,
-    ) -> Self {
-        Self {
-            files,
-            direction,
-            source_name,
-            target_name,
-            scroll: 0,
-            unchecked_count,
-            sensitive_files: Vec::new(),
-        }
-    }
-
-    /// センシティブファイルパターンでチェックを行い、マッチするファイルを記録する
-    pub fn check_sensitive(&mut self, patterns: &[String]) {
-        self.sensitive_files = self
-            .files
-            .iter()
-            .filter(|(path, _)| {
-                let filename = path.rsplit('/').next().unwrap_or(path);
-                patterns
-                    .iter()
-                    .any(|p| glob_match::glob_match(p, filename) || glob_match::glob_match(p, path))
-            })
-            .map(|(path, _)| path.clone())
-            .collect();
-    }
-
-    /// 大量ファイル（21件以上）かどうか
-    pub fn is_large_batch(&self) -> bool {
-        self.files.len() > 20
-    }
-
-    /// メッセージを生成
-    pub fn message(&self) -> String {
-        format!(
-            "Merge {} file(s) from {} → {}",
-            self.files.len(),
-            self.source_name,
-            self.target_name
-        )
-    }
-
-    /// スクロールダウン
-    pub fn scroll_down(&mut self) {
-        if self.scroll + 1 < self.files.len() {
-            self.scroll += 1;
-        }
-    }
-
-    /// スクロールアップ
-    pub fn scroll_up(&mut self) {
-        if self.scroll > 0 {
-            self.scroll -= 1;
-        }
-    }
-}
 
 /// バッチマージ確認ダイアログウィジェット
 pub struct BatchConfirmDialogWidget<'a> {
@@ -288,6 +205,7 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::merge::executor::MergeDirection;
 
     #[test]
     fn test_batch_confirm_dialog_message() {

@@ -1,4 +1,4 @@
-//! サーバ選択メニュー。
+//! サーバ選択メニュー（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -6,48 +6,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::app::dialog_types::ServerMenu;
+
 use super::render_dialog_frame;
-
-/// サーバ選択メニューの状態
-#[derive(Debug, Clone)]
-pub struct ServerMenu {
-    /// 利用可能なサーバ名リスト
-    pub servers: Vec<String>,
-    /// 現在選択中のインデックス
-    pub cursor: usize,
-    /// 現在接続中のサーバ名
-    pub connected: String,
-}
-
-impl ServerMenu {
-    pub fn new(servers: Vec<String>, connected: String) -> Self {
-        let cursor = servers.iter().position(|s| s == &connected).unwrap_or(0);
-        Self {
-            servers,
-            cursor,
-            connected,
-        }
-    }
-
-    /// カーソルを上に移動
-    pub fn cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
-    }
-
-    /// カーソルを下に移動
-    pub fn cursor_down(&mut self) {
-        if self.cursor + 1 < self.servers.len() {
-            self.cursor += 1;
-        }
-    }
-
-    /// 現在選択中のサーバ名を返す
-    pub fn selected(&self) -> Option<&str> {
-        self.servers.get(self.cursor).map(|s| s.as_str())
-    }
-}
 
 /// サーバ選択メニューウィジェット
 pub struct ServerMenuWidget<'a> {

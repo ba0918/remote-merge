@@ -1,12 +1,12 @@
 //! ダイアログ表示・操作。
 
-use crate::app::three_way_summary::{collect_summary_lines, ThreeWaySummaryPanel};
-use crate::diff::engine::DiffResult;
-use crate::merge::executor::MergeDirection;
-use crate::ui::dialog::{
+use crate::app::dialog_types::{
     BatchConfirmDialog, ConfirmDialog, DialogState, FilterPanel, HelpOverlay, PairServerMenu,
     ServerMenu,
 };
+use crate::app::three_way_summary::{collect_summary_lines, ThreeWaySummaryPanel};
+use crate::diff::engine::DiffResult;
+use crate::merge::executor::MergeDirection;
 
 use super::types::Badge;
 use super::AppState;

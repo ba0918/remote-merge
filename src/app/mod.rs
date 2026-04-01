@@ -6,6 +6,7 @@ pub mod cache;
 pub mod clipboard;
 pub mod clipboard_write;
 pub mod dialog_ops;
+pub mod dialog_types;
 pub mod diff_search;
 pub mod hunk_ops;
 pub mod merge_collect;
@@ -27,12 +28,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use cache::{BoundedCache, MAX_BINARY_CACHE_ENTRIES, MAX_TEXT_CACHE_ENTRIES};
 
+use crate::app::dialog_types::DialogState;
 use crate::diff::engine::{DiffResult, HunkDirection};
 use crate::highlight::{HighlightCache, SyntaxHighlighter};
 use crate::service::types::FileStatusKind;
 use crate::theme::TuiPalette;
 use crate::tree::{FileNode, FileTree};
-use crate::ui::dialog::DialogState;
 
 pub use side::Side;
 

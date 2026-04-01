@@ -1,4 +1,4 @@
-//! フィルターパネル。
+//! フィルターパネル（Widget のみ。データ型は app/dialog_types.rs）。
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -6,55 +6,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
+use crate::app::dialog_types::FilterPanel;
+
 use super::render_dialog_frame;
-
-/// フィルターパネルの状態
-#[derive(Debug, Clone)]
-pub struct FilterPanel {
-    /// フィルターパターンとその有効/無効状態
-    pub patterns: Vec<(String, bool)>,
-    /// カーソル位置
-    pub cursor: usize,
-}
-
-impl FilterPanel {
-    pub fn new(patterns: &[String]) -> Self {
-        Self {
-            patterns: patterns.iter().map(|p| (p.clone(), true)).collect(),
-            cursor: 0,
-        }
-    }
-
-    /// カーソルを上に移動
-    pub fn cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
-    }
-
-    /// カーソルを下に移動
-    pub fn cursor_down(&mut self) {
-        if self.cursor + 1 < self.patterns.len() {
-            self.cursor += 1;
-        }
-    }
-
-    /// 現在のパターンの有効/無効をトグル
-    pub fn toggle(&mut self) {
-        if let Some(item) = self.patterns.get_mut(self.cursor) {
-            item.1 = !item.1;
-        }
-    }
-
-    /// 有効なパターンのみを返す
-    pub fn active_patterns(&self) -> Vec<String> {
-        self.patterns
-            .iter()
-            .filter(|(_, enabled)| *enabled)
-            .map(|(pattern, _)| pattern.clone())
-            .collect()
-    }
-}
 
 /// フィルターパネルウィジェット
 pub struct FilterPanelWidget<'a> {
