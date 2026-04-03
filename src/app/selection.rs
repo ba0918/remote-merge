@@ -205,7 +205,12 @@ impl AppState {
         let exclude = self.active_exclude_patterns();
         match crate::local::scan_dir(&full_path, &exclude, path) {
             Ok(children) => {
-                self.apply_local_children(path, children);
+                let filtered = crate::filter::filter_children_by_include(
+                    children,
+                    path,
+                    &self.include_patterns,
+                );
+                self.apply_local_children(path, filtered);
             }
             Err(e) => {
                 self.status_message = format!("Local directory scan failed: {}", e);
@@ -227,8 +232,9 @@ impl AppState {
     /// 検索が全ファイルを対象にできるようにする。
     pub fn load_local_tree_recursive(&mut self) {
         let exclude = self.active_exclude_patterns();
+        let include = self.include_patterns.clone();
         let root = self.left_tree.root.clone();
-        Self::load_children_recursive(&mut self.left_tree.nodes, &root, &exclude, "");
+        Self::load_children_recursive(&mut self.left_tree.nodes, &root, &exclude, &include, "");
     }
 
     /// FileNode リストの未ロードディレクトリを再帰的にロードする
@@ -236,6 +242,7 @@ impl AppState {
         nodes: &mut [crate::tree::FileNode],
         base_path: &std::path::Path,
         exclude: &[String],
+        include: &[String],
         parent_rel: &str,
     ) {
         for node in nodes.iter_mut() {
@@ -250,12 +257,14 @@ impl AppState {
             };
             if !node.is_loaded() {
                 if let Ok(children) = crate::local::scan_dir(&dir_path, exclude, &rel) {
-                    node.children = Some(children);
+                    node.children = Some(crate::filter::filter_children_by_include(
+                        children, &rel, include,
+                    ));
                     node.sort_children();
                 }
             }
             if let Some(ref mut children) = node.children {
-                Self::load_children_recursive(children, &dir_path, exclude, &rel);
+                Self::load_children_recursive(children, &dir_path, exclude, include, &rel);
             }
         }
     }
@@ -992,5 +1001,128 @@ mod tests {
         );
         // 存在しないパスに適用してもパニックしない
         state.apply_local_children("nonexistent", vec![FileNode::new_file("a.rs")]);
+    }
+
+    // ── load_local_children + include フィルター ──
+
+    #[test]
+    fn test_load_local_children_applies_include_filter() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::create_dir(src.join("app")).unwrap();
+        std::fs::create_dir(src.join("handler")).unwrap();
+        std::fs::create_dir(src.join("ui")).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main(){}").unwrap();
+
+        let mut state = AppState::new(
+            FileTree::new(tmp.path()),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.include_patterns = vec!["src/app".to_string(), "src/handler".to_string()];
+
+        // src を左ツリーに追加（未ロード状態）
+        state.left_tree.nodes = vec![FileNode::new_dir("src")];
+
+        state.load_local_children("src");
+
+        let node = state.left_tree.find_node("src").unwrap();
+        assert!(node.is_loaded());
+        let child_names: Vec<&str> = node
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        assert!(child_names.contains(&"app"), "app should be included");
+        assert!(
+            child_names.contains(&"handler"),
+            "handler should be included"
+        );
+        assert!(
+            !child_names.contains(&"ui"),
+            "ui should be excluded by include filter"
+        );
+        assert!(
+            !child_names.contains(&"main.rs"),
+            "main.rs should be excluded by include filter"
+        );
+    }
+
+    #[test]
+    fn test_load_local_children_no_include_returns_all() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        std::fs::create_dir(src.join("app")).unwrap();
+        std::fs::create_dir(src.join("ui")).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main(){}").unwrap();
+
+        let mut state = AppState::new(
+            FileTree::new(tmp.path()),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        // include 空 → フィルタなし
+        state.include_patterns = vec![];
+        state.left_tree.nodes = vec![FileNode::new_dir("src")];
+
+        state.load_local_children("src");
+
+        let node = state.left_tree.find_node("src").unwrap();
+        let child_names: Vec<&str> = node
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        assert_eq!(child_names.len(), 3, "all children should be returned");
+    }
+
+    #[test]
+    fn test_load_local_tree_recursive_applies_include_filter() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let src = tmp.path().join("src");
+        let app = src.join("app");
+        let ui = src.join("ui");
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::create_dir_all(&ui).unwrap();
+        std::fs::write(app.join("mod.rs"), "").unwrap();
+        std::fs::write(ui.join("render.rs"), "").unwrap();
+
+        let mut state = AppState::new(
+            FileTree::new(tmp.path()),
+            make_test_tree(vec![]),
+            Side::Local,
+            Side::Remote("develop".to_string()),
+            crate::theme::DEFAULT_THEME,
+        );
+        state.include_patterns = vec!["src/app".to_string()];
+        // ルートに src（未ロード）のみ（bootstrap で include フィルタ済みの状態を再現）
+        state.left_tree.nodes = vec![FileNode::new_dir("src")];
+
+        state.load_local_tree_recursive();
+
+        // src 配下: app のみ（ui は include 外）
+        let src_node = state.left_tree.find_node("src").unwrap();
+        let child_names: Vec<&str> = src_node
+            .children
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|n| n.name.as_str())
+            .collect();
+        assert!(child_names.contains(&"app"), "app should be included");
+        assert!(
+            !child_names.contains(&"ui"),
+            "ui should be excluded by include filter"
+        );
     }
 }

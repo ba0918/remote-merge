@@ -569,23 +569,11 @@ impl CoreRuntime {
             Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path)?,
         };
 
-        // include フィルターを適用（各 child の完全相対パスで判定）
-        let include = &self.config.filter.include;
-        if include.is_empty() {
-            return Ok(nodes);
-        }
-        let filtered = nodes
-            .into_iter()
-            .filter(|node| {
-                let child_path = if dir_rel_path.is_empty() {
-                    node.name.clone()
-                } else {
-                    format!("{}/{}", dir_rel_path, node.name)
-                };
-                crate::filter::is_path_included(&child_path, include)
-            })
-            .collect();
-        Ok(filtered)
+        Ok(crate::filter::filter_children_by_include(
+            nodes,
+            dir_rel_path,
+            &self.config.filter.include,
+        ))
     }
 
     // ── 接続 ──

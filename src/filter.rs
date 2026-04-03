@@ -208,9 +208,35 @@ pub fn filter_tree_by_include(tree: &mut crate::tree::FileTree, include: &[Strin
         .retain(|node| is_path_included(&node.name, include));
 }
 
+/// 子ノードリストを include フィルターで絞り込む。
+///
+/// `parent_rel_path` と各ノード名を結合した完全相対パスで判定する。
+/// include が空の場合はそのまま返す。
+pub fn filter_children_by_include(
+    children: Vec<crate::tree::FileNode>,
+    parent_rel_path: &str,
+    include: &[String],
+) -> Vec<crate::tree::FileNode> {
+    if include.is_empty() {
+        return children;
+    }
+    children
+        .into_iter()
+        .filter(|node| {
+            let child_path = if parent_rel_path.is_empty() {
+                node.name.clone()
+            } else {
+                format!("{}/{}", parent_rel_path, node.name)
+            };
+            is_path_included(&child_path, include)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tree::FileNode;
 
     // ── should_exclude ──
 
@@ -586,5 +612,45 @@ mod tests {
         );
         assert!(!names.contains(&"docs"), "docs should be removed");
         assert!(!names.contains(&"README.md"), "README.md should be removed");
+    }
+
+    // ── filter_children_by_include ──
+
+    #[test]
+    fn test_filter_children_by_include_empty_returns_all() {
+        let children = vec![
+            FileNode::new_dir("app"),
+            FileNode::new_dir("ui"),
+            FileNode::new_file("main.rs"),
+        ];
+        let result = filter_children_by_include(children, "src", &[]);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn test_filter_children_by_include_filters() {
+        let children = vec![
+            FileNode::new_dir("app"),
+            FileNode::new_dir("handler"),
+            FileNode::new_dir("ui"),
+            FileNode::new_file("main.rs"),
+        ];
+        let include = vec!["src/app".to_string(), "src/handler".to_string()];
+        let result = filter_children_by_include(children, "src", &include);
+        let names: Vec<&str> = result.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["app", "handler"]);
+    }
+
+    #[test]
+    fn test_filter_children_by_include_root_level() {
+        let children = vec![
+            FileNode::new_dir("src"),
+            FileNode::new_dir("docs"),
+            FileNode::new_file("README.md"),
+        ];
+        let include = vec!["src/app".to_string()];
+        let result = filter_children_by_include(children, "", &include);
+        let names: Vec<&str> = result.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["src"]);
     }
 }
