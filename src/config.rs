@@ -32,6 +32,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub user: String,
     pub auth: AuthMethod,
+    pub password: Option<String>,
     pub key: Option<PathBuf>,
     pub root_dir: PathBuf,
     pub ssh_options: Option<SshOptions>,
@@ -328,6 +329,7 @@ struct RawServerConfig {
     port: Option<u16>,
     user: String,
     auth: Option<String>,
+    password: Option<String>,
     key: Option<String>,
     root_dir: String,
     ssh_options: Option<RawSshOptions>,
@@ -857,11 +859,21 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
         .map(|dp| parse_permissions_field(dp, &format!("servers.{}.dir_permissions", name)))
         .transpose()?;
 
+    // password バリデーション: auth = "key" なのに password が設定されていたら警告
+    let password = raw.password;
+    if auth == AuthMethod::Key && password.is_some() {
+        tracing::warn!(
+            "servers.{}: password is set but auth is 'key' — password will be ignored",
+            name
+        );
+    }
+
     Ok(ServerConfig {
         host: raw.host,
         port,
         user: raw.user,
         auth,
+        password,
         key,
         root_dir: PathBuf::from(&raw.root_dir),
         ssh_options,
@@ -901,6 +913,7 @@ mod tests {
             port: 22,
             user: "deploy".into(),
             auth: AuthMethod::Key,
+            password: None,
             key: None,
             root_dir: PathBuf::from("/var/www"),
             ssh_options: None,
@@ -1053,6 +1066,53 @@ root_dir = "/home/user/app"
         let f = write_temp_config(content);
         let config = load_config_from_paths(Some(f.path()), None).unwrap();
         assert_eq!(config.servers["legacy"].auth, AuthMethod::Password);
+        assert_eq!(config.servers["legacy"].password, None);
+    }
+
+    #[test]
+    fn test_password_auth_with_plaintext_password() {
+        let content = r#"
+[servers.legacy]
+host = "legacy.example.com"
+user = "deploy"
+auth = "password"
+password = "my-secret-123"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.servers["legacy"].auth, AuthMethod::Password);
+        assert_eq!(
+            config.servers["legacy"].password.as_deref(),
+            Some("my-secret-123")
+        );
+    }
+
+    #[test]
+    fn test_key_auth_ignores_password_field() {
+        // auth = "key" なのに password が設定されている場合: 警告を出すが password は保持される
+        let content = r#"
+[servers.develop]
+host = "dev.example.com"
+user = "deploy"
+auth = "key"
+password = "should-be-ignored"
+root_dir = "/var/www/app"
+
+[local]
+root_dir = "/home/user/app"
+"#;
+        let f = write_temp_config(content);
+        let config = load_config_from_paths(Some(f.path()), None).unwrap();
+        assert_eq!(config.servers["develop"].auth, AuthMethod::Key);
+        // password フィールド自体は保持される（auth=key なので使われない）
+        assert_eq!(
+            config.servers["develop"].password.as_deref(),
+            Some("should-be-ignored")
+        );
     }
 
     #[test]

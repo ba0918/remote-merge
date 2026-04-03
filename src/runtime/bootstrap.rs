@@ -344,6 +344,7 @@ mod tests {
                     port: 22,
                     user: "deploy".to_string(),
                     auth: AuthMethod::Key,
+                    password: None,
                     key: None,
                     root_dir: PathBuf::from("/var/www"),
                     ssh_options: None,

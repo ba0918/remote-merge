@@ -339,6 +339,7 @@ fn make_ssh_config(port: u16, key_path: PathBuf) -> (ServerConfig, SshConfig) {
         port,
         user: "testuser".to_string(),
         auth: AuthMethod::Key,
+        password: None,
         key: Some(key_path),
         root_dir: "/tmp".into(),
         ssh_options: None,

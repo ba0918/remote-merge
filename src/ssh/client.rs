@@ -366,11 +366,21 @@ impl SshClient {
                 }
             }
             AuthMethod::Password => {
-                let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
-                let password = std::env::var(&env_key).map_err(|_| AppError::SshAuth {
-                    host: server_config.host.clone(),
-                    user: server_config.user.clone(),
-                })?;
+                let (password, source) =
+                    resolve_password(server_name, server_config.password.as_deref()).ok_or_else(
+                        || AppError::SshAuth {
+                            host: server_config.host.clone(),
+                            user: server_config.user.clone(),
+                        },
+                    )?;
+
+                if source == PasswordSource::Config {
+                    tracing::warn!(
+                        "Server '{}': using plaintext password from config. \
+                         Key authentication is recommended.",
+                        server_name
+                    );
+                }
 
                 let auth_res = session
                     .authenticate_password(&server_config.user, &password)
@@ -1162,6 +1172,32 @@ fn build_mkdir_command(remote_path: &str) -> Option<String> {
     Some(format!("mkdir -p {}", shell_escape(&parent_str)))
 }
 
+/// パスワード認証のソース
+#[derive(Debug, Clone, PartialEq)]
+enum PasswordSource {
+    /// 環境変数 REMOTE_MERGE_PASSWORD_{SERVER} から取得
+    EnvVar,
+    /// config.toml の password フィールドから取得（平文）
+    Config,
+}
+
+/// パスワードを解決する。
+///
+/// 優先順位: 環境変数 `REMOTE_MERGE_PASSWORD_{SERVER}` > config の `password` フィールド。
+/// 空文字列の環境変数は無視する。
+fn resolve_password(
+    server_name: &str,
+    config_password: Option<&str>,
+) -> Option<(String, PasswordSource)> {
+    let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
+    if let Ok(val) = std::env::var(&env_key) {
+        if !val.is_empty() {
+            return Some((val, PasswordSource::EnvVar));
+        }
+    }
+    config_password.map(|p| (p.to_string(), PasswordSource::Config))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1513,5 +1549,72 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    // ── resolve_password テスト ──
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_env_var_takes_priority() {
+        let env_key = "REMOTE_MERGE_PASSWORD_TESTSERVER";
+        unsafe { std::env::set_var(env_key, "env-pass") };
+
+        let result = resolve_password("testserver", Some("config-pass"));
+        assert_eq!(
+            result,
+            Some(("env-pass".to_string(), PasswordSource::EnvVar))
+        );
+
+        unsafe { std::env::remove_var(env_key) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_falls_back_to_config() {
+        let env_key = "REMOTE_MERGE_PASSWORD_FALLBACKTEST";
+        unsafe { std::env::remove_var(env_key) };
+
+        let result = resolve_password("fallbacktest", Some("config-pass"));
+        assert_eq!(
+            result,
+            Some(("config-pass".to_string(), PasswordSource::Config))
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_empty_env_var_falls_back_to_config() {
+        let env_key = "REMOTE_MERGE_PASSWORD_EMPTYENVTEST";
+        unsafe { std::env::set_var(env_key, "") };
+
+        let result = resolve_password("emptyenvtest", Some("config-pass"));
+        assert_eq!(
+            result,
+            Some(("config-pass".to_string(), PasswordSource::Config))
+        );
+
+        unsafe { std::env::remove_var(env_key) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_no_source_returns_none() {
+        let env_key = "REMOTE_MERGE_PASSWORD_NOSOURCE";
+        unsafe { std::env::remove_var(env_key) };
+
+        let result = resolve_password("nosource", None);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_server_name_uppercased() {
+        let env_key = "REMOTE_MERGE_PASSWORD_MY-SERVER";
+        unsafe { std::env::set_var(env_key, "found") };
+
+        let result = resolve_password("my-server", None);
+        assert_eq!(result, Some(("found".to_string(), PasswordSource::EnvVar)));
+
+        unsafe { std::env::remove_var(env_key) };
     }
 }
