@@ -3,7 +3,7 @@
 //! I/O 操作を含むため、純粋関数ではない。
 
 use crate::app::Side;
-use crate::diff::engine::{apply_selected_hunks, compute_diff, is_binary, DiffResult};
+use crate::diff::engine::{apply_selected_hunks_single_pass, compute_diff, is_binary, DiffResult};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction};
@@ -311,7 +311,7 @@ pub struct HunkMergeContext<'a> {
 /// 3. バイナリチェック
 /// 4. diff 計算 → hunk 取得
 /// 5. hunk インデックス検証
-/// 6. apply_selected_hunks で選択的マージ
+/// 6. apply_selected_hunks_single_pass で選択的マージ
 /// 7. バックアップ + ファイル書き込み（dry_run=false の場合）
 pub fn execute_hunk_merge(
     ctx: &mut HunkMergeContext<'_>,
@@ -373,8 +373,34 @@ pub fn execute_hunk_merge(
             let total = merge_hunks.len();
             let hunk_dir = ctx.direction.to_hunk_direction();
 
-            let merged_text =
-                apply_selected_hunks(&target_text, lines, merge_hunks, hunk_indices, hunk_dir)?;
+            // インデックスの範囲チェック
+            for &idx in hunk_indices.iter() {
+                if idx >= merge_hunks.len() {
+                    anyhow::bail!(
+                        "Hunk index {} is out of range (total hunks: {})",
+                        idx,
+                        merge_hunks.len()
+                    );
+                }
+            }
+
+            let unique_indices: std::collections::HashSet<usize> =
+                hunk_indices.iter().copied().collect();
+
+            let merged_text = if unique_indices.len() >= merge_hunks.len() {
+                // 全 hunk → ソーステキストをそのまま使用
+                source_text.to_string()
+            } else {
+                // 部分適用 → single-pass
+                let trailing_nl = target_text.ends_with('\n');
+                apply_selected_hunks_single_pass(
+                    lines,
+                    merge_hunks,
+                    &unique_indices,
+                    hunk_dir,
+                    trailing_nl,
+                )
+            };
 
             let hunk_info = Some(HunkMergeInfo {
                 hunks_applied: hunk_indices.to_vec(),

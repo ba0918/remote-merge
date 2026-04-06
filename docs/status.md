@@ -6,7 +6,9 @@
 
 ## 🎯 Current Session
 
-_No active session. Create a new plan to start._
+**Plan:** [Fix: Hunk Merge 分割適用時の収束問題](./plans/20260406143851_fix-hunk-merge-convergence.md)
+**Status:** 🔵 Implementing
+**Steps:** 5 steps (全 hunk フォールバック → 再 diff 方式 → content matching → テスト → 統合)
 
 ---
 
