@@ -127,9 +127,7 @@ mod tests {
                     status: "ok".into(),
                     backup: None,
                     ref_badge: None,
-                    hunks_applied: None,
-                    hunks_total: None,
-                    direction: None,
+                    hunk_info: None,
                 })
                 .collect(),
             skipped: vec![],

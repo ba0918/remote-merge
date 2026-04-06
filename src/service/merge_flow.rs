@@ -3,9 +3,7 @@
 //! I/O 操作を含むため、純粋関数ではない。
 
 use crate::app::Side;
-use crate::diff::engine::{
-    apply_selected_hunks, compute_diff, is_binary, DiffResult, HunkDirection,
-};
+use crate::diff::engine::{apply_selected_hunks, compute_diff, is_binary, DiffResult};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction};
@@ -106,9 +104,7 @@ pub fn execute_single_merge(
                 status: "ok".into(),
                 backup: backup_path,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             });
         }
         MergeAction::ReplaceSymlinkWithFile => {
@@ -139,9 +135,7 @@ pub fn execute_single_merge(
                 status: "ok".into(),
                 backup: symlink_backup,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             });
         }
         MergeAction::Normal => {
@@ -179,9 +173,7 @@ pub fn execute_single_merge(
         status: "ok".into(),
         backup: backup_path,
         ref_badge: None,
-        hunks_applied: None,
-        hunks_total: None,
-        direction: None,
+        hunk_info: None,
     })
 }
 
@@ -379,42 +371,22 @@ pub fn execute_hunk_merge(
             merge_hunks, lines, ..
         } => {
             let total = merge_hunks.len();
-
-            // hunk インデックス検証は apply_selected_hunks 内で行われるが、
-            // ユーザーフレンドリーなエラーのためここでも事前チェック
-            for &idx in hunk_indices {
-                if idx >= total {
-                    anyhow::bail!(
-                        "Hunk index {} is out of range (total hunks: {})",
-                        idx,
-                        total
-                    );
-                }
-            }
-
-            // hunk 方向: compute_diff(source, target) なので
-            // LeftToRight の場合 target テキストに source の変更を取り込む
-            // → HunkDirection::LeftToRight（Delete 行 = source 側の行を target に書く）
-            let hunk_dir = match ctx.direction {
-                MergeDirection::LeftToRight => HunkDirection::LeftToRight,
-                MergeDirection::RightToLeft => HunkDirection::RightToLeft,
-            };
+            let hunk_dir = ctx.direction.to_hunk_direction();
 
             let merged_text =
                 apply_selected_hunks(&target_text, lines, merge_hunks, hunk_indices, hunk_dir)?;
 
-            let direction_str = match ctx.direction {
-                MergeDirection::LeftToRight => "left_to_right",
-                MergeDirection::RightToLeft => "right_to_left",
-            };
+            let hunk_info = Some(HunkMergeInfo {
+                hunks_applied: hunk_indices.to_vec(),
+                hunks_total: total,
+                direction: ctx.direction.as_str().to_string(),
+            });
 
             if dry_run {
                 return Ok(MergeFileResult {
                     path: path.to_string(),
                     status: "would merge".into(),
-                    hunks_applied: Some(hunk_indices.to_vec()),
-                    hunks_total: Some(total),
-                    direction: Some(direction_str.to_string()),
+                    hunk_info,
                     ..Default::default()
                 });
             }
@@ -441,9 +413,7 @@ pub fn execute_hunk_merge(
                 path: path.to_string(),
                 status: "merged".into(),
                 backup: backup_path,
-                hunks_applied: Some(hunk_indices.to_vec()),
-                hunks_total: Some(total),
-                direction: Some(direction_str.to_string()),
+                hunk_info,
                 ..Default::default()
             })
         }

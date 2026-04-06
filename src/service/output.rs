@@ -302,20 +302,19 @@ pub fn format_merge_text(output: &MergeOutput) -> String {
             // "ok" (全体マージ), "skipped (no changes)" 等
             "Merged"
         };
-        let hunk_info =
-            if let (Some(applied), Some(total)) = (&result.hunks_applied, result.hunks_total) {
-                format!(
-                    " (hunks: {}/{})",
-                    applied
-                        .iter()
-                        .map(|i| i.to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                    total
-                )
-            } else {
-                String::new()
-            };
+        let hunk_info = if let Some(info) = &result.hunk_info {
+            format!(
+                " (hunks: {}/{})",
+                info.hunks_applied
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                info.hunks_total
+            )
+        } else {
+            String::new()
+        };
         lines.push(format!(
             "{}: {}{}{}{}",
             prefix, result.path, hunk_info, backup_info, ref_badge_str
@@ -806,9 +805,7 @@ mod tests {
                 status: "ok".into(),
                 backup: Some("a.rs.bak".into()),
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![MergeSkipped {
                 path: ".env".into(),
@@ -1080,9 +1077,7 @@ mod tests {
                 status: "would merge".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1102,9 +1097,7 @@ mod tests {
                 status: "would merge".into(),
                 backup: None,
                 ref_badge: Some("differs".into()),
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1126,9 +1119,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: Some("differs".into()),
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1148,11 +1139,12 @@ mod tests {
             merged: vec![MergeFileResult {
                 path: "src/foo.rs".into(),
                 status: "merged".into(),
-                backup: None,
-                ref_badge: None,
-                hunks_applied: Some(vec![0, 2, 5]),
-                hunks_total: Some(8),
-                direction: Some("left_to_right".into()),
+                hunk_info: Some(HunkMergeInfo {
+                    hunks_applied: vec![0, 2, 5],
+                    hunks_total: 8,
+                    direction: "left_to_right".into(),
+                }),
+                ..Default::default()
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1176,9 +1168,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1521,9 +1511,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1913,9 +1901,7 @@ mod tests {
                 status: "would merge".into(),
                 backup: Some("/tmp/main.rs.bak".into()), // dry-run 中はパスが仮でも enabled 表示
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1936,9 +1922,7 @@ mod tests {
                 status: "ok".into(),
                 backup: Some("/var/backups/main.rs.20260311.bak".into()),
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -1959,9 +1943,7 @@ mod tests {
                 status: "would merge".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -2007,9 +1989,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![DeleteFileResult {
@@ -2073,9 +2053,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -2144,9 +2122,7 @@ mod tests {
                     status: "ok".into(),
                     backup: None,
                     ref_badge: None,
-                    hunks_applied: None,
-                    hunks_total: None,
-                    direction: None,
+                    hunk_info: None,
                 }],
                 skipped: vec![],
                 deleted: vec![],
@@ -2223,9 +2199,7 @@ mod tests {
                         status: "ok".into(),
                         backup: None,
                         ref_badge: None,
-                        hunks_applied: None,
-                        hunks_total: None,
-                        direction: None,
+                        hunk_info: None,
                     }],
                     skipped: vec![],
                     deleted: vec![],
@@ -2316,18 +2290,14 @@ mod tests {
                         status: "would merge".into(),
                         backup: None,
                         ref_badge: None,
-                        hunks_applied: None,
-                        hunks_total: None,
-                        direction: None,
+                        hunk_info: None,
                     },
                     MergeFileResult {
                         path: "src/index.ts".into(),
                         status: "would merge".into(),
                         backup: None,
                         ref_badge: None,
-                        hunks_applied: None,
-                        hunks_total: None,
-                        direction: None,
+                        hunk_info: None,
                     },
                 ],
                 skipped: vec![],
@@ -2367,9 +2337,7 @@ mod tests {
                     status: "ok".into(),
                     backup: Some("20260311-120000/a.txt".into()),
                     ref_badge: None,
-                    hunks_applied: None,
-                    hunks_total: None,
-                    direction: None,
+                    hunk_info: None,
                 }],
                 skipped: vec![],
                 deleted: vec![],

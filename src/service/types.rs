@@ -176,6 +176,17 @@ pub struct MergeOutput {
     pub ref_: Option<SourceInfo>,
 }
 
+/// hunk merge 時のメタデータ（常にセットで使用される3フィールドを凝集）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HunkMergeInfo {
+    /// 適用された hunk インデックス
+    pub hunks_applied: Vec<usize>,
+    /// 全 hunk 数
+    pub hunks_total: usize,
+    /// マージ方向
+    pub direction: String,
+}
+
 /// マージ成功結果
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MergeFileResult {
@@ -185,15 +196,9 @@ pub struct MergeFileResult {
     pub backup: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_badge: Option<String>,
-    /// hunk merge 時: 適用された hunk インデックス
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hunks_applied: Option<Vec<usize>>,
-    /// hunk merge 時: 全 hunk 数
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hunks_total: Option<usize>,
-    /// hunk merge 時: マージ方向
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<String>,
+    /// hunk merge 時のメタデータ（全体マージ時は None）
+    #[serde(skip_serializing_if = "Option::is_none", flatten)]
+    pub hunk_info: Option<HunkMergeInfo>,
 }
 
 /// マージスキップ
@@ -506,9 +511,7 @@ mod tests {
                 status: "ok".into(),
                 backup: Some("src/config.ts.20260307.bak".into()),
                 ref_badge: None,
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![MergeSkipped {
                 path: ".env".into(),
@@ -714,9 +717,7 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: Some("differs".into()),
-                hunks_applied: None,
-                hunks_total: None,
-                direction: None,
+                hunk_info: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -765,9 +766,11 @@ mod tests {
         let result = MergeFileResult {
             path: "src/foo.rs".into(),
             status: "merged".into(),
-            hunks_applied: Some(vec![0, 2, 5]),
-            hunks_total: Some(8),
-            direction: Some("left_to_right".into()),
+            hunk_info: Some(HunkMergeInfo {
+                hunks_applied: vec![0, 2, 5],
+                hunks_total: 8,
+                direction: "left_to_right".into(),
+            }),
             ..Default::default()
         };
         let json = serde_json::to_string(&result).unwrap();
@@ -794,16 +797,19 @@ mod tests {
         let original = MergeFileResult {
             path: "test.rs".into(),
             status: "merged".into(),
-            hunks_applied: Some(vec![1, 3]),
-            hunks_total: Some(5),
-            direction: Some("right_to_left".into()),
+            hunk_info: Some(HunkMergeInfo {
+                hunks_applied: vec![1, 3],
+                hunks_total: 5,
+                direction: "right_to_left".into(),
+            }),
             ..Default::default()
         };
         let json = serde_json::to_string(&original).unwrap();
         let deserialized: MergeFileResult = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.hunks_applied, Some(vec![1, 3]));
-        assert_eq!(deserialized.hunks_total, Some(5));
-        assert_eq!(deserialized.direction, Some("right_to_left".into()));
+        let info = deserialized.hunk_info.unwrap();
+        assert_eq!(info.hunks_applied, vec![1, 3]);
+        assert_eq!(info.hunks_total, 5);
+        assert_eq!(info.direction, "right_to_left");
     }
 
     // ── multi diff ──

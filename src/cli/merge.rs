@@ -251,9 +251,7 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
                     status: "would merge".into(),
                     backup: None,
                     ref_badge: ref_badge_map.as_ref().and_then(|m| m.get(p).cloned()),
-                    hunks_applied: None,
-                    hunks_total: None,
-                    direction: None,
+                    hunk_info: None,
                 })
                 .collect(),
             all_skipped,

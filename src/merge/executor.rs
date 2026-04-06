@@ -19,6 +19,24 @@ pub enum MergeDirection {
 }
 
 impl MergeDirection {
+    /// JSON / テキスト出力用の文字列表現を返す。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MergeDirection::LeftToRight => "left_to_right",
+            MergeDirection::RightToLeft => "right_to_left",
+        }
+    }
+
+    /// 対応する `HunkDirection` に変換する。
+    pub fn to_hunk_direction(self) -> crate::diff::engine::HunkDirection {
+        match self {
+            MergeDirection::LeftToRight => crate::diff::engine::HunkDirection::LeftToRight,
+            MergeDirection::RightToLeft => crate::diff::engine::HunkDirection::RightToLeft,
+        }
+    }
+}
+
+impl MergeDirection {
     /// 方向を表す矢印文字列
     pub fn arrow(&self) -> &'static str {
         match self {

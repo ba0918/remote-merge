@@ -361,9 +361,7 @@ fn build_dry_run_targets(
                     status: "would merge".into(),
                     backup: None,
                     ref_badge: None,
-                    hunks_applied: None,
-                    hunks_total: None,
-                    direction: None,
+                    hunk_info: None,
                 })
                 .collect();
 
