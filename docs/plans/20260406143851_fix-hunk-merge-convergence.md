@@ -1,7 +1,7 @@
 # Fix: Hunk Merge 分割適用時の収束問題
 
 **Created:** 2026-04-06
-**Status:** 🔵 Implementing
+**Status:** 🟢 Complete
 
 ## 背景
 

@@ -7,8 +7,8 @@
 ## 🎯 Current Session
 
 **Plan:** [Fix: Hunk Merge 分割適用時の収束問題](./plans/20260406143851_fix-hunk-merge-convergence.md)
-**Status:** 🔵 Implementing
-**Steps:** 5 steps (全 hunk フォールバック → 再 diff 方式 → content matching → テスト → 統合)
+**Status:** 🟢 Complete
+**Steps:** 5 steps — single-pass 方式で全ステップ統合実装完了
 
 ---
 
