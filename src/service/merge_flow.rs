@@ -2,6 +2,8 @@
 //! cli/merge.rs と cli/sync.rs の両方から利用する。
 //! I/O 操作を含むため、純粋関数ではない。
 
+use std::collections::HashSet;
+
 use crate::app::Side;
 use crate::diff::engine::{apply_selected_hunks_single_pass, compute_diff, is_binary, DiffResult};
 use crate::merge::executor::MergeDirection;
@@ -373,19 +375,18 @@ pub fn execute_hunk_merge(
             let total = merge_hunks.len();
             let hunk_dir = ctx.direction.to_hunk_direction();
 
-            // インデックスの範囲チェック
-            for &idx in hunk_indices.iter() {
-                if idx >= merge_hunks.len() {
+            // インデックスの範囲チェック + 重複排除を1パスで実行
+            let mut unique_indices = HashSet::with_capacity(hunk_indices.len());
+            for &idx in hunk_indices {
+                if idx >= total {
                     anyhow::bail!(
                         "Hunk index {} is out of range (total hunks: {})",
                         idx,
-                        merge_hunks.len()
+                        total
                     );
                 }
+                unique_indices.insert(idx);
             }
-
-            let unique_indices: std::collections::HashSet<usize> =
-                hunk_indices.iter().copied().collect();
 
             let merged_text = if unique_indices.len() >= merge_hunks.len() {
                 // 全 hunk → ソーステキストをそのまま使用
