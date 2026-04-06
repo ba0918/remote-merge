@@ -6,9 +6,7 @@
 
 ## 🎯 Current Session
 
-**Plan:** [CLI Hunk Merge](./plans/20260406123146_cli-hunk-merge.md)  
-**Status:** 🟢 Complete  
-**Goal:** CLI merge コマンドに `--hunks` オプションを追加し、hunk 単位の部分マージを可能にする
+_No active session. Create a new plan to start._
 
 ---
 
