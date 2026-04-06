@@ -177,7 +177,7 @@ pub struct MergeOutput {
 }
 
 /// マージ成功結果
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MergeFileResult {
     pub path: String,
     pub status: String,
@@ -185,6 +185,15 @@ pub struct MergeFileResult {
     pub backup: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_badge: Option<String>,
+    /// hunk merge 時: 適用された hunk インデックス
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hunks_applied: Option<Vec<usize>>,
+    /// hunk merge 時: 全 hunk 数
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hunks_total: Option<usize>,
+    /// hunk merge 時: マージ方向
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
 }
 
 /// マージスキップ
@@ -497,6 +506,9 @@ mod tests {
                 status: "ok".into(),
                 backup: Some("src/config.ts.20260307.bak".into()),
                 ref_badge: None,
+                hunks_applied: None,
+                hunks_total: None,
+                direction: None,
             }],
             skipped: vec![MergeSkipped {
                 path: ".env".into(),
@@ -702,6 +714,9 @@ mod tests {
                 status: "ok".into(),
                 backup: None,
                 ref_badge: Some("differs".into()),
+                hunks_applied: None,
+                hunks_total: None,
+                direction: None,
             }],
             skipped: vec![],
             deleted: vec![],
@@ -741,6 +756,54 @@ mod tests {
         };
         let json = serde_json::to_string(&file).unwrap();
         assert!(!json.contains("ref_badge"));
+    }
+
+    // ── MergeFileResult hunk merge フィールドの JSON テスト ──
+
+    #[test]
+    fn test_merge_file_result_hunk_fields_serialized() {
+        let result = MergeFileResult {
+            path: "src/foo.rs".into(),
+            status: "merged".into(),
+            hunks_applied: Some(vec![0, 2, 5]),
+            hunks_total: Some(8),
+            direction: Some("left_to_right".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"hunks_applied\":[0,2,5]"));
+        assert!(json.contains("\"hunks_total\":8"));
+        assert!(json.contains("\"direction\":\"left_to_right\""));
+    }
+
+    #[test]
+    fn test_merge_file_result_hunk_fields_omitted_when_none() {
+        let result = MergeFileResult {
+            path: "src/bar.rs".into(),
+            status: "ok".into(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(!json.contains("hunks_applied"));
+        assert!(!json.contains("hunks_total"));
+        assert!(!json.contains("direction"));
+    }
+
+    #[test]
+    fn test_merge_file_result_roundtrip_with_hunks() {
+        let original = MergeFileResult {
+            path: "test.rs".into(),
+            status: "merged".into(),
+            hunks_applied: Some(vec![1, 3]),
+            hunks_total: Some(5),
+            direction: Some("right_to_left".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: MergeFileResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.hunks_applied, Some(vec![1, 3]));
+        assert_eq!(deserialized.hunks_total, Some(5));
+        assert_eq!(deserialized.direction, Some("right_to_left".into()));
     }
 
     // ── multi diff ──

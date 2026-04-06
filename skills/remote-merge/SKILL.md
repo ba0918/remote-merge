@@ -85,6 +85,24 @@ Options:
 - `--with-permissions` — copy source file permissions to destination
 - `--format text|json` — output format (default: text)
 - `--ref <server>` — reference server for 3-way comparison
+- `--hunks <INDICES>` — merge specific hunks by index (0-based, comma-separated). Requires exactly one path. Cannot be used with `--delete`.
+
+#### Hunk merge (selective partial merge)
+
+Use `diff --format json` to identify hunk indices, then merge specific hunks:
+
+```bash
+# Step 1: Get diff with hunk indices
+remote-merge diff src/foo.rs --left local --right develop --format json
+
+# Step 2: Preview hunk merge (dry-run)
+remote-merge merge src/foo.rs --left local --right develop --hunks 0,2,5 --dry-run --format json
+
+# Step 3: Apply selected hunks
+remote-merge merge src/foo.rs --left local --right develop --hunks 0,2,5
+```
+
+JSON output includes `hunks_applied`, `hunks_total`, and `direction` fields when `--hunks` is used.
 
 Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.
 

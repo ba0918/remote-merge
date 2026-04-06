@@ -283,6 +283,54 @@ pub fn apply_hunk_to_text(
     text
 }
 
+/// 指定された hunk インデックスのみを元テキストに適用して新しいテキストを生成する。
+///
+/// - `original`: 適用先のテキスト（direction に応じて left or right）
+/// - `all_lines`: `compute_diff()` で得た全行リスト
+/// - `merge_hunks`: `compute_diff()` で得た操作用ハンク一覧（コンテキスト0行）
+/// - `indices`: 適用する hunk インデックス（0-based、`merge_hunks` の添字）
+/// - `direction`: マージ方向
+///
+/// **純粋関数** — 副作用なし。インデックスを降順ソートして後ろから適用し、行番号ずれを防ぐ。
+pub fn apply_selected_hunks(
+    original: &str,
+    all_lines: &[DiffLine],
+    merge_hunks: &[DiffHunk],
+    indices: &[usize],
+    direction: HunkDirection,
+) -> anyhow::Result<String> {
+    // 空リスト → 元テキストをそのまま返す
+    if indices.is_empty() {
+        return Ok(original.to_string());
+    }
+
+    // インデックスの範囲チェック
+    for &idx in indices {
+        if idx >= merge_hunks.len() {
+            anyhow::bail!(
+                "Hunk index {} is out of range (total hunks: {})",
+                idx,
+                merge_hunks.len()
+            );
+        }
+    }
+
+    // 重複を除去し降順ソート（後ろから適用して行番号ずれを防ぐ）
+    let mut sorted_indices: Vec<usize> = indices.to_vec();
+    sorted_indices.sort_unstable();
+    sorted_indices.dedup();
+    sorted_indices.reverse();
+
+    let mut text = original.to_string();
+    for idx in sorted_indices {
+        let hunk = &merge_hunks[idx];
+        let hunk_lines = hunk.lines(all_lines);
+        text = apply_hunk_to_text(&text, hunk_lines, hunk.old_start, hunk.new_start, direction);
+    }
+
+    Ok(text)
+}
+
 /// diff 行をハンク（変更グループ + コンテキスト行）に分割する。
 fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
     if lines.is_empty() {
@@ -936,5 +984,158 @@ mod tests {
         // 空の hunk_lines を渡すとオリジナルをそのまま返す
         let result = apply_hunk_to_text(original, &[], 0, 0, HunkDirection::RightToLeft);
         assert_eq!(result, original);
+    }
+
+    // ── apply_selected_hunks tests ──
+
+    #[test]
+    fn test_apply_selected_hunks_empty_indices_returns_original() {
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            // 空のインデックスリスト → 元テキストがそのまま返る
+            let result =
+                apply_selected_hunks(new, lines, merge_hunks, &[], HunkDirection::LeftToRight)
+                    .unwrap();
+            assert_eq!(result, new);
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_single_hunk() {
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            assert_eq!(merge_hunks.len(), 2);
+            // hunk 0 のみ適用（X→b に戻す）
+            let result =
+                apply_selected_hunks(new, lines, merge_hunks, &[0], HunkDirection::LeftToRight)
+                    .unwrap();
+            assert_eq!(result, "a\nb\nc\nd\ne\nf\ng\nh\nY\nj\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_multiple_hunks_descending_order() {
+        // 複数 hunk を降順で適用し行番号がずれないこと
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            // 両方の hunk を適用 → old と同じになるべき
+            let result =
+                apply_selected_hunks(new, lines, merge_hunks, &[0, 1], HunkDirection::LeftToRight)
+                    .unwrap();
+            assert_eq!(result, old);
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_out_of_range_error() {
+        let old = "a\nb\nc\n";
+        let new = "a\nX\nc\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            assert_eq!(merge_hunks.len(), 1);
+            // インデックス5は範囲外 → エラー
+            let result =
+                apply_selected_hunks(new, lines, merge_hunks, &[5], HunkDirection::LeftToRight);
+            assert!(result.is_err());
+            let msg = format!("{}", result.unwrap_err());
+            assert!(msg.contains("out of range"), "unexpected error: {}", msg);
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_all_hunks_equals_full_merge() {
+        // 全 hunk を指定 → 全体マージと同等の結果
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            let indices: Vec<usize> = (0..merge_hunks.len()).collect();
+            let result = apply_selected_hunks(
+                new,
+                lines,
+                merge_hunks,
+                &indices,
+                HunkDirection::LeftToRight,
+            )
+            .unwrap();
+            assert_eq!(result, old);
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_reverse_direction() {
+        // RightToLeft: old に right の変更を取り込む
+        let old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n";
+        let new = "a\nX\nc\nd\ne\nf\ng\nh\nY\nj\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            // hunk 1 のみ適用（i→Y）
+            let result =
+                apply_selected_hunks(old, lines, merge_hunks, &[1], HunkDirection::RightToLeft)
+                    .unwrap();
+            assert_eq!(result, "a\nb\nc\nd\ne\nf\ng\nh\nY\nj\n");
+        } else {
+            panic!("Modified を期待");
+        }
+    }
+
+    #[test]
+    fn test_apply_selected_hunks_duplicate_indices_handled() {
+        // 重複インデックスは deduplicate されるべき
+        let old = "a\nb\nc\n";
+        let new = "a\nX\nc\n";
+        let diff = compute_diff(old, new);
+
+        if let DiffResult::Modified {
+            merge_hunks, lines, ..
+        } = &diff
+        {
+            let result =
+                apply_selected_hunks(new, lines, merge_hunks, &[0, 0], HunkDirection::LeftToRight)
+                    .unwrap();
+            assert_eq!(result, old);
+        } else {
+            panic!("Modified を期待");
+        }
     }
 }

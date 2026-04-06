@@ -1,12 +1,14 @@
 # Project Status
 
-**Last Updated:** 2026-04-01
+**Last Updated:** 2026-04-06
 
 ---
 
 ## 🎯 Current Session
 
-_No active session. Create a new plan to start._
+**Plan:** [CLI Hunk Merge](./plans/20260406123146_cli-hunk-merge.md)  
+**Status:** 🔵 Implementing  
+**Goal:** CLI merge コマンドに `--hunks` オプションを追加し、hunk 単位の部分マージを可能にする
 
 ---
 

@@ -9,7 +9,9 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
-use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
+use crate::service::merge_flow::{
+    execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
+};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -45,6 +47,8 @@ pub struct MergeArgs {
     pub format: String,
     /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
     pub max_entries: Option<usize>,
+    /// hunk 単位マージ用: 適用する hunk インデックス（0-based）
+    pub hunks: Option<Vec<usize>>,
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
@@ -56,6 +60,21 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
         anyhow::bail!(
             "--left and --right are required for merge command (e.g. --left local --right staging)"
         );
+    }
+    // --hunks 固有のバリデーション
+    if let Some(ref hunks) = args.hunks {
+        if args.paths.len() != 1 {
+            anyhow::bail!(
+                "--hunks requires exactly one path (got {})",
+                args.paths.len()
+            );
+        }
+        if args.delete {
+            anyhow::bail!("--hunks and --delete cannot be used together");
+        }
+        if hunks.is_empty() {
+            anyhow::bail!("--hunks requires at least one hunk index");
+        }
     }
     Ok(())
 }
@@ -86,6 +105,21 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     }
 
     let direction = MergeDirection::LeftToRight;
+
+    // --hunks 指定時は hunk merge 専用パスに分岐
+    if let Some(ref hunk_indices) = args.hunks {
+        return run_hunk_merge(
+            &pair.left,
+            &pair.right,
+            &args.paths[0],
+            hunk_indices,
+            direction,
+            args.dry_run,
+            args.force,
+            format,
+            config,
+        );
+    }
 
     let mut core = CoreRuntime::new(config.clone());
 
@@ -217,6 +251,9 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
                     status: "would merge".into(),
                     backup: None,
                     ref_badge: ref_badge_map.as_ref().and_then(|m| m.get(p).cloned()),
+                    hunks_applied: None,
+                    hunks_total: None,
+                    direction: None,
                 })
                 .collect(),
             all_skipped,
@@ -278,6 +315,74 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     let output = build_merge_output(merged, all_skipped, deleted, failed, ref_source_info);
     let code = merge_exit_code(&output);
+    match format {
+        OutputFormat::Text => println!("{}", format_merge_text(&output)),
+        OutputFormat::Json => println!("{}", format_json(&output)?),
+    }
+
+    core.disconnect_all();
+    Ok(code)
+}
+
+/// hunk 単位マージの実行。
+/// CLI 層は引数パース・バリデーション・出力フォーマット選択のみを担当し、
+/// ビジネスロジックは `execute_hunk_merge()` に委譲する。
+#[allow(clippy::too_many_arguments)]
+fn run_hunk_merge(
+    left: &Side,
+    right: &Side,
+    path: &str,
+    hunk_indices: &[usize],
+    direction: MergeDirection,
+    dry_run: bool,
+    force: bool,
+    format: OutputFormat,
+    config: AppConfig,
+) -> anyhow::Result<i32> {
+    use crate::service::merge::build_merge_output;
+
+    let mut core = CoreRuntime::new(config.clone());
+
+    core.connect_if_remote(left)?;
+    core.connect_if_remote(right)?;
+
+    // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
+    let max_entries = resolve_max_entries(None, &config)?;
+    let paths = vec![path.to_string()];
+    let strategy = resolve_scan_strategy(&paths, false);
+    let (left_tree, right_tree, _statuses) = fetch_trees_and_statuses_for_merge(
+        &strategy,
+        left,
+        right,
+        &mut core,
+        &config,
+        max_entries,
+    )?;
+
+    let session_id = crate::backup::backup_timestamp();
+
+    let mut ctx = HunkMergeContext {
+        left,
+        right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction,
+        core: &mut core,
+        force,
+        session_id: &session_id,
+        sensitive_patterns: &config.filter.sensitive,
+    };
+
+    let result = execute_hunk_merge(&mut ctx, path, hunk_indices, dry_run)?;
+    let status_str = result.status.clone();
+
+    let output = build_merge_output(vec![result], vec![], vec![], vec![], None);
+    let code = if status_str.contains("skipped") {
+        crate::service::types::exit_code::SUCCESS
+    } else {
+        crate::service::merge::merge_exit_code(&output)
+    };
+
     match format {
         OutputFormat::Text => println!("{}", format_merge_text(&output)),
         OutputFormat::Json => println!("{}", format_json(&output)?),
@@ -387,6 +492,7 @@ mod tests {
             with_permissions: false,
             format: "text".into(),
             max_entries: None,
+            hunks: None,
         }
     }
 
@@ -448,6 +554,7 @@ mod tests {
             with_permissions: false,
             format: "yaml".into(),
             max_entries: None,
+            hunks: None,
         };
         // run_merge は config 読み込みより前に format をパースするため、
         // 不正な format 値で即座にエラーを返す
@@ -478,6 +585,7 @@ mod tests {
             with_permissions: false,
             format: "text".into(),
             max_entries: None,
+            hunks: None,
         };
         let err = validate_merge_args(&args).unwrap_err();
         assert!(
@@ -988,5 +1096,66 @@ mod tests {
         }];
         let result = filter_changed_files(&targets, &statuses);
         assert_eq!(result, vec!["new.rs"]);
+    }
+
+    // ── --hunks バリデーションテスト ──
+
+    #[test]
+    fn test_hunks_with_multiple_paths_returns_error() {
+        let args = MergeArgs {
+            paths: vec!["a.rs".into(), "b.rs".into()],
+            left: Some("local".into()),
+            right: Some("staging".into()),
+            hunks: Some(vec![0, 1]),
+            ..make_args(Some("local"), Some("staging"))
+        };
+        let err = validate_merge_args(&args).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("--hunks requires exactly one path"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_hunks_with_delete_returns_error() {
+        let mut args = make_args(Some("local"), Some("staging"));
+        args.hunks = Some(vec![0]);
+        args.delete = true;
+        let err = validate_merge_args(&args).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("--hunks and --delete cannot be used together"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_hunks_empty_indices_returns_error() {
+        let mut args = make_args(Some("local"), Some("staging"));
+        args.hunks = Some(vec![]);
+        let err = validate_merge_args(&args).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("at least one hunk index"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_hunks_with_single_path_passes_validation() {
+        let mut args = make_args(Some("local"), Some("staging"));
+        args.hunks = Some(vec![0, 2, 5]);
+        assert!(validate_merge_args(&args).is_ok());
+    }
+
+    #[test]
+    fn test_hunks_none_passes_existing_validation() {
+        // --hunks なしの既存動作は変更なし
+        let args = make_args(Some("local"), Some("staging"));
+        assert!(validate_merge_args(&args).is_ok());
     }
 }

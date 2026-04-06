@@ -3,11 +3,15 @@
 //! I/O 操作を含むため、純粋関数ではない。
 
 use crate::app::Side;
+use crate::diff::engine::{
+    apply_selected_hunks, compute_diff, is_binary, DiffResult, HunkDirection,
+};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction};
+use crate::service::status::is_sensitive;
 use crate::service::types::*;
-use crate::tree::FileTree;
+use crate::tree::{find_node_in_slice, FileTree};
 
 /// 単一マージに必要なコンテキスト
 pub struct MergeContext<'a> {
@@ -102,6 +106,9 @@ pub fn execute_single_merge(
                 status: "ok".into(),
                 backup: backup_path,
                 ref_badge: None,
+                hunks_applied: None,
+                hunks_total: None,
+                direction: None,
             });
         }
         MergeAction::ReplaceSymlinkWithFile => {
@@ -132,6 +139,9 @@ pub fn execute_single_merge(
                 status: "ok".into(),
                 backup: symlink_backup,
                 ref_badge: None,
+                hunks_applied: None,
+                hunks_total: None,
+                direction: None,
             });
         }
         MergeAction::Normal => {
@@ -169,6 +179,9 @@ pub fn execute_single_merge(
         status: "ok".into(),
         backup: backup_path,
         ref_badge: None,
+        hunks_applied: None,
+        hunks_total: None,
+        direction: None,
     })
 }
 
@@ -254,6 +267,187 @@ pub fn execute_deletions(
     }
 
     (deleted, failed)
+}
+
+/// hunk merge 対象ファイルのバリデーション（純粋関数）。
+///
+/// - symlink はエラー（hunk merge はテキスト専用）
+/// - sensitive ファイルは `force=false` でエラー
+///
+/// バイナリ判定はファイル内容の読み込みが必要なため、ここでは行わない
+/// （呼び出し元で内容取得後にチェックする）。
+pub fn validate_hunk_merge_target(
+    path: &str,
+    source_tree: &FileTree,
+    target_tree: &FileTree,
+    sensitive_patterns: &[String],
+    force: bool,
+) -> anyhow::Result<()> {
+    // symlink チェック（ソース側・ターゲット側どちらか）
+    let source_node = find_node_in_slice(&source_tree.nodes, path);
+    let target_node = find_node_in_slice(&target_tree.nodes, path);
+    if source_node.is_some_and(|n| n.is_symlink()) || target_node.is_some_and(|n| n.is_symlink()) {
+        anyhow::bail!("Hunk merge is not supported for symlink files: '{}'", path);
+    }
+
+    // sensitive ファイルチェック
+    if !force && is_sensitive(path, sensitive_patterns) {
+        anyhow::bail!("Sensitive file '{}' requires --force for hunk merge", path);
+    }
+
+    Ok(())
+}
+
+/// hunk merge のコンテキスト
+pub struct HunkMergeContext<'a> {
+    pub left: &'a Side,
+    pub right: &'a Side,
+    pub left_tree: &'a FileTree,
+    pub right_tree: &'a FileTree,
+    pub direction: MergeDirection,
+    pub core: &'a mut CoreRuntime,
+    pub force: bool,
+    pub session_id: &'a str,
+    pub sensitive_patterns: &'a [String],
+}
+
+/// hunk 単位マージを実行する。
+///
+/// 引数バリデーション済みの値を受け取り、以下を行う:
+/// 1. ファイル種別バリデーション（symlink/sensitive）
+/// 2. 両側のファイル内容取得
+/// 3. バイナリチェック
+/// 4. diff 計算 → hunk 取得
+/// 5. hunk インデックス検証
+/// 6. apply_selected_hunks で選択的マージ
+/// 7. バックアップ + ファイル書き込み（dry_run=false の場合）
+pub fn execute_hunk_merge(
+    ctx: &mut HunkMergeContext<'_>,
+    path: &str,
+    hunk_indices: &[usize],
+    dry_run: bool,
+) -> anyhow::Result<MergeFileResult> {
+    // ソース側・ターゲット側の決定
+    let (source, target) = match ctx.direction {
+        MergeDirection::LeftToRight => (ctx.left, ctx.right),
+        MergeDirection::RightToLeft => (ctx.right, ctx.left),
+    };
+    let (source_tree, target_tree) = match ctx.direction {
+        MergeDirection::LeftToRight => (ctx.left_tree, ctx.right_tree),
+        MergeDirection::RightToLeft => (ctx.right_tree, ctx.left_tree),
+    };
+
+    // symlink / sensitive バリデーション
+    validate_hunk_merge_target(
+        path,
+        source_tree,
+        target_tree,
+        ctx.sensitive_patterns,
+        ctx.force,
+    )?;
+
+    // 両側の内容を取得
+    let source_bytes = ctx.core.read_file_bytes(source, path, ctx.force)?;
+    let target_bytes = ctx.core.read_file_bytes(target, path, ctx.force)?;
+
+    // バイナリチェック
+    if is_binary(&source_bytes) || is_binary(&target_bytes) {
+        anyhow::bail!("Hunk merge is not supported for binary files: '{}'", path);
+    }
+
+    let source_text = String::from_utf8_lossy(&source_bytes);
+    let target_text = String::from_utf8_lossy(&target_bytes);
+
+    // diff 計算
+    // hunk merge の方向: left の内容を right に反映する（LeftToRight の場合）
+    // compute_diff(old=left, new=right) → LeftToRight は「right テキストに left の変更を取り込む」
+    let diff = compute_diff(&source_text, &target_text);
+
+    match &diff {
+        DiffResult::Equal => Ok(MergeFileResult {
+            path: path.to_string(),
+            status: "skipped (no changes)".into(),
+            ..Default::default()
+        }),
+        DiffResult::Binary { .. } => {
+            anyhow::bail!("Hunk merge is not supported for binary files: '{}'", path);
+        }
+        DiffResult::SymlinkDiff { .. } => {
+            anyhow::bail!("Hunk merge is not supported for symlink files: '{}'", path);
+        }
+        DiffResult::Modified {
+            merge_hunks, lines, ..
+        } => {
+            let total = merge_hunks.len();
+
+            // hunk インデックス検証は apply_selected_hunks 内で行われるが、
+            // ユーザーフレンドリーなエラーのためここでも事前チェック
+            for &idx in hunk_indices {
+                if idx >= total {
+                    anyhow::bail!(
+                        "Hunk index {} is out of range (total hunks: {})",
+                        idx,
+                        total
+                    );
+                }
+            }
+
+            // hunk 方向: compute_diff(source, target) なので
+            // LeftToRight の場合 target テキストに source の変更を取り込む
+            // → HunkDirection::LeftToRight（Delete 行 = source 側の行を target に書く）
+            let hunk_dir = match ctx.direction {
+                MergeDirection::LeftToRight => HunkDirection::LeftToRight,
+                MergeDirection::RightToLeft => HunkDirection::RightToLeft,
+            };
+
+            let merged_text =
+                apply_selected_hunks(&target_text, lines, merge_hunks, hunk_indices, hunk_dir)?;
+
+            let direction_str = match ctx.direction {
+                MergeDirection::LeftToRight => "left_to_right",
+                MergeDirection::RightToLeft => "right_to_left",
+            };
+
+            if dry_run {
+                return Ok(MergeFileResult {
+                    path: path.to_string(),
+                    status: "would merge".into(),
+                    hunks_applied: Some(hunk_indices.to_vec()),
+                    hunks_total: Some(total),
+                    direction: Some(direction_str.to_string()),
+                    ..Default::default()
+                });
+            }
+
+            // バックアップ
+            let backup_path = if ctx.core.config.backup.enabled {
+                let paths = vec![path.to_string()];
+                match ctx.core.create_backups(target, &paths, ctx.session_id) {
+                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
+                    Err(e) => {
+                        tracing::warn!("Backup failed (continuing): {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // 書き込み
+            ctx.core
+                .write_file_bytes(target, path, merged_text.as_bytes())?;
+
+            Ok(MergeFileResult {
+                path: path.to_string(),
+                status: "merged".into(),
+                backup: backup_path,
+                hunks_applied: Some(hunk_indices.to_vec()),
+                hunks_total: Some(total),
+                direction: Some(direction_str.to_string()),
+                ..Default::default()
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -401,5 +595,93 @@ mod tests {
         let statuses = vec![status];
         assert!(check_source_exists("file.rs", MergeDirection::LeftToRight, &statuses).is_ok());
         assert!(check_source_exists("file.rs", MergeDirection::RightToLeft, &statuses).is_ok());
+    }
+
+    // ── validate_hunk_merge_target tests ──
+
+    use crate::tree::{FileNode, NodeKind};
+    use chrono::Utc;
+    use std::path::PathBuf;
+
+    fn make_tree_with_file(path: &str) -> FileTree {
+        let mut tree = FileTree::new(PathBuf::from("/tmp"));
+        tree.nodes.push(FileNode {
+            name: path.to_string(),
+            kind: NodeKind::File,
+            size: Some(100),
+            mtime: Some(Utc::now()),
+            children: None,
+            permissions: None,
+        });
+        tree
+    }
+
+    fn make_tree_with_symlink(path: &str) -> FileTree {
+        let mut tree = FileTree::new(PathBuf::from("/tmp"));
+        tree.nodes.push(FileNode {
+            name: path.to_string(),
+            kind: NodeKind::Symlink {
+                target: "../link".into(),
+            },
+            size: None,
+            mtime: None,
+            children: None,
+            permissions: None,
+        });
+        tree
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_normal_file_ok() {
+        let source = make_tree_with_file("src/foo.rs");
+        let target = make_tree_with_file("src/foo.rs");
+        assert!(validate_hunk_merge_target("src/foo.rs", &source, &target, &[], false).is_ok());
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_source_symlink_error() {
+        let source = make_tree_with_symlink("link.txt");
+        let target = make_tree_with_file("link.txt");
+        let err = validate_hunk_merge_target("link.txt", &source, &target, &[], false);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(msg.contains("symlink"), "unexpected error: {}", msg);
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_target_symlink_error() {
+        let source = make_tree_with_file("link.txt");
+        let target = make_tree_with_symlink("link.txt");
+        let err = validate_hunk_merge_target("link.txt", &source, &target, &[], false);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(msg.contains("symlink"), "unexpected error: {}", msg);
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_sensitive_without_force_error() {
+        let source = make_tree_with_file(".env");
+        let target = make_tree_with_file(".env");
+        let patterns = vec![".env".into()];
+        let err = validate_hunk_merge_target(".env", &source, &target, &patterns, false);
+        assert!(err.is_err());
+        let msg = format!("{}", err.unwrap_err());
+        assert!(msg.contains("Sensitive"), "unexpected error: {}", msg);
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_sensitive_with_force_ok() {
+        let source = make_tree_with_file(".env");
+        let target = make_tree_with_file(".env");
+        let patterns = vec![".env".into()];
+        assert!(validate_hunk_merge_target(".env", &source, &target, &patterns, true).is_ok());
+    }
+
+    #[test]
+    fn test_validate_hunk_merge_target_unknown_path_ok() {
+        // ツリーに存在しないパス → symlink チェックはスキップ（OK 扱い）
+        let source = FileTree::new(PathBuf::from("/tmp"));
+        let target = FileTree::new(PathBuf::from("/tmp"));
+        assert!(validate_hunk_merge_target("nonexistent.rs", &source, &target, &[], false).is_ok());
     }
 }

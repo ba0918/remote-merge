@@ -165,6 +165,9 @@ enum Commands {
         /// Maximum number of entries to scan (1-1,000,000). Overrides config.
         #[arg(long, value_name = "N")]
         max_entries: Option<usize>,
+        /// Merge specific hunks by index (0-based, comma-separated). Requires exactly one path.
+        #[arg(long, value_delimiter = ',', value_name = "INDICES")]
+        hunks: Option<Vec<usize>>,
     },
 
     /// Sync files to multiple servers (1:N synchronization)
@@ -407,6 +410,7 @@ fn try_main() -> anyhow::Result<()> {
             with_permissions,
             format,
             max_entries,
+            hunks,
         }) => {
             let format_str = format.clone();
             let cfg =
@@ -429,6 +433,7 @@ fn try_main() -> anyhow::Result<()> {
                             with_permissions,
                             format,
                             max_entries,
+                            hunks,
                         },
                         cfg,
                     )
