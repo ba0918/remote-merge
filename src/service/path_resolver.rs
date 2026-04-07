@@ -115,7 +115,7 @@ fn collect_files_recursive(node: &FileNode, current_path: &str, files: &mut Vec<
         None => return,
     };
 
-    for child in children {
+    for child in children.values() {
         let child_path = format!("{}/{}", current_path, child.name);
         if child.is_dir() {
             collect_files_recursive(child, &child_path, files);

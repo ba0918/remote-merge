@@ -238,7 +238,8 @@ pub fn merge_node_lists_3way(
         if node.is_dir() {
             entry.is_dir = true;
             if let Some(children) = &node.children {
-                entry.children = merge_node_lists_3way(children, &[], None);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                entry.children = merge_node_lists_3way_refs(&children_vec, &[], None);
             }
         }
     }
@@ -256,7 +257,8 @@ pub fn merge_node_lists_3way(
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);
-                entry.children = merge_merged_with_file_nodes(existing, children);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                entry.children = merge_merged_with_file_node_refs(existing, &children_vec);
             }
         }
     }
@@ -277,8 +279,9 @@ pub fn merge_node_lists_3way(
                 entry.is_dir = true;
                 if let Some(children) = &node.children {
                     let existing = std::mem::take(&mut entry.children);
+                    let children_vec: Vec<&FileNode> = children.values().collect();
                     // 既存の子に ref の子をマージ（ref_only 判定含む）
-                    entry.children = merge_merged_with_ref_nodes(existing, children);
+                    entry.children = merge_merged_with_ref_node_refs(existing, &children_vec);
                 }
             }
         }
@@ -289,13 +292,12 @@ pub fn merge_node_lists_3way(
     result
 }
 
-/// MergedNode リストと FileNode リストをマージ（right 側の追加用）
+/// MergedNode リストと FileNode スライスをマージ（right 側の追加用）
 ///
-/// ディレクトリの場合は children を再帰的にマージする。
-/// これにより、right にしかないファイルも正しく MergedNode に含まれる。
-fn merge_merged_with_file_nodes(
+/// BTreeMap children に対応。ディレクトリの場合は children を再帰的にマージする。
+fn merge_merged_with_file_node_refs(
     merged: Vec<MergedNode>,
-    file_nodes: &[FileNode],
+    file_nodes: &[&FileNode],
 ) -> Vec<MergedNode> {
     let mut map: BTreeMap<String, MergedNode> = BTreeMap::new();
 
@@ -315,7 +317,8 @@ fn merge_merged_with_file_nodes(
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);
-                entry.children = merge_merged_with_file_nodes(existing, children);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                entry.children = merge_merged_with_file_node_refs(existing, &children_vec);
             }
         }
     }
@@ -325,8 +328,13 @@ fn merge_merged_with_file_nodes(
     result
 }
 
-/// MergedNode リストと ref FileNode リストをマージ（ref_only 判定付き）
-fn merge_merged_with_ref_nodes(merged: Vec<MergedNode>, ref_nodes: &[FileNode]) -> Vec<MergedNode> {
+/// MergedNode リストと ref FileNode スライスをマージ（ref_only 判定付き）
+///
+/// BTreeMap children に対応。
+fn merge_merged_with_ref_node_refs(
+    merged: Vec<MergedNode>,
+    ref_nodes: &[&FileNode],
+) -> Vec<MergedNode> {
     let mut map: BTreeMap<String, MergedNode> = BTreeMap::new();
     let existing_names: std::collections::HashSet<String> =
         merged.iter().map(|m| m.name.clone()).collect();
@@ -348,7 +356,8 @@ fn merge_merged_with_ref_nodes(merged: Vec<MergedNode>, ref_nodes: &[FileNode]) 
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);
-                entry.children = merge_merged_with_ref_nodes(existing, children);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                entry.children = merge_merged_with_ref_node_refs(existing, &children_vec);
             }
         }
     }
@@ -356,6 +365,19 @@ fn merge_merged_with_ref_nodes(merged: Vec<MergedNode>, ref_nodes: &[FileNode]) 
     let mut result: Vec<MergedNode> = map.into_values().collect();
     sort_merged_nodes(&mut result);
     result
+}
+
+/// `merge_node_lists_3way` の参照版（BTreeMap children 対応）
+fn merge_node_lists_3way_refs(
+    local: &[&FileNode],
+    remote: &[&FileNode],
+    ref_nodes: Option<&[&FileNode]>,
+) -> Vec<MergedNode> {
+    let local_owned: Vec<FileNode> = local.iter().map(|n| (*n).clone()).collect();
+    let remote_owned: Vec<FileNode> = remote.iter().map(|n| (*n).clone()).collect();
+    let ref_owned: Option<Vec<FileNode>> =
+        ref_nodes.map(|rn| rn.iter().map(|n| (*n).clone()).collect());
+    merge_node_lists_3way(&local_owned, &remote_owned, ref_owned.as_deref())
 }
 
 #[cfg(test)]

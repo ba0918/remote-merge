@@ -14,15 +14,19 @@ pub fn apply_merge_scan_result(state: &mut AppState, result: MergeScanResult) {
     for (path, children) in result.local_tree_updates {
         state.left_tree.ensure_path(Path::new(&path));
         if let Some(node) = state.left_tree.find_node_mut(Path::new(&path)) {
-            node.children = Some(children);
-            node.sort_children();
+            let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                children.into_iter().map(|n| (n.name.clone(), n)).collect();
+            node.children = Some(children_map);
+            node.sort_children(); // no-op
         }
     }
     for (path, children) in result.remote_tree_updates {
         state.right_tree.ensure_path(Path::new(&path));
         if let Some(node) = state.right_tree.find_node_mut(Path::new(&path)) {
-            node.children = Some(children);
-            node.sort_children();
+            let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                children.into_iter().map(|n| (n.name.clone(), n)).collect();
+            node.children = Some(children_map);
+            node.sort_children(); // no-op
         }
     }
 
@@ -195,7 +199,7 @@ mod tests {
         assert!(node.is_loaded());
         let children = node.children.as_ref().unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "file.rs");
+        assert!(children.contains_key("file.rs"));
     }
 
     #[test]
@@ -249,7 +253,15 @@ mod tests {
             .find_node(std::path::Path::new("a/b"))
             .unwrap();
         assert_eq!(node.children.as_ref().unwrap().len(), 1);
-        assert_eq!(node.children.as_ref().unwrap()[0].name, "existing.rs");
+        assert_eq!(
+            node.children
+                .as_ref()
+                .unwrap()
+                .get("existing.rs")
+                .unwrap()
+                .name,
+            "existing.rs"
+        );
     }
 
     #[test]
@@ -283,6 +295,15 @@ mod tests {
             .find_node(std::path::Path::new("a/b/c/d"))
             .unwrap();
         assert_eq!(d_node.children.as_ref().unwrap().len(), 1);
-        assert_eq!(d_node.children.as_ref().unwrap()[0].name, "file2.rs");
+        assert_eq!(
+            d_node
+                .children
+                .as_ref()
+                .unwrap()
+                .get("file2.rs")
+                .unwrap()
+                .name,
+            "file2.rs"
+        );
     }
 }

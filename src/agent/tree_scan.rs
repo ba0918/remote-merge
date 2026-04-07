@@ -1154,7 +1154,7 @@ mod tests {
         assert!(tree[0].is_dir());
         let children = tree[0].children.as_ref().unwrap();
         assert_eq!(children.len(), 2);
-        assert_eq!(children[0].name, "lib.rs");
-        assert_eq!(children[1].name, "main.rs");
+        assert!(children.contains_key("lib.rs"));
+        assert!(children.contains_key("main.rs"));
     }
 }

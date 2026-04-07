@@ -221,8 +221,10 @@ impl AppState {
     /// スキャン結果をローカルツリーに適用する（純粋な状態更新）
     pub fn apply_local_children(&mut self, path: &str, children: Vec<crate::tree::FileNode>) {
         if let Some(node) = self.left_tree.find_node_mut(std::path::Path::new(path)) {
-            node.children = Some(children);
-            node.sort_children();
+            let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                children.into_iter().map(|n| (n.name.clone(), n)).collect();
+            node.children = Some(children_map);
+            node.sort_children(); // no-op (BTreeMap)
         }
     }
 
@@ -257,14 +259,50 @@ impl AppState {
             };
             if !node.is_loaded() {
                 if let Ok(children) = crate::local::scan_dir(&dir_path, exclude, &rel) {
-                    node.children = Some(crate::filter::filter_children_by_include(
-                        children, &rel, include,
-                    ));
-                    node.sort_children();
+                    let filtered =
+                        crate::filter::filter_children_by_include(children, &rel, include);
+                    let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                        filtered.into_iter().map(|n| (n.name.clone(), n)).collect();
+                    node.children = Some(children_map);
+                    node.sort_children(); // no-op
                 }
             }
             if let Some(ref mut children) = node.children {
-                Self::load_children_recursive(children, &dir_path, exclude, include, &rel);
+                Self::load_btree_children_recursive(children, &dir_path, exclude, include, &rel);
+            }
+        }
+    }
+
+    /// BTreeMap の children を再帰的にロードする
+    fn load_btree_children_recursive(
+        children: &mut std::collections::BTreeMap<String, crate::tree::FileNode>,
+        base_path: &std::path::Path,
+        exclude: &[String],
+        include: &[String],
+        parent_rel: &str,
+    ) {
+        for node in children.values_mut() {
+            if !node.is_dir() {
+                continue;
+            }
+            let dir_path = base_path.join(&node.name);
+            let rel = format!("{}/{}", parent_rel, node.name);
+            if !node.is_loaded() {
+                if let Ok(grand) = crate::local::scan_dir(&dir_path, exclude, &rel) {
+                    let filtered = crate::filter::filter_children_by_include(grand, &rel, include);
+                    let map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                        filtered.into_iter().map(|n| (n.name.clone(), n)).collect();
+                    node.children = Some(map);
+                }
+            }
+            if let Some(ref mut grandchildren) = node.children {
+                Self::load_btree_children_recursive(
+                    grandchildren,
+                    &dir_path,
+                    exclude,
+                    include,
+                    &rel,
+                );
             }
         }
     }
@@ -983,10 +1021,10 @@ mod tests {
             .children
             .as_ref()
             .unwrap()
-            .iter()
+            .values()
             .map(|n| n.name.as_str())
             .collect();
-        // sort_children でソートされている
+        // BTreeMap はキー昇順（名前昇順）
         assert_eq!(child_names, vec!["a.rs", "b.rs"]);
     }
 
@@ -1035,7 +1073,7 @@ mod tests {
             .children
             .as_ref()
             .unwrap()
-            .iter()
+            .values()
             .map(|n| n.name.as_str())
             .collect();
         assert!(child_names.contains(&"app"), "app should be included");
@@ -1080,7 +1118,7 @@ mod tests {
             .children
             .as_ref()
             .unwrap()
-            .iter()
+            .values()
             .map(|n| n.name.as_str())
             .collect();
         assert_eq!(child_names.len(), 3, "all children should be returned");
@@ -1116,7 +1154,7 @@ mod tests {
             .children
             .as_ref()
             .unwrap()
-            .iter()
+            .values()
             .map(|n| n.name.as_str())
             .collect();
         assert!(child_names.contains(&"app"), "app should be included");

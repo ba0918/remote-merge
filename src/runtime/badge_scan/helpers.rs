@@ -44,21 +44,27 @@ fn collect_file_names_from_tree(
     dir_path: &str,
     names: &mut std::collections::BTreeSet<String>,
 ) {
-    // ルート直下の場合は tree.nodes から直接収集
-    let children = if dir_path.is_empty() {
-        &tree.nodes
-    } else {
-        match tree.find_node(Path::new(dir_path)) {
-            Some(n) => match &n.children {
-                Some(c) => c,
-                None => return,
-            },
-            None => return,
+    if dir_path.is_empty() {
+        // ルート直下の場合は tree.nodes (Vec) から直接収集
+        for child in &tree.nodes {
+            if !child.is_dir() && !child.is_symlink() {
+                names.insert(child.name.clone());
+            }
         }
-    };
-    for child in children {
-        if !child.is_dir() && !child.is_symlink() {
-            names.insert(child.name.clone());
+    } else {
+        // サブディレクトリの場合は children (BTreeMap) から収集
+        let node = match tree.find_node(Path::new(dir_path)) {
+            Some(n) => n,
+            None => return,
+        };
+        let children = match &node.children {
+            Some(c) => c,
+            None => return,
+        };
+        for child in children.values() {
+            if !child.is_dir() && !child.is_symlink() {
+                names.insert(child.name.clone());
+            }
         }
     }
 }

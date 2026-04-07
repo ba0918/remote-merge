@@ -2,7 +2,7 @@
 
 **Cycle ID:** `20260406231119`
 **Started:** 2026-04-06 23:11:19
-**Status:** 🔵 Implementing
+**Status:** 🟢 Complete
 
 ---
 
@@ -203,7 +203,7 @@ src/app/dialog_ops.rs
 | 2 | resolve_password Zeroizing 化 | 🟢 |
 | 3 | undo_all() データ消失バグ修正 | 🟢 |
 | 4 | unreachable!() の安全化 | 🟢 |
-| 5 | FileTree::find_node HashMap 化 | ⚪ |
+| 5 | FileTree::find_node HashMap 化 | 🟢 |
 | 6 | SSH stdout ゼロコピー化 | 🟢 |
 | 7 | .context() 追加 | 🟢 |
 | 8 | コード重複の統合 | 🟢 |

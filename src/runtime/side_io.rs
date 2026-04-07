@@ -2745,7 +2745,7 @@ mod tests {
         assert_eq!(result[0].name, "app");
         let children = result[0].children.as_ref().unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "file.txt");
+        assert_eq!(children.get("file.txt").unwrap().name, "file.txt");
     }
 
     #[test]
@@ -2759,11 +2759,12 @@ mod tests {
         assert_eq!(result[0].name, "app");
         let app_children = result[0].children.as_ref().unwrap();
         assert_eq!(app_children.len(), 1);
-        assert_eq!(app_children[0].name, "controllers");
-        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        let controllers = app_children.get("controllers").unwrap();
+        assert_eq!(controllers.name, "controllers");
+        let ctrl_children = controllers.children.as_ref().unwrap();
         assert_eq!(ctrl_children.len(), 2);
-        assert_eq!(ctrl_children[0].name, "file_0.php");
-        assert_eq!(ctrl_children[1].name, "file_1.php");
+        assert!(ctrl_children.contains_key("file_0.php"));
+        assert!(ctrl_children.contains_key("file_1.php"));
     }
 
     #[test]
@@ -2773,8 +2774,9 @@ mod tests {
         assert_eq!(result[0].name, "app");
         let app_children = result[0].children.as_ref().unwrap();
         assert_eq!(app_children.len(), 1);
-        assert_eq!(app_children[0].name, "controllers");
-        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        let controllers = app_children.get("controllers").unwrap();
+        assert_eq!(controllers.name, "controllers");
+        let ctrl_children = controllers.children.as_ref().unwrap();
         assert!(ctrl_children.is_empty());
     }
 
@@ -2802,12 +2804,12 @@ mod tests {
         assert_eq!(tree.nodes[0].name, "app");
         let app_children = tree.nodes[0].children.as_ref().unwrap();
         assert_eq!(app_children.len(), 1);
-        assert_eq!(app_children[0].name, "controllers");
-        let ctrl_children = app_children[0].children.as_ref().unwrap();
+        let controllers = app_children.get("controllers").unwrap();
+        assert_eq!(controllers.name, "controllers");
+        let ctrl_children = controllers.children.as_ref().unwrap();
         assert_eq!(ctrl_children.len(), 2);
-        let names: Vec<&str> = ctrl_children.iter().map(|n| n.name.as_str()).collect();
-        assert!(names.contains(&"file_0.php"));
-        assert!(names.contains(&"file_1.php"));
+        assert!(ctrl_children.contains_key("file_0.php"));
+        assert!(ctrl_children.contains_key("file_1.php"));
     }
 
     #[test]
@@ -2842,9 +2844,10 @@ mod tests {
         assert_eq!(tree.nodes.len(), 1);
         assert_eq!(tree.nodes[0].name, "src");
         let src_children = tree.nodes[0].children.as_ref().unwrap();
-        assert_eq!(src_children[0].name, "main");
-        let main_children = src_children[0].children.as_ref().unwrap();
-        assert_eq!(main_children[0].name, "app.rs");
+        let main_node = src_children.get("main").unwrap();
+        assert_eq!(main_node.name, "main");
+        let main_children = main_node.children.as_ref().unwrap();
+        assert!(main_children.contains_key("app.rs"));
     }
 
     #[test]

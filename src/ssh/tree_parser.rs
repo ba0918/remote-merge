@@ -88,17 +88,17 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
     }
 
     impl TreeNode {
-        /// 中間構造から FileNode に一括変換（ディレクトリ優先ソート付き）
-        fn into_sorted_file_node(self) -> FileNode {
+        /// 中間構造から FileNode に一括変換する。
+        /// children は BTreeMap<String, FileNode> として格納される（キー昇順は自動保証）。
+        fn into_file_node(self) -> FileNode {
             let mut node = self.file_node;
             if node.is_dir() {
-                let mut children: Vec<FileNode> = self
+                let children_map: std::collections::BTreeMap<String, FileNode> = self
                     .children
-                    .into_values()
-                    .map(|tn| tn.into_sorted_file_node())
+                    .into_iter()
+                    .map(|(k, tn)| (k, tn.into_file_node()))
                     .collect();
-                children.sort_by(dir_first_sort);
-                node.children = Some(children);
+                node.children = Some(children_map);
             }
             node
         }
@@ -128,7 +128,7 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
                 let mut node = original_node.clone();
                 node.name = name.to_string();
                 if node.is_dir() && node.children.is_none() {
-                    node.children = Some(Vec::new());
+                    node.children = Some(std::collections::BTreeMap::new());
                 }
                 tree.insert(
                     name.to_string(),
@@ -142,7 +142,7 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
             // 中間ディレクトリ: 存在しなければ暗黙に作成
             let dir = tree.entry(name.to_string()).or_insert_with(|| {
                 let mut d = FileNode::new_dir(name);
-                d.children = Some(Vec::new());
+                d.children = Some(std::collections::BTreeMap::new());
                 TreeNode {
                     file_node: d,
                     children: BTreeMap::new(),
@@ -159,10 +159,10 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
         insert_into_tree(&mut root_map, &parts, node);
     }
 
-    // 最終段階で一括変換 + ソート
+    // 最終段階で一括変換 + ソート（children は BTreeMap のためソート済み）
     let mut result: Vec<FileNode> = root_map
         .into_values()
-        .map(|tn| tn.into_sorted_file_node())
+        .map(|tn| tn.into_file_node())
         .collect();
     result.sort_by(dir_first_sort);
     result
@@ -281,7 +281,7 @@ mod tests {
         let flat = vec![
             {
                 let mut n = FileNode::new_dir("src");
-                n.children = Some(Vec::new());
+                n.children = Some(std::collections::BTreeMap::new());
                 n.name = "src".to_string();
                 n
             },
@@ -300,7 +300,8 @@ mod tests {
         assert!(src.is_dir());
         let children = src.children.as_ref().unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "main.rs");
+        let first_child = children.values().next().unwrap();
+        assert_eq!(first_child.name, "main.rs");
     }
 
     #[test]
@@ -314,11 +315,11 @@ mod tests {
 
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].name, "a");
-        let b = &tree[0].children.as_ref().unwrap()[0];
+        let b = tree[0].children.as_ref().unwrap().get("b").unwrap();
         assert_eq!(b.name, "b");
-        let c = &b.children.as_ref().unwrap()[0];
+        let c = b.children.as_ref().unwrap().get("c").unwrap();
         assert_eq!(c.name, "c");
-        let deep = &c.children.as_ref().unwrap()[0];
+        let deep = c.children.as_ref().unwrap().get("deep.txt").unwrap();
         assert_eq!(deep.name, "deep.txt");
     }
 
@@ -334,13 +335,13 @@ mod tests {
         use chrono::{TimeZone, Utc};
 
         let mut src1 = FileNode::new_dir("src");
-        src1.children = Some(Vec::new());
+        src1.children = Some(std::collections::BTreeMap::new());
         src1.size = Some(100);
         src1.mtime = Some(Utc.timestamp_opt(1000, 0).unwrap());
         src1.permissions = Some(0o755);
 
         let mut src2 = FileNode::new_dir("src");
-        src2.children = Some(Vec::new());
+        src2.children = Some(std::collections::BTreeMap::new());
         src2.size = Some(200);
         src2.mtime = Some(Utc.timestamp_opt(2000, 0).unwrap());
         src2.permissions = Some(0o700);
@@ -364,12 +365,12 @@ mod tests {
             FileNode::new_file("a_file.txt"),
             {
                 let mut d = FileNode::new_dir("m_dir");
-                d.children = Some(Vec::new());
+                d.children = Some(std::collections::BTreeMap::new());
                 d
             },
             {
                 let mut d = FileNode::new_dir("b_dir");
-                d.children = Some(Vec::new());
+                d.children = Some(std::collections::BTreeMap::new());
                 d
             },
         ];
@@ -394,7 +395,7 @@ mod tests {
             FileNode::new_file("readme.md"),
             {
                 let mut d = FileNode::new_dir("empty_dir");
-                d.children = Some(Vec::new());
+                d.children = Some(std::collections::BTreeMap::new());
                 d
             },
             {
@@ -415,7 +416,16 @@ mod tests {
         assert_eq!(tree[1].name, "src");
         assert!(tree[1].is_dir());
         assert_eq!(tree[1].children.as_ref().unwrap().len(), 1);
-        assert_eq!(tree[1].children.as_ref().unwrap()[0].name, "lib.rs");
+        assert_eq!(
+            tree[1]
+                .children
+                .as_ref()
+                .unwrap()
+                .get("lib.rs")
+                .unwrap()
+                .name,
+            "lib.rs"
+        );
 
         assert_eq!(tree[2].name, "Cargo.toml");
         assert!(tree[2].is_file());
@@ -429,13 +439,13 @@ mod tests {
         use chrono::{TimeZone, Utc};
 
         let mut src1 = FileNode::new_dir("src");
-        src1.children = Some(Vec::new());
+        src1.children = Some(std::collections::BTreeMap::new());
         src1.size = Some(100);
         src1.mtime = Some(Utc.timestamp_opt(1000, 0).unwrap());
         src1.permissions = Some(0o755);
 
         let mut src2 = FileNode::new_dir("src");
-        src2.children = Some(Vec::new());
+        src2.children = Some(std::collections::BTreeMap::new());
         src2.size = None; // 後から来たが None → src1 の値にフォールバック
         src2.mtime = Some(Utc.timestamp_opt(2000, 0).unwrap());
         src2.permissions = None;

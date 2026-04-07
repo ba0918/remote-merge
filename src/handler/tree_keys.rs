@@ -269,7 +269,7 @@ fn check_node_unloaded(node: &crate::tree::FileNode) -> bool {
         return true;
     }
     if let Some(children) = &node.children {
-        for child in children {
+        for child in children.values() {
             if child.is_dir() && check_node_unloaded(child) {
                 return true;
             }

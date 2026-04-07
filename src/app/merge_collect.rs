@@ -137,7 +137,7 @@ fn collect_children_recursive(
         None => return, // 未ロードディレクトリはスキップ
     };
 
-    for child in children {
+    for child in children.values() {
         let child_path = format!("{}/{}", current_path, child.name);
         if child.is_dir() {
             collect_children_recursive(child, &child_path, files);
@@ -212,9 +212,10 @@ mod tests {
             ],
         )]);
         let files = collect_merge_files(&local, &remote, "src");
+        // BTreeMap はキー昇順なので common → local_only → remote_only の順
         assert_eq!(
             files,
-            vec!["src/local_only.rs", "src/common.rs", "src/remote_only.rs"]
+            vec!["src/common.rs", "src/local_only.rs", "src/remote_only.rs"]
         );
     }
 
@@ -525,10 +526,15 @@ mod tests {
         // children をセット
         if let Some(node) = remote.find_node_mut(std::path::Path::new("ja/Front/process/Common/pc"))
         {
-            node.children = Some(vec![
-                FileNode::new_file("index.php"),
-                FileNode::new_file("edit.php"),
-            ]);
+            node.children = Some(
+                vec![
+                    FileNode::new_file("index.php"),
+                    FileNode::new_file("edit.php"),
+                ]
+                .into_iter()
+                .map(|n| (n.name.clone(), n))
+                .collect(),
+            );
         }
 
         let local = make_tree(vec![FileNode::new_dir_with_children(

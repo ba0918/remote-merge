@@ -26,8 +26,10 @@ pub fn load_children_to(
     match runtime.fetch_children(side, rel_path) {
         Ok(children) => {
             if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
-                node.children = Some(children);
-                node.sort_children();
+                let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                    children.into_iter().map(|n| (n.name.clone(), n)).collect();
+                node.children = Some(children_map);
+                node.sort_children(); // no-op
             }
         }
         Err(e) => {
@@ -68,8 +70,10 @@ pub fn load_ref_children(state: &mut AppState, runtime: &mut TuiRuntime, rel_pat
         Ok(children) => {
             if let Some(ref mut tree) = state.ref_tree {
                 if let Some(node) = tree.find_node_mut(std::path::Path::new(rel_path)) {
-                    node.children = Some(children);
-                    node.sort_children();
+                    let children_map: std::collections::BTreeMap<String, crate::tree::FileNode> =
+                        children.into_iter().map(|n| (n.name.clone(), n)).collect();
+                    node.children = Some(children_map);
+                    node.sort_children(); // no-op
                 }
             }
         }
@@ -141,7 +145,7 @@ pub fn expand_subtree_for_merge(
         {
             if let Some(node) = tree.find_node(std::path::Path::new(&path)) {
                 if let Some(children) = &node.children {
-                    for child in children {
+                    for child in children.values() {
                         if child.is_dir() {
                             sub_dirs.insert(format!("{}/{}", path, child.name));
                         }

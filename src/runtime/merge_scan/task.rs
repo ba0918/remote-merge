@@ -811,7 +811,48 @@ pub fn group_nodes_by_parent(tree: &[FileNode], parent_path: &str) -> Vec<(Strin
                 format!("{}/{}", parent_path, node.name)
             };
             if let Some(children) = &node.children {
-                let mut sub = group_nodes_by_parent(children, &child_path);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                let mut sub = group_nodes_by_parent_refs(&children_vec, &child_path);
+                result.append(&mut sub);
+            }
+        }
+    }
+
+    result
+}
+
+/// `group_nodes_by_parent` の参照版（BTreeMap children 対応）
+fn group_nodes_by_parent_refs(
+    tree: &[&FileNode],
+    parent_path: &str,
+) -> Vec<(String, Vec<FileNode>)> {
+    if tree.is_empty() {
+        return Vec::new();
+    }
+
+    let mut result = Vec::new();
+    let direct_children: Vec<FileNode> = tree
+        .iter()
+        .map(|n| {
+            let mut shallow = (*n).clone();
+            if shallow.is_dir() {
+                shallow.children = None;
+            }
+            shallow
+        })
+        .collect();
+    result.push((parent_path.to_string(), direct_children));
+
+    for node in tree {
+        if node.is_dir() {
+            let child_path = if parent_path.is_empty() {
+                node.name.clone()
+            } else {
+                format!("{}/{}", parent_path, node.name)
+            };
+            if let Some(children) = &node.children {
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                let mut sub = group_nodes_by_parent_refs(&children_vec, &child_path);
                 result.append(&mut sub);
             }
         }
@@ -832,7 +873,27 @@ fn collect_file_paths_from_tree(tree: &[FileNode], parent_path: &str, out: &mut 
         };
         if node.is_dir() {
             if let Some(children) = &node.children {
-                collect_file_paths_from_tree(children, &full_path, out);
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                collect_file_paths_from_tree_refs(&children_vec, &full_path, out);
+            }
+        } else if !node.is_symlink() {
+            out.push(full_path);
+        }
+    }
+}
+
+/// `collect_file_paths_from_tree` の参照版（BTreeMap children 対応）
+fn collect_file_paths_from_tree_refs(tree: &[&FileNode], parent_path: &str, out: &mut Vec<String>) {
+    for node in tree {
+        let full_path = if parent_path.is_empty() {
+            node.name.clone()
+        } else {
+            format!("{}/{}", parent_path, node.name)
+        };
+        if node.is_dir() {
+            if let Some(children) = &node.children {
+                let children_vec: Vec<&FileNode> = children.values().collect();
+                collect_file_paths_from_tree_refs(&children_vec, &full_path, out);
             }
         } else if !node.is_symlink() {
             out.push(full_path);
@@ -1133,11 +1194,9 @@ mod tests {
     #[test]
     fn group_nodes_by_parent_nested_dirs() {
         // src/ の下に main.rs と lib/ があり、lib/ の下に mod.rs がある
-        let mut lib_dir = FileNode::new_dir("lib");
-        lib_dir.children = Some(vec![FileNode::new_file("mod.rs")]);
-
-        let mut src_dir = FileNode::new_dir("src");
-        src_dir.children = Some(vec![FileNode::new_file("main.rs"), lib_dir]);
+        let lib_dir = FileNode::new_dir_with_children("lib", vec![FileNode::new_file("mod.rs")]);
+        let src_dir =
+            FileNode::new_dir_with_children("src", vec![FileNode::new_file("main.rs"), lib_dir]);
 
         let tree = vec![src_dir];
         let result = group_nodes_by_parent(&tree, "");
@@ -1152,8 +1211,7 @@ mod tests {
     #[test]
     fn group_nodes_by_parent_dir_children_have_no_nested_children() {
         // group_nodes_by_parent が返す直下ノードのディレクトリは children=None
-        let mut sub_dir = FileNode::new_dir("sub");
-        sub_dir.children = Some(vec![FileNode::new_file("nested.rs")]);
+        let sub_dir = FileNode::new_dir_with_children("sub", vec![FileNode::new_file("nested.rs")]);
 
         let tree = vec![sub_dir, FileNode::new_file("top.txt")];
         let result = group_nodes_by_parent(&tree, "root");
@@ -1170,8 +1228,8 @@ mod tests {
     #[test]
     fn group_nodes_by_parent_file_count_matches() {
         // find 結果を模倣: src/main.rs, src/lib.rs, src/util/helper.rs
-        let mut util_dir = FileNode::new_dir("util");
-        util_dir.children = Some(vec![FileNode::new_file("helper.rs")]);
+        let util_dir =
+            FileNode::new_dir_with_children("util", vec![FileNode::new_file("helper.rs")]);
 
         let tree = vec![
             FileNode::new_file("main.rs"),
@@ -1205,8 +1263,7 @@ mod tests {
 
     #[test]
     fn collect_file_paths_recurses_dirs() {
-        let mut sub = FileNode::new_dir("sub");
-        sub.children = Some(vec![FileNode::new_file("child.rs")]);
+        let sub = FileNode::new_dir_with_children("sub", vec![FileNode::new_file("child.rs")]);
         let tree = vec![FileNode::new_file("top.txt"), sub];
 
         let mut paths = Vec::new();

@@ -336,7 +336,7 @@ fn walk_single_root(
             FileNode::new_symlink(&file_name, target)
         } else if meta.is_dir() {
             let mut d = FileNode::new_dir(&file_name);
-            d.children = Some(Vec::new()); // loaded 状態
+            d.children = Some(std::collections::BTreeMap::new()); // loaded 状態
             d
         } else {
             FileNode::new_file(&file_name)
@@ -377,25 +377,14 @@ fn build_local_tree_from_flat(entries: Vec<(String, FileNode)>) -> Vec<FileNode>
         } else {
             let dir = tree.entry(name.to_string()).or_insert_with(|| {
                 let mut d = FileNode::new_dir(name);
-                d.children = Some(Vec::new());
+                d.children = Some(BTreeMap::new());
                 d
             });
             if dir.children.is_none() {
-                dir.children = Some(Vec::new());
+                dir.children = Some(BTreeMap::new());
             }
-            let children = dir.children.take().unwrap_or_default();
-            let mut child_map: BTreeMap<String, FileNode> = BTreeMap::new();
-            for child in children {
-                child_map.insert(child.name.clone(), child);
-            }
-            insert_into_tree(&mut child_map, &parts[1..], original_node);
-            let mut sorted: Vec<FileNode> = child_map.into_values().collect();
-            sorted.sort_by(|a, b| match (a.is_dir(), b.is_dir()) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            });
-            dir.children = Some(sorted);
+            let child_map = dir.children.as_mut().unwrap();
+            insert_into_tree(child_map, &parts[1..], original_node);
         }
     }
 
@@ -586,7 +575,7 @@ mod tests {
         let vendor_children = vendor.children.as_ref().unwrap();
 
         // current は残り、legacy は除外（ディレクトリ自体が枝刈りされる）
-        let child_names: Vec<&str> = vendor_children.iter().map(|n| n.name.as_str()).collect();
+        let child_names: Vec<&str> = vendor_children.values().map(|n| n.name.as_str()).collect();
         assert!(child_names.contains(&"current"), "current should remain");
         assert!(
             !child_names.contains(&"legacy"),
@@ -619,7 +608,7 @@ mod tests {
         assert!(subdir.is_loaded());
         let children = subdir.children.as_ref().unwrap();
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0].name, "nested.txt");
+        assert!(children.contains_key("nested.txt"));
     }
 
     #[test]
@@ -639,7 +628,8 @@ mod tests {
         let mut count = nodes.len();
         for node in nodes {
             if let Some(children) = &node.children {
-                count += count_all_nodes(children);
+                let children_slice: Vec<FileNode> = children.values().cloned().collect();
+                count += count_all_nodes(&children_slice);
             }
         }
         count
@@ -848,7 +838,7 @@ mod tests {
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "src");
         let children = nodes[0].children.as_ref().unwrap();
-        let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
+        let names: Vec<&str> = children.values().map(|n| n.name.as_str()).collect();
         assert!(names.contains(&"main.rs"));
         assert!(names.contains(&"lib.rs"));
     }
@@ -891,7 +881,7 @@ mod tests {
         assert!(!truncated);
         let vendor = nodes.iter().find(|n| n.name == "vendor").unwrap();
         let vendor_children = vendor.children.as_ref().unwrap();
-        let child_names: Vec<&str> = vendor_children.iter().map(|n| n.name.as_str()).collect();
+        let child_names: Vec<&str> = vendor_children.values().map(|n| n.name.as_str()).collect();
         assert!(child_names.contains(&"current"));
         assert!(
             !child_names.contains(&"legacy"),
@@ -1042,7 +1032,7 @@ mod tests {
         // app/file.php が存在すること
         let app = nodes.iter().find(|n| n.name == "app").unwrap();
         let app_children = app.children.as_ref().unwrap();
-        assert!(app_children.iter().any(|n| n.name == "file.php"));
+        assert!(app_children.contains_key("file.php"));
     }
 
     #[test]
@@ -1089,7 +1079,8 @@ mod tests {
                     node.name
                 );
                 if let Some(children) = &node.children {
-                    assert_no_bad_segments(children);
+                    let children_vec: Vec<FileNode> = children.values().cloned().collect();
+                    assert_no_bad_segments(&children_vec);
                 }
             }
         }

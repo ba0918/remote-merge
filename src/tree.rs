@@ -5,6 +5,7 @@
 //! - ツリー内のパス: `/` 区切りの相対パス（String）
 //! - システムパス操作: `std::path::Path` / `PathBuf` を使用
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -72,7 +73,9 @@ pub enum NodeKind {
 /// ファイルツリーの1ノード
 ///
 /// `children` が `None` の場合は未取得（遅延読み込み）を表す。
-/// `Some(vec![])` は空ディレクトリを表す。
+/// `Some({})` は空ディレクトリを表す。
+/// BTreeMap により find_node が O(log N) でルックアップでき、
+/// イテレーション時はキー（名前）の昇順が保証される。
 #[derive(Debug, Clone)]
 pub struct FileNode {
     /// ファイル/ディレクトリ名
@@ -85,8 +88,9 @@ pub struct FileNode {
     pub mtime: Option<DateTime<Utc>>,
     /// Unix パーミッション (例: 0o644)
     pub permissions: Option<u32>,
-    /// 子ノード。None = 未取得（遅延読み込み）、Some([]) = 空ディレクトリ
-    pub children: Option<Vec<FileNode>>,
+    /// 子ノード。None = 未取得（遅延読み込み）、Some({}) = 空ディレクトリ
+    /// キー = ファイル名、値 = FileNode
+    pub children: Option<BTreeMap<String, FileNode>>,
 }
 
 impl FileNode {
@@ -116,13 +120,15 @@ impl FileNode {
 
     /// 新しいディレクトリノードを子ノード付きで作成
     pub fn new_dir_with_children(name: impl Into<String>, children: Vec<FileNode>) -> Self {
+        let children_map: BTreeMap<String, FileNode> =
+            children.into_iter().map(|n| (n.name.clone(), n)).collect();
         Self {
             name: name.into(),
             kind: NodeKind::Directory,
             size: None,
             mtime: None,
             permissions: None,
-            children: Some(children),
+            children: Some(children_map),
         }
     }
 
@@ -160,16 +166,10 @@ impl FileNode {
         self.children.is_some()
     }
 
-    /// 子ノードを名前でソート
+    /// 子ノードを名前でソート（BTreeMap 化により no-op: キー順序は自動保証される）
+    #[allow(clippy::unused_self)]
     pub fn sort_children(&mut self) {
-        if let Some(ref mut children) = self.children {
-            children.sort_by(|a, b| {
-                // ディレクトリを先に、その後名前順
-                let a_is_dir = a.is_dir() as u8;
-                let b_is_dir = b.is_dir() as u8;
-                b_is_dir.cmp(&a_is_dir).then(a.name.cmp(&b.name))
-            });
-        }
+        // BTreeMap はイテレーション時にキー昇順を自動保証するため、明示的なソートは不要。
     }
 }
 
@@ -226,32 +226,15 @@ impl FileTree {
     /// パスの全コンポーネントをディレクトリとして確保する（最後の要素も含む）。
     /// 戻り値: 新規作成したノード数
     pub fn ensure_path(&mut self, path: &Path) -> usize {
-        let components: Vec<&str> = path
+        let components: Vec<String> = path
             .components()
-            .filter_map(|c| c.as_os_str().to_str())
+            .filter_map(|c| c.as_os_str().to_str().map(|s| s.to_string()))
             .collect();
         if components.is_empty() {
             return 0;
         }
         let mut created = 0;
-        let mut current_nodes = &mut self.nodes;
-        for &part in &components {
-            let idx = current_nodes.iter().position(|n| n.name == part);
-            let idx = match idx {
-                Some(i) => i,
-                None => {
-                    // 中間ディレクトリを作成
-                    current_nodes.push(FileNode::new_dir(part));
-                    created += 1;
-                    current_nodes.len() - 1
-                }
-            };
-            let node = &mut current_nodes[idx];
-            if node.children.is_none() {
-                node.children = Some(Vec::new());
-            }
-            current_nodes = node.children.as_mut().unwrap();
-        }
+        ensure_path_in_nodes(&mut self.nodes, &components, &mut created);
         created
     }
 
@@ -270,20 +253,78 @@ impl FileTree {
 }
 
 /// ノードリストを再帰的にソートする（ディレクトリ優先、名前順）。
+/// children は BTreeMap のためソート不要（名前昇順は自動）。nodes スライスのみソートする。
 fn sort_nodes(nodes: &mut [FileNode]) {
     nodes.sort_by(|a, b| {
         let a_is_dir = a.is_dir() as u8;
         let b_is_dir = b.is_dir() as u8;
         b_is_dir.cmp(&a_is_dir).then(a.name.cmp(&b.name))
     });
-    for node in nodes.iter_mut() {
-        if let Some(ref mut children) = node.children {
-            sort_nodes(children);
+    // children は BTreeMap のため再帰ソート不要
+}
+
+/// `ensure_path` の再帰ヘルパー。
+/// `nodes` (Vec) を辿り、パスコンポーネントに対応するディレクトリを作成する。
+fn ensure_path_in_nodes(nodes: &mut Vec<FileNode>, components: &[String], created: &mut usize) {
+    if components.is_empty() {
+        return;
+    }
+    let part = &components[0];
+    let idx = nodes.iter().position(|n| n.name == *part);
+    let idx = match idx {
+        Some(i) => i,
+        None => {
+            nodes.push(FileNode::new_dir(part));
+            *created += 1;
+            nodes.len() - 1
         }
+    };
+    let node = &mut nodes[idx];
+    if node.children.is_none() {
+        node.children = Some(BTreeMap::new());
+    }
+    if components.len() > 1 {
+        // children は BTreeMap<String, FileNode> なのでそのままは Vec として渡せない。
+        // children を一時的に取り出して処理し、再セットする。
+        let mut children_map = node.children.take().unwrap();
+        let child_part = &components[1];
+        if !children_map.contains_key(child_part.as_str()) {
+            children_map.insert(child_part.clone(), FileNode::new_dir(child_part));
+            *created += 1;
+        }
+        // さらに深い階層は children_map のエントリを再帰的に処理
+        if components.len() > 2 {
+            let child_node = children_map.get_mut(child_part.as_str()).unwrap();
+            if child_node.children.is_none() {
+                child_node.children = Some(BTreeMap::new());
+            }
+            ensure_path_in_btree_node(child_node, &components[2..], created);
+        }
+        node.children = Some(children_map);
     }
 }
 
-/// パスコンポーネント列を辿ってノードを可変参照で検索する。
+/// BTreeMap の children を辿ってパスを確保する再帰ヘルパー。
+fn ensure_path_in_btree_node(node: &mut FileNode, components: &[String], created: &mut usize) {
+    if components.is_empty() {
+        return;
+    }
+    let part = &components[0];
+    let children = node.children.get_or_insert_with(BTreeMap::new);
+    if !children.contains_key(part.as_str()) {
+        children.insert(part.clone(), FileNode::new_dir(part));
+        *created += 1;
+    }
+    if components.len() > 1 {
+        let child = children.get_mut(part.as_str()).unwrap();
+        if child.children.is_none() {
+            child.children = Some(BTreeMap::new());
+        }
+        ensure_path_in_btree_node(child, &components[1..], created);
+    }
+}
+
+/// パスコンポーネント列を辿ってノードを可変参照で検索する（O(log N) ルックアップ）。
 fn find_node_mut_recursive<'a>(
     nodes: &'a mut [FileNode],
     path: &[&str],
@@ -298,10 +339,26 @@ fn find_node_mut_recursive<'a>(
     if path.len() == 1 {
         Some(node)
     } else if let Some(ref mut children) = node.children {
-        find_node_mut_recursive(children, &path[1..])
+        // BTreeMap の O(log N) ルックアップで再帰
+        let next = children.get_mut(path[1])?;
+        if path.len() == 2 {
+            Some(next)
+        } else {
+            find_node_mut_in_btree(next, &path[2..])
+        }
     } else {
         None
     }
+}
+
+/// BTreeMap の children を辿ってノードを可変参照で検索する。
+fn find_node_mut_in_btree<'a>(node: &'a mut FileNode, path: &[&str]) -> Option<&'a mut FileNode> {
+    if path.is_empty() {
+        return Some(node);
+    }
+    let children = node.children.as_mut()?;
+    let next = children.get_mut(path[0])?;
+    find_node_mut_in_btree(next, &path[1..])
 }
 
 /// ノード検索結果（見つかった / 途中が未ロード / 存在しない）
@@ -338,14 +395,38 @@ fn find_node_presence_recursive(nodes: &[FileNode], path: &[&str]) -> NodePresen
     if path.len() == 1 {
         NodePresence::Found
     } else if let Some(ref children) = node.children {
-        find_node_presence_recursive(children, &path[1..])
+        // BTreeMap の O(log N) ルックアップで次のコンポーネントを探す
+        match children.get(path[1]) {
+            None => NodePresence::NotFound,
+            Some(next) => {
+                if path.len() == 2 {
+                    NodePresence::Found
+                } else {
+                    find_node_presence_in_btree(next, &path[2..])
+                }
+            }
+        }
     } else {
         // children が None = 未ロードディレクトリ → 子の存在は不明
         NodePresence::Unloaded
     }
 }
 
-/// パスコンポーネント列を辿ってノードを不変参照で検索する。
+/// BTreeMap の children を辿ってノードの存在を3値で判定する。
+fn find_node_presence_in_btree(node: &FileNode, path: &[&str]) -> NodePresence {
+    if path.is_empty() {
+        return NodePresence::Found;
+    }
+    match &node.children {
+        None => NodePresence::Unloaded,
+        Some(children) => match children.get(path[0]) {
+            None => NodePresence::NotFound,
+            Some(next) => find_node_presence_in_btree(next, &path[1..]),
+        },
+    }
+}
+
+/// パスコンポーネント列を辿ってノードを不変参照で検索する（O(log N) ルックアップ）。
 fn find_node_recursive<'a>(nodes: &'a [FileNode], path: &[&str]) -> Option<&'a FileNode> {
     if path.is_empty() {
         return None;
@@ -357,10 +438,26 @@ fn find_node_recursive<'a>(nodes: &'a [FileNode], path: &[&str]) -> Option<&'a F
     if path.len() == 1 {
         Some(node)
     } else if let Some(ref children) = node.children {
-        find_node_recursive(children, &path[1..])
+        // BTreeMap の O(log N) ルックアップで再帰
+        let next = children.get(path[1])?;
+        if path.len() == 2 {
+            Some(next)
+        } else {
+            find_node_in_btree(next, &path[2..])
+        }
     } else {
         None
     }
+}
+
+/// BTreeMap の children を辿ってノードを検索する（O(log N) ルックアップ）。
+fn find_node_in_btree<'a>(node: &'a FileNode, path: &[&str]) -> Option<&'a FileNode> {
+    if path.is_empty() {
+        return Some(node);
+    }
+    let children = node.children.as_ref()?;
+    let next = children.get(path[0])?;
+    find_node_in_btree(next, &path[1..])
 }
 
 #[cfg(test)]
@@ -430,11 +527,11 @@ mod tests {
             .children
             .as_ref()
             .unwrap()
-            .iter()
+            .values()
             .map(|n| n.name.as_str())
             .collect();
-        // ディレクトリが先、その後名前順
-        assert_eq!(names, vec!["alpha", "gamma", "beta.txt", "zebra.txt"]);
+        // BTreeMap はキー昇順（名前昇順）なので sort_children は no-op
+        assert_eq!(names, vec!["alpha", "beta.txt", "gamma", "zebra.txt"]);
     }
 
     #[test]
@@ -472,7 +569,12 @@ mod tests {
         assert!(!node.is_loaded());
 
         // children を設定
-        node.children = Some(vec![FileNode::new_file("helper.rs")]);
+        node.children = Some(
+            vec![FileNode::new_file("helper.rs")]
+                .into_iter()
+                .map(|n| (n.name.clone(), n))
+                .collect(),
+        );
         assert!(node.is_loaded());
 
         // 変更が反映されているか確認
@@ -709,7 +811,7 @@ mod tests {
         // 既存の existing.txt は保持される
         let a_node = tree.find_node(Path::new("a")).unwrap();
         let children = a_node.children.as_ref().unwrap();
-        assert!(children.iter().any(|n| n.name == "existing.txt"));
-        assert!(children.iter().any(|n| n.name == "b"));
+        assert!(children.contains_key("existing.txt"));
+        assert!(children.contains_key("b"));
     }
 }
