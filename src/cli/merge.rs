@@ -485,7 +485,7 @@ fn merge_partial_node(target: &mut Vec<FileNode>, incoming: FileNode) {
 }
 
 fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
-    existing.kind = incoming.kind.clone();
+    existing.kind = incoming.kind;
     existing.size = existing.size.or(incoming.size);
     existing.mtime = existing.mtime.or(incoming.mtime);
     existing.permissions = existing.permissions.or(incoming.permissions);
@@ -503,7 +503,9 @@ fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
         (None, Some(incoming_children)) => {
             existing.children = Some(incoming_children);
         }
-        _ => {}
+        // (Some, None): incoming に子なし → 既存を保持
+        // (None, None): 両者とも子なし → 何もしない
+        (Some(_), None) | (None, None) => {}
     }
 }
 

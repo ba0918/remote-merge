@@ -92,7 +92,10 @@ pub(crate) fn run_agent_loop(
             }
         };
 
-        tracing::debug!(request = %summarize_request(&request), "received request");
+        // summarize_request は String を生成するためデバッグ無効時に呼ばないようガード
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            tracing::debug!(request = %summarize_request(&request), "received request");
+        }
 
         match dispatcher.dispatch(request) {
             Some(responses) => {
