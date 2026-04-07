@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 
+use anyhow::Context as _;
+
 use crate::merge::executor;
 
 use super::core::CoreRuntime;
@@ -33,8 +35,9 @@ impl CoreRuntime {
                 );
                 self.try_reconnect(server_name)?;
                 self.read_file_inner(server_name, &full_path)
+                    .with_context(|| format!("read remote file: {rel_path}"))
             }
-            Err(e) => Err(e),
+            Err(e) => Err(e).with_context(|| format!("read remote file: {rel_path}")),
         }
     }
 
@@ -132,7 +135,7 @@ impl CoreRuntime {
                     rel_path,
                     e
                 );
-                Err(e)
+                Err(e).with_context(|| format!("write remote file: {rel_path}"))
             }
         }
     }

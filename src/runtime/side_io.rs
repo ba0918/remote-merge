@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
+use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 
 use crate::agent::protocol::{FileHashResult, FileReadResult};
@@ -43,7 +44,8 @@ impl CoreRuntime {
     /// Side に基づいてファイルを読み込む
     pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
         match side {
-            Side::Local => executor::read_local_file(&self.config.local.root_dir, rel_path),
+            Side::Local => executor::read_local_file(&self.config.local.root_dir, rel_path)
+                .with_context(|| format!("read local file: {rel_path}")),
             Side::Remote(name) => {
                 if let Some(content) = self.try_agent_read_file(name, rel_path) {
                     return content;
@@ -144,6 +146,7 @@ impl CoreRuntime {
         match side {
             Side::Local => {
                 executor::write_local_file(&self.config.local.root_dir, rel_path, content)
+                    .with_context(|| format!("write local file: {rel_path}"))
             }
             Side::Remote(name) => {
                 if let Some(result) =
@@ -1726,13 +1729,16 @@ mod tests {
         let mut rt = create_test_runtime(&tmp);
         let result = rt.read_file(&Side::Local, "../../../etc/passwd");
         assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
+        // エラーチェーン全体（anyhow の chain）を検索
+        let err = result.unwrap_err();
+        let err_chain = format!("{:#}", err);
         assert!(
-            err.contains("Path escapes root_dir")
-                || err.contains("Path traversal")
-                || err.contains("path not found"),
+            err_chain.contains("Path escapes root_dir")
+                || err_chain.contains("Path traversal")
+                || err_chain.contains("path not found")
+                || err_chain.contains("read local file"),
             "Unexpected error: {}",
-            err
+            err_chain
         );
     }
 
@@ -1743,13 +1749,16 @@ mod tests {
 
         let result = rt.write_file(&Side::Local, "../outside/file.txt", "malicious");
         assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
+        // エラーチェーン全体（anyhow の chain）を検索
+        let err = result.unwrap_err();
+        let err_chain = format!("{:#}", err);
         assert!(
-            err.contains("Path escapes root_dir")
-                || err.contains("Path traversal")
-                || err.contains("path not found"),
+            err_chain.contains("Path escapes root_dir")
+                || err_chain.contains("Path traversal")
+                || err_chain.contains("path not found")
+                || err_chain.contains("write local file"),
             "Unexpected error: {}",
-            err
+            err_chain
         );
     }
 

@@ -94,7 +94,8 @@ impl AppState {
                     (path, badge)
                 })
                 .collect();
-            let (diff_files, unchecked_count) = filter_merge_candidates(&badged_files, direction);
+            let (diff_files, unchecked_count) =
+                filter_badge_merge_candidates(&badged_files, direction);
 
             if diff_files.is_empty() {
                 if unchecked_count > 0 {
@@ -350,7 +351,7 @@ impl AppState {
 /// - `Unchecked` は常に除外（カウントのみ返す）
 ///
 /// 戻り値: (フィルタ済みファイル, Unchecked カウント)
-fn filter_merge_candidates(
+fn filter_badge_merge_candidates(
     files: &[(String, Badge)],
     direction: MergeDirection,
 ) -> (Vec<(String, Badge)>, usize) {
@@ -1132,10 +1133,10 @@ mod tests {
         );
     }
 
-    // ── filter_merge_candidates テスト ──
+    // ── filter_badge_merge_candidates テスト ──
 
     #[test]
-    fn test_filter_merge_candidates_left_to_right() {
+    fn test_filter_badge_merge_candidates_left_to_right() {
         let files = vec![
             ("a.rs".to_string(), Badge::Modified),
             ("b.rs".to_string(), Badge::LeftOnly),
@@ -1143,7 +1144,8 @@ mod tests {
             ("d.rs".to_string(), Badge::Equal),
             ("e.rs".to_string(), Badge::Unchecked),
         ];
-        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        let (result, unchecked) =
+            filter_badge_merge_candidates(&files, MergeDirection::LeftToRight);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "a.rs");
         assert_eq!(result[1].0, "b.rs");
@@ -1151,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_merge_candidates_right_to_left() {
+    fn test_filter_badge_merge_candidates_right_to_left() {
         let files = vec![
             ("a.rs".to_string(), Badge::Modified),
             ("b.rs".to_string(), Badge::LeftOnly),
@@ -1159,7 +1161,8 @@ mod tests {
             ("d.rs".to_string(), Badge::Equal),
             ("e.rs".to_string(), Badge::Unchecked),
         ];
-        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::RightToLeft);
+        let (result, unchecked) =
+            filter_badge_merge_candidates(&files, MergeDirection::RightToLeft);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].0, "a.rs");
         assert_eq!(result[1].0, "c.rs");
@@ -1167,31 +1170,34 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_merge_candidates_empty() {
+    fn test_filter_badge_merge_candidates_empty() {
         let files: Vec<(String, Badge)> = vec![];
-        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        let (result, unchecked) =
+            filter_badge_merge_candidates(&files, MergeDirection::LeftToRight);
         assert!(result.is_empty());
         assert_eq!(unchecked, 0);
     }
 
     #[test]
-    fn test_filter_merge_candidates_all_unchecked() {
+    fn test_filter_badge_merge_candidates_all_unchecked() {
         let files = vec![
             ("a.rs".to_string(), Badge::Unchecked),
             ("b.rs".to_string(), Badge::Unchecked),
         ];
-        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        let (result, unchecked) =
+            filter_badge_merge_candidates(&files, MergeDirection::LeftToRight);
         assert!(result.is_empty());
         assert_eq!(unchecked, 2);
     }
 
     #[test]
-    fn test_filter_merge_candidates_all_equal_excluded() {
+    fn test_filter_badge_merge_candidates_all_equal_excluded() {
         let files = vec![
             ("a.rs".to_string(), Badge::Equal),
             ("b.rs".to_string(), Badge::Equal),
         ];
-        let (result, unchecked) = filter_merge_candidates(&files, MergeDirection::LeftToRight);
+        let (result, unchecked) =
+            filter_badge_merge_candidates(&files, MergeDirection::LeftToRight);
         assert!(result.is_empty());
         assert_eq!(unchecked, 0);
     }

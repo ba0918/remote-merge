@@ -330,7 +330,9 @@ impl SshClient {
                     .as_deref()
                     .unwrap_or(Path::new("~/.ssh/id_rsa"));
                 let key_path_str = key_path.to_string_lossy();
-                let expanded = expand_tilde(&key_path_str);
+                let expanded = crate::config::expand_tilde(&key_path_str)
+                    .to_string_lossy()
+                    .into_owned();
 
                 let key_pair = load_secret_key_with_passphrase(
                     &expanded,
@@ -802,9 +804,18 @@ impl SshClient {
 
         let _ = channel.close().await;
 
+        // valid UTF-8 時はゼロコピー（大多数のケース）、invalid UTF-8 時のみ lossy 変換
+        let stdout_str = match String::from_utf8(stdout) {
+            Ok(s) => s,
+            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        };
+        let stderr_str = match String::from_utf8(stderr) {
+            Ok(s) => s,
+            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        };
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&stdout).to_string(),
-            stderr: String::from_utf8_lossy(&stderr).to_string(),
+            stdout: stdout_str,
+            stderr: stderr_str,
             exit_code,
         })
     }
@@ -1052,16 +1063,6 @@ fn decode_base64_output(base64_output: &str) -> crate::error::Result<Vec<u8>> {
         .map_err(|e| anyhow::anyhow!("Failed to decode base64 output from remote: {}", e))
 }
 
-/// チルダ展開
-fn expand_tilde(path: &str) -> String {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return format!("{}/{}", home.display(), stripped);
-        }
-    }
-    path.to_string()
-}
-
 // build_preferred は ssh::preferred モジュールに移動
 
 /// パスフレーズ付き秘密鍵の読み込み。
@@ -1245,16 +1246,23 @@ mod tests {
 
     #[test]
     fn test_expand_tilde_home_dir() {
-        let expanded = expand_tilde("~/test/path");
+        let expanded = crate::config::expand_tilde("~/test/path");
         // ホームディレクトリが取得できる環境では ~ が展開される
-        assert!(!expanded.starts_with("~/") || dirs::home_dir().is_none());
+        let expanded_str = expanded.to_string_lossy();
+        assert!(!expanded_str.starts_with("~/") || dirs::home_dir().is_none());
     }
 
     #[test]
     fn test_expand_tilde_no_tilde() {
         // チルダがないパスはそのまま返される
-        assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
-        assert_eq!(expand_tilde("relative/path"), "relative/path");
+        assert_eq!(
+            crate::config::expand_tilde("/absolute/path"),
+            std::path::PathBuf::from("/absolute/path")
+        );
+        assert_eq!(
+            crate::config::expand_tilde("relative/path"),
+            std::path::PathBuf::from("relative/path")
+        );
     }
 
     // ── base64 decode tests ──
@@ -1646,5 +1654,51 @@ mod tests {
         let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
         assert_eq!(pass.as_str(), "config-secret");
         assert_eq!(source, PasswordSource::Config);
+    }
+
+    // ── Step 6: SSH stdout ゼロコピー化テスト ──
+
+    /// valid UTF-8 の from_utf8 ゼロコピーパスを検証するユニットテスト。
+    /// CommandOutput 構造体は非 pub なため、ロジックを同等な純粋関数として抽出してテストする。
+    fn decode_stdout(bytes: Vec<u8>) -> String {
+        match String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        }
+    }
+
+    #[test]
+    fn test_stdout_decode_valid_utf8() {
+        let input = "Hello, world!\n".as_bytes().to_vec();
+        let result = decode_stdout(input);
+        assert_eq!(result, "Hello, world!\n");
+    }
+
+    #[test]
+    fn test_stdout_decode_invalid_utf8_uses_lossy() {
+        // 不正な UTF-8 バイト列: 0xff は単独では UTF-8 として無効
+        let input = vec![b'H', b'i', 0xff, b'!'];
+        let result = decode_stdout(input);
+        // lossy 変換: 不正バイトは U+FFFD (REPLACEMENT CHARACTER) になる
+        assert!(result.contains('H'));
+        assert!(result.contains('!'));
+        assert!(
+            result.contains('\u{FFFD}'),
+            "invalid UTF-8 は REPLACEMENT CHARACTER に変換されるべき"
+        );
+    }
+
+    #[test]
+    fn test_stdout_decode_empty() {
+        let result = decode_stdout(vec![]);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_stdout_decode_multibyte_utf8() {
+        // 日本語（有効な UTF-8）
+        let input = "ファイル一覧\n".as_bytes().to_vec();
+        let result = decode_stdout(input);
+        assert_eq!(result, "ファイル一覧\n");
     }
 }

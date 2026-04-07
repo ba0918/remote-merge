@@ -906,7 +906,7 @@ fn convert_server_config(name: &str, raw: RawServerConfig) -> crate::error::Resu
 }
 
 /// `~` をホームディレクトリに展開する
-fn expand_tilde(path: &str) -> PathBuf {
+pub(crate) fn expand_tilde(path: &str) -> PathBuf {
     if let Some(stripped) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(stripped);

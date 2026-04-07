@@ -204,9 +204,9 @@ src/app/dialog_ops.rs
 | 3 | undo_all() データ消失バグ修正 | 🟢 |
 | 4 | unreachable!() の安全化 | 🟢 |
 | 5 | FileTree::find_node HashMap 化 | ⚪ |
-| 6 | SSH stdout ゼロコピー化 | ⚪ |
-| 7 | .context() 追加 | ⚪ |
-| 8 | コード重複の統合 | ⚪ |
+| 6 | SSH stdout ゼロコピー化 | 🟢 |
+| 7 | .context() 追加 | 🟢 |
+| 8 | コード重複の統合 | 🟢 |
 
 **Legend:** ⚪ Pending · 🟡 In Progress · 🟢 Done
 
