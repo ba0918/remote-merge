@@ -278,7 +278,11 @@ pub fn apply_hunk_to_text(
                 // 置換される行: スキップ（元テキストの行を消費）
                 consumed += 1;
             }
-            _ => {}
+            _ => unreachable!(
+                "DiffTag は Equal/Insert/Delete の3種のみ。\
+                 keep_tag={:?}, replace_tag={:?}, got={:?}",
+                keep_tag, replace_tag, diff_line.tag
+            ),
         }
     }
 

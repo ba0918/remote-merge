@@ -383,7 +383,7 @@ impl SshClient {
                 }
 
                 let auth_res = session
-                    .authenticate_password(&server_config.user, &password)
+                    .authenticate_password(&server_config.user, password.as_str())
                     .await
                     .map_err(|e| AppError::SshConnection {
                         host: server_config.host.clone(),
@@ -1185,17 +1185,18 @@ enum PasswordSource {
 ///
 /// 優先順位: 環境変数 `REMOTE_MERGE_PASSWORD_{SERVER}` > config の `password` フィールド。
 /// 空文字列の環境変数は無視する。
+/// 返値のパスワードはドロップ時にメモリゼロ化される。
 fn resolve_password(
     server_name: &str,
     config_password: Option<&str>,
-) -> Option<(String, PasswordSource)> {
+) -> Option<(Zeroizing<String>, PasswordSource)> {
     let env_key = format!("REMOTE_MERGE_PASSWORD_{}", server_name.to_uppercase());
     if let Ok(val) = std::env::var(&env_key) {
         if !val.is_empty() {
-            return Some((val, PasswordSource::EnvVar));
+            return Some((Zeroizing::new(val), PasswordSource::EnvVar));
         }
     }
-    config_password.map(|p| (p.to_string(), PasswordSource::Config))
+    config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
 }
 
 #[cfg(test)]
@@ -1560,10 +1561,9 @@ mod tests {
         unsafe { std::env::set_var(env_key, "env-pass") };
 
         let result = resolve_password("testserver", Some("config-pass"));
-        assert_eq!(
-            result,
-            Some(("env-pass".to_string(), PasswordSource::EnvVar))
-        );
+        let (pass, source) = result.expect("パスワードが解決されるべき");
+        assert_eq!(pass.as_str(), "env-pass");
+        assert_eq!(source, PasswordSource::EnvVar);
 
         unsafe { std::env::remove_var(env_key) };
     }
@@ -1575,10 +1575,9 @@ mod tests {
         unsafe { std::env::remove_var(env_key) };
 
         let result = resolve_password("fallbacktest", Some("config-pass"));
-        assert_eq!(
-            result,
-            Some(("config-pass".to_string(), PasswordSource::Config))
-        );
+        let (pass, source) = result.expect("パスワードが解決されるべき");
+        assert_eq!(pass.as_str(), "config-pass");
+        assert_eq!(source, PasswordSource::Config);
     }
 
     #[test]
@@ -1588,10 +1587,9 @@ mod tests {
         unsafe { std::env::set_var(env_key, "") };
 
         let result = resolve_password("emptyenvtest", Some("config-pass"));
-        assert_eq!(
-            result,
-            Some(("config-pass".to_string(), PasswordSource::Config))
-        );
+        let (pass, source) = result.expect("パスワードが解決されるべき");
+        assert_eq!(pass.as_str(), "config-pass");
+        assert_eq!(source, PasswordSource::Config);
 
         unsafe { std::env::remove_var(env_key) };
     }
@@ -1603,7 +1601,7 @@ mod tests {
         unsafe { std::env::remove_var(env_key) };
 
         let result = resolve_password("nosource", None);
-        assert_eq!(result, None);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -1613,8 +1611,40 @@ mod tests {
         unsafe { std::env::set_var(env_key, "found") };
 
         let result = resolve_password("my-server", None);
-        assert_eq!(result, Some(("found".to_string(), PasswordSource::EnvVar)));
+        let (pass, source) = result.expect("パスワードが解決されるべき");
+        assert_eq!(pass.as_str(), "found");
+        assert_eq!(source, PasswordSource::EnvVar);
 
         unsafe { std::env::remove_var(env_key) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_returns_zeroizing_env_var() {
+        // Zeroizing<String> が返ることのコンパイル時検証 + ランタイムテスト
+        let env_key = "REMOTE_MERGE_PASSWORD_ZEROIZETEST";
+        unsafe { std::env::set_var(env_key, "zeroize-me") };
+
+        let result: Option<(Zeroizing<String>, PasswordSource)> =
+            resolve_password("zeroizetest", None);
+        let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
+        assert_eq!(pass.as_str(), "zeroize-me");
+        assert_eq!(source, PasswordSource::EnvVar);
+
+        unsafe { std::env::remove_var(env_key) };
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_resolve_password_returns_zeroizing_config() {
+        // config パスで Zeroizing<String> が返ることを確認
+        let env_key = "REMOTE_MERGE_PASSWORD_ZEROCONFIGTEST";
+        unsafe { std::env::remove_var(env_key) };
+
+        let result: Option<(Zeroizing<String>, PasswordSource)> =
+            resolve_password("zeroconfigtest", Some("config-secret"));
+        let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
+        assert_eq!(pass.as_str(), "config-secret");
+        assert_eq!(source, PasswordSource::Config);
     }
 }

@@ -26,7 +26,7 @@ pub struct AppConfig {
 }
 
 /// サーバ接続設定
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
@@ -42,6 +42,24 @@ pub struct ServerConfig {
     pub file_permissions: Option<u32>,
     /// サーバー単位のディレクトリパーミッション上書き（パース済み u32）
     pub dir_permissions: Option<u32>,
+}
+
+impl std::fmt::Debug for ServerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("user", &self.user)
+            .field("auth", &self.auth)
+            .field("password", &self.password.as_deref().map(|_| "[REDACTED]"))
+            .field("key", &self.key)
+            .field("root_dir", &self.root_dir)
+            .field("ssh_options", &self.ssh_options)
+            .field("sudo", &self.sudo)
+            .field("file_permissions", &self.file_permissions)
+            .field("dir_permissions", &self.dir_permissions)
+            .finish()
+    }
 }
 
 /// SSH認証方式
@@ -494,7 +512,11 @@ fn merge_configs(
         (Some(g), Some(p)) => (g, Some(p)),
         (Some(g), None) => (g, None),
         (None, Some(p)) => (p, None),
-        (None, None) => unreachable!(),
+        (None, None) => {
+            // 呼び出し元 (load_config_from_paths) で両方 None の場合は bail! 済みのため、
+            // 通常ここには到達しない。防御的に Err を返す。
+            bail!("internal error: merge_configs called with both global and project as None");
+        }
     };
 
     // servers: プロジェクトで上書き
@@ -2511,5 +2533,89 @@ root_dir = "/home/user/app"
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
             badge_scan_max_files: DEFAULT_BADGE_SCAN_MAX_FILES,
         }
+    }
+
+    // ── Step 1: ServerConfig Debug パスワード漏洩修正 ──
+
+    #[test]
+    fn test_server_config_debug_masks_password() {
+        let config = ServerConfig {
+            host: "example.com".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Password,
+            password: Some("super_secret_password".into()),
+            key: None,
+            root_dir: PathBuf::from("/var/www"),
+            ssh_options: None,
+            sudo: false,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // パスワードが漏洩しないことを確認
+        assert!(
+            !debug_str.contains("super_secret_password"),
+            "Debug 出力にパスワードが含まれている: {debug_str}"
+        );
+        // REDACTED が表示されることを確認
+        assert!(
+            debug_str.contains("REDACTED"),
+            "Debug 出力に REDACTED が含まれていない: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn test_server_config_debug_none_password() {
+        let config = ServerConfig {
+            host: "example.com".into(),
+            port: 22,
+            user: "deploy".into(),
+            auth: AuthMethod::Key,
+            password: None,
+            key: None,
+            root_dir: PathBuf::from("/var/www"),
+            ssh_options: None,
+            sudo: false,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // password が None の場合は None と表示される
+        assert!(
+            debug_str.contains("password: None"),
+            "password: None が表示されていない: {debug_str}"
+        );
+    }
+
+    #[test]
+    fn test_server_config_debug_other_fields_visible() {
+        let config = ServerConfig {
+            host: "my.server.com".into(),
+            port: 2222,
+            user: "myuser".into(),
+            auth: AuthMethod::Key,
+            password: None,
+            key: None,
+            root_dir: PathBuf::from("/opt/app"),
+            ssh_options: None,
+            sudo: true,
+            file_permissions: None,
+            dir_permissions: None,
+        };
+        let debug_str = format!("{:?}", config);
+        // 他フィールドは正常に表示される
+        assert!(
+            debug_str.contains("my.server.com"),
+            "host が表示されていない: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("2222"),
+            "port が表示されていない: {debug_str}"
+        );
+        assert!(
+            debug_str.contains("myuser"),
+            "user が表示されていない: {debug_str}"
+        );
     }
 }

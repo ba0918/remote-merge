@@ -17,9 +17,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
     match &state.dialog {
         DialogState::Confirm(_) => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let confirm = match &state.dialog {
-                    DialogState::Confirm(c) => c.clone(),
-                    _ => unreachable!(),
+                let confirm = if let DialogState::Confirm(c) = &state.dialog {
+                    c.clone()
+                } else {
+                    return;
                 };
                 state.close_dialog();
                 // 楽観的ロック: mtime チェック
@@ -41,9 +42,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
         },
         DialogState::BatchConfirm(_) => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let batch = match &state.dialog {
-                    DialogState::BatchConfirm(b) => b.clone(),
-                    _ => unreachable!(),
+                let batch = if let DialogState::BatchConfirm(b) = &state.dialog {
+                    b.clone()
+                } else {
+                    return;
                 };
                 state.close_dialog();
                 execute_batch_merge(state, runtime, &batch);
@@ -223,9 +225,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             KeyCode::Char('f') | KeyCode::Char('F') => {
                 // force: 強制マージ続行
-                let dialog = match &state.dialog {
-                    DialogState::MtimeWarning(d) => d.clone(),
-                    _ => unreachable!(),
+                let dialog = if let DialogState::MtimeWarning(d) = &state.dialog {
+                    d.clone()
+                } else {
+                    return;
                 };
                 state.close_dialog();
                 match dialog.merge_context {

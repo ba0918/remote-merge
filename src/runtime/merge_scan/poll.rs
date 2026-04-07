@@ -96,7 +96,12 @@ pub fn poll_merge_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             }
             MergeScanMsg::Progress { .. }
             | MergeScanMsg::ContentPhase { .. }
-            | MergeScanMsg::AgentFailed { .. } => unreachable!(),
+            | MergeScanMsg::AgentFailed { .. } => {
+                // ここに到達することは通常ない（ループ内で処理済み）が、
+                // 万が一の場合もパニックせずログに記録して継続する
+                tracing::warn!("poll_merge_scan_result: unexpected message variant in final_msg");
+                return;
+            }
         }
         runtime.merge_scan_receiver = None;
     }
