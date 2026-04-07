@@ -315,16 +315,16 @@ async fn fetch_side_contents(
                 .map(|p| format!("{}/{}", root_str.trim_end_matches('/'), p))
                 .collect();
 
-            let remote_contents = client
+            let mut remote_contents = client
                 .read_files_batch_bytes(&full_paths)
                 .await
                 .unwrap_or_default();
 
-            // リモートのフルパスキーを相対パスキーに変換
-            let mut contents = HashMap::new();
-            for (i, path) in paths.iter().enumerate() {
-                if let Some(content) = remote_contents.get(&full_paths[i]) {
-                    contents.insert(path.clone(), content.clone());
+            // リモートのフルパスキーを相対パスキーに変換（remove で zero-copy 移譲）
+            let mut contents = HashMap::with_capacity(paths.len());
+            for (path, full_path) in paths.iter().zip(full_paths.iter()) {
+                if let Some(content) = remote_contents.remove(full_path) {
+                    contents.insert(path.clone(), content);
                 }
             }
             contents

@@ -83,11 +83,12 @@ fn path_is_within_unloaded_dir(path: &str, dir: &str) -> bool {
 
 /// 2つのインデックスから実ファイル候補パスの union を計算する。
 fn collect_all_file_paths(left: &TreeIndex<'_>, right: &TreeIndex<'_>) -> Vec<String> {
-    let mut seen = HashSet::with_capacity(left.file_paths.len() + right.file_paths.len());
-    let mut paths = Vec::with_capacity(left.file_paths.len() + right.file_paths.len());
+    let cap = left.file_paths.len() + right.file_paths.len();
+    let mut seen = HashSet::with_capacity(cap);
+    let mut paths = Vec::with_capacity(cap);
 
     for path in left.file_paths.iter().chain(right.file_paths.iter()) {
-        if seen.insert(path.clone()) {
+        if seen.insert(path.as_str()) {
             paths.push(path.clone());
         }
     }
