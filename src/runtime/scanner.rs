@@ -113,13 +113,15 @@ fn run_scan(
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("tokio runtime creation failed: {}", e))?;
 
-    // 左側スキャン
-    let (left_nodes, left_trunc, left_root, mut left_client) =
-        scan_side(left_source, exclude, config, &rt, passphrase_provider)?;
-
-    // 右側スキャン
-    let (right_nodes, right_trunc, right_root, mut right_client) =
-        scan_side(right_source, exclude, config, &rt, passphrase_provider)?;
+    let (
+        (left_nodes, left_trunc, left_root, mut left_client),
+        (right_nodes, right_trunc, right_root, mut right_client),
+    ) = rt.block_on(async {
+        tokio::try_join!(
+            scan_side(left_source, exclude, config, passphrase_provider),
+            scan_side(right_source, exclude, config, passphrase_provider),
+        )
+    })?;
 
     // === CLI と同じ service/status.rs のフローで差分計算 ===
 
@@ -135,7 +137,7 @@ fn run_scan(
     let resolved_contents = if paths_to_compare.is_empty() {
         HashMap::new()
     } else {
-        fetch_contents_both_sides(
+        rt.block_on(fetch_contents_both_sides(
             &paths_to_compare,
             left_source,
             &left_root,
@@ -143,8 +145,7 @@ fn run_scan(
             right_source,
             &right_root,
             &mut right_client,
-            &rt,
-        )
+        ))
     };
 
     if !resolved_contents.is_empty() {
@@ -156,12 +157,14 @@ fn run_scan(
         files.iter().map(|f| (f.path.clone(), f.status)).collect();
 
     // SSH 切断
-    if let Some(c) = left_client.take() {
-        let _ = rt.block_on(c.disconnect());
-    }
-    if let Some(c) = right_client.take() {
-        let _ = rt.block_on(c.disconnect());
-    }
+    rt.block_on(async {
+        if let Some(c) = left_client.take() {
+            let _ = c.disconnect().await;
+        }
+        if let Some(c) = right_client.take() {
+            let _ = c.disconnect().await;
+        }
+    });
 
     let duration = scan_start.elapsed();
     let modified_count = statuses
@@ -191,23 +194,29 @@ fn run_scan(
 ///
 /// Local → ローカルファイルシステム走査、Remote → SSH 経由で走査。
 /// SSH クライアントはコンテンツ取得で再利用するため、所有権を返す。
-fn scan_side(
+async fn scan_side(
     side: &Side,
     exclude: &[String],
     config: &AppConfig,
-    rt: &tokio::runtime::Runtime,
     passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<(Vec<FileNode>, bool, PathBuf, Option<SshClient>), String> {
     match side {
         Side::Local => {
             let root = config.local.root_dir.clone();
-            let include = &config.filter.include;
-            let (nodes, trunc) = crate::local::scan_local_tree_recursive_with_include(
-                &root,
-                exclude,
-                include,
-                config.max_scan_entries,
-            )
+            let scan_root = root.clone();
+            let include = config.filter.include.clone();
+            let exclude = exclude.to_vec();
+            let max_scan_entries = config.max_scan_entries;
+            let (nodes, trunc) = tokio::task::spawn_blocking(move || {
+                crate::local::scan_local_tree_recursive_with_include(
+                    &scan_root,
+                    &exclude,
+                    &include,
+                    max_scan_entries,
+                )
+            })
+            .await
+            .map_err(|e| format!("Local scan task join error: {}", e))?
             .map_err(|e| format!("Local scan error: {}", e))?;
             Ok((nodes, trunc, root, None))
         }
@@ -217,26 +226,21 @@ fn scan_side(
                 .get(server_name)
                 .ok_or_else(|| format!("Server '{}' not found in config", server_name))?;
 
-            let mut client = rt
-                .block_on(SshClient::connect_with_passphrase(
-                    server_name,
-                    server_config,
-                    &config.ssh,
-                    passphrase_provider,
-                ))
-                .map_err(|e| format!("SSH connection failed ({}): {}", server_name, e))?;
+            let mut client = SshClient::connect_with_passphrase(
+                server_name,
+                server_config,
+                &config.ssh,
+                passphrase_provider,
+            )
+            .await
+            .map_err(|e| format!("SSH connection failed ({}): {}", server_name, e))?;
 
             let root = server_config.root_dir.clone();
             let root_str = root.to_string_lossy().to_string();
             let include = &config.filter.include;
-            let (nodes, trunc) = rt
-                .block_on(client.list_tree_recursive(
-                    &root_str,
-                    exclude,
-                    include,
-                    config.max_scan_entries,
-                    60,
-                ))
+            let (nodes, trunc) = client
+                .list_tree_recursive(&root_str, exclude, include, config.max_scan_entries, 60)
+                .await
                 .map_err(|e| format!("Remote scan error ({}): {}", server_name, e))?;
 
             Ok((nodes, trunc, root, Some(client)))
@@ -256,7 +260,7 @@ fn build_temp_tree(root: &std::path::Path, nodes: &[FileNode]) -> FileTree {
 ///
 /// バイト列で返すため、バイナリファイルも正しく比較できる。
 #[allow(clippy::too_many_arguments)]
-fn fetch_contents_both_sides(
+async fn fetch_contents_both_sides(
     paths: &[String],
     left_source: &Side,
     left_root: &std::path::Path,
@@ -264,43 +268,41 @@ fn fetch_contents_both_sides(
     right_source: &Side,
     right_root: &std::path::Path,
     right_client: &mut Option<SshClient>,
-    rt: &tokio::runtime::Runtime,
 ) -> HashMap<String, (Vec<u8>, Vec<u8>)> {
-    let left_contents =
-        fetch_side_contents(left_source, paths, left_root, left_client.as_mut(), rt);
-    let right_contents =
-        fetch_side_contents(right_source, paths, right_root, right_client.as_mut(), rt);
+    let (left_contents, right_contents) = tokio::join!(
+        fetch_side_contents(left_source, paths, left_root, left_client.as_mut()),
+        fetch_side_contents(right_source, paths, right_root, right_client.as_mut()),
+    );
 
-    let mut result = HashMap::new();
-    for path in paths {
-        if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {
-            result.insert(path.clone(), (l.clone(), r.clone()));
-        }
-    }
-    result
+    merge_side_contents(left_contents, right_contents)
 }
 
 /// 片側のコンテンツをバイト列で取得する。
 ///
 /// Local → ファイルシステムから読み込み、Remote → SSH 経由でバッチ読み込み。
 /// バイト列で返すため、バイナリファイルも lossy 変換なしで扱える。
-fn fetch_side_contents(
+async fn fetch_side_contents(
     side: &Side,
     paths: &[String],
     root: &std::path::Path,
     client: Option<&mut SshClient>,
-    rt: &tokio::runtime::Runtime,
 ) -> HashMap<String, Vec<u8>> {
     match side {
         Side::Local => {
-            let mut contents = HashMap::new();
-            for path in paths {
-                let full = root.join(path);
-                if let Ok(content) = std::fs::read(&full) {
-                    contents.insert(path.clone(), content);
+            let root = root.to_path_buf();
+            let paths = paths.to_vec();
+            tokio::task::spawn_blocking(move || {
+                let mut contents = HashMap::new();
+                for path in paths {
+                    let full = root.join(&path);
+                    if let Ok(content) = std::fs::read(&full) {
+                        contents.insert(path, content);
+                    }
                 }
-            }
-            contents
+                contents
+            })
+            .await
+            .unwrap_or_default()
         }
         Side::Remote(_) => {
             let client = match client {
@@ -313,21 +315,36 @@ fn fetch_side_contents(
                 .map(|p| format!("{}/{}", root_str.trim_end_matches('/'), p))
                 .collect();
 
-            let remote_contents = rt
-                .block_on(client.read_files_batch(&full_paths))
+            let remote_contents = client
+                .read_files_batch_bytes(&full_paths)
+                .await
                 .unwrap_or_default();
 
             // リモートのフルパスキーを相対パスキーに変換
-            // SSH バッチ読み込みは String を返すため、バイト列に変換する
             let mut contents = HashMap::new();
             for (i, path) in paths.iter().enumerate() {
                 if let Some(content) = remote_contents.get(&full_paths[i]) {
-                    contents.insert(path.clone(), content.as_bytes().to_vec());
+                    contents.insert(path.clone(), content.clone());
                 }
             }
             contents
         }
     }
+}
+
+fn merge_side_contents(
+    left_contents: HashMap<String, Vec<u8>>,
+    mut right_contents: HashMap<String, Vec<u8>>,
+) -> HashMap<String, (Vec<u8>, Vec<u8>)> {
+    let mut result = HashMap::with_capacity(left_contents.len().min(right_contents.len()));
+
+    for (path, left_bytes) in left_contents {
+        if let Some(right_bytes) = right_contents.remove(&path) {
+            result.insert(path, (left_bytes, right_bytes));
+        }
+    }
+
+    result
 }
 
 /// 走査結果のポーリング処理（イベントループから呼ばれる）
@@ -408,5 +425,30 @@ pub fn poll_scan_result(state: &mut AppState, runtime: &mut TuiRuntime) {
             state.status_message = "Scan thread terminated unexpectedly".to_string();
             runtime.scan_receiver = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_side_contents;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_merge_side_contents_only_keeps_complete_pairs() {
+        let mut left = HashMap::new();
+        left.insert("a.rs".to_string(), b"left-a".to_vec());
+        left.insert("b.rs".to_string(), b"left-b".to_vec());
+
+        let mut right = HashMap::new();
+        right.insert("a.rs".to_string(), b"right-a".to_vec());
+        right.insert("c.rs".to_string(), b"right-c".to_vec());
+
+        let merged = merge_side_contents(left, right);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged.get("a.rs"),
+            Some(&(b"left-a".to_vec(), b"right-a".to_vec()))
+        );
     }
 }

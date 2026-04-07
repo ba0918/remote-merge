@@ -7,57 +7,88 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::app::three_way;
-use crate::tree::{FileTree, NodePresence};
+use crate::tree::{FileNode, FileTree, NodePresence};
 
 use super::types::*;
 
-/// ツリーからファイルパスを再帰的に収集する。
+/// ステータス判定用のツリーインデックス。
 ///
-/// ルートレベルの全ノードを起点に再帰走査する。
-fn collect_all_files(tree: &FileTree) -> Vec<String> {
-    let mut files = Vec::new();
-    for node in &tree.nodes {
+/// 実ファイルの候補パス一覧に加えて、ディレクトリ/未ロードノードも保持して
+/// `find_node*` の再帰探索を避ける。
+struct TreeIndex<'a> {
+    nodes: HashMap<String, &'a FileNode>,
+    file_paths: Vec<String>,
+    unloaded_dirs: Vec<String>,
+}
+
+impl<'a> TreeIndex<'a> {
+    fn build(tree: &'a FileTree) -> Self {
+        let mut index = Self {
+            nodes: HashMap::new(),
+            file_paths: Vec::new(),
+            unloaded_dirs: Vec::new(),
+        };
+
+        for node in &tree.nodes {
+            index.record_node(node, &node.name);
+        }
+
+        index
+    }
+
+    fn record_node(&mut self, node: &'a FileNode, path: &str) {
+        self.nodes.insert(path.to_string(), node);
+
         if node.is_dir() {
-            collect_files_recursive(node, &node.name, &mut files);
-        } else {
-            files.push(node.name.clone());
+            match &node.children {
+                Some(children) => {
+                    for child in children.values() {
+                        let child_path = format!("{}/{}", path, child.name);
+                        self.record_node(child, &child_path);
+                    }
+                }
+                None => self.unloaded_dirs.push(path.to_string()),
+            }
+            return;
         }
+
+        self.file_paths.push(path.to_string());
     }
-    files
+
+    fn find_node(&self, path: &str) -> Option<&'a FileNode> {
+        self.nodes.get(path).copied()
+    }
+
+    fn find_presence(&self, path: &str) -> NodePresence {
+        if self.nodes.contains_key(path) {
+            return NodePresence::Found;
+        }
+
+        if self
+            .unloaded_dirs
+            .iter()
+            .any(|dir| path_is_within_unloaded_dir(path, dir))
+        {
+            return NodePresence::Unloaded;
+        }
+
+        NodePresence::NotFound
+    }
 }
 
-/// ノードの子を再帰的に走査してファイルパスを収集する。
-fn collect_files_recursive(
-    node: &crate::tree::FileNode,
-    current_path: &str,
-    files: &mut Vec<String>,
-) {
-    let children = match &node.children {
-        Some(c) => c,
-        None => return,
-    };
-
-    for child in children.values() {
-        let child_path = format!("{}/{}", current_path, child.name);
-        if child.is_dir() {
-            collect_files_recursive(child, &child_path, files);
-        } else {
-            files.push(child_path);
-        }
-    }
+fn path_is_within_unloaded_dir(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// 2つのツリーからファイルの union を計算する。
-fn collect_all_file_paths(left: &FileTree, right: &FileTree) -> Vec<String> {
-    let left_paths = collect_all_files(left);
-    let right_paths = collect_all_files(right);
+/// 2つのインデックスから実ファイル候補パスの union を計算する。
+fn collect_all_file_paths(left: &TreeIndex<'_>, right: &TreeIndex<'_>) -> Vec<String> {
+    let mut seen = HashSet::with_capacity(left.file_paths.len() + right.file_paths.len());
+    let mut paths = Vec::with_capacity(left.file_paths.len() + right.file_paths.len());
 
-    let left_set: HashSet<String> = left_paths.iter().cloned().collect();
-    let mut paths = left_paths;
-
-    for path in right_paths {
-        if !left_set.contains(&path) {
-            paths.push(path);
+    for path in left.file_paths.iter().chain(right.file_paths.iter()) {
+        if seen.insert(path.clone()) {
+            paths.push(path.clone());
         }
     }
 
@@ -88,15 +119,19 @@ pub fn compute_status_from_trees(
     right: &FileTree,
     sensitive_patterns: &[String],
 ) -> Vec<FileStatus> {
-    let all_paths = collect_all_file_paths(left, right);
+    let left_index = TreeIndex::build(left);
+    let right_index = TreeIndex::build(right);
+    let all_paths = collect_all_file_paths(&left_index, &right_index);
     let mut results = Vec::with_capacity(all_paths.len());
 
     for path in &all_paths {
-        let left_presence = left.find_node_or_unloaded(Path::new(path));
-        let right_presence = right.find_node_or_unloaded(Path::new(path));
+        let left_presence = left_index.find_presence(path);
+        let right_presence = right_index.find_presence(path);
 
         let status = match (left_presence, right_presence) {
-            (NodePresence::Found, NodePresence::Found) => compare_by_metadata(left, right, path),
+            (NodePresence::Found, NodePresence::Found) => {
+                compare_by_metadata(left_index.find_node(path), right_index.find_node(path))
+            }
             (NodePresence::Found, NodePresence::NotFound) => FileStatusKind::LeftOnly,
             (NodePresence::NotFound, NodePresence::Found) => FileStatusKind::RightOnly,
             _ => FileStatusKind::Modified, // Unloaded → 不確定だが Modified として扱う
@@ -118,10 +153,10 @@ pub fn compute_status_from_trees(
 ///
 /// 共通ロジック `tree::compare_metadata` を使用し、結果を `FileStatusKind` に変換する。
 /// `Undetermined`（コンテンツ比較が必要）は安全側に `Modified` として扱う。
-fn compare_by_metadata(left: &FileTree, right: &FileTree, path: &str) -> FileStatusKind {
-    let left_node = left.find_node(Path::new(path));
-    let right_node = right.find_node(Path::new(path));
-
+fn compare_by_metadata(
+    left_node: Option<&FileNode>,
+    right_node: Option<&FileNode>,
+) -> FileStatusKind {
     match (left_node, right_node) {
         (Some(l), Some(r)) => match crate::tree::compare_metadata(l, r) {
             crate::tree::MetadataCmp::Equal => FileStatusKind::Equal,
@@ -142,12 +177,15 @@ pub fn needs_content_compare(
     left: &FileTree,
     right: &FileTree,
 ) -> Vec<String> {
+    let left_index = TreeIndex::build(left);
+    let right_index = TreeIndex::build(right);
+
     files
         .iter()
         .filter(|f| f.status == FileStatusKind::Modified)
         .filter(|f| {
-            let ln = left.find_node(Path::new(&f.path));
-            let rn = right.find_node(Path::new(&f.path));
+            let ln = left_index.find_node(&f.path);
+            let rn = right_index.find_node(&f.path);
             match (ln, rn) {
                 (Some(l), Some(r)) => {
                     // size が一致 → コンテンツ比較が必要
@@ -509,6 +547,37 @@ mod tests {
         assert_eq!(c.status, FileStatusKind::RightOnly);
     }
 
+    #[test]
+    fn test_status_unloaded_dir_vs_file_stays_modified() {
+        let left = make_tree(vec![FileNode::new_dir("src")]);
+        let right = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/main.rs");
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_file_vs_directory_path_conflict_is_modified() {
+        let left = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+        let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
+
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        let root_conflict = files.iter().find(|f| f.path == "src").unwrap();
+        let nested = files.iter().find(|f| f.path == "src/main.rs").unwrap();
+        assert_eq!(root_conflict.status, FileStatusKind::Modified);
+        assert_eq!(nested.status, FileStatusKind::LeftOnly);
+    }
+
     // ── compute_summary ──
 
     #[test]
@@ -731,6 +800,21 @@ mod tests {
         assert!(!need_compare.contains(&"a.rs".to_string()));
         // b.rs は size 同じ + mtime 違うのでコンテンツ比較必要
         assert!(need_compare.contains(&"b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_needs_content_compare_handles_file_vs_directory_conflict() {
+        let left = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+        let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        let need_compare = needs_content_compare(&files, &left, &right);
+
+        assert!(need_compare.contains(&"src".to_string()));
+        assert!(!need_compare.contains(&"src/main.rs".to_string()));
     }
 
     // ── needs_content_compare_all ──
