@@ -7,10 +7,14 @@
 .claude/docs/internal
 .claude/skills/remote-merge
 
+# Codex
+.codex/tmp
+
 # Cycle doc
 docs/internal
 docs/cycles
 docs/issues
+docs/reviews
 docs/session-history.md
 docs/status.md
 

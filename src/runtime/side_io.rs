@@ -510,6 +510,11 @@ impl CoreRuntime {
     ) -> anyhow::Result<FileTree> {
         // サブパスの正規化: 末尾スラッシュを除去
         let subpath = subpath.trim_end_matches('/');
+        let subpath_path = std::path::Path::new(subpath);
+
+        if subpath_path.is_absolute() {
+            anyhow::bail!("absolute subpath not allowed: {}", subpath);
+        }
 
         // path traversal チェック
         let has_traversal = subpath.split('/').any(|component| component == "..");
@@ -521,15 +526,21 @@ impl CoreRuntime {
             Side::Local => {
                 let root = &self.config.local.root_dir;
                 let scan_root = root.join(subpath);
+                let root_canonical = root.canonicalize()?;
 
                 // 存在しないディレクトリ → 空ツリー
                 if !scan_root.exists() || !scan_root.is_dir() {
                     return Ok(FileTree::new(root));
                 }
 
+                let scan_root_canonical = scan_root.canonicalize()?;
+                if !scan_root_canonical.starts_with(&root_canonical) {
+                    anyhow::bail!("subpath escapes root_dir: {}", subpath);
+                }
+
                 let exclude = &self.config.filter.exclude;
                 let (scanned_nodes, truncated) =
-                    local::scan_local_tree_recursive(&scan_root, exclude, max_entries)?;
+                    local::scan_local_tree_recursive(&scan_root_canonical, exclude, max_entries)?;
                 if truncated {
                     check_truncation(max_entries, fail_on_truncation)?;
                 }
@@ -2848,6 +2859,34 @@ mod tests {
         assert_eq!(main_node.name, "main");
         let main_children = main_node.children.as_ref().unwrap();
         assert!(main_children.contains_key("app.rs"));
+    }
+
+    #[test]
+    fn test_fetch_tree_for_subpath_local_rejects_absolute_subpath() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = create_test_runtime(&tmp);
+
+        let result = rt.fetch_tree_for_subpath(&Side::Local, "/etc", 10000, false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("absolute subpath"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fetch_tree_for_subpath_local_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        symlink(outside.path(), tmp.path().join("link")).unwrap();
+
+        let mut rt = create_test_runtime(&tmp);
+        let result = rt.fetch_tree_for_subpath(&Side::Local, "link", 10000, false);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("subpath escapes root_dir"));
     }
 
     #[test]

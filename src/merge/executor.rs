@@ -169,10 +169,8 @@ pub(crate) fn validate_path_within_root(
     root_dir: &Path,
     full_path: &Path,
 ) -> crate::error::Result<PathBuf> {
-    // canonicalize が使えない（ファイルが存在しない可能性）ので
-    // コンポーネントベースで検証する
-    let normalized = normalize_path(full_path);
-    let root_normalized = normalize_path(root_dir);
+    let root_normalized = canonicalize_root_dir(root_dir)?;
+    let normalized = resolve_path_under_existing_ancestor(full_path)?;
 
     if !normalized.starts_with(&root_normalized) {
         anyhow::bail!(crate::error::AppError::ConfigValidation {
@@ -187,19 +185,68 @@ pub(crate) fn validate_path_within_root(
     Ok(normalized)
 }
 
+fn canonicalize_root_dir(root_dir: &Path) -> crate::error::Result<PathBuf> {
+    let absolute_root = absolutize_path(root_dir)?;
+    absolute_root.canonicalize().map_err(Into::into)
+}
+
+fn resolve_path_under_existing_ancestor(path: &Path) -> crate::error::Result<PathBuf> {
+    let absolute = absolutize_path(path)?;
+    let mut ancestor = absolute.clone();
+    let mut suffix = Vec::new();
+
+    // 末尾コンポーネント（リーフ）は必ず一度 pop する。リーフ自身がシンボリック
+    // リンクの場合に canonicalize でリンク先へ解決されてしまうのを防ぐため、
+    // 親ディレクトリのみ canonicalize してリーフを後から付け直す。
+    if let Some(name) = ancestor.file_name().map(|s| s.to_os_string()) {
+        suffix.push(name);
+        ancestor.pop();
+    }
+
+    while !ancestor.exists() {
+        let Some(name) = ancestor.file_name().map(|s| s.to_os_string()) else {
+            break;
+        };
+        suffix.push(name);
+        if !ancestor.pop() {
+            break;
+        }
+    }
+
+    let mut resolved = ancestor.canonicalize()?;
+    for part in suffix.iter().rev() {
+        resolved.push(part);
+    }
+    Ok(resolved)
+}
+
+fn absolutize_path(path: &Path) -> crate::error::Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(normalize_path(path))
+    } else {
+        Ok(normalize_path(&std::env::current_dir()?.join(path)))
+    }
+}
+
 /// パスの `..` コンポーネントを解決して正規化する（ファイル存在不要）
 pub(crate) fn normalize_path(path: &Path) -> PathBuf {
-    let mut components = Vec::new();
+    let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {
             std::path::Component::ParentDir => {
-                components.pop();
+                let can_pop = matches!(
+                    normalized.components().next_back(),
+                    Some(std::path::Component::Normal(_))
+                );
+                if can_pop {
+                    normalized.pop();
+                }
             }
             std::path::Component::CurDir => {}
-            c => components.push(c),
+            c => normalized.push(c.as_os_str()),
         }
     }
-    components.iter().collect()
+    normalized
 }
 
 /// リモートパスのサニタイズ（`..` 等の危険なコンポーネントを検出）
@@ -307,18 +354,43 @@ mod tests {
 
     #[test]
     fn test_validate_path_within_root() {
-        let root = Path::new("/home/user/app");
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
 
         // 正常パス: 正規化済みパスが返る
-        let result =
-            validate_path_within_root(root, Path::new("/home/user/app/src/main.rs")).unwrap();
-        assert_eq!(result, PathBuf::from("/home/user/app/src/main.rs"));
+        let result = validate_path_within_root(root, &root.join("src/main.rs")).unwrap();
+        assert_eq!(result, root.join("src/main.rs").canonicalize().unwrap());
 
         // パストラバーサル: エラー
-        assert!(
-            validate_path_within_root(root, Path::new("/home/user/app/../../../etc/passwd"))
-                .is_err()
-        );
+        assert!(validate_path_within_root(root, &root.join("../../../etc/passwd")).is_err());
+    }
+
+    #[test]
+    fn test_validate_path_within_root_rejects_relative_root_escape() {
+        let cwd = std::env::current_dir().unwrap();
+        let dir = TempDir::new().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = validate_path_within_root(Path::new("."), Path::new("../outside.txt"));
+
+        std::env::set_current_dir(cwd).unwrap();
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_validate_path_within_root_rejects_symlink_escape_on_write_target() {
+        use std::os::unix::fs::symlink;
+
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        symlink(outside.path(), dir.path().join("link")).unwrap();
+
+        let result =
+            validate_path_within_root(dir.path(), &dir.path().join("link").join("file.txt"));
+        assert!(result.is_err());
     }
 
     #[test]

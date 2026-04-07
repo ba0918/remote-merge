@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use super::dispatch::Dispatcher;
 use super::framing;
-use super::protocol::{self, AgentResponse};
+use super::protocol::{self, AgentRequest, AgentResponse};
 
 // ---------------------------------------------------------------------------
 // MetadataConfig
@@ -92,7 +92,7 @@ pub(crate) fn run_agent_loop(
             }
         };
 
-        tracing::debug!(?request, "received request");
+        tracing::debug!(request = %summarize_request(&request), "received request");
 
         match dispatcher.dispatch(request) {
             Some(responses) => {
@@ -123,6 +123,60 @@ fn send_response(writer: &mut impl Write, response: &AgentResponse) -> Result<()
     Ok(())
 }
 
+fn summarize_request(request: &AgentRequest) -> String {
+    match request {
+        AgentRequest::ListTree {
+            root,
+            exclude,
+            include,
+            max_entries,
+        } => format!(
+            "ListTree root={root:?} exclude_count={} include_count={} max_entries={max_entries}",
+            exclude.len(),
+            include.len()
+        ),
+        AgentRequest::ReadFiles {
+            paths,
+            chunk_size_limit,
+        } => format!(
+            "ReadFiles path_count={} chunk_size_limit={chunk_size_limit}",
+            paths.len()
+        ),
+        AgentRequest::HashFiles { paths } => format!("HashFiles path_count={}", paths.len()),
+        AgentRequest::WriteFile {
+            path,
+            content,
+            is_binary,
+            more_to_follow,
+        } => format!(
+            "WriteFile path={path:?} content_len={} is_binary={is_binary} more_to_follow={more_to_follow}",
+            content.len()
+        ),
+        AgentRequest::StatFiles { paths } => format!("StatFiles path_count={}", paths.len()),
+        AgentRequest::Backup { paths, backup_dir } => format!(
+            "Backup path_count={} backup_dir={backup_dir:?}",
+            paths.len()
+        ),
+        AgentRequest::Symlink { path, target } => {
+            format!("Symlink path={path:?} target={target:?}")
+        }
+        AgentRequest::ListBackups { backup_dir } => {
+            format!("ListBackups backup_dir={backup_dir:?}")
+        }
+        AgentRequest::RestoreBackup {
+            backup_dir,
+            session_id,
+            files,
+            ..
+        } => format!(
+            "RestoreBackup backup_dir={backup_dir:?} session_id={session_id:?} file_count={}",
+            files.len()
+        ),
+        AgentRequest::Shutdown => "Shutdown".to_string(),
+        AgentRequest::Ping => "Ping".to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -150,6 +204,19 @@ mod tests {
     fn extract_response_bytes(output: &[u8]) -> Vec<u8> {
         let hs_line = format!("{}\n", protocol::format_handshake());
         output[hs_line.len()..].to_vec()
+    }
+
+    #[test]
+    fn summarize_request_redacts_write_file_content() {
+        let summary = summarize_request(&AgentRequest::WriteFile {
+            path: "secret.txt".into(),
+            content: b"super-secret-payload".to_vec(),
+            is_binary: false,
+            more_to_follow: true,
+        });
+
+        assert!(summary.contains("content_len=20"));
+        assert!(!summary.contains("super-secret-payload"));
     }
 
     #[test]

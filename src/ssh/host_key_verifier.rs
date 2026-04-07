@@ -88,8 +88,7 @@ impl HostKeyVerifier for CliVerifier {
 /// StrictHostKeyChecking 設定からデフォルトの HostKeyVerifier を選択する
 ///
 /// - `is_tui = true`: TUI モードでは stdin を読めないため、
-///   Ask → AutoAcceptVerifier（TOFU 自動承認）を使う。
-///   将来的に TUI ダイアログ経由の確認を実装予定。
+///   Ask を暗黙に受け入れへ落とさず RejectVerifier を使う。
 /// - `is_tui = false`: CLI モードでは CliVerifier で stdin 確認。
 pub fn verifier_from_policy(
     policy: crate::config::StrictHostKeyChecking,
@@ -102,9 +101,10 @@ pub fn verifier_from_policy(
         StrictHostKeyChecking::Yes => Box::new(RejectVerifier),
         StrictHostKeyChecking::Ask => {
             if is_tui {
-                // TUI モードでは stdin ベースの確認ができないため自動承認
-                // TODO: TUI ダイアログ経由のホストキー確認は将来のサイクルで実装
-                Box::new(AutoAcceptVerifier)
+                tracing::warn!(
+                    "StrictHostKeyChecking=ask requested in TUI mode; rejecting unknown hosts until interactive confirmation is implemented"
+                );
+                Box::new(RejectVerifier)
             } else {
                 Box::new(CliVerifier { auto_yes })
             }
@@ -156,11 +156,11 @@ mod tests {
     }
 
     #[test]
-    fn test_verifier_from_policy_ask_tui_uses_auto_accept() {
+    fn test_verifier_from_policy_ask_tui_rejects_unknown_hosts() {
         use crate::config::StrictHostKeyChecking;
-        // TUI モードでは Ask ポリシーで AutoAcceptVerifier が使われる
+        // TUI モードでは Ask を暗黙に auto-accept しない
         let v = verifier_from_policy(StrictHostKeyChecking::Ask, false, true);
-        assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
+        assert!(!v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
     }
 
     #[test]

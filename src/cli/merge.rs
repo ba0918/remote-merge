@@ -32,7 +32,7 @@ use crate::service::types::{
 use crate::service::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
 };
-use crate::tree::FileTree;
+use crate::tree::{FileNode, FileTree};
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
@@ -461,15 +461,50 @@ fn fetch_partial_trees(
     for dir_path in dir_paths {
         let lt = core.fetch_tree_for_subpath(left, dir_path, max_entries, true)?;
         let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
-        left_tree.nodes.extend(lt.nodes);
-        right_tree.nodes.extend(rt.nodes);
+        merge_partial_nodes(&mut left_tree.nodes, lt.nodes);
+        merge_partial_nodes(&mut right_tree.nodes, rt.nodes);
     }
     left_tree.sort();
-    left_tree.nodes.dedup_by_key(|n| n.name.clone());
     right_tree.sort();
-    right_tree.nodes.dedup_by_key(|n| n.name.clone());
 
     Ok((left_tree, right_tree))
+}
+
+fn merge_partial_nodes(target: &mut Vec<FileNode>, incoming: Vec<FileNode>) {
+    for node in incoming {
+        merge_partial_node(target, node);
+    }
+}
+
+fn merge_partial_node(target: &mut Vec<FileNode>, incoming: FileNode) {
+    if let Some(existing) = target.iter_mut().find(|node| node.name == incoming.name) {
+        merge_file_node(existing, incoming);
+    } else {
+        target.push(incoming);
+    }
+}
+
+fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
+    existing.kind = incoming.kind.clone();
+    existing.size = existing.size.or(incoming.size);
+    existing.mtime = existing.mtime.or(incoming.mtime);
+    existing.permissions = existing.permissions.or(incoming.permissions);
+
+    match (&mut existing.children, incoming.children) {
+        (Some(existing_children), Some(incoming_children)) => {
+            for (_, child) in incoming_children {
+                if let Some(existing_child) = existing_children.get_mut(&child.name) {
+                    merge_file_node(existing_child, child);
+                } else {
+                    existing_children.insert(child.name.clone(), child);
+                }
+            }
+        }
+        (None, Some(incoming_children)) => {
+            existing.children = Some(incoming_children);
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -562,6 +597,34 @@ mod tests {
             "unexpected error: {}",
             err
         );
+    }
+
+    #[test]
+    fn test_merge_partial_nodes_preserves_distinct_subtrees_under_same_root() {
+        let mut nodes = vec![FileNode::new_dir_with_children(
+            "app",
+            vec![FileNode::new_dir_with_children(
+                "controllers",
+                vec![FileNode::new_file("users.rs")],
+            )],
+        )];
+
+        merge_partial_nodes(
+            &mut nodes,
+            vec![FileNode::new_dir_with_children(
+                "app",
+                vec![FileNode::new_dir_with_children(
+                    "models",
+                    vec![FileNode::new_file("user.rs")],
+                )],
+            )],
+        );
+
+        assert_eq!(nodes.len(), 1);
+        let app = &nodes[0];
+        let children = app.children.as_ref().unwrap();
+        assert!(children.contains_key("controllers"));
+        assert!(children.contains_key("models"));
     }
 
     #[test]
