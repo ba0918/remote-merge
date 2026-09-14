@@ -95,7 +95,7 @@ impl CoreRuntime {
         self.passphrase_provider = Some(provider);
     }
 
-    pub fn reserve_backup_session(&self) -> anyhow::Result<String> {
+    pub fn reserve_backup_session(&mut self) -> anyhow::Result<String> {
         self.backup_store.reserve_session()
     }
 

@@ -15,6 +15,7 @@ pub(crate) struct BackupStore {
     root: Option<PathBuf>,
     startup_directory: PathBuf,
     now: DateTime<Utc>,
+    initialization_error: Option<String>,
 }
 
 impl BackupStore {
@@ -27,17 +28,24 @@ impl BackupStore {
             root,
             startup_directory,
             now,
+            initialization_error: None,
         }
     }
 
-    pub(crate) fn reserve_session(&self) -> anyhow::Result<String> {
+    pub(crate) fn reserve_session(&mut self) -> anyhow::Result<String> {
         let root = self
             .root
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
-        create_dir_owner_only(root)?;
+        if let Err(error) = create_dir_owner_only(root) {
+            self.initialization_error = Some(error.to_string());
+            return Ok(next_session_id(self.now, &[]));
+        }
         let reservations = root.join("reservations");
-        create_dir_owner_only(&reservations)?;
+        if let Err(error) = create_dir_owner_only(&reservations) {
+            self.initialization_error = Some(error.to_string());
+            return Ok(next_session_id(self.now, &[]));
+        }
         let mut existing = fs::read_dir(&reservations)?
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
@@ -67,6 +75,9 @@ impl BackupStore {
         rel_path: &str,
         content: &[u8],
     ) -> anyhow::Result<String> {
+        if let Some(error) = &self.initialization_error {
+            anyhow::bail!(error.clone());
+        }
         let root = self
             .root
             .as_ref()

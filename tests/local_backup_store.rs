@@ -212,3 +212,36 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
     };
     assert_ne!(backup(first), backup(second));
 }
+
+#[test]
+fn backup_store_failure_leaves_target_unchanged_and_reports_file_failure() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store_parent = TempDir::new().unwrap();
+    let unusable_store = store_parent.path().join("not-a-directory");
+    fs::write(&unusable_store, "occupied").unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(Some(unusable_store))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
+
+    let result = execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, true),
+        targets,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "old\n"
+    );
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert!(output.merged.is_empty());
+    assert!(output.failed[0].error.starts_with("backup failed: "));
+}
