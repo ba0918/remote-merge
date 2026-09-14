@@ -278,7 +278,11 @@ pub fn execute_sync(
     }
 
     // マージ + 削除実行
-    let session_id = crate::backup::backup_timestamp();
+    let session_id = if core.config.backup.enabled {
+        core.reserve_backup_session()?
+    } else {
+        crate::backup::backup_timestamp()
+    };
     let mut results: Vec<SyncTargetResult> = Vec::new();
 
     for sp in &server_plans {

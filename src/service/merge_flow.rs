@@ -86,14 +86,11 @@ pub fn execute_single_merge(
         } => {
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
             let backup_path = if target_exists && ctx.core.config.backup.enabled {
-                let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths, ctx.session_id) {
-                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-                    Err(e) => {
-                        tracing::warn!("Backup failed (continuing): {}", e);
-                        None
-                    }
-                }
+                Some(
+                    ctx.core
+                        .save_backup(target, path, ctx.session_id, ctx.force)
+                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+                )
             } else {
                 None
             };
@@ -113,14 +110,11 @@ pub fn execute_single_merge(
             // ターゲットが symlink でソースが通常ファイル → バックアップしてから symlink を削除
             // バックアップは symlink 削除前に行う（削除後ではバックアップ対象が存在しない）
             let symlink_backup = if ctx.core.config.backup.enabled {
-                let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths, ctx.session_id) {
-                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-                    Err(e) => {
-                        tracing::warn!("Backup failed for symlink target (continuing): {}", e);
-                        None
-                    }
-                }
+                Some(
+                    ctx.core
+                        .save_backup(target, path, ctx.session_id, ctx.force)
+                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+                )
             } else {
                 None
             };
@@ -149,15 +143,13 @@ pub fn execute_single_merge(
     let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
 
     // バックアップ（ターゲット側）
-    let backup_path = if ctx.core.config.backup.enabled {
-        let paths = vec![path.to_string()];
-        match ctx.core.create_backups(target, &paths, ctx.session_id) {
-            Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-            Err(e) => {
-                tracing::warn!("Backup failed (continuing): {}", e);
-                None
-            }
-        }
+    let target_exists = find_node_in_slice(&target_tree.nodes, path).is_some();
+    let backup_path = if ctx.core.config.backup.enabled && target_exists {
+        Some(
+            ctx.core
+                .save_backup(target, path, ctx.session_id, ctx.force)
+                .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+        )
     } else {
         None
     };
@@ -227,12 +219,11 @@ pub fn execute_deletions(
     for path in right_only_files {
         // バックアップ（有効な場合）
         if core.config.backup.enabled {
-            let paths = vec![path.clone()];
-            if let Err(e) = core.create_backups(target, &paths, session_id) {
+            if let Err(e) = core.save_backup(target, path, session_id, false) {
                 // バックアップ失敗 → 削除を中止（安全設計）
                 failed.push(MergeFailure {
                     path: path.clone(),
-                    error: format!("Backup failed, deletion aborted: {}", e),
+                    error: format!("backup failed: {}", e),
                 });
                 continue;
             }
@@ -420,14 +411,11 @@ pub fn execute_hunk_merge(
 
             // バックアップ
             let backup_path = if ctx.core.config.backup.enabled {
-                let paths = vec![path.to_string()];
-                match ctx.core.create_backups(target, &paths, ctx.session_id) {
-                    Ok(()) => Some(format!("{}/{}", ctx.session_id, path)),
-                    Err(e) => {
-                        tracing::warn!("Backup failed (continuing): {}", e);
-                        None
-                    }
-                }
+                Some(
+                    ctx.core
+                        .save_backup(target, path, ctx.session_id, ctx.force)
+                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+                )
             } else {
                 None
             };

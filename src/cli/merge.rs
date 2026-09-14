@@ -290,7 +290,11 @@ pub fn execute_merge(
     // マージ実行
     let mut merged = Vec::new();
     let mut failed = Vec::new();
-    let session_id = crate::backup::backup_timestamp();
+    let session_id = if core.config.backup.enabled {
+        core.reserve_backup_session()?
+    } else {
+        crate::backup::backup_timestamp()
+    };
 
     {
         let mut ctx = MergeContext {
@@ -390,7 +394,11 @@ fn run_hunk_merge(
         max_entries,
     )?;
 
-    let session_id = crate::backup::backup_timestamp();
+    let session_id = if core.config.backup.enabled {
+        core.reserve_backup_session()?
+    } else {
+        crate::backup::backup_timestamp()
+    };
 
     let mut ctx = HunkMergeContext {
         left,
