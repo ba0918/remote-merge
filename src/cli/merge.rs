@@ -337,6 +337,9 @@ pub fn execute_merge(
 
     let output = build_merge_output(merged, all_skipped, deleted, failed, ref_source_info);
     let code = merge_exit_code(&output);
+    if core.config.backup.enabled {
+        core.finish_backup_session(&session_id);
+    }
     core.disconnect_all();
     Ok(MergeCommandResult {
         output: MergeCommandOutput::Files(output),
@@ -422,6 +425,9 @@ fn run_hunk_merge(
         crate::service::merge::merge_exit_code(&output)
     };
 
+    if core.config.backup.enabled {
+        core.finish_backup_session(&session_id);
+    }
     core.disconnect_all();
     Ok(MergeCommandResult {
         output: MergeCommandOutput::Files(output),

@@ -363,6 +363,9 @@ pub fn execute_sync(
     };
     let code = sync_exit_code(&output);
 
+    if core.config.backup.enabled {
+        core.finish_backup_session(&session_id);
+    }
     core.disconnect_all();
     Ok(SyncCommandResult {
         output: SyncCommandOutput::Result(output),

@@ -135,3 +135,80 @@ fn aggregate_store_entries_are_owner_only_and_describe_target() {
     }
     assert!(contains_target);
 }
+
+#[test]
+fn new_file_merge_records_no_backup() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "created\n").unwrap();
+
+    let result = execute_merge(
+        merge_args("new.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert_eq!(output.merged[0].backup, None);
+    assert!(!store.path().exists() || fs::read_dir(store.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn disabled_backup_writes_without_creating_store_entries() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+
+    execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, false),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    assert_eq!(fs::read_dir(store.path()).unwrap().count(), 0);
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new content\n"
+    );
+}
+
+#[test]
+fn merges_started_in_the_same_second_use_distinct_session_ids() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "first content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let first = execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+    fs::write(
+        local.path().join("file.txt"),
+        "second content that differs\n",
+    )
+    .unwrap();
+    let second = execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let backup = |result: remote_merge::cli::merge::MergeCommandResult| {
+        let MergeCommandOutput::Files(output) = result.output else {
+            panic!("expected files")
+        };
+        output.merged[0].backup.clone().unwrap()
+    };
+    assert_ne!(backup(first), backup(second));
+}

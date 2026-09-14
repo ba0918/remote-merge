@@ -99,6 +99,10 @@ impl CoreRuntime {
         self.backup_store.reserve_session()
     }
 
+    pub fn finish_backup_session(&self, session_id: &str) {
+        self.backup_store.finish_session(session_id);
+    }
+
     pub fn save_backup(
         &mut self,
         target: &crate::app::Side,

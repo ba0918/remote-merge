@@ -106,6 +106,17 @@ impl BackupStore {
         write_file_owner_only(&destination, content)?;
         Ok(format!("{session_id}/{rel_path}"))
     }
+
+    pub(crate) fn finish_session(&self, session_id: &str) {
+        let Some(root) = &self.root else { return };
+        if root.join("sessions").join(session_id).exists() {
+            return;
+        }
+        let reservations = root.join("reservations");
+        let _ = fs::remove_dir(reservations.join(session_id));
+        let _ = fs::remove_dir(&reservations);
+        let _ = fs::remove_dir(root);
+    }
 }
 
 fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {
