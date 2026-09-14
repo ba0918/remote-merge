@@ -16,6 +16,15 @@ use crate::ssh::tree_parser::shell_escape;
 /// バックアップディレクトリ名
 pub const BACKUP_DIR_NAME: &str = ".remote-merge-backup";
 
+/// XDG のデータディレクトリとホームディレクトリから集約先を決める。
+pub fn backup_store_path(xdg_data_home: Option<&Path>, home_dir: Option<&Path>) -> Option<PathBuf> {
+    let data_home = match xdg_data_home {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        _ => home_dir?.join(".local/share"),
+    };
+    Some(data_home.join("remote-merge/backups"))
+}
+
 /// Agent に渡す backup セッションディレクトリの相対パスを生成する。
 /// session_id が不正な場合は None を返す。
 ///
@@ -367,6 +376,52 @@ fn collect_files_recursive(dir: &Path, base_dir: &Path) -> anyhow::Result<Vec<St
 mod tests {
     use super::*;
     use chrono::{Datelike, TimeZone};
+
+    #[test]
+    fn backup_store_uses_home_when_xdg_data_home_is_unset() {
+        assert_eq!(
+            backup_store_path(None, Some(Path::new("/home/user"))),
+            Some(PathBuf::from(
+                "/home/user/.local/share/remote-merge/backups"
+            ))
+        );
+    }
+
+    #[test]
+    fn backup_store_uses_home_when_xdg_data_home_is_empty() {
+        assert_eq!(
+            backup_store_path(Some(Path::new("")), Some(Path::new("/home/user"))),
+            Some(PathBuf::from(
+                "/home/user/.local/share/remote-merge/backups"
+            ))
+        );
+    }
+
+    #[test]
+    fn backup_store_uses_home_when_xdg_data_home_is_relative() {
+        assert_eq!(
+            backup_store_path(
+                Some(Path::new("relative/data")),
+                Some(Path::new("/home/user"))
+            ),
+            Some(PathBuf::from(
+                "/home/user/.local/share/remote-merge/backups"
+            ))
+        );
+    }
+
+    #[test]
+    fn backup_store_uses_absolute_xdg_data_home() {
+        assert_eq!(
+            backup_store_path(Some(Path::new("/var/data")), Some(Path::new("/home/user"))),
+            Some(PathBuf::from("/var/data/remote-merge/backups"))
+        );
+    }
+
+    #[test]
+    fn backup_store_is_unavailable_without_xdg_data_home_or_home() {
+        assert_eq!(backup_store_path(None, None), None);
+    }
 
     #[test]
     fn test_session_backup_path() {
