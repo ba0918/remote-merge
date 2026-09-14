@@ -660,6 +660,322 @@ fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
     assert_eq!(listed_sessions("local", config, runtime_targets).len(), 1);
 }
 
+#[cfg(unix)]
+#[test]
+fn rollback_skips_a_file_after_the_target_root_symlink_is_retargeted() {
+    let local = TempDir::new().unwrap();
+    let target_base = TempDir::new().unwrap();
+    let release_a = target_base.path().join("release-a");
+    let release_b = target_base.path().join("release-b");
+    let current = target_base.path().join("current");
+    let store = TempDir::new().unwrap();
+    fs::create_dir(&release_a).unwrap();
+    fs::create_dir(&release_b).unwrap();
+    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
+    fs::write(release_a.join("file.txt"), "original a\n").unwrap();
+    fs::write(release_b.join("file.txt"), "original b\n").unwrap();
+    symlink(&release_a, &current).unwrap();
+    let develop = TempDir::new().unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = RuntimeTargets::production()
+        .with_local("develop", &current)
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::remove_file(&current).unwrap();
+    symlink(&release_b, &current).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert!(output.restored.is_empty(), "{output:?}");
+    assert_eq!(output.skipped.len(), 1, "{output:?}");
+    assert_eq!(
+        output.skipped[0].reason,
+        "path now resolves to a different location"
+    );
+    assert_eq!(result.exit_code, 2);
+    assert_eq!(
+        fs::read_to_string(release_b.join("file.txt")).unwrap(),
+        "original b\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_restores_through_an_unchanged_intermediate_symlink() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("current")).unwrap();
+    fs::write(local.path().join("current/file.txt"), "merged\n").unwrap();
+    fs::write(outside.path().join("file.txt"), "original\n").unwrap();
+    symlink(outside.path(), develop.path().join("current")).unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("current/file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(outside.path().join("file.txt")).unwrap(),
+        "original\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_skips_a_recorded_symlink_without_replacing_the_current_file() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("link.txt"), "replacement\n").unwrap();
+    fs::write(develop.path().join("target.txt"), "target\n").unwrap();
+    symlink("target.txt", develop.path().join("link.txt")).unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("link.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.skipped[0].reason, "symlink restore not supported");
+    assert_eq!(result.exit_code, 2);
+    assert_eq!(
+        fs::read_to_string(develop.path().join("link.txt")).unwrap(),
+        "replacement\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_keeps_a_symlink_that_replaced_the_recorded_regular_file() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    fs::write(develop.path().join("other.txt"), "other\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::remove_file(develop.path().join("file.txt")).unwrap();
+    symlink("other.txt", develop.path().join("file.txt")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(
+        output.skipped[0].reason,
+        "path now resolves to a different location"
+    );
+    assert!(develop
+        .path()
+        .join("file.txt")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_skips_a_dangling_symlink_as_a_changed_destination() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::remove_file(develop.path().join("file.txt")).unwrap();
+    symlink("missing.txt", develop.path().join("file.txt")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(
+        output.skipped[0].reason,
+        "path now resolves to a different location"
+    );
+    assert_eq!(result.exit_code, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_reports_a_cyclic_symlink_as_an_unresolvable_path() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::remove_file(develop.path().join("file.txt")).unwrap();
+    symlink("file.txt", develop.path().join("file.txt")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert!(output.failed[0].error.starts_with("cannot resolve path: "));
+    assert_eq!(result.exit_code, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_reports_a_cyclic_parent_symlink_as_an_unresolvable_path() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(develop.path().join("dir")).unwrap();
+    fs::write(develop.path().join("dir/file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("dir/file.txt");
+    args.delete = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::remove_dir(develop.path().join("dir")).unwrap();
+    symlink("dir", develop.path().join("dir")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert!(output.failed[0].error.starts_with("cannot resolve path: "));
+    assert_eq!(result.exit_code, 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_skips_a_deleted_file_after_its_parent_symlink_is_retargeted() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let release_a = outside.path().join("release-a");
+    let release_b = outside.path().join("release-b");
+    let store = TempDir::new().unwrap();
+    fs::create_dir(&release_a).unwrap();
+    fs::create_dir(&release_b).unwrap();
+    fs::write(release_a.join("file.txt"), "original\n").unwrap();
+    symlink(&release_a, develop.path().join("current")).unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut core = CoreRuntime::with_targets(config.clone(), runtime_targets.clone());
+    let session_id = core.reserve_backup_session().unwrap();
+    core.save_backup(
+        &Side::Remote("develop".into()),
+        "current/file.txt",
+        &session_id,
+        false,
+    )
+    .unwrap();
+    fs::remove_file(release_a.join("file.txt")).unwrap();
+    fs::remove_file(develop.path().join("current")).unwrap();
+    symlink(&release_b, develop.path().join("current")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(
+        output.skipped[0].reason,
+        "path now resolves to a different location"
+    );
+    assert!(!release_b.join("file.txt").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn dry_run_reports_the_same_changed_path_skip_without_writing() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    fs::write(develop.path().join("other.txt"), "other\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::remove_file(develop.path().join("file.txt")).unwrap();
+    symlink("other.txt", develop.path().join("file.txt")).unwrap();
+    let mut args = rollback_args("develop", None);
+    args.force = false;
+    args.dry_run = true;
+
+    let result = execute_rollback(args, config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::DryRun { output, .. } = result.output else {
+        panic!("expected dry-run output")
+    };
+    assert_eq!(
+        output.skipped[0].reason,
+        "path now resolves to a different location"
+    );
+    assert_eq!(result.exit_code, 0);
+    assert!(develop
+        .path()
+        .join("file.txt")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+
 #[test]
 fn same_second_sessions_are_listed_newest_first_and_empty_operations_are_absent() {
     let local = TempDir::new().unwrap();

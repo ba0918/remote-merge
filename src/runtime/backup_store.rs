@@ -35,15 +35,16 @@ enum StoredBackup<'a> {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum StoredBackupRecord {
+    File { path: String, real_path: PathBuf },
+    Symlink { path: String, link_target: PathBuf },
+}
+
+pub(crate) enum BackupRecord {
     File {
-        path: String,
-        #[serde(rename = "real_path")]
-        _real_path: PathBuf,
+        real_path: PathBuf,
+        content: Vec<u8>,
     },
-    Symlink {
-        path: String,
-        link_target: PathBuf,
-    },
+    Symlink,
 }
 
 impl BackupStore {
@@ -264,13 +265,13 @@ impl BackupStore {
         Ok(sessions)
     }
 
-    pub(crate) fn read_file(
+    pub(crate) fn read_record(
         &self,
         config: &AppConfig,
         target: &Side,
         session_id: &str,
         rel_path: &str,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> anyhow::Result<BackupRecord> {
         let root = self
             .root
             .as_ref()
@@ -287,13 +288,14 @@ impl BackupStore {
         let record: StoredBackupRecord =
             serde_json::from_slice(&fs::read(record_dir.join("record.json"))?)?;
         match record {
-            StoredBackupRecord::File { path, .. } if path == rel_path => {
-                Ok(fs::read(record_dir.join("content"))?)
+            StoredBackupRecord::File { path, real_path } if path == rel_path => {
+                Ok(BackupRecord::File {
+                    real_path,
+                    content: fs::read(record_dir.join("content"))?,
+                })
             }
             StoredBackupRecord::File { .. } => anyhow::bail!("backup record path does not match"),
-            StoredBackupRecord::Symlink { .. } => {
-                anyhow::bail!("symlink restore not supported")
-            }
+            StoredBackupRecord::Symlink { .. } => Ok(BackupRecord::Symlink),
         }
     }
 }

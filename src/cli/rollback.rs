@@ -89,12 +89,8 @@ pub fn execute_rollback(
     )
     .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if args.dry_run {
-        return run_dry_run_mode(&target_info, &plan, &mut core);
-    }
-
     // 確認プロンプト（--force なし）
-    if !args.force {
+    if !args.force && !args.dry_run {
         let prompt = format!(
             "Restore {} file(s) from session {} to {}? [y/N] ",
             plan.files.len(),
@@ -116,7 +112,7 @@ pub fn execute_rollback(
     let mut skipped: Vec<RollbackSkipped> = plan.skipped;
     let mut failed: Vec<RollbackFailure> = Vec::new();
 
-    match core.restore_backup(&side, &plan.session_id, &plan.files) {
+    match core.restore_backup(&side, &plan.session_id, &plan.files, args.dry_run) {
         Ok((results, restore_skipped, failures)) => {
             restored.extend(results);
             skipped.extend(restore_skipped);
@@ -141,10 +137,21 @@ pub fn execute_rollback(
         failed,
     };
 
-    let code = rollback_exit_code(&output);
+    let code = if args.dry_run {
+        0
+    } else {
+        rollback_exit_code(&output)
+    };
     core.disconnect_all();
     Ok(RollbackCommandResult {
-        output: RollbackCommandOutput::Restore(output),
+        output: if args.dry_run {
+            RollbackCommandOutput::DryRun {
+                output,
+                warnings: plan.warnings,
+            }
+        } else {
+            RollbackCommandOutput::Restore(output)
+        },
         exit_code: code,
     })
 }
@@ -168,36 +175,6 @@ fn run_list_mode(
 }
 
 /// --dry-run モード: 復元計画を出力して終了
-fn run_dry_run_mode(
-    target_info: &SourceInfo,
-    plan: &crate::service::rollback::RestorePlan,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<RollbackCommandResult> {
-    let output = RollbackOutput {
-        target: target_info.clone(),
-        session_id: plan.session_id.clone(),
-        restored: plan
-            .files
-            .iter()
-            .map(|p| crate::service::types::RollbackFileResult {
-                path: p.clone(),
-                pre_rollback_backup: None,
-            })
-            .collect(),
-        skipped: plan.skipped.clone(),
-        failed: vec![],
-    };
-
-    core.disconnect_all();
-    Ok(RollbackCommandResult {
-        output: RollbackCommandOutput::DryRun {
-            output,
-            warnings: plan.warnings.clone(),
-        },
-        exit_code: 0,
-    })
-}
-
 fn print_rollback_result(
     output: &RollbackCommandOutput,
     format: OutputFormat,

@@ -4,6 +4,7 @@
 //! I/O は一切含まない。
 
 use chrono::{DateTime, Utc};
+use std::path::PathBuf;
 
 use super::status::is_sensitive;
 use super::types::{BackupSession, RollbackOutput, RollbackSkipped};
@@ -26,6 +27,49 @@ pub enum RestoreError {
     NoSessions,
     SessionNotFound(String),
     AllExpired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackupPathRecord {
+    File { real_path: PathBuf },
+    Symlink,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CurrentRestorePath {
+    Present { real_path: PathBuf },
+    Missing { real_parent: Option<PathBuf> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestorePathDecision {
+    Restore,
+    Skip(&'static str),
+}
+
+pub fn decide_restore_path(
+    record: &BackupPathRecord,
+    current: &CurrentRestorePath,
+) -> RestorePathDecision {
+    let BackupPathRecord::File { real_path } = record else {
+        return RestorePathDecision::Skip("symlink restore not supported");
+    };
+
+    match current {
+        CurrentRestorePath::Present { real_path: current } if current != real_path => {
+            RestorePathDecision::Skip("path now resolves to a different location")
+        }
+        CurrentRestorePath::Present { .. } => RestorePathDecision::Restore,
+        CurrentRestorePath::Missing { real_parent: None } => {
+            RestorePathDecision::Skip("parent directory no longer exists")
+        }
+        CurrentRestorePath::Missing {
+            real_parent: Some(current_parent),
+        } if real_path.parent() != Some(current_parent.as_path()) => {
+            RestorePathDecision::Skip("path now resolves to a different location")
+        }
+        CurrentRestorePath::Missing { .. } => RestorePathDecision::Restore,
+    }
 }
 
 impl std::fmt::Display for RestoreError {
@@ -126,7 +170,7 @@ pub fn plan_restore(
 /// - 全ファイル復元成功: 0
 /// - 部分失敗 / 全失敗 / バックアップなし: 2
 pub fn rollback_exit_code(output: &RollbackOutput) -> i32 {
-    if !output.restored.is_empty() && output.failed.is_empty() {
+    if !output.restored.is_empty() && output.skipped.is_empty() && output.failed.is_empty() {
         0
     } else {
         2
@@ -222,6 +266,99 @@ pub fn parse_batch_restore_output(output: &str) -> (Vec<String>, Vec<(String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn replaced_symlink_takes_priority_over_a_changed_destination() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::Symlink,
+            &CurrentRestorePath::Present {
+                real_path: PathBuf::from("/new/location"),
+            },
+        );
+
+        assert_eq!(
+            decision,
+            RestorePathDecision::Skip("symlink restore not supported")
+        );
+    }
+
+    #[test]
+    fn changed_existing_destination_is_skipped() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::File {
+                real_path: PathBuf::from("/old/location"),
+            },
+            &CurrentRestorePath::Present {
+                real_path: PathBuf::from("/new/location"),
+            },
+        );
+
+        assert_eq!(
+            decision,
+            RestorePathDecision::Skip("path now resolves to a different location")
+        );
+    }
+
+    #[test]
+    fn unchanged_existing_destination_is_restored() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::File {
+                real_path: PathBuf::from("/same/location"),
+            },
+            &CurrentRestorePath::Present {
+                real_path: PathBuf::from("/same/location"),
+            },
+        );
+
+        assert_eq!(decision, RestorePathDecision::Restore);
+    }
+
+    #[test]
+    fn missing_parent_is_skipped_before_its_location_is_compared() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::File {
+                real_path: PathBuf::from("/old/parent/file"),
+            },
+            &CurrentRestorePath::Missing { real_parent: None },
+        );
+
+        assert_eq!(
+            decision,
+            RestorePathDecision::Skip("parent directory no longer exists")
+        );
+    }
+
+    #[test]
+    fn missing_file_under_changed_parent_is_skipped() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::File {
+                real_path: PathBuf::from("/old/parent/file"),
+            },
+            &CurrentRestorePath::Missing {
+                real_parent: Some(PathBuf::from("/new/parent")),
+            },
+        );
+
+        assert_eq!(
+            decision,
+            RestorePathDecision::Skip("path now resolves to a different location")
+        );
+    }
+
+    #[test]
+    fn missing_file_under_unchanged_parent_is_restored() {
+        let decision = decide_restore_path(
+            &BackupPathRecord::File {
+                real_path: PathBuf::from("/same/parent/file"),
+            },
+            &CurrentRestorePath::Missing {
+                real_parent: Some(PathBuf::from("/same/parent")),
+            },
+        );
+
+        assert_eq!(decision, RestorePathDecision::Restore);
+    }
     use crate::service::types::{
         BackupEntry, BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, SourceInfo,
     };
@@ -554,6 +691,17 @@ mod tests {
     #[test]
     fn exit_code_partial_failure() {
         assert_eq!(rollback_exit_code(&make_output(2, 1)), 2);
+    }
+
+    #[test]
+    fn exit_code_is_error_when_a_path_is_skipped() {
+        let mut output = make_output(1, 0);
+        output.skipped.push(RollbackSkipped {
+            path: "skipped.rs".into(),
+            reason: "path now resolves to a different location".into(),
+        });
+
+        assert_eq!(rollback_exit_code(&output), 2);
     }
 
     #[test]

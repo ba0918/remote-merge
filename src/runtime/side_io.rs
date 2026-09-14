@@ -41,11 +41,12 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<super::target_io::TargetPath>> {
-        self.with_agent(server_name, "inspect_path", |agent| {
+        let result = self.with_agent(server_name, "inspect_path", |agent| {
             agent.inspect_path(rel_path)
-        })
-        .map(|result| {
-            result.and_then(|inspection| match inspection {
+        })?;
+        match result {
+            Ok(AgentPathInspection::Symlink { .. }) => None,
+            result => Some(result.and_then(|inspection| match inspection {
                 AgentPathInspection::Missing { real_parent } => {
                     Ok(super::target_io::TargetPath::Missing {
                         real_parent: real_parent.into(),
@@ -54,14 +55,10 @@ impl CoreRuntime {
                 AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
                     real_path: real_path.into(),
                 }),
-                AgentPathInspection::Symlink { link_target } => {
-                    Ok(super::target_io::TargetPath::Symlink {
-                        link_target: link_target.into(),
-                    })
-                }
+                AgentPathInspection::Symlink { .. } => unreachable!(),
                 AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
-            })
-        })
+            })),
+        }
     }
 
     pub(crate) fn inspect_path(
@@ -191,12 +188,13 @@ impl CoreRuntime {
         side: &Side,
         session_id: &str,
         files: &[String],
+        dry_run: bool,
     ) -> anyhow::Result<(
         Vec<crate::service::types::RollbackFileResult>,
         Vec<crate::service::types::RollbackSkipped>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
-        let pre_session_id = if self.config.backup.enabled {
+        let pre_session_id = if self.config.backup.enabled && !dry_run {
             Some(self.reserve_backup_session()?)
         } else {
             None
@@ -206,30 +204,11 @@ impl CoreRuntime {
         let mut failed = Vec::new();
 
         for path in files {
-            if matches!(
-                self.inspect_path(side, path)?,
-                super::target_io::TargetPath::Missing { .. }
-            ) {
-                let parent = std::path::Path::new(path)
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new(""))
-                    .to_string_lossy();
-                if matches!(
-                    self.inspect_path(side, &parent)?,
-                    super::target_io::TargetPath::Missing { .. }
-                ) {
-                    skipped.push(crate::service::types::RollbackSkipped {
-                        path: path.clone(),
-                        reason: "parent directory no longer exists".into(),
-                    });
-                    continue;
-                }
-            }
-            let content = match self
+            let record = match self
                 .backup_store
-                .read_file(&self.config, side, session_id, path)
+                .read_record(&self.config, side, session_id, path)
             {
-                Ok(content) => content,
+                Ok(record) => record,
                 Err(error) => {
                     failed.push(crate::service::types::RollbackFailure {
                         path: path.clone(),
@@ -238,6 +217,57 @@ impl CoreRuntime {
                     continue;
                 }
             };
+            let backup_record = match &record {
+                super::backup_store::BackupRecord::File { real_path, .. } => {
+                    crate::service::rollback::BackupPathRecord::File {
+                        real_path: real_path.clone(),
+                    }
+                }
+                super::backup_store::BackupRecord::Symlink => {
+                    crate::service::rollback::BackupPathRecord::Symlink
+                }
+            };
+            let current = if matches!(
+                backup_record,
+                crate::service::rollback::BackupPathRecord::Symlink
+            ) {
+                None
+            } else {
+                match self.inspect_restore_path(side, path) {
+                    Ok(current) => Some(current),
+                    Err(error) => {
+                        failed.push(crate::service::types::RollbackFailure {
+                            path: path.clone(),
+                            error: format!("cannot resolve path: {error}"),
+                        });
+                        continue;
+                    }
+                }
+            };
+            let decision = current.as_ref().map_or(
+                crate::service::rollback::RestorePathDecision::Skip(
+                    "symlink restore not supported",
+                ),
+                |current| crate::service::rollback::decide_restore_path(&backup_record, current),
+            );
+            if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
+                skipped.push(crate::service::types::RollbackSkipped {
+                    path: path.clone(),
+                    reason: reason.into(),
+                });
+                continue;
+            }
+            let super::backup_store::BackupRecord::File { content, .. } = record else {
+                unreachable!()
+            };
+
+            if dry_run {
+                restored.push(crate::service::types::RollbackFileResult {
+                    path: path.clone(),
+                    pre_rollback_backup: None,
+                });
+                continue;
+            }
 
             let pre_rollback_backup = if let Some(pre_session_id) = &pre_session_id {
                 match self.save_backup_if_exists(side, path, pre_session_id, false) {
@@ -272,6 +302,32 @@ impl CoreRuntime {
         }
 
         Ok((restored, skipped, failed))
+    }
+
+    fn inspect_restore_path(
+        &mut self,
+        side: &Side,
+        path: &str,
+    ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
+        use crate::service::rollback::CurrentRestorePath;
+        match self.inspect_path(side, path)? {
+            super::target_io::TargetPath::File { real_path }
+            | super::target_io::TargetPath::Symlink { real_path, .. } => {
+                Ok(CurrentRestorePath::Present { real_path })
+            }
+            super::target_io::TargetPath::Missing { .. } => {
+                let parent = std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(""))
+                    .to_string_lossy();
+                let real_parent = match self.inspect_path(side, &parent)? {
+                    super::target_io::TargetPath::Missing { .. } => None,
+                    super::target_io::TargetPath::File { real_path }
+                    | super::target_io::TargetPath::Symlink { real_path, .. } => Some(real_path),
+                };
+                Ok(CurrentRestorePath::Missing { real_parent })
+            }
+        }
     }
 
     // ── 削除 ──

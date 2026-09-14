@@ -19,9 +19,16 @@ use super::side_io::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetPath {
-    Missing { real_parent: PathBuf },
-    File { real_path: PathBuf },
-    Symlink { link_target: PathBuf },
+    Missing {
+        real_parent: PathBuf,
+    },
+    File {
+        real_path: PathBuf,
+    },
+    Symlink {
+        link_target: PathBuf,
+        real_path: PathBuf,
+    },
 }
 
 #[allow(dead_code)]
@@ -185,6 +192,30 @@ impl LocalTargetIo {
             }
         }
     }
+
+    fn resolved_symlink(
+        path: &std::path::Path,
+        link_target: &std::path::Path,
+    ) -> anyhow::Result<PathBuf> {
+        let target = if link_target.is_absolute() {
+            link_target.to_path_buf()
+        } else {
+            path.parent()
+                .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?
+                .join(link_target)
+        };
+        match std::fs::canonicalize(&target) {
+            Ok(path) => Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let mut parent = Self::resolved_missing_parent(&target)?;
+                parent.push(target.file_name().ok_or_else(|| {
+                    anyhow::anyhow!("symlink target has no file name: {}", target.display())
+                })?);
+                Ok(parent)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 impl TargetIo for LocalTargetIo {
@@ -192,9 +223,13 @@ impl TargetIo for LocalTargetIo {
         let path = self.root.join(rel_path);
         executor::validate_remote_path(&self.root.to_string_lossy(), rel_path)?;
         match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => Ok(TargetPath::Symlink {
-                link_target: std::fs::read_link(path)?,
-            }),
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let link_target = std::fs::read_link(&path)?;
+                Ok(TargetPath::Symlink {
+                    real_path: Self::resolved_symlink(&path, &link_target)?,
+                    link_target,
+                })
+            }
             Ok(_) => Ok(TargetPath::File {
                 real_path: std::fs::canonicalize(path)?,
             }),

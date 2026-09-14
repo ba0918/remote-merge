@@ -129,7 +129,7 @@ impl CoreRuntime {
                     .save_file(&self.config, target, session_id, path, &real_path, &content)
                     .map(Some)
             }
-            super::target_io::TargetPath::Symlink { link_target } => self
+            super::target_io::TargetPath::Symlink { link_target, .. } => self
                 .backup_store
                 .save_symlink(&self.config, target, session_id, path, &link_target)
                 .map(Some),
