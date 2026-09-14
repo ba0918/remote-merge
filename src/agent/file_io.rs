@@ -134,12 +134,7 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
             },
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let Some(parent) = path.parent() else {
-                return AgentPathInspection::Error {
-                    message: format!("path has no parent: {rel_path}"),
-                };
-            };
-            match fs::canonicalize(parent) {
+            match resolved_missing_parent(&path) {
                 Ok(real_parent) => AgentPathInspection::Missing {
                     real_parent: real_parent.to_string_lossy().into_owned(),
                 },
@@ -151,6 +146,38 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
         Err(error) => AgentPathInspection::Error {
             message: error.to_string(),
         },
+    }
+}
+
+fn resolved_missing_parent(path: &Path) -> Result<PathBuf> {
+    let mut current = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
+    let mut missing = Vec::new();
+    loop {
+        match fs::symlink_metadata(current) {
+            Ok(_) => {
+                let mut resolved = fs::canonicalize(current)?;
+                for component in missing.iter().rev() {
+                    resolved.push(component);
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(
+                    current
+                        .file_name()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("path has no existing ancestor: {}", path.display())
+                        })?
+                        .to_os_string(),
+                );
+                current = current.parent().ok_or_else(|| {
+                    anyhow::anyhow!("path has no existing ancestor: {}", path.display())
+                })?;
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 

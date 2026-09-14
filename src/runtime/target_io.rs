@@ -150,6 +150,38 @@ impl LocalTargetIo {
     fn validated_path(&self, rel_path: &str) -> anyhow::Result<PathBuf> {
         executor::validate_path_within_root(&self.root, &self.root.join(rel_path))
     }
+
+    fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {
+        let mut current = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
+        let mut missing = Vec::new();
+        loop {
+            match std::fs::symlink_metadata(current) {
+                Ok(_) => {
+                    let mut resolved = std::fs::canonicalize(current)?;
+                    for component in missing.iter().rev() {
+                        resolved.push(component);
+                    }
+                    return Ok(resolved);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    missing.push(
+                        current
+                            .file_name()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("path has no existing ancestor: {}", path.display())
+                            })?
+                            .to_os_string(),
+                    );
+                    current = current.parent().ok_or_else(|| {
+                        anyhow::anyhow!("path has no existing ancestor: {}", path.display())
+                    })?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
 }
 
 impl TargetIo for LocalTargetIo {
@@ -163,14 +195,9 @@ impl TargetIo for LocalTargetIo {
             Ok(_) => Ok(TargetPath::File {
                 real_path: std::fs::canonicalize(path)?,
             }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let parent = path
-                    .parent()
-                    .ok_or_else(|| anyhow::anyhow!("path has no parent: {rel_path}"))?;
-                Ok(TargetPath::Missing {
-                    real_parent: std::fs::canonicalize(parent)?,
-                })
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(TargetPath::Missing {
+                real_parent: Self::resolved_missing_parent(&path)?,
+            }),
             Err(error) => Err(error.into()),
         }
     }

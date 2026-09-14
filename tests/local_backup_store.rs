@@ -261,6 +261,32 @@ fn new_file_merge_records_no_backup() {
 }
 
 #[test]
+fn new_file_in_a_missing_directory_records_no_backup() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("nested")).unwrap();
+    fs::write(local.path().join("nested/new.txt"), "created\n").unwrap();
+
+    let result = execute_merge(
+        merge_args("nested/new.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert!(output.failed.is_empty());
+    assert_eq!(output.merged[0].backup, None);
+    assert_eq!(
+        fs::read_to_string(develop.path().join("nested/new.txt")).unwrap(),
+        "created\n"
+    );
+}
+
+#[test]
 fn disabled_backup_writes_without_creating_store_entries() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();

@@ -5,7 +5,7 @@ use super::target_io::TargetPath;
 pub(crate) fn build_inspect_path_command(path: &str) -> String {
     let path = crate::ssh::tree_parser::shell_escape(path);
     format!(
-        "p={path}; if [ -L \"$p\" ]; then printf 'symlink\\n'; readlink -- \"$p\"; elif [ -e \"$p\" ]; then printf 'file\\n'; readlink -f -- \"$p\"; else parent=${{p%/*}}; [ \"$parent\" != \"$p\" ] || parent=.; printf 'missing\\n'; readlink -f -- \"$parent\"; fi"
+        "p={path}; if [ -L \"$p\" ]; then printf 'symlink\\n'; readlink -- \"$p\"; elif [ -e \"$p\" ]; then printf 'file\\n'; readlink -f -- \"$p\"; else parent=${{p%/*}}; [ \"$parent\" != \"$p\" ] || parent=.; suffix=; while ! resolved=$(readlink -f -- \"$parent\" 2>/dev/null); do base=${{parent##*/}}; [ -n \"$base\" ] || exit 1; suffix=/$base$suffix; parent=${{parent%/*}}; [ -n \"$parent\" ] || parent=/; done; printf 'missing\\n%s%s\\n' \"$resolved\" \"$suffix\"; fi"
     )
 }
 
