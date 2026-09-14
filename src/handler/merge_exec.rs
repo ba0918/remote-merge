@@ -108,7 +108,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             }
 
             if runtime.core.config.backup.enabled {
-                backup_right(state, runtime, &[path.to_string()], &session_id);
+                backup_right(state, runtime, std::slice::from_ref(path), &session_id);
             }
 
             match write_right_file(state, runtime, path, &content) {
@@ -138,7 +138,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
             };
 
             if runtime.core.config.backup.enabled {
-                backup_left(state, runtime, &[path.to_string()], &session_id);
+                backup_left(state, runtime, std::slice::from_ref(path), &session_id);
             }
 
             match write_left_file(state, runtime, path, &content) {

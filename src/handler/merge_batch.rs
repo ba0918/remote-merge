@@ -348,14 +348,11 @@ pub fn filter_identical_files(
                 return true;
             }
             match (local_cache.get(path), remote_cache.get(path)) {
-                (Some(local), Some(remote)) => {
-                    if local == remote {
+                (Some(local), Some(remote))
+                    if local == remote => {
                         skipped += 1;
                         false
-                    } else {
-                        true
                     }
-                }
                 _ => true,
             }
         })

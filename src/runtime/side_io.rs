@@ -806,9 +806,9 @@ impl CoreRuntime {
         }
 
         // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
-        let server_name = match right.server_name() {
-            Some(name) => name.to_string(),
-            None => return None, // 両方ローカル → ハッシュ比較のメリットなし
+        let server_name = {
+            let name = right.server_name()?;
+            name.to_string()
         };
 
         // リモート側のハッシュを Agent 経由で取得
