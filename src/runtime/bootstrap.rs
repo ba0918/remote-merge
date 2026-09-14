@@ -9,7 +9,7 @@ use crate::config::AppConfig;
 use crate::tree::FileTree;
 use crate::{backup, filter, local, state};
 
-use super::TuiRuntime;
+use super::{RuntimeTargets, TuiRuntime};
 
 /// TUI 初期化パラメータ
 pub struct TuiBootstrapParams {
@@ -24,11 +24,19 @@ pub fn bootstrap_tui(
     params: TuiBootstrapParams,
     config: AppConfig,
 ) -> anyhow::Result<(AppState, TuiRuntime)> {
+    bootstrap_tui_with_targets(params, config, RuntimeTargets::production())
+}
+
+pub fn bootstrap_tui_with_targets(
+    params: TuiBootstrapParams,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<(AppState, TuiRuntime)> {
     // サーバー名が config に存在するか起動時にバリデーション
     validate_server_params(&params, &config)?;
 
     let available_servers: Vec<String> = config.servers.keys().cloned().collect();
-    let mut runtime = TuiRuntime::new(config.clone());
+    let mut runtime = TuiRuntime::with_targets(config.clone(), targets);
 
     // 左側: --left が指定されたらリモート、なければローカル
     let (mut left_tree, left_source, left_connected) = fetch_left_side(

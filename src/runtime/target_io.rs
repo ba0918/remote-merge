@@ -372,7 +372,14 @@ impl RemoteTargetIo {
 pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> {
     match side {
         Side::Local => Box::new(LocalTargetIo::from_runtime(runtime)),
-        Side::Remote(name) => Box::new(RemoteTargetIo::new(name.clone())),
+        Side::Remote(name) => match runtime.targets.local_override(name) {
+            Some(root) => Box::new(LocalTargetIo::new(
+                root.to_path_buf(),
+                runtime.config.filter.exclude.clone(),
+                runtime.config.filter.include.clone(),
+            )),
+            None => Box::new(RemoteTargetIo::new(name.clone())),
+        },
     }
 }
 

@@ -59,10 +59,15 @@ pub struct CoreRuntime {
     /// TUI/CLI モードに応じて適切なプロバイダが注入される。
     /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
     pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
+    pub(crate) targets: super::RuntimeTargets,
 }
 
 impl CoreRuntime {
     pub fn new(config: AppConfig) -> Self {
+        Self::with_targets(config, super::RuntimeTargets::production())
+    }
+
+    pub fn with_targets(config: AppConfig, targets: super::RuntimeTargets) -> Self {
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
             ssh_clients: HashMap::new(),
@@ -74,6 +79,7 @@ impl CoreRuntime {
             passphrase_provider: Some(Arc::new(
                 crate::ssh::passphrase_provider::build_default_provider(),
             )),
+            targets,
         }
     }
 

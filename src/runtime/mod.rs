@@ -10,6 +10,7 @@ pub mod side_io;
 pub(crate) mod target_io;
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use crate::app::MergeScanMsg;
@@ -18,6 +19,27 @@ use crate::ssh::client::SshClient;
 use crate::tree::FileTree;
 
 pub use self::core::CoreRuntime;
+
+#[derive(Clone, Default)]
+pub struct RuntimeTargets {
+    local_overrides: HashMap<String, PathBuf>,
+}
+
+impl RuntimeTargets {
+    pub fn production() -> Self {
+        Self::default()
+    }
+
+    pub fn with_local(mut self, server_name: impl Into<String>, root: impl AsRef<Path>) -> Self {
+        self.local_overrides
+            .insert(server_name.into(), root.as_ref().to_path_buf());
+        self
+    }
+
+    pub(crate) fn local_override(&self, server_name: &str) -> Option<&Path> {
+        self.local_overrides.get(server_name).map(PathBuf::as_path)
+    }
+}
 
 /// 走査結果の型
 pub type ScanResult = Result<scanner::ScanOutput, String>;
@@ -40,8 +62,12 @@ pub struct TuiRuntime {
 // 新規コードでは `runtime.core.xxx()` を直接呼んでもよい。
 impl TuiRuntime {
     pub fn new(config: AppConfig) -> Self {
+        Self::with_targets(config, RuntimeTargets::production())
+    }
+
+    pub fn with_targets(config: AppConfig, targets: RuntimeTargets) -> Self {
         Self {
-            core: CoreRuntime::new(config),
+            core: CoreRuntime::with_targets(config, targets),
             scan_receiver: None,
             merge_scan_receiver: None,
             badge_scans: HashMap::new(),

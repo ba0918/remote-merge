@@ -9,7 +9,7 @@ use crate::app::Side;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
-use crate::runtime::CoreRuntime;
+use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
@@ -41,6 +41,17 @@ pub struct SyncArgs {
     pub max_entries: Option<usize>,
 }
 
+pub enum SyncCommandOutput {
+    Result(SyncOutput),
+    Cancelled,
+}
+
+pub struct SyncCommandResult {
+    pub output: SyncCommandOutput,
+    pub exit_code: i32,
+    no_files: bool,
+}
+
 /// sync 引数のバリデーション
 fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<()> {
     if args.left.is_none() {
@@ -69,8 +80,19 @@ struct ServerPlan {
 
 /// sync サブコマンドを実行する
 pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
-    validate_sync_args(&args)?;
     let format = OutputFormat::parse(&args.format)?;
+    let result = execute_sync(args, config, RuntimeTargets::production())?;
+    print_sync_result(&result, format)?;
+    Ok(result.exit_code)
+}
+
+pub fn execute_sync(
+    args: SyncArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<SyncCommandResult> {
+    validate_sync_args(&args)?;
+    OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     // ソースペア解決（サーバ名バリデーション・重複チェック・left==right チェック）
@@ -92,7 +114,7 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     let strategy = resolve_scan_strategy(&args.paths, args.delete);
 
     // 接続 + left ツリー取得（全ペアで共有）
-    let mut core = CoreRuntime::new(config.clone());
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
     let left_side = &pairs[0].left;
     core.connect_if_remote(left_side)?;
     let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config, max_entries)?;
@@ -212,15 +234,12 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
             targets,
             summary,
         };
-        match format {
-            OutputFormat::Text => {
-                println!("No files to sync.");
-                println!("{}", format_sync_text(&output));
-            }
-            OutputFormat::Json => println!("{}", format_json(&output)?),
-        }
         core.disconnect_all();
-        return Ok(exit_code::SUCCESS);
+        return Ok(SyncCommandResult {
+            output: SyncCommandOutput::Result(output),
+            exit_code: exit_code::SUCCESS,
+            no_files: true,
+        });
     }
 
     // dry-run: 計画を出力して終了
@@ -232,12 +251,13 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
             targets,
             summary,
         };
-        match format {
-            OutputFormat::Text => println!("{}", format_sync_text(&output)),
-            OutputFormat::Json => println!("{}", format_json(&output)?),
-        }
+        let exit_code = sync_exit_code(&output);
         core.disconnect_all();
-        return Ok(sync_exit_code(&output));
+        return Ok(SyncCommandResult {
+            output: SyncCommandOutput::Result(output),
+            exit_code,
+            no_files: false,
+        });
     }
 
     // 確認プロンプト（--force でない場合）
@@ -249,7 +269,11 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
         if !input.trim().eq_ignore_ascii_case("y") {
             eprintln!("Sync cancelled.");
             core.disconnect_all();
-            return Ok(exit_code::SUCCESS);
+            return Ok(SyncCommandResult {
+                output: SyncCommandOutput::Cancelled,
+                exit_code: exit_code::SUCCESS,
+                no_files: false,
+            });
         }
     }
 
@@ -335,13 +359,28 @@ pub fn run_sync(args: SyncArgs, config: AppConfig) -> anyhow::Result<i32> {
     };
     let code = sync_exit_code(&output);
 
-    match format {
-        OutputFormat::Text => println!("{}", format_sync_text(&output)),
-        OutputFormat::Json => println!("{}", format_json(&output)?),
-    }
-
     core.disconnect_all();
-    Ok(code)
+    Ok(SyncCommandResult {
+        output: SyncCommandOutput::Result(output),
+        exit_code: code,
+        no_files: false,
+    })
+}
+
+fn print_sync_result(result: &SyncCommandResult, format: OutputFormat) -> anyhow::Result<()> {
+    let SyncCommandOutput::Result(output) = &result.output else {
+        return Ok(());
+    };
+    match format {
+        OutputFormat::Text => {
+            if result.no_files {
+                println!("No files to sync.");
+            }
+            println!("{}", format_sync_text(output));
+        }
+        OutputFormat::Json => println!("{}", format_json(output)?),
+    }
+    Ok(())
 }
 
 /// dry-run 用の SyncTargetResult リストを構築する
