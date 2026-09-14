@@ -24,6 +24,7 @@ pub(crate) enum TargetPath {
     Symlink { link_target: PathBuf },
 }
 
+#[allow(dead_code)]
 pub(crate) type RestoreResult = (Vec<RollbackFileResult>, Vec<RollbackFailure>);
 
 pub(crate) trait TargetIo {
@@ -83,6 +84,7 @@ pub(crate) trait TargetIo {
         &mut self,
         runtime: &mut CoreRuntime,
     ) -> anyhow::Result<Vec<BackupSession>>;
+    #[allow(dead_code)]
     fn restore_backup(
         &mut self,
         runtime: &mut CoreRuntime,

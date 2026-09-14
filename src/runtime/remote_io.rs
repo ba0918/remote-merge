@@ -588,6 +588,7 @@ impl CoreRuntime {
     ///
     /// バッチスクリプトを生成して一括実行し、`parse_batch_restore_output` で結果をパースする。
     /// 個別ファイルのエラーは記録して続行する（部分成功に対応）。
+    #[allow(dead_code)]
     pub(crate) fn restore_remote_backup_ssh(
         &mut self,
         server_name: &str,

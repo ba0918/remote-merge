@@ -199,9 +199,10 @@ impl BackupStore {
         config: &AppConfig,
         target: &Side,
     ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        let Some(root) = &self.root else {
-            return Ok(Vec::new());
-        };
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
         let description = target_description(config, target, &self.startup_directory)?;
         let target_key = format!("{:x}", Sha256::digest(description.as_bytes()));
         let Ok(entries) = fs::read_dir(root.join("sessions")) else {
@@ -261,6 +262,39 @@ impl BackupStore {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         Ok(sessions)
+    }
+
+    pub(crate) fn read_file(
+        &self,
+        config: &AppConfig,
+        target: &Side,
+        session_id: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<Vec<u8>> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let description = target_description(config, target, &self.startup_directory)?;
+        let target_key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
+        let record_dir = root
+            .join("sessions")
+            .join(session_id)
+            .join(target_key)
+            .join("records")
+            .join(entry_key);
+        let record: StoredBackupRecord =
+            serde_json::from_slice(&fs::read(record_dir.join("record.json"))?)?;
+        match record {
+            StoredBackupRecord::File { path, .. } if path == rel_path => {
+                Ok(fs::read(record_dir.join("content"))?)
+            }
+            StoredBackupRecord::File { .. } => anyhow::bail!("backup record path does not match"),
+            StoredBackupRecord::Symlink { .. } => {
+                anyhow::bail!("symlink restore not supported")
+            }
+        }
     }
 }
 

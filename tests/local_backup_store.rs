@@ -3,13 +3,17 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use chrono::{TimeZone, Utc};
+use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
 use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
-use remote_merge::runtime::RuntimeTargets;
+use remote_merge::merge::executor::MergeDirection;
+use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
+use remote_merge::service::merge_flow::{execute_single_merge, MergeContext};
 use remote_merge::service::output::{format_backup_list_text, format_json};
+use remote_merge::service::types::{FileStatus, FileStatusKind};
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -74,6 +78,323 @@ fn rollback_list_args(target: &str) -> RollbackArgs {
         force: false,
         format: "json".into(),
     }
+}
+
+fn rollback_args(target: &str, session: Option<String>) -> RollbackArgs {
+    RollbackArgs {
+        target: Some(target.into()),
+        list: false,
+        session,
+        dry_run: false,
+        force: true,
+        format: "json".into(),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_restores_file_content_without_changing_existing_permissions() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    fs::set_permissions(
+        develop.path().join("file.txt"),
+        fs::Permissions::from_mode(0o640),
+    )
+    .unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    let merge_result = execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    let MergeCommandOutput::Files(merge_output) = merge_result.output else {
+        panic!("expected files")
+    };
+    assert_eq!(merge_output.merged.len(), 1, "{merge_output:?}");
+    let mut rollback_config = config;
+    rollback_config.backup.enabled = false;
+    let result = execute_rollback(
+        rollback_args("develop", None),
+        rollback_config,
+        runtime_targets,
+    )
+    .unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "old\n"
+    );
+    assert_eq!(
+        fs::metadata(develop.path().join("file.txt"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+}
+
+#[test]
+fn enabled_rollback_reports_the_backup_taken_before_restore() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::write(develop.path().join("file.txt"), "content before rollback\n").unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert_eq!(
+        output.restored[0].pre_rollback_backup.as_deref(),
+        Some("20260914-120000-2")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rollback_does_not_restore_a_file_when_its_current_content_cannot_be_backed_up() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "merged content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::write(develop.path().join("file.txt"), "content before rollback\n").unwrap();
+    fs::set_permissions(
+        develop.path().join("file.txt"),
+        fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets);
+    fs::set_permissions(
+        develop.path().join("file.txt"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let result = result.unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert!(output.restored.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert!(output.failed[0].error.starts_with("backup failed: "));
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "content before rollback\n"
+    );
+}
+
+#[test]
+fn rollback_restores_the_content_seen_immediately_before_merge_writes() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "source content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "content during scan\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut core = CoreRuntime::with_targets(config.clone(), runtime_targets.clone());
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree(&left).unwrap();
+    let right_tree = core.fetch_tree(&right).unwrap();
+    let statuses = vec![FileStatus {
+        path: "file.txt".into(),
+        status: FileStatusKind::Modified,
+        sensitive: false,
+        hunks: None,
+        ref_badge: None,
+    }];
+    let original_mtime = fs::metadata(develop.path().join("file.txt"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    fs::write(
+        develop.path().join("file.txt"),
+        "content immediately before write\n",
+    )
+    .unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(develop.path().join("file.txt"))
+        .unwrap()
+        .set_modified(original_mtime)
+        .unwrap();
+    let session_id = core.reserve_backup_session().unwrap();
+    let mut context = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: true,
+        statuses: &statuses,
+        session_id: &session_id,
+    };
+    execute_single_merge(&mut context, "file.txt").unwrap();
+    core.finish_backup_session(&session_id);
+    drop(core);
+
+    execute_rollback(
+        rollback_args("develop", Some(session_id)),
+        config,
+        runtime_targets,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "content immediately before write\n"
+    );
+}
+
+#[test]
+fn rollback_restores_a_file_removed_by_merge_delete() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(develop.path().join("removed.txt"), "deleted content\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("removed.txt");
+    args.delete = true;
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(develop.path().join("removed.txt")).unwrap(),
+        "deleted content\n"
+    );
+    assert!(output.restored[0].pre_rollback_backup.is_none());
+}
+
+#[test]
+fn rollback_skips_deleted_file_when_its_parent_no_longer_exists() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(develop.path().join("nested")).unwrap();
+    fs::write(
+        develop.path().join("nested/removed.txt"),
+        "deleted content\n",
+    )
+    .unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("nested/removed.txt");
+    args.delete = true;
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::remove_dir(develop.path().join("nested")).unwrap();
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert!(output.restored.is_empty(), "{output:?}");
+    assert_eq!(output.skipped.len(), 1, "{output:?}");
+    assert_eq!(
+        output.skipped[0].reason,
+        "parent directory no longer exists"
+    );
+    assert!(!develop.path().join("nested").exists());
+}
+
+#[test]
+fn rollback_list_fails_when_backup_store_location_is_unavailable() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let config = config(&local, &develop, false);
+    let runtime_targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(None);
+
+    let error = execute_rollback(rollback_list_args("develop"), config, runtime_targets)
+        .err()
+        .unwrap();
+
+    assert!(error
+        .to_string()
+        .contains("backup store location could not be determined"));
+}
+
+fn assert_rollback_location_error(enabled: bool, mut args: RollbackArgs) {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let config = config(&local, &develop, enabled);
+    let runtime_targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(None);
+    args.target = Some("develop".into());
+
+    let error = execute_rollback(args, config, runtime_targets)
+        .err()
+        .unwrap();
+
+    assert!(error
+        .to_string()
+        .contains("backup store location could not be determined"));
+}
+
+#[test]
+fn enabled_rollback_list_fails_when_backup_store_location_is_unavailable() {
+    assert_rollback_location_error(true, rollback_list_args("develop"));
+}
+
+#[test]
+fn enabled_rollback_fails_when_backup_store_location_is_unavailable() {
+    assert_rollback_location_error(true, rollback_args("develop", None));
+}
+
+#[test]
+fn disabled_rollback_fails_when_backup_store_location_is_unavailable() {
+    assert_rollback_location_error(false, rollback_args("develop", None));
+}
+
+#[test]
+fn enabled_rollback_dry_run_fails_when_backup_store_location_is_unavailable() {
+    let mut args = rollback_args("develop", None);
+    args.dry_run = true;
+    assert_rollback_location_error(true, args);
+}
+
+#[test]
+fn disabled_rollback_dry_run_fails_when_backup_store_location_is_unavailable() {
+    let mut args = rollback_args("develop", None);
+    args.dry_run = true;
+    assert_rollback_location_error(false, args);
 }
 
 #[test]
@@ -324,6 +645,114 @@ fn same_second_sessions_are_listed_newest_first_and_empty_operations_are_absent(
     assert_eq!(sessions.len(), 2);
     assert_eq!(sessions[0].session_id, "20260914-120000-2");
     assert_eq!(sessions[1].session_id, "20260914-120000");
+}
+
+fn create_two_same_second_sessions(
+    local: &TempDir,
+    develop: &TempDir,
+    store: &TempDir,
+) -> (remote_merge::config::AppConfig, RuntimeTargets) {
+    let config = config(local, develop, true);
+    let runtime_targets = targets(develop, store);
+    fs::write(local.path().join("file.txt"), "first merge\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::write(local.path().join("file.txt"), "second merge content\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    (config, runtime_targets)
+}
+
+#[test]
+fn rollback_accepts_a_same_second_session_id_with_numeric_suffix() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let (mut config, runtime_targets) = create_two_same_second_sessions(&local, &develop, &store);
+    config.backup.enabled = false;
+
+    let result = execute_rollback(
+        rollback_args("develop", Some("20260914-120000-2".into())),
+        config,
+        runtime_targets,
+    )
+    .unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.session_id, "20260914-120000-2");
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "first merge\n"
+    );
+}
+
+#[test]
+fn rollback_without_session_uses_the_newest_numeric_suffix() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let (mut config, runtime_targets) = create_two_same_second_sessions(&local, &develop, &store);
+    config.backup.enabled = false;
+
+    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    assert_eq!(output.session_id, "20260914-120000-2");
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "first merge\n"
+    );
+}
+
+#[test]
+fn rollback_treats_a_session_with_missing_content_as_not_found() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "unique rollback content\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let mut pending = vec![store.path().to_path_buf()];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                fs::read_dir(path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path()),
+            );
+        } else if fs::read(&path).unwrap() == b"unique rollback content\n" {
+            fs::remove_file(path).unwrap();
+            break;
+        }
+    }
+
+    let error = execute_rollback(
+        rollback_args("develop", Some("20260914-120000".into())),
+        config,
+        runtime_targets,
+    )
+    .err()
+    .unwrap();
+
+    assert!(error.to_string().contains("No backup sessions found"));
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new content\n"
+    );
 }
 
 #[test]

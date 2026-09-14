@@ -193,10 +193,85 @@ impl CoreRuntime {
         files: &[String],
     ) -> anyhow::Result<(
         Vec<crate::service::types::RollbackFileResult>,
+        Vec<crate::service::types::RollbackSkipped>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
-        let mut io = super::target_io::for_side(side, self);
-        io.restore_backup(self, session_id, files)
+        let pre_session_id = if self.config.backup.enabled {
+            Some(self.reserve_backup_session()?)
+        } else {
+            None
+        };
+        let mut restored = Vec::new();
+        let mut skipped = Vec::new();
+        let mut failed = Vec::new();
+
+        for path in files {
+            if matches!(
+                self.inspect_path(side, path)?,
+                super::target_io::TargetPath::Missing { .. }
+            ) {
+                let parent = std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(""))
+                    .to_string_lossy();
+                if matches!(
+                    self.inspect_path(side, &parent)?,
+                    super::target_io::TargetPath::Missing { .. }
+                ) {
+                    skipped.push(crate::service::types::RollbackSkipped {
+                        path: path.clone(),
+                        reason: "parent directory no longer exists".into(),
+                    });
+                    continue;
+                }
+            }
+            let content = match self
+                .backup_store
+                .read_file(&self.config, side, session_id, path)
+            {
+                Ok(content) => content,
+                Err(error) => {
+                    failed.push(crate::service::types::RollbackFailure {
+                        path: path.clone(),
+                        error: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+
+            let pre_rollback_backup = if let Some(pre_session_id) = &pre_session_id {
+                match self.save_backup_if_exists(side, path, pre_session_id, false) {
+                    Ok(Some(_)) => Some(pre_session_id.clone()),
+                    Ok(None) => None,
+                    Err(error) => {
+                        failed.push(crate::service::types::RollbackFailure {
+                            path: path.clone(),
+                            error: format!("backup failed: {error}"),
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+
+            match self.write_file_bytes(side, path, &content) {
+                Ok(()) => restored.push(crate::service::types::RollbackFileResult {
+                    path: path.clone(),
+                    pre_rollback_backup,
+                }),
+                Err(error) => failed.push(crate::service::types::RollbackFailure {
+                    path: path.clone(),
+                    error: error.to_string(),
+                }),
+            }
+        }
+
+        if let Some(pre_session_id) = &pre_session_id {
+            self.finish_backup_session(pre_session_id);
+        }
+
+        Ok((restored, skipped, failed))
     }
 
     // ── 削除 ──
@@ -519,6 +594,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバックアップからファイルを復元する
+    #[allow(dead_code)]
     pub(crate) fn try_agent_restore_backup(
         &mut self,
         server_name: &str,
@@ -1034,6 +1110,7 @@ fn convert_agent_backup_sessions(
 }
 
 /// `AgentRestoreFileResult` のリストを `(Vec<RollbackFileResult>, Vec<RollbackFailure>)` に変換する。
+#[allow(dead_code)]
 fn convert_agent_restore_results(
     agent_results: Vec<crate::agent::protocol::AgentRestoreFileResult>,
     pre_session_id: &str,
@@ -1121,11 +1198,13 @@ pub(crate) fn create_local_backups(
 /// Component レベルのパストラバーサル検証 + canonicalize による復元先検証を行う。
 /// 個別ファイルの失敗は記録して続行する（部分成功に対応）。
 /// ローカル復元の結果（成功 + 失敗を両方含む）
+#[allow(dead_code)]
 pub(crate) struct LocalRestoreResult {
     pub(crate) restored: Vec<crate::service::types::RollbackFileResult>,
     pub(crate) failures: Vec<crate::service::types::RollbackFailure>,
 }
 
+#[allow(dead_code)]
 pub(crate) fn restore_local_files(
     root: &Path,
     backup_dir: &Path,
