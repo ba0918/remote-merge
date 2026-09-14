@@ -536,6 +536,7 @@ impl CoreRuntime {
     ///
     /// 1回の `find` コマンドで全セッション・全ファイル情報を取得し、
     /// `parse_all_backup_entries()` でパースする（N+1 問題を解消）。
+    #[allow(dead_code)]
     pub(crate) fn list_remote_backup_sessions_ssh(
         &mut self,
         server_name: &str,
@@ -572,7 +573,8 @@ impl CoreRuntime {
                     .into_iter()
                     .map(|e| BackupEntry {
                         path: e.rel_path,
-                        size: e.size,
+                        size: Some(e.size),
+                        link_target: None,
                     })
                     .collect();
                 BackupSession::new(rs.session_id, files, false)

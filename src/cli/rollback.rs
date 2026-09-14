@@ -65,23 +65,20 @@ pub fn execute_rollback(
 ) -> anyhow::Result<RollbackCommandResult> {
     OutputFormat::parse(&args.format)?;
     let side = resolve_target(args.target.as_deref(), args.list)?;
+    let now = targets.now();
 
     let mut core = CoreRuntime::with_targets(config.clone(), targets);
-    core.connect_if_remote(&side)?;
-
     let target_info = build_source_info(&side, &core)?;
 
     // セッション一覧取得 + expired マーク
     let mut sessions = core.list_backup_sessions(&side)?;
-    mark_expired(
-        &mut sessions,
-        config.backup.retention_days,
-        chrono::Utc::now(),
-    );
+    mark_expired(&mut sessions, config.backup.retention_days, now);
 
     if args.list {
         return run_list_mode(&target_info, sessions, &mut core);
     }
+
+    core.connect_if_remote(&side)?;
 
     // 復元計画
     let plan = plan_restore(

@@ -5,7 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::app::Side;
@@ -29,6 +29,20 @@ enum StoredBackup<'a> {
     Symlink {
         path: &'a str,
         link_target: &'a Path,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum StoredBackupRecord {
+    File {
+        path: String,
+        #[serde(rename = "real_path")]
+        _real_path: PathBuf,
+    },
+    Symlink {
+        path: String,
+        link_target: PathBuf,
     },
 }
 
@@ -179,6 +193,102 @@ impl BackupStore {
         let _ = fs::remove_dir(&reservations);
         let _ = fs::remove_dir(root);
     }
+
+    pub(crate) fn list_sessions(
+        &self,
+        config: &AppConfig,
+        target: &Side,
+    ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
+        let Some(root) = &self.root else {
+            return Ok(Vec::new());
+        };
+        let description = target_description(config, target, &self.startup_directory)?;
+        let target_key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let Ok(entries) = fs::read_dir(root.join("sessions")) else {
+            return Ok(Vec::new());
+        };
+        let mut sessions = Vec::new();
+        for entry in entries.filter_map(Result::ok) {
+            let Some(session_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if crate::backup::parse_session_id(&session_id).is_none() {
+                continue;
+            }
+            let Ok(records) = fs::read_dir(entry.path().join(&target_key).join("records")) else {
+                continue;
+            };
+            let mut files = Vec::new();
+            let mut complete = true;
+            for record_dir in records.filter_map(Result::ok) {
+                let record = fs::read(record_dir.path().join("record.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<StoredBackupRecord>(&bytes).ok());
+                match record {
+                    Some(StoredBackupRecord::File { path, .. }) => {
+                        let Ok(metadata) = fs::metadata(record_dir.path().join("content")) else {
+                            complete = false;
+                            break;
+                        };
+                        files.push(crate::service::types::BackupEntry {
+                            path,
+                            size: Some(metadata.len()),
+                            link_target: None,
+                        });
+                    }
+                    Some(StoredBackupRecord::Symlink { path, link_target }) => {
+                        files.push(crate::service::types::BackupEntry {
+                            path,
+                            size: None,
+                            link_target: Some(link_target.to_string_lossy().into_owned()),
+                        });
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                }
+            }
+            if complete && !files.is_empty() {
+                files.sort_by(|left, right| left.path.cmp(&right.path));
+                sessions.push(crate::service::types::BackupSession::new(
+                    session_id, files, false,
+                ));
+            }
+        }
+        sessions.sort_by(|left, right| {
+            crate::backup::compare_session_ids(&right.session_id, &left.session_id)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok(sessions)
+    }
+}
+
+fn target_description(
+    config: &AppConfig,
+    target: &Side,
+    startup_directory: &Path,
+) -> anyhow::Result<String> {
+    Ok(match target {
+        Side::Local => local_target_identity(&config.local, startup_directory)
+            .root_dir()
+            .display()
+            .to_string(),
+        Side::Remote(name) => {
+            let identity = remote_target_identity(
+                config
+                    .servers
+                    .get(name)
+                    .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", name))?,
+            );
+            format!(
+                "{}:{}:{}",
+                identity.host(),
+                identity.port(),
+                identity.root_dir().display()
+            )
+        }
+    })
 }
 
 fn create_dir_owner_only(path: &Path) -> std::io::Result<()> {

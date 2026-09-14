@@ -232,7 +232,8 @@ mod tests {
             .iter()
             .map(|p| BackupEntry {
                 path: (*p).into(),
-                size: 100,
+                size: Some(100),
+                link_target: None,
             })
             .collect();
         BackupSession::new(id.into(), files, false)

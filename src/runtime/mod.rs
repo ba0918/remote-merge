@@ -70,6 +70,10 @@ impl RuntimeTargets {
         self.local_overrides.get(server_name).map(PathBuf::as_path)
     }
 
+    pub(crate) fn now(&self) -> DateTime<Utc> {
+        self.now
+    }
+
     #[cfg(test)]
     fn for_test() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};

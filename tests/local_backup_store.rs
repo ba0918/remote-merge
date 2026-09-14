@@ -4,9 +4,12 @@ use std::os::unix::fs::PermissionsExt;
 
 use chrono::{TimeZone, Utc};
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
+use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
+use remote_merge::service::output::{format_backup_list_text, format_json};
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -60,6 +63,326 @@ fn targets(develop: &TempDir, store: &TempDir) -> RuntimeTargets {
         .with_backup_store(Some(store.path().to_path_buf()))
         .with_startup_directory(std::env::current_dir().unwrap())
         .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap())
+}
+
+fn rollback_list_args(target: &str) -> RollbackArgs {
+    RollbackArgs {
+        target: Some(target.into()),
+        list: true,
+        session: None,
+        dry_run: false,
+        force: false,
+        format: "json".into(),
+    }
+}
+
+#[test]
+fn written_target_lists_its_aggregate_backup_session() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let listed = execute_rollback(rollback_list_args("develop"), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::List(output) = listed.output else {
+        panic!("expected backup list")
+    };
+    assert_eq!(output.sessions.len(), 1);
+    assert_eq!(output.sessions[0].files[0].path, "file.txt");
+    assert_eq!(output.sessions[0].files[0].size, Some(4));
+}
+
+#[cfg(unix)]
+#[test]
+fn replaced_symlink_is_listed_as_a_symlink_in_text_and_json() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("link.txt"), "replacement\n").unwrap();
+    fs::write(develop.path().join("target.txt"), "linked content\n").unwrap();
+    symlink("target.txt", develop.path().join("link.txt")).unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+
+    execute_merge(
+        merge_args("link.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let listed = execute_rollback(rollback_list_args("develop"), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::List(output) = listed.output else {
+        panic!("expected backup list")
+    };
+    assert!(format_backup_list_text(&output).contains("link.txt -> target.txt (symlink)"));
+    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+    assert_eq!(json["sessions"][0]["files"][0]["link_target"], "target.txt");
+    assert!(json["sessions"][0]["files"][0].get("size").is_none());
+}
+
+#[test]
+fn listing_uses_the_injected_time_for_expiration() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let config = config(&local, &develop, true);
+    let now = Utc.with_ymd_and_hms(2020, 1, 7, 0, 0, 0).unwrap();
+    let runtime_targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(now);
+
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let listed = execute_rollback(rollback_list_args("develop"), config, runtime_targets).unwrap();
+
+    let RollbackCommandOutput::List(output) = listed.output else {
+        panic!("expected backup list")
+    };
+    assert!(!output.sessions[0].expired);
+}
+
+fn listed_sessions(
+    target: &str,
+    config: remote_merge::config::AppConfig,
+    targets: RuntimeTargets,
+) -> Vec<remote_merge::service::types::BackupSession> {
+    let result = execute_rollback(rollback_list_args(target), config, targets).unwrap();
+    let RollbackCommandOutput::List(output) = result.output else {
+        panic!("expected backup list")
+    };
+    output.sessions
+}
+
+#[test]
+fn read_only_side_has_no_session_after_one_way_merge() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+
+    assert!(listed_sessions("local", config, runtime_targets).is_empty());
+}
+
+#[test]
+fn sessions_for_two_write_targets_remain_separate() {
+    let config_dir = TempDir::new().unwrap();
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let staging = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let config_path = config_dir.path().join("config.toml");
+    fs::write(
+        &config_path,
+        format!(
+            "[local]\nroot_dir = \"{}\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[servers.staging]\nhost = \"staging.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[backup]\nenabled = true\n",
+            local.path().display(),
+            develop.path().display(),
+            staging.path().display()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let runtime_targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_local("staging", staging.path())
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
+    fs::write(local.path().join("develop.txt"), "new develop\n").unwrap();
+    fs::write(develop.path().join("develop.txt"), "old\n").unwrap();
+    fs::write(local.path().join("staging.txt"), "new staging\n").unwrap();
+    fs::write(staging.path().join("staging.txt"), "old\n").unwrap();
+    let develop_result = execute_merge(
+        merge_args("develop.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let mut staging_args = merge_args("staging.txt");
+    staging_args.right = Some("staging".into());
+    let staging_result =
+        execute_merge(staging_args, config.clone(), runtime_targets.clone()).unwrap();
+    let MergeCommandOutput::Files(develop_output) = develop_result.output else {
+        panic!("expected files")
+    };
+    let MergeCommandOutput::Files(staging_output) = staging_result.output else {
+        panic!("expected files")
+    };
+    assert_eq!(develop_output.merged.len(), 1, "{develop_output:?}");
+    assert_eq!(staging_output.merged.len(), 1, "{staging_output:?}");
+
+    let develop_sessions = listed_sessions("develop", config.clone(), runtime_targets.clone());
+    let staging_sessions = listed_sessions("staging", config, runtime_targets);
+    assert_eq!(develop_sessions[0].files[0].path, "develop.txt");
+    assert_eq!(staging_sessions[0].files[0].path, "staging.txt");
+}
+
+#[cfg(unix)]
+#[test]
+fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
+    let base = TempDir::new().unwrap();
+    let release_a = base.path().join("release-a");
+    let release_b = base.path().join("release-b");
+    let local_link = base.path().join("current");
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(&release_a).unwrap();
+    fs::create_dir(&release_b).unwrap();
+    symlink(&release_a, &local_link).unwrap();
+    fs::write(release_a.join("file.txt"), "old local\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
+    let config_path = base.path().join("config.toml");
+    fs::write(
+        &config_path,
+        format!(
+            "[local]\nroot_dir = \"{}\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[backup]\nenabled = true\n",
+            local_link.display(),
+            develop.path().display()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let runtime_targets = targets(&develop, &store);
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
+    fs::remove_file(&local_link).unwrap();
+    symlink(&release_b, &local_link).unwrap();
+
+    assert_eq!(listed_sessions("local", config, runtime_targets).len(), 1);
+}
+
+#[test]
+fn same_second_sessions_are_listed_newest_first_and_empty_operations_are_absent() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    fs::write(local.path().join("file.txt"), "first\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::write(local.path().join("file.txt"), "second\n").unwrap();
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    fs::write(local.path().join("new.txt"), "created\n").unwrap();
+    execute_merge(
+        merge_args("new.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+
+    let sessions = listed_sessions("develop", config, runtime_targets);
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0].session_id, "20260914-120000-2");
+    assert_eq!(sessions[1].session_id, "20260914-120000");
+}
+
+#[test]
+fn session_with_missing_content_is_omitted_without_failing_the_list() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "unique old content\n").unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+    execute_merge(
+        merge_args("file.txt"),
+        config.clone(),
+        runtime_targets.clone(),
+    )
+    .unwrap();
+    let mut pending = vec![store.path().to_path_buf()];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                fs::read_dir(path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path()),
+            );
+        } else if fs::read(&path).unwrap() == b"unique old content\n" {
+            fs::remove_file(path).unwrap();
+            break;
+        }
+    }
+
+    assert!(listed_sessions("develop", config, runtime_targets).is_empty());
+}
+
+#[test]
+fn legacy_backup_directory_is_ignored_by_list_and_status() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "same\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "same\n").unwrap();
+    fs::create_dir(develop.path().join(".remote-merge-backup")).unwrap();
+    fs::write(
+        develop.path().join(".remote-merge-backup/legacy.txt"),
+        "legacy\n",
+    )
+    .unwrap();
+    let config = config(&local, &develop, true);
+    let runtime_targets = targets(&develop, &store);
+
+    assert!(listed_sessions("develop", config.clone(), runtime_targets.clone()).is_empty());
+    let status = execute_status(
+        StatusArgs {
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            format: "json".into(),
+            summary: false,
+            all: false,
+            checksum: true,
+            verbose: 0,
+            max_entries: None,
+        },
+        config,
+        runtime_targets,
+    )
+    .unwrap();
+    assert_eq!(status.output.summary.right_only, 0);
 }
 
 #[test]

@@ -78,6 +78,7 @@ pub(crate) trait TargetIo {
         rel_paths: &[String],
         session_id: &str,
     ) -> anyhow::Result<()>;
+    #[allow(dead_code)]
     fn list_backup_sessions(
         &mut self,
         runtime: &mut CoreRuntime,
@@ -295,9 +296,12 @@ impl TargetIo for LocalTargetIo {
                             backup::session_backup_path(&backup_dir, &session.session_id, path);
                         BackupEntry {
                             path: path.clone(),
-                            size: std::fs::metadata(full)
-                                .map(|metadata| metadata.len())
-                                .unwrap_or(0),
+                            size: Some(
+                                std::fs::metadata(full)
+                                    .map(|metadata| metadata.len())
+                                    .unwrap_or(0),
+                            ),
+                            link_target: None,
                         }
                     })
                     .collect();

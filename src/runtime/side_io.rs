@@ -180,8 +180,7 @@ impl CoreRuntime {
         &mut self,
         side: &Side,
     ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        let mut io = super::target_io::for_side(side, self);
-        io.list_backup_sessions(self)
+        self.backup_store.list_sessions(&self.config, side)
     }
 
     /// バックアップからファイルを復元する。
@@ -507,6 +506,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバックアップセッション一覧を取得する
+    #[allow(dead_code)]
     pub(crate) fn try_agent_list_backup_sessions(
         &mut self,
         server_name: &str,
@@ -1012,6 +1012,7 @@ pub(crate) fn wrap_nodes_in_subpath(subpath: &str, nodes: Vec<FileNode>) -> Vec<
 // ── Agent 変換ヘルパー（純粋関数） ──
 
 /// `AgentBackupSession` のリストを `BackupSession` のリストに変換する。
+#[allow(dead_code)]
 fn convert_agent_backup_sessions(
     agent_sessions: Vec<crate::agent::protocol::AgentBackupSession>,
 ) -> Vec<crate::service::types::BackupSession> {
@@ -1023,7 +1024,8 @@ fn convert_agent_backup_sessions(
                 .into_iter()
                 .map(|f| crate::service::types::BackupEntry {
                     path: f.path,
-                    size: f.size,
+                    size: Some(f.size),
+                    link_target: None,
                 })
                 .collect();
             crate::service::types::BackupSession::new(s.session_id, files, false)
@@ -1727,9 +1729,9 @@ mod tests {
         assert_eq!(result[0].session_id, "session-001");
         assert_eq!(result[0].files.len(), 2);
         assert_eq!(result[0].files[0].path, "src/main.rs");
-        assert_eq!(result[0].files[0].size, 1024);
+        assert_eq!(result[0].files[0].size, Some(1024));
         assert_eq!(result[0].files[1].path, "src/lib.rs");
-        assert_eq!(result[0].files[1].size, 2048);
+        assert_eq!(result[0].files[1].size, Some(2048));
     }
 
     #[test]

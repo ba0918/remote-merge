@@ -429,7 +429,11 @@ pub fn format_backup_list_text(output: &BackupListOutput) -> String {
             ));
         }
         for entry in &session.files {
-            lines.push(format!("    {} ({} bytes)", entry.path, entry.size));
+            if let Some(link_target) = &entry.link_target {
+                lines.push(format!("    {} -> {} (symlink)", entry.path, link_target));
+            } else if let Some(size) = entry.size {
+                lines.push(format!("    {} ({} bytes)", entry.path, size));
+            }
         }
         lines.push(String::new());
     }
@@ -1757,11 +1761,13 @@ mod tests {
                     vec![
                         BackupEntry {
                             path: "src/config.ts".into(),
-                            size: 1234,
+                            size: Some(1234),
+                            link_target: None,
                         },
                         BackupEntry {
                             path: "src/index.ts".into(),
-                            size: 5678,
+                            size: Some(5678),
+                            link_target: None,
                         },
                     ],
                     false,
@@ -1770,7 +1776,8 @@ mod tests {
                     "20240114-100000".into(),
                     vec![BackupEntry {
                         path: "src/old.ts".into(),
-                        size: 456,
+                        size: Some(456),
+                        link_target: None,
                     }],
                     true,
                 ),
