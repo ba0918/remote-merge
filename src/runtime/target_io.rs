@@ -4,17 +4,14 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 
 use crate::app::Side;
-use crate::backup;
 use crate::local;
 use crate::merge::executor;
-use crate::service::types::{BackupEntry, BackupSession, RollbackFailure, RollbackFileResult};
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
 use super::side_io::{
-    check_truncation, chmod_local_file, compute_local_hashes_batch, create_local_backups,
-    create_local_symlink, hash_results_to_map, remove_local_file, restore_local_files,
-    stat_local_files, wrap_nodes_in_subpath,
+    check_truncation, chmod_local_file, compute_local_hashes_batch, create_local_symlink,
+    hash_results_to_map, remove_local_file, stat_local_files, wrap_nodes_in_subpath,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +27,6 @@ pub(crate) enum TargetPath {
         real_path: PathBuf,
     },
 }
-
-#[allow(dead_code)]
-pub(crate) type RestoreResult = (Vec<RollbackFileResult>, Vec<RollbackFailure>);
 
 pub(crate) trait TargetIo {
     fn inspect_path(
@@ -80,24 +74,6 @@ pub(crate) trait TargetIo {
         rel_path: &str,
         mode: u32,
     ) -> anyhow::Result<()>;
-    fn create_backups(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_paths: &[String],
-        session_id: &str,
-    ) -> anyhow::Result<()>;
-    #[allow(dead_code)]
-    fn list_backup_sessions(
-        &mut self,
-        runtime: &mut CoreRuntime,
-    ) -> anyhow::Result<Vec<BackupSession>>;
-    #[allow(dead_code)]
-    fn restore_backup(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        session_id: &str,
-        files: &[String],
-    ) -> anyhow::Result<RestoreResult>;
     fn remove_file(&mut self, runtime: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<()>;
     fn create_symlink(
         &mut self,
@@ -308,78 +284,6 @@ impl TargetIo for LocalTargetIo {
         chmod_local_file(&self.validated_path(path)?, mode)
     }
 
-    fn create_backups(
-        &mut self,
-        _: &mut CoreRuntime,
-        paths: &[String],
-        session_id: &str,
-    ) -> anyhow::Result<()> {
-        for path in paths {
-            self.validated_path(path)?;
-        }
-        create_local_backups(&self.root, paths, session_id)
-    }
-
-    fn list_backup_sessions(&mut self, _: &mut CoreRuntime) -> anyhow::Result<Vec<BackupSession>> {
-        let backup_dir = self.root.join(backup::BACKUP_DIR_NAME);
-        backup::list_local_sessions(&backup_dir)?
-            .into_iter()
-            .map(|session| {
-                let files = session
-                    .files
-                    .iter()
-                    .map(|path| {
-                        let full =
-                            backup::session_backup_path(&backup_dir, &session.session_id, path);
-                        BackupEntry {
-                            path: path.clone(),
-                            size: Some(
-                                std::fs::metadata(full)
-                                    .map(|metadata| metadata.len())
-                                    .unwrap_or(0),
-                            ),
-                            link_target: None,
-                        }
-                    })
-                    .collect();
-                Ok(BackupSession::new(session.session_id, files, false))
-            })
-            .collect()
-    }
-
-    fn restore_backup(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        session_id: &str,
-        files: &[String],
-    ) -> anyhow::Result<RestoreResult> {
-        let pre_session_id = backup::backup_timestamp();
-        if runtime.config.backup.enabled {
-            let existing: Vec<_> = files
-                .iter()
-                .filter(|path| self.root.join(path).exists())
-                .cloned()
-                .collect();
-            if !existing.is_empty() {
-                if let Err(error) = self.create_backups(runtime, &existing, &pre_session_id) {
-                    tracing::warn!("Pre-rollback backup failed (continuing): {}", error);
-                }
-            }
-        }
-        if backup::extract_timestamp(session_id).is_none() {
-            anyhow::bail!("Invalid session_id format: {}", session_id);
-        }
-        let result = restore_local_files(
-            &self.root,
-            &self.root.join(backup::BACKUP_DIR_NAME),
-            session_id,
-            files,
-            runtime.config.backup.enabled,
-            &pre_session_id,
-        )?;
-        Ok((result.restored, result.failures))
-    }
-
     fn remove_file(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
         remove_local_file(&self.validated_path(path)?)
     }
@@ -571,54 +475,6 @@ impl TargetIo for RemoteTargetIo {
     }
     fn chmod_file(&mut self, rt: &mut CoreRuntime, path: &str, mode: u32) -> anyhow::Result<()> {
         rt.chmod_remote_file(&self.name, path, mode)
-    }
-    fn create_backups(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-        session: &str,
-    ) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_backup(&self.name, paths, session) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.create_remote_backups(&self.name, paths, session)
-    }
-    fn list_backup_sessions(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<Vec<BackupSession>> {
-        let mut sessions = if let Some(v) = rt.try_agent_list_backup_sessions(&self.name) {
-            v?
-        } else {
-            rt.check_sudo_fallback(&self.name)?;
-            rt.list_remote_backup_sessions_ssh(&self.name)?
-        };
-        crate::service::rollback::mark_expired(
-            &mut sessions,
-            rt.config.backup.retention_days,
-            Utc::now(),
-        );
-        Ok(sessions)
-    }
-    fn restore_backup(
-        &mut self,
-        rt: &mut CoreRuntime,
-        session: &str,
-        files: &[String],
-    ) -> anyhow::Result<RestoreResult> {
-        let pre = backup::backup_timestamp();
-        if rt.config.backup.enabled && !files.is_empty() {
-            if let Err(error) = self.create_backups(rt, files, &pre) {
-                tracing::warn!("Pre-rollback backup failed (continuing): {}", error);
-            }
-        }
-        if backup::extract_timestamp(session).is_none() {
-            anyhow::bail!("Invalid session_id format: {}", session);
-        }
-        let enabled = rt.config.backup.enabled;
-        if let Some(v) = rt.try_agent_restore_backup(&self.name, session, files, &pre, enabled) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.restore_remote_backup_ssh(&self.name, session, files, &pre, enabled)
     }
     fn remove_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
         rt.remove_remote_file(&self.name, path)

@@ -76,25 +76,9 @@ impl Dispatcher {
             AgentRequest::InspectPath { path } => Some(vec![AgentResponse::PathInspection {
                 result: file_io::inspect_path(&self.root_dir, &path),
             }]),
-            AgentRequest::Backup { paths, backup_dir } => {
-                Some(vec![self.handle_backup(&paths, &backup_dir)])
-            }
             AgentRequest::Symlink { path, target } => {
                 Some(vec![self.handle_symlink(&path, &target)])
             }
-            AgentRequest::ListBackups { backup_dir } => {
-                Some(vec![self.handle_list_backups(&backup_dir)])
-            }
-            AgentRequest::RestoreBackup {
-                backup_dir,
-                session_id,
-                files,
-                ..
-            } => Some(vec![self.handle_restore_backup(
-                &backup_dir,
-                &session_id,
-                &files,
-            )]),
         }
     }
 
@@ -346,32 +330,6 @@ impl Dispatcher {
         AgentResponse::Stats { entries }
     }
 
-    fn handle_backup(&self, paths: &[String], backup_dir: &str) -> AgentResponse {
-        let backup_path = match resolve_scan_root(&self.root_dir, backup_dir) {
-            Ok(p) => p,
-            Err(e) => {
-                return AgentResponse::BackupResult {
-                    success: false,
-                    error: Some(e),
-                }
-            }
-        };
-
-        for rel_path in paths {
-            if let Err(e) = file_io::create_backup(&self.root_dir, rel_path, &backup_path) {
-                return AgentResponse::BackupResult {
-                    success: false,
-                    error: Some(format!("backup failed for {rel_path}: {e}")),
-                };
-            }
-        }
-
-        AgentResponse::BackupResult {
-            success: true,
-            error: None,
-        }
-    }
-
     fn handle_symlink(&self, rel_path: &str, target: &str) -> AgentResponse {
         match file_io::create_symlink_with_metadata(
             &self.root_dir,
@@ -390,50 +348,6 @@ impl Dispatcher {
                 error: Some(e.to_string()),
             },
         }
-    }
-
-    fn handle_list_backups(&self, backup_dir: &str) -> AgentResponse {
-        let backup_path = match resolve_scan_root(&self.root_dir, backup_dir) {
-            Ok(p) => p,
-            Err(e) => return AgentResponse::Error { message: e },
-        };
-
-        match file_io::list_backup_sessions(&backup_path) {
-            Ok(sessions) => AgentResponse::BackupList { sessions },
-            Err(e) => AgentResponse::Error {
-                message: format!("failed to list backups: {e}"),
-            },
-        }
-    }
-
-    fn handle_restore_backup(
-        &self,
-        backup_dir: &str,
-        session_id: &str,
-        files: &[String],
-    ) -> AgentResponse {
-        // session_id のフォーマット検証
-        if crate::backup::extract_timestamp(session_id).is_none() {
-            return AgentResponse::Error {
-                message: format!("invalid session_id format: {session_id}"),
-            };
-        }
-
-        let backup_path = match resolve_scan_root(&self.root_dir, backup_dir) {
-            Ok(p) => p,
-            Err(e) => return AgentResponse::Error { message: e },
-        };
-        // 復元先は常に Agent の root_dir を使用（クライアント指定を許可しない）
-        let root_path = self.root_dir.clone();
-
-        let results = file_io::restore_backup(
-            &backup_path,
-            session_id,
-            files,
-            &root_path,
-            &self.metadata_config,
-        );
-        AgentResponse::RestoreResult { results }
     }
 }
 
@@ -933,32 +847,6 @@ mod tests {
 
     // ── Backup ──
 
-    #[test]
-    fn backup_success() {
-        let (tmp, mut d) = setup();
-        fs::write(tmp.path().join("orig.txt"), "backup me").unwrap();
-
-        let resp = single(
-            d.dispatch(AgentRequest::Backup {
-                paths: vec!["orig.txt".into()],
-                backup_dir: "backups".into(),
-            })
-            .unwrap(),
-        );
-
-        assert_eq!(
-            resp,
-            AgentResponse::BackupResult {
-                success: true,
-                error: None,
-            }
-        );
-        assert_eq!(
-            fs::read_to_string(tmp.path().join("backups/orig.txt")).unwrap(),
-            "backup me"
-        );
-    }
-
     // ── Symlink ──
 
     #[test]
@@ -1059,32 +947,6 @@ mod tests {
     }
 
     #[test]
-    fn backup_path_traversal_returns_error() {
-        let (tmp, mut d) = setup();
-        fs::write(tmp.path().join("file.txt"), "data").unwrap();
-
-        let resp = single(
-            d.dispatch(AgentRequest::Backup {
-                paths: vec!["file.txt".into()],
-                backup_dir: "../../tmp/evil".into(),
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::BackupResult { success, error } => {
-                assert!(!success);
-                let msg = error.unwrap();
-                assert!(
-                    msg.contains("path traversal"),
-                    "expected path traversal error, got: {msg}"
-                );
-            }
-            other => panic!("expected BackupResult, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn list_tree_absolute_path_returns_error() {
         let (_tmp, mut d) = setup();
 
@@ -1128,111 +990,6 @@ mod tests {
                 assert_eq!(entries[0].path, "exists.txt");
             }
             other => panic!("expected Stats, got {other:?}"),
-        }
-    }
-
-    // ── ListBackups ──
-
-    #[test]
-    fn list_backups_returns_backup_list() {
-        let (tmp, mut d) = setup();
-        let backup_dir = tmp.path().join("backups");
-        let s1 = backup_dir.join("20260311-100000");
-        fs::create_dir_all(&s1).unwrap();
-        fs::write(s1.join("file.txt"), "data").unwrap();
-
-        let resp = single(
-            d.dispatch(AgentRequest::ListBackups {
-                backup_dir: "backups".into(),
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::BackupList { sessions } => {
-                assert_eq!(sessions.len(), 1);
-                assert_eq!(sessions[0].session_id, "20260311-100000");
-                assert_eq!(sessions[0].files.len(), 1);
-            }
-            other => panic!("expected BackupList, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn list_backups_path_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resp = single(
-            d.dispatch(AgentRequest::ListBackups {
-                backup_dir: "../../evil".into(),
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::Error { message } => {
-                assert!(message.contains("path traversal"));
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
-    }
-
-    // ── RestoreBackup ──
-
-    #[test]
-    fn restore_backup_returns_restore_result() {
-        let (tmp, mut d) = setup();
-
-        // バックアップを用意（root_dir 配下に backups/session ディレクトリを作成）
-        let backup_dir = tmp.path().join("backups");
-        let session_dir = backup_dir.join("20260311-120000");
-        fs::create_dir_all(&session_dir).unwrap();
-        fs::write(session_dir.join("a.txt"), "restored").unwrap();
-
-        // dispatch は self.root_dir（= tmp.path()）を復元先として使用
-        let resp = single(
-            d.dispatch(AgentRequest::RestoreBackup {
-                backup_dir: "backups".into(),
-                session_id: "20260311-120000".into(),
-                files: vec!["a.txt".into()],
-                root_dir: ".".into(), // dispatch は root_dir パラメータを無視し self.root_dir を使用
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::RestoreResult { results } => {
-                assert_eq!(results.len(), 1);
-                assert!(results[0].success);
-                // 復元先は self.root_dir (= tmp.path()) 配下
-                assert_eq!(
-                    fs::read_to_string(tmp.path().join("a.txt")).unwrap(),
-                    "restored"
-                );
-            }
-            other => panic!("expected RestoreResult, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn restore_backup_path_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resp = single(
-            d.dispatch(AgentRequest::RestoreBackup {
-                backup_dir: "../../evil".into(),
-                session_id: "20260311-120000".into(),
-                files: vec!["a.txt".into()],
-                root_dir: ".".into(),
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::Error { message } => {
-                assert!(message.contains("path traversal"));
-            }
-            other => panic!("expected Error, got {other:?}"),
         }
     }
 

@@ -152,10 +152,10 @@ fn test_merge_directory() {
     );
 }
 
-/// merge 後にバックアップが作成される（.remote-merge-backup ディレクトリ内）
+/// merge 後のバックアップはリモートを増やさず集約先の一覧に出る
 #[test]
 #[ignore]
-fn test_merge_creates_backup() {
+fn test_merge_records_backup_only_in_aggregate_store() {
     let env = CliEnv::new(
         &[("file.txt", "local content\n")],
         &[("file.txt", "remote content\n")],
@@ -169,12 +169,21 @@ fn test_merge_creates_backup() {
 
     assert_exit_success(&output);
 
-    // バックアップディレクトリの存在を確認
-    let backup_dir = env.remote_dir.join(".remote-merge-backup");
+    let remote_entries: Vec<_> = fs::read_dir(&env.remote_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(remote_entries, vec![std::ffi::OsString::from("file.txt")]);
+
+    let list = env
+        .cmd_with("rollback")
+        .args(["--list", "--target", "develop"])
+        .output()
+        .expect("failed to list aggregate backups");
+    assert_exit_success(&list);
     assert!(
-        backup_dir.exists(),
-        "Backup directory should exist after merge at {:?}",
-        backup_dir
+        String::from_utf8_lossy(&list.stdout).contains("file.txt"),
+        "aggregate backup list should contain the merged file"
     );
 }
 

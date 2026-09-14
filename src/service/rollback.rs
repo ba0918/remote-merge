@@ -9,9 +9,6 @@ use std::path::PathBuf;
 use super::status::is_sensitive;
 use super::types::{BackupSession, RollbackOutput, RollbackSkipped};
 
-/// バッチ restore スクリプト生成時の最大ファイル数（ARG_MAX 対策）
-const BATCH_CHUNK_SIZE: usize = 1000;
-
 /// 復元計画
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestorePlan {
@@ -175,62 +172,6 @@ pub fn rollback_exit_code(output: &RollbackOutput) -> i32 {
     } else {
         2
     }
-}
-
-/// 複数ファイルを一括リストアするシェルスクリプト群を生成する（純粋関数）。
-///
-/// ARG_MAX 対策として、1チャンクあたり最大 `BATCH_CHUNK_SIZE` ファイルに分割する。
-/// `..` を含む `files` エントリはパストラバーサル防御のため除外する。
-/// パスには `shell_escape` が適用される。
-///
-/// 各ファイルのコマンドは `mkdir -p $(dirname dest) && cp src dest && echo "OK:rel_path"`
-/// の形式で生成され、失敗時は `echo "FAIL:rel_path:reason"` に続く。
-pub fn build_batch_restore_scripts(
-    root_dir: &str,
-    backup_dir_name: &str,
-    session_id: &str,
-    files: &[String],
-) -> Vec<String> {
-    use crate::ssh::tree_parser::shell_escape;
-
-    // session_id のバリデーション（pub 関数としての防御）
-    if session_id.contains("..")
-        || session_id.contains('/')
-        || session_id.contains('\\')
-        || session_id.is_empty()
-    {
-        return Vec::new();
-    }
-
-    let root = root_dir.trim_end_matches('/');
-
-    // パストラバーサルを含むファイルを除外し、コマンド断片を生成する
-    let cmds: Vec<String> = files
-        .iter()
-        .filter(|f| {
-            // Component::ParentDir ベースの厳密な検証
-            !std::path::Path::new(f.as_str())
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-        })
-        .map(|rel_path| {
-            let src = format!("{}/{}/{}/{}", root, backup_dir_name, session_id, rel_path);
-            let dst = format!("{}/{}", root, rel_path);
-            let escaped_src = shell_escape(&src);
-            let escaped_dst = shell_escape(&dst);
-            // echo にはエスケープ不要の生パスを渡す（printf でバイナリセーフに出力）
-            let safe_rel = rel_path.replace('\'', "'\\''");
-            // mkdir -p で親ディレクトリを作成してからコピー。成否をマーカーで出力する
-            format!(
-                "mkdir -p $(dirname {escaped_dst}) && cp {escaped_src} {escaped_dst} && printf 'OK:%s\\n' '{safe_rel}' || printf 'FAIL:%s:cp_failed\\n' '{safe_rel}'",
-            )
-        })
-        .collect();
-
-    // チャンク分割して、各チャンクを1つのシェルスクリプト文字列にまとめる
-    cmds.chunks(BATCH_CHUNK_SIZE)
-        .map(|chunk| chunk.join("\n"))
-        .collect()
 }
 
 /// バッチ restore スクリプトの出力をパースする（純粋関数）。
@@ -500,101 +441,6 @@ mod tests {
         let plan = plan_restore(&sessions, None, &[], false).unwrap();
         assert!(plan.files.is_empty());
         assert!(plan.skipped.is_empty());
-    }
-
-    // ── build_batch_restore_scripts ──
-
-    #[test]
-    fn build_batch_scripts_basic() {
-        let files = vec!["src/main.rs".to_string(), "src/lib.rs".to_string()];
-        let scripts = build_batch_restore_scripts("/var/www", ".backup", "20240115-140000", &files);
-        assert_eq!(scripts.len(), 1);
-        let script = &scripts[0];
-        // src パスが含まれること
-        assert!(script.contains("/var/www/.backup/20240115-140000/src/main.rs"));
-        // dst パスが含まれること
-        assert!(script.contains("/var/www/src/main.rs"));
-        // OK マーカーが含まれること
-        assert!(script.contains("printf 'OK:%s\\n'"));
-        // FAIL マーカーが含まれること
-        assert!(script.contains("printf 'FAIL:%s:cp_failed\\n'"));
-    }
-
-    #[test]
-    fn build_batch_scripts_chunk_split() {
-        // 1001 ファイルで 2 チャンクに分割されること
-        let files: Vec<String> = (0..1001).map(|i| format!("file{i}.txt")).collect();
-        let scripts = build_batch_restore_scripts("/root", ".b", "20240115-140000", &files);
-        assert_eq!(scripts.len(), 2);
-        // 1チャンク目は 1000 行、2チャンク目は 1 行
-        let chunk1_lines = scripts[0].lines().count();
-        let chunk2_lines = scripts[1].lines().count();
-        assert_eq!(chunk1_lines, 1000);
-        assert_eq!(chunk2_lines, 1);
-    }
-
-    #[test]
-    fn build_batch_scripts_excludes_path_traversal() {
-        let files = vec![
-            "safe/file.rs".to_string(),
-            "../etc/passwd".to_string(),
-            "also/../bad.rs".to_string(),
-        ];
-        let scripts = build_batch_restore_scripts("/var/www", ".backup", "20240115-140000", &files);
-        assert_eq!(scripts.len(), 1);
-        let script = &scripts[0];
-        // 安全なパスのみ含まれる
-        assert!(script.contains("safe/file.rs"));
-        // パストラバーサルは除外される
-        assert!(!script.contains("passwd"));
-        assert!(!script.contains("bad.rs"));
-    }
-
-    #[test]
-    fn build_batch_scripts_empty_files() {
-        let scripts = build_batch_restore_scripts("/var/www", ".backup", "20240115-140000", &[]);
-        assert!(scripts.is_empty());
-    }
-
-    #[test]
-    fn build_batch_scripts_shell_escape_applied() {
-        // スペースを含むパスが正しくエスケープされること
-        let files = vec!["src/my file.rs".to_string()];
-        let scripts = build_batch_restore_scripts("/var/www", ".backup", "20240115-140000", &files);
-        assert_eq!(scripts.len(), 1);
-        let script = &scripts[0];
-        // シングルクォートでエスケープされていること
-        assert!(script.contains("'src/my file.rs'") || script.contains("'my file.rs'"));
-    }
-
-    #[test]
-    fn build_batch_scripts_only_traversal_files() {
-        // 全ファイルがパストラバーサルの場合は空になること
-        let files = vec!["../passwd".to_string(), "../../etc".to_string()];
-        let scripts = build_batch_restore_scripts("/var/www", ".backup", "20240115-140000", &files);
-        assert!(scripts.is_empty());
-    }
-
-    #[test]
-    fn build_batch_scripts_rejects_invalid_session_id() {
-        let files = vec!["safe.txt".to_string()];
-        // パストラバーサル
-        assert!(build_batch_restore_scripts("/root", ".b", "../evil", &files).is_empty());
-        // スラッシュ
-        assert!(build_batch_restore_scripts("/root", ".b", "a/b", &files).is_empty());
-        // バックスラッシュ
-        assert!(build_batch_restore_scripts("/root", ".b", "a\\b", &files).is_empty());
-        // 空
-        assert!(build_batch_restore_scripts("/root", ".b", "", &files).is_empty());
-    }
-
-    #[test]
-    fn build_batch_scripts_allows_legit_dotdot_filename() {
-        // "file..name.txt" は Component::ParentDir ではないので許可される
-        let files = vec!["file..name.txt".to_string()];
-        let scripts = build_batch_restore_scripts("/root", ".b", "20240115-140000", &files);
-        assert_eq!(scripts.len(), 1);
-        assert!(scripts[0].contains("file..name.txt"));
     }
 
     // ── parse_batch_restore_output ──
