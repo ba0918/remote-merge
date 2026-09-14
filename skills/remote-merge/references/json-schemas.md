@@ -147,7 +147,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 }
 ```
 
-- `merged[].backup`: backup path in format `{session_id}/{relative_path}` (inside `.remote-merge-backup/` directory)
+- `merged[].backup`: backup reference in format `{session_id}/{relative_path}`. It does not expose the absolute path of the local backup store. Omitted when the destination file was newly created or backups are disabled.
 - `merged[].status`: `"ok"` on success, `"would merge"` in dry-run mode
 - `merged[].ref_badge`: optional reference badge (present only with `--ref`)
 - `skipped`: files skipped (sensitive files without `--force`, remote-to-remote without `--force`)
@@ -203,6 +203,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `targets[].deleted`: files deleted by `--delete`. Always present (empty array `[]` when no files are deleted).
 - `targets[].deleted[].status`: `"ok"` or `"failed"`
 - `targets[].deleted[].backup`: backup path (omitted when backup is disabled or not applicable)
+- `targets[].merged[].backup`: backup reference in format `{session_id}/{relative_path}` (omitted when the destination file was newly created or backups are disabled)
 - `summary`: aggregate counts across all servers
 - Connection failures appear as targets with empty `merged` and error details in `failed`
 
@@ -214,9 +215,10 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
   "sessions": [
     {
       "session_id": "20260311-140000",
-      "file_count": 1,
+      "file_count": 2,
       "files": [
-        { "path": "src/config.ts", "size": 1234 }
+        { "path": "src/config.ts", "size": 1234 },
+        { "path": "current", "link_target": "releases/A" }
       ]
     }
   ]
@@ -226,8 +228,9 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `target`: SourceInfo object with `label` and `root`
 - `sessions`: array of backup sessions, sorted newest first
 - `sessions[].file_count`: number of files in the session
-- `sessions[].expired`: boolean, present when true (session older than retention period). Omitted when false.
-- `sessions[].files`: list of backed-up files with their sizes. May be empty if the merge created a new file on the target (no original to back up).
+- `sessions[].expired`: boolean, present when true (the UTC timestamp in the session ID is at least `retention_days * 24 hours` old). Omitted when false.
+- `sessions[].files`: backed-up entries. Regular-file entries contain `path` and `size`. An entry for a replaced symlink contains `path` and `link_target`, and omits `size`.
+- Sessions with missing or corrupt records are omitted. Operations that had nothing to back up do not leave empty sessions.
 
 ## rollback (restore)
 
@@ -248,9 +251,9 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 ```
 
 - `target`: SourceInfo object with `label` and `root`
-- `restored[].pre_rollback_backup`: session ID of the safety backup created before restoring (so the restore itself can be undone)
-- `skipped`: files skipped. Omitted when empty.
-- `failed`: files that failed to restore. Omitted when empty.
+- `restored[].pre_rollback_backup`: session ID of the safety backup created before restoring, so the restore itself can be undone. Omitted when the destination did not exist before restoration.
+- `skipped`: files skipped. Omitted when empty. Symlink-safe rollback may report `"symlink restore not supported"`, `"path now resolves to a different location"`, or `"parent directory no longer exists"`; these skips make the command exit with code 2 even with `--force`.
+- `failed`: files that failed to restore. Omitted when empty. A path that cannot be resolved is reported as `"cannot resolve path: <cause>"`.
 
 ## state.json (TUI dump)
 

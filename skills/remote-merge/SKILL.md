@@ -174,7 +174,11 @@ Options:
 
 Exit codes: 0 = success, 2 = error (partial or total failure).
 
-Backup structure: `.remote-merge-backup/{session_id}/{relative_path}` (session directory per merge operation).
+Backups are stored only on the machine running `remote-merge`, under
+`$XDG_DATA_HOME/remote-merge/backups/` or, when `XDG_DATA_HOME` is unset, empty, or relative,
+`~/.local/share/remote-merge/backups/`. The internal layout is not a public contract. Sessions
+are separated by write target and use UTC IDs in the form `YYYYMMDD-HHMMSS`, with `-N` (`N >= 2`)
+when multiple operations start in the same second.
 
 ### 5. Verify
 
