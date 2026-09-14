@@ -7,7 +7,7 @@ use crate::app::side::comparison_label;
 use crate::app::{AppState, Side};
 use crate::config::AppConfig;
 use crate::tree::FileTree;
-use crate::{backup, filter, local, state};
+use crate::{filter, local, state};
 
 use super::{RuntimeTargets, TuiRuntime};
 
@@ -37,6 +37,9 @@ pub fn bootstrap_tui_with_targets(
 
     let available_servers: Vec<String> = config.servers.keys().cloned().collect();
     let mut runtime = TuiRuntime::with_targets(config.clone(), targets);
+    if let Err(error) = runtime.core.cleanup_expired_backups() {
+        tracing::warn!("Backup cleanup failed: {}", error);
+    }
 
     // 左側: --left が指定されたらリモート、なければローカル
     let (mut left_tree, left_source, left_connected) = fetch_left_side(
@@ -87,9 +90,6 @@ pub fn bootstrap_tui_with_targets(
     if app_state.has_reference() {
         app_state.rebuild_flat_nodes();
     }
-
-    // 起動時に古いバックアップをクリーンアップ
-    cleanup_old_backups(&config);
 
     Ok((app_state, runtime))
 }
@@ -310,26 +310,6 @@ fn validate_server_params(params: &TuiBootstrapParams, config: &AppConfig) -> an
     }
 
     Ok(())
-}
-
-/// 起動時に古いバックアップをクリーンアップする
-fn cleanup_old_backups(config: &AppConfig) {
-    if config.backup.enabled {
-        let backup_dir = config.local.root_dir.join(backup::BACKUP_DIR_NAME);
-        match backup::cleanup_old_backups(
-            &backup_dir,
-            config.backup.retention_days,
-            chrono::Utc::now(),
-        ) {
-            Ok(removed) if !removed.is_empty() => {
-                tracing::info!("Cleaned up {} old backup(s)", removed.len());
-            }
-            Err(e) => {
-                tracing::warn!("Backup cleanup failed: {}", e);
-            }
-            _ => {}
-        }
-    }
 }
 
 #[cfg(test)]

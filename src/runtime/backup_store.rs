@@ -143,25 +143,7 @@ impl BackupStore {
             .root
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
-        let description =
-            match target {
-                Side::Local => local_target_identity(&config.local, &self.startup_directory)
-                    .root_dir()
-                    .display()
-                    .to_string(),
-                Side::Remote(name) => {
-                    let identity =
-                        remote_target_identity(config.servers.get(name).ok_or_else(|| {
-                            anyhow::anyhow!("Server '{}' not found in config", name)
-                        })?);
-                    format!(
-                        "{}:{}:{}",
-                        identity.host(),
-                        identity.port(),
-                        identity.root_dir().display()
-                    )
-                }
-            };
+        let description = target_description(config, target, &self.startup_directory)?;
         let key = format!("{:x}", Sha256::digest(description.as_bytes()));
         let target_dir = root.join("targets").join(&key);
         create_dir_owner_only(&target_dir)?;
@@ -193,6 +175,42 @@ impl BackupStore {
         let _ = fs::remove_dir(reservations.join(session_id));
         let _ = fs::remove_dir(&reservations);
         let _ = fs::remove_dir(root);
+    }
+
+    pub(crate) fn cleanup_expired(&self, config: &AppConfig) -> anyhow::Result<usize> {
+        let Some(root) = &self.root else {
+            return Ok(0);
+        };
+        let sessions_dir = root.join("sessions");
+        let Ok(sessions) = fs::read_dir(&sessions_dir) else {
+            return Ok(0);
+        };
+        let target_keys = configured_target_keys(config, &self.startup_directory)?;
+        let mut removed = 0;
+        for session in sessions.filter_map(Result::ok) {
+            let Some(session_id) = session.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if crate::backup::is_session_expired(
+                &session_id,
+                config.backup.retention_days,
+                self.now,
+            ) != Some(true)
+            {
+                continue;
+            }
+            for target_key in &target_keys {
+                let target_dir = session.path().join(target_key);
+                if target_dir.exists() {
+                    fs::remove_dir_all(target_dir)?;
+                    removed += 1;
+                }
+            }
+            if fs::read_dir(session.path())?.next().is_none() {
+                fs::remove_dir(session.path())?;
+            }
+        }
+        Ok(removed)
     }
 
     pub(crate) fn list_sessions(
@@ -298,6 +316,19 @@ impl BackupStore {
             StoredBackupRecord::Symlink { .. } => Ok(BackupRecord::Symlink),
         }
     }
+}
+
+fn configured_target_keys(
+    config: &AppConfig,
+    startup_directory: &Path,
+) -> anyhow::Result<Vec<String>> {
+    std::iter::once(Side::Local)
+        .chain(config.servers.keys().cloned().map(Side::Remote))
+        .map(|target| {
+            let description = target_description(config, &target, startup_directory)?;
+            Ok(format!("{:x}", Sha256::digest(description.as_bytes())))
+        })
+        .collect()
 }
 
 fn target_description(

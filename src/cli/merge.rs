@@ -116,6 +116,13 @@ pub fn execute_merge(
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
+    if !args.dry_run {
+        if let Err(error) = core.cleanup_expired_backups() {
+            tracing::warn!("Backup cleanup failed: {}", error);
+        }
+    }
+
     // remote-to-remote merge ガード: --force または --dry-run なしでは拒否
     if let Some(outcome) = check_r2r_guard(&pair.left, &pair.right, args.dry_run, args.force) {
         return Ok(MergeCommandResult {
@@ -136,12 +143,9 @@ pub fn execute_merge(
             direction,
             args.dry_run,
             args.force,
-            config,
-            targets,
+            core,
         );
     }
-
-    let mut core = CoreRuntime::with_targets(config.clone(), targets);
 
     // 接続（left/right）
     core.connect_if_remote(&pair.left)?;
@@ -374,17 +378,15 @@ fn run_hunk_merge(
     direction: MergeDirection,
     dry_run: bool,
     force: bool,
-    config: AppConfig,
-    targets: RuntimeTargets,
+    mut core: CoreRuntime,
 ) -> anyhow::Result<MergeCommandResult> {
     use crate::service::merge::build_merge_output;
-
-    let mut core = CoreRuntime::with_targets(config.clone(), targets);
 
     core.connect_if_remote(left)?;
     core.connect_if_remote(right)?;
 
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
+    let config = core.config.clone();
     let max_entries = resolve_max_entries(None, &config)?;
     let paths = vec![path.to_string()];
     let strategy = resolve_scan_strategy(&paths, false);

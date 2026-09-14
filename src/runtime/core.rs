@@ -103,6 +103,10 @@ impl CoreRuntime {
         self.backup_store.finish_session(session_id);
     }
 
+    pub fn cleanup_expired_backups(&self) -> anyhow::Result<usize> {
+        self.backup_store.cleanup_expired(&self.config)
+    }
+
     pub fn save_backup(
         &mut self,
         target: &crate::app::Side,

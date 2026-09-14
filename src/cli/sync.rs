@@ -115,6 +115,11 @@ pub fn execute_sync(
 
     // 接続 + left ツリー取得（全ペアで共有）
     let mut core = CoreRuntime::with_targets(config.clone(), targets);
+    if !args.dry_run {
+        if let Err(error) = core.cleanup_expired_backups() {
+            tracing::warn!("Backup cleanup failed: {}", error);
+        }
+    }
     let left_side = &pairs[0].left;
     core.connect_if_remote(left_side)?;
     let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config, max_entries)?;
