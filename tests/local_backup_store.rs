@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use chrono::{TimeZone, Utc};
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
@@ -244,4 +245,262 @@ fn backup_store_failure_leaves_target_unchanged_and_reports_file_failure() {
     };
     assert!(output.merged.is_empty());
     assert!(output.failed[0].error.starts_with("backup failed: "));
+}
+
+#[test]
+fn delete_stores_backup_in_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(develop.path().join("obsolete.txt"), "obsolete\n").unwrap();
+    let mut args = merge_args("obsolete.txt");
+    args.delete = true;
+
+    let result = execute_merge(
+        args,
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    assert!(!develop.path().join("obsolete.txt").exists());
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected files")
+    };
+    assert!(output.deleted[0]
+        .backup
+        .as_deref()
+        .is_some_and(|value| value.ends_with("/obsolete.txt")));
+    let remaining = fs::read_dir(develop.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    assert!(remaining.is_empty(), "remaining entries: {remaining:?}");
+}
+
+#[test]
+fn hunk_merge_stores_backup_in_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "first\nchanged\nthird\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "first\nold\nthird\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.hunks = Some(vec![0]);
+
+    let result = execute_merge(
+        args,
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected files")
+    };
+    assert!(output.merged[0]
+        .backup
+        .as_deref()
+        .is_some_and(|value| value.ends_with("/file.txt")));
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn sync_uses_one_session_id_for_all_targets() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let staging = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(
+        local.path().join("file.txt"),
+        "new content shared by sync\n",
+    )
+    .unwrap();
+    fs::write(develop.path().join("file.txt"), "old develop\n").unwrap();
+    fs::write(staging.path().join("file.txt"), "old staging\n").unwrap();
+    let config_path = local.path().join("sync-config.toml");
+    fs::write(
+        &config_path,
+        format!(
+            r#"
+[local]
+root_dir = "{}"
+[servers.develop]
+host = "develop.invalid"
+user = "unused"
+root_dir = "{}"
+[servers.staging]
+host = "staging.invalid"
+user = "unused"
+root_dir = "{}"
+[backup]
+enabled = true
+"#,
+            local.path().display(),
+            develop.path().display(),
+            staging.path().display()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_local("staging", staging.path())
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
+    let args = SyncArgs {
+        paths: vec!["file.txt".into()],
+        left: Some("local".into()),
+        right: vec!["develop".into(), "staging".into()],
+        dry_run: false,
+        force: true,
+        delete: false,
+        with_permissions: false,
+        format: "json".into(),
+        max_entries: None,
+    };
+
+    let result = execute_sync(args, config, targets).unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected result")
+    };
+    let sessions = output
+        .targets
+        .iter()
+        .map(|target| {
+            target.merged[0]
+                .backup
+                .as_deref()
+                .unwrap()
+                .split('/')
+                .next()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0], sessions[1]);
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn remote_to_local_merge_keeps_backup_out_of_target_root() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "old\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote content\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    let config = config(&local, &develop, true);
+    let before = fs::read_dir(local.path()).unwrap().count();
+
+    let result = execute_merge(args, config, targets(&develop, &store)).unwrap();
+
+    assert_eq!(fs::read_dir(local.path()).unwrap().count(), before);
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected files")
+    };
+    assert!(output.merged[0].backup.is_some());
+}
+
+#[test]
+fn remote_to_remote_merge_keeps_backup_out_of_both_target_roots() {
+    let config_dir = TempDir::new().unwrap();
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let staging = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote content\n").unwrap();
+    fs::write(staging.path().join("file.txt"), "old\n").unwrap();
+    let config_path = config_dir.path().join("config.toml");
+    fs::write(
+        &config_path,
+        format!(
+            r#"
+[local]
+root_dir = "{}"
+[servers.develop]
+host = "develop.invalid"
+user = "unused"
+root_dir = "{}"
+[servers.staging]
+host = "staging.invalid"
+user = "unused"
+root_dir = "{}"
+[backup]
+enabled = true
+"#,
+            local.path().display(),
+            develop.path().display(),
+            staging.path().display()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_local("staging", staging.path())
+        .with_backup_store(Some(store.path().to_path_buf()));
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("staging".into());
+    args.force = true;
+
+    execute_merge(args, config, targets).unwrap();
+
+    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn enabled_backup_without_store_location_stops_merge() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(None);
+
+    let error = execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, true),
+        targets,
+    )
+    .err()
+    .unwrap();
+
+    assert!(error
+        .to_string()
+        .contains("backup store location could not be determined"));
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "old\n"
+    );
+}
+
+#[test]
+fn disabled_backup_without_store_location_allows_merge() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", develop.path())
+        .with_backup_store(None);
+
+    execute_merge(
+        merge_args("file.txt"),
+        config(&local, &develop, false),
+        targets,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
+        "new content\n"
+    );
 }
