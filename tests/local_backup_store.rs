@@ -504,3 +504,37 @@ fn disabled_backup_without_store_location_allows_merge() {
         "new content\n"
     );
 }
+
+#[test]
+fn concurrent_merges_use_distinct_session_ids() {
+    let store = TempDir::new().unwrap();
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let mut handles = Vec::new();
+    for index in 0..2 {
+        let local = TempDir::new().unwrap();
+        let develop = TempDir::new().unwrap();
+        fs::write(
+            local.path().join("file.txt"),
+            format!("new content {index}\n"),
+        )
+        .unwrap();
+        fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+        let config = config(&local, &develop, true);
+        let targets = targets(&develop, &store);
+        let barrier = barrier.clone();
+        handles.push(std::thread::spawn(move || {
+            let _guards = (local, develop);
+            barrier.wait();
+            let result = execute_merge(merge_args("file.txt"), config, targets).unwrap();
+            let MergeCommandOutput::Files(output) = result.output else {
+                panic!("expected files")
+            };
+            output.merged[0].backup.clone().unwrap()
+        }));
+    }
+    let backups = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_ne!(backups[0].split('/').next(), backups[1].split('/').next());
+}
