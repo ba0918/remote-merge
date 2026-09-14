@@ -7,6 +7,7 @@ pub mod merge_scan;
 pub mod remote_io;
 pub mod scanner;
 pub mod side_io;
+pub(crate) mod target_io;
 
 use std::collections::HashMap;
 use std::sync::mpsc;

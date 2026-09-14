@@ -11,8 +11,6 @@ use chrono::{DateTime, Utc};
 
 use crate::agent::protocol::{FileHashResult, FileReadResult};
 use crate::app::Side;
-use crate::local;
-use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
@@ -42,16 +40,8 @@ impl CoreRuntime {
 
     /// Side に基づいてファイルを読み込む
     pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
-        match side {
-            Side::Local => executor::read_local_file(&self.config.local.root_dir, rel_path),
-            Side::Remote(name) => {
-                if let Some(content) = self.try_agent_read_file(name, rel_path) {
-                    return content;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_file(name, rel_path)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_file(self, rel_path)
     }
 
     /// Side に基づいて複数ファイルをバッチ読み込みする
@@ -60,23 +50,8 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
-        match side {
-            Side::Local => {
-                let mut result = HashMap::with_capacity(rel_paths.len());
-                for rel_path in rel_paths {
-                    let content = executor::read_local_file(&self.config.local.root_dir, rel_path)?;
-                    result.insert(rel_path.clone(), content);
-                }
-                Ok(result)
-            }
-            Side::Remote(name) => {
-                if let Some(batch) = self.try_agent_read_files_batch(name, rel_paths) {
-                    return batch;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_files_batch(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_files_batch(self, rel_paths)
     }
 
     // ── バイト列読み込み ──
@@ -88,18 +63,8 @@ impl CoreRuntime {
         rel_path: &str,
         force: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        match side {
-            Side::Local => {
-                executor::read_local_file_bytes(&self.config.local.root_dir, rel_path, force)
-            }
-            Side::Remote(name) => {
-                if let Some(bytes) = self.try_agent_read_file_bytes(name, rel_path) {
-                    return bytes;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_file_bytes(name, rel_path, force)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_file_bytes(self, rel_path, force)
     }
 
     /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
@@ -112,49 +77,16 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        match side {
-            Side::Local => {
-                let mut result = HashMap::with_capacity(rel_paths.len());
-                for rel_path in rel_paths {
-                    let bytes = executor::read_local_file_bytes(
-                        &self.config.local.root_dir,
-                        rel_path,
-                        false,
-                    )?;
-                    result.insert(rel_path.clone(), bytes);
-                }
-                Ok(result)
-            }
-            Side::Remote(name) => {
-                // Agent バッチを試行
-                if let Some(batch_result) = self.try_agent_read_files_bytes_batch(name, rel_paths) {
-                    return batch_result;
-                }
-                // SSH fallback: バッチ読み込み（チャンク分割対応）
-                self.check_sudo_fallback(name)?;
-                self.read_remote_files_batch_bytes(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_files_bytes_batch(self, rel_paths)
     }
 
     // ── 書き込み ──
 
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                executor::write_local_file(&self.config.local.root_dir, rel_path, content)
-            }
-            Side::Remote(name) => {
-                if let Some(result) =
-                    self.try_agent_write_file(name, rel_path, content.as_bytes(), false)
-                {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.write_remote_file(name, rel_path, content)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.write_file(self, rel_path, content)
     }
 
     /// Side に基づいてバイト列を書き込む（バイナリファイル対応）
@@ -164,18 +96,8 @@ impl CoreRuntime {
         rel_path: &str,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                executor::write_local_file_bytes(&self.config.local.root_dir, rel_path, content)
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_write_file(name, rel_path, content, true) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.write_remote_file_bytes(name, rel_path, content)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.write_file_bytes(self, rel_path, content)
     }
 
     // ── メタデータ ──
@@ -186,37 +108,14 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                for rel_path in rel_paths {
-                    let full = root.join(rel_path);
-                    executor::validate_path_within_root(root, &full)?;
-                }
-                stat_local_files(root, rel_paths)
-            }
-            Side::Remote(name) => {
-                if let Some(stats) = self.try_agent_stat_files(name, rel_paths) {
-                    return stats;
-                }
-                self.check_sudo_fallback(name)?;
-                self.stat_remote_files(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.stat_files(self, rel_paths)
     }
 
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let full = root.join(rel_path);
-                let normalized = executor::validate_path_within_root(root, &full)?;
-                chmod_local_file(&normalized, mode)
-            }
-            // Agent プロトコルに chmod は未定義のため、常に SSH を使用
-            Side::Remote(name) => self.chmod_remote_file(name, rel_path, mode),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.chmod_file(self, rel_path, mode)
     }
 
     // ── バックアップ ──
@@ -231,24 +130,8 @@ impl CoreRuntime {
         rel_paths: &[String],
         session_id: &str,
     ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                for rel_path in rel_paths {
-                    let full = root.join(rel_path);
-                    executor::validate_path_within_root(root, &full)?;
-                }
-                create_local_backups(root, rel_paths, session_id)?;
-                Ok(())
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_backup(name, rel_paths, session_id) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.create_remote_backups(name, rel_paths, session_id)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.create_backups(self, rel_paths, session_id)
     }
 
     // ── バックアップ一覧・復元 ──
@@ -260,57 +143,8 @@ impl CoreRuntime {
         &mut self,
         side: &Side,
     ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        use crate::backup;
-        use crate::service::types::{BackupEntry, BackupSession};
-
-        match side {
-            Side::Local => {
-                let backup_dir = self.config.local.root_dir.join(backup::BACKUP_DIR_NAME);
-                let local_sessions = backup::list_local_sessions(&backup_dir)?;
-                Ok(local_sessions
-                    .into_iter()
-                    .map(|s| {
-                        let files: Vec<BackupEntry> = s
-                            .files
-                            .iter()
-                            .map(|path| {
-                                let full =
-                                    backup::session_backup_path(&backup_dir, &s.session_id, path);
-                                let size = std::fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
-                                BackupEntry {
-                                    path: path.clone(),
-                                    size,
-                                }
-                            })
-                            .collect();
-                        BackupSession::new(s.session_id, files, false)
-                    })
-                    .collect())
-            }
-            Side::Remote(name) => {
-                let name = name.clone();
-                // Agent 経由で取得を試みる
-                if let Some(result) = self.try_agent_list_backup_sessions(&name) {
-                    return result.map(|mut sessions| {
-                        crate::service::rollback::mark_expired(
-                            &mut sessions,
-                            self.config.backup.retention_days,
-                            chrono::Utc::now(),
-                        );
-                        sessions
-                    });
-                }
-                // SSH フォールバック
-                self.check_sudo_fallback(&name)?;
-                let mut sessions = self.list_remote_backup_sessions_ssh(&name)?;
-                crate::service::rollback::mark_expired(
-                    &mut sessions,
-                    self.config.backup.retention_days,
-                    chrono::Utc::now(),
-                );
-                Ok(sessions)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.list_backup_sessions(self)
     }
 
     /// バックアップからファイルを復元する。
@@ -325,87 +159,16 @@ impl CoreRuntime {
         Vec<crate::service::types::RollbackFileResult>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
-        use crate::backup;
-
-        // 復元前バックアップ（pre-rollback backup）
-        let pre_session_id = backup::backup_timestamp();
-        if self.config.backup.enabled && !files.is_empty() {
-            // 存在するファイルのみバックアップ（復元先にファイルがない場合はスキップ）
-            let existing: Vec<String> = files
-                .iter()
-                .filter(|f| match side {
-                    Side::Local => self.config.local.root_dir.join(f).exists(),
-                    Side::Remote(_) => true, // リモートは存在確認が困難なので常にバックアップ試行
-                })
-                .cloned()
-                .collect();
-            if !existing.is_empty() {
-                if let Err(e) = self.create_backups(side, &existing, &pre_session_id) {
-                    tracing::warn!("Pre-rollback backup failed (continuing): {}", e);
-                }
-            }
-        }
-
-        // session_id のフォーマット検証
-        if backup::extract_timestamp(session_id).is_none() {
-            anyhow::bail!("Invalid session_id format: {}", session_id);
-        }
-
-        match side {
-            Side::Local => {
-                let root = self.config.local.root_dir.clone();
-                let backup_dir = root.join(backup::BACKUP_DIR_NAME);
-                let backup_enabled = self.config.backup.enabled;
-                let result = restore_local_files(
-                    &root,
-                    &backup_dir,
-                    session_id,
-                    files,
-                    backup_enabled,
-                    &pre_session_id,
-                )?;
-                Ok((result.restored, result.failures))
-            }
-            Side::Remote(name) => {
-                let name = name.clone();
-                let backup_enabled = self.config.backup.enabled;
-                // Agent 経由で復元を試みる
-                if let Some(result) = self.try_agent_restore_backup(
-                    &name,
-                    session_id,
-                    files,
-                    &pre_session_id,
-                    backup_enabled,
-                ) {
-                    return result;
-                }
-                // SSH フォールバック
-                self.check_sudo_fallback(&name)?;
-                self.restore_remote_backup_ssh(
-                    &name,
-                    session_id,
-                    files,
-                    &pre_session_id,
-                    backup_enabled,
-                )
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.restore_backup(self, session_id, files)
     }
 
     // ── 削除 ──
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let full = self.config.local.root_dir.join(rel_path);
-                let normalized =
-                    executor::validate_path_within_root(&self.config.local.root_dir, &full)?;
-                remove_local_file(&normalized)
-            }
-            // Agent プロトコルに remove は未定義のため、常に SSH を使用
-            Side::Remote(name) => self.remove_remote_file(name, rel_path),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.remove_file(self, rel_path)
     }
 
     // ── シンボリックリンク ──
@@ -417,35 +180,16 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let full = root.join(rel_path);
-                let normalized = executor::validate_path_within_root(root, &full)?;
-                create_local_symlink(&normalized, target)
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_symlink(name, rel_path, target) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.create_remote_symlink(name, rel_path, target)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.create_symlink(self, rel_path, target)
     }
 
     // ── ツリー ──
 
     /// Side に基づいてファイルツリーを取得する（1階層のみ）
     pub fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree> {
-        match side {
-            Side::Local => {
-                local::scan_local_tree(&self.config.local.root_dir, &self.config.filter.exclude)
-            }
-            // fetch_tree は1階層のみ — Agent の ListTree は再帰的なので不適合。
-            // SSH exec (find) を使用する。
-            Side::Remote(name) => self.fetch_remote_tree(name),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree(self)
     }
 
     /// Side に基づいてファイルツリーを再帰取得する
@@ -458,36 +202,8 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let exclude = &self.config.filter.exclude;
-                let include = &self.config.filter.include;
-                let (nodes, truncated) = local::scan_local_tree_recursive_with_include(
-                    root,
-                    exclude,
-                    include,
-                    max_entries,
-                )?;
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
-                let mut tree = FileTree::new(root);
-                tree.nodes = nodes;
-                tree.sort();
-                Ok(tree)
-            }
-            Side::Remote(name) => {
-                // Agent の ListTree はフルツリー走査に最適
-                if let Some(tree) =
-                    self.try_agent_fetch_tree_recursive(name, max_entries, fail_on_truncation)
-                {
-                    return tree;
-                }
-                self.check_sudo_fallback(name)?;
-                self.fetch_remote_tree_recursive(name, max_entries, fail_on_truncation)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree_recursive(self, max_entries, fail_on_truncation)
     }
 
     /// 指定サブパス配下のみツリーを取得する。
@@ -505,52 +221,8 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        // サブパスの正規化: 末尾スラッシュを除去
-        let subpath = subpath.trim_end_matches('/');
-
-        // path traversal チェック
-        let has_traversal = subpath.split('/').any(|component| component == "..");
-        if has_traversal {
-            anyhow::bail!("path traversal not allowed: {}", subpath);
-        }
-
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let scan_root = root.join(subpath);
-
-                // 存在しないディレクトリ → 空ツリー
-                if !scan_root.exists() || !scan_root.is_dir() {
-                    return Ok(FileTree::new(root));
-                }
-
-                let exclude = &self.config.filter.exclude;
-                let (scanned_nodes, truncated) =
-                    local::scan_local_tree_recursive(&scan_root, exclude, max_entries)?;
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
-
-                // スキャン結果を subpath 配下のツリーとして root_dir からの相対に変換
-                let mut tree = FileTree::new(root);
-                tree.nodes = wrap_nodes_in_subpath(subpath, scanned_nodes);
-                tree.sort();
-                Ok(tree)
-            }
-            Side::Remote(name) => {
-                // Agent を優先
-                if let Some(tree) = self.try_agent_fetch_tree_for_subpath(
-                    name,
-                    subpath,
-                    max_entries,
-                    fail_on_truncation,
-                ) {
-                    return tree;
-                }
-                self.check_sudo_fallback(name)?;
-                self.fetch_remote_tree_for_subpath(name, subpath, max_entries, fail_on_truncation)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree_for_subpath(self, subpath, max_entries, fail_on_truncation)
     }
 
     /// Side に基づいてディレクトリの子ノードを取得する
@@ -559,46 +231,28 @@ impl CoreRuntime {
         side: &Side,
         dir_rel_path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
-        let nodes = match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let dir = root.join(dir_rel_path);
-                local::scan_dir(&dir, &self.config.filter.exclude, dir_rel_path)?
-            }
-            // fetch_children は1階層のみ — Agent は再帰走査なのでここでは SSH を使用
-            Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path)?,
-        };
-
-        Ok(crate::filter::filter_children_by_include(
-            nodes,
-            dir_rel_path,
-            &self.config.filter.include,
-        ))
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_children(self, dir_rel_path)
     }
 
     // ── 接続 ──
 
     /// リモートの場合のみ接続する（ローカルは何もしない）
     pub fn connect_if_remote(&mut self, side: &Side) -> anyhow::Result<()> {
-        match side {
-            Side::Local => Ok(()),
-            Side::Remote(name) => self.connect(name),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.connect(self)
     }
 
     /// リモートの場合のみ切断する（ローカルは何もしない）
     pub fn disconnect_if_remote(&mut self, side: &Side) {
-        if let Side::Remote(name) = side {
-            self.disconnect(name);
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.disconnect(self);
     }
 
     /// Side が利用可能かどうか（ローカルは常に true）
     pub fn is_side_available(&self, side: &Side) -> bool {
-        match side {
-            Side::Local => true,
-            Side::Remote(name) => self.has_client(name),
-        }
+        let io = super::target_io::for_side(side, self);
+        io.is_available(self)
     }
 }
 
@@ -613,7 +267,7 @@ impl CoreRuntime {
 
 impl CoreRuntime {
     /// Agent 経由で単一ファイルを読み込む
-    fn try_agent_read_file(
+    pub(crate) fn try_agent_read_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -627,7 +281,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由で複数ファイルをバッチ読み込む
-    fn try_agent_read_files_batch(
+    pub(crate) fn try_agent_read_files_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -642,7 +296,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバイト列を読み込む
-    fn try_agent_read_file_bytes(
+    pub(crate) fn try_agent_read_file_bytes(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -659,7 +313,7 @@ impl CoreRuntime {
     /// パスを `AGENT_READ_BATCH_SIZE` 件ごとにチャンク分割して Agent に送る。
     /// チャンク途中でエラーが発生した場合は Agent を無効化して None を返す
     /// （呼び出し元が SSH フォールバックで全件リトライ）。
-    fn try_agent_read_files_bytes_batch(
+    pub(crate) fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -718,7 +372,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でファイルを書き込む
-    fn try_agent_write_file(
+    pub(crate) fn try_agent_write_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -732,7 +386,7 @@ impl CoreRuntime {
 
     /// Agent 経由で stat を取得する
     #[allow(clippy::type_complexity)]
-    fn try_agent_stat_files(
+    pub(crate) fn try_agent_stat_files(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -750,7 +404,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバックアップを作成する
-    fn try_agent_backup(
+    pub(crate) fn try_agent_backup(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -764,7 +418,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でシンボリックリンクを作成する
-    fn try_agent_symlink(
+    pub(crate) fn try_agent_symlink(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -806,41 +460,17 @@ impl CoreRuntime {
         }
 
         // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
-        let server_name = {
-            let name = right.server_name()?;
-            name.to_string()
-        };
-
-        // リモート側のハッシュを Agent 経由で取得
-        let remote_results = match self.try_agent_hash_files(&server_name, paths) {
-            Some(Ok(results)) => results,
-            Some(Err(e)) => {
-                tracing::debug!("hash_files failed, falling back to content compare: {e}");
-                return None;
-            }
-            None => return None, // Agent なし
-        };
-
-        let remote_hashes = hash_results_to_map(&remote_results);
-
-        // ローカル側のハッシュを計算
-        let local_hashes = match left {
-            Side::Local => compute_local_hashes_batch(&self.config.local.root_dir, paths),
-            Side::Remote(name) => {
-                // left もリモートの場合は Agent 経由でハッシュ取得
-                let name = name.clone();
-                match self.try_agent_hash_files(&name, paths) {
-                    Some(Ok(results)) => hash_results_to_map(&results),
-                    _ => return None,
-                }
-            }
-        };
+        right.server_name()?;
+        let mut right_io = super::target_io::for_side(right, self);
+        let remote_hashes = right_io.hashes(self, paths)?;
+        let mut left_io = super::target_io::for_side(left, self);
+        let local_hashes = left_io.hashes(self, paths)?;
 
         Some((local_hashes, remote_hashes))
     }
 
     /// Agent 経由でバックアップセッション一覧を取得する
-    fn try_agent_list_backup_sessions(
+    pub(crate) fn try_agent_list_backup_sessions(
         &mut self,
         server_name: &str,
     ) -> Option<anyhow::Result<Vec<crate::service::types::BackupSession>>> {
@@ -852,7 +482,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバックアップからファイルを復元する
-    fn try_agent_restore_backup(
+    pub(crate) fn try_agent_restore_backup(
         &mut self,
         server_name: &str,
         session_id: &str,
@@ -878,7 +508,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でツリーを再帰取得する
-    fn try_agent_fetch_tree_recursive(
+    pub(crate) fn try_agent_fetch_tree_recursive(
         &mut self,
         server_name: &str,
         max_entries: usize,
@@ -910,7 +540,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でサブパス配下のツリーを取得する
-    fn try_agent_fetch_tree_for_subpath(
+    pub(crate) fn try_agent_fetch_tree_for_subpath(
         &mut self,
         server_name: &str,
         subpath: &str,
@@ -1400,7 +1030,7 @@ fn convert_agent_restore_results(
 // ── ローカル I/O ヘルパー（純粋関数） ──
 
 /// ローカルファイルの mtime をバッチ取得する
-fn stat_local_files(
+pub(crate) fn stat_local_files(
     root_dir: &Path,
     rel_paths: &[String],
 ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
@@ -1421,7 +1051,7 @@ fn stat_local_files(
 
 /// ローカルファイルのパーミッションを変更する
 #[cfg(unix)]
-fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
+pub(crate) fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     let perms = std::fs::Permissions::from_mode(mode);
@@ -1431,12 +1061,12 @@ fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
 
 /// Windows ではパーミッション変更は no-op
 #[cfg(not(unix))]
-fn chmod_local_file(_full_path: &Path, _mode: u32) -> anyhow::Result<()> {
+pub(crate) fn chmod_local_file(_full_path: &Path, _mode: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
 /// ローカルファイルのバックアップをセッションディレクトリに作成する
-fn create_local_backups(
+pub(crate) fn create_local_backups(
     root_dir: &Path,
     rel_paths: &[String],
     session_id: &str,
@@ -1452,12 +1082,12 @@ fn create_local_backups(
 /// Component レベルのパストラバーサル検証 + canonicalize による復元先検証を行う。
 /// 個別ファイルの失敗は記録して続行する（部分成功に対応）。
 /// ローカル復元の結果（成功 + 失敗を両方含む）
-struct LocalRestoreResult {
-    restored: Vec<crate::service::types::RollbackFileResult>,
-    failures: Vec<crate::service::types::RollbackFailure>,
+pub(crate) struct LocalRestoreResult {
+    pub(crate) restored: Vec<crate::service::types::RollbackFileResult>,
+    pub(crate) failures: Vec<crate::service::types::RollbackFailure>,
 }
 
-fn restore_local_files(
+pub(crate) fn restore_local_files(
     root: &Path,
     backup_dir: &Path,
     session_id: &str,
@@ -1547,14 +1177,14 @@ fn restore_local_files(
 }
 
 /// ローカルファイルまたはシンボリックリンクを削除する
-fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
+pub(crate) fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
     use anyhow::Context;
     std::fs::remove_file(full_path)
         .with_context(|| format!("Failed to remove file: {}", full_path.display()))
 }
 
 /// ローカルにシンボリックリンクを作成する（既存リンクは削除してから作成）
-fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
+pub(crate) fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
     // 既存のファイル/リンクがあれば削除
     if full_path.exists() || full_path.symlink_metadata().is_ok() {
         std::fs::remove_file(full_path)?;
@@ -1639,6 +1269,7 @@ impl TuiRuntime {
 mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
+    use crate::runtime::target_io::{LocalTargetIo, TargetIo};
     use tempfile::TempDir;
 
     /// テスト用の CoreRuntime を tempdir をルートにして作成する
@@ -1646,6 +1277,65 @@ mod tests {
         let mut rt = CoreRuntime::new_for_test();
         rt.config.local.root_dir = tmp.path().to_path_buf();
         rt
+    }
+
+    #[test]
+    fn local_target_reads_writes_and_removes_files_below_its_root() {
+        let tmp = TempDir::new().unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        io.write_file(&mut runtime, "nested/file.txt", "content")
+            .unwrap();
+        assert_eq!(
+            io.read_file(&mut runtime, "nested/file.txt").unwrap(),
+            "content"
+        );
+        io.remove_file(&mut runtime, "nested/file.txt").unwrap();
+        assert!(!tmp.path().join("nested/file.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_target_creates_symlinks() {
+        let tmp = TempDir::new().unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        io.create_symlink(&mut runtime, "link.txt", "target.txt")
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_link(tmp.path().join("link.txt")).unwrap(),
+            std::path::PathBuf::from("target.txt")
+        );
+    }
+
+    #[test]
+    fn local_target_fetches_only_the_requested_subpath_tree() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("nested")).unwrap();
+        std::fs::write(tmp.path().join("nested/file.txt"), "content").unwrap();
+        std::fs::write(tmp.path().join("outside.txt"), "outside").unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        let tree = io
+            .fetch_tree_for_subpath(&mut runtime, "nested", 100, false)
+            .unwrap();
+
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.nodes[0].name, "nested");
+        assert_eq!(tree.nodes[0].children.as_ref().unwrap()[0].name, "file.txt");
+    }
+
+    #[test]
+    fn local_target_is_available_without_a_connection() {
+        let tmp = TempDir::new().unwrap();
+        let io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let runtime = CoreRuntime::new_for_test();
+
+        assert!(io.is_available(&runtime));
     }
 
     #[test]
