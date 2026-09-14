@@ -9,7 +9,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 
-use crate::agent::protocol::{FileHashResult, FileReadResult};
+use crate::agent::protocol::{AgentPathInspection, FileHashResult, FileReadResult};
 use crate::app::Side;
 use crate::tree::{FileNode, FileTree};
 
@@ -36,6 +36,43 @@ pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 // Agent が無い場合は直接 SSH パスを通る。
 
 impl CoreRuntime {
+    pub(crate) fn try_agent_inspect_path(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> Option<anyhow::Result<super::target_io::TargetPath>> {
+        self.with_agent(server_name, "inspect_path", |agent| {
+            agent.inspect_path(rel_path)
+        })
+        .map(|result| {
+            result.and_then(|inspection| match inspection {
+                AgentPathInspection::Missing { real_parent } => {
+                    Ok(super::target_io::TargetPath::Missing {
+                        real_parent: real_parent.into(),
+                    })
+                }
+                AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
+                    real_path: real_path.into(),
+                }),
+                AgentPathInspection::Symlink { link_target } => {
+                    Ok(super::target_io::TargetPath::Symlink {
+                        link_target: link_target.into(),
+                    })
+                }
+                AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
+            })
+        })
+    }
+
+    pub(crate) fn inspect_path(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+    ) -> anyhow::Result<super::target_io::TargetPath> {
+        let mut io = super::target_io::for_side(side, self);
+        io.inspect_path(self, rel_path)
+    }
+
     // ── 読み込み ──
 
     /// Side に基づいてファイルを読み込む

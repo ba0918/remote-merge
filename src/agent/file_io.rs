@@ -10,7 +10,8 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{bail, Context, Result};
 
 use crate::agent::protocol::{
-    AgentBackupFile, AgentBackupSession, AgentFileStat, AgentRestoreFileResult, FileReadResult,
+    AgentBackupFile, AgentBackupSession, AgentFileStat, AgentPathInspection,
+    AgentRestoreFileResult, FileReadResult,
 };
 use crate::agent::server::MetadataConfig;
 
@@ -101,6 +102,56 @@ pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
     }
     // 親も存在しない場合は join 結果をそのまま返す（write_file が mkdir_all する）
     Ok(joined)
+}
+
+pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
+    let relative = Path::new(rel_path);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+    {
+        return AgentPathInspection::Error {
+            message: format!("path traversal detected: {rel_path}"),
+        };
+    }
+    let path = root_dir.join(relative);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => match fs::read_link(path) {
+            Ok(target) => AgentPathInspection::Symlink {
+                link_target: target.to_string_lossy().into_owned(),
+            },
+            Err(error) => AgentPathInspection::Error {
+                message: error.to_string(),
+            },
+        },
+        Ok(_) => match fs::canonicalize(path) {
+            Ok(real_path) => AgentPathInspection::File {
+                real_path: real_path.to_string_lossy().into_owned(),
+            },
+            Err(error) => AgentPathInspection::Error {
+                message: error.to_string(),
+            },
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let Some(parent) = path.parent() else {
+                return AgentPathInspection::Error {
+                    message: format!("path has no parent: {rel_path}"),
+                };
+            };
+            match fs::canonicalize(parent) {
+                Ok(real_parent) => AgentPathInspection::Missing {
+                    real_parent: real_parent.to_string_lossy().into_owned(),
+                },
+                Err(error) => AgentPathInspection::Error {
+                    message: error.to_string(),
+                },
+            }
+        }
+        Err(error) => AgentPathInspection::Error {
+            message: error.to_string(),
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------

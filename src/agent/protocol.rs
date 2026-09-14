@@ -38,6 +38,9 @@ pub enum AgentRequest {
     StatFiles {
         paths: Vec<String>,
     },
+    InspectPath {
+        path: String,
+    },
     Backup {
         paths: Vec<String>,
         backup_dir: String,
@@ -91,6 +94,9 @@ pub enum AgentResponse {
     },
     Stats {
         entries: Vec<AgentFileStat>,
+    },
+    PathInspection {
+        result: AgentPathInspection,
     },
     BackupResult {
         success: bool,
@@ -174,6 +180,14 @@ pub struct AgentFileStat {
     pub mtime_secs: i64,
     pub mtime_nanos: u32,
     pub permissions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentPathInspection {
+    Missing { real_parent: String },
+    File { real_path: String },
+    Symlink { link_target: String },
+    Error { message: String },
 }
 
 /// バックアップセッション情報（ListBackups レスポンス用）。
@@ -359,6 +373,13 @@ mod tests {
             exclude: vec![".git".into()],
             include: vec!["src".into(), "config".into()],
             max_entries: 10000,
+        });
+    }
+
+    #[test]
+    fn request_inspect_path_roundtrip() {
+        roundtrip_request(&AgentRequest::InspectPath {
+            path: "current/file.txt".into(),
         });
     }
 

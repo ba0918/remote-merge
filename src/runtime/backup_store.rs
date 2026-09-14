@@ -5,6 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::app::Side;
@@ -16,6 +17,19 @@ pub(crate) struct BackupStore {
     startup_directory: PathBuf,
     now: DateTime<Utc>,
     initialization_error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum StoredBackup<'a> {
+    File {
+        path: &'a str,
+        real_path: &'a Path,
+    },
+    Symlink {
+        path: &'a str,
+        link_target: &'a Path,
+    },
 }
 
 impl BackupStore {
@@ -67,13 +81,45 @@ impl BackupStore {
         }
     }
 
-    pub(crate) fn save(
+    pub(crate) fn save_file(
         &self,
         config: &AppConfig,
         target: &Side,
         session_id: &str,
         rel_path: &str,
+        real_path: &Path,
         content: &[u8],
+    ) -> anyhow::Result<String> {
+        let record = StoredBackup::File {
+            path: rel_path,
+            real_path,
+        };
+        self.save(config, target, session_id, rel_path, &record, Some(content))
+    }
+
+    pub(crate) fn save_symlink(
+        &self,
+        config: &AppConfig,
+        target: &Side,
+        session_id: &str,
+        rel_path: &str,
+        link_target: &Path,
+    ) -> anyhow::Result<String> {
+        let record = StoredBackup::Symlink {
+            path: rel_path,
+            link_target,
+        };
+        self.save(config, target, session_id, rel_path, &record, None)
+    }
+
+    fn save(
+        &self,
+        config: &AppConfig,
+        target: &Side,
+        session_id: &str,
+        rel_path: &str,
+        record: &StoredBackup<'_>,
+        content: Option<&[u8]>,
     ) -> anyhow::Result<String> {
         if let Some(error) = &self.initialization_error {
             anyhow::bail!(error.clone());
@@ -105,16 +151,21 @@ impl BackupStore {
         let target_dir = root.join("targets").join(&key);
         create_dir_owner_only(&target_dir)?;
         write_file_owner_only(&target_dir.join("target.txt"), description.as_bytes())?;
+        let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
         let destination = root
             .join("sessions")
             .join(session_id)
             .join(key)
-            .join("files")
-            .join(rel_path);
-        if let Some(parent) = destination.parent() {
-            create_dir_owner_only(parent)?;
+            .join("records")
+            .join(entry_key);
+        create_dir_owner_only(&destination)?;
+        write_file_owner_only(
+            &destination.join("record.json"),
+            &serde_json::to_vec(record)?,
+        )?;
+        if let Some(content) = content {
+            write_file_owner_only(&destination.join("content"), content)?;
         }
-        write_file_owner_only(&destination, content)?;
         Ok(format!("{session_id}/{rel_path}"))
     }
 

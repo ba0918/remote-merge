@@ -6,6 +6,7 @@ pub mod bootstrap;
 pub mod core;
 pub mod merge_scan;
 pub mod remote_io;
+mod remote_path;
 pub mod scanner;
 pub mod side_io;
 pub(crate) mod target_io;

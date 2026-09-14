@@ -17,9 +17,21 @@ use super::side_io::{
     stat_local_files, wrap_nodes_in_subpath,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TargetPath {
+    Missing { real_parent: PathBuf },
+    File { real_path: PathBuf },
+    Symlink { link_target: PathBuf },
+}
+
 pub(crate) type RestoreResult = (Vec<RollbackFileResult>, Vec<RollbackFailure>);
 
 pub(crate) trait TargetIo {
+    fn inspect_path(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        rel_path: &str,
+    ) -> anyhow::Result<TargetPath>;
     fn read_file(&mut self, runtime: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String>;
     fn read_files_batch(
         &mut self,
@@ -141,6 +153,28 @@ impl LocalTargetIo {
 }
 
 impl TargetIo for LocalTargetIo {
+    fn inspect_path(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<TargetPath> {
+        let path = self.root.join(rel_path);
+        executor::validate_remote_path(&self.root.to_string_lossy(), rel_path)?;
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => Ok(TargetPath::Symlink {
+                link_target: std::fs::read_link(path)?,
+            }),
+            Ok(_) => Ok(TargetPath::File {
+                real_path: std::fs::canonicalize(path)?,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let parent = path
+                    .parent()
+                    .ok_or_else(|| anyhow::anyhow!("path has no parent: {rel_path}"))?;
+                Ok(TargetPath::Missing {
+                    real_parent: std::fs::canonicalize(parent)?,
+                })
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {
         executor::read_local_file(&self.root, rel_path)
     }
@@ -384,6 +418,13 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
 }
 
 impl TargetIo for RemoteTargetIo {
+    fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<TargetPath> {
+        if let Some(value) = rt.try_agent_inspect_path(&self.name, path) {
+            return value;
+        }
+        rt.check_sudo_fallback(&self.name)?;
+        rt.inspect_remote_path(&self.name, path)
+    }
     fn read_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<String> {
         if let Some(v) = rt.try_agent_read_file(&self.name, path) {
             return v;

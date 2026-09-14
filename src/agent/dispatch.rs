@@ -73,6 +73,9 @@ impl Dispatcher {
                 more_to_follow,
             )]),
             AgentRequest::StatFiles { paths } => Some(vec![self.handle_stat_files(&paths)]),
+            AgentRequest::InspectPath { path } => Some(vec![AgentResponse::PathInspection {
+                result: file_io::inspect_path(&self.root_dir, &path),
+            }]),
             AgentRequest::Backup { paths, backup_dir } => {
                 Some(vec![self.handle_backup(&paths, &backup_dir)])
             }
@@ -498,6 +501,8 @@ fn estimate_read_result_size(result: &FileReadResult) -> usize {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use tempfile::TempDir;
 
     fn setup() -> (TempDir, Dispatcher) {
@@ -894,6 +899,36 @@ mod tests {
             }
             other => panic!("expected Stats, got {other:?}"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inspect_path_resolves_an_intermediate_symlink_outside_the_root() {
+        let (tmp, mut dispatcher) = setup();
+        let outside = TempDir::new().unwrap();
+        fs::write(outside.path().join("file.txt"), "content").unwrap();
+        symlink(outside.path(), tmp.path().join("current")).unwrap();
+
+        let response = single(
+            dispatcher
+                .dispatch(AgentRequest::InspectPath {
+                    path: "current/file.txt".into(),
+                })
+                .unwrap(),
+        );
+
+        assert_eq!(
+            response,
+            AgentResponse::PathInspection {
+                result: crate::agent::protocol::AgentPathInspection::File {
+                    real_path: outside
+                        .path()
+                        .join("file.txt")
+                        .to_string_lossy()
+                        .into_owned(),
+                },
+            }
+        );
     }
 
     // ── Backup ──

@@ -14,6 +14,21 @@ use super::core::CoreRuntime;
 // Side::Remote 分岐の内部実装。side_io.rs が唯一の呼び出し元。
 
 impl CoreRuntime {
+    pub(crate) fn inspect_remote_path(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<super::target_io::TargetPath> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let command = super::remote_path::build_inspect_path_command(&full_path);
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
+        let output = self.rt.block_on(client.exec_strict(&command))?;
+        super::remote_path::parse_inspect_path_output(&output)
+    }
+
     /// リモートファイル内容を取得する（接続エラー時に1回自動再接続）
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_file(side, path)` を使うこと。

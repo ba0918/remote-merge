@@ -110,9 +110,31 @@ impl CoreRuntime {
         session_id: &str,
         force: bool,
     ) -> anyhow::Result<String> {
-        let content = self.read_file_bytes(target, path, force)?;
-        self.backup_store
-            .save(&self.config, target, session_id, path, &content)
+        self.save_backup_if_exists(target, path, session_id, force)?
+            .ok_or_else(|| anyhow::anyhow!("backup source does not exist: {path}"))
+    }
+
+    pub fn save_backup_if_exists(
+        &mut self,
+        target: &crate::app::Side,
+        path: &str,
+        session_id: &str,
+        force: bool,
+    ) -> anyhow::Result<Option<String>> {
+        let inspected = self.inspect_path(target, path)?;
+        match inspected {
+            super::target_io::TargetPath::File { real_path } => {
+                let content = self.read_file_bytes(target, path, force)?;
+                self.backup_store
+                    .save_file(&self.config, target, session_id, path, &real_path, &content)
+                    .map(Some)
+            }
+            super::target_io::TargetPath::Symlink { link_target } => self
+                .backup_store
+                .save_symlink(&self.config, target, session_id, path, &link_target)
+                .map(Some),
+            super::target_io::TargetPath::Missing { .. } => Ok(None),
+        }
     }
 
     /// テスト用: SSH 接続なしの最小ランタイムを作成する

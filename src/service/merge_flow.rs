@@ -85,12 +85,10 @@ pub fn execute_single_merge(
             target_exists,
         } => {
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
-            let backup_path = if target_exists && ctx.core.config.backup.enabled {
-                Some(
-                    ctx.core
-                        .save_backup(target, path, ctx.session_id, ctx.force)
-                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
-                )
+            let backup_path = if ctx.core.config.backup.enabled {
+                ctx.core
+                    .save_backup_if_exists(target, path, ctx.session_id, ctx.force)
+                    .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
             } else {
                 None
             };
@@ -143,13 +141,10 @@ pub fn execute_single_merge(
     let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
 
     // バックアップ（ターゲット側）
-    let target_exists = find_node_in_slice(&target_tree.nodes, path).is_some();
-    let backup_path = if ctx.core.config.backup.enabled && target_exists {
-        Some(
-            ctx.core
-                .save_backup(target, path, ctx.session_id, ctx.force)
-                .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
-        )
+    let backup_path = if ctx.core.config.backup.enabled {
+        ctx.core
+            .save_backup_if_exists(target, path, ctx.session_id, ctx.force)
+            .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
     } else {
         None
     };

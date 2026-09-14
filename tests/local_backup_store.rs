@@ -9,6 +9,9 @@ use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+
 fn merge_args(path: &str) -> MergeArgs {
     MergeArgs {
         paths: vec![path.into()],
@@ -86,6 +89,105 @@ fn merge_stores_backup_only_in_aggregate_store() {
     assert!(backup.starts_with("20260914-120000/file.txt"));
     assert!(!backup.contains(store.path().to_string_lossy().as_ref()));
     assert!(fs::read_dir(store.path()).unwrap().next().is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn merge_through_a_symlink_cycle_stops_before_writing() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("cycle")).unwrap();
+    fs::write(local.path().join("cycle/file.txt"), "replacement\n").unwrap();
+    symlink("cycle", develop.path().join("cycle")).unwrap();
+
+    let result = execute_merge(
+        merge_args("cycle/file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert!(output.merged.is_empty());
+    assert_eq!(output.failed.len(), 1);
+    assert_eq!(output.failed[0].path, "cycle/file.txt");
+    assert!(
+        output.failed[0].error.starts_with("backup failed: "),
+        "{}",
+        output.failed[0].error
+    );
+    assert!(develop
+        .path()
+        .join("cycle")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn merge_through_an_intermediate_symlink_updates_the_resolved_file() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("current")).unwrap();
+    fs::write(local.path().join("current/file.txt"), "replacement\n").unwrap();
+    fs::write(outside.path().join("file.txt"), "linked content\n").unwrap();
+    symlink(outside.path(), develop.path().join("current")).unwrap();
+
+    let result = execute_merge(
+        merge_args("current/file.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert!(output.failed.is_empty());
+    assert!(output.merged[0].backup.is_some());
+    assert_eq!(
+        fs::read_to_string(outside.path().join("file.txt")).unwrap(),
+        "replacement\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn replacing_a_terminal_symlink_keeps_its_target_unchanged() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("link.txt"), "replacement\n").unwrap();
+    fs::write(develop.path().join("target.txt"), "linked content\n").unwrap();
+    symlink("target.txt", develop.path().join("link.txt")).unwrap();
+
+    let result = execute_merge(
+        merge_args("link.txt"),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    )
+    .unwrap();
+
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file merge output");
+    };
+    assert!(output.failed.is_empty());
+    assert!(output.merged[0].backup.is_some());
+    assert_eq!(
+        fs::read_to_string(develop.path().join("link.txt")).unwrap(),
+        "replacement\n"
+    );
+    assert_eq!(
+        fs::read_to_string(develop.path().join("target.txt")).unwrap(),
+        "linked content\n"
+    );
 }
 
 #[cfg(unix)]

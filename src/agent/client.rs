@@ -9,8 +9,8 @@ use anyhow::{bail, Result};
 
 use super::framing;
 use super::protocol::{
-    self, AgentBackupSession, AgentFileEntry, AgentFileStat, AgentRequest, AgentResponse,
-    AgentRestoreFileResult, FileHashResult, FileReadResult,
+    self, AgentBackupSession, AgentFileEntry, AgentFileStat, AgentPathInspection, AgentRequest,
+    AgentResponse, AgentRestoreFileResult, FileHashResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -218,6 +218,16 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         match resp {
             AgentResponse::Stats { entries } => Ok(entries),
             other => bail!("unexpected response to StatFiles: {other:?}"),
+        }
+    }
+
+    pub fn inspect_path(&mut self, path: &str) -> Result<AgentPathInspection> {
+        let response = self.request(&AgentRequest::InspectPath {
+            path: path.to_string(),
+        })?;
+        match response {
+            AgentResponse::PathInspection { result } => Ok(result),
+            other => bail!("unexpected response to InspectPath: {other:?}"),
         }
     }
 
