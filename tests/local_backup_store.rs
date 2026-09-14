@@ -100,6 +100,14 @@ fn written_target_lists_its_aggregate_backup_session() {
     assert_eq!(output.sessions.len(), 1);
     assert_eq!(output.sessions[0].files[0].path, "file.txt");
     assert_eq!(output.sessions[0].files[0].size, Some(4));
+    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+    assert!(json["target"]["label"].is_string());
+    assert!(json["target"]["root"].is_string());
+    assert!(json["sessions"].is_array());
+    assert!(json["sessions"][0]["session_id"].is_string());
+    assert!(json["sessions"][0]["file_count"].is_number());
+    assert!(json["sessions"][0]["files"][0]["path"].is_string());
+    assert!(json["sessions"][0]["files"][0]["size"].is_number());
 }
 
 #[cfg(unix)]
@@ -132,32 +140,33 @@ fn replaced_symlink_is_listed_as_a_symlink_in_text_and_json() {
 }
 
 #[test]
-fn listing_uses_the_injected_time_for_expiration() {
+fn expired_session_is_marked_in_text_and_json_at_the_injected_boundary() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
     fs::write(local.path().join("file.txt"), "new content\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
     let config = config(&local, &develop, true);
-    let now = Utc.with_ymd_and_hms(2020, 1, 7, 0, 0, 0).unwrap();
-    let runtime_targets = RuntimeTargets::production()
+    let merge_targets = RuntimeTargets::production()
         .with_local("develop", develop.path())
         .with_backup_store(Some(store.path().to_path_buf()))
         .with_startup_directory(std::env::current_dir().unwrap())
-        .with_now(now);
+        .with_now(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap());
 
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-    let listed = execute_rollback(rollback_list_args("develop"), config, runtime_targets).unwrap();
+    execute_merge(merge_args("file.txt"), config.clone(), merge_targets).unwrap();
+    let list_targets = RuntimeTargets::production()
+        .with_backup_store(Some(store.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap())
+        .with_now(Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap());
+    let listed = execute_rollback(rollback_list_args("develop"), config, list_targets).unwrap();
 
     let RollbackCommandOutput::List(output) = listed.output else {
         panic!("expected backup list")
     };
-    assert!(!output.sessions[0].expired);
+    assert!(output.sessions[0].expired);
+    assert!(format_backup_list_text(&output).contains("[expired]"));
+    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+    assert_eq!(json["sessions"][0]["expired"], true);
 }
 
 fn listed_sessions(
