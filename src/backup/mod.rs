@@ -107,6 +107,61 @@ pub fn backup_timestamp() -> String {
     Utc::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
+/// 指定時刻と既存 ID から、次のバックアップセッション ID を決める。
+pub fn next_session_id(now: DateTime<Utc>, existing_ids: &[&str]) -> String {
+    let timestamp = now.format("%Y%m%d-%H%M%S").to_string();
+    let next_sequence = existing_ids
+        .iter()
+        .filter_map(|id| parse_session_id(id))
+        .filter(|id| id.timestamp.format("%Y%m%d-%H%M%S").to_string() == timestamp)
+        .map(|id| id.sequence)
+        .max()
+        .map_or(1, |sequence| sequence + 1);
+    match next_sequence {
+        1 => timestamp,
+        sequence => format!("{timestamp}-{sequence}"),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SessionId {
+    timestamp: DateTime<Utc>,
+    sequence: u64,
+}
+
+pub fn parse_session_id(session_id: &str) -> Option<SessionId> {
+    let timestamp_text = session_id.get(..15)?;
+    let timestamp = parse_backup_timestamp(timestamp_text)?;
+    let sequence = match session_id.get(15..) {
+        Some("") => 1,
+        Some(suffix) => suffix.strip_prefix('-')?.parse::<u64>().ok()?,
+        None => return None,
+    };
+    if sequence < 2 && session_id.len() > 15 {
+        return None;
+    }
+    Some(SessionId {
+        timestamp,
+        sequence,
+    })
+}
+
+pub fn compare_session_ids(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    Some(parse_session_id(left)?.cmp(&parse_session_id(right)?))
+}
+
+pub fn is_session_expired(
+    session_id: &str,
+    retention_days: u32,
+    now: DateTime<Utc>,
+) -> Option<bool> {
+    let session = parse_session_id(session_id)?;
+    Some(
+        now.signed_duration_since(session.timestamp)
+            >= chrono::Duration::days(i64::from(retention_days)),
+    )
+}
+
 /// タイムスタンプ文字列をパースして DateTime<Utc> に変換する。
 fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
     chrono::NaiveDateTime::parse_from_str(ts, "%Y%m%d-%H%M%S")
@@ -119,21 +174,8 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
 /// `"20240115-140000"` → `Some("20240115-140000")`
 /// `"not-a-timestamp"` → `None`
 pub fn extract_timestamp(name: &str) -> Option<&str> {
-    // タイムスタンプフォーマット: "YYYYMMDD-HHMMSS" = 15文字
-    if name.len() == 15 && name.as_bytes().get(8) == Some(&b'-') {
-        // 数字部分の検証（ハイフン以外が全て数字）
-        let valid = name
-            .bytes()
-            .enumerate()
-            .all(|(i, b)| i == 8 || b.is_ascii_digit());
-        if valid {
-            Some(name)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    parse_session_id(name)?;
+    name.get(..15)
 }
 
 /// ローカルファイルのバックアップをセッションディレクトリに作成する。
@@ -175,7 +217,6 @@ pub fn cleanup_old_backups(
         return Ok(vec![]);
     }
 
-    let cutoff = now - chrono::Duration::days(i64::from(retention_days));
     let mut removed = Vec::new();
 
     for entry in std::fs::read_dir(backup_dir)? {
@@ -190,21 +231,17 @@ pub fn cleanup_old_backups(
             None => continue,
         };
 
-        if let Some(ts_str) = extract_timestamp(dir_name) {
-            if let Some(ts) = parse_backup_timestamp(ts_str) {
-                if ts < cutoff {
-                    if let Err(e) = std::fs::remove_dir_all(&path) {
-                        tracing::warn!(
-                            "Failed to remove old backup session {}: {}",
-                            path.display(),
-                            e
-                        );
-                        continue;
-                    }
-                    tracing::debug!("Old backup session removed: {}", path.display());
-                    removed.push(path);
-                }
+        if is_session_expired(dir_name, retention_days, now) == Some(true) {
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                tracing::warn!(
+                    "Failed to remove old backup session {}: {}",
+                    path.display(),
+                    e
+                );
+                continue;
             }
+            tracing::debug!("Old backup session removed: {}", path.display());
+            removed.push(path);
         }
     }
 
@@ -358,7 +395,9 @@ pub fn parse_all_backup_entries(find_output: &str) -> Vec<RemoteBackupSession> {
         .into_iter()
         .map(|(session_id, files)| RemoteBackupSession { session_id, files })
         .collect();
-    sessions.sort_by(|a, b| b.session_id.cmp(&a.session_id));
+    sessions.sort_by(|a, b| {
+        compare_session_ids(&b.session_id, &a.session_id).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     sessions
 }
@@ -398,7 +437,9 @@ pub fn list_local_sessions(backup_dir: &Path) -> anyhow::Result<Vec<LocalBackupS
     }
 
     // タイムスタンプ降順（新しい順）
-    sessions.sort_by(|a, b| b.session_id.cmp(&a.session_id));
+    sessions.sort_by(|a, b| {
+        compare_session_ids(&b.session_id, &a.session_id).unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(sessions)
 }
 
@@ -626,6 +667,42 @@ mod tests {
     }
 
     #[test]
+    fn same_time_uses_second_session_suffix() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
+        let first = next_session_id(now, &[]);
+        let second = next_session_id(now, &[first.as_str()]);
+
+        assert_eq!(first, "20260914-155250");
+        assert_eq!(second, "20260914-155250-2");
+    }
+
+    #[test]
+    fn session_id_with_sequence_is_parsed() {
+        let parsed = parse_session_id("20260914-155250-12").unwrap();
+
+        assert_eq!(
+            parsed.timestamp,
+            Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap()
+        );
+        assert_eq!(parsed.sequence, 12);
+    }
+
+    #[test]
+    fn tenth_session_sorts_after_ninth_session() {
+        assert_eq!(
+            compare_session_ids("20260914-155250-10", "20260914-155250-9"),
+            Some(std::cmp::Ordering::Greater)
+        );
+    }
+
+    #[test]
+    fn session_expires_at_retention_boundary() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 21, 15, 52, 50).unwrap();
+
+        assert_eq!(is_session_expired("20260914-155250-2", 7, now), Some(true));
+    }
+
+    #[test]
     fn test_create_local_backup_session_dir() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -706,6 +783,19 @@ mod tests {
         assert_eq!(removed.len(), 1);
         assert!(!old_session.exists());
         assert!(new_session.exists());
+    }
+
+    #[test]
+    fn cleanup_removes_session_at_retention_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup_dir = dir.path().join(BACKUP_DIR_NAME);
+        let session = backup_dir.join("20260914-155250");
+        std::fs::create_dir_all(&session).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 9, 21, 15, 52, 50).unwrap();
+
+        let removed = cleanup_old_backups(&backup_dir, 7, now).unwrap();
+
+        assert_eq!(removed, vec![session]);
     }
 
     #[test]

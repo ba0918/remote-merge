@@ -46,25 +46,13 @@ impl std::fmt::Display for RestoreError {
 /// セッション一覧に expired フラグを付与する（純粋関数）。
 ///
 /// `retention_days` 日以上経過したセッションを expired=true にする。
-/// session_id の形式は "YYYYMMDD-HHMMSS"。
+/// session_id の形式は "YYYYMMDD-HHMMSS" または "YYYYMMDD-HHMMSS-N"。
 pub fn mark_expired(sessions: &mut [BackupSession], retention_days: u32, now: DateTime<Utc>) {
     for session in sessions.iter_mut() {
-        session.expired = match parse_session_timestamp(&session.session_id) {
-            Some(ts) => {
-                let age = now.signed_duration_since(ts);
-                age.num_days() >= i64::from(retention_days)
-            }
-            // パース不能なセッション ID は expired 扱い
-            None => true,
-        };
+        session.expired =
+            crate::backup::is_session_expired(&session.session_id, retention_days, now)
+                .unwrap_or(true);
     }
-}
-
-/// session_id ("YYYYMMDD-HHMMSS") を DateTime<Utc> にパースする。
-fn parse_session_timestamp(session_id: &str) -> Option<DateTime<Utc>> {
-    chrono::NaiveDateTime::parse_from_str(session_id, "%Y%m%d-%H%M%S")
-        .ok()
-        .map(|naive| naive.and_utc())
 }
 
 /// 復元計画を立てる（純粋関数）。
@@ -278,6 +266,15 @@ mod tests {
         let mut sessions = vec![make_session("20240113-120000", &["a.rs"])];
         mark_expired(&mut sessions, 7, now());
         assert!(sessions[0].expired);
+    }
+
+    #[test]
+    fn session_is_not_expired_one_second_before_retention_boundary() {
+        let mut sessions = vec![make_session("20240113-120001-2", &["a.rs"])];
+
+        mark_expired(&mut sessions, 7, now());
+
+        assert!(!sessions[0].expired);
     }
 
     // ── plan_restore ──
