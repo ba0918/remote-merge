@@ -152,17 +152,15 @@ impl BackupStore {
         create_dir_owner_only(&target_dir)?;
         write_file_owner_only(&target_dir.join("target.txt"), description.as_bytes())?;
         let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
-        let destination = root
-            .join("sessions")
-            .join(session_id)
-            .join(key)
-            .join("records")
-            .join(entry_key);
+        let target_session_dir = root.join("sessions").join(session_id).join(key);
+        let destination = target_session_dir.join("records").join(entry_key);
         let records_dir = destination
             .parent()
             .ok_or_else(|| anyhow::anyhow!("backup record path has no parent"))?;
         create_dir_owner_only(records_dir)?;
-        let temporary = create_temporary_entry(records_dir)?;
+        let pending_dir = target_session_dir.join("pending");
+        create_dir_owner_only(&pending_dir)?;
+        let temporary = create_temporary_entry(&pending_dir)?;
         let write_result = (|| -> anyhow::Result<()> {
             if let Some(content) = content {
                 write_file_owner_only(&temporary.join("content"), content)?;
@@ -174,6 +172,7 @@ impl BackupStore {
         if write_result.is_err() {
             let _ = fs::remove_dir_all(&temporary);
         }
+        let _ = fs::remove_dir(&pending_dir);
         write_result?;
         Ok(format!("{session_id}/{rel_path}"))
     }
@@ -330,13 +329,16 @@ impl BackupStore {
     }
 }
 
-fn create_temporary_entry(records_dir: &Path) -> std::io::Result<PathBuf> {
+fn create_temporary_entry(parent: &Path) -> std::io::Result<PathBuf> {
     loop {
         let sequence = TEMP_ENTRY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = records_dir.join(format!(".pending-{}-{sequence}", std::process::id()));
+        let path = parent.join(format!(".pending-{}-{sequence}", std::process::id()));
         match fs::create_dir(&path) {
             Ok(()) => {
-                set_dir_permissions(&path)?;
+                if let Err(error) = set_dir_permissions(&path) {
+                    let _ = fs::remove_dir(&path);
+                    return Err(error);
+                }
                 return Ok(path);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
