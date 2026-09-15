@@ -15,3 +15,16 @@
 
 - 使わない意味: 設定ファイルのサーバ名（`develop` など）。サーバ名は表示用の名前で、書き込み先そのものではない。
   同じサーバ名でも、設定によって別の書き込み先を指すことがある。
+
+## 末尾の symlink
+
+マージ対象のパスそのものが symlink であること。例: `config.json` が `/etc/app/config.json` への symlink。
+
+- 使わない言い方: リーフ、末端リンク。
+
+## 途中の symlink
+
+マージ対象のパスの親ディレクトリのうち、root_dir より下のどこかが symlink であること。例: `public/uploads/banner.txt` の `public/uploads` が `/mnt/shared/uploads` への symlink。
+root_dir 自体が symlink である場合は含めない（ツリー取得の起点の扱いとして別に定める）。
+
+- 使わない言い方: 中間リンク、ディレクトリリンク。
