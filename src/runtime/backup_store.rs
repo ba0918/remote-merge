@@ -3,6 +3,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,8 @@ use sha2::{Digest, Sha256};
 use crate::app::Side;
 use crate::backup::{local_target_identity, next_session_id, remote_target_identity};
 use crate::config::AppConfig;
+
+static TEMP_ENTRY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) struct BackupStore {
     root: Option<PathBuf>,
@@ -155,14 +158,23 @@ impl BackupStore {
             .join(key)
             .join("records")
             .join(entry_key);
-        create_dir_owner_only(&destination)?;
-        write_file_owner_only(
-            &destination.join("record.json"),
-            &serde_json::to_vec(record)?,
-        )?;
-        if let Some(content) = content {
-            write_file_owner_only(&destination.join("content"), content)?;
+        let records_dir = destination
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("backup record path has no parent"))?;
+        create_dir_owner_only(records_dir)?;
+        let temporary = create_temporary_entry(records_dir)?;
+        let write_result = (|| -> anyhow::Result<()> {
+            if let Some(content) = content {
+                write_file_owner_only(&temporary.join("content"), content)?;
+            }
+            write_file_owner_only(&temporary.join("record.json"), &serde_json::to_vec(record)?)?;
+            fs::rename(&temporary, &destination)?;
+            Ok(())
+        })();
+        if write_result.is_err() {
+            let _ = fs::remove_dir_all(&temporary);
         }
+        write_result?;
         Ok(format!("{session_id}/{rel_path}"))
     }
 
@@ -314,6 +326,21 @@ impl BackupStore {
             }
             StoredBackupRecord::File { .. } => anyhow::bail!("backup record path does not match"),
             StoredBackupRecord::Symlink { .. } => Ok(BackupRecord::Symlink),
+        }
+    }
+}
+
+fn create_temporary_entry(records_dir: &Path) -> std::io::Result<PathBuf> {
+    loop {
+        let sequence = TEMP_ENTRY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = records_dir.join(format!(".pending-{}-{sequence}", std::process::id()));
+        match fs::create_dir(&path) {
+            Ok(()) => {
+                set_dir_permissions(&path)?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
         }
     }
 }
