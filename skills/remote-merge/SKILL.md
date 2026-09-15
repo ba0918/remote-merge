@@ -140,7 +140,7 @@ Behavior:
 - Servers are processed **sequentially** (server1 → server2 → ...)
 - **Connection failures are tolerated**: if one server fails, others continue
 - Confirmation prompt shows all servers' plans, then asks once (use `--force` to skip)
-- Backups are created per-server with independent session IDs
+- One backup session ID is shared across every write target in the sync operation
 - Remote-to-remote pairs are blocked unless `--force` or `--dry-run` is used
 - Duplicate `--right` values are rejected
 
