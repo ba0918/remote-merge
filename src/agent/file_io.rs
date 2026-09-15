@@ -114,9 +114,15 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
     }
     let path = root_dir.join(relative);
     match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => match fs::read_link(path) {
-            Ok(target) => AgentPathInspection::Symlink {
-                link_target: target.to_string_lossy().into_owned(),
+        Ok(metadata) if metadata.file_type().is_symlink() => match fs::read_link(&path) {
+            Ok(target) => match resolved_symlink(&path, &target) {
+                Ok(real_path) => AgentPathInspection::Symlink {
+                    link_target: target.to_string_lossy().into_owned(),
+                    real_path: real_path.to_string_lossy().into_owned(),
+                },
+                Err(error) => AgentPathInspection::Error {
+                    message: error.to_string(),
+                },
             },
             Err(error) => AgentPathInspection::Error {
                 message: error.to_string(),
@@ -143,6 +149,27 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
         Err(error) => AgentPathInspection::Error {
             message: error.to_string(),
         },
+    }
+}
+
+fn resolved_symlink(path: &Path, link_target: &Path) -> Result<PathBuf> {
+    let target = if link_target.is_absolute() {
+        link_target.to_path_buf()
+    } else {
+        path.parent()
+            .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?
+            .join(link_target)
+    };
+    match fs::canonicalize(&target) {
+        Ok(path) => Ok(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let mut parent = resolved_missing_parent(&target)?;
+            parent.push(target.file_name().ok_or_else(|| {
+                anyhow::anyhow!("symlink target has no file name: {}", target.display())
+            })?);
+            Ok(parent)
+        }
+        Err(error) => Err(error.into()),
     }
 }
 

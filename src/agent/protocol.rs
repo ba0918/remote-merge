@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 /// プロトコルバージョン（破壊的変更時にインクリメント）
 ///
 /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
-pub const PROTOCOL_VERSION: u32 = 3;
+/// v3 → v4: PathInspection の Symlink に real_path フィールド追加
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -158,10 +159,19 @@ pub struct AgentFileStat {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AgentPathInspection {
-    Missing { real_parent: String },
-    File { real_path: String },
-    Symlink { link_target: String },
-    Error { message: String },
+    Missing {
+        real_parent: String,
+    },
+    File {
+        real_path: String,
+    },
+    Symlink {
+        link_target: String,
+        real_path: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -237,14 +247,15 @@ mod tests {
     #[test]
     fn handshake_format_and_parse() {
         let hs = format_handshake();
-        assert_eq!(hs, "remote-merge agent v3");
+        assert_eq!(hs, format!("remote-merge agent v{PROTOCOL_VERSION}"));
         let ver = parse_handshake(&hs).unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
     #[test]
     fn handshake_parse_with_trailing_whitespace() {
-        let ver = parse_handshake("  remote-merge agent v3  ").unwrap();
+        let handshake = format!("  remote-merge agent v{PROTOCOL_VERSION}  ");
+        let ver = parse_handshake(&handshake).unwrap();
         assert_eq!(ver, PROTOCOL_VERSION);
     }
 
@@ -558,6 +569,16 @@ mod tests {
     }
 
     #[test]
+    fn response_path_inspection_preserves_symlink_target_and_real_path() {
+        roundtrip_response(&AgentResponse::PathInspection {
+            result: AgentPathInspection::Symlink {
+                link_target: "../releases/current".into(),
+                real_path: "/srv/releases/current".into(),
+            },
+        });
+    }
+
+    #[test]
     fn response_symlink_result_roundtrip() {
         roundtrip_response(&AgentResponse::SymlinkResult {
             success: true,
@@ -650,7 +671,7 @@ mod tests {
     // ---- Protocol version ----
 
     #[test]
-    fn protocol_version_is_3() {
-        assert_eq!(PROTOCOL_VERSION, 3);
+    fn protocol_version_is_4() {
+        assert_eq!(PROTOCOL_VERSION, 4);
     }
 }

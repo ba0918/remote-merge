@@ -544,8 +544,8 @@ mod tests {
     #[test]
     fn handshake_line_with_cr_lf() {
         // CR は行の一部としてバッファに残る — parse_handshake が trim する
-        let input = b"remote-merge agent v3\r\n";
-        let mut reader = std::io::Cursor::new(input.to_vec());
+        let input = format!("remote-merge agent v{}\r\n", protocol::PROTOCOL_VERSION);
+        let mut reader = std::io::Cursor::new(input.into_bytes());
         let line = read_handshake_line(&mut reader).unwrap();
         // '\r' が含まれるが、parse_handshake は trim するので問題ない
         let version = protocol::parse_handshake(&line).unwrap();

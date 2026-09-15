@@ -44,21 +44,24 @@ impl CoreRuntime {
         let result = self.with_agent(server_name, "inspect_path", |agent| {
             agent.inspect_path(rel_path)
         })?;
-        match result {
-            Ok(AgentPathInspection::Symlink { .. }) => None,
-            result => Some(result.and_then(|inspection| match inspection {
-                AgentPathInspection::Missing { real_parent } => {
-                    Ok(super::target_io::TargetPath::Missing {
-                        real_parent: real_parent.into(),
-                    })
-                }
-                AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
-                    real_path: real_path.into(),
-                }),
-                AgentPathInspection::Symlink { .. } => unreachable!(),
-                AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
-            })),
-        }
+        Some(result.and_then(|inspection| match inspection {
+            AgentPathInspection::Missing { real_parent } => {
+                Ok(super::target_io::TargetPath::Missing {
+                    real_parent: real_parent.into(),
+                })
+            }
+            AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
+                real_path: real_path.into(),
+            }),
+            AgentPathInspection::Symlink {
+                link_target,
+                real_path,
+            } => Ok(super::target_io::TargetPath::Symlink {
+                link_target: link_target.into(),
+                real_path: real_path.into(),
+            }),
+            AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
+        }))
     }
 
     pub(crate) fn inspect_path(
