@@ -545,10 +545,7 @@ Agent バイナリはリモートサーバに自動配置される。
 | `ReadFiles { paths, chunk_size_limit }` | `FileContents { results }` | バッチファイル読み込み |
 | `WriteFile { path, content, is_binary, more_to_follow }` | `WriteResult { success, error }` | ファイル書き込み（チャンク対応） |
 | `StatFiles { paths }` | `Stats { entries }` | メタデータ一括取得 |
-| `Backup { paths, backup_dir }` | `BackupResult` | バックアップ作成 |
 | `Symlink { path, target }` | `SymlinkResult` | シンボリックリンク作成 |
-| `ListBackups { backup_dir }` | `BackupList { sessions }` | バックアップ一覧 |
-| `RestoreBackup { backup_dir, session_id, files, root_dir }` | `RestoreResult { results }` | バックアップ復元 |
 | `Ping` | `Pong` | 接続確認 |
 | `Shutdown` | — | Agent 終了 |
 
@@ -1669,7 +1666,7 @@ remote-merge/
 │   │   └── mod.rs           #   再帰的ツリースキャン（WalkDir）
 │   │
 │   ├── backup/              # マージ前バックアップ
-│   │   └── mod.rs           #   .remote-merge-backup/ 管理
+│   │   └── mod.rs           #   ローカル集約先の識別・セッション判定
 │   │
 │   ├── highlight/           # シンタックスハイライト
 │   │   ├── mod.rs
