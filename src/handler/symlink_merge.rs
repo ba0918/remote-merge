@@ -18,7 +18,7 @@ pub struct SymlinkMergeParams<'a> {
     pub action: MergeAction,
     pub source_side: &'a Side,
     pub target_side: &'a Side,
-    pub session_id: &'a str,
+    pub session_id: Option<&'a str>,
 }
 
 /// シンボリックリンクのマージを実行する（MergeAction ベース）。
@@ -57,9 +57,20 @@ pub fn execute_symlink_merge(
         } => {
             // バックアップ（target_exists の場合）
             if target_exists {
-                if let Err(e) = runtime.create_backups(target_side, &[path.to_string()], session_id)
+                let backup = super::merge_file_io::save_backups(
+                    runtime,
+                    target_side,
+                    &[path.to_string()],
+                    session_id,
+                );
+                if let super::merge_file_io::BackupDecision::Refuse(message) =
+                    super::merge_file_io::decide_backup_write(
+                        runtime.core.config.backup.enabled,
+                        &[backup],
+                    )
                 {
-                    tracing::warn!("Backup failed (continuing): {}", e);
+                    state.status_message = message;
+                    return false;
                 }
                 if let Err(e) = runtime.remove_file(target_side, path) {
                     state.status_message = format!("Failed to remove target: {}", e);
@@ -82,8 +93,20 @@ pub fn execute_symlink_merge(
         }
         MergeAction::ReplaceSymlinkWithFile => {
             // バックアップ → symlink 削除 → ファイル書き込み
-            if let Err(e) = runtime.create_backups(target_side, &[path.to_string()], session_id) {
-                tracing::warn!("Backup failed (continuing): {}", e);
+            let backup = super::merge_file_io::save_backups(
+                runtime,
+                target_side,
+                &[path.to_string()],
+                session_id,
+            );
+            if let super::merge_file_io::BackupDecision::Refuse(message) =
+                super::merge_file_io::decide_backup_write(
+                    runtime.core.config.backup.enabled,
+                    &[backup],
+                )
+            {
+                state.status_message = message;
+                return false;
             }
             if let Err(e) = runtime.remove_file(target_side, path) {
                 state.status_message = format!("Failed to remove symlink: {}", e);
@@ -126,6 +149,52 @@ mod tests {
     use crate::tree::FileTree;
     use tempfile::TempDir;
 
+    #[cfg(unix)]
+    #[test]
+    fn disabled_backup_replaces_existing_file_without_creating_backup() {
+        let left = TempDir::new().unwrap();
+        let right = TempDir::new().unwrap();
+        let store = TempDir::new().unwrap();
+        std::fs::write(right.path().join("link.txt"), "old").unwrap();
+        let config_path = left.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = false\n",
+                left.path(), right.path()
+            ),
+        )
+        .unwrap();
+        let config = crate::config::load_config_from_paths(Some(&config_path), None).unwrap();
+        let targets = crate::runtime::RuntimeTargets::production()
+            .with_local("develop", right.path())
+            .with_backup_store(Some(store.path().to_path_buf()));
+        let source = Side::Local;
+        let target = Side::Remote("develop".into());
+        let mut state = make_test_state(source.clone(), target.clone());
+        let mut runtime = TuiRuntime::with_targets(config, targets);
+        let params = SymlinkMergeParams {
+            path: "link.txt",
+            direction: MergeDirection::LeftToRight,
+            action: MergeAction::CreateSymlink {
+                link_target: "destination".into(),
+                target_exists: true,
+            },
+            source_side: &source,
+            target_side: &target,
+            session_id: None,
+        };
+
+        assert!(execute_symlink_merge(&mut state, &mut runtime, &params));
+        assert!(right
+            .path()
+            .join("link.txt")
+            .symlink_metadata()
+            .unwrap()
+            .is_symlink());
+        assert!(std::fs::read_dir(store.path()).unwrap().next().is_none());
+    }
+
     /// テスト用の AppState を生成するヘルパー
     fn make_test_state(left: Side, right: Side) -> AppState {
         AppState::new(
@@ -160,7 +229,7 @@ mod tests {
             action: MergeAction::Normal,
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -186,7 +255,7 @@ mod tests {
             },
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -216,7 +285,7 @@ mod tests {
             },
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -261,7 +330,7 @@ mod tests {
             },
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -290,7 +359,7 @@ mod tests {
             action: MergeAction::ReplaceSymlinkWithFile,
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -331,7 +400,7 @@ mod tests {
             action: MergeAction::ReplaceSymlinkWithFile,
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 
@@ -363,7 +432,7 @@ mod tests {
             },
             source_side: &source,
             target_side: &target,
-            session_id: "20260311-120000",
+            session_id: Some("20260311-120000"),
         };
         let result = execute_symlink_merge(&mut state, &mut runtime, &params);
 

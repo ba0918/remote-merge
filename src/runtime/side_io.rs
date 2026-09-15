@@ -9,10 +9,8 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 
-use crate::agent::protocol::{FileHashResult, FileReadResult};
+use crate::agent::protocol::{AgentPathInspection, FileHashResult, FileReadResult};
 use crate::app::Side;
-use crate::local;
-use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
@@ -38,20 +36,49 @@ pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 // Agent が無い場合は直接 SSH パスを通る。
 
 impl CoreRuntime {
+    pub(crate) fn try_agent_inspect_path(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> Option<anyhow::Result<super::target_io::TargetPath>> {
+        let result = self.with_agent(server_name, "inspect_path", |agent| {
+            agent.inspect_path(rel_path)
+        })?;
+        Some(result.and_then(|inspection| match inspection {
+            AgentPathInspection::Missing { real_parent } => {
+                Ok(super::target_io::TargetPath::Missing {
+                    real_parent: real_parent.into(),
+                })
+            }
+            AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
+                real_path: real_path.into(),
+            }),
+            AgentPathInspection::Symlink {
+                link_target,
+                real_path,
+            } => Ok(super::target_io::TargetPath::Symlink {
+                link_target: link_target.into(),
+                real_path: real_path.into(),
+            }),
+            AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
+        }))
+    }
+
+    pub(crate) fn inspect_path(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+    ) -> anyhow::Result<super::target_io::TargetPath> {
+        let mut io = super::target_io::for_side(side, self);
+        io.inspect_path(self, rel_path)
+    }
+
     // ── 読み込み ──
 
     /// Side に基づいてファイルを読み込む
     pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
-        match side {
-            Side::Local => executor::read_local_file(&self.config.local.root_dir, rel_path),
-            Side::Remote(name) => {
-                if let Some(content) = self.try_agent_read_file(name, rel_path) {
-                    return content;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_file(name, rel_path)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_file(self, rel_path)
     }
 
     /// Side に基づいて複数ファイルをバッチ読み込みする
@@ -60,23 +87,8 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
-        match side {
-            Side::Local => {
-                let mut result = HashMap::with_capacity(rel_paths.len());
-                for rel_path in rel_paths {
-                    let content = executor::read_local_file(&self.config.local.root_dir, rel_path)?;
-                    result.insert(rel_path.clone(), content);
-                }
-                Ok(result)
-            }
-            Side::Remote(name) => {
-                if let Some(batch) = self.try_agent_read_files_batch(name, rel_paths) {
-                    return batch;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_files_batch(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_files_batch(self, rel_paths)
     }
 
     // ── バイト列読み込み ──
@@ -88,18 +100,8 @@ impl CoreRuntime {
         rel_path: &str,
         force: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        match side {
-            Side::Local => {
-                executor::read_local_file_bytes(&self.config.local.root_dir, rel_path, force)
-            }
-            Side::Remote(name) => {
-                if let Some(bytes) = self.try_agent_read_file_bytes(name, rel_path) {
-                    return bytes;
-                }
-                self.check_sudo_fallback(name)?;
-                self.read_remote_file_bytes(name, rel_path, force)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_file_bytes(self, rel_path, force)
     }
 
     /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
@@ -112,49 +114,16 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        match side {
-            Side::Local => {
-                let mut result = HashMap::with_capacity(rel_paths.len());
-                for rel_path in rel_paths {
-                    let bytes = executor::read_local_file_bytes(
-                        &self.config.local.root_dir,
-                        rel_path,
-                        false,
-                    )?;
-                    result.insert(rel_path.clone(), bytes);
-                }
-                Ok(result)
-            }
-            Side::Remote(name) => {
-                // Agent バッチを試行
-                if let Some(batch_result) = self.try_agent_read_files_bytes_batch(name, rel_paths) {
-                    return batch_result;
-                }
-                // SSH fallback: バッチ読み込み（チャンク分割対応）
-                self.check_sudo_fallback(name)?;
-                self.read_remote_files_batch_bytes(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.read_files_bytes_batch(self, rel_paths)
     }
 
     // ── 書き込み ──
 
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                executor::write_local_file(&self.config.local.root_dir, rel_path, content)
-            }
-            Side::Remote(name) => {
-                if let Some(result) =
-                    self.try_agent_write_file(name, rel_path, content.as_bytes(), false)
-                {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.write_remote_file(name, rel_path, content)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.write_file(self, rel_path, content)
     }
 
     /// Side に基づいてバイト列を書き込む（バイナリファイル対応）
@@ -164,18 +133,8 @@ impl CoreRuntime {
         rel_path: &str,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                executor::write_local_file_bytes(&self.config.local.root_dir, rel_path, content)
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_write_file(name, rel_path, content, true) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.write_remote_file_bytes(name, rel_path, content)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.write_file_bytes(self, rel_path, content)
     }
 
     // ── メタデータ ──
@@ -186,69 +145,14 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                for rel_path in rel_paths {
-                    let full = root.join(rel_path);
-                    executor::validate_path_within_root(root, &full)?;
-                }
-                stat_local_files(root, rel_paths)
-            }
-            Side::Remote(name) => {
-                if let Some(stats) = self.try_agent_stat_files(name, rel_paths) {
-                    return stats;
-                }
-                self.check_sudo_fallback(name)?;
-                self.stat_remote_files(name, rel_paths)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.stat_files(self, rel_paths)
     }
 
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let full = root.join(rel_path);
-                let normalized = executor::validate_path_within_root(root, &full)?;
-                chmod_local_file(&normalized, mode)
-            }
-            // Agent プロトコルに chmod は未定義のため、常に SSH を使用
-            Side::Remote(name) => self.chmod_remote_file(name, rel_path, mode),
-        }
-    }
-
-    // ── バックアップ ──
-
-    /// Side に基づいてバックアップを作成する
-    ///
-    /// `session_id` はマージ単位で1度だけ生成されたタイムスタンプ。
-    /// 全ファイルが同一セッションディレクトリに格納される。
-    pub fn create_backups(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-        session_id: &str,
-    ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                for rel_path in rel_paths {
-                    let full = root.join(rel_path);
-                    executor::validate_path_within_root(root, &full)?;
-                }
-                create_local_backups(root, rel_paths, session_id)?;
-                Ok(())
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_backup(name, rel_paths, session_id) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.create_remote_backups(name, rel_paths, session_id)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.chmod_file(self, rel_path, mode)
     }
 
     // ── バックアップ一覧・復元 ──
@@ -260,57 +164,7 @@ impl CoreRuntime {
         &mut self,
         side: &Side,
     ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        use crate::backup;
-        use crate::service::types::{BackupEntry, BackupSession};
-
-        match side {
-            Side::Local => {
-                let backup_dir = self.config.local.root_dir.join(backup::BACKUP_DIR_NAME);
-                let local_sessions = backup::list_local_sessions(&backup_dir)?;
-                Ok(local_sessions
-                    .into_iter()
-                    .map(|s| {
-                        let files: Vec<BackupEntry> = s
-                            .files
-                            .iter()
-                            .map(|path| {
-                                let full =
-                                    backup::session_backup_path(&backup_dir, &s.session_id, path);
-                                let size = std::fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
-                                BackupEntry {
-                                    path: path.clone(),
-                                    size,
-                                }
-                            })
-                            .collect();
-                        BackupSession::new(s.session_id, files, false)
-                    })
-                    .collect())
-            }
-            Side::Remote(name) => {
-                let name = name.clone();
-                // Agent 経由で取得を試みる
-                if let Some(result) = self.try_agent_list_backup_sessions(&name) {
-                    return result.map(|mut sessions| {
-                        crate::service::rollback::mark_expired(
-                            &mut sessions,
-                            self.config.backup.retention_days,
-                            chrono::Utc::now(),
-                        );
-                        sessions
-                    });
-                }
-                // SSH フォールバック
-                self.check_sudo_fallback(&name)?;
-                let mut sessions = self.list_remote_backup_sessions_ssh(&name)?;
-                crate::service::rollback::mark_expired(
-                    &mut sessions,
-                    self.config.backup.retention_days,
-                    chrono::Utc::now(),
-                );
-                Ok(sessions)
-            }
-        }
+        self.backup_store.list_sessions(&self.config, side)
     }
 
     /// バックアップからファイルを復元する。
@@ -321,73 +175,144 @@ impl CoreRuntime {
         side: &Side,
         session_id: &str,
         files: &[String],
+        dry_run: bool,
     ) -> anyhow::Result<(
         Vec<crate::service::types::RollbackFileResult>,
+        Vec<crate::service::types::RollbackSkipped>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
-        use crate::backup;
+        let pre_session_id = if self.config.backup.enabled && !dry_run {
+            Some(self.reserve_backup_session()?)
+        } else {
+            None
+        };
+        let mut restored = Vec::new();
+        let mut skipped = Vec::new();
+        let mut failed = Vec::new();
 
-        // 復元前バックアップ（pre-rollback backup）
-        let pre_session_id = backup::backup_timestamp();
-        if self.config.backup.enabled && !files.is_empty() {
-            // 存在するファイルのみバックアップ（復元先にファイルがない場合はスキップ）
-            let existing: Vec<String> = files
-                .iter()
-                .filter(|f| match side {
-                    Side::Local => self.config.local.root_dir.join(f).exists(),
-                    Side::Remote(_) => true, // リモートは存在確認が困難なので常にバックアップ試行
-                })
-                .cloned()
-                .collect();
-            if !existing.is_empty() {
-                if let Err(e) = self.create_backups(side, &existing, &pre_session_id) {
-                    tracing::warn!("Pre-rollback backup failed (continuing): {}", e);
+        for path in files {
+            let record = match self
+                .backup_store
+                .read_record(&self.config, side, session_id, path)
+            {
+                Ok(record) => record,
+                Err(error) => {
+                    failed.push(crate::service::types::RollbackFailure {
+                        path: path.clone(),
+                        error: error.to_string(),
+                    });
+                    continue;
                 }
+            };
+            let backup_record = match &record {
+                super::backup_store::BackupRecord::File { real_path, .. } => {
+                    crate::service::rollback::BackupPathRecord::File {
+                        real_path: real_path.clone(),
+                    }
+                }
+                super::backup_store::BackupRecord::Symlink => {
+                    crate::service::rollback::BackupPathRecord::Symlink
+                }
+            };
+            let current = if matches!(
+                backup_record,
+                crate::service::rollback::BackupPathRecord::Symlink
+            ) {
+                None
+            } else {
+                match self.inspect_restore_path(side, path) {
+                    Ok(current) => Some(current),
+                    Err(error) => {
+                        failed.push(crate::service::types::RollbackFailure {
+                            path: path.clone(),
+                            error: format!("cannot resolve path: {error}"),
+                        });
+                        continue;
+                    }
+                }
+            };
+            let decision = current.as_ref().map_or(
+                crate::service::rollback::RestorePathDecision::Skip(
+                    "symlink restore not supported",
+                ),
+                |current| crate::service::rollback::decide_restore_path(&backup_record, current),
+            );
+            if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
+                skipped.push(crate::service::types::RollbackSkipped {
+                    path: path.clone(),
+                    reason: reason.into(),
+                });
+                continue;
+            }
+            let super::backup_store::BackupRecord::File { content, .. } = record else {
+                unreachable!()
+            };
+
+            if dry_run {
+                restored.push(crate::service::types::RollbackFileResult {
+                    path: path.clone(),
+                    pre_rollback_backup: None,
+                });
+                continue;
+            }
+
+            let pre_rollback_backup = if let Some(pre_session_id) = &pre_session_id {
+                match self.save_backup_if_exists(side, path, pre_session_id, false) {
+                    Ok(Some(_)) => Some(pre_session_id.clone()),
+                    Ok(None) => None,
+                    Err(error) => {
+                        failed.push(crate::service::types::RollbackFailure {
+                            path: path.clone(),
+                            error: format!("backup failed: {error}"),
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+
+            match self.write_file_bytes(side, path, &content) {
+                Ok(()) => restored.push(crate::service::types::RollbackFileResult {
+                    path: path.clone(),
+                    pre_rollback_backup,
+                }),
+                Err(error) => failed.push(crate::service::types::RollbackFailure {
+                    path: path.clone(),
+                    error: error.to_string(),
+                }),
             }
         }
 
-        // session_id のフォーマット検証
-        if backup::extract_timestamp(session_id).is_none() {
-            anyhow::bail!("Invalid session_id format: {}", session_id);
+        if let Some(pre_session_id) = &pre_session_id {
+            self.finish_backup_session(pre_session_id);
         }
 
-        match side {
-            Side::Local => {
-                let root = self.config.local.root_dir.clone();
-                let backup_dir = root.join(backup::BACKUP_DIR_NAME);
-                let backup_enabled = self.config.backup.enabled;
-                let result = restore_local_files(
-                    &root,
-                    &backup_dir,
-                    session_id,
-                    files,
-                    backup_enabled,
-                    &pre_session_id,
-                )?;
-                Ok((result.restored, result.failures))
+        Ok((restored, skipped, failed))
+    }
+
+    fn inspect_restore_path(
+        &mut self,
+        side: &Side,
+        path: &str,
+    ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
+        use crate::service::rollback::CurrentRestorePath;
+        match self.inspect_path(side, path)? {
+            super::target_io::TargetPath::File { real_path }
+            | super::target_io::TargetPath::Symlink { real_path, .. } => {
+                Ok(CurrentRestorePath::Present { real_path })
             }
-            Side::Remote(name) => {
-                let name = name.clone();
-                let backup_enabled = self.config.backup.enabled;
-                // Agent 経由で復元を試みる
-                if let Some(result) = self.try_agent_restore_backup(
-                    &name,
-                    session_id,
-                    files,
-                    &pre_session_id,
-                    backup_enabled,
-                ) {
-                    return result;
-                }
-                // SSH フォールバック
-                self.check_sudo_fallback(&name)?;
-                self.restore_remote_backup_ssh(
-                    &name,
-                    session_id,
-                    files,
-                    &pre_session_id,
-                    backup_enabled,
-                )
+            super::target_io::TargetPath::Missing { .. } => {
+                let parent = std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(""))
+                    .to_string_lossy();
+                let real_parent = match self.inspect_path(side, &parent)? {
+                    super::target_io::TargetPath::Missing { .. } => None,
+                    super::target_io::TargetPath::File { real_path }
+                    | super::target_io::TargetPath::Symlink { real_path, .. } => Some(real_path),
+                };
+                Ok(CurrentRestorePath::Missing { real_parent })
             }
         }
     }
@@ -396,16 +321,8 @@ impl CoreRuntime {
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let full = self.config.local.root_dir.join(rel_path);
-                let normalized =
-                    executor::validate_path_within_root(&self.config.local.root_dir, &full)?;
-                remove_local_file(&normalized)
-            }
-            // Agent プロトコルに remove は未定義のため、常に SSH を使用
-            Side::Remote(name) => self.remove_remote_file(name, rel_path),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.remove_file(self, rel_path)
     }
 
     // ── シンボリックリンク ──
@@ -417,35 +334,16 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let full = root.join(rel_path);
-                let normalized = executor::validate_path_within_root(root, &full)?;
-                create_local_symlink(&normalized, target)
-            }
-            Side::Remote(name) => {
-                if let Some(result) = self.try_agent_symlink(name, rel_path, target) {
-                    return result;
-                }
-                self.check_sudo_fallback(name)?;
-                self.create_remote_symlink(name, rel_path, target)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.create_symlink(self, rel_path, target)
     }
 
     // ── ツリー ──
 
     /// Side に基づいてファイルツリーを取得する（1階層のみ）
     pub fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree> {
-        match side {
-            Side::Local => {
-                local::scan_local_tree(&self.config.local.root_dir, &self.config.filter.exclude)
-            }
-            // fetch_tree は1階層のみ — Agent の ListTree は再帰的なので不適合。
-            // SSH exec (find) を使用する。
-            Side::Remote(name) => self.fetch_remote_tree(name),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree(self)
     }
 
     /// Side に基づいてファイルツリーを再帰取得する
@@ -458,36 +356,8 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let exclude = &self.config.filter.exclude;
-                let include = &self.config.filter.include;
-                let (nodes, truncated) = local::scan_local_tree_recursive_with_include(
-                    root,
-                    exclude,
-                    include,
-                    max_entries,
-                )?;
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
-                let mut tree = FileTree::new(root);
-                tree.nodes = nodes;
-                tree.sort();
-                Ok(tree)
-            }
-            Side::Remote(name) => {
-                // Agent の ListTree はフルツリー走査に最適
-                if let Some(tree) =
-                    self.try_agent_fetch_tree_recursive(name, max_entries, fail_on_truncation)
-                {
-                    return tree;
-                }
-                self.check_sudo_fallback(name)?;
-                self.fetch_remote_tree_recursive(name, max_entries, fail_on_truncation)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree_recursive(self, max_entries, fail_on_truncation)
     }
 
     /// 指定サブパス配下のみツリーを取得する。
@@ -505,52 +375,8 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        // サブパスの正規化: 末尾スラッシュを除去
-        let subpath = subpath.trim_end_matches('/');
-
-        // path traversal チェック
-        let has_traversal = subpath.split('/').any(|component| component == "..");
-        if has_traversal {
-            anyhow::bail!("path traversal not allowed: {}", subpath);
-        }
-
-        match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let scan_root = root.join(subpath);
-
-                // 存在しないディレクトリ → 空ツリー
-                if !scan_root.exists() || !scan_root.is_dir() {
-                    return Ok(FileTree::new(root));
-                }
-
-                let exclude = &self.config.filter.exclude;
-                let (scanned_nodes, truncated) =
-                    local::scan_local_tree_recursive(&scan_root, exclude, max_entries)?;
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
-
-                // スキャン結果を subpath 配下のツリーとして root_dir からの相対に変換
-                let mut tree = FileTree::new(root);
-                tree.nodes = wrap_nodes_in_subpath(subpath, scanned_nodes);
-                tree.sort();
-                Ok(tree)
-            }
-            Side::Remote(name) => {
-                // Agent を優先
-                if let Some(tree) = self.try_agent_fetch_tree_for_subpath(
-                    name,
-                    subpath,
-                    max_entries,
-                    fail_on_truncation,
-                ) {
-                    return tree;
-                }
-                self.check_sudo_fallback(name)?;
-                self.fetch_remote_tree_for_subpath(name, subpath, max_entries, fail_on_truncation)
-            }
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_tree_for_subpath(self, subpath, max_entries, fail_on_truncation)
     }
 
     /// Side に基づいてディレクトリの子ノードを取得する
@@ -559,46 +385,28 @@ impl CoreRuntime {
         side: &Side,
         dir_rel_path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
-        let nodes = match side {
-            Side::Local => {
-                let root = &self.config.local.root_dir;
-                let dir = root.join(dir_rel_path);
-                local::scan_dir(&dir, &self.config.filter.exclude, dir_rel_path)?
-            }
-            // fetch_children は1階層のみ — Agent は再帰走査なのでここでは SSH を使用
-            Side::Remote(name) => self.fetch_remote_children(name, dir_rel_path)?,
-        };
-
-        Ok(crate::filter::filter_children_by_include(
-            nodes,
-            dir_rel_path,
-            &self.config.filter.include,
-        ))
+        let mut io = super::target_io::for_side(side, self);
+        io.fetch_children(self, dir_rel_path)
     }
 
     // ── 接続 ──
 
     /// リモートの場合のみ接続する（ローカルは何もしない）
     pub fn connect_if_remote(&mut self, side: &Side) -> anyhow::Result<()> {
-        match side {
-            Side::Local => Ok(()),
-            Side::Remote(name) => self.connect(name),
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.connect(self)
     }
 
     /// リモートの場合のみ切断する（ローカルは何もしない）
     pub fn disconnect_if_remote(&mut self, side: &Side) {
-        if let Side::Remote(name) = side {
-            self.disconnect(name);
-        }
+        let mut io = super::target_io::for_side(side, self);
+        io.disconnect(self);
     }
 
     /// Side が利用可能かどうか（ローカルは常に true）
     pub fn is_side_available(&self, side: &Side) -> bool {
-        match side {
-            Side::Local => true,
-            Side::Remote(name) => self.has_client(name),
-        }
+        let io = super::target_io::for_side(side, self);
+        io.is_available(self)
     }
 }
 
@@ -613,7 +421,7 @@ impl CoreRuntime {
 
 impl CoreRuntime {
     /// Agent 経由で単一ファイルを読み込む
-    fn try_agent_read_file(
+    pub(crate) fn try_agent_read_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -627,7 +435,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由で複数ファイルをバッチ読み込む
-    fn try_agent_read_files_batch(
+    pub(crate) fn try_agent_read_files_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -642,7 +450,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でバイト列を読み込む
-    fn try_agent_read_file_bytes(
+    pub(crate) fn try_agent_read_file_bytes(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -659,7 +467,7 @@ impl CoreRuntime {
     /// パスを `AGENT_READ_BATCH_SIZE` 件ごとにチャンク分割して Agent に送る。
     /// チャンク途中でエラーが発生した場合は Agent を無効化して None を返す
     /// （呼び出し元が SSH フォールバックで全件リトライ）。
-    fn try_agent_read_files_bytes_batch(
+    pub(crate) fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -718,7 +526,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でファイルを書き込む
-    fn try_agent_write_file(
+    pub(crate) fn try_agent_write_file(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -732,7 +540,7 @@ impl CoreRuntime {
 
     /// Agent 経由で stat を取得する
     #[allow(clippy::type_complexity)]
-    fn try_agent_stat_files(
+    pub(crate) fn try_agent_stat_files(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
@@ -749,22 +557,8 @@ impl CoreRuntime {
         }
     }
 
-    /// Agent 経由でバックアップを作成する
-    fn try_agent_backup(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-        session_id: &str,
-    ) -> Option<anyhow::Result<()>> {
-        let backup_dir = crate::backup::agent_backup_session_dir(session_id)?;
-        let paths: Vec<String> = rel_paths.to_vec();
-        self.with_agent(server_name, "backup", |agent| {
-            agent.backup(&paths, &backup_dir)
-        })
-    }
-
     /// Agent 経由でシンボリックリンクを作成する
-    fn try_agent_symlink(
+    pub(crate) fn try_agent_symlink(
         &mut self,
         server_name: &str,
         rel_path: &str,
@@ -806,79 +600,17 @@ impl CoreRuntime {
         }
 
         // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
-        let server_name = match right.server_name() {
-            Some(name) => name.to_string(),
-            None => return None, // 両方ローカル → ハッシュ比較のメリットなし
-        };
-
-        // リモート側のハッシュを Agent 経由で取得
-        let remote_results = match self.try_agent_hash_files(&server_name, paths) {
-            Some(Ok(results)) => results,
-            Some(Err(e)) => {
-                tracing::debug!("hash_files failed, falling back to content compare: {e}");
-                return None;
-            }
-            None => return None, // Agent なし
-        };
-
-        let remote_hashes = hash_results_to_map(&remote_results);
-
-        // ローカル側のハッシュを計算
-        let local_hashes = match left {
-            Side::Local => compute_local_hashes_batch(&self.config.local.root_dir, paths),
-            Side::Remote(name) => {
-                // left もリモートの場合は Agent 経由でハッシュ取得
-                let name = name.clone();
-                match self.try_agent_hash_files(&name, paths) {
-                    Some(Ok(results)) => hash_results_to_map(&results),
-                    _ => return None,
-                }
-            }
-        };
+        right.server_name()?;
+        let mut right_io = super::target_io::for_side(right, self);
+        let remote_hashes = right_io.hashes(self, paths)?;
+        let mut left_io = super::target_io::for_side(left, self);
+        let local_hashes = left_io.hashes(self, paths)?;
 
         Some((local_hashes, remote_hashes))
     }
 
-    /// Agent 経由でバックアップセッション一覧を取得する
-    fn try_agent_list_backup_sessions(
-        &mut self,
-        server_name: &str,
-    ) -> Option<anyhow::Result<Vec<crate::service::types::BackupSession>>> {
-        let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
-        self.with_agent(server_name, "list_backups", |agent| {
-            agent.list_backups(&backup_dir)
-        })
-        .map(|r| r.map(convert_agent_backup_sessions))
-    }
-
-    /// Agent 経由でバックアップからファイルを復元する
-    fn try_agent_restore_backup(
-        &mut self,
-        server_name: &str,
-        session_id: &str,
-        files: &[String],
-        pre_session_id: &str,
-        backup_enabled: bool,
-    ) -> Option<
-        anyhow::Result<(
-            Vec<crate::service::types::RollbackFileResult>,
-            Vec<crate::service::types::RollbackFailure>,
-        )>,
-    > {
-        let backup_dir = crate::backup::BACKUP_DIR_NAME.to_string();
-        let pre_session_id = pre_session_id.to_string();
-        self.with_agent(server_name, "restore_backup", |agent| {
-            agent.restore_backup(&backup_dir, session_id, files, "")
-        })
-        .map(|r| {
-            r.map(|agent_results| {
-                convert_agent_restore_results(agent_results, &pre_session_id, backup_enabled)
-            })
-        })
-    }
-
     /// Agent 経由でツリーを再帰取得する
-    fn try_agent_fetch_tree_recursive(
+    pub(crate) fn try_agent_fetch_tree_recursive(
         &mut self,
         server_name: &str,
         max_entries: usize,
@@ -910,7 +642,7 @@ impl CoreRuntime {
     }
 
     /// Agent 経由でサブパス配下のツリーを取得する
-    fn try_agent_fetch_tree_for_subpath(
+    pub(crate) fn try_agent_fetch_tree_for_subpath(
         &mut self,
         server_name: &str,
         subpath: &str,
@@ -1342,65 +1074,10 @@ pub(crate) fn wrap_nodes_in_subpath(subpath: &str, nodes: Vec<FileNode>) -> Vec<
     current
 }
 
-// ── Agent 変換ヘルパー（純粋関数） ──
-
-/// `AgentBackupSession` のリストを `BackupSession` のリストに変換する。
-fn convert_agent_backup_sessions(
-    agent_sessions: Vec<crate::agent::protocol::AgentBackupSession>,
-) -> Vec<crate::service::types::BackupSession> {
-    agent_sessions
-        .into_iter()
-        .map(|s| {
-            let files: Vec<crate::service::types::BackupEntry> = s
-                .files
-                .into_iter()
-                .map(|f| crate::service::types::BackupEntry {
-                    path: f.path,
-                    size: f.size,
-                })
-                .collect();
-            crate::service::types::BackupSession::new(s.session_id, files, false)
-        })
-        .collect()
-}
-
-/// `AgentRestoreFileResult` のリストを `(Vec<RollbackFileResult>, Vec<RollbackFailure>)` に変換する。
-fn convert_agent_restore_results(
-    agent_results: Vec<crate::agent::protocol::AgentRestoreFileResult>,
-    pre_session_id: &str,
-    backup_enabled: bool,
-) -> (
-    Vec<crate::service::types::RollbackFileResult>,
-    Vec<crate::service::types::RollbackFailure>,
-) {
-    let mut restored = Vec::new();
-    let mut failures = Vec::new();
-
-    for r in agent_results {
-        if r.success {
-            restored.push(crate::service::types::RollbackFileResult {
-                path: r.path,
-                pre_rollback_backup: if backup_enabled {
-                    Some(pre_session_id.to_string())
-                } else {
-                    None
-                },
-            });
-        } else {
-            failures.push(crate::service::types::RollbackFailure {
-                path: r.path,
-                error: r.error.unwrap_or_else(|| "unknown error".to_string()),
-            });
-        }
-    }
-
-    (restored, failures)
-}
-
 // ── ローカル I/O ヘルパー（純粋関数） ──
 
 /// ローカルファイルの mtime をバッチ取得する
-fn stat_local_files(
+pub(crate) fn stat_local_files(
     root_dir: &Path,
     rel_paths: &[String],
 ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
@@ -1421,7 +1098,7 @@ fn stat_local_files(
 
 /// ローカルファイルのパーミッションを変更する
 #[cfg(unix)]
-fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
+pub(crate) fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     let perms = std::fs::Permissions::from_mode(mode);
@@ -1431,130 +1108,19 @@ fn chmod_local_file(full_path: &Path, mode: u32) -> anyhow::Result<()> {
 
 /// Windows ではパーミッション変更は no-op
 #[cfg(not(unix))]
-fn chmod_local_file(_full_path: &Path, _mode: u32) -> anyhow::Result<()> {
+pub(crate) fn chmod_local_file(_full_path: &Path, _mode: u32) -> anyhow::Result<()> {
     Ok(())
-}
-
-/// ローカルファイルのバックアップをセッションディレクトリに作成する
-fn create_local_backups(
-    root_dir: &Path,
-    rel_paths: &[String],
-    session_id: &str,
-) -> anyhow::Result<()> {
-    let backup_dir = root_dir.join(crate::backup::BACKUP_DIR_NAME);
-    for rel_path in rel_paths {
-        crate::backup::create_local_backup(root_dir, &backup_dir, session_id, rel_path)?;
-    }
-    Ok(())
-}
-
-/// ローカルバックアップからファイルを復元する。
-/// Component レベルのパストラバーサル検証 + canonicalize による復元先検証を行う。
-/// 個別ファイルの失敗は記録して続行する（部分成功に対応）。
-/// ローカル復元の結果（成功 + 失敗を両方含む）
-struct LocalRestoreResult {
-    restored: Vec<crate::service::types::RollbackFileResult>,
-    failures: Vec<crate::service::types::RollbackFailure>,
-}
-
-fn restore_local_files(
-    root: &Path,
-    backup_dir: &Path,
-    session_id: &str,
-    files: &[String],
-    backup_enabled: bool,
-    pre_session_id: &str,
-) -> anyhow::Result<LocalRestoreResult> {
-    use crate::backup;
-    use crate::service::types::{RollbackFailure, RollbackFileResult};
-
-    let mut restored = Vec::new();
-    let mut failures = Vec::new();
-
-    for file in files {
-        // パストラバーサル検証（Component レベルで ParentDir を拒否）
-        let has_parent_dir = std::path::Path::new(file)
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir));
-        if has_parent_dir {
-            tracing::warn!("Skipping file with path traversal: {}", file);
-            failures.push(RollbackFailure {
-                path: file.clone(),
-                error: "path traversal detected".to_string(),
-            });
-            continue;
-        }
-
-        let source = backup::session_backup_path(backup_dir, session_id, file);
-        let dest = root.join(file);
-
-        // 親ディレクトリを作成してから canonicalize で復元先検証
-        if let Some(parent) = dest.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                tracing::warn!("Failed to create dir for {}: {}", file, e);
-                failures.push(RollbackFailure {
-                    path: file.clone(),
-                    error: format!("failed to create directory: {}", e),
-                });
-                continue;
-            }
-            // canonicalize ベースの復元先検証
-            if let (Ok(parent_canon), Ok(root_canon)) = (parent.canonicalize(), root.canonicalize())
-            {
-                if !parent_canon.starts_with(&root_canon) {
-                    tracing::warn!("Skipping file outside root: {}", file);
-                    failures.push(RollbackFailure {
-                        path: file.clone(),
-                        error: "restore path is outside project root".to_string(),
-                    });
-                    continue;
-                }
-            }
-        }
-
-        if !source.exists() {
-            tracing::warn!("Backup file not found, skipping: {}", file);
-            failures.push(RollbackFailure {
-                path: file.clone(),
-                error: "backup file not found".to_string(),
-            });
-            continue;
-        }
-
-        match std::fs::copy(&source, &dest) {
-            Ok(_) => {
-                tracing::debug!("Restored: {} from session {}", file, session_id);
-                restored.push(RollbackFileResult {
-                    path: file.clone(),
-                    pre_rollback_backup: if backup_enabled {
-                        Some(pre_session_id.to_string())
-                    } else {
-                        None
-                    },
-                });
-            }
-            Err(e) => {
-                tracing::warn!("Failed to restore {}: {}", file, e);
-                failures.push(RollbackFailure {
-                    path: file.clone(),
-                    error: format!("copy failed: {}", e),
-                });
-            }
-        }
-    }
-
-    Ok(LocalRestoreResult { restored, failures })
 }
 
 /// ローカルファイルまたはシンボリックリンクを削除する
-fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
+pub(crate) fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
     use anyhow::Context;
     std::fs::remove_file(full_path)
         .with_context(|| format!("Failed to remove file: {}", full_path.display()))
 }
 
 /// ローカルにシンボリックリンクを作成する（既存リンクは削除してから作成）
-fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
+pub(crate) fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
     // 既存のファイル/リンクがあれば削除
     if full_path.exists() || full_path.symlink_metadata().is_ok() {
         std::fs::remove_file(full_path)?;
@@ -1622,7 +1188,6 @@ impl TuiRuntime {
         mut fn write_file_bytes(&mut self, side: &Side, rel_path: &str, content: &[u8]) -> anyhow::Result<()>;
         mut fn stat_files(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>;
         mut fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()>;
-        mut fn create_backups(&mut self, side: &Side, rel_paths: &[String], session_id: &str) -> anyhow::Result<()>;
         mut fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()>;
         mut fn create_symlink(&mut self, side: &Side, rel_path: &str, target: &str) -> anyhow::Result<()>;
         mut fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree>;
@@ -1639,6 +1204,7 @@ impl TuiRuntime {
 mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
+    use crate::runtime::target_io::{LocalTargetIo, TargetIo};
     use tempfile::TempDir;
 
     /// テスト用の CoreRuntime を tempdir をルートにして作成する
@@ -1646,6 +1212,65 @@ mod tests {
         let mut rt = CoreRuntime::new_for_test();
         rt.config.local.root_dir = tmp.path().to_path_buf();
         rt
+    }
+
+    #[test]
+    fn local_target_reads_writes_and_removes_files_below_its_root() {
+        let tmp = TempDir::new().unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        io.write_file(&mut runtime, "nested/file.txt", "content")
+            .unwrap();
+        assert_eq!(
+            io.read_file(&mut runtime, "nested/file.txt").unwrap(),
+            "content"
+        );
+        io.remove_file(&mut runtime, "nested/file.txt").unwrap();
+        assert!(!tmp.path().join("nested/file.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_target_creates_symlinks() {
+        let tmp = TempDir::new().unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        io.create_symlink(&mut runtime, "link.txt", "target.txt")
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_link(tmp.path().join("link.txt")).unwrap(),
+            std::path::PathBuf::from("target.txt")
+        );
+    }
+
+    #[test]
+    fn local_target_fetches_only_the_requested_subpath_tree() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("nested")).unwrap();
+        std::fs::write(tmp.path().join("nested/file.txt"), "content").unwrap();
+        std::fs::write(tmp.path().join("outside.txt"), "outside").unwrap();
+        let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let mut runtime = CoreRuntime::new_for_test();
+
+        let tree = io
+            .fetch_tree_for_subpath(&mut runtime, "nested", 100, false)
+            .unwrap();
+
+        assert_eq!(tree.nodes.len(), 1);
+        assert_eq!(tree.nodes[0].name, "nested");
+        assert_eq!(tree.nodes[0].children.as_ref().unwrap()[0].name, "file.txt");
+    }
+
+    #[test]
+    fn local_target_is_available_without_a_connection() {
+        let tmp = TempDir::new().unwrap();
+        let io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
+        let runtime = CoreRuntime::new_for_test();
+
+        assert!(io.is_available(&runtime));
     }
 
     #[test]
@@ -1970,240 +1595,7 @@ mod tests {
 
     // ── convert_agent_backup_sessions のテスト ──
 
-    #[test]
-    fn test_convert_agent_backup_sessions_empty() {
-        let result = convert_agent_backup_sessions(vec![]);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_convert_agent_backup_sessions_single_session_with_files() {
-        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
-
-        let agent_sessions = vec![AgentBackupSession {
-            session_id: "session-001".to_string(),
-            files: vec![
-                AgentBackupFile {
-                    path: "src/main.rs".to_string(),
-                    size: 1024,
-                },
-                AgentBackupFile {
-                    path: "src/lib.rs".to_string(),
-                    size: 2048,
-                },
-            ],
-        }];
-
-        let result = convert_agent_backup_sessions(agent_sessions);
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].session_id, "session-001");
-        assert_eq!(result[0].files.len(), 2);
-        assert_eq!(result[0].files[0].path, "src/main.rs");
-        assert_eq!(result[0].files[0].size, 1024);
-        assert_eq!(result[0].files[1].path, "src/lib.rs");
-        assert_eq!(result[0].files[1].size, 2048);
-    }
-
-    #[test]
-    fn test_convert_agent_backup_sessions_multiple_sessions() {
-        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
-
-        let agent_sessions = vec![
-            AgentBackupSession {
-                session_id: "session-A".to_string(),
-                files: vec![AgentBackupFile {
-                    path: "a.txt".to_string(),
-                    size: 100,
-                }],
-            },
-            AgentBackupSession {
-                session_id: "session-B".to_string(),
-                files: vec![
-                    AgentBackupFile {
-                        path: "b1.txt".to_string(),
-                        size: 200,
-                    },
-                    AgentBackupFile {
-                        path: "b2.txt".to_string(),
-                        size: 300,
-                    },
-                ],
-            },
-        ];
-
-        let result = convert_agent_backup_sessions(agent_sessions);
-
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].session_id, "session-A");
-        assert_eq!(result[0].files.len(), 1);
-        assert_eq!(result[1].session_id, "session-B");
-        assert_eq!(result[1].files.len(), 2);
-    }
-
-    #[test]
-    fn test_convert_agent_backup_sessions_expired_is_false() {
-        // mark_expired は別途呼ばれるため、変換直後は expired = false でなければならない
-        use crate::agent::protocol::{AgentBackupFile, AgentBackupSession};
-
-        let agent_sessions = vec![AgentBackupSession {
-            session_id: "session-X".to_string(),
-            files: vec![AgentBackupFile {
-                path: "x.txt".to_string(),
-                size: 42,
-            }],
-        }];
-
-        let result = convert_agent_backup_sessions(agent_sessions);
-
-        assert!(!result[0].expired);
-    }
-
     // ── convert_agent_restore_results のテスト ──
-
-    #[test]
-    fn test_convert_agent_restore_results_all_success() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        let agent_results = vec![
-            AgentRestoreFileResult {
-                path: "file1.txt".to_string(),
-                success: true,
-                error: None,
-            },
-            AgentRestoreFileResult {
-                path: "file2.txt".to_string(),
-                success: true,
-                error: None,
-            },
-        ];
-
-        let (restored, failures) =
-            convert_agent_restore_results(agent_results, "pre-session-001", false);
-
-        assert_eq!(restored.len(), 2);
-        assert!(failures.is_empty());
-        assert_eq!(restored[0].path, "file1.txt");
-        assert_eq!(restored[1].path, "file2.txt");
-    }
-
-    #[test]
-    fn test_convert_agent_restore_results_all_failure() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        let agent_results = vec![
-            AgentRestoreFileResult {
-                path: "bad1.txt".to_string(),
-                success: false,
-                error: Some("permission denied".to_string()),
-            },
-            AgentRestoreFileResult {
-                path: "bad2.txt".to_string(),
-                success: false,
-                error: Some("file not found".to_string()),
-            },
-        ];
-
-        let (restored, failures) =
-            convert_agent_restore_results(agent_results, "pre-session-001", false);
-
-        assert!(restored.is_empty());
-        assert_eq!(failures.len(), 2);
-        assert_eq!(failures[0].path, "bad1.txt");
-        assert_eq!(failures[0].error, "permission denied");
-        assert_eq!(failures[1].path, "bad2.txt");
-        assert_eq!(failures[1].error, "file not found");
-    }
-
-    #[test]
-    fn test_convert_agent_restore_results_mixed() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        let agent_results = vec![
-            AgentRestoreFileResult {
-                path: "ok.txt".to_string(),
-                success: true,
-                error: None,
-            },
-            AgentRestoreFileResult {
-                path: "fail.txt".to_string(),
-                success: false,
-                error: Some("disk full".to_string()),
-            },
-            AgentRestoreFileResult {
-                path: "ok2.txt".to_string(),
-                success: true,
-                error: None,
-            },
-        ];
-
-        let (restored, failures) =
-            convert_agent_restore_results(agent_results, "pre-session-002", false);
-
-        assert_eq!(restored.len(), 2);
-        assert_eq!(failures.len(), 1);
-        assert_eq!(restored[0].path, "ok.txt");
-        assert_eq!(restored[1].path, "ok2.txt");
-        assert_eq!(failures[0].path, "fail.txt");
-        assert_eq!(failures[0].error, "disk full");
-    }
-
-    #[test]
-    fn test_convert_agent_restore_results_with_pre_rollback_backup() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        let agent_results = vec![AgentRestoreFileResult {
-            path: "src/app.rs".to_string(),
-            success: true,
-            error: None,
-        }];
-
-        let (restored, _) =
-            convert_agent_restore_results(agent_results, "pre-backup-session-42", true);
-
-        assert_eq!(restored.len(), 1);
-        assert_eq!(
-            restored[0].pre_rollback_backup,
-            Some("pre-backup-session-42".to_string())
-        );
-    }
-
-    #[test]
-    fn test_convert_agent_restore_results_without_pre_rollback_backup() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        let agent_results = vec![AgentRestoreFileResult {
-            path: "src/app.rs".to_string(),
-            success: true,
-            error: None,
-        }];
-
-        // backup_enabled = false → pre_rollback_backup は None
-        let (restored, _) =
-            convert_agent_restore_results(agent_results, "pre-backup-session-99", false);
-
-        assert_eq!(restored.len(), 1);
-        assert!(restored[0].pre_rollback_backup.is_none());
-    }
-
-    #[test]
-    fn test_convert_agent_restore_results_failure_with_no_error_message() {
-        use crate::agent::protocol::AgentRestoreFileResult;
-
-        // error フィールドが None でも "unknown error" にフォールバックされる
-        let agent_results = vec![AgentRestoreFileResult {
-            path: "mystery.txt".to_string(),
-            success: false,
-            error: None,
-        }];
-
-        let (restored, failures) =
-            convert_agent_restore_results(agent_results, "pre-session-000", false);
-
-        assert!(restored.is_empty());
-        assert_eq!(failures.len(), 1);
-        assert_eq!(failures[0].error, "unknown error");
-    }
 
     /// テスト用にサーバー設定を追加した CoreRuntime を作成する
     fn runtime_with_server(name: &str, root: &str) -> CoreRuntime {
@@ -2336,144 +1728,6 @@ mod tests {
     }
 
     // ── restore_local_files テスト ──
-
-    #[test]
-    fn test_restore_local_files_path_traversal_rejected() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let files = vec!["../../../etc/passwd".to_string()];
-
-        let result =
-            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
-                .unwrap();
-        assert!(result.restored.is_empty());
-        assert_eq!(result.failures.len(), 1);
-        assert!(result.failures[0].error.contains("path traversal"));
-    }
-
-    #[test]
-    fn test_restore_local_files_missing_backup_file() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        // バックアップディレクトリは存在するがファイルが無い
-        std::fs::create_dir_all(backup_dir.join("session-001")).unwrap();
-
-        let files = vec!["missing.txt".to_string()];
-        let result =
-            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
-                .unwrap();
-        assert!(result.restored.is_empty());
-        assert_eq!(result.failures.len(), 1);
-        assert!(result.failures[0].error.contains("backup file not found"));
-    }
-
-    #[test]
-    fn test_restore_local_files_success() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let session_dir = backup_dir.join("session-001");
-        std::fs::create_dir_all(&session_dir).unwrap();
-
-        // バックアップファイルを作成
-        std::fs::write(session_dir.join("file.txt"), "backup content").unwrap();
-
-        let files = vec!["file.txt".to_string()];
-        let result = restore_local_files(
-            tmp.path(),
-            &backup_dir,
-            "session-001",
-            &files,
-            true,
-            "pre-session",
-        )
-        .unwrap();
-        assert_eq!(result.restored.len(), 1);
-        assert!(result.failures.is_empty());
-        assert_eq!(result.restored[0].path, "file.txt");
-        assert_eq!(
-            result.restored[0].pre_rollback_backup,
-            Some("pre-session".to_string())
-        );
-
-        // 復元先にファイルが存在すること
-        let restored_content = std::fs::read_to_string(tmp.path().join("file.txt")).unwrap();
-        assert_eq!(restored_content, "backup content");
-    }
-
-    #[test]
-    fn test_restore_local_files_backup_disabled() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let session_dir = backup_dir.join("session-001");
-        std::fs::create_dir_all(&session_dir).unwrap();
-        std::fs::write(session_dir.join("file.txt"), "content").unwrap();
-
-        let files = vec!["file.txt".to_string()];
-        let result = restore_local_files(
-            tmp.path(),
-            &backup_dir,
-            "session-001",
-            &files,
-            false, // backup_enabled = false
-            "pre-session",
-        )
-        .unwrap();
-        assert_eq!(result.restored.len(), 1);
-        // backup_enabled が false なので pre_rollback_backup は None
-        assert!(result.restored[0].pre_rollback_backup.is_none());
-    }
-
-    #[test]
-    fn test_restore_local_files_mixed_success_and_failure() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let session_dir = backup_dir.join("session-001");
-        std::fs::create_dir_all(&session_dir).unwrap();
-
-        // file1.txt のバックアップは存在する
-        std::fs::write(session_dir.join("file1.txt"), "backup1").unwrap();
-        // file2.txt のバックアップは存在しない
-
-        let files = vec!["file1.txt".to_string(), "file2.txt".to_string()];
-        let result =
-            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
-                .unwrap();
-        assert_eq!(result.restored.len(), 1);
-        assert_eq!(result.failures.len(), 1);
-        assert_eq!(result.restored[0].path, "file1.txt");
-        assert_eq!(result.failures[0].path, "file2.txt");
-    }
-
-    #[test]
-    fn test_restore_local_files_empty_list() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let files: Vec<String> = vec![];
-
-        let result =
-            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
-                .unwrap();
-        assert!(result.restored.is_empty());
-        assert!(result.failures.is_empty());
-    }
-
-    #[test]
-    fn test_restore_local_files_nested_path() {
-        let tmp = TempDir::new().unwrap();
-        let backup_dir = tmp.path().join(".remote-merge-backup");
-        let session_dir = backup_dir.join("session-001");
-        // ネストしたディレクトリ構造のバックアップ
-        std::fs::create_dir_all(session_dir.join("src/deep")).unwrap();
-        std::fs::write(session_dir.join("src/deep/nested.rs"), "fn main() {}").unwrap();
-
-        let files = vec!["src/deep/nested.rs".to_string()];
-        let result =
-            restore_local_files(tmp.path(), &backup_dir, "session-001", &files, false, "pre")
-                .unwrap();
-        assert_eq!(result.restored.len(), 1);
-        let content = std::fs::read_to_string(tmp.path().join("src/deep/nested.rs")).unwrap();
-        assert_eq!(content, "fn main() {}");
-    }
 
     // ── connect_if_remote / disconnect_if_remote テスト ──
 
@@ -2629,31 +1883,6 @@ mod tests {
 
     // ── create_local_backups テスト ──
 
-    #[test]
-    fn test_create_local_backups_success() {
-        let tmp = TempDir::new().unwrap();
-        // バックアップ対象ファイルを作成
-        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
-        std::fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
-
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        create_local_backups(tmp.path(), &paths, "session-001").unwrap();
-
-        // バックアップディレクトリが作成されていること
-        let backup_dir = tmp.path().join(crate::backup::BACKUP_DIR_NAME);
-        assert!(backup_dir.exists());
-
-        // バックアップファイルが正しい内容でコピーされていること
-        let session_dir = backup_dir.join("session-001");
-        assert!(session_dir.exists(), "session directory should be created");
-        let backup_a = session_dir.join("a.txt");
-        let backup_b = session_dir.join("b.txt");
-        assert!(backup_a.exists(), "a.txt should be backed up");
-        assert!(backup_b.exists(), "b.txt should be backed up");
-        assert_eq!(std::fs::read_to_string(&backup_a).unwrap(), "aaa");
-        assert_eq!(std::fs::read_to_string(&backup_b).unwrap(), "bbb");
-    }
-
     // ── write_file_bytes_local 追加エッジケース ──
 
     #[test]
@@ -2670,13 +1899,6 @@ mod tests {
     }
 
     // ── convert_agent_restore_results 追加テスト ──
-
-    #[test]
-    fn test_convert_agent_restore_results_empty() {
-        let (restored, failures) = convert_agent_restore_results(vec![], "pre", false);
-        assert!(restored.is_empty());
-        assert!(failures.is_empty());
-    }
 
     // ── read_file_bytes ローカルエッジケース ──
 

@@ -10,7 +10,8 @@ use crate::service::merge::{determine_merge_action, MergeAction};
 use crate::ui::dialog::{BatchConfirmDialog, DialogState, ProgressDialog, ProgressPhase};
 
 use super::merge_file_io::{
-    backup_left, backup_right, read_left_file, write_left_file, write_right_file,
+    decide_backup_write, read_left_file, reserve_backup_session, save_backups, write_left_file,
+    write_right_file, BackupDecision,
 };
 
 /// バッチマージを実行する（ディレクトリ選択時）
@@ -74,25 +75,13 @@ pub fn execute_batch_merge(
         MergeDirection::RightToLeft => state.left_source.clone(),
     };
 
-    // セッションIDを1度だけ生成（全ファイルで共有）
-    let session_id = crate::backup::backup_timestamp();
-
-    // バックアップ（マージ前に一括実行）
-    if runtime.core.config.backup.enabled {
-        let backup_paths = collect_backup_paths(&symlink_actions);
-        if !backup_paths.is_empty() {
-            match direction {
-                MergeDirection::LeftToRight => {
-                    if runtime.is_side_available(&state.right_source) {
-                        backup_right(state, runtime, &backup_paths, &session_id);
-                    }
-                }
-                MergeDirection::RightToLeft => {
-                    backup_left(state, runtime, &backup_paths, &session_id);
-                }
-            }
+    let session_id = match reserve_backup_session(runtime) {
+        Ok(session_id) => session_id,
+        Err(error) => {
+            state.status_message = format!("Backup failed: {error}");
+            return;
         }
-    }
+    };
 
     // プログレスダイアログを表示
     let mut progress = ProgressDialog::new(ProgressPhase::Merging, "", false);
@@ -117,7 +106,7 @@ pub fn execute_batch_merge(
                     action,
                     source_side: &source_side,
                     target_side: &target_side,
-                    session_id: &session_id,
+                    session_id: session_id.as_deref(),
                 };
                 let ok = super::symlink_merge::execute_symlink_merge(state, runtime, &params);
                 if ok {
@@ -154,6 +143,20 @@ pub fn execute_batch_merge(
                         success_count, fail_count
                     );
                     return;
+                }
+
+                let backup = save_backups(
+                    runtime,
+                    &target_side,
+                    std::slice::from_ref(path),
+                    session_id.as_deref(),
+                );
+                if let BackupDecision::Refuse(message) =
+                    decide_backup_write(runtime.core.config.backup.enabled, &[backup])
+                {
+                    state.status_message = message;
+                    fail_count += 1;
+                    continue;
                 }
 
                 match write_right_file(state, runtime, path, &content) {
@@ -214,6 +217,20 @@ pub fn execute_batch_merge(
                         }
                     }
                 };
+
+                let backup = save_backups(
+                    runtime,
+                    &target_side,
+                    std::slice::from_ref(path),
+                    session_id.as_deref(),
+                );
+                if let BackupDecision::Refuse(message) =
+                    decide_backup_write(runtime.core.config.backup.enabled, &[backup])
+                {
+                    state.status_message = message;
+                    fail_count += 1;
+                    continue;
+                }
 
                 match write_left_file(state, runtime, path, &content) {
                     Ok(()) => {
@@ -299,17 +316,6 @@ fn format_batch_summary(
     }
 }
 
-/// symlink 以外のバックアップ対象パスを収集する（純粋関数）。
-///
-/// symlink ファイルは `execute_symlink_merge` 内で個別バックアップするため除外する。
-fn collect_backup_paths(symlink_actions: &[(String, MergeAction)]) -> Vec<String> {
-    symlink_actions
-        .iter()
-        .filter(|(_, action)| matches!(action, MergeAction::Normal))
-        .map(|(p, _)| p.clone())
-        .collect()
-}
-
 /// マージ対象ファイルのディレクトリパスを収集する（ref_tree 同期用）
 ///
 /// ルートディレクトリのファイル（パスに `/` を含まない）は `""` として返す。
@@ -348,13 +354,9 @@ pub fn filter_identical_files(
                 return true;
             }
             match (local_cache.get(path), remote_cache.get(path)) {
-                (Some(local), Some(remote)) => {
-                    if local == remote {
-                        skipped += 1;
-                        false
-                    } else {
-                        true
-                    }
+                (Some(local), Some(remote)) if local == remote => {
+                    skipped += 1;
+                    false
                 }
                 _ => true,
             }
@@ -614,49 +616,6 @@ mod tests {
             msg,
             "Batch merge complete: 2 succeeded/1 failed (local -> remote), 4 identical skipped"
         );
-    }
-
-    // ── collect_backup_paths ──
-
-    #[test]
-    fn test_collect_backup_paths_filters_symlinks() {
-        let actions = vec![
-            ("normal.rs".to_string(), MergeAction::Normal),
-            (
-                "link.rs".to_string(),
-                MergeAction::CreateSymlink {
-                    link_target: "/target".to_string(),
-                    target_exists: false,
-                },
-            ),
-            (
-                "replace.rs".to_string(),
-                MergeAction::ReplaceSymlinkWithFile,
-            ),
-            ("normal2.rs".to_string(), MergeAction::Normal),
-        ];
-        let paths = collect_backup_paths(&actions);
-        assert_eq!(paths, vec!["normal.rs", "normal2.rs"]);
-    }
-
-    #[test]
-    fn test_collect_backup_paths_empty() {
-        let actions: Vec<(String, MergeAction)> = vec![];
-        let paths = collect_backup_paths(&actions);
-        assert!(paths.is_empty());
-    }
-
-    #[test]
-    fn test_collect_backup_paths_all_symlinks() {
-        let actions = vec![(
-            "link.rs".to_string(),
-            MergeAction::CreateSymlink {
-                link_target: "/target".to_string(),
-                target_exists: true,
-            },
-        )];
-        let paths = collect_backup_paths(&actions);
-        assert!(paths.is_empty());
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
-use crate::runtime::CoreRuntime;
+use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
     build_diff_output, build_masked_diff_output, build_symlink_diff_output,
 };
@@ -55,6 +55,14 @@ pub struct DiffArgs {
 
 /// diff サブコマンドを実行する
 pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
+    run_diff_with_targets(args, config, RuntimeTargets::production())
+}
+
+pub fn run_diff_with_targets(
+    args: DiffArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
@@ -64,7 +72,7 @@ pub fn run_diff(args: DiffArgs, config: AppConfig) -> anyhow::Result<i32> {
     };
     let pair = resolve_source_pair(&source_args, &config)?;
 
-    let mut core = CoreRuntime::new(config.clone());
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
     core.connect_if_remote(&pair.left)?;
     core.connect_if_remote(&pair.right)?;
 

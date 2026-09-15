@@ -4,15 +4,16 @@ use super::VersionCheck;
 
 /// リモートのバージョン確認コマンド出力をパースする。
 ///
-/// 期待フォーマット: `remote-merge X.Y.Z`（clap の `--version` 出力）
-/// - CARGO_PKG_VERSION と一致 → `Match`
+/// 期待フォーマット: `remote-merge X.Y.Z (protocol vN)`（clap の `--version` 出力）
+/// - パッケージバージョンとプロトコルバージョンが一致 → `Match`
 /// - "remote-merge" で始まるがバージョンが異なる → `Mismatch`
 /// - それ以外（空文字列、"command not found" 等） → `NotFound`
 pub fn parse_version_output(output: &str) -> VersionCheck {
     let trimmed = output.trim();
 
     // "remote-merge " プレフィックスが無ければ NotFound
-    let Some(version_str) = trimmed.strip_prefix("remote-merge ") else {
+    let version_line = trimmed.lines().next().unwrap_or("");
+    let Some(version_str) = version_line.strip_prefix("remote-merge ") else {
         return VersionCheck::NotFound;
     };
 
@@ -21,12 +22,7 @@ pub fn parse_version_output(output: &str) -> VersionCheck {
         return VersionCheck::NotFound;
     }
 
-    // バージョン番号部分のみ抽出（スペース以降は無視）
-    // "0.1.0" や "0.1.0 (protocol v1)" の両方に対応
-    let remote_version = version_str.split_whitespace().next().unwrap_or("");
-    let expected_version = env!("CARGO_PKG_VERSION");
-
-    if remote_version == expected_version {
+    if version_str == crate::agent::protocol::CLI_VERSION {
         VersionCheck::Match
     } else {
         VersionCheck::Mismatch {
@@ -114,6 +110,28 @@ mod tests {
     }
 
     #[test]
+    fn same_package_with_older_protocol_requires_redeployment() {
+        let line = format!("remote-merge {} (protocol v3)", env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            parse_version_output(&line),
+            VersionCheck::Mismatch {
+                remote_version: line,
+            }
+        );
+    }
+
+    #[test]
+    fn same_package_without_protocol_requires_redeployment() {
+        let line = format!("remote-merge {}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(
+            parse_version_output(&line),
+            VersionCheck::Mismatch {
+                remote_version: line,
+            }
+        );
+    }
+
+    #[test]
     fn version_match_with_whitespace() {
         let line = format!("  {}  ", expected_version_line());
         assert_eq!(parse_version_output(&line), VersionCheck::Match);
@@ -154,13 +172,6 @@ mod tests {
             parse_version_output("No such file or directory"),
             VersionCheck::NotFound
         );
-    }
-
-    #[test]
-    fn version_match_with_protocol_suffix() {
-        // リモートバイナリが "(protocol vN)" を含む出力を返しても、バージョン番号が一致すれば Match
-        let line = format!("remote-merge {} (protocol v1)", env!("CARGO_PKG_VERSION"));
-        assert_eq!(parse_version_output(&line), VersionCheck::Match);
     }
 
     // --- parse_checksum_output ---

@@ -27,6 +27,20 @@ fn test_merge_then_rollback_restores_content() {
         .expect("failed to execute merge");
     assert_exit_success(&merge_out);
 
+    let remote_entries: Vec<_> = fs::read_dir(&env.remote_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(remote_entries, vec![std::ffi::OsString::from("file.txt")]);
+
+    let list_out = env
+        .cmd_with("rollback")
+        .args(["--list", "--target", "develop"])
+        .output()
+        .expect("failed to execute rollback --list");
+    assert_exit_success(&list_out);
+    assert!(String::from_utf8_lossy(&list_out.stdout).contains("file.txt"));
+
     // マージ後にリモートが "new\n" になっていることを確認
     let after_merge = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
     assert_eq!(after_merge, "new\n", "Remote should have merged content");

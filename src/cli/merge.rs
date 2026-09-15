@@ -7,7 +7,7 @@ use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
-use crate::runtime::CoreRuntime;
+use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
@@ -27,7 +27,7 @@ use crate::service::status::{
 use crate::service::sync::plan_deletions;
 use crate::service::types::{
     DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,
-    MergeOutcome,
+    MergeOutcome, MergeOutput,
 };
 use crate::service::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
@@ -49,6 +49,16 @@ pub struct MergeArgs {
     pub max_entries: Option<usize>,
     /// hunk 単位マージ用: 適用する hunk インデックス（0-based）
     pub hunks: Option<Vec<usize>>,
+}
+
+pub enum MergeCommandOutput {
+    Outcome(MergeOutcome),
+    Files(MergeOutput),
+}
+
+pub struct MergeCommandResult {
+    pub output: MergeCommandOutput,
+    pub exit_code: i32,
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
@@ -81,6 +91,17 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
 
 /// merge サブコマンドを実行する
 pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
+    let format = OutputFormat::parse(&args.format)?;
+    let result = execute_merge(args, config, RuntimeTargets::production())?;
+    print_merge_result(&result.output, format)?;
+    Ok(result.exit_code)
+}
+
+pub fn execute_merge(
+    args: MergeArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<MergeCommandResult> {
     validate_merge_args(&args)?;
 
     // フォーマットを先にパースして不正値を早期エラーにする
@@ -95,13 +116,19 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
+    if !args.dry_run {
+        if let Err(error) = core.cleanup_expired_backups() {
+            tracing::warn!("Backup cleanup failed: {}", error);
+        }
+    }
+
     // remote-to-remote merge ガード: --force または --dry-run なしでは拒否
     if let Some(outcome) = check_r2r_guard(&pair.left, &pair.right, args.dry_run, args.force) {
-        match format {
-            OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
-            OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
-        }
-        return Ok(crate::service::types::exit_code::ERROR);
+        return Ok(MergeCommandResult {
+            output: MergeCommandOutput::Outcome(outcome),
+            exit_code: crate::service::types::exit_code::ERROR,
+        });
     }
 
     let direction = MergeDirection::LeftToRight;
@@ -116,12 +143,9 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
             direction,
             args.dry_run,
             args.force,
-            format,
-            config,
+            core,
         );
     }
-
-    let mut core = CoreRuntime::new(config.clone());
 
     // 接続（left/right）
     core.connect_if_remote(&pair.left)?;
@@ -170,20 +194,20 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
     if diff_files.is_empty() && delete_targets.is_empty() {
         if all_skipped.is_empty() {
             let outcome = MergeOutcome::NoFilesToMerge;
-            match format {
-                OutputFormat::Text => println!("{}", format_merge_outcome_text(&outcome)),
-                OutputFormat::Json => println!("{}", format_merge_outcome_json(&outcome)?),
-            }
+            core.disconnect_all();
+            return Ok(MergeCommandResult {
+                output: MergeCommandOutput::Outcome(outcome),
+                exit_code: crate::service::types::exit_code::SUCCESS,
+            });
         } else {
             // RightOnly スキップなど、スキップ理由を含む出力
             let output = build_merge_output(vec![], all_skipped, vec![], vec![], None);
-            match format {
-                OutputFormat::Text => println!("{}", format_merge_text(&output)),
-                OutputFormat::Json => println!("{}", format_json(&output)?),
-            }
+            core.disconnect_all();
+            return Ok(MergeCommandResult {
+                output: MergeCommandOutput::Files(output),
+                exit_code: crate::service::types::exit_code::SUCCESS,
+            });
         }
-        core.disconnect_all();
-        return Ok(crate::service::types::exit_code::SUCCESS);
     }
 
     // スキップされたセンシティブファイル数を表示（text 形式のみ。JSON は出力自体に含まれる）
@@ -259,18 +283,22 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
             vec![],
             ref_source_info,
         );
-        match format {
-            OutputFormat::Text => println!("{}", format_merge_text(&output)),
-            OutputFormat::Json => println!("{}", format_json(&output)?),
-        }
+        let exit_code = merge_exit_code(&output);
         core.disconnect_all();
-        return Ok(merge_exit_code(&output));
+        return Ok(MergeCommandResult {
+            output: MergeCommandOutput::Files(output),
+            exit_code,
+        });
     }
 
     // マージ実行
     let mut merged = Vec::new();
     let mut failed = Vec::new();
-    let session_id = crate::backup::backup_timestamp();
+    let session_id = if core.config.backup.enabled {
+        core.reserve_backup_session()?
+    } else {
+        crate::backup::backup_timestamp()
+    };
 
     {
         let mut ctx = MergeContext {
@@ -313,13 +341,29 @@ pub fn run_merge(args: MergeArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     let output = build_merge_output(merged, all_skipped, deleted, failed, ref_source_info);
     let code = merge_exit_code(&output);
-    match format {
-        OutputFormat::Text => println!("{}", format_merge_text(&output)),
-        OutputFormat::Json => println!("{}", format_json(&output)?),
+    if core.config.backup.enabled {
+        core.finish_backup_session(&session_id);
     }
-
     core.disconnect_all();
-    Ok(code)
+    Ok(MergeCommandResult {
+        output: MergeCommandOutput::Files(output),
+        exit_code: code,
+    })
+}
+
+fn print_merge_result(output: &MergeCommandOutput, format: OutputFormat) -> anyhow::Result<()> {
+    let rendered = match output {
+        MergeCommandOutput::Outcome(outcome) => match format {
+            OutputFormat::Text => format_merge_outcome_text(outcome),
+            OutputFormat::Json => format_merge_outcome_json(outcome)?,
+        },
+        MergeCommandOutput::Files(output) => match format {
+            OutputFormat::Text => format_merge_text(output),
+            OutputFormat::Json => format_json(output)?,
+        },
+    };
+    println!("{}", rendered);
+    Ok(())
 }
 
 /// hunk 単位マージの実行。
@@ -334,17 +378,15 @@ fn run_hunk_merge(
     direction: MergeDirection,
     dry_run: bool,
     force: bool,
-    format: OutputFormat,
-    config: AppConfig,
-) -> anyhow::Result<i32> {
+    mut core: CoreRuntime,
+) -> anyhow::Result<MergeCommandResult> {
     use crate::service::merge::build_merge_output;
-
-    let mut core = CoreRuntime::new(config.clone());
 
     core.connect_if_remote(left)?;
     core.connect_if_remote(right)?;
 
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
+    let config = core.config.clone();
     let max_entries = resolve_max_entries(None, &config)?;
     let paths = vec![path.to_string()];
     let strategy = resolve_scan_strategy(&paths, false);
@@ -357,7 +399,11 @@ fn run_hunk_merge(
         max_entries,
     )?;
 
-    let session_id = crate::backup::backup_timestamp();
+    let session_id = if core.config.backup.enabled {
+        core.reserve_backup_session()?
+    } else {
+        crate::backup::backup_timestamp()
+    };
 
     let mut ctx = HunkMergeContext {
         left,
@@ -381,13 +427,14 @@ fn run_hunk_merge(
         crate::service::merge::merge_exit_code(&output)
     };
 
-    match format {
-        OutputFormat::Text => println!("{}", format_merge_text(&output)),
-        OutputFormat::Json => println!("{}", format_json(&output)?),
+    if core.config.backup.enabled {
+        core.finish_backup_session(&session_id);
     }
-
     core.disconnect_all();
-    Ok(code)
+    Ok(MergeCommandResult {
+        output: MergeCommandOutput::Files(output),
+        exit_code: code,
+    })
 }
 
 /// ScanStrategy に基づいてツリー取得 + ステータス計算を行う。

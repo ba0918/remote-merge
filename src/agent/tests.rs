@@ -300,24 +300,6 @@ fn symlink_create_and_list_and_read() {
 // 7. Backup
 // ---------------------------------------------------------------------------
 
-#[test]
-fn backup_creates_copy_via_protocol() {
-    let tmp = TempDir::new().unwrap();
-    fs::write(tmp.path().join("important.txt"), "backup me").unwrap();
-
-    let mut client = create_pair(&tmp);
-
-    let backup_dir = "backups";
-    client
-        .backup(&["important.txt".to_string()], backup_dir)
-        .unwrap();
-
-    // バックアップが存在すること
-    let backup_path = tmp.path().join("backups/important.txt");
-    assert!(backup_path.exists(), "backup file should exist");
-    assert_eq!(fs::read_to_string(&backup_path).unwrap(), "backup me");
-}
-
 // ---------------------------------------------------------------------------
 // 8. Multiple Files Batch
 // ---------------------------------------------------------------------------
