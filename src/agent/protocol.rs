@@ -1,11 +1,25 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-/// プロトコルバージョン（破壊的変更時にインクリメント）
-///
-/// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
-/// v3 → v4: PathInspection の Symlink に real_path フィールド追加
-pub const PROTOCOL_VERSION: u32 = 4;
+macro_rules! define_protocol_version {
+    ($version:literal) => {
+        /// プロトコルバージョン（破壊的変更時にインクリメント）
+        ///
+        /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
+        /// v3 → v4: PathInspection の Symlink に real_path フィールド追加
+        pub const PROTOCOL_VERSION: u32 = $version;
+
+        /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
+        pub const CLI_VERSION: &str = concat!(
+            env!("CARGO_PKG_VERSION"),
+            " (protocol v",
+            stringify!($version),
+            ")"
+        );
+    };
+}
+
+define_protocol_version!(4);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
