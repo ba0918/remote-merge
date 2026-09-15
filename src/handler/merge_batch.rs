@@ -83,18 +83,6 @@ pub fn execute_batch_merge(
         }
     };
 
-    // バックアップ（マージ前に一括実行）
-    let backup_paths = collect_backup_paths(&symlink_actions);
-    if !backup_paths.is_empty() {
-        let backup = save_backups(runtime, &target_side, &backup_paths, session_id.as_deref());
-        if let BackupDecision::Refuse(message) =
-            decide_backup_write(runtime.core.config.backup.enabled, &[backup])
-        {
-            state.status_message = message;
-            return;
-        }
-    }
-
     // プログレスダイアログを表示
     let mut progress = ProgressDialog::new(ProgressPhase::Merging, "", false);
     progress.total = Some(file_count);
@@ -118,7 +106,7 @@ pub fn execute_batch_merge(
                     action,
                     source_side: &source_side,
                     target_side: &target_side,
-                    session_id: None,
+                    session_id: session_id.as_deref(),
                 };
                 let ok = super::symlink_merge::execute_symlink_merge(state, runtime, &params);
                 if ok {
@@ -155,6 +143,20 @@ pub fn execute_batch_merge(
                         success_count, fail_count
                     );
                     return;
+                }
+
+                let backup = save_backups(
+                    runtime,
+                    &target_side,
+                    std::slice::from_ref(path),
+                    session_id.as_deref(),
+                );
+                if let BackupDecision::Refuse(message) =
+                    decide_backup_write(runtime.core.config.backup.enabled, &[backup])
+                {
+                    state.status_message = message;
+                    fail_count += 1;
+                    continue;
                 }
 
                 match write_right_file(state, runtime, path, &content) {
@@ -215,6 +217,20 @@ pub fn execute_batch_merge(
                         }
                     }
                 };
+
+                let backup = save_backups(
+                    runtime,
+                    &target_side,
+                    std::slice::from_ref(path),
+                    session_id.as_deref(),
+                );
+                if let BackupDecision::Refuse(message) =
+                    decide_backup_write(runtime.core.config.backup.enabled, &[backup])
+                {
+                    state.status_message = message;
+                    fail_count += 1;
+                    continue;
+                }
 
                 match write_left_file(state, runtime, path, &content) {
                     Ok(()) => {
@@ -298,10 +314,6 @@ fn format_batch_summary(
             success_count, fail_count, dir_str, skip_suffix
         )
     }
-}
-
-fn collect_backup_paths(symlink_actions: &[(String, MergeAction)]) -> Vec<String> {
-    symlink_actions.iter().map(|(p, _)| p.clone()).collect()
 }
 
 /// マージ対象ファイルのディレクトリパスを収集する（ref_tree 同期用）
@@ -604,52 +616,6 @@ mod tests {
             msg,
             "Batch merge complete: 2 succeeded/1 failed (local -> remote), 4 identical skipped"
         );
-    }
-
-    // ── collect_backup_paths ──
-
-    #[test]
-    fn batch_prepares_every_target_before_writing() {
-        let actions = vec![
-            ("normal.rs".to_string(), MergeAction::Normal),
-            (
-                "link.rs".to_string(),
-                MergeAction::CreateSymlink {
-                    link_target: "/target".to_string(),
-                    target_exists: false,
-                },
-            ),
-            (
-                "replace.rs".to_string(),
-                MergeAction::ReplaceSymlinkWithFile,
-            ),
-            ("normal2.rs".to_string(), MergeAction::Normal),
-        ];
-        let paths = collect_backup_paths(&actions);
-        assert_eq!(
-            paths,
-            vec!["normal.rs", "link.rs", "replace.rs", "normal2.rs"]
-        );
-    }
-
-    #[test]
-    fn test_collect_backup_paths_empty() {
-        let actions: Vec<(String, MergeAction)> = vec![];
-        let paths = collect_backup_paths(&actions);
-        assert!(paths.is_empty());
-    }
-
-    #[test]
-    fn batch_prepares_symlink_targets_before_writing() {
-        let actions = vec![(
-            "link.rs".to_string(),
-            MergeAction::CreateSymlink {
-                link_target: "/target".to_string(),
-                target_exists: true,
-            },
-        )];
-        let paths = collect_backup_paths(&actions);
-        assert_eq!(paths, vec!["link.rs"]);
     }
 
     #[test]
