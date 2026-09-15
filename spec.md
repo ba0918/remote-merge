@@ -456,13 +456,13 @@ LLMには最初から全差分を渡さず、**必要になったら1ファイ�
 ```json
 {
   "merged": [
-    { "path": "src/config.ts", "status": "ok", "backup": "20240115-140000", "ref_badge": "differs" }
+    { "path": "src/config.ts", "status": "ok", "backup": "20240115-140000/src/config.ts", "ref_badge": "differs" }
   ],
   "skipped": [
     { "path": ".env", "reason": "sensitive" }
   ],
   "deleted": [
-    { "path": "src/old.ts", "status": "ok", "backup": "20240115-140000" }
+    { "path": "src/old.ts", "status": "ok", "backup": "20240115-140000/src/old.ts" }
   ],
   "failed": []
 }
