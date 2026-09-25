@@ -2,9 +2,11 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::symlink;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
@@ -19,6 +21,21 @@ use remote_merge::service::merge_flow::{
 use remote_merge::service::types::{FileStatus, FileStatusKind};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+use tracing_subscriber::prelude::*;
+
+#[derive(Clone)]
+struct CapturedLog(Arc<Mutex<Vec<u8>>>);
+
+impl Write for CapturedLog {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 // @kotowari[EX-merge-001]
 #[test]
@@ -1619,6 +1636,39 @@ fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
     assert_eq!(
         fs::read_to_string(destination.path().join("ok.txt")).unwrap(),
         "new ok.txt\n"
+    );
+}
+
+// @kotowari[EX-cli-029]
+#[test]
+fn merging_a_file_does_not_record_its_body_in_diagnostic_logs() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let body = "private-value-for-diagnostic-test\n";
+    fs::write(local.path().join("file.txt"), body).unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let subscriber = tracing_subscriber::registry().with(
+        remote_merge::telemetry::structured_log::JsonLogLayer::new(CapturedLog(captured.clone())),
+    );
+    tracing::subscriber::with_default(subscriber, || {
+        let result = execute_merge(merge_args("file.txt"), config, targets).unwrap();
+        let MergeCommandOutput::Files(output) = result.output else {
+            panic!("expected merge output")
+        };
+        assert_eq!(output.merged.len(), 1, "{output:?}");
+    });
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        body
+    );
+    let recorded = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+    assert!(!recorded.is_empty(), "merge must emit diagnostic records");
+    assert!(
+        !recorded.contains(body.trim()),
+        "file body leaked into diagnostic log"
     );
 }
 
