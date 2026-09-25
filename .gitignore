@@ -7,6 +7,9 @@
 .agents/tmp
 .agents/HANDOFF.md
 
+# Historical working documents (kept locally outside docs/)
+/.archive/
+
 # Claude
 .claude/settings.local.json
 .claude/worktrees
