@@ -983,7 +983,7 @@ fn selecting_all_hunks_applies_both_regions() {
     assert_eq!(fs::read_to_string(&target).unwrap(), source);
 }
 
-// @kotowari[EX-merge-026]
+// @kotowari[EX-merge-026, EX-merge-029]
 #[test]
 fn merging_without_permission_copy_preserves_destination_mode_and_owner() {
     let local = TempDir::new().unwrap();
@@ -1029,6 +1029,28 @@ fn permission_copy_changes_destination_mode_to_source_mode() {
         fs::metadata(&target).unwrap().permissions().mode() & 0o777,
         0o600
     );
+}
+
+// @kotowari[EX-merge-027]
+#[test]
+fn matching_modes_stay_unchanged_on_an_existing_destination() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("file.txt");
+    let target = destination.path().join("file.txt");
+    fs::write(&source, "new\n").unwrap();
+    fs::write(&target, "old\n").unwrap();
+    for path in [&source, &target] {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let old = fs::metadata(&target).unwrap();
+    let output = merge(&local, &destination, &backup, "file.txt");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    let new = fs::metadata(&target).unwrap();
+    assert_eq!(new.permissions().mode() & 0o777, 0o640);
+    assert_eq!((new.uid(), new.gid()), (old.uid(), old.gid()));
 }
 
 // @kotowari[EX-merge-024]
