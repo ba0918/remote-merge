@@ -24,6 +24,9 @@ mod ssh_compatibility;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_disconnect.rs"]
 mod ssh_disconnect;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_fallback.rs"]
+mod ssh_fallback;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
 #[cfg(feature = "test-utils")]
