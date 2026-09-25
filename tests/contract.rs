@@ -28,3 +28,5 @@ mod tui_confirm;
 mod tui_directory_links;
 #[path = "contract/tui_navigation.rs"]
 mod tui_navigation;
+#[path = "contract/tui_reference.rs"]
+mod tui_reference;

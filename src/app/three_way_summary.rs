@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use similar::{ChangeTag, TextDiff};
+use similar::{DiffTag, TextDiff};
 
 use crate::diff::engine::DiffLine;
 
@@ -109,16 +109,13 @@ impl ThreeWaySummaryPanel {
     }
 }
 
-/// left 行番号 → ref 行番号のマッピングを構築する。
-///
-/// similar の Equal 変更から left(old) と ref(new) の行対応を取得する。
-fn build_left_to_ref_mapping(left_content: &str, ref_content: &str) -> Vec<(usize, usize)> {
-    let diff = TextDiff::from_lines(left_content, ref_content);
-    let mut mapping = Vec::new();
-    for change in diff.iter_all_changes() {
-        if change.tag() == ChangeTag::Equal {
-            if let (Some(old_idx), Some(new_idx)) = (change.old_index(), change.new_index()) {
-                mapping.push((old_idx, new_idx));
+fn line_mapping(content: &str, reference: &str) -> HashMap<usize, usize> {
+    let diff = TextDiff::from_lines(content, reference);
+    let mut mapping = HashMap::new();
+    for op in diff.ops() {
+        if matches!(op.tag(), DiffTag::Equal | DiffTag::Replace) {
+            for (old, new) in op.old_range().zip(op.new_range()) {
+                mapping.insert(old, new);
             }
         }
     }
@@ -154,10 +151,8 @@ pub fn collect_summary_lines(
     let right_lines: Vec<&str> = right_content.lines().collect();
     let ref_lines: Vec<&str> = ref_content.lines().collect();
 
-    // left 行番号(0-based) → ref 行番号(0-based) のマッピング
-    let mapping = build_left_to_ref_mapping(left_content, ref_content);
-    // HashMap に変換して O(1) ルックアップ
-    let left_to_ref: HashMap<usize, usize> = mapping.into_iter().collect();
+    let left_to_ref = line_mapping(left_content, ref_content);
+    let right_to_ref = line_mapping(right_content, ref_content);
 
     let mut result = Vec::new();
 
@@ -175,12 +170,11 @@ pub fn collect_summary_lines(
             .new_index
             .and_then(|i| right_lines.get(i).map(|s| s.to_string()));
 
-        // ref 側の内容: Insert 行 (old_index=None) の場合は None
-        let ref_val = dl.old_index.and_then(|old_idx| {
-            left_to_ref
-                .get(&old_idx)
-                .and_then(|&ref_idx| ref_lines.get(ref_idx).map(|s| s.to_string()))
-        });
+        let ref_idx = dl
+            .old_index
+            .and_then(|idx| left_to_ref.get(&idx))
+            .or_else(|| dl.new_index.and_then(|idx| right_to_ref.get(&idx)));
+        let ref_val = ref_idx.and_then(|&idx| ref_lines.get(idx).map(|s| s.to_string()));
 
         // 3者が全て一致ならスキップ
         if all_three_equal(&left_val, &right_val, &ref_val) {
@@ -472,17 +466,16 @@ mod tests {
         assert_eq!(result[0].right_content, None);
         assert_eq!(result[0].ref_content, Some("bbb".to_string()));
 
-        // Insert 行: left=None, right=XXX, ref=None
+        // Insert 行も参照先の対応行を表示する
         assert_eq!(result[1].display_line_number, None); // old_index=None → None
         assert_eq!(result[1].left_content, None);
         assert_eq!(result[1].right_content, Some("XXX".to_string()));
-        assert_eq!(result[1].ref_content, None);
+        assert_eq!(result[1].ref_content, Some("bbb".to_string()));
     }
 
     #[test]
     fn test_collect_ref_differs() {
         // left と right は同じ、ref だけ異なる → Equal 行でも ref 不一致で出る
-        // left 行1("bbb") は ref に対応行がない（similar が Delete/Insert 扱い）ので ref_content=None
         let left = "aaa\nbbb\n";
         let right = "aaa\nbbb\n";
         let ref_content = "aaa\nYYY\n";
@@ -493,12 +486,12 @@ mod tests {
         ];
 
         let result = collect_summary_lines(&diff_lines, left, right, ref_content);
-        // 行1: left=bbb, right=bbb, ref=None（マッピングなし）→ 不一致
+        // 行1: left=bbb, right=bbb, ref=YYY → 不一致
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].display_line_number, Some(2));
         assert_eq!(result[0].left_content, Some("bbb".to_string()));
         assert_eq!(result[0].right_content, Some("bbb".to_string()));
-        assert_eq!(result[0].ref_content, None);
+        assert_eq!(result[0].ref_content, Some("YYY".to_string()));
     }
 
     #[test]
@@ -562,39 +555,38 @@ mod tests {
         ];
 
         let result = collect_summary_lines(&diff_lines, left, right, ref_content);
-        // 全行が不一致（ref と left が全く違うので ref_content は全部 None）
+        // 全行が不一致でも対応する参照先の内容を表示する
         assert!(!result.is_empty());
-        for line in &result {
-            assert_eq!(line.ref_content, None);
-        }
+        assert!(result
+            .iter()
+            .any(|line| line.ref_content.as_deref() == Some("yyy")));
     }
 
     // -------------------------------------------------------
-    // build_left_to_ref_mapping のテスト
+    // line_mapping のテスト
     // -------------------------------------------------------
 
     #[test]
     fn test_mapping_identical_content() {
         let content = "a\nb\nc\n";
-        let mapping = build_left_to_ref_mapping(content, content);
-        assert_eq!(mapping, vec![(0, 0), (1, 1), (2, 2)]);
+        let mapping = line_mapping(content, content);
+        assert_eq!(mapping, HashMap::from([(0, 0), (1, 1), (2, 2)]));
     }
 
     #[test]
     fn test_mapping_partial_match() {
         let left = "a\nb\nc\n";
         let ref_c = "a\nX\nc\n";
-        let mapping = build_left_to_ref_mapping(left, ref_c);
-        // 行0と行2が Equal、行1は異なる
-        assert_eq!(mapping, vec![(0, 0), (2, 2)]);
+        let mapping = line_mapping(left, ref_c);
+        assert_eq!(mapping, HashMap::from([(0, 0), (1, 1), (2, 2)]));
     }
 
     #[test]
     fn test_mapping_no_match() {
         let left = "a\nb\n";
         let ref_c = "x\ny\n";
-        let mapping = build_left_to_ref_mapping(left, ref_c);
-        assert!(mapping.is_empty());
+        let mapping = line_mapping(left, ref_c);
+        assert_eq!(mapping, HashMap::from([(0, 0), (1, 1)]));
     }
 
     // -------------------------------------------------------
@@ -656,8 +648,7 @@ mod tests {
         assert_eq!(result[0].display_line_number, Some(2));
         assert_eq!(result[0].left_content, Some("bbb".to_string()));
         assert_eq!(result[0].right_content, Some("bbb".to_string()));
-        // ref 側は bbb → ZZZ なのでマッピングが存在しない → None
-        assert_eq!(result[0].ref_content, None);
+        assert_eq!(result[0].ref_content, Some("ZZZ".to_string()));
     }
 
     // -------------------------------------------------------
