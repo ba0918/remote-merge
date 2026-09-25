@@ -6,6 +6,8 @@ mod backup_location;
 mod cli_results;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
+#[path = "contract/filters.rs"]
+mod filters;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[path = "contract/rollback_paths.rs"]

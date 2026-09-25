@@ -1,8 +1,10 @@
 use std::fs;
 
+use remote_merge::cli::diff::{execute_diff, DiffArgs};
 use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
+use remote_merge::service::output::format_json;
 
 fn load_pair(global: &str, project: &str) -> remote_merge::config::AppConfig {
     let dir = tempfile::tempdir().unwrap();
@@ -159,4 +161,57 @@ fn status_excludes_files_matching_either_configuration_level() {
         .map(|file| file.path)
         .collect();
     assert_eq!(paths, ["visible.txt"]);
+}
+
+// @kotowari[EX-config-004]
+#[test]
+fn global_sensitive_pattern_still_masks_diff_with_project_configuration() {
+    let workspace = tempfile::tempdir().unwrap();
+    let local = tempfile::tempdir().unwrap();
+    let destination = tempfile::tempdir().unwrap();
+    fs::write(
+        local.path().join("private.key"),
+        "left confidential material\n",
+    )
+    .unwrap();
+    fs::write(
+        destination.path().join("private.key"),
+        "right confidential material\n",
+    )
+    .unwrap();
+    let global_path = workspace.path().join("global.toml");
+    let project_path = workspace.path().join("project.toml");
+    fs::write(&global_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[filter]\nsensitive = [\"*.key\"]\n",
+        local.path().display().to_string(), destination.path().display().to_string(),
+    )).unwrap();
+    fs::write(&project_path, "[filter]\nexclude = [\"*.log\"]\n").unwrap();
+    let config = load_config_from_paths(Some(&global_path), Some(&project_path)).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", destination.path())
+        .with_startup_directory(workspace.path().to_path_buf());
+    let (output, _) = execute_diff(
+        DiffArgs {
+            paths: vec!["private.key".into()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            format: "json".into(),
+            max_lines: None,
+            max_files: 100,
+            force: false,
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    assert_eq!(output.files.len(), 1, "{output:?}");
+    assert!(output.files[0].sensitive);
+    let encoded = format_json(&output).unwrap();
+    assert!(!encoded.contains("left confidential material"), "{encoded}");
+    assert!(
+        !encoded.contains("right confidential material"),
+        "{encoded}"
+    );
 }
