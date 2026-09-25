@@ -97,9 +97,13 @@ pub fn execute_single_merge(
         } => {
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
             let backup_path = if ctx.core.config.backup.enabled {
-                ctx.core
-                    .save_backup_if_exists(target, path, ctx.session_id, ctx.force)
-                    .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
+                if target_exists {
+                    ctx.core
+                        .save_symlink_update(target, path, ctx.session_id, &link_target)
+                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
+                } else {
+                    None
+                }
             } else {
                 None
             };

@@ -32,14 +32,28 @@ enum StoredBackup<'a> {
     Symlink {
         path: &'a str,
         link_target: &'a Path,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expected_target: Option<&'a Path>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        real_parent: Option<&'a Path>,
     },
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum StoredBackupRecord {
-    File { path: String, real_path: PathBuf },
-    Symlink { path: String, link_target: PathBuf },
+    File {
+        path: String,
+        real_path: PathBuf,
+    },
+    Symlink {
+        path: String,
+        link_target: PathBuf,
+        #[serde(default)]
+        expected_target: Option<PathBuf>,
+        #[serde(default)]
+        real_parent: Option<PathBuf>,
+    },
 }
 
 pub(crate) enum BackupRecord {
@@ -47,7 +61,16 @@ pub(crate) enum BackupRecord {
         real_path: PathBuf,
         content: Vec<u8>,
     },
-    Symlink,
+    Symlink {
+        link_target: PathBuf,
+        expected_target: Option<PathBuf>,
+        real_parent: Option<PathBuf>,
+    },
+}
+
+pub(crate) struct SymlinkBackup<'a> {
+    pub link_target: &'a Path,
+    pub expected: Option<(&'a Path, &'a Path)>,
 }
 
 impl BackupStore {
@@ -121,11 +144,13 @@ impl BackupStore {
         target: &Side,
         session_id: &str,
         rel_path: &str,
-        link_target: &Path,
+        link: SymlinkBackup<'_>,
     ) -> anyhow::Result<String> {
         let record = StoredBackup::Symlink {
             path: rel_path,
-            link_target,
+            link_target: link.link_target,
+            expected_target: link.expected.map(|(target, _)| target),
+            real_parent: link.expected.map(|(_, parent)| parent),
         };
         self.save(config, target, session_id, rel_path, &record, None)
     }
@@ -267,7 +292,9 @@ impl BackupStore {
                             link_target: None,
                         });
                     }
-                    Some(StoredBackupRecord::Symlink { path, link_target }) => {
+                    Some(StoredBackupRecord::Symlink {
+                        path, link_target, ..
+                    }) => {
                         files.push(crate::service::types::BackupEntry {
                             path,
                             size: None,
@@ -324,7 +351,19 @@ impl BackupStore {
                 })
             }
             StoredBackupRecord::File { .. } => anyhow::bail!("backup record path does not match"),
-            StoredBackupRecord::Symlink { .. } => Ok(BackupRecord::Symlink),
+            StoredBackupRecord::Symlink {
+                path,
+                link_target,
+                expected_target,
+                real_parent,
+            } if path == rel_path => Ok(BackupRecord::Symlink {
+                link_target,
+                expected_target,
+                real_parent,
+            }),
+            StoredBackupRecord::Symlink { .. } => {
+                anyhow::bail!("backup record path does not match")
+            }
         }
     }
 }

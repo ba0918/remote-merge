@@ -135,10 +135,57 @@ impl CoreRuntime {
             }
             super::target_io::TargetPath::Symlink { link_target, .. } => self
                 .backup_store
-                .save_symlink(&self.config, target, session_id, path, &link_target)
+                .save_symlink(
+                    &self.config,
+                    target,
+                    session_id,
+                    path,
+                    super::backup_store::SymlinkBackup {
+                        link_target: &link_target,
+                        expected: None,
+                    },
+                )
                 .map(Some),
             super::target_io::TargetPath::Missing { .. } => Ok(None),
         }
+    }
+
+    pub fn save_symlink_update(
+        &mut self,
+        target: &crate::app::Side,
+        path: &str,
+        session_id: &str,
+        expected_target: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let inspected = self.inspect_path(target, path)?;
+        let super::target_io::TargetPath::Symlink { link_target, .. } = inspected else {
+            return match inspected {
+                super::target_io::TargetPath::Missing { .. } => Ok(None),
+                _ => anyhow::bail!("destination is no longer a symlink: {path}"),
+            };
+        };
+        let parent = std::path::Path::new(path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""));
+        let real_parent = match self.inspect_path(target, &parent.to_string_lossy())? {
+            super::target_io::TargetPath::File { real_path }
+            | super::target_io::TargetPath::Symlink { real_path, .. } => real_path,
+            super::target_io::TargetPath::Missing { .. } => {
+                anyhow::bail!("parent directory no longer exists: {path}")
+            }
+        };
+        self.backup_store
+            .save_symlink(
+                &self.config,
+                target,
+                session_id,
+                path,
+                super::backup_store::SymlinkBackup {
+                    link_target: &link_target,
+                    expected: Some((std::path::Path::new(expected_target), &real_parent)),
+                },
+            )
+            .map(Some)
     }
 
     /// テスト用: SSH 接続なしの最小ランタイムを作成する

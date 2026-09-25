@@ -185,8 +185,12 @@ impl CoreRuntime {
             let record = self
                 .backup_store
                 .read_record(&self.config, side, session_id, path)?;
-            if let super::backup_store::BackupRecord::File { real_path, .. } = record {
-                let current = match self.inspect_restore_path(side, path) {
+            let backup_record = Self::restore_path_record(&record);
+            if !matches!(
+                backup_record,
+                crate::service::rollback::BackupPathRecord::Symlink
+            ) {
+                let current = match self.inspect_recorded_path(side, path, &backup_record) {
                     Ok(current) => current,
                     Err(error) => {
                         return Ok((
@@ -202,12 +206,12 @@ impl CoreRuntime {
                         ));
                     }
                 };
-                let decision = crate::service::rollback::decide_restore_path(
-                    &crate::service::rollback::BackupPathRecord::File { real_path },
-                    &current,
-                );
+                let decision =
+                    crate::service::rollback::decide_restore_path(&backup_record, &current);
                 if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
-                    if reason == "path now resolves to a different location" {
+                    if reason == "path now resolves to a different location"
+                        || reason == "symlink changed after merge"
+                    {
                         return Ok((
                             vec![],
                             files
@@ -246,23 +250,14 @@ impl CoreRuntime {
                     continue;
                 }
             };
-            let backup_record = match &record {
-                super::backup_store::BackupRecord::File { real_path, .. } => {
-                    crate::service::rollback::BackupPathRecord::File {
-                        real_path: real_path.clone(),
-                    }
-                }
-                super::backup_store::BackupRecord::Symlink => {
-                    crate::service::rollback::BackupPathRecord::Symlink
-                }
-            };
+            let backup_record = Self::restore_path_record(&record);
             let current = if matches!(
                 backup_record,
                 crate::service::rollback::BackupPathRecord::Symlink
             ) {
                 None
             } else {
-                match self.inspect_restore_path(side, path) {
+                match self.inspect_recorded_path(side, path, &backup_record) {
                     Ok(current) => Some(current),
                     Err(error) => {
                         failed.push(crate::service::types::RollbackFailure {
@@ -286,10 +281,6 @@ impl CoreRuntime {
                 });
                 continue;
             }
-            let super::backup_store::BackupRecord::File { content, .. } = record else {
-                unreachable!()
-            };
-
             if dry_run {
                 restored.push(crate::service::types::RollbackFileResult {
                     path: path.clone(),
@@ -314,7 +305,15 @@ impl CoreRuntime {
                 None
             };
 
-            match self.write_file_bytes(side, path, &content) {
+            let write_result = match record {
+                super::backup_store::BackupRecord::File { content, .. } => {
+                    self.write_file_bytes(side, path, &content)
+                }
+                super::backup_store::BackupRecord::Symlink { link_target, .. } => self
+                    .remove_file(side, path)
+                    .and_then(|()| self.create_symlink(side, path, &link_target.to_string_lossy())),
+            };
+            match write_result {
                 Ok(()) => restored.push(crate::service::types::RollbackFileResult {
                     path: path.clone(),
                     pre_rollback_backup,
@@ -331,6 +330,57 @@ impl CoreRuntime {
         }
 
         Ok((restored, skipped, failed))
+    }
+
+    fn restore_path_record(
+        record: &super::backup_store::BackupRecord,
+    ) -> crate::service::rollback::BackupPathRecord {
+        use crate::service::rollback::BackupPathRecord;
+        match record {
+            super::backup_store::BackupRecord::File { real_path, .. } => BackupPathRecord::File {
+                real_path: real_path.clone(),
+            },
+            super::backup_store::BackupRecord::Symlink {
+                expected_target: Some(expected_target),
+                real_parent: Some(real_parent),
+                ..
+            } => BackupPathRecord::SymlinkUpdate {
+                expected_target: expected_target.clone(),
+                real_parent: real_parent.clone(),
+            },
+            super::backup_store::BackupRecord::Symlink { .. } => BackupPathRecord::Symlink,
+        }
+    }
+
+    fn inspect_recorded_path(
+        &mut self,
+        side: &Side,
+        path: &str,
+        record: &crate::service::rollback::BackupPathRecord,
+    ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
+        use crate::service::rollback::{BackupPathRecord, CurrentRestorePath};
+        if !matches!(record, BackupPathRecord::SymlinkUpdate { .. }) {
+            return self.inspect_restore_path(side, path);
+        }
+        let super::target_io::TargetPath::Symlink { link_target, .. } =
+            self.inspect_path(side, path)?
+        else {
+            return Ok(CurrentRestorePath::Missing { real_parent: None });
+        };
+        let parent = std::path::Path::new(path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""));
+        let real_parent = match self.inspect_path(side, &parent.to_string_lossy())? {
+            super::target_io::TargetPath::File { real_path }
+            | super::target_io::TargetPath::Symlink { real_path, .. } => real_path,
+            super::target_io::TargetPath::Missing { .. } => {
+                return Ok(CurrentRestorePath::Missing { real_parent: None });
+            }
+        };
+        Ok(CurrentRestorePath::Symlink {
+            link_target,
+            real_parent,
+        })
     }
 
     fn inspect_restore_path(

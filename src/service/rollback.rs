@@ -28,14 +28,28 @@ pub enum RestoreError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackupPathRecord {
-    File { real_path: PathBuf },
+    File {
+        real_path: PathBuf,
+    },
     Symlink,
+    SymlinkUpdate {
+        expected_target: PathBuf,
+        real_parent: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CurrentRestorePath {
-    Present { real_path: PathBuf },
-    Missing { real_parent: Option<PathBuf> },
+    Present {
+        real_path: PathBuf,
+    },
+    Missing {
+        real_parent: Option<PathBuf>,
+    },
+    Symlink {
+        link_target: PathBuf,
+        real_parent: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +62,21 @@ pub fn decide_restore_path(
     record: &BackupPathRecord,
     current: &CurrentRestorePath,
 ) -> RestorePathDecision {
+    if let BackupPathRecord::SymlinkUpdate {
+        expected_target,
+        real_parent,
+    } = record
+    {
+        return match current {
+            CurrentRestorePath::Symlink {
+                link_target,
+                real_parent: current_parent,
+            } if link_target == expected_target && current_parent == real_parent => {
+                RestorePathDecision::Restore
+            }
+            _ => RestorePathDecision::Skip("symlink changed after merge"),
+        };
+    }
     let BackupPathRecord::File { real_path } = record else {
         return RestorePathDecision::Skip("symlink restore not supported");
     };
@@ -57,6 +86,9 @@ pub fn decide_restore_path(
             RestorePathDecision::Skip("path now resolves to a different location")
         }
         CurrentRestorePath::Present { .. } => RestorePathDecision::Restore,
+        CurrentRestorePath::Symlink { .. } => {
+            RestorePathDecision::Skip("path now resolves to a different location")
+        }
         CurrentRestorePath::Missing { real_parent: None } => {
             RestorePathDecision::Skip("parent directory no longer exists")
         }

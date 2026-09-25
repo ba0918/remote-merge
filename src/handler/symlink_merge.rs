@@ -62,12 +62,14 @@ pub fn execute_symlink_merge(
         } => {
             // バックアップ（target_exists の場合）
             if target_exists {
-                let backup = super::merge_file_io::save_backups(
-                    runtime,
-                    target_side,
-                    &[path.to_string()],
-                    session_id,
-                );
+                let backup = match session_id {
+                    Some(session_id) => runtime
+                        .core
+                        .save_symlink_update(target_side, path, session_id, &link_target)
+                        .map(|_| ())
+                        .map_err(|error| error.to_string()),
+                    None => Ok(()),
+                };
                 if let super::merge_file_io::BackupDecision::Refuse(message) =
                     super::merge_file_io::decide_backup_write(
                         runtime.core.config.backup.enabled,
@@ -313,13 +315,13 @@ mod tests {
         );
     }
 
-    // ── CreateSymlink: ターゲットが存在する場合、既存ファイルを置換 ──
+    // ── CreateSymlink: リンク先を更新 ──
 
     #[test]
-    fn create_symlink_replaces_existing_file() {
+    fn updating_an_existing_symlink_changes_its_link_target() {
         let tmp = TempDir::new().unwrap();
-        // 既存ファイルを作成
-        std::fs::write(tmp.path().join("link.txt"), "old content").unwrap();
+        std::fs::write(tmp.path().join("old.txt"), "old content").unwrap();
+        std::os::unix::fs::symlink("old.txt", tmp.path().join("link.txt")).unwrap();
 
         let mut state = make_test_state(Side::Local, Side::Local);
         let mut runtime = make_test_runtime(&tmp);
@@ -341,7 +343,7 @@ mod tests {
 
         assert!(result);
 
-        // 既存ファイルが symlink に置き換えられたことを確認
+        // 既存のリンク先が更新されたことを確認
         let symlink_path = tmp.path().join("link.txt");
         assert!(symlink_path.symlink_metadata().unwrap().is_symlink());
         let link_dest = std::fs::read_link(&symlink_path).unwrap();

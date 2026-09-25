@@ -4,6 +4,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 
 use remote_merge::app::Side;
+use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
@@ -106,4 +107,129 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
             .all(|entry| entry.reason.contains("different location")),
         "{output:?}"
     );
+}
+
+// @kotowari[EX-backup-020]
+#[test]
+fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("old.txt"), "old\n").unwrap();
+    fs::write(destination.path().join("new.txt"), "new\n").unwrap();
+    symlink("new.txt", local.path().join("link.txt")).unwrap();
+    symlink("old.txt", destination.path().join("link.txt")).unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_merge(
+        symlink_merge_args(vec!["link.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(merged) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(merged.merged.len(), 1, "{merged:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("new.txt")
+    );
+
+    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let RollbackCommandOutput::Restore(restored) = rollback.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(restored.restored.len(), 1, "{restored:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("old.txt")
+    );
+}
+
+// @kotowari[EX-backup-021, EX-backup-022]
+#[test]
+fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_same_file() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("old.txt"), "old\n").unwrap();
+    fs::write(destination.path().join("new.txt"), "new\n").unwrap();
+    symlink("new.txt", local.path().join("link.txt")).unwrap();
+    symlink("old.txt", destination.path().join("link.txt")).unwrap();
+    fs::write(local.path().join("file.txt"), "brand new content\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old content\n").unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_merge(
+        symlink_merge_args(vec!["file.txt", "link.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(merged) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(merged.merged.len(), 2, "{merged:?}");
+    fs::remove_file(destination.path().join("link.txt")).unwrap();
+    symlink("./new.txt", destination.path().join("link.txt")).unwrap();
+
+    let rollback = execute_rollback(rollback_args(None), config, targets).unwrap();
+    let RollbackCommandOutput::Restore(restored) = rollback.output else {
+        panic!("expected restore result")
+    };
+    assert!(restored.restored.is_empty(), "{restored:?}");
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        std::path::Path::new("./new.txt")
+    );
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "brand new content\n"
+    );
+}
+
+fn symlink_merge_setup(
+    local: &TempDir,
+    destination: &TempDir,
+    backup: &TempDir,
+) -> (remote_merge::config::AppConfig, RuntimeTargets) {
+    let config_path = local.path().join("config.toml");
+    fs::write(&config_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+        local.path().display().to_string(), destination.path().display().to_string()
+    )).unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", destination.path())
+        .with_backup_store(Some(backup.path().to_path_buf()))
+        .with_startup_directory(std::env::current_dir().unwrap());
+    (config, targets)
+}
+
+fn symlink_merge_args(paths: Vec<&str>) -> MergeArgs {
+    MergeArgs {
+        paths: paths.into_iter().map(str::to_owned).collect(),
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        dry_run: false,
+        force: true,
+        delete: false,
+        with_permissions: false,
+        format: "json".into(),
+        max_entries: None,
+        hunks: None,
+    }
+}
+
+fn rollback_args(session: Option<String>) -> RollbackArgs {
+    RollbackArgs {
+        target: Some("develop".into()),
+        list: false,
+        session,
+        dry_run: false,
+        force: true,
+        format: "json".into(),
+    }
 }

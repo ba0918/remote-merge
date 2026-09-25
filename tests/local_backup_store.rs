@@ -1064,17 +1064,19 @@ fn rollback_skips_a_recorded_symlink_without_replacing_the_current_file() {
         runtime_targets.clone(),
     )
     .unwrap();
+    fs::remove_file(develop.path().join("link.txt")).unwrap();
+    fs::write(develop.path().join("link.txt"), "third party\n").unwrap();
 
     let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
 
     let RollbackCommandOutput::Restore(output) = result.output else {
         panic!("expected restore output")
     };
-    assert_eq!(output.skipped[0].reason, "symlink restore not supported");
+    assert_eq!(output.skipped[0].reason, "symlink changed after merge");
     assert_eq!(result.exit_code, 2);
     assert_eq!(
-        fs::read_link(develop.path().join("link.txt")).unwrap(),
-        std::path::Path::new("new-target.txt")
+        fs::read_to_string(develop.path().join("link.txt")).unwrap(),
+        "third party\n"
     );
 }
 
