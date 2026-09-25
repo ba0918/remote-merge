@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::app::three_way;
-use crate::tree::{FileNode, FileTree, NodePresence};
+use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
 
 use super::types::*;
 
@@ -211,6 +211,26 @@ pub fn needs_content_compare_all(files: &[FileStatus]) -> Vec<String> {
         .iter()
         .filter(|f| f.status == FileStatusKind::Modified || f.status == FileStatusKind::Equal)
         .map(|f| f.path.clone())
+        .collect()
+}
+
+pub fn needs_explicit_file_compare(
+    requested: &[String],
+    statuses: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+) -> Vec<String> {
+    statuses
+        .iter()
+        .filter(|status| status.status == FileStatusKind::Equal && requested.contains(&status.path))
+        .filter(|status| {
+            left.find_node(&status.path)
+                .zip(right.find_node(&status.path))
+                .is_some_and(|(l, r)| {
+                    matches!(l.kind, NodeKind::File) && matches!(r.kind, NodeKind::File)
+                })
+        })
+        .map(|status| status.path.clone())
         .collect()
 }
 

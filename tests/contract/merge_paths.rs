@@ -86,6 +86,71 @@ fn two_symlinks_merge_the_link_text_without_writing_through_either_link() {
     );
 }
 
+// @kotowari[EX-merge-009]
+#[test]
+fn explicit_file_merge_detects_different_bytes_with_equal_size_and_timestamp() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("same-size.txt");
+    let target = destination.path().join("same-size.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+
+    let output = merge(&local, &destination, &backup, "same-size.txt");
+    assert!(output.failed.is_empty(), "{output:?}");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[REQ-merge-005]
+#[test]
+fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("same-size.txt");
+    let target = destination.path().join("same-size.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["same-size.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
 // @kotowari[REQ-merge-001]
 #[test]
 fn sync_skips_a_type_mismatch_and_preserves_the_destination() {

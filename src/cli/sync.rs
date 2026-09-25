@@ -163,7 +163,13 @@ pub fn execute_sync(
             compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
         // メタデータだけでは判定できないファイルのコンテンツ比較
-        let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+        let mut paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+        paths_to_compare.extend(crate::service::status::needs_explicit_file_compare(
+            &args.paths,
+            &statuses,
+            &left_tree,
+            &right_tree,
+        ));
         if !paths_to_compare.is_empty() {
             let left_batch = fetch_contents_tolerant(left_side, &paths_to_compare, &mut core);
             let right_batch = fetch_contents_tolerant(right_side, &paths_to_compare, &mut core);

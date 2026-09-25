@@ -23,7 +23,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
-    refine_status_with_content,
+    needs_explicit_file_compare, refine_status_with_content,
 };
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
@@ -157,6 +157,7 @@ pub fn execute_merge(
     let strategy = resolve_scan_strategy(&args.paths, args.delete);
     let (left_tree, right_tree, statuses) = fetch_trees_and_statuses_for_merge(
         &strategy,
+        &args.paths,
         &pair.left,
         &pair.right,
         &mut core,
@@ -397,6 +398,7 @@ fn run_hunk_merge(
     let strategy = resolve_scan_strategy(&paths, false);
     let (left_tree, right_tree, _statuses) = fetch_trees_and_statuses_for_merge(
         &strategy,
+        &paths,
         left,
         right,
         &mut core,
@@ -449,6 +451,7 @@ fn run_hunk_merge(
 /// ルート直下ファイルが含まれる場合は FullScan にフォールバックする。
 fn fetch_trees_and_statuses_for_merge(
     strategy: &ScanStrategy,
+    requested: &[String],
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
@@ -482,7 +485,13 @@ fn fetch_trees_and_statuses_for_merge(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // Refine statuses with content comparison for metadata-ambiguous files
-    let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    let mut paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    paths_to_compare.extend(needs_explicit_file_compare(
+        requested,
+        &statuses,
+        &left_tree,
+        &right_tree,
+    ));
     if !paths_to_compare.is_empty() {
         let left_batch = fetch_contents_tolerant(left, &paths_to_compare, core);
         let right_batch = fetch_contents_tolerant(right, &paths_to_compare, core);
