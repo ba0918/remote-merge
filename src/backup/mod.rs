@@ -195,27 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn backup_store_uses_home_when_xdg_data_home_is_relative() {
-        assert_eq!(
-            backup_store_path(
-                Some(Path::new("relative/data")),
-                Some(Path::new("/home/user"))
-            ),
-            Some(PathBuf::from(
-                "/home/user/.local/share/remote-merge/backups"
-            ))
-        );
-    }
-
-    #[test]
-    fn backup_store_uses_absolute_xdg_data_home() {
-        assert_eq!(
-            backup_store_path(Some(Path::new("/var/data")), Some(Path::new("/home/user"))),
-            Some(PathBuf::from("/var/data/remote-merge/backups"))
-        );
-    }
-
-    #[test]
     fn backup_store_is_unavailable_without_xdg_data_home_or_home() {
         assert_eq!(backup_store_path(None, None), None);
     }

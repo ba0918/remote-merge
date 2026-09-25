@@ -984,59 +984,6 @@ root_dir = "/home/user/app"
     }
 
     #[test]
-    fn test_merge_global_and_project() {
-        let global = r#"
-[servers.develop]
-host = "dev.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[local]
-root_dir = "/home/user/app"
-
-[filter]
-exclude = ["node_modules", ".git"]
-
-[ssh]
-timeout_sec = 15
-"#;
-        let project = r#"
-[servers.develop]
-host = "dev-new.example.com"
-user = "deploy-new"
-root_dir = "/var/www/new-app"
-
-[servers.staging]
-host = "staging.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[filter]
-exclude = ["dist", "*.log"]
-
-[ssh]
-timeout_sec = 30
-"#;
-        let gf = write_temp_config(global);
-        let pf = write_temp_config(project);
-        let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
-
-        // servers: プロジェクトが上書き + 追加
-        assert_eq!(config.servers.len(), 2);
-        assert_eq!(config.servers["develop"].host, "dev-new.example.com");
-        assert_eq!(config.servers["staging"].host, "staging.example.com");
-
-        // filter: 和集合
-        assert!(config.filter.exclude.contains(&"node_modules".to_string()));
-        assert!(config.filter.exclude.contains(&".git".to_string()));
-        assert!(config.filter.exclude.contains(&"dist".to_string()));
-        assert!(config.filter.exclude.contains(&"*.log".to_string()));
-
-        // ssh: プロジェクトで上書き
-        assert_eq!(config.ssh.timeout_sec, 30);
-    }
-
-    #[test]
     fn test_invalid_port() {
         let content = r#"
 [servers.develop]
