@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::os::unix::fs::symlink;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 
 use remote_merge::app::Side;
@@ -144,7 +144,7 @@ fn disabled_backup_allows_an_existing_file_to_be_updated_without_saving_a_copy()
     assert_eq!(fs::read_dir(backup.path()).unwrap().count(), 0);
 }
 
-// @kotowari[EX-backup-001, EX-backup-010]
+// @kotowari[EX-backup-001, EX-backup-010, EX-merge-002, EX-merge-036]
 #[test]
 fn enabled_backup_saves_the_old_contents_before_merge() {
     let local = TempDir::new().unwrap();
@@ -159,6 +159,10 @@ fn enabled_backup_saves_the_old_contents_before_merge() {
     };
     assert_eq!(output.merged.len(), 1, "{output:?}");
     assert!(output.merged[0].backup.is_some());
+    assert_eq!(
+        fs::read_to_string(local.path().join("file.txt")).unwrap(),
+        "new\n"
+    );
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "new\n"
@@ -383,6 +387,42 @@ fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
     };
     assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
     assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[EX-merge-010]
+#[test]
+fn identical_file_sync_does_not_rewrite_the_destination() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("same.txt"), "same bytes\n").unwrap();
+    let target = destination.path().join("same.txt");
+    fs::write(&target, "same bytes\n").unwrap();
+    let before = fs::metadata(&target).unwrap().modified().unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["same.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert!(output.targets[0].merged.is_empty(), "{output:?}");
+    assert_eq!(fs::read(&target).unwrap(), b"same bytes\n");
+    assert_eq!(fs::metadata(&target).unwrap().modified().unwrap(), before);
 }
 
 // @kotowari[EX-merge-011]
@@ -623,7 +663,7 @@ fn explicit_merge_checks_readability_even_when_file_sizes_differ() {
     assert_eq!(fs::read_to_string(&target).unwrap(), "old\n");
 }
 
-// @kotowari[EX-merge-034]
+// @kotowari[EX-merge-034, EX-merge-037]
 #[test]
 fn unreadable_source_fails_one_file_without_blocking_the_other_merge() {
     let local = TempDir::new().unwrap();
@@ -828,6 +868,67 @@ fn a_deleted_regular_file_is_backed_up_and_recreated_by_rollback() {
     );
 }
 
+// @kotowari[EX-merge-004]
+#[test]
+fn sync_delete_removes_a_destination_only_regular_file() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let path = destination.path().join("obsolete.txt");
+    fs::write(&path, "obsolete\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec![".".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: true,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert!(
+        output.targets[0]
+            .deleted
+            .iter()
+            .any(|entry| entry.path == "obsolete.txt"),
+        "{output:?}"
+    );
+    assert!(!path.exists());
+}
+
+// @kotowari[EX-merge-008]
+#[test]
+fn merging_through_an_in_root_parent_link_updates_the_existing_file() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("linked")).unwrap();
+    fs::write(local.path().join("linked/file.txt"), "new\n").unwrap();
+    fs::create_dir(destination.path().join("shared")).unwrap();
+    let actual = destination.path().join("shared/file.txt");
+    fs::write(&actual, "old\n").unwrap();
+    symlink("shared", destination.path().join("linked")).unwrap();
+    let output = merge(&local, &destination, &backup, "linked/file.txt");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert!(output.merged[0].backup.is_some(), "{output:?}");
+    assert_eq!(fs::read_to_string(&actual).unwrap(), "new\n");
+    assert_eq!(
+        fs::read_link(destination.path().join("linked")).unwrap(),
+        Path::new("shared")
+    );
+}
+
 // @kotowari[EX-merge-003]
 #[test]
 fn delete_does_not_remove_a_destination_only_symlink() {
@@ -935,6 +1036,62 @@ fn delete_rechecks_a_link_that_appears_after_the_listing() {
         fs::read_link(destination.path().join("link.txt")).unwrap(),
         Path::new("target.txt")
     );
+}
+
+// @kotowari[EX-merge-006]
+#[test]
+fn matching_symlinks_are_not_rewritten() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    symlink("shared.txt", local.path().join("link.txt")).unwrap();
+    symlink("shared.txt", destination.path().join("link.txt")).unwrap();
+    let target = destination.path().join("link.txt");
+    let inode = target.symlink_metadata().unwrap().ino();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(merge_args("link.txt"), config, targets).unwrap();
+    assert!(matches!(
+        result.output,
+        MergeCommandOutput::Outcome(remote_merge::service::types::MergeOutcome::NoFilesToMerge)
+    ));
+    assert_eq!(
+        fs::read_link(destination.path().join("link.txt")).unwrap(),
+        Path::new("shared.txt")
+    );
+    assert_eq!(target.symlink_metadata().unwrap().ino(), inode);
+}
+
+// @kotowari[EX-merge-013]
+#[test]
+fn merge_rejects_parent_traversal_before_writing() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("safe.txt"), "source\n").unwrap();
+    fs::write(destination.path().join("safe.txt"), "before\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(merge_args("../safe.txt"), config, targets);
+    let error = result.err().expect("a parent traversal must be rejected");
+    assert!(error.to_string().contains("traversal"), "{error}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("safe.txt")).unwrap(),
+        "before\n"
+    );
+}
+
+// @kotowari[EX-merge-014]
+#[test]
+fn merge_rejects_absolute_paths_before_writing() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let target = destination.path().join("safe.txt");
+    fs::write(&target, "before\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(merge_args(target.to_str().unwrap()), config, targets);
+    let error = result.err().expect("an absolute path must be rejected");
+    assert!(error.to_string().contains("absolute"), "{error}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "before\n");
 }
 
 fn merge(
