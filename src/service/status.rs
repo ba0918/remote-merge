@@ -93,7 +93,10 @@ impl<'a> TreeIndex<'a> {
     fn record_node(&mut self, node: &'a FileNode, path: &str) {
         self.nodes.insert(path.to_string(), node);
 
-        if node.is_dir() {
+        if node.is_dir() || (node.is_symlink() && node.children.is_some()) {
+            if node.is_symlink() {
+                self.file_paths.push(path.to_string());
+            }
             match &node.children {
                 Some(children) => {
                     for child in children.values() {

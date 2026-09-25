@@ -1,7 +1,9 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 
 use remote_merge::cli::status::{execute_status, StatusArgs};
-use remote_merge::cli::sync::{execute_sync, SyncArgs};
+use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
@@ -115,6 +117,111 @@ fn a_truncated_source_scan_cannot_start_sync_or_delete() {
             fs::read_to_string(fixture.source.path().join("folder").join(name)).unwrap(),
             "new\n"
         );
+        assert_eq!(
+            fs::read_to_string(fixture.destination.path().join("folder").join(name)).unwrap(),
+            "old\n"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(fixture.destination.path().join("folder/keep.txt")).unwrap(),
+        "keep\n"
+    );
+    assert_eq!(fs::read_dir(fixture.backup.path()).unwrap().count(), 0);
+}
+
+// @kotowari[EX-scan-003]
+#[cfg(unix)]
+#[test]
+fn status_lists_files_inside_a_directory_link_within_the_scan_limit() {
+    let fixture = scan_fixture();
+    let shared = TempDir::new().unwrap();
+    fs::write(shared.path().join("alpha.txt"), "alpha\n").unwrap();
+    fs::write(shared.path().join("beta.txt"), "beta\n").unwrap();
+    symlink(shared.path(), fixture.source.path().join("linked")).unwrap();
+    let result = execute_status(status_args(Some(20)), fixture.config, fixture.targets).unwrap();
+    let files = result
+        .output
+        .files
+        .expect("status must include file details");
+    let paths: std::collections::HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
+    assert!(paths.contains("linked/alpha.txt"), "{paths:?}");
+    assert!(paths.contains("linked/beta.txt"), "{paths:?}");
+}
+
+// @kotowari[EX-scan-004]
+#[cfg(unix)]
+#[test]
+fn status_reports_a_directory_link_cycle_instead_of_returning_a_partial_list() {
+    let fixture = scan_fixture();
+    symlink(
+        fixture.source.path(),
+        fixture.source.path().join("folder/back"),
+    )
+    .unwrap();
+    let error = execute_status(status_args(Some(20)), fixture.config, fixture.targets)
+        .err()
+        .expect("a directory cycle must be reported");
+    let message = error.to_string().to_lowercase();
+    assert!(
+        message.contains("cycle") || message.contains("loop"),
+        "{message}"
+    );
+}
+
+// @kotowari[EX-scan-005]
+#[cfg(unix)]
+#[test]
+fn status_counts_files_reached_through_a_directory_link_toward_its_limit() {
+    let fixture = scan_fixture();
+    let shared = TempDir::new().unwrap();
+    fs::write(shared.path().join("alpha.txt"), "alpha\n").unwrap();
+    fs::write(shared.path().join("beta.txt"), "beta\n").unwrap();
+    symlink(shared.path(), fixture.source.path().join("linked")).unwrap();
+    let error = execute_status(status_args(Some(5)), fixture.config, fixture.targets)
+        .err()
+        .expect("linked entries must count toward the scan limit");
+    assert!(error.to_string().contains("Tree scan truncated"), "{error}");
+}
+
+// @kotowari[EX-scan-011]
+#[cfg(unix)]
+#[test]
+fn a_cycle_in_the_destination_blocks_sync_without_delete() {
+    let fixture = scan_fixture();
+    symlink(
+        fixture.destination.path(),
+        fixture.destination.path().join("folder/back"),
+    )
+    .unwrap();
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["folder".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: Some(20),
+        },
+        fixture.config,
+        fixture.targets,
+    );
+    let result = result.expect("sync reports target-specific failures in its result");
+    assert_ne!(result.exit_code, 0);
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets.len(), 1, "{output:?}");
+    assert!(output.targets[0].merged.is_empty(), "{output:?}");
+    assert_eq!(output.targets[0].failed.len(), 1, "{output:?}");
+    let message = output.targets[0].failed[0].error.to_lowercase();
+    assert!(
+        message.contains("cycle") || message.contains("loop"),
+        "{message}"
+    );
+    for name in ["first.txt", "second.txt"] {
         assert_eq!(
             fs::read_to_string(fixture.destination.path().join("folder").join(name)).unwrap(),
             "old\n"

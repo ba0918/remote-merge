@@ -59,6 +59,33 @@ fn a_directory_does_not_replace_a_regular_file() {
     );
 }
 
+// @kotowari[REQ-merge-001]
+#[test]
+fn a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target() {
+    let local = TempDir::new().unwrap();
+    let shared = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(shared.path().join("file.txt"), "incoming\n").unwrap();
+    symlink(shared.path(), local.path().join("linked")).unwrap();
+    fs::create_dir(destination.path().join("linked")).unwrap();
+    fs::write(destination.path().join("linked/file.txt"), "existing\n").unwrap();
+
+    let output = merge(&local, &destination, &backup, "linked");
+    assert!(output.merged.is_empty(), "{output:?}");
+    assert!(
+        output
+            .skipped
+            .iter()
+            .any(|entry| entry.path == "linked" && !entry.reason.is_empty()),
+        "{output:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(destination.path().join("linked/file.txt")).unwrap(),
+        "existing\n"
+    );
+}
+
 // @kotowari[EX-merge-005]
 #[test]
 fn two_symlinks_merge_the_link_text_without_writing_through_either_link() {

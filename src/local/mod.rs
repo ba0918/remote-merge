@@ -282,7 +282,7 @@ fn walk_single_root(
 
     for entry in WalkDir::new(scan_root)
         .min_depth(1)
-        .follow_links(false)
+        .follow_links(true)
         .into_iter()
         .filter_entry(|e| {
             // filter_entry ではディレクトリの枝刈りも行える。
@@ -298,12 +298,21 @@ fn walk_single_root(
             !filter::is_path_excluded(&rel, exclude)
         })
     {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::debug!("walkdir error: {}", e);
-                continue;
-            }
+        let path = match entry {
+            Ok(entry) => entry.path().to_path_buf(),
+            Err(error) => match error.path() {
+                Some(path)
+                    if error
+                        .io_error()
+                        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+                        && path
+                            .symlink_metadata()
+                            .is_ok_and(|metadata| metadata.file_type().is_symlink()) =>
+                {
+                    path.to_path_buf()
+                }
+                _ => anyhow::bail!("Directory scan incomplete: {error}"),
+            },
         };
 
         if flat_entries.len() >= remaining {
@@ -315,10 +324,9 @@ fn walk_single_root(
             break;
         }
 
-        let rel_path = entry
-            .path()
+        let rel_path = path
             .strip_prefix(original_root)
-            .unwrap_or(entry.path())
+            .unwrap_or(&path)
             .to_string_lossy()
             .to_string();
 
@@ -326,11 +334,15 @@ fn walk_single_root(
             continue;
         }
 
-        let file_name = entry.file_name().to_string_lossy().to_string();
-        let meta = entry.path().symlink_metadata()?;
+        let file_name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let meta = path.symlink_metadata()?;
 
         let mut node = if meta.is_symlink() {
-            let target = std::fs::read_link(entry.path())
+            let target = std::fs::read_link(&path)
                 .map(|t| t.to_string_lossy().to_string())
                 .unwrap_or_else(|_| "???".to_string());
             FileNode::new_symlink(&file_name, target)
