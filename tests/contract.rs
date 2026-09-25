@@ -6,6 +6,8 @@ mod backup_location;
 mod cli_results;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
+#[path = "contract/diagnostics.rs"]
+mod diagnostics;
 #[path = "contract/filters.rs"]
 mod filters;
 #[path = "contract/init.rs"]
