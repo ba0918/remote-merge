@@ -70,6 +70,34 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             _ => {}
         },
+        DialogState::ThreeWayOverview(_) => match key {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('W') => state.close_dialog(),
+            KeyCode::Down
+            | KeyCode::Char('j')
+            | KeyCode::Up
+            | KeyCode::Char('k')
+            | KeyCode::PageDown
+            | KeyCode::PageUp => {
+                if let DialogState::ThreeWayOverview(overview) = &mut state.dialog {
+                    match key {
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            overview.scroll =
+                                (overview.scroll + 1).min(overview.files.len().saturating_sub(1))
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            overview.scroll = overview.scroll.saturating_sub(1)
+                        }
+                        KeyCode::PageDown => {
+                            overview.scroll =
+                                (overview.scroll + 20).min(overview.files.len().saturating_sub(1))
+                        }
+                        KeyCode::PageUp => overview.scroll = overview.scroll.saturating_sub(20),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        },
         DialogState::BatchConfirm(_) => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let batch = if let DialogState::BatchConfirm(b) = &state.dialog {

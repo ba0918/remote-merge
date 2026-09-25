@@ -231,6 +231,9 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
             let widget = ThreeWaySummaryWidget::new(panel, &state.palette);
             frame.render_widget(widget, frame.area());
         }
+        DialogState::ThreeWayOverview(ref overview) => {
+            render_three_way_overview(frame, overview, &state.palette);
+        }
         DialogState::None => {}
     }
 }
@@ -275,6 +278,49 @@ fn render_info_dialog(
 
     let guide = Paragraph::new(crate::ui::dialog::ok_guide(palette));
     frame.render_widget(guide, chunks[3]);
+}
+
+fn render_three_way_overview(
+    frame: &mut Frame,
+    overview: &crate::app::three_way_summary::ThreeWayOverview,
+    palette: &crate::theme::palette::TuiPalette,
+) {
+    let area = centered_rect(85, 70, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .title(" Three-way file overview ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette.dialog_accent))
+        .style(Style::default().bg(palette.bg));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height < 2 {
+        return;
+    }
+    let labels = format!(
+        "File | {} vs {} | {} vs {}",
+        overview.left_label, overview.ref_label, overview.right_label, overview.ref_label
+    );
+    let visible = inner.height.saturating_sub(2) as usize;
+    let mut lines = vec![Line::from(labels)];
+    for entry in overview.files.iter().skip(overview.scroll).take(visible) {
+        let describe = |value| match value {
+            Some(true) => "same",
+            Some(false) => "different",
+            None => "not loaded",
+        };
+        lines.push(Line::from(format!(
+            "{} | {} | {}",
+            entry.path,
+            describe(entry.left_matches_reference),
+            describe(entry.right_matches_reference)
+        )));
+    }
+    lines.push(Line::from(format!(
+        "{} files | j/k: scroll | q: close",
+        overview.files.len()
+    )));
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 /// プログレスダイアログを描画する

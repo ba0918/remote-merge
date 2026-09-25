@@ -5,7 +5,7 @@
 //!
 //! これにより `app/` や `runtime/` から `ui/dialog` への逆依存を解消する。
 
-use crate::app::three_way_summary::ThreeWaySummaryPanel;
+use crate::app::three_way_summary::{ThreeWayOverview, ThreeWaySummaryPanel};
 use crate::app::Badge;
 use crate::diff::engine::HunkDirection;
 use crate::merge::executor::MergeDirection;
@@ -50,6 +50,7 @@ pub enum DialogState {
     MtimeWarning(MtimeWarningDialog),
     /// 3way サマリーパネル（W キー）
     ThreeWaySummary(ThreeWaySummaryPanel),
+    ThreeWayOverview(ThreeWayOverview),
 }
 
 // ── ConfirmDialog ──

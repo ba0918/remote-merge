@@ -3,11 +3,50 @@
 //! left vs right の diff 結果に対して ref 側の内容を突合し、
 //! 3者が一致しない行だけを抽出してサマリー表示に使う。
 
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use similar::{DiffTag, TextDiff};
 
 use crate::diff::engine::DiffLine;
+
+#[derive(Debug, Clone)]
+pub struct ThreeWayFileEntry {
+    pub path: String,
+    pub left_matches_reference: Option<bool>,
+    pub right_matches_reference: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreeWayOverview {
+    pub files: Vec<ThreeWayFileEntry>,
+    pub scroll: usize,
+    pub left_label: String,
+    pub right_label: String,
+    pub ref_label: String,
+}
+
+pub fn collect_file_overview<'a>(
+    paths: impl IntoIterator<Item = &'a String>,
+    left: impl Fn(&str) -> Option<&'a str>,
+    right: impl Fn(&str) -> Option<&'a str>,
+    reference: impl Fn(&str) -> Option<&'a str>,
+) -> Vec<ThreeWayFileEntry> {
+    let paths: BTreeSet<&String> = paths.into_iter().collect();
+    paths
+        .into_iter()
+        .map(|path| {
+            let reference_content = reference(path);
+            ThreeWayFileEntry {
+                path: path.clone(),
+                left_matches_reference: left(path).zip(reference_content).map(|(l, r)| l == r),
+                right_matches_reference: right(path)
+                    .zip(reference_content)
+                    .map(|(r, reference)| r == reference),
+            }
+        })
+        .collect()
+}
 
 /// サマリーに表示する最大行数
 const MAX_SUMMARY_LINES: usize = 1000;

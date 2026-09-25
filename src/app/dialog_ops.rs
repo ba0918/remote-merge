@@ -186,6 +186,38 @@ impl AppState {
         self.dialog = DialogState::Help(HelpOverlay::new());
     }
 
+    /// ツリーで W を押したとき、キャッシュ済みファイルの三者状態を表示する。
+    pub fn open_three_way_overview(&mut self) {
+        if !self.has_reference() {
+            self.status_message = "No reference server".into();
+            return;
+        }
+        let files = super::three_way_summary::collect_file_overview(
+            self.left_cache
+                .keys()
+                .chain(self.right_cache.keys())
+                .chain(self.ref_cache.keys()),
+            |path| self.left_cache.get(path).map(String::as_str),
+            |path| self.right_cache.get(path).map(String::as_str),
+            |path| self.ref_cache.get(path).map(String::as_str),
+        );
+        if files.is_empty() {
+            self.status_message = "No loaded files to compare".into();
+            return;
+        }
+        self.dialog = DialogState::ThreeWayOverview(super::three_way_summary::ThreeWayOverview {
+            files,
+            scroll: 0,
+            left_label: self.left_source.display_name().into(),
+            right_label: self.right_source.display_name().into(),
+            ref_label: self
+                .ref_source
+                .as_ref()
+                .map(|source| source.display_name().into())
+                .unwrap_or_else(|| "reference".into()),
+        });
+    }
+
     /// W キーで 3way サマリーパネルを開く（トグル動作）
     pub fn open_three_way_summary(&mut self) {
         // トグル: 既に開いていたら閉じる
