@@ -625,7 +625,7 @@ impl SshClient {
 
         let output = match tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            self.exec(&command),
+            self.exec_strict(&command),
         )
         .await
         {

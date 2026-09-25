@@ -93,7 +93,7 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
         /// children は BTreeMap<String, FileNode> として格納される（キー昇順は自動保証）。
         fn into_file_node(self) -> FileNode {
             let mut node = self.file_node;
-            if node.is_dir() {
+            if node.is_dir() || node.link_is_dir {
                 let children_map: std::collections::BTreeMap<String, FileNode> = self
                     .children
                     .into_iter()
@@ -192,9 +192,9 @@ pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
             .join(" ")
     };
 
+    let link_action = r#"-exec sh -c 'set -e; for path do size=$(stat -c %s -- "$path"); mtime=$(stat -c %Y -- "$path"); mode=$(stat -c %a -- "$path"); target=$(readlink -- "$path"); if test -d "$path"; then kind=d; else kind=f; fi; printf "l\t%s\t%s\t%s\t%s\t%s\t%s\n" "$size" "$mtime" "$mode" "$path" "$target" "$kind"; done' _ {} +"#;
     format!(
-        "find -P {} -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
-        start_paths
+        "find -L {start_paths} -mindepth 1 -xtype l {link_action} && find -L {start_paths} -mindepth 1 ! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
     )
 }
 
@@ -202,6 +202,71 @@ pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
 mod tests {
     use super::*;
     use crate::tree::NodeKind;
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_scan_keeps_nested_link_text_and_children() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::TempDir::new().unwrap();
+        let first = tempfile::TempDir::new().unwrap();
+        let second = tempfile::TempDir::new().unwrap();
+        std::fs::write(second.path().join("child.txt"), "content").unwrap();
+        symlink(second.path(), first.path().join("inner")).unwrap();
+        symlink(first.path(), root.path().join("outer")).unwrap();
+
+        let command = build_find_command(root.path().to_str().unwrap(), &[]);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let entries: Vec<_> = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .filter_map(|line| parse_find_line(line, root.path().to_str().unwrap(), &[]))
+            .collect();
+        let tree = build_tree_from_flat(entries);
+        let outer = tree.iter().find(|node| node.name == "outer").unwrap();
+        assert!(outer.is_symlink(), "{outer:?}");
+        assert_eq!(
+            outer.kind,
+            NodeKind::Symlink {
+                target: first.path().to_string_lossy().to_string()
+            }
+        );
+        let inner = &outer.children.as_ref().unwrap()["inner"];
+        assert!(inner.is_symlink(), "{inner:?}");
+        assert_eq!(
+            inner.kind,
+            NodeKind::Symlink {
+                target: second.path().to_string_lossy().to_string()
+            }
+        );
+        assert!(
+            inner.children.as_ref().unwrap().contains_key("child.txt"),
+            "{inner:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_scan_reports_a_cycle_instead_of_a_partial_tree() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(root.path().join("folder")).unwrap();
+        symlink(root.path(), root.path().join("folder/back")).unwrap();
+        let command = build_find_command(root.path().to_str().unwrap(), &[]);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{output:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap().to_lowercase();
+        assert!(
+            stderr.contains("loop") || stderr.contains("cycle"),
+            "{stderr}"
+        );
+    }
 
     #[test]
     fn test_parse_find_line_file() {
@@ -475,22 +540,18 @@ mod tests {
 
     #[test]
     fn test_build_find_command_no_include() {
-        // include 空 → root_dir のみ（従来通り）
         let cmd = build_find_command("/var/www", &[]);
-        assert_eq!(
-            cmd,
-            "find -P '/var/www' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
-        );
+        assert_eq!(cmd.matches("find -L '/var/www' -mindepth 1").count(), 2);
     }
 
     #[test]
     fn test_build_find_command_with_include() {
-        // include あり → 複数の開始パス
         let include = vec!["ja/Back".to_string(), "ja/API".to_string()];
         let cmd = build_find_command("/var/www", &include);
         assert_eq!(
-            cmd,
-            "find -P '/var/www/ja/Back' '/var/www/ja/API' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+            cmd.matches("find -L '/var/www/ja/Back' '/var/www/ja/API' -mindepth 1")
+                .count(),
+            2
         );
     }
 
@@ -498,10 +559,7 @@ mod tests {
     fn test_build_find_command_include_single() {
         let include = vec!["src".to_string()];
         let cmd = build_find_command("/var/www", &include);
-        assert_eq!(
-            cmd,
-            "find -P '/var/www/src' -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
-        );
+        assert_eq!(cmd.matches("find -L '/var/www/src' -mindepth 1").count(), 2);
     }
 
     #[test]
