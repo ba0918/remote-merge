@@ -18,8 +18,14 @@ mod merge_paths;
 mod rollback_paths;
 #[path = "contract/scan_limits.rs"]
 mod scan_limits;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_compatibility.rs"]
+mod ssh_compatibility;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_server.rs"]
+mod ssh_server;
 #[path = "contract/status_results.rs"]
 mod status_results;
 #[path = "contract/tui_confirm.rs"]
