@@ -1053,6 +1053,86 @@ fn new_file_uses_destination_configured_mode() {
     );
 }
 
+// @kotowari[EX-merge-025]
+#[test]
+fn sync_creates_missing_parent_directory_with_destination_mode() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("nested")).unwrap();
+    fs::write(local.path().join("nested/file.txt"), "new\n").unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.servers.get_mut("develop").unwrap().dir_permissions = Some(0o750);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["nested/file.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("nested/file.txt")).unwrap(),
+        "new\n"
+    );
+    assert_eq!(
+        fs::metadata(destination.path().join("nested"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o750
+    );
+}
+
+// @kotowari[REQ-merge-012]
+#[test]
+fn creating_nested_directories_does_not_chmod_an_existing_parent() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir_all(local.path().join("existing/new/sub")).unwrap();
+    fs::write(local.path().join("existing/new/sub/file.txt"), "new\n").unwrap();
+    fs::create_dir(destination.path().join("existing")).unwrap();
+    fs::set_permissions(
+        destination.path().join("existing"),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.servers.get_mut("develop").unwrap().dir_permissions = Some(0o750);
+    let result = execute_merge(merge_args("existing/new/sub/file.txt"), config, targets).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    for (path, expected) in [
+        ("existing", 0o700),
+        ("existing/new", 0o750),
+        ("existing/new/sub", 0o750),
+    ] {
+        let mode = fs::metadata(destination.path().join(path))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, expected, "{path}");
+    }
+}
+
 // @kotowari[EX-merge-003]
 #[test]
 fn delete_does_not_remove_a_destination_only_symlink() {

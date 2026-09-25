@@ -73,6 +73,31 @@ impl CoreRuntime {
         io.inspect_path(self, rel_path)
     }
 
+    pub fn missing_parent_directories(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        use super::target_io::TargetPath;
+
+        let path = std::path::Path::new(rel_path);
+        let mut parents = path
+            .ancestors()
+            .skip(1)
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(|parent| parent.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        parents.reverse();
+        parents
+            .into_iter()
+            .filter_map(|parent| match self.inspect_path(side, &parent) {
+                Ok(TargetPath::Missing { .. }) => Some(Ok(parent)),
+                Ok(_) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect()
+    }
+
     // ── 読み込み ──
 
     /// Side に基づいてファイルを読み込む

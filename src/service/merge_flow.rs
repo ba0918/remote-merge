@@ -165,8 +165,23 @@ pub fn execute_single_merge(
         None
     };
 
+    let missing_directories = ctx.core.missing_parent_directories(target, path)?;
+
     // バイト列で書き込み（ターゲット側） — バイナリファイルも破壊しない
     ctx.core.write_file_bytes(target, path, &content)?;
+
+    if !missing_directories.is_empty() {
+        let mode = match target {
+            Side::Local => ctx.core.config.defaults.dir_permissions,
+            Side::Remote(name) => {
+                let server = &ctx.core.config.servers[name];
+                crate::config::resolve_dir_permissions(server, &ctx.core.config.defaults)
+            }
+        };
+        for directory in missing_directories {
+            ctx.core.chmod_file(target, &directory, mode)?;
+        }
+    }
 
     if target_tree.find_node(Path::new(path)).is_none() && !ctx.with_permissions {
         let mode = match target {
