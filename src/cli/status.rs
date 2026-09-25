@@ -294,7 +294,10 @@ mod tests {
         super::filter_equal_files(&mut output, false);
         let files = output.files.unwrap();
         assert_eq!(files.len(), 2);
-        assert!(files.iter().all(|f| f.status != FileStatusKind::Equal));
+        assert_eq!(files[0].path, "a.txt");
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+        assert_eq!(files[1].path, "c.txt");
+        assert_eq!(files[1].status, FileStatusKind::LeftOnly);
     }
 
     #[test]
@@ -304,7 +307,10 @@ mod tests {
             make_file("b.txt", FileStatusKind::Equal),
         ]);
         super::filter_equal_files(&mut output, true);
-        assert_eq!(output.files.unwrap().len(), 2);
+        let files = output.files.unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[1].path, "b.txt");
+        assert_eq!(files[1].status, FileStatusKind::Equal);
     }
 
     #[test]
