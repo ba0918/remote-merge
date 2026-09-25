@@ -59,10 +59,21 @@ pub struct CoreRuntime {
     /// TUI/CLI モードに応じて適切なプロバイダが注入される。
     /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
     pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
+    pub(crate) targets: super::RuntimeTargets,
+    pub(crate) backup_store: super::backup_store::BackupStore,
 }
 
 impl CoreRuntime {
     pub fn new(config: AppConfig) -> Self {
+        Self::with_targets(config, super::RuntimeTargets::production())
+    }
+
+    pub fn with_targets(config: AppConfig, targets: super::RuntimeTargets) -> Self {
+        let backup_store = super::backup_store::BackupStore::new(
+            targets.backup_store.clone(),
+            targets.startup_directory.clone(),
+            targets.now,
+        );
         Self {
             rt: tokio::runtime::Runtime::new().expect("tokio runtime creation failed"),
             ssh_clients: HashMap::new(),
@@ -74,6 +85,8 @@ impl CoreRuntime {
             passphrase_provider: Some(Arc::new(
                 crate::ssh::passphrase_provider::build_default_provider(),
             )),
+            targets,
+            backup_store,
         }
     }
 
@@ -82,20 +95,69 @@ impl CoreRuntime {
         self.passphrase_provider = Some(provider);
     }
 
+    pub fn reserve_backup_session(&mut self) -> anyhow::Result<String> {
+        self.backup_store.reserve_session()
+    }
+
+    pub fn finish_backup_session(&self, session_id: &str) {
+        self.backup_store.finish_session(session_id);
+    }
+
+    pub fn cleanup_expired_backups(&self) -> anyhow::Result<usize> {
+        self.backup_store.cleanup_expired(&self.config)
+    }
+
+    pub fn save_backup(
+        &mut self,
+        target: &crate::app::Side,
+        path: &str,
+        session_id: &str,
+        force: bool,
+    ) -> anyhow::Result<String> {
+        self.save_backup_if_exists(target, path, session_id, force)?
+            .ok_or_else(|| anyhow::anyhow!("backup source does not exist: {path}"))
+    }
+
+    pub fn save_backup_if_exists(
+        &mut self,
+        target: &crate::app::Side,
+        path: &str,
+        session_id: &str,
+        force: bool,
+    ) -> anyhow::Result<Option<String>> {
+        let inspected = self.inspect_path(target, path)?;
+        match inspected {
+            super::target_io::TargetPath::File { real_path } => {
+                let content = self.read_file_bytes(target, path, force)?;
+                self.backup_store
+                    .save_file(&self.config, target, session_id, path, &real_path, &content)
+                    .map(Some)
+            }
+            super::target_io::TargetPath::Symlink { link_target, .. } => self
+                .backup_store
+                .save_symlink(&self.config, target, session_id, path, &link_target)
+                .map(Some),
+            super::target_io::TargetPath::Missing { .. } => Ok(None),
+        }
+    }
+
     /// テスト用: SSH 接続なしの最小ランタイムを作成する
     #[cfg(test)]
     pub fn new_for_test() -> Self {
-        Self::new(AppConfig {
-            servers: std::collections::BTreeMap::new(),
-            local: crate::config::LocalConfig::default(),
-            filter: crate::config::FilterConfig::default(),
-            ssh: crate::config::SshConfig::default(),
-            backup: crate::config::BackupConfig::default(),
-            agent: crate::config::AgentConfig::default(),
-            defaults: crate::config::DefaultsConfig::default(),
-            max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
-            badge_scan_max_files: crate::config::DEFAULT_BADGE_SCAN_MAX_FILES,
-        })
+        Self::with_targets(
+            AppConfig {
+                servers: std::collections::BTreeMap::new(),
+                local: crate::config::LocalConfig::default(),
+                filter: crate::config::FilterConfig::default(),
+                ssh: crate::config::SshConfig::default(),
+                backup: crate::config::BackupConfig::default(),
+                agent: crate::config::AgentConfig::default(),
+                defaults: crate::config::DefaultsConfig::default(),
+                max_scan_entries: crate::config::DEFAULT_MAX_SCAN_ENTRIES,
+                badge_scan_max_files: crate::config::DEFAULT_BADGE_SCAN_MAX_FILES,
+            },
+            super::RuntimeTargets::for_test(),
+        )
     }
 
     /// テスト用: Agent 無効の最小ランタイムを作成する
@@ -113,7 +175,7 @@ impl CoreRuntime {
             badge_scan_max_files: crate::config::DEFAULT_BADGE_SCAN_MAX_FILES,
         };
         config.agent.enabled = false;
-        Self::new(config)
+        Self::with_targets(config, super::RuntimeTargets::for_test())
     }
 
     /// 指定サーバー名の設定を取得する

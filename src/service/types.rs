@@ -262,7 +262,10 @@ impl BackupSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupEntry {
     pub path: String,
-    pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_target: Option<String>,
 }
 
 /// rollback 実行結果の出力
@@ -1019,7 +1022,8 @@ mod tests {
                     "20240115-140000".into(),
                     vec![BackupEntry {
                         path: "src/app.rs".into(),
-                        size: 1024,
+                        size: Some(1024),
+                        link_target: None,
                     }],
                     false,
                 ),
@@ -1203,7 +1207,8 @@ mod tests {
             "20240115-140000".into(),
             vec![BackupEntry {
                 path: "a.rs".into(),
-                size: 100,
+                size: Some(100),
+                link_target: None,
             }],
             false,
         );
@@ -1224,7 +1229,8 @@ mod tests {
             "20240115-140000".into(),
             vec![BackupEntry {
                 path: "a.rs".into(),
-                size: 100,
+                size: Some(100),
+                link_target: None,
             }],
             false,
         );

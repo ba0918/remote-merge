@@ -270,14 +270,7 @@ impl E2eEnv {
     /// 追加の CLI 引数を指定可能。
     /// PTY サイズを 200x50 にリサイズして 3way バッジが描画されるようにする。
     pub fn spawn_tui_with_args(&self, extra_args: &[&str]) -> TuiSession {
-        let binary = env!("CARGO_BIN_EXE_remote-merge");
-        let mut cmd = Command::new(binary);
-        cmd.arg("--config").arg(&self.config_path);
-        cmd.arg("--log-level").arg("debug");
-
-        for arg in extra_args {
-            cmd.arg(arg);
-        }
+        let cmd = self.tui_command(extra_args);
 
         let mut session = expectrl::Session::spawn(cmd).expect("Failed to spawn TUI process");
 
@@ -289,6 +282,19 @@ impl E2eEnv {
             .expect("Failed to set PTY window size");
 
         expectrl::session::log(session, std::io::stderr()).expect("Failed to set up logging")
+    }
+
+    pub fn tui_command(&self, extra_args: &[&str]) -> Command {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
+        cmd.arg("--config").arg(&self.config_path);
+        cmd.arg("--log-level").arg("debug");
+        cmd.args(extra_args);
+        cmd
+    }
+
+    pub fn temp_root(&self) -> &Path {
+        self._dirs.temp.path()
     }
 
     /// TUI をデフォルト引数で起動する。
@@ -355,8 +361,13 @@ impl CliEnv {
         if let Ok(path) = std::env::var("PATH") {
             cmd.env("PATH", path);
         }
+        cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
         cmd.arg("--config").arg(&self.config_path);
         cmd
+    }
+
+    pub fn temp_root(&self) -> &Path {
+        self._dirs.temp.path()
     }
 
     /// CLI コマンドをサブコマンド付きで生成
@@ -383,6 +394,10 @@ pub fn remote_merge_cmd() -> Command {
     if let Ok(path) = std::env::var("PATH") {
         cmd.env("PATH", path);
     }
+    let data_home = TempDir::new()
+        .expect("Failed to create isolated data home")
+        .keep();
+    cmd.env("XDG_DATA_HOME", data_home);
     cmd
 }
 

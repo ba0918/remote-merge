@@ -408,11 +408,7 @@ impl SshClient {
         match self.session.channel_open_session().await {
             Ok(mut channel) => {
                 let _ = channel.exec(true, "echo ok").await;
-                loop {
-                    let Some(_msg) = channel.wait().await else {
-                        break;
-                    };
-                }
+                while let Some(_msg) = channel.wait().await {}
                 let _ = channel.close().await;
                 true
             }

@@ -156,25 +156,10 @@ fn summarize_request(request: &AgentRequest) -> String {
             content.len()
         ),
         AgentRequest::StatFiles { paths } => format!("StatFiles path_count={}", paths.len()),
-        AgentRequest::Backup { paths, backup_dir } => format!(
-            "Backup path_count={} backup_dir={backup_dir:?}",
-            paths.len()
-        ),
+        AgentRequest::InspectPath { path } => format!("InspectPath path={path:?}"),
         AgentRequest::Symlink { path, target } => {
             format!("Symlink path={path:?} target={target:?}")
         }
-        AgentRequest::ListBackups { backup_dir } => {
-            format!("ListBackups backup_dir={backup_dir:?}")
-        }
-        AgentRequest::RestoreBackup {
-            backup_dir,
-            session_id,
-            files,
-            ..
-        } => format!(
-            "RestoreBackup backup_dir={backup_dir:?} session_id={session_id:?} file_count={}",
-            files.len()
-        ),
         AgentRequest::Shutdown => "Shutdown".to_string(),
         AgentRequest::Ping => "Ping".to_string(),
     }

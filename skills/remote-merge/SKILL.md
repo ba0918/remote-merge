@@ -140,7 +140,7 @@ Behavior:
 - Servers are processed **sequentially** (server1 → server2 → ...)
 - **Connection failures are tolerated**: if one server fails, others continue
 - Confirmation prompt shows all servers' plans, then asks once (use `--force` to skip)
-- Backups are created per-server with independent session IDs
+- One backup session ID is shared across every write target in the sync operation
 - Remote-to-remote pairs are blocked unless `--force` or `--dry-run` is used
 - Duplicate `--right` values are rejected
 
@@ -174,7 +174,11 @@ Options:
 
 Exit codes: 0 = success, 2 = error (partial or total failure).
 
-Backup structure: `.remote-merge-backup/{session_id}/{relative_path}` (session directory per merge operation).
+Backups are stored only on the machine running `remote-merge`, under
+`$XDG_DATA_HOME/remote-merge/backups/` or, when `XDG_DATA_HOME` is unset, empty, or relative,
+`~/.local/share/remote-merge/backups/`. The internal layout is not a public contract. Sessions
+are separated by write target and use UTC IDs in the form `YYYYMMDD-HHMMSS`, with `-N` (`N >= 2`)
+when multiple operations start in the same second.
 
 ### 5. Verify
 

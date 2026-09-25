@@ -16,6 +16,21 @@ use super::core::CoreRuntime;
 // Side::Remote 分岐の内部実装。side_io.rs が唯一の呼び出し元。
 
 impl CoreRuntime {
+    pub(crate) fn inspect_remote_path(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<super::target_io::TargetPath> {
+        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let command = super::remote_path::build_inspect_path_command(&full_path);
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
+        let output = self.rt.block_on(client.exec_strict(&command))?;
+        super::remote_path::parse_inspect_path_output(&output)
+    }
+
     /// リモートファイル内容を取得する（接続エラー時に1回自動再接続）
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_file(side, path)` を使うこと。
@@ -230,66 +245,6 @@ impl CoreRuntime {
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
         self.rt.block_on(client.chmod_file(&full_path, mode))
-    }
-
-    /// リモート側でバックアップを作成する（バッチ cp コマンド）。
-    ///
-    /// `rel_paths` の各ファイルについて、リモートの `.remote-merge-backup/` にコピー。
-    /// 1回のSSH exec で全ファイルを処理する。
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_backups(side, paths)` を使うこと。
-    pub(crate) fn create_remote_backups(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-        session_id: &str,
-    ) -> anyhow::Result<()> {
-        if rel_paths.is_empty() {
-            return Ok(());
-        }
-
-        let server_config = self.get_server_config(server_name)?;
-        let remote_root = server_config.root_dir.to_string_lossy().to_string();
-
-        let pairs: Vec<(String, String)> = rel_paths
-            .iter()
-            .filter_map(|rel| {
-                let src = format!("{}/{}", remote_root.trim_end_matches('/'), rel);
-                let dst = crate::backup::remote_backup_path(&remote_root, session_id, rel)?;
-                Some((src, dst))
-            })
-            .collect();
-
-        let pair_refs: Vec<(&str, &str)> = pairs
-            .iter()
-            .map(|(s, d)| (s.as_str(), d.as_str()))
-            .collect();
-
-        let cmd = crate::backup::build_batch_backup_command(&pair_refs);
-        if cmd.is_empty() {
-            return Ok(());
-        }
-
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        // バックアップ失敗は警告だけでマージを止めない
-        match self.rt.block_on(client.exec(&cmd)) {
-            Ok(_) => {
-                tracing::info!(
-                    "Remote backups created: {} files in {}",
-                    rel_paths.len(),
-                    remote_root
-                );
-                Ok(())
-            }
-            Err(e) => {
-                tracing::warn!("Remote backup failed (continuing merge): {}", e);
-                Err(e)
-            }
-        }
     }
 
     /// リモートファイルの mtime をバッチ取得する。
@@ -518,160 +473,6 @@ impl CoreRuntime {
             }
         }
         result
-    }
-
-    /// SSH exec でリモートバックアップセッション一覧を取得する。
-    ///
-    /// 1回の `find` コマンドで全セッション・全ファイル情報を取得し、
-    /// `parse_all_backup_entries()` でパースする（N+1 問題を解消）。
-    pub(crate) fn list_remote_backup_sessions_ssh(
-        &mut self,
-        server_name: &str,
-    ) -> anyhow::Result<Vec<crate::service::types::BackupSession>> {
-        use crate::service::types::{BackupEntry, BackupSession};
-        use crate::ssh::tree_parser::shell_escape;
-
-        let server_config = self.get_server_config(server_name)?;
-        let remote_root = server_config.root_dir.to_string_lossy().to_string();
-        let backup_dir = format!(
-            "{}/{}",
-            remote_root.trim_end_matches('/'),
-            crate::backup::BACKUP_DIR_NAME,
-        );
-
-        // 1回の find で全セッション・全ファイルを取得（N+1 問題解消）
-        let cmd = format!(
-            "find {} -mindepth 2 -type f -printf '%P\\t%s\\n' 2>/dev/null | sort",
-            shell_escape(&backup_dir),
-        );
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        let output = self.rt.block_on(client.exec(&cmd))?;
-
-        // パース＆変換: RemoteBackupSession → BackupSession
-        let remote_sessions = crate::backup::parse_all_backup_entries(&output);
-        let sessions = remote_sessions
-            .into_iter()
-            .map(|rs| {
-                let files: Vec<BackupEntry> = rs
-                    .files
-                    .into_iter()
-                    .map(|e| BackupEntry {
-                        path: e.rel_path,
-                        size: e.size,
-                    })
-                    .collect();
-                BackupSession::new(rs.session_id, files, false)
-            })
-            .collect();
-
-        Ok(sessions)
-    }
-
-    /// SSH exec でリモートバックアップからファイルを復元する。
-    ///
-    /// バッチスクリプトを生成して一括実行し、`parse_batch_restore_output` で結果をパースする。
-    /// 個別ファイルのエラーは記録して続行する（部分成功に対応）。
-    pub(crate) fn restore_remote_backup_ssh(
-        &mut self,
-        server_name: &str,
-        session_id: &str,
-        files: &[String],
-        pre_session_id: &str,
-        backup_enabled: bool,
-    ) -> anyhow::Result<(
-        Vec<crate::service::types::RollbackFileResult>,
-        Vec<crate::service::types::RollbackFailure>,
-    )> {
-        use crate::backup::BACKUP_DIR_NAME;
-        use crate::service::rollback::{build_batch_restore_scripts, parse_batch_restore_output};
-        use crate::service::types::{RollbackFailure, RollbackFileResult};
-
-        // session_id のパストラバーサル防御
-        if session_id.contains("..") || session_id.contains('/') || session_id.contains('\\') {
-            anyhow::bail!("invalid session_id: contains path separator or traversal sequence");
-        }
-
-        let server_config = self.get_server_config(server_name)?;
-        let remote_root = server_config.root_dir.to_string_lossy().to_string();
-        let root_dir = remote_root.trim_end_matches('/').to_string();
-
-        // パストラバーサル検証（ファイル単位）— バッチ生成前に実施して failures に記録する
-        let mut pre_failures: Vec<RollbackFailure> = Vec::new();
-        let valid_files: Vec<String> = files
-            .iter()
-            .filter(|file| {
-                let has_parent_dir = std::path::Path::new(file.as_str())
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir));
-                if has_parent_dir {
-                    tracing::warn!("Skipping file with path traversal: {}", file);
-                    pre_failures.push(RollbackFailure {
-                        path: (*file).clone(),
-                        error: "path traversal detected".to_string(),
-                    });
-                    false
-                } else {
-                    true
-                }
-            })
-            .cloned()
-            .collect();
-
-        // バッチスクリプト生成（チャンク分割済み）
-        let scripts =
-            build_batch_restore_scripts(&root_dir, BACKUP_DIR_NAME, session_id, &valid_files);
-
-        let mut restored = Vec::new();
-        let mut failures = pre_failures;
-
-        // チャンクごとに SSH exec して結果をパース
-        for script in &scripts {
-            let client = self
-                .ssh_clients
-                .get_mut(server_name)
-                .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-            match self.rt.block_on(client.exec(script)) {
-                Ok(output) => {
-                    let (ok_paths, fail_pairs) = parse_batch_restore_output(&output);
-                    for path in ok_paths {
-                        tracing::debug!("Remote restored: {} from session {}", path, session_id);
-                        restored.push(RollbackFileResult {
-                            path,
-                            pre_rollback_backup: if backup_enabled {
-                                Some(pre_session_id.to_string())
-                            } else {
-                                None
-                            },
-                        });
-                    }
-                    for (path, reason) in fail_pairs {
-                        tracing::warn!(
-                            "cp command returned failure for {} (reason: {})",
-                            path,
-                            reason
-                        );
-                        failures.push(RollbackFailure {
-                            path,
-                            error: format!("cp failed on remote: {}", reason),
-                        });
-                    }
-                }
-                Err(e) => {
-                    // SSH exec 自体が失敗した場合はバッチ全体を失敗扱いにする
-                    tracing::warn!("SSH exec failed for restore batch: {}", e);
-                    failures.push(RollbackFailure {
-                        path: "(batch chunk)".to_string(),
-                        error: format!("ssh exec failed: {}", e),
-                    });
-                }
-            }
-        }
-
-        Ok((restored, failures))
     }
 }
 

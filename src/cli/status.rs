@@ -14,7 +14,7 @@ use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
-use crate::runtime::CoreRuntime;
+use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -25,6 +25,7 @@ use crate::service::status::{
     status_exit_code,
 };
 use crate::service::types::FileStatusKind;
+use crate::service::types::StatusOutput;
 
 /// status サブコマンドの引数
 pub struct StatusArgs {
@@ -42,9 +43,26 @@ pub struct StatusArgs {
     pub max_entries: Option<usize>,
 }
 
+pub struct StatusCommandResult {
+    pub output: StatusOutput,
+    pub exit_code: i32,
+    pub summary: bool,
+}
+
 /// status サブコマンドを実行する
 pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
+    let result = execute_status(args, config, RuntimeTargets::production())?;
+    print_status_result(&result, format)?;
+    Ok(result.exit_code)
+}
+
+pub fn execute_status(
+    args: StatusArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<StatusCommandResult> {
+    OutputFormat::parse(&args.format)?;
 
     let source_args = SourceArgs {
         left: args.left,
@@ -54,7 +72,7 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
 
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
-    let mut core = CoreRuntime::new(config.clone());
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
 
     // 接続
     core.connect_if_remote(&pair.left)?;
@@ -186,15 +204,21 @@ pub fn run_status(args: StatusArgs, config: AppConfig) -> anyhow::Result<i32> {
     // Filter out Equal files unless --all is specified
     filter_equal_files(&mut output, args.all);
 
-    // 出力
+    core.disconnect_all();
+    Ok(StatusCommandResult {
+        output,
+        exit_code: code,
+        summary: args.summary,
+    })
+}
+
+fn print_status_result(result: &StatusCommandResult, format: OutputFormat) -> anyhow::Result<()> {
     let text = match format {
-        OutputFormat::Text => format_status_text(&output, args.summary),
-        OutputFormat::Json => format_json(&output)?,
+        OutputFormat::Text => format_status_text(&result.output, result.summary),
+        OutputFormat::Json => format_json(&result.output)?,
     };
     println!("{}", text);
-
-    core.disconnect_all();
-    Ok(code)
+    Ok(())
 }
 
 /// 右側ソースの Agent 接続状態を判定する。

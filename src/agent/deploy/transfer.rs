@@ -15,10 +15,9 @@ pub fn remote_binary_path(deploy_dir: &str, user: &str) -> PathBuf {
 
 /// `remote-merge --version` の期待出力を生成する。
 ///
-/// clap が生成する実際の出力形式に合わせる: `remote-merge X.Y.Z`
+/// clap が生成する実際の出力形式に合わせる: `remote-merge X.Y.Z (protocol vN)`
 pub fn expected_version_line() -> String {
-    let pkg_version = env!("CARGO_PKG_VERSION");
-    format!("remote-merge {pkg_version}")
+    format!("remote-merge {}", crate::agent::protocol::CLI_VERSION)
 }
 
 /// リモートのバージョンチェック用 SSH コマンドを生成する。
@@ -180,9 +179,14 @@ mod tests {
     #[test]
     fn expected_version_line_format() {
         let line = expected_version_line();
-        assert!(line.starts_with("remote-merge "));
-        // clap の --version 出力形式: "remote-merge X.Y.Z"
-        assert_eq!(line, format!("remote-merge {}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(
+            line,
+            format!(
+                "remote-merge {} (protocol v{})",
+                env!("CARGO_PKG_VERSION"),
+                crate::agent::protocol::PROTOCOL_VERSION
+            )
+        );
     }
 
     // --- check_version_command ---

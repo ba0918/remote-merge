@@ -5,7 +5,7 @@
 
 use crate::app::Side;
 use crate::config::AppConfig;
-use crate::runtime::CoreRuntime;
+use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{
     format_backup_list_text, format_json, format_rollback_text, OutputFormat,
 };
@@ -25,6 +25,21 @@ pub struct RollbackArgs {
     pub format: String,
 }
 
+pub enum RollbackCommandOutput {
+    List(BackupListOutput),
+    Restore(RollbackOutput),
+    DryRun {
+        output: RollbackOutput,
+        warnings: Vec<String>,
+    },
+    Aborted,
+}
+
+pub struct RollbackCommandResult {
+    pub output: RollbackCommandOutput,
+    pub exit_code: i32,
+}
+
 /// --target を Side に解決する。
 /// --list モードでは省略時にローカルをデフォルトとする。
 fn resolve_target(target: Option<&str>, is_list: bool) -> anyhow::Result<Side> {
@@ -38,24 +53,32 @@ fn resolve_target(target: Option<&str>, is_list: bool) -> anyhow::Result<Side> {
 /// rollback サブコマンドを実行する
 pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
+    let result = execute_rollback(args, config, RuntimeTargets::production())?;
+    print_rollback_result(&result.output, format)?;
+    Ok(result.exit_code)
+}
+
+pub fn execute_rollback(
+    args: RollbackArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<RollbackCommandResult> {
+    OutputFormat::parse(&args.format)?;
     let side = resolve_target(args.target.as_deref(), args.list)?;
+    let now = targets.now();
 
-    let mut core = CoreRuntime::new(config.clone());
-    core.connect_if_remote(&side)?;
-
+    let mut core = CoreRuntime::with_targets(config.clone(), targets);
     let target_info = build_source_info(&side, &core)?;
 
     // セッション一覧取得 + expired マーク
     let mut sessions = core.list_backup_sessions(&side)?;
-    mark_expired(
-        &mut sessions,
-        config.backup.retention_days,
-        chrono::Utc::now(),
-    );
+    mark_expired(&mut sessions, config.backup.retention_days, now);
 
     if args.list {
-        return run_list_mode(&target_info, sessions, format, &mut core);
+        return run_list_mode(&target_info, sessions, &mut core);
     }
+
+    core.connect_if_remote(&side)?;
 
     // 復元計画
     let plan = plan_restore(
@@ -66,12 +89,8 @@ pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32
     )
     .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if args.dry_run {
-        return run_dry_run_mode(&target_info, &plan, format, &mut core);
-    }
-
     // 確認プロンプト（--force なし）
-    if !args.force {
+    if !args.force && !args.dry_run {
         let prompt = format!(
             "Restore {} file(s) from session {} to {}? [y/N] ",
             plan.files.len(),
@@ -81,17 +100,22 @@ pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32
         if !confirm_prompt(&prompt)? {
             eprintln!("Aborted.");
             core.disconnect_all();
-            return Ok(0);
+            return Ok(RollbackCommandResult {
+                output: RollbackCommandOutput::Aborted,
+                exit_code: 0,
+            });
         }
     }
 
     // 復元実行
     let mut restored = Vec::new();
+    let mut skipped: Vec<RollbackSkipped> = plan.skipped;
     let mut failed: Vec<RollbackFailure> = Vec::new();
 
-    match core.restore_backup(&side, &plan.session_id, &plan.files) {
-        Ok((results, failures)) => {
+    match core.restore_backup(&side, &plan.session_id, &plan.files, args.dry_run) {
+        Ok((results, restore_skipped, failures)) => {
             restored.extend(results);
+            skipped.extend(restore_skipped);
             failed.extend(failures);
         }
         Err(e) => {
@@ -105,8 +129,6 @@ pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32
         }
     }
 
-    let skipped: Vec<RollbackSkipped> = plan.skipped;
-
     let output = RollbackOutput {
         target: target_info,
         session_id: plan.session_id,
@@ -115,74 +137,75 @@ pub fn run_rollback(args: RollbackArgs, config: AppConfig) -> anyhow::Result<i32
         failed,
     };
 
-    let code = rollback_exit_code(&output);
-    print_rollback_output(&output, format)?;
-
+    let code = if args.dry_run {
+        0
+    } else {
+        rollback_exit_code(&output)
+    };
     core.disconnect_all();
-    Ok(code)
+    Ok(RollbackCommandResult {
+        output: if args.dry_run {
+            RollbackCommandOutput::DryRun {
+                output,
+                warnings: plan.warnings,
+            }
+        } else {
+            RollbackCommandOutput::Restore(output)
+        },
+        exit_code: code,
+    })
 }
 
 /// --list モード: セッション一覧を出力して終了
 fn run_list_mode(
     target_info: &SourceInfo,
     sessions: Vec<crate::service::types::BackupSession>,
-    format: OutputFormat,
     core: &mut CoreRuntime,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<RollbackCommandResult> {
     let output = BackupListOutput {
         target: target_info.clone(),
         sessions,
     };
 
-    match format {
-        OutputFormat::Text => println!("{}", format_backup_list_text(&output)),
-        OutputFormat::Json => println!("{}", format_json(&output)?),
-    }
-
     core.disconnect_all();
-    Ok(0)
+    Ok(RollbackCommandResult {
+        output: RollbackCommandOutput::List(output),
+        exit_code: 0,
+    })
 }
 
 /// --dry-run モード: 復元計画を出力して終了
-fn run_dry_run_mode(
-    target_info: &SourceInfo,
-    plan: &crate::service::rollback::RestorePlan,
+fn print_rollback_result(
+    output: &RollbackCommandOutput,
     format: OutputFormat,
-    core: &mut CoreRuntime,
-) -> anyhow::Result<i32> {
-    let output = RollbackOutput {
-        target: target_info.clone(),
-        session_id: plan.session_id.clone(),
-        restored: plan
-            .files
-            .iter()
-            .map(|p| crate::service::types::RollbackFileResult {
-                path: p.clone(),
-                pre_rollback_backup: None,
-            })
-            .collect(),
-        skipped: plan.skipped.clone(),
-        failed: vec![],
-    };
-
-    match format {
-        OutputFormat::Text => {
-            println!("Dry run - would restore from session {}:", plan.session_id);
-            for file in &plan.files {
-                println!("  \u{2713} {}", file);
+) -> anyhow::Result<()> {
+    match output {
+        RollbackCommandOutput::List(output) => match format {
+            OutputFormat::Text => println!("{}", format_backup_list_text(output)),
+            OutputFormat::Json => println!("{}", format_json(output)?),
+        },
+        RollbackCommandOutput::Restore(output) => print_rollback_output(output, format)?,
+        RollbackCommandOutput::DryRun { output, warnings } => match format {
+            OutputFormat::Text => {
+                println!(
+                    "Dry run - would restore from session {}:",
+                    output.session_id
+                );
+                for file in &output.restored {
+                    println!("  \u{2713} {}", file.path);
+                }
+                for skipped in &output.skipped {
+                    println!("  - {} (skipped: {})", skipped.path, skipped.reason);
+                }
+                for warning in warnings {
+                    eprintln!("Warning: {}", warning);
+                }
             }
-            for s in &plan.skipped {
-                println!("  - {} (skipped: {})", s.path, s.reason);
-            }
-            for w in &plan.warnings {
-                eprintln!("Warning: {}", w);
-            }
-        }
-        OutputFormat::Json => println!("{}", format_json(&output)?),
+            OutputFormat::Json => println!("{}", format_json(output)?),
+        },
+        RollbackCommandOutput::Aborted => {}
     }
-
-    core.disconnect_all();
-    Ok(0)
+    Ok(())
 }
 
 /// 確認プロンプトを表示し、ユーザーの応答を返す

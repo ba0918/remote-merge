@@ -31,7 +31,11 @@ const IDLE_POLL_TIMEOUT_SECS: u64 = 60;
 
 /// TUI tool for graphically displaying and merging file diffs between local and remote servers
 #[derive(Parser, Debug)]
-#[command(name = "remote-merge", version, about)]
+#[command(
+    name = "remote-merge",
+    version = remote_merge::agent::protocol::CLI_VERSION,
+    about
+)]
 struct Cli {
     /// Path to project config file [overrides .remote-merge.toml in CWD]
     #[arg(long, global = true)]

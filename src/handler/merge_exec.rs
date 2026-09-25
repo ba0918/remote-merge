@@ -10,7 +10,36 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::TuiRuntime;
 use crate::ui::dialog::ConfirmDialog;
 
-use super::merge_file_io::{backup_left, backup_right, write_left_file, write_right_file};
+use super::merge_file_io::{
+    decide_backup_write, reserve_backup_session, save_backups, write_left_file, write_right_file,
+    BackupDecision,
+};
+
+fn backup_allows_write(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    backups: &[(&crate::app::side::Side, &[String])],
+) -> Option<Option<String>> {
+    let enabled = runtime.core.config.backup.enabled;
+    let session_id = match reserve_backup_session(runtime) {
+        Ok(session_id) => session_id,
+        Err(error) => {
+            state.status_message = format!("Backup failed: {error}");
+            return None;
+        }
+    };
+    let results = backups
+        .iter()
+        .map(|(side, paths)| save_backups(runtime, side, paths, session_id.as_deref()))
+        .collect::<Vec<_>>();
+    match decide_backup_write(enabled, &results) {
+        BackupDecision::Write => Some(session_id),
+        BackupDecision::Refuse(message) => {
+            state.status_message = message;
+            None
+        }
+    }
+}
 
 // ── 後方互換の re-export ──
 pub use super::merge_batch::{execute_batch_merge, filter_identical_files};
@@ -57,7 +86,13 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                     (state.right_source.clone(), state.left_source.clone())
                 }
             };
-            let symlink_session_id = crate::backup::backup_timestamp();
+            let symlink_session_id = match reserve_backup_session(runtime) {
+                Ok(session_id) => session_id,
+                Err(error) => {
+                    state.status_message = format!("Backup failed: {error}");
+                    return;
+                }
+            };
             // 戻り値 (成功=true) をログに記録。state.status_message は execute_symlink_merge 内で設定済み。
             let params = super::symlink_merge::SymlinkMergeParams {
                 path,
@@ -65,7 +100,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 action,
                 source_side: &source_side,
                 target_side: &target_side,
-                session_id: &symlink_session_id,
+                session_id: symlink_session_id.as_deref(),
             };
             let ok = super::symlink_merge::execute_symlink_merge(state, runtime, &params);
             if !ok {
@@ -86,9 +121,6 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
         }
     }
 
-    // セッションIDを1度だけ生成
-    let session_id = crate::backup::backup_timestamp();
-
     match direction {
         MergeDirection::LeftToRight => {
             // determine_merge_execution で has_source_cache=true を確認済みだが、
@@ -107,8 +139,11 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 return;
             }
 
-            if runtime.core.config.backup.enabled {
-                backup_right(state, runtime, &[path.to_string()], &session_id);
+            let target = state.right_source.clone();
+            if backup_allows_write(state, runtime, &[(&target, std::slice::from_ref(path))])
+                .is_none()
+            {
+                return;
             }
 
             match write_right_file(state, runtime, path, &content) {
@@ -137,8 +172,11 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
                 }
             };
 
-            if runtime.core.config.backup.enabled {
-                backup_left(state, runtime, &[path.to_string()], &session_id);
+            let target = state.left_source.clone();
+            if backup_allows_write(state, runtime, &[(&target, std::slice::from_ref(path))])
+                .is_none()
+            {
+                return;
             }
 
             match write_left_file(state, runtime, path, &content) {
@@ -165,19 +203,13 @@ pub fn execute_hunk_merge(
     direction: HunkDirection,
 ) {
     if let Some(path) = state.apply_hunk_merge(direction) {
-        let session_id = crate::backup::backup_timestamp();
-
-        if runtime.core.config.backup.enabled {
-            match direction {
-                HunkDirection::RightToLeft => {
-                    backup_left(state, runtime, std::slice::from_ref(&path), &session_id);
-                }
-                HunkDirection::LeftToRight => {
-                    if runtime.is_side_available(&state.right_source) {
-                        backup_right(state, runtime, std::slice::from_ref(&path), &session_id);
-                    }
-                }
-            }
+        let target = match direction {
+            HunkDirection::RightToLeft => state.left_source.clone(),
+            HunkDirection::LeftToRight => state.right_source.clone(),
+        };
+        if backup_allows_write(state, runtime, &[(&target, std::slice::from_ref(&path))]).is_none()
+        {
+            return;
         }
 
         match direction {
@@ -296,13 +328,19 @@ fn format_hunk_merge_success(
 pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
     if let Some(path) = state.selected_path.clone() {
         let changes = state.undo_stack.len();
-        let session_id = crate::backup::backup_timestamp();
-
-        if runtime.core.config.backup.enabled {
-            backup_left(state, runtime, std::slice::from_ref(&path), &session_id);
-            if runtime.is_side_available(&state.right_source) {
-                backup_right(state, runtime, std::slice::from_ref(&path), &session_id);
-            }
+        let left = state.left_source.clone();
+        let right = state.right_source.clone();
+        if backup_allows_write(
+            state,
+            runtime,
+            &[
+                (&left, std::slice::from_ref(&path)),
+                (&right, std::slice::from_ref(&path)),
+            ],
+        )
+        .is_none()
+        {
+            return;
         }
 
         if let Some(left_content) = state.left_cache.get(&path).cloned() {
@@ -334,6 +372,66 @@ pub fn execute_write_changes(state: &mut AppState, runtime: &mut TuiRuntime) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::side::Side;
+    use crate::runtime::RuntimeTargets;
+    use crate::tree::{FileNode, FileTree};
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn single_file_merge_stores_backup_outside_both_targets() {
+        let left = TempDir::new().unwrap();
+        let right = TempDir::new().unwrap();
+        let store = TempDir::new().unwrap();
+        fs::write(left.path().join("file.txt"), "new\n").unwrap();
+        fs::write(right.path().join("file.txt"), "old\n").unwrap();
+        let config_path = left.path().join("config.toml");
+        fs::write(
+            &config_path,
+            format!(
+                "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+                left.path(), right.path()
+            ),
+        )
+        .unwrap();
+        let config = crate::config::load_config_from_paths(Some(&config_path), None).unwrap();
+        let targets = RuntimeTargets::production()
+            .with_local("develop", right.path())
+            .with_backup_store(Some(store.path().to_path_buf()));
+        let mut state = AppState::new(
+            FileTree {
+                root: left.path().into(),
+                nodes: vec![FileNode::new_file("file.txt")],
+            },
+            FileTree {
+                root: right.path().into(),
+                nodes: vec![FileNode::new_file("file.txt")],
+            },
+            Side::Local,
+            Side::Remote("develop".into()),
+            "base16-ocean.dark",
+        );
+        state.left_cache.insert("file.txt".into(), "new\n".into());
+        let mut runtime = TuiRuntime::with_targets(config, targets);
+
+        execute_merge(
+            &mut state,
+            &mut runtime,
+            &ConfirmDialog::new(
+                "file.txt".into(),
+                MergeDirection::LeftToRight,
+                "local".into(),
+                "develop".into(),
+            ),
+        );
+
+        assert_eq!(
+            fs::read_to_string(right.path().join("file.txt")).unwrap(),
+            "new\n"
+        );
+        assert_eq!(fs::read_dir(right.path()).unwrap().count(), 1);
+        assert!(fs::read_dir(store.path()).unwrap().next().is_some());
+    }
 
     // ── format_merge_success ──
 
