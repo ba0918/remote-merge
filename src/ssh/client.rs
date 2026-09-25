@@ -797,6 +797,13 @@ impl SshClient {
 
         let _ = channel.close().await;
 
+        if exit_code.is_none() {
+            anyhow::bail!(AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: "Remote command ended without an exit status".into(),
+            });
+        }
+
         // valid UTF-8 時はゼロコピー（大多数のケース）、invalid UTF-8 時のみ lossy 変換
         let stdout_str = match String::from_utf8(stdout) {
             Ok(s) => s,

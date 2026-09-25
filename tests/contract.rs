@@ -27,6 +27,9 @@ mod ssh_disconnect;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_reconnect.rs"]
+mod ssh_reconnect;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_server.rs"]
 mod ssh_server;
 #[cfg(feature = "test-utils")]
