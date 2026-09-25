@@ -8,3 +8,5 @@ mod config_precedence;
 mod merge_paths;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
+#[path = "contract/scan_limits.rs"]
+mod scan_limits;
