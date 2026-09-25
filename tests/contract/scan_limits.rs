@@ -91,6 +91,23 @@ fn status_uses_the_explicit_limit_and_lists_every_file_when_it_fits() {
     );
 }
 
+// @kotowari[EX-scan-007]
+#[test]
+fn status_without_a_limit_option_uses_the_configured_scan_limit() {
+    let mut fixture = scan_fixture();
+    fixture.config.max_scan_entries = 2;
+    let error = execute_status(
+        status_args(None),
+        fixture.config.clone(),
+        fixture.targets.clone(),
+    )
+    .err()
+    .expect("the configured limit must apply without an override");
+    assert!(error.to_string().contains("Tree scan truncated"), "{error}");
+    let result = execute_status(status_args(Some(10)), fixture.config, fixture.targets).unwrap();
+    assert_eq!(result.output.files.unwrap().len(), 3);
+}
+
 // @kotowari[EX-scan-010, REQ-scan-005]
 #[test]
 fn a_truncated_source_scan_cannot_start_sync_or_delete() {
