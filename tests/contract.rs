@@ -8,6 +8,8 @@ mod cli_results;
 mod config_precedence;
 #[path = "contract/filters.rs"]
 mod filters;
+#[path = "contract/init.rs"]
+mod init;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[path = "contract/rollback_paths.rs"]
