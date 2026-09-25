@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::Write as _;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -213,7 +214,7 @@ struct LocalHandler {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
-    write_channels: HashMap<ChannelId, Vec<u8>>,
+    write_channels: HashMap<ChannelId, (String, Vec<u8>)>,
     agent_stdin: HashMap<ChannelId, ChildStdin>,
 }
 
@@ -229,7 +230,7 @@ impl server::Handler for LocalHandler {
         if let Some(stdin) = self.agent_stdin.get_mut(&channel) {
             stdin.write_all(data).await?;
         }
-        if let Some(buffer) = self.write_channels.get_mut(&channel) {
+        if let Some((_, buffer)) = self.write_channels.get_mut(&channel) {
             buffer.extend_from_slice(data);
         }
         Ok(())
@@ -241,17 +242,20 @@ impl server::Handler for LocalHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.agent_stdin.remove(&channel);
-        if let Some(encoded) = self.write_channels.remove(&channel) {
-            let target = self.target.as_ref().unwrap();
-            let decoded = base64::engine::general_purpose::STANDARD.decode(
-                encoded
-                    .iter()
-                    .copied()
-                    .filter(|byte| !byte.is_ascii_whitespace())
-                    .collect::<Vec<_>>(),
-            )?;
-            std::fs::write(target, decoded)?;
-            session.exit_status_request(channel, 0)?;
+        if let Some((command, encoded)) = self.write_channels.remove(&channel) {
+            let home = self.sandbox_home.as_ref().unwrap();
+            let mut child = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&command)
+                .env("HOME", home)
+                .current_dir(home)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()?;
+            child.stdin.take().unwrap().write_all(&encoded)?;
+            let result = child.wait_with_output()?;
+            session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
             session.eof(channel)?;
             session.close(channel)?;
         }
@@ -303,12 +307,6 @@ impl server::Handler for LocalHandler {
                 session.close(channel)?;
                 return Ok(());
             }
-            if command.starts_with(b"openssl base64 -d")
-                && String::from_utf8_lossy(command).contains(path.as_ref())
-            {
-                self.write_channels.insert(channel, Vec::new());
-                return Ok(());
-            }
         }
         if let Some(home) = &self.sandbox_home {
             let command = String::from_utf8_lossy(command);
@@ -316,6 +314,11 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()),
                 "unexpected remote command: {command}"
             );
+            if command.starts_with("openssl base64 -d -A -out ") {
+                self.write_channels
+                    .insert(channel, (command.into_owned(), Vec::new()));
+                return Ok(());
+            }
             if self.agent_available && command.contains(" agent --root ") {
                 let mut child = tokio::process::Command::new("sh")
                     .arg("-c")
