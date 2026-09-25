@@ -1,6 +1,6 @@
 # 再現可能なテスト環境
 
-Linux CI と Unix 系の開発環境での通常テスト、実 OpenSSH 検証、手動の旧 SSH 負荷環境の保証範囲。
+Linux CI と Unix 系の開発環境での通常テスト、実 OpenSSH 検証、手動の旧 SSH 負荷環境、開発時の自動チェックの保証範囲。
 
 ## Requirements
 
@@ -52,6 +52,22 @@ Linux CI と Unix 系の開発環境での通常テスト、実 OpenSSH 検証�
 
 「旧 SSH 負荷環境」は通常テストや必須 CI の結果として扱わず、一回の手動試行ごとに生成物を分離する。
 
+### REQ-testing-007: 開発時の検査でコミット内容を書き換えない
+- kind: prohibition
+- source: docs/decision/records/2026-09-26-development-check-hooks.md#A1, docs/decision/records/2026-09-26-development-check-hooks.md#A3, docs/decision/records/2026-09-26-development-check-hooks.md#A4, docs/decision/records/2026-09-26-development-check-hooks.md#A6
+- verification: review
+- how_to_verify: 共有の Lefthook 設定で pre-commit に fmt --check と kotowari check、pre-push に Clippy と Docker 不要の通常テストが配置され、どの検査もファイルやステージ内容を自動変更しないことを確認する。既存ローカル Git フックの上書きは導入手順に含めず、Claude Code 専用の自動修正フックが残っていないことを確認する。
+
+チェックが不合格なら操作を止め、修正と再ステージは利用者が明示して行う。整形検査は作業ツリーが対象であり、ステージとの差でローカル検査を通過した場合は CI がコミット済みの内容を検査する。
+
+### REQ-testing-008: CI で仕様検査も必須にする
+- kind: invariant
+- source: docs/decision/records/2026-09-26-development-check-hooks.md#A2, docs/decision/records/2026-09-26-development-check-hooks.md#A5
+- verification: review
+- how_to_verify: CI が公開 Git の固定コミットから kotowari を導入し、fmt・Clippy・通常テスト・kotowari check のそれぞれの失敗でワークフローが失敗することを確認する。ローカルのフックが未導入でも CI の検証結果が変わらないことを確認する。
+
+CI の合格には通常テストと仕様検査の両方が必要である。
+
 ## Examples
 
 ```gherkin
@@ -102,4 +118,22 @@ Scenario: 手動の負荷試行を終了する
 Given 旧 SSH 負荷環境を一回起動し利用者の既知ホスト情報がある
 When 専用の終了手順を実行する
 Then 生成した鍵・設定・データ・コンテナは残らず利用者の既知ホスト情報は変わらない
+
+@id=EX-testing-009 @about=REQ-testing-007 @source=docs/decision/records/2026-09-26-development-check-hooks.md#A1,docs/decision/records/2026-09-26-development-check-hooks.md#A4,docs/decision/records/2026-09-26-development-check-hooks.md#A6
+Scenario: 作業ツリーに未整形のファイルがある状態でコミットする
+Given 作業ツリーの Rust ファイルが整形規約に合わない
+When Lefthook の pre-commit を実行する
+Then コミットは止まり、ファイルとステージ済みの内容は書き換わらない
+
+@id=EX-testing-010 @about=REQ-testing-007 @source=docs/decision/records/2026-09-26-development-check-hooks.md#A1
+Scenario: push 前の検査で通常テストが失敗する
+Given Docker 不要の通常テストに失敗する変更がある
+When Lefthook の pre-push を実行する
+Then push は止まり、変更したファイルは書き換わらない
+
+@id=EX-testing-011 @about=REQ-testing-008 @source=docs/decision/records/2026-09-26-development-check-hooks.md#A2,docs/decision/records/2026-09-26-development-check-hooks.md#A5
+Scenario: ローカルフックなしの変更で仕様検査が失敗する
+Given kotowari check がエラーを報告する変更が push された
+When CI が公開 Git の固定コミットから kotowari を導入して検証する
+Then 仕様検査の手順が失敗し、CI 全体も失敗する
 ```
