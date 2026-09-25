@@ -17,6 +17,7 @@ use remote_merge::service::merge_flow::{
     execute_deletions, execute_single_merge, MergeContext, SingleMergeResult,
 };
 use remote_merge::service::types::{FileStatus, FileStatusKind};
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 // @kotowari[EX-merge-001]
@@ -1538,6 +1539,87 @@ fn merge_rejects_absolute_paths_before_writing() {
     let error = result.err().expect("an absolute path must be rejected");
     assert!(error.to_string().contains("absolute"), "{error}");
     assert_eq!(fs::read_to_string(&target).unwrap(), "before\n");
+}
+
+// @kotowari[EX-backup-003]
+#[test]
+fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    for name in ["blocked.txt", "ok.txt", "anchor.txt"] {
+        fs::write(destination.path().join(name), format!("old {name}\n")).unwrap();
+        fs::write(local.path().join(name), format!("new {name}\n")).unwrap();
+    }
+    let (config, targets) = setup(&local, &destination, &backup);
+    let mut core = CoreRuntime::with_targets(config, targets);
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree_recursive(&left, 100, true).unwrap();
+    let right_tree = core.fetch_tree_recursive(&right, 100, true).unwrap();
+    let expected: HashMap<String, Vec<u8>> = ["blocked.txt", "ok.txt"]
+        .into_iter()
+        .map(|name| {
+            (
+                name.into(),
+                fs::read(destination.path().join(name)).unwrap(),
+            )
+        })
+        .collect();
+    let session = core.reserve_backup_session().unwrap();
+    core.save_backup(&right, "anchor.txt", &session, false)
+        .unwrap();
+    let session_dir = backup.path().join("sessions").join(&session);
+    let target_dir = fs::read_dir(session_dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let blocked_key = format!("{:x}", Sha256::digest(b"blocked.txt"));
+    let collision = target_dir.join("records").join(blocked_key);
+    fs::create_dir(&collision).unwrap();
+    fs::write(collision.join("occupied"), b"do not replace").unwrap();
+    let statuses: Vec<_> = ["blocked.txt", "ok.txt"]
+        .into_iter()
+        .map(|name| FileStatus {
+            path: name.into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        })
+        .collect();
+    let mut ctx = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: false,
+        statuses: &statuses,
+        session_id: &session,
+        expected_target_contents: &expected,
+    };
+    let failed = execute_single_merge(&mut ctx, "blocked.txt")
+        .err()
+        .expect("backup must fail");
+    assert!(failed.to_string().contains("backup failed"), "{failed}");
+    let result = execute_single_merge(&mut ctx, "ok.txt").unwrap();
+    let SingleMergeResult::Merged(merged) = result else {
+        panic!("other file was skipped")
+    };
+    assert!(merged.backup.is_some());
+    assert_eq!(
+        fs::read_to_string(destination.path().join("blocked.txt")).unwrap(),
+        "old blocked.txt\n"
+    );
+    assert_eq!(
+        fs::read_to_string(destination.path().join("ok.txt")).unwrap(),
+        "new ok.txt\n"
+    );
 }
 
 fn merge(
