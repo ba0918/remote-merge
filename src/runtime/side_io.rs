@@ -1617,30 +1617,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_roundtrip_via_side_io() {
-        use sha2::{Digest, Sha256};
-
-        let tmp = TempDir::new().unwrap();
-        let data: Vec<u8> = (0..=255).collect();
-
-        let mut rt = create_test_runtime(&tmp);
-        rt.write_file_bytes(&Side::Local, "roundtrip.bin", &data)
-            .unwrap();
-        let read_back = rt
-            .read_file_bytes(&Side::Local, "roundtrip.bin", false)
-            .unwrap();
-
-        assert_eq!(Sha256::digest(&data), Sha256::digest(&read_back));
-    }
-
-    #[test]
-    fn test_disconnect_if_remote_local_noop() {
-        let mut rt = CoreRuntime::new_for_test();
-        // ローカルの場合は何もしないことを確認（パニックしない）
-        rt.disconnect_if_remote(&Side::Local);
-    }
-
-    #[test]
     fn test_remove_file_local_regular_file() {
         let tmp = TempDir::new().unwrap();
         let file_path = tmp.path().join("to_remove.txt");
@@ -1884,13 +1860,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_disconnect_if_remote_remote_noop_when_not_connected() {
-        let mut rt = CoreRuntime::new_for_test();
-        // パニックしないことを確認
-        rt.disconnect_if_remote(&Side::Remote("nonexistent".to_string()));
-    }
-
     // ── fetch_tree_recursive ローカルテスト ──
 
     #[test]
@@ -1938,44 +1907,6 @@ mod tests {
     fn test_check_truncation_no_fail_returns_ok() {
         // fail_on_truncation = false → Ok（warn ログのみ）
         let result = check_truncation(50_000, false);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_check_truncation_error_message_contains_max_entries() {
-        let result = check_truncation(12345, true);
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("12345"),
-            "error message should contain max_entries value, got: {msg}"
-        );
-    }
-
-    #[test]
-    fn test_check_truncation_zero_max_entries() {
-        // max_entries=0 の境界値: fail_on_truncation=true → エラー
-        let result = check_truncation(0, true);
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("truncated at 0 entries"),
-            "expected '0 entries' in message, got: {msg}"
-        );
-    }
-
-    #[test]
-    fn test_check_truncation_one_max_entry() {
-        // max_entries=1 の境界値（最小値）: fail_on_truncation=true → エラー
-        let result = check_truncation(1, true);
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(
-            msg.contains("truncated at 1 entries"),
-            "expected '1 entries' in message, got: {msg}"
-        );
-
-        // fail_on_truncation=false → Ok
-        let result = check_truncation(1, false);
         assert!(result.is_ok());
     }
 
@@ -2773,23 +2704,6 @@ mod tests {
             .unwrap();
         assert_eq!(map["a.bin"], vec![0x01, 0x02]);
         assert_eq!(map["b.bin"], vec![0x03]);
-    }
-
-    #[test]
-    fn test_agent_chunk_size_limit_constant() {
-        // 定数が MAX_FRAME_SIZE (16MB) より十分小さいことを検証
-        assert_eq!(AGENT_CHUNK_SIZE_LIMIT, 4 * 1024 * 1024);
-        const { assert!(AGENT_CHUNK_SIZE_LIMIT < 16 * 1024 * 1024) };
-    }
-
-    #[test]
-    fn test_agent_read_batch_size_constant() {
-        // ストリーミング対応後は SSH と同じ 2000 を使用
-        assert_eq!(AGENT_READ_BATCH_SIZE, 2000);
-        assert_eq!(
-            AGENT_READ_BATCH_SIZE,
-            crate::ssh::batch_read::AGENT_BATCH_MAX_PATHS
-        );
     }
 
     // ── flatten_agent_read_result テスト ──

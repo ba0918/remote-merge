@@ -380,16 +380,6 @@ mod tests {
     }
 
     #[test]
-    fn poll_empty_scans_is_noop() {
-        let mut state = make_test_state();
-        let mut runtime = TuiRuntime::new_for_test();
-
-        // 空のスキャンリスト → 何もしない
-        poll_badge_scan_results(&mut state, &mut runtime);
-        // パニックしなければ OK
-    }
-
-    #[test]
     fn poll_max_files_status_message() {
         let mut runtime = TuiRuntime::new_for_test();
         let file_count = crate::config::DEFAULT_BADGE_SCAN_MAX_FILES + 1;

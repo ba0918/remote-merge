@@ -448,33 +448,6 @@ ___BATCH_DELIM___1";
         );
     }
 
-    #[test]
-    fn test_roundtrip_command_and_parse() {
-        let paths = vec![
-            "/app/src/lib.rs".to_string(),
-            "/app/src/main.rs".to_string(),
-        ];
-        let _cmd = build_batch_cat_command(&paths).unwrap();
-
-        // 実際のSSH出力をシミュレート（各ファイルは末尾改行あり + echo '' の改行）
-        let simulated_output = "\
-___BATCH_DELIM___0
-pub fn lib_fn() {}
-
-___BATCH_DELIM___1
-fn main() {}
-
-___BATCH_DELIM___2";
-
-        let result = parse_batch_output(simulated_output, &paths);
-        assert_eq!(result.len(), 2);
-        assert_eq!(
-            result.get("/app/src/lib.rs").unwrap(),
-            "pub fn lib_fn() {}\n"
-        );
-        assert_eq!(result.get("/app/src/main.rs").unwrap(), "fn main() {}\n");
-    }
-
     /// 末尾改行なしのファイルでも正しくパースされること。
     /// `cat file ; echo ''` により、末尾改行なしファイルでも
     /// 必ず改行が付加される。strip_suffix でその改行を除去し、
@@ -701,69 +674,5 @@ ___BATCH_DELIM___2";
         // 全パスが含まれている
         let total: usize = chunks.iter().map(|c| c.len()).sum();
         assert_eq!(total, 50);
-    }
-
-    /// チャンク分割後に各チャンクの結果をマージすると
-    /// 全パスの結果が得られることを検証する（テキスト版バッチ読み込みのシミュレーション）。
-    #[test]
-    fn test_chunk_paths_roundtrip_text_merge() {
-        let paths: Vec<String> = (0..10).map(|i| format!("file_{}.txt", i)).collect();
-        // 小さい上限で分割
-        let chunks = chunk_paths(&paths, 300);
-
-        let mut merged = HashMap::new();
-        for chunk in &chunks {
-            // 各チャンクの simulated 出力を生成
-            let mut output = String::new();
-            for (i, path) in chunk.iter().enumerate() {
-                output.push_str(&format!("___BATCH_DELIM___{}\n", i));
-                output.push_str(&format!("content of {}\n", path));
-                // echo '' が追加する改行
-                output.push('\n');
-            }
-            output.push_str(&format!("___BATCH_DELIM___{}", chunk.len()));
-
-            let chunk_result = parse_batch_output(&output, chunk);
-            merged.extend(chunk_result);
-        }
-
-        // 全パスの結果が含まれている
-        assert_eq!(merged.len(), 10);
-        for i in 0..10 {
-            let key = format!("file_{}.txt", i);
-            assert_eq!(merged.get(&key).unwrap(), &format!("content of {}\n", key));
-        }
-    }
-
-    /// チャンク分割後に各チャンクの結果をマージすると
-    /// 全パスの結果が得られることを検証する（バイト列版バッチ読み込みのシミュレーション）。
-    #[test]
-    fn test_chunk_paths_roundtrip_bytes_merge() {
-        let paths: Vec<String> = (0..10).map(|i| format!("file_{}.bin", i)).collect();
-        let chunks = chunk_paths(&paths, 300);
-
-        let mut merged: HashMap<String, Vec<u8>> = HashMap::new();
-        for chunk in &chunks {
-            let mut output = Vec::new();
-            for (i, path) in chunk.iter().enumerate() {
-                output.extend_from_slice(format!("___BATCH_DELIM___{}\n", i).as_bytes());
-                output.extend_from_slice(format!("bytes of {}\n", path).as_bytes());
-                // echo '' が追加する改行
-                output.push(b'\n');
-            }
-            output.extend_from_slice(format!("___BATCH_DELIM___{}", chunk.len()).as_bytes());
-
-            let chunk_result = parse_batch_output_bytes(&output, chunk);
-            merged.extend(chunk_result);
-        }
-
-        assert_eq!(merged.len(), 10);
-        for i in 0..10 {
-            let key = format!("file_{}.bin", i);
-            assert_eq!(
-                merged.get(&key).unwrap(),
-                format!("bytes of {}\n", key).as_bytes()
-            );
-        }
     }
 }

@@ -320,14 +320,6 @@ mod tests {
         assert!(!is_path_excluded("src/main.rs", &[]));
     }
 
-    #[test]
-    fn test_invalid_glob_pattern_does_not_panic() {
-        // 不正な glob パターンでもパニックしないこと
-        let patterns = vec!["[invalid".to_string()];
-        // パニックしなければOK（結果は問わない）
-        let _ = is_path_excluded("src/main.rs", &patterns);
-    }
-
     // ── セキュリティ ──
 
     #[test]

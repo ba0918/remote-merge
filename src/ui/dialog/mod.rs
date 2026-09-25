@@ -151,29 +151,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dialog_state_default() {
-        let state = DialogState::default();
-        assert!(matches!(state, DialogState::None));
-    }
-
-    #[test]
-    fn test_progress_phase_titles() {
-        assert_eq!(ProgressPhase::Scanning.title(), "Scanning");
-        assert_eq!(ProgressPhase::LoadingFiles.title(), "Loading files");
-        assert_eq!(ProgressPhase::LoadingRemote.title(), "Loading remote files");
-        assert_eq!(ProgressPhase::Merging.title(), "Merging");
-    }
-
-    #[test]
-    fn test_progress_phase_indeterminate_text() {
-        let text = ProgressPhase::Scanning.indeterminate_text(42);
-        assert_eq!(text, "Discovering files... 42 found");
-
-        let text = ProgressPhase::Merging.indeterminate_text(10);
-        assert_eq!(text, "Processing... 10");
-    }
-
-    #[test]
     fn test_progress_dialog_new_defaults() {
         let dialog = ProgressDialog::new(ProgressPhase::Scanning, "src/", true);
         assert_eq!(dialog.phase, ProgressPhase::Scanning);

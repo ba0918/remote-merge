@@ -1189,12 +1189,6 @@ mod tests {
     }
 
     #[test]
-    fn test_drive_runtime_does_not_panic() {
-        let rt = CoreRuntime::new_for_test();
-        rt.drive_runtime();
-    }
-
-    #[test]
     fn test_disconnect_nonexistent_server_noop() {
         let mut rt = CoreRuntime::new_for_test();
         // パニックしないことを確認
@@ -1298,18 +1292,6 @@ mod tests {
         let mut rt = CoreRuntime::new_for_test();
         let result = rt.try_reconnect("unknown");
         assert!(result.is_err());
-    }
-
-    // ── Drop の動作確認（has_connections フラグ） ──
-
-    #[test]
-    fn test_drop_logs_nothing_when_empty() {
-        // 空のランタイムは drop 時に disconnect_all を呼ばない
-        let rt = CoreRuntime::new_for_test();
-        let has_connections = !rt.ssh_clients.is_empty() || !rt.agent_clients.is_empty();
-        assert!(!has_connections);
-        drop(rt);
-        // パニックしなければOK
     }
 
     // ── sudo バリデーション ──

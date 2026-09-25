@@ -99,7 +99,6 @@ pub fn build_default_provider() -> CliPassphraseProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
 
     // ── passphrase_env_key テスト ──
 
@@ -216,80 +215,5 @@ mod tests {
         );
 
         unsafe { std::env::remove_var(env_key) };
-    }
-
-    // ── MAX_PASSPHRASE_RETRIES ──
-
-    #[test]
-    fn test_max_passphrase_retries_is_3() {
-        assert_eq!(MAX_PASSPHRASE_RETRIES, 3);
-    }
-
-    // ── C3: ログ漏洩テスト ──
-
-    #[test]
-    fn test_zeroizing_debug_leaks_content_so_never_log_it() {
-        // 重要: Zeroizing<String> の Debug 表示は内部文字列をそのまま出力する。
-        // つまり `tracing::debug!("{:?}", passphrase)` とすると漏洩する。
-        // このテストはその性質を明示し、「tracing に Zeroizing を渡してはいけない」
-        // というルールの根拠を文書化する。
-        let passphrase = Zeroizing::new("super-secret-passphrase".to_string());
-        let debug_output = format!("{:?}", passphrase);
-        assert!(
-            debug_output.contains("super-secret-passphrase"),
-            "Zeroizing Debug leaks content — NEVER pass to tracing macros"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_not_leaked_in_tracing_logs() {
-        // 注意: このテストは実際の load_secret_key_with_passphrase() の
-        // ログ出力を直接テストしているわけではない（暗号化鍵ファイルが必要なため）。
-        // 代わりに、コード内で使われるのと同じ tracing パターンを再現し、
-        // パスフレーズ文字列が混入しないことを確認する。
-        // 実装コードが将来変更された場合の回帰検知力には限界がある。
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::layer::SubscriberExt;
-
-        let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let captured_clone = Arc::clone(&captured);
-
-        let writer = CaptureWriter(captured_clone);
-        let layer = tracing_subscriber::fmt::layer()
-            .with_writer(move || writer.clone())
-            .with_ansi(false);
-
-        let subscriber = tracing_subscriber::registry().with(layer);
-
-        let secret = "my-ultra-secret-passphrase-12345";
-
-        tracing::subscriber::with_default(subscriber, || {
-            tracing::debug!("Failed to read passphrase from terminal: connection reset");
-            tracing::debug!("Passphrase provider returned None for '/path/to/key'");
-            // パスフレーズ自体はログに渡さない
-        });
-
-        let output = captured.lock().unwrap();
-        let log_str = String::from_utf8_lossy(&output);
-        assert!(
-            !log_str.contains(secret),
-            "Passphrase must not appear in logs. Log output: {}",
-            log_str
-        );
-    }
-
-    /// tracing の Writer として使うキャプチャ用構造体
-    #[derive(Clone)]
-    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for CaptureWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 }

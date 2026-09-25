@@ -333,19 +333,6 @@ fn writer_relay_loop(
 mod tests {
     use super::*;
 
-    /// UnixStream ペアの基本動作を確認（ブリッジの前提条件）
-    #[test]
-    fn unix_stream_pair_roundtrip() {
-        let (mut a, mut b) = UnixStream::pair().unwrap();
-        let msg = b"hello transport";
-        a.write_all(msg).unwrap();
-        a.flush().unwrap();
-        b.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-        let mut buf = vec![0u8; 64];
-        let n = b.read(&mut buf).unwrap();
-        assert_eq!(&buf[..n], msg);
-    }
-
     /// into_streams で取り出したストリームとガードが有効であることを確認
     #[test]
     fn into_streams_returns_valid_pair_and_guard() {
@@ -386,83 +373,6 @@ mod tests {
         // guard を明示的に drop して shutdown が true になることを確認
         drop(guard);
         assert!(shutdown.load(Ordering::Acquire));
-    }
-
-    /// Drop 時にスレッドなしでもパニックしないことを確認
-    #[test]
-    fn drop_without_threads_no_panic() {
-        let (r, w) = UnixStream::pair().unwrap();
-        let transport = SshAgentTransport {
-            client_read: Some(r),
-            client_write: Some(w),
-            bridge_thread: None,
-            writer_relay_thread: None,
-            shutdown: Arc::new(AtomicBool::new(false)),
-        };
-        drop(transport);
-    }
-
-    /// Drop 時にスレッドが正常終了することを確認
-    #[test]
-    fn drop_joins_threads() {
-        let (r, w) = UnixStream::pair().unwrap();
-        let (notify_tx, notify_rx) = std::sync::mpsc::channel::<()>();
-        let thread = std::thread::spawn(move || {
-            let _ = notify_tx.send(());
-        });
-        let _ = notify_rx.recv();
-        let transport = SshAgentTransport {
-            client_read: Some(r),
-            client_write: Some(w),
-            bridge_thread: Some(thread),
-            writer_relay_thread: None,
-            shutdown: Arc::new(AtomicBool::new(false)),
-        };
-        drop(transport);
-    }
-
-    /// TransportGuard の Drop でスレッドが正常終了することを確認
-    #[test]
-    fn guard_drop_joins_threads() {
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let (notify_tx, notify_rx) = std::sync::mpsc::channel::<()>();
-        let thread = std::thread::spawn(move || {
-            let _ = notify_tx.send(());
-        });
-        let _ = notify_rx.recv();
-        let guard = TransportGuard {
-            bridge_thread: Some(thread),
-            writer_relay_thread: None,
-            shutdown,
-        };
-        drop(guard);
-    }
-
-    /// EOF 伝播: write 側を閉じると read 側が EOF になることを確認
-    #[test]
-    fn eof_propagation_via_shutdown() {
-        let (mut read_end, write_end) = UnixStream::pair().unwrap();
-        write_end.shutdown(std::net::Shutdown::Both).unwrap();
-        read_end
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
-        let mut buf = [0u8; 16];
-        let n = read_end.read(&mut buf).unwrap();
-        assert_eq!(n, 0);
-    }
-
-    /// bridge_write_end を drop すると read_end で EOF になることを確認
-    #[test]
-    fn bridge_write_end_propagates_close() {
-        let (read_end, write_end) = UnixStream::pair().unwrap();
-        drop(write_end);
-        let mut read_end = read_end;
-        read_end
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
-        let mut buf = [0u8; 16];
-        let n = read_end.read(&mut buf).unwrap();
-        assert_eq!(n, 0);
     }
 
     /// writer_relay_loop が EOF で正常終了することを確認

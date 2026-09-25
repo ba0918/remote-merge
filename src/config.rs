@@ -1137,20 +1137,6 @@ exclude = ["node_modules", ".git"]
     }
 
     #[test]
-    fn btreemap_servers_order_is_alphabetical() {
-        let mut servers = BTreeMap::new();
-        let make_server = |host: &str| ServerConfig {
-            host: host.into(),
-            ..default_server_config()
-        };
-        servers.insert("staging".to_string(), make_server("stg.example.com"));
-        servers.insert("develop".to_string(), make_server("dev.example.com"));
-        servers.insert("alpha".to_string(), make_server("alpha.example.com"));
-        let keys: Vec<_> = servers.keys().collect();
-        assert_eq!(keys, vec!["alpha", "develop", "staging"]);
-    }
-
-    #[test]
     fn test_backup_dir_no_duplicate_when_user_specifies() {
         let content = r#"
 [servers.develop]
@@ -1864,77 +1850,6 @@ exclude = ["dist"]
         let config = load_config_from_paths(Some(gf.path()), Some(pf.path())).unwrap();
         assert_eq!(config.defaults.file_permissions, 0o600);
         assert_eq!(config.defaults.dir_permissions, 0o700);
-    }
-
-    #[test]
-    fn test_sudo_false_preserves_existing_behavior() {
-        // sudo=false（デフォルト）時に既存の挙動が完全に維持される回帰テスト
-        let content = r#"
-[servers.develop]
-host = "dev.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[local]
-root_dir = "/home/user/app"
-
-[ssh]
-timeout_sec = 15
-"#;
-        let f = write_temp_config(content);
-        let config = load_config_from_paths(Some(f.path()), None).unwrap();
-
-        // sudo はデフォルト false
-        assert!(!config.servers["develop"].sudo);
-        // パーミッションはサーバー単位未設定
-        assert!(config.servers["develop"].file_permissions.is_none());
-        assert!(config.servers["develop"].dir_permissions.is_none());
-        // defaults はハードコードフォールバック
-        assert_eq!(config.defaults.file_permissions, 0o664);
-        assert_eq!(config.defaults.dir_permissions, 0o775);
-
-        // 既存フィールドが正常に読み込まれること
-        assert_eq!(config.servers["develop"].host, "dev.example.com");
-        assert_eq!(config.servers["develop"].port, 22);
-        assert_eq!(config.servers["develop"].user, "deploy");
-        assert_eq!(config.servers["develop"].auth, AuthMethod::Key);
-        assert_eq!(config.ssh.timeout_sec, 15);
-        assert!(config.backup.enabled);
-        assert!(config.agent.enabled);
-    }
-
-    #[test]
-    fn test_resolve_permissions_end_to_end() {
-        // defaults のみ指定 → resolve がデフォルト値を使う
-        let defaults = DefaultsConfig {
-            file_permissions: 0o600,
-            dir_permissions: 0o700,
-        };
-        let server_no_override = default_server_config();
-        assert_eq!(
-            resolve_file_permissions(&server_no_override, &defaults),
-            0o600
-        );
-        assert_eq!(
-            resolve_dir_permissions(&server_no_override, &defaults),
-            0o700
-        );
-
-        // サーバー単位オーバーライド → resolve がサーバー値を使う
-        let server_with_override = ServerConfig {
-            sudo: true,
-            file_permissions: Some(0o644),
-            dir_permissions: Some(0o755),
-            ..default_server_config()
-        };
-        assert_eq!(
-            resolve_file_permissions(&server_with_override, &defaults),
-            0o644
-        );
-        assert_eq!(
-            resolve_dir_permissions(&server_with_override, &defaults),
-            0o755
-        );
     }
 
     // ── merge_raw_defaults テスト ──

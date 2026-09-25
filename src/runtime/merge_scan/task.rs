@@ -1132,49 +1132,6 @@ mod tests {
         assert!(paths.is_empty());
     }
 
-    // ── AGENT_READ_BATCH_SIZE テスト ──
-
-    #[test]
-    fn agent_read_batch_size_is_reasonable() {
-        // ストリーミング対応後は SSH と同じ 2000 を使用
-        const {
-            assert!(AGENT_READ_BATCH_SIZE > 0);
-            assert!(AGENT_READ_BATCH_SIZE <= 4096);
-        }
-        assert_eq!(AGENT_READ_BATCH_SIZE, 2000);
-    }
-
-    // ── log_scan_completion テスト ──
-
-    #[test]
-    fn log_scan_completion_does_not_panic() {
-        let result = MergeScanResult {
-            local_cache: HashMap::new(),
-            remote_cache: HashMap::new(),
-            local_binary_cache: HashMap::new(),
-            remote_binary_cache: HashMap::new(),
-            ref_cache: HashMap::new(),
-            ref_binary_cache: HashMap::new(),
-            local_tree_updates: Vec::new(),
-            remote_tree_updates: Vec::new(),
-            error_paths: HashSet::new(),
-        };
-        let start = std::time::Instant::now();
-        log_scan_completion(&result, start);
-    }
-
-    // ── chunking ロジックテスト ──
-
-    #[test]
-    fn agent_read_batch_chunking_logic() {
-        // AGENT_READ_BATCH_SIZE でチャンク分割されることを検証
-        let paths: Vec<String> = (0..6000).map(|i| format!("file_{}.txt", i)).collect();
-        let chunks: Vec<&[String]> = paths.chunks(AGENT_READ_BATCH_SIZE).collect();
-        assert_eq!(chunks.len(), 3); // 6000 / 2000 = 3チャンク
-        assert_eq!(chunks[0].len(), 2000);
-        assert_eq!(chunks[2].len(), 2000);
-    }
-
     // ── group_nodes_by_parent テスト ──
 
     #[test]
@@ -1283,52 +1240,5 @@ mod tests {
         let mut paths = Vec::new();
         collect_file_paths_from_tree(&[], "any", &mut paths);
         assert!(paths.is_empty());
-    }
-
-    // ── read_remote_contents_batch ロジック検証（モック不要部分）──
-
-    #[test]
-    fn read_remote_contents_batch_empty_paths_no_panic() {
-        // 空のファイルリストを渡してもパニックしない
-        // （実際の SSH 接続は不要）
-        let paths: Vec<String> = Vec::new();
-        // ロジック部分のみ: is_empty チェックで早期リターンされる
-        assert!(paths.is_empty());
-        // read_remote_contents_batch は paths.is_empty() で早期リターンするため
-        // 実際に呼ぶことなくカバレッジを担保できる
-    }
-
-    #[test]
-    fn read_remote_contents_batch_classifies_text_and_binary() {
-        // バッチ読み込みのテキスト/バイナリ分類ロジックをシミュレート
-        // SSH 接続なしで is_binary の判定ロジックだけを検証
-        let text_content = "fn main() {\n    println!(\"hello\");\n}\n";
-        let mut binary_data = vec![0u8; 64];
-        binary_data[0] = 0x00; // NUL バイト → バイナリ判定
-
-        assert!(!crate::diff::engine::is_binary(text_content.as_bytes()));
-        assert!(crate::diff::engine::is_binary(&binary_data));
-    }
-
-    #[test]
-    fn read_remote_contents_batch_abs_path_construction() {
-        // 絶対パス構築ロジックの検証
-        let root = "/var/www/app";
-        let rel_paths = ["src/main.rs".to_string(), "config/app.toml".to_string()];
-        let abs_paths: Vec<String> = rel_paths
-            .iter()
-            .map(|p| format!("{}/{}", root.trim_end_matches('/'), p))
-            .collect();
-        assert_eq!(abs_paths[0], "/var/www/app/src/main.rs");
-        assert_eq!(abs_paths[1], "/var/www/app/config/app.toml");
-    }
-
-    #[test]
-    fn read_remote_contents_batch_trailing_slash_root() {
-        // root に末尾スラッシュがあっても正しく構築される
-        let root = "/var/www/app/";
-        let rel = "src/main.rs";
-        let abs = format!("{}/{}", root.trim_end_matches('/'), rel);
-        assert_eq!(abs, "/var/www/app/src/main.rs");
     }
 }

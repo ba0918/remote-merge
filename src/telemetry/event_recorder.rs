@@ -180,16 +180,6 @@ mod tests {
     }
 
     #[test]
-    fn test_recorder_nonexistent_dir_fails_gracefully() {
-        let path = std::path::PathBuf::from("/nonexistent/dir/events.jsonl");
-        let mut recorder = EventRecorder::new(&path);
-
-        // Should not panic, just silently fail
-        let event = event_types::key_press_event("j", "ok");
-        recorder.record(&event);
-    }
-
-    #[test]
     fn test_read_events_empty() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("events.jsonl");

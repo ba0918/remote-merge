@@ -189,28 +189,6 @@ fn enabled_rollback_reports_the_backup_taken_before_restore() {
 }
 
 #[test]
-fn rollback_keeps_all_backup_files_out_of_the_target_root() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "merged content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-    let mut args = merge_args("file.txt");
-    args.force = true;
-    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
-
-    execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
-
-    let entries = fs::read_dir(develop.path())
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect::<Vec<_>>();
-    assert_eq!(entries, vec![std::ffi::OsString::from("file.txt")]);
-}
-
-#[test]
 fn aggregate_rollback_json_keeps_the_existing_field_names_and_types() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();

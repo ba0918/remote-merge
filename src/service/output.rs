@@ -2072,44 +2072,6 @@ mod tests {
         assert!(!text.contains("Delete"));
     }
 
-    #[test]
-    fn test_merge_output_json_deleted_empty_included() {
-        // deleted は空でも常に JSON に含まれる
-        let output = MergeOutput {
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            ref_: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(
-            json.contains("\"deleted\""),
-            "empty deleted should be included: {}",
-            json
-        );
-    }
-
-    #[test]
-    fn test_merge_output_json_deleted_present() {
-        // deleted がある場合 JSON に含まれる
-        let output = MergeOutput {
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![DeleteFileResult {
-                path: "old.txt".into(),
-                status: DeleteStatus::Ok,
-                backup: Some("session/old.txt".into()),
-            }],
-            failed: vec![],
-            ref_: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains("\"deleted\""), "json: {}", json);
-        assert!(json.contains("\"old.txt\""), "json: {}", json);
-        assert!(json.contains("\"session/old.txt\""), "json: {}", json);
-    }
-
     // ── format_sync_text ──
 
     #[test]

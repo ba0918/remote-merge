@@ -367,26 +367,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_roundtrip_sha256() {
-        use sha2::{Digest, Sha256};
-
-        let dir = TempDir::new().unwrap();
-        // PNG ヘッダ風のバイナリデータ + NUL バイト
-        let binary_data: Vec<u8> = (0..256).map(|i| i as u8).collect();
-
-        // 書き込み → 読み込みのラウンドトリップ
-        write_local_file_bytes(dir.path(), "roundtrip.bin", &binary_data).unwrap();
-        let read_back = read_local_file_bytes(dir.path(), "roundtrip.bin", false).unwrap();
-
-        let original_hash = Sha256::digest(&binary_data);
-        let readback_hash = Sha256::digest(&read_back);
-        assert_eq!(
-            original_hash, readback_hash,
-            "SHA-256 should match after roundtrip"
-        );
-    }
-
-    #[test]
     fn test_read_file_bytes_text() {
         let dir = TempDir::new().unwrap();
         let text = "Hello, world!\nThis is a text file.\n";

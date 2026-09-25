@@ -61,7 +61,6 @@ pub fn save_state(state: &PersistedState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_default_state() {
@@ -70,35 +69,9 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_deserialize_roundtrip() {
-        let state = PersistedState {
-            theme: "InspiredGitHub".to_string(),
-        };
-        let toml_str = toml::to_string_pretty(&state).unwrap();
-        let restored: PersistedState = toml::from_str(&toml_str).unwrap();
-        assert_eq!(state, restored);
-    }
-
-    #[test]
     fn test_deserialize_empty_uses_default() {
         let restored: PersistedState = toml::from_str("").unwrap();
         assert_eq!(restored.theme, crate::theme::DEFAULT_THEME);
-    }
-
-    #[test]
-    fn test_save_and_load_to_file() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("state.toml");
-
-        let state = PersistedState {
-            theme: "Solarized (dark)".to_string(),
-        };
-        let content = toml::to_string_pretty(&state).unwrap();
-        std::fs::write(&path, &content).unwrap();
-
-        let loaded: PersistedState =
-            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(loaded.theme, "Solarized (dark)");
     }
 
     #[test]

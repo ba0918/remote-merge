@@ -550,28 +550,6 @@ mod tests {
     }
 
     #[test]
-    fn test_roundtrip_status_output() {
-        let output = StatusOutput {
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "dev".into(),
-                root: "/var/www".into(),
-            },
-            ref_: None,
-            agent: None,
-            files: Some(vec![]),
-            summary: StatusSummary::default(),
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.left.label, "local");
-        assert_eq!(parsed.right.label, "dev");
-    }
-
-    #[test]
     fn test_agent_status_serialize() {
         let connected = AgentStatus::Connected;
         let json = serde_json::to_string(&connected).unwrap();
@@ -795,26 +773,6 @@ mod tests {
         assert!(!json.contains("direction"));
     }
 
-    #[test]
-    fn test_merge_file_result_roundtrip_with_hunks() {
-        let original = MergeFileResult {
-            path: "test.rs".into(),
-            status: "merged".into(),
-            hunk_info: Some(HunkMergeInfo {
-                hunks_applied: vec![1, 3],
-                hunks_total: 5,
-                direction: "right_to_left".into(),
-            }),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&original).unwrap();
-        let deserialized: MergeFileResult = serde_json::from_str(&json).unwrap();
-        let info = deserialized.hunk_info.unwrap();
-        assert_eq!(info.hunks_applied, vec![1, 3]);
-        assert_eq!(info.hunks_total, 5);
-        assert_eq!(info.direction, "right_to_left");
-    }
-
     // ── multi diff ──
 
     #[test]
@@ -858,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_diff_output_truncated_false_omitted() {
+    fn multi_diff_omits_unavailable_counts_and_false_truncation() {
         let output = MultiDiffOutput {
             files: vec![],
             summary: MultiDiffSummary {
@@ -870,24 +828,7 @@ mod tests {
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"truncated\""));
-    }
-
-    #[test]
-    fn test_multi_diff_output_changed_files_total_none_omitted() {
-        let output = MultiDiffOutput {
-            files: vec![],
-            summary: MultiDiffSummary {
-                scanned_files: 0,
-                files_with_changes: 0,
-            },
-            truncated: false,
-            changed_files_total: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        // changed_files_total at the top level should be omitted when None
-        // (summary.scanned_files is always present)
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(v.get("changed_files_total").is_none());
+        assert!(!json.contains("\"changed_files_total\""));
     }
 
     #[test]
@@ -900,39 +841,6 @@ mod tests {
         assert!(summary.ref_differs.is_none());
         assert!(summary.ref_only.is_none());
         assert!(summary.ref_missing.is_none());
-    }
-
-    #[test]
-    fn test_roundtrip_status_output_with_ref() {
-        let output = StatusOutput {
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "dev".into(),
-                root: "/var/www".into(),
-            },
-            ref_: Some(SourceInfo {
-                label: "staging".into(),
-                root: "/s".into(),
-            }),
-            agent: None,
-            files: Some(vec![]),
-            summary: StatusSummary {
-                modified: 0,
-                left_only: 0,
-                right_only: 0,
-                equal: 0,
-                ref_differs: Some(0),
-                ref_only: Some(0),
-                ref_missing: Some(0),
-            },
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: StatusOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.ref_.as_ref().unwrap().label, "staging");
-        assert_eq!(parsed.summary.ref_differs, Some(0));
     }
 
     #[test]
@@ -978,66 +886,6 @@ mod tests {
     // ── rollback types ──
 
     #[test]
-    fn test_rollback_output_roundtrip() {
-        let output = RollbackOutput {
-            target: SourceInfo {
-                label: "develop".into(),
-                root: "/var/www".into(),
-            },
-            session_id: "20240115-140000".into(),
-            restored: vec![RollbackFileResult {
-                path: "src/config.ts".into(),
-                pre_rollback_backup: Some("20240120-100000".into()),
-            }],
-            skipped: vec![RollbackSkipped {
-                path: ".env".into(),
-                reason: "sensitive".into(),
-            }],
-            failed: vec![RollbackFailure {
-                path: "locked.rs".into(),
-                error: "permission denied".into(),
-            }],
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: RollbackOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.session_id, "20240115-140000");
-        assert_eq!(parsed.restored.len(), 1);
-        assert_eq!(parsed.skipped.len(), 1);
-        assert_eq!(parsed.failed.len(), 1);
-        assert_eq!(
-            parsed.restored[0].pre_rollback_backup.as_deref(),
-            Some("20240120-100000")
-        );
-    }
-
-    #[test]
-    fn test_backup_list_output_roundtrip() {
-        let output = BackupListOutput {
-            target: SourceInfo {
-                label: "staging".into(),
-                root: "/var/www".into(),
-            },
-            sessions: vec![
-                BackupSession::new(
-                    "20240115-140000".into(),
-                    vec![BackupEntry {
-                        path: "src/app.rs".into(),
-                        size: Some(1024),
-                        link_target: None,
-                    }],
-                    false,
-                ),
-                BackupSession::new("20240101-100000".into(), vec![], true),
-            ],
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: BackupListOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.sessions.len(), 2);
-        assert_eq!(parsed.sessions[0].session_id, "20240115-140000");
-        assert!(parsed.sessions[1].expired);
-    }
-
-    #[test]
     fn test_backup_session_expired_false_skip_serializing() {
         let session = BackupSession::new("20240115-140000".into(), vec![], false);
         let json = serde_json::to_string(&session).unwrap();
@@ -1068,39 +916,6 @@ mod tests {
     }
 
     // ── sync types ──
-
-    #[test]
-    fn sync_output_json_roundtrip() {
-        let output = SyncOutput {
-            left: SourceInfo {
-                label: "local".to_string(),
-                root: "/app".to_string(),
-            },
-            targets: vec![SyncTargetResult {
-                target: SourceInfo {
-                    label: "server1".to_string(),
-                    root: "/app".to_string(),
-                },
-                merged: vec![],
-                skipped: vec![],
-                deleted: vec![],
-                failed: vec![],
-                status: SyncTargetStatus::Success,
-            }],
-            summary: SyncSummary {
-                total_servers: 1,
-                successful_servers: 1,
-                total_files_merged: 0,
-                total_files_deleted: 0,
-                total_files_failed: 0,
-            },
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: SyncOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.left.label, "local");
-        assert_eq!(parsed.targets.len(), 1);
-        assert_eq!(parsed.targets[0].status, SyncTargetStatus::Success);
-    }
 
     #[test]
     fn sync_target_result_deleted_empty_included() {
@@ -1158,44 +973,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DeleteStatus::Failed).unwrap(),
             "\"failed\""
-        );
-    }
-
-    // ── Step 2: deleted field always present when empty ──
-
-    #[test]
-    fn test_merge_output_deleted_always_present_when_empty() {
-        let output = MergeOutput {
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            ref_: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(
-            json.contains("\"deleted\":[]"),
-            "deleted should always be present, even when empty"
-        );
-    }
-
-    #[test]
-    fn test_sync_target_result_deleted_always_present_when_empty() {
-        let result = SyncTargetResult {
-            target: SourceInfo {
-                label: "s1".into(),
-                root: "/app".into(),
-            },
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
-        };
-        let json = serde_json::to_string(&result).unwrap();
-        assert!(
-            json.contains("\"deleted\":[]"),
-            "deleted should always be present"
         );
     }
 

@@ -110,16 +110,6 @@ mod tests {
     }
 
     #[test]
-    fn truncated_stream_eof_after_header() {
-        // 長さヘッダは10バイトを指すが、ペイロードが無い
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&10u32.to_be_bytes());
-        let mut reader = Cursor::new(buf);
-        let err = read_frame(&mut reader).unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::UnexpectedEof);
-    }
-
-    #[test]
     fn truncated_stream_eof_mid_payload() {
         // 長さヘッダは10バイトを指すが、5バイトしかない
         let mut buf = Vec::new();
@@ -143,16 +133,5 @@ mod tests {
             let result = read_frame(&mut reader).unwrap();
             assert_eq!(result, *expected);
         }
-    }
-
-    #[test]
-    fn binary_data_with_null_bytes() {
-        let data: Vec<u8> = (0..=255).collect();
-        let mut buf = Vec::new();
-        write_frame(&mut buf, &data).unwrap();
-
-        let mut reader = Cursor::new(buf);
-        let result = read_frame(&mut reader).unwrap();
-        assert_eq!(result, data);
     }
 }

@@ -72,11 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_size_u64_max_no_panic() {
-        let _ = format_size(u64::MAX); // パニックしないこと
-    }
-
-    #[test]
     fn test_format_size_or_dash_none() {
         assert_eq!(format_size_or_dash(None), "-");
     }

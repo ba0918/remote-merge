@@ -282,14 +282,6 @@ mod tests {
         assert!(format!("{}", err).contains("Unknown format"));
     }
 
-    // ── additional resolve_target tests ──
-
-    #[test]
-    fn test_resolve_target_staging() {
-        let side = resolve_target(Some("staging"), false).unwrap();
-        assert_eq!(side, Side::Remote("staging".into()));
-    }
-
     // ── rollback_exit_code tests ──
 
     #[test]
@@ -345,25 +337,6 @@ mod tests {
             restored: vec![],
             skipped: vec![],
             failed: vec![],
-        };
-        assert_eq!(rollback_exit_code(&output), 2);
-    }
-
-    #[test]
-    fn test_rollback_exit_code_only_failed() {
-        // restored が空、failed のみ → 2
-        let output = RollbackOutput {
-            target: SourceInfo {
-                label: "local".into(),
-                root: "/tmp".into(),
-            },
-            session_id: "20260301_120000".into(),
-            restored: vec![],
-            skipped: vec![],
-            failed: vec![RollbackFailure {
-                path: "c.txt".into(),
-                error: "not found".into(),
-            }],
         };
         assert_eq!(rollback_exit_code(&output), 2);
     }

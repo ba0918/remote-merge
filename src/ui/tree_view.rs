@@ -276,32 +276,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scroll_position() {
-        // 多数のノードでスクロールが動作すること
-        let mut nodes = Vec::new();
-        for i in 0..50 {
-            nodes.push(FlatNode {
-                path: format!("file{}.txt", i),
-                name: format!("file{}.txt", i),
-                depth: 0,
-                is_dir: false,
-                is_symlink: false,
-                expanded: false,
-                badge: Badge::Unchecked,
-                ref_only: false,
-            });
-        }
-        let mut state = make_test_state(nodes);
-        state.tree_cursor = 40; // 下の方にカーソル
-
-        let area = Rect::new(0, 0, 40, 10);
-        let mut buf = Buffer::empty(area);
-        let widget = TreeView::new(&state);
-        widget.render(area, &mut buf);
-        // パニックしなければOK
-    }
-
-    #[test]
     fn test_empty_tree() {
         let state = make_test_state(vec![]);
 

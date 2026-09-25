@@ -499,7 +499,6 @@ mod tests {
         let empty_tree = make_test_tree(vec![]);
         // パニックせずに完了することを確認
         state.switch_server(Side::new("staging"), empty_tree);
-        assert!(state.flat_nodes.is_empty() || !state.flat_nodes.is_empty());
         assert_eq!(state.tree_scroll, 0);
         assert_eq!(state.tree_cursor, 0);
     }

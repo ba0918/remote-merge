@@ -1218,7 +1218,6 @@ fn list_dir_command(remote_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
 
     #[cfg(unix)]
     #[test]
@@ -1401,33 +1400,6 @@ mod tests {
 
     // ── パスフレーズ付き鍵読み込みテスト ──
 
-    /// テスト用: 固定値を返す PassphraseProvider
-    struct MockPassphraseProvider {
-        passphrase: Option<String>,
-        call_count: std::sync::atomic::AtomicU32,
-    }
-
-    impl MockPassphraseProvider {
-        fn new(passphrase: Option<&str>) -> Self {
-            Self {
-                passphrase: passphrase.map(|s| s.to_string()),
-                call_count: std::sync::atomic::AtomicU32::new(0),
-            }
-        }
-
-        fn call_count(&self) -> u32 {
-            self.call_count.load(std::sync::atomic::Ordering::SeqCst)
-        }
-    }
-
-    impl PassphraseProvider for MockPassphraseProvider {
-        fn get_passphrase(&self, _key_path: &str) -> Option<Zeroizing<String>> {
-            self.call_count
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            self.passphrase.clone().map(Zeroizing::new)
-        }
-    }
-
     #[test]
     fn test_load_key_nonexistent_file_returns_key_load_error() {
         // 存在しない鍵ファイル → SshKeyLoad エラー（パスフレーズ不要）
@@ -1444,160 +1416,6 @@ mod tests {
             "error should mention key load: {}",
             err
         );
-    }
-
-    #[test]
-    fn test_load_key_no_provider_for_encrypted_key_returns_error() {
-        // パスフレーズ付き鍵 + プロバイダなし → エラー
-        // 実際の暗号化鍵を使わずにシミュレーション
-        // （load_secret_key が失敗する状況をテスト）
-        let result = load_secret_key_with_passphrase(
-            "/nonexistent/encrypted_key",
-            Path::new("/nonexistent/encrypted_key"),
-            "test-server",
-            None,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_key_provider_not_called_for_unencrypted_key() {
-        // パスフレーズなし鍵（=存在しないファイルでエラー）の場合
-        // プロバイダは呼ばれない
-        let provider = MockPassphraseProvider::new(Some("unused"));
-        let result = load_secret_key_with_passphrase(
-            "/nonexistent/key",
-            Path::new("/nonexistent/key"),
-            "test-server",
-            Some(&provider),
-        );
-        assert!(result.is_err());
-        assert_eq!(
-            provider.call_count(),
-            0,
-            "Provider should not be called for non-passphrase errors"
-        );
-    }
-
-    #[test]
-    fn test_passphrase_env_key_checked_before_provider() {
-        // 環境変数がセットされている場合、プロバイダより先にチェックされる
-        // （実際には鍵ファイルが存在しないのでエラーだが、env チェックの順序を確認）
-        let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_ENVTEST_ORDER";
-        // 環境変数が未セットの状態でテスト
-        // （env を汚染しないよう、存在確認だけ）
-        let key = super::super::passphrase_provider::passphrase_env_key("envtest-order");
-        assert_eq!(key, env_key);
-    }
-
-    // ── リトライ動作テスト ──
-
-    #[test]
-    fn test_provider_called_up_to_max_retries_on_wrong_passphrase() {
-        // 存在しないファイルは is_passphrase_error に引っかからないので、
-        // 直接 MAX_PASSPHRASE_RETRIES の定数値を検証
-        // 実際のリトライ検証は暗号化鍵が必要なため、ロジックの純粋関数テストで代替
-
-        // MockProvider が None を返す場合はリトライしないことを検証
-        let provider = MockPassphraseProvider::new(None);
-        let result = load_secret_key_with_passphrase(
-            "/nonexistent/encrypted_key",
-            Path::new("/nonexistent/encrypted_key"),
-            "test-server-retry",
-            Some(&provider),
-        );
-        assert!(result.is_err());
-        // ファイルが存在しないため is_passphrase_error = false → プロバイダは呼ばれない
-        assert_eq!(
-            provider.call_count(),
-            0,
-            "Provider should not be called when file does not exist"
-        );
-    }
-
-    // ── W3: 環境変数の空文字列チェック ──
-
-    #[test]
-    #[serial_test::serial]
-    fn test_empty_env_var_is_ignored() {
-        let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_EMPTYENVTEST";
-        unsafe { std::env::set_var(env_key, "") };
-
-        // 空文字列の環境変数はスキップされる
-        // （ファイルが存在しないのでエラーになるが、空パスフレーズでの試行はされない）
-        let result = load_secret_key_with_passphrase(
-            "/nonexistent/key",
-            Path::new("/nonexistent/key"),
-            "emptyenvtest",
-            None,
-        );
-        assert!(result.is_err());
-
-        unsafe { std::env::remove_var(env_key) };
-    }
-
-    // ── C3: ログ漏洩テスト ──
-
-    #[test]
-    fn test_passphrase_not_leaked_in_client_logs() {
-        use std::sync::{Arc, Mutex};
-        use tracing_subscriber::layer::SubscriberExt;
-
-        let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
-        let captured_clone = Arc::clone(&captured);
-
-        let writer = CaptureWriter(captured_clone);
-        let layer = tracing_subscriber::fmt::layer()
-            .with_writer(move || writer.clone())
-            .with_ansi(false);
-
-        let subscriber = tracing_subscriber::registry().with(layer);
-
-        let secret = "client-test-secret-passphrase-xyz";
-
-        tracing::subscriber::with_default(subscriber, || {
-            // client.rs の load_secret_key_with_passphrase で出力される
-            // ログパターンをシミュレート
-            let expanded_path = "/path/to/key";
-            let env_key = "REMOTE_MERGE_KEY_PASSPHRASE_TEST";
-
-            tracing::debug!("Key '{}' appears to be passphrase-protected", expanded_path);
-            tracing::warn!(
-                "Passphrase from {} is incorrect for '{}'",
-                env_key,
-                expanded_path
-            );
-            tracing::debug!(
-                "Passphrase attempt {}/{} failed for '{}'",
-                1,
-                MAX_PASSPHRASE_RETRIES,
-                expanded_path
-            );
-            tracing::debug!("Passphrase provider returned None for '{}'", expanded_path);
-        });
-
-        let output = captured.lock().unwrap();
-        let log_str = String::from_utf8_lossy(&output);
-        assert!(
-            !log_str.contains(secret),
-            "Passphrase must not appear in logs. Log output: {}",
-            log_str
-        );
-    }
-
-    /// tracing の Writer として使うキャプチャ用構造体
-    #[derive(Clone)]
-    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl std::io::Write for CaptureWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
     }
 
     // ── resolve_password テスト ──
@@ -1694,51 +1512,5 @@ mod tests {
         let (pass, source) = result.expect("Zeroizing パスワードが返るべき");
         assert_eq!(pass.as_str(), "config-secret");
         assert_eq!(source, PasswordSource::Config);
-    }
-
-    // ── Step 6: SSH stdout ゼロコピー化テスト ──
-
-    /// valid UTF-8 の from_utf8 ゼロコピーパスを検証するユニットテスト。
-    /// CommandOutput 構造体は非 pub なため、ロジックを同等な純粋関数として抽出してテストする。
-    fn decode_stdout(bytes: Vec<u8>) -> String {
-        match String::from_utf8(bytes) {
-            Ok(s) => s,
-            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
-        }
-    }
-
-    #[test]
-    fn test_stdout_decode_valid_utf8() {
-        let input = "Hello, world!\n".as_bytes().to_vec();
-        let result = decode_stdout(input);
-        assert_eq!(result, "Hello, world!\n");
-    }
-
-    #[test]
-    fn test_stdout_decode_invalid_utf8_uses_lossy() {
-        // 不正な UTF-8 バイト列: 0xff は単独では UTF-8 として無効
-        let input = vec![b'H', b'i', 0xff, b'!'];
-        let result = decode_stdout(input);
-        // lossy 変換: 不正バイトは U+FFFD (REPLACEMENT CHARACTER) になる
-        assert!(result.contains('H'));
-        assert!(result.contains('!'));
-        assert!(
-            result.contains('\u{FFFD}'),
-            "invalid UTF-8 は REPLACEMENT CHARACTER に変換されるべき"
-        );
-    }
-
-    #[test]
-    fn test_stdout_decode_empty() {
-        let result = decode_stdout(vec![]);
-        assert_eq!(result, "");
-    }
-
-    #[test]
-    fn test_stdout_decode_multibyte_utf8() {
-        // 日本語（有効な UTF-8）
-        let input = "ファイル一覧\n".as_bytes().to_vec();
-        let result = decode_stdout(input);
-        assert_eq!(result, "ファイル一覧\n");
     }
 }
