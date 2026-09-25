@@ -230,12 +230,12 @@ pub fn merge_node_lists_3way(
         lr_names.insert(node.name.clone());
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
-            is_dir: node.is_dir(),
+            is_dir: node.is_dir() || node.link_is_dir,
             is_symlink: node.is_symlink(),
             children: Vec::new(),
             ref_only: false,
         });
-        if node.is_dir() {
+        if node.is_dir() || node.link_is_dir {
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let children_vec: Vec<&FileNode> = children.values().collect();
@@ -248,12 +248,12 @@ pub fn merge_node_lists_3way(
         lr_names.insert(node.name.clone());
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
-            is_dir: node.is_dir(),
+            is_dir: node.is_dir() || node.link_is_dir,
             is_symlink: node.is_symlink(),
             children: Vec::new(),
             ref_only: false,
         });
-        if node.is_dir() {
+        if node.is_dir() || node.link_is_dir {
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);
@@ -269,13 +269,13 @@ pub fn merge_node_lists_3way(
             let is_ref_only = !lr_names.contains(&node.name);
             let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
                 name: node.name.clone(),
-                is_dir: node.is_dir(),
+                is_dir: node.is_dir() || node.link_is_dir,
                 is_symlink: node.is_symlink(),
                 children: Vec::new(),
                 ref_only: is_ref_only,
             });
             // ディレクトリの場合は子ノードも再帰マージ
-            if node.is_dir() {
+            if node.is_dir() || node.link_is_dir {
                 entry.is_dir = true;
                 if let Some(children) = &node.children {
                     let existing = std::mem::take(&mut entry.children);
@@ -308,12 +308,12 @@ fn merge_merged_with_file_node_refs(
     for node in file_nodes {
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
-            is_dir: node.is_dir(),
+            is_dir: node.is_dir() || node.link_is_dir,
             is_symlink: node.is_symlink(),
             children: Vec::new(),
             ref_only: false,
         });
-        if node.is_dir() {
+        if node.is_dir() || node.link_is_dir {
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);
@@ -347,12 +347,12 @@ fn merge_merged_with_ref_node_refs(
         let is_ref_only = !existing_names.contains(&node.name);
         let entry = map.entry(node.name.clone()).or_insert_with(|| MergedNode {
             name: node.name.clone(),
-            is_dir: node.is_dir(),
+            is_dir: node.is_dir() || node.link_is_dir,
             is_symlink: node.is_symlink(),
             children: Vec::new(),
             ref_only: is_ref_only,
         });
-        if node.is_dir() {
+        if node.is_dir() || node.link_is_dir {
             entry.is_dir = true;
             if let Some(children) = &node.children {
                 let existing = std::mem::take(&mut entry.children);

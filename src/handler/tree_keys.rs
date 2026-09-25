@@ -163,7 +163,7 @@ fn expand_directory(state: &mut AppState, runtime: &mut TuiRuntime) {
 /// ツリー内のディレクトリが子ノードのロードを必要としているか判定する純粋関数
 fn needs_children_load(tree: &crate::tree::FileTree, path: &str) -> bool {
     tree.find_node(std::path::Path::new(path))
-        .is_some_and(|n| n.is_dir() && !n.is_loaded())
+        .is_some_and(|n| (n.is_dir() || n.link_is_dir) && !n.is_loaded())
 }
 
 /// ツリーマージ操作 (L/R キー)
@@ -187,7 +187,7 @@ fn handle_tree_merge(state: &mut AppState, runtime: &mut TuiRuntime, direction: 
     let is_dir = state
         .flat_nodes
         .get(state.tree_cursor)
-        .is_some_and(|n| n.is_dir);
+        .is_some_and(|n| n.is_dir && !n.is_symlink);
 
     if is_dir {
         if let Some(path) = state.current_path() {

@@ -15,7 +15,7 @@ use crate::tree::FileNode;
 /// - %p: フルパス
 /// - %l: シンボリックリンク先（リンクでない場合は空）
 pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Option<FileNode> {
-    let parts: Vec<&str> = line.splitn(6, '\t').collect();
+    let parts: Vec<&str> = line.splitn(7, '\t').collect();
     if parts.len() < 5 {
         tracing::warn!(
             "Failed to parse find output (insufficient columns): {}",
@@ -58,6 +58,7 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
     };
 
     node.size = size;
+    node.link_is_dir = file_type == "l" && parts.get(6).is_some_and(|kind| *kind == "d");
     node.mtime = mtime;
     node.permissions = permissions;
 
@@ -234,6 +235,15 @@ mod tests {
         if let NodeKind::Symlink { ref target } = node.kind {
             assert_eq!(target, "../shared/config");
         }
+    }
+
+    #[test]
+    fn a_remote_directory_link_can_be_expanded_without_changing_its_link_kind() {
+        let line = "l\t10\t1705312800.0\t777\t/var/www/app/linked\t../shared\td";
+        let node = parse_find_line(line, "/var/www/app", &[]).unwrap();
+        assert!(node.is_symlink());
+        assert!(node.link_is_dir);
+        assert!(node.children.is_none());
     }
 
     #[test]

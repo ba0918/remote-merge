@@ -12,3 +12,5 @@ mod merge_paths;
 mod rollback_paths;
 #[path = "contract/scan_limits.rs"]
 mod scan_limits;
+#[path = "contract/tui_directory_links.rs"]
+mod tui_directory_links;

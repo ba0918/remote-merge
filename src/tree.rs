@@ -91,6 +91,8 @@ pub struct FileNode {
     /// 子ノード。None = 未取得（遅延読み込み）、Some({}) = 空ディレクトリ
     /// キー = ファイル名、値 = FileNode
     pub children: Option<BTreeMap<String, FileNode>>,
+    /// Whether a symlink points to a directory (independent of its write kind).
+    pub link_is_dir: bool,
 }
 
 impl FileNode {
@@ -103,6 +105,7 @@ impl FileNode {
             mtime: None,
             permissions: None,
             children: None,
+            link_is_dir: false,
         }
     }
 
@@ -115,6 +118,7 @@ impl FileNode {
             mtime: None,
             permissions: None,
             children: None, // 未取得
+            link_is_dir: false,
         }
     }
 
@@ -129,6 +133,7 @@ impl FileNode {
             mtime: None,
             permissions: None,
             children: Some(children_map),
+            link_is_dir: false,
         }
     }
 
@@ -143,6 +148,7 @@ impl FileNode {
             mtime: None,
             permissions: None,
             children: None,
+            link_is_dir: false,
         }
     }
 

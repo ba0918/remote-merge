@@ -564,10 +564,7 @@ impl SshClient {
         timeout_secs: u64,
         max_entries: usize,
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
-        let command = format!(
-            "find {} -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'",
-            shell_escape(remote_path)
-        );
+        let command = list_dir_command(remote_path);
 
         let output = tokio::time::timeout(Duration::from_secs(timeout_secs), self.exec(&command))
             .await
@@ -1196,10 +1193,46 @@ fn resolve_password(
     config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
 }
 
+fn list_dir_command(remote_path: &str) -> String {
+    format!(
+        "find {}/ -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\t%Y\\n'",
+        shell_escape(if remote_path.trim_end_matches('/').is_empty() {
+            "/"
+        } else {
+            remote_path.trim_end_matches('/')
+        })
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[cfg(unix)]
+    #[test]
+    fn listing_a_directory_link_reads_its_children() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::TempDir::new().unwrap();
+        let actual = root.path().join("real dir");
+        std::fs::create_dir(&actual).unwrap();
+        std::fs::write(actual.join("child.txt"), "content").unwrap();
+        let link = root.path().join("linked");
+        symlink(&actual, &link).unwrap();
+        let command = list_dir_command(link.to_str().unwrap());
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("child.txt"), "{text:?}");
+    }
+
+    #[test]
+    fn listing_the_filesystem_root_uses_a_valid_path() {
+        assert!(list_dir_command("/").starts_with("find '/'/ "));
+    }
 
     #[test]
     fn test_timeout_config_mapping() {

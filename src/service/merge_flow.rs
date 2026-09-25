@@ -625,6 +625,7 @@ mod tests {
             mtime: Some(Utc::now()),
             children: None,
             permissions: None,
+            link_is_dir: false,
         });
         tree
     }
@@ -640,6 +641,7 @@ mod tests {
             mtime: None,
             children: None,
             permissions: None,
+            link_is_dir: false,
         });
         tree
     }

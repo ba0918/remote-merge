@@ -92,6 +92,7 @@ pub fn scan_dir_with_limit(
                 .map(|t| t.to_string_lossy().to_string())
                 .unwrap_or_else(|_| "???".to_string());
             let mut node = FileNode::new_symlink(&file_name, target);
+            node.link_is_dir = entry.path().is_dir();
             apply_metadata(&mut node, &symlink_meta);
             node
         } else if symlink_meta.is_dir() {
