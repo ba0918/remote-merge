@@ -4,6 +4,7 @@
 //! 衝突があれば MtimeWarningDialog を表示する。
 
 use crate::app::AppState;
+use crate::app::Side;
 use crate::merge::executor::MergeDirection;
 use crate::merge::optimistic_lock::{self, MtimeConflict};
 use crate::runtime::TuiRuntime;
@@ -59,7 +60,49 @@ pub fn check_mtime_conflict_single(
             }
         }
     }
-    false
+    match direction {
+        MergeDirection::LeftToRight => {
+            check_cached_destination(state, runtime, &state.right_source.clone(), path, true)
+        }
+        MergeDirection::RightToLeft => {
+            check_cached_destination(state, runtime, &state.left_source.clone(), path, false)
+        }
+    }
+}
+
+fn check_cached_destination(
+    state: &mut AppState,
+    runtime: &mut TuiRuntime,
+    side: &Side,
+    path: &str,
+    right: bool,
+) -> bool {
+    let (tree, cache) = if right {
+        (&state.right_tree, &state.right_cache)
+    } else {
+        (&state.left_tree, &state.left_cache)
+    };
+    if !tree
+        .find_node(std::path::Path::new(path))
+        .is_some_and(|node| node.is_file())
+    {
+        return false;
+    }
+    let Some(expected) = cache.get(path) else {
+        state.status_message = format!("Destination content not loaded: {path}");
+        return true;
+    };
+    match runtime.core.read_file_bytes(side, path, false) {
+        Ok(actual) if actual == expected.as_bytes() => false,
+        Ok(_) => {
+            state.status_message = format!("Destination content changed since comparison: {path}");
+            true
+        }
+        Err(error) => {
+            state.status_message = format!("Destination could not be checked: {path}: {error}");
+            true
+        }
+    }
 }
 
 fn show_mtime_warning(
@@ -133,6 +176,21 @@ pub fn check_mtime_for_write(
     );
 
     if conflicts.is_empty() {
+        if let Some(direction) = hunk_direction {
+            let (side, right) = match direction {
+                crate::diff::engine::HunkDirection::RightToLeft => {
+                    (state.left_source.clone(), false)
+                }
+                crate::diff::engine::HunkDirection::LeftToRight => {
+                    (state.right_source.clone(), true)
+                }
+            };
+            if (!right || has_right)
+                && check_cached_destination(state, runtime, &side, &path, right)
+            {
+                return true;
+            }
+        }
         return false;
     }
 

@@ -149,3 +149,86 @@ fn an_external_edit_to_a_hunk_destination_is_reported_without_overwriting_it() {
     );
     assert_eq!(fs::read_to_string(target).unwrap(), "another writer\n");
 }
+
+// @kotowari[REQ-merge-011]
+#[test]
+fn a_merge_confirmation_does_not_overwrite_an_external_edit_with_restored_timestamp() {
+    let (local, _source, mut state, mut runtime) = setup();
+    state.show_merge_dialog(MergeDirection::RightToLeft);
+    assert!(matches!(state.dialog, DialogState::Confirm(_)));
+    let target = local.path().join("file.txt");
+    let timestamp = fs::metadata(&target).unwrap().modified().unwrap();
+    fs::write(&target, "intruder\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(timestamp)
+        .unwrap();
+    assert_eq!(
+        fs::metadata(&target).unwrap().modified().unwrap(),
+        timestamp
+    );
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('y'));
+    assert_eq!(fs::read_to_string(target).unwrap(), "intruder\n");
+    assert!(
+        state.status_message.contains("changed"),
+        "{}",
+        state.status_message
+    );
+}
+
+// @kotowari[REQ-merge-011]
+#[test]
+fn a_selected_hunk_does_not_overwrite_an_external_edit_with_restored_timestamp() {
+    let (local, _source, mut state, mut runtime) = setup();
+    let direction = HunkDirection::RightToLeft;
+    state.stage_hunk_merge(direction);
+    let (before, after) = state
+        .preview_hunk_merge(direction)
+        .expect("selected hunk preview");
+    state.dialog = DialogState::HunkMergePreview(HunkMergePreview::new(
+        "file.txt".into(),
+        direction,
+        before,
+        after,
+    ));
+    let target = local.path().join("file.txt");
+    let timestamp = fs::metadata(&target).unwrap().modified().unwrap();
+    fs::write(&target, "intruder\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(timestamp)
+        .unwrap();
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('y'));
+    assert_eq!(fs::read_to_string(target).unwrap(), "intruder\n");
+    assert!(
+        state.status_message.contains("changed"),
+        "{}",
+        state.status_message
+    );
+}
+
+// @kotowari[REQ-merge-010]
+#[test]
+fn accepting_an_unchanged_hunk_destination_writes_the_selected_change() {
+    let (local, _source, mut state, mut runtime) = setup();
+    let direction = HunkDirection::RightToLeft;
+    state.stage_hunk_merge(direction);
+    let (before, after) = state
+        .preview_hunk_merge(direction)
+        .expect("selected hunk preview");
+    state.dialog = DialogState::HunkMergePreview(HunkMergePreview::new(
+        "file.txt".into(),
+        direction,
+        before,
+        after,
+    ));
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('y'));
+    assert_eq!(
+        fs::read_to_string(local.path().join("file.txt")).unwrap(),
+        "replacement\n"
+    );
+}
