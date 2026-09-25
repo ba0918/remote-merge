@@ -2112,7 +2112,7 @@ fn concurrent_merges_use_distinct_session_ids() {
 
 #[cfg(unix)]
 #[test]
-fn one_backup_failure_does_not_stop_other_files() {
+fn one_unreadable_destination_does_not_stop_other_files() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -2140,7 +2140,7 @@ fn one_backup_failure_does_not_stop_other_files() {
     };
     assert_eq!(output.failed.len(), 1);
     assert_eq!(output.failed[0].path, "blocked.txt");
-    assert!(output.failed[0].error.starts_with("backup failed: "));
+    assert!(output.failed[0].error.starts_with("read failed: "));
     assert_eq!(
         fs::read_to_string(develop.path().join("writable.txt")).unwrap(),
         "new content for writable.txt\n"

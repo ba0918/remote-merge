@@ -7,6 +7,33 @@ use std::collections::HashMap;
 
 use crate::app::Side;
 use crate::runtime::CoreRuntime;
+use crate::service::status::RequiredContents;
+
+pub fn fetch_contents_required(
+    side: &Side,
+    paths: &[String],
+    core: &mut CoreRuntime,
+    force: bool,
+) -> RequiredContents {
+    let mut result = RequiredContents::default();
+    if let Ok(contents) = core.read_files_bytes_batch(side, paths) {
+        result.contents = contents;
+    }
+    for path in paths {
+        if result.contents.contains_key(path) {
+            continue;
+        }
+        match core.read_file_bytes(side, path, force) {
+            Ok(content) => {
+                result.contents.insert(path.clone(), content);
+            }
+            Err(error) => {
+                result.errors.insert(path.clone(), error.to_string());
+            }
+        }
+    }
+    result
+}
 
 /// 複数ファイルのバイト列コンテンツをバッチ取得する（エラーはスキップ）。
 ///

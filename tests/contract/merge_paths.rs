@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::os::unix::fs::symlink;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use remote_merge::app::Side;
@@ -149,6 +150,217 @@ fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
     };
     assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
     assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[EX-merge-035]
+#[test]
+fn sync_does_not_overwrite_a_destination_it_cannot_read() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("locked.txt");
+    let target = destination.path().join("locked.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&target).is_err(),
+        "test needs an unreadable destination"
+    );
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["locked.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_ne!(result.exit_code, 0);
+    assert!(output.targets[0].merged.is_empty(), "{output:?}");
+    assert_eq!(output.targets[0].failed.len(), 1, "{output:?}");
+    assert_eq!(output.targets[0].failed[0].path, "locked.txt");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "bravo\n");
+}
+
+// @kotowari[REQ-merge-017]
+#[test]
+fn explicit_merge_checks_readability_even_when_file_sizes_differ() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("locked.txt");
+    let target = destination.path().join("locked.txt");
+    fs::write(&source, "a longer new version\n").unwrap();
+    fs::write(&target, "old\n").unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&target).is_err(),
+        "test needs an unreadable destination"
+    );
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["locked.txt".into()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert!(output.merged.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert!(
+        output.failed[0].error.starts_with("read failed:"),
+        "{output:?}"
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), "old\n");
+}
+
+// @kotowari[EX-merge-034]
+#[test]
+fn unreadable_source_fails_one_file_without_blocking_the_other_merge() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let blocked = local.path().join("blocked.txt");
+    let old_blocked = destination.path().join("blocked.txt");
+    fs::write(&blocked, "alpha\n").unwrap();
+    fs::write(&old_blocked, "bravo\n").unwrap();
+    let mtime = fs::metadata(&blocked).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&old_blocked)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&blocked).is_err(),
+        "test needs an unreadable source"
+    );
+    fs::write(local.path().join("allowed.txt"), "new content\n").unwrap();
+    fs::write(destination.path().join("allowed.txt"), "old\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let args = MergeArgs {
+        paths: vec!["blocked.txt".into(), "allowed.txt".into()],
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        dry_run: false,
+        force: false,
+        delete: false,
+        with_permissions: false,
+        format: "json".into(),
+        max_entries: None,
+        hunks: None,
+    };
+    let result = execute_merge(args, config, targets).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(output.failed[0].path, "blocked.txt");
+    assert!(
+        output.failed[0].error.starts_with("read failed:"),
+        "{output:?}"
+    );
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(output.merged[0].path, "allowed.txt");
+    assert_eq!(fs::read_to_string(&old_blocked).unwrap(), "bravo\n");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("allowed.txt")).unwrap(),
+        "new content\n"
+    );
+}
+
+// @kotowari[REQ-merge-017]
+#[test]
+fn two_unreadable_sides_are_not_reported_as_identical_empty_files() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("locked.txt");
+    let target = destination.path().join("locked.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o200)).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(fs::File::open(&source).is_err() && fs::File::open(&target).is_err());
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["locked.txt".into()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected a failed file result")
+    };
+    assert!(output.merged.is_empty());
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert!(
+        output.failed[0].error.starts_with("read failed:"),
+        "{output:?}"
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), "bravo\n");
 }
 
 // @kotowari[REQ-merge-001]

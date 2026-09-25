@@ -3,10 +3,8 @@
 //! 1:N マルチサーバ同期。left のファイルを複数の right サーバへ転送する。
 //! ハンドラ層として薄く保ち、ビジネスロジックは service 層に委譲する。
 
-use std::collections::HashMap;
-
 use crate::app::Side;
-use crate::cli::tolerant_io::fetch_contents_tolerant;
+use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
@@ -16,7 +14,8 @@ use crate::service::output::{format_json, format_sync_text, OutputFormat};
 use crate::service::path_resolver::{filter_merge_candidates, resolve_target_files_from_statuses};
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
-    compute_status_from_trees, needs_content_compare, refine_status_with_content,
+    compute_status_from_trees, needs_merge_content_compare, refine_status_with_content,
+    verified_content_pairs,
 };
 use crate::service::sync::{
     compute_sync_summary, compute_target_status, plan_deletions, sync_exit_code,
@@ -76,6 +75,7 @@ struct ServerPlan {
     delete_skipped: Vec<MergeSkipped>,
     right_only_skipped: Vec<MergeSkipped>,
     target_info: SourceInfo,
+    compare_failures: Vec<MergeFailure>,
 }
 
 /// sync サブコマンドを実行する
@@ -163,31 +163,26 @@ pub fn execute_sync(
             compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
         // メタデータだけでは判定できないファイルのコンテンツ比較
-        let mut paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-        paths_to_compare.extend(crate::service::status::needs_explicit_file_compare(
-            &args.paths,
-            &statuses,
-            &left_tree,
-            &right_tree,
-        ));
+        let paths_to_compare =
+            needs_merge_content_compare(&args.paths, &statuses, &left_tree, &right_tree);
+        let mut compare_failures = Vec::new();
         if !paths_to_compare.is_empty() {
-            let left_batch = fetch_contents_tolerant(left_side, &paths_to_compare, &mut core);
-            let right_batch = fetch_contents_tolerant(right_side, &paths_to_compare, &mut core);
-            let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-            for path in &paths_to_compare {
-                let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
-                let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
-                compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
-            }
-            refine_status_with_content(&mut statuses, &compare_pairs);
+            let left_batch =
+                fetch_contents_required(left_side, &paths_to_compare, &mut core, args.force);
+            let right_batch =
+                fetch_contents_required(right_side, &paths_to_compare, &mut core, args.force);
+            let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
+            compare_failures = verified.failures;
+            refine_status_with_content(&mut statuses, &verified.pairs);
         }
 
         // パス解決 + 差分フィルタ
         let resolved_paths =
             resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
         // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
-        let (diff_files, right_only_skipped) =
+        let (mut diff_files, right_only_skipped) =
             filter_merge_candidates(&resolved_paths, &statuses, args.delete);
+        diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
         // マージ計画（センシティブファイルのフィルタリング）
         let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
@@ -217,6 +212,7 @@ pub fn execute_sync(
             delete_skipped,
             right_only_skipped,
             target_info,
+            compare_failures,
         });
     }
 
@@ -225,34 +221,21 @@ pub fn execute_sync(
         .iter()
         .any(|sp| !sp.plan.files.is_empty() || !sp.delete_targets.is_empty());
 
-    if !has_work && connection_failures.is_empty() {
-        let targets: Vec<SyncTargetResult> = server_plans
-            .iter()
-            .map(|sp| {
-                let mut skipped = sp.plan.skipped.clone();
-                skipped.extend(sp.right_only_skipped.clone());
-                skipped.extend(sp.delete_skipped.clone());
-                SyncTargetResult {
-                    target: sp.target_info.clone(),
-                    merged: vec![],
-                    skipped,
-                    deleted: vec![],
-                    failed: vec![],
-                    status: SyncTargetStatus::Success,
-                }
-            })
-            .collect();
+    if !has_work {
+        let targets = build_dry_run_targets(&server_plans, &connection_failures);
         let summary = compute_sync_summary(&targets);
         let output = SyncOutput {
             left: left_info,
             targets,
             summary,
         };
+        let exit_code = sync_exit_code(&output);
+        let no_files = output.targets.iter().all(|target| target.failed.is_empty());
         core.disconnect_all();
         return Ok(SyncCommandResult {
             output: SyncCommandOutput::Result(output),
-            exit_code: exit_code::SUCCESS,
-            no_files: true,
+            exit_code,
+            no_files,
         });
     }
 
@@ -301,7 +284,7 @@ pub fn execute_sync(
 
     for sp in &server_plans {
         let mut merged = Vec::new();
-        let mut failed = Vec::new();
+        let mut failed = sp.compare_failures.clone();
         let mut skipped_by_kind = Vec::new();
 
         // マージ実行
@@ -452,8 +435,12 @@ fn build_dry_run_targets(
                 merged,
                 skipped,
                 deleted,
-                failed: vec![],
-                status: SyncTargetStatus::Success,
+                failed: sp.compare_failures.clone(),
+                status: if sp.compare_failures.is_empty() {
+                    SyncTargetStatus::Success
+                } else {
+                    SyncTargetStatus::Failed
+                },
             }
         })
         .collect();
@@ -650,6 +637,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            compare_failures: vec![],
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);
@@ -706,6 +694,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            compare_failures: vec![],
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);
@@ -748,6 +737,7 @@ mod tests {
                 label: "develop".into(),
                 root: "/var/www".into(),
             },
+            compare_failures: vec![],
         }];
 
         // パニックしなければ OK

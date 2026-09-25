@@ -1,10 +1,8 @@
 //! merge サブコマンドの実装。
 
-use std::collections::HashMap;
-
 use crate::app::Side;
 use crate::cli::ref_guard;
-use crate::cli::tolerant_io::fetch_contents_tolerant;
+use crate::cli::tolerant_io::{fetch_contents_required, fetch_contents_tolerant};
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
@@ -22,8 +20,8 @@ use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
-    compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
-    needs_explicit_file_compare, refine_status_with_content,
+    compute_ref_badges, compute_status_from_trees, is_sensitive, needs_merge_content_compare,
+    refine_status_with_content, verified_content_pairs,
 };
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
@@ -155,9 +153,12 @@ pub fn execute_merge(
     // ScanStrategy で分岐: merge では FastPath → PartialScan にフォールバック
     // （optimistic locking に tree の mtime が必要なため）
     let strategy = resolve_scan_strategy(&args.paths, args.delete);
-    let (left_tree, right_tree, statuses) = fetch_trees_and_statuses_for_merge(
+    let (left_tree, right_tree, statuses, compare_failures) = fetch_trees_and_statuses_for_merge(
         &strategy,
-        &args.paths,
+        MergeCompareOptions {
+            requested: &args.paths,
+            force: args.force,
+        },
         &pair.left,
         &pair.right,
         &mut core,
@@ -169,8 +170,9 @@ pub fn execute_merge(
     let resolved_paths =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
     // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
-    let (diff_files, right_only_skipped) =
+    let (mut diff_files, right_only_skipped) =
         filter_merge_candidates(&resolved_paths, &statuses, args.delete);
+    diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
     // マージ計画（センシティブファイルのフィルタリング）
     let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
@@ -196,7 +198,7 @@ pub fn execute_merge(
 
     // BUG 2 fix: merge も delete も何もない場合のみ早期リターン
     if diff_files.is_empty() && delete_targets.is_empty() {
-        if all_skipped.is_empty() {
+        if all_skipped.is_empty() && compare_failures.is_empty() {
             let outcome = MergeOutcome::NoFilesToMerge;
             core.disconnect_all();
             return Ok(MergeCommandResult {
@@ -205,11 +207,12 @@ pub fn execute_merge(
             });
         } else {
             // RightOnly スキップなど、スキップ理由を含む出力
-            let output = build_merge_output(vec![], all_skipped, vec![], vec![], None);
+            let output = build_merge_output(vec![], all_skipped, vec![], compare_failures, None);
+            let exit_code = merge_exit_code(&output);
             core.disconnect_all();
             return Ok(MergeCommandResult {
                 output: MergeCommandOutput::Files(output),
-                exit_code: crate::service::types::exit_code::SUCCESS,
+                exit_code,
             });
         }
     }
@@ -284,7 +287,7 @@ pub fn execute_merge(
                 .collect(),
             all_skipped,
             dry_deleted,
-            vec![],
+            compare_failures,
             ref_source_info,
         );
         let exit_code = merge_exit_code(&output);
@@ -297,7 +300,7 @@ pub fn execute_merge(
 
     // マージ実行
     let mut merged = Vec::new();
-    let mut failed = Vec::new();
+    let mut failed = compare_failures;
     let session_id = if core.config.backup.enabled {
         core.reserve_backup_session()?
     } else {
@@ -396,9 +399,12 @@ fn run_hunk_merge(
     let max_entries = resolve_max_entries(None, &config)?;
     let paths = vec![path.to_string()];
     let strategy = resolve_scan_strategy(&paths, false);
-    let (left_tree, right_tree, _statuses) = fetch_trees_and_statuses_for_merge(
+    let (left_tree, right_tree, _statuses, _compare_failures) = fetch_trees_and_statuses_for_merge(
         &strategy,
-        &paths,
+        MergeCompareOptions {
+            requested: &paths,
+            force,
+        },
         left,
         right,
         &mut core,
@@ -449,15 +455,20 @@ fn run_hunk_merge(
 /// merge では FastPath を PartialScan 相当に変換する（optimistic locking に tree の mtime が必要）。
 /// 各 FastPath ファイルの親ディレクトリで `fetch_tree_for_subpath` を呼び出す。
 /// ルート直下ファイルが含まれる場合は FullScan にフォールバックする。
+struct MergeCompareOptions<'a> {
+    requested: &'a [String],
+    force: bool,
+}
+
 fn fetch_trees_and_statuses_for_merge(
     strategy: &ScanStrategy,
-    requested: &[String],
+    comparison: MergeCompareOptions<'_>,
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
     max_entries: usize,
-) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>)> {
+) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>, Vec<MergeFailure>)> {
     let (left_tree, right_tree) = match strategy {
         ScanStrategy::FastPath(ref target_paths) => {
             // FastPath → 各ファイルの親ディレクトリで PartialScan
@@ -485,26 +496,18 @@ fn fetch_trees_and_statuses_for_merge(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // Refine statuses with content comparison for metadata-ambiguous files
-    let mut paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-    paths_to_compare.extend(needs_explicit_file_compare(
-        requested,
-        &statuses,
-        &left_tree,
-        &right_tree,
-    ));
+    let paths_to_compare =
+        needs_merge_content_compare(comparison.requested, &statuses, &left_tree, &right_tree);
+    let mut failures = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_tolerant(left, &paths_to_compare, core);
-        let right_batch = fetch_contents_tolerant(right, &paths_to_compare, core);
-        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-        for path in &paths_to_compare {
-            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
-            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
-            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
-        }
-        refine_status_with_content(&mut statuses, &compare_pairs);
+        let left_batch = fetch_contents_required(left, &paths_to_compare, core, comparison.force);
+        let right_batch = fetch_contents_required(right, &paths_to_compare, core, comparison.force);
+        let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
+        failures = verified.failures;
+        refine_status_with_content(&mut statuses, &verified.pairs);
     }
 
-    Ok((left_tree, right_tree, statuses))
+    Ok((left_tree, right_tree, statuses, failures))
 }
 
 /// 指定ディレクトリパスのサブツリーを取得して結合する。

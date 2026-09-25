@@ -11,6 +11,60 @@ use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
 
 use super::types::*;
 
+#[derive(Default)]
+pub struct RequiredContents {
+    pub contents: HashMap<String, Vec<u8>>,
+    pub errors: HashMap<String, String>,
+}
+
+pub struct VerifiedComparisons {
+    pub pairs: HashMap<String, (Vec<u8>, Vec<u8>)>,
+    pub failures: Vec<MergeFailure>,
+}
+
+pub fn verified_content_pairs(
+    paths: &[String],
+    left: &RequiredContents,
+    right: &RequiredContents,
+) -> VerifiedComparisons {
+    let mut pairs = HashMap::new();
+    let mut failures = Vec::new();
+    for path in paths {
+        match (left.contents.get(path), right.contents.get(path)) {
+            (Some(left_bytes), Some(right_bytes)) => {
+                pairs.insert(path.clone(), (left_bytes.clone(), right_bytes.clone()));
+            }
+            (left_content, right_content) => {
+                let mut reasons = Vec::new();
+                if left_content.is_none() {
+                    reasons.push(format!(
+                        "left: {}",
+                        left.errors
+                            .get(path)
+                            .map(String::as_str)
+                            .unwrap_or("no content returned")
+                    ));
+                }
+                if right_content.is_none() {
+                    reasons.push(format!(
+                        "right: {}",
+                        right
+                            .errors
+                            .get(path)
+                            .map(String::as_str)
+                            .unwrap_or("no content returned")
+                    ));
+                }
+                failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: format!("read failed: {}", reasons.join("; ")),
+                });
+            }
+        }
+    }
+    VerifiedComparisons { pairs, failures }
+}
+
 /// ステータス判定用のツリーインデックス。
 ///
 /// 実ファイルの候補パス一覧に加えて、ディレクトリ/未ロードノードも保持して
@@ -189,6 +243,9 @@ pub fn needs_content_compare(
             let rn = right_index.find_node(&f.path);
             match (ln, rn) {
                 (Some(l), Some(r)) => {
+                    if l.is_symlink() || r.is_symlink() {
+                        return false;
+                    }
                     // size が一致 → コンテンツ比較が必要
                     match (l.size, r.size) {
                         (Some(ls), Some(rs)) => ls == rs,
@@ -222,7 +279,12 @@ pub fn needs_explicit_file_compare(
 ) -> Vec<String> {
     statuses
         .iter()
-        .filter(|status| status.status == FileStatusKind::Equal && requested.contains(&status.path))
+        .filter(|status| {
+            matches!(
+                status.status,
+                FileStatusKind::Equal | FileStatusKind::Modified
+            ) && requested.contains(&status.path)
+        })
         .filter(|status| {
             left.find_node(&status.path)
                 .zip(right.find_node(&status.path))
@@ -232,6 +294,21 @@ pub fn needs_explicit_file_compare(
         })
         .map(|status| status.path.clone())
         .collect()
+}
+
+pub fn needs_merge_content_compare(
+    requested: &[String],
+    statuses: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+) -> Vec<String> {
+    let mut paths = needs_content_compare(statuses, left, right);
+    for path in needs_explicit_file_compare(requested, statuses, left, right) {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
 }
 
 /// コンテンツ比較結果で FileStatus を更新する（純粋関数）。
