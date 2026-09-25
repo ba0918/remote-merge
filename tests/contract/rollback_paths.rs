@@ -7,6 +7,7 @@ use chrono::{TimeZone, Utc};
 use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
+use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use tempfile::TempDir;
@@ -338,6 +339,128 @@ fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "after\n"
+    );
+}
+
+// @kotowari[EX-backup-011]
+#[test]
+fn one_sync_of_two_files_appears_as_one_rollback_session() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    for path in ["first.txt", "second.txt"] {
+        fs::write(local.path().join(path), "new\n").unwrap();
+        fs::write(destination.path().join(path), "old\n").unwrap();
+    }
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["first.txt".into(), "second.txt".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 2, "{output:?}");
+
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert_eq!(list.sessions.len(), 1, "{list:?}");
+    let files: std::collections::HashSet<_> = list.sessions[0]
+        .files
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(files, ["first.txt", "second.txt"].into_iter().collect());
+    for path in ["first.txt", "second.txt"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(path)).unwrap(),
+            "new\n"
+        );
+    }
+}
+
+// @kotowari[EX-backup-012]
+#[test]
+fn separate_merges_appear_as_distinct_rollback_sessions() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "first\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let first = execute_merge(
+        symlink_merge_args(vec!["file.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(first) = first.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(first.merged.len(), 1, "{first:?}");
+    fs::write(local.path().join("file.txt"), "second\n").unwrap();
+    let second = execute_merge(
+        symlink_merge_args(vec!["file.txt"]),
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(second) = second.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(second.merged.len(), 1, "{second:?}");
+
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert_eq!(list.sessions.len(), 2, "{list:?}");
+    assert_ne!(list.sessions[0].session_id, list.sessions[1].session_id);
+    assert!(list
+        .sessions
+        .iter()
+        .all(|session| session.files.len() == 1 && session.files[0].path == "file.txt"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "second\n"
     );
 }
 
