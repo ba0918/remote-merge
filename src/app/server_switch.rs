@@ -9,11 +9,34 @@ use super::AppState;
 impl AppState {
     /// サーバ切替後にツリーを再構築する
     pub fn switch_server(&mut self, new_side: super::Side, right_tree: FileTree) {
+        let selected = self
+            .selected_path
+            .clone()
+            .filter(|path| right_tree.find_node(std::path::Path::new(path)).is_some());
+        let expanded = self
+            .expanded_dirs
+            .iter()
+            .filter(|path| {
+                right_tree
+                    .find_node(std::path::Path::new(path))
+                    .is_some_and(|node| node.is_dir())
+            })
+            .cloned()
+            .collect();
         self.right_source = new_side;
         let label = super::side::comparison_label(&self.left_source, &self.right_source);
         self.status_message = format!("{} | Tab: switch focus | q: quit", label);
         self.right_tree = right_tree;
         self.reset_diff_state();
+        self.expanded_dirs = expanded;
+        self.rebuild_flat_nodes();
+        if let Some(path) = selected {
+            if let Some(cursor) = self.flat_nodes.iter().position(|node| node.path == path) {
+                self.tree_cursor = cursor;
+                self.selected_path = Some(path);
+                self.ensure_cursor_visible();
+            }
+        }
         self.is_connected = true;
     }
 

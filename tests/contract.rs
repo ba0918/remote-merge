@@ -24,3 +24,5 @@ mod ssh_host_key;
 mod status_results;
 #[path = "contract/tui_directory_links.rs"]
 mod tui_directory_links;
+#[path = "contract/tui_navigation.rs"]
+mod tui_navigation;
