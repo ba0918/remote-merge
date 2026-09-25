@@ -11,6 +11,7 @@ use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
+    SingleMergeResult,
 };
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
@@ -24,7 +25,7 @@ use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, is_sensitive, needs_content_compare,
     refine_status_with_content,
 };
-use crate::service::sync::plan_deletions;
+use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
     DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,
     MergeOutcome, MergeOutput,
@@ -174,7 +175,7 @@ pub fn execute_merge(
     let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
     // BUG 2 fix: plan_deletions を早期リターンの前に実行
-    let (delete_targets, delete_skipped) = if args.delete {
+    let (delete_targets, mut delete_skipped) = if args.delete {
         plan_deletions(
             &statuses,
             &resolved_paths,
@@ -184,6 +185,8 @@ pub fn execute_merge(
     } else {
         (vec![], vec![])
     };
+    let (delete_targets, link_skipped) = skip_symlink_deletions(delete_targets, &right_tree);
+    delete_skipped.extend(link_skipped);
 
     // merge と delete のスキップを統合（right_only_skipped を含む）
     let mut all_skipped = plan.skipped;
@@ -316,11 +319,12 @@ pub fn execute_merge(
 
         for path in &plan.files {
             match execute_single_merge(&mut ctx, path) {
-                Ok(mut result) => {
+                Ok(SingleMergeResult::Merged(mut result)) => {
                     // マージ前に計算済みの ref badge を適用
                     result.ref_badge = ref_badge_map.as_ref().and_then(|m| m.get(path).cloned());
                     merged.push(result);
                 }
+                Ok(SingleMergeResult::Skipped(reason)) => all_skipped.push(reason),
                 Err(e) => failed.push(MergeFailure {
                     path: path.clone(),
                     error: format!("{}", e),
@@ -331,8 +335,9 @@ pub fn execute_merge(
 
     // --delete: 削除実行
     let deleted = if !delete_targets.is_empty() {
-        let (deleted_results, delete_failures) =
+        let (deleted_results, delete_skipped, delete_failures) =
             execute_deletions(&mut core, &pair.right, &delete_targets, &session_id);
+        all_skipped.extend(delete_skipped);
         failed.extend(delete_failures);
         deleted_results
     } else {

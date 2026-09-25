@@ -788,11 +788,11 @@ fn written_target_lists_its_aggregate_backup_session() {
 
 #[cfg(unix)]
 #[test]
-fn replaced_symlink_is_listed_as_a_symlink_in_text_and_json() {
+fn updated_symlink_is_listed_as_a_symlink_in_text_and_json() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
-    fs::write(local.path().join("link.txt"), "replacement\n").unwrap();
+    symlink("new-target.txt", local.path().join("link.txt")).unwrap();
     fs::write(develop.path().join("target.txt"), "linked content\n").unwrap();
     symlink("target.txt", develop.path().join("link.txt")).unwrap();
     let config = config(&local, &develop, true);
@@ -1053,7 +1053,7 @@ fn rollback_skips_a_recorded_symlink_without_replacing_the_current_file() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
-    fs::write(local.path().join("link.txt"), "replacement\n").unwrap();
+    symlink("new-target.txt", local.path().join("link.txt")).unwrap();
     fs::write(develop.path().join("target.txt"), "target\n").unwrap();
     symlink("target.txt", develop.path().join("link.txt")).unwrap();
     let config = config(&local, &develop, true);
@@ -1073,8 +1073,8 @@ fn rollback_skips_a_recorded_symlink_without_replacing_the_current_file() {
     assert_eq!(output.skipped[0].reason, "symlink restore not supported");
     assert_eq!(result.exit_code, 2);
     assert_eq!(
-        fs::read_to_string(develop.path().join("link.txt")).unwrap(),
-        "replacement\n"
+        fs::read_link(develop.path().join("link.txt")).unwrap(),
+        std::path::Path::new("new-target.txt")
     );
 }
 
@@ -1592,7 +1592,7 @@ fn merge_through_an_intermediate_symlink_updates_the_resolved_file() {
 
 #[cfg(unix)]
 #[test]
-fn replacing_a_terminal_symlink_keeps_its_target_unchanged() {
+fn merging_a_regular_file_does_not_replace_a_terminal_symlink() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -1611,10 +1611,19 @@ fn replacing_a_terminal_symlink_keeps_its_target_unchanged() {
         panic!("expected per-file merge output");
     };
     assert!(output.failed.is_empty());
-    assert!(output.merged[0].backup.is_some());
+    assert!(output.merged.is_empty());
+    assert_eq!(output.skipped.len(), 1);
+    assert_eq!(output.skipped[0].path, "link.txt");
+    assert!(develop
+        .path()
+        .join("link.txt")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
     assert_eq!(
         fs::read_to_string(develop.path().join("link.txt")).unwrap(),
-        "replacement\n"
+        "linked content\n"
     );
     assert_eq!(
         fs::read_to_string(develop.path().join("target.txt")).unwrap(),
@@ -2139,4 +2148,8 @@ fn one_backup_failure_does_not_stop_other_files() {
         fs::Permissions::from_mode(0o600),
     )
     .unwrap();
+    assert_eq!(
+        fs::read_to_string(develop.path().join("blocked.txt")).unwrap(),
+        "old\n"
+    );
 }

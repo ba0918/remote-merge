@@ -3,6 +3,29 @@
 
 use super::status::is_sensitive;
 use super::types::*;
+use crate::tree::{FileTree, NodeKind};
+
+pub fn skip_symlink_deletions(
+    paths: Vec<String>,
+    destination: &FileTree,
+) -> (Vec<String>, Vec<MergeSkipped>) {
+    let mut to_delete = Vec::new();
+    let mut skipped = Vec::new();
+    for path in paths {
+        if destination
+            .find_node(&path)
+            .is_some_and(|node| matches!(node.kind, NodeKind::Symlink { .. }))
+        {
+            skipped.push(MergeSkipped {
+                path,
+                reason: "destination is a symlink".into(),
+            });
+        } else {
+            to_delete.push(path);
+        }
+    }
+    (to_delete, skipped)
+}
 
 /// SyncTargetResult の status を判定する（純粋関数）。
 ///

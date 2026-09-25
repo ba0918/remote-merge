@@ -88,6 +88,7 @@ pub fn execute_batch_merge(
     progress.total = Some(file_count);
     state.dialog = DialogState::Progress(progress);
 
+    let mut skipped_different_kind = 0;
     for (i, (path, _badge)) in files.iter().enumerate() {
         // ダイアログの進捗を更新
         if let DialogState::Progress(ref mut progress) = state.dialog {
@@ -99,6 +100,10 @@ pub fn execute_batch_merge(
         let action = symlink_actions[i].1.clone();
 
         match action {
+            MergeAction::SkipDifferentKind => {
+                skipped_different_kind += 1;
+                continue;
+            }
             MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
                 let params = super::symlink_merge::SymlinkMergeParams {
                     path,
@@ -287,7 +292,13 @@ pub fn execute_batch_merge(
         skipped_equal
     );
 
-    state.status_message = format_batch_summary(success_count, fail_count, skipped_equal, &dir_str);
+    state.status_message = format_batch_summary(
+        success_count,
+        fail_count,
+        skipped_equal,
+        skipped_different_kind,
+        &dir_str,
+    );
 }
 
 /// バッチマージ結果のサマリーメッセージを生成する（純粋関数）。
@@ -295,6 +306,7 @@ fn format_batch_summary(
     success_count: usize,
     fail_count: usize,
     skipped_equal: usize,
+    skipped_different_kind: usize,
     dir_str: &str,
 ) -> String {
     let skip_suffix = if skipped_equal > 0 {
@@ -302,16 +314,24 @@ fn format_batch_summary(
     } else {
         String::new()
     };
+    let kind_suffix = if skipped_different_kind > 0 {
+        format!(
+            ", {} type mismatch skipped (source and destination have different file types)",
+            skipped_different_kind
+        )
+    } else {
+        String::new()
+    };
 
     if fail_count == 0 {
         format!(
-            "Batch merge complete: {} files merged ({}){}",
-            success_count, dir_str, skip_suffix
+            "Batch merge complete: {} files merged ({}){}{}",
+            success_count, dir_str, skip_suffix, kind_suffix
         )
     } else {
         format!(
-            "Batch merge complete: {} succeeded/{} failed ({}){}",
-            success_count, fail_count, dir_str, skip_suffix
+            "Batch merge complete: {} succeeded/{} failed ({}){}{}",
+            success_count, fail_count, dir_str, skip_suffix, kind_suffix
         )
     }
 }
@@ -584,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_format_batch_summary_all_success() {
-        let msg = format_batch_summary(5, 0, 0, "local -> remote");
+        let msg = format_batch_summary(5, 0, 0, 0, "local -> remote");
         assert_eq!(
             msg,
             "Batch merge complete: 5 files merged (local -> remote)"
@@ -593,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_format_batch_summary_with_failures() {
-        let msg = format_batch_summary(3, 2, 0, "local -> remote");
+        let msg = format_batch_summary(3, 2, 0, 0, "local -> remote");
         assert_eq!(
             msg,
             "Batch merge complete: 3 succeeded/2 failed (local -> remote)"
@@ -602,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_format_batch_summary_with_skipped() {
-        let msg = format_batch_summary(5, 0, 3, "remote -> local");
+        let msg = format_batch_summary(5, 0, 3, 0, "remote -> local");
         assert_eq!(
             msg,
             "Batch merge complete: 5 files merged (remote -> local), 3 identical skipped"
@@ -611,11 +631,18 @@ mod tests {
 
     #[test]
     fn test_format_batch_summary_with_failures_and_skipped() {
-        let msg = format_batch_summary(2, 1, 4, "local -> remote");
+        let msg = format_batch_summary(2, 1, 4, 0, "local -> remote");
         assert_eq!(
             msg,
             "Batch merge complete: 2 succeeded/1 failed (local -> remote), 4 identical skipped"
         );
+    }
+
+    #[test]
+    fn a_batch_reports_type_mismatches_as_skipped_with_a_reason() {
+        let msg = format_batch_summary(1, 0, 0, 1, "local -> remote");
+        assert!(msg.contains("1 type mismatch skipped"), "{msg}");
+        assert!(!msg.contains("failed"), "{msg}");
     }
 
     #[test]

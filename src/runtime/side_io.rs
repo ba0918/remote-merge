@@ -181,6 +181,48 @@ impl CoreRuntime {
         Vec<crate::service::types::RollbackSkipped>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
+        for path in files {
+            let record = self
+                .backup_store
+                .read_record(&self.config, side, session_id, path)?;
+            if let super::backup_store::BackupRecord::File { real_path, .. } = record {
+                let current = match self.inspect_restore_path(side, path) {
+                    Ok(current) => current,
+                    Err(error) => {
+                        return Ok((
+                            vec![],
+                            vec![],
+                            files
+                                .iter()
+                                .map(|path| crate::service::types::RollbackFailure {
+                                    path: path.clone(),
+                                    error: format!("cannot resolve path: {error}"),
+                                })
+                                .collect(),
+                        ));
+                    }
+                };
+                let decision = crate::service::rollback::decide_restore_path(
+                    &crate::service::rollback::BackupPathRecord::File { real_path },
+                    &current,
+                );
+                if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
+                    if reason == "path now resolves to a different location" {
+                        return Ok((
+                            vec![],
+                            files
+                                .iter()
+                                .map(|path| crate::service::types::RollbackSkipped {
+                                    path: path.clone(),
+                                    reason: reason.into(),
+                                })
+                                .collect(),
+                            vec![],
+                        ));
+                    }
+                }
+            }
+        }
         let pre_session_id = if self.config.backup.enabled && !dry_run {
             Some(self.reserve_backup_session()?)
         } else {
@@ -318,6 +360,13 @@ impl CoreRuntime {
     }
 
     // ── 削除 ──
+
+    pub fn is_terminal_symlink(&mut self, side: &Side, path: &str) -> anyhow::Result<bool> {
+        Ok(matches!(
+            self.inspect_path(side, path)?,
+            super::target_io::TargetPath::Symlink { .. }
+        ))
+    }
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {

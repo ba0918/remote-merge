@@ -10,12 +10,15 @@ use crate::service::merge::MergeAction;
 /// マージ実行の前判定結果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeExecutionPlan {
+    SkipDifferentKind,
     /// シンボリックリンクマージ（既存の symlink_merge へ委譲）
     SymlinkMerge,
     /// バイナリファイルは拒否
     BinaryReject,
     /// ソース側のキャッシュが未ロード
-    CacheMissing { side: &'static str },
+    CacheMissing {
+        side: &'static str,
+    },
     /// 通常のテキストマージを実行可能
     TextMerge,
 }
@@ -32,6 +35,7 @@ pub fn determine_merge_execution(
 ) -> MergeExecutionPlan {
     // symlink 判定が最優先
     match action {
+        MergeAction::SkipDifferentKind => return MergeExecutionPlan::SkipDifferentKind,
         MergeAction::CreateSymlink { .. } | MergeAction::ReplaceSymlinkWithFile => {
             return MergeExecutionPlan::SymlinkMerge;
         }

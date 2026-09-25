@@ -27,6 +27,11 @@ pub struct MergeContext<'a> {
     pub session_id: &'a str,
 }
 
+pub enum SingleMergeResult {
+    Merged(MergeFileResult),
+    Skipped(MergeSkipped),
+}
+
 /// ソース側にファイルが存在しない方向のマージを検出する
 ///
 /// - `LeftToRight` + `RightOnly` = ソース(left)にファイルがない
@@ -60,7 +65,7 @@ pub fn check_source_exists(
 pub fn execute_single_merge(
     ctx: &mut MergeContext<'_>,
     path: &str,
-) -> anyhow::Result<MergeFileResult> {
+) -> anyhow::Result<SingleMergeResult> {
     // ソース側にファイルが存在するか確認
     check_source_exists(path, ctx.direction, ctx.statuses)?;
 
@@ -80,6 +85,12 @@ pub fn execute_single_merge(
     let action = determine_merge_action(source_tree, target_tree, path);
 
     match action {
+        MergeAction::SkipDifferentKind => {
+            return Ok(SingleMergeResult::Skipped(MergeSkipped {
+                path: path.to_string(),
+                reason: "source and destination have different file types".into(),
+            }));
+        }
         MergeAction::CreateSymlink {
             link_target,
             target_exists,
@@ -96,13 +107,13 @@ pub fn execute_single_merge(
                 ctx.core.remove_file(target, path)?;
             }
             ctx.core.create_symlink(target, path, &link_target)?;
-            return Ok(MergeFileResult {
+            return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
                 status: "ok".into(),
                 backup: backup_path,
                 ref_badge: None,
                 hunk_info: None,
-            });
+            }));
         }
         MergeAction::ReplaceSymlinkWithFile => {
             // ターゲットが symlink でソースが通常ファイル → バックアップしてから symlink を削除
@@ -124,13 +135,13 @@ pub fn execute_single_merge(
             if ctx.with_permissions {
                 copy_permissions(source, target, path, ctx.core);
             }
-            return Ok(MergeFileResult {
+            return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
                 status: "ok".into(),
                 backup: symlink_backup,
                 ref_badge: None,
                 hunk_info: None,
-            });
+            }));
         }
         MergeAction::Normal => {
             // 通常マージ — 何もせずそのまま後続処理へ
@@ -157,13 +168,13 @@ pub fn execute_single_merge(
         copy_permissions(source, target, path, ctx.core);
     }
 
-    Ok(MergeFileResult {
+    Ok(SingleMergeResult::Merged(MergeFileResult {
         path: path.to_string(),
         status: "ok".into(),
         backup: backup_path,
         ref_badge: None,
         hunk_info: None,
-    })
+    }))
 }
 
 /// ソースからターゲットへパーミッションをコピーする
@@ -207,11 +218,29 @@ pub fn execute_deletions(
     target: &Side,
     right_only_files: &[String],
     session_id: &str,
-) -> (Vec<DeleteFileResult>, Vec<MergeFailure>) {
+) -> (Vec<DeleteFileResult>, Vec<MergeSkipped>, Vec<MergeFailure>) {
     let mut deleted = Vec::new();
+    let mut skipped = Vec::new();
     let mut failed = Vec::new();
 
     for path in right_only_files {
+        match core.is_terminal_symlink(target, path) {
+            Ok(true) => {
+                skipped.push(MergeSkipped {
+                    path: path.clone(),
+                    reason: "destination is a symlink; deletion skipped".into(),
+                });
+                continue;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                failed.push(MergeFailure {
+                    path: path.clone(),
+                    error: format!("cannot inspect destination: {e}"),
+                });
+                continue;
+            }
+        }
         // バックアップ（有効な場合）
         if core.config.backup.enabled {
             if let Err(e) = core.save_backup(target, path, session_id, false) {
@@ -246,7 +275,7 @@ pub fn execute_deletions(
         }
     }
 
-    (deleted, failed)
+    (deleted, skipped, failed)
 }
 
 /// hunk merge 対象ファイルのバリデーション（純粋関数）。

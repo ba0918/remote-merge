@@ -187,7 +187,7 @@ pub fn execute_sync(
         let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
         // 削除計画（--delete 指定時）
-        let (delete_targets, delete_skipped) = if args.delete {
+        let (delete_targets, mut delete_skipped) = if args.delete {
             plan_deletions(
                 &statuses,
                 &resolved_paths,
@@ -197,6 +197,9 @@ pub fn execute_sync(
         } else {
             (vec![], vec![])
         };
+        let (delete_targets, link_skipped) =
+            crate::service::sync::skip_symlink_deletions(delete_targets, &right_tree);
+        delete_skipped.extend(link_skipped);
 
         let target_info = build_source_info(right_side, &core)?;
         server_plans.push(ServerPlan {
@@ -293,6 +296,7 @@ pub fn execute_sync(
     for sp in &server_plans {
         let mut merged = Vec::new();
         let mut failed = Vec::new();
+        let mut skipped_by_kind = Vec::new();
 
         // マージ実行
         {
@@ -311,7 +315,12 @@ pub fn execute_sync(
 
             for path in &sp.plan.files {
                 match execute_single_merge(&mut ctx, path) {
-                    Ok(result) => merged.push(result),
+                    Ok(crate::service::merge_flow::SingleMergeResult::Merged(result)) => {
+                        merged.push(result)
+                    }
+                    Ok(crate::service::merge_flow::SingleMergeResult::Skipped(reason)) => {
+                        skipped_by_kind.push(reason)
+                    }
                     Err(e) => failed.push(MergeFailure {
                         path: path.clone(),
                         error: format!("{}", e),
@@ -321,16 +330,18 @@ pub fn execute_sync(
         }
 
         // 削除実行
-        let (deleted, delete_failures) = if !sp.delete_targets.is_empty() {
+        let (deleted, late_skipped, delete_failures) = if !sp.delete_targets.is_empty() {
             execute_deletions(&mut core, &sp.pair.right, &sp.delete_targets, &session_id)
         } else {
-            (vec![], vec![])
+            (vec![], vec![], vec![])
         };
         failed.extend(delete_failures);
 
         let mut skipped = sp.plan.skipped.clone();
         skipped.extend(sp.right_only_skipped.clone());
         skipped.extend(sp.delete_skipped.clone());
+        skipped.extend(skipped_by_kind);
+        skipped.extend(late_skipped);
 
         let mut result = SyncTargetResult {
             target: sp.target_info.clone(),

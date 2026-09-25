@@ -51,6 +51,11 @@ pub fn execute_symlink_merge(
     };
 
     match action {
+        MergeAction::SkipDifferentKind => {
+            state.status_message =
+                format!("{path}: source and destination have different file types");
+            false
+        }
         MergeAction::CreateSymlink {
             link_target,
             target_exists,

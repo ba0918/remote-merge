@@ -77,13 +77,15 @@ pub fn find_symlink_target(tree: &FileTree, path: &str) -> Option<String> {
 /// symlink merge のアクション判定結果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeAction {
+    /// 既存対象の種類が異なる場合は置き換えない
+    SkipDifferentKind,
     /// ソースが symlink → ターゲットに symlink を作成
     CreateSymlink {
         link_target: String,
         /// ターゲット側にファイルまたは symlink が存在するか（ディレクトリは除外）
         target_exists: bool,
     },
-    /// ターゲットが symlink でソースが通常ファイル → symlink を削除してからファイル書き込み
+    /// ターゲットが symlink でソースがない場合の既存判定
     ReplaceSymlinkWithFile,
     /// 通常のファイルマージ（symlink なし）
     Normal,
@@ -91,14 +93,27 @@ pub enum MergeAction {
 
 /// ソース/ターゲットのツリーとパスからマージアクションを決定する純粋関数
 ///
+/// - 既存の両対象が異種 → `SkipDifferentKind`
 /// - ソースが symlink → `CreateSymlink`
-/// - ターゲットが symlink でソースが通常ファイル → `ReplaceSymlinkWithFile`
 /// - どちらも symlink でない → `Normal`
 pub fn determine_merge_action(
     source_tree: &FileTree,
     target_tree: &FileTree,
     path: &str,
 ) -> MergeAction {
+    let source_node = source_tree.find_node(path);
+    let target_node = target_tree.find_node(path);
+    if let (Some(source), Some(target)) = (source_node, target_node) {
+        let different_kind = !matches!(
+            (&source.kind, &target.kind),
+            (NodeKind::File, NodeKind::File)
+                | (NodeKind::Directory, NodeKind::Directory)
+                | (NodeKind::Symlink { .. }, NodeKind::Symlink { .. })
+        );
+        if different_kind {
+            return MergeAction::SkipDifferentKind;
+        }
+    }
     if let Some(link_target) = find_symlink_target(source_tree, path) {
         // ターゲット側にファイル/symlink が存在するか（ディレクトリは remove_file で削除できないため除外）
         // create_symlink は内部で ln -sfn（リモート）/ remove_file + symlink（ローカル）を行うため、
@@ -344,19 +359,13 @@ mod tests {
     // ── determine_merge_action tests ──
 
     #[test]
-    fn test_determine_merge_action_source_symlink_target_regular_file() {
+    fn a_symlink_does_not_replace_a_regular_file() {
         let source_tree =
             make_tree_with_nodes(vec![FileNode::new_symlink("app.conf", "/etc/app.conf")]);
         let target_tree = make_tree_with_nodes(vec![FileNode::new_file("app.conf")]);
 
         let action = determine_merge_action(&source_tree, &target_tree, "app.conf");
-        assert_eq!(
-            action,
-            MergeAction::CreateSymlink {
-                link_target: "/etc/app.conf".to_string(),
-                target_exists: true,
-            }
-        );
+        assert_eq!(action, MergeAction::SkipDifferentKind);
     }
 
     #[test]
@@ -376,13 +385,13 @@ mod tests {
     }
 
     #[test]
-    fn test_determine_merge_action_source_regular_file_target_symlink() {
+    fn a_regular_file_does_not_replace_a_symlink() {
         let source_tree = make_tree_with_nodes(vec![FileNode::new_file("config.yml")]);
         let target_tree =
             make_tree_with_nodes(vec![FileNode::new_symlink("config.yml", "/old/target")]);
 
         let action = determine_merge_action(&source_tree, &target_tree, "config.yml");
-        assert_eq!(action, MergeAction::ReplaceSymlinkWithFile);
+        assert_eq!(action, MergeAction::SkipDifferentKind);
     }
 
     #[test]
@@ -445,19 +454,13 @@ mod tests {
     }
 
     #[test]
-    fn test_determine_merge_action_source_symlink_target_is_directory() {
+    fn a_symlink_does_not_replace_a_directory() {
         let source_tree = make_tree_with_nodes(vec![FileNode::new_symlink("logs", "/var/log/app")]);
         let target_tree =
             make_tree_with_nodes(vec![FileNode::new_dir_with_children("logs", vec![])]);
 
         let action = determine_merge_action(&source_tree, &target_tree, "logs");
-        assert_eq!(
-            action,
-            MergeAction::CreateSymlink {
-                link_target: "/var/log/app".to_string(),
-                target_exists: false,
-            }
-        );
+        assert_eq!(action, MergeAction::SkipDifferentKind);
     }
 
     // ── check_r2r_guard tests ──
