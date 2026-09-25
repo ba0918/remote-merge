@@ -13,7 +13,9 @@ use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{server, Channel, ChannelId, CryptoVec, Disconnect};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::process::ChildStdin;
 
 pub struct TestServer {
     port: u16,
@@ -56,6 +58,20 @@ impl TestServer {
             false,
             Some(home.join("remote/example.txt")),
             Some(home.to_path_buf()),
+            false,
+        )
+        .await
+    }
+
+    pub async fn filesystem_with_agent(home: &Path) -> Self {
+        Self::start_options(
+            false,
+            false,
+            0,
+            false,
+            Some(home.join("remote/example.txt")),
+            Some(home.to_path_buf()),
+            true,
         )
         .await
     }
@@ -89,6 +105,7 @@ impl TestServer {
             reject_sudo,
             None,
             None,
+            false,
         )
         .await
     }
@@ -100,6 +117,7 @@ impl TestServer {
         reject_sudo: bool,
         target: Option<PathBuf>,
         sandbox_home: Option<PathBuf>,
+        agent_available: bool,
     ) -> Self {
         let mut config = server::Config {
             auth_rejection_time: Duration::from_millis(10),
@@ -133,6 +151,7 @@ impl TestServer {
                 reject_sudo,
                 target,
                 sandbox_home,
+                agent_available,
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -161,6 +180,7 @@ struct LocalServer {
     reject_sudo: bool,
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
+    agent_available: bool,
 }
 
 impl server::Server for LocalServer {
@@ -176,7 +196,9 @@ impl server::Server for LocalServer {
             reject_sudo: self.reject_sudo,
             target: self.target.clone(),
             sandbox_home: self.sandbox_home.clone(),
+            agent_available: self.agent_available,
             write_channels: HashMap::new(),
+            agent_stdin: HashMap::new(),
         }
     }
 }
@@ -190,7 +212,9 @@ struct LocalHandler {
     reject_sudo: bool,
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
+    agent_available: bool,
     write_channels: HashMap<ChannelId, Vec<u8>>,
+    agent_stdin: HashMap<ChannelId, ChildStdin>,
 }
 
 impl server::Handler for LocalHandler {
@@ -202,6 +226,9 @@ impl server::Handler for LocalHandler {
         data: &[u8],
         _: &mut Session,
     ) -> Result<(), Self::Error> {
+        if let Some(stdin) = self.agent_stdin.get_mut(&channel) {
+            stdin.write_all(data).await?;
+        }
         if let Some(buffer) = self.write_channels.get_mut(&channel) {
             buffer.extend_from_slice(data);
         }
@@ -213,6 +240,7 @@ impl server::Handler for LocalHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.agent_stdin.remove(&channel);
         if let Some(encoded) = self.write_channels.remove(&channel) {
             let target = self.target.as_ref().unwrap();
             let decoded = base64::engine::general_purpose::STANDARD.decode(
@@ -288,6 +316,46 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()),
                 "unexpected remote command: {command}"
             );
+            if self.agent_available && command.contains(" agent --root ") {
+                let mut child = tokio::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(command.as_ref())
+                    .env("HOME", home)
+                    .current_dir(home)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()?;
+                self.agent_stdin
+                    .insert(channel, child.stdin.take().unwrap());
+                let mut stdout = child.stdout.take().unwrap();
+                let handle = session.handle();
+                tokio::spawn(async move {
+                    let mut buffer = [0u8; 32768];
+                    while let Ok(count) = stdout.read(&mut buffer).await {
+                        if count == 0 {
+                            break;
+                        }
+                        if handle
+                            .data(channel, CryptoVec::from(&buffer[..count]))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    let status = child
+                        .wait()
+                        .await
+                        .ok()
+                        .and_then(|status| status.code())
+                        .unwrap_or(1);
+                    let _ = handle.exit_status_request(channel, status as u32).await;
+                    let _ = handle.eof(channel).await;
+                    let _ = handle.close(channel).await;
+                });
+                return Ok(());
+            }
             if command.contains("test -L") && command.contains("echo SYMLINK") {
                 session.exit_status_request(channel, 1)?;
                 session.eof(channel)?;

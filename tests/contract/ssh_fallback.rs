@@ -66,3 +66,63 @@ async fn an_unavailable_remote_agent_falls_back_to_ssh_for_comparison_and_merge(
         .iter()
         .any(|command| command.contains("openssl base64 -d")));
 }
+
+// @kotowari[EX-ssh-010]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_available_remote_agent_completes_comparison_and_merge() {
+    let home = TempDir::new().unwrap();
+    let remote = home.path().join("remote");
+    let local = home.path().join("local");
+    fs::create_dir_all(&remote).unwrap();
+    fs::create_dir_all(&local).unwrap();
+    fs::write(local.join("example.txt"), "local updated\n").unwrap();
+    let target = remote.join("example.txt");
+    fs::write(&target, "old remote\n").unwrap();
+    let agent_dir = home.path().join("agent");
+    let deployed = agent_dir.join("remote-merge-testuser/remote-merge");
+    fs::create_dir_all(deployed.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
+    let server = TestServer::filesystem_with_agent(home.path()).await;
+    let config_path = home.path().join("config.toml");
+    fs::write(&config_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
+        local.to_str().unwrap(), server.port(), remote.to_str().unwrap(), agent_dir.to_str().unwrap(),
+    )).unwrap();
+    let run = |subcommand: &str| {
+        Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+            .env("HOME", home.path())
+            .env("XDG_CONFIG_HOME", home.path().join("config"))
+            .env("XDG_DATA_HOME", home.path().join("data"))
+            .arg(subcommand)
+            .arg("example.txt")
+            .arg("--config")
+            .arg(&config_path)
+            .args(["--left", "local", "--right", "fixture", "--format", "json"])
+            .output()
+            .unwrap()
+    };
+    let diff = run("diff");
+    let json: serde_json::Value = serde_json::from_slice(&diff.stdout).unwrap();
+    assert!(json.to_string().contains("old remote"), "{json}");
+    assert!(json.to_string().contains("local updated"), "{json}");
+    let merge = run("merge");
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(&target).unwrap(), b"local updated\n");
+    let commands = server.commands();
+    assert!(
+        commands.iter().any(|cmd| cmd.contains(" agent --root ")),
+        "Agent did not start: {commands:?}"
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|cmd| cmd.starts_with("openssl base64 -in") && cmd.contains("example.txt")),
+        "SSH read the file instead of the Agent: {commands:?}"
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|cmd| cmd.starts_with("openssl base64 -d") && cmd.contains("example.txt")),
+        "SSH wrote the file instead of the Agent: {commands:?}"
+    );
+}
