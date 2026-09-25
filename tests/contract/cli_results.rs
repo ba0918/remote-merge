@@ -255,6 +255,156 @@ fn equal_directory_diff_json_reports_no_changed_files() {
     assert!(json["files"].as_array().unwrap().is_empty(), "{json}");
 }
 
+// @kotowari[EX-cli-003]
+#[test]
+fn merge_without_an_explicit_destination_refuses_to_write() {
+    let fixture = sync_fixture();
+    let error = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: None,
+            ref_server: None,
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .err()
+    .expect("the destination must be explicit");
+    assert!(error.to_string().contains("--left and --right"), "{error}");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "first old\n"
+    );
+}
+
+// @kotowari[EX-cli-007]
+#[test]
+fn dry_run_reports_the_merge_without_changing_the_destination() {
+    let fixture = sync_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: None,
+            dry_run: true,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected preview")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(output.merged[0].path, "file.txt");
+    assert_eq!(output.merged[0].status, "would merge");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "first old\n"
+    );
+}
+
+// @kotowari[EX-cli-004, EX-cli-008]
+#[test]
+fn explicit_source_and_destination_merge_the_requested_file() {
+    let fixture = sync_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: None,
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(output.merged[0].path, "file.txt");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "incoming\n"
+    );
+}
+
+// @kotowari[EX-cli-009]
+#[test]
+fn sensitive_diff_hides_file_bytes_without_force() {
+    let mut fixture = sync_fixture();
+    fixture.config.filter.sensitive.push("*.key".into());
+    fs::write(
+        fixture.source.path().join("private.key"),
+        "left secret phrase\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.first.path().join("private.key"),
+        "right secret phrase\n",
+    )
+    .unwrap();
+    let mut args = diff_args();
+    args.paths = vec!["private.key".into()];
+    let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(output.files.len(), 1);
+    assert!(output.files[0].sensitive);
+    let json = format_json(&output).unwrap();
+    assert!(!json.contains("left secret phrase"), "{json}");
+    assert!(!json.contains("right secret phrase"), "{json}");
+}
+
+// @kotowari[EX-cli-010]
+#[test]
+fn sensitive_diff_shows_file_bytes_when_force_is_explicit() {
+    let mut fixture = sync_fixture();
+    fixture.config.filter.sensitive.push("*.key".into());
+    fs::write(
+        fixture.source.path().join("private.key"),
+        "left secret phrase\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.first.path().join("private.key"),
+        "right secret phrase\n",
+    )
+    .unwrap();
+    let mut args = diff_args();
+    args.paths = vec!["private.key".into()];
+    args.force = true;
+    let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(output.files.len(), 1);
+    let json = format_json(&output).unwrap();
+    assert!(json.contains("left secret phrase"), "{json}");
+    assert!(json.contains("right secret phrase"), "{json}");
+}
+
 // @kotowari[EX-cli-036]
 #[test]
 fn json_diff_returns_a_parseable_error_when_configuration_is_invalid() {
