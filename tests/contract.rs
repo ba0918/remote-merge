@@ -22,6 +22,8 @@ mod scan_limits;
 mod ssh_host_key;
 #[path = "contract/status_results.rs"]
 mod status_results;
+#[path = "contract/tui_confirm.rs"]
+mod tui_confirm;
 #[path = "contract/tui_directory_links.rs"]
 mod tui_directory_links;
 #[path = "contract/tui_navigation.rs"]
