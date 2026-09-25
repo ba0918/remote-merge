@@ -200,6 +200,7 @@ impl<'a> ScanIterator<'a> {
             mtime_nanos,
             permissions,
             symlink_target,
+            link_is_dir: file_type.is_symlink() && path.is_dir(),
         });
         // ファイルとシンボリックリンクのみカウント（ディレクトリは含まない）
         self.total_scanned += 1;
@@ -369,7 +370,7 @@ pub fn convert_agent_entries_to_nodes(entries: &[AgentFileEntry]) -> Vec<crate::
                 mtime,
                 permissions: Some(entry.permissions),
                 children: None, // 遅延読み込み（ディレクトリ含む）
-                link_is_dir: false,
+                link_is_dir: entry.link_is_dir,
             }
         })
         .collect()
@@ -521,6 +522,33 @@ mod tests {
         assert_eq!(link_entry.kind, FileKind::Symlink);
         assert_eq!(link_entry.size, 0);
         assert_eq!(link_entry.symlink_target.as_deref(), Some("file1.txt"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_link_is_reported_as_expandable_and_remains_a_symlink() {
+        let root = tempfile::TempDir::new().unwrap();
+        let shared = tempfile::TempDir::new().unwrap();
+        fs::write(shared.path().join("file.txt"), "content").unwrap();
+        std::os::unix::fs::symlink(shared.path(), root.path().join("linked")).unwrap();
+        let chunks: Vec<_> = scan_tree(&ScanOptions {
+            root: root.path().to_path_buf(),
+            chunk_size: 1000,
+            ..Default::default()
+        })
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+        let entry = chunks
+            .iter()
+            .flat_map(|chunk| &chunk.entries)
+            .find(|entry| entry.path == "linked")
+            .unwrap();
+        assert_eq!(entry.kind, FileKind::Symlink);
+        assert!(entry.link_is_dir);
+        let nodes = convert_agent_entries_to_nodes(std::slice::from_ref(entry));
+        assert!(nodes[0].is_symlink());
+        assert!(nodes[0].link_is_dir);
+        assert!(nodes[0].children.is_none());
     }
 
     #[test]
@@ -680,6 +708,7 @@ mod tests {
             mtime_nanos: 500,
             permissions: 0o644,
             symlink_target: None,
+            link_is_dir: false,
         }];
 
         let nodes = convert_agent_entries_to_nodes(&entries);
@@ -703,6 +732,7 @@ mod tests {
             mtime_nanos: 0,
             permissions: 0o755,
             symlink_target: None,
+            link_is_dir: false,
         }];
 
         let nodes = convert_agent_entries_to_nodes(&entries);
@@ -723,6 +753,7 @@ mod tests {
             mtime_nanos: 0,
             permissions: 0o777,
             symlink_target: Some("releases/v2".to_string()),
+            link_is_dir: false,
         }];
 
         let nodes = convert_agent_entries_to_nodes(&entries);
@@ -745,6 +776,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "dir".to_string(),
@@ -754,6 +786,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o755,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "dir/nested.txt".to_string(),
@@ -763,6 +796,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
 
@@ -1104,6 +1138,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "Common/utils.php".to_string(),
@@ -1113,6 +1148,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
         let nodes = convert_agent_entries_to_nodes(&entries);
@@ -1135,6 +1171,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "src/lib.rs".to_string(),
@@ -1144,6 +1181,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
         let flat_nodes = convert_agent_entries_to_nodes(&entries);

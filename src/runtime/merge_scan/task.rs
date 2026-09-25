@@ -991,6 +991,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "b.txt".to_string(),
@@ -1000,6 +1001,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
         let (updates, paths) = build_tree_updates_from_agent_entries(&entries, "app");
@@ -1020,6 +1022,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o755,
                 symlink_target: None,
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "sub/file.txt".to_string(),
@@ -1029,6 +1032,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
         let (_, paths) = build_tree_updates_from_agent_entries(&entries, "root");
@@ -1047,6 +1051,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o777,
                 symlink_target: Some("target".to_string()),
+                link_is_dir: false,
             },
             AgentFileEntry {
                 path: "file.rs".to_string(),
@@ -1056,6 +1061,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             },
         ];
         let (_, paths) = build_tree_updates_from_agent_entries(&entries, "src");

@@ -127,6 +127,8 @@ pub struct AgentFileEntry {
     pub mtime_nanos: u32,
     pub permissions: u32,
     pub symlink_target: Option<String>,
+    #[serde(default)]
+    pub link_is_dir: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -255,6 +257,33 @@ pub fn deserialize_response(data: &[u8]) -> Result<AgentResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_agent_entries_without_directory_link_metadata_remain_readable() {
+        #[derive(Serialize)]
+        struct PreviousEntry {
+            path: String,
+            kind: FileKind,
+            size: u64,
+            mtime_secs: i64,
+            mtime_nanos: u32,
+            permissions: u32,
+            symlink_target: Option<String>,
+        }
+        let old = PreviousEntry {
+            path: "linked".into(),
+            kind: FileKind::Symlink,
+            size: 0,
+            mtime_secs: 0,
+            mtime_nanos: 0,
+            permissions: 0,
+            symlink_target: Some("folder".into()),
+        };
+        let bytes = rmp_serde::to_vec(&old).unwrap();
+        let decoded: AgentFileEntry = rmp_serde::from_slice(&bytes).unwrap();
+        assert!(!decoded.link_is_dir);
+        assert_eq!(decoded.symlink_target.as_deref(), Some("folder"));
+    }
 
     // ---- Handshake ----
 
@@ -447,6 +476,7 @@ mod tests {
                 mtime_nanos: 500,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             }],
             is_last: true,
             total_scanned: 1,
@@ -465,6 +495,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o777,
                 symlink_target: Some("/var/www/releases/v2".into()),
+                link_is_dir: false,
             }],
             is_last: true,
             total_scanned: 1,
@@ -643,6 +674,7 @@ mod tests {
                 mtime_nanos: 0,
                 permissions: 0o644,
                 symlink_target: None,
+                link_is_dir: false,
             })
             .collect();
         let resp = AgentResponse::TreeChunk {
