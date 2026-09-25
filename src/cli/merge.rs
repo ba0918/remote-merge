@@ -177,7 +177,7 @@ pub fn execute_merge(
     diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
     // マージ計画（センシティブファイルのフィルタリング）
-    let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+    let mut plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
     // BUG 2 fix: plan_deletions を早期リターンの前に実行
     let (delete_targets, mut delete_skipped) = if args.delete {
@@ -228,6 +228,7 @@ pub fn execute_merge(
     }
 
     // Pre-merge: ref badge をマージ実行前に計算する
+    let mut conflict_failures = Vec::new();
     let (ref_source_info, ref_badge_map) = if let Some(ref_s) = &ref_side {
         core.connect_if_remote(ref_s)?;
         let ref_info = build_source_info(ref_s, &core)?;
@@ -260,10 +261,45 @@ pub fn execute_merge(
             &right_contents,
             &ref_contents,
         );
+        if !args.force && !args.dry_run {
+            plan.files.retain(|path| {
+                let reason = match (
+                    left_contents.get(path),
+                    right_contents.get(path),
+                    ref_contents.get(path),
+                ) {
+                    (Some(left), Some(right), Some(base)) => {
+                        crate::service::merge::has_three_way_conflict(base, left, right)
+                            .then_some("three-way conflict")
+                    }
+                    _ => Some("three-way comparison incomplete"),
+                };
+                if let Some(reason) = reason {
+                    conflict_failures.push(MergeFailure {
+                        path: path.clone(),
+                        error: reason.to_string(),
+                    });
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         (Some(ref_info), Some(badges))
     } else {
         (None, None)
     };
+
+    if plan.files.is_empty() && delete_targets.is_empty() && !conflict_failures.is_empty() {
+        let mut failed = compare_failures;
+        failed.extend(conflict_failures);
+        let output = build_merge_output(vec![], all_skipped, vec![], failed, ref_source_info);
+        core.disconnect_all();
+        return Ok(MergeCommandResult {
+            exit_code: merge_exit_code(&output),
+            output: MergeCommandOutput::Files(output),
+        });
+    }
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
@@ -303,6 +339,7 @@ pub fn execute_merge(
     // マージ実行
     let mut merged = Vec::new();
     let mut failed = compare_failures;
+    failed.extend(conflict_failures);
     let session_id = if core.config.backup.enabled {
         core.reserve_backup_session()?
     } else {

@@ -65,6 +65,22 @@ pub fn merge_exit_code(output: &MergeOutput) -> i32 {
     }
 }
 
+pub fn has_three_way_conflict(base: &[u8], left: &[u8], right: &[u8]) -> bool {
+    if left == right || left == base || right == base {
+        return false;
+    }
+    match (
+        std::str::from_utf8(base),
+        std::str::from_utf8(left),
+        std::str::from_utf8(right),
+    ) {
+        (Ok(base), Ok(left), Ok(right)) => {
+            !crate::diff::conflict::detect_conflicts(Some(base), left, right).is_empty()
+        }
+        _ => true,
+    }
+}
+
 /// ツリーからパスに対応する symlink のターゲットを取得する純粋関数
 pub fn find_symlink_target(tree: &FileTree, path: &str) -> Option<String> {
     let node = tree.find_node(path)?;

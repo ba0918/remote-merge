@@ -355,6 +355,176 @@ fn explicit_source_and_destination_merge_the_requested_file() {
     );
 }
 
+// @kotowari[EX-cli-021, EX-cli-034]
+#[test]
+fn reference_side_is_not_modified_by_a_three_way_merge() {
+    let fixture = sync_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: Some("second".into()),
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "incoming\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.source.path().join("file.txt")).unwrap(),
+        "incoming\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "second old\n"
+    );
+}
+
+// @kotowari[EX-cli-031]
+#[test]
+fn three_way_diff_reports_conflicting_edits_to_the_same_line() {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.txt"), "left change\n").unwrap();
+    fs::write(fixture.first.path().join("file.txt"), "right change\n").unwrap();
+    fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
+    let mut args = diff_args();
+    args.paths = vec!["file.txt".into()];
+    args.ref_server = Some("second".into());
+    let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(output.files.len(), 1, "{output:?}");
+    assert!(output.files[0].conflict_count > 0, "{output:?}");
+    assert!(!output.files[0].conflict_regions.is_empty(), "{output:?}");
+}
+
+// @kotowari[EX-cli-032]
+#[test]
+fn identical_changes_on_both_sides_have_no_three_way_conflict() {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.txt"), "same change\n").unwrap();
+    fs::write(fixture.first.path().join("file.txt"), "same change\n").unwrap();
+    fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
+    let mut args = diff_args();
+    args.paths = vec!["file.txt".into()];
+    args.ref_server = Some("second".into());
+    let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(code, remote_merge::service::types::exit_code::SUCCESS);
+    assert_eq!(output.summary.files_with_changes, 0);
+    assert!(
+        output.files.iter().all(|file| file.conflict_count == 0),
+        "{output:?}"
+    );
+}
+
+// @kotowari[EX-cli-033]
+#[test]
+fn three_way_conflict_is_not_written_without_explicit_override() {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.txt"), "left change\n").unwrap();
+    fs::write(fixture.first.path().join("file.txt"), "right change\n").unwrap();
+    fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: Some("second".into()),
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    assert_ne!(result.exit_code, 0);
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert!(output.merged.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(output.failed[0].path, "file.txt");
+    assert!(output.failed[0].error.contains("conflict"), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "right change\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "base\n"
+    );
+}
+
+// @kotowari[REQ-cli-017]
+#[test]
+fn a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge() {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.txt"), "left change\n").unwrap();
+    fs::write(fixture.first.path().join("file.txt"), "right change\n").unwrap();
+    fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
+    for (root, value) in [
+        (&fixture.source, "new\n"),
+        (&fixture.first, "old\n"),
+        (&fixture.second, "old\n"),
+    ] {
+        fs::write(root.path().join("other.txt"), value).unwrap();
+    }
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into(), "other.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: Some("second".into()),
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(output.failed[0].path, "file.txt");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(output.merged[0].path, "other.txt");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "right change\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("other.txt")).unwrap(),
+        "new\n"
+    );
+}
+
 // @kotowari[EX-cli-009]
 #[test]
 fn sensitive_diff_hides_file_bytes_without_force() {
