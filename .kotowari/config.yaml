@@ -1,0 +1,21 @@
+ir: docs/ir
+decisions:
+  records: docs/decision/records
+  adr: docs/decision/adr
+tests:
+  files:
+    - "tests/contract/**/*.rs"
+  rust:
+    attributes: []
+    macros: []
+  rules: []
+guides:
+  files: []
+limits:
+  lines: 200
+  requirements: 10
+vague_words:
+  - "適切に"
+  - "必要に応じて"
+  - "通常は"
+  - "など"
