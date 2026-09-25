@@ -907,6 +907,39 @@ fn sync_delete_removes_a_destination_only_regular_file() {
     assert!(!path.exists());
 }
 
+// @kotowari[EX-merge-015]
+#[test]
+fn sync_without_delete_keeps_destination_only_regular_files() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let path = destination.path().join("only-here.txt");
+    fs::write(&path, "preserve me\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec![".".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert!(output.targets[0].deleted.is_empty(), "{output:?}");
+    assert_eq!(fs::read_to_string(path).unwrap(), "preserve me\n");
+}
+
 // @kotowari[EX-merge-008]
 #[test]
 fn merging_through_an_in_root_parent_link_updates_the_existing_file() {
