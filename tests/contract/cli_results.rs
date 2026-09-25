@@ -525,6 +525,45 @@ fn a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge() {
     );
 }
 
+// @kotowari[REQ-cli-017]
+#[test]
+fn selected_hunk_with_three_way_conflict_does_not_overwrite_the_target() {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.txt"), "left change\n").unwrap();
+    fs::write(fixture.first.path().join("file.txt"), "right change\n").unwrap();
+    fs::write(fixture.second.path().join("file.txt"), "base\n").unwrap();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: Some("second".into()),
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: Some(vec![0]),
+        },
+        fixture.config,
+        fixture.targets,
+    );
+    assert!(
+        result.is_err() || result.as_ref().is_ok_and(|out| out.exit_code != 0),
+        "conflicting hunk must fail"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "right change\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "base\n"
+    );
+}
+
 // @kotowari[EX-cli-009]
 #[test]
 fn sensitive_diff_hides_file_bytes_without_force() {

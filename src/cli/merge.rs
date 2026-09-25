@@ -143,6 +143,7 @@ pub fn execute_merge(
             direction,
             args.dry_run,
             args.force,
+            ref_side.as_ref(),
             core,
         );
     }
@@ -426,12 +427,22 @@ fn run_hunk_merge(
     direction: MergeDirection,
     dry_run: bool,
     force: bool,
+    ref_side: Option<&Side>,
     mut core: CoreRuntime,
 ) -> anyhow::Result<MergeCommandResult> {
     use crate::service::merge::build_merge_output;
 
     core.connect_if_remote(left)?;
     core.connect_if_remote(right)?;
+    if let Some(reference) = ref_side.filter(|_| !force) {
+        core.connect_if_remote(reference)?;
+        let base = core.read_file_bytes(reference, path, false)?;
+        let source = core.read_file_bytes(left, path, false)?;
+        let destination = core.read_file_bytes(right, path, false)?;
+        if crate::service::merge::has_three_way_conflict(&base, &source, &destination) {
+            anyhow::bail!("three-way conflict: {path}");
+        }
+    }
 
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
     let config = core.config.clone();
