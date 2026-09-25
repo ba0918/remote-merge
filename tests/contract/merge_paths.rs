@@ -940,6 +940,39 @@ fn sync_without_delete_keeps_destination_only_regular_files() {
     assert_eq!(fs::read_to_string(path).unwrap(), "preserve me\n");
 }
 
+// @kotowari[EX-merge-033]
+#[test]
+fn deletion_fails_without_removing_a_file_when_backup_cannot_be_saved() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let blocked_store = backup.path().join("occupied");
+    fs::write(&blocked_store, "not a directory").unwrap();
+    let file = destination.path().join("obsolete.txt");
+    fs::write(&file, "original\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(
+        MergeArgs {
+            delete: true,
+            ..merge_args("obsolete.txt")
+        },
+        config,
+        targets.with_backup_store(Some(blocked_store)),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert!(output.deleted.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(output.failed[0].path, "obsolete.txt");
+    assert!(
+        output.failed[0].error.contains("backup failed"),
+        "{output:?}"
+    );
+    assert_eq!(fs::read_to_string(file).unwrap(), "original\n");
+}
+
 // @kotowari[EX-merge-008]
 #[test]
 fn merging_through_an_in_root_parent_link_updates_the_existing_file() {
