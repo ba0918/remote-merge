@@ -681,7 +681,7 @@ fn a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code() {
     assert_eq!(fs::read_to_string(&blocked).unwrap(), "second old\n");
 }
 
-// @kotowari[EX-cli-038]
+// @kotowari[EX-cli-038, EX-merge-031]
 #[test]
 fn every_successful_sync_target_returns_a_zero_exit_code() {
     let fixture = sync_fixture();
@@ -707,5 +707,49 @@ fn every_successful_sync_target_returns_a_zero_exit_code() {
     assert_eq!(
         fs::read_to_string(fixture.source.path().join("file.txt")).unwrap(),
         "incoming\n"
+    );
+}
+
+// @kotowari[EX-merge-030]
+#[test]
+fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
+    let fixture = sync_fixture();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let closed_port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let mut config = fixture.config;
+    let second = config.servers.get_mut("second").unwrap();
+    second.host = "127.0.0.1".into();
+    second.port = closed_port;
+    let targets = RuntimeTargets::production()
+        .with_local("first", fixture.first.path())
+        .with_startup_directory(fixture.source.path().to_path_buf());
+    let result = execute_sync(sync_args(), config, targets).unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_ne!(result.exit_code, 0);
+    assert_eq!(output.targets.len(), 2, "{output:?}");
+    let first = output
+        .targets
+        .iter()
+        .find(|target| target.target.label == "first")
+        .unwrap();
+    let second = output
+        .targets
+        .iter()
+        .find(|target| target.target.label == "second")
+        .unwrap();
+    assert_eq!(first.status, SyncTargetStatus::Success, "{output:?}");
+    assert_eq!(first.merged.len(), 1, "{output:?}");
+    assert_eq!(second.status, SyncTargetStatus::Failed, "{output:?}");
+    assert!(!second.failed.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "incoming\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "second old\n"
     );
 }
