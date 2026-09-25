@@ -26,6 +26,8 @@ mod status_results;
 mod tui_confirm;
 #[path = "contract/tui_directory_links.rs"]
 mod tui_directory_links;
+#[path = "contract/tui_export.rs"]
+mod tui_export;
 #[path = "contract/tui_navigation.rs"]
 mod tui_navigation;
 #[path = "contract/tui_reference.rs"]

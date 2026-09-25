@@ -280,6 +280,13 @@ fn check_node_unloaded(node: &crate::tree::FileNode) -> bool {
 
 /// c キー: 選択中ファイルの diff をクリップボードにコピー
 pub fn handle_clipboard_copy(state: &mut AppState) {
+    copy_diff_with(state, crate::app::clipboard_write::write_to_clipboard);
+}
+
+pub fn copy_diff_with(
+    state: &mut AppState,
+    write: impl FnOnce(&str) -> crate::app::clipboard_write::ClipboardResult,
+) {
     use crate::app::clipboard::{format_diff_for_clipboard, ClipboardContext};
     use crate::service::status::is_sensitive;
 
@@ -320,7 +327,7 @@ pub fn handle_clipboard_copy(state: &mut AppState) {
 
     let text = format_diff_for_clipboard(&context, diff);
 
-    match crate::app::clipboard_write::write_to_clipboard(&text) {
+    match write(&text) {
         crate::app::clipboard_write::ClipboardResult::Ok => {
             state.status_message = "Diff copied to clipboard".to_string();
         }
@@ -333,7 +340,12 @@ pub fn handle_clipboard_copy(state: &mut AppState) {
 
 /// Shift+E: レポート出力
 fn handle_export_report(state: &mut AppState) {
-    use crate::app::report::{generate_report, report_filename, ReportFileEntry, ReportInput};
+    let filename = crate::app::report::report_filename();
+    export_report_to(state, std::path::Path::new(&filename));
+}
+
+pub fn export_report_to(state: &mut AppState, path: &std::path::Path) {
+    use crate::app::report::{generate_report, ReportFileEntry, ReportInput};
     use crate::diff::engine::compute_diff;
     use std::collections::BTreeSet;
     use std::io::Write;
@@ -366,6 +378,11 @@ fn handle_export_report(state: &mut AppState) {
         diffs.push(diff);
     }
 
+    if diffs.iter().all(crate::diff::engine::DiffResult::is_equal) {
+        state.status_message = "No differences to export".to_string();
+        return;
+    }
+
     // ReportFileEntry は diff への参照を持つので、diffs を先に作ってからイテレート
     for (i, path) in keys.iter().enumerate() {
         entries.push(ReportFileEntry {
@@ -393,12 +410,11 @@ fn handle_export_report(state: &mut AppState) {
     };
 
     let report = generate_report(&input);
-    let filename = report_filename();
 
-    match std::fs::File::create(&filename) {
+    match std::fs::File::create(path) {
         Ok(mut file) => match file.write_all(report.as_bytes()) {
             Ok(()) => {
-                state.status_message = format!("Report exported: {}", filename);
+                state.status_message = format!("Report exported: {}", path.display());
             }
             Err(e) => {
                 state.status_message = format!("Failed to write report: {}", e);
