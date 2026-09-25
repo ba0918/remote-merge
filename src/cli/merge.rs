@@ -180,6 +180,28 @@ pub fn execute_merge(
     // マージ計画（センシティブファイルのフィルタリング）
     let mut plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
 
+    let destination_paths: Vec<String> = plan
+        .files
+        .iter()
+        .filter(|path| {
+            right_tree
+                .find_node(std::path::Path::new(path))
+                .is_some_and(|node| node.is_file())
+        })
+        .cloned()
+        .collect();
+    let expected = fetch_contents_required(&pair.right, &destination_paths, &mut core, args.force);
+    let expected_target_contents = expected.contents;
+    let mut compare_failures = compare_failures;
+    compare_failures.extend(
+        expected
+            .errors
+            .into_iter()
+            .map(|(path, error)| MergeFailure { path, error }),
+    );
+    plan.files
+        .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
+
     // BUG 2 fix: plan_deletions を早期リターンの前に実行
     let (delete_targets, mut delete_skipped) = if args.delete {
         plan_deletions(
@@ -359,6 +381,7 @@ pub fn execute_merge(
             force: args.force,
             statuses: &statuses,
             session_id: &session_id,
+            expected_target_contents: &expected_target_contents,
         };
 
         for path in &plan.files {

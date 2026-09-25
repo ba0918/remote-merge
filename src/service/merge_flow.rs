@@ -2,7 +2,7 @@
 //! cli/merge.rs と cli/sync.rs の両方から利用する。
 //! I/O 操作を含むため、純粋関数ではない。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::app::Side;
@@ -26,6 +26,7 @@ pub struct MergeContext<'a> {
     pub force: bool,
     pub statuses: &'a [FileStatus],
     pub session_id: &'a str,
+    pub expected_target_contents: &'a HashMap<String, Vec<u8>>,
 }
 
 pub enum SingleMergeResult {
@@ -155,6 +156,24 @@ pub fn execute_single_merge(
 
     // バイト列でコンテンツ読み込み（ソース側） — バイナリファイルも破壊しない
     let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
+
+    if target_tree
+        .find_node(Path::new(path))
+        .is_some_and(|node| node.is_file())
+    {
+        let expected = ctx
+            .expected_target_contents
+            .get(path)
+            .ok_or_else(|| anyhow::anyhow!("destination was not read before merge: {path}"))?;
+        let actual = ctx.core.read_file_bytes(target, path, ctx.force)?;
+        if &actual != expected {
+            anyhow::bail!("destination content changed since comparison: {path}");
+        }
+    } else if target_tree.find_node(Path::new(path)).is_none()
+        && ctx.core.target_path_exists(target, path)?
+    {
+        anyhow::bail!("destination appeared since comparison: {path}");
+    }
 
     // バックアップ（ターゲット側）
     let backup_path = if ctx.core.config.backup.enabled {

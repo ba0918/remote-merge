@@ -314,6 +314,10 @@ fn rollback_restores_the_content_seen_immediately_before_merge_writes() {
         .set_modified(original_mtime)
         .unwrap();
     let session_id = core.reserve_backup_session().unwrap();
+    let expected_target_contents = std::collections::HashMap::from([(
+        "file.txt".to_string(),
+        fs::read(develop.path().join("file.txt")).unwrap(),
+    )]);
     let mut context = MergeContext {
         left: &left,
         right: &right,
@@ -325,6 +329,7 @@ fn rollback_restores_the_content_seen_immediately_before_merge_writes() {
         force: true,
         statuses: &statuses,
         session_id: &session_id,
+        expected_target_contents: &expected_target_contents,
     };
     execute_single_merge(&mut context, "file.txt").unwrap();
     core.finish_backup_session(&session_id);
@@ -1551,7 +1556,7 @@ fn merge_through_a_symlink_cycle_stops_before_writing() {
     assert_eq!(output.failed.len(), 1);
     assert_eq!(output.failed[0].path, "cycle/file.txt");
     assert!(
-        output.failed[0].error.starts_with("backup failed: "),
+        output.failed[0].error.contains("symbolic links"),
         "{}",
         output.failed[0].error
     );

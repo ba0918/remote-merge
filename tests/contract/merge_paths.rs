@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -10,8 +11,12 @@ use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
+use remote_merge::merge::executor::MergeDirection;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
-use remote_merge::service::merge_flow::execute_deletions;
+use remote_merge::service::merge_flow::{
+    execute_deletions, execute_single_merge, MergeContext, SingleMergeResult,
+};
+use remote_merge::service::types::{FileStatus, FileStatusKind};
 use tempfile::TempDir;
 
 // @kotowari[EX-merge-001]
@@ -1351,6 +1356,155 @@ fn matching_symlinks_are_not_rewritten() {
         Path::new("shared.txt")
     );
     assert_eq!(target.symlink_metadata().unwrap().ino(), inode);
+}
+
+// @kotowari[EX-merge-021, EX-merge-023]
+#[test]
+fn external_edit_with_restored_size_and_timestamp_is_not_overwritten() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new version\n").unwrap();
+    let target = destination.path().join("file.txt");
+    fs::write(&target, "old version\n").unwrap();
+    let original_mtime = fs::metadata(&target).unwrap().modified().unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let mut core = CoreRuntime::with_targets(config, targets);
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree_recursive(&left, 100, true).unwrap();
+    let right_tree = core.fetch_tree_recursive(&right, 100, true).unwrap();
+    let expected = HashMap::from([("file.txt".to_string(), fs::read(&target).unwrap())]);
+    fs::write(&target, "evil change\n").unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(original_mtime)
+        .unwrap();
+    assert_eq!(
+        fs::metadata(&target).unwrap().len(),
+        expected["file.txt"].len() as u64
+    );
+    assert_eq!(
+        fs::metadata(&target).unwrap().modified().unwrap(),
+        original_mtime
+    );
+    let statuses = [FileStatus {
+        path: "file.txt".into(),
+        status: FileStatusKind::Modified,
+        sensitive: false,
+        hunks: None,
+        ref_badge: None,
+    }];
+    let mut ctx = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: false,
+        statuses: &statuses,
+        session_id: "unused",
+        expected_target_contents: &expected,
+    };
+    let error = execute_single_merge(&mut ctx, "file.txt")
+        .err()
+        .expect("external edit must fail");
+    assert!(error.to_string().contains("changed"), "{error}");
+    assert_eq!(fs::read_to_string(target).unwrap(), "evil change\n");
+}
+
+// @kotowari[EX-merge-022]
+#[test]
+fn unchanged_destination_is_updated_after_content_recheck() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new version\n").unwrap();
+    let target = destination.path().join("file.txt");
+    fs::write(&target, "old version\n").unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let mut core = CoreRuntime::with_targets(config, targets);
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree_recursive(&left, 100, true).unwrap();
+    let right_tree = core.fetch_tree_recursive(&right, 100, true).unwrap();
+    let expected = HashMap::from([("file.txt".to_string(), fs::read(&target).unwrap())]);
+    let statuses = [FileStatus {
+        path: "file.txt".into(),
+        status: FileStatusKind::Modified,
+        sensitive: false,
+        hunks: None,
+        ref_badge: None,
+    }];
+    let mut ctx = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: false,
+        statuses: &statuses,
+        session_id: "unused",
+        expected_target_contents: &expected,
+    };
+    assert!(matches!(
+        execute_single_merge(&mut ctx, "file.txt").unwrap(),
+        SingleMergeResult::Merged(_)
+    ));
+    assert_eq!(fs::read_to_string(target).unwrap(), "new version\n");
+}
+
+// @kotowari[REQ-merge-011]
+#[test]
+fn a_file_created_after_comparison_is_not_overwritten() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "source\n").unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let mut core = CoreRuntime::with_targets(config, targets);
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree_recursive(&left, 100, true).unwrap();
+    let right_tree = core.fetch_tree_recursive(&right, 100, true).unwrap();
+    let target = destination.path().join("file.txt");
+    fs::write(&target, "other writer\n").unwrap();
+    let expected = HashMap::new();
+    let statuses = [FileStatus {
+        path: "file.txt".into(),
+        status: FileStatusKind::LeftOnly,
+        sensitive: false,
+        hunks: None,
+        ref_badge: None,
+    }];
+    let mut ctx = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: false,
+        statuses: &statuses,
+        session_id: "unused",
+        expected_target_contents: &expected,
+    };
+    let result = execute_single_merge(&mut ctx, "file.txt");
+    assert!(
+        result.is_err(),
+        "file created since comparison must be protected"
+    );
+    assert_eq!(fs::read_to_string(target).unwrap(), "other writer\n");
 }
 
 // @kotowari[EX-merge-013]

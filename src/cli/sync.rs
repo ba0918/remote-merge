@@ -3,6 +3,8 @@
 //! 1:N マルチサーバ同期。left のファイルを複数の right サーバへ転送する。
 //! ハンドラ層として薄く保ち、ビジネスロジックは service 層に委譲する。
 
+use std::collections::HashMap;
+
 use crate::app::Side;
 use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
@@ -77,6 +79,7 @@ struct ServerPlan {
     right_only_skipped: Vec<MergeSkipped>,
     target_info: SourceInfo,
     compare_failures: Vec<MergeFailure>,
+    expected_target_contents: HashMap<String, Vec<u8>>,
 }
 
 /// sync サブコマンドを実行する
@@ -191,7 +194,29 @@ pub fn execute_sync(
         diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
         // マージ計画（センシティブファイルのフィルタリング）
-        let plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+        let mut plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+
+        let destination_paths: Vec<String> = plan
+            .files
+            .iter()
+            .filter(|path| {
+                right_tree
+                    .find_node(std::path::Path::new(path))
+                    .is_some_and(|node| node.is_file())
+            })
+            .cloned()
+            .collect();
+        let expected =
+            fetch_contents_required(right_side, &destination_paths, &mut core, args.force);
+        let expected_target_contents = expected.contents;
+        compare_failures.extend(
+            expected
+                .errors
+                .into_iter()
+                .map(|(path, error)| MergeFailure { path, error }),
+        );
+        plan.files
+            .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
         // 削除計画（--delete 指定時）
         let (delete_targets, mut delete_skipped) = if args.delete {
@@ -219,6 +244,7 @@ pub fn execute_sync(
             right_only_skipped,
             target_info,
             compare_failures,
+            expected_target_contents,
         });
     }
 
@@ -306,6 +332,7 @@ pub fn execute_sync(
                 force: args.force,
                 statuses: &sp.statuses,
                 session_id: &session_id,
+                expected_target_contents: &sp.expected_target_contents,
             };
 
             for path in &sp.plan.files {
@@ -645,6 +672,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             compare_failures: vec![],
+            expected_target_contents: HashMap::new(),
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);
@@ -702,6 +730,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             compare_failures: vec![],
+            expected_target_contents: HashMap::new(),
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);
@@ -745,6 +774,7 @@ mod tests {
                 root: "/var/www".into(),
             },
             compare_failures: vec![],
+            expected_target_contents: HashMap::new(),
         }];
 
         // パニックしなければ OK

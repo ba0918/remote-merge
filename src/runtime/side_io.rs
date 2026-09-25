@@ -98,6 +98,13 @@ impl CoreRuntime {
             .collect()
     }
 
+    pub fn target_path_exists(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<bool> {
+        Ok(!matches!(
+            self.inspect_path(side, rel_path)?,
+            super::target_io::TargetPath::Missing { .. }
+        ))
+    }
+
     // ── 読み込み ──
 
     /// Side に基づいてファイルを読み込む
