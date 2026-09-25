@@ -209,6 +209,7 @@ fn sync_to_local_saves_its_previous_contents_outside_the_destination_root() {
             force: true,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
         },
@@ -369,6 +370,7 @@ fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
             force: true,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
         },
@@ -381,6 +383,142 @@ fn explicit_file_sync_detects_different_bytes_with_equal_size_and_timestamp() {
     };
     assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
     assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[EX-merge-011]
+#[test]
+fn directory_sync_with_checksum_updates_equal_metadata_but_different_contents() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("folder")).unwrap();
+    fs::create_dir(destination.path().join("folder")).unwrap();
+    let source = local.path().join("folder/same.txt");
+    let target = destination.path().join("folder/same.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["folder".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: true,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
+    assert_eq!(output.targets[0].merged[0].path, "folder/same.txt");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[REQ-merge-006]
+#[test]
+fn directory_merge_with_checksum_updates_equal_metadata_but_different_contents() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("folder")).unwrap();
+    fs::create_dir(destination.path().join("folder")).unwrap();
+    let source = local.path().join("folder/same.txt");
+    let target = destination.path().join("folder/same.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["folder".into()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: true,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(output.merged[0].path, "folder/same.txt");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "alpha\n");
+}
+
+// @kotowari[REQ-merge-006]
+#[test]
+fn directory_sync_without_checksum_uses_the_metadata_quick_check() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("folder")).unwrap();
+    fs::create_dir(destination.path().join("folder")).unwrap();
+    let source = local.path().join("folder/same.txt");
+    let target = destination.path().join("folder/same.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&target, "bravo\n").unwrap();
+    let mtime = fs::metadata(&source).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&target)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["folder".into()],
+            left: Some("local".into()),
+            right: vec!["develop".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert!(output.targets[0].merged.is_empty(), "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "bravo\n");
 }
 
 // @kotowari[EX-merge-035]
@@ -417,6 +555,7 @@ fn sync_does_not_overwrite_a_destination_it_cannot_read() {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
         },
@@ -462,6 +601,7 @@ fn explicit_merge_checks_readability_even_when_file_sizes_differ() {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
             hunks: None,
@@ -517,6 +657,7 @@ fn unreadable_source_fails_one_file_without_blocking_the_other_merge() {
         force: false,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,
@@ -572,6 +713,7 @@ fn two_unreadable_sides_are_not_reported_as_identical_empty_files() {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
             hunks: None,
@@ -612,6 +754,7 @@ fn sync_skips_a_type_mismatch_and_preserves_the_destination() {
         force: true,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
     };
@@ -649,6 +792,7 @@ fn a_deleted_regular_file_is_backed_up_and_recreated_by_rollback() {
         force: true,
         delete: true,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,
@@ -702,6 +846,7 @@ fn delete_does_not_remove_a_destination_only_symlink() {
         force: true,
         delete: true,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,
@@ -741,6 +886,7 @@ fn sync_delete_keeps_a_destination_only_symlink() {
             force: true,
             delete: true,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
         },
@@ -815,6 +961,7 @@ fn merge_args(path: &str) -> MergeArgs {
         force: false,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,

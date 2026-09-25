@@ -304,11 +304,27 @@ pub fn needs_merge_content_compare(
     statuses: &[FileStatus],
     left: &FileTree,
     right: &FileTree,
+    checksum: bool,
 ) -> Vec<String> {
     let mut paths = needs_content_compare(statuses, left, right);
     for path in needs_explicit_file_compare(requested, statuses, left, right) {
         if !paths.contains(&path) {
             paths.push(path);
+        }
+    }
+    if checksum {
+        for status in statuses.iter().filter(|status| {
+            matches!(
+                status.status,
+                FileStatusKind::Modified | FileStatusKind::Equal
+            ) && left
+                .find_node(&status.path)
+                .zip(right.find_node(&status.path))
+                .is_some_and(|(left, right)| left.is_file() && right.is_file())
+        }) {
+            if !paths.contains(&status.path) {
+                paths.push(status.path.clone());
+            }
         }
     }
     paths

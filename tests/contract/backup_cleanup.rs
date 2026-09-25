@@ -114,6 +114,7 @@ fn merge_into_configured_server(fixture: &CleanupFixture) {
             force: true,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "json".into(),
             max_entries: None,
             hunks: None,

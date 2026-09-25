@@ -35,6 +35,7 @@ pub struct SyncArgs {
     pub force: bool,
     pub delete: bool,
     pub with_permissions: bool,
+    pub checksum: bool,
     pub format: String,
     /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
     pub max_entries: Option<usize>,
@@ -163,8 +164,13 @@ pub fn execute_sync(
             compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
         // メタデータだけでは判定できないファイルのコンテンツ比較
-        let paths_to_compare =
-            needs_merge_content_compare(&args.paths, &statuses, &left_tree, &right_tree);
+        let paths_to_compare = needs_merge_content_compare(
+            &args.paths,
+            &statuses,
+            &left_tree,
+            &right_tree,
+            args.checksum,
+        );
         let mut compare_failures = Vec::new();
         if !paths_to_compare.is_empty() {
             let left_batch =
@@ -547,6 +553,7 @@ mod tests {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "text".into(),
             max_entries: None,
         }

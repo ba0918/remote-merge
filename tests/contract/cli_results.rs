@@ -54,6 +54,7 @@ fn sync_args() -> SyncArgs {
         force: true,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
     }

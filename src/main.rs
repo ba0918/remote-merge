@@ -163,6 +163,9 @@ enum Commands {
         /// Copy source file permissions to destination
         #[arg(long)]
         with_permissions: bool,
+        /// Compare file contents within directories even when metadata matches
+        #[arg(long)]
+        checksum: bool,
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
@@ -197,6 +200,9 @@ enum Commands {
         /// Copy source file permissions to destination
         #[arg(long)]
         with_permissions: bool,
+        /// Compare file contents within directories even when metadata matches
+        #[arg(long)]
+        checksum: bool,
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
         format: String,
@@ -412,6 +418,7 @@ fn try_main() -> anyhow::Result<()> {
             force,
             delete,
             with_permissions,
+            checksum,
             format,
             max_entries,
             hunks,
@@ -435,6 +442,7 @@ fn try_main() -> anyhow::Result<()> {
                             force,
                             delete,
                             with_permissions,
+                            checksum,
                             format,
                             max_entries,
                             hunks,
@@ -453,6 +461,7 @@ fn try_main() -> anyhow::Result<()> {
             force,
             delete,
             with_permissions,
+            checksum,
             format,
             max_entries,
         }) => {
@@ -473,6 +482,7 @@ fn try_main() -> anyhow::Result<()> {
                         force,
                         delete,
                         with_permissions,
+                        checksum,
                         format,
                         max_entries,
                     };
@@ -804,6 +814,40 @@ fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directory_content_comparison_can_be_requested_for_merge_and_sync() {
+        let merge = Cli::try_parse_from([
+            "remote-merge",
+            "merge",
+            "folder",
+            "--left",
+            "local",
+            "--right",
+            "develop",
+            "--checksum",
+        ])
+        .unwrap();
+        assert!(matches!(
+            merge.command,
+            Some(Commands::Merge { checksum: true, .. })
+        ));
+        let sync = Cli::try_parse_from([
+            "remote-merge",
+            "sync",
+            "folder",
+            "--left",
+            "local",
+            "--right",
+            "develop",
+            "--checksum",
+        ])
+        .unwrap();
+        assert!(matches!(
+            sync.command,
+            Some(Commands::Sync { checksum: true, .. })
+        ));
+    }
 
     #[test]
     fn test_resolve_log_level_none_returns_none() {

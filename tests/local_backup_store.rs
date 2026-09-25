@@ -30,6 +30,7 @@ fn merge_args(path: &str) -> MergeArgs {
         force: false,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,
@@ -83,6 +84,7 @@ fn sync_args(path: &str) -> SyncArgs {
         force: true,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
     }
@@ -1928,6 +1930,7 @@ enabled = true
         force: true,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
     };

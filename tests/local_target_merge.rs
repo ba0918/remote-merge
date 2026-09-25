@@ -43,6 +43,7 @@ enabled = false
         force: false,
         delete: false,
         with_permissions: false,
+        checksum: false,
         format: "json".into(),
         max_entries: None,
         hunks: None,

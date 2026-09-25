@@ -43,6 +43,7 @@ pub struct MergeArgs {
     pub force: bool,
     pub delete: bool,
     pub with_permissions: bool,
+    pub checksum: bool,
     pub format: String,
     /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
     pub max_entries: Option<usize>,
@@ -158,6 +159,7 @@ pub fn execute_merge(
         MergeCompareOptions {
             requested: &args.paths,
             force: args.force,
+            checksum: args.checksum,
         },
         &pair.left,
         &pair.right,
@@ -404,6 +406,7 @@ fn run_hunk_merge(
         MergeCompareOptions {
             requested: &paths,
             force,
+            checksum: false,
         },
         left,
         right,
@@ -458,6 +461,7 @@ fn run_hunk_merge(
 struct MergeCompareOptions<'a> {
     requested: &'a [String],
     force: bool,
+    checksum: bool,
 }
 
 fn fetch_trees_and_statuses_for_merge(
@@ -496,8 +500,13 @@ fn fetch_trees_and_statuses_for_merge(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
 
     // Refine statuses with content comparison for metadata-ambiguous files
-    let paths_to_compare =
-        needs_merge_content_compare(comparison.requested, &statuses, &left_tree, &right_tree);
+    let paths_to_compare = needs_merge_content_compare(
+        comparison.requested,
+        &statuses,
+        &left_tree,
+        &right_tree,
+        comparison.checksum,
+    );
     let mut failures = Vec::new();
     if !paths_to_compare.is_empty() {
         let left_batch = fetch_contents_required(left, &paths_to_compare, core, comparison.force);
@@ -589,6 +598,7 @@ mod tests {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "text".into(),
             max_entries: None,
             hunks: None,
@@ -651,6 +661,7 @@ mod tests {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "yaml".into(),
             max_entries: None,
             hunks: None,
@@ -710,6 +721,7 @@ mod tests {
             force: false,
             delete: false,
             with_permissions: false,
+            checksum: false,
             format: "text".into(),
             max_entries: None,
             hunks: None,
