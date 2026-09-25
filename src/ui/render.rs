@@ -173,6 +173,28 @@ fn draw_dialog(frame: &mut Frame, state: &AppState) {
         DialogState::Info(ref msg) => {
             render_info_dialog(frame, msg, &state.palette);
         }
+        DialogState::SensitiveCopy(path) => {
+            render_simple_dialog(
+                frame,
+                " Sensitive Copy ",
+                &format!("Copy contents of {path} to clipboard?"),
+                state.palette.dialog_accent,
+                &state.palette,
+            );
+        }
+        DialogState::SensitiveReport { paths, destination } => {
+            render_simple_dialog(
+                frame,
+                " Sensitive Report ",
+                &format!(
+                    "Include contents of {} in {}?",
+                    paths.join(", "),
+                    destination.display()
+                ),
+                state.palette.dialog_accent,
+                &state.palette,
+            );
+        }
         DialogState::Progress(ref progress) => {
             render_progress_dialog(frame, progress, &state.palette);
         }

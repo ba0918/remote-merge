@@ -35,6 +35,11 @@ pub enum DialogState {
     Help(HelpOverlay),
     /// 情報ダイアログ（メッセージ表示のみ、Esc/Enter で閉じる）
     Info(String),
+    SensitiveCopy(String),
+    SensitiveReport {
+        paths: Vec<String>,
+        destination: std::path::PathBuf,
+    },
     /// プログレスダイアログ（走査・マージ進捗表示）
     Progress(ProgressDialog),
     /// 書き込み確認ダイアログ（w キー）

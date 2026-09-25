@@ -258,6 +258,8 @@ fn format_dialog_kind(dialog: &crate::ui::dialog::DialogState) -> Option<String>
         DialogState::MtimeWarning(_) => Some("mtime_warning".to_string()),
         DialogState::PairServerSelect(_) => Some("pair_server_select".to_string()),
         DialogState::ThreeWaySummary(_) => Some("three_way_summary".to_string()),
+        DialogState::SensitiveCopy(_) => Some("sensitive_copy".to_string()),
+        DialogState::SensitiveReport { .. } => Some("sensitive_report".to_string()),
     }
 }
 

@@ -1,9 +1,14 @@
 use std::fs;
 
+use crossterm::event::KeyCode;
 use remote_merge::app::clipboard_write::ClipboardResult;
 use remote_merge::app::{AppState, Side};
+use remote_merge::config::load_config_from_paths;
+use remote_merge::handler::dialog_keys::handle_dialog_key;
 use remote_merge::handler::tree_keys::{copy_diff_with, export_report_to};
+use remote_merge::runtime::{RuntimeTargets, TuiRuntime};
 use remote_merge::tree::{FileNode, FileTree};
+use remote_merge::ui::dialog::DialogState;
 use tempfile::TempDir;
 
 fn tree() -> FileTree {
@@ -101,4 +106,96 @@ fn copying_the_selected_diff_sends_its_lines_to_the_clipboard() {
         "{}",
         state.status_message
     );
+}
+
+// @kotowari[EX-tui-017]
+#[test]
+fn declining_a_sensitive_copy_keeps_its_body_off_the_clipboard() {
+    let mut state = state(true);
+    state.sensitive_patterns = vec!["one.txt".into()];
+    state.tree_cursor = state
+        .flat_nodes
+        .iter()
+        .position(|node| node.path == "one.txt")
+        .unwrap();
+    state.select_file();
+    copy_diff_with(&mut state, |_| panic!("copy must wait for approval"));
+    assert!(matches!(&state.dialog, DialogState::SensitiveCopy(path) if path == "one.txt"));
+    let directory = TempDir::new().unwrap();
+    let config_file = directory.path().join("config.toml");
+    fs::write(
+        &config_file,
+        format!(
+            "[local]\nroot_dir = {:?}\n",
+            directory.path().display().to_string()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_file), None).unwrap();
+    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('n'));
+    assert!(matches!(state.dialog, DialogState::None));
+    assert!(
+        state.status_message.contains("cancelled"),
+        "{}",
+        state.status_message
+    );
+}
+
+// @kotowari[EX-tui-018]
+#[test]
+fn approving_a_sensitive_report_writes_the_named_file_only_after_confirmation() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("approved-report.md");
+    let mut state = state(true);
+    state.sensitive_patterns = vec!["one.txt".into()];
+    export_report_to(&mut state, &path);
+    assert!(!path.exists(), "sensitive body must not be exported yet");
+    assert!(
+        matches!(&state.dialog, DialogState::SensitiveReport { paths, destination }
+        if paths == &["one.txt"] && destination == &path)
+    );
+    let config_file = directory.path().join("config.toml");
+    fs::write(
+        &config_file,
+        format!(
+            "[local]\nroot_dir = {:?}\n",
+            directory.path().display().to_string()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_file), None).unwrap();
+    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('y'));
+    let report = fs::read_to_string(path).unwrap();
+    assert!(
+        report.contains("-old one") && report.contains("+new one"),
+        "{report}"
+    );
+    assert!(report.contains("+new two"), "{report}");
+}
+
+// @kotowari[REQ-tui-009]
+#[test]
+fn declining_a_sensitive_report_leaves_the_destination_absent() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("private-report.md");
+    let mut state = state(true);
+    state.sensitive_patterns = vec!["one.txt".into()];
+    export_report_to(&mut state, &path);
+    assert!(matches!(state.dialog, DialogState::SensitiveReport { .. }));
+    let config_file = directory.path().join("config.toml");
+    fs::write(
+        &config_file,
+        format!(
+            "[local]\nroot_dir = {:?}\n",
+            directory.path().display().to_string()
+        ),
+    )
+    .unwrap();
+    let config = load_config_from_paths(Some(&config_file), None).unwrap();
+    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
+    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('n'));
+    assert!(!path.exists());
+    assert!(matches!(state.dialog, DialogState::None));
 }

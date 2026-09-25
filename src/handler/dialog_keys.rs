@@ -40,6 +40,36 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
             }
             _ => {}
         },
+        DialogState::SensitiveCopy(_) => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let DialogState::SensitiveCopy(path) = &state.dialog else {
+                    return;
+                };
+                let path = path.clone();
+                state.close_dialog();
+                super::tree_keys::copy_sensitive_diff_after_approval(state, &path);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "Sensitive copy cancelled".into();
+                state.close_dialog();
+            }
+            _ => {}
+        },
+        DialogState::SensitiveReport { .. } => match key {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                let DialogState::SensitiveReport { paths, destination } = &state.dialog else {
+                    return;
+                };
+                let (paths, destination) = (paths.clone(), destination.clone());
+                state.close_dialog();
+                super::tree_keys::export_report_after_approval(state, &destination, &paths);
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                state.status_message = "Sensitive report cancelled".into();
+                state.close_dialog();
+            }
+            _ => {}
+        },
         DialogState::BatchConfirm(_) => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let batch = if let DialogState::BatchConfirm(b) = &state.dialog {
