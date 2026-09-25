@@ -3,6 +3,7 @@
 //! I/O 操作を含むため、純粋関数ではない。
 
 use std::collections::HashSet;
+use std::path::Path;
 
 use crate::app::Side;
 use crate::diff::engine::{apply_selected_hunks_single_pass, compute_diff, is_binary, DiffResult};
@@ -166,6 +167,17 @@ pub fn execute_single_merge(
 
     // バイト列で書き込み（ターゲット側） — バイナリファイルも破壊しない
     ctx.core.write_file_bytes(target, path, &content)?;
+
+    if target_tree.find_node(Path::new(path)).is_none() && !ctx.with_permissions {
+        let mode = match target {
+            Side::Local => ctx.core.config.defaults.file_permissions,
+            Side::Remote(name) => {
+                let server = &ctx.core.config.servers[name];
+                crate::config::resolve_file_permissions(server, &ctx.core.config.defaults)
+            }
+        };
+        ctx.core.chmod_file(target, path, mode)?;
+    }
 
     // パーミッションコピー（--with-permissions 指定時）
     if ctx.with_permissions {

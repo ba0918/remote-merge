@@ -929,6 +929,76 @@ fn merging_through_an_in_root_parent_link_updates_the_existing_file() {
     );
 }
 
+// @kotowari[EX-merge-026]
+#[test]
+fn merging_without_permission_copy_preserves_destination_mode_and_owner() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("file.txt");
+    let target = destination.path().join("file.txt");
+    fs::write(&source, "new\n").unwrap();
+    fs::write(&target, "old\n").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    let old = fs::metadata(&target).unwrap();
+    let output = merge(&local, &destination, &backup, "file.txt");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    let new = fs::metadata(&target).unwrap();
+    assert_eq!(new.permissions().mode() & 0o777, 0o644);
+    assert_eq!((new.uid(), new.gid()), (old.uid(), old.gid()));
+}
+
+// @kotowari[EX-merge-028]
+#[test]
+fn permission_copy_changes_destination_mode_to_source_mode() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let source = local.path().join("file.txt");
+    let target = destination.path().join("file.txt");
+    fs::write(&source, "new\n").unwrap();
+    fs::write(&target, "old\n").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let mut args = merge_args("file.txt");
+    args.with_permissions = true;
+    let result = execute_merge(args, config, targets).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+// @kotowari[EX-merge-024]
+#[test]
+fn new_file_uses_destination_configured_mode() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("new.txt"), "new\n").unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.servers.get_mut("develop").unwrap().file_permissions = Some(0o640);
+    let result = execute_merge(merge_args("new.txt"), config, targets).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    let target = destination.path().join("new.txt");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::metadata(target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+}
+
 // @kotowari[EX-merge-003]
 #[test]
 fn delete_does_not_remove_a_destination_only_symlink() {
