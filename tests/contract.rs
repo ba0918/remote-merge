@@ -2,6 +2,8 @@
 mod backup_cleanup;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
+#[path = "contract/cli_results.rs"]
+mod cli_results;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
 #[path = "contract/merge_paths.rs"]
