@@ -753,3 +753,75 @@ fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
         "second old\n"
     );
 }
+
+// @kotowari[EX-cli-005]
+#[test]
+fn remote_to_remote_merge_requires_an_explicit_override() {
+    let fixture = sync_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("first".into()),
+            right: Some("second".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    assert_ne!(result.exit_code, 0);
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "first old\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "second old\n"
+    );
+}
+
+// @kotowari[EX-cli-006]
+#[test]
+fn explicit_override_allows_only_the_selected_remote_destination_to_change() {
+    let fixture = sync_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("first".into()),
+            right: Some("second".into()),
+            ref_server: None,
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(result.exit_code, 0, "{output:?}");
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.first.path().join("file.txt")).unwrap(),
+        "first old\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.second.path().join("file.txt")).unwrap(),
+        "first old\n"
+    );
+}
