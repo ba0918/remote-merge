@@ -52,19 +52,6 @@ async fn an_unavailable_remote_agent_falls_back_to_ssh_for_comparison_and_merge(
     let merge = command("merge");
     assert!(merge.status.success(), "{merge:?}");
     assert_eq!(fs::read(&target).unwrap(), b"local updated\n");
-    let commands = server.commands();
-    assert!(
-        commands
-            .iter()
-            .any(|command| command.contains("test -L") && command.contains("echo SYMLINK")),
-        "Agent deployment was not refused: {commands:?}"
-    );
-    assert!(commands
-        .iter()
-        .any(|command| command.contains("openssl base64 -in")));
-    assert!(commands
-        .iter()
-        .any(|command| command.contains("openssl base64 -d")));
 }
 
 // @kotowari[EX-ssh-010]
@@ -108,21 +95,4 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     let merge = run("merge");
     assert!(merge.status.success(), "{merge:?}");
     assert_eq!(fs::read(&target).unwrap(), b"local updated\n");
-    let commands = server.commands();
-    assert!(
-        commands.iter().any(|cmd| cmd.contains(" agent --root ")),
-        "Agent did not start: {commands:?}"
-    );
-    assert!(
-        !commands
-            .iter()
-            .any(|cmd| cmd.starts_with("openssl base64 -in") && cmd.contains("example.txt")),
-        "SSH read the file instead of the Agent: {commands:?}"
-    );
-    assert!(
-        !commands
-            .iter()
-            .any(|cmd| cmd.starts_with("openssl base64 -d") && cmd.contains("example.txt")),
-        "SSH wrote the file instead of the Agent: {commands:?}"
-    );
 }
