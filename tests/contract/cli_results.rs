@@ -1,9 +1,11 @@
 use std::fs;
 use std::process::Command;
 
+use remote_merge::cli::diff::{execute_diff, DiffArgs};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
 use remote_merge::runtime::RuntimeTargets;
+use remote_merge::service::output::format_json;
 use remote_merge::service::types::SyncTargetStatus;
 use tempfile::TempDir;
 
@@ -58,6 +60,38 @@ fn sync_args() -> SyncArgs {
         format: "json".into(),
         max_entries: None,
     }
+}
+
+// @kotowari[EX-cli-035]
+#[test]
+fn successful_cli_diff_json_contains_the_observed_change() {
+    let fixture = sync_fixture();
+    let (result, code) = execute_diff(
+        DiffArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: None,
+            format: "json".into(),
+            max_lines: None,
+            max_files: 100,
+            force: false,
+            max_entries: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    assert_ne!(code, remote_merge::service::types::exit_code::ERROR);
+    let encoded = format_json(&result).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(json["files"][0]["path"], "file.txt");
+    assert!(
+        json["files"][0]["hunks"]
+            .as_array()
+            .is_some_and(|hunks| !hunks.is_empty()),
+        "{json}"
+    );
 }
 
 // @kotowari[EX-cli-036]

@@ -64,6 +64,21 @@ pub fn run_diff_with_targets(
     targets: RuntimeTargets,
 ) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
+    let (multi_output, code) = execute_diff(args, config, targets)?;
+    let text = match format {
+        OutputFormat::Text => format_multi_diff_text(&multi_output),
+        OutputFormat::Json => format_json(&multi_output)?,
+    };
+    println!("{}", text);
+    Ok(code)
+}
+
+pub fn execute_diff(
+    args: DiffArgs,
+    config: AppConfig,
+    targets: RuntimeTargets,
+) -> anyhow::Result<(MultiDiffOutput, i32)> {
+    OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     let source_args = SourceArgs {
@@ -261,14 +276,8 @@ pub fn run_diff_with_targets(
         exit_code::SUCCESS
     };
 
-    let text = match format {
-        OutputFormat::Text => format_multi_diff_text(&multi_output),
-        OutputFormat::Json => format_json(&multi_output)?,
-    };
-    println!("{}", text);
-
     core.disconnect_all();
-    Ok(code)
+    Ok((multi_output, code))
 }
 
 /// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。
