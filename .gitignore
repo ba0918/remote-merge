@@ -1,6 +1,12 @@
 # Rust
 /target
 
+# Agents
+.agents/artifacts
+.agents/runtime
+.agents/tmp
+.agents/HANDOFF.md
+
 # Claude
 .claude/settings.local.json
 .claude/worktrees
