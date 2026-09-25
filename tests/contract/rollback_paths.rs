@@ -3,6 +3,7 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 
+use chrono::{TimeZone, Utc};
 use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
@@ -186,6 +187,157 @@ fn a_third_party_link_edit_blocks_the_whole_session_even_if_it_resolves_to_the_s
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "brand new content\n"
+    );
+}
+
+fn expired_backup_fixture() -> (
+    TempDir,
+    TempDir,
+    TempDir,
+    remote_merge::config::AppConfig,
+    RuntimeTargets,
+    String,
+) {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(destination.path().join("file.txt"), "before\n").unwrap();
+    let (mut config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    config.backup.retention_days = 1;
+    let old = targets
+        .clone()
+        .with_now(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap());
+    let mut core = CoreRuntime::with_targets(config.clone(), old);
+    let session = core.reserve_backup_session().unwrap();
+    core.save_backup(&Side::Remote("develop".into()), "file.txt", &session, false)
+        .unwrap();
+    core.write_file_bytes(&Side::Remote("develop".into()), "file.txt", b"after\n")
+        .unwrap();
+    core.finish_backup_session(&session);
+    drop(core);
+    let current = targets.with_now(Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap());
+    (local, destination, backup, config, current, session)
+}
+
+// @kotowari[EX-backup-013]
+#[test]
+fn expired_backup_is_not_restored_without_force() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert!(list
+        .sessions
+        .iter()
+        .any(|entry| entry.session_id == session && entry.expired));
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    );
+    assert!(result
+        .err()
+        .expect("expired session must be rejected")
+        .to_string()
+        .contains("expired"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "after\n"
+    );
+}
+
+// @kotowari[EX-backup-014]
+#[test]
+fn expired_backup_with_saved_data_is_restored_when_forced() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert!(output.failed.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "before\n"
+    );
+}
+
+// @kotowari[EX-backup-019]
+#[test]
+fn forced_restore_cannot_recover_a_cleaned_expired_backup() {
+    let (_local, destination, _backup, config, targets, session) = expired_backup_fixture();
+    let core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    core.cleanup_expired_backups().unwrap();
+    drop(core);
+    let listed = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: true,
+            session: None,
+            dry_run: false,
+            force: false,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::List(list) = listed.output else {
+        panic!("expected session list")
+    };
+    assert!(list.sessions.is_empty(), "{list:?}");
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    );
+    assert!(result
+        .err()
+        .expect("cleaned session must not be restorable")
+        .to_string()
+        .contains("No backup sessions found"));
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "after\n"
     );
 }
 
