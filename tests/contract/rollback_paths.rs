@@ -111,6 +111,64 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
     );
 }
 
+// @kotowari[EX-backup-006]
+#[test]
+fn unchanged_parent_link_allows_every_file_in_the_session_to_be_restored() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let shared = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(destination.path().join("first.txt"), "first before\n").unwrap();
+    fs::write(shared.path().join("second.txt"), "second before\n").unwrap();
+    symlink(shared.path(), destination.path().join("shared")).unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    let session = core.reserve_backup_session().unwrap();
+    let side = Side::Remote("develop".into());
+    for path in ["first.txt", "shared/second.txt"] {
+        core.save_backup(&side, path, &session, false).unwrap();
+        core.write_file_bytes(&side, path, b"merged\n").unwrap();
+    }
+    core.finish_backup_session(&session);
+    drop(core);
+
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore")
+    };
+    let paths: std::collections::HashSet<_> = output
+        .restored
+        .iter()
+        .map(|item| item.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        ["first.txt", "shared/second.txt"].into_iter().collect(),
+        "{output:?}"
+    );
+    assert!(output.skipped.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("first.txt")).unwrap(),
+        "first before\n"
+    );
+    assert_eq!(
+        fs::read_to_string(shared.path().join("second.txt")).unwrap(),
+        "second before\n"
+    );
+}
+
 // @kotowari[EX-backup-020]
 #[test]
 fn rollback_restores_the_previous_link_text_after_a_symlink_merge() {
@@ -402,6 +460,58 @@ fn one_sync_of_two_files_appears_as_one_rollback_session() {
         assert_eq!(
             fs::read_to_string(destination.path().join(path)).unwrap(),
             "new\n"
+        );
+    }
+}
+
+// @kotowari[EX-backup-015]
+#[test]
+fn previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    let (config, targets) = symlink_merge_setup(&local, &destination, &backup);
+    let mut core = CoreRuntime::with_targets(config.clone(), targets.clone());
+    let session = core.reserve_backup_session().unwrap();
+    let side = Side::Remote("develop".into());
+    for path in ["first.txt", "second.txt"] {
+        fs::write(destination.path().join(path), "before\n").unwrap();
+        core.save_backup(&side, path, &session, false).unwrap();
+        core.write_file_bytes(&side, path, b"after\n").unwrap();
+    }
+    core.finish_backup_session(&session);
+    drop(core);
+
+    let result = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(session),
+            dry_run: true,
+            force: false,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::DryRun { output, .. } = result.output else {
+        panic!("expected preview")
+    };
+    let paths: std::collections::HashSet<_> = output
+        .restored
+        .iter()
+        .map(|item| item.path.as_str())
+        .collect();
+    assert_eq!(
+        paths,
+        ["first.txt", "second.txt"].into_iter().collect(),
+        "{output:?}"
+    );
+    for path in ["first.txt", "second.txt"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(path)).unwrap(),
+            "after\n"
         );
     }
 }
