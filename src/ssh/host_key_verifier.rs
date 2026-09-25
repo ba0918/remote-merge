@@ -55,8 +55,15 @@ pub struct CliVerifier {
     pub auto_yes: bool,
 }
 
-impl HostKeyVerifier for CliVerifier {
-    fn verify_host_key(&self, host: &str, port: u16, key_type: &str, fingerprint: &str) -> bool {
+impl CliVerifier {
+    pub fn verify_host_key_with_input(
+        &self,
+        host: &str,
+        port: u16,
+        key_type: &str,
+        fingerprint: &str,
+        input: &mut impl std::io::BufRead,
+    ) -> bool {
         if self.auto_yes {
             eprintln!(
                 "The authenticity of host '{}' (port {}) can't be established.",
@@ -75,13 +82,25 @@ impl HostKeyVerifier for CliVerifier {
         eprint!("Are you sure you want to continue connecting (yes/no)? ");
         let _ = std::io::stderr().flush();
 
-        let mut input = String::new();
-        if std::io::stdin().read_line(&mut input).is_err() {
+        let mut input_line = String::new();
+        if input.read_line(&mut input_line).is_err() {
             return false;
         }
 
-        let answer = input.trim().to_lowercase();
+        let answer = input_line.trim().to_lowercase();
         answer == "yes" || answer == "y"
+    }
+}
+
+impl HostKeyVerifier for CliVerifier {
+    fn verify_host_key(&self, host: &str, port: u16, key_type: &str, fingerprint: &str) -> bool {
+        self.verify_host_key_with_input(
+            host,
+            port,
+            key_type,
+            fingerprint,
+            &mut std::io::stdin().lock(),
+        )
     }
 }
 

@@ -1,5 +1,5 @@
 use remote_merge::config::StrictHostKeyChecking;
-use remote_merge::ssh::host_key_verifier::verifier_from_policy;
+use remote_merge::ssh::host_key_verifier::{verifier_from_policy, CliVerifier};
 
 fn accepts_unknown_key(policy: StrictHostKeyChecking, auto_yes: bool, is_tui: bool) -> bool {
     verifier_from_policy(policy, auto_yes, is_tui).verify_host_key(
@@ -36,4 +36,18 @@ fn explicit_yes_option_accepts_the_unknown_key() {
 fn explicit_no_policy_accepts_the_unknown_key_in_both_interfaces() {
     assert!(accepts_unknown_key(StrictHostKeyChecking::No, false, false));
     assert!(accepts_unknown_key(StrictHostKeyChecking::No, false, true));
+}
+
+// @kotowari[EX-ssh-002]
+#[test]
+fn rejecting_an_unknown_host_key_stops_cli_approval() {
+    let verifier = CliVerifier { auto_yes: false };
+    let mut answer = "no\n".as_bytes();
+    assert!(!verifier.verify_host_key_with_input(
+        "example.invalid",
+        22,
+        "ssh-ed25519",
+        "SHA256:example",
+        &mut answer
+    ));
 }
