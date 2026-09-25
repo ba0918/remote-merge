@@ -6,7 +6,7 @@
 #   docker exec rm-testenv-centos5 bash /generate_testdata.sh
 #
 # または SSH 経由:
-#   ssh -p 2222 testuser@localhost 'bash -s' < generate_testdata.sh
+#   ssh -p 22222 testuser@localhost 'bash -s' < generate_testdata.sh
 #
 # 生成内容:
 #   /srv/testdata/ 配下に約10万ファイル

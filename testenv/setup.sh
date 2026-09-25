@@ -63,9 +63,9 @@ echo ""
 # ── Step 4: SSH 接続確認 ──
 echo "[4/6] Testing SSH connection..."
 # known_hosts のエントリをリフレッシュ
-ssh-keygen -f ~/.ssh/known_hosts -R '[localhost]:2222' 2>/dev/null || true
+ssh-keygen -f ~/.ssh/known_hosts -R '[localhost]:22222' 2>/dev/null || true
 
-if ssh $SSH_OPTS -i "$SSH_KEY" -p 2222 testuser@localhost \
+if ssh $SSH_OPTS -i "$SSH_KEY" -p 22222 testuser@localhost \
     'echo "  SSH OK: $(cat /etc/redhat-release), bash $(bash --version | head -1 | grep -o "[0-9]\+\.[0-9]\+\.[0-9]\+")"' 2>/dev/null; then
     echo "  SSH connection successful"
 else
