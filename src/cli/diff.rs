@@ -255,7 +255,10 @@ pub fn execute_diff(
     let files_with_changes = file_diffs
         .iter()
         .filter(|d| {
-            d.binary || d.symlink || !d.hunks.is_empty() || (d.sensitive && d.note.is_some())
+            (d.binary && d.left_hash != d.right_hash)
+                || d.symlink
+                || !d.hunks.is_empty()
+                || (d.sensitive && d.note.is_some())
         })
         .count();
     let multi_output = MultiDiffOutput {
@@ -296,6 +299,7 @@ fn run_diff_fast_path(
 
     let mut statuses = Vec::new();
     let mut existing = Vec::new();
+    let mut equal_binary_paths = Vec::new();
 
     for path in target_paths {
         let (left_bytes, left_ok) = read_file_bytes_tolerant(core, left, path, true);
@@ -317,6 +321,11 @@ fn run_diff_fast_path(
 
         match status_from_read_results(left_exists, right_exists, left_content, right_content) {
             Ok(kind) => {
+                if kind == FileStatusKind::Equal
+                    && (is_binary(&left_bytes) || is_binary(&right_bytes))
+                {
+                    equal_binary_paths.push(path.clone());
+                }
                 statuses.push(FileStatus {
                     path: path.clone(),
                     status: kind,
@@ -337,7 +346,8 @@ fn run_diff_fast_path(
         anyhow::bail!("specified path(s) not found on either side");
     }
 
-    let diff_files = filter_changed_files(&existing, &statuses);
+    let mut diff_files = filter_changed_files(&existing, &statuses);
+    diff_files.extend(equal_binary_paths);
     Ok((left_tree, right_tree, statuses, existing, diff_files))
 }
 

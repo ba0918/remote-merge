@@ -2,8 +2,10 @@ use std::fs;
 use std::process::Command;
 
 use remote_merge::cli::diff::{execute_diff, DiffArgs};
+use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::diff::binary::compute_sha256;
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::format_json;
 use remote_merge::service::types::SyncTargetStatus;
@@ -92,6 +94,165 @@ fn successful_cli_diff_json_contains_the_observed_change() {
             .is_some_and(|hunks| !hunks.is_empty()),
         "{json}"
     );
+}
+
+fn diff_args() -> DiffArgs {
+    DiffArgs {
+        paths: vec!["file.bin".into()],
+        left: Some("local".into()),
+        right: Some("first".into()),
+        ref_server: None,
+        format: "json".into(),
+        max_lines: None,
+        max_files: 100,
+        force: false,
+        max_entries: None,
+    }
+}
+
+// @kotowari[EX-cli-017]
+#[test]
+fn different_binary_files_report_hashes_without_text_lines() {
+    let fixture = sync_fixture();
+    let left = b"\0\xffalpha";
+    let right = b"\0\xffbravo";
+    fs::write(fixture.source.path().join("file.bin"), left).unwrap();
+    fs::write(fixture.first.path().join("file.bin"), right).unwrap();
+    let (result, _) = execute_diff(diff_args(), fixture.config, fixture.targets).unwrap();
+    assert_eq!(result.files.len(), 1, "{result:?}");
+    let file = &result.files[0];
+    assert!(file.binary);
+    assert!(file.hunks.is_empty());
+    assert_eq!(
+        file.left_hash.as_deref(),
+        Some(compute_sha256(left).as_str())
+    );
+    assert_eq!(
+        file.right_hash.as_deref(),
+        Some(compute_sha256(right).as_str())
+    );
+    assert_ne!(file.left_hash, file.right_hash);
+}
+
+// @kotowari[EX-cli-018]
+#[test]
+fn equal_binary_files_report_matching_hashes() {
+    let fixture = sync_fixture();
+    let bytes = b"\0\xffsame";
+    fs::write(fixture.source.path().join("file.bin"), bytes).unwrap();
+    fs::write(fixture.first.path().join("file.bin"), bytes).unwrap();
+    let (result, code) = execute_diff(diff_args(), fixture.config, fixture.targets).unwrap();
+    assert_eq!(result.files.len(), 1, "{result:?}");
+    let file = &result.files[0];
+    assert!(file.binary);
+    assert!(file.hunks.is_empty());
+    assert_eq!(
+        file.left_hash.as_deref(),
+        Some(compute_sha256(bytes).as_str())
+    );
+    assert_eq!(file.left_hash, file.right_hash);
+    assert_eq!(result.summary.files_with_changes, 0);
+    assert_eq!(code, remote_merge::service::types::exit_code::SUCCESS);
+}
+
+fn merge_binary(source: &[u8], target: &[u8]) -> Vec<u8> {
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("file.bin"), source).unwrap();
+    fs::write(fixture.first.path().join("file.bin"), target).unwrap();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["file.bin".into()],
+            left: Some("local".into()),
+            right: Some("first".into()),
+            ref_server: None,
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: None,
+            hunks: None,
+        },
+        fixture.config,
+        fixture.targets,
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    fs::read(fixture.first.path().join("file.bin")).unwrap()
+}
+
+// @kotowari[EX-cli-019]
+#[test]
+fn merging_a_file_with_nul_preserves_its_original_bytes() {
+    let original = b"\0one\0two\xff";
+    assert_eq!(merge_binary(original, b"\0old"), original);
+}
+
+// @kotowari[EX-cli-020]
+#[test]
+fn merging_invalid_text_bytes_does_not_transcode_them() {
+    let original = [0xff, 0xfe, 0x80, b'X'];
+    assert_eq!(merge_binary(&original, b"old"), original);
+}
+
+// @kotowari[EX-cli-001]
+#[test]
+fn directory_diff_json_contains_both_changed_files() {
+    let fixture = sync_fixture();
+    for (root, content) in [(&fixture.source, "incoming\n"), (&fixture.first, "old\n")] {
+        fs::create_dir(root.path().join("folder")).unwrap();
+        for name in ["alpha.txt", "beta.txt"] {
+            fs::write(root.path().join("folder").join(name), content).unwrap();
+        }
+    }
+    let mut args = diff_args();
+    args.paths = vec!["folder/".into()];
+    let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(code, remote_merge::service::types::exit_code::DIFF_FOUND);
+    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+    assert_eq!(json["summary"]["files_with_changes"], 2);
+    let paths: std::collections::HashSet<_> = json["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        ["folder/alpha.txt", "folder/beta.txt"]
+            .into_iter()
+            .collect()
+    );
+    assert!(
+        json["files"].as_array().unwrap().iter().all(|file| {
+            file["hunks"]
+                .as_array()
+                .is_some_and(|hunks| !hunks.is_empty())
+        }),
+        "{json}"
+    );
+}
+
+// @kotowari[EX-cli-002]
+#[test]
+fn equal_directory_diff_json_reports_no_changed_files() {
+    let fixture = sync_fixture();
+    for root in [&fixture.source, &fixture.first] {
+        fs::create_dir(root.path().join("folder")).unwrap();
+        fs::write(root.path().join("folder/alpha.txt"), "same\n").unwrap();
+    }
+    let mut args = diff_args();
+    args.paths = vec!["folder/".into()];
+    let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(code, remote_merge::service::types::exit_code::SUCCESS);
+    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+    assert_eq!(json["summary"]["files_with_changes"], 0);
+    assert_eq!(json["summary"]["scanned_files"], 1);
+    assert!(json["files"].as_array().unwrap().is_empty(), "{json}");
 }
 
 // @kotowari[EX-cli-036]
