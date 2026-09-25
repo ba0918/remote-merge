@@ -87,6 +87,78 @@ fn two_symlinks_merge_the_link_text_without_writing_through_either_link() {
     );
 }
 
+// @kotowari[EX-backup-009]
+#[test]
+fn disabled_backup_allows_an_existing_file_to_be_updated_without_saving_a_copy() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let result = execute_merge(
+        merge_args("file.txt"),
+        config,
+        targets.with_backup_store(None),
+    )
+    .unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert!(output.merged[0].backup.is_none());
+    assert!(output.failed.is_empty(), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "new\n"
+    );
+    assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(backup.path()).unwrap().count(), 0);
+}
+
+// @kotowari[EX-backup-010]
+#[test]
+fn enabled_backup_saves_the_old_contents_before_merge() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let result = execute_merge(merge_args("file.txt"), config.clone(), targets.clone()).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result")
+    };
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    assert!(output.merged[0].backup.is_some());
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "new\n"
+    );
+    let restored = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: None,
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(rollback) = restored.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(rollback.restored.len(), 1, "{rollback:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "old\n"
+    );
+}
+
 // @kotowari[EX-merge-009]
 #[test]
 fn explicit_file_merge_detects_different_bytes_with_equal_size_and_timestamp() {
@@ -567,7 +639,15 @@ fn merge(
     path: &str,
 ) -> remote_merge::service::types::MergeOutput {
     let (config, targets) = setup(local, destination, backup);
-    let args = MergeArgs {
+    let result = execute_merge(merge_args(path), config, targets).unwrap();
+    let MergeCommandOutput::Files(output) = result.output else {
+        panic!("expected per-file result");
+    };
+    output
+}
+
+fn merge_args(path: &str) -> MergeArgs {
+    MergeArgs {
         paths: vec![path.into()],
         left: Some("local".into()),
         right: Some("develop".into()),
@@ -579,13 +659,7 @@ fn merge(
         format: "json".into(),
         max_entries: None,
         hunks: None,
-    };
-
-    let result = execute_merge(args, config, targets).unwrap();
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected per-file result");
-    };
-    output
+    }
 }
 
 fn setup(
