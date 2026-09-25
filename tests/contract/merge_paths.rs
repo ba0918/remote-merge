@@ -117,7 +117,7 @@ fn disabled_backup_allows_an_existing_file_to_be_updated_without_saving_a_copy()
     assert_eq!(fs::read_dir(backup.path()).unwrap().count(), 0);
 }
 
-// @kotowari[EX-backup-010]
+// @kotowari[EX-backup-001, EX-backup-010]
 #[test]
 fn enabled_backup_saves_the_old_contents_before_merge() {
     let local = TempDir::new().unwrap();
@@ -136,6 +136,8 @@ fn enabled_backup_saves_the_old_contents_before_merge() {
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "new\n"
     );
+    assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
+    assert!(fs::read_dir(backup.path()).unwrap().next().is_some());
     let restored = execute_rollback(
         RollbackArgs {
             target: Some("develop".into()),
@@ -153,10 +155,140 @@ fn enabled_backup_saves_the_old_contents_before_merge() {
         panic!("expected restore result")
     };
     assert_eq!(rollback.restored.len(), 1, "{rollback:?}");
+    assert!(rollback.restored[0].pre_rollback_backup.is_some());
     assert_eq!(
         fs::read_to_string(destination.path().join("file.txt")).unwrap(),
         "old\n"
     );
+    assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
+}
+
+// @kotowari[EX-backup-002, REQ-backup-001]
+#[test]
+fn sync_to_local_saves_its_previous_contents_outside_the_destination_root() {
+    let local = TempDir::new().unwrap();
+    let source = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "old local\n").unwrap();
+    fs::write(source.path().join("file.txt"), "new remote\n").unwrap();
+    let (config, targets) = setup(&local, &source, &backup);
+    let before = fs::read_dir(local.path()).unwrap().count();
+    let result = execute_sync(
+        SyncArgs {
+            paths: vec!["file.txt".into()],
+            left: Some("develop".into()),
+            right: vec!["local".into()],
+            dry_run: false,
+            force: true,
+            delete: false,
+            with_permissions: false,
+            format: "json".into(),
+            max_entries: None,
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let SyncCommandOutput::Result(output) = result.output else {
+        panic!("expected sync result")
+    };
+    assert_eq!(output.targets[0].merged.len(), 1, "{output:?}");
+    assert!(output.targets[0].merged[0].backup.is_some());
+    assert_eq!(
+        fs::read_to_string(local.path().join("file.txt")).unwrap(),
+        "new remote\n"
+    );
+    assert_eq!(fs::read_dir(local.path()).unwrap().count(), before);
+    assert!(fs::read_dir(backup.path()).unwrap().next().is_some());
+    let restored = execute_rollback(
+        RollbackArgs {
+            target: Some("local".into()),
+            list: false,
+            session: None,
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(rollback) = restored.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(rollback.restored.len(), 1, "{rollback:?}");
+    assert_eq!(
+        fs::read_to_string(local.path().join("file.txt")).unwrap(),
+        "old local\n"
+    );
+    assert_eq!(fs::read_dir(local.path()).unwrap().count(), before);
+}
+
+// @kotowari[REQ-backup-001]
+#[test]
+fn rollback_saves_the_overwritten_version_in_the_aggregate_store() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(destination.path().join("file.txt"), "old\n").unwrap();
+    let (config, targets) = setup(&local, &destination, &backup);
+    let merged = execute_merge(merge_args("file.txt"), config.clone(), targets.clone()).unwrap();
+    let MergeCommandOutput::Files(merged) = merged.output else {
+        panic!("expected merge result")
+    };
+    assert_eq!(merged.merged.len(), 1, "{merged:?}");
+
+    let first = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: None,
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config.clone(),
+        targets.clone(),
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(first) = first.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(first.restored.len(), 1, "{first:?}");
+    let saved_version = first.restored[0]
+        .pre_rollback_backup
+        .clone()
+        .expect("restoring should save the replaced version");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "old\n"
+    );
+    assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
+
+    let second = execute_rollback(
+        RollbackArgs {
+            target: Some("develop".into()),
+            list: false,
+            session: Some(saved_version),
+            dry_run: false,
+            force: true,
+            format: "json".into(),
+        },
+        config,
+        targets,
+    )
+    .unwrap();
+    let RollbackCommandOutput::Restore(second) = second.output else {
+        panic!("expected restore result")
+    };
+    assert_eq!(second.restored.len(), 1, "{second:?}");
+    assert_eq!(
+        fs::read_to_string(destination.path().join("file.txt")).unwrap(),
+        "new\n"
+    );
+    assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 1);
+    assert!(fs::read_dir(backup.path()).unwrap().next().is_some());
 }
 
 // @kotowari[EX-merge-009]
