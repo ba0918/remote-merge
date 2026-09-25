@@ -29,6 +29,9 @@ mod ssh_host_key;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_server.rs"]
 mod ssh_server;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_sudo.rs"]
+mod ssh_sudo;
 #[path = "contract/status_results.rs"]
 mod status_results;
 #[path = "contract/tui_confirm.rs"]

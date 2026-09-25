@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use russh::keys::ssh_key::rand_core::OsRng;
@@ -16,6 +16,7 @@ pub struct TestServer {
     port: u16,
     task: tokio::task::JoinHandle<()>,
     write_attempts: Arc<AtomicUsize>,
+    commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl TestServer {
@@ -33,6 +34,10 @@ impl TestServer {
 
     pub fn write_attempts(&self) -> usize {
         self.write_attempts.load(Ordering::SeqCst)
+    }
+
+    pub fn commands(&self) -> Vec<String> {
+        self.commands.lock().unwrap().clone()
     }
 
     pub fn port(&self) -> u16 {
@@ -55,6 +60,8 @@ impl TestServer {
         let config = Arc::new(config);
         let write_attempts = Arc::new(AtomicUsize::new(0));
         let attempts = Arc::clone(&write_attempts);
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let received_commands = Arc::clone(&commands);
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -62,6 +69,7 @@ impl TestServer {
             let mut server = LocalServer {
                 incomplete_writes,
                 write_attempts: attempts,
+                commands: received_commands,
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -69,6 +77,7 @@ impl TestServer {
             port: port_rx.await.unwrap(),
             task,
             write_attempts,
+            commands,
         }
     }
 }
@@ -82,6 +91,7 @@ impl Drop for TestServer {
 struct LocalServer {
     incomplete_writes: bool,
     write_attempts: Arc<AtomicUsize>,
+    commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl server::Server for LocalServer {
@@ -91,6 +101,7 @@ impl server::Server for LocalServer {
         LocalHandler {
             incomplete_writes: self.incomplete_writes,
             write_attempts: Arc::clone(&self.write_attempts),
+            commands: Arc::clone(&self.commands),
         }
     }
 }
@@ -98,6 +109,7 @@ impl server::Server for LocalServer {
 struct LocalHandler {
     incomplete_writes: bool,
     write_attempts: Arc<AtomicUsize>,
+    commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl server::Handler for LocalHandler {
@@ -125,6 +137,10 @@ impl server::Handler for LocalHandler {
         command: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.commands
+            .lock()
+            .unwrap()
+            .push(String::from_utf8_lossy(command).into_owned());
         if command.starts_with(b"openssl base64 -d") && self.incomplete_writes {
             self.write_attempts.fetch_add(1, Ordering::SeqCst);
             session.disconnect(
