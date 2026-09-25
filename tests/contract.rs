@@ -21,6 +21,9 @@ mod scan_limits;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_compatibility.rs"]
 mod ssh_compatibility;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_disconnect.rs"]
+mod ssh_disconnect;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
 #[cfg(feature = "test-utils")]

@@ -984,15 +984,19 @@ impl SshClient {
         let _ = channel.close().await;
 
         // 終了コードチェック
-        if let Some(code) = exit_code {
-            if code != 0 {
-                anyhow::bail!(AppError::SshExec {
-                    command: format!("{}: exit={}", description, code),
-                });
-            }
+        match exit_code {
+            Some(0) => Ok(()),
+            Some(code) => anyhow::bail!(AppError::SshExec {
+                command: format!("{}: exit={}", description, code),
+            }),
+            None => anyhow::bail!(AppError::SshConnection {
+                host: self.server_name.clone(),
+                message: format!(
+                    "Write completion unknown: no exit status for {}",
+                    description
+                ),
+            }),
         }
-
-        Ok(())
     }
 
     /// チャネルにデータをチャンク分割で送信する。
