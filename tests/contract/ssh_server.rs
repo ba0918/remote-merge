@@ -22,23 +22,27 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn legacy() -> Self {
-        Self::start(true, false, 0).await
+        Self::start(true, false, 0, false).await
     }
 
     pub async fn modern() -> Self {
-        Self::start(false, false, 0).await
+        Self::start(false, false, 0, false).await
     }
 
     pub async fn incomplete_writes() -> Self {
-        Self::start(false, true, 0).await
+        Self::start(false, true, 0, false).await
     }
 
     pub async fn interrupt_first_read() -> Self {
-        Self::start(false, false, 1).await
+        Self::start(false, false, 1, false).await
     }
 
     pub async fn interrupt_all_reads() -> Self {
-        Self::start(false, false, usize::MAX).await
+        Self::start(false, false, usize::MAX, false).await
+    }
+
+    pub async fn reject_sudo() -> Self {
+        Self::start(false, false, 0, true).await
     }
 
     pub fn read_attempts(&self) -> usize {
@@ -57,7 +61,12 @@ impl TestServer {
         self.port
     }
 
-    async fn start(legacy: bool, incomplete_writes: bool, interrupt_reads: usize) -> Self {
+    async fn start(
+        legacy: bool,
+        incomplete_writes: bool,
+        interrupt_reads: usize,
+        reject_sudo: bool,
+    ) -> Self {
         let mut config = server::Config {
             auth_rejection_time: Duration::from_millis(10),
             auth_rejection_time_initial: Some(Duration::ZERO),
@@ -87,6 +96,7 @@ impl TestServer {
                 commands: received_commands,
                 read_attempts: attempts_on_read,
                 interrupt_reads,
+                reject_sudo,
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -112,6 +122,7 @@ struct LocalServer {
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
     interrupt_reads: usize,
+    reject_sudo: bool,
 }
 
 impl server::Server for LocalServer {
@@ -124,6 +135,7 @@ impl server::Server for LocalServer {
             commands: Arc::clone(&self.commands),
             read_attempts: Arc::clone(&self.read_attempts),
             interrupt_reads: self.interrupt_reads,
+            reject_sudo: self.reject_sudo,
         }
     }
 }
@@ -134,6 +146,7 @@ struct LocalHandler {
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
     interrupt_reads: usize,
+    reject_sudo: bool,
 }
 
 impl server::Handler for LocalHandler {
@@ -165,6 +178,12 @@ impl server::Handler for LocalHandler {
             .lock()
             .unwrap()
             .push(String::from_utf8_lossy(command).into_owned());
+        if command == b"sudo -n true" && self.reject_sudo {
+            session.exit_status_request(channel, 1)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
         if command.starts_with(b"openssl base64 -in") && self.interrupt_reads > 0 {
             if self.read_attempts.fetch_add(1, Ordering::SeqCst) < self.interrupt_reads {
                 session.disconnect(Disconnect::ByApplication, "connection lost during read", "")?;
