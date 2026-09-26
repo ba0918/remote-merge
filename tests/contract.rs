@@ -2,6 +2,10 @@
 mod backup_cleanup;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
+#[path = "contract/backup_storage.rs"]
+mod backup_storage;
+#[path = "contract/backup_support.rs"]
+mod backup_support;
 #[path = "contract/cli_results.rs"]
 mod cli_results;
 #[path = "contract/config_precedence.rs"]

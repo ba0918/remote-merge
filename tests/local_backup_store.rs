@@ -6,15 +6,11 @@ use chrono::{TimeZone, Utc};
 use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
-use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
-use remote_merge::merge::executor::MergeDirection;
 use remote_merge::runtime::bootstrap::{bootstrap_tui_with_targets, TuiBootstrapParams};
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
-use remote_merge::service::merge_flow::{execute_single_merge, MergeContext};
 use remote_merge::service::output::{format_backup_list_text, format_json};
-use remote_merge::service::types::{FileStatus, FileStatusKind};
 use tempfile::TempDir;
 
 #[cfg(unix)]
@@ -252,77 +248,6 @@ fn rollback_does_not_restore_a_file_when_its_current_content_cannot_be_backed_up
     assert_eq!(
         fs::read_to_string(develop.path().join("file.txt")).unwrap(),
         "content before rollback\n"
-    );
-}
-
-#[test]
-fn rollback_restores_the_content_seen_immediately_before_merge_writes() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "source content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "content during scan\n").unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-    let mut core = CoreRuntime::with_targets(config.clone(), runtime_targets.clone());
-    let left = Side::Local;
-    let right = Side::Remote("develop".into());
-    let left_tree = core.fetch_tree(&left).unwrap();
-    let right_tree = core.fetch_tree(&right).unwrap();
-    let statuses = vec![FileStatus {
-        path: "file.txt".into(),
-        status: FileStatusKind::Modified,
-        sensitive: false,
-        hunks: None,
-        ref_badge: None,
-    }];
-    let original_mtime = fs::metadata(develop.path().join("file.txt"))
-        .unwrap()
-        .modified()
-        .unwrap();
-    fs::write(
-        develop.path().join("file.txt"),
-        "content immediately before write\n",
-    )
-    .unwrap();
-    fs::OpenOptions::new()
-        .write(true)
-        .open(develop.path().join("file.txt"))
-        .unwrap()
-        .set_modified(original_mtime)
-        .unwrap();
-    let session_id = core.reserve_backup_session().unwrap();
-    let expected_target_contents = std::collections::HashMap::from([(
-        "file.txt".to_string(),
-        fs::read(develop.path().join("file.txt")).unwrap(),
-    )]);
-    let mut context = MergeContext {
-        left: &left,
-        right: &right,
-        left_tree: &left_tree,
-        right_tree: &right_tree,
-        direction: MergeDirection::LeftToRight,
-        core: &mut core,
-        with_permissions: false,
-        force: true,
-        statuses: &statuses,
-        session_id: &session_id,
-        expected_target_contents: &expected_target_contents,
-    };
-    execute_single_merge(&mut context, "file.txt").unwrap();
-    core.finish_backup_session(&session_id);
-    drop(core);
-
-    execute_rollback(
-        rollback_args("develop", Some(session_id)),
-        config,
-        runtime_targets,
-    )
-    .unwrap();
-
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "content immediately before write\n"
     );
 }
 
@@ -840,26 +765,6 @@ fn listed_sessions(
         panic!("expected backup list")
     };
     output.sessions
-}
-
-#[test]
-fn read_only_side_has_no_session_after_one_way_merge() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-
-    assert!(listed_sessions("local", config, runtime_targets).is_empty());
 }
 
 #[test]
@@ -1446,42 +1351,6 @@ fn session_with_missing_content_is_omitted_without_failing_the_list() {
 }
 
 #[test]
-fn legacy_backup_directory_is_ignored_by_list_and_status() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "same\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "same\n").unwrap();
-    fs::create_dir(develop.path().join(".remote-merge-backup")).unwrap();
-    fs::write(
-        develop.path().join(".remote-merge-backup/legacy.txt"),
-        "legacy\n",
-    )
-    .unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-
-    assert!(listed_sessions("develop", config.clone(), runtime_targets.clone()).is_empty());
-    let status = execute_status(
-        StatusArgs {
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            format: "json".into(),
-            summary: false,
-            all: false,
-            checksum: true,
-            verbose: 0,
-            max_entries: None,
-        },
-        config,
-        runtime_targets,
-    )
-    .unwrap();
-    assert_eq!(status.output.summary.right_only, 0);
-}
-
-#[test]
 fn merge_stores_backup_only_in_aggregate_store() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -1615,102 +1484,6 @@ fn merging_a_regular_file_does_not_replace_a_terminal_symlink() {
     assert_eq!(
         fs::read_to_string(develop.path().join("target.txt")).unwrap(),
         "linked content\n"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn aggregate_store_entries_are_owner_only_and_describe_target() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-
-    execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, true),
-        targets(&develop, &store),
-    )
-    .unwrap();
-
-    let mut contains_target = false;
-    let mut pending = vec![store.path().to_path_buf()];
-    while let Some(path) = pending.pop() {
-        let metadata = fs::metadata(&path).unwrap();
-        if metadata.is_dir() {
-            assert_eq!(
-                metadata.permissions().mode() & 0o777,
-                0o700,
-                "{}",
-                path.display()
-            );
-            pending.extend(
-                fs::read_dir(&path)
-                    .unwrap()
-                    .map(|entry| entry.unwrap().path()),
-            );
-        } else {
-            assert_eq!(
-                metadata.permissions().mode() & 0o777,
-                0o600,
-                "{}",
-                path.display()
-            );
-            if fs::read_to_string(&path)
-                .is_ok_and(|text| text.contains(develop.path().to_string_lossy().as_ref()))
-            {
-                contains_target = true;
-            }
-        }
-    }
-    assert!(contains_target);
-}
-
-#[test]
-fn new_file_merge_records_no_backup() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("new.txt"), "created\n").unwrap();
-
-    let result = execute_merge(
-        merge_args("new.txt"),
-        config(&local, &develop, true),
-        targets(&develop, &store),
-    )
-    .unwrap();
-
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected per-file merge output");
-    };
-    assert_eq!(output.merged[0].backup, None);
-    assert!(!store.path().exists() || fs::read_dir(store.path()).unwrap().next().is_none());
-}
-
-#[test]
-fn new_file_in_a_missing_directory_records_no_backup() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::create_dir(local.path().join("nested")).unwrap();
-    fs::write(local.path().join("nested/new.txt"), "created\n").unwrap();
-
-    let result = execute_merge(
-        merge_args("nested/new.txt"),
-        config(&local, &develop, true),
-        targets(&develop, &store),
-    )
-    .unwrap();
-
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected per-file merge output");
-    };
-    assert!(output.failed.is_empty());
-    assert_eq!(output.merged[0].backup, None);
-    assert_eq!(
-        fs::read_to_string(develop.path().join("nested/new.txt")).unwrap(),
-        "created\n"
     );
 }
 
