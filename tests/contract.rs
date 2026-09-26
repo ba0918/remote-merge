@@ -1,7 +1,22 @@
 #[path = "contract/backup_cleanup.rs"]
 mod backup_cleanup;
+#[path = "contract/backup_failure.rs"]
+mod backup_failure;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
+#[path = "contract/backup_rollback_cli.rs"]
+mod backup_rollback_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/backup_rollback_cli_e2e.rs"]
+mod backup_rollback_cli_e2e;
+#[path = "contract/backup_rollback_path.rs"]
+mod backup_rollback_path;
+#[path = "contract/backup_sessions.rs"]
+mod backup_sessions;
+#[path = "contract/backup_storage.rs"]
+mod backup_storage;
+#[path = "contract/backup_support.rs"]
+mod backup_support;
 #[path = "contract/cli_results.rs"]
 mod cli_results;
 #[path = "contract/config_precedence.rs"]

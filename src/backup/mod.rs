@@ -141,22 +141,13 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
         .and_then(|naive| naive.and_local_timezone(Utc).single())
 }
 
-/// セッションディレクトリ名がタイムスタンプ形式か検証する。
-///
-/// `"20240115-140000"` → `Some("20240115-140000")`
-/// `"not-a-timestamp"` → `None`
-pub fn extract_timestamp(name: &str) -> Option<&str> {
-    parse_session_id(name)?;
-    name.get(..15)
-}
-
 /// ローカルファイルのバックアップをセッションディレクトリに作成する。
 ///
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{AuthMethod, LocalConfig, ServerConfig};
-    use chrono::{Datelike, TimeZone};
+    use chrono::TimeZone;
 
     fn remote_config(user: &str, host: &str, root_dir: &str) -> ServerConfig {
         ServerConfig {
@@ -285,43 +276,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_timestamp_valid() {
-        assert_eq!(
-            extract_timestamp("20240115-140000"),
-            Some("20240115-140000")
-        );
-    }
-
-    #[test]
-    fn test_extract_timestamp_invalid() {
-        assert_eq!(extract_timestamp("not-a-timestamp"), None);
-        assert_eq!(extract_timestamp("config.ts"), None);
-        assert_eq!(extract_timestamp("2024011a-140000"), None);
-        assert_eq!(extract_timestamp(""), None);
-        assert_eq!(extract_timestamp("20240115_140000"), None); // アンダースコア
-    }
-
-    #[test]
-    fn test_parse_backup_timestamp() {
-        let dt = parse_backup_timestamp("20240115-140000");
-        assert!(dt.is_some());
-        let dt = dt.unwrap();
-        assert_eq!(dt.year(), 2024);
-        assert_eq!(dt.month(), 1);
-        assert_eq!(dt.day(), 15);
-    }
-
-    #[test]
-    fn same_time_uses_second_session_suffix() {
-        let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
-        let first = next_session_id(now, &[]);
-        let second = next_session_id(now, &[first.as_str()]);
-
-        assert_eq!(first, "20260914-155250");
-        assert_eq!(second, "20260914-155250-2");
-    }
-
-    #[test]
     fn session_id_with_sequence_is_parsed() {
         let parsed = parse_session_id("20260914-155250-12").unwrap();
 
@@ -330,14 +284,6 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap()
         );
         assert_eq!(parsed.sequence, 12);
-    }
-
-    #[test]
-    fn tenth_session_sorts_after_ninth_session() {
-        assert_eq!(
-            compare_session_ids("20260914-155250-10", "20260914-155250-9"),
-            Some(std::cmp::Ordering::Greater)
-        );
     }
 
     #[test]

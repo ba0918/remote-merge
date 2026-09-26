@@ -232,18 +232,6 @@ mod tests {
     // ── resolve_target ──
 
     #[test]
-    fn test_resolve_target_with_name() {
-        let side = resolve_target(Some("develop"), false).unwrap();
-        assert_eq!(side, Side::Remote("develop".into()));
-    }
-
-    #[test]
-    fn test_resolve_target_local() {
-        let side = resolve_target(Some("local"), false).unwrap();
-        assert_eq!(side, Side::Local);
-    }
-
-    #[test]
     fn test_resolve_target_none_list_mode_defaults_to_local() {
         let side = resolve_target(None, true).unwrap();
         assert_eq!(side, Side::Local);

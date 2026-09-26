@@ -1,0 +1,22 @@
+# 変異テストの見逃しのうち、観測できる違いを生まないと判断した同等変異の一覧。
+# 登録は別の文脈でその変異を落とすテストを書こうとして書けなかったときだけ行い、why にその試みを書く。
+- file: src/backup/mod.rs
+  change: replace backup_timestamp -> String with String::new()
+  text: Utc::now().format("%Y%m%d-%H%M%S").to_string()
+  class: equivalent
+  why: backup_timestamp の値はバックアップが無効なときの merge・sync のセッション ID にだけ使われ、その ID が流れる保存・削除の表示・セッションの片付けは全てバックアップが有効なときの分岐の中にあり、結果の出力にも集約先にも届かない。別の文脈のエージェントに merge・sync の公開された入口からこの変異で落ちるテストを書かせたが、観測できる違いが見つからず書けなかった
+- file: src/backup/mod.rs
+  change: replace backup_timestamp -> String with "xyzzy".into()
+  text: Utc::now().format("%Y%m%d-%H%M%S").to_string()
+  class: equivalent
+  why: 上の String::new() の変異と同じ理由。無効時のセッション ID は出力にも集約先にも届かず、別の文脈のエージェントも落ちるテストを書けなかった
+- file: src/runtime/backup_store.rs
+  change: replace += with *= in BackupStore::cleanup_expired
+  text: removed += 1;
+  class: equivalent
+  why: 変わるのは cleanup_expired が返す削除した数だけで、期限切れの削除そのものは変わらない。製品コードでこの戻り値を使う三か所（TUI の起動、merge、sync の開始）はどれもエラーかどうかしか見ない。別の文脈のエージェントは CoreRuntime::cleanup_expired_backups の戻り値を直接確かめるテストでしか落とせず、削除した数は IR のどこにも定められていないため根拠にならないテストだった
+- file: src/service/rollback.rs
+  change: replace match guard force with true in plan_restore
+  text: None if force => sessions.first().unwrap(),
+  class: equivalent
+  why: この腕に来るのは --session がなく全てのセッションが期限切れのときだけで、変異で選ばれる最新のセッションも期限切れのため、直後の「期限切れは --force なしでは戻さない」の確かめで元のコードと同じ AllExpired のエラーになる。別の文脈のエージェントに execute_rollback と plan_restore の直接の呼び出しから落ちるテストを書かせたが、エラーの種類も文言も出力も終了コードも同じで書けなかった

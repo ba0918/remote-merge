@@ -32,6 +32,48 @@ XDG_DATA_HOME が絶対パスならバックアップはその下の "remote-mer
 
 バックアップが明示的に無効の場合、merge と sync は復元可能なコピーを作らず、バックアップの有無を理由に書き込みを拒否しない。
 
+### REQ-backup-011: 集約先は所有者だけが読み書きできる
+- kind: invariant
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A9
+- verification: unit
+
+集約先の中に作るディレクトリは 0700、ファイルは 0600 とし、元ファイルの権限をバックアップ側の権限に使わない。
+
+### REQ-backup-012: 書き込み先を人が識別できる記録を置く
+- kind: invariant
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A10
+- verification: unit
+
+集約先の書き込み先ごとの領域には、リモートならホスト名・ポート・root_dir、ローカルなら root_dir の絶対パスを書いた人が読めるファイルを置く。
+
+### REQ-backup-013: 書き込み直前の内容を保存する
+- kind: invariant
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A11
+- verification: unit
+
+通常ファイルのバックアップには、差分表示時に読んだ内容ではなく、上書きまたは削除の直前に書き込み先から読み直した内容を保存する。
+
+### REQ-backup-014: 書き込む側だけをバックアップする
+- kind: prohibition
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A12
+- verification: unit
+
+操作で上書きまたは削除する書き込み先のファイルだけをバックアップし、読み込むだけの側にはセッションを作らない。
+
+### REQ-backup-015: 新規作成は記録しない
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A13
+- verification: unit
+
+書き込み先に元のファイルがないときは何も記録せず結果に backup を出さず、何も記録しなかった操作のセッションは集約先に残さず一覧にも出さない。
+
+### REQ-backup-016: 旧バックアップディレクトリを扱わない
+- kind: prohibition
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A30
+- verification: unit
+
+書き込み先にある既存の ".remote-merge-backup/" は読みも書きもせず、rollback の一覧にも status の結果にも出さない。
+
 ## Examples
 
 ```gherkin
