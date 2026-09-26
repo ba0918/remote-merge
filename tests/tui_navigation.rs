@@ -15,11 +15,16 @@ use expectrl::Expect;
 
 /// "j" キーでカーソルが下に移動し、次のファイル名が見えることを確認
 #[test]
-#[ignore]
 fn test_cursor_down_with_j() {
     let env = E2eEnv::new(
-        &[("alpha.txt", "aaa\n"), ("beta.txt", "bbb\n")],
-        &[("alpha.txt", "aaa\n"), ("beta.txt", "bbb\n")],
+        &[
+            ("alpha.txt", "ALPHA_MARKER\n"),
+            ("beta.txt", "BETA_MARKER\n"),
+        ],
+        &[
+            ("alpha.txt", "ALPHA_MARKER\n"),
+            ("beta.txt", "BETA_MARKER\n"),
+        ],
     );
 
     let mut session = env.spawn_tui();
@@ -45,6 +50,10 @@ fn test_cursor_down_with_j() {
         "After pressing j, 'beta.txt' should be visible on screen: {:?}",
         result.err()
     );
+    session.send("\r").expect("select second file");
+    session
+        .expect("BETA_MARKER")
+        .expect("second file content must be selected");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -52,11 +61,16 @@ fn test_cursor_down_with_j() {
 
 /// "j" → "k" でカーソルが元の位置に戻ることを確認
 #[test]
-#[ignore]
 fn test_cursor_up_with_k() {
     let env = E2eEnv::new(
-        &[("alpha.txt", "aaa\n"), ("beta.txt", "bbb\n")],
-        &[("alpha.txt", "aaa\n"), ("beta.txt", "bbb\n")],
+        &[
+            ("alpha.txt", "ALPHA_MARKER\n"),
+            ("beta.txt", "BETA_MARKER\n"),
+        ],
+        &[
+            ("alpha.txt", "ALPHA_MARKER\n"),
+            ("beta.txt", "BETA_MARKER\n"),
+        ],
     );
 
     let mut session = env.spawn_tui();
@@ -82,6 +96,10 @@ fn test_cursor_up_with_k() {
         "After j then k, 'alpha.txt' should still be visible: {:?}",
         result.err()
     );
+    session.send("\r").expect("select first file");
+    session
+        .expect("ALPHA_MARKER")
+        .expect("first file content must be selected");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -89,7 +107,6 @@ fn test_cursor_up_with_k() {
 
 /// Enter キーでディレクトリを展開し、子ファイルが表示されることを確認
 #[test]
-#[ignore]
 fn test_directory_expand_with_enter() {
     let env = E2eEnv::new(
         &[("mydir/child.txt", "child content\n")],
@@ -118,6 +135,11 @@ fn test_directory_expand_with_enter() {
         "After expanding 'mydir', should see 'child.txt': {:?}",
         result.err()
     );
+    session.send("j").expect("move to child");
+    session.send("\r").expect("select child");
+    session
+        .expect("child content")
+        .expect("child content must be visible");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -125,7 +147,6 @@ fn test_directory_expand_with_enter() {
 
 /// "h" キーでディレクトリを折りたたんでもクラッシュしないことを確認
 #[test]
-#[ignore]
 fn test_directory_collapse_with_h() {
     let env = E2eEnv::new(
         &[("folder/inner.txt", "inner\n")],
@@ -178,7 +199,6 @@ fn test_directory_collapse_with_h() {
 
 /// Tab キーでフォーカスが切り替わることを確認
 #[test]
-#[ignore]
 fn test_tab_switches_focus() {
     let env = E2eEnv::new(
         &[("focus_test.txt", "local version\nFOCUS_MARKER_LOCAL\n")],
@@ -206,19 +226,12 @@ fn test_tab_switches_focus() {
         result.err()
     );
 
-    // Tab でフォーカス切替（ツリーに戻る）
+    // Tab で差分ペインにフォーカスを移して、そのペインだけの操作を行う
     session.send("\t").expect("Failed to send Tab");
-    thread::sleep(Duration::from_millis(300));
-
-    // クラッシュしていないことを確認: Tab → Enter で再び diff 表示できるはず
-    session.send("\r").expect("Failed to send Enter after Tab");
-
-    let result = session.expect("FOCUS_MARKER_LOCAL");
-    assert!(
-        result.is_ok(),
-        "After Tab and re-Enter, diff should still show content: {:?}",
-        result.err()
-    );
+    session.send("d").expect("toggle focused diff pane");
+    session
+        .expect("side-by-side")
+        .expect("diff pane must receive the key after Tab");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -226,11 +239,16 @@ fn test_tab_switches_focus() {
 
 /// 先頭で "k" を複数回押してもクラッシュせず、その後 "j" で正常に移動できることを確認
 #[test]
-#[ignore]
 fn test_cursor_does_not_go_above_first() {
     let env = E2eEnv::new(
-        &[("first.txt", "f\n"), ("second.txt", "s\n")],
-        &[("first.txt", "f\n"), ("second.txt", "s\n")],
+        &[
+            ("first.txt", "FIRST_MARKER\n"),
+            ("second.txt", "SECOND_MARKER\n"),
+        ],
+        &[
+            ("first.txt", "FIRST_MARKER\n"),
+            ("second.txt", "SECOND_MARKER\n"),
+        ],
     );
 
     let mut session = env.spawn_tui();
@@ -260,6 +278,12 @@ fn test_cursor_does_not_go_above_first() {
         "After k x3 then j, should see 'second.txt': {:?}",
         result.err()
     );
+    session
+        .send("\r")
+        .expect("select after boundary navigation");
+    session
+        .expect("SECOND_MARKER")
+        .expect("cursor must end on second file");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -267,11 +291,10 @@ fn test_cursor_does_not_go_above_first() {
 
 /// 末尾で "j" を複数回押してもクラッシュせず、最後のアイテムが表示され続けることを確認
 #[test]
-#[ignore]
 fn test_cursor_does_not_go_below_last() {
     let env = E2eEnv::new(
-        &[("aaa.txt", "a\n"), ("zzz.txt", "z\n")],
-        &[("aaa.txt", "a\n"), ("zzz.txt", "z\n")],
+        &[("aaa.txt", "FIRST_MARKER\n"), ("zzz.txt", "LAST_MARKER\n")],
+        &[("aaa.txt", "FIRST_MARKER\n"), ("zzz.txt", "LAST_MARKER\n")],
     );
 
     let mut session = env.spawn_tui();
@@ -298,6 +321,10 @@ fn test_cursor_does_not_go_below_last() {
         "After j x10, 'zzz.txt' (last item) should still be visible: {:?}",
         result.err()
     );
+    session.send("\r").expect("select last file");
+    session
+        .expect("LAST_MARKER")
+        .expect("cursor must stay on last file");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -305,7 +332,6 @@ fn test_cursor_does_not_go_below_last() {
 
 /// 3 階層のネストされたディレクトリを展開し、最深部のファイルが表示されることを確認
 #[test]
-#[ignore]
 fn test_deep_directory_expand_collapse() {
     let env = E2eEnv::new(
         &[("level1/level2/level3/deep.txt", "deep content\n")],
@@ -346,6 +372,11 @@ fn test_deep_directory_expand_collapse() {
         "After expanding 3 levels, should see 'deep.txt': {:?}",
         result.err()
     );
+    session.send("j").expect("move to deepest file");
+    session.send("\r").expect("select deepest file");
+    session
+        .expect("deep content")
+        .expect("deepest file content must be visible");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));

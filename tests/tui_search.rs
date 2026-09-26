@@ -2,8 +2,7 @@
 //! TUI 検索テスト（PTY ベース E2E）
 //!
 //! "/" キーによるファイルツリー検索の動作を検証する。
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test tui_search -- --ignored` で実行する。
+//! 隔離した SSH fixture で検索結果と選択されたファイルを検査する。
 //! PTY バッファ消費問題を避けるため、`expect()` パターンで検証する。
 
 mod common;
@@ -15,17 +14,16 @@ use std::time::Duration;
 
 /// "/" で検索してファイル名にマッチするとそのファイルが表示される
 #[test]
-#[ignore]
 fn test_search_file_by_name() {
     let env = E2eEnv::new(
         &[
             ("a.txt", "alpha\n"),
-            ("src/main.rs", "fn main() {}\n"),
+            ("src/main.rs", "MAIN_SEARCH_MARKER\n"),
             ("src/lib.rs", "pub fn lib() {}\n"),
         ],
         &[
             ("a.txt", "alpha remote\n"),
-            ("src/main.rs", "fn main() { /* remote */ }\n"),
+            ("src/main.rs", "MAIN_REMOTE_MARKER\n"),
             ("src/lib.rs", "pub fn lib() { /* remote */ }\n"),
         ],
     );
@@ -66,6 +64,13 @@ fn test_search_file_by_name() {
         "Search for 'main' should show 'main.rs' in view: {:?}",
         result.err()
     );
+    session
+        .expect("[1/1]")
+        .expect("search should find exactly one file");
+    session.send("\r").expect("select searched file");
+    session
+        .expect("MAIN_SEARCH_MARKER")
+        .expect("search must select the matching file");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -75,13 +80,12 @@ fn test_search_file_by_name() {
 
 /// 検索後に "n" で次のマッチに移動する
 #[test]
-#[ignore]
 fn test_search_next_with_n() {
     let env = E2eEnv::new(
         &[
-            ("src/main.rs", "fn main() {}\n"),
-            ("src/lib.rs", "pub fn lib() {}\n"),
-            ("src/mod.rs", "mod tests;\n"),
+            ("src/main.rs", "MAIN_SEARCH_NEXT\n"),
+            ("src/lib.rs", "LIB_SEARCH_FIRST\n"),
+            ("src/mod.rs", "MOD_SEARCH_LAST\n"),
         ],
         &[
             ("src/main.rs", "fn main() { /* v2 */ }\n"),
@@ -123,9 +127,15 @@ fn test_search_next_with_n() {
         result.err()
     );
 
-    // "n" で次のマッチへ — クラッシュしないことを確認
+    session
+        .expect("[1/3]")
+        .expect("search should start at the first match");
+    // "n" で次のマッチへ
     session.send("n").expect("Failed to send n");
-    thread::sleep(Duration::from_millis(500));
+    session.send("\r").expect("select next match");
+    session
+        .expect("MAIN_SEARCH_NEXT")
+        .expect("next match must select a different file");
 
     // n を押した後も TUI が生きていることを確認: q で正常終了できる
     session.send("q").expect("Failed to send quit");
@@ -136,7 +146,6 @@ fn test_search_next_with_n() {
 
 /// 検索を Esc でキャンセルする
 #[test]
-#[ignore]
 fn test_search_cancel_with_esc() {
     let env = E2eEnv::new(
         &[("test.txt", "hello local\n")],
@@ -171,6 +180,12 @@ fn test_search_cancel_with_esc() {
         "After Esc cancel, should still see 'test.txt': {:?}",
         result.err()
     );
+    session
+        .send("\r")
+        .expect("select file after cancelling search");
+    session
+        .expect("hello local")
+        .expect("cancelled search must restore file selection");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -180,7 +195,6 @@ fn test_search_cancel_with_esc() {
 
 /// 存在しない文字列を検索してもクラッシュしない
 #[test]
-#[ignore]
 fn test_search_no_match_shows_message() {
     let env = E2eEnv::new(
         &[("test.txt", "hello local\n")],
@@ -204,7 +218,9 @@ fn test_search_no_match_shows_message() {
     session.send("\r").expect("Failed to send Enter");
     thread::sleep(Duration::from_millis(500));
 
-    // クラッシュしないこと — TUI が生きていることを q で確認
+    session
+        .expect("[no match]")
+        .expect("no-match search must be visible");
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
 
@@ -213,7 +229,6 @@ fn test_search_no_match_shows_message() {
 
 /// 空クエリで検索してもクラッシュしない
 #[test]
-#[ignore]
 fn test_search_empty_query_does_nothing() {
     let env = E2eEnv::new(
         &[("test.txt", "hello local\n")],
@@ -235,7 +250,10 @@ fn test_search_empty_query_does_nothing() {
         .expect("Failed to send Enter for empty search");
     thread::sleep(Duration::from_millis(500));
 
-    // クラッシュしないこと — TUI が生きていることを q で確認
+    session.send("\r").expect("select file after empty search");
+    session
+        .expect("hello local")
+        .expect("empty search must keep the file selected");
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
 

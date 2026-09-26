@@ -2,20 +2,19 @@
 //! TUI 3way 比較テスト（PTY ベース E2E）
 //!
 //! 3サーバー構成（develop <-> staging + local(ref)）の TUI 動作を検証する。
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test tui_3way -- --ignored` で実行する。
+//! 隔離した SSH fixture で表示と対象ファイルの結果を検査する。
 //! PTY バッファ消費問題を避けるため、`expect()` パターンで検証する。
 
 mod common;
 use common::*;
 
 use expectrl::Expect;
+use std::fs;
 use std::thread;
 use std::time::Duration;
 
 /// 3way 構成で左右両方のコンテンツが diff に表示される
 #[test]
-#[ignore]
 fn test_3way_right_side_content_loads() {
     let env = E2eEnv::new_3way(
         // local (ref)
@@ -65,7 +64,6 @@ fn test_3way_right_side_content_loads() {
 
 /// 3way で [C!] バッジが Enter 再押しで劣化しない（リグレッションテスト）
 #[test]
-#[ignore]
 fn test_3way_conflict_badge_survives_reenter() {
     // 3サーバーで全て内容が異なるファイル → [C!] が正しいバッジ
     let env = E2eEnv::new_3way(
@@ -145,7 +143,6 @@ fn test_3way_conflict_badge_survives_reenter() {
 /// 4. shared/ に対しディレクトリマージ (L→R) 実行
 /// 5. マージ後に config.json のバッジが [3-] にならないことを確認
 #[test]
-#[ignore]
 fn test_3way_reconnect_then_dir_merge_no_3minus_badge() {
     let env = E2eEnv::new_3way(
         // local (ref): 元のバージョン
@@ -227,6 +224,10 @@ fn test_3way_reconnect_then_dir_merge_no_3minus_badge() {
         "Should see 'Batch merge' completion message: {:?}",
         result.err()
     );
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("staging/shared/config.json")).unwrap(),
+        "shared config content (develop version)\n"
+    );
     eprintln!("Batch merge completed");
 
     // マージ後のカーソルは shared/ ディレクトリにいるはず
@@ -259,9 +260,8 @@ fn test_3way_reconnect_then_dir_merge_no_3minus_badge() {
     eprintln!("SUCCESS: reconnect + dir merge does not produce [3-] badge");
 }
 
-/// 3way で "X" キーを押すと左右がスワップする
+/// 3way で "X" キーを押すと right と reference がスワップする
 #[test]
-#[ignore]
 fn test_3way_swap_with_x() {
     let env = E2eEnv::new_3way(
         &[("swap.txt", "ref content\n")],
@@ -291,16 +291,9 @@ fn test_3way_swap_with_x() {
     // "X" で左右スワップ
     session.send("X").expect("Failed to send X");
     thread::sleep(Duration::from_secs(2));
-
-    // スワップ後もクラッシュせず TUI が生きていることを確認
-    // スワップ後は STAGING_SIDE が左に来るはず
-    let result = session.expect("STAGING_SIDE");
-    assert!(
-        result.is_ok(),
-        "After swap, should see 'STAGING_SIDE' in diff: {:?}",
-        result.err()
-    );
-
+    session
+        .expect("develop <-> local")
+        .expect("reference should become the right side");
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
 
@@ -309,7 +302,6 @@ fn test_3way_swap_with_x() {
 
 /// 3way diff ビューで "W" キーによるサマリーパネルのトグル
 #[test]
-#[ignore]
 fn test_3way_summary_panel_toggle_with_w() {
     let env = E2eEnv::new_3way(
         &[("summary.txt", "ref line\n")],
@@ -333,9 +325,14 @@ fn test_3way_summary_panel_toggle_with_w() {
     session.send("\r").expect("Failed to send Enter");
     thread::sleep(Duration::from_secs(2));
 
-    // "W" でサマリーパネルを表示
+    session.send("\t").expect("focus diff pane");
     session.send("W").expect("Failed to send W (show)");
-    thread::sleep(Duration::from_millis(500));
+    session
+        .expect("3way Summary: summary.txt")
+        .expect("selected file summary should appear");
+    session
+        .expect("SUMMARY_DEV_MARKER")
+        .expect("summary should include the actual left content");
 
     // "W" でサマリーパネルを非表示
     session.send("W").expect("Failed to send W (hide)");
@@ -350,7 +347,6 @@ fn test_3way_summary_panel_toggle_with_w() {
 
 /// ref サーバーにしか存在しないファイルにバッジが付く
 #[test]
-#[ignore]
 fn test_3way_ref_only_file_shows_badge() {
     let env = E2eEnv::new_3way(
         // local (ref) にのみ存在
@@ -365,13 +361,16 @@ fn test_3way_ref_only_file_shows_badge() {
         env.spawn_tui_with_args(&["--left", "develop", "--right", "staging", "--ref", "local"]);
     session.set_expect_timeout(Some(Duration::from_secs(15)));
 
-    // ファイルツリーの表示を待つ — ref_only.txt が何らかのバッジ付きで表示されるはず
+    // ファイルツリーの表示を待つ
     let result = session.expect("ref_only.txt");
     assert!(
         result.is_ok(),
         "Should see 'ref_only.txt' in tree: {:?}",
         result.err()
     );
+    session
+        .expect("[M]")
+        .expect("reference-only file should carry its badge");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
