@@ -93,6 +93,7 @@ export REMOTE_MERGE_E2E_PORT="$permit_port"
 export REMOTE_MERGE_E2E_REJECT_CONTAINER="$rejected"
 export REMOTE_MERGE_E2E_REJECT_PORT="$deny_port"
 export REMOTE_MERGE_KEY="$scratch/id_ed25519"
+export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 export HOME="$scratch/home" XDG_CONFIG_HOME="$scratch/home/config" XDG_DATA_HOME="$scratch/data"
 
 if [[ ${REMOTE_MERGE_E2E_ABORT_AT:-} == test ]]; then
