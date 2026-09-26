@@ -4,8 +4,7 @@
 # CentOS 5 の SSL ライブラリが TLS 1.2 未対応）。
 # そのため openssh の RPM をホスト側で事前ダウンロードし、rpm -i で直接インストールする。
 #
-# ホストカーネルは WSL2 (6.6.x) なので ARG_MAX 等はホスト依存だが、
-# ユーザーランド（古い bash 3.x, coreutils 5.x）はネイティブ CentOS 5。
+# ホストカーネル固有の操作は行わず、ユーザーランドのみを試す。
 #
 # 前提: WSL2 で kernelCommandLine = vsyscall=emulate が必要
 

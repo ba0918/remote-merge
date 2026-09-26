@@ -1,5 +1,6 @@
 # Rust
 /target
+/tests/container-e2e/target/
 
 # Agents
 .agents/artifacts
@@ -36,7 +37,4 @@ demo
 lcov.info
 /coverage/.claude/worktrees/
 
-# Test environment
-testenv/data/
-testenv/.ssh/
 logs/

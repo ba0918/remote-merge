@@ -5,8 +5,7 @@
 # リモートの10万ファイルに対して、ローカルには一部のみ存在する状態を作る。
 # これにより大量の RightOnly（リモートにしかない）ファイルが発生する。
 #
-# 使い方:
-#   ./generate_local_data.sh
+# setup.sh が試行ごとのコンテナとローカル領域を渡して実行する。
 #
 # シナリオ:
 #   - ローカルにある: 500 ファイル（リモートと共通のパスの一部）
@@ -19,18 +18,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_DIR="$SCRIPT_DIR/data/local"
+LOCAL_DIR=${REMOTE_MERGE_LEGACY_LOCAL_DIR:?run from setup.sh in a dedicated trial}
 REMOTE_DIR="/srv/testdata"  # リモート（コンテナ内）のパス
 
 # コンテナ名
-CONTAINER="rm-testenv-centos5"
+CONTAINER=${REMOTE_MERGE_LEGACY_CONTAINER:?run from setup.sh in a dedicated trial}
 
 echo "=== Local test data generator ==="
 echo "Target: $LOCAL_DIR"
 echo ""
 
 # ── クリーンアップ ──
-rm -rf "$LOCAL_DIR"
 mkdir -p "$LOCAL_DIR"
 
 # ── リモートからファイル一覧を取得 ──
