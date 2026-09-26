@@ -15,3 +15,8 @@
   text: removed += 1;
   class: equivalent
   why: 変わるのは cleanup_expired が返す削除した数だけで、期限切れの削除そのものは変わらない。製品コードでこの戻り値を使う三か所（TUI の起動、merge、sync の開始）はどれもエラーかどうかしか見ない。別の文脈のエージェントは CoreRuntime::cleanup_expired_backups の戻り値を直接確かめるテストでしか落とせず、削除した数は IR のどこにも定められていないため根拠にならないテストだった
+- file: src/service/rollback.rs
+  change: replace match guard force with true in plan_restore
+  text: None if force => sessions.first().unwrap(),
+  class: equivalent
+  why: この腕に来るのは --session がなく全てのセッションが期限切れのときだけで、変異で選ばれる最新のセッションも期限切れのため、直後の「期限切れは --force なしでは戻さない」の確かめで元のコードと同じ AllExpired のエラーになる。別の文脈のエージェントに execute_rollback と plan_restore の直接の呼び出しから落ちるテストを書かせたが、エラーの種類も文言も出力も終了コードも同じで書けなかった
