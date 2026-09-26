@@ -113,7 +113,7 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 | REQ-backup-026 | listing_and_cleanup_share_the_retention_boundary | 新しく書いた。src/backup/mod.rs の session_expires_at_retention_boundary と src/service/rollback.rs の mark_expired の四件を、一覧と整理を通して境界の一秒前と境界ちょうどで確かめる形にしたもの |
 | REQ-backup-026 | expired_session_is_marked_in_text_and_json_at_the_injected_boundary | tests/local_backup_store.rs から移した |
 
-- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため、性質にも FLAG にもしていない。
+- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため性質の入力には含めていない。FLAG として記録するかは利用者の判断を待つ。
 - REQ-backup-025 の「集約先の場所が決まらないときは整理しない」は、その実行から整理の対象が見えないため観測できる違いがなく、テストにしていない。
 - tests/local_backup_store.rs の merge_keeps_expired_sessions_for_targets_absent_from_config は REQ-backup-025 の文にない「設定から外れた書き込み先の履歴は残す」を確かめるもので、tests/contract/backup_cleanup.rs の EX-backup-017 のテストと重なるため移さず、削除候補に挙げる。
 
