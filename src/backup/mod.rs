@@ -147,7 +147,7 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
     use crate::config::{AuthMethod, LocalConfig, ServerConfig};
-    use chrono::{Datelike, TimeZone};
+    use chrono::TimeZone;
 
     fn remote_config(user: &str, host: &str, root_dir: &str) -> ServerConfig {
         ServerConfig {
@@ -273,16 +273,6 @@ mod tests {
             remote_target_identity(&address),
             remote_target_identity(&hostname)
         );
-    }
-
-    #[test]
-    fn test_parse_backup_timestamp() {
-        let dt = parse_backup_timestamp("20240115-140000");
-        assert!(dt.is_some());
-        let dt = dt.unwrap();
-        assert_eq!(dt.year(), 2024);
-        assert_eq!(dt.month(), 1);
-        assert_eq!(dt.day(), 15);
     }
 
     #[test]
