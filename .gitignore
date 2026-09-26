@@ -37,4 +37,7 @@ demo
 lcov.info
 /coverage/.claude/worktrees/
 
+# 旧テスト環境の生成物は、移行後も既存の作業領域に残り得る。
+/testenv/.ssh/
+/testenv/data/
 logs/
