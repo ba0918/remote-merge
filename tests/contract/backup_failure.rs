@@ -23,7 +23,8 @@ use remote_merge::ui::dialog::ConfirmDialog;
 use tempfile::TempDir;
 
 use super::backup_support::{
-    config, fixed_now, listed_sessions, merge_args, merge_files, rollback_args, rollback_list_args,
+    config, fixed_now, listed_sessions, merge_args, merge_files, restore, rollback_args,
+    rollback_list_args,
 };
 
 const LOCATION_ERROR: &str = "backup store location could not be determined";
@@ -391,6 +392,18 @@ fn tui_write_backs_up_both_sides_before_writing_them() {
         assert_eq!(sessions.len(), 1, "{side}: {sessions:?}");
         assert_eq!(sessions[0].files[0].path, "file.txt", "{side}");
     }
+    // 保存された内容が書き込み前のものであることを、各側をそのセッションから戻して確かめる
+    let no_backup = super::backup_support::config(&fixture.local, &fixture.develop, false);
+    for side in ["local", "develop"] {
+        let (output, _) = restore(
+            rollback_args(side, None),
+            no_backup.clone(),
+            targets.clone(),
+        );
+        assert_eq!(output.restored.len(), 1, "{side}: {output:?}");
+    }
+    assert_eq!(read(&fixture.local), "local\n");
+    assert_eq!(read(&fixture.develop), "develop\n");
 }
 
 // @kotowari[REQ-backup-020]
