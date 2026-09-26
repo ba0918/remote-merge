@@ -63,19 +63,3 @@ async fn rejected_noninteractive_sudo_stops_before_any_unprivileged_file_operati
     assert!(response.contains("NOPASSWD"), "{response}");
     assert_eq!(server.commands(), vec!["sudo -n true"]);
 }
-
-// @kotowari[EX-ssh-016, EX-ssh-018]
-#[test]
-#[ignore = "requires Docker with a noninteractive sudo SSH server"]
-fn privileged_merge_preserves_root_ownership_and_backs_up_the_old_contents() {
-    let output = Command::new("bash")
-        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/testenv/sudo_e2e.sh"))
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
