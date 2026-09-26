@@ -94,6 +94,7 @@ REQ-backup-012 のテストは、`RemoteTargetIdentity::port` を 1 を返すよ
 根拠テストは全て `tests/contract/backup_sessions.rs` にある。
 REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公開された関数 `remote_merge::backup::next_session_id` と `compare_session_ids` を通して確かめる。
 試す入力の数は上書きせず、proptest の既定の 256 件のまま。
+失敗入力のファイルは `proptest-regressions/tests/contract/backup_sessions.txt` に書き出すよう設定している（proptest の既定の置き場所は lib.rs か main.rs のある祖先を探し、見つからないとテストのソースの隣に書き出すため）。
 これまでの実行で失敗入力は見つかっておらず、`proptest-regressions/` のファイルはできていない。
 
 | 要件 | 根拠テスト | 元のテストと変えたところ |
@@ -384,6 +385,7 @@ S1 の実行で検知された理由は、上の表と同じく関係のない�
 ### 性質テストの確かめ
 
 - REQ-backup-022 と REQ-backup-023 の性質テスト（created_session_ids_follow_the_timestamp_and_suffix_format、session_ids_order_by_time_then_numeric_suffix、next_session_id_differs_from_every_existing_id）は tests/contract/backup_sessions.rs にあり、公開された関数 `next_session_id` と `compare_session_ids` を通して確かめる。
-- どれも `proptest!` を設定なしで使い、試す入力の数を上書きしていない（proptest の既定の 256 件）。
+- どれも `proptest!` に失敗入力のファイルの置き場所だけを変えた設定（property_config）を渡し、試す入力の数は上書きしていない（`ProptestConfig::default()` の既定の 256 件）。
+- 失敗入力のファイルは `proptest-regressions/tests/contract/backup_sessions.txt` に書き出される。性質の一つをわざと落とす一時的な変更で、proptest が "Saving this and future failures in <リポジトリ>/proptest-regressions/tests/contract/backup_sessions.txt" と出してそこへ書くことを確かめ、変更と書き出されたファイルは消した。
 - `proptest-regressions/` は、これまでの実行で失敗入力が見つかっていないため存在せず、コミットするファイルはない。
 - 既存の ID の N が u64 の最大値のときに next_session_id が加算のあふれで panic することは、FLAG-backup-005 として記録した（利用者の判断）。

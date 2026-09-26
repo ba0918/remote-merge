@@ -6,6 +6,7 @@ use std::os::unix::fs::symlink;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use proptest::prelude::*;
+use proptest::test_runner::FileFailurePersistence;
 use remote_merge::backup::{compare_session_ids, next_session_id};
 use remote_merge::cli::merge::execute_merge;
 use remote_merge::cli::rollback::execute_rollback;
@@ -314,10 +315,23 @@ fn session_id(time: DateTime<Utc>, sequence: u64) -> String {
     }
 }
 
+/// 性質テストの設定。試す入力の数は既定のまま、失敗入力のファイルをリポジトリ直下の
+/// proptest-regressions/ に書き出す。既定の置き場所は lib.rs か main.rs のある祖先を
+/// 探すが、tests/contract/ の祖先にはないため、テストのソースの隣に書き出してしまう。
+fn property_config() -> ProptestConfig {
+    ProptestConfig {
+        failure_persistence: Some(Box::new(FileFailurePersistence::Direct(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/proptest-regressions/tests/contract/backup_sessions.txt"
+        )))),
+        ..ProptestConfig::default()
+    }
+}
+
 // @kotowari[REQ-backup-022]
 #[test]
 fn created_session_ids_follow_the_timestamp_and_suffix_format() {
-    proptest!(|(
+    proptest!(property_config(), |(
     now in session_time(),
     existing in prop::collection::vec(near_session_id_parts(), 0..8),
     )| {
@@ -348,7 +362,7 @@ fn created_session_ids_follow_the_timestamp_and_suffix_format() {
 // @kotowari[REQ-backup-022]
 #[test]
 fn session_ids_order_by_time_then_numeric_suffix() {
-    proptest!(|(
+    proptest!(property_config(), |(
     left in (session_time(), sequence()),
     // 同じ日時や一秒違いの組が出やすいよう、半分は近くの時刻にする
     offset in prop_oneof![-1i64..=1, -400_000_000i64..=400_000_000],
@@ -367,7 +381,7 @@ fn session_ids_order_by_time_then_numeric_suffix() {
 // @kotowari[REQ-backup-023]
 #[test]
 fn next_session_id_differs_from_every_existing_id() {
-    proptest!(|(
+    proptest!(property_config(), |(
     now in session_time(),
     existing in prop::collection::vec(near_session_id_parts(), 0..16),
     )| {
