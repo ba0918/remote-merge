@@ -48,9 +48,11 @@ trap 'stop_unit; exit 130' INT TERM
 echo "mutants.sh: unit=$unit MemoryHigh=$memory_high MemoryMax=$memory_max MemorySwapMax=$memory_swap_max jobs=$jobs" >&2
 
 # サービスはユーザーの systemd の環境で動くため、このシェルが使っている toolchain とツールの選択を引き継ぐ。
-# 認証情報を含む変数を渡さないよう、引き継ぐ変数は名前で限定する。
+# systemd-run に渡した値はプロセスの引数とサービスの Environment に残るため、認証情報を含みうる
+# 変数（MISE_GITHUB_TOKEN など）を渡さないよう、引き継ぐ変数は秘密を含まない名前だけに限定する。
+# MISE_GLOBAL_CONFIG_FILE は、mise の shim（cargo-nextest など）が使うバージョンを決めるのに要る。
 env_args=(--setenv=PATH="$PATH")
-for name in RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME $(compgen -e | grep '^MISE_' || true); do
+for name in RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME MISE_GLOBAL_CONFIG_FILE; do
     if [ -n "${!name:-}" ]; then
         env_args+=(--setenv="$name=${!name}")
     fi
