@@ -2,90 +2,64 @@
 //! TUI マージテスト（PTY ベース E2E）
 //!
 //! ファイルマージ・ハンクマージの動作を検証する。
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test tui_merge -- --ignored` で実行する。
+//! 隔離した SSH fixture で確認画面と書き込み後の実ファイルを検査する。
 //! PTY バッファ消費問題を避けるため、`expect()` パターンで検証する。
 
 mod common;
 use common::*;
 
+use expectrl::process::Healthcheck;
 use expectrl::Expect;
+use std::fs;
 use std::thread;
 use std::time::Duration;
 
-/// "m" キーで確認ダイアログ → "y" でマージ完了、バッジが変化する
 #[test]
-#[ignore]
-fn test_file_merge_with_m_and_confirm() {
+fn confirming_a_tree_merge_copies_the_loaded_source_bytes() {
     let env = E2eEnv::new(
         &[("app.txt", "local version\nMERGE_TEST_CONTENT\n")],
         &[("app.txt", "remote version\nMERGE_TEST_CONTENT\n")],
     );
-
-    let mut session = env.spawn_tui();
-    session.set_expect_timeout(Some(Duration::from_secs(15)));
-
-    // ファイルツリー表示を待つ
-    let result = session.expect("app.txt");
-    assert!(result.is_ok(), "Should see 'app.txt': {:?}", result.err());
-
-    // SSH 接続完了を待つ
-    thread::sleep(Duration::from_secs(2));
-
-    // "m" でマージ開始
-    session.send("m").expect("Failed to send m");
-    thread::sleep(Duration::from_millis(500));
-
-    // "y" で確認
-    session.send("y").expect("Failed to send y");
-    thread::sleep(Duration::from_secs(3));
-
-    // マージ完了後もクラッシュせず TUI が生きていることを確認
-    // q で正常終了できることを検証
-    session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_millis(500));
-
-    eprintln!("SUCCESS: file merge with m and confirm works");
-}
-
-/// マージ後に "u" でアンドゥして元のバッジに戻る
-/// (smoke test: undo 操作がクラッシュしないことを主に検証)
-#[test]
-#[ignore]
-fn test_merge_undo_with_u() {
-    let env = E2eEnv::new(
-        &[("app.txt", "local content\nUNDO_TEST_MARKER\n")],
-        &[("app.txt", "remote content\nUNDO_TEST_MARKER\n")],
+    let destination = env.temp_root().join("remote/app.txt");
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "remote version\nMERGE_TEST_CONTENT\n"
     );
 
     let mut session = env.spawn_tui();
     session.set_expect_timeout(Some(Duration::from_secs(15)));
+    session
+        .expect("app.txt")
+        .expect("file tree should show app.txt");
+    session.send("\r").expect("select file");
+    session
+        .expect("local version")
+        .expect("source content should be visible");
+    session.send("R").expect("request left-to-right merge");
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "remote version\nMERGE_TEST_CONTENT\n"
+    );
+    session.send("y").expect("confirm merge");
 
-    let result = session.expect("app.txt");
-    assert!(result.is_ok(), "Should see 'app.txt': {:?}", result.err());
-    thread::sleep(Duration::from_secs(2));
-
-    // マージ実行
-    session.send("m").expect("Failed to send m");
-    thread::sleep(Duration::from_millis(500));
-    session.send("y").expect("Failed to send y");
-    thread::sleep(Duration::from_secs(3));
-
-    // "u" でアンドゥ
-    session.send("u").expect("Failed to send u");
-    thread::sleep(Duration::from_secs(3));
-
-    // アンドゥ後もクラッシュせず TUI が生きていることを確認
-    session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_millis(500));
-
-    eprintln!("SUCCESS: merge undo with u works");
+    for _ in 0..100 {
+        if fs::read_to_string(&destination).unwrap() == "local version\nMERGE_TEST_CONTENT\n" {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "local version\nMERGE_TEST_CONTENT\n",
+        "source: {:?}",
+        fs::read_to_string(env.temp_root().join("local/app.txt"))
+    );
+    session.send("q").expect("quit");
 }
 
-/// マージ確認で "n" を押すとキャンセルされる
-/// (smoke test: キャンセル操作がクラッシュしないことを主に検証)
+/// マージ確認で "n" を押すと宛先を変更しない
 #[test]
-#[ignore]
 fn test_merge_cancel_with_n() {
     let env = E2eEnv::new(
         &[("app.txt", "local content\nCANCEL_TEST_MARKER\n")],
@@ -99,78 +73,34 @@ fn test_merge_cancel_with_n() {
     assert!(result.is_ok(), "Should see 'app.txt': {:?}", result.err());
     thread::sleep(Duration::from_secs(2));
 
-    // "m" でマージダイアログ表示
-    session.send("m").expect("Failed to send m");
-    thread::sleep(Duration::from_millis(500));
+    session.send("R").expect("request merge");
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/app.txt")).unwrap(),
+        "remote content\nCANCEL_TEST_MARKER\n"
+    );
 
     // "n" でキャンセル
     session.send("n").expect("Failed to send n");
     thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/app.txt")).unwrap(),
+        "remote content\nCANCEL_TEST_MARKER\n"
+    );
 
     // キャンセル後もクラッシュせず TUI が生きていることを q で確認
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
+    assert!(
+        !session.get_process().is_alive().unwrap(),
+        "cancellation must close the dialog"
+    );
 
     eprintln!("SUCCESS: merge cancel with n works");
 }
 
-/// 2つのファイルをマージしてからアンドゥ2回で両方とも元に戻る
-/// (smoke test: 複数回 undo がクラッシュしないことを主に検証)
+/// 同一内容のファイルで "R" を押してもマージが無視される
 #[test]
-#[ignore]
-fn test_merge_undo_multiple_times() {
-    let env = E2eEnv::new(
-        &[
-            ("file1.txt", "local1\nMULTI_UNDO_1\n"),
-            ("file2.txt", "local2\nMULTI_UNDO_2\n"),
-        ],
-        &[
-            ("file1.txt", "remote1\nMULTI_UNDO_1\n"),
-            ("file2.txt", "remote2\nMULTI_UNDO_2\n"),
-        ],
-    );
-
-    let mut session = env.spawn_tui();
-    session.set_expect_timeout(Some(Duration::from_secs(15)));
-
-    let result = session.expect("file1.txt");
-    assert!(result.is_ok(), "Should see 'file1.txt': {:?}", result.err());
-    thread::sleep(Duration::from_secs(2));
-
-    // 1つ目のファイルをマージ
-    session.send("m").expect("Failed to send m (1st)");
-    thread::sleep(Duration::from_millis(500));
-    session.send("y").expect("Failed to send y (1st)");
-    thread::sleep(Duration::from_secs(3));
-
-    // "j" で次のファイルに移動
-    session.send("j").expect("Failed to send j");
-    thread::sleep(Duration::from_millis(500));
-
-    // 2つ目のファイルをマージ
-    session.send("m").expect("Failed to send m (2nd)");
-    thread::sleep(Duration::from_millis(500));
-    session.send("y").expect("Failed to send y (2nd)");
-    thread::sleep(Duration::from_secs(3));
-
-    // アンドゥ 1回目
-    session.send("u").expect("Failed to send u (1st)");
-    thread::sleep(Duration::from_secs(2));
-
-    // アンドゥ 2回目
-    session.send("u").expect("Failed to send u (2nd)");
-    thread::sleep(Duration::from_secs(2));
-
-    // クラッシュせず TUI が生きていることを確認
-    session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_millis(500));
-
-    eprintln!("SUCCESS: merge undo multiple times works");
-}
-
-/// 同一内容のファイルで "m" を押してもマージが無視される
-#[test]
-#[ignore]
 fn test_merge_on_equal_file_ignored() {
     let env = E2eEnv::new(
         &[("same.txt", "identical content\nEQUAL_MERGE_TEST\n")],
@@ -184,9 +114,22 @@ fn test_merge_on_equal_file_ignored() {
     assert!(result.is_ok(), "Should see 'same.txt': {:?}", result.err());
     thread::sleep(Duration::from_secs(2));
 
-    // "m" を押す — 同一ファイルなのでダイアログは出ないか無視される
-    session.send("m").expect("Failed to send m");
+    session.send("R").expect("request merge");
+    session
+        .send("y")
+        .expect("attempt to approve an equal-file merge");
     thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/same.txt")).unwrap(),
+        "identical content\nEQUAL_MERGE_TEST\n"
+    );
+    let backup_dir = env.temp_root().join("xdg-data/remote-merge/backups");
+    assert_eq!(
+        fs::read_dir(backup_dir)
+            .map(|entries| entries.count())
+            .unwrap_or(0),
+        0
+    );
 
     // クラッシュしないこと — TUI が生きていることを q で確認
     session.send("q").expect("Failed to send quit");
@@ -195,10 +138,9 @@ fn test_merge_on_equal_file_ignored() {
     eprintln!("SUCCESS: merge on equal file is ignored");
 }
 
-/// .env ファイルのマージで sensitive file 警告が出る
+/// .env ファイルは明示的な確認なしにマージされない
 #[test]
-#[ignore]
-fn test_sensitive_file_merge_shows_warning() {
+fn test_sensitive_file_merge_requires_confirmation() {
     let env = E2eEnv::new(
         &[(".env", "SECRET_KEY=local123\n")],
         &[(".env", "SECRET_KEY=remote456\n")],
@@ -211,32 +153,31 @@ fn test_sensitive_file_merge_shows_warning() {
     assert!(result.is_ok(), "Should see '.env': {:?}", result.err());
     thread::sleep(Duration::from_secs(2));
 
-    // "m" でマージ開始 — 警告ダイアログが出るはず
-    session.send("m").expect("Failed to send m");
-    thread::sleep(Duration::from_millis(500));
-
-    // 画面に "sensitive" キーワードが含まれることを検証
-    // ダイアログが出ているはず — expect で待機
-    let result = session.expect("ensitive");
-    assert!(
-        result.is_ok(),
-        "Sensitive file merge should show warning dialog with 'sensitive' text: {:?}",
-        result.err()
+    session.send("R").expect("request merge");
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
+        "SECRET_KEY=remote456\n"
     );
 
     // Esc または n でキャンセル
     session.send("n").expect("Failed to send n");
     thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
+        "SECRET_KEY=remote456\n"
+    );
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
-
-    eprintln!("SUCCESS: sensitive file merge shows warning");
+    assert!(
+        !session.get_process().is_alive().unwrap(),
+        "cancel must close the sensitive merge dialog"
+    );
 }
 
 /// diff ビューで "l" キーによるハンクマージ（左→右）
 #[test]
-#[ignore]
 fn test_hunk_merge_left_to_right_with_l() {
     let local_content = "line1\nline2\nLOCAL_HUNK\nline4\n";
     let remote_content = "line1\nline2\nREMOTE_HUNK\nline4\n";
@@ -272,7 +213,17 @@ fn test_hunk_merge_left_to_right_with_l() {
     session.send("l").expect("Failed to send l");
     thread::sleep(Duration::from_secs(2));
 
-    // マージ後もクラッシュせず TUI が生きていることを確認
+    session.send("w").expect("write staged hunk");
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/hunk.txt")).unwrap(),
+        remote_content
+    );
+    session.send("y").expect("confirm write");
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("remote/hunk.txt")).unwrap(),
+        local_content
+    );
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
 
@@ -281,7 +232,6 @@ fn test_hunk_merge_left_to_right_with_l() {
 
 /// diff ビューで "h" キーによるハンクマージ（右→左）
 #[test]
-#[ignore]
 fn test_hunk_merge_right_to_left_with_h_key() {
     let local_content = "line1\nline2\nLOCAL_HUNK\nline4\n";
     let remote_content = "line1\nline2\nREMOTE_HUNK\nline4\n";
@@ -317,7 +267,17 @@ fn test_hunk_merge_right_to_left_with_h_key() {
     session.send("h").expect("Failed to send h");
     thread::sleep(Duration::from_secs(2));
 
-    // マージ後もクラッシュせず TUI が生きていることを確認
+    session.send("w").expect("write staged hunk");
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("local/hunk.txt")).unwrap(),
+        local_content
+    );
+    session.send("y").expect("confirm write");
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("local/hunk.txt")).unwrap(),
+        remote_content
+    );
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
 

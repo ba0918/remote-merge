@@ -314,7 +314,7 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()),
                 "unexpected remote command: {command}"
             );
-            if command.starts_with("openssl base64 -d -A -out ") {
+            if command.starts_with("openssl base64 -d -A -out ") || command.starts_with("cat > ") {
                 self.write_channels
                     .insert(channel, (command.into_owned(), Vec::new()));
                 return Ok(());
