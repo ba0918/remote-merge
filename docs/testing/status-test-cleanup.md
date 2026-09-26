@@ -124,3 +124,25 @@ tests/ の直下の実行ファイルを起動するテストのうち、同じ�
 
 - tests/cli_status.rs の test_status_json_special_chars_in_path（空白を含むパスの JSON）は、パスの文字の扱いを IR が定めていないため根拠にせず、削除候補に挙げる。
 - Summary 行が最後の行であることは -v を指定しない場合だけを見る。-v での Agent 行は FLAG-cli-001 の範囲のため確かめない。
+
+### 比較対象と三者比較（docs/ir/cli/status-targets.md）
+
+根拠テストは `tests/contract/status_targets.rs` と、終了コード 2 のテスト（`tests/contract/status_output.rs`）にある。
+左右の決め方は関数呼び出しで、参照先の表示と警告は隔離された SSH fixture に対して実行ファイルを起動して確かめる。
+三者比較の参照先は、SSH fixture の三サーバ構成（左 develop・右 staging・参照先 local）を使う。
+`tests/contract/status_targets.rs` も SSH fixture を使うため `test-utils` の feature があるときだけ組み込む。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-034（TBL-cli-004 の四行） | sides_come_from_left_and_right_with_local_and_the_default_server_filling_the_gaps | src/service/source_pair.rs の test_left_and_right_explicit、test_no_args_uses_first_config_server、test_right_only、source_pair_left_local_right_remote、source_pair_left_remote_right_local、test_left_only_local_falls_back_to_default、test_left_only_nondefault_succeeds。結果の "left" と "right" の "label" で確かめる |
+| REQ-cli-034（左右が同じ・設定にないサーバ名） | identical_sides_and_unknown_servers_stop_with_an_error、exit_code_is_two_for_an_unknown_server_or_identical_sides | src/service/source_pair.rs の test_unknown_server_returns_error、source_pair_both_local_errors、test_same_left_right_explicit_error、test_same_left_right_local_error と、tests/cli_error_handling.rs の test_invalid_server_name_rejected、test_self_compare_rejected（移して消した。後者は終了コード 2 のテストに REQ-cli-034 の印を足した）。エラーの文言は IR が定めていないため、エラーで止まることだけを見る |
+| REQ-cli-034（既定サーバで補って同じになった） | sides_made_identical_by_the_default_server_say_so_in_the_error | src/service/source_pair.rs の test_left_only_falls_back_to_default_server、test_implicit_right_error_message_contains_context。エラーに既定サーバの名前と "default server" が含まれることだけを見る |
+| REQ-cli-034（サーバが一つもない） | a_needed_default_server_without_any_server_configured_is_an_error | src/service/source_pair.rs の test_no_servers_in_config。何も指定しない場合と --left local だけの場合 |
+| REQ-cli-035（TBL-cli-005 の三行と JSON） | json_marks_each_file_against_the_ref_and_counts_the_marks | src/service/status.rs の test_compute_ref_badges_differs、test_compute_ref_badges_missing_in_ref、test_compute_ref_badges_empty_ref_tree と src/service/types.rs の test_status_output_with_ref_serialize。左右の両方にあって参照先にない組、左だけ・右だけにあって参照先にある組、三つにあって中身の違う組（左右が同じで参照先だけが違う組を含む）を確かめる。"ref_only" の値は FLAG-cli-002 の範囲のため数であることだけを見る |
+| REQ-cli-035（テキスト） | text_names_the_ref_in_the_header_marks_files_and_adds_a_ref_line_after_the_summary | tests/cli_status.rs の test_status_with_ref_shows_badges（移して消した）と src/service/output.rs の test_status_header_with_ref。見出しの "(ref: local)"、" [ref-]" と " [ref≠]"、Summary 行の後の Ref 行を書き足した。Ref 行の ref-only の数は上と同じ理由で固定しない |
+| REQ-cli-036 | json_marks_each_file_against_the_ref_and_counts_the_marks | src/service/status.rs の test_compute_ref_badges_sensitive_missing_in_ref、test_compute_ref_badges_sensitive_exists_in_ref、test_compute_ref_badges_sensitive_skipped、test_compute_ref_badges_sensitive_no_content_leak。参照先にない機密ファイルが "missing_in_ref"、三つにあって中身の違う機密ファイルに印がない |
+| REQ-cli-037 | a_ref_equal_to_either_side_warns_and_compares_without_the_ref | src/cli/ref_guard.rs の ref_same_as_left_returns_none、ref_same_as_right_returns_none。警告の文言が標準エラーに出て、見出しに "(ref:" も Ref 行もなく、比較の結果（"M file.txt" と終了コード 1）が出ることを確かめる |
+
+- src/cli/ref_guard.rs の ref_different_returns_some と ref_none_returns_none は、参照先が左右と違うときに三者比較をすること・--ref なしでは三者比較をしないことを見るもので、上の REQ-cli-035 の根拠テストと --ref なしの全ての根拠テストが同じ振る舞いを確かめるため、削除候補に挙げる。
+- tests/cli_error_handling.rs の test_ref_with_left_equal_fails_on_ssh と test_ref_with_right_equal_fails_on_ssh は、SSH の接続が警告より先に失敗することを確かめるもので、REQ-cli-037 の根拠にならないため削除候補に挙げる。
+- FLAG-cli-002 の範囲の test_compute_ref_badges_all_equal と test_compute_ref_summary、src/service/output.rs の test_format_status_text_with_ref_badges は移さず、削除候補にもしない。

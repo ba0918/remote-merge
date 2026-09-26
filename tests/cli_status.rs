@@ -28,40 +28,6 @@ fn test_status_all_includes_equal() {
     );
 }
 
-/// --ref で 3way 構成にすると Ref サマリーが表示される
-#[test]
-fn test_status_with_ref_shows_badges() {
-    // develop と staging で異なるサイズのファイルを用意して Modified にする
-    let env = CliEnv::new_3way(
-        &[("config.txt", "base\n")],
-        &[("config.txt", "develop version content\n")],
-        &[("config.txt", "staging\n")],
-    );
-
-    let output = env
-        .cmd_with("status")
-        .args(["--left", "develop", "--right", "staging", "--ref", "local"])
-        .output()
-        .expect("failed to execute");
-
-    // 3way 比較が実行され、Ref サマリーが含まれる
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Ref:"),
-        "output should contain ref summary line, got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("ref:"),
-        "header should mention ref, got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("config.txt") && stdout.contains("[ref≠]"),
-        "{output:?}"
-    );
-}
-
 /// config の exclude フィルタで .git が除外される
 #[test]
 fn test_status_exclude_filter_works() {

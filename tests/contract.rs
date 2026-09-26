@@ -64,6 +64,9 @@ mod status_output;
 mod status_results;
 #[path = "contract/status_support.rs"]
 mod status_support;
+#[cfg(feature = "test-utils")]
+#[path = "contract/status_targets.rs"]
+mod status_targets;
 #[path = "contract/tui_confirm.rs"]
 mod tui_confirm;
 #[path = "contract/tui_directory_links.rs"]

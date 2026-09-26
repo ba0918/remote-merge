@@ -85,49 +85,6 @@ root_dir = "/tmp/test-remote"
     config_path
 }
 
-/// 存在しないサーバ名を --right に指定 → exit≠0, "not found in config"
-#[test]
-fn test_invalid_server_name_rejected() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--right",
-            "nonexistent_server",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert!(!output.status.success(), "should fail for unknown server");
-    assert_stderr_contains(&output, "not found in config");
-}
-
-/// --left と --right に同じサーバを指定 → exit≠0
-#[test]
-fn test_self_compare_rejected() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--left",
-            "develop",
-            "--right",
-            "develop",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert!(!output.status.success(), "should fail when left == right");
-}
-
 /// merge に --left のみ（--right なし）→ --right は default server にフォールバックし、
 /// SSH 接続不可環境では SSH エラーで失敗する。exit≠0 であること。
 #[test]

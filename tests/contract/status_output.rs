@@ -100,7 +100,7 @@ fn exit_code_is_one_when_any_file_is_modified_left_only_or_right_only() {
     }
 }
 
-// @kotowari[REQ-cli-030]
+// @kotowari[REQ-cli-030, REQ-cli-034]
 #[test]
 fn exit_code_is_two_for_an_unknown_server_or_identical_sides() {
     let env = CliEnv::new(&[("file.txt", "same\n")], &[("file.txt", "same\n")]);
