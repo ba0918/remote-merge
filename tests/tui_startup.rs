@@ -112,8 +112,10 @@ fn test_tui_quit_with_q() {
 
     // q を送信して終了
     session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_secs(2));
-
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while session.get_process().is_alive().unwrap() && std::time::Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
     assert!(
         !session.get_process().is_alive().unwrap(),
         "q must terminate the TUI"
