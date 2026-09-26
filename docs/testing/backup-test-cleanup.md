@@ -389,3 +389,16 @@ S1 の実行で検知された理由は、上の表と同じく関係のない�
 - 失敗入力のファイルは `proptest-regressions/tests/contract/backup_sessions.txt` に書き出される。性質の一つをわざと落とす一時的な変更で、proptest が "Saving this and future failures in <リポジトリ>/proptest-regressions/tests/contract/backup_sessions.txt" と出してそこへ書くことを確かめ、変更と書き出されたファイルは消した。
 - `proptest-regressions/` は、これまでの実行で失敗入力が見つかっていないため存在せず、コミットするファイルはない。
 - 既存の ID の N が u64 の最大値のときに next_session_id が加算のあふれで panic することは、FLAG-backup-005 として記録した（利用者の判断）。
+
+### 変異テストのメモリ上限の確かめ
+
+REQ-testing-013 の確かめ方に沿って、MemoryMax を小さく上書きして次のコマンドを実行した。
+
+```sh
+MUTANTS_MEMORY_MAX=200M MUTANTS_MEMORY_HIGH=infinity scripts/mutants.sh src/backup/mod.rs
+```
+
+- 終了コードは 1、標準出力は 0 バイトで、kotowari mutants の結果は出なかった。
+- 標準エラーの最後の行は `mutants.sh: cargo-mutants did not finish (exit=1, result=oom-kill); results are not read` だった。
+- サービスへ引き継ぐ環境変数を名前で限定するようにスクリプトを変えた後にもう一度実行し、同じ終了コード・出力・最後の行を得た。
+- 既定の設定での起動は、同じ変更の後の実行の標準エラーの一行目 `mutants.sh: unit=remote-merge-mutants-<PID> MemoryHigh=35% MemoryMax=40% MemorySwapMax=0 jobs=2` と、スクリプトの systemd-run の呼び出しで確かめた。
