@@ -1,6 +1,6 @@
 # 復元前のリンク先確認
 
-複数ファイルの復元前に、バックアップ時と異なる場所への書き戻しを防ぐ規則。
+rollback の書き戻し方と、バックアップ時と異なる場所への書き戻しを防ぐ規則。
 
 ## Requirements
 
@@ -24,6 +24,55 @@ rollback の dry-run はセッション内の復元予定とブロック理由�
 - verification: unit
 
 末尾 symlink 同士のマージ後、リンク文字列がマージ直後と同じなら、rollback は保存されたマージ前のリンク文字列へ戻す。第三者がリンク文字列を変えていればセッション全体を書き戻さない。
+
+### REQ-backup-027: 書き戻す前の内容を退避する
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A15
+- verification: unit
+
+バックアップが有効なとき、rollback は書き戻す前の現在の内容を新しいセッションに保存してその ID を pre_rollback_backup に示す。保存できないファイルは書き戻さず error "backup failed: " に続く原因で失敗とし、戻す先にファイルがなければ保存も pre_rollback_backup の表示もしない。
+
+### REQ-backup-028: 無効時は退避せずに書き戻す
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A19
+- verification: unit
+
+バックアップが無効なとき、rollback は現在の内容を保存せずに書き戻す。
+
+### REQ-backup-029: 書き戻しで権限を変えない
+- kind: invariant
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A24
+- verification: unit
+
+rollback が既存ファイルに書き戻すとき、そのファイルの所有者と権限を維持する。
+
+### REQ-backup-030: 削除したファイルを作り直す
+- kind: state_driven
+- source: docs/decision/records/2026-09-25-spec-migration.md#A47
+- verification: unit
+
+--delete で削除したファイルのバックアップを rollback すると、そのファイルを保存した内容で再作成する。
+
+### REQ-backup-031: 消えた親ディレクトリは作らない
+- kind: prohibition
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A25
+- verification: unit
+
+戻す先にファイルがなく親ディレクトリもないとき、rollback はそのファイルを書き戻さずスキップ理由 "parent directory no longer exists" を報告し、ディレクトリを作らない。
+
+### REQ-backup-032: 置き換えた symlink は復元しない
+- kind: prohibition
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A26
+- verification: unit
+
+同じ種類の symlink 同士の更新以外で symlink を通常ファイルに置き換えたか削除した記録は、--force の有無に関係なく書き戻さず、スキップ理由 "symlink restore not supported" を報告する。
+
+### REQ-backup-033: 場所の変化をスキップ理由で示す
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A27
+- verification: unit
+
+rollback は本当のパスが記録と違うとき（リンク切れの symlink、通常ファイルから symlink への変化、削除済みファイルの親の付け替えを含む）スキップ理由 "path now resolves to a different location" を報告し、末尾 symlink の更新記録が第三者に変えられたときは "symlink changed after merge" を報告する。
 
 ## Examples
 
