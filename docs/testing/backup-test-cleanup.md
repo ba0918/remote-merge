@@ -301,11 +301,11 @@ S1 の実行で検知された理由は、上の表と同じく関係のない�
 整理後の見逃し（同等変異として登録したものを含む）は、`src/service/rollback.rs:156` の一件を除いて整理前の見逃しに含まれる。
 
 - `src/service/rollback.rs:156` の `replace match guard force with true in plan_restore` は整理前には検知だったが、整理前の実行のログは残っておらず、何で検知されたかは確かめられない。整理後の一回目では関係のないテストの失敗だけで検知とされていた。この変異は、全てのセッションが期限切れで --force がないときに最新のセッションを選ぶが、直後の「期限切れのセッションは --force なしでは戻さない」の確かめで同じエラーになる。消したテストはどれもこの関数を呼んでおらず（消した単体テストは parse_batch_restore_output と extract_timestamp と resolve_target のものだけ、plan_restore の単体テストは全て残した）、削除が生んだ見逃しではないと判断した。戻したテストはない。
-- 整理前の見逃しのうち次の七件は整理後に検知された。
+- 整理前の見逃しのうち次の六件は整理後に検知された。
   - src/backup/mod.rs:45 と 49 の四件（書き込み先の識別のホストとポート）: REQ-backup-021 のポートだけ・ホストだけが違う書き込み先のテストと、REQ-backup-012 のテストが検知した。
   - src/runtime/backup_store.rs:117 の `replace == with !=`: REQ-backup-023 の同時に始めた多数の merge のテスト（下の表）が検知した。
   - src/runtime/backup_store.rs:310 の `replace && with ||`: REQ-backup-041 の二つのファイルのどちらかの内容が欠けたセッションのテスト（下の表）が検知した。
-  - src/runtime/backup_store.rs:359 の `replace match guard path == rel_path with true` は整理後の一回目では関係のないテストだけで検知、二回目で見逃しで、整理前と同じく見逃しとして扱う。
+- 整理前の見逃しの `src/runtime/backup_store.rs:359` の `replace match guard path == rel_path with true` は整理後の一回目では関係のないテストだけで検知、二回目で見逃しで、整理前と同じく見逃しとして扱う。
 
 時間切れの三件（`src/backup/mod.rs:84`、`88`、`91` の next_session_id の変異）は見逃しではない（kotowari mutants の notice）。
 これらの変異は既存の ID と重なる ID を返し、集約先の予約が同じ ID を作り直し続けて終わらなくなる。
