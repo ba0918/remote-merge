@@ -146,3 +146,138 @@ tests/ の直下の実行ファイルを起動するテストのうち、同じ�
 - src/cli/ref_guard.rs の ref_different_returns_some と ref_none_returns_none は、参照先が左右と違うときに三者比較をすること・--ref なしでは三者比較をしないことを見るもので、上の REQ-cli-035 の根拠テストと --ref なしの全ての根拠テストが同じ振る舞いを確かめるため、削除候補に挙げる。
 - tests/cli_error_handling.rs の test_ref_with_left_equal_fails_on_ssh と test_ref_with_right_equal_fails_on_ssh は、SSH の接続が警告より先に失敗することを確かめるもので、REQ-cli-037 の根拠にならないため削除候補に挙げる。
 - FLAG-cli-002 の範囲の test_compute_ref_badges_all_equal と test_compute_ref_summary、src/service/output.rs の test_format_status_text_with_ref_badges は移さず、削除候補にもしない。
+
+## 削除候補と利用者の判断
+
+整理の計画で削除を利用者が一括で判断する段の入力。
+利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除する。まだ何も消していない。
+
+一覧は、計画が名指しした候補（A）と、上の審査で公開された入口を通す根拠テストに置き換えた純粋関数の単体テスト（B）と、tests/ の直下の重複テスト（C）を合わせた 99 件。
+「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめている根拠テスト（モジュール名は tests/contract/ の下のファイル名）。
+src/service/output.rs と src/service/types.rs は変異テストの対象外のため、この二ファイルの候補は消しても整理後の変異テストで見逃しの増減として現れない。二ファイルの候補の「代わりの根拠」は同じ整形の分岐を確かめて残るテストで、その行に「裏付けなし」と書いた。
+
+候補にしていないもの:
+
+- FLAG-cli-001 から 005 の挙動を確かめるテスト（src/cli/status.rs の test_determine_agent_status_remote_no_agent と test_determine_agent_status_local、src/service/output.rs の agent を扱う五件と test_format_status_text_with_ref_badges、src/service/types.rs の test_agent_status_serialize と test_agent_status_deserialize、src/service/status.rs の test_compute_ref_badges_all_equal と test_compute_ref_summary）。
+- src/service/status.rs の test_refine_with_hashes_symlink_comparison。symlink のハッシュの比較は --checksum のときだけ起こり、FLAG-cli-003 の範囲のため。
+- src/service/status.rs の is_sensitive の三件（test_sensitive_env_file、test_sensitive_nested_path、test_sensitive_wildcard）と status_from_read_results の十件。前者は用語「機密ファイル」の判定、後者は diff・merge の処理で、この計画の要件の根拠でないため。
+- src/tree.rs の compare_metadata の八件。計画で削除できるファイルに src/tree.rs が入っていないため。compare_metadata は merge と TUI も使う。
+- tests/cli_status.rs の test_status_exclude_filter_works（除外フィルターの話題）と、tests/cli_error_handling.rs の設定の誤りとヘルプのテスト。
+
+### A. 計画が名指しした候補（9 件）
+
+| ファイル | テスト | 理由と代わりの根拠 |
+|---|---|---|
+| src/service/status.rs | test_hash_comparison_equal | status_from_hash_comparison の文字列比較を見るだけ。ハッシュの経路の判定は status_judgement の same_size_with_different_timestamps_is_decided_by_the_content |
+| src/service/status.rs | test_hash_comparison_modified | 同上 |
+| src/service/status.rs | test_hash_comparison_symlink_same_target | 同上。symlink のリンク先の文字列が渡るのは --checksum のときだけ（FLAG-cli-003） |
+| src/service/status.rs | test_hash_comparison_symlink_different_target | 同上 |
+| src/service/status.rs | test_hash_comparison_empty_strings | 同上 |
+| tests/cli_error_handling.rs | test_ref_with_left_equal_fails_on_ssh | SSH の接続が警告より先に失敗することを見るだけ。警告は status_targets の a_ref_equal_to_either_side_warns_and_compares_without_the_ref |
+| tests/cli_error_handling.rs | test_ref_with_right_equal_fails_on_ssh | 同上 |
+| src/service/output.rs | test_format_status_text_with_hunks | 作らないと決めた hunks（決定記録 A20）の表示。裏付けなし。同じ行の組み立てを確かめて残るテストは status_output の text_lists_a_header_one_symbol_line_per_file_and_a_final_summary |
+| src/service/types.rs | test_status_output_with_hunks | 同上の JSON。裏付けなし。同じ形を確かめて残るテストは status_output の json_has_both_sides_every_file_and_the_summary |
+
+### B. 入口を通す根拠テストに置き換えた純粋関数の単体テスト（87 件）
+
+| ファイル | テスト | 代わりの根拠 |
+|---|---|---|
+| src/service/status.rs | test_status_left_only | status_judgement の one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modified |
+| src/service/status.rs | test_status_right_only | 同上 |
+| src/service/status.rs | test_status_nested_files | 同上 |
+| src/service/status.rs | test_status_file_vs_directory_path_conflict_is_modified | 同上 |
+| src/service/status.rs | test_status_both_exist | status_judgement の unknown_size_or_timestamp_is_decided_by_the_content（メタデータのないノードは中身を読むまで "modified"） |
+| src/service/status.rs | test_status_modified_when_no_metadata | 同上 |
+| src/service/status.rs | test_status_unloaded_dir_vs_file_stays_modified | なし。未読み込みのディレクトリは status の再帰の走査からは作れず、IR にない場合 |
+| src/service/status.rs | test_status_sensitive_flag | status_output の json_has_both_sides_every_file_and_the_summary（".env" の "sensitive"） |
+| src/service/status.rs | test_status_equal_when_same_size_and_mtime | status_judgement の same_size_and_timestamp_are_equal_without_reading_the_content |
+| src/service/status.rs | test_status_modified_when_different_size | status_judgement の files_of_different_sizes_are_modified |
+| src/service/status.rs | test_status_modified_when_same_size_different_mtime | status_judgement の same_size_with_different_timestamps_is_decided_by_the_content |
+| src/service/status.rs | test_needs_content_compare_filters_different_size | 同上と files_of_different_sizes_are_modified（どのファイルの中身を読むかは内部の選び方） |
+| src/service/status.rs | test_needs_content_compare_handles_file_vs_directory_conflict | status_judgement の one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modified |
+| src/service/status.rs | test_needs_content_compare_all_includes_equal | status_results の checksum_finds_different_bytes_despite_equal_size_and_timestamp（EX-cli-015） |
+| src/service/status.rs | test_needs_content_compare_all_excludes_left_right_only | なし。片側だけのファイルを比較の対象に入れないことは入口から観測できない |
+| src/service/status.rs | test_refine_status_equal_to_modified_when_content_differs | status_results の checksum_finds_different_bytes_despite_equal_size_and_timestamp（EX-cli-015） |
+| src/service/status.rs | test_refine_status_equal_when_content_matches | status_judgement の same_size_with_different_timestamps_is_decided_by_the_content |
+| src/service/status.rs | test_refine_status_stays_modified_when_content_differs | 同上 |
+| src/service/status.rs | test_refine_status_skips_non_modified | なし。片側だけのファイルは中身の比較の対象に入らないため入口から観測できない |
+| src/service/status.rs | test_refine_status_binary_identical_is_equal | status_judgement の same_size_with_different_timestamps_is_decided_by_the_content（バイナリ） |
+| src/service/status.rs | test_refine_status_binary_different_is_modified | 同上 |
+| src/service/status.rs | test_refine_status_text_still_works | 同上 |
+| src/service/status.rs | test_refine_with_hashes_equal | 同上（ハッシュの経路） |
+| src/service/status.rs | test_refine_with_hashes_modified | 同上 |
+| src/service/status.rs | test_refine_with_hashes_skips_left_only | なし。片側だけのファイルはハッシュの比較の対象に入らないため入口から観測できない |
+| src/service/status.rs | test_refine_with_hashes_missing_hash_keeps_status | なし。片側のハッシュだけが得られない状況は入口から作れない |
+| src/service/status.rs | test_refine_with_hashes_metadata_equal_to_modified | status_results の checksum_finds_different_bytes_despite_equal_size_and_timestamp（EX-cli-015。右がサーバのためハッシュの経路） |
+| src/service/status.rs | test_status_symlink_same_target_is_equal | status_judgement の two_symlinks_are_compared_by_their_target_text_without_reading_the_content |
+| src/service/status.rs | test_status_symlink_different_target_is_modified | 同上 |
+| src/service/status.rs | test_status_symlink_vs_file_is_modified | status_judgement の a_regular_file_against_a_symlink_to_the_same_content_is_modified（EX-cli-062） |
+| src/service/status.rs | test_summary | status_output の summary_counts_every_file_including_equal_ones_with_or_without_all_and_summary |
+| src/service/status.rs | test_build_status_output_with_files | status_output の json_has_both_sides_every_file_and_the_summary |
+| src/service/status.rs | test_build_status_output_summary_only | status_output の summary_prints_only_the_header_and_counts_and_json_omits_files |
+| src/service/status.rs | test_build_status_output_no_ref_backward_compat | なし。--ref なしで "ref" と ref の集計が出ないことは IR にない |
+| src/service/status.rs | test_exit_code_no_diff | status_output の exit_code_is_zero_when_every_file_is_equal |
+| src/service/status.rs | test_exit_code_has_diff | status_output の exit_code_is_one_when_any_file_is_modified_left_only_or_right_only |
+| src/service/status.rs | test_exit_code_left_only | 同上 |
+| src/service/status.rs | test_compute_ref_badges_differs | status_targets の json_marks_each_file_against_the_ref_and_counts_the_marks |
+| src/service/status.rs | test_compute_ref_badges_missing_in_ref | 同上 |
+| src/service/status.rs | test_compute_ref_badges_empty_ref_tree | 同上 |
+| src/service/status.rs | test_compute_ref_badges_sensitive_skipped | 同上（REQ-cli-036） |
+| src/service/status.rs | test_compute_ref_badges_sensitive_missing_in_ref | 同上 |
+| src/service/status.rs | test_compute_ref_badges_sensitive_exists_in_ref | 同上 |
+| src/service/status.rs | test_compute_ref_badges_sensitive_no_content_leak | 同上 |
+| src/cli/status.rs | test_summary_equal_count_preserved_after_filter | status_output の summary_counts_every_file_including_equal_ones_with_or_without_all_and_summary |
+| src/cli/ref_guard.rs | ref_same_as_left_returns_none | status_targets の a_ref_equal_to_either_side_warns_and_compares_without_the_ref |
+| src/cli/ref_guard.rs | ref_same_as_right_returns_none | 同上 |
+| src/cli/ref_guard.rs | ref_different_returns_some | status_targets の json_marks_each_file_against_the_ref_and_counts_the_marks |
+| src/cli/ref_guard.rs | ref_none_returns_none | --ref なしの全ての根拠テスト |
+| src/service/source_pair.rs | test_left_and_right_explicit | status_targets の sides_come_from_left_and_right_with_local_and_the_default_server_filling_the_gaps |
+| src/service/source_pair.rs | test_no_args_uses_first_config_server | 同上 |
+| src/service/source_pair.rs | test_right_only | 同上 |
+| src/service/source_pair.rs | source_pair_left_local_right_remote | 同上 |
+| src/service/source_pair.rs | source_pair_left_remote_right_local | 同上 |
+| src/service/source_pair.rs | test_left_only_local_falls_back_to_default | 同上 |
+| src/service/source_pair.rs | test_left_only_nondefault_succeeds | 同上 |
+| src/service/source_pair.rs | test_unknown_server_returns_error | status_targets の identical_sides_and_unknown_servers_stop_with_an_error |
+| src/service/source_pair.rs | source_pair_both_local_errors | 同上 |
+| src/service/source_pair.rs | test_same_left_right_explicit_error | 同上 |
+| src/service/source_pair.rs | test_same_left_right_local_error | 同上 |
+| src/service/source_pair.rs | test_left_only_falls_back_to_default_server | status_targets の sides_made_identical_by_the_default_server_say_so_in_the_error |
+| src/service/source_pair.rs | test_implicit_right_error_message_contains_context | 同上 |
+| src/service/source_pair.rs | test_no_servers_in_config | status_targets の a_needed_default_server_without_any_server_configured_is_an_error |
+| src/service/source_pair.rs | test_resolve_ref_source_remote | なし。参照先にサーバを指定した三者比較は根拠テストにない（参照先は local で確かめている） |
+| src/service/source_pair.rs | test_resolve_ref_source_local | status_targets の json_marks_each_file_against_the_ref_and_counts_the_marks |
+| src/service/source_pair.rs | test_resolve_ref_source_nonexistent | なし。--ref に設定にないサーバ名を指定したときのエラーは IR にない |
+| src/service/source_pair.rs | test_resolve_ref_source_none | --ref なしの全ての根拠テスト |
+| src/service/source_pair.rs | test_resolve_ref_source_same_as_left | status_targets の a_ref_equal_to_either_side_warns_and_compares_without_the_ref（左右と同じ参照先もエラーにならない） |
+| src/service/output.rs | test_format_status_text | status_output の text_lists_a_header_one_symbol_line_per_file_and_a_final_summary。裏付けなし |
+| src/service/output.rs | test_status_text_left_only_symbol | 同上。裏付けなし |
+| src/service/output.rs | test_status_text_right_only_symbol | 同上。裏付けなし |
+| src/service/output.rs | test_status_header_without_ref | 同上。裏付けなし |
+| src/service/output.rs | test_format_status_text_summary_only | status_output の summary_prints_only_the_header_and_counts_and_json_omits_files。裏付けなし |
+| src/service/output.rs | test_status_header_appears_in_summary_only_mode | 同上。裏付けなし |
+| src/service/output.rs | test_output_format_parse | status_output の format_accepts_text_json_and_diff_as_text_and_rejects_other_values。裏付けなし |
+| src/service/output.rs | test_status_header_with_ref | status_targets の text_names_the_ref_in_the_header_marks_files_and_adds_a_ref_line_after_the_summary。裏付けなし |
+| src/service/output.rs | test_format_status_text_no_ref_backward_compat | --ref なしのテキストの根拠テスト（status_output の text_lists_a_header_one_symbol_line_per_file_and_a_final_summary は Summary 行が最後であることを見る）。裏付けなし |
+| src/service/output.rs | test_format_json | status_output の json_has_both_sides_every_file_and_the_summary。裏付けなし |
+| src/service/output.rs | test_status_json_not_affected_by_header | 同上（JSON として読めることを見る）。裏付けなし |
+| src/service/types.rs | test_status_output_serialize | status_output の json_has_both_sides_every_file_and_the_summary。裏付けなし |
+| src/service/types.rs | test_file_status_kind_serializes_snake_case | 同上。裏付けなし |
+| src/service/types.rs | test_status_summary_serialize | status_output の summary_prints_only_the_header_and_counts_and_json_omits_files。裏付けなし |
+| src/service/types.rs | test_status_output_with_ref_serialize | status_targets の json_marks_each_file_against_the_ref_and_counts_the_marks。裏付けなし |
+| src/service/types.rs | test_status_output_without_ref_serialize | なし。--ref なしで "ref" が出ないことは IR にない。裏付けなし |
+| src/service/types.rs | test_file_status_ref_badge_serialize | status_targets の json_marks_each_file_against_the_ref_and_counts_the_marks。裏付けなし |
+| src/service/types.rs | test_file_status_ref_badge_none_omitted | なし。--ref なしで "ref_badge" が出ないことは IR にない。裏付けなし |
+| src/service/types.rs | test_status_summary_backward_compat_deserialize | なし。status の JSON を読み込む処理は製品コードにない（集計の読み込みの後方互換）。裏付けなし |
+
+### C. 根拠にしなかった tests/ の直下の重複テスト（3 件）
+
+| ファイル | テスト | 理由 |
+|---|---|---|
+| tests/cli_status.rs | test_status_all_includes_equal | status_results の all_status_includes_equal_files（EX-cli-013）と同じ振る舞い。整理前の変異テストでは print_status_result を何もしない変異をこのテストでも検知していた（今は status_output のテストも検知しうる） |
+| tests/cli_status.rs | test_status_empty_tree_both_sides | status_output の exit_code_is_zero_when_every_file_is_equal と重なる。両側が空のときにファイルの行が出ないことは IR にない |
+| tests/cli_status.rs | test_status_json_special_chars_in_path | 空白を含むパスの JSON。パスの文字の扱いは IR にない |
+
+### 判断の結果
+
+（利用者の返答をここに書き足す）
