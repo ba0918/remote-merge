@@ -141,15 +141,6 @@ fn parse_backup_timestamp(ts: &str) -> Option<DateTime<Utc>> {
         .and_then(|naive| naive.and_local_timezone(Utc).single())
 }
 
-/// セッションディレクトリ名がタイムスタンプ形式か検証する。
-///
-/// `"20240115-140000"` → `Some("20240115-140000")`
-/// `"not-a-timestamp"` → `None`
-pub fn extract_timestamp(name: &str) -> Option<&str> {
-    parse_session_id(name)?;
-    name.get(..15)
-}
-
 /// ローカルファイルのバックアップをセッションディレクトリに作成する。
 ///
 #[cfg(test)]
@@ -282,23 +273,6 @@ mod tests {
             remote_target_identity(&address),
             remote_target_identity(&hostname)
         );
-    }
-
-    #[test]
-    fn test_extract_timestamp_valid() {
-        assert_eq!(
-            extract_timestamp("20240115-140000"),
-            Some("20240115-140000")
-        );
-    }
-
-    #[test]
-    fn test_extract_timestamp_invalid() {
-        assert_eq!(extract_timestamp("not-a-timestamp"), None);
-        assert_eq!(extract_timestamp("config.ts"), None);
-        assert_eq!(extract_timestamp("2024011a-140000"), None);
-        assert_eq!(extract_timestamp(""), None);
-        assert_eq!(extract_timestamp("20240115_140000"), None); // アンダースコア
     }
 
     #[test]
