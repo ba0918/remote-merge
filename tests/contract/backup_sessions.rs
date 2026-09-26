@@ -461,7 +461,7 @@ fn rollback_accepts_a_same_second_session_id_with_numeric_suffix() {
     );
 }
 
-// @kotowari[REQ-backup-022]
+// @kotowari[REQ-backup-022, REQ-backup-034]
 #[test]
 fn rollback_without_session_uses_the_newest_numeric_suffix() {
     let local = TempDir::new().unwrap();
