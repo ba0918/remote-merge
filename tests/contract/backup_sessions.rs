@@ -427,7 +427,7 @@ fn create_two_same_second_sessions(
     (config, runtime_targets)
 }
 
-// @kotowari[REQ-backup-022]
+// @kotowari[REQ-backup-022, REQ-backup-040]
 #[test]
 fn same_second_sessions_are_listed_newest_first() {
     let local = TempDir::new().unwrap();
@@ -824,7 +824,7 @@ fn listing_and_cleanup_share_the_retention_boundary() {
     assert!(!listed_ids(config, &develop, &store).contains(&"20200101-000000".into()));
 }
 
-// @kotowari[REQ-backup-026]
+// @kotowari[REQ-backup-026, REQ-backup-040]
 #[test]
 fn expired_session_is_marked_in_text_and_json_at_the_injected_boundary() {
     let local = TempDir::new().unwrap();

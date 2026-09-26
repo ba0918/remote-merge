@@ -59,49 +59,6 @@ fn test_merge_then_rollback_restores_content() {
     );
 }
 
-/// 複数ファイルを merge → rollback --force で全ファイル復元される
-#[test]
-fn test_rollback_multiple_files() {
-    let env = CliEnv::new(
-        &[("a.txt", "a-local\n"), ("b.txt", "b-local\n")],
-        &[("a.txt", "a-original\n"), ("b.txt", "b-original\n")],
-    );
-
-    // merge 実行
-    let merge_out = env
-        .cmd_with("merge")
-        .args([
-            "a.txt", "b.txt", "--left", "local", "--right", "develop", "--force",
-        ])
-        .output()
-        .expect("failed to execute merge");
-    assert_exit_success(&merge_out);
-
-    // マージ後の確認
-    assert_eq!(
-        fs::read_to_string(env.remote_dir.join("a.txt")).unwrap(),
-        "a-local\n"
-    );
-    assert_eq!(
-        fs::read_to_string(env.remote_dir.join("b.txt")).unwrap(),
-        "b-local\n"
-    );
-
-    // rollback 実行
-    let rollback_out = env
-        .cmd_with("rollback")
-        .args(["--target", "develop", "--force"])
-        .output()
-        .expect("failed to execute rollback");
-    assert_exit_success(&rollback_out);
-
-    // 全ファイルが復元されていることを確認
-    let a_after = fs::read_to_string(env.remote_dir.join("a.txt")).unwrap();
-    let b_after = fs::read_to_string(env.remote_dir.join("b.txt")).unwrap();
-    assert_eq!(a_after, "a-original\n", "a.txt should be restored");
-    assert_eq!(b_after, "b-original\n", "b.txt should be restored");
-}
-
 /// ネストされたディレクトリ配下のファイルを merge → rollback で復元できる
 #[test]
 fn test_rollback_nested_directory() {
@@ -349,93 +306,6 @@ fn test_rollback_skips_sensitive_without_force() {
 
 // ─── --session (multiple sessions) ─────────────────────────
 
-/// 複数セッションから特定の古いセッションを指定して rollback できる
-#[test]
-fn test_rollback_specific_older_session() {
-    let env = CliEnv::new(
-        &[("a.txt", "a-local\n"), ("b.txt", "b-local\n")],
-        &[("a.txt", "a-original\n"), ("b.txt", "b-original\n")],
-    );
-
-    // 1回目の merge: a.txt のみ
-    let merge_a = env
-        .cmd_with("merge")
-        .args(["a.txt", "--left", "local", "--right", "develop", "--force"])
-        .output()
-        .expect("failed to execute merge A");
-    assert_exit_success(&merge_a);
-
-    // セッション間のタイムスタンプを確実に異なるものにする
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
-    // 2回目の merge: b.txt のみ
-    let merge_b = env
-        .cmd_with("merge")
-        .args(["b.txt", "--left", "local", "--right", "develop", "--force"])
-        .output()
-        .expect("failed to execute merge B");
-    assert_exit_success(&merge_b);
-
-    // --list --format json でセッション一覧を取得
-    let list_out = env
-        .cmd_with("rollback")
-        .args(["--list", "--format", "json", "--target", "develop"])
-        .output()
-        .expect("failed to execute rollback --list");
-    assert_exit_success(&list_out);
-
-    let list_stdout = String::from_utf8_lossy(&list_out.stdout);
-    let list_json: serde_json::Value =
-        serde_json::from_str(&list_stdout).expect("List output should be valid JSON");
-
-    let sessions = list_json["sessions"]
-        .as_array()
-        .expect("Expected sessions array");
-
-    // ガードアサート: 2セッション以上存在すること
-    assert!(
-        sessions.len() >= 2,
-        "Expected at least 2 sessions, got {}. Sessions: {}",
-        sessions.len(),
-        list_stdout
-    );
-
-    // 古い方のセッション（a.txt を含む）のIDを取得
-    // セッション一覧は新しい順に並んでいる想定なので、最後のセッションが a.txt のもの
-    let older_session_id = sessions
-        .iter()
-        .find(|s| {
-            s["files"]
-                .as_array()
-                .map(|files| files.iter().any(|f| f["path"].as_str() == Some("a.txt")))
-                .unwrap_or(false)
-        })
-        .expect("Expected to find session containing a.txt");
-    let session_a_id = older_session_id["session_id"]
-        .as_str()
-        .expect("session_id should be a string");
-
-    // 古いセッションのみを rollback
-    let rollback_out = env
-        .cmd_with("rollback")
-        .args(["--session", session_a_id, "--target", "develop", "--force"])
-        .output()
-        .expect("failed to execute rollback --session");
-    assert_exit_success(&rollback_out);
-
-    // a.txt だけが復元され、b.txt はマージ後のまま
-    let a_content = fs::read_to_string(env.remote_dir.join("a.txt")).unwrap();
-    let b_content = fs::read_to_string(env.remote_dir.join("b.txt")).unwrap();
-    assert_eq!(
-        a_content, "a-original\n",
-        "a.txt should be restored (session A rollback)"
-    );
-    assert_eq!(
-        b_content, "b-local\n",
-        "b.txt should remain merged (only session A was rolled back)"
-    );
-}
-
 // ─── JSON output ───────────────────────────────────────────
 
 /// rollback --format json の出力構造を検証する
@@ -524,18 +394,3 @@ fn test_rollback_json_output_structure() {
 }
 
 // ─── Exit codes ────────────────────────────────────────────
-
-/// バックアップが存在しない場合は exit code 2 を返す
-#[test]
-fn test_rollback_exit_code_no_sessions() {
-    let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
-
-    // merge せずにいきなり rollback → セッションが存在しないのでエラー
-    let rollback_out = env
-        .cmd_with("rollback")
-        .args(["--target", "develop", "--force"])
-        .output()
-        .expect("failed to execute rollback");
-
-    assert_exit_error(&rollback_out, 2);
-}

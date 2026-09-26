@@ -116,3 +116,35 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 - 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため、性質にも FLAG にもしていない。
 - REQ-backup-025 の「集約先の場所が決まらないときは整理しない」は、その実行から整理の対象が見えないため観測できる違いがなく、テストにしていない。
 - tests/local_backup_store.rs の merge_keeps_expired_sessions_for_targets_absent_from_config は REQ-backup-025 の文にない「設定から外れた書き込み先の履歴は残す」を確かめるもので、tests/contract/backup_cleanup.rs の EX-backup-017 のテストと重なるため移さず、削除候補に挙げる。
+
+### 書き戻しと rollback コマンド（docs/ir/backup/rollback-path.md、docs/ir/backup/rollback-cli.md）
+
+根拠テストは、書き戻し方を `tests/contract/backup_rollback_path.rs`、コマンドの振る舞いのうち関数呼び出しで確かめるものを `tests/contract/backup_rollback_cli.rs`、実行ファイルを起動して確かめるものを `tests/contract/backup_rollback_cli_e2e.rs` に置いた。
+最後のモジュールは隔離された SSH fixture を使うため、ほかの SSH のテストと同じく `test-utils` の feature があるときだけ組み込む。
+新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
+
+| 要件 | 根拠テスト | 元のテストと変えたところ |
+|---|---|---|
+| REQ-backup-027 | enabled_rollback_saves_the_current_content_in_a_new_session_before_restoring | tests/local_backup_store.rs の enabled_rollback_reports_the_backup_taken_before_restore。元は pre_rollback_backup の ID だけを見ていたため、その ID のセッションが一覧にあり、それを戻すと書き戻す前の内容になることを書き足した |
+| REQ-backup-027 | rollback_does_not_restore_a_file_when_its_current_content_cannot_be_backed_up | tests/local_backup_store.rs から移した。パスと "backup failed: " の後の原因を書き足した |
+| REQ-backup-027, REQ-backup-030 | rollback_recreates_a_file_removed_by_merge_delete_without_a_pre_rollback_backup | tests/local_backup_store.rs の rollback_restores_a_file_removed_by_merge_delete。戻す先にファイルがないとき新しいセッションを作らないことを書き足した |
+| REQ-backup-028 | disabled_rollback_restores_without_saving_the_current_content | 新しく書いた |
+| REQ-backup-029 | rollback_restores_file_content_without_changing_existing_permissions | tests/local_backup_store.rs から移した。所有者（uid）が変わらないことを書き足した |
+| REQ-backup-031 | rollback_skips_deleted_file_when_its_parent_no_longer_exists | tests/local_backup_store.rs から移した |
+| REQ-backup-032 | a_recorded_symlink_is_not_restored_with_or_without_force | 新しく書いた。src/service/rollback.rs の replaced_symlink_takes_priority_over_a_changed_destination を、CoreRuntime::save_backup で symlink を記録し、その後に通常ファイルへ置き換えた状態で rollback を呼ぶ形にしたもの。--force なしは確認を避けるため dry-run で確かめる |
+| REQ-backup-033 | rollback_skips_a_file_after_the_target_root_symlink_is_retargeted、rollback_keeps_a_symlink_that_replaced_the_recorded_regular_file、rollback_skips_a_dangling_symlink_as_a_changed_destination、rollback_skips_a_deleted_file_after_its_parent_symlink_is_retargeted、rollback_skips_a_recorded_symlink_changed_by_a_third_party | tests/local_backup_store.rs のパスの変化のスキップ五件を移した（最後のものの元の名前は rollback_skips_a_recorded_symlink_without_replacing_the_current_file）。スキップが一件で何も戻さないことをそろえて確かめる |
+| REQ-backup-034 | rollback_restores_every_file_of_the_newest_session、rollback_restores_only_the_selected_older_session | tests/cli_rollback.rs の test_rollback_multiple_files と test_rollback_specific_older_session を移した。後者は一秒待つ代わりに同じ秒の "-N" 付きの ID を使う |
+| REQ-backup-035 | rollback_asks_before_restoring_and_restores_only_after_y_or_yes、rollback_restores_after_yes | 新しく書いた。標準入力から "n"、空の応答、"y"、"yes" を与え、確認の文言と書き戻しの有無を確かめる。断ったときの終了コードは FLAG-backup-004 の範囲のため確かめない |
+| REQ-backup-036 | sensitive_files_are_skipped_without_force_and_restored_with_it | 新しく書いた。--force なしは確認を避けるため dry-run で理由 "sensitive" のスキップを、--force ありは書き戻しを確かめる |
+| REQ-backup-037 | rollback_text_marks_each_file_and_summarises_the_counts、rollback_text_summary_has_no_counts_when_nothing_was_skipped_or_failed、rollback_json_has_the_result_fields | 新しく書いた。戻したもの・スキップ・失敗を一つずつ含む実際の書き戻しの結果を使う。後者の JSON は tests/local_backup_store.rs の aggregate_rollback_json_keeps_the_existing_field_names_and_types を置き換えた。集計行は "Restored N file(s)" の後の言い回しを IR が定めていないため、数が続くことだけを確かめる |
+| REQ-backup-038 | rollback_exit_codes_follow_the_result、rollback_exits_with_2_when_every_file_is_skipped_or_failed | 新しく書いた。src/service/rollback.rs の exit_code で始まる五件と src/cli/rollback.rs の test_rollback_exit_code で始まる三件を、execute_rollback の終了コードで確かめる形にしたもの |
+| REQ-backup-038 | dry_run_reports_the_same_changed_path_skip_with_exit_code_0 | tests/local_backup_store.rs の dry_run_reports_the_same_changed_path_skip_without_writing を移した（スキップがあっても dry-run は 0） |
+| REQ-backup-038 | rollback_exits_with_2_when_the_session_is_not_found | tests/cli_rollback.rs の test_rollback_exit_code_no_sessions を移し、存在しない --session を指定した場合を書き足した |
+| REQ-backup-039 | target_is_required_except_for_list_which_defaults_to_local | 新しく書いた。--target なしの書き戻しがエラーで何も書かないことと、--list の --target 省略がローカルのセッションを一覧することを確かめる |
+| REQ-backup-040 | written_target_lists_its_session_with_file_sizes_in_text_and_json | tests/local_backup_store.rs の written_target_lists_its_aggregate_backup_session。テキストの "path (N bytes)" と JSON の値を書き足した |
+| REQ-backup-040 | updated_symlink_is_listed_as_a_symlink_in_text_and_json | tests/local_backup_store.rs から移した |
+| REQ-backup-040 | same_second_sessions_are_listed_newest_first、expired_session_is_marked_in_text_and_json_at_the_injected_boundary | tests/contract/backup_sessions.rs の既存の根拠テストに印を足した（新しい順と "[expired]"・"expired": true） |
+| REQ-backup-041 | rollback_treats_a_session_with_missing_content_as_not_found、session_with_missing_content_is_omitted_without_failing_the_list | tests/local_backup_store.rs から移した |
+
+- REQ-backup-038 の「戻したファイルがないとき 2」のうち、スキップも失敗もなく戻したファイルもない結果は、ファイルのないセッションが一覧に出ない（REQ-backup-015）ため公開された入口から作れない。src/service/rollback.rs の exit_code_empty と src/cli/rollback.rs の test_rollback_exit_code_empty_restored が確かめるのはこの場合で、公開された入口を通した形にはしていない。
+- 同じ振る舞いを確かめる CLI のテストと関数呼び出しのテストのうち、根拠にしなかった方は削除候補の節に挙げる。
