@@ -137,7 +137,7 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 | REQ-backup-035 | rollback_asks_before_restoring_and_restores_only_after_y_or_yes、rollback_restores_after_yes | 新しく書いた。標準入力から "n"、空の応答、"y"、"yes" を与え、確認の文言と書き戻しの有無を確かめる。断ったときの終了コードは FLAG-backup-004 の範囲のため確かめない |
 | REQ-backup-036 | sensitive_files_are_skipped_without_force_and_restored_with_it | 新しく書いた。--force なしは確認を避けるため dry-run で理由 "sensitive" のスキップを、--force ありは書き戻しを確かめる |
 | REQ-backup-037 | rollback_text_marks_each_file_and_summarises_the_counts、rollback_text_summary_has_no_counts_when_nothing_was_skipped_or_failed、rollback_json_has_the_result_fields | 新しく書いた。戻したもの・スキップ・失敗を一つずつ含む実際の書き戻しの結果を使う。後者の JSON は tests/local_backup_store.rs の aggregate_rollback_json_keeps_the_existing_field_names_and_types を置き換えた。集計行は "Restored N file(s)" の後の言い回しを IR が定めていないため、数が続くことだけを確かめる |
-| REQ-backup-038 | rollback_exit_codes_follow_the_result、rollback_exits_with_2_when_every_file_is_skipped_or_failed | 新しく書いた。src/service/rollback.rs の exit_code で始まる五件と src/cli/rollback.rs の test_rollback_exit_code で始まる三件を、execute_rollback の終了コードで確かめる形にしたもの |
+| REQ-backup-038 | rollback_exit_codes_follow_the_result、rollback_exits_with_2_when_every_file_is_skipped_or_failed、rollback_exits_with_2_when_a_file_is_restored_and_another_is_skipped、rollback_exits_with_2_when_a_file_is_restored_and_another_fails | 新しく書いた。src/service/rollback.rs の exit_code で始まる五件と src/cli/rollback.rs の test_rollback_exit_code で始まる三件を、execute_rollback の終了コードで確かめる形にしたもの。一件を戻して一件をスキップする結果は、場所の変化によるスキップがセッション全体を止める（EX-backup-005）ため、ファイルごとに判断される親ディレクトリの消失（REQ-backup-031）で作る |
 | REQ-backup-038 | dry_run_reports_the_same_changed_path_skip_with_exit_code_0 | tests/local_backup_store.rs の dry_run_reports_the_same_changed_path_skip_without_writing を移した（スキップがあっても dry-run は 0） |
 | REQ-backup-038 | rollback_exits_with_2_when_the_session_is_not_found | tests/cli_rollback.rs の test_rollback_exit_code_no_sessions を移し、存在しない --session を指定した場合を書き足した |
 | REQ-backup-039 | target_is_required_except_for_list_which_defaults_to_local | 新しく書いた。--target なしの書き戻しがエラーで何も書かないことと、--list の --target 省略がローカルのセッションを一覧することを確かめる |
@@ -209,14 +209,14 @@ parse_batch_restore_output と extract_timestamp は呼び出し元がないた�
 | src/service/rollback.rs | plan_restore_session_not_found | 同上（存在しない --session） |
 | src/service/rollback.rs | plan_restore_empty_session | なし。ファイルのないセッションは一覧に出ない（REQ-backup-015）ため、公開された入口から作れない場合 |
 | src/service/rollback.rs | exit_code_all_success | rollback_exit_codes_follow_the_result（REQ-backup-038） |
-| src/service/rollback.rs | exit_code_partial_failure | 同上 |
-| src/service/rollback.rs | exit_code_is_error_when_a_path_is_skipped | rollback_exits_with_2_when_every_file_is_skipped_or_failed（REQ-backup-038） |
-| src/service/rollback.rs | exit_code_all_failed | 同上 |
+| src/service/rollback.rs | exit_code_partial_failure | rollback_exits_with_2_when_a_file_is_restored_and_another_fails（REQ-backup-038） |
+| src/service/rollback.rs | exit_code_is_error_when_a_path_is_skipped | rollback_exits_with_2_when_a_file_is_restored_and_another_is_skipped（REQ-backup-038） |
+| src/service/rollback.rs | exit_code_all_failed | rollback_exits_with_2_when_every_file_is_skipped_or_failed（REQ-backup-038） |
 | src/service/rollback.rs | exit_code_empty | なし。plan_restore_empty_session と同じく公開された入口から作れない場合 |
 | src/cli/rollback.rs | test_resolve_target_none_list_mode_defaults_to_local | target_is_required_except_for_list_which_defaults_to_local（REQ-backup-039） |
 | src/cli/rollback.rs | test_resolve_target_none_non_list_mode_errors | 同上 |
 | src/cli/rollback.rs | test_rollback_exit_code_success | rollback_exit_codes_follow_the_result（REQ-backup-038） |
-| src/cli/rollback.rs | test_rollback_exit_code_failure_with_failed | 同上 |
+| src/cli/rollback.rs | test_rollback_exit_code_failure_with_failed | rollback_exits_with_2_when_a_file_is_restored_and_another_fails（REQ-backup-038） |
 | src/cli/rollback.rs | test_rollback_exit_code_empty_restored | なし。exit_code_empty と同じ場合 |
 | src/backup/mod.rs | remote_targets_with_different_users_have_the_same_identity | login_user_does_not_distinguish_remote_targets（REQ-backup-021） |
 | src/backup/mod.rs | remote_targets_with_different_hosts_have_different_identities | remote_targets_differing_only_in_host_keep_separate_sessions（REQ-backup-021） |

@@ -231,6 +231,73 @@ fn rollback_exits_with_2_when_every_file_is_skipped_or_failed() {
     }
 }
 
+/// kept.txt と sub/disturbed.txt をマージしてバックアップを作り、sub/disturbed.txt に `disturb` を
+/// 施してから rollback した結果を返す。
+fn restore_after_disturbing_one_of_two(
+    disturb: impl FnOnce(&std::path::Path),
+) -> (RollbackOutput, i32) {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("sub")).unwrap();
+    fs::create_dir(develop.path().join("sub")).unwrap();
+    for path in ["kept.txt", "sub/disturbed.txt"] {
+        fs::write(local.path().join(path), "merged\n").unwrap();
+        fs::write(develop.path().join(path), "original\n").unwrap();
+    }
+    let config = config(&local, &develop, true);
+    let mut args = merge_args("kept.txt");
+    args.paths = vec!["kept.txt".into(), "sub/disturbed.txt".into()];
+    let merged = merge_files(args, config.clone(), targets(&develop, &store));
+    assert_eq!(merged.merged.len(), 2, "{merged:?}");
+    let disturbed = develop.path().join("sub/disturbed.txt");
+    disturb(&disturbed);
+
+    let result = execute_rollback(
+        rollback_args("develop", None),
+        config,
+        targets(&develop, &store),
+    );
+    fs::set_permissions(&disturbed, fs::Permissions::from_mode(0o600)).ok();
+    let result = result.unwrap();
+    let RollbackCommandOutput::Restore(output) = result.output else {
+        panic!("expected restore output")
+    };
+    (output, result.exit_code)
+}
+
+// 変わった場所のスキップ（REQ-backup-033）はセッション全体を止めるため、一件だけ戻して
+// 一件をスキップする結果は、ファイルごとに判断される親ディレクトリの消失で作る。
+// @kotowari[REQ-backup-038]
+#[test]
+fn rollback_exits_with_2_when_a_file_is_restored_and_another_is_skipped() {
+    let (output, exit_code) = restore_after_disturbing_one_of_two(|disturbed| {
+        fs::remove_dir_all(disturbed.parent().unwrap()).unwrap();
+    });
+
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert_eq!(output.skipped.len(), 1, "{output:?}");
+    assert_eq!(
+        output.skipped[0].reason,
+        "parent directory no longer exists"
+    );
+    assert!(output.failed.is_empty(), "{output:?}");
+    assert_eq!(exit_code, 2);
+}
+
+// @kotowari[REQ-backup-038]
+#[test]
+fn rollback_exits_with_2_when_a_file_is_restored_and_another_fails() {
+    let (output, exit_code) = restore_after_disturbing_one_of_two(|changed| {
+        fs::set_permissions(changed, fs::Permissions::from_mode(0o000)).unwrap();
+    });
+
+    assert_eq!(output.restored.len(), 1, "{output:?}");
+    assert!(output.skipped.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(exit_code, 2);
+}
+
 // @kotowari[REQ-backup-038]
 #[test]
 fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
