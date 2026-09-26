@@ -1642,6 +1642,18 @@ fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
 // @kotowari[EX-cli-029]
 #[test]
 fn merging_a_file_does_not_record_its_body_in_diagnostic_logs() {
+    if std::env::var_os("REMOTE_MERGE_DIAGNOSTIC_LOG_CHILD").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "merge_paths::merging_a_file_does_not_record_its_body_in_diagnostic_logs",
+            ])
+            .env("REMOTE_MERGE_DIAGNOSTIC_LOG_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        return;
+    }
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
