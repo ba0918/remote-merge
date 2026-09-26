@@ -211,16 +211,11 @@ fn sessions_for_two_write_targets_remain_separate() {
 // @kotowari[REQ-backup-021]
 #[test]
 fn relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in() {
-    // 相対の root_dir でローカルへ書き込むため、作業ディレクトリの下にある
-    // 結合テスト用の一時ディレクトリを使う
+    // 相対の root_dir でローカルへ書き込むため、ビルド先の場所に左右されないよう
+    // 作業ディレクトリの直下に一時ディレクトリを作る
     let startup = std::env::current_dir().unwrap();
-    let base = TempDir::new_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
-    let relative_root = base
-        .path()
-        .join("project")
-        .strip_prefix(&startup)
-        .expect("CARGO_TARGET_TMPDIR must be under the working directory")
-        .to_path_buf();
+    let base = TempDir::new_in(&startup).unwrap();
+    let relative_root = std::path::Path::new(base.path().file_name().unwrap()).join("project");
     fs::create_dir(base.path().join("project")).unwrap();
     let other_startup = base.path().join("elsewhere");
     fs::create_dir(&other_startup).unwrap();
