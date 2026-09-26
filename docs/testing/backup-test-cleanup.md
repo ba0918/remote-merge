@@ -1,7 +1,7 @@
 # バックアップと rollback のテスト整理の記録
 
 バックアップと rollback の要件（REQ-backup-011 から REQ-backup-041）の根拠テストを整理した過程の記録。
-変異テストの結果、各要件の根拠にしたテスト、利用者の判断を待つ削除候補を残す。
+変異テストの結果、各要件の根拠にしたテスト、削除候補と利用者の判断を残す。
 
 ## 整理前の変異テスト
 
@@ -113,7 +113,7 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 | REQ-backup-026 | listing_and_cleanup_share_the_retention_boundary | 新しく書いた。src/backup/mod.rs の session_expires_at_retention_boundary と src/service/rollback.rs の mark_expired の四件を、一覧と整理を通して境界の一秒前と境界ちょうどで確かめる形にしたもの |
 | REQ-backup-026 | expired_session_is_marked_in_text_and_json_at_the_injected_boundary | tests/local_backup_store.rs から移した |
 
-- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため性質の入力には含めていない。FLAG として記録するかは利用者の判断を待つ。
+- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため性質の入力には含めていない。FLAG として記録する（利用者の判断）。
 - REQ-backup-025 の「集約先の場所が決まらないときは整理しない」は、その実行から整理の対象が見えないため観測できる違いがなく、テストにしていない。
 - tests/local_backup_store.rs の merge_keeps_expired_sessions_for_targets_absent_from_config は REQ-backup-025 の文にない「設定から外れた書き込み先の履歴は残す」を確かめるもので、tests/contract/backup_cleanup.rs の EX-backup-017 のテストと重なるため移さず、削除候補に挙げる。
 
@@ -149,9 +149,20 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 - REQ-backup-038 の「戻したファイルがないとき 2」のうち、スキップも失敗もなく戻したファイルもない結果は、ファイルのないセッションが一覧に出ない（REQ-backup-015）ため公開された入口から作れない。src/service/rollback.rs の exit_code_empty と src/cli/rollback.rs の test_rollback_exit_code_empty_restored が確かめるのはこの場合で、公開された入口を通した形にはしていない。
 - 同じ振る舞いを確かめる CLI のテストと関数呼び出しのテストのうち、根拠にしなかった方は削除候補の節に挙げる。
 
-## 削除候補（利用者の判断待ち）
+## 削除候補と利用者の判断
 
-整理の計画で削除を利用者が一括で判断する段の入力。まだどれも消していない。
+整理の計画で削除を利用者が一括で判断する段の入力と、その判断の結果。
+
+### 判断の結果
+
+利用者が一覧を一度に見て、次のとおり決めた。決まったものだけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2,845 件）。
+
+- A の 11 件は全て消した。
+- B の 41 件は全て残した。公開された入口を通さない純粋関数の単体テストで、速く結果が分かることと、plan_restore_empty_session・exit_code_empty・test_rollback_exit_code_empty_restored・missing_backup_store_allows_write_when_backup_is_disabled のように公開された入口から作れない場合を確かめるものがあるため。印は付けない。
+- C の 15 件のうち 13 件を消した。tests/cli_rollback_local.rs の test_rollback_list_no_backups と test_rollback_list_format_json_empty の二件は、利用者が目にする空の一覧の出力（テキストと JSON）をほかに確かめるテストがないため残した。印は付けない。C のうち tests/cli_rollback.rs の七件を消したことで、このファイルにはテストがなくなったため、ファイルごと消した。
+- 計画の範囲を超える変更として、利用者の承認を得て、製品コードから呼ばれていない関数 `parse_batch_restore_output`（src/service/rollback.rs）と `extract_timestamp`（src/backup/mod.rs）を消した。消す前に `rg` でテスト以外の呼び出し元がないことを確かめた。呼び出し元がないため挙動は変わらない。A のうちこの二つの関数のテスト八件は、関数と同じコミットで消した。
+
+以下は判断の入力にした一覧で、判断前の内容のまま残す。
 一覧は、取り込みの決定記録（docs/decision/records/2026-09-27-adopt-backup.md）の Context で「実装詳細をなぞるだけ」と数えた十一件（A）と、上の審査で根拠にしなかった純粋関数の比較だけのテスト（B）と重複テスト（C）を合わせた 67 件。
 「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめている根拠テスト。
 FLAG の挙動を確かめる三件（trailing_slash_does_not_change_remote_target_identity、rollback_reports_a_cyclic_symlink_as_an_unresolvable_path、rollback_reports_a_cyclic_parent_symlink_as_an_unresolvable_path）と、この計画の対象外の要件（集約先の場所、REQ-backup-001 から 010）を確かめる src/backup/mod.rs の backup_store_uses_home_ で始まる二件と backup_store_is_unavailable_without_xdg_data_home_or_home は候補にしていない。
@@ -172,7 +183,7 @@ FLAG の挙動を確かめる三件（trailing_slash_does_not_change_remote_targ
 | src/cli/rollback.rs | test_resolve_target_with_name | 非公開の resolve_target がサーバ名を Side に変えることを見るだけ。rollback --target の振る舞いは REQ-backup-021・039 の根拠テストが確かめる |
 | src/cli/rollback.rs | test_resolve_target_local | 同上 |
 
-parse_batch_restore_output と extract_timestamp は呼び出し元がないため、テストを消すと整理後の変異テストでこれらの関数の変異が見逃しとして現れる見込み（推測、未確認）。
+parse_batch_restore_output と extract_timestamp は呼び出し元がないため、テストを消すと整理後の変異テストでこれらの関数の変異が見逃しとして現れる見込みだった。利用者の判断で関数そのものを消したため、これらの変異は生じない。
 
 ### B. 純粋関数の比較だけのテスト（41 件）
 
