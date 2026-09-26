@@ -88,3 +88,31 @@ REQ-backup-012 のテストは、`RemoteTargetIdentity::port` を 1 を返すよ
 - REQ-backup-017 の --delete は、計画では tests/contract/merge_paths.rs の deletion_fails_without_removing_a_file_when_backup_cannot_be_saved の印に REQ-backup-017 を足すことになっていた。このテストは error が "backup failed" を含むことだけを見ており、要件の "backup failed: " に続けて原因を示す形を確かめないため印を足さず、形まで確かめるテストを書いた。元のテストは EX-merge-033 の根拠として残す。
 - REQ-backup-018 の「期限切れの整理もせずに」は、集約先の場所が決まらないときの話で、その実行からは整理する対象が見えないため、テストで観測できる違いがない。書き込むことと結果に backup が出ないことを確かめる。
 - src/handler/merge_file_io.rs の decide_backup_write を直接呼ぶテストは根拠にしない（削除候補に挙げる）。
+
+### セッションと期限（docs/ir/backup/sessions.md）
+
+根拠テストは全て `tests/contract/backup_sessions.rs` にある。
+REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公開された関数 `remote_merge::backup::next_session_id` と `compare_session_ids` を通して確かめる。
+試す入力の数は上書きせず、proptest の既定の 256 件のまま。
+これまでの実行で失敗入力は見つかっておらず、`proptest-regressions/` のファイルはできていない。
+
+| 要件 | 根拠テスト | 元のテストと変えたところ |
+|---|---|---|
+| REQ-backup-021 | remote_targets_differing_only_in_port_keep_separate_sessions、remote_targets_differing_only_in_host_keep_separate_sessions | 新しく書いた。書いた時点の実装で通ることを最初の実行で確かめ、`RemoteTargetIdentity` の host と port を定数に書き換える一時的な変更では両方とも失敗することを確かめた |
+| REQ-backup-021 | aliases_of_one_host_are_separate_write_targets、remote_targets_differing_only_in_root_dir_keep_separate_sessions、login_user_does_not_distinguish_remote_targets | 新しく書いた。src/backup/mod.rs の書き込み先の識別の単体テスト（ホストの別名、ユーザー名）を一覧を通した形にしたもの |
+| REQ-backup-021 | rollback_target_uses_only_the_write_target_its_name_now_points_to | 新しく書いた。設定でサーバ名の指す書き込み先を変えると、前の書き込み先のセッションを一覧にも rollback にも使わない |
+| REQ-backup-021 | relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in | 新しく書いた。src/backup/mod.rs の relative_local_root_is_resolved_from_startup_directory を公開された入口から確かめる形にしたもの。相対の root_dir でローカルへ書き込むため、結合テスト用の一時ディレクトリ（CARGO_TARGET_TMPDIR）を使う |
+| REQ-backup-021 | sessions_for_two_write_targets_remain_separate、local_root_symlink_retargeting_keeps_existing_sessions_visible | tests/local_backup_store.rs から移した。前者は各一覧のセッションとファイルが一件だけであることを書き足した |
+| REQ-backup-022 | created_session_ids_follow_the_timestamp_and_suffix_format、session_ids_order_by_time_then_numeric_suffix | 新しく書いた性質テスト。前者は任意の既存 ID に対して作られる ID が日時で始まり、同じ日時の ID があるときだけ 2 以上の "-N" が付くこと、後者は任意の二つの ID の比較が日時、同じ日時なら N の数値の順（"-N" なしが最初）に一致すること |
+| REQ-backup-022 | tenth_session_sorts_after_ninth_session、same_time_uses_second_session_suffix | src/backup/mod.rs の単体テストを移した（決定記録 2026-09-27-backup-session-id-properties の A3 で残す具体例） |
+| REQ-backup-022 | same_second_sessions_are_listed_newest_first、rollback_accepts_a_same_second_session_id_with_numeric_suffix、rollback_without_session_uses_the_newest_numeric_suffix | tests/local_backup_store.rs から移した。一覧の順と --session の受け付けと省略時の最新の選択。前者の元のテストにあった「何も記録しない操作は一覧に出ない」確認は REQ-backup-015 の根拠テストが受け持つ |
+| REQ-backup-023 | next_session_id_differs_from_every_existing_id | 新しく書いた性質テスト。同じ日時や前後一秒の任意の既存 ID の集合に対して、次に作る ID がどれとも重ならない |
+| REQ-backup-023 | same_time_uses_second_session_suffix、merges_started_in_the_same_second_use_distinct_session_ids、concurrent_merges_use_distinct_session_ids | 前者は上の行と同じ。後の二つは tests/local_backup_store.rs から移した（集約先を通した同じ秒・並行の作成） |
+| REQ-backup-024 | sync_uses_one_session_id_for_all_targets | tests/local_backup_store.rs から移した。各書き込み先の一覧にそのセッションが出ることを書き足した |
+| REQ-backup-025 | merge_removes_expired_sessions_when_it_starts、sync_removes_expired_sessions_when_it_starts、dry_run_merge_and_sync_keep_expired_sessions、rollback_in_any_mode_keeps_expired_sessions、disabled_backup_merge_still_removes_expired_sessions、tui_start_removes_expired_sessions | tests/local_backup_store.rs の期限切れの整理の六件を移した。dry-run は sync の場合を書き足した |
+| REQ-backup-026 | listing_and_cleanup_share_the_retention_boundary | 新しく書いた。src/backup/mod.rs の session_expires_at_retention_boundary と src/service/rollback.rs の mark_expired の四件を、一覧と整理を通して境界の一秒前と境界ちょうどで確かめる形にしたもの |
+| REQ-backup-026 | expired_session_is_marked_in_text_and_json_at_the_injected_boundary | tests/local_backup_store.rs から移した |
+
+- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため、性質にも FLAG にもしていない。
+- REQ-backup-025 の「集約先の場所が決まらないときは整理しない」は、その実行から整理の対象が見えないため観測できる違いがなく、テストにしていない。
+- tests/local_backup_store.rs の merge_keeps_expired_sessions_for_targets_absent_from_config は REQ-backup-025 の文にない「設定から外れた書き込み先の履歴は残す」を確かめるもので、tests/contract/backup_cleanup.rs の EX-backup-017 のテストと重なるため移さず、削除候補に挙げる。

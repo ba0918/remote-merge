@@ -312,16 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn same_time_uses_second_session_suffix() {
-        let now = Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap();
-        let first = next_session_id(now, &[]);
-        let second = next_session_id(now, &[first.as_str()]);
-
-        assert_eq!(first, "20260914-155250");
-        assert_eq!(second, "20260914-155250-2");
-    }
-
-    #[test]
     fn session_id_with_sequence_is_parsed() {
         let parsed = parse_session_id("20260914-155250-12").unwrap();
 
@@ -330,14 +320,6 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 9, 14, 15, 52, 50).unwrap()
         );
         assert_eq!(parsed.sequence, 12);
-    }
-
-    #[test]
-    fn tenth_session_sorts_after_ninth_session() {
-        assert_eq!(
-            compare_session_ids("20260914-155250-10", "20260914-155250-9"),
-            Some(std::cmp::Ordering::Greater)
-        );
     }
 
     #[test]

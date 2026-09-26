@@ -6,9 +6,7 @@ use chrono::{TimeZone, Utc};
 use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
-use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
-use remote_merge::runtime::bootstrap::{bootstrap_tui_with_targets, TuiBootstrapParams};
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::service::output::{format_backup_list_text, format_json};
 use tempfile::TempDir;
@@ -69,21 +67,6 @@ fn targets(develop: &TempDir, store: &TempDir) -> RuntimeTargets {
 
 fn targets_at(develop: &TempDir, store: &TempDir, now: chrono::DateTime<Utc>) -> RuntimeTargets {
     targets(develop, store).with_now(now)
-}
-
-fn sync_args(path: &str) -> SyncArgs {
-    SyncArgs {
-        paths: vec![path.into()],
-        left: Some("local".into()),
-        right: vec!["develop".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    }
 }
 
 fn rollback_list_args(target: &str) -> RollbackArgs {
@@ -311,162 +294,6 @@ fn rollback_skips_deleted_file_when_its_parent_no_longer_exists() {
 }
 
 #[test]
-fn merge_removes_expired_sessions_for_configured_targets() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "first\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    let old = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        targets_at(&develop, &store, old),
-    )
-    .unwrap();
-    fs::write(local.path().join("file.txt"), "second\n").unwrap();
-
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    let sessions = listed_sessions("develop", config, targets(&develop, &store));
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].session_id, "20200108-000000");
-}
-
-#[test]
-fn sync_removes_expired_sessions_for_configured_targets() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "first\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-    fs::write(local.path().join("file.txt"), "second\n").unwrap();
-
-    execute_sync(
-        sync_args("file.txt"),
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    let sessions = listed_sessions("develop", config, targets(&develop, &store));
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].session_id, "20200108-000000");
-}
-
-#[test]
-fn merge_dry_run_keeps_expired_sessions() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-    let mut args = merge_args("file.txt");
-    args.dry_run = true;
-
-    execute_merge(
-        args,
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    assert_eq!(
-        listed_sessions("develop", config, targets(&develop, &store)).len(),
-        1
-    );
-}
-
-#[test]
-fn rollback_operations_keep_other_expired_sessions_restorable() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "merged\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
-    let config = config(&local, &develop, true);
-    let old_targets = targets_at(
-        &develop,
-        &store,
-        Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-    );
-    execute_merge(merge_args("file.txt"), config.clone(), old_targets).unwrap();
-    let current_targets = targets_at(
-        &develop,
-        &store,
-        Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-    );
-
-    execute_rollback(
-        rollback_list_args("develop"),
-        config.clone(),
-        current_targets.clone(),
-    )
-    .unwrap();
-    let mut dry_run = rollback_args("develop", Some("20200101-000000".into()));
-    dry_run.dry_run = true;
-    execute_rollback(dry_run, config.clone(), current_targets.clone()).unwrap();
-    execute_rollback(
-        rollback_args("develop", Some("20200101-000000".into())),
-        config.clone(),
-        current_targets.clone(),
-    )
-    .unwrap();
-
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "original\n"
-    );
-    let sessions = listed_sessions("develop", config, current_targets);
-    assert!(
-        sessions
-            .iter()
-            .any(|session| session.session_id == "20200101-000000"),
-        "{sessions:?}"
-    );
-}
-
-#[test]
 fn merge_keeps_expired_sessions_for_targets_absent_from_config() {
     let local = TempDir::new().unwrap();
     let configured = TempDir::new().unwrap();
@@ -503,78 +330,6 @@ fn merge_keeps_expired_sessions_for_targets_absent_from_config() {
         listed_sessions("develop", absent_config, targets(&absent, &store)).len(),
         1
     );
-}
-
-#[test]
-fn disabled_backup_merge_still_removes_expired_sessions() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let enabled = config(&local, &develop, true);
-    execute_merge(
-        merge_args("file.txt"),
-        enabled,
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-    let disabled = config(&local, &develop, false);
-
-    execute_merge(
-        merge_args("file.txt"),
-        disabled.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    assert!(listed_sessions("develop", disabled, targets(&develop, &store)).is_empty());
-}
-
-#[test]
-fn tui_bootstrap_removes_expired_sessions() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    let (_, runtime) = bootstrap_tui_with_targets(
-        TuiBootstrapParams {
-            right_server: "develop".into(),
-            left_server: None,
-            ref_server: None,
-        },
-        config.clone(),
-        targets_at(
-            &develop,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-    drop(runtime);
-
-    assert!(listed_sessions("develop", config, targets(&develop, &store)).is_empty());
 }
 
 #[test]
@@ -640,36 +395,6 @@ fn updated_symlink_is_listed_as_a_symlink_in_text_and_json() {
     assert!(json["sessions"][0]["files"][0].get("size").is_none());
 }
 
-#[test]
-fn expired_session_is_marked_in_text_and_json_at_the_injected_boundary() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, true);
-    let merge_targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(Some(store.path().to_path_buf()))
-        .with_startup_directory(std::env::current_dir().unwrap())
-        .with_now(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap());
-
-    execute_merge(merge_args("file.txt"), config.clone(), merge_targets).unwrap();
-    let list_targets = RuntimeTargets::production()
-        .with_backup_store(Some(store.path().to_path_buf()))
-        .with_startup_directory(std::env::current_dir().unwrap())
-        .with_now(Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap());
-    let listed = execute_rollback(rollback_list_args("develop"), config, list_targets).unwrap();
-
-    let RollbackCommandOutput::List(output) = listed.output else {
-        panic!("expected backup list")
-    };
-    assert!(output.sessions[0].expired);
-    assert!(format_backup_list_text(&output).contains("[expired]"));
-    let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
-    assert_eq!(json["sessions"][0]["expired"], true);
-}
-
 fn listed_sessions(
     target: &str,
     config: remote_merge::config::AppConfig,
@@ -680,95 +405,6 @@ fn listed_sessions(
         panic!("expected backup list")
     };
     output.sessions
-}
-
-#[test]
-fn sessions_for_two_write_targets_remain_separate() {
-    let config_dir = TempDir::new().unwrap();
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let staging = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    let config_path = config_dir.path().join("config.toml");
-    fs::write(
-        &config_path,
-        format!(
-            "[local]\nroot_dir = \"{}\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[servers.staging]\nhost = \"staging.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[backup]\nenabled = true\n",
-            local.path().display(),
-            develop.path().display(),
-            staging.path().display()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_path), None).unwrap();
-    let runtime_targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_local("staging", staging.path())
-        .with_backup_store(Some(store.path().to_path_buf()))
-        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
-    fs::write(local.path().join("develop.txt"), "new develop\n").unwrap();
-    fs::write(develop.path().join("develop.txt"), "old\n").unwrap();
-    fs::write(local.path().join("staging.txt"), "new staging\n").unwrap();
-    fs::write(staging.path().join("staging.txt"), "old\n").unwrap();
-    let develop_result = execute_merge(
-        merge_args("develop.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-    let mut staging_args = merge_args("staging.txt");
-    staging_args.right = Some("staging".into());
-    let staging_result =
-        execute_merge(staging_args, config.clone(), runtime_targets.clone()).unwrap();
-    let MergeCommandOutput::Files(develop_output) = develop_result.output else {
-        panic!("expected files")
-    };
-    let MergeCommandOutput::Files(staging_output) = staging_result.output else {
-        panic!("expected files")
-    };
-    assert_eq!(develop_output.merged.len(), 1, "{develop_output:?}");
-    assert_eq!(staging_output.merged.len(), 1, "{staging_output:?}");
-
-    let develop_sessions = listed_sessions("develop", config.clone(), runtime_targets.clone());
-    let staging_sessions = listed_sessions("staging", config, runtime_targets);
-    assert_eq!(develop_sessions[0].files[0].path, "develop.txt");
-    assert_eq!(staging_sessions[0].files[0].path, "staging.txt");
-}
-
-#[cfg(unix)]
-#[test]
-fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
-    let base = TempDir::new().unwrap();
-    let release_a = base.path().join("release-a");
-    let release_b = base.path().join("release-b");
-    let local_link = base.path().join("current");
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::create_dir(&release_a).unwrap();
-    fs::create_dir(&release_b).unwrap();
-    symlink(&release_a, &local_link).unwrap();
-    fs::write(release_a.join("file.txt"), "old local\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
-    let config_path = base.path().join("config.toml");
-    fs::write(
-        &config_path,
-        format!(
-            "[local]\nroot_dir = \"{}\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"{}\"\n[backup]\nenabled = true\n",
-            local_link.display(),
-            develop.path().display()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_path), None).unwrap();
-    let runtime_targets = targets(&develop, &store);
-    let mut args = merge_args("file.txt");
-    args.left = Some("develop".into());
-    args.right = Some("local".into());
-    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
-    fs::remove_file(&local_link).unwrap();
-    symlink(&release_b, &local_link).unwrap();
-
-    assert_eq!(listed_sessions("local", config, runtime_targets).len(), 1);
 }
 
 #[cfg(unix)]
@@ -1090,106 +726,6 @@ fn dry_run_reports_the_same_changed_path_skip_without_writing() {
 }
 
 #[test]
-fn same_second_sessions_are_listed_newest_first_and_empty_operations_are_absent() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-    fs::write(local.path().join("file.txt"), "first\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-    fs::write(local.path().join("file.txt"), "second\n").unwrap();
-    execute_merge(
-        merge_args("file.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-    fs::write(local.path().join("new.txt"), "created\n").unwrap();
-    execute_merge(
-        merge_args("new.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-
-    let sessions = listed_sessions("develop", config, runtime_targets);
-    assert_eq!(sessions.len(), 2);
-    assert_eq!(sessions[0].session_id, "20260914-120000-2");
-    assert_eq!(sessions[1].session_id, "20260914-120000");
-}
-
-fn create_two_same_second_sessions(
-    local: &TempDir,
-    develop: &TempDir,
-    store: &TempDir,
-) -> (remote_merge::config::AppConfig, RuntimeTargets) {
-    let config = config(local, develop, true);
-    let runtime_targets = targets(develop, store);
-    fs::write(local.path().join("file.txt"), "first merge\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "original\n").unwrap();
-    let mut args = merge_args("file.txt");
-    args.force = true;
-    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
-    fs::write(local.path().join("file.txt"), "second merge content\n").unwrap();
-    let mut args = merge_args("file.txt");
-    args.force = true;
-    execute_merge(args, config.clone(), runtime_targets.clone()).unwrap();
-    (config, runtime_targets)
-}
-
-#[test]
-fn rollback_accepts_a_same_second_session_id_with_numeric_suffix() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    let (mut config, runtime_targets) = create_two_same_second_sessions(&local, &develop, &store);
-    config.backup.enabled = false;
-
-    let result = execute_rollback(
-        rollback_args("develop", Some("20260914-120000-2".into())),
-        config,
-        runtime_targets,
-    )
-    .unwrap();
-
-    let RollbackCommandOutput::Restore(output) = result.output else {
-        panic!("expected restore output")
-    };
-    assert_eq!(output.session_id, "20260914-120000-2");
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "first merge\n"
-    );
-}
-
-#[test]
-fn rollback_without_session_uses_the_newest_numeric_suffix() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    let (mut config, runtime_targets) = create_two_same_second_sessions(&local, &develop, &store);
-    config.backup.enabled = false;
-
-    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
-
-    let RollbackCommandOutput::Restore(output) = result.output else {
-        panic!("expected restore output")
-    };
-    assert_eq!(output.session_id, "20260914-120000-2");
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "first merge\n"
-    );
-}
-
-#[test]
 fn rollback_treats_a_session_with_missing_content_as_not_found() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -1425,40 +961,6 @@ fn disabled_backup_writes_without_creating_store_entries() {
 }
 
 #[test]
-fn merges_started_in_the_same_second_use_distinct_session_ids() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "first content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let first = execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, true),
-        targets(&develop, &store),
-    )
-    .unwrap();
-    fs::write(
-        local.path().join("file.txt"),
-        "second content that differs\n",
-    )
-    .unwrap();
-    let second = execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, true),
-        targets(&develop, &store),
-    )
-    .unwrap();
-
-    let backup = |result: remote_merge::cli::merge::MergeCommandResult| {
-        let MergeCommandOutput::Files(output) = result.output else {
-            panic!("expected files")
-        };
-        output.merged[0].backup.clone().unwrap()
-    };
-    assert_ne!(backup(first), backup(second));
-}
-
-#[test]
 fn delete_stores_backup_in_aggregate_store() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -1514,86 +1016,6 @@ fn hunk_merge_stores_backup_in_aggregate_store() {
         .as_deref()
         .is_some_and(|value| value.ends_with("/file.txt")));
     assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn sync_uses_one_session_id_for_all_targets() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let staging = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(
-        local.path().join("file.txt"),
-        "new content shared by sync\n",
-    )
-    .unwrap();
-    fs::write(develop.path().join("file.txt"), "old develop\n").unwrap();
-    fs::write(staging.path().join("file.txt"), "old staging\n").unwrap();
-    let config_path = local.path().join("sync-config.toml");
-    fs::write(
-        &config_path,
-        format!(
-            r#"
-[local]
-root_dir = "{}"
-[servers.develop]
-host = "develop.invalid"
-user = "unused"
-root_dir = "{}"
-[servers.staging]
-host = "staging.invalid"
-user = "unused"
-root_dir = "{}"
-[backup]
-enabled = true
-"#,
-            local.path().display(),
-            develop.path().display(),
-            staging.path().display()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_path), None).unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_local("staging", staging.path())
-        .with_backup_store(Some(store.path().to_path_buf()))
-        .with_startup_directory(std::env::current_dir().unwrap())
-        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
-    let args = SyncArgs {
-        paths: vec!["file.txt".into()],
-        left: Some("local".into()),
-        right: vec!["develop".into(), "staging".into()],
-        dry_run: false,
-        force: true,
-        delete: false,
-        with_permissions: false,
-        checksum: false,
-        format: "json".into(),
-        max_entries: None,
-    };
-
-    let result = execute_sync(args, config, targets).unwrap();
-    let SyncCommandOutput::Result(output) = result.output else {
-        panic!("expected result")
-    };
-    let sessions = output
-        .targets
-        .iter()
-        .map(|target| {
-            target.merged[0]
-                .backup
-                .as_deref()
-                .unwrap()
-                .split('/')
-                .next()
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(sessions.len(), 2);
-    assert_eq!(sessions[0], sessions[1]);
-    assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
-    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
 }
 
 #[test]
@@ -1665,40 +1087,6 @@ enabled = true
 
     assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
     assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn concurrent_merges_use_distinct_session_ids() {
-    let store = TempDir::new().unwrap();
-    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-    let mut handles = Vec::new();
-    for index in 0..2 {
-        let local = TempDir::new().unwrap();
-        let develop = TempDir::new().unwrap();
-        fs::write(
-            local.path().join("file.txt"),
-            format!("new content {index}\n"),
-        )
-        .unwrap();
-        fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-        let config = config(&local, &develop, true);
-        let targets = targets(&develop, &store);
-        let barrier = barrier.clone();
-        handles.push(std::thread::spawn(move || {
-            let _guards = (local, develop);
-            barrier.wait();
-            let result = execute_merge(merge_args("file.txt"), config, targets).unwrap();
-            let MergeCommandOutput::Files(output) = result.output else {
-                panic!("expected files")
-            };
-            output.merged[0].backup.clone().unwrap()
-        }));
-    }
-    let backups = handles
-        .into_iter()
-        .map(|handle| handle.join().unwrap())
-        .collect::<Vec<_>>();
-    assert_ne!(backups[0].split('/').next(), backups[1].split('/').next());
 }
 
 #[cfg(unix)]

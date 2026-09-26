@@ -4,6 +4,8 @@ mod backup_cleanup;
 mod backup_failure;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
+#[path = "contract/backup_sessions.rs"]
+mod backup_sessions;
 #[path = "contract/backup_storage.rs"]
 mod backup_storage;
 #[path = "contract/backup_support.rs"]

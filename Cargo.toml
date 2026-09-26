@@ -42,6 +42,7 @@ test-utils = []
 tempfile = "3"
 expectrl = "0.8.0"
 serial_test = "3"
+proptest = "1.11.0"
 
 [[test]]
 name = "ssh_integration"
