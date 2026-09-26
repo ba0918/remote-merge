@@ -13,6 +13,8 @@ tests:
   rules: []
 guides:
   files: []
+mutants:
+  equivalents: .kotowari/mutants-equivalents.yaml
 limits:
   lines: 200
   requirements: 10
