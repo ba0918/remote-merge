@@ -55,8 +55,12 @@ use common::ssh_server;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_sudo.rs"]
 mod ssh_sudo;
+#[path = "contract/status_judgement.rs"]
+mod status_judgement;
 #[path = "contract/status_results.rs"]
 mod status_results;
+#[path = "contract/status_support.rs"]
+mod status_support;
 #[path = "contract/tui_confirm.rs"]
 mod tui_confirm;
 #[path = "contract/tui_directory_links.rs"]
