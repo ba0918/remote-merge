@@ -148,3 +148,96 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 
 - REQ-backup-038 の「戻したファイルがないとき 2」のうち、スキップも失敗もなく戻したファイルもない結果は、ファイルのないセッションが一覧に出ない（REQ-backup-015）ため公開された入口から作れない。src/service/rollback.rs の exit_code_empty と src/cli/rollback.rs の test_rollback_exit_code_empty_restored が確かめるのはこの場合で、公開された入口を通した形にはしていない。
 - 同じ振る舞いを確かめる CLI のテストと関数呼び出しのテストのうち、根拠にしなかった方は削除候補の節に挙げる。
+
+## 削除候補（利用者の判断待ち）
+
+整理の計画で削除を利用者が一括で判断する段の入力。まだどれも消していない。
+一覧は、取り込みの決定記録（docs/decision/records/2026-09-27-adopt-backup.md）の Context で「実装詳細をなぞるだけ」と数えた十一件（A）と、上の審査で根拠にしなかった純粋関数の比較だけのテスト（B）と重複テスト（C）を合わせた 67 件。
+「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめている根拠テスト。
+FLAG の挙動を確かめる三件（trailing_slash_does_not_change_remote_target_identity、rollback_reports_a_cyclic_symlink_as_an_unresolvable_path、rollback_reports_a_cyclic_parent_symlink_as_an_unresolvable_path）と、この計画の対象外の要件（集約先の場所、REQ-backup-001 から 010）を確かめる src/backup/mod.rs の backup_store_uses_home_ で始まる二件と backup_store_is_unavailable_without_xdg_data_home_or_home は候補にしていない。
+
+### A. 実装詳細をなぞるだけのテスト（11 件）
+
+| ファイル | テスト | 理由 |
+|---|---|---|
+| src/service/rollback.rs | parse_batch_output_ok_and_fail | parse_batch_restore_output の出力の分け方を見るだけ。この関数は製品コードから呼ばれていない |
+| src/service/rollback.rs | parse_batch_output_only_ok | 同上 |
+| src/service/rollback.rs | parse_batch_output_only_fail | 同上 |
+| src/service/rollback.rs | parse_batch_output_empty | 同上 |
+| src/service/rollback.rs | parse_batch_output_ignores_noise | 同上 |
+| src/service/rollback.rs | parse_batch_output_fail_with_colon_in_reason | 同上 |
+| src/backup/mod.rs | test_extract_timestamp_valid | extract_timestamp の戻り値を見るだけ。この関数は製品コードから呼ばれていない |
+| src/backup/mod.rs | test_extract_timestamp_invalid | 同上 |
+| src/backup/mod.rs | test_parse_backup_timestamp | 非公開の parse_backup_timestamp の年月日を見るだけ。形式と順序は REQ-backup-022 の性質テストが確かめる |
+| src/cli/rollback.rs | test_resolve_target_with_name | 非公開の resolve_target がサーバ名を Side に変えることを見るだけ。rollback --target の振る舞いは REQ-backup-021・039 の根拠テストが確かめる |
+| src/cli/rollback.rs | test_resolve_target_local | 同上 |
+
+parse_batch_restore_output と extract_timestamp は呼び出し元がないため、テストを消すと整理後の変異テストでこれらの関数の変異が見逃しとして現れる見込み（推測、未確認）。
+
+### B. 純粋関数の比較だけのテスト（41 件）
+
+| ファイル | テスト | 代わりの根拠 |
+|---|---|---|
+| src/service/rollback.rs | replaced_symlink_takes_priority_over_a_changed_destination | a_recorded_symlink_is_not_restored_with_or_without_force（REQ-backup-032） |
+| src/service/rollback.rs | changed_existing_destination_is_skipped | rollback_skips_a_file_after_the_target_root_symlink_is_retargeted ほか REQ-backup-033 の五件 |
+| src/service/rollback.rs | unchanged_existing_destination_is_restored | enabled_rollback_saves_the_current_content_in_a_new_session_before_restoring ほか既存ファイルを戻す根拠テスト |
+| src/service/rollback.rs | missing_parent_is_skipped_before_its_location_is_compared | rollback_skips_deleted_file_when_its_parent_no_longer_exists（REQ-backup-031） |
+| src/service/rollback.rs | missing_file_under_changed_parent_is_skipped | rollback_skips_a_deleted_file_after_its_parent_symlink_is_retargeted（REQ-backup-033） |
+| src/service/rollback.rs | missing_file_under_unchanged_parent_is_restored | rollback_recreates_a_file_removed_by_merge_delete_without_a_pre_rollback_backup（REQ-backup-030） |
+| src/service/rollback.rs | mark_expired_within_retention | listing_and_cleanup_share_the_retention_boundary（REQ-backup-026） |
+| src/service/rollback.rs | mark_expired_past_retention | 同上 |
+| src/service/rollback.rs | mark_expired_boundary | 同上 |
+| src/service/rollback.rs | session_is_not_expired_one_second_before_retention_boundary | 同上 |
+| src/service/rollback.rs | plan_restore_auto_select_latest | rollback_restores_every_file_of_the_newest_session、rollback_without_session_uses_the_newest_numeric_suffix（REQ-backup-034・022） |
+| src/service/rollback.rs | plan_restore_specific_session | rollback_restores_only_the_selected_older_session（REQ-backup-034） |
+| src/service/rollback.rs | plan_restore_all_expired_error | tests/contract/rollback_paths.rs の expired_backup_is_not_restored_without_force（EX-backup-013） |
+| src/service/rollback.rs | plan_restore_expired_force | tests/contract/rollback_paths.rs の expired_backup_with_saved_data_is_restored_when_forced（EX-backup-014） |
+| src/service/rollback.rs | plan_restore_sensitive_skipped | sensitive_files_are_skipped_without_force_and_restored_with_it（REQ-backup-036） |
+| src/service/rollback.rs | plan_restore_sensitive_force | 同上 |
+| src/service/rollback.rs | plan_restore_no_sessions_error | rollback_exits_with_2_when_the_session_is_not_found（REQ-backup-038） |
+| src/service/rollback.rs | plan_restore_session_not_found | 同上（存在しない --session） |
+| src/service/rollback.rs | plan_restore_empty_session | なし。ファイルのないセッションは一覧に出ない（REQ-backup-015）ため、公開された入口から作れない場合 |
+| src/service/rollback.rs | exit_code_all_success | rollback_exit_codes_follow_the_result（REQ-backup-038） |
+| src/service/rollback.rs | exit_code_partial_failure | 同上 |
+| src/service/rollback.rs | exit_code_is_error_when_a_path_is_skipped | rollback_exits_with_2_when_every_file_is_skipped_or_failed（REQ-backup-038） |
+| src/service/rollback.rs | exit_code_all_failed | 同上 |
+| src/service/rollback.rs | exit_code_empty | なし。plan_restore_empty_session と同じく公開された入口から作れない場合 |
+| src/cli/rollback.rs | test_resolve_target_none_list_mode_defaults_to_local | target_is_required_except_for_list_which_defaults_to_local（REQ-backup-039） |
+| src/cli/rollback.rs | test_resolve_target_none_non_list_mode_errors | 同上 |
+| src/cli/rollback.rs | test_rollback_exit_code_success | rollback_exit_codes_follow_the_result（REQ-backup-038） |
+| src/cli/rollback.rs | test_rollback_exit_code_failure_with_failed | 同上 |
+| src/cli/rollback.rs | test_rollback_exit_code_empty_restored | なし。exit_code_empty と同じ場合 |
+| src/backup/mod.rs | remote_targets_with_different_users_have_the_same_identity | login_user_does_not_distinguish_remote_targets（REQ-backup-021） |
+| src/backup/mod.rs | remote_targets_with_different_hosts_have_different_identities | remote_targets_differing_only_in_host_keep_separate_sessions（REQ-backup-021） |
+| src/backup/mod.rs | remote_targets_with_different_ports_have_different_identities | remote_targets_differing_only_in_port_keep_separate_sessions（REQ-backup-021） |
+| src/backup/mod.rs | host_aliases_have_different_remote_target_identities | aliases_of_one_host_are_separate_write_targets（REQ-backup-021） |
+| src/backup/mod.rs | relative_local_root_is_resolved_from_startup_directory | relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in（REQ-backup-021） |
+| src/backup/mod.rs | local_target_identity_does_not_follow_root_symlink | local_root_symlink_retargeting_keeps_existing_sessions_visible（REQ-backup-021） |
+| src/backup/mod.rs | session_id_with_sequence_is_parsed | session_ids_order_by_time_then_numeric_suffix（REQ-backup-022 の性質テスト） |
+| src/backup/mod.rs | session_expires_at_retention_boundary | listing_and_cleanup_share_the_retention_boundary（REQ-backup-026） |
+| src/handler/merge_file_io.rs | backup_failure_refuses_write_with_status_message | tui_merge_is_refused_with_a_status_message_when_backup_fails（REQ-backup-020） |
+| src/handler/merge_file_io.rs | write_to_both_sides_is_refused_when_either_backup_fails | tui_write_changes_neither_side_when_one_side_cannot_be_backed_up（REQ-backup-020） |
+| src/handler/merge_file_io.rs | missing_backup_store_refuses_write_when_backup_is_enabled | tui_merge_is_refused_with_a_status_message_when_backup_fails（REQ-backup-020。集約先の場所が決まらない場合そのものではない） |
+| src/handler/merge_file_io.rs | missing_backup_store_allows_write_when_backup_is_disabled | なし。TUI でバックアップ無効のときに書き込むことは REQ-backup-020 の文にない |
+
+計画は decide_backup_write のテストを三件としていたが、decide_backup_write を直接呼ぶテストは四件あるため四件とも挙げた。
+
+### C. 根拠にしなかった重複テスト（15 件）
+
+| ファイル | テスト | 理由 |
+|---|---|---|
+| tests/local_backup_store.rs | merge_keeps_expired_sessions_for_targets_absent_from_config | tests/contract/backup_cleanup.rs の cleanup_retains_expired_history_of_a_server_no_longer_configured（EX-backup-017）と同じ振る舞い |
+| tests/local_backup_store.rs | rollback_restores_through_an_unchanged_intermediate_symlink | tests/contract/rollback_paths.rs の unchanged_parent_link_allows_every_file_in_the_session_to_be_restored（EX-backup-006）と同じ振る舞い |
+| tests/cli_rollback.rs | test_merge_then_rollback_restores_content | rollback_restores_every_file_of_the_newest_session（REQ-backup-034）と重なる |
+| tests/cli_rollback.rs | test_rollback_nested_directory | 同上（ネストしたパスでも同じ経路） |
+| tests/cli_rollback.rs | test_rollback_list_after_merge | written_target_lists_its_session_with_file_sizes_in_text_and_json（REQ-backup-040）と重なり、見出しとファイル数だけを見る |
+| tests/cli_rollback.rs | test_rollback_list_json_after_merge | 同上（JSON） |
+| tests/cli_rollback.rs | test_rollback_dry_run_shows_plan_without_changes | dry_run_reports_the_same_changed_path_skip_with_exit_code_0（REQ-backup-038）と tests/contract/rollback_paths.rs の previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged（EX-backup-015）と重なる |
+| tests/cli_rollback.rs | test_rollback_skips_sensitive_without_force | sensitive_files_are_skipped_without_force_and_restored_with_it（REQ-backup-036）と重なり、理由 "sensitive" と --force の場合を見ない |
+| tests/cli_rollback.rs | test_rollback_json_output_structure | rollback_json_has_the_result_fields（REQ-backup-037）と重なる |
+| tests/cli_rollback_local.rs | test_rollback_list_no_backups | 空の一覧の "(no backup sessions found)" は IR にない文言で、どの要件の根拠でもない |
+| tests/cli_rollback_local.rs | test_rollback_target_required_without_list | target_is_required_except_for_list_which_defaults_to_local（REQ-backup-039）と重なる |
+| tests/cli_rollback_local.rs | test_rollback_list_default_target_local | 同上。終了コード 0 だけを見てローカルが対象になったかを見ない |
+| tests/cli_rollback_local.rs | test_rollback_list_format_json_empty | 空の一覧の JSON が空の配列であることだけを見る。どの要件の根拠でもない |
+| tests/cli_rollback_local.rs | test_rollback_no_sessions_error | rollback_exits_with_2_when_the_session_is_not_found（REQ-backup-038）と重なる |
+| tests/cli_rollback_local.rs | test_rollback_invalid_session_id | 同上（存在しない --session のエラー） |
