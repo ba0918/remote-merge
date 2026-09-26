@@ -113,7 +113,7 @@ REQ-backup-022 と REQ-backup-023 の性質テストは proptest を使い、公
 | REQ-backup-026 | listing_and_cleanup_share_the_retention_boundary | 新しく書いた。src/backup/mod.rs の session_expires_at_retention_boundary と src/service/rollback.rs の mark_expired の四件を、一覧と整理を通して境界の一秒前と境界ちょうどで確かめる形にしたもの |
 | REQ-backup-026 | expired_session_is_marked_in_text_and_json_at_the_injected_boundary | tests/local_backup_store.rs から移した |
 
-- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため性質の入力には含めていない。FLAG として記録する（利用者の判断）。
+- 性質テストの N は 1000 までに限った。N は同じ一秒の間に作られたセッションの数で、それを超える入力を作る操作がないため。コミットに含めない一時的な実行で、既存の ID に N が u64 の最大値のものがあると `next_session_id` が加算のあふれで panic することを確かめた（`attempt to add with overflow`、src/backup/mod.rs:91）。集約先の予約ディレクトリを手で作らない限り起きないため性質の入力には含めていない。FLAG-backup-005 として記録した（利用者の判断）。
 - REQ-backup-025 の「集約先の場所が決まらないときは整理しない」は、その実行から整理の対象が見えないため観測できる違いがなく、テストにしていない。
 - tests/local_backup_store.rs の merge_keeps_expired_sessions_for_targets_absent_from_config は REQ-backup-025 の文にない「設定から外れた書き込み先の履歴は残す」を確かめるもので、tests/contract/backup_cleanup.rs の EX-backup-017 のテストと重なるため移さず、削除候補に挙げる。
 
@@ -318,20 +318,20 @@ S1 の実行で検知された理由は、上の表と同じく関係のない�
 | src/backup/mod.rs:79 | replace backup_timestamp -> String with "xyzzy".into() | 同等変異として登録した。下の注 1 |
 | src/runtime/backup_store.rs:242 | replace += with *= in BackupStore::cleanup_expired | 同等変異として登録した。下の注 2 |
 | src/service/rollback.rs:156 | replace match guard force with true in plan_restore | 同等変異として登録した。下の注 5 |
-| src/runtime/backup_store.rs:117 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in BackupStore::reserve_session | 未決着（利用者の判断待ち）。下の注 3 |
-| src/runtime/backup_store.rs:383 | replace == with != in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 3 |
-| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 3 |
-| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with false in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 4 |
-| src/backup/mod.rs:112 | replace > with < in parse_session_id | 未決着（利用者の判断待ち）。下の注 4 |
-| src/runtime/backup_store.rs:347 | replace match guard path == rel_path with true in BackupStore::read_record | 未決着（利用者の判断待ち）。下の注 4 |
-| src/runtime/backup_store.rs:359 | replace match guard path == rel_path with true in BackupStore::read_record | 未決着（利用者の判断待ち）。下の注 4 |
+| src/runtime/backup_store.rs:117 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in BackupStore::reserve_session | FLAG-backup-006 として記録（利用者の判断）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace == with != in create_temporary_entry | FLAG-backup-006 として記録（利用者の判断）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in create_temporary_entry | FLAG-backup-006 として記録（利用者の判断）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with false in create_temporary_entry | FLAG-backup-007 として記録（利用者の判断）。下の注 4 |
+| src/backup/mod.rs:112 | replace > with < in parse_session_id | FLAG-backup-007 として記録（利用者の判断）。下の注 4 |
+| src/runtime/backup_store.rs:347 | replace match guard path == rel_path with true in BackupStore::read_record | FLAG-backup-007 として記録（利用者の判断）。下の注 4 |
+| src/runtime/backup_store.rs:359 | replace match guard path == rel_path with true in BackupStore::read_record | FLAG-backup-007 として記録（利用者の判断）。下の注 4 |
 
 同等変異かどうかの判断のため、別の文脈のエージェントに、変異を当てると落ちて今のコードでは通るテストを公開された入口から書かせた（製品コードは変えず、結果は採用するかをこちらで決めた）。
 
 1. backup_timestamp の値は、バックアップが無効なときの merge・sync のセッション ID にだけ使われる。その ID が流れる保存、削除の結果の backup 表示、セッションの片付けは全てバックアップが有効なときの分岐の中にあり、結果の出力にも集約先にも届かない。別の文脈のエージェントも観測できる違いを見つけられなかった。
 2. 変わるのは cleanup_expired が返す削除した数だけで、削除そのものは変わらない。この戻り値を使う製品コード（TUI の起動、merge と sync の開始）はエラーかどうかしか見ない。別の文脈のエージェントは CoreRuntime::cleanup_expired_backups の戻り値を直接確かめるテストで落とせたが、削除した数は IR に定めがなく、根拠にならないテストのため採らなかった。
 3. 元のコードでは、ID の予約や一時的な保存場所の作成が AlreadyExists 以外の理由で失敗するとエラーで終わり、変異では作り直しを続けて終わらなくなる。直前に同じプロセスが権限を 0700 に直すため、root 権限なしで起こせる失敗は、集約先のパスがおよそ 4,000 バイトのときのパス長の上限（ENAMETOOLONG）だけだった。別の文脈のエージェントは、集約先のパスの長さを 3,900 から 4,094 バイトまで変えて merge が終わることと書き込み先が変わらないことを確かめるテストを書き、元のコードで通り三つの変異で落ちる（終わらない）ことを確かめた。XDG_DATA_HOME は境界で受け取る入力だが、4,000 バイトの集約先が実際に使われる場面として認めるか、また REQ-backup-002 と REQ-backup-017 がこの失敗をファイルごとの失敗として求めているか（予約の失敗は元のコードでもコマンド全体のエラーになる）は仕様の読み方の判断になるため、テストを採らず、同等変異としても登録していない（観測できる違いがあるため）。
-4. 違いが出るのは、集約先の中に製品が作らない名前や中身があるときだけ。"-1"・"-0" のような接尾辞の ID（mod.rs:112）、record.json の path が保存場所と食い違う記録（backup_store.rs:347・359）、同じセッションの一時的な保存場所に同じプロセス番号と連番の名前が残っているとき（backup_store.rs:383 の false）がそれにあたる。どれも人が集約先を書き換えない限り起きない。REQ-backup-041 が定めるのは中身が消されたときで、書き換えられたときや他の名前があるときの扱いは IR にない。テストを書くには IR にない扱いと集約先の内部の配置を固定することになるため書かず、観測できる違いはあるため同等変異としても登録していない。IR にこれらの扱いを定めるか、未決着のまま残すかは利用者の判断を待つ。
+4. 違いが出るのは、集約先の中に製品が作らない名前や中身があるときだけ。"-1"・"-0" のような接尾辞の ID（mod.rs:112）、record.json の path が保存場所と食い違う記録（backup_store.rs:347・359）、同じセッションの一時的な保存場所に同じプロセス番号と連番の名前が残っているとき（backup_store.rs:383 の false）がそれにあたる。どれも人が集約先を書き換えない限り起きない。REQ-backup-041 が定めるのは中身が消されたときで、書き換えられたときや他の名前があるときの扱いは IR にない。テストを書くには IR にない扱いと集約先の内部の配置を固定することになるため書かず、観測できる違いはあるため同等変異としても登録していない。利用者の判断で FLAG-backup-007 として残した。
 5. この腕に来るのは --session がなく全てのセッションが期限切れのときだけで、変異で選ばれる最新のセッションも期限切れのため、直後の「期限切れのセッションは --force なしでは戻さない」の確かめで元のコードと同じエラーになる。別の文脈のエージェントに execute_rollback と plan_restore の直接の呼び出しから落ちるテストを書かせたが、エラーの種類、文言、出力、終了コードが同じで書けなかった。
 
 ### 整理後に書き足した根拠テスト
@@ -386,4 +386,4 @@ S1 の実行で検知された理由は、上の表と同じく関係のない�
 - REQ-backup-022 と REQ-backup-023 の性質テスト（created_session_ids_follow_the_timestamp_and_suffix_format、session_ids_order_by_time_then_numeric_suffix、next_session_id_differs_from_every_existing_id）は tests/contract/backup_sessions.rs にあり、公開された関数 `next_session_id` と `compare_session_ids` を通して確かめる。
 - どれも `proptest!` を設定なしで使い、試す入力の数を上書きしていない（proptest の既定の 256 件）。
 - `proptest-regressions/` は、これまでの実行で失敗入力が見つかっていないため存在せず、コミットするファイルはない。
-- 既存の ID の N が u64 の最大値のときに next_session_id が加算のあふれで panic することは、FLAG として記録する（利用者の判断）。
+- 既存の ID の N が u64 の最大値のときに next_session_id が加算のあふれで panic することは、FLAG-backup-005 として記録した（利用者の判断）。
