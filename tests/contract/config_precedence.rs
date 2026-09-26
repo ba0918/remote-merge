@@ -200,6 +200,7 @@ fn global_sensitive_pattern_still_masks_diff_with_project_configuration() {
             max_lines: None,
             max_files: 100,
             force: false,
+            follow_external_links: false,
             max_entries: None,
         },
         config,

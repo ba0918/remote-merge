@@ -1,8 +1,7 @@
 #![cfg(unix)]
 //! `rollback` サブコマンドの E2E テスト。
 //!
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test cli_rollback -- --ignored` で実行する。
+//! 隔離された SSH fixture で復元結果を検査する。
 
 mod common;
 use common::*;
@@ -13,7 +12,6 @@ use std::fs;
 
 /// merge → rollback --force でリモートファイルが元の内容に復元される
 #[test]
-#[ignore]
 fn test_merge_then_rollback_restores_content() {
     let env = CliEnv::new(&[("file.txt", "new\n")], &[("file.txt", "original\n")]);
 
@@ -63,7 +61,6 @@ fn test_merge_then_rollback_restores_content() {
 
 /// 複数ファイルを merge → rollback --force で全ファイル復元される
 #[test]
-#[ignore]
 fn test_rollback_multiple_files() {
     let env = CliEnv::new(
         &[("a.txt", "a-local\n"), ("b.txt", "b-local\n")],
@@ -107,7 +104,6 @@ fn test_rollback_multiple_files() {
 
 /// ネストされたディレクトリ配下のファイルを merge → rollback で復元できる
 #[test]
-#[ignore]
 fn test_rollback_nested_directory() {
     let env = CliEnv::new(
         &[("src/deep/nested/file.rs", "fn new() {}\n")],
@@ -152,7 +148,6 @@ fn test_rollback_nested_directory() {
 
 /// merge 後に rollback --list でセッションが表示される（テキスト出力）
 #[test]
-#[ignore]
 fn test_rollback_list_after_merge() {
     let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
 
@@ -192,7 +187,6 @@ fn test_rollback_list_after_merge() {
 
 /// merge 後に rollback --list --format json で有効な JSON が返る
 #[test]
-#[ignore]
 fn test_rollback_list_json_after_merge() {
     let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
 
@@ -259,7 +253,6 @@ fn test_rollback_list_json_after_merge() {
 
 /// --dry-run では復元計画が表示されるがファイルは変更されない
 #[test]
-#[ignore]
 fn test_rollback_dry_run_shows_plan_without_changes() {
     let env = CliEnv::new(
         &[("file.txt", "local-content\n")],
@@ -313,7 +306,6 @@ fn test_rollback_dry_run_shows_plan_without_changes() {
 
 /// --force 付き rollback で正常に復元される
 #[test]
-#[ignore]
 fn test_rollback_force_restores_content() {
     let env = CliEnv::new(&[("file.txt", "updated\n")], &[("file.txt", "original\n")]);
 
@@ -347,7 +339,6 @@ fn test_rollback_force_restores_content() {
 /// 対話プロンプトを避けるため --dry-run を使用し、スキップリストを確認する。
 /// デフォルトの FilterConfig に .env が sensitive パターンとして含まれている。
 #[test]
-#[ignore]
 fn test_rollback_skips_sensitive_without_force() {
     let env = CliEnv::new(
         &[(".env", "SECRET=new\n")],
@@ -390,7 +381,6 @@ fn test_rollback_skips_sensitive_without_force() {
 
 /// 複数セッションから特定の古いセッションを指定して rollback できる
 #[test]
-#[ignore]
 fn test_rollback_specific_older_session() {
     let env = CliEnv::new(
         &[("a.txt", "a-local\n"), ("b.txt", "b-local\n")],
@@ -480,7 +470,6 @@ fn test_rollback_specific_older_session() {
 
 /// rollback --format json の出力構造を検証する
 #[test]
-#[ignore]
 fn test_rollback_json_output_structure() {
     let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
 
@@ -568,7 +557,6 @@ fn test_rollback_json_output_structure() {
 
 /// 正常な rollback は exit code 0 を返す
 #[test]
-#[ignore]
 fn test_rollback_exit_code_success() {
     let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
 
@@ -594,7 +582,6 @@ fn test_rollback_exit_code_success() {
 
 /// バックアップが存在しない場合は exit code 2 を返す
 #[test]
-#[ignore]
 fn test_rollback_exit_code_no_sessions() {
     let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
 
