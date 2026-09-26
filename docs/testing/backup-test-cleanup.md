@@ -287,7 +287,7 @@ scripts/mutants.sh src/backup/mod.rs src/service/rollback.rs src/runtime/backup_
 | src/runtime/backup_store.rs:359 replace match guard path == rel_path with false in BackupStore::read_record | agent_ssh_deploy の一件 |
 | src/service/rollback.rs:156 replace match guard force with true in plan_restore | tui_merge の一件 |
 
-二回目の実行では、検知とされた変異の全てがバックアップと rollback のテストの失敗で検知されており、このような変異はなかった。
+二回目の実行では、どの変異のログにも tui_merge と agent_ssh_deploy のテストの失敗はなく、失敗したテストは製品の単体テスト、tests/cli_merge.rs、tests/contract/ のものだけだった。
 一回目の見かけの集計（caught=82 survived=9）はこのため二回目より検知が多く、二回目の集計を正とする。
 これらの時間に依存するテストの修正はこの整理の範囲外で、手を入れていない。
 
