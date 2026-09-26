@@ -1,5 +1,7 @@
 #[path = "contract/backup_cleanup.rs"]
 mod backup_cleanup;
+#[path = "contract/backup_failure.rs"]
+mod backup_failure;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
 #[path = "contract/backup_storage.rs"]

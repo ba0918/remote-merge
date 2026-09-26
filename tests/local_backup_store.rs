@@ -540,26 +540,6 @@ fn disabled_backup_merge_still_removes_expired_sessions() {
 }
 
 #[test]
-fn disabled_backup_merge_without_store_location_proceeds_without_cleanup() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let config = config(&local, &develop, false);
-    let targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(None)
-        .with_now(Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap());
-
-    let result = execute_merge(merge_args("file.txt"), config, targets).unwrap();
-
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected files")
-    };
-    assert_eq!(output.merged.len(), 1, "{output:?}");
-}
-
-#[test]
 fn tui_bootstrap_removes_expired_sessions() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -595,71 +575,6 @@ fn tui_bootstrap_removes_expired_sessions() {
     drop(runtime);
 
     assert!(listed_sessions("develop", config, targets(&develop, &store)).is_empty());
-}
-
-#[test]
-fn rollback_list_fails_when_backup_store_location_is_unavailable() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let config = config(&local, &develop, false);
-    let runtime_targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(None);
-
-    let error = execute_rollback(rollback_list_args("develop"), config, runtime_targets)
-        .err()
-        .unwrap();
-
-    assert!(error
-        .to_string()
-        .contains("backup store location could not be determined"));
-}
-
-fn assert_rollback_location_error(enabled: bool, mut args: RollbackArgs) {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let config = config(&local, &develop, enabled);
-    let runtime_targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(None);
-    args.target = Some("develop".into());
-
-    let error = execute_rollback(args, config, runtime_targets)
-        .err()
-        .unwrap();
-
-    assert!(error
-        .to_string()
-        .contains("backup store location could not be determined"));
-}
-
-#[test]
-fn enabled_rollback_list_fails_when_backup_store_location_is_unavailable() {
-    assert_rollback_location_error(true, rollback_list_args("develop"));
-}
-
-#[test]
-fn enabled_rollback_fails_when_backup_store_location_is_unavailable() {
-    assert_rollback_location_error(true, rollback_args("develop", None));
-}
-
-#[test]
-fn disabled_rollback_fails_when_backup_store_location_is_unavailable() {
-    assert_rollback_location_error(false, rollback_args("develop", None));
-}
-
-#[test]
-fn enabled_rollback_dry_run_fails_when_backup_store_location_is_unavailable() {
-    let mut args = rollback_args("develop", None);
-    args.dry_run = true;
-    assert_rollback_location_error(true, args);
-}
-
-#[test]
-fn disabled_rollback_dry_run_fails_when_backup_store_location_is_unavailable() {
-    let mut args = rollback_args("develop", None);
-    args.dry_run = true;
-    assert_rollback_location_error(false, args);
 }
 
 #[test]
@@ -1544,39 +1459,6 @@ fn merges_started_in_the_same_second_use_distinct_session_ids() {
 }
 
 #[test]
-fn backup_store_failure_leaves_target_unchanged_and_reports_file_failure() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store_parent = TempDir::new().unwrap();
-    let unusable_store = store_parent.path().join("not-a-directory");
-    fs::write(&unusable_store, "occupied").unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(Some(unusable_store))
-        .with_startup_directory(std::env::current_dir().unwrap())
-        .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap());
-
-    let result = execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, true),
-        targets,
-    )
-    .unwrap();
-
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "old\n"
-    );
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected per-file merge output");
-    };
-    assert!(output.merged.is_empty());
-    assert!(output.failed[0].error.starts_with("backup failed: "));
-}
-
-#[test]
 fn delete_stores_backup_in_aggregate_store() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -1783,56 +1665,6 @@ enabled = true
 
     assert_eq!(fs::read_dir(develop.path()).unwrap().count(), 1);
     assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 1);
-}
-
-#[test]
-fn enabled_backup_without_store_location_stops_merge() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(None);
-
-    let error = execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, true),
-        targets,
-    )
-    .err()
-    .unwrap();
-
-    assert!(error
-        .to_string()
-        .contains("backup store location could not be determined"));
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "old\n"
-    );
-}
-
-#[test]
-fn disabled_backup_without_store_location_allows_merge() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let targets = RuntimeTargets::production()
-        .with_local("develop", develop.path())
-        .with_backup_store(None);
-
-    execute_merge(
-        merge_args("file.txt"),
-        config(&local, &develop, false),
-        targets,
-    )
-    .unwrap();
-
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "new content\n"
-    );
 }
 
 #[test]

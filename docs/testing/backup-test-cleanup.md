@@ -69,3 +69,22 @@ scripts/mutants.sh src/backup/mod.rs src/service/rollback.rs src/runtime/backup_
 | REQ-backup-016 | legacy_backup_directory_is_left_alone_and_hidden_from_list_and_status | tests/local_backup_store.rs の legacy_backup_directory_is_ignored_by_list_and_status。merge の後も既存の ".remote-merge-backup/" の中身が変わらないことと、status の全件の結果に出ないことを書き足した |
 
 REQ-backup-012 のテストは、`RemoteTargetIdentity::port` を 1 を返すように書き換えると失敗することを、コミットに含めない一時的な書き換えで確かめた。
+
+### 失敗時の扱い（docs/ir/backup/failure.md）
+
+根拠テストは全て `tests/contract/backup_failure.rs` にある。
+新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
+
+| 要件 | 根拠テスト | 元のテストと変えたところ |
+|---|---|---|
+| REQ-backup-017 | merge_reports_a_file_it_cannot_back_up_as_failed_and_leaves_it_unchanged | tests/local_backup_store.rs の backup_store_failure_leaves_target_unchanged_and_reports_file_failure。失敗したファイルのパスと、"backup failed: " の後に原因があることを書き足した |
+| REQ-backup-017 | delete_reports_a_file_it_cannot_back_up_as_failed_and_keeps_it | 新しく書いた（--delete）。下の注を参照 |
+| REQ-backup-017 | sync_reports_a_file_it_cannot_back_up_as_failed_and_leaves_it_unchanged | 新しく書いた（sync） |
+| REQ-backup-018 | enabled_backup_without_store_location_stops_merge_and_sync_before_writing | tests/local_backup_store.rs の enabled_backup_without_store_location_stops_merge。sync の場合を書き足した |
+| REQ-backup-018 | disabled_backup_without_store_location_lets_merge_and_sync_write_without_backup | tests/local_backup_store.rs の disabled_backup_without_store_location_allows_merge と disabled_backup_merge_without_store_location_proceeds_without_cleanup を一つにした。結果に backup が出ないことと sync の場合を書き足した |
+| REQ-backup-019 | rollback_fails_in_every_mode_without_store_location_and_writes_nothing | tests/local_backup_store.rs の rollback_list_fails_when_backup_store_location_is_unavailable と、enabled_・disabled_ で始まる集約先なしの五件（補助関数 assert_rollback_location_error を含む）を、三つのモードとバックアップの有効・無効の六通りを回す一つのテストにした。書き込み先が変わらないことを書き足した |
+| REQ-backup-020 | tui_merge_is_refused_with_a_status_message_when_backup_fails、tui_write_backs_up_both_sides_before_writing_them、tui_write_changes_neither_side_when_one_side_cannot_be_backed_up、tui_starts_and_shows_a_diff_without_store_location | 新しく書いた。handler の execute_merge と execute_write_changes、runtime の bootstrap_tui_with_targets を関数として呼ぶ |
+
+- REQ-backup-017 の --delete は、計画では tests/contract/merge_paths.rs の deletion_fails_without_removing_a_file_when_backup_cannot_be_saved の印に REQ-backup-017 を足すことになっていた。このテストは error が "backup failed" を含むことだけを見ており、要件の "backup failed: " に続けて原因を示す形を確かめないため印を足さず、形まで確かめるテストを書いた。元のテストは EX-merge-033 の根拠として残す。
+- REQ-backup-018 の「期限切れの整理もせずに」は、集約先の場所が決まらないときの話で、その実行からは整理する対象が見えないため、テストで観測できる違いがない。書き込むことと結果に backup が出ないことを確かめる。
+- src/handler/merge_file_io.rs の decide_backup_write を直接呼ぶテストは根拠にしない（削除候補に挙げる）。
