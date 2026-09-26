@@ -6,6 +6,7 @@ use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
+use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
     build_diff_output, build_masked_diff_output, build_symlink_diff_output,
@@ -24,11 +25,13 @@ use crate::service::status::{
     status_from_read_results,
 };
 use crate::service::types::{
-    exit_code, DiffOutput, FileStatus, FileStatusKind, MultiDiffOutput, MultiDiffSummary,
+    exit_code, DiffError, DiffOutput, FileStatus, FileStatusKind, LinkTargets, MultiDiffOutput,
+    MultiDiffSummary,
 };
 use crate::service::{resolve_scan_strategy, ScanStrategy};
 use crate::tree::FileTree;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::path::{Component, Path, PathBuf};
 
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files）
 type DiffScanResult = (
@@ -49,6 +52,7 @@ pub struct DiffArgs {
     pub max_lines: Option<usize>,
     pub max_files: usize,
     pub force: bool,
+    pub follow_external_links: bool,
     /// スキャン最大エントリ数（1–1,000,000）。config の max_scan_entries を上書きする。
     pub max_entries: Option<usize>,
 }
@@ -74,12 +78,19 @@ pub fn run_diff_with_targets(
 }
 
 pub fn execute_diff(
-    args: DiffArgs,
+    mut args: DiffArgs,
     config: AppConfig,
     targets: RuntimeTargets,
 ) -> anyhow::Result<(MultiDiffOutput, i32)> {
     OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
+    for path in &mut args.paths {
+        if !path.trim_end_matches('/').is_empty() {
+            *path = path.trim_end_matches('/').to_string();
+        } else if path == "./" {
+            *path = ".".into();
+        }
+    }
 
     let source_args = SourceArgs {
         left: args.left,
@@ -100,7 +111,14 @@ pub fn execute_diff(
     let (left_tree, right_tree, statuses, existing_files, diff_files) = match strategy {
         ScanStrategy::FastPath(ref target_paths) => {
             check_path_traversal(target_paths)?;
-            run_diff_fast_path(target_paths, &pair.left, &pair.right, &mut core, &config)?
+            run_diff_fast_path(
+                target_paths,
+                &pair.left,
+                &pair.right,
+                &mut core,
+                &config,
+                args.follow_external_links,
+            )?
         }
         ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
             dir_paths,
@@ -146,8 +164,40 @@ pub fn execute_diff(
 
     // Build diff for each file
     let mut file_diffs = Vec::new();
+    let mut errors = Vec::new();
     let mut has_read_error = false;
-    for path in process_files {
+    let mut pending: VecDeque<String> = process_files.iter().cloned().collect();
+    let mut scanned_files = existing_files.len();
+    let mut visited_entries = 0;
+    let mut expanded_children = HashSet::new();
+    let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
+    while let Some(owned_path) = pending.pop_front() {
+        let path = &owned_path;
+        if !args.follow_external_links
+            && (path_escapes_root(&mut core, &pair.left, &config, path)?
+                || path_escapes_root(&mut core, &pair.right, &config, path)?)
+        {
+            let reason = "content not compared (outside root_dir; use --follow-external-links)";
+            let mut output = build_masked_diff_output(path, left_info.clone(), right_info.clone());
+            output.sensitive = false;
+            output.note = Some(reason.into());
+            let left_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
+            let right_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
+            if left_target.is_some() || right_target.is_some() {
+                output.symlink = true;
+                output.link_targets = Some(LinkTargets {
+                    left: left_target,
+                    right: right_target,
+                });
+            }
+            errors.push(DiffError {
+                path: path.clone(),
+                reason: reason.into(),
+            });
+            has_read_error = true;
+            file_diffs.push(output);
+            continue;
+        }
         // LeftOnly/RightOnly の場合、存在しない側の読み込み失敗は予想通りなので Warning を抑制
         let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
         let (left_quiet, right_quiet) = quiet_flags_for_status(status);
@@ -155,17 +205,250 @@ pub fn execute_diff(
         let sensitive = is_sensitive(path, &config.filter.sensitive);
 
         // symlink 判定（ツリー情報から）— sensitive でもターゲットパスは機密情報ではないため先に判定
-        let left_symlink_target = find_symlink_target(&left_tree, path);
-        let right_symlink_target = find_symlink_target(&right_tree, path);
+        let left_symlink_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
+        let right_symlink_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
+        if left_symlink_target.is_none() && right_symlink_target.is_none() {
+            let left_children = core.fetch_children(&pair.left, path).unwrap_or_default();
+            let right_children = core.fetch_children(&pair.right, path).unwrap_or_default();
+            if !left_children.is_empty() || !right_children.is_empty() {
+                let (mut left_ancestors, mut right_ancestors) =
+                    active_directories.remove(path).unwrap_or_default();
+                let left_real = inspected_real_path(core.inspect_path(&pair.left, path)?);
+                let right_real = inspected_real_path(core.inspect_path(&pair.right, path)?);
+                if left_real
+                    .as_ref()
+                    .is_some_and(|real| left_ancestors.contains(real))
+                    || right_real
+                        .as_ref()
+                        .is_some_and(|real| right_ancestors.contains(real))
+                {
+                    let reason = "directory comparison incomplete (symlink cycle)";
+                    errors.push(DiffError {
+                        path: path.clone(),
+                        reason: reason.into(),
+                    });
+                    has_read_error = true;
+                    continue;
+                }
+                left_ancestors.extend(left_real);
+                right_ancestors.extend(right_real);
+                scanned_files = scanned_files.saturating_sub(1);
+                let children: BTreeSet<_> = left_children
+                    .iter()
+                    .chain(&right_children)
+                    .map(|node| node.name.as_str())
+                    .collect();
+                for child in children {
+                    visited_entries += 1;
+                    if visited_entries > max_entries {
+                        let reason = "directory comparison incomplete (entry limit exceeded)";
+                        errors.push(DiffError {
+                            path: path.clone(),
+                            reason: reason.into(),
+                        });
+                        has_read_error = true;
+                        break;
+                    }
+                    let child_path = format!("{path}/{child}");
+                    expanded_children.insert(child_path.clone());
+                    pending.push_back(child_path.clone());
+                    active_directories.insert(
+                        child_path,
+                        (left_ancestors.clone(), right_ancestors.clone()),
+                    );
+                    scanned_files += 1;
+                }
+                continue;
+            }
+        }
         if left_symlink_target.is_some() || right_symlink_target.is_some() {
-            file_diffs.push(build_symlink_diff_output(
+            let mut link_diff = build_symlink_diff_output(
                 path,
                 left_info.clone(),
                 right_info.clone(),
                 left_symlink_target.as_deref(),
                 right_symlink_target.as_deref(),
                 sensitive,
-            ));
+            );
+            let target_sensitive = [&left_symlink_target, &right_symlink_target]
+                .into_iter()
+                .flatten()
+                .any(|target| is_sensitive(target, &config.filter.sensitive))
+                || sensitive_link_chain(&mut core, &pair.left, path, &config)
+                || sensitive_link_chain(&mut core, &pair.right, path, &config);
+            if (sensitive || target_sensitive) && !args.force {
+                link_diff.sensitive = true;
+                link_diff.note =
+                    Some("Content hidden (sensitive file). Use --force to show.".into());
+                file_diffs.push(link_diff);
+                continue;
+            }
+            let external = [&pair.left, &pair.right].into_iter().any(|side| {
+                let root = match side {
+                    Side::Local => &config.local.root_dir,
+                    Side::Remote(name) => &config.servers[name].root_dir,
+                };
+                match core.inspect_path(side, path) {
+                    Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),
+                    _ => false,
+                }
+            });
+            if external && !args.follow_external_links {
+                let reason = "content not compared (outside root_dir; use --follow-external-links)";
+                link_diff.note = Some(reason.into());
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason: reason.into(),
+                });
+                has_read_error = true;
+                file_diffs.push(link_diff);
+                continue;
+            }
+            let left_content = read_existing_diff_file(&mut core, &pair.left, path);
+            let right_content = read_existing_diff_file(&mut core, &pair.right, path);
+            let left_children = left_content
+                .as_ref()
+                .err()
+                .and_then(|_| core.fetch_children(&pair.left, path).ok());
+            let right_children = right_content
+                .as_ref()
+                .err()
+                .and_then(|_| core.fetch_children(&pair.right, path).ok());
+            if left_children.is_some() || right_children.is_some() {
+                if left_symlink_target.is_some() != right_symlink_target.is_some() {
+                    link_diff.note = Some("type mismatch: symlink vs directory".into());
+                }
+                if (left_content.is_err() && left_children.is_none())
+                    || (right_content.is_err() && right_children.is_none())
+                {
+                    let reason = "symlink target unreadable; resolved content not compared";
+                    link_diff.note = Some(reason.into());
+                    errors.push(DiffError {
+                        path: path.clone(),
+                        reason: reason.into(),
+                    });
+                    has_read_error = true;
+                    file_diffs.push(link_diff);
+                    continue;
+                }
+                let (mut left_ancestors, mut right_ancestors) =
+                    active_directories.remove(path).unwrap_or_default();
+                let left_real = inspected_real_path(core.inspect_path(&pair.left, path)?);
+                let right_real = inspected_real_path(core.inspect_path(&pair.right, path)?);
+                if left_real
+                    .as_ref()
+                    .is_some_and(|real| left_ancestors.contains(real))
+                    || right_real
+                        .as_ref()
+                        .is_some_and(|real| right_ancestors.contains(real))
+                {
+                    let reason = "directory comparison incomplete (symlink cycle)";
+                    errors.push(DiffError {
+                        path: path.clone(),
+                        reason: reason.into(),
+                    });
+                    link_diff.note = Some(reason.into());
+                    has_read_error = true;
+                    file_diffs.push(link_diff);
+                    continue;
+                }
+                left_ancestors.extend(left_real);
+                right_ancestors.extend(right_real);
+                let children: BTreeSet<_> = left_children
+                    .iter()
+                    .flatten()
+                    .chain(right_children.iter().flatten())
+                    .map(|node| node.name.as_str())
+                    .collect();
+                for child in children {
+                    visited_entries += 1;
+                    if visited_entries > max_entries {
+                        let reason = "directory comparison incomplete (entry limit exceeded)";
+                        errors.push(DiffError {
+                            path: path.clone(),
+                            reason: reason.into(),
+                        });
+                        link_diff.note = Some(reason.into());
+                        has_read_error = true;
+                        break;
+                    }
+                    let child_path = format!("{path}/{child}");
+                    expanded_children.insert(child_path.clone());
+                    pending.push_back(child_path);
+                    active_directories.insert(
+                        format!("{path}/{child}"),
+                        (left_ancestors.clone(), right_ancestors.clone()),
+                    );
+                    scanned_files += 1;
+                }
+                link_diff.hunks.clear();
+                let left_bytes = left_content.ok().flatten();
+                let right_bytes = right_content.ok().flatten();
+                if left_bytes.as_ref().is_some_and(|bytes| is_binary(bytes))
+                    || right_bytes.as_ref().is_some_and(|bytes| is_binary(bytes))
+                {
+                    link_diff.binary = true;
+                    link_diff.left_hash = left_bytes.as_ref().map(|bytes| compute_sha256(bytes));
+                    link_diff.right_hash = right_bytes.as_ref().map(|bytes| compute_sha256(bytes));
+                } else if left_bytes.is_some() || right_bytes.is_some() {
+                    let left_text =
+                        String::from_utf8_lossy(left_bytes.as_deref().unwrap_or_default());
+                    let right_text =
+                        String::from_utf8_lossy(right_bytes.as_deref().unwrap_or_default());
+                    link_diff.hunks = build_diff_output(
+                        path,
+                        left_info.clone(),
+                        right_info.clone(),
+                        &left_text,
+                        &right_text,
+                        sensitive,
+                        args.max_lines,
+                        None,
+                        None,
+                    )
+                    .hunks;
+                }
+                file_diffs.push(link_diff);
+                continue;
+            }
+            if left_content.is_err() || right_content.is_err() {
+                let reason = "symlink target unreadable; resolved content not compared";
+                link_diff.hunks.clear();
+                link_diff.note = Some(reason.into());
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason: reason.into(),
+                });
+                has_read_error = true;
+                file_diffs.push(link_diff);
+                continue;
+            }
+            let (left_content, right_content) = (left_content?, right_content?);
+            if left_content.as_ref().is_some_and(|bytes| is_binary(bytes))
+                || right_content.as_ref().is_some_and(|bytes| is_binary(bytes))
+            {
+                link_diff.binary = true;
+                link_diff.left_hash = left_content.as_ref().map(|bytes| compute_sha256(bytes));
+                link_diff.right_hash = right_content.as_ref().map(|bytes| compute_sha256(bytes));
+                link_diff.hunks.clear();
+                file_diffs.push(link_diff);
+                continue;
+            }
+            let left_text = String::from_utf8_lossy(left_content.as_deref().unwrap_or_default());
+            let right_text = String::from_utf8_lossy(right_content.as_deref().unwrap_or_default());
+            let content_diff = build_diff_output(
+                path,
+                left_info.clone(),
+                right_info.clone(),
+                &left_text,
+                &right_text,
+                sensitive,
+                args.max_lines,
+                None,
+                None,
+            );
+            link_diff.hunks = content_diff.hunks;
+            file_diffs.push(link_diff);
             continue;
         }
 
@@ -217,6 +500,7 @@ pub fn execute_diff(
                 sensitive,
                 binary: true,
                 symlink: false,
+                link_targets: None,
                 truncated: false,
                 hunks: vec![],
                 ref_hunks: ref_hunks_out,
@@ -249,24 +533,34 @@ pub fn execute_diff(
                 ref_content.as_deref(),
             )
         };
-        file_diffs.push(output);
+        if !expanded_children.contains(path)
+            || output.binary && output.left_hash != output.right_hash
+            || !output.hunks.is_empty()
+            || output.note.is_some()
+        {
+            file_diffs.push(output);
+        }
     }
 
     let files_with_changes = file_diffs
         .iter()
         .filter(|d| {
             (d.binary && d.left_hash != d.right_hash)
-                || d.symlink
+                || (d.symlink
+                    && d.link_targets
+                        .as_ref()
+                        .is_some_and(|targets| targets.left != targets.right))
                 || !d.hunks.is_empty()
                 || (d.sensitive && d.note.is_some())
         })
         .count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
-            scanned_files: existing_files.len(),
+            scanned_files,
             files_with_changes,
         },
         files: file_diffs,
+        errors,
         truncated,
         changed_files_total,
     };
@@ -283,6 +577,69 @@ pub fn execute_diff(
     Ok((multi_output, code))
 }
 
+fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
+    match path {
+        TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => Some(real_path),
+        TargetPath::Missing { .. } => None,
+    }
+}
+
+fn sensitive_link_chain(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    config: &AppConfig,
+) -> bool {
+    let root = match side {
+        Side::Local => &config.local.root_dir,
+        Side::Remote(name) => &config.servers[name].root_dir,
+    };
+    let mut current = PathBuf::from(path);
+    let mut seen = HashSet::new();
+    while seen.insert(current.clone()) {
+        let inspected = match core.inspect_path(side, &current.to_string_lossy()) {
+            Ok(inspected) => inspected,
+            Err(_) => return false,
+        };
+        let TargetPath::Symlink {
+            link_target,
+            real_path,
+        } = inspected
+        else {
+            return false;
+        };
+        if is_sensitive(&link_target.to_string_lossy(), &config.filter.sensitive)
+            || is_sensitive(&real_path.to_string_lossy(), &config.filter.sensitive)
+        {
+            return true;
+        }
+        let candidate = if link_target.is_absolute() {
+            link_target
+        } else {
+            current.parent().unwrap_or(Path::new("")).join(link_target)
+        };
+        let relative = if candidate.is_absolute() {
+            match candidate.strip_prefix(root) {
+                Ok(relative) => relative,
+                Err(_) => return false,
+            }
+        } else {
+            candidate.as_path()
+        };
+        let mut next = PathBuf::new();
+        for component in relative.components() {
+            match component {
+                Component::Normal(name) => next.push(name),
+                Component::CurDir => {}
+                Component::ParentDir if next.pop() => {}
+                _ => return false,
+            }
+        }
+        current = next;
+    }
+    false
+}
+
 /// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。
 ///
 /// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files)
@@ -293,6 +650,7 @@ fn run_diff_fast_path(
     right: &Side,
     core: &mut CoreRuntime,
     config: &AppConfig,
+    follow_external_links: bool,
 ) -> anyhow::Result<DiffScanResult> {
     let left_tree = FileTree::new(&config.local.root_dir);
     let right_tree = FileTree::new(&config.local.root_dir);
@@ -302,6 +660,37 @@ fn run_diff_fast_path(
     let mut equal_binary_paths = Vec::new();
 
     for path in target_paths {
+        let left_path = core.inspect_path(left, path)?;
+        let right_path = core.inspect_path(right, path)?;
+        if (!follow_external_links
+            && (resolved_path_outside_root(&left_path, left, config)
+                || resolved_path_outside_root(&right_path, right, config)))
+            || matches!(left_path, TargetPath::Symlink { .. })
+            || matches!(right_path, TargetPath::Symlink { .. })
+        {
+            statuses.push(FileStatus {
+                path: path.clone(),
+                status: FileStatusKind::Modified,
+                sensitive: is_sensitive(path, &config.filter.sensitive),
+                hunks: None,
+                ref_badge: None,
+            });
+            existing.push(path.clone());
+            continue;
+        }
+        let left_children = core.fetch_children(left, path).unwrap_or_default();
+        let right_children = core.fetch_children(right, path).unwrap_or_default();
+        if !left_children.is_empty() || !right_children.is_empty() {
+            statuses.push(FileStatus {
+                path: path.clone(),
+                status: FileStatusKind::Modified,
+                sensitive: is_sensitive(path, &config.filter.sensitive),
+                hunks: None,
+                ref_badge: None,
+            });
+            existing.push(path.clone());
+            continue;
+        }
         let (left_bytes, left_ok) = read_file_bytes_tolerant(core, left, path, true);
         let (right_bytes, right_ok) = read_file_bytes_tolerant(core, right, path, true);
 
@@ -349,6 +738,57 @@ fn run_diff_fast_path(
     let mut diff_files = filter_changed_files(&existing, &statuses);
     diff_files.extend(equal_binary_paths);
     Ok((left_tree, right_tree, statuses, existing, diff_files))
+}
+
+fn resolved_path_outside_root(path: &TargetPath, side: &Side, config: &AppConfig) -> bool {
+    let root = match side {
+        Side::Local => &config.local.root_dir,
+        Side::Remote(name) => &config.servers[name].root_dir,
+    };
+    match path {
+        TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => {
+            !real_path.starts_with(root)
+        }
+        TargetPath::Missing { real_parent } => !real_parent.starts_with(root),
+    }
+}
+
+fn path_escapes_root(
+    core: &mut CoreRuntime,
+    side: &Side,
+    config: &AppConfig,
+    path: &str,
+) -> anyhow::Result<bool> {
+    let inspected = core.inspect_path(side, path)?;
+    Ok(resolved_path_outside_root(&inspected, side, config))
+}
+
+fn read_existing_diff_file(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    match core.inspect_path(side, path)? {
+        TargetPath::Missing { .. } => Ok(None),
+        TargetPath::File { .. } | TargetPath::Symlink { .. } => {
+            core.read_file_bytes(side, path, false).map(Some)
+        }
+    }
+}
+
+fn link_target_for_diff(
+    core: &mut CoreRuntime,
+    side: &Side,
+    tree: &FileTree,
+    path: &str,
+) -> anyhow::Result<Option<String>> {
+    if let Some(target) = find_symlink_target(tree, path) {
+        return Ok(Some(target));
+    }
+    Ok(match core.inspect_path(side, path)? {
+        TargetPath::Symlink { link_target, .. } => Some(link_target.to_string_lossy().into_owned()),
+        _ => None,
+    })
 }
 
 /// PartialScan: 指定ディレクトリ配下のみツリー取得して既存フローに接続する。

@@ -78,6 +78,7 @@ fn successful_cli_diff_json_contains_the_observed_change() {
             max_lines: None,
             max_files: 100,
             force: false,
+            follow_external_links: false,
             max_entries: None,
         },
         fixture.config,
@@ -106,8 +107,99 @@ fn diff_args() -> DiffArgs {
         max_lines: None,
         max_files: 100,
         force: false,
+        follow_external_links: false,
         max_entries: None,
     }
+}
+
+// @kotowari[EX-cli-039]
+#[cfg(unix)]
+#[test]
+fn link_target_and_resolved_text_have_separate_json_fields() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = sync_fixture();
+    fs::write(fixture.source.path().join("left.txt"), "left contents\n").unwrap();
+    fs::write(fixture.first.path().join("right.txt"), "right contents\n").unwrap();
+    symlink("left.txt", fixture.source.path().join("link.txt")).unwrap();
+    symlink("right.txt", fixture.first.path().join("link.txt")).unwrap();
+    let mut args = diff_args();
+    args.paths = vec!["link.txt".into()];
+    let (result, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    assert_eq!(code, remote_merge::service::types::exit_code::DIFF_FOUND);
+    let json: serde_json::Value = serde_json::from_str(&format_json(&result).unwrap()).unwrap();
+    assert_eq!(json["files"][0]["link_targets"]["left"], "left.txt");
+    assert_eq!(json["files"][0]["link_targets"]["right"], "right.txt");
+    assert!(json["files"][0]["hunks"]
+        .to_string()
+        .contains("left contents"));
+    assert!(!json["files"][0]["hunks"].to_string().contains("left.txt"));
+}
+
+// @kotowari[EX-cli-051]
+#[test]
+fn directory_argument_with_and_without_slash_has_the_same_child_diff() {
+    let fixture = sync_fixture();
+    fs::create_dir(fixture.source.path().join("src")).unwrap();
+    fs::create_dir(fixture.first.path().join("src")).unwrap();
+    fs::write(fixture.source.path().join("src/app.rs"), "left\n").unwrap();
+    fs::write(fixture.first.path().join("src/app.rs"), "right\n").unwrap();
+    let mut plain = diff_args();
+    plain.paths = vec!["src".into()];
+    let mut slash = diff_args();
+    slash.paths = vec!["src/".into()];
+    let (plain_output, plain_code) =
+        execute_diff(plain, fixture.config.clone(), fixture.targets.clone()).unwrap();
+    let (slash_output, slash_code) = execute_diff(slash, fixture.config, fixture.targets).unwrap();
+    assert_eq!(
+        plain_code,
+        remote_merge::service::types::exit_code::DIFF_FOUND
+    );
+    assert_eq!(slash_code, plain_code);
+    assert_eq!(
+        format_json(&plain_output).unwrap(),
+        format_json(&slash_output).unwrap()
+    );
+    assert_eq!(plain_output.files[0].path, "src/app.rs");
+}
+
+// @kotowari[EX-cli-060]
+#[cfg(unix)]
+#[test]
+fn directory_link_slash_does_not_discard_link_or_child_diff() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = sync_fixture();
+    fs::create_dir(fixture.source.path().join("left-dir")).unwrap();
+    fs::create_dir(fixture.first.path().join("right-dir")).unwrap();
+    fs::write(fixture.source.path().join("left-dir/child.txt"), "left\n").unwrap();
+    fs::write(fixture.first.path().join("right-dir/child.txt"), "right\n").unwrap();
+    symlink("left-dir", fixture.source.path().join("shared")).unwrap();
+    symlink("right-dir", fixture.first.path().join("shared")).unwrap();
+    let mut plain = diff_args();
+    plain.paths = vec!["shared".into()];
+    let mut slash = diff_args();
+    slash.paths = vec!["shared/".into()];
+    let (plain_output, plain_code) =
+        execute_diff(plain, fixture.config.clone(), fixture.targets.clone()).unwrap();
+    let (slash_output, slash_code) = execute_diff(slash, fixture.config, fixture.targets).unwrap();
+    assert_eq!(
+        plain_code,
+        remote_merge::service::types::exit_code::DIFF_FOUND
+    );
+    assert_eq!(slash_code, plain_code);
+    assert_eq!(
+        format_json(&plain_output).unwrap(),
+        format_json(&slash_output).unwrap()
+    );
+    assert!(plain_output
+        .files
+        .iter()
+        .any(|file| file.path == "shared" && file.link_targets.is_some()));
+    assert!(plain_output
+        .files
+        .iter()
+        .any(|file| file.path == "shared/child.txt" && !file.hunks.is_empty()));
 }
 
 // @kotowari[EX-cli-017]
@@ -237,7 +329,7 @@ fn directory_diff_json_contains_both_changed_files() {
     );
 }
 
-// @kotowari[EX-cli-002]
+// @kotowari[EX-cli-002, EX-cli-052]
 #[test]
 fn equal_directory_diff_json_reports_no_changed_files() {
     let fixture = sync_fixture();
@@ -247,7 +339,17 @@ fn equal_directory_diff_json_reports_no_changed_files() {
     }
     let mut args = diff_args();
     args.paths = vec!["folder/".into()];
-    let (output, code) = execute_diff(args, fixture.config, fixture.targets).unwrap();
+    let (output, code) =
+        execute_diff(args, fixture.config.clone(), fixture.targets.clone()).unwrap();
+    let mut without_slash = diff_args();
+    without_slash.paths = vec!["folder".into()];
+    let (plain_output, plain_code) =
+        execute_diff(without_slash, fixture.config, fixture.targets).unwrap();
+    assert_eq!(code, plain_code);
+    assert_eq!(
+        format_json(&output).unwrap(),
+        format_json(&plain_output).unwrap()
+    );
     assert_eq!(code, remote_merge::service::types::exit_code::SUCCESS);
     let json: serde_json::Value = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
     assert_eq!(json["summary"]["files_with_changes"], 0);

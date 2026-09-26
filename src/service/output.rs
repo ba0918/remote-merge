@@ -130,34 +130,56 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     lines.push(format!("--- a/{} ({})", output.path, output.left.label));
     lines.push(format!("+++ b/{} ({})", output.path, output.right.label));
 
-    if output.binary {
-        let msg = match (&output.left_hash, &output.right_hash) {
-            (Some(lh), Some(rh)) => {
-                format!(
-                    "Binary files differ (left: sha256={}, right: sha256={})",
-                    lh, rh
-                )
+    if output.symlink {
+        if let Some(targets) = &output.link_targets {
+            if targets.left != targets.right {
+                lines.push("Symbolic link targets differ".into());
+                if let Some(left) = &targets.left {
+                    lines.push(format!("-link target: {left}"));
+                }
+                if let Some(right) = &targets.right {
+                    lines.push(format!("+link target: {right}"));
+                }
+            } else if let Some(target) = &targets.left {
+                lines.push(format!("Link target: {target}"));
             }
-            (Some(lh), None) => {
-                format!("Binary files differ (left: sha256={}, right: missing)", lh)
+        }
+        if let Some(note) = &output.note {
+            lines.push(note.clone());
+        }
+        if output.binary {
+            lines.push(format_binary_hashes(output));
+            return lines.join("\n");
+        }
+        if !output.hunks.is_empty() {
+            lines.push("Resolved content differs".into());
+        }
+        for hunk in &output.hunks {
+            for line in &hunk.lines {
+                let prefix = match line.line_type {
+                    DiffLineType::Removed => '-',
+                    DiffLineType::Added => '+',
+                    DiffLineType::Context => ' ',
+                };
+                lines.push(format!("{prefix}{}", line.content));
             }
-            (None, Some(rh)) => {
-                format!("Binary files differ (left: missing, right: sha256={})", rh)
-            }
-            (None, None) => "Binary files differ".into(),
-        };
-        lines.push(msg);
+        }
         return lines.join("\n");
     }
 
-    if output.symlink {
-        lines.push("Symbolic link targets differ".into());
+    if output.binary {
+        lines.push(format_binary_hashes(output));
         return lines.join("\n");
     }
 
     // sensitive マスク: build_masked_diff_output で構築された DiffOutput のみがこのパスに到達する。
     // --force 使用時は note=None のため通常の hunk 表示にフォールスルーする。
     if let (true, Some(note)) = (output.sensitive, &output.note) {
+        lines.push(note.to_string());
+        return lines.join("\n");
+    }
+
+    if let Some(note) = &output.note {
         lines.push(note.to_string());
         return lines.join("\n");
     }
@@ -233,6 +255,17 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     }
 
     lines.join("\n")
+}
+
+fn format_binary_hashes(output: &DiffOutput) -> String {
+    match (&output.left_hash, &output.right_hash) {
+        (Some(lh), Some(rh)) => {
+            format!("Binary files differ (left: sha256={lh}, right: sha256={rh})")
+        }
+        (Some(lh), None) => format!("Binary files differ (left: sha256={lh}, right: missing)"),
+        (None, Some(rh)) => format!("Binary files differ (left: missing, right: sha256={rh})"),
+        (None, None) => "Binary files differ".into(),
+    }
 }
 
 /// 複数ファイル diff のテキスト出力をフォーマットする
@@ -737,6 +770,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -788,6 +822,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: true,
             hunks: vec![],
             ref_hunks: None,
@@ -951,6 +986,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![DiffHunk {
@@ -996,6 +1032,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1026,6 +1063,7 @@ mod tests {
             sensitive: false,
             binary: true,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1059,6 +1097,10 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: true,
+            link_targets: Some(crate::service::types::LinkTargets {
+                left: Some("before.txt".into()),
+                right: Some("after.txt".into()),
+            }),
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1204,6 +1246,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -1233,6 +1276,7 @@ mod tests {
     fn test_format_multi_diff_text_single_file() {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 1,
                 files_with_changes: 1,
@@ -1252,6 +1296,7 @@ mod tests {
     fn test_format_multi_diff_text_multiple_files() {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs"), sample_diff("b.rs")],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 5,
                 files_with_changes: 2,
@@ -1269,6 +1314,7 @@ mod tests {
     fn test_format_multi_diff_text_truncated() {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 10,
                 files_with_changes: 1,
@@ -1350,6 +1396,7 @@ mod tests {
             sensitive: false,
             binary: true,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1382,6 +1429,7 @@ mod tests {
             sensitive: false,
             binary: true,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1411,6 +1459,7 @@ mod tests {
             sensitive: false,
             binary: true,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1441,6 +1490,7 @@ mod tests {
             sensitive: false,
             binary: true,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1474,6 +1524,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1579,6 +1630,7 @@ mod tests {
             sensitive: true,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1611,6 +1663,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1642,6 +1695,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1671,6 +1725,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1690,6 +1745,7 @@ mod tests {
         diff.conflict_count = 3;
         let output = MultiDiffOutput {
             files: vec![diff],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 1,
                 files_with_changes: 1,
@@ -1705,6 +1761,7 @@ mod tests {
     fn test_format_multi_diff_text_no_conflicts() {
         let output = MultiDiffOutput {
             files: vec![sample_diff("a.rs")],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 1,
                 files_with_changes: 1,
@@ -1732,6 +1789,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -1875,6 +1933,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
