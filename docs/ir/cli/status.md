@@ -1,6 +1,6 @@
 # 差分一覧の表示
 
-ファイル一覧の既定表示と、全件表示・内容比較を要求する操作。
+ファイル一覧の既定表示と、全件表示・内容比較を要求する操作、各ファイルの差分の判定。
 
 ## Requirements
 
@@ -24,6 +24,35 @@ status に --all を指定したときは、等しいファイルも一覧に含
 - verification: unit
 
 status に --checksum を指定したときは、左右にあるファイルの内容を読み比べ、メタデータが等しくても中身が違えば変更として報告する。
+
+### REQ-cli-027: メタデータと中身で差分を判定する
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-27-adopt-status.md#A2
+- verification: unit
+- definition: TBL-cli-001
+
+status は左右のファイルを TBL-cli-001 に従って "left_only"・"right_only"・"modified"・"equal" に判定する。
+
+### REQ-cli-028: symlink は中身を読まずに判定する
+- kind: state_driven
+- source: docs/decision/records/2026-09-27-adopt-status.md#A3
+- verification: unit
+
+--checksum を指定しないとき、status は片方でも symlink のファイルの中身を読まず、両方が symlink ならリンク先の文字列が同じときだけ "equal"、違えば "modified" とし、片方だけが symlink なら "modified" とする。
+
+## Decision tables
+
+### TBL-cli-001: ファイルの判定
+- source: docs/decision/records/2026-09-27-adopt-status.md#A2
+
+| 左右の有無と種類 | サイズと更新時刻 | 判定 |
+|---|---|---|
+| 左だけにある | - | "left_only" |
+| 右だけにある | - | "right_only" |
+| 片側がファイルで片側がディレクトリ | - | "modified" |
+| 両方がファイル | サイズが違う | "modified" |
+| 両方がファイル | サイズも更新時刻も同じ | 中身を読まずに "equal" |
+| 両方がファイル | サイズか更新時刻が分からない、またはサイズが同じで更新時刻が違う | 中身を読み比べ、同じなら "equal"、違えば "modified" |
 
 ## Examples
 
@@ -63,4 +92,10 @@ Scenario: 内容まで等しい
 Given 左右のファイルの中身が等しい
 When --checksum と --all で status を実行する
 Then そのファイルは等しいと報告される
+
+@id=EX-cli-062 @about=REQ-cli-028 @source=docs/decision/records/2026-09-27-adopt-status.md#A3
+Scenario: 同じ中身を指す symlink と通常ファイル
+Given 左は通常ファイルで、右は同じ中身のファイルを指す同じサイズの symlink である
+When status を実行する
+Then そのファイルは "modified" と報告される
 ```
