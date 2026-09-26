@@ -1,7 +1,7 @@
 # バックアップと rollback のテスト整理の記録
 
 バックアップと rollback の要件（REQ-backup-011 から REQ-backup-041）の根拠テストを整理した過程の記録。
-変異テストの結果、各要件の根拠にしたテスト、削除候補と利用者の判断を残す。
+変異テストの結果、各要件の根拠にしたテスト、削除候補と利用者の判断、整理後の見逃しの決着を残す。
 
 ## 整理前の変異テスト
 
@@ -252,3 +252,138 @@ parse_batch_restore_output と extract_timestamp は呼び出し元がないた�
 | tests/cli_rollback_local.rs | test_rollback_list_format_json_empty | 空の一覧の JSON が空の配列であることだけを見る。どの要件の根拠でもない |
 | tests/cli_rollback_local.rs | test_rollback_no_sessions_error | rollback_exits_with_2_when_the_session_is_not_found（REQ-backup-038）と重なる |
 | tests/cli_rollback_local.rs | test_rollback_invalid_session_id | 同上（存在しない --session のエラー） |
+
+## 整理後の変異テスト
+
+削除と根拠テストの追加を終えた後、整理前と同じコマンドで三つのファイルを一回の実行にまとめて実行した。
+一回目の実行の途中で作業ツリーのテストを書き足したため（変異ごとのテストの数が 2,845 と 2,846 に分かれた）、テストと同等変異の一覧を確定させてから、作業ツリーに触れずにもう一度実行した。
+比べる結果はこの二回目の実行（コミット 49cf9f8）で、一回目は検知の有無が変わった変異の確認にだけ使う。
+
+```sh
+scripts/mutants.sh src/backup/mod.rs src/service/rollback.rs src/runtime/backup_store.rs
+```
+
+二回目の全体の集計は、実行したときの同等変異の一覧で `mutants: caught=80 survived=8 timeout=3 unviable=14 equivalent=3`（実行時間は約 31 分）。
+その後に src/service/rollback.rs:156 の変異を同等変異として登録し、同じ結果を読み直した集計は `mutants: caught=80 survived=7 timeout=3 unviable=14 equivalent=4`。下の表はこの読み直しの内訳。
+変異の総数は整理前の 126 から 108 に減った。利用者の判断で消した `parse_batch_restore_output` と `extract_timestamp` の変異がなくなったため。
+
+| ファイル | caught | survived | equivalent | timeout | unviable |
+|---|---|---|---|---|---|
+| src/backup/mod.rs | 23 | 1 | 2 | 3 | 10 |
+| src/service/rollback.rs | 26 | 0 | 1 | 0 | 2 |
+| src/runtime/backup_store.rs | 31 | 6 | 1 | 0 | 2 |
+
+### 検知の中身の確かめ
+
+変異ごとの実行ログ（`mutants.out/log/`）で、検知とされた変異のそれぞれについて失敗したテストを数えた。
+一回目の実行では、次の五つの変異が、バックアップと関係のない tui_merge（PTY で TUI を動かすテスト）か agent_ssh_deploy のテストの失敗だけで検知とされていた。
+二つの変異を同時に並べて走らせる負荷の下で、これらのテストが時間に依存して失敗したものと推測する（未確認）。
+
+| 変異 | 一回目で失敗したテスト |
+|---|---|
+| src/runtime/backup_store.rs:117 replace == with != in BackupStore::reserve_session | tui_merge の三件 |
+| src/runtime/backup_store.rs:242 replace += with *= in BackupStore::cleanup_expired | tui_merge の二件 |
+| src/runtime/backup_store.rs:359 replace match guard path == rel_path with true in BackupStore::read_record | tui_merge の一件 |
+| src/runtime/backup_store.rs:359 replace match guard path == rel_path with false in BackupStore::read_record | agent_ssh_deploy の一件 |
+| src/service/rollback.rs:156 replace match guard force with true in plan_restore | tui_merge の一件 |
+
+二回目の実行では、検知とされた変異の全てがバックアップと rollback のテストの失敗で検知されており、このような変異はなかった。
+一回目の見かけの集計（caught=82 survived=9）はこのため二回目より検知が多く、二回目の集計を正とする。
+これらの時間に依存するテストの修正はこの整理の範囲外で、手を入れていない。
+
+`src/backup/mod.rs:112` の `replace > with < in parse_session_id` は、S1 の確認の実行で検知、整理前の実行で見逃し、整理後の一回目と二回目で見逃しだった。
+この変異で違いが出るのは "-1" や "-0" のように N が 2 より小さい接尾辞を持つ名前を読むときだけで、製品はそのような ID を作らず、性質テストの入力にも含まれない。
+S1 の実行で検知された理由は、上の表と同じく関係のないテストの失敗だった可能性が高いと推測する（S1 のログは残っておらず未確認）。
+
+### 整理前との比べ
+
+整理後の見逃し（同等変異として登録したものを含む）は、`src/service/rollback.rs:156` の一件を除いて整理前の見逃しに含まれる。
+
+- `src/service/rollback.rs:156` の `replace match guard force with true in plan_restore` は整理前には検知だったが、整理前の実行のログは残っておらず、何で検知されたかは確かめられない。整理後の一回目では関係のないテストの失敗だけで検知とされていた。この変異は、全てのセッションが期限切れで --force がないときに最新のセッションを選ぶが、直後の「期限切れのセッションは --force なしでは戻さない」の確かめで同じエラーになる。消したテストはどれもこの関数を呼んでおらず（消した単体テストは parse_batch_restore_output と extract_timestamp と resolve_target のものだけ、plan_restore の単体テストは全て残した）、削除が生んだ見逃しではないと判断した。戻したテストはない。
+- 整理前の見逃しのうち次の七件は整理後に検知された。
+  - src/backup/mod.rs:45 と 49 の四件（書き込み先の識別のホストとポート）: REQ-backup-021 のポートだけ・ホストだけが違う書き込み先のテストと、REQ-backup-012 のテストが検知した。
+  - src/runtime/backup_store.rs:117 の `replace == with !=`: REQ-backup-023 の同時に始めた多数の merge のテスト（下の表）が検知した。
+  - src/runtime/backup_store.rs:310 の `replace && with ||`: REQ-backup-041 の二つのファイルのどちらかの内容が欠けたセッションのテスト（下の表）が検知した。
+  - src/runtime/backup_store.rs:359 の `replace match guard path == rel_path with true` は整理後の一回目では関係のないテストだけで検知、二回目で見逃しで、整理前と同じく見逃しとして扱う。
+
+時間切れの三件（`src/backup/mod.rs:84`、`88`、`91` の next_session_id の変異）は見逃しではない（kotowari mutants の notice）。
+これらの変異は既存の ID と重なる ID を返し、集約先の予約が同じ ID を作り直し続けて終わらなくなる。
+整理前はこれを src/backup/mod.rs の単体テストがすぐに失敗させて検知になっていたが、それらのテストを tests/contract/ へ移した後は、終わらなくなるテストの時間切れが先に記録されるようになったと推測する。
+
+### 見逃しの決着
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/backup/mod.rs:79 | replace backup_timestamp -> String with String::new() | 同等変異として登録した。下の注 1 |
+| src/backup/mod.rs:79 | replace backup_timestamp -> String with "xyzzy".into() | 同等変異として登録した。下の注 1 |
+| src/runtime/backup_store.rs:242 | replace += with *= in BackupStore::cleanup_expired | 同等変異として登録した。下の注 2 |
+| src/service/rollback.rs:156 | replace match guard force with true in plan_restore | 同等変異として登録した。下の注 5 |
+| src/runtime/backup_store.rs:117 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in BackupStore::reserve_session | 未決着（利用者の判断待ち）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace == with != in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with true in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 3 |
+| src/runtime/backup_store.rs:383 | replace match guard error.kind() == std::io::ErrorKind::AlreadyExists with false in create_temporary_entry | 未決着（利用者の判断待ち）。下の注 4 |
+| src/backup/mod.rs:112 | replace > with < in parse_session_id | 未決着（利用者の判断待ち）。下の注 4 |
+| src/runtime/backup_store.rs:347 | replace match guard path == rel_path with true in BackupStore::read_record | 未決着（利用者の判断待ち）。下の注 4 |
+| src/runtime/backup_store.rs:359 | replace match guard path == rel_path with true in BackupStore::read_record | 未決着（利用者の判断待ち）。下の注 4 |
+
+同等変異かどうかの判断のため、別の文脈のエージェントに、変異を当てると落ちて今のコードでは通るテストを公開された入口から書かせた（製品コードは変えず、結果は採用するかをこちらで決めた）。
+
+1. backup_timestamp の値は、バックアップが無効なときの merge・sync のセッション ID にだけ使われる。その ID が流れる保存、削除の結果の backup 表示、セッションの片付けは全てバックアップが有効なときの分岐の中にあり、結果の出力にも集約先にも届かない。別の文脈のエージェントも観測できる違いを見つけられなかった。
+2. 変わるのは cleanup_expired が返す削除した数だけで、削除そのものは変わらない。この戻り値を使う製品コード（TUI の起動、merge と sync の開始）はエラーかどうかしか見ない。別の文脈のエージェントは CoreRuntime::cleanup_expired_backups の戻り値を直接確かめるテストで落とせたが、削除した数は IR に定めがなく、根拠にならないテストのため採らなかった。
+3. 元のコードでは、ID の予約や一時的な保存場所の作成が AlreadyExists 以外の理由で失敗するとエラーで終わり、変異では作り直しを続けて終わらなくなる。直前に同じプロセスが権限を 0700 に直すため、root 権限なしで起こせる失敗は、集約先のパスがおよそ 4,000 バイトのときのパス長の上限（ENAMETOOLONG）だけだった。別の文脈のエージェントは、集約先のパスの長さを 3,900 から 4,094 バイトまで変えて merge が終わることと書き込み先が変わらないことを確かめるテストを書き、元のコードで通り三つの変異で落ちる（終わらない）ことを確かめた。XDG_DATA_HOME は境界で受け取る入力だが、4,000 バイトの集約先が実際に使われる場面として認めるか、また REQ-backup-002 と REQ-backup-017 がこの失敗をファイルごとの失敗として求めているか（予約の失敗は元のコードでもコマンド全体のエラーになる）は仕様の読み方の判断になるため、テストを採らず、同等変異としても登録していない（観測できる違いがあるため）。
+4. 違いが出るのは、集約先の中に製品が作らない名前や中身があるときだけ。"-1"・"-0" のような接尾辞の ID（mod.rs:112）、record.json の path が保存場所と食い違う記録（backup_store.rs:347・359）、同じセッションの一時的な保存場所に同じプロセス番号と連番の名前が残っているとき（backup_store.rs:383 の false）がそれにあたる。どれも人が集約先を書き換えない限り起きない。REQ-backup-041 が定めるのは中身が消されたときで、書き換えられたときや他の名前があるときの扱いは IR にない。テストを書くには IR にない扱いと集約先の内部の配置を固定することになるため書かず、観測できる違いはあるため同等変異としても登録していない。IR にこれらの扱いを定めるか、未決着のまま残すかは利用者の判断を待つ。
+5. この腕に来るのは --session がなく全てのセッションが期限切れのときだけで、変異で選ばれる最新のセッションも期限切れのため、直後の「期限切れのセッションは --force なしでは戻さない」の確かめで元のコードと同じエラーになる。別の文脈のエージェントに execute_rollback と plan_restore の直接の呼び出しから落ちるテストを書かせたが、エラーの種類、文言、出力、終了コードが同じで書けなかった。
+
+### 整理後に書き足した根拠テスト
+
+| 要件 | テスト | 検知するようになった変異 |
+|---|---|---|
+| REQ-backup-041 | tests/contract/backup_rollback_cli.rs の session_missing_the_content_of_one_of_its_files_is_omitted_from_the_list | src/runtime/backup_store.rs:310 の replace && with \|\|。二つのファイルのどちらの内容を消しても一覧に出ないことを確かめる。読む順番によらず片方の場合で必ず落ちる |
+| REQ-backup-023 | tests/contract/backup_sessions.rs の many_simultaneous_merges_all_succeed_with_distinct_session_ids | src/runtime/backup_store.rs:117 の replace == with != と guard を false にする変異。十六本の merge を同じ時刻で同時に始めることを五回繰り返し、全てが成功して ID が重ならないことを確かめる |
+
+どちらも今のコードで通ることを確かめ、コミットに含めない一時的な書き換えで変異を当てて落ちることを確かめた（REQ-backup-023 のテストは guard を false にした変異で八回、!= の変異で五回実行して全て失敗、元のコードで十回実行して全て成功）。
+
+### 要件ごとの verification
+
+具体的な場面で結果が決まる挙動は unit、入力の全体で成り立つべき性質は property という選び方（docs/ir/testing/methods.md#REQ-testing-009）に照らした。
+
+| 要件 | verification | 要件の性質に合う理由 |
+|---|---|---|
+| REQ-backup-011 | unit | 保存した項目の権限という、一回の保存の結果で決まる状態で、元の権限の組み合わせは 0664・0644 と --delete の場面で足りる |
+| REQ-backup-012 | unit | 書き込み先ごとの説明ファイルの中身で、リモートとローカルの二つの場面で結果が決まる |
+| REQ-backup-013 | unit | 上書きと削除の直前に読み直した内容が保存されるかは、差分表示の後に内容を変える場面で決まる |
+| REQ-backup-014 | unit | 一方向の merge の後に両側のどちらにセッションがあるかという、一つの場面の結果 |
+| REQ-backup-015 | unit | 元のファイルがない場面（親ディレクトリの有無の二通り）で記録と一覧がどうなるかで決まる |
+| REQ-backup-016 | unit | 既存の ".remote-merge-backup/" がある場面で、その中身・一覧・status の結果を見れば決まる |
+| REQ-backup-017 | unit | merge・--delete・sync の三つの経路それぞれでバックアップが失敗する場面の結果 |
+| REQ-backup-018 | unit | 集約先が決まらない場面で、バックアップの有効・無効と merge・sync の組み合わせの結果 |
+| REQ-backup-019 | unit | 三つのモードと有効・無効の六通りの場面で結果が決まり、入力の全体にわたる性質ではない |
+| REQ-backup-020 | unit | TUI の書き込みと起動の具体的な場面（片側の失敗、両側の w、集約先なし）の結果 |
+| REQ-backup-021 | unit | 書き込み先の識別は、ポート・ホスト・root_dir・ユーザー名・別名・相対パス・symlink のそれぞれが違う場面で決まる |
+| REQ-backup-022 | property | ID の形式と順序は任意の日時と N の組で成り立つべき性質で、十番目と九番目の並びのような具体例だけでは確かめきれない |
+| REQ-backup-023 | property | 重複しないことは任意の既存 ID の集合に対して成り立つべき性質。同じ秒・同時の作成は集約先を通した unit のテストでも確かめる |
+| REQ-backup-024 | unit | 一回の sync が二つの書き込み先に書く場面で、両方のセッション ID を比べれば決まる |
+| REQ-backup-025 | unit | 整理する時点は TUI の起動・merge・sync・dry-run・rollback という有限の場面ごとに決まる |
+| REQ-backup-026 | unit | 境界の一秒前と境界ちょうどの二つの場面で、一覧と整理の判定がそろうかで決まる |
+| REQ-backup-027 | unit | 有効時の rollback が退避する場面、退避できない場面、戻す先がない場面の結果 |
+| REQ-backup-028 | unit | 無効時の rollback の一つの場面の結果 |
+| REQ-backup-029 | unit | 権限と所有者を持つ既存ファイルへ書き戻す場面の結果 |
+| REQ-backup-030 | unit | --delete で消したファイルを戻す場面の結果 |
+| REQ-backup-031 | unit | 親ディレクトリが消えた場面のスキップ理由とディレクトリの有無 |
+| REQ-backup-032 | unit | symlink を置き換えた記録を --force の有無で戻す二つの場面 |
+| REQ-backup-033 | unit | 要件が挙げる場所の変化の種類ごとの場面で、スキップ理由が決まる |
+| REQ-backup-034 | unit | 最新のセッションと古いセッションを選ぶ場面の書き戻しの結果 |
+| REQ-backup-035 | unit | 確認への応答（"y"・"yes"・"n"・空）ごとの場面の結果 |
+| REQ-backup-036 | unit | 機密ファイルを --force の有無で戻す二つの場面 |
+| REQ-backup-037 | unit | 戻したもの・スキップ・失敗を含む一つの結果の出力形式 |
+| REQ-backup-038 | unit | 結果の種類（全て成功、一部失敗、全てスキップか失敗、セッションなし、dry-run）ごとの終了コード |
+| REQ-backup-039 | unit | --target と --list の有無の組み合わせの場面 |
+| REQ-backup-040 | unit | 通常ファイル・symlink・期限切れ・同じ秒の複数セッションを含む一覧の出力形式 |
+| REQ-backup-041 | unit | 保存内容が欠けた場面（一ファイルのセッション、二ファイルのどちらかが欠けたセッション）の一覧と rollback の結果 |
+
+### 性質テストの確かめ
+
+- REQ-backup-022 と REQ-backup-023 の性質テスト（created_session_ids_follow_the_timestamp_and_suffix_format、session_ids_order_by_time_then_numeric_suffix、next_session_id_differs_from_every_existing_id）は tests/contract/backup_sessions.rs にあり、公開された関数 `next_session_id` と `compare_session_ids` を通して確かめる。
+- どれも `proptest!` を設定なしで使い、試す入力の数を上書きしていない（proptest の既定の 256 件）。
+- `proptest-regressions/` は、これまでの実行で失敗入力が見つかっていないため存在せず、コミットするファイルはない。
+- 既存の ID の N が u64 の最大値のときに next_session_id が加算のあふれで panic することは、FLAG として記録する（利用者の判断）。
