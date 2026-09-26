@@ -6,94 +6,6 @@
 mod common;
 use common::*;
 
-/// local≠remote のファイルが "M " プレフィックスで表示される
-#[test]
-fn test_status_text_shows_modified_files() {
-    let env = CliEnv::new(
-        &[("app.txt", "version 1\n")],
-        &[("app.txt", "version 2 with extra\n")],
-    );
-
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // 実際の出力: "M app.txt" と "Summary: 1 modified, ..."
-    assert!(
-        stdout.contains("M app.txt"),
-        "modified file should be shown as 'M app.txt', got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("1 modified"),
-        "summary should contain '1 modified', got: {}",
-        stdout,
-    );
-}
-
-/// ローカルにのみ存在するファイルが "+ " プレフィックスで表示される
-#[test]
-fn test_status_text_shows_left_only() {
-    let env = CliEnv::new(&[("local_only.txt", "only on local\n")], &[]);
-
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("L local_only.txt"),
-        "left-only file should be shown with 'L ' prefix, got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("left only"),
-        "summary should contain 'left only', got: {}",
-        stdout,
-    );
-}
-
-/// リモートにのみ存在するファイルが "R " プレフィックスで表示される
-#[test]
-fn test_status_text_shows_right_only() {
-    let env = CliEnv::new(&[], &[("remote_only.txt", "only on remote\n")]);
-
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("R remote_only.txt"),
-        "right-only file should be shown with 'R ' prefix, got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("right only"),
-        "summary should contain 'right only', got: {}",
-        stdout,
-    );
-}
-
-/// デフォルトでは同一ファイルの "= " 行は表示されない
-#[test]
-fn test_status_excludes_equal_by_default() {
-    let env = CliEnv::new(
-        &[("same.txt", "identical\n")],
-        &[("same.txt", "identical\n")],
-    );
-
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // デフォルトでは equal ファイルは一覧に表示されないが、Summary 行の equal カウントは表示される
-    assert!(
-        !stdout.contains("= same.txt"),
-        "equal file listing should not appear by default, got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("1 equal"),
-        "summary should report '1 equal', got: {}",
-        stdout,
-    );
-}
-
 /// --all を指定すると同一ファイルの "= " 行が表示される
 #[test]
 fn test_status_all_includes_equal() {
@@ -114,60 +26,6 @@ fn test_status_all_includes_equal() {
         "equal file should be shown with '= ' prefix when --all, got: {}",
         stdout,
     );
-}
-
-/// --summary を指定するとカウント数が表示される
-#[test]
-fn test_status_summary_shows_counts() {
-    let env = CliEnv::new(
-        &[
-            ("changed.txt", "local version\n"),
-            ("local_only.txt", "only here\n"),
-        ],
-        &[
-            ("changed.txt", "remote version with extra content\n"),
-            ("remote_only.txt", "only there\n"),
-        ],
-    );
-
-    let output = env
-        .cmd_with("status")
-        .arg("--summary")
-        .output()
-        .expect("failed to execute");
-
-    // サマリーには "Summary:" と各カテゴリの数字が含まれる
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Summary:"),
-        "summary should contain 'Summary:', got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("1 modified, 1 left only, 1 right only, 0 equal"),
-        "{output:?}"
-    );
-}
-
-/// --format json で有効な JSON が "files" 配列付きで返る
-#[test]
-fn test_status_json_format() {
-    let env = CliEnv::new(
-        &[("data.txt", "local content\n")],
-        &[("data.txt", "remote content with more text\n")],
-    );
-
-    let output = env
-        .cmd_with("status")
-        .args(["--format", "json"])
-        .output()
-        .expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout should be valid JSON");
-    assert_eq!(json["files"][0]["path"], "data.txt", "{json}");
-    assert_eq!(json["files"][0]["status"], "modified", "{json}");
 }
 
 /// --ref で 3way 構成にすると Ref サマリーが表示される
@@ -241,19 +99,6 @@ fn test_status_empty_tree_both_sides() {
         "empty tree should have no file entries, got: {}",
         stdout,
     );
-}
-
-/// .env などのセンシティブファイルも status には含まれる
-#[test]
-fn test_status_sensitive_files_included() {
-    let env = CliEnv::new(
-        &[(".env", "SECRET=abc\n")],
-        &[(".env", "SECRET=xyz and more\n")],
-    );
-
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    assert_stdout_contains(&output, "M .env");
 }
 
 /// ファイル名にスペースを含む場合でも JSON 出力が有効

@@ -103,3 +103,24 @@ tests/ の直下の実行ファイルを起動するテストのうち、同じ�
 - 二つの構成が本当に別の経路を通ることは、コミットに含めない一時的な書き換えで確かめた。`refine_status_with_hashes` を何もしないようにすると same_size_with_different_timestamps_is_decided_by_the_content が落ち、`refine_status_with_content` を何もしないようにすると同じテストと unknown_size_or_timestamp_is_decided_by_the_content が落ちた。
 - refine_status_with_content の七件のうち、test_refine_status_skips_non_modified（片側だけのファイルを中身で変えない）は、片側だけのファイルが中身の比較の対象に入らないため入口から観測できず、test_refine_status_equal_to_modified_when_content_differs（--checksum で "equal" を "modified" に直す）は REQ-cli-008 の既存の根拠テスト（tests/contract/status_results.rs の checksum_finds_different_bytes_despite_equal_size_and_timestamp）と重なるため、どちらも根拠にせず削除候補に挙げる。
 - tests/cli_status.rs の test_status_text_shows_modified_files、test_status_text_shows_left_only、test_status_text_shows_right_only は判定よりテキストの記号を確かめるテストのため、出力の要件（REQ-cli-031）の根拠テストへ移す。
+
+### 出力と終了コード（docs/ir/cli/status-output.md）
+
+根拠テストは全て `tests/contract/status_output.rs` にある。
+集計は関数呼び出しで、終了コードと標準出力は隔離された SSH fixture に対して実行ファイルを起動して確かめる。
+このモジュールは SSH fixture を使うため、ほかの SSH のテストと同じく `test-utils` の feature があるときだけ組み込む。
+テキストの確認では空行を除いた行を見る。区切りの空行の数とファイルの行の順序は IR が定めていないため固定しない。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-029 | summary_counts_every_file_including_equal_ones_with_or_without_all_and_summary | src/cli/status.rs の test_summary_equal_count_preserved_after_filter と、tests/cli_status.rs の test_status_excludes_equal_by_default（移して消した）。--all と --summary の四通りの組み合わせで四種の数が同じ |
+| REQ-cli-030（0） | exit_code_is_zero_when_every_file_is_equal | tests/cli_exit_codes.rs の test_status_exit_0_when_no_diff（移して消した） |
+| REQ-cli-030（1） | exit_code_is_one_when_any_file_is_modified_left_only_or_right_only | tests/cli_exit_codes.rs の test_status_exit_1_when_diff_found（移して消した）と src/service/status.rs の test_exit_code_has_diff、test_exit_code_left_only。"modified"・"left_only"・"right_only" のそれぞれ一件だけの場合 |
+| REQ-cli-030（2） | exit_code_is_two_for_an_unknown_server_or_identical_sides | 新しく書いた。設定にないサーバ名と、左右に同じサーバを指定した場合。tests/cli_error_handling.rs の二件は比較対象の要件と合わせて移す（下の節） |
+| REQ-cli-031（見出し・記号・機密ファイル・Summary 行） | text_lists_a_header_one_symbol_line_per_file_and_a_final_summary | tests/cli_status.rs の test_status_text_shows_modified_files、test_status_text_shows_left_only、test_status_text_shows_right_only、test_status_sensitive_files_included（移して消した）と src/service/output.rs の test_format_status_text、test_status_header_without_ref、test_status_text_left_only_symbol、test_status_text_right_only_symbol。"=" と " [SENSITIVE]" と Summary 行が最後の行であることを書き足した |
+| REQ-cli-031（形式の選択） | format_accepts_text_json_and_diff_as_text_and_rejects_other_values | src/service/output.rs の test_output_format_parse。"diff" と "text" の出力が既定と同じバイト列であることと、未知の値が終了コード 2 になることを実行ファイルで確かめる |
+| REQ-cli-032 | json_has_both_sides_every_file_and_the_summary | tests/cli_status.rs の test_status_json_format（移して消した）と src/service/types.rs の test_status_output_serialize、test_file_status_kind_serializes_snake_case。"left" と "right" の "label" と "root"、全ファイルの "path"・"status"・"sensitive"、"status" の四つの値、"summary" の四種の数を確かめる。右の "root" の形（"ホスト:パス"）は IR が定めていないため、右のディレクトリを含むことだけを見る |
+| REQ-cli-033 | summary_prints_only_the_header_and_counts_and_json_omits_files | tests/cli_status.rs の test_status_summary_shows_counts（移して消した）と src/service/status.rs の test_build_status_output_summary_only、src/service/output.rs の test_format_status_text_summary_only、test_status_header_appears_in_summary_only_mode、src/service/types.rs の test_status_summary_serialize。テキストは空行を除くと見出しと Summary 行の二行だけ、JSON は "files" がない |
+
+- tests/cli_status.rs の test_status_json_special_chars_in_path（空白を含むパスの JSON）は、パスの文字の扱いを IR が定めていないため根拠にせず、削除候補に挙げる。
+- Summary 行が最後の行であることは -v を指定しない場合だけを見る。-v での Agent 行は FLAG-cli-001 の範囲のため確かめない。

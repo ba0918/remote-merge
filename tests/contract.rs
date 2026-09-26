@@ -57,6 +57,9 @@ use common::ssh_server;
 mod ssh_sudo;
 #[path = "contract/status_judgement.rs"]
 mod status_judgement;
+#[cfg(feature = "test-utils")]
+#[path = "contract/status_output.rs"]
+mod status_output;
 #[path = "contract/status_results.rs"]
 mod status_results;
 #[path = "contract/status_support.rs"]
