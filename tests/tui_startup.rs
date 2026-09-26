@@ -8,13 +8,13 @@ use common::*;
 use std::thread;
 use std::time::Duration;
 
+use expectrl::process::Healthcheck;
 use expectrl::Expect;
 
 // ─── テスト ─────────────────────────────────────────────
 
 /// TUI が起動してファイルツリーにファイル名が表示されることを確認
 #[test]
-#[ignore]
 fn test_tui_starts_and_shows_file_tree() {
     let env = E2eEnv::new(
         &[("greeting.txt", "Hello from local\n")],
@@ -37,40 +37,21 @@ fn test_tui_starts_and_shows_file_tree() {
 
 /// 内容が異なるファイルに [M] バッジが表示されることを確認
 ///
-/// バッジは SSH 接続後の非同期バッジ計算で表示される。
-/// CLI status コマンドで同じ環境のバッジが正しく計算されることを検証する。
-/// （PTY のストリーム消費タイミング問題を回避するため CLI で検証）
 #[test]
-#[ignore]
 fn test_tui_shows_badge_for_modified_file() {
     let env = E2eEnv::new(
         &[("config.toml", "key = \"local_value\"\n")],
         &[("config.toml", "key = \"remote_value_longer\"\n")],
     );
 
-    // CLI status でバッジ計算が正しいことを検証
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .arg("--config")
-        .arg(&env.config_path)
-        .arg("status")
-        .output()
-        .expect("Failed to run status");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("M config.toml"),
-        "Modified file should show M badge in status output: {}",
-        stdout
-    );
-
-    // TUI でも起動して [M] バッジのファイルが表示されることを確認
     let mut session = env.spawn_tui();
     session.set_expect_timeout(Some(Duration::from_secs(10)));
-    let result = session.expect("config.toml");
-    assert!(
-        result.is_ok(),
-        "TUI should show config.toml in tree: {:?}",
-        result.err()
-    );
+    session
+        .expect("config.toml")
+        .expect("TUI should show the modified file");
+    session
+        .expect("[M]")
+        .expect("TUI should show the modified badge");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -78,36 +59,20 @@ fn test_tui_shows_badge_for_modified_file() {
 
 /// ローカルにのみ存在するファイルに [+] バッジが表示されることを確認
 #[test]
-#[ignore]
 fn test_tui_shows_badge_for_left_only() {
     let env = E2eEnv::new(
         &[("local_only.txt", "only on local\n")],
         &[], // リモートにはファイルなし
     );
 
-    // CLI status でバッジが正しいことを検証
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .arg("--config")
-        .arg(&env.config_path)
-        .arg("status")
-        .output()
-        .expect("Failed to run status");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("L local_only.txt"),
-        "Left-only file should show L badge in status: {}",
-        stdout
-    );
-
-    // TUI でもファイルが表示されることを確認
     let mut session = env.spawn_tui();
     session.set_expect_timeout(Some(Duration::from_secs(10)));
-    let result = session.expect("local_only.txt");
-    assert!(
-        result.is_ok(),
-        "TUI should show local_only.txt: {:?}",
-        result.err()
-    );
+    session
+        .expect("local_only.txt")
+        .expect("TUI should show the left-only file");
+    session
+        .expect("[+]")
+        .expect("TUI should show the left-only badge");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -115,7 +80,6 @@ fn test_tui_shows_badge_for_left_only() {
 
 /// ヘッダーに "local" と "develop" のサーバー名が表示されることを確認
 #[test]
-#[ignore]
 fn test_tui_shows_header_with_server_names() {
     let env = E2eEnv::new(&[("test.txt", "content\n")], &[("test.txt", "content\n")]);
 
@@ -154,7 +118,6 @@ fn test_tui_shows_header_with_server_names() {
 
 /// "q" キーで TUI が正常に終了することを確認
 #[test]
-#[ignore]
 fn test_tui_quit_with_q() {
     let env = E2eEnv::new(&[("test.txt", "local\n")], &[("test.txt", "remote\n")]);
 
@@ -173,26 +136,14 @@ fn test_tui_quit_with_q() {
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_secs(2));
 
-    // プロセスが終了していることを確認（try_read で Eof になるはず）
-    let mut buf = vec![0u8; 1024];
-    let read_result = session.try_read(&mut buf);
-
-    // プロセス終了後は read が 0 バイトまたはエラーになる
-    match read_result {
-        Ok(0) | Err(_) => {
-            // 正常: プロセスが終了している
-        }
-        Ok(n) => {
-            // 少量のデータが残っている場合もあるが、プロセスは終了しているはず
-            let remaining = strip_ansi(&buf[..n]);
-            eprintln!("Remaining output after quit: {}", remaining);
-        }
-    }
+    assert!(
+        !session.get_process().is_alive().unwrap(),
+        "q must terminate the TUI"
+    );
 }
 
 /// "?" キーでヘルプダイアログが表示されることを確認
 #[test]
-#[ignore]
 fn test_tui_help_dialog_with_question_mark() {
     let env = E2eEnv::new(
         &[("test.txt", "local content\n")],
