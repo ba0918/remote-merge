@@ -495,3 +495,27 @@ fn session_with_missing_content_is_omitted_without_failing_the_list() {
 
     assert!(listed_sessions("develop", config, targets(&develop, &store)).is_empty());
 }
+
+// @kotowari[REQ-backup-041]
+#[test]
+fn session_missing_the_content_of_one_of_its_files_is_omitted_from_the_list() {
+    for missing in ["first.txt", "second.txt"] {
+        let local = TempDir::new().unwrap();
+        let develop = TempDir::new().unwrap();
+        let store = TempDir::new().unwrap();
+        for path in ["first.txt", "second.txt"] {
+            fs::write(local.path().join(path), "new content\n").unwrap();
+            fs::write(develop.path().join(path), format!("unique old {path}\n")).unwrap();
+        }
+        let config = config(&local, &develop, true);
+        let mut args = merge_args("first.txt");
+        args.paths = vec!["first.txt".into(), "second.txt".into()];
+        let output = merge_files(args, config.clone(), targets(&develop, &store));
+        assert_eq!(output.merged.len(), 2, "{output:?}");
+        remove_stored_content(&store, format!("unique old {missing}\n").as_bytes());
+
+        let sessions = listed_sessions("develop", config, targets(&develop, &store));
+
+        assert!(sessions.is_empty(), "missing {missing}: {sessions:?}");
+    }
+}
