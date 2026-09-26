@@ -23,10 +23,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt --all --check
+        run: |
+          cargo fmt --all --check
+          cargo fmt --manifest-path tests/container-e2e/Cargo.toml --check
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Install pinned kotowari
+        run: cargo install --git https://github.com/ba0918/kotowari.git --rev d17ec08914ce3d87008bb04155dfdd3e447424ec --locked kotowari
+
+      - name: Check specifications
+        run: kotowari check --format json
 
   test:
     name: Test
@@ -39,7 +47,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
-        run: cargo test --all-features
+        run: |
+          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+          test_home=$(mktemp -d)
+          trap 'rm -rf -- "$test_home"' EXIT
+          mkdir -p "$test_home/config" "$test_home/data"
+          HOME="$test_home" XDG_CONFIG_HOME="$test_home/config" XDG_DATA_HOME="$test_home/data" cargo test --all-features
+
+  container-e2e:
+    name: OpenSSH and sudo (required)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl build tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake nasm
+
+      - name: Verify real OpenSSH and sudo
+        run: scripts/run-container-e2e.sh
 
   build-musl:
     name: Build (musl)
