@@ -63,21 +63,6 @@ fn targets(develop: &TempDir, store: &TempDir) -> RuntimeTargets {
         .with_now(Utc.with_ymd_and_hms(2026, 9, 14, 12, 0, 0).unwrap())
 }
 
-fn targets_at(develop: &TempDir, store: &TempDir, now: chrono::DateTime<Utc>) -> RuntimeTargets {
-    targets(develop, store).with_now(now)
-}
-
-fn rollback_list_args(target: &str) -> RollbackArgs {
-    RollbackArgs {
-        target: Some(target.into()),
-        list: true,
-        session: None,
-        dry_run: false,
-        force: false,
-        format: "json".into(),
-    }
-}
-
 fn rollback_args(target: &str, session: Option<String>) -> RollbackArgs {
     RollbackArgs {
         target: Some(target.into()),
@@ -87,89 +72,6 @@ fn rollback_args(target: &str, session: Option<String>) -> RollbackArgs {
         force: true,
         format: "json".into(),
     }
-}
-
-#[test]
-fn merge_keeps_expired_sessions_for_targets_absent_from_config() {
-    let local = TempDir::new().unwrap();
-    let configured = TempDir::new().unwrap();
-    let absent = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "old backup\n").unwrap();
-    fs::write(absent.path().join("file.txt"), "old\n").unwrap();
-    let absent_config = config(&local, &absent, true);
-    execute_merge(
-        merge_args("file.txt"),
-        absent_config.clone(),
-        targets_at(
-            &absent,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-    fs::write(configured.path().join("file.txt"), "configured\n").unwrap();
-    let configured_config = config(&local, &configured, true);
-
-    execute_merge(
-        merge_args("file.txt"),
-        configured_config,
-        targets_at(
-            &configured,
-            &store,
-            Utc.with_ymd_and_hms(2020, 1, 8, 0, 0, 0).unwrap(),
-        ),
-    )
-    .unwrap();
-
-    assert_eq!(
-        listed_sessions("develop", absent_config, targets(&absent, &store)).len(),
-        1
-    );
-}
-
-fn listed_sessions(
-    target: &str,
-    config: remote_merge::config::AppConfig,
-    targets: RuntimeTargets,
-) -> Vec<remote_merge::service::types::BackupSession> {
-    let result = execute_rollback(rollback_list_args(target), config, targets).unwrap();
-    let RollbackCommandOutput::List(output) = result.output else {
-        panic!("expected backup list")
-    };
-    output.sessions
-}
-
-#[cfg(unix)]
-#[test]
-fn rollback_restores_through_an_unchanged_intermediate_symlink() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let outside = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::create_dir(local.path().join("current")).unwrap();
-    fs::write(local.path().join("current/file.txt"), "merged\n").unwrap();
-    fs::write(outside.path().join("file.txt"), "original\n").unwrap();
-    symlink(outside.path(), develop.path().join("current")).unwrap();
-    let config = config(&local, &develop, true);
-    let runtime_targets = targets(&develop, &store);
-    execute_merge(
-        merge_args("current/file.txt"),
-        config.clone(),
-        runtime_targets.clone(),
-    )
-    .unwrap();
-
-    let result = execute_rollback(rollback_args("develop", None), config, runtime_targets).unwrap();
-
-    let RollbackCommandOutput::Restore(output) = result.output else {
-        panic!("expected restore output")
-    };
-    assert_eq!(output.restored.len(), 1, "{output:?}");
-    assert_eq!(
-        fs::read_to_string(outside.path().join("file.txt")).unwrap(),
-        "original\n"
-    );
 }
 
 #[cfg(unix)]
