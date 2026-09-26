@@ -547,6 +547,50 @@ fn concurrent_merges_use_distinct_session_ids() {
     assert_ne!(sessions[0], sessions[1]);
 }
 
+/// 同じ集約先と同じ時刻で、merge を threads 本同時に始める。
+/// どれかがエラーで終わればパニックし、成功したもののセッション ID を返す。
+fn simultaneous_merge_sessions(threads: usize) -> Vec<String> {
+    let store = std::sync::Arc::new(TempDir::new().unwrap());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(threads));
+    let handles = (0..threads)
+        .map(|index| {
+            let local = TempDir::new().unwrap();
+            let develop = TempDir::new().unwrap();
+            fs::write(
+                local.path().join("file.txt"),
+                format!("new content {index}\n"),
+            )
+            .unwrap();
+            fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+            let config = config(&local, &develop, true);
+            let targets = targets(&develop, &store);
+            let barrier = barrier.clone();
+            let store = store.clone();
+            std::thread::spawn(move || {
+                let _guards = (local, develop, store);
+                barrier.wait();
+                merged_session(merge_files(merge_args("file.txt"), config, targets))
+            })
+        })
+        .collect::<Vec<_>>();
+    handles
+        .into_iter()
+        .map(|handle| handle.join().expect("a simultaneous merge failed"))
+        .collect()
+}
+
+// @kotowari[REQ-backup-023]
+#[test]
+fn many_simultaneous_merges_all_succeed_with_distinct_session_ids() {
+    for _ in 0..5 {
+        let mut sessions = simultaneous_merge_sessions(16);
+
+        sessions.sort();
+        sessions.dedup();
+        assert_eq!(sessions.len(), 16, "{sessions:?}");
+    }
+}
+
 // @kotowari[REQ-backup-024]
 #[test]
 fn sync_uses_one_session_id_for_all_targets() {
