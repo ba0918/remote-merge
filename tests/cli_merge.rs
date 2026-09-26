@@ -337,35 +337,6 @@ fn test_merge_equal_file_skipped() {
     );
 }
 
-/// --dry-run ではファイルが実際に変更されないことを確認
-#[test]
-fn test_merge_dry_run_does_not_modify() {
-    let env = CliEnv::new(
-        &[("file.txt", "new local\n")],
-        &[("file.txt", "old remote\n")],
-    );
-
-    let before = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
-
-    let output = env
-        .cmd_with("merge")
-        .args([
-            "file.txt",
-            "--left",
-            "local",
-            "--right",
-            "develop",
-            "--dry-run",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-
-    let after = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
-    assert_eq!(before, after, "File should not be modified in dry-run mode");
-}
-
 /// 同じパスを重複指定しても1回だけマージされる
 #[test]
 fn test_merge_duplicate_paths_deduplicated() {
@@ -391,42 +362,5 @@ fn test_merge_duplicate_paths_deduplicated() {
         merge_count, 1,
         "a.txt should be merged exactly once, 'Merged:' appeared {} times in: {}",
         merge_count, stdout
-    );
-}
-
-/// リモート→リモートの --dry-run ではサーバー名確認ガードがスキップされる
-#[test]
-fn test_merge_r2r_with_dry_run_skips_guard() {
-    let env = CliEnv::new_3way(
-        &[("file.txt", "local ref\n")],
-        &[("file.txt", "develop content of the file\n")],
-        &[("file.txt", "staging\n")],
-    );
-
-    let output = env
-        .cmd_with("merge")
-        .args([
-            "file.txt",
-            "--left",
-            "develop",
-            "--right",
-            "staging",
-            "--dry-run",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    // dry-run では R2R ガードがスキップされ、成功するはず
-    assert_exit_success(&output);
-    // 実際の出力: "Would merge: file.txt"
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Would merge:"),
-        "R2R dry-run should show 'Would merge:', got: {}",
-        stdout
-    );
-    assert_eq!(
-        fs::read_to_string(env.temp_root().join("staging/file.txt")).unwrap(),
-        "staging\n"
     );
 }

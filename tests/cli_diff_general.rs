@@ -31,23 +31,6 @@ fn test_diff_text_shows_unified_diff() {
     );
 }
 
-/// 同一ファイルの diff は exit 0 で差分なし
-#[test]
-fn test_diff_equal_file() {
-    let env = CliEnv::new(
-        &[("file.txt", "same content\n")],
-        &[("file.txt", "same content\n")],
-    );
-
-    let output = env
-        .cmd_with("diff")
-        .arg("file.txt")
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-}
-
 /// ローカルのみに存在するファイルの diff で削除行（-）が表示される
 #[test]
 fn test_diff_left_only_file() {

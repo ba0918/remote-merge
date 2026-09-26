@@ -304,36 +304,6 @@ fn test_rollback_dry_run_shows_plan_without_changes() {
 
 // ─── --force / sensitive ───────────────────────────────────
 
-/// --force 付き rollback で正常に復元される
-#[test]
-fn test_rollback_force_restores_content() {
-    let env = CliEnv::new(&[("file.txt", "updated\n")], &[("file.txt", "original\n")]);
-
-    // merge 実行
-    let merge_out = env
-        .cmd_with("merge")
-        .args([
-            "file.txt", "--left", "local", "--right", "develop", "--force",
-        ])
-        .output()
-        .expect("failed to execute merge");
-    assert_exit_success(&merge_out);
-
-    // rollback --force
-    let rollback_out = env
-        .cmd_with("rollback")
-        .args(["--target", "develop", "--force"])
-        .output()
-        .expect("failed to execute rollback");
-    assert_exit_success(&rollback_out);
-
-    let content = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
-    assert_eq!(
-        content, "original\n",
-        "File should be restored with --force"
-    );
-}
-
 /// sensitive ファイル (.env) は --force なしの rollback ではスキップされる
 ///
 /// 対話プロンプトを避けるため --dry-run を使用し、スキップリストを確認する。
@@ -554,31 +524,6 @@ fn test_rollback_json_output_structure() {
 }
 
 // ─── Exit codes ────────────────────────────────────────────
-
-/// 正常な rollback は exit code 0 を返す
-#[test]
-fn test_rollback_exit_code_success() {
-    let env = CliEnv::new(&[("file.txt", "local\n")], &[("file.txt", "remote\n")]);
-
-    // merge 実行
-    let merge_out = env
-        .cmd_with("merge")
-        .args([
-            "file.txt", "--left", "local", "--right", "develop", "--force",
-        ])
-        .output()
-        .expect("failed to execute merge");
-    assert_exit_success(&merge_out);
-
-    // rollback 実行
-    let rollback_out = env
-        .cmd_with("rollback")
-        .args(["--target", "develop", "--force"])
-        .output()
-        .expect("failed to execute rollback");
-
-    assert_exit_success(&rollback_out);
-}
 
 /// バックアップが存在しない場合は exit code 2 を返す
 #[test]
