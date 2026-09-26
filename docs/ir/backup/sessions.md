@@ -34,15 +34,15 @@
 
 ### REQ-backup-022: セッション ID の形式と順序
 - kind: invariant
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A21
-- verification: unit
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A21, docs/decision/records/2026-09-27-backup-session-id-properties.md#A1
+- verification: property
 
-セッション ID は UTC の "YYYYMMDD-HHMMSS" で、同じ日時の ID が既にあるときだけ "-N"（N は 2 以上）を付ける。ID は日時の順、同じ日時なら N を数値として比べた順（"-N" なしが最初）に並べ、rollback の一覧の順と --session 省略時の最新をこの順で決め、--session は "-N" 付きの ID も受け付ける。
+セッション ID は UTC の "YYYYMMDD-HHMMSS" で、同じ日時の ID が既にあるときだけ "-N"（N は 2 以上）を付ける。ID は日時の順、同じ日時なら N を数値として比べた順（"-N" なしが最初）に並べ、一覧の順と --session 省略時の最新をこの順で決め、--session は "-N" 付きの ID も受け付ける。
 
 ### REQ-backup-023: セッション ID は重複しない
 - kind: invariant
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A22
-- verification: unit
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A22, docs/decision/records/2026-09-27-backup-session-id-properties.md#A2
+- verification: property
 
 セッション ID は集約先全体で重複せず、別々の操作が同じ秒に始まっても同時に走っても同じ ID にならない。
 
