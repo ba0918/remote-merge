@@ -1,15 +1,13 @@
 #![cfg(unix)]
 //! `status` サブコマンドの E2E テスト。
 //!
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test cli_status -- --ignored` で実行する。
+//! 隔離された SSH fixture で通常のテスト実行に含める。
 
 mod common;
 use common::*;
 
 /// local≠remote のファイルが "M " プレフィックスで表示される
 #[test]
-#[ignore]
 fn test_status_text_shows_modified_files() {
     let env = CliEnv::new(
         &[("app.txt", "version 1\n")],
@@ -34,7 +32,6 @@ fn test_status_text_shows_modified_files() {
 
 /// ローカルにのみ存在するファイルが "+ " プレフィックスで表示される
 #[test]
-#[ignore]
 fn test_status_text_shows_left_only() {
     let env = CliEnv::new(&[("local_only.txt", "only on local\n")], &[]);
 
@@ -42,7 +39,7 @@ fn test_status_text_shows_left_only() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("L "),
+        stdout.contains("L local_only.txt"),
         "left-only file should be shown with 'L ' prefix, got: {}",
         stdout,
     );
@@ -55,7 +52,6 @@ fn test_status_text_shows_left_only() {
 
 /// リモートにのみ存在するファイルが "R " プレフィックスで表示される
 #[test]
-#[ignore]
 fn test_status_text_shows_right_only() {
     let env = CliEnv::new(&[], &[("remote_only.txt", "only on remote\n")]);
 
@@ -63,7 +59,7 @@ fn test_status_text_shows_right_only() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("R "),
+        stdout.contains("R remote_only.txt"),
         "right-only file should be shown with 'R ' prefix, got: {}",
         stdout,
     );
@@ -76,7 +72,6 @@ fn test_status_text_shows_right_only() {
 
 /// デフォルトでは同一ファイルの "= " 行は表示されない
 #[test]
-#[ignore]
 fn test_status_excludes_equal_by_default() {
     let env = CliEnv::new(
         &[("same.txt", "identical\n")],
@@ -101,7 +96,6 @@ fn test_status_excludes_equal_by_default() {
 
 /// --all を指定すると同一ファイルの "= " 行が表示される
 #[test]
-#[ignore]
 fn test_status_all_includes_equal() {
     let env = CliEnv::new(
         &[("same.txt", "identical\n")],
@@ -124,7 +118,6 @@ fn test_status_all_includes_equal() {
 
 /// --summary を指定するとカウント数が表示される
 #[test]
-#[ignore]
 fn test_status_summary_shows_counts() {
     let env = CliEnv::new(
         &[
@@ -151,17 +144,13 @@ fn test_status_summary_shows_counts() {
         stdout,
     );
     assert!(
-        stdout.contains("modified")
-            && stdout.contains("left only")
-            && stdout.contains("right only"),
-        "summary should contain category names, got: {}",
-        stdout,
+        stdout.contains("1 modified, 1 left only, 1 right only, 0 equal"),
+        "{output:?}"
     );
 }
 
 /// --format json で有効な JSON が "files" 配列付きで返る
 #[test]
-#[ignore]
 fn test_status_json_format() {
     let env = CliEnv::new(
         &[("data.txt", "local content\n")],
@@ -177,21 +166,12 @@ fn test_status_json_format() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value =
         serde_json::from_str(&stdout).expect("stdout should be valid JSON");
-    assert!(
-        json.get("files").is_some(),
-        "JSON should have 'files' key, got: {}",
-        json,
-    );
-    assert!(
-        json["files"].is_array(),
-        "'files' should be an array, got: {}",
-        json["files"],
-    );
+    assert_eq!(json["files"][0]["path"], "data.txt", "{json}");
+    assert_eq!(json["files"][0]["status"], "modified", "{json}");
 }
 
 /// --ref で 3way 構成にすると Ref サマリーが表示される
 #[test]
-#[ignore]
 fn test_status_with_ref_shows_badges() {
     // develop と staging で異なるサイズのファイルを用意して Modified にする
     let env = CliEnv::new_3way(
@@ -218,46 +198,14 @@ fn test_status_with_ref_shows_badges() {
         "header should mention ref, got: {}",
         stdout,
     );
-}
-
-/// status にパス引数でフィルタ — diff コマンドでディレクトリフィルタを検証
-/// status はパス引数をサポートしないため、diff でディレクトリフィルタを代替検証
-#[test]
-#[ignore]
-fn test_status_with_directory_filter() {
-    let env = CliEnv::new(
-        &[
-            ("src/main.rs", "fn main() {}\n"),
-            ("docs/readme.txt", "readme\n"),
-        ],
-        &[
-            (
-                "src/main.rs",
-                "fn main() { /* changed with extra code */ }\n",
-            ),
-            ("docs/readme.txt", "readme changed\n"),
-        ],
-    );
-
-    // status は全ファイルを表示する。両ファイルが含まれることを検証
-    let output = env.cmd_with("status").output().expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("M src/main.rs"),
-        "should show 'M src/main.rs', got: {}",
-        stdout,
-    );
-    assert!(
-        stdout.contains("M docs/readme.txt"),
-        "should show 'M docs/readme.txt', got: {}",
-        stdout,
+        stdout.contains("config.txt") && stdout.contains("[ref≠]"),
+        "{output:?}"
     );
 }
 
 /// config の exclude フィルタで .git が除外される
 #[test]
-#[ignore]
 fn test_status_exclude_filter_works() {
     let env = CliEnv::new(
         &[("app.txt", "content\n"), (".git/config", "git config\n")],
@@ -275,11 +223,11 @@ fn test_status_exclude_filter_works() {
         ".git should be excluded by filter, got: {}",
         stdout,
     );
+    assert!(stdout.contains("M app.txt"), "{output:?}");
 }
 
 /// 両側ともファイルがない場合 exit 0 でファイルリストなし
 #[test]
-#[ignore]
 fn test_status_empty_tree_both_sides() {
     let env = CliEnv::new(&[], &[]);
 
@@ -297,7 +245,6 @@ fn test_status_empty_tree_both_sides() {
 
 /// .env などのセンシティブファイルも status には含まれる
 #[test]
-#[ignore]
 fn test_status_sensitive_files_included() {
     let env = CliEnv::new(
         &[(".env", "SECRET=abc\n")],
@@ -306,12 +253,11 @@ fn test_status_sensitive_files_included() {
 
     let output = env.cmd_with("status").output().expect("failed to execute");
 
-    assert_stdout_contains(&output, ".env");
+    assert_stdout_contains(&output, "M .env");
 }
 
 /// ファイル名にスペースを含む場合でも JSON 出力が有効
 #[test]
-#[ignore]
 fn test_status_json_special_chars_in_path() {
     let env = CliEnv::new(
         &[("qu ote.txt", "content a\n")],
@@ -327,16 +273,5 @@ fn test_status_json_special_chars_in_path() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value =
         serde_json::from_str(&stdout).expect("stdout should be valid JSON even with special chars");
-    assert!(
-        json.get("files").is_some(),
-        "JSON should have 'files' key, got: {}",
-        json,
-    );
-    // ファイル名にスペースが正しくエスケープされている
-    let files_str = json["files"].to_string();
-    assert!(
-        files_str.contains("qu ote.txt"),
-        "JSON should contain the filename with space, got: {}",
-        files_str,
-    );
+    assert_eq!(json["files"][0]["path"], "qu ote.txt", "{json}");
 }

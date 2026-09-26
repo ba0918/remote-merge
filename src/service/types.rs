@@ -95,6 +95,8 @@ pub struct DiffOutput {
     /// シンボリックリンクの場合 true（hunks は空になる）
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub symlink: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_targets: Option<LinkTargets>,
     pub truncated: bool,
     pub hunks: Vec<DiffHunk>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +116,12 @@ pub struct DiffOutput {
     /// コンフリクト領域（3way diff 時のみ。空なら省略）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflict_regions: Vec<crate::diff::conflict::ConflictRegion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkTargets {
+    pub left: Option<String>,
+    pub right: Option<String>,
 }
 
 /// diff のハンク
@@ -148,11 +156,19 @@ pub enum DiffLineType {
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiDiffOutput {
     pub files: Vec<DiffOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<DiffError>,
     pub summary: MultiDiffSummary,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changed_files_total: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiffError {
+    pub path: String,
+    pub reason: String,
 }
 
 /// MultiDiffOutput のサマリー
@@ -470,6 +486,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![DiffHunk {
                 index: 0,
@@ -646,6 +663,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: Some(vec![]),
@@ -676,6 +694,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,
@@ -792,6 +811,7 @@ mod tests {
                 sensitive: false,
                 binary: false,
                 symlink: false,
+                link_targets: None,
                 truncated: false,
                 hunks: vec![],
                 ref_hunks: None,
@@ -801,6 +821,7 @@ mod tests {
                 conflict_count: 0,
                 conflict_regions: vec![],
             }],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 5,
                 files_with_changes: 1,
@@ -819,6 +840,7 @@ mod tests {
     fn multi_diff_omits_unavailable_counts_and_false_truncation() {
         let output = MultiDiffOutput {
             files: vec![],
+            errors: vec![],
             summary: MultiDiffSummary {
                 scanned_files: 0,
                 files_with_changes: 0,
@@ -861,6 +883,7 @@ mod tests {
             sensitive: false,
             binary: false,
             symlink: false,
+            link_targets: None,
             truncated: false,
             hunks: vec![],
             ref_hunks: None,

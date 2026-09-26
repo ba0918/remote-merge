@@ -14,6 +14,9 @@ use expectrl::process::unix::UnixProcess;
 use expectrl::stream::log::LogStream;
 use tempfile::TempDir;
 
+#[path = "../contract/ssh_server.rs"]
+pub(crate) mod ssh_server;
+
 // ─── 型エイリアス ────────────────────────────────────────
 
 /// TUI E2E テスト用の Session 型エイリアス
@@ -104,55 +107,61 @@ pub fn regex_lite_strip(s: &str) -> String {
 
 /// テスト用の config TOML 文字列を生成する。
 ///
-/// localhost SSH 経由で接続する設定を返す。
+/// テスト自身が起動した SSH サーバーへの接続設定を返す。
 /// `staging_dir` が `Some` なら 3way 構成（develop + staging）の config を生成する。
-pub fn gen_config(local_dir: &Path, develop_dir: &Path, staging_dir: Option<&Path>) -> String {
-    let home = std::env::var("HOME").expect("HOME not set");
-    let key_path = format!("{}/.ssh/id_ed25519", home);
-    let user = std::env::var("USER").expect("USER not set");
+pub fn gen_config(
+    local_dir: &Path,
+    develop_dir: &Path,
+    staging_dir: Option<&Path>,
+    port: u16,
+) -> String {
+    assert_ne!(port, 22, "refusing to use the system SSH port");
+    assert_ne!(port, 0, "SSH fixture has no listening port");
 
     let mut config = format!(
         r#"[local]
 root_dir = "{local}"
 
 [servers.develop]
-host = "localhost"
-port = 22
-user = "{user}"
-auth = "key"
-key = "{key}"
+        host = "127.0.0.1"
+        port = {port}
+        user = "fixture-user"
+        auth = "password"
+        password = "fixture-password"
 root_dir = "{develop}"
 "#,
         local = local_dir.display(),
         develop = develop_dir.display(),
-        user = user,
-        key = key_path,
+        port = port,
     );
 
     if let Some(staging) = staging_dir {
         config.push_str(&format!(
             r#"
 [servers.staging]
-host = "localhost"
-port = 22
-user = "{user}"
-auth = "key"
-key = "{key}"
+        host = "127.0.0.1"
+        port = {port}
+        user = "fixture-user"
+        auth = "password"
+        password = "fixture-password"
 root_dir = "{staging}"
 "#,
-            user = user,
-            key = key_path,
+            port = port,
             staging = staging.display(),
         ));
     }
 
     config.push_str(
         r#"
+[agent]
+enabled = false
+
 [filter]
 exclude = [".git", "target"]
 
 [ssh]
 timeout_sec = 10
+strict_host_key_checking = "no"
 "#,
     );
 
@@ -163,6 +172,8 @@ timeout_sec = 10
 
 /// テスト環境のディレクトリ構成。E2eEnv と CliEnv の共通ロジックを集約する。
 pub struct TestDirs {
+    _server: ssh_server::TestServer,
+    _runtime: tokio::runtime::Runtime,
     pub temp: TempDir,
     pub config_path: String,
     pub local_dir: PathBuf,
@@ -170,6 +181,48 @@ pub struct TestDirs {
 }
 
 impl TestDirs {
+    fn assert_isolated_config(&self) {
+        let config: toml::Value = fs::read_to_string(&self.config_path)
+            .expect("fixture configuration missing")
+            .parse()
+            .expect("fixture configuration invalid");
+        assert_eq!(
+            config["local"]["root_dir"].as_str(),
+            self.local_dir.to_str()
+        );
+        assert_eq!(config["agent"]["enabled"].as_bool(), Some(false));
+        assert_eq!(
+            config["ssh"]["strict_host_key_checking"].as_str(),
+            Some("no")
+        );
+        let servers = config["servers"]
+            .as_table()
+            .expect("fixture servers missing");
+        assert!(!servers.is_empty());
+        for server in servers.values() {
+            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
+            let port = server["port"].as_integer().expect("fixture port missing");
+            assert!(
+                port > 0 && port != 22,
+                "refusing to connect to an unowned SSH port"
+            );
+            assert_eq!(
+                port,
+                i64::from(self._server.port()),
+                "fixture port is not owned"
+            );
+            assert_eq!(server["auth"].as_str(), Some("password"));
+            assert_eq!(server["user"].as_str(), Some("fixture-user"));
+            assert_eq!(server["password"].as_str(), Some("fixture-password"));
+            assert!(server.get("key").is_none(), "refusing a HOME key path");
+            let root = Path::new(server["root_dir"].as_str().expect("fixture root missing"));
+            assert!(
+                root.starts_with(self.temp.path()),
+                "remote root escapes fixture"
+            );
+        }
+    }
+
     /// 2サーバー構成: local <-> develop(remote)
     pub fn new_2way(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
         let temp = TempDir::new().expect("Failed to create temp dir");
@@ -183,8 +236,14 @@ impl TestDirs {
         place_files(&local_dir, local_files);
         place_files(&remote_dir, remote_files);
 
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = runtime.block_on(ssh_server::TestServer::filesystem_without_agent(base));
         let config_path = base.join("test-config.toml");
-        let config_content = gen_config(&local_dir, &remote_dir, None);
+        let config_content = gen_config(&local_dir, &remote_dir, None, server.port());
         fs::write(&config_path, &config_content).unwrap();
 
         Self {
@@ -192,6 +251,8 @@ impl TestDirs {
             config_path: config_path.to_string_lossy().to_string(),
             local_dir,
             remote_dir,
+            _server: server,
+            _runtime: runtime,
         }
     }
 
@@ -217,8 +278,15 @@ impl TestDirs {
         place_files(&develop_dir, develop_files);
         place_files(&staging_dir, staging_files);
 
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = runtime.block_on(ssh_server::TestServer::filesystem_without_agent(base));
         let config_path = base.join("test-config.toml");
-        let config_content = gen_config(&local_dir, &develop_dir, Some(&staging_dir));
+        let config_content =
+            gen_config(&local_dir, &develop_dir, Some(&staging_dir), server.port());
         fs::write(&config_path, &config_content).unwrap();
 
         Self {
@@ -226,6 +294,8 @@ impl TestDirs {
             config_path: config_path.to_string_lossy().to_string(),
             local_dir,
             remote_dir: develop_dir,
+            _server: server,
+            _runtime: runtime,
         }
     }
 }
@@ -285,7 +355,10 @@ impl E2eEnv {
     }
 
     pub fn tui_command(&self, extra_args: &[&str]) -> Command {
+        self._dirs.assert_isolated_config();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        cmd.env("HOME", self._dirs.temp.path().join("home"));
+        cmd.env("XDG_CONFIG_HOME", self._dirs.temp.path().join("xdg-config"));
         cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
         cmd.arg("--config").arg(&self.config_path);
         cmd.arg("--log-level").arg("debug");
@@ -352,12 +425,11 @@ impl CliEnv {
     ///
     /// 環境変数はクリアされ、RUST_LOG 等の影響を排除する。
     pub fn cmd(&self) -> Command {
+        self._dirs.assert_isolated_config();
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
         cmd.env_clear();
-        // 最低限必要な環境変数を復元
-        if let Ok(home) = std::env::var("HOME") {
-            cmd.env("HOME", home);
-        }
+        cmd.env("HOME", self._dirs.temp.path().join("home"));
+        cmd.env("XDG_CONFIG_HOME", self._dirs.temp.path().join("xdg-config"));
         if let Ok(path) = std::env::var("PATH") {
             cmd.env("PATH", path);
         }

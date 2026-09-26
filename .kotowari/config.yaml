@@ -5,6 +5,8 @@ decisions:
 tests:
   files:
     - "tests/contract/**/*.rs"
+    - "tests/cli_diff.rs"
+    - "tests/container-e2e/tests/sudo.rs"
   rust:
     attributes: []
     macros: []

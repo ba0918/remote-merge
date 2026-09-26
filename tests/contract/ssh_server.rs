@@ -314,7 +314,7 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()),
                 "unexpected remote command: {command}"
             );
-            if command.starts_with("openssl base64 -d -A -out ") {
+            if command.starts_with("openssl base64 -d -A -out ") || command.starts_with("cat > ") {
                 self.write_channels
                     .insert(channel, (command.into_owned(), Vec::new()));
                 return Ok(());
@@ -400,6 +400,23 @@ impl server::Handler for LocalHandler {
                 "connection lost before write completion",
                 "",
             )?;
+            return Ok(());
+        }
+        if command.starts_with(b"resolve_existing_prefix()") {
+            let command = String::from_utf8_lossy(command);
+            let quoted = command
+                .split("; p=")
+                .nth(1)
+                .and_then(|rest| rest.split("; if [").next())
+                .expect("path inspection includes a path");
+            let path = quoted.trim_matches('\'');
+            session.data(
+                channel,
+                CryptoVec::from(format!("file\n{path}\n").as_bytes()),
+            )?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
             return Ok(());
         }
         session.data(channel, CryptoVec::from(b"ready\n".as_slice()))?;

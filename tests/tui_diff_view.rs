@@ -16,7 +16,6 @@ use expectrl::Expect;
 
 /// ファイルを選択すると diff 内容が表示されることを確認
 #[test]
-#[ignore]
 fn test_file_select_shows_diff() {
     let env = E2eEnv::new(
         &[("diff_target.txt", "line1\nLOCAL_UNIQUE\nline3\n")],
@@ -59,7 +58,6 @@ fn test_file_select_shows_diff() {
 
 /// Enter を 5 回連打しても diff が消失しないことを確認（リグレッションテスト）
 #[test]
-#[ignore]
 fn test_enter_spam_does_not_lose_diff() {
     let local_content = "header\nDIFF_MARKER_LOCAL\nfooter\n";
     let remote_content = "header\nDIFF_MARKER_REMOTE\nfooter\n";
@@ -111,7 +109,6 @@ fn test_enter_spam_does_not_lose_diff() {
 
 /// ディレクトリ構造でファイルを選択し、Tab → Enter を繰り返しても diff が消えないことを確認
 #[test]
-#[ignore]
 fn test_enter_spam_with_directory() {
     let env = E2eEnv::new(
         &[("pkg/app.rs", "fn main() {\n    DIRTEST_LOCAL\n}\n")],
@@ -172,10 +169,8 @@ fn test_enter_spam_with_directory() {
     thread::sleep(Duration::from_millis(500));
 }
 
-/// "d" キーで Unified / Side-by-Side 表示を切り替えてもクラッシュしないことを確認
-/// (smoke test: 画面内容の詳細検証ではなくクラッシュ検知が目的)
+/// "d" キーで Unified / Side-by-Side 表示を切り替える
 #[test]
-#[ignore]
 fn test_toggle_unified_sidebyside_with_d() {
     let env = E2eEnv::new(
         &[("toggle.txt", "AAA\nBBB\nTOGGLE_CONTENT\n")],
@@ -202,16 +197,16 @@ fn test_toggle_unified_sidebyside_with_d() {
         result.err()
     );
 
-    // "d" で表示モードを切替（unified → side-by-side）
+    session.send("\t").expect("focus diff pane");
     session.send("d").expect("Failed to send d");
-    thread::sleep(Duration::from_millis(500));
+    session
+        .expect("side-by-side")
+        .expect("side-by-side layout should be displayed");
 
-    // もう一度 "d" で元に戻す（side-by-side → unified）
     session.send("d").expect("Failed to send d again");
-    thread::sleep(Duration::from_millis(500));
-
-    // クラッシュせず TUI が生きていることを q で確認
-    // "d" トグル自体がクラッシュしないことがこのテストの目的
+    session
+        .expect("unified")
+        .expect("unified layout should be restored");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
@@ -219,7 +214,6 @@ fn test_toggle_unified_sidebyside_with_d() {
 
 /// 両側で同一内容のファイルを選択すると、diff マーカーではなくファイル内容が表示されることを確認
 #[test]
-#[ignore]
 fn test_equal_file_shows_content() {
     let same_content = "identical line 1\nEQUAL_MARKER\nidentical line 3\n";
 

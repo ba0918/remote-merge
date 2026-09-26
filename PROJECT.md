@@ -20,13 +20,15 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 | Check | `cargo fmt --all --check` / `cargo clippy --all-targets --all-features -- -D warnings` |
 | Run | `cargo run -- --right <server>`（引数なしは TUI、サブコマンドありは CLI） |
 | Spec check | `kotowari check` |
+| Real OpenSSH/sudo tests | `scripts/run-container-e2e.sh`（Docker 必須、通常テストと別パッケージ） |
 
 ## Conventions specific to this project
 
 - ユーザー向けの文言と CLI ヘルプは英語。コード内のコメントは日本語でもよい。
 - コミットメッセージは Conventional Commits 形式で、件名・本文は日本語。
 - TUI は WebView 方式への移行を想定して凍結中。ただし `docs/ir/scan/directory-links.md` のディレクトリ symlink 展開については対応を認める。それ以外の変更は依頼された機能に関わる最小限にとどめる。
-- Claude Code のコミット用フックは `.claude/hooks/pre-commit-format.sh`。`git commit` 時に整形と自動修正を行い、追跡済みファイルを再ステージするため、コミット前に差分を確認する。
+- `lefthook.yml` は fmt・仕様検査を pre-commit、Clippy・通常テストを pre-push で読み取り専用で実行する。既存の個人フックを置き換えないため `lefthook install` は自動実行しない。既存フックの所有者が内容を確認し、必要なら手動で統合する。未ステージの変更も手動検査する場合は `lefthook run pre-commit --force --no-auto-install` / `lefthook run pre-push --force --no-auto-install` を使う。
+- 旧 OpenSSH の手動負荷試行は `bench/legacy-ssh/setup.sh` から開始する。試行中のシェルを終了すると専用コンテナ・イメージ・鍵・known_hosts・データが破棄され、個人の SSH 設定は変更されない。CI の保証範囲には含めない。
 
 ## Constraints
 

@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! CentOS 5 testenv に対するリモートバックアップ E2E。
+//! 一時 OpenSSH コンテナに対するリモートバックアップ E2E。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -152,7 +152,9 @@ impl Harness {
         let home = self.temp.path().join(format!("home-{}", transport.name()));
         let data = home.join("data");
         fs::create_dir_all(&data).unwrap();
-        let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        let binary =
+            std::env::var_os("REMOTE_MERGE_BINARY").expect("runner must supply the CLI binary");
+        let mut command = Command::new(binary);
         command
             .args(args)
             .env_clear()
@@ -209,7 +211,6 @@ fn assert_success(output: &Output, operation: &str) {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn remote_merge_keeps_backups_outside_the_target_root() {
     let h = Harness::from_environment();
@@ -231,7 +232,6 @@ fn remote_merge_keeps_backups_outside_the_target_root() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn rollback_follows_an_unchanged_symlink_root() {
     let h = Harness::from_environment();
@@ -251,7 +251,6 @@ fn rollback_follows_an_unchanged_symlink_root() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn rollback_skips_a_repointed_symlink_root() {
     let h = Harness::from_environment();
@@ -280,7 +279,6 @@ fn rollback_skips_a_repointed_symlink_root() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn rollback_restores_through_an_intermediate_symlink_outside_the_root() {
     let h = Harness::from_environment();
@@ -302,7 +300,6 @@ fn rollback_restores_through_an_intermediate_symlink_outside_the_root() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn rollback_preserves_existing_remote_owner_and_permissions() {
     let h = Harness::from_environment();
@@ -325,7 +322,6 @@ fn rollback_preserves_existing_remote_owner_and_permissions() {
 }
 
 #[test]
-#[ignore]
 #[serial]
 fn agent_setting_selects_the_requested_remote_transport() {
     let h = Harness::from_environment();

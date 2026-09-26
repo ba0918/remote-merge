@@ -2,11 +2,7 @@
 # =============================================================================
 # generate_testdata.sh — リモート側テストデータ生成（10万ファイル）
 #
-# コンテナ内で実行:
-#   docker exec rm-testenv-centos5 bash /generate_testdata.sh
-#
-# または SSH 経由:
-#   ssh -p 22222 testuser@localhost 'bash -s' < generate_testdata.sh
+# setup.sh が試行ごとのコンテナ内で実行する。
 #
 # 生成内容:
 #   /srv/testdata/ 配下に約10万ファイル
@@ -20,7 +16,7 @@
 set -e
 
 BASE_DIR="/srv/testdata"
-TOTAL_FILES=100000
+TOTAL_FILES=${REMOTE_MERGE_LEGACY_TOTAL_FILES:-100000}
 PROGRESS_INTERVAL=5000
 
 # ── ディレクトリ構造定義 ──

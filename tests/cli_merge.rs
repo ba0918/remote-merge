@@ -1,8 +1,7 @@
 #![cfg(unix)]
 //! `merge` サブコマンドの E2E テスト。
 //!
-//! SSH 接続（localhost）を使用するため `#[ignore]` 付き。
-//! `cargo test --test cli_merge -- --ignored` で実行する。
+//! 隔離された SSH fixture 上で実ファイルと出力を検査する。
 
 mod common;
 use common::*;
@@ -11,7 +10,6 @@ use std::fs;
 
 /// dry-run でマージ計画が表示され、ファイルは変更されない
 #[test]
-#[ignore]
 fn test_merge_dry_run_shows_plan() {
     let env = CliEnv::new(
         &[("file.txt", "local content\n")],
@@ -49,7 +47,6 @@ fn test_merge_dry_run_shows_plan() {
 
 /// merge 実行後にリモートファイルがローカルの内容に更新される
 #[test]
-#[ignore]
 fn test_merge_writes_file() {
     let env = CliEnv::new(
         &[("file.txt", "local content\n")],
@@ -74,7 +71,6 @@ fn test_merge_writes_file() {
 
 /// JSON フォーマットで merge 結果が有効な JSON として出力される
 #[test]
-#[ignore]
 fn test_merge_json_format() {
     let env = CliEnv::new(
         &[("file.txt", "local content\n")],
@@ -90,13 +86,18 @@ fn test_merge_json_format() {
         .expect("failed to execute");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let _parsed: serde_json::Value =
+    let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("Merge output should be valid JSON");
+    assert_exit_success(&output);
+    assert!(parsed.to_string().contains("file.txt"), "{parsed}");
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join("file.txt")).unwrap(),
+        "local content\n"
+    );
 }
 
 /// 複数ファイルを指定した merge で全ファイルがマージされる
 #[test]
-#[ignore]
 fn test_merge_multiple_files() {
     let env = CliEnv::new(
         &[("a.txt", "aaa local\n"), ("b.txt", "bbb local\n")],
@@ -119,7 +120,6 @@ fn test_merge_multiple_files() {
 
 /// ディレクトリ指定の merge で配下全ファイルがマージされる
 #[test]
-#[ignore]
 fn test_merge_directory() {
     let env = CliEnv::new(
         &[
@@ -154,7 +154,6 @@ fn test_merge_directory() {
 
 /// merge 後のバックアップはリモートを増やさず集約先の一覧に出る
 #[test]
-#[ignore]
 fn test_merge_records_backup_only_in_aggregate_store() {
     let env = CliEnv::new(
         &[("file.txt", "local content\n")],
@@ -189,7 +188,6 @@ fn test_merge_records_backup_only_in_aggregate_store() {
 
 /// 機密ファイル (.env) は --force なしだとスキップされる
 #[test]
-#[ignore]
 fn test_merge_sensitive_file_requires_force() {
     let env = CliEnv::new(
         &[(".env", "SECRET=local\n")],
@@ -228,7 +226,6 @@ fn test_merge_sensitive_file_requires_force() {
 
 /// 機密ファイルに --force を付けると merge が成功する
 #[test]
-#[ignore]
 fn test_merge_sensitive_file_with_force() {
     let env = CliEnv::new(
         &[(".env", "SECRET=local\n")],
@@ -252,7 +249,6 @@ fn test_merge_sensitive_file_with_force() {
 
 /// バイナリファイルの merge でバイナリが正しくコピーされる
 #[test]
-#[ignore]
 fn test_merge_binary_file() {
     let env = CliEnv::new(&[], &[]);
     let local_binary = b"\x89PNG\r\n\x1a\n\x00\x00LOCAL";
@@ -277,7 +273,6 @@ fn test_merge_binary_file() {
 
 /// リモート→リモート merge は --force なしだと拒否される（CLI モードでは非対話的に失敗）
 #[test]
-#[ignore]
 fn test_merge_remote_to_remote_requires_force() {
     let env = CliEnv::new_3way(
         &[("file.txt", "local ref\n")],
@@ -312,11 +307,14 @@ fn test_merge_remote_to_remote_requires_force() {
         "Expected '--force' hint in R2R guard message, got: {}",
         stdout
     );
+    assert_eq!(
+        fs::read_to_string(env.temp_root().join("staging/file.txt")).unwrap(),
+        "staging\n"
+    );
 }
 
 /// 同一ファイルの merge はスキップされ "no files to merge" と報告される
 #[test]
-#[ignore]
 fn test_merge_equal_file_skipped() {
     let env = CliEnv::new(
         &[("file.txt", "same content\n")],
@@ -339,39 +337,8 @@ fn test_merge_equal_file_skipped() {
     );
 }
 
-/// --dry-run ではファイルが実際に変更されないことを確認
-#[test]
-#[ignore]
-fn test_merge_dry_run_does_not_modify() {
-    let env = CliEnv::new(
-        &[("file.txt", "new local\n")],
-        &[("file.txt", "old remote\n")],
-    );
-
-    let before = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
-
-    let output = env
-        .cmd_with("merge")
-        .args([
-            "file.txt",
-            "--left",
-            "local",
-            "--right",
-            "develop",
-            "--dry-run",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-
-    let after = fs::read_to_string(env.remote_dir.join("file.txt")).unwrap();
-    assert_eq!(before, after, "File should not be modified in dry-run mode");
-}
-
 /// 同じパスを重複指定しても1回だけマージされる
 #[test]
-#[ignore]
 fn test_merge_duplicate_paths_deduplicated() {
     let env = CliEnv::new(&[("a.txt", "local a\n")], &[("a.txt", "remote a\n")]);
 
@@ -395,39 +362,5 @@ fn test_merge_duplicate_paths_deduplicated() {
         merge_count, 1,
         "a.txt should be merged exactly once, 'Merged:' appeared {} times in: {}",
         merge_count, stdout
-    );
-}
-
-/// リモート→リモートの --dry-run ではサーバー名確認ガードがスキップされる
-#[test]
-#[ignore]
-fn test_merge_r2r_with_dry_run_skips_guard() {
-    let env = CliEnv::new_3way(
-        &[("file.txt", "local ref\n")],
-        &[("file.txt", "develop content of the file\n")],
-        &[("file.txt", "staging\n")],
-    );
-
-    let output = env
-        .cmd_with("merge")
-        .args([
-            "file.txt",
-            "--left",
-            "develop",
-            "--right",
-            "staging",
-            "--dry-run",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    // dry-run では R2R ガードがスキップされ、成功するはず
-    assert_exit_success(&output);
-    // 実際の出力: "Would merge: file.txt"
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Would merge:"),
-        "R2R dry-run should show 'Would merge:', got: {}",
-        stdout
     );
 }

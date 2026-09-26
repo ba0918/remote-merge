@@ -132,6 +132,9 @@ enum Commands {
         /// Override safety guards (show sensitive file contents)
         #[arg(long)]
         force: bool,
+        /// Allow diff to read symlink targets outside the configured root
+        #[arg(long)]
+        follow_external_links: bool,
         /// Maximum number of entries to scan (1-1,000,000). Overrides config.
         #[arg(long, value_name = "N")]
         max_entries: Option<usize>,
@@ -380,6 +383,7 @@ fn try_main() -> anyhow::Result<()> {
             max_lines,
             max_files,
             force,
+            follow_external_links,
             max_entries,
         }) => {
             let format_str = format.clone();
@@ -401,6 +405,7 @@ fn try_main() -> anyhow::Result<()> {
                             max_lines,
                             max_files,
                             force,
+                            follow_external_links,
                             max_entries,
                         },
                         cfg,
