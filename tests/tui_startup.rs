@@ -86,31 +86,9 @@ fn test_tui_shows_header_with_server_names() {
     let mut session = env.spawn_tui();
     session.set_expect_timeout(Some(Duration::from_secs(10)));
 
-    // ファイルツリーが表示されるのを待つ
-    let result = session.expect("test.txt");
-    assert!(
-        result.is_ok(),
-        "TUI should show 'test.txt': {:?}",
-        result.err()
-    );
-
-    // ヘッダー描画を待つ
-    thread::sleep(Duration::from_secs(1));
-
-    let mut buf = vec![0u8; 64 * 1024];
-    let n = session.try_read(&mut buf).unwrap_or(0);
-    let plain = strip_ansi(&buf[..n]);
-
-    assert!(
-        plain.contains("local"),
-        "Header should contain 'local'. Screen content: {}",
-        &plain[..plain.len().min(500)]
-    );
-    assert!(
-        plain.contains("develop"),
-        "Header should contain 'develop'. Screen content: {}",
-        &plain[..plain.len().min(500)]
-    );
+    session.expect("local").expect("header must name local");
+    session.expect("develop").expect("header must name develop");
+    session.expect("test.txt").expect("file tree must be shown");
 
     session.send("q").expect("Failed to send quit");
     thread::sleep(Duration::from_millis(500));
