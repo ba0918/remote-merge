@@ -72,3 +72,23 @@ scripts/mutants.sh src/service/sync.rs src/cli/sync.rs src/service/source_pair.r
 - `build_dry_run_targets` を `vec![]` にする変異: src/cli/sync.rs の build_dry_run_targets_includes_would_merge、build_dry_run_targets_includes_connection_failures
 - `compute_target_status` の `delete !` 二件と `sync_exit_code` の四件: src/service/sync.rs の compute_target_status_* と sync_exit_code_*
 - src/service/source_pair.rs の検知 11 件: 全て source_pair の単体テスト（resolve_source_pairs_* と status 用の関数のテスト）
+
+## 要件ごとの根拠テスト
+
+根拠テストは `tests/contract/` の下に置いた。
+関数呼び出しの準備（書き込み先 "develop"・"staging"・"production" を一時ディレクトリに差し替えた構成）は `tests/contract/sync_support.rs` にまとめた。
+関数呼び出しのテストは `force: true`（dry-run のテストは `dry_run: true`）を渡し、確認のプロンプトがテストのプロセスの標準入力を読まないようにした。
+一つの要件に複数の場合があるときは、場合ごとのテストに同じ要件の印を付け、印の付いたテストを合わせて要件の文を全て確かめる。
+新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
+src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` を通す根拠テストで確かめたものは、移し元から消した（計画の「移したテストは移し元から消える」による）。
+
+### 指定（REQ-cli-038）
+
+根拠テストは `tests/contract/sync_targets.rs` にある。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-038（受け付ける指定） | one_source_and_two_targets_are_accepted_and_both_targets_are_written | src/service/source_pair.rs の resolve_source_pairs_two_servers と src/cli/sync.rs の validate_valid_args_passes、validate_multiple_right_servers（移して消した）。--left local と --right の二つで、結果の left と targets の label と、両方の書き込み先が書き換わることを確かめる |
+| REQ-cli-038（TBL-cli-006 の五行） | each_invalid_specification_stops_with_its_error_and_changes_no_target | src/cli/sync.rs の validate_missing_left、validate_empty_right と src/service/source_pair.rs の resolve_source_pairs_duplicate_server_error、resolve_source_pairs_unknown_server_error、resolve_source_pairs_left_equals_right_error（移して消した）。元のテストは文言の一部だけを見ていたが、表の文言と完全に一致することを確かめる。設定にないサーバ名は --left と --right のそれぞれで確かめる（元のテストは --right だけ）。どの場合も二つの書き込み先が変わらない |
+
+- --right の一つが --left と同じ行は、--left develop --right staging develop で確かめ、先に並ぶ staging も書き換わらないことを見る。
