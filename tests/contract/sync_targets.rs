@@ -79,3 +79,17 @@ fn each_invalid_specification_stops_with_its_error_and_changes_no_target() {
         );
     }
 }
+
+// @kotowari[REQ-cli-039]
+#[test]
+fn targets_are_processed_and_reported_in_the_order_given() {
+    for order in [["develop", "staging"], ["staging", "develop"]] {
+        let fixture = file_on_every_side();
+
+        let (output, _) = fixture.sync(args(&["file.txt"], &order));
+
+        assert_eq!(labels(&output), order);
+        assert_eq!(fixture.read("develop", "file.txt"), "incoming\n");
+        assert_eq!(fixture.read("staging", "file.txt"), "incoming\n");
+    }
+}

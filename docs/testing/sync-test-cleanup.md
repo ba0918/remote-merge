@@ -92,3 +92,20 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 | REQ-cli-038（TBL-cli-006 の五行） | each_invalid_specification_stops_with_its_error_and_changes_no_target | src/cli/sync.rs の validate_missing_left、validate_empty_right と src/service/source_pair.rs の resolve_source_pairs_duplicate_server_error、resolve_source_pairs_unknown_server_error、resolve_source_pairs_left_equals_right_error（移して消した）。元のテストは文言の一部だけを見ていたが、表の文言と完全に一致することを確かめる。設定にないサーバ名は --left と --right のそれぞれで確かめる（元のテストは --right だけ）。どの場合も二つの書き込み先が変わらない |
 
 - --right の一つが --left と同じ行は、--left develop --right staging develop で確かめ、先に並ぶ staging も書き換わらないことを見る。
+
+### 処理の順と確認（REQ-cli-039、REQ-cli-040）
+
+既存の根拠テストはなかったため、新しく書いた。
+処理の順は関数呼び出しで `tests/contract/sync_targets.rs` に、確認は隔離された SSH fixture（`CliEnv::new_3way` の develop と staging）に対して実行ファイルを起動し、標準入力に答えを渡して `tests/contract/sync_cli.rs` で確かめる。
+`tests/contract/sync_cli.rs` は SSH fixture を使うため、ほかの SSH のテストと同じく `test-utils` の feature があるときだけ組み込む。
+
+| 要件 | 根拠テスト | 確かめること |
+|---|---|---|
+| REQ-cli-039 | targets_are_processed_and_reported_in_the_order_given | 接続できる二つの書き込み先を develop・staging と staging・develop の二通りの順で指定し、結果の targets がそれぞれ指定順に並ぶ |
+| REQ-cli-040（まとめと一度だけの確認、"y" と "Y"） | the_plan_of_every_target_is_shown_and_asked_once_and_y_writes | 両方の書き込み先に書き込むファイル一つと --delete の削除予定一つがある構成で、標準エラーに "Sync: local -> develop, staging"、"[develop] 1 files to merge, 1 files to delete"、"[staging] 1 files to merge, 1 files to delete" が含まれ、"Proceed? [y/N] " がちょうど一度出る。"y" と "Y" のそれぞれで両方の書き込み先の file.txt が書き換わる |
+| REQ-cli-040（書き込む予定のない書き込み先） | a_target_with_nothing_to_write_has_no_plan_line | staging に書き込む予定がない構成で、develop の行はあり staging の行がない |
+| REQ-cli-040（それ以外の答え） | any_other_answer_cancels_without_writing_and_exits_with_zero | "n"、"N"、空行、"yes" のそれぞれで "Sync cancelled." が出て、終了コード 0 で、両方の書き込み先の二つのファイルが変わらない |
+| REQ-cli-040（尋ねない場合） | force_dry_run_and_nothing_to_write_do_not_ask | --force（書き込まれる）、--dry-run（書き込まれない）、書き込む予定がない構成のそれぞれで "Proceed? [y/N] " が出ない。標準入力は閉じてある |
+
+- 件数が 0 の部分を省いた行（例: 削除予定のない書き込み先の "[先] N files to merge"）は、IR と一致するとみなすかの判断が要るため確かめない。確認のテストは、どの書き込み先も書き込むファイルと削除予定の両方を持つか、どちらも持たない構成にした。
+- "y" で書き込んだ後に削除が行われたかは確かめない（削除の成否と状態は FLAG-cli-011 の範囲）。確認を断ったときの標準出力は FLAG-cli-007 の範囲のため確かめない。
