@@ -171,3 +171,5 @@ src/service/types.rs から移して消した sync_target_result_deleted_empty_i
 - 戻す 17 件: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストのため残す。status とバックアップ・rollback の整理で純粋関数の単体テストを残した判断と同じ。消すかどうかを利用者が判断する前に消されていたため戻す。
 
 17 件と、それに伴って消していた src/service/sync.rs のテスト用の補助関数 make_target_result と make_sync_output を、消す前のコミット 0c40566 の内容のまま移し元に戻した。その後に決まった 2 件だけを消した。
+
+決まった 2 件だけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2,860 件）。

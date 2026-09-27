@@ -611,31 +611,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_empty_paths() {
-        let mut args = make_args();
-        args.paths = vec![];
-        let err = validate_sync_args(&args).unwrap_err();
-        assert!(
-            format!("{}", err).contains("at least one path"),
-            "unexpected error: {}",
-            err
-        );
-    }
-
-    #[test]
     fn validate_valid_args_passes() {
         let args = make_args();
         assert!(validate_sync_args(&args).is_ok());
-    }
-
-    #[test]
-    fn validate_rejects_invalid_format() {
-        let err = OutputFormat::parse("yaml").unwrap_err();
-        assert!(
-            format!("{}", err).contains("Unknown format"),
-            "unexpected error: {}",
-            err
-        );
     }
 
     #[test]
