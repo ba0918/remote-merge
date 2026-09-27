@@ -67,6 +67,15 @@ mod status_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/status_targets.rs"]
 mod status_targets;
+#[cfg(feature = "test-utils")]
+#[path = "contract/sync_cli.rs"]
+mod sync_cli;
+#[path = "contract/sync_results.rs"]
+mod sync_results;
+#[path = "contract/sync_support.rs"]
+mod sync_support;
+#[path = "contract/sync_targets.rs"]
+mod sync_targets;
 #[path = "contract/tui_confirm.rs"]
 mod tui_confirm;
 #[path = "contract/tui_directory_links.rs"]
