@@ -30,6 +30,9 @@ fn one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modi
     write_at(develop, "src/right.rs", b"right\n", T0);
     write_at(local, "conflict", b"file\n", T0);
     write_at(develop, "conflict/inner.txt", b"file\n", T0);
+    // 片側がファイルへの symlink でも、もう片側のディレクトリの中身は右だけにある
+    symlink(local, "linked", "left.txt");
+    write_at(develop, "linked/inner.txt", b"file\n", T0);
 
     let statuses = fixture.statuses("local", "develop");
 
@@ -40,6 +43,7 @@ fn one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modi
         ("src/right.rs", FileStatusKind::RightOnly),
         ("conflict", FileStatusKind::Modified),
         ("conflict/inner.txt", FileStatusKind::RightOnly),
+        ("linked/inner.txt", FileStatusKind::RightOnly),
     ] {
         assert_eq!(statuses[path], expected, "{path}: {statuses:?}");
     }
@@ -192,10 +196,11 @@ fn two_symlinks_are_compared_by_their_target_text_without_reading_the_content() 
 fn a_regular_file_against_a_symlink_to_the_same_content_is_modified() {
     let fixture = fixture();
     let (local, develop) = (fixture.local.path(), fixture.develop.path());
-    write_at(local, "item.txt", b"hello\n", T0);
-    write_at(local, "real.txt", b"hello\n", T0);
-    write_at(develop, "real.txt", b"hello\n", T0);
-    symlink(develop, "item.txt", "real.txt");
+    // symlink 自体のサイズ（リンク先の文字列の長さ）もファイルと同じ 10 バイトにする
+    write_at(local, "item.txt", b"hellohello", T0);
+    write_at(local, "target.txt", b"hellohello", T0);
+    write_at(develop, "target.txt", b"hellohello", T0);
+    symlink(develop, "item.txt", "target.txt");
 
     for (left, right) in BOTH_PATHS {
         let statuses = fixture.statuses(left, right);

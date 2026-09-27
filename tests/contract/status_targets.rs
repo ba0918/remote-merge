@@ -97,6 +97,7 @@ fn a_needed_default_server_without_any_server_configured_is_an_error() {
 fn three_way() -> CliEnv {
     CliEnv::new_3way(
         &[
+            ("all_same.txt", "same everywhere\n"),
             ("left_and_ref.txt", "one side\n"),
             ("right_and_ref.txt", "other side\n"),
             ("all_differ.txt", "ref\n"),
@@ -104,6 +105,7 @@ fn three_way() -> CliEnv {
             (".env.production", "P=3\n"),
         ],
         &[
+            ("all_same.txt", "same everywhere\n"),
             ("missing_in_ref.txt", "develop\n"),
             ("left_and_ref.txt", "one side\n"),
             ("all_differ.txt", "develop\n"),
@@ -112,6 +114,7 @@ fn three_way() -> CliEnv {
             (".env.production", "P=1\n"),
         ],
         &[
+            ("all_same.txt", "same everywhere\n"),
             ("missing_in_ref.txt", "staging version\n"),
             ("right_and_ref.txt", "other side\n"),
             ("all_differ.txt", "staging version\n"),
@@ -160,6 +163,7 @@ fn json_marks_each_file_against_the_ref_and_counts_the_marks() {
     assert!(badge(".env.production").is_null(), "{json}");
 
     let summary = &json["summary"];
+    // 三つとも同じ中身の all_same.txt は違いに数えない
     assert_eq!(summary["ref_differs"], 4, "{json}");
     assert!(summary["ref_only"].is_u64(), "{json}");
     assert_eq!(summary["ref_missing"], 2, "{json}");
