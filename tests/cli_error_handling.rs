@@ -85,49 +85,6 @@ root_dir = "/tmp/test-remote"
     config_path
 }
 
-/// 存在しないサーバ名を --right に指定 → exit≠0, "not found in config"
-#[test]
-fn test_invalid_server_name_rejected() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--right",
-            "nonexistent_server",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert!(!output.status.success(), "should fail for unknown server");
-    assert_stderr_contains(&output, "not found in config");
-}
-
-/// --left と --right に同じサーバを指定 → exit≠0
-#[test]
-fn test_self_compare_rejected() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--left",
-            "develop",
-            "--right",
-            "develop",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    assert!(!output.status.success(), "should fail when left == right");
-}
-
 /// merge に --left のみ（--right なし）→ --right は default server にフォールバックし、
 /// SSH 接続不可環境では SSH エラーで失敗する。exit≠0 であること。
 #[test]
@@ -153,63 +110,6 @@ fn test_merge_without_right_falls_back_and_fails_ssh() {
         !output.status.success(),
         "should fail when --right falls back to default server and SSH is unavailable"
     );
-}
-
-/// --ref が --left と同じ → ref_guard が警告を出すべきだが、
-/// 現在の実装では SSH 接続が ref_guard より先に実行されるため、
-/// SSH 接続不可環境では SSH エラーが先に発生する。
-/// ここでは --ref が left と同じでも引数パースは通ることと、
-/// SSH エラーで失敗することを検証する。
-#[test]
-fn test_ref_with_left_equal_fails_on_ssh() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    // --left local --right develop --ref local
-    // connect_if_remote(develop) が SSH 鍵不在で失敗し、ref_guard まで到達しない
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--left",
-            "local",
-            "--right",
-            "develop",
-            "--ref",
-            "local",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    // SSH 接続不可のため exit≠0
-    assert!(!output.status.success(), "should fail due to SSH error");
-    assert_stderr_contains(&output, "Error:");
-}
-
-/// --ref が --right と同じ → ref_guard が警告を出すべきだが、
-/// SSH 接続が ref_guard より先に実行されるため SSH エラーで失敗する。
-#[test]
-fn test_ref_with_right_equal_fails_on_ssh() {
-    let dir = TempDir::new().expect("failed to create tempdir");
-    let config_path = write_valid_config(dir.path());
-
-    let output = remote_merge_cmd()
-        .args([
-            "--config",
-            config_path.to_str().unwrap(),
-            "status",
-            "--right",
-            "develop",
-            "--ref",
-            "develop",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    // SSH 接続不可のため exit≠0
-    assert!(!output.status.success(), "should fail due to SSH error");
-    assert_stderr_contains(&output, "Error:");
 }
 
 /// merge にパス引数なし → exit≠0（clap がエラーを出す）

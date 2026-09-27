@@ -20,3 +20,13 @@
   text: None if force => sessions.first().unwrap(),
   class: equivalent
   why: この腕に来るのは --session がなく全てのセッションが期限切れのときだけで、変異で選ばれる最新のセッションも期限切れのため、直後の「期限切れは --force なしでは戻さない」の確かめで元のコードと同じ AllExpired のエラーになる。別の文脈のエージェントに execute_rollback と plan_restore の直接の呼び出しから落ちるテストを書かせたが、エラーの種類も文言も出力も終了コードも同じで書けなかった
+- file: src/cli/status.rs
+  change: replace && with || in execute_status
+  text: if !hash_resolved && !paths_to_compare.is_empty() {
+  class: equivalent
+  why: 変わるのはハッシュで判定が済んだときと比べるパスがないときに中身の比較を呼ぶことだけで、ハッシュで判定が済むのは --ref がないときに限られ、そのとき中身は一つも取得されず、比べるパスがないときも同じく空の組で呼ばれるため、判定は何も変わらない。別の文脈のエージェントに status の公開された入口（execute_status と SSH fixture の実行ファイル、agent の有無、--checksum・--ref・フィルター・読めないファイルの組み合わせ）から落ちるテストを書かせたが、出力が全て元のコードと一致し書けなかった
+- file: src/service/status.rs
+  change: replace path_is_within_unloaded_dir -> bool with true
+  text: path.strip_prefix(dir)
+  class: equivalent
+  why: この関数は未読み込みのディレクトリ（children が None のディレクトリ）があるときだけ呼ばれるが、status のツリーは再帰の走査からしか作られず、ローカル・SSH・agent のどの経路でもディレクトリの children は必ず Some になるため、呼ばれることがない。別の文脈のエージェントに、空ディレクトリ・ディレクトリへのリンク・切れたリンク・除外や include・走査件数の上限・読めないディレクトリを含む構成で status の公開された入口から落ちるテストを書かせたが、出力が全て元のコードと一致し書けなかった
