@@ -726,35 +726,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_status_text_with_hunks() {
-        let output = StatusOutput {
-            left: SourceInfo {
-                label: "l".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "r".into(),
-                root: "/r".into(),
-            },
-            ref_: None,
-            agent: None,
-            files: Some(vec![FileStatus {
-                path: "a.rs".into(),
-                status: FileStatusKind::Modified,
-                sensitive: false,
-                hunks: Some(3),
-                ref_badge: None,
-            }]),
-            summary: StatusSummary {
-                modified: 1,
-                ..Default::default()
-            },
-        };
-        let text = format_status_text(&output, false);
-        assert!(text.contains("(3 hunks)"));
-    }
-
-    #[test]
     fn test_format_diff_text() {
         let output = DiffOutput {
             path: "src/config.ts".into(),

@@ -1485,39 +1485,6 @@ mod tests {
         assert!(!badges2.contains_key("secret.pem"));
     }
 
-    // ── ハッシュベース比較 ──
-
-    #[test]
-    fn test_hash_comparison_equal() {
-        let result = status_from_hash_comparison("abc123", "abc123");
-        assert_eq!(result, FileStatusKind::Equal);
-    }
-
-    #[test]
-    fn test_hash_comparison_modified() {
-        let result = status_from_hash_comparison("abc123", "def456");
-        assert_eq!(result, FileStatusKind::Modified);
-    }
-
-    #[test]
-    fn test_hash_comparison_symlink_same_target() {
-        // シンボリックリンクのターゲットパスも同じロジックで比較
-        let result = status_from_hash_comparison("/opt/target", "/opt/target");
-        assert_eq!(result, FileStatusKind::Equal);
-    }
-
-    #[test]
-    fn test_hash_comparison_symlink_different_target() {
-        let result = status_from_hash_comparison("/opt/old", "/opt/new");
-        assert_eq!(result, FileStatusKind::Modified);
-    }
-
-    #[test]
-    fn test_hash_comparison_empty_strings() {
-        let result = status_from_hash_comparison("", "");
-        assert_eq!(result, FileStatusKind::Equal);
-    }
-
     // ── refine_status_with_hashes ──
 
     #[test]

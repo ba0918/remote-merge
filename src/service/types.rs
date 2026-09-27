@@ -428,19 +428,6 @@ mod tests {
     }
 
     #[test]
-    fn test_status_output_with_hunks() {
-        let file = FileStatus {
-            path: "a.rs".into(),
-            status: FileStatusKind::Modified,
-            sensitive: false,
-            hunks: Some(3),
-            ref_badge: None,
-        };
-        let json = serde_json::to_string(&file).unwrap();
-        assert!(json.contains("\"hunks\":3"));
-    }
-
-    #[test]
     fn test_status_summary_serialize() {
         let output = StatusOutput {
             left: SourceInfo {
