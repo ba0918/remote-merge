@@ -99,3 +99,10 @@ status が中身を読み比べる対象のファイルを読めなかったと�
 - source: docs/decision/records/2026-09-27-adopt-sync.md#A17
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の sync でも中身を読み比べるファイルを読めなかった書き込み先を "failed" にし、終了コード 2 を返す。
+
+### FLAG-cli-015: 確認の行で件数が 0 の部分を省くか
+- kind: ambiguity
+- related: REQ-cli-040
+- source: docs/decision/records/2026-09-27-sync-mutant-flags.md#A1
+
+sync の書き込む前の確認で、実装は書き込むファイルだけがある書き込み先を "[先] N files to merge"、削除予定だけがある書き込み先を "[先] M files to delete" と件数が 0 の部分を省いて出す。REQ-cli-040 は行の形を "[先] N files to merge, M files to delete" と書いており、件数が 0 の部分を省くかは定めていない。旧総合仕様の出力例 "[server1] 3 files to merge (2 modified, 1 added)" は削除の部分を出していない。
