@@ -609,44 +609,6 @@ mod tests {
     }
 
     #[test]
-    fn build_dry_run_targets_includes_would_merge() {
-        use crate::service::merge::plan_merge;
-        use std::path::PathBuf;
-
-        let pair = SourcePair {
-            left: crate::app::Side::Local,
-            right: crate::app::Side::Remote("develop".into()),
-        };
-        let right_tree = FileTree {
-            root: PathBuf::from("/remote"),
-            nodes: vec![],
-        };
-        let plan = plan_merge(&["src/main.rs".into()], &[], false);
-        let server_plans = vec![ServerPlan {
-            pair,
-            right_tree,
-            statuses: vec![],
-            plan,
-            delete_targets: vec![],
-            delete_skipped: vec![],
-            right_only_skipped: vec![],
-            target_info: SourceInfo {
-                label: "develop".into(),
-                root: "/var/www".into(),
-            },
-            compare_failures: vec![],
-            expected_target_contents: HashMap::new(),
-        }];
-
-        let targets = build_dry_run_targets(&server_plans, &[]);
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].merged.len(), 1);
-        assert_eq!(targets[0].merged[0].status, "would merge");
-        assert_eq!(targets[0].merged[0].path, "src/main.rs");
-        assert_eq!(targets[0].status, SyncTargetStatus::Success);
-    }
-
-    #[test]
     fn build_dry_run_targets_includes_connection_failures() {
         let info = SourceInfo {
             label: "staging".into(),

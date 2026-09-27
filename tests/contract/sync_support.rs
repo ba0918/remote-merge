@@ -78,6 +78,24 @@ impl Fixture {
         fs::read_to_string(self.root(side).join(path)).unwrap()
     }
 
+    pub fn exists(&self, side: &str, path: &str) -> bool {
+        self.root(side).join(path).exists()
+    }
+
+    /// 書き込み先のファイルを読めなくする（書き込みはできる）
+    #[cfg(unix)]
+    pub fn make_unreadable(&self, side: &str, path: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let full = self.root(side).join(path);
+        fs::set_permissions(&full, fs::Permissions::from_mode(0o200)).unwrap();
+        assert!(
+            fs::File::open(&full).is_err(),
+            "test needs an unreadable file: {}",
+            full.display()
+        );
+    }
+
     fn runtime_targets(&self) -> RuntimeTargets {
         self.targets
             .iter()

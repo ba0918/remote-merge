@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! sync の書き込む前の確認（docs/ir/cli/sync.md）の契約テスト。
+//! sync の書き込む前の確認とエラーの終了コード（docs/ir/cli/sync.md）の契約テスト。
 //!
 //! 隔離された SSH fixture の develop と staging を書き込み先にして実行ファイルを起動し、
 //! 標準入力に答えを渡して標準エラーと書き込み先を確かめる。
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_success, CliEnv};
+use super::common::{assert_exit_error, assert_exit_success, CliEnv};
 
 /// develop と staging のどちらにも、書き込むファイル一つと --delete で消すファイル一つがある構成
 fn one_merge_and_one_deletion_on_each_target() -> CliEnv {
@@ -166,4 +166,20 @@ fn force_dry_run_and_nothing_to_write_do_not_ask() {
     );
     let output = sync(&env, &[], None);
     assert_eq!(prompt_count(&output), 0, "{output:?}");
+}
+// @kotowari[REQ-cli-044]
+#[test]
+fn a_sync_stopped_by_an_error_exits_with_two() {
+    let env = one_merge_and_one_deletion_on_each_target();
+    for right in [&["nowhere"][..], &["develop", "develop"][..]] {
+        let output = env
+            .cmd_with("sync")
+            .args(["file.txt", "--left", "local", "--right"])
+            .args(right)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_exit_error(&output, 2);
+    }
+    assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
 }

@@ -109,3 +109,28 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 
 - 件数が 0 の部分を省いた行（例: 削除予定のない書き込み先の "[先] N files to merge"）は、IR と一致するとみなすかの判断が要るため確かめない。確認のテストは、どの書き込み先も書き込むファイルと削除予定の両方を持つか、どちらも持たない構成にした。
 - "y" で書き込んだ後に削除が行われたかは確かめない（削除の成否と状態は FLAG-cli-011 の範囲）。確認を断ったときの標準出力は FLAG-cli-007 の範囲のため確かめない。
+
+### 状態・集計・JSON・終了コード・dry-run（REQ-cli-041 から REQ-cli-045）
+
+関数呼び出しの根拠テストは `tests/contract/sync_results.rs` に、エラーで止まったときの終了コードは実行ファイルで `tests/contract/sync_cli.rs` にある。
+状態は dry-run でなく force を指定して書き込みまで進む経路で確かめ、どの場合も書き込む予定のある別の書き込み先を同じ実行に含めた（書き込む予定のある書き込み先が一つもないと、状態は別の経路で決まるため）。
+読めないファイルは、書き込み先のファイルの権限を 0o200 にして作る（テストは uid 1000 で実行し、開けないことをテストの中で確かめる）。読み込み元と大きさを変えて、中身の読み比べではなく書き込み先の読み直しで失敗させる。
+集計と JSON のテストは、develop が "success"（書き込み 3・削除 2）、staging が "partial"（書き込み 2・失敗 1・削除 1）、production が "failed"（失敗 3）になる一つの構成を使い、集計の五項目が互いに違う値（3・1・5・3・4）になるよう件数を選んだ。項目の取り違えを検知するため。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-041（書き込めたファイルあり・失敗なし → "success"、なし・あり → "failed"） | tests/contract/cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code（印に ID を足した） | src/service/sync.rs の compute_target_status_all_success、compute_target_status_all_failed（移して消した） |
+| REQ-cli-041（あり・あり → "partial"） | a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two | src/service/sync.rs の compute_target_status_partial（移して消した）。同じ書き込み先に書けるファイルと読めないファイルを置く |
+| REQ-cli-041（なし・なし → "success"） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero | src/service/sync.rs の compute_target_status_no_files（移して消した）。一つ目の書き込み先に差分があり、二つ目が同じ中身 |
+| REQ-cli-041（三つの状態が一度に並ぶ）、REQ-cli-042 | summary_counts_targets_successful_targets_and_files_across_every_target | src/service/sync.rs の compute_sync_summary_multiple_servers（移して消した）。successful_servers が "success" の書き込み先だけを数えることを、"partial" と "failed" を含む三つの書き込み先で確かめる |
+| REQ-cli-043 | json_has_the_source_every_target_with_lowercase_status_and_the_summary | src/service/types.rs の sync_target_result_deleted_empty_included、sync_target_status_serializes_lowercase（移して消した）。`format_json` の出力を JSON として読み、最上位の left・targets・summary、left の label と root、各 target の target・merged・skipped・deleted・failed・status、削除のない書き込み先の空の deleted、"success"・"partial"・"failed" の三つの値、summary の五項目を確かめる |
+| REQ-cli-044（全て "success" → 0） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero、tests/contract/cli_results.rs の every_successful_sync_target_returns_a_zero_exit_code（印に ID を足した） | src/service/sync.rs の sync_exit_code_all_success（移して消した） |
+| REQ-cli-044（"partial" → 2） | a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two | 新しく書いた |
+| REQ-cli-044（"failed" → 2） | a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds | src/service/sync.rs の sync_exit_code_some_failed（移して消した） |
+| REQ-cli-044（エラーで止まった → 2） | a_sync_stopped_by_an_error_exits_with_two | 新しく書いた。設定にないサーバ名と、--right の名前の重なりで、実行ファイルの終了コードが 2 になり書き込み先が変わらない |
+| REQ-cli-045 | dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target | src/cli/sync.rs の build_dry_run_targets_includes_would_merge（移して消した）。二つの書き込み先の merged に書き込む予定の二つのファイルが status "would merge" で並び、既存のファイルの中身も、まだないファイルの有無も、--delete の削除予定のファイルも変わらない |
+
+- tests/contract/cli_results.rs の sync の三件は、終了コードを `assert_ne!(exit_code, 0)` でしか見ていない。計画どおり三件の印に REQ-cli-044 を足したが、"partial" と "failed" で 2 になることは上の新しいテストが確かめる。summary を確かめていないため REQ-cli-042 は足していない。
+- a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds は cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code と同じ構成だが、終了コードが 2 であることを確かめるために書いた。cli_results.rs は印の行を足すことだけが計画の範囲のため、そちらの確かめ方は変えていない。
+- dry-run の deleted の中身（FLAG-cli-013）、読めないファイルを含む dry-run の状態と終了コード（FLAG-cli-014）、接続に失敗した書き込み先の並び（FLAG-cli-008）は確かめない。削除は "success" か "partial" になる書き込み先（書き込めたファイルがある書き込み先）にだけ置き、削除の成否が状態を変えうる構成（FLAG-cli-011）を避けた。
+- src/cli/sync.rs の build_dry_run_targets_includes_connection_failures は、接続に失敗した書き込み先の dry-run での状態だけを確かめ REQ-cli-045 の根拠にならないため移さず、削除候補に挙げる。

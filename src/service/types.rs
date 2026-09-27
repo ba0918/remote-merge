@@ -928,42 +928,6 @@ mod tests {
     // ── sync types ──
 
     #[test]
-    fn sync_target_result_deleted_empty_included() {
-        let result = SyncTargetResult {
-            target: SourceInfo {
-                label: "server1".to_string(),
-                root: "/app".to_string(),
-            },
-            merged: vec![],
-            skipped: vec![],
-            deleted: vec![],
-            failed: vec![],
-            status: SyncTargetStatus::Success,
-        };
-        let json = serde_json::to_string(&result).unwrap();
-        assert!(
-            json.contains("\"deleted\""),
-            "empty deleted should be included"
-        );
-    }
-
-    #[test]
-    fn sync_target_status_serializes_lowercase() {
-        assert_eq!(
-            serde_json::to_string(&SyncTargetStatus::Success).unwrap(),
-            "\"success\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SyncTargetStatus::Partial).unwrap(),
-            "\"partial\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SyncTargetStatus::Failed).unwrap(),
-            "\"failed\""
-        );
-    }
-
-    #[test]
     fn delete_file_result_backup_none_omitted() {
         let result = DeleteFileResult {
             path: "old.txt".to_string(),
