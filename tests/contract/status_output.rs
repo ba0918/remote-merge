@@ -124,15 +124,22 @@ fn text_lists_a_header_one_symbol_line_per_file_and_a_final_summary() {
         Some("Comparing: local \u{2194} develop"),
         "{lines:?}"
     );
-    for line in [
+    let mut file_lines: Vec<&str> = lines
+        .iter()
+        .skip(1)
+        .take(lines.len().saturating_sub(2))
+        .map(String::as_str)
+        .collect();
+    file_lines.sort_unstable();
+    let mut expected = [
         "M modified.txt",
         "L left.txt",
         "R right.txt",
         "= equal.txt",
         "M .env [SENSITIVE]",
-    ] {
-        assert!(lines.iter().any(|found| found == line), "{line}: {lines:?}");
-    }
+    ];
+    expected.sort_unstable();
+    assert_eq!(file_lines, expected, "{lines:?}");
     assert_eq!(
         lines.last().map(String::as_str),
         Some("Summary: 2 modified, 1 left only, 1 right only, 1 equal"),
