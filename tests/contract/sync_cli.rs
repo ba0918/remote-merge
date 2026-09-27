@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! sync の書き込む前の確認とエラーの終了コード（docs/ir/cli/sync.md）の契約テスト。
+//! sync の書き込む前の確認・JSON の出力・エラーの終了コード（docs/ir/cli/sync.md）の契約テスト。
 //!
 //! 隔離された SSH fixture の develop と staging を書き込み先にして実行ファイルを起動し、
 //! 標準入力に答えを渡して標準エラーと書き込み先を確かめる。
@@ -167,6 +167,50 @@ fn force_dry_run_and_nothing_to_write_do_not_ask() {
     let output = sync(&env, &[], None);
     assert_eq!(prompt_count(&output), 0, "{output:?}");
 }
+// @kotowari[REQ-cli-040]
+#[test]
+fn a_target_with_only_merges_or_only_deletions_still_has_a_plan_line() {
+    let env = CliEnv::new_3way(
+        &[("file.txt", "incoming\n")],
+        &[("file.txt", "develop old\n")],
+        &[("file.txt", "incoming\n"), ("extra.txt", "staging extra\n")],
+    );
+
+    let output = sync(&env, &[], Some("n\n"));
+
+    // 件数が 0 の部分を出すか省くかは確かめない（IR の行の形との対応は未決）
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let line_of = |label: &str| {
+        stderr
+            .lines()
+            .find(|line| line.contains(&format!("[{label}]")))
+            .unwrap_or_else(|| panic!("no plan line for {label}: {stderr}"))
+    };
+    assert!(line_of("develop").contains("1 files to merge"), "{stderr}");
+    assert!(line_of("staging").contains("1 files to delete"), "{stderr}");
+    assert_eq!(prompt_count(&output), 1, "{stderr}");
+}
+
+// @kotowari[REQ-cli-043]
+#[test]
+fn json_format_prints_the_result_to_standard_output() {
+    let env = one_merge_and_one_deletion_on_each_target();
+
+    let output = sync(&env, &["--force", "--format", "json"], None);
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    assert_eq!(json["left"]["label"], "local", "{json}");
+    let labels: Vec<&str> = json["targets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|target| target["target"]["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["develop", "staging"], "{json}");
+    assert_eq!(json["summary"]["total_servers"], 2, "{json}");
+}
+
 // @kotowari[REQ-cli-044]
 #[test]
 fn a_sync_stopped_by_an_error_exits_with_two() {
