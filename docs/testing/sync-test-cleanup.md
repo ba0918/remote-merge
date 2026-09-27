@@ -246,3 +246,15 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 | REQ-cli-043 | unit | 一つの実行の結果に対して JSON の項目と値が決まる |
 | REQ-cli-044 | unit | 書き込み先の状態の組とエラーの場面で終了コードが決まる |
 | REQ-cli-045 | unit | --dry-run の場面で結果の merged と書き込み先の中身が決まる |
+
+## 計画の完了の確認
+
+コミット ad8541e で、計画の S7 の検査を順に実行した。
+
+| 検査 | 結果 |
+|---|---|
+| `for id in $(seq -f 'REQ-cli-%03g' 38 45); do kotowari query $id \| jq -e '.items[0].tests != []' > /dev/null \|\| echo "missing $id"; done` | 出力なし（REQ-cli-038 から 045 の全てに印付きのテストがある） |
+| `kotowari check --format json` | 終了コード 0、`"findings":[]`（error も warning もない） |
+| `cargo fmt --all --check` | 終了コード 0 |
+| `cargo clippy --all-targets --all-features -- -D warnings` | 警告なしで完了 |
+| `cargo nextest run --all-features` | 2862 tests run: 2862 passed, 0 skipped |
