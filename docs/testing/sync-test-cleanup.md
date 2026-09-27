@@ -210,25 +210,26 @@ scripts/mutants.sh src/service/sync.rs src/cli/sync.rs src/service/source_pair.r
 | 位置 | 変異 | 決着 |
 |---|---|---|
 | src/cli/sync.rs:416 | replace print_sync_result -> anyhow::Result<()> with Ok(()) | テストを足した。sync_cli の json_format_prints_the_result_to_standard_output（REQ-cli-043）で、`--format json --force` の実行ファイルの標準出力が JSON として読め、left・targets・summary が出ることを確かめる。変異では標準出力が空になり落ちる。テキストの分岐（"No files to sync." と `format_sync_text`）は FLAG-cli-012 の範囲のため確かめない |
-| src/cli/sync.rs:557 | replace \|\| with && in print_sync_plan | テストを足した。sync_cli の a_target_with_only_merges_or_only_deletions_still_has_a_plan_line（REQ-cli-040）で、書き込むファイルだけがある develop と削除予定だけがある staging のそれぞれに行があり、"1 files to merge"・"1 files to delete" を含むことを確かめる。件数が 0 の部分を出すか省くかは確かめない（下の候補）。変異では両方の行が消えて落ちる |
+| src/cli/sync.rs:557 | replace \|\| with && in print_sync_plan | テストを足した。sync_cli の a_target_with_only_merges_or_only_deletions_still_has_a_plan_line（REQ-cli-040）で、書き込むファイルだけがある develop と削除予定だけがある staging のそれぞれに行があり、"1 files to merge"・"1 files to delete" を含むことを確かめる。件数が 0 の部分を出すか省くかは確かめない（FLAG-cli-015）。変異では両方の行が消えて落ちる |
 | src/cli/sync.rs:557 | replace > with < in print_sync_plan（列 24） | 同上。変異では develop の行が消えて落ちる |
 | src/cli/sync.rs:557 | replace > with < in print_sync_plan（列 44） | 同上。変異では staging の行が消えて落ちる |
-| src/cli/sync.rs:559 | replace > with >= in print_sync_plan | 未決着。新しい FLAG の候補として手渡す（下の節） |
-| src/cli/sync.rs:562 | replace > with >= in print_sync_plan | 未決着。同上 |
+| src/cli/sync.rs:559 | replace > with >= in print_sync_plan | FLAG-cli-015 の範囲として記録する（[決定記録 A1](../decision/records/2026-09-27-sync-mutant-flags.md#A1)）。件数が 0 の部分を省くかは未決のため、根拠テストで確かめない |
+| src/cli/sync.rs:562 | replace > with >= in print_sync_plan | 同上 |
 
 決着の対象でない見逃し（整理前から変わらない）:
 
 - src/cli/sync.rs:536 の `replace fetch_partial_tree -> anyhow::Result<FileTree> with Ok(Default::default())`（走査の取り方）
 
 テストを足した四件は、足した後に変異テストを回し直してはいない。一件ずつ一時的な書き換えで検知を確かめた。
-:559 と :562 の `>=` の二件は、同じ一時的な書き換えで足したテストを含む sync_cli の全テストが通ることを確かめた（見逃しのまま）。
+:559 と :562 の `>=` の二件は、同じ一時的な書き換えで足したテストを含む sync_cli の全テストが通ることを確かめた（見逃しのまま。FLAG-cli-015 の範囲として決着させた）。
 
-### 新しい FLAG の候補（利用者の判断待ち）
+### 新しい FLAG の候補と利用者の判断
 
 - 対象: src/cli/sync.rs:559 と :562 の `replace > with >= in print_sync_plan`。
 - 観測: 書き込むファイルだけがある書き込み先について、実装は "[develop] 1 files to merge" と削除の部分を省いた行を出す。:562 の変異では "[develop] 1 files to merge, 0 files to delete" になる。削除予定だけがある書き込み先について、実装は "[staging] 1 files to delete" を出し、:559 の変異では "[staging] 0 files to merge, 1 files to delete" になる。
 - IR との関係: REQ-cli-040 は行の形を "[先] N files to merge, M files to delete" と書いており、変異の出力は IR の字面どおりの形、実装の出力は件数が 0 の部分を省いた形である。どちらかを検知するテストは、件数が 0 の部分を省いた行を IR と一致するとみなすかどうかを決めないと書けない（計画の S3 の中止条件の判断）。
-- 手渡す判断: (a) 件数が 0 の部分を省く現行の表示を IR が意図した形とみなす（IR の書き方の見直しが要る）か、(b) IR の字面どおり 0 の部分も出すべきで実装が食い違っている（FLAG として記録する）か。どちらに決まるまで、この二件の見逃しは未決着のまま残す。実装と IR は変えていない。
+- 手渡した判断: (a) 件数が 0 の部分を省く現行の表示を IR が意図した形とみなす（IR の書き方の見直しが要る）か、(b) IR の字面どおり 0 の部分も出すべきで実装が食い違っている（FLAG として記録する）か。どちらに決まるまで、この二件の見逃しは未決着のまま残すとした。
+- 利用者の判断: どちらの扱いも決めず、曖昧さの FLAG（FLAG-cli-015「確認の行で件数が 0 の部分を省くか」）として残す（[決定記録 A1](../decision/records/2026-09-27-sync-mutant-flags.md#A1)）。この二件の見逃しは FLAG-cli-015 の範囲として決着させ、テストは足さない。
 
 ## 要件の verification の見直し
 
