@@ -286,3 +286,84 @@ src/service/output.rs と src/service/types.rs は変異テストの対象外の
 - B: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストで、入口から作れない場合（未読み込みのディレクトリ、片側だけのファイルを比較の対象に入れないこと）も持つため残す。バックアップと rollback の整理で純粋関数の単体テストを残した判断と同じ。
 
 決まった 12 件だけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2,847 件）。
+
+## 整理後の変異テスト
+
+削除を終えたコミット c4c429c で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
+
+```sh
+scripts/mutants.sh src/service/status.rs src/cli/status.rs src/cli/ref_guard.rs src/service/source_pair.rs src/tree.rs
+```
+
+全体の集計は `mutants: caught=182 survived=16 timeout=0 unviable=34 equivalent=0`（232 件、実行時間は約 47 分）。
+
+| ファイル | caught | survived | timeout | unviable |
+|---|---|---|---|---|
+| src/service/status.rs | 100 | 5 | 0 | 9 |
+| src/cli/status.rs | 15 | 5 | 0 | 2 |
+| src/cli/ref_guard.rs | 3 | 0 | 0 | 1 |
+| src/service/source_pair.rs | 11 | 0 | 0 | 7 |
+| src/tree.rs | 53 | 6 | 0 | 15 |
+
+### 整理前との比較
+
+整理後の見逃し 16 件のうち 15 件は整理前の見逃しに含まれる。
+残る一件の src/cli/status.rs:125 の `delete ! in execute_status` は、整理前は agent_ssh_deploy のテストだけで検知されていた変異（上の「変異と関係のないテストだけによる検知」の一件目）で、削除したテストによる検知ではない。
+この変異は機密ファイルでないファイルの中身を取得する条件の反転で、三者比較のときに効く。整理前の見かけの検知が今回はなかったため見逃しに出た。削除で増えた見逃しはないため、戻した削除はない。
+
+整理前の見逃しのうち次の五件は整理後に検知された。
+
+- src/cli/status.rs:170 の `delete ! in execute_status`。ただし tui_merge のテストだけによる検知のため、下で決着させる
+- src/cli/status.rs:198 の `replace > with ==` と `replace > with >=`（-v の判定。FLAG-cli-001 の範囲）
+- src/service/status.rs:560 の `replace > with < in status_exit_code`（右だけのファイルだけのときの終了コード 1 を新しい根拠テストが確かめる）
+- src/tree.rs:284 の `replace += with *= in ensure_path_in_nodes`（tui_merge のテストだけによる検知。決着の対象外）
+
+cargo-mutants は nextest の最初の失敗で止めるため、変異ごとのログに残る失敗したテストは最初に落ちたものだけである。「変異と関係のないテストだけによる検知」は、その変異を関係のあるテストが検知できるかどうかまでは示さない。
+
+### 見逃しの決着
+
+決着の対象の見逃し（status の入口から呼ばれる関数のもの）と、整理後に tui_merge のテストだけで検知された :170 を一件ずつ決着させた。
+テストを足したものは、コミットに含めない一時的な書き換えでその変異を入れ、足したテストが落ちることを確かめた。
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/service/status.rs:249 | replace \|\| with && in needs_content_compare | テストを足した。status_judgement の a_regular_file_against_a_symlink_to_the_same_content_is_modified（EX-cli-062）の symlink を、例の文どおり通常ファイルと同じサイズ（リンク先の文字列を 10 バイト）にした。変異では片側だけの symlink の組の中身を読み比べて "equal" になり、このテストが落ちる |
+| src/service/status.rs:96 | replace && with \|\| in TreeIndex<'a>::record_node | テストを足した。status_judgement の one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modified に、左がファイルへの symlink・右が同じ名前のディレクトリの組を加え、ディレクトリの中のファイルが "right_only" であることを確かめる。変異では symlink が未読み込みのディレクトリとして扱われ、中のファイルが "modified" になって落ちる |
+| src/cli/status.rs:125 | delete ! in execute_status | テストを足した。status_targets の三者比較の構成に三つとも同じ中身の all_same.txt を加えた。変異では機密ファイルでないファイルの中身を読まず、all_same.txt が参照先と違うと数えられて "ref_differs" が 5 になり、json_marks_each_file_against_the_ref_and_counts_the_marks と text_names_the_ref_in_the_header_marks_files_and_adds_a_ref_line_after_the_summary が落ちる |
+| src/cli/status.rs:170 | delete ! in execute_status | 同上。変異では参照先の機密ファイルでないファイルの中身を読まず、all_same.txt が違うと数えられて同じ二件が落ちる |
+| src/cli/status.rs:106 | replace && with \|\| in execute_status | FLAG-cli-005 の範囲として記録する。変異は --ref があってもハッシュの経路で比べるようにし、違いが出るのは --ref を指定したときの機密ファイルの判定だけだった。コミットに含めない一時的なテストで、--ref 付きで、サイズが同じで更新時刻が違い中身が同じ機密ファイルが、元のコードでは "modified"（FLAG-cli-005 の挙動）、変異では "equal" になることを確かめた。機密でないファイルと symlink の判定は変わらなかった |
+| src/cli/status.rs:106 | delete ! in execute_status | FLAG-cli-003 の範囲として記録する。変異は右がサーバで --ref がないときもハッシュの経路を使わず中身を読む経路で比べるようにし、違いが出るのは --checksum での symlink の組の判定だけだった。同じ一時的なテストで、リンク先の文字列が同じでリンク先の中身が違う symlink の組が、--checksum 付きで元のコードでは "equal"、変異では "modified" になることを確かめた。--checksum なしと --ref 付きの判定は変わらなかった |
+| src/cli/status.rs:198 | replace > with < in execute_status | FLAG-cli-001 の範囲として記録する。変異は -v を指定しても agent の状態を出さないようにするもので、agent の出し方と出す条件は FLAG-cli-001 で未決のため、根拠テストで確かめない |
+| src/cli/status.rs:146 | replace && with \|\| in execute_status | 同等変異として .kotowari/mutants-equivalents.yaml に登録した。ハッシュで判定が済むのは --ref がないときだけで、そのとき中身は一つも取得されないため、変異で中身の比較を呼んでも空の組で何も変わらない。別の文脈のエージェントに、status の公開された入口（execute_status と SSH fixture の実行ファイル、agent の有無、--checksum・--ref・フィルター・読めないファイルの組み合わせ）からこの変異で落ちるテストを書かせたが、出力が全て元のコードと一致し書けなかった |
+| src/service/status.rs:137 | replace path_is_within_unloaded_dir -> bool with true | 同等変異として登録した。この関数は未読み込みのディレクトリがあるときだけ呼ばれるが、status のツリーは再帰の走査からしか作られず、ローカル・SSH・agent のどの経路でもディレクトリの子の一覧は読み込まれる。同じエージェントに、空ディレクトリ・ディレクトリへのリンク・切れたリンク・除外や include・走査件数の上限・読めないディレクトリを含む構成で落ちるテストを書かせたが書けなかった |
+
+同等変異を登録した後に整理後の結果を読み直すと `mutants: caught=182 survived=14 timeout=0 unviable=34 equivalent=2` になる（`kotowari mutants --tool cargo-mutants --format text` を同じ outcomes.json に対して実行）。
+テストを足した四件は、足した後に変異テストを回し直してはいない。一件ずつ一時的な書き換えで検知を確かめた。
+
+決着の対象でない見逃し（整理前から変わらない）:
+
+- src/service/status.rs:320・323 の `replace && with || in needs_merge_content_compare`（merge の比較対象）
+- src/tree.rs:202 の `replace FileTree::sort with ()`、:284 の `replace += with -= in ensure_path_in_nodes`、:285 の `replace - with + in ensure_path_in_nodes` と `replace - with / in ensure_path_in_nodes`、:302 の `replace > with >= in ensure_path_in_nodes`、:324 の `replace > with >= in ensure_path_in_btree_node`（ツリーの構造の操作）
+
+新しい FLAG の候補は見つからなかった。
+
+## 要件の verification の見直し
+
+status の要件の verification は全て unit で、いずれも具体的な場面の入力で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-cli-006 | unit | 等しいファイルと差分のあるファイルを置いた場面で一覧の中身が決まる |
+| REQ-cli-007 | unit | --all の有無の場面で等しいファイルが一覧に入るかが決まる |
+| REQ-cli-008 | unit | メタデータが同じで中身が違う場面で --checksum の判定が決まる |
+| REQ-cli-027 | unit | TBL-cli-001 の各行が具体的な左右のファイルの組で決まる |
+| REQ-cli-028 | unit | symlink の組のリンク先の文字列で判定が決まる |
+| REQ-cli-029 | unit | 置いたファイルの組に対して集計の数が決まる |
+| REQ-cli-030 | unit | 差分の有無とエラーの場面で終了コードが決まる |
+| REQ-cli-031 | unit | 形式の指定と置いたファイルに対して出力の行が決まる |
+| REQ-cli-032 | unit | 置いたファイルに対して JSON の項目と値が決まる |
+| REQ-cli-033 | unit | --summary の場面で出力に含まれるものが決まる |
+| REQ-cli-034 | unit | --left・--right と設定のサーバの組で左右かエラーが決まる |
+| REQ-cli-035 | unit | 左右と参照先のファイルの組で印と集計が決まる |
+| REQ-cli-036 | unit | 機密ファイルと参照先の有無の組で印が決まる |
+| REQ-cli-037 | unit | 参照先が左右と同じ場面で警告と三者比較の有無が決まる |
