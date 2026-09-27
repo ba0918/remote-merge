@@ -101,7 +101,7 @@ tests/ の直下の実行ファイルを起動するテストのうち、同じ�
 | EX-cli-062（REQ-cli-028 の片方だけ symlink） | a_regular_file_against_a_symlink_to_the_same_content_is_modified | src/service/status.rs の test_status_symlink_vs_file_is_modified |
 
 - 二つの構成が本当に別の経路を通ることは、コミットに含めない一時的な書き換えで確かめた。`refine_status_with_hashes` を何もしないようにすると same_size_with_different_timestamps_is_decided_by_the_content が落ち、`refine_status_with_content` を何もしないようにすると同じテストと unknown_size_or_timestamp_is_decided_by_the_content が落ちた。
-- refine_status_with_content の七件のうち、test_refine_status_skips_non_modified（片側だけのファイルを中身で変えない）は、片側だけのファイルが中身の比較の対象に入らないため入口から観測できず、test_refine_status_equal_to_modified_when_content_differs（--checksum で "equal" を "modified" に直す）は REQ-cli-008 の既存の根拠テスト（tests/contract/status_results.rs の checksum_finds_different_bytes_despite_equal_size_and_timestamp）と重なるため、どちらも根拠にせず削除候補に挙げる。
+- refine_status_with_content の七件のうち、test_refine_status_skips_non_modified（片側だけのファイルを中身で変えない）は、片側だけのファイルが中身の比較の対象に入らないため入口から観測できず、test_refine_status_equal_to_modified_when_content_differs（--checksum で "equal" を "modified" に直す）は REQ-cli-008 の根拠テストのうち右が local の構成（中身を読む経路）で確かめる tests/contract/status_results.rs の checksum_rereads_content_when_the_right_side_is_local と重なるため、どちらも根拠にせず削除候補に挙げる。
 - tests/cli_status.rs の test_status_text_shows_modified_files、test_status_text_shows_left_only、test_status_text_shows_right_only は判定よりテキストの記号を確かめるテストのため、出力の要件（REQ-cli-031）の根拠テストへ移す。
 
 ### 出力と終了コード（docs/ir/cli/status-output.md）
@@ -197,7 +197,7 @@ src/service/output.rs と src/service/types.rs は変異テストの対象外の
 | src/service/status.rs | test_needs_content_compare_handles_file_vs_directory_conflict | status_judgement の one_sided_files_are_left_or_right_only_and_a_file_against_a_directory_is_modified |
 | src/service/status.rs | test_needs_content_compare_all_includes_equal | status_results の checksum_finds_different_bytes_despite_equal_size_and_timestamp（EX-cli-015） |
 | src/service/status.rs | test_needs_content_compare_all_excludes_left_right_only | なし。片側だけのファイルを比較の対象に入れないことは入口から観測できない |
-| src/service/status.rs | test_refine_status_equal_to_modified_when_content_differs | status_results の checksum_finds_different_bytes_despite_equal_size_and_timestamp（EX-cli-015） |
+| src/service/status.rs | test_refine_status_equal_to_modified_when_content_differs | status_results の checksum_rereads_content_when_the_right_side_is_local（EX-cli-015。右が local のため中身を読む経路） |
 | src/service/status.rs | test_refine_status_equal_when_content_matches | status_judgement の same_size_with_different_timestamps_is_decided_by_the_content |
 | src/service/status.rs | test_refine_status_stays_modified_when_content_differs | 同上 |
 | src/service/status.rs | test_refine_status_skips_non_modified | なし。片側だけのファイルは中身の比較の対象に入らないため入口から観測できない |

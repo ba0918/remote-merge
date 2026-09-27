@@ -131,3 +131,44 @@ fn checksum_and_all_report_identical_bytes_as_equal() {
         "{files:?}"
     );
 }
+
+// 右が local のときは中身を読む経路で比べるため、ハッシュの経路の上の二件とは別に確かめる。
+// @kotowari[EX-cli-015, EX-cli-016]
+#[test]
+fn checksum_rereads_content_when_the_right_side_is_local() {
+    let fixture = fixture();
+    let source = fixture.source.path().join("same-meta.txt");
+    let destination = fixture.destination.path().join("same-meta.txt");
+    fs::write(&source, "alpha\n").unwrap();
+    fs::write(&destination, "bravo\n").unwrap();
+    let modified = fs::metadata(&destination).unwrap().modified().unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&source)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let mut status_args = args(true, true);
+    status_args.left = Some("develop".into());
+    status_args.right = Some("local".into());
+    let output = execute_status(status_args, fixture.config, fixture.targets)
+        .unwrap()
+        .output;
+    let files = output.files.unwrap();
+    let status_of = |path: &str| {
+        files
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| file.status)
+    };
+    assert_eq!(
+        status_of("same-meta.txt"),
+        Some(FileStatusKind::Modified),
+        "{files:?}"
+    );
+    assert_eq!(
+        status_of("equal.txt"),
+        Some(FileStatusKind::Equal),
+        "{files:?}"
+    );
+}
