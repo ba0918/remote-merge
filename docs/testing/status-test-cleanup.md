@@ -63,7 +63,7 @@ scripts/mutants.sh src/service/status.rs src/cli/status.rs src/cli/ref_guard.rs 
 | src/service/status.rs:143 | replace + with * in collect_all_file_paths | tui_merge の test_hunk_merge_left_to_right_with_l |
 | src/tree.rs:264 | replace sort_nodes with () | tui_merge の test_hunk_merge_right_to_left_with_h_key、test_merge_cancel_with_n、test_sensitive_file_merge_requires_confirmation |
 
-前の二件は結果が変わらない変異（ハッシュ比較を試す条件の反転で、試さなくても中身を読む経路で同じ判定になる。後者は容量の見積もりだけ）で、見かけの検知と判断した。
+前の二件は見かけの検知と判断した。一件目は --ref のときに中身を取得するファイルから機密ファイルを除く条件の反転で、三者比較のときに効くが、関係のあるテストでは検知されていなかった（下の「見逃しの決着」でテストを足した）。二件目は容量の見積もりだけで結果が変わらない変異である。
 `sort_nodes` はツリーの並び順を変えるため TUI の操作に影響しうるが、関係があるかは確かめていない。
 整理後の比較では、この三件は検知と見逃しのどちらにもなりうるものとして扱う。
 
@@ -150,7 +150,7 @@ tests/ の直下の実行ファイルを起動するテストのうち、同じ�
 ## 削除候補と利用者の判断
 
 整理の計画で削除を利用者が一括で判断する段の入力。
-利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除する。まだ何も消していない。
+利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除した。
 
 一覧は、計画が名指しした候補（A）と、上の審査で公開された入口を通す根拠テストに置き換えた純粋関数の単体テスト（B）と、tests/ の直下の重複テスト（C）を合わせた 99 件。
 「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめている根拠テスト（モジュール名は tests/contract/ の下のファイル名）。
