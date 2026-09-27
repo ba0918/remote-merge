@@ -134,6 +134,122 @@ mod tests {
         }
     }
 
+    fn make_target_result(
+        label: &str,
+        merged_count: usize,
+        failed_count: usize,
+    ) -> SyncTargetResult {
+        SyncTargetResult {
+            target: SourceInfo {
+                label: label.into(),
+                root: "/app".into(),
+            },
+            merged: (0..merged_count)
+                .map(|i| MergeFileResult {
+                    path: format!("file{i}.rs"),
+                    status: "ok".into(),
+                    backup: None,
+                    ref_badge: None,
+                    hunk_info: None,
+                })
+                .collect(),
+            skipped: vec![],
+            deleted: vec![],
+            failed: (0..failed_count)
+                .map(|i| MergeFailure {
+                    path: format!("fail{i}.rs"),
+                    error: "permission denied".into(),
+                })
+                .collect(),
+            status: SyncTargetStatus::Success, // 仮値（テストで compute_target_status を呼んで検証する）
+        }
+    }
+
+    fn make_sync_output(targets: Vec<SyncTargetResult>) -> SyncOutput {
+        let summary = compute_sync_summary(&targets);
+        SyncOutput {
+            left: SourceInfo {
+                label: "local".into(),
+                root: "/app".into(),
+            },
+            targets,
+            summary,
+        }
+    }
+
+    // ── compute_target_status ──
+
+    #[test]
+    fn compute_target_status_all_success() {
+        let result = make_target_result("server1", 3, 0);
+        assert_eq!(compute_target_status(&result), SyncTargetStatus::Success);
+    }
+
+    #[test]
+    fn compute_target_status_partial() {
+        let result = make_target_result("server1", 2, 1);
+        assert_eq!(compute_target_status(&result), SyncTargetStatus::Partial);
+    }
+
+    #[test]
+    fn compute_target_status_all_failed() {
+        let result = make_target_result("server1", 0, 3);
+        assert_eq!(compute_target_status(&result), SyncTargetStatus::Failed);
+    }
+
+    #[test]
+    fn compute_target_status_no_files() {
+        let result = make_target_result("server1", 0, 0);
+        assert_eq!(compute_target_status(&result), SyncTargetStatus::Success);
+    }
+
+    // ── compute_sync_summary ──
+
+    #[test]
+    fn compute_sync_summary_multiple_servers() {
+        let mut r1 = make_target_result("server1", 3, 0);
+        r1.status = SyncTargetStatus::Success;
+        r1.deleted = vec![DeleteFileResult {
+            path: "old.txt".into(),
+            status: DeleteStatus::Ok,
+            backup: None,
+        }];
+
+        let mut r2 = make_target_result("server2", 1, 2);
+        r2.status = SyncTargetStatus::Partial;
+
+        let summary = compute_sync_summary(&[r1, r2]);
+        assert_eq!(summary.total_servers, 2);
+        assert_eq!(summary.successful_servers, 1);
+        assert_eq!(summary.total_files_merged, 4); // 3 + 1
+        assert_eq!(summary.total_files_deleted, 1);
+        assert_eq!(summary.total_files_failed, 2); // 0 + 2
+    }
+
+    // ── sync_exit_code ──
+
+    #[test]
+    fn sync_exit_code_all_success() {
+        let mut r1 = make_target_result("server1", 3, 0);
+        r1.status = SyncTargetStatus::Success;
+        let mut r2 = make_target_result("server2", 2, 0);
+        r2.status = SyncTargetStatus::Success;
+
+        let output = make_sync_output(vec![r1, r2]);
+        assert_eq!(sync_exit_code(&output), 0);
+    }
+
+    #[test]
+    fn sync_exit_code_some_failed() {
+        let mut r1 = make_target_result("server1", 3, 0);
+        r1.status = SyncTargetStatus::Success;
+        let mut r2 = make_target_result("server2", 0, 2);
+        r2.status = SyncTargetStatus::Failed;
+
+        let output = make_sync_output(vec![r1, r2]);
+        assert_eq!(sync_exit_code(&output), 2);
+    }
+
     // ── plan_deletions ──
 
     #[test]

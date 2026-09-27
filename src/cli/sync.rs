@@ -587,6 +587,30 @@ mod tests {
     }
 
     #[test]
+    fn validate_missing_left() {
+        let mut args = make_args();
+        args.left = None;
+        let err = validate_sync_args(&args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("--left is required"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn validate_empty_right() {
+        let mut args = make_args();
+        args.right = vec![];
+        let err = validate_sync_args(&args).unwrap_err();
+        assert!(
+            format!("{}", err).contains("--right requires at least one"),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[test]
     fn validate_empty_paths() {
         let mut args = make_args();
         args.paths = vec![];
@@ -599,6 +623,12 @@ mod tests {
     }
 
     #[test]
+    fn validate_valid_args_passes() {
+        let args = make_args();
+        assert!(validate_sync_args(&args).is_ok());
+    }
+
+    #[test]
     fn validate_rejects_invalid_format() {
         let err = OutputFormat::parse("yaml").unwrap_err();
         assert!(
@@ -606,6 +636,51 @@ mod tests {
             "unexpected error: {}",
             err
         );
+    }
+
+    #[test]
+    fn validate_multiple_right_servers() {
+        let mut args = make_args();
+        args.right = vec!["develop".into(), "staging".into()];
+        assert!(validate_sync_args(&args).is_ok());
+    }
+
+    #[test]
+    fn build_dry_run_targets_includes_would_merge() {
+        use crate::service::merge::plan_merge;
+        use std::path::PathBuf;
+
+        let pair = SourcePair {
+            left: crate::app::Side::Local,
+            right: crate::app::Side::Remote("develop".into()),
+        };
+        let right_tree = FileTree {
+            root: PathBuf::from("/remote"),
+            nodes: vec![],
+        };
+        let plan = plan_merge(&["src/main.rs".into()], &[], false);
+        let server_plans = vec![ServerPlan {
+            pair,
+            right_tree,
+            statuses: vec![],
+            plan,
+            delete_targets: vec![],
+            delete_skipped: vec![],
+            right_only_skipped: vec![],
+            target_info: SourceInfo {
+                label: "develop".into(),
+                root: "/var/www".into(),
+            },
+            compare_failures: vec![],
+            expected_target_contents: HashMap::new(),
+        }];
+
+        let targets = build_dry_run_targets(&server_plans, &[]);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].merged.len(), 1);
+        assert_eq!(targets[0].merged[0].status, "would merge");
+        assert_eq!(targets[0].merged[0].path, "src/main.rs");
+        assert_eq!(targets[0].status, SyncTargetStatus::Success);
     }
 
     #[test]

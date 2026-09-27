@@ -80,7 +80,7 @@ scripts/mutants.sh src/service/sync.rs src/cli/sync.rs src/service/source_pair.r
 関数呼び出しのテストは `force: true`（dry-run のテストは `dry_run: true`）を渡し、確認のプロンプトがテストのプロセスの標準入力を読まないようにした。
 一つの要件に複数の場合があるときは、場合ごとのテストに同じ要件の印を付け、印の付いたテストを合わせて要件の文を全て確かめる。
 新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
-src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` を通す根拠テストで確かめたものは、移し元から消した（計画の「移したテストは移し元から消える」による）。
+src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` を通す根拠テストで確かめたものは、いったん移し元から消した（計画の「移したテストは移し元から消える」による）が、削除候補への利用者の判断で 17 件とも移し元に戻して残した（下の「判断の結果」）。表の「移し元に残した」はこの 17 件を指す。
 
 ### 指定（REQ-cli-038）
 
@@ -88,8 +88,8 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 
 | 要件 | 根拠テスト | 元にしたテスト |
 |---|---|---|
-| REQ-cli-038（受け付ける指定） | one_source_and_two_targets_are_accepted_and_both_targets_are_written | src/service/source_pair.rs の resolve_source_pairs_two_servers と src/cli/sync.rs の validate_valid_args_passes、validate_multiple_right_servers（移して消した）。--left local と --right の二つで、結果の left と targets の label と、両方の書き込み先が書き換わることを確かめる |
-| REQ-cli-038（TBL-cli-006 の五行） | each_invalid_specification_stops_with_its_error_and_changes_no_target | src/cli/sync.rs の validate_missing_left、validate_empty_right と src/service/source_pair.rs の resolve_source_pairs_duplicate_server_error、resolve_source_pairs_unknown_server_error、resolve_source_pairs_left_equals_right_error（移して消した）。元のテストは文言の一部だけを見ていたが、表の文言と完全に一致することを確かめる。設定にないサーバ名は --left と --right のそれぞれで確かめる（元のテストは --right だけ）。どの場合も二つの書き込み先が変わらない |
+| REQ-cli-038（受け付ける指定） | one_source_and_two_targets_are_accepted_and_both_targets_are_written | src/service/source_pair.rs の resolve_source_pairs_two_servers と src/cli/sync.rs の validate_valid_args_passes、validate_multiple_right_servers（移し元に残した）。--left local と --right の二つで、結果の left と targets の label と、両方の書き込み先が書き換わることを確かめる |
+| REQ-cli-038（TBL-cli-006 の五行） | each_invalid_specification_stops_with_its_error_and_changes_no_target | src/cli/sync.rs の validate_missing_left、validate_empty_right と src/service/source_pair.rs の resolve_source_pairs_duplicate_server_error、resolve_source_pairs_unknown_server_error、resolve_source_pairs_left_equals_right_error（移し元に残した）。元のテストは文言の一部だけを見ていたが、表の文言と完全に一致することを確かめる。設定にないサーバ名は --left と --right のそれぞれで確かめる（元のテストは --right だけ）。どの場合も二つの書き込み先が変わらない |
 
 - --right の一つが --left と同じ行は、--left develop --right staging develop で確かめ、先に並ぶ staging も書き換わらないことを見る。
 
@@ -119,16 +119,16 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 
 | 要件 | 根拠テスト | 元にしたテスト |
 |---|---|---|
-| REQ-cli-041（書き込めたファイルあり・失敗なし → "success"、なし・あり → "failed"） | tests/contract/cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code（印に ID を足した） | src/service/sync.rs の compute_target_status_all_success、compute_target_status_all_failed（移して消した） |
-| REQ-cli-041（あり・あり → "partial"） | a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two | src/service/sync.rs の compute_target_status_partial（移して消した）。同じ書き込み先に書けるファイルと読めないファイルを置く |
-| REQ-cli-041（なし・なし → "success"） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero | src/service/sync.rs の compute_target_status_no_files（移して消した）。一つ目の書き込み先に差分があり、二つ目が同じ中身 |
-| REQ-cli-041（三つの状態が一度に並ぶ）、REQ-cli-042 | summary_counts_targets_successful_targets_and_files_across_every_target | src/service/sync.rs の compute_sync_summary_multiple_servers（移して消した）。successful_servers が "success" の書き込み先だけを数えることを、"partial" と "failed" を含む三つの書き込み先で確かめる |
-| REQ-cli-043 | json_has_the_source_every_target_with_lowercase_status_and_the_summary | src/service/types.rs の sync_target_result_deleted_empty_included、sync_target_status_serializes_lowercase（移して消した）。`format_json` の出力を JSON として読み、最上位の left・targets・summary、left の label と root、各 target の target・merged・skipped・deleted・failed・status、削除のない書き込み先の空の deleted、"success"・"partial"・"failed" の三つの値、summary の五項目を確かめる |
-| REQ-cli-044（全て "success" → 0） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero、tests/contract/cli_results.rs の every_successful_sync_target_returns_a_zero_exit_code（印に ID を足した） | src/service/sync.rs の sync_exit_code_all_success（移して消した） |
+| REQ-cli-041（書き込めたファイルあり・失敗なし → "success"、なし・あり → "failed"） | tests/contract/cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code（印に ID を足した） | src/service/sync.rs の compute_target_status_all_success、compute_target_status_all_failed（移し元に残した） |
+| REQ-cli-041（あり・あり → "partial"） | a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two | src/service/sync.rs の compute_target_status_partial（移し元に残した）。同じ書き込み先に書けるファイルと読めないファイルを置く |
+| REQ-cli-041（なし・なし → "success"） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero | src/service/sync.rs の compute_target_status_no_files（移し元に残した）。一つ目の書き込み先に差分があり、二つ目が同じ中身 |
+| REQ-cli-041（三つの状態が一度に並ぶ）、REQ-cli-042 | summary_counts_targets_successful_targets_and_files_across_every_target | src/service/sync.rs の compute_sync_summary_multiple_servers（移し元に残した）。successful_servers が "success" の書き込み先だけを数えることを、"partial" と "failed" を含む三つの書き込み先で確かめる |
+| REQ-cli-043 | json_has_the_source_every_target_with_lowercase_status_and_the_summary | src/service/types.rs の sync_target_result_deleted_empty_included、sync_target_status_serializes_lowercase（移し元に残した）。`format_json` の出力を JSON として読み、最上位の left・targets・summary、left の label と root、各 target の target・merged・skipped・deleted・failed・status、削除のない書き込み先の空の deleted、"success"・"partial"・"failed" の三つの値、summary の五項目を確かめる |
+| REQ-cli-044（全て "success" → 0） | a_target_with_nothing_written_and_nothing_failed_is_success_and_the_exit_code_is_zero、tests/contract/cli_results.rs の every_successful_sync_target_returns_a_zero_exit_code（印に ID を足した） | src/service/sync.rs の sync_exit_code_all_success（移し元に残した） |
 | REQ-cli-044（"partial" → 2） | a_target_with_written_and_failed_files_is_partial_and_the_exit_code_is_two | 新しく書いた |
-| REQ-cli-044（"failed" → 2） | a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds | src/service/sync.rs の sync_exit_code_some_failed（移して消した） |
+| REQ-cli-044（"failed" → 2） | a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds | src/service/sync.rs の sync_exit_code_some_failed（移し元に残した） |
 | REQ-cli-044（エラーで止まった → 2） | a_sync_stopped_by_an_error_exits_with_two | 新しく書いた。設定にないサーバ名と、--right の名前の重なりで、実行ファイルの終了コードが 2 になり書き込み先が変わらない |
-| REQ-cli-045 | dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target | src/cli/sync.rs の build_dry_run_targets_includes_would_merge（移して消した）。二つの書き込み先の merged に書き込む予定の二つのファイルが status "would merge" で並び、既存のファイルの中身も、まだないファイルの有無も、--delete の削除予定のファイルも変わらない |
+| REQ-cli-045 | dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target | src/cli/sync.rs の build_dry_run_targets_includes_would_merge（移し元に残した）。二つの書き込み先の merged に書き込む予定の二つのファイルが status "would merge" で並び、既存のファイルの中身も、まだないファイルの有無も、--delete の削除予定のファイルも変わらない |
 
 - tests/contract/cli_results.rs の sync の三件は、終了コードを `assert_ne!(exit_code, 0)` でしか見ていない。計画どおり三件の印に REQ-cli-044 を足したが、"partial" と "failed" で 2 になることは上の新しいテストが確かめる。summary を確かめていないため REQ-cli-042 は足していない。
 - a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds は cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code と同じ構成だが、終了コードが 2 であることを確かめるために書いた。cli_results.rs は印の行を足すことだけが計画の範囲のため、そちらの確かめ方は変えていない。
@@ -169,3 +169,5 @@ src/service/types.rs から移して消した sync_target_result_deleted_empty_i
 - 消す 2 件: validate_empty_paths は実行ファイルから届かない分岐、validate_rejects_invalid_format は sync を通らない共有の解析を見る重複のため。
 - build_dry_run_targets_includes_connection_failures: 要件の根拠にはならないが、実装詳細をなぞるだけでも重複でもない純粋関数の単体テストのため残す。
 - 戻す 17 件: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストのため残す。status とバックアップ・rollback の整理で純粋関数の単体テストを残した判断と同じ。消すかどうかを利用者が判断する前に消されていたため戻す。
+
+17 件と、それに伴って消していた src/service/sync.rs のテスト用の補助関数 make_target_result と make_sync_output を、消す前のコミット 0c40566 の内容のまま移し元に戻した。その後に決まった 2 件だけを消した。

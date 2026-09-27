@@ -475,6 +475,61 @@ mod tests {
         assert!(format!("{}", result.unwrap_err()).contains("must be different"));
     }
 
+    // ── resolve_source_pairs ──
+
+    #[test]
+    fn resolve_source_pairs_two_servers() {
+        let config = test_config();
+        let pairs =
+            resolve_source_pairs("local", &["develop".into(), "staging".into()], &config).unwrap();
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].left, Side::Local);
+        assert_eq!(pairs[0].right, Side::Remote("develop".into()));
+        assert_eq!(pairs[1].left, Side::Local);
+        assert_eq!(pairs[1].right, Side::Remote("staging".into()));
+    }
+
+    #[test]
+    fn resolve_source_pairs_duplicate_server_error() {
+        let config = test_config();
+        let result = resolve_source_pairs("local", &["develop".into(), "develop".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("Duplicate"),
+            "expected 'Duplicate' in error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn resolve_source_pairs_unknown_server_error() {
+        let config = test_config();
+        let result =
+            resolve_source_pairs("local", &["develop".into(), "nonexistent".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("not found"),
+            "expected 'not found' in error: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn resolve_source_pairs_left_equals_right_error() {
+        let config = test_config();
+        let result =
+            resolve_source_pairs("develop", &["staging".into(), "develop".into()], &config);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("must be different"),
+            "expected 'must be different' in error: {}",
+            err_msg
+        );
+    }
+
     #[test]
     fn test_implicit_right_error_message_contains_context() {
         // --left develop のみ → デフォルトが develop → 暗黙解決のコンテキスト付きエラー
