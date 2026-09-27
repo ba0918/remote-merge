@@ -739,7 +739,7 @@ fn json_diff_returns_a_parseable_error_when_configuration_is_invalid() {
     );
 }
 
-// @kotowari[EX-cli-037, REQ-cli-041, REQ-cli-044]
+// @kotowari[EX-cli-037, REQ-cli-041]
 #[cfg(unix)]
 #[test]
 fn a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code() {
@@ -812,7 +812,7 @@ fn every_successful_sync_target_returns_a_zero_exit_code() {
     );
 }
 
-// @kotowari[EX-merge-030, REQ-cli-044]
+// @kotowari[EX-merge-030]
 #[test]
 fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
     let fixture = sync_fixture();
