@@ -163,4 +163,9 @@ src/service/types.rs から移して消した sync_target_result_deleted_empty_i
 
 ### 判断の結果
 
-（利用者の返答を待っている。消すものの一覧をここに書き足してから削除する。）
+利用者は validate_empty_paths と validate_rejects_invalid_format の 2 件を消し、build_dry_run_targets_includes_connection_failures は残すと決めた。
+あわせて、移した時点で移し元から消した純粋関数の単体テスト 17 件（src/service/source_pair.rs の 4 件、src/cli/sync.rs の 5 件、src/service/sync.rs の 7 件、src/service/types.rs の 2 件）は、移し元に戻して残すと決めた。
+
+- 消す 2 件: validate_empty_paths は実行ファイルから届かない分岐、validate_rejects_invalid_format は sync を通らない共有の解析を見る重複のため。
+- build_dry_run_targets_includes_connection_failures: 要件の根拠にはならないが、実装詳細をなぞるだけでも重複でもない純粋関数の単体テストのため残す。
+- 戻す 17 件: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストのため残す。status とバックアップ・rollback の整理で純粋関数の単体テストを残した判断と同じ。消すかどうかを利用者が判断する前に消されていたため戻す。
