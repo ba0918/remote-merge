@@ -80,7 +80,7 @@ scripts/mutants.sh src/service/sync.rs src/cli/sync.rs src/service/source_pair.r
 関数呼び出しのテストは `force: true`（dry-run のテストは `dry_run: true`）を渡し、確認のプロンプトがテストのプロセスの標準入力を読まないようにした。
 一つの要件に複数の場合があるときは、場合ごとのテストに同じ要件の印を付け、印の付いたテストを合わせて要件の文を全て確かめる。
 新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
-src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` を通す根拠テストで確かめたものは、いったん移し元から消した（計画の「移したテストは移し元から消える」による）が、削除候補への利用者の判断で 17 件とも移し元に戻して残した（下の「判断の結果」）。表の「移し元に残した」はこの 17 件を指す。
+src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` を通す根拠テストで確かめたものは、いったん移し元から消した（計画の「移したテストは移し元から消える」による）が、削除候補への利用者の判断で 18 件とも移し元に戻して残した（下の「判断の結果」）。表の「移し元に残した」はこの 18 件を指す。
 
 ### 指定（REQ-cli-038）
 
@@ -106,8 +106,9 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 | REQ-cli-040（書き込む予定のない書き込み先） | a_target_with_nothing_to_write_has_no_plan_line | staging に書き込む予定がない構成で、develop の行はあり staging の行がない |
 | REQ-cli-040（それ以外の答え） | any_other_answer_cancels_without_writing_and_exits_with_zero | "n"、"N"、空行、"yes" のそれぞれで "Sync cancelled." が出て、終了コード 0 で、両方の書き込み先の二つのファイルが変わらない |
 | REQ-cli-040（尋ねない場合） | force_dry_run_and_nothing_to_write_do_not_ask | --force（書き込まれる）、--dry-run（書き込まれない）、書き込む予定がない構成のそれぞれで "Proceed? [y/N] " が出ない。標準入力は閉じてある |
+| REQ-cli-040（片方の予定だけの書き込み先） | a_target_with_only_merges_or_only_deletions_still_has_a_plan_line | 後の「見逃しの決着」で足した。書き込むファイルだけがある develop と削除予定だけがある staging のそれぞれに行があり、"1 files to merge"・"1 files to delete" を含む。件数が 0 の部分を出すか省くかは確かめない（FLAG-cli-015） |
 
-- 件数が 0 の部分を省いた行（例: 削除予定のない書き込み先の "[先] N files to merge"）は、IR と一致するとみなすかの判断が要るため確かめない。確認のテストは、どの書き込み先も書き込むファイルと削除予定の両方を持つか、どちらも持たない構成にした。
+- 件数が 0 の部分を省いた行（例: 削除予定のない書き込み先の "[先] N files to merge"）は、IR と一致するとみなすかの判断が要るため確かめない。最初に書いた確認のテスト（表の最後の行を除く四件）は、どの書き込み先も書き込むファイルと削除予定の両方を持つか、どちらも持たない構成にした。後で足した a_target_with_only_merges_or_only_deletions_still_has_a_plan_line は片方の予定だけの書き込み先を使うが、行があることと件数の部分を含むことだけを確かめ、件数が 0 の部分の出し方は決めない（FLAG-cli-015 の範囲）。
 - "y" で書き込んだ後に削除が行われたかは確かめない（削除の成否と状態は FLAG-cli-011 の範囲）。確認を断ったときの標準出力は FLAG-cli-007 の範囲のため確かめない。
 
 ### 状態・集計・JSON・終了コード・dry-run（REQ-cli-041 から REQ-cli-045）
@@ -130,7 +131,7 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 | REQ-cli-044（エラーで止まった → 2） | a_sync_stopped_by_an_error_exits_with_two | 新しく書いた。設定にないサーバ名と、--right の名前の重なりで、実行ファイルの終了コードが 2 になり書き込み先が変わらない |
 | REQ-cli-045 | dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target | src/cli/sync.rs の build_dry_run_targets_includes_would_merge（移し元に残した）。二つの書き込み先の merged に書き込む予定の二つのファイルが status "would merge" で並び、既存のファイルの中身も、まだないファイルの有無も、--delete の削除予定のファイルも変わらない |
 
-- tests/contract/cli_results.rs の sync の三件は、終了コードを `assert_ne!(exit_code, 0)` でしか見ていない。計画どおり三件の印に REQ-cli-044 を足したが、"partial" と "failed" で 2 になることは上の新しいテストが確かめる。summary を確かめていないため REQ-cli-042 は足していない。
+- tests/contract/cli_results.rs の sync の三件のうち、失敗を扱う二件（a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code と a_connection_failure_on_one_target_does_not_prevent_the_other_sync）は、終了コードを `assert_ne!(result.exit_code, 0)` でしか見ていない（every_successful_sync_target_returns_a_zero_exit_code は `assert_eq!(result.exit_code, 0)` で 0 と一致することを見る）。計画どおり三件の印に REQ-cli-044 を足したが、"partial" と "failed" で 2 になることは上の新しいテストが確かめる。summary を確かめていないため REQ-cli-042 は足していない。
 - a_failed_target_makes_the_exit_code_two_even_when_another_target_succeeds は cli_results.rs の a_failed_sync_target_is_reported_separately_with_a_nonzero_exit_code と同じ構成だが、終了コードが 2 であることを確かめるために書いた。cli_results.rs は印の行を足すことだけが計画の範囲のため、そちらの確かめ方は変えていない。
 - dry-run の deleted の中身（FLAG-cli-013）、読めないファイルを含む dry-run の状態と終了コード（FLAG-cli-014）、接続に失敗した書き込み先の並び（FLAG-cli-008）は確かめない。削除は "success" か "partial" になる書き込み先（書き込めたファイルがある書き込み先）にだけ置き、削除の成否が状態を変えうる構成（FLAG-cli-011）を避けた。
 - src/cli/sync.rs の build_dry_run_targets_includes_connection_failures は、接続に失敗した書き込み先の dry-run での状態だけを確かめ REQ-cli-045 の根拠にならないため移さず、削除候補に挙げる。
@@ -140,8 +141,10 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 整理の計画で削除を利用者が一括で判断する段の入力。
 利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除する。
 
+この節の一覧と説明は、利用者の判断の前（S5 の判断の前）の状態を書いたもので、判断の後の状態は下の「判断の結果」による。
+
 一覧は計画が名指しした 3 件だけになった。
-上の審査で根拠にしたテストの元のテストは、計画の指示どおり移した時点で移し元から消したため（計 17 件。各節の表の「移して消した」）、ここには含めない。
+上の審査で根拠にしたテストの元のテスト（計 18 件）は、S5 の判断の前の状態では、計画の指示どおり移した時点で移し元から消していたため、ここには含めなかった。判断の結果、この 18 件は移し元に戻した（各節の表の「移し元に残した」）。
 根拠にしなかった重複テストは、削除できるファイル（src/cli/sync.rs、src/service/sync.rs、src/service/source_pair.rs、src/service/types.rs のテスト部分）に残っていなかった。
 「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめているテスト（モジュール名は tests/contract/ の下のファイル名）。
 「変異テストの裏付け」は、そのテストを消したときに整理後の変異テストの見逃しの増減として現れうるかを書いた。
@@ -150,7 +153,7 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 |---|---|---|---|
 | src/cli/sync.rs | validate_empty_paths | パスがないときの `validate_sync_args` のエラーを見る。パスの必須は `src/main.rs` の clap の `required = true` が `execute_sync` より前に止めるため、この分岐は実行ファイルからは届かない。パスを省いた sync の扱いは FLAG-cli-006 で未決で、その挙動は clap の側にある。代わりの根拠はない | なし。この分岐には変異が入らず（`is_empty()` の呼び出しは変異の対象にならない）、消しても見逃しとして現れない |
 | src/cli/sync.rs | validate_rejects_invalid_format | sync の入口ではなく、status・diff・merge と共有する `OutputFormat::parse` が未知の形式を拒むことを見る。sync の IR は形式の拒否を定めていない。同じ関数は src/service/output.rs の test_output_format_parse と status_output の format_accepts_text_json_and_diff_as_text_and_rejects_other_values が確かめて残る | なし。src/service/output.rs は変異テストの対象外 |
-| src/cli/sync.rs | build_dry_run_targets_includes_connection_failures | 接続に失敗した書き込み先の dry-run での状態だけを見るため、REQ-cli-045 の根拠にならない。接続に失敗した書き込み先の並び（FLAG-cli-008）に関わる。代わりの根拠はない（接続に失敗した書き込み先は、dry-run でない経路で cli_results の a_connection_failure_on_one_target_does_not_prevent_the_other_sync が見る） | 一部。整理前は `build_dry_run_targets` を `vec![]` にする変異をこのテストと build_dry_run_targets_includes_would_merge（移して消した）が検知していた。今は sync_results の dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target も検知しうる。接続に失敗した書き込み先を足す部分には変異が入らない |
+| src/cli/sync.rs | build_dry_run_targets_includes_connection_failures | 接続に失敗した書き込み先の dry-run での状態だけを見るため、REQ-cli-045 の根拠にならない。接続に失敗した書き込み先の並び（FLAG-cli-008）に関わる。代わりの根拠はない（接続に失敗した書き込み先は、dry-run でない経路で cli_results の a_connection_failure_on_one_target_does_not_prevent_the_other_sync が見る） | 一部。整理前は `build_dry_run_targets` を `vec![]` にする変異をこのテストと build_dry_run_targets_includes_would_merge が検知していた。S5 の判断の前の状態では build_dry_run_targets_includes_would_merge を移して消していたが、判断の結果、移し元に戻した。ほかに sync_results の dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target も検知しうる。接続に失敗した書き込み先を足す部分には変異が入らない |
 
 候補にしていないもの:
 
@@ -159,18 +162,18 @@ src/ の中の単体テストのうち、同じ振る舞いを `execute_sync` �
 - src/service/types.rs の delete_file_result_backup_none_omitted と delete_status_serializes_lowercase。deleted の要素の形は merge の --delete と共有し、sync の IR は deleted の要素の形を定めていないため。
 - src/service/source_pair.rs に残るテスト（status・diff・merge の左右の決め方と参照先の解決。status の整理で残すと決めたもの）。
 
-src/service/types.rs から移して消した sync_target_result_deleted_empty_included と sync_target_status_serializes_lowercase は、src/service/types.rs が変異テストの対象外のため、整理後の変異テストの裏付けがない。同じ直列化の属性（`deleted` の `#[serde(default)]` と空でも出すこと、`SyncTargetStatus` の小文字）は sync_results の json_has_the_source_every_target_with_lowercase_status_and_the_summary が確かめて残る。
+src/service/types.rs の sync_target_result_deleted_empty_included と sync_target_status_serializes_lowercase は、S5 の判断の前の状態では移して消していた（判断の結果、移し元に戻した）。src/service/types.rs は変異テストの対象外のため、この二件が確かめる振る舞いには整理前も整理後も変異テストの裏付けがない。同じ直列化の属性（`deleted` の `#[serde(default)]` と空でも出すこと、`SyncTargetStatus` の小文字）は sync_results の json_has_the_source_every_target_with_lowercase_status_and_the_summary が確かめて残る。
 
 ### 判断の結果
 
 利用者は validate_empty_paths と validate_rejects_invalid_format の 2 件を消し、build_dry_run_targets_includes_connection_failures は残すと決めた。
-あわせて、移した時点で移し元から消した純粋関数の単体テスト 17 件（src/service/source_pair.rs の 4 件、src/cli/sync.rs の 5 件、src/service/sync.rs の 7 件、src/service/types.rs の 2 件）は、移し元に戻して残すと決めた。
+あわせて、移した時点で移し元から消した純粋関数の単体テスト 18 件（src/service/source_pair.rs の 4 件、src/cli/sync.rs の 5 件、src/service/sync.rs の 7 件、src/service/types.rs の 2 件）は、移し元に戻して残すと決めた。
 
 - 消す 2 件: validate_empty_paths は実行ファイルから届かない分岐、validate_rejects_invalid_format は sync を通らない共有の解析を見る重複のため。
 - build_dry_run_targets_includes_connection_failures: 要件の根拠にはならないが、実装詳細をなぞるだけでも重複でもない純粋関数の単体テストのため残す。
-- 戻す 17 件: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストのため残す。status とバックアップ・rollback の整理で純粋関数の単体テストを残した判断と同じ。消すかどうかを利用者が判断する前に消されていたため戻す。
+- 戻す 18 件: 公開された入口を通す根拠テストと振る舞いは重なるが、失敗の場所がすぐ分かる速い単体テストのため残す。status とバックアップ・rollback の整理で純粋関数の単体テストを残した判断と同じ。消すかどうかを利用者が判断する前に消されていたため戻す。
 
-17 件と、それに伴って消していた src/service/sync.rs のテスト用の補助関数 make_target_result と make_sync_output を、消す前のコミット 0c40566 の内容のまま移し元に戻した。その後に決まった 2 件だけを消した。
+18 件と、それに伴って消していた src/service/sync.rs のテスト用の補助関数 make_target_result と make_sync_output を、消す前のコミット 0c40566 の内容のまま移し元に戻した。その後に決まった 2 件だけを消した。
 
 決まった 2 件だけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2,860 件）。
 
@@ -200,7 +203,7 @@ scripts/mutants.sh src/service/sync.rs src/cli/sync.rs src/service/source_pair.r
 
 - :87 の `Ok(0)`・`Ok(-1)`: sync_cli の a_sync_stopped_by_an_error_exits_with_two
 - :298 の `delete !`（確認の答えの判定）: sync_cli の any_other_answer_cancels_without_writing_and_exits_with_zero と the_plan_of_every_target_is_shown_and_asked_once_and_y_writes
-- :548 の `replace print_sync_plan with ()` と、:557・:559・:562 の `==` と `>=`（:557 のみ）と `<`（:559・:562）の八件: sync_cli の a_target_with_nothing_to_write_has_no_plan_line か the_plan_of_every_target_is_shown_and_asked_once_and_y_writes
+- :548 の `replace print_sync_plan with ()` と、:557・:559・:562 の `==` と `>=`（:557 のみ）と `<`（:559・:562）の九件: sync_cli の a_target_with_nothing_to_write_has_no_plan_line か the_plan_of_every_target_is_shown_and_asked_once_and_y_writes
 - src/service/sync.rs:57 の `replace == with != in compute_sync_summary`: sync_results の summary_counts_targets_successful_targets_and_files_across_every_target と json_has_the_source_every_target_with_lowercase_status_and_the_summary
 
 ### 見逃しの決着
