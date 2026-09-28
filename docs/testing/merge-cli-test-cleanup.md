@@ -114,3 +114,20 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 | REQ-cli-048（failed の path・error） | json_has_failed_files_with_path_and_error | 新しく書いた。参照先に対する競合で、failed の要素の path と空でない error を確かめる |
 
 - tests/contract/cli_results.rs の merge のテストには印の ID を足さなかった。dry_run_reports_the_merge_without_changing_the_destination と explicit_source_and_destination_merge_the_requested_file は `execute_merge` の結果の構造体を見ており、--format json の出力の形（項目の有無と名前）を確かめないため。explicit_source_and_destination_merge_the_requested_file は status の値も見ない。どちらのテストの本体も変えていない。
+
+### テキスト出力と左右と同じ参照先（REQ-cli-049、REQ-cli-050）
+
+根拠テストは `tests/contract/merge_cli_ssh.rs` にある。
+標準出力への振り分け（非公開の `print_merge_result`）と標準エラーへの警告を含めて確かめるため、隔離された SSH fixture（`CliEnv::new_3way`）に対して実行ファイルを起動する。SSH fixture を使うため、ほかの SSH のテストと同じく `test-utils` の feature があるときだけ組み込む。
+どのテストも --left local --right develop とし、参照先を使うときは --ref staging にして、--force も --dry-run も（dry-run の行を除き）付けない（リモート間の merge を止める挙動 FLAG-cli-020 と --force の働き FLAG-cli-021 に触れない）。
+スキップの出ない構成だけを使い、行は標準出力の行の並びと完全に一致することを確かめる。
+`CliEnv` の設定ファイルには `[backup]` の節がないためバックアップは有効で、集約先は fixture の XDG_DATA_HOME の下に書かれる（テストの中でそのディレクトリがあることを確かめる）。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-049（"Merged: パス" と " (backup: …)"） | a_written_file_is_reported_as_merged_with_its_backup | tests/cli_merge.rs の test_merge_writes_file と test_merge_duplicate_paths_deduplicated（"Merged:" の数だけを見る）、src/service/output.rs の test_format_merge_text_actual_backup_path と test_format_merge_text。標準出力がちょうど一行の "Merged: file.txt (backup: …)" で、括弧の中が空でない |
+| REQ-cli-049（バックアップのない "Merged: パス"） | a_written_file_without_a_backup_is_reported_as_merged | src/service/output.rs の test_format_merge_text。設定ファイルに `[backup]` と `enabled = false` を書き足し、標準出力がちょうど "Merged: file.txt" |
+| REQ-cli-049（"Would merge: パス"） | dry_run_reports_the_planned_file_as_would_merge | tests/cli_merge.rs の test_merge_dry_run_shows_plan（"Would merge:" を含むことだけを見る）と src/service/output.rs の test_format_merge_text_dry_run_prefix、test_format_merge_text_dryrun_no_backup。標準出力がちょうど "Would merge: file.txt" で、書き込み先が変わらない |
+| REQ-cli-049（"Failed: パス (理由)"） | a_failed_file_is_reported_with_its_reason | 新しく書いた。local・develop・staging に競合する中身を置き --ref staging で起動し、標準出力がちょうど "Failed: file.txt (three-way conflict)" で、書き込み先が変わらない |
+| REQ-cli-049（"no files to merge in the specified path(s)"） | nothing_to_merge_is_reported_as_no_files_to_merge | tests/cli_merge.rs の test_merge_equal_file_skipped（"no files to merge" を含むことだけを見る）と src/service/output.rs の test_format_merge_outcome_text_no_files、test_format_merge_outcome_text_success。同じ中身の file.txt で、標準出力がちょうどその一行 |
+| REQ-cli-050 | a_reference_equal_to_either_side_is_warned_about_and_not_used | src/cli/ref_guard.rs の ref_same_as_left_returns_none、ref_same_as_right_returns_none（ref_different_returns_some、ref_none_returns_none も審査した）。--ref local（左と同じ）と --ref develop（右と同じ）のそれぞれで、標準エラーの一行が要件の文言と一致し、終了コード 0 で書き込み先が更新され、--format json の出力に ref の項目がない |
