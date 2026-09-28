@@ -62,24 +62,34 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 
 ## 整理後の変異テスト
 
-変異テストは決着の対象の関数に絞って一度だけ実行した。並列数は既定の 2 である。
+変異テストは決着の対象の関数に絞って実行した。並列数は既定の 2 である。
+最後の結果は、テストを足し・消し・変えた後のコミット ba5fe02 での実行で、その前にコミット 72c32e1 で一度実行しており、下で比べる。
 
 ```sh
 scripts/mutants.sh --re '(should_exclude|is_path_excluded|normalize_include_paths|is_path_included|is_sensitive|resolve_scan_roots|merge_configs)' src/filter.rs src/service/status.rs src/local/mod.rs src/config.rs
 ```
 
-コミット 72c32e1（S2 までのテストと記録）で、作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
-結果は `mutants: caught=46 survived=1 timeout=0 unviable=1 equivalent=0`（48 件、約 13 分）だった。
-スクリプトの終了コードは 1（kotowari mutants が 1 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
-48 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異は一件も出なかった（他の関数のものも混ざらなかった）。
-見逃しを落とすためのテストは足していないため、回し直していない。
+どちらの実行も、作業ツリーに変更のない状態で行い、実行中は作業ツリーに触れていない。
 
-関数ごとの内訳（`outcomes.json` から数えた）は次のとおり。
+- ba5fe02（"*" と "?" を含む include の値のテストと、SSH の走査で "./" を確かめるテストを足し、"./" も末尾の "/" も見分けられないテストを消し、exclude のパス全体のパターンのテストから "config/sub/a.toml" を外した後）: `mutants: caught=47 survived=0 timeout=0 unviable=1 equivalent=0`（48 件、約 13 分）。スクリプトの終了コードは 0。
+- 72c32e1（S2 までのテストと記録）: `mutants: caught=46 survived=1 timeout=0 unviable=1 equivalent=0`（48 件、約 13 分）。スクリプトの終了コードは 1（kotowari mutants が 1 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
+
+どちらも 48 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異は一件も出なかった（他の関数のものも混ざらなかった）。
+
+### 72c32e1 との比較
+
+変異の 48 件は同じ位置で、結果が変わったのは src/filter.rs:62:35（replace || with && in is_path_excluded）の一件だけである。72c32e1 では見逃しだったが、ba5fe02 では caught と数えられた。
+ただし、この変異を検知したのは tests/tui_merge.rs の test_sensitive_file_merge_requires_confirmation・test_merge_cancel_with_n・test_hunk_merge_right_to_left_with_h_key・test_hunk_merge_left_to_right_with_l だけだった。
+変異を一時的に書き入れてこの 4 件だけを `cargo nextest run --all-features --no-fail-fast --test tui_merge -E '…'` で回し直すと、4 件とも通った（その後 `git checkout src/filter.rs` で戻し、`git diff --stat src/` が空に戻ることを確かめた）。
+そのため、この検知は変異によるものではなく、負荷の下で落ちるテストが落ちたものと判断し、62:35 は 72c32e1 と同じく見逃しとして扱う（下の「見逃しと決着」）。
+足したテスト・消したテスト・変えたテストで結果の変わった変異はなく、新しい見逃しもない。
+
+関数ごとの内訳（ba5fe02 の `outcomes.json` から数えた）は次のとおり。括弧の中は 72c32e1 での数で、違うものだけ書いた。
 
 | 関数 | caught | survived | unviable |
 |---|---|---|---|
 | should_exclude | 2 | 0 | 0 |
-| is_path_excluded | 5 | 1 | 0 |
+| is_path_excluded | 6（5） | 0（1） | 0 |
 | normalize_include_paths | 15 | 0 | 0 |
 | is_path_included | 7 | 0 | 0 |
 | is_sensitive | 3 | 0 | 0 |
@@ -93,15 +103,15 @@ unviable の 1 件は src/config.rs:511:5（`merge_configs` を `Ok(Default::def
 
 ### 検知したテスト
 
-検知した 46 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+ba5fe02 で検知したと数えられた 47 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
 nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
-負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異はなかった。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は、ba5fe02 の src/filter.rs:62:35 の一件で、上の比較のとおり見逃しとして扱う。
 
 - 足したテストが先に失敗したもの:
   - src/config.rs:561:20（delete ! in merge_configs、グローバル設定の sensitive を足すときの重複除き）: sensitive_pattern_in_the_global_config_is_added_to_the_defaults
   - src/config.rs:585:24（delete ! in merge_configs、プロジェクト設定の sensitive を足すときの重複除き）: sensitive_pattern_in_the_project_config_is_added_to_the_defaults
   - src/config.rs:607:8（delete ! in merge_configs、include が空でないときだけ整える分岐）: empty_include_value_is_ignored・absolute_traversal_and_glob_include_values_are_ignored
-- 他の変異は src/filter.rs・src/config.rs・src/local/mod.rs・src/service/status.rs・src/app/report.rs・src/agent/ の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined・status_excludes_files_matching_either_configuration_level）が先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
+- 他の変異は src/filter.rs・src/config.rs・src/local/mod.rs・src/service/status.rs・src/app/report.rs・src/app/selection.rs・src/agent/ の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined・status_excludes_files_matching_either_configuration_level）が先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
 
 ### 前の回から引き継いだ二件
 
@@ -122,7 +132,7 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 
 | 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
 |---|---|---|---|---|
-| src/filter.rs:62:35 | replace \|\| with && in is_path_excluded | "dir/**" の形のパターンでディレクトリそのものを外す枝刈り（`if path == prefix \|\| glob_match::glob_match(prefix, path)`） | 対象でない（TUI のツリーの表示の範囲） | 記録だけする。変異で変わるのは、prefix に glob 文字を含み（例 "vendor/*/**"）path が prefix と文字として違うディレクトリ（例 "vendor/x"）を外すかどうかだけである。その下のファイル（"vendor/x/a.txt"）はパス全体の glob（`glob_match(pattern, path)`）で外れるため、status のファイルの一覧は変わらず、ディレクトリの行を出す TUI のツリーでだけ見える（実装を読んだ判断で、TUI で実行しての確認はしていない）。既存の単体テスト（src/filter.rs の test_path_pattern_vendor_legacy など）でも落ちていない。prefix に glob 文字を含まない "vendor/legacy/**" では、`path == prefix` が真なら `glob_match(prefix, path)` も真のため、変異の前後で結果が変わらない |
+| src/filter.rs:62:35 | replace \|\| with && in is_path_excluded | "dir/**" の形のパターンでディレクトリそのものを外す枝刈り（`if path == prefix \|\| glob_match::glob_match(prefix, path)`） | 対象でない（TUI のツリーの表示の範囲） | 記録だけする。変異で変わるのは、prefix に glob 文字を含み（例 "vendor/*/**"）path が prefix と文字として違うディレクトリ（例 "vendor/x"）を外すかどうかだけである。その下のファイル（"vendor/x/a.txt"）はパス全体の glob（`glob_match(pattern, path)`）で外れるため、status のファイルの一覧は変わらず、ディレクトリの行を出す TUI のツリーでだけ見える（実装を読んだ判断で、TUI で実行しての確認はしていない）。既存の単体テスト（src/filter.rs の test_path_pattern_vendor_legacy など）でも落ちていない。prefix に glob 文字を含まない "vendor/legacy/**" では、`path == prefix` が真なら `glob_match(prefix, path)` も真のため、変異の前後で結果が変わらない。72c32e1 では見逃し、ba5fe02 では tui_merge の 4 件の負荷による失敗で caught と数えられたが、変異の下で 4 件を回し直すと通ったため見逃しとして扱う（上の「72c32e1 との比較」） |
 
 決着の対象の見逃しは残っていない。見逃しや新しいテストが不具合の疑いを示したものはない。同等変異の登録はしていない。
 
