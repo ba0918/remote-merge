@@ -67,3 +67,92 @@ strict_host_key_checking の警告は標準エラーに出て関数呼び出し�
 - 否定側の失敗の理由は、テストを書くときに一度だけ JSON を表示して確かめた（コミットには含めていない）。(b) と (d) のどちらも "SSH authentication failed (user: fixture-user@127.0.0.1)" で、パスワード認証の失敗だった。
 - REQ-config-020 の二つの起動は、どちらも終了コード 2 で "Error: Failed to load SSH private key: パス" を標準エラーに出した（同じく一度だけ表示して確かめた）。HOME を一時ディレクトリに向けると、"~/" は利用者のホームではなくその HOME に展開される。
 - REQ-config-019 の (c) と (d) では設定の password を使うため平文の警告（FLAG-config-011）が出るが、その有無は確かめない。パスワードが環境変数にも設定にもない組み合わせは FLAG-config-011 に当たるため使わない。
+
+## 整理後の変異テスト
+
+変異テストは決着の対象の関数に絞って実行した。並列数は既定の 2 である。
+計画の Approach and why の形（`authenticate\b`。`authenticate_or_disconnect` を含めない）で実行した。計画の S3 の Shown by の行は `\b` のない形だが、Approach and why が理由とともに `\b` の形を定めているため、そちらに合わせた。
+
+```sh
+scripts/mutants.sh --re '(parse_permissions|resolve_file_permissions|resolve_dir_permissions|validate_max_scan_entries|validate_badge_scan_max_files|resolve_max_entries|parse_strict_host_key_checking|convert_server_config|convert_defaults_config|resolve_password|authenticate\b)' src/config.rs src/ssh/client.rs
+```
+
+一度目はコミット b6cfe81（S2 までのテストと記録）で実行し、`mutants: caught=36 survived=6 timeout=0 unviable=9 equivalent=0`（51 件、約 13 分）だった。
+見逃しのうち src/config.rs:761:9（delete match arm "ask" in parse_strict_host_key_checking）は決着の対象だったため、テストを足して（下の「見逃しと決着」）、そのコミット e01e78d で作業ツリーに変更のない状態で回し直した。
+最後の結果はこの二度目のもので、`mutants: caught=37 survived=5 timeout=0 unviable=9 equivalent=0`（51 件、約 14 分）である。
+スクリプトの終了コードはどちらも 1（kotowari mutants が見逃しを error として報告したため。メモリ上限での停止ではない）。
+一度目と二度目で結果が変わったのは 761:9 が survived から caught になった一件だけである。
+
+関数ごとの内訳（e01e78d の `outcomes.json` から数えた）は次のとおり。
+
+| 関数 | caught | survived | unviable |
+|---|---|---|---|
+| validate_badge_scan_max_files | 6 | 0 | 0 |
+| validate_max_scan_entries | 6 | 0 | 0 |
+| resolve_max_entries | 2 | 0 | 0 |
+| parse_permissions | 6 | 0 | 0 |
+| parse_permissions_field | 2 | 0 | 0 |
+| resolve_file_permissions | 2 | 0 | 0 |
+| resolve_dir_permissions | 2 | 0 | 0 |
+| parse_strict_host_key_checking | 3 | 0 | 1 |
+| convert_defaults_config | 1 | 0 | 0 |
+| convert_server_config | 1 | 2 | 1 |
+| resolve_password | 2 | 0 | 7 |
+| SshClient::authenticate | 4 | 0 | 0 |
+| SshClient::build_client_config（正規表現に一致しない。構造体のフィールドを消す変異） | 0 | 3 | 0 |
+
+unviable の 9 件は、`parse_strict_host_key_checking` を `Default::default()` にする変異、`convert_server_config` を `Ok(Default::default())` にする変異、`resolve_password` の返り値を `Some((…, Default::default()))` にする 7 件で、`StrictHostKeyChecking`・`ServerConfig`・`PasswordSource` が `Default` を実装しないため組み立てられない。
+
+### 前の回との比較（convert_server_config と convert_defaults_config）
+
+前の回（[記録](./config-loading-test-cleanup.md)の d962aaf）では `convert_server_config` が caught 1・survived 2・unviable 1、`convert_defaults_config` が caught 1 だった。この回も同じ数で、見逃しは同じ src/config.rs:886:13 と 886:32 の二件である。
+前の回で値の検査の回に回したこの二件は、この回の取り込みで FLAG-config-010（auth が "key" のサーバの password の警告）になったため、その範囲として記録する（下の表）。
+
+### 検知したテスト
+
+検知した 37 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
+
+- 足したテストが先に失敗したもの: src/config.rs:761:9（delete match arm "ask"）の ask_value_in_any_case_does_not_warn。
+- 他の変異は src/config.rs と src/ssh/client.rs の既存の単体テストか、SSH の試験サーバを使う既存の契約テストが先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
+- 負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は次の二件である。
+  - src/ssh/client.rs:379:27（replace == with != in SshClient::authenticate、設定の password を使うときの平文の警告の条件 `if source == PasswordSource::Config`）: tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l と test_hunk_merge_right_to_left_with_h_key だけで検知された。この変異で変わるのは tracing の警告を出す場合（設定の password のときに出さず、環境変数のときに出す）だけで、TUI のテストは警告を観測しない。そのため、この検知は変異によるものではなく、待ち時間に頼るテストが負荷の下で落ちたものと推測する（変異の下でそのテストを単独で回し直してはいない）。実質は見逃しで、平文の警告は FLAG-config-011 の範囲のため、この回では決着させない（下の「利用者の判断」の 2）。
+  - src/ssh/client.rs:363:20（delete ! in SshClient::authenticate、鍵認証の結果の判定 `if !auth_res.success()`）: tests/agent_ssh_deploy.rs の agent_ssh_exec_handshake・agent_ssh_list_tree_roundtrip・agent_ssh_ping_pong・agent_ssh_read_files_roundtrip の四つがそろって失敗した。変異は成功した鍵認証を失敗として扱うため、鍵認証で接続するこれらのテストが落ちるのは変異によるものと見られる（負荷による失敗かどうかは確かめていない）。鍵認証の成否は IR に要件がなく、この回の要件の範囲の外である。
+
+### 見逃しと決着
+
+計画の区別により、auth が "key" のサーバの password の警告（FLAG-config-010）、平文のパスワードの警告とパスワードがないとき（FLAG-config-011）、IR に要件のない認証の成否は決着の対象から外し、対象の関数の外の構造体のフィールドを消す変異は記録だけする。それ以外の見逃しは全て決着の対象にした。
+
+| 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
+|---|---|---|---|---|
+| src/config.rs:761:9 | delete match arm "ask" in parse_strict_host_key_checking | "ask" を ask として読む分岐 | 対象（REQ-config-018） | テストを足した（e01e78d で caught）。分岐を消しても知らない値の分岐が ask を返すため値は変わらず、警告が出るかどうかだけが変わる。REQ-config-018 は知らない値のときだけ警告を出すとするため区別できる。tests/contract/config_values_cli.rs の ask_value_in_any_case_does_not_warn（`@kotowari[REQ-config-018]`）で、同じ準備で "maybe" に警告が出ることと並べて、"ask" と "ASK" に警告が出ないことを確かめる。変異を一時的に書き入れてこのテストが落ちることを確かめ、`git diff --stat src/` が空に戻ることを確かめた |
+| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（FLAG-config-010） | 記録だけする。変わるのは tracing の警告を出すかどうかだけで、設定の値・標準出力・終了コードは変わらない |
+| src/config.rs:886:32 | replace && with \|\| in convert_server_config | 同じ行 | 対象でない（FLAG-config-010） | 同上 |
+| src/ssh/client.rs:213:13 | delete field inactivity_timeout from struct client::Config expression in SshClient::build_client_config | SSH の接続設定の無通信のタイムアウト | 対象でない（正規表現に一致しない関数の、構造体のフィールドを消す変異） | 記録だけする（下の「利用者の判断」の 1） |
+| src/ssh/client.rs:214:13 | delete field keepalive_interval from struct client::Config expression in SshClient::build_client_config | keepalive の間隔 | 同上 | 同上 |
+| src/ssh/client.rs:215:13 | delete field keepalive_max from struct client::Config expression in SshClient::build_client_config | keepalive の最大回数 | 同上 | 同上 |
+
+決着の対象の見逃しは残っていない。見逃しや新しいテストが不具合の疑いを示したものはない。同等変異の登録はしていない。
+
+## 要件の verification の見直し
+
+REQ-config-014 から 020 の verification は全て unit で、いずれも具体的な設定の値や環境変数の組み合わせで結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-config-014 | unit | TBL-config-002 の三行のそれぞれの値で、エラーの文言が決まる |
+| REQ-config-015 | unit | 四つのキーと、有限の書き方・三つの理由の組み合わせで、読んだ値かエラーの文言が決まる |
+| REQ-config-016 | unit | サーバと [defaults] のどちらに値があるかの三通りで、作られるものの権限が決まる |
+| REQ-config-017 | unit | TBL-config-003 の三行と範囲の両端・両外の値で、読んだ値かエラーの文言が決まる |
+| REQ-config-018 | unit | 有限の値の一覧と知らない値で、読んだ値と警告の有無が決まる |
+| REQ-config-019 | unit | 環境変数の有無・空・名前と設定の password の組み合わせで、使うパスワードが決まる |
+| REQ-config-020 | unit | key を省く・"~/" で始まるの二つの場面と HOME で、使う鍵のパスとエラーの文言が決まる |
+
+## 利用者の判断
+
+次の二つは計画の区別では記録だけのものだが、計画の Stop conditions（決着の対象でない見逃しが前の回の記録より増えた）に当たりうるため、利用者の判断を待つ。
+新しい FLAG の候補と verification の見直しの候補はない。
+
+1. src/ssh/client.rs:213:13・214:13・215:13 の構造体のフィールドを消す変異 3 件は、前の回に回していない src/ssh/client.rs を今回対象に含めたことで新しく出た、決着の対象でない見逃しである。前の回の記録の決着の対象でない見逃し（src/config.rs の 4 件）と比べると、この回の決着の対象でない見逃しは 5 件（886 の二件とこの三件）で、件数が増えた。IR に SSH の keepalive と無通信のタイムアウトの要件はない。推奨は、記録だけにとどめ、ssh の話題（REQ-ssh-*）を扱う回で要件にするかを判断すること。
+2. src/ssh/client.rs:379:27 は caught と数えられたが、上の「検知したテスト」のとおり実質は見逃しと推測され、FLAG-config-011 の範囲である。推奨は、FLAG-config-011 の決着のときに扱うこととし、この回ではテストを足さず、同等変異としても登録しないこと。
