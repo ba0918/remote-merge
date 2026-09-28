@@ -223,6 +223,25 @@ impl TestDirs {
         }
     }
 
+    /// 自分の設定ファイルと同じ隔離の確認を、テストが別に書いた設定ファイルにかける。
+    ///
+    /// `local_root` はその設定の [local] の root_dir として書いた値。
+    pub fn assert_isolated_config_at(&mut self, config_path: &Path, local_root: &Path) {
+        let own_config_path = std::mem::replace(
+            &mut self.config_path,
+            config_path.to_string_lossy().into_owned(),
+        );
+        let own_local_dir = std::mem::replace(&mut self.local_dir, local_root.to_path_buf());
+        self.assert_isolated_config();
+        self.config_path = own_config_path;
+        self.local_dir = own_local_dir;
+    }
+
+    /// このテスト自身が起動した SSH の試験サーバのポート
+    pub fn server_port(&self) -> u16 {
+        self._server.port()
+    }
+
     /// 2サーバー構成: local <-> develop(remote)
     pub fn new_2way(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
         let temp = TempDir::new().expect("Failed to create temp dir");
