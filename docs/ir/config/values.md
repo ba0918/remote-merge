@@ -50,10 +50,12 @@ auth が "password" のサーバのパスワードには、サーバ名を大文
 
 ### REQ-config-020: 鍵のパスの既定値と展開
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A7
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A7, docs/decision/records/2026-09-28-adopt-config-values.md#A12
 - verification: unit
 
 auth が "key" のサーバで key を省くと "~/.ssh/id_rsa" を使い、key が "~/" で始まるときはその部分を利用者のホームディレクトリに置き換える。
+
+鍵ファイルを読めないときは "Failed to load SSH private key: パス" のエラーで止まり、パスには key を省いたときは "~/.ssh/id_rsa" を、key を書いたときは置き換えた後のパスを示す。
 
 ## Decision tables
 
