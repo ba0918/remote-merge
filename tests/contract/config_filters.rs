@@ -268,12 +268,17 @@ fn absolute_traversal_and_glob_include_values_are_ignored() {
         "absolute/a.txt",
         "traversal/a.txt",
         "lib[1]/a.txt",
+        "lib*/a.txt",
+        "lib?/a.txt",
         "top.txt",
     ]);
     let absolute = workspace.local_root().join("absolute");
     assert!(absolute.is_dir());
+    for glob in ["lib[1]", "lib*", "lib?"] {
+        assert!(workspace.local_root().join(glob).is_dir());
+    }
     let filter = format!(
-        "include = [{:?}, \"src/../traversal\", \"lib[1]\", \"src\"]",
+        "include = [{:?}, \"src/../traversal\", \"lib[1]\", \"lib*\", \"lib?\", \"src\"]",
         absolute.display().to_string()
     );
     assert_eq!(workspace.listed(&filter), set(&["src/a.txt"]));

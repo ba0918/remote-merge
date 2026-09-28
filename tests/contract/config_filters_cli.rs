@@ -64,25 +64,31 @@ fn absolute_traversal_and_glob_include_values_each_warn_with_the_value() {
     // （全て無効な include は FLAG-config-013 の範囲。整え方が壊れても走査が一時ディレクトリの外に向かわないようにする）
     let absolute = dirs.local_dir.join("src");
     let traversal = "src/../src";
-    let glob = "lib[1]";
+    let globs = ["lib[1]", "lib*", "lib?"];
     let base = gen_config(&dirs.local_dir, &dirs.remote_dir, None, dirs.server_port());
     let config = with_include(
         &base,
         &format!(
-            "include = [{}, {traversal:?}, {glob:?}, \"src\"]",
-            toml_string(&absolute)
+            "include = [{}, {traversal:?}, {}, \"src\"]",
+            toml_string(&absolute),
+            globs.map(|glob| format!("{glob:?}")).join(", ")
         ),
     );
     let output = status(&mut dirs, &config);
     let text = combined(&output);
+    let glob_warnings = globs
+        .iter()
+        .map(|glob| format!("Glob patterns are not supported in include filter: {glob}"));
     for expected in [
         format!(
             "Absolute path is not allowed in include filter: {}",
             absolute.display()
         ),
         format!("Path traversal is not allowed in include filter: {traversal}"),
-        format!("Glob patterns are not supported in include filter: {glob}"),
-    ] {
+    ]
+    .into_iter()
+    .chain(glob_warnings)
+    {
         assert!(text.contains(&expected), "{expected}: {output:?}");
     }
 }
