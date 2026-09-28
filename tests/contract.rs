@@ -22,6 +22,9 @@ mod cli_results;
 #[path = "contract/config_filters.rs"]
 mod config_filters;
 #[cfg(feature = "test-utils")]
+#[path = "contract/config_filters_cli.rs"]
+mod config_filters_cli;
+#[cfg(feature = "test-utils")]
 #[path = "contract/config_loading_cli.rs"]
 mod config_loading_cli;
 #[path = "contract/config_merging.rs"]
