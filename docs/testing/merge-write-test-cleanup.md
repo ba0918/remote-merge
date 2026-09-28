@@ -94,3 +94,13 @@ sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --forc
 - 構成: folder の下に、サイズと更新時刻が同じで中身が違う same-metadata.txt（書き込み先の更新時刻を `File::set_modified` で読み込み元に揃える）、サイズと中身が同じで書き込み先の更新時刻を 120 秒前にずらした same-bytes.txt、左右で中身の長さが違う対照の control.txt を置く。呼ぶ前に、秒単位の更新時刻が same-metadata.txt では同じで same-bytes.txt では 60 秒以上違うことを確かめる。
 - merge の結果が per-file の出力（`MergeCommandOutput::Files`）になることは `Fixture::merge_json` が確かめる（それ以外の出力では落ちる）。書き込むものがないときの出力は確かめない。
 - 一時的な書き換え（コミットに含めない）で、`needs_merge_content_compare` が常に --checksum のときの組を読み比べるようにすると、この二件が落ちることを確かめた。REQ-merge-019 の二件は、読めなかった側をつなぐ "; " を別の文字に変える書き換えで落ちることを確かめた。書き換えは元に戻した。
+
+### ディレクトリ指定と複数パスの書き込み（REQ-merge-021、REQ-merge-022）
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-merge-021 | directory_merge_overwrites_changed_files_creates_source_only_files_and_skips_equal_files | tests/cli_merge.rs の test_merge_directory（配下の二つのファイルが上書きされることだけを見る）。folder の merge で、左右で中身の長さが違う changed.txt が上書きされ、読み込み元にだけある new.txt が書き込み先に作られ、中身が同じ same.txt が merged に出ず中身と更新時刻が変わらないこと、merged がちょうどこの二件で、failed が空で終了コードが 0 であることを確かめる |
+| REQ-merge-022（二つのパス） | a_merge_of_two_paths_writes_each_of_them | tests/cli_merge.rs の test_merge_multiple_files。a.txt と b.txt を指定した merge で、merged がちょうどこの二件で、両方の中身が読み込み元に揃い、終了コードが 0 であることを確かめる |
+| REQ-merge-022（同じパスの重ね指定） | a_path_given_twice_is_written_once | tests/cli_merge.rs の test_merge_duplicate_paths_deduplicated（標準出力の "Merged:" の数を見る）。a.txt を二度指定した merge で、merged にちょうど一度だけ出て、failed が空で、終了コードが 0 であることを確かめる。failed の error の文言は確かめない |
+
+- REQ-merge-021 の構成には書き込み先にだけあるファイルを含めない（その扱いは symlink と削除の回の範囲）。

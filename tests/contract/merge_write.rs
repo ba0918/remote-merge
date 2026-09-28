@@ -181,3 +181,80 @@ fn directory_sync_without_checksum_writes_only_files_the_metadata_and_contents_s
     );
     assert_quick_check_left_unwritten(&fixture, same_bytes_time);
 }
+
+fn merged_paths(json: &serde_json::Value) -> Vec<&str> {
+    let mut paths: Vec<&str> = json["merged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect();
+    paths.sort();
+    paths
+}
+
+// @kotowari[REQ-merge-021]
+#[test]
+fn directory_merge_overwrites_changed_files_creates_source_only_files_and_skips_equal_files() {
+    let fixture = fixture();
+    fixture.create_dir("local", "folder");
+    fixture.create_dir("develop", "folder");
+    fixture.write("local", "folder/changed.txt", "a longer new version\n");
+    fixture.write("develop", "folder/changed.txt", "old\n");
+    fixture.write("local", "folder/new.txt", "only on the source\n");
+    fixture.write("local", "folder/same.txt", "same bytes\n");
+    fixture.write("develop", "folder/same.txt", "same bytes\n");
+    let same_time = fixture.modified("develop", "folder/same.txt");
+
+    let (json, code) = fixture.merge_json(args(&["folder"]));
+
+    assert_eq!(
+        merged_paths(&json),
+        ["folder/changed.txt", "folder/new.txt"],
+        "{json}"
+    );
+    assert_eq!(json["failed"], serde_json::json!([]), "{json}");
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(
+        fixture.read("develop", "folder/changed.txt"),
+        "a longer new version\n"
+    );
+    assert_eq!(
+        fixture.read("develop", "folder/new.txt"),
+        "only on the source\n"
+    );
+    assert_eq!(fixture.read("develop", "folder/same.txt"), "same bytes\n");
+    assert_eq!(fixture.modified("develop", "folder/same.txt"), same_time);
+}
+
+// @kotowari[REQ-merge-022]
+#[test]
+fn a_merge_of_two_paths_writes_each_of_them() {
+    let fixture = fixture();
+    fixture.write("local", "a.txt", "a new version\n");
+    fixture.write("develop", "a.txt", "a old\n");
+    fixture.write("local", "b.txt", "b new version\n");
+    fixture.write("develop", "b.txt", "b old\n");
+
+    let (json, code) = fixture.merge_json(args(&["a.txt", "b.txt"]));
+
+    assert_eq!(merged_paths(&json), ["a.txt", "b.txt"], "{json}");
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(fixture.read("develop", "a.txt"), "a new version\n");
+    assert_eq!(fixture.read("develop", "b.txt"), "b new version\n");
+}
+
+// @kotowari[REQ-merge-022]
+#[test]
+fn a_path_given_twice_is_written_once() {
+    let fixture = fixture();
+    fixture.write("local", "a.txt", "a new version\n");
+    fixture.write("develop", "a.txt", "a old\n");
+
+    let (json, code) = fixture.merge_json(args(&["a.txt", "a.txt"]));
+
+    assert_eq!(merged_paths(&json), ["a.txt"], "{json}");
+    assert_eq!(json["failed"], serde_json::json!([]), "{json}");
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(fixture.read("develop", "a.txt"), "a new version\n");
+}
