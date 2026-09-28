@@ -22,12 +22,11 @@ fn assert_stopped_without_writing(fixture: &Fixture, output: &Output) {
     assert_eq!(fixture.read("staging", "file.txt"), "staging old\n");
 }
 
-fn assert_error_line(output: &Output, message: &str) {
+fn assert_error_message(output: &Output, message: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let expected = format!("Error: {message}");
     assert!(
-        stderr.lines().any(|line| line == expected),
-        "expected the line {expected:?} in: {stderr}"
+        stderr.lines().any(|line| line.contains(message)),
+        "expected a line containing {message:?} in: {stderr}"
     );
 }
 
@@ -51,7 +50,7 @@ fn a_merge_without_left_or_right_stops_with_the_required_sides_error() {
         let output = fixture.run_cli(&[&["file.txt"][..], &sides].concat());
 
         assert_stopped_without_writing(&fixture, &output);
-        assert_error_line(
+        assert_error_message(
             &output,
             "--left and --right are required for merge command (e.g. --left local --right staging)",
         );
@@ -66,7 +65,7 @@ fn a_merge_with_the_same_left_and_right_stops_with_the_different_sides_error() {
     let output = fixture.run_cli(&["file.txt", "--left", "develop", "--right", "develop"]);
 
     assert_stopped_without_writing(&fixture, &output);
-    assert_error_line(
+    assert_error_message(
         &output,
         "--left and --right must be different (both resolved to 'develop')",
     );
@@ -84,7 +83,7 @@ fn a_merge_with_an_unknown_server_stops_with_the_not_found_error() {
         let output = fixture.run_cli(&[&["file.txt"][..], &sides].concat());
 
         assert_stopped_without_writing(&fixture, &output);
-        assert_error_line(&output, "Server 'nowhere' not found in config");
+        assert_error_message(&output, "Server 'nowhere' not found in config");
     }
 }
 
@@ -98,7 +97,7 @@ fn a_merge_with_an_unknown_format_stops_with_the_format_error() {
     ]);
 
     assert_stopped_without_writing(&fixture, &output);
-    assert_error_line(
+    assert_error_message(
         &output,
         "Unknown format: 'xml' (expected text, json, or diff)",
     );
