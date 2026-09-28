@@ -146,7 +146,18 @@ scripts/mutants.sh --re '(reference_check_failure|merge_hunks_in_display_hunks|e
 このテストは期待を改め、ファイル全体の merge の通常ファイルは `has_three_way_conflict` を通らなくなったため、二つの変異を落とさなくなった。
 `has_three_way_conflict` は今回の対象の関数でないため変異テストでは回していないが、コミットに含めない一時的な書き換えで二つの変異をそれぞれ入れて `cargo nextest run --all-features --no-fail-fast` を実行すると、どちらも 2932 件が全て通った（書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた）。
 この関数を今も使うのは --hunks の三者の競合の判定（REQ-merge-031）と symlink のファイル（FLAG-cli-027）である。
-UTF-8 として読めない中身でしか違いが出ず、--hunks はそのファイルをバイナリとしてエラーで止めるため、落とすテストはどちらのエラーが先に出るかという IR が決めていない点に触れる。この計画の範囲外のため、テストは足さず、扱いを利用者の判断に残す。
+UTF-8 として読めない中身でしか違いが出ない。
+用語集の 競合 は UTF-8 として読めないファイルを一つの場所として扱い、両側がそれを変えたときだけを競合とする。REQ-merge-031 は競合があるときだけ --hunks を止め、TBL-merge-001 はバイナリの読み込み元か書き込み先を "Hunk merge is not supported for binary files: 'パス'" で止めると決めている。
+このため、書き込み先だけが参照先と違う UTF-8 でない（NUL を含まない）ファイルの --hunks は、三者の競合でなくバイナリのエラーで止まるのが IR の決める挙動である。
+これを確かめる hunks_on_a_non_utf8_file_changed_only_on_the_destination_stop_as_binary（tests/contract/merge_ref_hunks_fix.rs）を足し、二つの変異はどちらもこのテストで落ちるようになった。
+コミットに含めない一時的な書き換えで確かめた結果は次のとおり（書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた）。
+
+| 同じ --hunks と --ref の merge の中身 | 69:22 の変異 | 69:38 の変異 |
+|---|---|---|
+| 書き込み先だけが参照先と違う | 落ちる（"three-way conflict: file.txt"） | 落ちる（"three-way conflict: file.txt"） |
+| 読み込み元だけが参照先と違う | 落ちない | 落ちる |
+
+元のコードではテストは通る。読み込み元だけが違う場合は 69:38 しか落とさず、書き込み先だけが違う場合で二つとも落ちるため、テストは書き込み先だけが違う場合の一件だけを残した。
 
 ## 要件の verification
 
