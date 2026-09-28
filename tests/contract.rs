@@ -28,6 +28,9 @@ mod config_merging;
 mod config_precedence;
 #[path = "contract/config_values.rs"]
 mod config_values;
+#[cfg(feature = "test-utils")]
+#[path = "contract/config_values_cli.rs"]
+mod config_values_cli;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
 #[path = "contract/filters.rs"]
