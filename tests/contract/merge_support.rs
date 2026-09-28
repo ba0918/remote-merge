@@ -15,7 +15,7 @@ use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
 use remote_merge::runtime::RuntimeTargets;
-use remote_merge::service::output::format_json;
+use remote_merge::service::output::{format_json, format_merge_text};
 use tempfile::TempDir;
 
 const SERVERS: [&str; 2] = ["develop", "staging"];
@@ -148,6 +148,23 @@ impl Fixture {
         };
         let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
         (json, result.exit_code)
+    }
+
+    /// 関数呼び出しで merge し、結果を --format text と同じ `format_merge_text` で文字列にして返す
+    pub fn merge_text(&self, args: MergeArgs) -> String {
+        let result = execute_merge(args, self.config(), self.runtime_targets()).unwrap();
+        let MergeCommandOutput::Files(output) = result.output else {
+            panic!("expected per-file merge output")
+        };
+        format_merge_text(&output)
+    }
+
+    /// バックアップの集約先にあるセッションの名前
+    pub fn backup_sessions(&self) -> Vec<String> {
+        fs::read_dir(self.backup.path().join("sessions"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect()
     }
 
     /// 関数呼び出しで sync し、結果の JSON と終了コードを返す

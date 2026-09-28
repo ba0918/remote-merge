@@ -9,7 +9,7 @@ use std::path::Path;
 use remote_merge::cli::merge::MergeArgs;
 use remote_merge::cli::sync::SyncArgs;
 
-use super::merge_support::{args, fixture, sync_args, Fixture};
+use super::merge_support::{args, fixture, fixture_with_backup, sync_args, Fixture};
 
 const RIGHT_ONLY_REASON: &str = "right-only file (use --delete to remove)";
 const SENSITIVE_REASON: &str = "sensitive file (use --force to include)";
@@ -155,4 +155,86 @@ fn sync_delete_without_force_keeps_a_destination_only_sensitive_file() {
         serde_json::json!([]),
         "{json}"
     );
+}
+
+/// 書き込み先にだけある old/obsolete.txt を作る
+fn destination_only_file(fixture: &Fixture) -> &'static str {
+    fixture.create_dir("develop", "old");
+    fixture.write("develop", "old/obsolete.txt", "obsolete\n");
+    "old/obsolete.txt"
+}
+
+/// 集約先にちょうど一つあるセッションの名前
+fn only_session(fixture: &Fixture) -> String {
+    let sessions = fixture.backup_sessions();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    sessions.into_iter().next().unwrap()
+}
+
+// @kotowari[REQ-merge-026]
+#[test]
+fn merge_reports_a_deleted_file_with_its_backup_when_backup_is_enabled() {
+    let fixture = fixture_with_backup();
+    let path = destination_only_file(&fixture);
+
+    let (json, _) = fixture.merge_json(delete_args(&["."]));
+
+    assert!(!fixture.root("develop").join(path).exists());
+    let deleted = json["deleted"].as_array().unwrap();
+    assert_eq!(deleted.len(), 1, "{json}");
+    assert_eq!(deleted[0]["path"], path, "{json}");
+    assert_eq!(deleted[0]["status"], "ok", "{json}");
+    let backup = deleted[0]["backup"].as_str().unwrap();
+    let (session, backed_up_path) = backup.split_once('/').unwrap();
+    assert_eq!(backed_up_path, path, "{backup}");
+    assert_eq!(session, only_session(&fixture), "{backup}");
+}
+
+// @kotowari[REQ-merge-026]
+#[test]
+fn merge_reports_a_deleted_file_without_backup_when_backup_is_disabled() {
+    let fixture = fixture();
+    let path = destination_only_file(&fixture);
+
+    let (json, _) = fixture.merge_json(delete_args(&["."]));
+
+    assert!(!fixture.root("develop").join(path).exists());
+    let deleted = json["deleted"].as_array().unwrap();
+    assert_eq!(deleted.len(), 1, "{json}");
+    assert_eq!(deleted[0]["path"], path, "{json}");
+    assert_eq!(deleted[0]["status"], "ok", "{json}");
+    assert!(deleted[0].get("backup").is_none(), "{json}");
+}
+
+fn deleted_lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter(|line| line.starts_with("Deleted: "))
+        .collect()
+}
+
+// @kotowari[REQ-merge-027]
+#[test]
+fn merge_text_shows_a_deleted_file_with_its_backup_when_backup_is_enabled() {
+    let fixture = fixture_with_backup();
+    let path = destination_only_file(&fixture);
+
+    let text = fixture.merge_text(delete_args(&["."]));
+
+    let session = only_session(&fixture);
+    assert_eq!(
+        deleted_lines(&text),
+        [format!("Deleted: {path} (backup: {session}/{path})")],
+        "{text}"
+    );
+}
+
+// @kotowari[REQ-merge-027]
+#[test]
+fn merge_text_shows_a_deleted_file_without_backup_when_backup_is_disabled() {
+    let fixture = fixture();
+    let path = destination_only_file(&fixture);
+
+    let text = fixture.merge_text(delete_args(&["."]));
+
+    assert_eq!(deleted_lines(&text), [format!("Deleted: {path}")], "{text}");
 }
