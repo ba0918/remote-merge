@@ -42,3 +42,28 @@ status・diff・merge・sync のエラーが終了コード 2 になることは
 
 - REQ-config-016 の設定は `AppConfig` を組み立てず、`load_config_from_paths` で読んだものを使い、[defaults] の読み込みからサーバの値の選び方までの全体を通す。サーバと [defaults] の値は既定値とも一般的な umask の結果とも違う値にした。
 - この作業環境の umask は 0002 で、umask だけで作られるファイルとディレクトリの mode が既定値の 0o664 と 0o775 に一致する。そのため「どちらにもないとき」の場合だけでは、既定値で chmod したかどうかを区別できない（umask が 0022 の環境では区別できる）。サーバと [defaults] の場合は、どちらの umask でも chmod がなければ期待する mode にならない。
+
+### 警告・パスワード・鍵のパス（REQ-config-018 から 020）
+
+根拠テストは `tests/contract/config_values_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
+strict_host_key_checking の警告は標準エラーに出て関数呼び出しでは観測しにくく、パスワードと鍵のパスは SSH の接続で初めて使われるため、実行ファイルを起動して確かめる。
+
+準備は同じファイルの `Workspace` を使う。前の回の `tests/contract/config_loading_cli.rs` の `Workspace` と同じ形だが、そちらの起動は既存の隔離の確認（`TestDirs::assert_isolated_config_at`）を通すため共有せず、同じ形の補助を新しいモジュールに置いた。
+
+- `tests/common/mod.rs` の `TestDirs::new_2way` で一時ディレクトリと SSH の試験サーバを用意し、ローカルの側にだけファイル "only-local.txt" を置く。設定は `gen_config` の本文の一部を置き換えて作る。
+- 実行ファイルは `env_clear` したうえで `HOME` を一時ディレクトリの "home" に、`XDG_CONFIG_HOME` を "home/.config" に、`XDG_DATA_HOME` を一時ディレクトリの "xdg-data" に向け、`PATH` とテストが明示的に渡す環境変数だけを設定し、標準入力を `Stdio::null()` にして `Command::output()` で `status --left local --right develop` を起動する。SSH エージェントの変数も渡らない。
+- これらの設定は既存の確認を通らない（知らない strict_host_key_checking、正しくない password、auth が "key"）。そこで既存の確認を変えずに、別の確認 `TestDirs::assert_isolated_values_config` を `tests/common/mod.rs` に足し、起動の前に必ずかける。確かめるのは、全てのサーバの host が "127.0.0.1"、port がテスト自身の試験サーバのもので 22 でない、user が "fixture-user"、サーバの root_dir と [local] の root_dir が一時ディレクトリの下、[agent] の enabled が false、strict_host_key_checking が "no"（REQ-config-018 のテストだけは求めない）、auth が "password" か "key" で、"key" のときは起動に使う HOME で解決した鍵のパス（key を省いたら "HOME/.ssh/id_rsa"、"~/" で始まるならその HOME での展開、それ以外はそのパス）が一時ディレクトリの下、であること。password の値は問わない。一時ディレクトリの下かどうかは、絶対パスで ".." を含まず一時ディレクトリで始まることで見る。
+
+| 要件 | 根拠テスト | 元にしたテストと確かめること |
+|---|---|---|
+| REQ-config-018（警告） | unknown_strict_host_key_checking_value_warns_and_falls_back_to_ask | src/config.rs の test_parse_strict_host_key_checking_values。strict_host_key_checking を "maybe" にした設定で起動し、標準出力と標準エラーをつないだもの（ANSI のエスケープを除く）に "Unknown strict_host_key_checking value: 'maybe', falling back to 'ask'" が含まれる。終了コードとその後の接続の結果は確かめない（ask のもとでの未知のホスト鍵の扱いは REQ-ssh-001 の範囲） |
+| REQ-config-019（(a) と (d)） | password_from_the_uppercase_server_env_var_wins_over_the_config_password | src/ssh/client.rs の test_resolve_password_*。設定の password が正しくない "wrong-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が "fixture-password" なら接続でき、環境変数の名前だけを REMOTE_MERGE_PASSWORD_develop に変えると接続できない |
+| REQ-config-019（(c) と (b)） | empty_server_env_var_is_treated_as_unset | 同じ元のテスト。設定の password が正しい "fixture-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が空なら接続でき、同じ環境変数の値だけを "wrong-password" に変えると接続できない |
+| REQ-config-020（key を省く） | omitted_key_uses_the_default_path_and_names_it_when_it_cannot_be_read | 手本の単体テストはない（鍵のパスを扱う単体テストは src/ssh/client.rs の test_expand_tilde_home_dir）。auth を "key" にし password の行と key を省いた設定で起動し、出力に "Failed to load SSH private key: ~/.ssh/id_rsa" が含まれる。一時ディレクトリの HOME に鍵ファイルは置かない |
+| REQ-config-020（"~/" の展開） | key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_read | 同じ。key を "~/keys/missing" にした設定で起動し、出力に "Failed to load SSH private key: " と一時ディレクトリの HOME の下の "keys/missing" の絶対パスが含まれる |
+
+- REQ-config-019 は --format json で起動し、接続できたことは JSON の "files" に "only-local.txt" が出ることで、接続できなかったことは JSON が "error" を持ち "files" を持たないこと（REQ-cli-018 の、失敗しても JSON で返す契約）で確かめる。終了コードと認証のエラーの文言は IR が契約にしていないため確かめない。
+- 計画は否定側の組を「(b) は (a) と、(d) は (c) と」としていたが、その目的は「環境変数だけが違う組にして、否定がパスワードと関係のない理由で成り立たないようにする」ことである。文字どおりの組では設定の password も違ってしまうため、目的に合わせて、設定の password が同じで環境変数だけが違う (a) と (d)、(c) と (b) を組にした。計画からの逸れとして記録する。
+- 否定側の失敗の理由は、テストを書くときに一度だけ JSON を表示して確かめた（コミットには含めていない）。(b) と (d) のどちらも "SSH authentication failed (user: fixture-user@127.0.0.1)" で、パスワード認証の失敗だった。
+- REQ-config-020 の二つの起動は、どちらも終了コード 2 で "Error: Failed to load SSH private key: パス" を標準エラーに出した（同じく一度だけ表示して確かめた）。HOME を一時ディレクトリに向けると、"~/" は利用者のホームではなくその HOME に展開される。
+- REQ-config-019 の (a) と (d) では設定の password を使うため平文の警告（FLAG-config-011）が出るが、その有無は確かめない。パスワードが環境変数にも設定にもない組み合わせは FLAG-config-011 に当たるため使わない。
