@@ -43,3 +43,23 @@ FLAG-merge-015 から 020 と FLAG-cli-016 から 026 の挙動（diff の JSON 
 |---|---|---|
 | 書き込む実行 | hunks_with_a_three_way_conflict_stops_without_writing | tests/contract/cli_results.rs の selected_hunk_with_three_way_conflict_does_not_overwrite_the_target（エラーか 0 でない終了コードのどちらかであることと、書き込み先が変わらないことだけを見る）。参照先 staging が "base"、local が "left change"、develop が "right change" の file.txt に、--ref staging で --force なしの --hunks 0 を渡し、エラーの文言がちょうど "three-way conflict: file.txt" で、develop と staging が変わらない |
 | --dry-run | hunks_dry_run_with_a_three_way_conflict_stops_the_same_way | 同じ元のテスト。同じ構成に --dry-run を付け、同じ文言のエラーで止まり、develop が変わらない |
+
+### --hunks の JSON とテキスト（REQ-merge-029、REQ-merge-030）
+
+構成は、間に変わらない 12 行を挟んで先頭と末尾の行を変えたテキストのファイル file.txt 一つで（tests/contract/merge_paths.rs の selected_hunk_changes_only_the_selected_region の構成を写した）、--hunks に二つ目の変更の番号 1 だけを渡す。
+番号 0 でなく 1 を渡すのは、hunks_applied の値と書き込まれた位置が既定の値や先頭の変更と見分けられるようにするためである。
+二つの変更を離しておけば、`--hunks` の番号の区切りと表示用の区切りの数が合い、FLAG-merge-015 の違いに触れない。
+差分のないファイルは構成に含めない（FLAG-merge-019）。
+
+| 要件 | 根拠テスト | 元にしたテストと確かめること |
+|---|---|---|
+| REQ-merge-029（書き込み、バックアップが無効） | hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled | tests/contract/merge_paths.rs の selected_hunk_changes_only_the_selected_region（hunks_total と書き込み先の中身だけを見る）。merged がちょうど `[{"path": "file.txt", "status": "merged", "hunks_applied": [1], "hunks_total": 2, "direction": "left_to_right"}]` で backup の項目がなく、develop には二つ目の変更だけが入る |
+| REQ-merge-029（書き込み、バックアップが有効） | hunks_json_reports_the_backup_when_backup_is_enabled | 同じ元のテスト。バックアップを有効にした構成で、merged の一件が上の項目に backup（文字列）を加えたものとちょうど等しく、develop には二つ目の変更だけが入る |
+| REQ-merge-029（--dry-run） | hunks_dry_run_json_reports_would_merge_without_writing | 同じ元のテスト。バックアップを無効にした構成に --dry-run を付け、merged がちょうど status "would merge" の同じ一件で、develop が変わらない。--dry-run では backup を確かめない |
+| REQ-merge-030（書き込み、バックアップが無効） | hunks_text_shows_the_applied_hunk_when_backup_is_disabled | src/service/output.rs の test_format_merge_text_hunk_merge_info（手で組んだ結果を整形し、文言の一部だけを見る）。"Merged: " か "Would merge: " で始まる行がちょうど "Merged: file.txt (hunks: 1/2)" の一行 |
+| REQ-merge-030（書き込み、バックアップが有効） | hunks_text_shows_the_backup_when_backup_is_enabled | 同じ元のテスト。同じ結果の JSON の backup の値を使い、その行がちょうど "Merged: file.txt (hunks: 1/2) (backup: その backup の値)" の一行 |
+| REQ-merge-030（--dry-run） | hunks_dry_run_text_shows_would_merge | 同じ元のテスト。バックアップを無効にした構成に --dry-run を付け、その行がちょうど "Would merge: file.txt (hunks: 1/2)" の一行 |
+
+- JSON とテキストは `Fixture::merge_json_and_text` で得る。一度の `execute_merge` の結果を `format_json` と公開された `remote_merge::service::output::format_merge_text` の両方に渡す。テキストと JSON の振り分けと実行ファイルの出力は REQ-cli-049 の実行ファイルのテストが確かめている。
+- JSON は merged の一件を項目の全体で比べるため、要件にない項目（ref_badge など）が出ないことも同時に確かめている。
+- backup の値の形（セッションID/パス）は REQ-merge-029 と 030 が述べていないため確かめない。
