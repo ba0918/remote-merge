@@ -88,6 +88,11 @@ impl Fixture {
         fs::read_to_string(self.root(side).join(path)).unwrap()
     }
 
+    /// `side` の `path` に `target` を指す symlink を作る
+    pub fn symlink(&self, side: &str, path: &str, target: &str) {
+        std::os::unix::fs::symlink(target, self.root(side).join(path)).unwrap();
+    }
+
     /// 配下のディレクトリを作る（`write` は親ディレクトリを作らないため先に呼ぶ）
     pub fn create_dir(&self, side: &str, path: &str) {
         fs::create_dir_all(self.root(side).join(path)).unwrap();
