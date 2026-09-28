@@ -109,7 +109,7 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 
 ### merge_configs のフィルター以外の部分（前の回との比較）
 
-前の回（d962aaf）では `merge_configs` の変異は 8 件（caught 6・survived 1・unviable 1）で、見逃しは 585:24 の一件だった（その回では tui_merge のテストの負荷による失敗で caught と数えられたが、見逃しとして扱った）。
+前の回（d962aaf）では `merge_configs` の変異は 8 件（caught 6・survived 1・unviable 1）で、survived と数えられたのは 607:8 の一件だった。585:24 はその回では tui_merge のテストの負荷による失敗で caught と数えられたが見逃しとして扱ったため、見逃しとして扱ったのは 585:24 と 607:8 の二件である。
 この回も `merge_configs` の変異は 8 件で、caught 7・survived 0・unviable 1 になった。前の回の記録にある 585:24 と 607:8 は同じ位置に出た。他の 6 件の位置は前の回の記録になく、一致は確かめていない。
 フィルターの合成（552 行から 613 行付近）の外にある変異は 511:5 の unviable の一件だけで、前の回と同じである。前の回に記録だけした max_scan_entries と badge_scan_max_files の変異（FLAG-config-003）と [local] がないときのエラーの変異（FLAG-config-002）は、この回も見逃しとして出なかった。
 
