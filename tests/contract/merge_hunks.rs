@@ -229,15 +229,19 @@ fn hunks_dry_run_with_a_three_way_conflict_stops_the_same_way() {
     assert_eq!(fixture.read("develop", PATH), "right change\n");
 }
 
-/// 番号 1 を渡したときの、backup を除いた merged の一件
-fn merged_entry(status: &str) -> serde_json::Value {
-    json!({
-        "path": PATH,
-        "status": status,
-        "hunks_applied": [1],
-        "hunks_total": 2,
-        "direction": "left_to_right",
-    })
+/// merged の一件が REQ-merge-029 の述べる項目を持つことを確かめる（述べていない項目は見ない）
+fn assert_merged_entry(json: &serde_json::Value, status: &str, applied: &[usize], total: usize) {
+    let entry = &json["merged"][0];
+    assert_eq!(json["merged"].as_array().map(Vec::len), Some(1), "{json}");
+    assert_eq!(entry["status"], json!(status), "{json}");
+    assert_eq!(entry["hunks_applied"], json!(applied), "{json}");
+    assert_eq!(entry["hunks_total"], json!(total), "{json}");
+    assert_eq!(entry["direction"], json!("left_to_right"), "{json}");
+}
+
+/// merged の一件に backup の項目がないことを確かめる
+fn assert_no_backup(json: &serde_json::Value) {
+    assert!(json["merged"][0].get("backup").is_none(), "{json}");
 }
 
 /// merged の一件の backup を返す
@@ -263,7 +267,8 @@ fn hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled() 
 
     let (json, _) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
 
-    assert_eq!(json["merged"], json!([merged_entry("merged")]), "{json}");
+    assert_merged_entry(&json, "merged", &[1], 2);
+    assert_no_backup(&json);
     assert_eq!(fixture.read("develop", PATH), with_only_the_second_change());
 }
 
@@ -275,9 +280,8 @@ fn hunks_json_reports_the_backup_when_backup_is_enabled() {
 
     let (json, _) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
 
-    let mut expected = merged_entry("merged");
-    expected["backup"] = json!(backup_of(&json));
-    assert_eq!(json["merged"], json!([expected]), "{json}");
+    assert_merged_entry(&json, "merged", &[1], 2);
+    assert!(json["merged"][0]["backup"].is_string(), "{json}");
     assert_eq!(fixture.read("develop", PATH), with_only_the_second_change());
 }
 
@@ -292,11 +296,8 @@ fn hunks_dry_run_json_reports_would_merge_without_writing() {
         ..hunk_args(PATH, &[1])
     });
 
-    assert_eq!(
-        json["merged"],
-        json!([merged_entry("would merge")]),
-        "{json}"
-    );
+    assert_merged_entry(&json, "would merge", &[1], 2);
+    assert_no_backup(&json);
     assert_eq!(fixture.read("develop", PATH), original);
 }
 
