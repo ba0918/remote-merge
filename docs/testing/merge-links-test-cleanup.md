@@ -33,7 +33,7 @@ scripts/mutants.sh src/service/merge.rs src/service/sync.rs src/service/path_res
 
 | 位置 | 変異 | 決着の対象 |
 |---|---|---|
-| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | 記録だけ（参照先との三者の衝突の判定。merge の指定・確認・出力の規則） |
+| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | 記録だけ（参照先との三者の衝突の判定。merge の指定・確認・出力の回で FLAG-cli-025 の範囲として決着済み。[決定記録 A1](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A1)） |
 | src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | 記録だけ（書き込みの中身の回で FLAG-merge-007 の範囲として決着済み） |
 | src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 記録だけ（同上） |
 | src/service/merge_flow.rs:427:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 記録だけ（変更のまとまりを選ぶマージの回で扱う） |
@@ -138,7 +138,7 @@ scripts/mutants.sh --re '(find_symlink_target|determine_merge_action|plan_deleti
 
 | 位置 | 変異 | 扱う回 |
 |---|---|---|
-| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | merge の指定・確認・出力の規則（参照先との三者の衝突の判定） |
+| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | merge の指定・確認・出力の回で FLAG-cli-025 の範囲として決着済み（参照先との三者の衝突の判定。[決定記録 A1](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A1)） |
 | src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | 書き込みの中身の回で FLAG-merge-007 の範囲として決着済み |
 | src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 同上 |
 | src/service/merge_flow.rs:413:33 | replace \|\| with && in execute_hunk_merge | 変更のまとまりを選ぶマージの回（整理前は見かけの検知） |
