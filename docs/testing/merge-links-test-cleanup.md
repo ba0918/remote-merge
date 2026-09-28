@@ -91,13 +91,13 @@ FLAG-merge-008 から 014 と FLAG-cli-016 から 026 の挙動（スキップ�
 
 | 要件 | 根拠テスト | 元にしたテスト |
 |---|---|---|
-| REQ-merge-026（バックアップが有効） | merge_reports_a_deleted_file_with_its_backup_when_backup_is_enabled | tests/contract/merge_paths.rs の a_deleted_regular_file_is_backed_up_and_recreated_by_rollback（deleted が一件で backup があることだけを見る）と sync_delete_removes_a_destination_only_regular_file。develop にだけ old/obsolete.txt を置き、引数 "." の --delete の merge で、ファイルが消え、deleted がちょうど一件で path が old/obsolete.txt、status が "ok"、backup を最初の "/" で分けたパスの部分が old/obsolete.txt で、セッションIDの部分が fixture の集約先の sessions にちょうど一つあるセッションの名前と一致することを確かめる。現在時刻とは比べない |
+| REQ-merge-026（バックアップが有効） | merge_reports_a_deleted_file_with_its_backup_when_backup_is_enabled | tests/contract/merge_paths.rs の a_deleted_regular_file_is_backed_up_and_recreated_by_rollback（deleted が一件で backup があることだけを見る）と sync_delete_removes_a_destination_only_regular_file。develop にだけ old/obsolete.txt を置き、引数 "." の --delete の merge で、ファイルが消え、deleted がちょうど一件で path が old/obsolete.txt、status が "ok"、backup を最初の "/" で分けたパスの部分が old/obsolete.txt で、セッションIDの部分が空でないことを確かめる。セッションIDの値は現在時刻とも集約先の中身とも比べない |
 | REQ-merge-026（バックアップが無効） | merge_reports_a_deleted_file_without_backup_when_backup_is_disabled | 同じ元のテスト。バックアップを無効にした構成で、deleted の一件に backup の項目がないことを確かめる |
-| REQ-merge-027（バックアップが有効） | merge_text_shows_a_deleted_file_with_its_backup_when_backup_is_enabled | src/service/output.rs の test_format_merge_text_with_deleted（手で組んだ結果を整形する）。--dry-run のない --delete の merge の結果を `format_merge_text` に渡し、"Deleted: " で始まる行がちょうど "Deleted: old/obsolete.txt (backup: セッションID/old/obsolete.txt)" の一行で、セッションIDが集約先のセッションの名前と一致することを確かめる |
+| REQ-merge-027（バックアップが有効） | merge_text_shows_a_deleted_file_with_its_backup_when_backup_is_enabled | src/service/output.rs の test_format_merge_text_with_deleted（手で組んだ結果を整形する）。--dry-run のない --delete の merge の結果を `format_merge_text` に渡し、同じ結果の JSON の deleted の backup が上と同じ "セッションID/old/obsolete.txt" の形であることと、"Deleted: " で始まる行がちょうど "Deleted: old/obsolete.txt (backup: その backup の値)" の一行であることを確かめる |
 | REQ-merge-027（バックアップが無効） | merge_text_shows_a_deleted_file_without_backup_when_backup_is_disabled | src/service/output.rs の test_format_merge_text_deleted_no_backup。同じ手順で、"Deleted: " で始まる行がちょうど "Deleted: old/obsolete.txt" の一行であることを確かめる |
 
-- テキストは `Fixture::merge_text` で得る。`execute_merge` の結果（`MergeCommandOutput::Files`）を公開された `remote_merge::service::output::format_merge_text` に渡す。テキストと JSON の振り分けと実行ファイルの出力は REQ-cli-049 の実行ファイルのテストが確かめているため、ここでは SSH の fixture を使わない。
-- 集約先のセッションの名前は `Fixture::backup_sessions`（集約先の sessions の下のディレクトリ名）で得る。集約先は `RuntimeTargets::with_backup_store` で fixture の一時ディレクトリに差し替えてあり、セッションがその中にちょうど一つできることを確かめるため、集約先がテストの外に書かれていないことも同時に分かる。
+- テキストは `Fixture::merge_json_and_text` で得る。一度の `execute_merge` の結果（`MergeCommandOutput::Files`）を `format_json` と公開された `remote_merge::service::output::format_merge_text` の両方に渡し、JSON とテキストを同じ結果から作る。テキストと JSON の振り分けと実行ファイルの出力は REQ-cli-049 の実行ファイルのテストが確かめているため、ここでは SSH の fixture を使わない。
+- 集約先は `RuntimeTargets::with_backup_store` で fixture の一時ディレクトリに差し替えてある。集約先の中の配置は公開された契約ではないため（docs/archive/spec.md）、テストは集約先の中を読まず、要件が述べる backup の "セッションID/パス" の形だけを確かめる。
 - 削除したファイルを配下のディレクトリ old/ に置き、backup の "セッションID/パス" のパスの部分が "/" を含むパスのまま続くことを確かめる。
 
 ## 整理後の変異テスト

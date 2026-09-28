@@ -164,11 +164,11 @@ fn destination_only_file(fixture: &Fixture) -> &'static str {
     "old/obsolete.txt"
 }
 
-/// 集約先にちょうど一つあるセッションの名前
-fn only_session(fixture: &Fixture) -> String {
-    let sessions = fixture.backup_sessions();
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    sessions.into_iter().next().unwrap()
+/// backup が "セッションID/パス" の形で、パスの部分が `path` であることを確かめる
+fn assert_backup_names(backup: &str, path: &str) {
+    let (session, backed_up_path) = backup.split_once('/').unwrap();
+    assert!(!session.is_empty(), "{backup}");
+    assert_eq!(backed_up_path, path, "{backup}");
 }
 
 // @kotowari[REQ-merge-026]
@@ -184,10 +184,7 @@ fn merge_reports_a_deleted_file_with_its_backup_when_backup_is_enabled() {
     assert_eq!(deleted.len(), 1, "{json}");
     assert_eq!(deleted[0]["path"], path, "{json}");
     assert_eq!(deleted[0]["status"], "ok", "{json}");
-    let backup = deleted[0]["backup"].as_str().unwrap();
-    let (session, backed_up_path) = backup.split_once('/').unwrap();
-    assert_eq!(backed_up_path, path, "{backup}");
-    assert_eq!(session, only_session(&fixture), "{backup}");
+    assert_backup_names(deleted[0]["backup"].as_str().unwrap(), path);
 }
 
 // @kotowari[REQ-merge-026]
@@ -218,12 +215,13 @@ fn merge_text_shows_a_deleted_file_with_its_backup_when_backup_is_enabled() {
     let fixture = fixture_with_backup();
     let path = destination_only_file(&fixture);
 
-    let text = fixture.merge_text(delete_args(&["."]));
+    let (json, text) = fixture.merge_json_and_text(delete_args(&["."]));
 
-    let session = only_session(&fixture);
+    let backup = json["deleted"][0]["backup"].as_str().unwrap();
+    assert_backup_names(backup, path);
     assert_eq!(
         deleted_lines(&text),
-        [format!("Deleted: {path} (backup: {session}/{path})")],
+        [format!("Deleted: {path} (backup: {backup})")],
         "{text}"
     );
 }
@@ -234,7 +232,7 @@ fn merge_text_shows_a_deleted_file_without_backup_when_backup_is_disabled() {
     let fixture = fixture();
     let path = destination_only_file(&fixture);
 
-    let text = fixture.merge_text(delete_args(&["."]));
+    let (_, text) = fixture.merge_json_and_text(delete_args(&["."]));
 
     assert_eq!(deleted_lines(&text), [format!("Deleted: {path}")], "{text}");
 }

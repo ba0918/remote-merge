@@ -150,21 +150,15 @@ impl Fixture {
         (json, result.exit_code)
     }
 
-    /// 関数呼び出しで merge し、結果を --format text と同じ `format_merge_text` で文字列にして返す
-    pub fn merge_text(&self, args: MergeArgs) -> String {
+    /// 関数呼び出しで一度 merge し、同じ結果を `format_json` の JSON と
+    /// --format text と同じ `format_merge_text` の文字列にして返す
+    pub fn merge_json_and_text(&self, args: MergeArgs) -> (serde_json::Value, String) {
         let result = execute_merge(args, self.config(), self.runtime_targets()).unwrap();
         let MergeCommandOutput::Files(output) = result.output else {
             panic!("expected per-file merge output")
         };
-        format_merge_text(&output)
-    }
-
-    /// バックアップの集約先にあるセッションの名前
-    pub fn backup_sessions(&self) -> Vec<String> {
-        fs::read_dir(self.backup.path().join("sessions"))
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-            .collect()
+        let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+        (json, format_merge_text(&output))
     }
 
     /// 関数呼び出しで sync し、結果の JSON と終了コードを返す
