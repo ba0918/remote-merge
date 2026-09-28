@@ -145,9 +145,9 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 ### FLAG-cli-021: merge の確認のプロンプトと --force の働き
 - kind: contradiction
 - related: REQ-cli-003
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A12
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A12, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
-旧総合仕様の使い方の例とマージ前確認の節は merge が確認のプロンプトを出し、--force で省略するとするが、CLI の merge は確認のプロンプトを出さず（TUI には確認がある）、--force は機密ファイルを対象に含めること、リモート間の merge を止めないこと、三者の競合の確認をしないことに効く。
+旧総合仕様の使い方の例とマージ前確認の節は merge が確認のプロンプトを出し、--force で省略するとするが、CLI の merge は確認のプロンプトを出さず（TUI には確認がある）、--force は機密ファイルを対象に含めること、リモート間の merge を止めないこと、REQ-cli-051 の参照先に対する確認をしないことに効く。
 
 ### FLAG-cli-022: 機密ファイルの警告と件数
 - kind: contradiction
@@ -163,23 +163,23 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 --ref があり --force も --dry-run もない merge で、実装は左・右・参照先のどれかで中身がそろわないファイルを書き込まずに failed に error "three-way comparison incomplete" で出すため、左にだけある新しいファイルは --ref 付きでは --force なしに書き込めない。旧資料に記述がなくテストもない。
 
-### FLAG-cli-024: dry-run で競合を確かめない
+### FLAG-cli-024: dry-run で参照先に対する確認をしない
 - kind: gap
 - related: REQ-cli-004, REQ-cli-051
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
---ref がある --dry-run の merge で、実装は三者の競合を確かめないため、実際に実行すると競合で失敗するファイルも merged に status "would merge" で出す。旧資料に記述がなくテストもない。
-
-### FLAG-cli-025: 別々の箇所の変更は競合か
-- kind: ambiguity
-- related: REQ-cli-016, REQ-cli-017, REQ-cli-051
-- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A1
-
---ref があり --force のない merge で、参照先に対して左右がテキストのファイルの別々の箇所を変えたとき（参照先 "a b c d e"、左 "A b c d e"、右 "a b c d E" の各行）、実装は重なる変更がないため競合とせず、書き込み先を左の中身で上書きし、右の変更 "E" は失われ、failed は空で終了コード 0 になる。REQ-cli-016 と REQ-cli-051 の「参照先に対して左右が異なる変更」に別々の箇所の変更が含まれるかを IR は決めておらず、含むと読むなら実装は REQ-cli-017 と食い違い、書き込み先の変更を黙って失う不具合の疑いがある。
+--ref がある --dry-run の merge で、実装は REQ-cli-051 の参照先に対する確認をしないため、実際に実行すると REQ-cli-051 で書き込まれないファイルも merged に status "would merge" で出す。旧資料に記述がなくテストもない。
 
 ### FLAG-cli-026: 書き込むファイルのない merge と集約先の場所
 - kind: ambiguity
 - related: REQ-backup-018, REQ-cli-051
-- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2
+- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
-バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが参照先に対する競合で外れた場合はエラーで止まらず failed に "three-way conflict" を出し、全てのファイルが機密ファイルなどのスキップで外れ競合もない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
+バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed にその確認の error（"three-way conflict" か "destination changed since reference"）を出し、全てのファイルが機密ファイルなどのスキップで外れ REQ-cli-051 の確認で外れたファイルもない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
+
+### FLAG-cli-027: 参照先を使う merge での symlink
+- kind: ambiguity
+- related: REQ-cli-051, REQ-merge-003
+- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A9
+
+--ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。

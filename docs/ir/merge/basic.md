@@ -6,10 +6,10 @@
 
 ### REQ-merge-018: 指定先だけを更新する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A53
+- source: docs/decision/records/2026-09-25-spec-migration.md#A53, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A8
 - verification: unit
 
-左右と書き込み先を明示し、対象の読み取り・必要な確認・バックアップが成功し、競合と外部更新がないとき、通常ファイルの merge は指定した書き込み先だけを読み込み元の内容に更新する。
+左右と書き込み先を明示し、対象の読み取り・必要な確認・バックアップが成功し、競合と外部更新がなく、参照先を使うときは書き込み先が参照先から変わっていないとき、通常ファイルの merge は指定した書き込み先だけを読み込み元の内容に更新する。
 
 ### REQ-merge-021: ディレクトリ指定は差分のあるファイルを書く
 - kind: state_driven

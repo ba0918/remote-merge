@@ -40,12 +40,12 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 --ref に左と同じ指定をした merge は標準エラーに "Warning: --ref server is the same as left side; ref comparison skipped."、右と同じ指定では "Warning: --ref server is the same as right side; ref comparison skipped." を出し、参照先を使わずに続ける。
 
-### REQ-cli-051: 競合のあるファイルを失敗として出す
+### REQ-cli-051: 書き込み先が参照先から変わったファイルを書かない
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A6
+- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
 - verification: unit
 
---ref があり --force も --dry-run もない merge は、参照先に対して左右が異なる変更をした競合のあるファイルを書き込まずに failed に error "three-way conflict" で出し、競合のない他のファイルは書き込む。
+--ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先の三つとも中身を読めた通常ファイル（バイナリを含む）のうち読み込み元と書き込み先の中身が違うものについて、中身をバイト列で比べて書き込み先が参照先から変わっていれば書き込まずに failed に出し、左右の両方が参照先から変わっていれば error を "three-way conflict"、書き込み先だけが変わっていれば "destination changed since reference" とし、読み込み元だけが参照先から変わったファイルは書き込む。--force があればこの確認をせずに書き込む。
 
 ## Decision tables
 
@@ -59,3 +59,31 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 | --left と --right が同じ | "--left and --right must be different (both resolved to '名前')" |
 | 設定にないサーバ名を指定する | "Server '名前' not found in config" |
 | --format に text・json・diff 以外を指定する | "Unknown format: '値' (expected text, json, or diff)" |
+
+## Examples
+
+```gherkin
+@id=EX-cli-063 @about=REQ-cli-051 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+Scenario: 左右が別々の箇所を変えた
+Given 参照先に対して読み込み元と書き込み先が別々の行を変えたテキストのファイルがある
+When --ref を指定し --force なしで merge する
+Then 書き込み先は変わらず failed に error "three-way conflict" が出る
+
+@id=EX-cli-064 @about=REQ-cli-051 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+Scenario: 書き込み先だけが変わった
+Given 読み込み元は参照先と同じで書き込み先だけが参照先から変わったファイルがある
+When --ref を指定し --force なしで merge する
+Then 書き込み先は変わらず failed に error "destination changed since reference" が出る
+
+@id=EX-cli-065 @about=REQ-cli-051 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+Scenario: 読み込み元だけが変わった
+Given 書き込み先は参照先と同じで読み込み元だけが参照先から変わったファイルがある
+When --ref を指定し --force なしで merge する
+Then 書き込み先は読み込み元の中身に更新される
+
+@id=EX-cli-066 @about=REQ-cli-051 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+Scenario: 強制して書く
+Given 参照先に対して読み込み元と書き込み先が別々の行を変えたテキストのファイルがある
+When --ref と --force を指定して merge する
+Then 書き込み先は読み込み元の中身に更新される
+```

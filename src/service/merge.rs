@@ -81,6 +81,25 @@ pub fn has_three_way_conflict(base: &[u8], left: &[u8], right: &[u8]) -> bool {
     }
 }
 
+/// --ref があるファイル全体の merge で、参照先に対して書き込んではいけないファイルの理由を返す（純粋関数）。
+///
+/// 書き込み先が参照先と同じなら書き込める（None）。読み込み元だけが参照先と同じなら
+/// 書き込み先だけが変わったため "destination changed since reference"、両方が参照先と違えば
+/// "three-way conflict" を返す。読み込み元と書き込み先が同じなら参照先によらず書き込める。
+pub fn reference_check_failure(
+    base: &[u8],
+    source: &[u8],
+    destination: &[u8],
+) -> Option<&'static str> {
+    if source == destination || destination == base {
+        None
+    } else if source == base {
+        Some("destination changed since reference")
+    } else {
+        Some("three-way conflict")
+    }
+}
+
 /// ツリーからパスに対応する symlink のターゲットを取得する純粋関数
 pub fn find_symlink_target(tree: &FileTree, path: &str) -> Option<String> {
     let node = tree.find_node(path)?;
@@ -169,6 +188,32 @@ pub fn check_r2r_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_check_writes_when_the_destination_equals_the_reference() {
+        assert_eq!(reference_check_failure(b"base", b"left", b"base"), None);
+    }
+
+    #[test]
+    fn reference_check_fails_when_only_the_destination_changed() {
+        assert_eq!(
+            reference_check_failure(b"base", b"base", b"right"),
+            Some("destination changed since reference")
+        );
+    }
+
+    #[test]
+    fn reference_check_fails_as_a_conflict_when_both_sides_changed() {
+        assert_eq!(
+            reference_check_failure(b"base", b"left", b"right"),
+            Some("three-way conflict")
+        );
+    }
+
+    #[test]
+    fn reference_check_writes_when_the_source_equals_the_destination() {
+        assert_eq!(reference_check_failure(b"base", b"same", b"same"), None);
+    }
 
     #[test]
     fn test_plan_merge_skips_sensitive() {

@@ -6,10 +6,10 @@
 
 ### REQ-cli-016: 三者間の競合を明示する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A39
+- source: docs/decision/records/2026-09-25-spec-migration.md#A39, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A11
 - verification: unit
 
-参照先に対して左右に異なる変更があるとき、比較結果に競合を示す。
+参照先に対して左右が同じ箇所を異なる内容に変えた競合があるとき、比較結果に競合を示す。
 
 ### REQ-cli-017: 競合を勝手に解消しない
 - kind: prohibition

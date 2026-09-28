@@ -14,6 +14,7 @@ REQ-merge-009 は実装と一致したため変更しない。REQ-merge-010 は�
 - A1 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は --hunks にパスをちょうど一つ求めて --delete とは併用できないとし、hunk マージは symlink を拒否するとし、実装は --hunks の merge を次の指定でエラーで止めて終了コード 2 を返す: パスが一つでないとき "--hunks requires exactly one path (got N)"、--delete と併せたとき "--hunks and --delete cannot be used together"、番号が hunk の数以上のとき "Hunk index N is out of range (total hunks: M)"、読み込み元か書き込み先が symlink のとき "Hunk merge is not supported for symlink files: 'パス'"、どちらかがバイナリのとき "Hunk merge is not supported for binary files: 'パス'"、機密ファイルで --force がないとき "Sensitive file 'パス' requires --force for hunk merge"。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [merge で書き込み先の変更を黙って失う二つの問題を直す判断の A6](./2026-09-28-merge-ref-hunks-fix.md#A6)
 - A2 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は --hunks の JSON に hunks_applied・hunks_total・direction を出すとし、実装は merged の一件に、書き込んだとき status "merged"、--dry-run では status "would merge"、hunks_applied に指定した番号、hunks_total に hunk の数、direction に "left_to_right"、バックアップが有効なときだけ backup を出す。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
@@ -26,6 +27,7 @@ REQ-merge-009 は実装と一致したため変更しない。REQ-merge-010 は�
 - A5 未決の FLAG として残す。利用者向けの手引き "skills/remote-merge/SKILL.md" は diff --format json で hunk の番号を調べて --hunks に渡す手順を示すが、実装の diff の JSON の hunk は前後 3 行の文脈でまとめた表示用の区切りで、--hunks は文脈 0 行で変更ごとに分けた操作用の区切りを数えるため、6 行以内に近い二つの変更があると番号がずれ、選んだものと違う変更を書き込みうる。これは実装を読んで分かったことで、実行しての確認はしていない。
   - why: 旧資料と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [merge で書き込み先の変更を黙って失う二つの問題を直す判断の A3](./2026-09-28-merge-ref-hunks-fix.md#A3)
 - A6 未決の FLAG として残す。REQ-merge-010 は hunk マージが衝突の有無と書き込みの確認を経ずに書き込み先を変更しないとするが、CLI の --hunks の merge は確認を出さずに書き込み、衝突を確かめるのは --ref があり --force がないときだけである。
   - why: 既存要件と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）

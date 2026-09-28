@@ -156,7 +156,7 @@ fn a_conflicting_file_fails_as_a_three_way_conflict_and_other_files_are_written(
 
 // @kotowari[REQ-cli-051]
 #[test]
-fn a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written() {
+fn a_binary_changed_only_on_the_source_is_written_and_one_changed_only_on_the_destination_fails() {
     let fixture = fixture();
     // a.bin は左だけ、b.bin は右だけが参照先から変わる。どちらも UTF-8 として読めない
     for (side, a, b) in [
@@ -172,10 +172,20 @@ fn a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written() {
 
     let (json, code) = fixture.merge_json(args);
 
-    assert_eq!(json["failed"], serde_json::json!([]), "{json}");
-    assert_eq!(json["merged"].as_array().unwrap().len(), 2, "{json}");
-    assert_eq!(code, 0, "{json}");
+    assert_eq!(
+        json["failed"],
+        serde_json::json!([{ "path": "b.bin", "error": "destination changed since reference" }]),
+        "{json}"
+    );
+    let merged: Vec<&str> = json["merged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(merged, ["a.bin"], "{json}");
+    assert_eq!(code, 2, "{json}");
     let develop = |path: &str| std::fs::read(fixture.root("develop").join(path)).unwrap();
     assert_eq!(develop("a.bin"), b"\xffleft\n");
-    assert_eq!(develop("b.bin"), b"\xffbase\n");
+    assert_eq!(develop("b.bin"), b"\xffrght\n");
 }

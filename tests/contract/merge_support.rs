@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::SystemTime;
 
+use remote_merge::cli::diff::{execute_diff, DiffArgs};
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
@@ -90,6 +91,15 @@ impl Fixture {
 
     pub fn write(&self, side: &str, path: &str, content: &str) {
         fs::write(self.root(side).join(path), content).unwrap();
+    }
+
+    /// UTF-8 として読めない中身も置けるよう、バイト列のまま書く
+    pub fn write_bytes(&self, side: &str, path: &str, content: &[u8]) {
+        fs::write(self.root(side).join(path), content).unwrap();
+    }
+
+    pub fn read_bytes(&self, side: &str, path: &str) -> Vec<u8> {
+        fs::read(self.root(side).join(path)).unwrap()
     }
 
     pub fn read(&self, side: &str, path: &str) -> String {
@@ -175,6 +185,24 @@ impl Fixture {
             Ok(result) => panic!("expected merge to fail, got exit code {}", result.exit_code),
             Err(error) => error,
         }
+    }
+
+    /// 関数呼び出しで local と develop の `path` を diff し、--format json と同じ整形の JSON を返す
+    pub fn diff_json(&self, path: &str) -> serde_json::Value {
+        let args = DiffArgs {
+            paths: vec![path.to_string()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            format: "json".into(),
+            max_lines: None,
+            max_files: 100,
+            force: false,
+            follow_external_links: false,
+            max_entries: None,
+        };
+        let (output, _) = execute_diff(args, self.config(), self.runtime_targets()).unwrap();
+        serde_json::from_str(&format_json(&output).unwrap()).unwrap()
     }
 
     /// 関数呼び出しで sync し、結果の JSON と終了コードを返す
