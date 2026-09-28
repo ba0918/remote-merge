@@ -43,3 +43,10 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 - source: docs/decision/records/2026-09-28-adopt-merge-write.md#A10
 
 旧総合仕様の楽観的ロックの節は差分を取得した時点から書き込み先が変更されていたらマージを中断するとするが、CLI の実装はそのファイルだけを書かずに failed に "destination content changed since comparison: パス"（比較したときになかった書き込み先が現れたときは "destination appeared since comparison: パス"）で出し、他のファイルは続ける。中断が merge 全体を止める意味かが読み分けられない。
+
+### FLAG-merge-007: 読み込み元の権限が 0 のときの複製
+- kind: gap
+- related: REQ-merge-014
+- source: docs/decision/records/2026-09-28-merge-write-mutant-flags.md#A1
+
+--with-permissions の merge で読み込み元がローカルのとき、実装は読み込み元の権限の値が 0（mode 000）なら書き込み先の権限を変えずに残す。REQ-merge-014 は読み込み元のファイル権限を書き込み先に反映するとし、字のとおり読むと 0 も反映することになるが、IR はこの場合を決めていない。読み込み元は中身を読んだ後に権限を読むため、この違いは読み込みと権限の読み取りの間に読み込み元の権限が 0 に変わったときにだけ起きる。
