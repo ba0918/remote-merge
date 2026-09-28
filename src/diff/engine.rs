@@ -363,6 +363,35 @@ pub fn apply_selected_hunks_single_pass(
     join_lines(result, target_trailing_newline)
 }
 
+/// 選んだ表示用ハンク（コンテキスト3行）の番号から、その行の範囲に入る操作用ハンク
+/// （コンテキスト0行）の番号の集合を返す。
+///
+/// 表示用ハンクは操作用ハンクを文脈で広げて結合したものなので、操作用ハンクはちょうど一つの
+/// 表示用ハンクに含まれる。範囲外の表示用ハンクの番号は無視する。
+///
+/// **純粋関数** — 副作用なし。
+pub fn merge_hunks_in_display_hunks(
+    display_hunks: &[DiffHunk],
+    merge_hunks: &[DiffHunk],
+    selected: &HashSet<usize>,
+) -> HashSet<usize> {
+    let contains = |display: &DiffHunk, merge: &DiffHunk| {
+        display.line_range.start <= merge.line_range.start
+            && merge.line_range.end <= display.line_range.end
+    };
+    merge_hunks
+        .iter()
+        .enumerate()
+        .filter(|(_, merge)| {
+            selected
+                .iter()
+                .filter_map(|&index| display_hunks.get(index))
+                .any(|display| contains(display, merge))
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
 /// diff 行をハンク（変更グループ + コンテキスト行）に分割する。
 fn build_hunks(lines: &[DiffLine], context: usize) -> Vec<DiffHunk> {
     if lines.is_empty() {
@@ -1350,5 +1379,51 @@ mod tests {
             }
             _ => panic!("予期しない diff 結果"),
         }
+    }
+    // ── merge_hunks_in_display_hunks tests ──
+
+    /// compute_diff の結果から表示用と操作用のハンクを取り出すヘルパー
+    fn display_and_merge_hunks(diff: &DiffResult) -> (&[DiffHunk], &[DiffHunk]) {
+        match diff {
+            DiffResult::Modified {
+                hunks, merge_hunks, ..
+            } => (hunks, merge_hunks),
+            _ => panic!("Modified を期待"),
+        }
+    }
+
+    #[test]
+    fn selecting_a_display_hunk_selects_every_merge_hunk_inside_it() {
+        // 変わらない行を 2 行だけ挟んだ二つの変更は一つの表示用ハンクになる
+        let diff = compute_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
+        let (display, merge) = display_and_merge_hunks(&diff);
+        assert_eq!((display.len(), merge.len()), (1, 2));
+
+        let selected = merge_hunks_in_display_hunks(display, merge, &HashSet::from([0]));
+
+        assert_eq!(selected, HashSet::from([0, 1]));
+    }
+
+    #[test]
+    fn selecting_a_display_hunk_leaves_merge_hunks_of_other_display_hunks() {
+        // 変わらない行を 7 行挟んだ二つの変更は別々の表示用ハンクになる
+        let middle: String = (0..7).map(|i| format!("s{i}\n")).collect();
+        let diff = compute_diff(&format!("a\n{middle}b\n"), &format!("A\n{middle}B\n"));
+        let (display, merge) = display_and_merge_hunks(&diff);
+        assert_eq!((display.len(), merge.len()), (2, 2));
+
+        let selected = merge_hunks_in_display_hunks(display, merge, &HashSet::from([1]));
+
+        assert_eq!(selected, HashSet::from([1]));
+    }
+
+    #[test]
+    fn selecting_no_display_hunk_selects_no_merge_hunk() {
+        let diff = compute_diff("a\nx\ny\nb\n", "A\nx\ny\nB\n");
+        let (display, merge) = display_and_merge_hunks(&diff);
+
+        let selected = merge_hunks_in_display_hunks(display, merge, &HashSet::new());
+
+        assert!(selected.is_empty());
     }
 }
