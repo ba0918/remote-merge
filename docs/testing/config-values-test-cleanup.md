@@ -60,13 +60,13 @@ strict_host_key_checking の警告は標準エラーに出て関数呼び出し�
 | REQ-config-018（ask は警告しない） | ask_value_in_any_case_does_not_warn | 変異テストの見逃し（src/config.rs:761:9）を受けて足した。同じ準備で "maybe" には警告が出ることと並べて、"ask" と "ASK" では出力に "Unknown strict_host_key_checking value" が含まれない |
 | REQ-config-019（(a) と (d)） | password_from_the_uppercase_server_env_var_wins_over_the_config_password | src/ssh/client.rs の test_resolve_password_*。設定の password が正しくない "wrong-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が "fixture-password" なら接続でき、環境変数の名前だけを REMOTE_MERGE_PASSWORD_develop に変えると接続できない |
 | REQ-config-019（(c) と (b)） | empty_server_env_var_is_treated_as_unset | 同じ元のテスト。設定の password が正しい "fixture-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が空なら接続でき、同じ環境変数の値だけを "wrong-password" に変えると接続できない |
-| REQ-config-020（key を省く） | omitted_key_uses_the_default_path_and_names_it_when_it_cannot_be_read | 手本の単体テストはない（鍵のパスを扱う単体テストは src/ssh/client.rs の test_expand_tilde_home_dir）。auth を "key" にし password の行と key を省いた設定で起動し、出力に "Failed to load SSH private key: ~/.ssh/id_rsa" が含まれる。一時ディレクトリの HOME に鍵ファイルは置かない |
-| REQ-config-020（"~/" の展開） | key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_read | 同じ。key を "~/keys/missing" にした設定で起動し、出力に "Failed to load SSH private key: " と一時ディレクトリの HOME の下の "keys/missing" の絶対パスが含まれる |
+| REQ-config-020（key を省く） | omitted_key_uses_the_default_path_and_names_it_when_it_cannot_be_read | 手本の単体テストはない（鍵のパスを扱う単体テストは src/ssh/client.rs の test_expand_tilde_home_dir）。auth を "key" にし password の行と key を省いた設定で起動し、実行が成功で終わらず、出力に "Failed to load SSH private key: ~/.ssh/id_rsa" が含まれる。一時ディレクトリの HOME に鍵ファイルは置かない |
+| REQ-config-020（"~/" の展開） | key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_read | 同じ。key を "~/keys/missing" にした設定で起動し、実行が成功で終わらず、出力に "Failed to load SSH private key: " と一時ディレクトリの HOME の下の "keys/missing" の絶対パスが含まれる |
 
 - REQ-config-019 は --format json で起動し、接続できたことは JSON の "files" に "only-local.txt" が出ることで、接続できなかったことは JSON が "error" を持ち "files" を持たないこと（REQ-cli-018 の、失敗しても JSON で返す契約）で確かめる。終了コードと認証のエラーの文言は IR が契約にしていないため確かめない。
 - 計画は否定側の組を「(b) は (a) と、(d) は (c) と」としていたが、その目的は「環境変数だけが違う組にして、否定がパスワードと関係のない理由で成り立たないようにする」ことである。文字どおりの組では設定の password も違ってしまうため、目的に合わせて、設定の password が同じで環境変数だけが違う (a) と (d)、(c) と (b) を組にした。計画からの逸れとして記録する。
 - 否定側の失敗の理由は、テストを書くときに一度だけ JSON を表示して確かめた（コミットには含めていない）。(b) と (d) のどちらも "SSH authentication failed (user: fixture-user@127.0.0.1)" で、パスワード認証の失敗だった。
-- REQ-config-020 の二つの起動は、どちらも終了コード 2 で "Error: Failed to load SSH private key: パス" を標準エラーに出した（同じく一度だけ表示して確かめた）。HOME を一時ディレクトリに向けると、"~/" は利用者のホームではなくその HOME に展開される。
+- REQ-config-020 の二つの起動は、どちらも終了コード 2 で "Error: Failed to load SSH private key: パス" を標準エラーに出した（同じく一度だけ表示して確かめた）。HOME を一時ディレクトリに向けると、"~/" は利用者のホームではなくその HOME に展開される。テストは「エラーで止まる」ことを実行が成功で終わらないことで確かめ、終了コードの値（2）は IR が定めていないため固定しない。
 - REQ-config-019 の (c) と (d) では設定の password を使うため平文の警告（FLAG-config-011）が出るが、その有無は確かめない。パスワードが環境変数にも設定にもない組み合わせは FLAG-config-011 に当たるため使わない。
 
 ## 整理後の変異テスト

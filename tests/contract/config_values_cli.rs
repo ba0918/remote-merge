@@ -225,6 +225,8 @@ fn omitted_key_uses_the_default_path_and_names_it_when_it_cannot_be_read() {
     assert!(!workspace.home().join(".ssh/id_rsa").exists());
     let config = with_key_auth(&workspace.base_config(), None);
     let output = workspace.status(&config, true, &[], &[]);
+    // エラーで止まること: 終了コードの値は IR が定めていないため、成功でないことだけを確かめる
+    assert!(!output.status.success(), "{output:?}");
     assert!(
         combined(&output).contains("Failed to load SSH private key: ~/.ssh/id_rsa"),
         "{output:?}"
@@ -239,6 +241,7 @@ fn key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_re
     assert!(!expanded.exists());
     let config = with_key_auth(&workspace.base_config(), Some("key = \"~/keys/missing\""));
     let output = workspace.status(&config, true, &[], &[]);
+    assert!(!output.status.success(), "{output:?}");
     assert!(
         combined(&output).contains(&format!(
             "Failed to load SSH private key: {}",
