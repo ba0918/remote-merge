@@ -25,7 +25,7 @@ FLAG-config-001 から 008 の挙動（グローバル設定の場所のディ�
 - `tests/common/mod.rs` の `TestDirs::new_2way` で一時ディレクトリと SSH の試験サーバ（`ssh_server::TestServer::filesystem_without_agent`）を用意し、設定は `gen_config` で作って [local] の root_dir だけをテストごとに選ぶ。
 - 実行ファイルは `env_clear` したうえで `HOME` を一時ディレクトリの "home" に、`XDG_CONFIG_HOME` を "home/.config" に、`XDG_DATA_HOME` を一時ディレクトリの "xdg-data" に向け、カレントディレクトリをテストごとに選んで起動する。--config はテストが渡すときだけ付ける。グローバル設定の場所は Linux で "HOME/.config/remote-merge/config.toml" になる。`CliEnv::cmd` と同じ考え方の隔離だが、`CliEnv::cmd` は常に --config を付け、`XDG_CONFIG_HOME` を HOME の外に向けている点が違う。
 - 起動の前に、テストが書いた全ての設定ファイル（カレントディレクトリ、--config の指定先、グローバル設定）に `TestDirs::assert_isolated_config` の確認をかける。この確認は `TestDirs` の設定ファイルだけを見る非公開の関数のため、確認の対象の設定ファイルと [local] の root_dir を一時的に差し替えて呼ぶ補助 `TestDirs::assert_isolated_config_at` と、試験サーバのポートを返す `TestDirs::server_port` を `tests/common/mod.rs` に足した。確認そのものは書き直していない。
-- 例外として、REQ-config-009 の TOML として読めない設定ファイルにはこの確認をかけられない（確認が設定を TOML として読むため）。代わりに、書く前にその内容が `toml` クレートで読めないことを確かめる。製品も同じクレートで設定を読むため、このファイルから接続先を得ることはない。計画は全ての設定ファイルに確認をかけるとしていたため、計画からの逸れとして記録する。
+- 例外として、TOML として読めない設定ファイル（REQ-config-009 のテストと、REQ-config-006 の config_option_is_read_relative_to_the_current_directory_instead_of_the_project_config のカレントディレクトリの設定）にはこの確認をかけられない（確認が設定を TOML として読むため）。代わりに、書く前にその内容が `toml` クレートで読めないことを確かめる。製品も同じクレートで設定を読むため、このファイルから接続先を得ることはない。計画は全ての設定ファイルに確認をかけるとしていたため、計画からの逸れとして記録する。
 - 起動するのは全て `status --left local --right develop` で、どの設定が読まれたかはその設定の [local] の root_dir に置いたファイルが status の JSON の "files" の "path" に出るかで見る（"files" は `docs/ir/cli/status-output.md` の要件が契約にしている）。ファイルはローカルの側にだけ置くため "left_only" になり、終了コードは 1 になる。
 - エラーの行は --format を付けずに起動し、終了コード 2 と、標準出力と標準エラーをつないだものに文言が含まれることで確かめる（IR はエラーの出力先を契約にしていない）。パスはカレントディレクトリを正規化して比べる。
 
@@ -35,13 +35,14 @@ HOME と XDG_CONFIG_HOME を一時ディレクトリに向けると利用者の�
 |---|---|---|
 | REQ-config-005 | project_config_in_the_current_directory_is_read | src/config.rs の test_load_config_with_project_override_uses_specified_file の組み方と tests/contract/backup_rollback_cli_e2e.rs の実行ファイルの起動の組み方を写した。グローバル設定を置かず、カレントディレクトリの ".remote-merge.toml" の [local] の root_dir に置いたファイルだけが "files" に出る |
 | REQ-config-005 | project_config_in_a_parent_directory_is_not_searched | 手本の単体テストはない。親のディレクトリにだけ ".remote-merge.toml" を置き、その子のディレクトリをカレントディレクトリにして、グローバル設定もないとき、終了コード 2 で "Config file not found." を含む |
-| REQ-config-006 | config_option_is_read_relative_to_the_current_directory_instead_of_the_project_config | src/config.rs の test_load_config_with_project_override_uses_specified_file。カレントディレクトリに別の root_dir の ".remote-merge.toml" を置き、"./" を付けない相対パス "configs/chosen.toml" を --config に渡すと、--config の設定の root_dir のファイルだけが出る |
+| REQ-config-006 | config_option_is_read_relative_to_the_current_directory_instead_of_the_project_config | src/config.rs の test_load_config_with_project_override_uses_specified_file。カレントディレクトリに TOML として読めない ".remote-merge.toml" を置き、"./" を付けない相対パス "configs/chosen.toml" を --config に渡すと、止まらずに --config の設定の root_dir のファイルだけが出る。カレントディレクトリの設定を読めば止まるため、使わないだけでなく下の層として合成もしないことまで確かめる |
 | REQ-config-006 | config_option_still_merges_servers_from_the_global_config | 手本の単体テストはない。グローバル設定だけが develop を持ち、--config の設定は develop を持たない（同じ試験サーバを staging として持つ）構成で、`--right develop` の status が --config の設定の root_dir のファイルを出す。グローバル設定を置くため `#[cfg(target_os = "linux")]` にした（FLAG-config-001） |
 | REQ-config-007 | config_option_naming_a_missing_file_stops_with_its_absolute_path | src/config.rs の test_load_config_with_project_override_nonexistent_file、tests/cli_error_handling.rs の test_missing_config_exits_with_code_2。"./" を付けない "missing.toml" を渡し、終了コード 2 で、"Config file not found: " とカレントディレクトリから解決した絶対パスを含む |
 | REQ-config-007 | config_option_naming_a_directory_stops_with_its_absolute_path | src/config.rs の test_load_config_with_project_override_directory_rejected。ディレクトリ "configs" を渡し、終了コード 2 で、"Config path is not a regular file: " と絶対パスを含む |
 | REQ-config-008 | missing_global_and_project_config_stops_naming_the_project_path | src/config.rs の test_config_not_found。どちらの設定も置かず、終了コード 2 で、"Config file not found." とカレントディレクトリの ".remote-merge.toml" の絶対パスを含む。グローバル設定のパスの形は確かめない（FLAG-config-001 の範囲） |
-| REQ-config-009 | unparsable_project_config_stops_with_a_parse_error | tests/cli_error_handling.rs の test_invalid_toml_exits_with_code_2。カレントディレクトリの ".remote-merge.toml" を TOML として読めない内容にし、終了コード 2 で "Failed to parse config file: " を含む |
+| REQ-config-009 | unparsable_project_config_stops_with_a_parse_error | tests/cli_error_handling.rs の test_invalid_toml_exits_with_code_2。カレントディレクトリの ".remote-merge.toml" を TOML として読めない内容にし、終了コード 2 で "Failed to parse config file: " を含み、同じ行でその後に空でない理由が続く（理由の文言は toml クレートのもので契約ではないため固定しない） |
 | REQ-config-009 | unparsable_config_option_file_stops_with_a_parse_error | 同じ元のテスト。--config に TOML として読めないファイルを渡し、同じく止まる |
+| REQ-config-009 | unparsable_global_config_stops_with_a_parse_error_even_with_a_valid_project_config | 手本の単体テストはない。グローバル設定を TOML として読めない内容にし、カレントディレクトリに有効な ".remote-merge.toml" を置いても、同じく止まる（グローバル設定はプロジェクト設定と別の呼び出しで読まれる）。グローバル設定を置くため `#[cfg(target_os = "linux")]` にした（FLAG-config-001） |
 | REQ-config-010 | local_root_starting_with_tilde_is_resolved_under_home | src/ssh/client.rs の test_expand_tilde_home_dir。[local] の root_dir を "~/project" にし、HOME の下の "project" に置いたファイルが "files" に出る |
 
 - REQ-config-007 に "./" を付けない相対パスを渡すのは、絶対パスを渡すと相対かどうかの判定を変えた変異を落とせないためである。REQ-config-006 のテストはカレントディレクトリと実行ファイルのカレントディレクトリが同じため、相対パスの解決の違いは REQ-config-007 の文言で落とす。
@@ -65,6 +66,7 @@ HOME と XDG_CONFIG_HOME を一時ディレクトリに向けると利用者の�
 | REQ-config-011（セクションがない） | global_sections_are_used_when_the_project_config_lacks_them | 同じ元のテスト。プロジェクト設定に [ssh]・[backup]・[agent] がないとき（プロジェクト設定を置くがセクションがない場合と、プロジェクト設定を置かない場合）、三つのセクションの全てのキーがグローバル設定の値になる |
 | REQ-config-012 | defaults_key_in_the_project_config_wins_over_the_global_one | src/config.rs の test_defaults_merge_field_level_via_config_load。両方の [defaults] に二つのキーを書くと、どちらもプロジェクトの値になる |
 | REQ-config-012 | defaults_key_missing_from_the_project_config_comes_from_the_global_one | 同じ元のテストと test_defaults_merge_field_level_file_only_override。グローバル設定に二つのキーを書き、プロジェクト設定に一方だけを書くと、書いていないキーはグローバルの値になる。どちらのキーを省くかの二通り |
+| REQ-config-012 | global_defaults_keys_are_used_when_the_project_config_lacks_the_section | src/config.rs の test_defaults_section_in_config（グローバル設定だけの場合）。グローバル設定の [defaults] に既定値と違う二つのキーを書き、プロジェクト設定に [defaults] のセクション自体がない場合と、グローバル設定だけを置く場合の二通りで、二つのキーがグローバルの値になる。両方に [defaults] がある場合と実装の別の経路を通る |
 | REQ-config-012 | defaults_key_in_neither_config_uses_the_default_value | 手本の単体テストはない。両方の [defaults] に同じ一方のキーだけを書くと、他方のキーは既定値（0o664 か 0o775）になる。二通り |
 | REQ-config-013（[servers.名前] の 3 行） | omitted_server_keys_use_the_default_port_auth_and_sudo | src/config.rs の test_minimal_config。host・user・root_dir だけのサーバを、グローバル設定だけ・プロジェクト設定だけ・両方（プロジェクト側に書く）の三通りに置き、port が 22、auth が "key"、sudo が false になる |
 | REQ-config-013（残る 11 行、セクションなし） | absent_sections_use_the_default_values | src/config.rs の test_agent_config_defaults_when_absent、test_defaults_absent_uses_hardcoded_fallback。[ssh]・[backup]・[agent]・[defaults] のない設定を三通りに置き、11 行の全てが既定値になる |
@@ -74,6 +76,7 @@ HOME と XDG_CONFIG_HOME を一時ディレクトリに向けると利用者の�
 
 変異テストは決着の対象の関数に絞って一度実行した。
 記録の最初のコミット c98fceb（テストの最後のコミットは f40f05e）で、作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
+その後、レビューを受けて根拠テストを強め、足した（af87288 から 380a820）が、変異テストは回し直していない。
 コマンドは次のとおりで、並列数は既定の 2 である。
 
 ```sh
