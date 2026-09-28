@@ -80,11 +80,27 @@ scripts/mutants.sh --re '(parse_permissions|resolve_file_permissions|resolve_dir
 
 一度目はコミット b6cfe81（S2 までのテストと記録）で実行し、`mutants: caught=36 survived=6 timeout=0 unviable=9 equivalent=0`（51 件、約 13 分）だった。
 見逃しのうち src/config.rs:761:9（delete match arm "ask" in parse_strict_host_key_checking）は決着の対象だったため、テストを足して（下の「見逃しと決着」）、そのコミット e01e78d で作業ツリーに変更のない状態で回し直した。
-最後の結果はこの二度目のもので、`mutants: caught=37 survived=5 timeout=0 unviable=9 equivalent=0`（51 件、約 14 分）である。
-スクリプトの終了コードはどちらも 1（kotowari mutants が見逃しを error として報告したため。メモリ上限での停止ではない）。
+二度目の結果は `mutants: caught=37 survived=5 timeout=0 unviable=9 equivalent=0`（51 件、約 14 分）だった。
 一度目と二度目で結果が変わったのは 761:9 が survived から caught になった一件だけである。
+その後、差分のレビューを受けて REQ-config-020 のテストに実行が成功で終わらないことの確認を足し（d1e294f）、REQ-config-019 の否定側の判定を失敗時の JSON のキーに頼らない形に変えた（8c5ad49）。
+テストの判定が変わったため、コミット 8c5ad49 で作業ツリーに変更のない状態で三度目を回した。
+最後の結果はこの三度目のもので、`mutants: caught=38 survived=4 timeout=0 unviable=9 equivalent=0`（51 件、約 14 分）である。
+スクリプトの終了コードは三度とも 1（kotowari mutants が見逃しを error として報告したため。メモリ上限での停止ではない）。
 
-関数ごとの内訳（e01e78d の `outcomes.json` から数えた）は次のとおり。
+二度目（e01e78d）と三度目（8c5ad49）で結果が変わったのは次の三件で、他の 48 件は同じ結果だった。
+
+| 位置 | 変異 | e01e78d | 8c5ad49 |
+|---|---|---|---|
+| src/config.rs:886:13 | replace == with != in convert_server_config | survived | caught（tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l だけが失敗） |
+| src/ssh/client.rs:215:13 | delete field keepalive_max from struct client::Config expression in SshClient::build_client_config | survived | caught（同じく test_hunk_merge_left_to_right_with_l だけが失敗） |
+| src/ssh/client.rs:379:27 | replace == with != in SshClient::authenticate | caught（tests/tui_merge.rs の二つのテストだけが失敗） | survived |
+
+三件とも、検知したかどうかが tui_merge のテストの失敗だけで決まっている。
+886:13 は tracing の警告を出すかどうか、215:13 は keepalive の最大回数だけを変える変異で、TUI のテストはどちらも観測しない。
+そのため、三件の違いは変異によるものではなく、待ち時間に頼るテストが負荷の下で落ちたかどうかの違いと推測する（変異の下でそのテストを単独で回し直してはいない）。
+REQ-config-019 と 020 のテストの判定の変更は、この三件の結果に関わらない。
+
+関数ごとの内訳（8c5ad49 の `outcomes.json` から数えた）は次のとおり。
 
 | 関数 | caught | survived | unviable |
 |---|---|---|---|
@@ -97,27 +113,29 @@ scripts/mutants.sh --re '(parse_permissions|resolve_file_permissions|resolve_dir
 | resolve_dir_permissions | 2 | 0 | 0 |
 | parse_strict_host_key_checking | 3 | 0 | 1 |
 | convert_defaults_config | 1 | 0 | 0 |
-| convert_server_config | 1 | 2 | 1 |
+| convert_server_config | 2 | 1 | 1 |
 | resolve_password | 2 | 0 | 7 |
-| SshClient::authenticate | 4 | 0 | 0 |
-| SshClient::build_client_config（正規表現に一致しない。構造体のフィールドを消す変異） | 0 | 3 | 0 |
+| SshClient::authenticate | 3 | 1 | 0 |
+| SshClient::build_client_config（正規表現に一致しない。構造体のフィールドを消す変異） | 1 | 2 | 0 |
 
 unviable の 9 件は、`parse_strict_host_key_checking` を `Default::default()` にする変異、`convert_server_config` を `Ok(Default::default())` にする変異、`resolve_password` の返り値を `Some((…, Default::default()))` にする 7 件で、`StrictHostKeyChecking`・`ServerConfig`・`PasswordSource` が `Default` を実装しないため組み立てられない。
 
 ### 前の回との比較（convert_server_config と convert_defaults_config）
 
-前の回（[記録](./config-loading-test-cleanup.md)の d962aaf）では `convert_server_config` が caught 1・survived 2・unviable 1、`convert_defaults_config` が caught 1 だった。この回も同じ数で、見逃しは同じ src/config.rs:886:13 と 886:32 の二件である。
+前の回（[記録](./config-loading-test-cleanup.md)の d962aaf）では `convert_server_config` が caught 1・survived 2・unviable 1、`convert_defaults_config` が caught 1 だった。この回の二度目（e01e78d）も同じ数で、見逃しは同じ src/config.rs:886:13 と 886:32 の二件だった。
+三度目（8c5ad49）では 886:13 が caught と数えられ、`convert_server_config` は caught 2・survived 1・unviable 1 になった。ただし上のとおり、886:13 は tui_merge のテストの失敗だけで検知されたもので、実質は前の回と同じ二件の見逃しと推測する。
 前の回で値の検査の回に回したこの二件は、この回の取り込みで FLAG-config-010（auth が "key" のサーバの password の警告）になったため、その範囲として記録する（下の表）。
 
 ### 検知したテスト
 
-検知した 37 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+検知した 38 件の変異ごとに（8c5ad49 の実行）、cargo-mutants の変異ごとのログから失敗したテストを集めた。
 nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
 
 - 足したテストが先に失敗したもの: src/config.rs:761:9（delete match arm "ask"）の ask_value_in_any_case_does_not_warn。
 - 他の変異は src/config.rs と src/ssh/client.rs の既存の単体テストか、SSH の試験サーバを使う既存の契約テストが先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
-- 負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は次の二件である。
-  - src/ssh/client.rs:379:27（replace == with != in SshClient::authenticate、設定の password を使うときの平文の警告の条件 `if source == PasswordSource::Config`）: tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l と test_hunk_merge_right_to_left_with_h_key だけで検知された。この変異で変わるのは tracing の警告を出す場合（設定の password のときに出さず、環境変数のときに出す）だけで、TUI のテストは警告を観測しない。そのため、この検知は変異によるものではなく、待ち時間に頼るテストが負荷の下で落ちたものと推測する（変異の下でそのテストを単独で回し直してはいない）。実質は見逃しで、平文の警告は FLAG-config-011 の範囲のため、この回では決着させない（下の「利用者の判断」の 2）。
+- 負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は次の三件である。
+  - src/config.rs:886:13（replace == with != in convert_server_config）と src/ssh/client.rs:215:13（delete field keepalive_max in SshClient::build_client_config）: どちらも tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l だけで検知された。上の二度目と三度目の比較のとおり、負荷による失敗と推測し、実質は見逃しとして扱う。886:13 は FLAG-config-010 の範囲、215:13 は下の「利用者の判断」の 1 の範囲である。
+  - e01e78d の実行では、src/ssh/client.rs:379:27（replace == with != in SshClient::authenticate、設定の password を使うときの平文の警告の条件 `if source == PasswordSource::Config`）が tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l と test_hunk_merge_right_to_left_with_h_key だけで検知されていた。この変異で変わるのは tracing の警告を出す場合（設定の password のときに出さず、環境変数のときに出す）だけで、TUI のテストは警告を観測しない。そのため、その検知は負荷による失敗と推測していた。8c5ad49 の実行ではこの変異は survived になった（下の表）。
   - src/ssh/client.rs:363:20（delete ! in SshClient::authenticate、鍵認証の結果の判定 `if !auth_res.success()`）: tests/agent_ssh_deploy.rs の agent_ssh_exec_handshake・agent_ssh_list_tree_roundtrip・agent_ssh_ping_pong・agent_ssh_read_files_roundtrip の四つがそろって失敗した。変異は成功した鍵認証を失敗として扱うため、鍵認証で接続するこれらのテストが落ちるのは変異によるものと見られる（負荷による失敗かどうかは確かめていない）。鍵認証の成否は IR に要件がなく、この回の要件の範囲の外である。
 
 ### 見逃しと決着
@@ -127,11 +145,12 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 | 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
 |---|---|---|---|---|
 | src/config.rs:761:9 | delete match arm "ask" in parse_strict_host_key_checking | "ask" を ask として読む分岐 | 対象（REQ-config-018） | テストを足した（e01e78d で caught）。分岐を消しても知らない値の分岐が ask を返すため値は変わらず、警告が出るかどうかだけが変わる。REQ-config-018 は知らない値のときだけ警告を出すとするため区別できる。tests/contract/config_values_cli.rs の ask_value_in_any_case_does_not_warn（`@kotowari[REQ-config-018]`）で、同じ準備で "maybe" に警告が出ることと並べて、"ask" と "ASK" に警告が出ないことを確かめる。変異を一時的に書き入れてこのテストが落ちることを確かめ、`git diff --stat src/` が空に戻ることを確かめた |
-| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（FLAG-config-010） | 記録だけする。変わるのは tracing の警告を出すかどうかだけで、設定の値・標準出力・終了コードは変わらない |
+| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（FLAG-config-010） | 記録だけする。変わるのは tracing の警告を出すかどうかだけで、設定の値・標準出力・終了コードは変わらない。8c5ad49 では tui_merge のテストの失敗だけで caught と数えられた（負荷によるものと推測） |
 | src/config.rs:886:32 | replace && with \|\| in convert_server_config | 同じ行 | 対象でない（FLAG-config-010） | 同上 |
 | src/ssh/client.rs:213:13 | delete field inactivity_timeout from struct client::Config expression in SshClient::build_client_config | SSH の接続設定の無通信のタイムアウト | 対象でない（正規表現に一致しない関数の、構造体のフィールドを消す変異） | 記録だけする（下の「利用者の判断」の 1） |
 | src/ssh/client.rs:214:13 | delete field keepalive_interval from struct client::Config expression in SshClient::build_client_config | keepalive の間隔 | 同上 | 同上 |
-| src/ssh/client.rs:215:13 | delete field keepalive_max from struct client::Config expression in SshClient::build_client_config | keepalive の最大回数 | 同上 | 同上 |
+| src/ssh/client.rs:215:13 | delete field keepalive_max from struct client::Config expression in SshClient::build_client_config | keepalive の最大回数 | 同上 | 同上。8c5ad49 では tui_merge のテストの失敗だけで caught と数えられた（負荷によるものと推測） |
+| src/ssh/client.rs:379:27 | replace == with != in SshClient::authenticate | 設定の password を使うときの平文の警告の条件（`if source == PasswordSource::Config`） | 対象でない（FLAG-config-011） | e01e78d では caught、8c5ad49 では survived。記録済みの「利用者の判断」の 2 はこの変異を実質の見逃しと推測したうえでの判断だが、前の実行で caught だったものが見逃しに変わったため、改めて利用者の判断を待つ（下の「利用者の判断」の 3） |
 
 決着の対象の見逃しは残っていない。見逃しや新しいテストが不具合の疑いを示したものはない。同等変異の登録はしていない。
 
@@ -164,3 +183,9 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 2. src/ssh/client.rs:379:27（平文の警告）は、FLAG-config-011 を決着させるときに扱う。この回ではテストを足さず、同等変異としても登録しない。
 
 この判断はテストもコードも変えないため、変異テストは回し直していない。
+
+その後、REQ-config-019 と 020 のテストの判定を変えたため、8c5ad49 で変異テストを回し直した（上の「整理後の変異テスト」）。
+886:32・213:13・214:13 の見逃しは記録済みの判断をそのまま当てはめる。886:13 と 215:13 は caught と数えられたが、負荷による検知と推測し、記録済みの判断（FLAG-config-010 の範囲、判断の 1）を当てはめる。
+次の一件は判断を待つ。
+
+3. src/ssh/client.rs:379:27（平文の警告）は、e01e78d の実行で caught（tui_merge のテストの失敗だけ）、8c5ad49 の実行で survived だった。前の実行で caught だったものが見逃しに変わったため、決着させずに記録する。推奨は、判断の 2 がこの変異を実質の見逃しとして扱っていたため、その判断をそのまま当てはめることである。
