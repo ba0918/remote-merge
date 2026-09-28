@@ -6,7 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::app::Side;
-use crate::diff::engine::{apply_selected_hunks_single_pass, compute_diff, is_binary, DiffResult};
+use crate::diff::engine::{
+    apply_selected_hunks_single_pass, compute_diff, is_binary, merge_hunks_in_display_hunks,
+    DiffResult,
+};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction};
@@ -435,9 +438,13 @@ pub fn execute_hunk_merge(
             anyhow::bail!("Hunk merge is not supported for symlink files: '{}'", path);
         }
         DiffResult::Modified {
-            merge_hunks, lines, ..
+            hunks,
+            merge_hunks,
+            lines,
+            ..
         } => {
-            let total = merge_hunks.len();
+            // 番号は diff --format json と同じ表示用ハンク（コンテキスト3行）で数える
+            let total = hunks.len();
             let hunk_dir = ctx.direction.to_hunk_direction();
 
             // インデックスの範囲チェック + 重複排除を1パスで実行
@@ -453,7 +460,9 @@ pub fn execute_hunk_merge(
                 unique_indices.insert(idx);
             }
 
-            let merged_text = if unique_indices.len() >= merge_hunks.len() {
+            let selected_merge_hunks =
+                merge_hunks_in_display_hunks(hunks, merge_hunks, &unique_indices);
+            let merged_text = if selected_merge_hunks.len() >= merge_hunks.len() {
                 // 全 hunk → ソーステキストをそのまま使用
                 source_text.to_string()
             } else {
@@ -462,7 +471,7 @@ pub fn execute_hunk_merge(
                 apply_selected_hunks_single_pass(
                     lines,
                     merge_hunks,
-                    &unique_indices,
+                    &selected_merge_hunks,
                     hunk_dir,
                     trailing_nl,
                 )
