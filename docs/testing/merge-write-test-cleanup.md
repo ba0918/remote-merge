@@ -104,3 +104,81 @@ sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --forc
 | REQ-merge-022（同じパスの重ね指定） | a_path_given_twice_is_written_once | tests/cli_merge.rs の test_merge_duplicate_paths_deduplicated（標準出力の "Merged:" の数を見る）。a.txt を二度指定した merge で、merged にちょうど一度だけ出て、failed が空で、終了コードが 0 であることを確かめる。failed の error の文言は確かめない |
 
 - REQ-merge-021 の構成には書き込み先にだけあるファイルを含めない（その扱いは symlink と削除の回の範囲）。
+
+## 整理後の変異テスト
+
+根拠テストを足し終えたコミット 48093a8 で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
+
+```sh
+scripts/mutants.sh src/service/merge_flow.rs src/cli/tolerant_io.rs src/service/status.rs
+```
+
+全体の集計は `mutants: caught=134 survived=12 timeout=0 unviable=17 equivalent=0`（163 件、実行時間は約 40 分）。
+スクリプトの終了コードは整理前と同じく 1（見逃しの error による。メモリ上限での停止ではない）。
+
+| ファイル | caught | survived | timeout | unviable |
+|---|---|---|---|---|
+| src/service/merge_flow.rs | 24 | 9 | 0 | 8 |
+| src/cli/tolerant_io.rs | 8 | 0 | 0 | 0 |
+| src/service/status.rs | 102 | 3 | 0 | 9 |
+
+### 整理前との比較
+
+整理後の見逃し 12 件は全て整理前の見逃しに含まれる（整理前の 13 件から src/service/merge_flow.rs:413:33 を除いたもの）。
+この計画はテストを消していないため、見逃しが増えないことは予想どおりだった。足したテストは決着の対象の見逃しのどれにも触れる構成を持たないため、見逃しは減っていない。
+
+src/service/merge_flow.rs:413:33（replace || with && in execute_hunk_merge）は、整理前は見逃し、整理後は tui_merge の test_sensitive_file_merge_requires_confirmation だけに検知された。
+この変異は変更のまとまりを選ぶマージの関数にあり、機密ファイルの確認のテストが通る経路ではないため、負荷の下での見かけの検知とみなし、見逃しとして扱う（決着の対象ではない）。
+src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with true）は整理前と同じく tui_merge のテストだけに検知された。この変異は `.kotowari/mutants-equivalents.yaml` に status の整理で同等変異として登録済みで、見かけの検知である。
+これ以外に、負荷の下で落ちるテストだけで検知された変異はなかった。
+
+### 見逃しの決着
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | 未決着。下の「利用者の判断を待つ候補」の二件目 |
+| src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 同上 |
+| src/service/status.rs:320:15 | replace && with \|\| in needs_merge_content_compare | 未決着。下の「利用者の判断を待つ候補」の一件目 |
+| src/service/status.rs:323:61 | replace && with \|\| in needs_merge_content_compare | 同上 |
+
+決着の対象でない見逃しは次の 9 件（整理後の見逃し 8 件と、見かけの検知として見逃しに数える :413:33）で、記録だけする。
+
+| 位置 | 変異 | 扱う回 |
+|---|---|---|
+| src/service/merge_flow.rs:413:33 | replace \|\| with && in execute_hunk_merge | 変更のまとまりを選ぶマージの回（整理後は見かけの検知） |
+| src/service/merge_flow.rs:427:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:428:13 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:479:21 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:480:21 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:481:21 | delete field hunk_info from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:502:17 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:503:17 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/status.rs:143:37 | replace + with * in collect_all_file_paths | status の規則（容量の見積もりだけに使う式） |
+
+### 利用者の判断を待つ候補
+
+一件目: src/service/status.rs:320:15 と :323:61（--checksum のときに中身を読み比べる組の条件）
+
+- 観測: どちらの変異も、--checksum のディレクトリ指定で、左右の片方だけが通常ファイルの組（または両方が通常ファイルでない組）を中身の読み比べに加える。コミットに含めない一時的なテストで、local の folder/x が通常ファイル、develop の folder/x がディレクトリの構成を --checksum 付きで merge と sync にかけると、今の実装は folder/x を skipped（reason "source and destination have different file types"）に出して終了コード 0 になる。変異では folder/x が failed（error "read failed: right: …Is a directory…"）になり終了コード 2 になる。どちらも書き込み先は変えない。
+- 計画との関係: 計画は `needs_merge_content_compare` の見逃しを決着の対象にしているが、変異を落とす構成は通常ファイルとディレクトリ（または symlink）の種類の違いで、その扱いは REQ-merge-001（docs/ir/merge/symlink.md、種類の違う対象を理由付きでスキップする）の範囲にある。計画は symlink と種類の違いのテストを merge の後の回に回しており、S4 で足してよい既存要件の例にも REQ-merge-001 を挙げていない。どちらに読むかを計画が決めていないため、テストを足さずに返す。同等変異ではない（観測できる違いがある）。不具合の疑いではない（今の実装は REQ-merge-001 どおりスキップする）。
+- 判断してほしいこと: (a) この回でテストを足す（`tests/contract/merge_write.rs` に、--checksum のディレクトリ指定の merge と sync で通常ファイルとディレクトリの組が failed に出ず、skipped に出て書き込み先が変わらないことを確かめるテストを、REQ-merge-001 と REQ-merge-006 の印で置く。reason の文言は確かめない）、(b) symlink と種類の違いの回で扱うものとして記録だけにする、のどちらにするか。推奨は (a)。symlink を使わない通常ファイルとディレクトリの組で落とせ、期待する挙動は既存の REQ-merge-001 が決めており、新しい判断を要しないため。
+
+二件目: src/service/merge_flow.rs:256:14 と :256:18（読み込み元の権限の値が 0 のときに書き込み先の権限を変えるか）
+
+- 観測: どちらの変異も、--with-permissions で読み込み元（ローカル）の権限の値が 0（mode 000）のときだけ、元のコードがしない `chmod(書き込み先, 0)` を行う。`copy_permissions` はどの経路でも読み込み元の中身を読んだ後に呼ばれるため、最初から mode 000 の読み込み元は読み取りで失敗し、ここまで届かない（root でない場合）。
+- 同等変異として登録できるかの試み: 別の文脈のエージェントに、merge と sync の公開された入口からこの二つの変異を落とすテストを書かせた。エージェントは、書き込み先を FIFO（名前付きパイプ）にして merge の書き込み先の読み取りと書き込みを止め、読み込み元を読んだ後・権限を読む前に読み込み元を mode 000 にする競合を作るテスト（mkfifo と inotify を使う Linux 専用のテスト。merge が書き込み先を読む回数（2 回）に依存する）で、二つとも落とした。元のコードでは書き込み先の権限が 0o640 のまま残り、変異では 0 になる。この結果は、コミットに含めない一時的な書き換えでそれぞれの変異を入れて実行し、元のコードで通り、二つの変異で落ちることを確かめた。観測できる違いがあるため、同等変異としては登録しない。
+- IR との関係: REQ-merge-014 は --with-permissions のとき読み込み元のファイル権限を書き込み先に反映するとする。読み込み元の権限が 0 のときに反映しない今の実装は、その文を字のとおり読むと食い違い、変異の挙動（0 を反映する）のほうが文に近い。一方で、この違いは読み込みと権限の読み取りの間に読み込み元の権限が変わる競合でしか起きない。FLAG-merge-002 から 004（リモートの読み込み元、新規ファイル、権限の変更の失敗）のどれにも当たらない。
+- テストを足さなかった理由: エージェントのテストは、IR が決めていない挙動（権限 0 を反映しない）を根拠テストで決めてしまい、読み取りの回数という実装の詳細と FIFO の競合に依存して壊れやすいため、利用者の判断なしには足さない。
+- 判断してほしいこと: (a) 新しい FLAG（読み込み元の権限が 0 のときの複製。kind は gap）として記録し、この二件をその範囲として決着させる、(b) 今の挙動（0 は反映しない）が意図どおりとして、エージェントのテストを REQ-merge-014 の印で足す、(c) 起きるのが競合の間だけで実際上は届かないとして、エージェントのテストで落とせたことを why に書いて同等変異に登録する（計画の登録の条件「別の文脈で書けなかった」は満たさない）、のどれにするか。推奨は (a)。IR の文と今の実装が食い違って見え、どちらに合わせるテストもその未決の点を決めてしまうため。
+
+## 要件の verification の見直し
+
+REQ-merge-019 から 022 の verification は全て unit で、いずれも具体的な場面の入力で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-merge-019 | unit | 読めない側（左・右・両方）の場面ごとに error の形が決まる |
+| REQ-merge-020 | unit | サイズ・更新時刻・中身の組み合わせの場面ごとに書くか書かないかが決まる |
+| REQ-merge-021 | unit | 配下のファイルの状態（中身が違う・読み込み元だけ・同じ）ごとに書くか書かないかが決まる |
+| REQ-merge-022 | unit | 指定したパスの並び（別々・重複）に対して書き込みの回数が決まる |
