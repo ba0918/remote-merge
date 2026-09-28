@@ -169,6 +169,14 @@ impl Fixture {
         (json, format_merge_text(&output))
     }
 
+    /// 関数呼び出しで merge し、`execute_merge` が返したエラーを返す（成功したら落ちる）
+    pub fn merge_error(&self, args: MergeArgs) -> anyhow::Error {
+        match execute_merge(args, self.config(), self.runtime_targets()) {
+            Ok(result) => panic!("expected merge to fail, got exit code {}", result.exit_code),
+            Err(error) => error,
+        }
+    }
+
     /// 関数呼び出しで sync し、結果の JSON と終了コードを返す
     pub fn sync_json(&self, args: SyncArgs) -> (serde_json::Value, i32) {
         let result = execute_sync(args, self.config(), self.runtime_targets()).unwrap();
