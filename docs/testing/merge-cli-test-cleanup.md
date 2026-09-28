@@ -65,3 +65,30 @@ nextest は最初の失敗で止まる（例: src/cli/merge.rs:120 の変異で�
 - `validate_ref_side` の三件: src/cli/ref_guard.rs の四件のうち三件
 - `plan_merge` の :29:12 の `delete !`、`merge_exit_code` の三件、`check_r2r_guard` の五件: src/service/merge.rs の test_plan_merge_*、test_merge_exit_code_*、test_check_r2r_guard_*
 - `merge_partial_nodes`・`merge_partial_node`・`merge_file_node` と `determine_merge_action`・`find_symlink_target` の検知: 計画で記録だけする関数の単体テスト
+
+## 要件ごとの根拠テスト
+
+根拠テストは `tests/contract/` の下に置いた。元にしたテスト（`src/` の単体テスト、`tests/cli_merge.rs`、`tests/cli_error_handling.rs`、`tests/contract/cli_results.rs`）は消さずに残した。
+新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
+一つの要件に複数の場合があるときは、場合ごとのテストに同じ要件の印を付け、印の付いたテストを合わせて要件の文を全て確かめる。
+
+準備は `tests/contract/merge_support.rs` にまとめた。
+local と、リモートの設定を持つ "develop"（書き込み先）と "staging"（参照先）の三つのディレクトリを一時ディレクトリに作り、一時的な設定ファイルに書く。
+実行ファイルの呼び出しは、環境変数を消し、HOME・XDG_CONFIG_HOME・XDG_DATA_HOME と作業ディレクトリを一時ディレクトリにして `--config` で一時的な設定ファイルを渡す（`tests/common/mod.rs` の `remote_merge_cmd` は実際の HOME を渡すため使わない）。
+接続より前に止まる指定だけをこの呼び出しで確かめるため、サーバの host は "example.invalid" のままにした。
+
+### 指定の誤りと JSON のエラー（REQ-cli-046、REQ-cli-018）
+
+根拠テストは `tests/contract/merge_cli.rs` にある。SSH の fixture を使わないため `test-utils` の feature で囲まない。
+どのテストも、終了コードが 2 であることと、local・develop・staging の file.txt が変わらないことを確かめる。
+文言は標準エラーの一行が "Error: " に表の文言を続けたものと完全に一致することを確かめる。
+エラーで止まったときの終了コード 2（REQ-cli-047 の三つめの場合）は、表の行のうち文言を確かめる四件の印に REQ-cli-047 を足して根拠にした。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-046（パスがない） | a_merge_without_a_path_stops_before_writing | tests/cli_error_handling.rs の test_merge_no_paths_given。元のテストは終了コードが 0 でないことだけを見るが、2 であることと書き込み先が変わらないことを確かめる。文言は引数解析ライブラリのものなので確かめない。src/cli/merge.rs の test_empty_paths_returns_error は、実行ファイルでは clap が先に止めるため届かない `validate_merge_args` の分岐を見ており、手本にしなかった |
+| REQ-cli-046、REQ-cli-047（--left か --right がない） | a_merge_without_left_or_right_stops_with_the_required_sides_error | src/cli/merge.rs の test_merge_with_only_right_returns_error、test_merge_with_only_left_returns_error、test_merge_without_left_and_right_returns_error と tests/contract/cli_results.rs の merge_without_an_explicit_destination_refuses_to_write。元のテストは関数呼び出しで文言の一部（"--left and --right"）を見るが、実行ファイルで --left だけと --right だけのそれぞれについて表の文言と完全に一致することを確かめる。tests/cli_error_handling.rs の test_merge_without_right_falls_back_and_fails_ssh は、--right が既定のサーバに補われて SSH のエラーで失敗するという、今の実装と違う前提の説明を持ち、終了コードが 0 でないことしか見ないため手本にしなかった |
+| REQ-cli-046、REQ-cli-047（--left と --right が同じ） | a_merge_with_the_same_left_and_right_stops_with_the_different_sides_error | 新しく書いた（merge の入口を通して確かめる既存テストはなかった）。--left develop --right develop |
+| REQ-cli-046、REQ-cli-047（設定にないサーバ名） | a_merge_with_an_unknown_server_stops_with_the_not_found_error | 新しく書いた。--left と --right のそれぞれに設定にない "nowhere" を渡す。--ref の名前は表の行に含まないため確かめない |
+| REQ-cli-046、REQ-cli-047（--format が text・json・diff 以外） | a_merge_with_an_unknown_format_stops_with_the_format_error | src/cli/merge.rs の test_run_merge_rejects_invalid_format_early。元のテストは関数呼び出しでエラーになることだけを見るが、実行ファイルで --format xml の文言が表と一致することを確かめる |
+| REQ-cli-018 | a_json_merge_stopped_by_an_error_prints_the_error_as_json | tests/contract/cli_results.rs の json_diff_returns_a_parseable_error_when_configuration_is_invalid（diff の同じ要件の例）。--format json で --right のない merge が、標準出力に error の項目（"--left and --right are required" を含む文字列）を持つ JSON を出し、終了コード 2 になる |

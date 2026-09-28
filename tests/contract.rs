@@ -27,8 +27,12 @@ mod diagnostics;
 mod filters;
 #[path = "contract/init.rs"]
 mod init;
+#[path = "contract/merge_cli.rs"]
+mod merge_cli;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
+#[path = "contract/merge_support.rs"]
+mod merge_support;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[path = "contract/scan_limits.rs"]
