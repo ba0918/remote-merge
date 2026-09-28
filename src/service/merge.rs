@@ -200,25 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_merge_output() {
-        let output = build_merge_output(
-            vec![MergeFileResult {
-                path: "a.rs".into(),
-                status: "ok".into(),
-                backup: None,
-                ref_badge: None,
-                hunk_info: None,
-            }],
-            vec![],
-            vec![],
-            vec![],
-            None,
-        );
-        assert_eq!(output.merged.len(), 1);
-        assert!(output.failed.is_empty());
-    }
-
-    #[test]
     fn test_merge_exit_code_success() {
         let output = build_merge_output(
             vec![MergeFileResult {

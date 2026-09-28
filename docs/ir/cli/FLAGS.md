@@ -106,3 +106,80 @@ status が中身を読み比べる対象のファイルを読めなかったと�
 - source: docs/decision/records/2026-09-27-sync-mutant-flags.md#A1
 
 sync の書き込む前の確認で、実装は書き込むファイルだけがある書き込み先を "[先] N files to merge"、削除予定だけがある書き込み先を "[先] M files to delete" と件数が 0 の部分を省いて出す。REQ-cli-040 は行の形を "[先] N files to merge, M files to delete" と書いており、件数が 0 の部分を省くかは定めていない。旧総合仕様の出力例 "[server1] 3 files to merge (2 modified, 1 added)" は削除の部分を出していない。
+
+### FLAG-cli-016: 種類の違いによるスキップと merge の終了コード
+- kind: contradiction
+- related: REQ-cli-047, FLAG-cli-010, REQ-merge-001
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A7
+
+旧個別仕様 symlink-merge の 3.3 は種類の違い・symlink の削除・パスを辿れないことによるスキップが一件でもある merge の終了コードを 2 にするとするが、実装は merge の終了コードの判定に skipped を数えないため、そのスキップだけの merge は終了コード 0 になる。
+
+### FLAG-cli-017: merge の dry-run の終了コード
+- kind: contradiction
+- related: REQ-cli-047, REQ-cli-004, FLAG-cli-014
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A8
+
+旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
+
+### FLAG-cli-018: 機密ファイルのスキップ理由の文言
+- kind: contradiction
+- related: REQ-cli-048, REQ-cli-003
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A9
+
+旧総合仕様の JSON 出力スキーマは merge の JSON で機密ファイルのスキップの reason を "sensitive" とするが、実装は "sensitive file" とする。
+
+### FLAG-cli-019: merge のスキップの行の形
+- kind: contradiction
+- related: REQ-cli-049
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A10
+
+旧個別仕様 symlink-merge の 3.3 はスキップのテキスト出力を "  - パス (skipped: 理由)" の行とするが、実装の merge は "Skipped: パス (理由)" の行で出す。
+
+### FLAG-cli-020: リモート間の merge の確認
+- kind: contradiction
+- related: REQ-cli-003, REQ-cli-047
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A11
+
+旧総合仕様のサーバ間比較の節はリモート間の merge でサーバ名を入力させる確認を出し、--force で確認を省略できるとするが、CLI の実装は確認を出さずに --force も --dry-run もないリモート間の merge を止め、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." を出し、JSON では failed に path が "" の一件を出し、終了コード 2 を返す。
+
+### FLAG-cli-021: merge の確認のプロンプトと --force の働き
+- kind: contradiction
+- related: REQ-cli-003
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A12
+
+旧総合仕様の使い方の例とマージ前確認の節は merge が確認のプロンプトを出し、--force で省略するとするが、CLI の merge は確認のプロンプトを出さず（TUI には確認がある）、--force は機密ファイルを対象に含めること、リモート間の merge を止めないこと、三者の競合の確認をしないことに効く。
+
+### FLAG-cli-022: 機密ファイルの警告と件数
+- kind: contradiction
+- related: REQ-cli-003
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A13
+
+旧総合仕様のセンシティブファイル警告の節は機密ファイルを検知したらマージの前に警告して続行するかを尋ねるとするが、CLI の merge は尋ねずに --force のない機密ファイルをスキップし、テキスト形式のときだけ（--dry-run でも）標準エラーに "N sensitive file(s) will be skipped. Use --force to include them." を出す。この N には書き込み先にだけあるファイルなど機密ファイル以外のスキップも数えるため、機密ファイルがなくても件数が出ることがある。
+
+### FLAG-cli-023: 三者の中身がそろわないファイル
+- kind: gap
+- related: REQ-cli-017, REQ-cli-051
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A14
+
+--ref があり --force も --dry-run もない merge で、実装は左・右・参照先のどれかで中身がそろわないファイルを書き込まずに failed に error "three-way comparison incomplete" で出すため、左にだけある新しいファイルは --ref 付きでは --force なしに書き込めない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-024: dry-run で競合を確かめない
+- kind: gap
+- related: REQ-cli-004, REQ-cli-051
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15
+
+--ref がある --dry-run の merge で、実装は三者の競合を確かめないため、実際に実行すると競合で失敗するファイルも merged に status "would merge" で出す。旧資料に記述がなくテストもない。
+
+### FLAG-cli-025: 別々の箇所の変更は競合か
+- kind: ambiguity
+- related: REQ-cli-016, REQ-cli-017, REQ-cli-051
+- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A1
+
+--ref があり --force のない merge で、参照先に対して左右がテキストのファイルの別々の箇所を変えたとき（参照先 "a b c d e"、左 "A b c d e"、右 "a b c d E" の各行）、実装は重なる変更がないため競合とせず、書き込み先を左の中身で上書きし、右の変更 "E" は失われ、failed は空で終了コード 0 になる。REQ-cli-016 と REQ-cli-051 の「参照先に対して左右が異なる変更」に別々の箇所の変更が含まれるかを IR は決めておらず、含むと読むなら実装は REQ-cli-017 と食い違い、書き込み先の変更を黙って失う不具合の疑いがある。
+
+### FLAG-cli-026: 書き込むファイルのない merge と集約先の場所
+- kind: ambiguity
+- related: REQ-backup-018, REQ-cli-051
+- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2
+
+バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが参照先に対する競合で外れた場合はエラーで止まらず failed に "three-way conflict" を出し、全てのファイルが機密ファイルなどのスキップで外れ競合もない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。

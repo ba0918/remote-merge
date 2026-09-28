@@ -774,12 +774,6 @@ mod tests {
     }
 
     #[test]
-    fn test_make_args_default_format_is_text() {
-        let args = make_args(Some("local"), Some("staging"));
-        assert_eq!(args.format, "text");
-    }
-
-    #[test]
     fn test_empty_paths_returns_error() {
         let args = MergeArgs {
             paths: vec![],
