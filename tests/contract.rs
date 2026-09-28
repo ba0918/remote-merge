@@ -22,6 +22,8 @@ mod cli_results;
 #[cfg(feature = "test-utils")]
 #[path = "contract/config_loading_cli.rs"]
 mod config_loading_cli;
+#[path = "contract/config_merging.rs"]
+mod config_merging;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
 #[path = "contract/diagnostics.rs"]
