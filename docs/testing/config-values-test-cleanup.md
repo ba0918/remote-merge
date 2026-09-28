@@ -57,6 +57,7 @@ strict_host_key_checking の警告は標準エラーに出て関数呼び出し�
 | 要件 | 根拠テスト | 元にしたテストと確かめること |
 |---|---|---|
 | REQ-config-018（警告） | unknown_strict_host_key_checking_value_warns_and_falls_back_to_ask | src/config.rs の test_parse_strict_host_key_checking_values。strict_host_key_checking を "maybe" にした設定で起動し、標準出力と標準エラーをつないだもの（ANSI のエスケープを除く）に "Unknown strict_host_key_checking value: 'maybe', falling back to 'ask'" が含まれる。終了コードとその後の接続の結果は確かめない（ask のもとでの未知のホスト鍵の扱いは REQ-ssh-001 の範囲） |
+| REQ-config-018（ask は警告しない） | ask_value_in_any_case_does_not_warn | 変異テストの見逃し（src/config.rs:761:9）を受けて足した。同じ準備で "maybe" には警告が出ることと並べて、"ask" と "ASK" では出力に "Unknown strict_host_key_checking value" が含まれない |
 | REQ-config-019（(a) と (d)） | password_from_the_uppercase_server_env_var_wins_over_the_config_password | src/ssh/client.rs の test_resolve_password_*。設定の password が正しくない "wrong-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が "fixture-password" なら接続でき、環境変数の名前だけを REMOTE_MERGE_PASSWORD_develop に変えると接続できない |
 | REQ-config-019（(c) と (b)） | empty_server_env_var_is_treated_as_unset | 同じ元のテスト。設定の password が正しい "fixture-password" のとき、REMOTE_MERGE_PASSWORD_DEVELOP が空なら接続でき、同じ環境変数の値だけを "wrong-password" に変えると接続できない |
 | REQ-config-020（key を省く） | omitted_key_uses_the_default_path_and_names_it_when_it_cannot_be_read | 手本の単体テストはない（鍵のパスを扱う単体テストは src/ssh/client.rs の test_expand_tilde_home_dir）。auth を "key" にし password の行と key を省いた設定で起動し、出力に "Failed to load SSH private key: ~/.ssh/id_rsa" が含まれる。一時ディレクトリの HOME に鍵ファイルは置かない |
