@@ -99,3 +99,45 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 - source: docs/decision/records/2026-09-28-adopt-merge-links.md#A12
 
 旧個別仕様 symlink-merge の 3.3 は種類を判定するためにパスを辿れなかった対象を skipped の reason "cannot resolve path: <原因>" で出すとするが、実装の --delete は削除の直前に書き込み先を調べられなかったファイルを failed の error "cannot inspect destination: 原因" で出す。削除そのものに失敗したときの failed の error "Delete failed: 原因" は記述もテストもない。
+
+### FLAG-merge-015: diff の JSON と --hunks の番号
+- kind: contradiction
+- related: REQ-merge-009
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A5
+
+利用者向けの手引き "skills/remote-merge/SKILL.md" は diff --format json で hunk の番号を調べて --hunks に渡す手順を示すが、実装の diff の JSON の hunk は前後 3 行の文脈でまとめた表示用の区切りで、--hunks は文脈 0 行で変更ごとに分けた操作用の区切りを数えるため、6 行以内に近い二つの変更があると番号がずれ、選んだものと違う変更を書き込みうる。これは実装を読んで分かったことで、実行しての確認はしていない。
+
+### FLAG-merge-016: CLI の --hunks の確認と衝突
+- kind: contradiction
+- related: REQ-merge-010, REQ-merge-031
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A6
+
+REQ-merge-010 は hunk マージが衝突の有無と書き込みの確認を経ずに書き込み先を変更しないとするが、CLI の --hunks の merge は確認を出さずに書き込み、衝突を確かめるのは --ref があり --force がないときだけである。
+
+### FLAG-merge-017: --hunks の書き込み直前の確認
+- kind: contradiction
+- related: REQ-merge-011
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A7
+
+利用者向けの手引き "skills/remote-merge/SKILL.md" は書き込む前に更新日時で楽観的ロックを確かめるとし、REQ-merge-011 は差分確認からマージまでに書き込み先が変わったら書き込みを止めるとするが、実装の --hunks の merge は書き込む直前の確認をせず、実行時に読んだ書き込み先との差分に番号を当てて書き込む。
+
+### FLAG-merge-018: --hunks と --max-entries
+- kind: contradiction
+- related: REQ-scan-003
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A8
+
+merge の --max-entries のヘルプは設定の上限を上書きするとし、REQ-scan-003 は利用者が件数の上限を変更できるとするが、実装の --hunks の merge は --max-entries を使わず設定の上限で走査する。
+
+### FLAG-merge-019: 差分のないファイルの --hunks のテキスト
+- kind: gap
+- related: REQ-merge-030
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A9
+
+差分のないファイルを --hunks で指定すると、実装は JSON で status "skipped (no changes)" を出して終了コード 0 を返すが、テキストでは書き込んだときと同じ "Merged: パス" の行を出す。旧資料に記述がなくテストもない。
+
+### FLAG-merge-020: 手引きの機密ファイルのスキップ
+- kind: ambiguity
+- related: REQ-merge-028
+- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A10
+
+利用者向けの手引き "skills/remote-merge/SKILL.md" の hunk merge の節は機密ファイルを自動でスキップし --force で含めるとするが、実装の --hunks の merge は機密ファイルをスキップせずエラーで止める。この文が hunk merge を指すのか merge 全体を指すのかが読み分けられない。

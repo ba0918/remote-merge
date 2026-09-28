@@ -30,3 +30,13 @@
   text: path.strip_prefix(dir)
   class: equivalent
   why: この関数は未読み込みのディレクトリ（children が None のディレクトリ）があるときだけ呼ばれるが、status のツリーは再帰の走査からしか作られず、ローカル・SSH・agent のどの経路でもディレクトリの children は必ず Some になるため、呼ばれることがない。別の文脈のエージェントに、空ディレクトリ・ディレクトリへのリンク・切れたリンク・除外や include・走査件数の上限・読めないディレクトリを含む構成で status の公開された入口から落ちるテストを書かせたが、出力が全て元のコードと一致し書けなかった
+- file: src/diff/engine.rs
+  change: replace match guard tag == replace_tag with true in apply_selected_hunks_single_pass
+  text: "tag if tag == replace_tag => {"
+  class: equivalent
+  why: DiffTag は Equal・Delete・Insert の三つだけで、keep_tag と replace_tag はどちらの方向でも Delete と Insert を一つずつ受け持つ。match の腕は Equal、keep_tag、replace_tag の順のため、三つ目の腕に来る値は必ず replace_tag で、条件を true にしても同じ腕に入る。別の文脈のエージェントに merge の公開された入口（execute_merge の --hunks、重複した番号、三つの変更、片側だけの行、末尾の改行のない内容、CRLF と空行）から落ちるテストを書かせたが書けず、関数を直接呼んで両方向・全ての選び方の出力を比べても元のコードと一致した
+- file: src/diff/engine.rs
+  change: replace < with <= in apply_selected_hunks_single_pass
+  text: "if hunk_idx < merge_hunks.len() {"
+  class: equivalent
+  why: 変わるのは選んだ番号に hunk の数と等しいものがあるときに黙って無視するか panic するかだけで、製品で唯一の呼び出し元の execute_hunk_merge は hunk の数以上の番号を先に "Hunk index N is out of range" のエラーで止めるため、そのような番号が渡ることがない。別の文脈のエージェントに merge の公開された入口から落ちるテストを書かせたが、番号が hunk の数と等しいと呼び出しの前に範囲外のエラーで止まり書けなかった。落とせたのはこの関数を直接呼んで hunk の数と等しい番号を渡すテストだけで、その入力は IR のどこにも定められていないため根拠にならないテストだった
