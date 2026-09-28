@@ -99,7 +99,7 @@ cargo nextest run --all-features
 - Prerequisites: none
 - May change: docs/testing/merge-write-test-cleanup.md
 - Done when: `src/service/merge_flow.rs`、`src/cli/tolerant_io.rs`、`src/service/status.rs` を一回の実行にまとめた変異テストの全体の集計（caught・survived・timeout・unviable）、ファイルごとの内訳、見逃し一件ずつの位置と変異の内容と決着の対象かどうか（Approach and why の区別）が、実行したコミットとともに `docs/testing/merge-write-test-cleanup.md` に書かれている。検知のうち、変異と関係のないテスト（tui_merge や agent_ssh のように負荷の下で落ちるもの）だけで検知されたものが名前とともに記録されている
-- Shown by: artifact — `scripts/mutants.sh src/service/merge_flow.rs src/cli/tolerant_io.rs src/service/status.rs` をバックグラウンドで実行して完了を待ち、その出力を docs/testing/merge-write-test-cleanup.md の「整理前」の節に集計と見逃しの表として書く。ファイルごとの内訳と、どのテストが検知したかは、`target/mutants-run/mutants.out/outcomes.json` と `target/mutants-run/mutants.out/log/` の変異ごとの記録から読む（次の実行でスクリプトが `target/mutants-run` を消すため、比較に使う控えを /tmp/claude-1000/ の下に写しておく）
+- Shown by: artifact — `scripts/mutants.sh src/service/merge_flow.rs src/cli/tolerant_io.rs src/service/status.rs` をバックグラウンドで実行して完了を待ち、その出力を docs/testing/merge-write-test-cleanup.md の「整理前」の節に集計と見逃しの表として書く。ファイルごとの内訳と、どのテストが検知したかは、`target/mutants-run/mutants.out/outcomes.json` と `target/mutants-run/mutants.out/log/` の変異ごとの記録から読む（次の実行でスクリプトが `target/mutants-run` を消すため、比較に使う控えを target/ の外の一時ディレクトリに写しておく）
 - Left to the implementer: 文書の見出しと表の形
 - Stop and hand back if: 実行がメモリ上限で失敗し続ける、負荷の下で落ちるテストによる見かけの検知が多く、整理前と整理後の比較が成り立たない
 
