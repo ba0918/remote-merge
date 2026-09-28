@@ -165,3 +165,74 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 理由は上の表のとおりで、どれも整理前の変異テストの検知に効いておらず、merge の要件の根拠でもない。
 
 決まった 3 件だけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2879 tests run: 2879 passed）。
+
+## 整理後の変異テスト
+
+削除を終えたコミット 9528904 で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
+
+```sh
+scripts/mutants.sh src/cli/merge.rs src/service/merge.rs src/cli/ref_guard.rs
+```
+
+全体の集計は `mutants: caught=58 survived=5 timeout=0 unviable=10 equivalent=0`（73 件、実行時間は約 17 分）。
+スクリプトの終了コードは整理前と同じく 1（見逃しの error による。メモリ上限での停止ではない）。
+
+| ファイル | caught | survived | timeout | unviable |
+|---|---|---|---|---|
+| src/cli/merge.rs | 33 | 2 | 0 | 5 |
+| src/service/merge.rs | 22 | 3 | 0 | 4 |
+| src/cli/ref_guard.rs | 3 | 0 | 0 | 1 |
+
+### 整理前との比較
+
+整理後の見逃し 5 件は全て整理前の見逃しに含まれる（src/cli/merge.rs:246 の二件、src/service/merge.rs:69 の二件と :77:9）。削除で増えた見逃しはないため、戻した削除はない。
+
+src/cli/merge.rs:316:62 の `delete !` は、整理前は見逃し、整理後は tui_merge の test_hunk_merge_left_to_right_with_l と test_hunk_merge_right_to_left_with_h_key だけに検知された。
+この変異は CLI の `execute_merge` の中にあり、TUI の hunk の書き込みは通らない。コミットに含めない一時的な書き換えでこの変異を入れて `cargo nextest run --all-features --no-fail-fast` を実行すると 2880 件が全て通ったため、負荷の下での見かけの検知と判断し、見逃しとして扱う。
+これ以外に、負荷の下で落ちるテストだけで検知された変異はなかった。整理前と整理後で検知したテストの名前（nextest が最初の失敗で止まるまでのもの）の違いは、この一件を除き、同じ変異を検知した tests/cli_merge.rs のテストの数だけだった。
+
+### 見逃しの決着
+
+テストを足したものは、コミットに含めない一時的な書き換えでその変異を入れ、足したテストが落ちることを確かめた（書き換えは元に戻し、src/ に差分がないことを確かめた）。
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/cli/merge.rs:246:32 | replace && with \|\| in execute_merge | FLAG-cli-022 の範囲として記録する（機密ファイルの件数の通知の条件）。テストは足さない |
+| src/cli/merge.rs:246:47 | replace && with \|\| in execute_merge | 同上 |
+| src/service/merge.rs:69:22 | replace \|\| with && in has_three_way_conflict | テストを足した。tests/contract/merge_results.rs の a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written（REQ-cli-051）で、UTF-8 として読めない二つのファイルのうち a.bin は左だけ、b.bin は右だけが参照先から変わる構成で、failed が空、二つとも merged に並び書き込まれ、終了コード 0 になることを確かめる。変異では b.bin（左が参照先と同じ）が中身の比較に進み、UTF-8 でないため競合とされて落ちる |
+| src/service/merge.rs:69:38 | replace \|\| with && in has_three_way_conflict | 同じテストを足した。変異では a.bin（右が参照先と同じ）も b.bin も競合とされて落ちる |
+| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | 未決着。新しい FLAG の候補として手渡す（下の「新しい FLAG の候補」の一件目） |
+| src/cli/merge.rs:316:62 | delete ! in execute_merge | 未決着。新しい FLAG の候補として手渡す（下の「新しい FLAG の候補」の二件目） |
+
+決着の対象でない見逃しはない（整理前も整理後も、見逃しは全て決着の対象か FLAG の範囲だった）。
+テストを足した二件は、足した後に変異テストを回し直してはいない。一件ずつ一時的な書き換えで検知を確かめた。
+
+### 新しい FLAG の候補
+
+どちらも、変異を落とすテストを書くと、IR が決めていない挙動を根拠テストで決めてしまうため、テストを足さずに利用者の判断を待つ。実装と IR は変えていない。
+
+一件目: src/service/merge.rs:77:9（参照先に対して左右が別々の箇所を変えたテキストのファイル）
+
+- 観測: `has_three_way_conflict` は、三つの中身が全て違うテキストのファイルでも、`detect_conflicts` が重なる変更を見つけなければ競合としない。コミットに含めない一時的なテストで、参照先 "a b c d e"（各行）、左 "A b c d e"、右 "a b c d E" を --ref 付き・--force なしで merge すると、failed は空、終了コード 0 で、右（書き込み先）は左の中身 "A b c d e" に書き換わり、右の変更 "E" は失われた。変異（この分岐を消す）では三つの中身が全て違うテキストのファイルが全て "three-way conflict" になり、右の変更は残る。
+- IR との関係: REQ-cli-051 は競合を「参照先に対して左右が異なる変更をした」ものとし、REQ-cli-016 は「参照先に対して左右に異なる変更があるとき」競合を示すとする。REQ-cli-017 は競合のある内容を利用者の判断なしに一方の変更だけを選んで上書きしないとする。EX-cli-031 は同じ箇所を別々に変えた場合だけを例にしている。別々の箇所の変更を競合に含むかを IR は決めておらず、含むと読むなら今の実装は右の変更を黙って上書きする（不具合の疑い）。
+- 判断してほしいこと: (a) 別々の箇所の変更は競合でなく、今の実装（左の中身で書き込む）が IR の意図どおり（その場合、変異を落とすテストを足す）か、(b) 別々の箇所の変更も競合で、今の実装が IR と食い違う（FLAG として記録する）か、(c) 未決の FLAG として残すか。
+
+二件目: src/cli/merge.rs:316:62（全てのファイルが競合で外れたときの早期の戻り）
+
+- 観測: この変異では、全てのファイルが参照先に対する競合で外れた merge が早期に戻らず書き込みの段に進み、何も書き込まずに同じ出力を返す。違いはバックアップの集約先の予約だけで、予約した空の場所は `finish_backup_session` が片付ける。そのため違いが出るのは、バックアップが有効で集約先の場所が決まらない構成だけである。その構成では、今の実装は failed に "three-way conflict" を出すが、変異では "backup store location could not be determined" のエラーで止まる。逆向き（ファイルが全て機密ファイルのスキップなどで外れ、競合もないとき）には、今の実装が書き込みの段に進んでエラーで止まり、変異では早期に戻ってスキップの結果を返す。
+- IR との関係: REQ-backup-018 は「バックアップが有効で集約先の場所が決まらないとき、merge と sync は書き込む前にエラーで止まる」とする。書き込むファイルが一つもない merge にもこれが及ぶかを IR は決めておらず、今の実装は競合で外れたときは止まらず、スキップで外れたときは止まる。どちらに合わせるテストも、その決まっていない点を決めてしまう。
+- 判断してほしいこと: (a) 書き込むファイルがないときは止まらないのが意図どおり（競合の場合の今の挙動を根拠テストで確かめ、スキップの場合との違いを FLAG にする）、(b) 書き込むファイルがなくても止まるのが意図どおり（競合の場合の今の挙動を FLAG として記録する）、(c) 未決の FLAG として残す、のどれにするか。同等変異としては登録しない（集約先の場所が決まらない構成で観測できる違いがあるため）。
+
+## 要件の verification の見直し
+
+merge の要件の verification は全て unit で、いずれも具体的な場面の入力で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-cli-046 | unit | 決定表 TBL-cli-008 の各行の指定に対して、エラーの文言と終了コードが決まる |
+| REQ-cli-047 | unit | failed の有無とエラーの場面で終了コードが決まる |
+| REQ-cli-048 | unit | 一つの実行の結果（書き込み・dry-run・参照先・スキップ・失敗の場面）に対して JSON の項目と値が決まる |
+| REQ-cli-049 | unit | 書き込み・dry-run・失敗・対象なしの場面でテキストの行が決まる |
+| REQ-cli-050 | unit | --ref が左か右と同じ場面で、警告の文言と参照先を使わないことが決まる |
+| REQ-cli-051 | unit | 左右と参照先の中身の組に対して、競合として失敗に出すか書き込むかが決まる |
