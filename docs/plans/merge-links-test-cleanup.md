@@ -18,7 +18,7 @@ IR は `docs/ir/` にある。この計画は次を対象とする。
 
 取り込みの仕分けでは、この範囲のテスト 79 件のうち実装詳細をなぞるだけのテストはなかった。そのためこの計画は削除を行わず、根拠テストのない新しい要件 5 件に根拠テストを足し、変異テストで見逃しを決着させることに絞る。既存要件（REQ-merge-001〜004・007・008・016）の印付きテストの本体は見直さない。既存のテストは消さず、書き換えない。
 
-最初に整理前の変異テストの見逃しを記録する。対象は symlink と削除の規則を持つ `src/service/merge.rs`、`src/service/sync.rs`、`src/service/path_resolver.rs`、`src/service/merge_flow.rs` の四つにする。`src/service/output.rs` は status・diff・sync・rollback の出力が大半を占め、ファイル単位でしか対象にできない変異テストの実行時間が大きく増えるため対象にしない（削除のテキストの行は S3 の実行ファイルのテストで確かめる）。
+最初に整理前の変異テストの見逃しを記録する。対象は symlink と削除の規則を持つ `src/service/merge.rs`、`src/service/sync.rs`、`src/service/path_resolver.rs`、`src/service/merge_flow.rs` の四つにする。`src/service/output.rs` は status・diff・sync・rollback の出力が大半を占め、対象に加えると変異テストの実行時間が大きく増えるため対象にしない（削除のテキストの行は S3 で `execute_merge` の結果を `format_merge_text` に渡すテストで確かめる）。
 
 見逃しのうち決着の対象にするのは次の関数のものに限る: `src/service/merge.rs` の `find_symlink_target`・`determine_merge_action`、`src/service/sync.rs` の `plan_deletions`・`skip_symlink_deletions`、`src/service/path_resolver.rs` の `check_path_traversal`・`filter_merge_candidates`、`src/service/merge_flow.rs` の `execute_single_merge` の symlink の分岐（`SkipDifferentKind`・`CreateSymlink`・`ReplaceSymlinkWithFile`）と `execute_deletions`。merge の指定・確認・出力の整理と書き込みの中身の整理がこれらの見逃しを後の回に残したため、ここで決着させる。他の関数（`src/service/merge.rs` の `plan_merge` などの指定・確認・出力の規則、`src/service/sync.rs` の状態と集計、`src/service/path_resolver.rs` のパスの解決、`src/service/merge_flow.rs` の通常ファイルの経路と hunk の経路）の見逃しは、前の回で決着済みか他の回の範囲のため記録だけする。FLAG-merge-008 から 014 の挙動（スキップ理由の文言、dry-run での種類の違い、パス脱出の拒否の範囲と文言、エージェントの経路、dry-run の削除予定の表示、削除の直前の調査と削除の失敗）に関わる見逃しは、その FLAG の範囲として記録する。
 
