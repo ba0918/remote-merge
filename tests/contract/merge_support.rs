@@ -9,6 +9,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::config::{load_config_from_paths, AppConfig};
+use remote_merge::runtime::RuntimeTargets;
+use remote_merge::service::output::format_json;
 use tempfile::TempDir;
 
 const SERVERS: [&str; 2] = ["develop", "staging"];
@@ -17,12 +21,18 @@ pub struct Fixture {
     home: TempDir,
     local: TempDir,
     servers: Vec<(&'static str, TempDir)>,
+    backup: TempDir,
     config_path: PathBuf,
 }
 
 /// バックアップを無効にした構成
 pub fn fixture() -> Fixture {
     build(false)
+}
+
+/// バックアップを有効にし、集約先を一時ディレクトリに差し替えた構成
+pub fn fixture_with_backup() -> Fixture {
+    build(true)
 }
 
 fn build(backup_enabled: bool) -> Fixture {
@@ -49,6 +59,7 @@ fn build(backup_enabled: bool) -> Fixture {
         home,
         local,
         servers,
+        backup: TempDir::new().unwrap(),
         config_path,
     }
 }
@@ -74,6 +85,30 @@ impl Fixture {
         fs::read_to_string(self.root(side).join(path)).unwrap()
     }
 
+    fn config(&self) -> AppConfig {
+        load_config_from_paths(Some(&self.config_path), None).unwrap()
+    }
+
+    fn runtime_targets(&self) -> RuntimeTargets {
+        self.servers
+            .iter()
+            .fold(RuntimeTargets::production(), |targets, (name, root)| {
+                targets.with_local(*name, root.path())
+            })
+            .with_backup_store(Some(self.backup.path().to_path_buf()))
+            .with_startup_directory(self.home.path().to_path_buf())
+    }
+
+    /// 関数呼び出しで merge し、結果の JSON と終了コードを返す
+    pub fn merge_json(&self, args: MergeArgs) -> (serde_json::Value, i32) {
+        let result = execute_merge(args, self.config(), self.runtime_targets()).unwrap();
+        let MergeCommandOutput::Files(output) = result.output else {
+            panic!("expected per-file merge output")
+        };
+        let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+        (json, result.exit_code)
+    }
+
     /// 実行ファイルの merge を `args` で起動する
     pub fn run_cli(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_remote-merge"))
@@ -89,5 +124,23 @@ impl Fixture {
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+}
+
+/// local から develop へ `paths` を書き込む引数（--force も --dry-run もない）
+pub fn args(paths: &[&str]) -> MergeArgs {
+    MergeArgs {
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        dry_run: false,
+        force: false,
+        delete: false,
+        with_permissions: false,
+        checksum: false,
+        format: "json".into(),
+        max_entries: None,
+        hunks: None,
     }
 }

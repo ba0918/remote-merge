@@ -92,3 +92,25 @@ local と、リモートの設定を持つ "develop"（書き込み先）と "st
 | REQ-cli-046、REQ-cli-047（設定にないサーバ名） | a_merge_with_an_unknown_server_stops_with_the_not_found_error | 新しく書いた。--left と --right のそれぞれに設定にない "nowhere" を渡す。--ref の名前は表の行に含まないため確かめない |
 | REQ-cli-046、REQ-cli-047（--format が text・json・diff 以外） | a_merge_with_an_unknown_format_stops_with_the_format_error | src/cli/merge.rs の test_run_merge_rejects_invalid_format_early。元のテストは関数呼び出しでエラーになることだけを見るが、実行ファイルで --format xml の文言が表と一致することを確かめる |
 | REQ-cli-018 | a_json_merge_stopped_by_an_error_prints_the_error_as_json | tests/contract/cli_results.rs の json_diff_returns_a_parseable_error_when_configuration_is_invalid（diff の同じ要件の例）。--format json で --right のない merge が、標準出力に error の項目（"--left and --right are required" を含む文字列）を持つ JSON を出し、終了コード 2 になる |
+
+### 終了コードと JSON の形（REQ-cli-047、REQ-cli-048）
+
+根拠テストは `tests/contract/merge_results.rs` にある。
+develop と staging を `RuntimeTargets::with_local` で一時ディレクトリに差し替えて `execute_merge` を呼び、結果を `--format json` と同じ `format_json` で整形して JSON として読む。
+merge は確認のプロンプトを出さないため `force: false` を渡し、--force で変わる挙動（FLAG-cli-021）に触れない。
+バックアップの項目は、バックアップを有効にして集約先を `with_backup_store` で一時ディレクトリに差し替えた構成で確かめる（それ以外の準備は要らなかった）。
+参照先に対する競合は、local と develop が同じ行を別々に変え、staging が元の中身を持つ構成で作る。
+ref_badge と ref の場合は、staging に develop と同じ中身を置いた構成（三つの中身がそろい、競合がない構成）で --dry-run を付けずに作る。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-047（failed が空 → 0） | a_merge_without_failed_files_exits_with_zero | src/service/merge.rs の test_merge_exit_code_success。スキップのない構成で --dry-run を付けずに書き込み、failed が空で終了コードが 0 |
+| REQ-cli-047（failed が一件 → 2） | a_merge_with_a_failed_file_exits_with_two | src/service/merge.rs の test_merge_exit_code_failure。参照先に対する競合で failed が一件になり、終了コードが 2 |
+| REQ-cli-047（エラーで止まった → 2） | tests/contract/merge_cli.rs の表の行の四件（上の節） | 実行ファイルの終了コード |
+| REQ-cli-048（merged の path・status "ok"・backup、空の skipped・deleted・failed、ref がない） | json_has_the_written_file_with_ok_and_backup_and_every_list_without_ref | tests/cli_merge.rs の test_merge_json_format（JSON として読めてパスを含むことだけを見る）と src/service/merge.rs の test_build_merge_output_no_ref_backward_compat、test_build_merge_output_deleted_empty_backward_compat。バックアップを有効にした構成で、merged の一件の path・status "ok"・空でない backup、skipped・deleted・failed が空の配列として出ること、ref の項目がないことを確かめる |
+| REQ-cli-048（--dry-run の status "would merge"） | dry_run_json_has_the_planned_file_as_would_merge | tests/contract/cli_results.rs の dry_run_reports_the_merge_without_changing_the_destination。JSON の merged の status が "would merge" で、書き込み先が変わらない |
+| REQ-cli-048（ref の label と root、merged の ref_badge） | json_with_a_reference_has_ref_and_the_ref_badge | src/service/merge.rs の test_build_merge_output_with_ref。ref の label が "staging" で root が空でない文字列、merged の ref_badge が空でない文字列。ref_badge と root の値の形は要件にないため確かめない |
+| REQ-cli-048（skipped の path・reason） | json_has_skipped_files_with_path_and_reason | 新しく書いた。機密ファイル .env のスキップで、skipped の要素に path と reason の項目があることだけを確かめ、reason の値（FLAG-cli-018）と終了コード（FLAG-cli-016）と標準エラーは確かめない |
+| REQ-cli-048（failed の path・error） | json_has_failed_files_with_path_and_error | 新しく書いた。参照先に対する競合で、failed の要素の path と空でない error を確かめる |
+
+- tests/contract/cli_results.rs の merge のテストには印の ID を足さなかった。dry_run_reports_the_merge_without_changing_the_destination と explicit_source_and_destination_merge_the_requested_file は `execute_merge` の結果の構造体を見ており、--format json の出力の形（項目の有無と名前）を確かめないため。explicit_source_and_destination_merge_the_requested_file は status の値も見ない。どちらのテストの本体も変えていない。
