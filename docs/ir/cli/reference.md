@@ -14,9 +14,9 @@
 ## Examples
 
 ```gherkin
-@id=EX-cli-021 @about=REQ-cli-011 @source=docs/decision/records/2026-09-25-spec-migration.md#A25
+@id=EX-cli-021 @about=REQ-cli-011 @source=docs/decision/records/2026-09-25-spec-migration.md#A25,docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A7
 Scenario: 三者で差分を見ながらマージする
-Given 左右と参照先の三つに異なるファイルがある
+Given 書き込み先は参照先と同じで読み込み元だけが参照先から変わったファイルがある
 When --ref を指定して左から右へマージする
 Then 右だけが更新され参照先のファイルは変わらない
 
