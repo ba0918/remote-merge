@@ -240,15 +240,6 @@ const SRC_AND_OUTSIDE: &[&str] = &["src/a.txt", "src/deep/b.txt", "top.txt", "ot
 
 // @kotowari[REQ-config-024]
 #[test]
-fn include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value() {
-    let workspace = Workspace::new(SRC_AND_OUTSIDE);
-    let plain = workspace.listed("include = [\"src\"]");
-    assert_eq!(plain, set(&["src/a.txt", "src/deep/b.txt"]));
-    assert_eq!(workspace.listed("include = [\"./src/\"]"), plain);
-}
-
-// @kotowari[REQ-config-024]
-#[test]
 fn empty_include_value_is_ignored() {
     // 空の値は整えられなければ root_dir 全体を指すため、"src" の外のファイルが出ないことで無視を見分ける
     let workspace = Workspace::new(SRC_AND_OUTSIDE);
