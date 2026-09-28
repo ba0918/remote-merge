@@ -69,15 +69,20 @@ FLAG-merge-015 から 020 と FLAG-cli-016 から 026 の挙動（diff の JSON 
 
 ## 整理後の変異テスト
 
-テストの最後のコミット 3654888 の後の、記録だけを足したコミット acb7bda（作業ツリーに変更のない状態）で、決着の対象の関数に絞って次のコマンドを一回実行した。実行中は作業ツリーに触れていない。
-この実行の後に、JSON の比べ方を要件の述べる項目ごとに改め、番号を二つ渡すテスト 2 件を足した。変異テストは回し直していないため、下の結果と検知したテストの名前はこの実行の時点のテストによる。
+変異テストは決着の対象の関数に絞って二回実行した。どちらも作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
+
+- 前の実行: 記録だけを足したコミット acb7bda（テストの最後のコミットは 3654888）。この結果で見逃しの決着（同等変異の登録）を決めた。
+- 最後の実行: JSON の比べ方を要件の述べる項目ごとに改め、番号を二つ渡すテスト 2 件を足した後のコミット 78167ca。整理の最後の状態での実行（REQ-testing-012）で、この節の集計・内訳・検知したテストの名前はこの実行による。前の実行との違いは節の最後に書く。
+
+コマンドはどちらも次のとおりで、並列数は既定の 2 である。
 
 ```sh
 scripts/mutants.sh --re '(validate_merge_args|run_hunk_merge|validate_hunk_merge_target|execute_hunk_merge|apply_selected_hunks_single_pass)' src/cli/merge.rs src/service/merge_flow.rs src/diff/engine.rs
 ```
 
-全体の集計は `mutants: caught=31 survived=3 timeout=0 unviable=1 equivalent=0`（35 件、実行時間は約 11 分）。
-スクリプトの終了コードは 1（kotowari mutants が見逃しを error として報告したため。メモリ上限での停止ではない）。
+全体の集計は `mutants: caught=31 survived=2 timeout=0 unviable=1 equivalent=1`（35 件、実行時間は約 11 分）。
+cargo-mutants の判定では missed が 3 件で、そのうち engine.rs:352:20 は登録済みの同等変異のため kotowari mutants が equivalent に数えた。
+スクリプトの終了コードは 1（kotowari mutants が残る 2 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
 35 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異も `execute_hunk_merge` のものだけだった（他の関数のものは混ざらなかった）。
 ファイルごとの内訳（`outcomes.json` から数えた）は次のとおり。
 
@@ -85,9 +90,10 @@ scripts/mutants.sh --re '(validate_merge_args|run_hunk_merge|validate_hunk_merge
 |---|---|---|---|---|
 | src/cli/merge.rs | 4 | 0 | 0 | 1 |
 | src/service/merge_flow.rs | 15 | 2 | 0 | 0 |
-| src/diff/engine.rs | 12 | 1 | 0 | 0 |
+| src/diff/engine.rs | 12 | 1（登録済みの同等変異） | 0 | 0 |
 
 関数ごとには、`validate_merge_args` が 3 件（全て caught）、`run_hunk_merge` が 2 件（caught 1、unviable 1）、`validate_hunk_merge_target` が 4 件（全て caught）、`execute_hunk_merge` が 13 件、`apply_selected_hunks_single_pass` が 13 件だった。
+`run_hunk_merge` の unviable は関数全体を `Ok(Default::default())` にする変異（456:5）である。
 `validate_merge_args` の 3 件は、関数全体を `Ok(())` にする変異（66:5）、--hunks でない分岐の `||` を `&&` にする変異（69:28）、--hunks の分岐の `!=` を `==` にする変異（76:29）で、全て src/cli/merge.rs の単体テストに検知された。
 
 ### 変異と関係のないテストだけによる検知
@@ -99,10 +105,12 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 
 | 位置 | 変異 | 失敗したテスト | 扱い |
 |---|---|---|---|
-| src/diff/engine.rs:332:21 | replace < with <= in apply_selected_hunks_single_pass | tui_merge の test_hunk_merge_left_to_right_with_l、test_hunk_merge_right_to_left_with_h_key、test_sensitive_file_merge_requires_confirmation | この関数を製品で呼ぶのは src/service/merge_flow.rs の `execute_hunk_merge` だけで、TUI の変更のまとまりのマージは通らない（`rg apply_selected_hunks_single_pass src` による）。コミットに含めない一時的な書き換えでこの変異を入れて `cargo nextest run --all-features --no-fail-fast` を実行すると、2915 件のうち ssh_integration の test_connect_with_verifier_accept_succeeds の 1 件だけが落ち、同じ変異のままその 1 件と tui_merge を実行し直すと 7 件が全て通った。見かけの検知とみなし、見逃しに数える。書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた |
+| src/diff/engine.rs:332:21 | replace < with <= in apply_selected_hunks_single_pass | tui_merge の test_hunk_merge_left_to_right_with_l（前の実行では同じ tui_merge の test_hunk_merge_left_to_right_with_l、test_hunk_merge_right_to_left_with_h_key、test_sensitive_file_merge_requires_confirmation） | 前の実行で次のとおり確かめ、同等変異として登録した変異である。この関数を製品で呼ぶのは src/service/merge_flow.rs の `execute_hunk_merge` だけで、TUI の変更のまとまりのマージは通らない（`rg apply_selected_hunks_single_pass src` による）。コミットに含めない一時的な書き換えでこの変異を入れて `cargo nextest run --all-features --no-fail-fast` を実行すると、2915 件のうち ssh_integration の test_connect_with_verifier_accept_succeeds の 1 件だけが落ち、同じ変異のままその 1 件と tui_merge を実行し直すと 7 件が全て通った。見かけの検知とみなし、見逃しに数える。書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた |
 
-これを数え戻した見逃しは次の 4 件である。
+同じ 332:21 の他の二つの変異（< を == にするものと > にするもの）は src/diff/engine.rs の単体テストで検知された。<= の変異を除く 30 件は全て、変異した関数を確かめるテストで検知された。
+これを数え戻した見逃しは次の 4 件で、前の実行と同じである。
 この回で足したテスト（tests/contract/merge_hunks.rs）は、execute_hunk_merge の 390:5、413:33、446:24、456:55、479:21 から 481:21、502:17 から 505:17 の変異で先に失敗したテストに名前が出た。
+path を消す変異のうち 479:21（--dry-run の結果）は hunks_dry_run_text_shows_would_merge で、502:17（書き込んだ結果）は hunks_text_shows_the_applied_hunk_when_backup_is_disabled、hunks_text_shows_the_backup_when_backup_is_enabled、hunks_text_joins_every_applied_hunk_with_commas で検知された。JSON のテストは path を確かめなくなったが、テキストの行 "Merged: パス" と "Would merge: パス"（REQ-merge-030）で落ちる。
 
 ### 見逃しと決着
 
@@ -116,14 +124,14 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 | src/service/merge_flow.rs:427:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 対象でない | FLAG-merge-019 の範囲として記録する（差分のないファイルの "skipped (no changes)" の結果） |
 | src/service/merge_flow.rs:428:13 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 対象でない | 同上 |
 
-同等変異の判断のため、別の文脈のエージェントに、二つの変異のそれぞれを当てると落ちて今のコードでは通るテストを書かせた（製品コードは変えず、一時的な書き換えとテストは戻させ、作業ツリーに変更が残っていないことを確かめた）。
+同等変異の判断は前の実行の後に行った。判断のため、別の文脈のエージェントに、二つの変異のそれぞれを当てると落ちて今のコードでは通るテストを書かせた（製品コードは変えず、一時的な書き換えとテストは戻させ、作業ツリーに変更が残っていないことを確かめた）。
 
 1. engine.rs:352:20。DiffTag は Equal・Delete・Insert の三つだけで、keep_tag と replace_tag はどちらの方向でも Delete と Insert を一つずつ受け持つ。match の腕は Equal、keep_tag、replace_tag の順のため、三つ目の腕に来る値は必ず replace_tag で、条件を true にしても同じ腕に入る。エージェントは merge の入口（`execute_merge` の --hunks）から、重複した番号、三つの変更からの二つの選択、片側にだけ行のある変更、末尾に改行のない内容、CRLF と空行を含む内容を試したが落とせず、関数を直接呼んで両方向・全ての選び方の出力を比べても一致した。
 2. engine.rs:332:21。変わるのは、選んだ番号に hunk の数と等しいものがあるときに黙って無視するか panic するかだけである。製品で唯一の呼び出し元の `execute_hunk_merge` は hunk の数以上の番号を先に "Hunk index N is out of range" のエラーで止めるため（REQ-merge-028）、そのような番号がこの関数に渡ることはない。エージェントは merge の入口から落とせず、落とせたのはこの関数を直接呼んで hunk の数と等しい番号を渡すテストだけだった。その入力は IR のどこにも定められておらず、merge の出力・標準エラー・終了コードに違いが出ないため、根拠にならないテストとして採らなかった（バックアップの回（[backup-test-cleanup.md](backup-test-cleanup.md)）で登録した src/runtime/backup_store.rs の変異と同じ扱い）。
 
 どちらの変異も、製品コードを簡単にすれば変異そのものをなくせる（352 行の条件と到達しない `unreachable!` の腕をまとめる、332 行の範囲の確かめを除く）。この計画は製品コードを変えないため、登録で決着させた。
 
-登録の後に同じ `outcomes.json` を `kotowari mutants --tool cargo-mutants --format text` で読み直すと `mutants: caught=31 survived=2 timeout=0 unviable=1 equivalent=1` になる（332:21 は cargo-mutants の判定では caught のため、この集計の equivalent には入らない）。
+登録の後の最後の実行の集計が上の `mutants: caught=31 survived=2 timeout=0 unviable=1 equivalent=1` である（332:21 は cargo-mutants の判定では caught のため、この集計の equivalent には入らない）。
 残る 2 件は FLAG-merge-019 の範囲で、決着の対象の見逃しは全て決着した。新しい FLAG の候補はない。
 
 ### 前の回との比較
@@ -135,15 +143,25 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 | src/service/merge_flow.rs:413:33 | replace \|\| with && in execute_hunk_merge | 見逃し（tui_merge だけによる見かけの検知） | caught（hunks_on_a_destination_that_is_not_utf8_stops_without_writing） |
 | src/service/merge_flow.rs:427:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 見逃し | 見逃し（FLAG-merge-019 の範囲） |
 | src/service/merge_flow.rs:428:13 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 見逃し | 見逃し（同上） |
-| src/service/merge_flow.rs:479:21 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_dry_run_json_reports_would_merge_without_writing） |
-| src/service/merge_flow.rs:480:21 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（同上） |
+| src/service/merge_flow.rs:479:21 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_dry_run_text_shows_would_merge） |
+| src/service/merge_flow.rs:480:21 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_dry_run_json_reports_would_merge_without_writing） |
 | src/service/merge_flow.rs:481:21 | delete field hunk_info from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（同上） |
-| src/service/merge_flow.rs:502:17 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled ほか） |
-| src/service/merge_flow.rs:503:17 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（同上） |
+| src/service/merge_flow.rs:502:17 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_text_shows_the_applied_hunk_when_backup_is_disabled ほか） |
+| src/service/merge_flow.rs:503:17 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 見逃し | caught（hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled ほか） |
 
 この回の `execute_hunk_merge` の見逃しは 427:13 と 428:13 だけで、前の回の見逃しの部分集合になっている。
 `validate_merge_args` は [merge の指定・確認・出力](merge-cli-test-cleanup.md) の回で同じ 3 件が検知されており、この回も全て検知された。`validate_hunk_merge_target` は前の回で見逃しが記録されておらず、この回も見逃しはない。
 src/diff/engine.rs と `run_hunk_merge` はこれまでの回で変異テストを回していないため比べる相手がなく、見逃しの 2 件（engine.rs:352:20、332:21）は上のとおり新しい見逃しとして決着させた。`run_hunk_merge` に見逃しはなかった。
+
+### 前の実行（acb7bda）との違い
+
+cargo-mutants の判定の集計（caught 31、missed 3、unviable 1）と、どの変異が caught・missed・unviable になったかは同じだった。kotowari mutants の集計が前の実行の `survived=3 equivalent=0` から `survived=2 equivalent=1` に変わったのは、その間に 352:20 を同等変異として登録したためである。見逃しは前の実行と同じ 3 件（登録済みの 352:20 と FLAG-merge-019 の範囲の 427:13・428:13）で、新しい見逃しはない。
+違いは先に失敗したテストの名前だけである。
+
+- 479:21（--dry-run の結果の path）: 前の実行では hunks_dry_run_json_reports_would_merge_without_writing（merged の一件を全体で比べていた）で、最後の実行では hunks_dry_run_text_shows_would_merge。
+- 502:17（書き込んだ結果の path）: 前の実行では JSON のテストに名前が出ていたが、最後の実行ではテキストの 3 件（上の節のとおり）。
+- 456:55 と 503:17、505:17: 足した hunks_json_reports_every_applied_hunk_when_two_are_given にも名前が出た。
+- engine.rs:332:21 の <= の変異: tui_merge の失敗したテストが 3 件から 1 件になった。どちらも変異と関係のないテストで、扱いは変わらない。
 
 ## 要件の verification の見直し
 
