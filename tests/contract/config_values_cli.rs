@@ -140,6 +140,27 @@ fn unknown_strict_host_key_checking_value_warns_and_falls_back_to_ask() {
     );
 }
 
+// @kotowari[REQ-config-018]
+#[test]
+fn ask_value_in_any_case_does_not_warn() {
+    let workspace = Workspace::new();
+    let base = workspace.base_config();
+    // 同じ準備で警告が出ることを先に確かめ、警告がないことが観測の不足によらないことを示す
+    for (value, warns) in [("maybe", true), ("ask", false), ("ASK", false)] {
+        let config = base.replace(
+            "strict_host_key_checking = \"no\"",
+            &format!("strict_host_key_checking = {value:?}"),
+        );
+        assert_ne!(config, base, "fixture host key checking line missing");
+        let output = workspace.status(&config, false, &[], &[]);
+        assert_eq!(
+            combined(&output).contains("Unknown strict_host_key_checking value"),
+            warns,
+            "{value:?}: {output:?}"
+        );
+    }
+}
+
 // ─── 環境変数のパスワード（REQ-config-019） ─────────────────
 
 // @kotowari[REQ-config-019]
