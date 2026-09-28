@@ -113,10 +113,14 @@ fn assert_connected(json: &serde_json::Value, case: &str) {
     );
 }
 
-/// 接続できなかったこと: 失敗しても JSON で返し、"error" を持ち "files" を持たない
+/// 接続できなかったこと: ローカルの側にだけ置いたファイルが "files" に出ない（"files" がない場合も含む）
+///
+/// 失敗時の JSON のキーは IR が契約にしていないため、JSON として解釈できること（`status_json`）だけに頼る
 fn assert_not_connected(json: &serde_json::Value, case: &str) {
-    assert!(json.get("error").is_some(), "{case}: {json}");
-    assert!(json.get("files").is_none(), "{case}: {json}");
+    let listed = json["files"]
+        .as_array()
+        .is_some_and(|files| files.iter().any(|file| file["path"] == LOCAL_ONLY));
+    assert!(!listed, "{case}: {json}");
 }
 
 // ─── 知らない strict_host_key_checking の警告（REQ-config-018） ─────────────────
