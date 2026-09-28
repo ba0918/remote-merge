@@ -457,7 +457,7 @@ fn explicit_source_and_destination_merge_the_requested_file() {
     );
 }
 
-// @kotowari[EX-cli-021, EX-cli-034]
+// @kotowari[EX-cli-034]
 #[test]
 fn reference_side_is_not_modified_by_a_three_way_merge() {
     let fixture = sync_fixture();

@@ -292,8 +292,16 @@ pub fn execute_merge(
                     ref_contents.get(path),
                 ) {
                     (Some(left), Some(right), Some(base)) => {
-                        crate::service::merge::has_three_way_conflict(base, left, right)
-                            .then_some("three-way conflict")
+                        let is_link = |tree: &FileTree| {
+                            tree.find_node(path).is_some_and(|node| node.is_symlink())
+                        };
+                        // symlink は参照先に対する新しい確認の対象外（FLAG-cli-027）のため今の判定のまま
+                        if is_link(&left_tree) || is_link(&right_tree) {
+                            crate::service::merge::has_three_way_conflict(base, left, right)
+                                .then_some("three-way conflict")
+                        } else {
+                            crate::service::merge::reference_check_failure(base, left, right)
+                        }
                     }
                     _ => Some("three-way comparison incomplete"),
                 };
