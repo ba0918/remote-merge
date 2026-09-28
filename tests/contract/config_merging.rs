@@ -177,6 +177,18 @@ fn defaults_key_missing_from_the_project_config_comes_from_the_global_one() {
 
 // @kotowari[REQ-config-012]
 #[test]
+fn global_defaults_keys_are_used_when_the_project_config_lacks_the_section() {
+    let global = "[defaults]\nfile_permissions = \"0o640\"\ndir_permissions = \"0o750\"\n";
+
+    for layout in [Layout::Both, Layout::GlobalOnly] {
+        let config = load(layout, global, "");
+        assert_eq!(config.defaults.file_permissions, 0o640, "{layout:?}");
+        assert_eq!(config.defaults.dir_permissions, 0o750, "{layout:?}");
+    }
+}
+
+// @kotowari[REQ-config-012]
+#[test]
 fn defaults_key_in_neither_config_uses_the_default_value() {
     assert_eq!(
         defaults_of(
