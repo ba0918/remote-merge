@@ -99,3 +99,66 @@ FLAG-merge-008 から 014 と FLAG-cli-016 から 026 の挙動（スキップ�
 - テキストは `Fixture::merge_text` で得る。`execute_merge` の結果（`MergeCommandOutput::Files`）を公開された `remote_merge::service::output::format_merge_text` に渡す。テキストと JSON の振り分けと実行ファイルの出力は REQ-cli-049 の実行ファイルのテストが確かめているため、ここでは SSH の fixture を使わない。
 - 集約先のセッションの名前は `Fixture::backup_sessions`（集約先の sessions の下のディレクトリ名）で得る。集約先は `RuntimeTargets::with_backup_store` で fixture の一時ディレクトリに差し替えてあり、セッションがその中にちょうど一つできることを確かめるため、集約先がテストの外に書かれていないことも同時に分かる。
 - 削除したファイルを配下のディレクトリ old/ に置き、backup の "セッションID/パス" のパスの部分が "/" を含むパスのまま続くことを確かめる。
+
+## 整理後の変異テスト
+
+整理の最後のコミット e8f8dce（テストの最後のコミットは 112226b。その後のコミットはスクリプトと計画だけで、src/ とテストは変えていない）で、決着の対象の関数に絞って次のコマンドを一回実行した。実行中は作業ツリーに触れていない。
+
+```sh
+scripts/mutants.sh --re '(find_symlink_target|determine_merge_action|plan_deletions|skip_symlink_deletions|check_path_traversal|filter_merge_candidates|execute_deletions|execute_single_merge)' src/service/merge.rs src/service/sync.rs src/service/path_resolver.rs src/service/merge_flow.rs
+```
+
+全体の集計は `mutants: caught=32 survived=7 timeout=0 unviable=18 equivalent=0`（57 件、実行時間は約 14 分）。
+スクリプトの終了コードは 1（見逃しの error による。メモリ上限での停止ではない）。
+57 件には、正規表現に名前の一致しない src/service/merge_flow.rs の `execute_hunk_merge` の変異 9 件（:427:13、:428:13、:479:21、:480:21、:481:21、:502:17、:503:17、:504:17、:505:17）が含まれていた。含まれた理由は確かめていない。この 9 件は決着の対象の関数ではないため、比較から外して下に記録だけする。
+ファイルごとの内訳（`outcomes.json` から数え、`execute_hunk_merge` の 9 件を除いたもの）は次のとおり。
+
+| ファイル | caught | survived | timeout | unviable |
+|---|---|---|---|---|
+| src/service/merge.rs | 6 | 0 | 0 | 1 |
+| src/service/sync.rs | 10 | 0 | 0 | 6 |
+| src/service/path_resolver.rs | 8 | 0 | 0 | 3 |
+| src/service/merge_flow.rs | 6 | 0 | 0 | 8 |
+
+### 整理前との比較
+
+整理前の実行のうち同じ関数の変異は 48 件で、caught 30、survived 0、unviable 18 だった（ファイルごとの内訳も上の表と同じ）。
+整理後の同じ関数の 48 件も caught 30、survived 0、unviable 18 で、見逃しはない。見逃しの集合は空で、整理前の見逃しの部分集合になっている。
+
+整理後の見逃しの判定には、変異と関係のないテストだけによる検知を見逃しに数え戻す（検知した 32 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めて確かめた）。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異はなかった。
+この回で足したテスト（tests/contract/merge_links.rs）が先に失敗したテストに名前の出た変異はなかった。決着の対象の関数の変異は、整理前から単体テストと既存の契約テストに検知されている。
+この計画はテストを消していないため、見逃しが増えないことは予想どおりだった。
+
+### 見逃しの決着
+
+決着の対象の見逃しは整理前も整理後もなく、決着させるものはない。新しい FLAG の候補も同等変異の登録もない。
+
+決着の対象でない見逃しは次の 11 件で、記録だけする。整理後の実行で回した `execute_hunk_merge` の 7 件は整理後も見逃しで、:428:13 は整理後は cargo-mutants の見逃しだった（整理前は tui_merge だけによる見かけの検知）。他の 4 件は整理後の実行の対象外で、整理前の記録のまま扱う。
+
+| 位置 | 変異 | 扱う回 |
+|---|---|---|
+| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | merge の指定・確認・出力の規則（参照先との三者の衝突の判定） |
+| src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | 書き込みの中身の回で FLAG-merge-007 の範囲として決着済み |
+| src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 同上 |
+| src/service/merge_flow.rs:413:33 | replace \|\| with && in execute_hunk_merge | 変更のまとまりを選ぶマージの回（整理前は見かけの検知） |
+| src/service/merge_flow.rs:427:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:428:13 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:479:21 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:480:21 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:481:21 | delete field hunk_info from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:502:17 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+| src/service/merge_flow.rs:503:17 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+
+## 要件の verification の見直し
+
+REQ-merge-023 から 027 の verification は全て unit で、いずれも具体的な場面の入力で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-merge-023 | unit | 読み込み元が symlink で書き込み先にないという場面で、作るものと辿らないことが決まる |
+| REQ-merge-024 | unit | --delete のない実行と書き込み先だけのファイルという場面で、変えないことと skipped の理由が決まる |
+| REQ-merge-025 | unit | --delete ありで --force なしと機密ファイルという場面で、削除しないことと skipped の理由が決まる |
+| REQ-merge-026 | unit | バックアップの有効・無効の場面ごとに deleted の項目が決まる |
+| REQ-merge-027 | unit | バックアップの有無の場面ごとに削除の行の形が決まる |
