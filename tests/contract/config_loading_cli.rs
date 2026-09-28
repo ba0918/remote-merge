@@ -156,6 +156,19 @@ fn assert_stops_with(output: &Output, text: &str) {
     assert!(combined.contains(text), "missing {text:?} in {combined}");
 }
 
+/// TOML として読めない設定で止まり、接頭辞に続けて空でない理由を示すこと（理由の文言は toml のもので契約ではない）
+fn assert_stops_with_parse_error(output: &Output) {
+    let prefix = "Failed to parse config file: ";
+    assert_stops_with(output, prefix);
+    let combined = combined_output(output);
+    let (_, after) = combined.split_once(prefix).unwrap();
+    let reason = after.lines().next().unwrap_or("").trim();
+    assert!(
+        !reason.is_empty(),
+        "no reason after {prefix:?} in {combined}"
+    );
+}
+
 // @kotowari[REQ-config-005]
 #[test]
 fn project_config_in_the_current_directory_is_read() {
@@ -268,7 +281,7 @@ fn unparsable_project_config_stops_with_a_parse_error() {
 
     let output = workspace.status(&cwd, None, &[]);
 
-    assert_stops_with(&output, "Failed to parse config file: ");
+    assert_stops_with_parse_error(&output);
 }
 
 // @kotowari[REQ-config-009]
@@ -280,7 +293,7 @@ fn unparsable_config_option_file_stops_with_a_parse_error() {
 
     let output = workspace.status(&cwd, Some("broken.toml"), &[]);
 
-    assert_stops_with(&output, "Failed to parse config file: ");
+    assert_stops_with_parse_error(&output);
 }
 
 // @kotowari[REQ-config-010]
