@@ -74,20 +74,20 @@ HOME と XDG_CONFIG_HOME を一時ディレクトリに向けると利用者の�
 
 ## 整理後の変異テスト
 
-変異テストは決着の対象の関数に絞って一度実行した。
-記録の最初のコミット c98fceb（テストの最後のコミットは f40f05e）で、作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
-その後、レビューを受けて根拠テストを強め、足した（af87288 から 380a820）が、変異テストは回し直していない。
-コマンドは次のとおりで、並列数は既定の 2 である。
+変異テストは決着の対象の関数に絞って実行した。
+最後の結果は、レビューを受けて根拠テストを強め、足した後（テストの最後のコミットは 380a820）のコミット d962aaf で、作業ツリーに変更のない状態で実行したもので、実行中は作業ツリーに触れていない。
+その前にテストを足す前のコミット c98fceb（テストの最後のコミットは f40f05e）でも一度実行しており、下で比べる。
+コマンドはどちらも次のとおりで、並列数は既定の 2 である。
 
 ```sh
 scripts/mutants.sh --re '(global_config_path|project_config_path|load_config_with_project_override|load_config_from_paths|load_raw_config|merge_configs|convert_agent_config|convert_raw_ssh_config|merge_raw_defaults|convert_defaults_config|convert_server_config|expand_tilde)' src/config.rs
 ```
 
-全体の集計は `mutants: caught=17 survived=4 timeout=0 unviable=6 equivalent=0`（27 件、実行時間は約 7 分）。
-スクリプトの終了コードは 1（kotowari mutants が 4 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
+d962aaf での全体の集計は `mutants: caught=18 survived=3 timeout=0 unviable=6 equivalent=0`（27 件、実行時間は約 8 分）。
+スクリプトの終了コードは 1（kotowari mutants が 3 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
 27 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異は一件も出なかった（他の関数のものも混ざらなかった）。
 
-関数ごとの内訳（`outcomes.json` から数えた）は次のとおり。
+関数ごとの内訳（`outcomes.json` から数えた）は次のとおり。括弧の中は c98fceb での数で、違うものだけ書いた。
 
 | 関数 | caught | survived | unviable |
 |---|---|---|---|
@@ -96,7 +96,7 @@ scripts/mutants.sh --re '(global_config_path|project_config_path|load_config_wit
 | load_config_with_project_override | 2 | 0 | 1 |
 | load_config_from_paths | 1 | 0 | 1 |
 | load_raw_config | 0 | 0 | 1 |
-| merge_configs | 5 | 2 | 1 |
+| merge_configs | 6（5） | 1（2） | 1 |
 | convert_agent_config | 1 | 0 | 0 |
 | convert_raw_ssh_config | 1 | 0 | 0 |
 | merge_raw_defaults | 1 | 0 | 1 |
@@ -106,25 +106,33 @@ scripts/mutants.sh --re '(global_config_path|project_config_path|load_config_wit
 
 unviable の 6 件は、`Result<AppConfig>`・`Result<RawConfig>`・`Result<ServerConfig>` を `Ok(Default::default())` にする変異と `merge_raw_defaults` を `Some(Default::default())` にする変異で、これらの型が `Default` を実装しないため組み立てられない。
 
+### c98fceb との比較
+
+変異の 27 件は同じで、結果が変わったのは src/config.rs:585:24（delete ! in merge_configs）の一件だけである。c98fceb では見逃しだったが、d962aaf では caught になった。
+ただし、この変異を検知したのは tests/tui_merge.rs の test_hunk_merge_left_to_right_with_l だけで、失敗は "y" で書き込みを確かめた後 0.5 秒待ってからの内容の比較（書き込み前の内容のまま）だった。
+このテストは `E2eEnv` の設定を --config で渡すだけでグローバル設定を置かないため、プロジェクト設定を重ねる 585 行には届かない。そのため、この検知は変異によるものではなく、待ち時間に頼るテストが負荷の下で落ちたものと判断し、585:24 は見逃しのまま扱う（この判断は推測を含む。変異の下でそのテストを単独で回し直してはいない）。
+新しい見逃しはない。足したテストで結果の変わった変異もない。
+
 ### 検知したテスト
 
-検知した 17 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+検知した 18 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
 nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
-負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異はなかった。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は、上の 585:24（tui_merge の test_hunk_merge_left_to_right_with_l）の一件である。
 
-- この回で足したテストが先に失敗したもの: `global_config_path` の 2 件（config_option_still_merges_servers_from_the_global_config）、`project_config_path` の 1 件（project_config_in_the_current_directory_is_read、local_root_starting_with_tilde_is_resolved_under_home）。
-- 他の変異は src/config.rs の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined、merge_hunks の hunks_on_a_configured_sensitive_file_without_force_stops_without_writing）が先に失敗した。この回で足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
+- 足したテストが先に失敗したもの: `global_config_path` の 2 件（config_option_still_merges_servers_from_the_global_config）、`project_config_path` の 1 件（project_config_in_the_current_directory_is_read、local_root_starting_with_tilde_is_resolved_under_home）。
+- 他の変異は src/config.rs の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined、merge_hunks の hunks_on_a_configured_sensitive_file_without_force_stops_without_writing）が先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
 
 ### 見逃しと決着
 
 計画の区別により、`merge_configs` のフィルターの重複除き・バックアップ領域の除外・include の正規化と、`convert_server_config` の値の検査（port が 0、auth の不明な値、root_dir が空、パーミッション、password の警告）の変異は、値の検査とフィルターの回で要件になる振る舞いのため、この回では要件に基づくテストを足さない。
-`merge_configs` の max_scan_entries と badge_scan_max_files の変異（FLAG-config-003）と、[local] がないときのエラーの変異（FLAG-config-002）は、この回の結果に見逃しとして出なかった。
+`merge_configs` の max_scan_entries と badge_scan_max_files の変異（FLAG-config-003）と、[local] がないときのエラーの変異（FLAG-config-002）は、どちらの実行でも見逃しとして出なかった。
+見逃しは c98fceb の 4 件と同じ（585:24 は上の比較のとおり見逃しとして扱う）ため、下の「利用者の判断」の 1 をそのまま当てはめる。
 
 | 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
 |---|---|---|---|---|
-| src/config.rs:585:24 | delete ! in merge_configs | プロジェクト設定の [filter] の sensitive を足すときの重複除き（`if !filter.sensitive.contains(&s)`） | 対象でない（フィルター） | 後の回に回す候補（下の注 1） |
-| src/config.rs:607:8 | delete ! in merge_configs | include が空でないときだけ正規化する分岐（`if !filter.include.is_empty()`） | 対象でない（フィルター） | 後の回に回す候補（下の注 2） |
-| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（値の検査） | 後の回に回す候補（下の注 3） |
+| src/config.rs:585:24 | delete ! in merge_configs | プロジェクト設定の [filter] の sensitive を足すときの重複除き（`if !filter.sensitive.contains(&s)`） | 対象でない（フィルター） | 後の回に回す（下の注 1。d962aaf では tui_merge のテストの負荷による失敗で caught と数えられた） |
+| src/config.rs:607:8 | delete ! in merge_configs | include が空でないときだけ正規化する分岐（`if !filter.include.is_empty()`） | 対象でない（フィルター） | 後の回に回す（下の注 2） |
+| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（値の検査） | 後の回に回す（下の注 3） |
 | src/config.rs:886:32 | replace && with \|\| in convert_server_config | 同じ行 | 対象でない（値の検査） | 同上 |
 
 決着の対象の見逃しはない。見逃しや新しいテストが不具合の疑いを示したものもない。
