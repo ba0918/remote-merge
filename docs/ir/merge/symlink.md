@@ -39,6 +39,13 @@ merge と sync の削除指定で書き込み先だけに末尾の symlink が�
 
 merge と sync は引数が絶対パスまたは ".." を含む相対パスなら、そのパスの書き込みを拒否する。
 
+### REQ-merge-023: 書き込み先にない symlink はそのまま作る
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A1
+- verification: unit
+
+読み込み元が末尾の symlink で書き込み先にそのパスがないとき、merge と sync は書き込み先に同じリンク先の symlink を作り、リンクの先へは辿らない。
+
 ## Examples
 
 ```gherkin

@@ -18,6 +18,34 @@ merge と sync は書き込み先だけにある通常ファイルを既定で�
 
 バックアップが有効な場合、--delete による通常ファイルの削除前に内容を利用者マシンの集約先へ保存する。保存に失敗した対象は削除せず、保存した対象は rollback で再作成できる。
 
+### REQ-merge-024: 削除しないときは書き込み先だけのファイルをスキップとして出す
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A2
+- verification: unit
+
+--delete のない merge と sync は、書き込み先にだけあるファイルを変更せず、skipped に reason "right-only file (use --delete to remove)" で出す。
+
+### REQ-merge-025: 機密ファイルは強制指定なしに削除しない
+- kind: prohibition
+- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A3
+- verification: unit
+
+--delete の merge と sync は、書き込み先にだけある機密ファイルを --force がなければ削除せず、skipped に reason "sensitive file (use --force to include)" で出す。
+
+### REQ-merge-026: 削除の結果を JSON に出す
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A4
+- verification: unit
+
+merge は削除したファイルを deleted に path、status "ok"、バックアップが有効なときだけ backup（"セッションID/パス"）で出す。
+
+### REQ-merge-027: 削除をテキストに出す
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A5
+- verification: unit
+
+merge のテキスト出力は削除したファイルを "Deleted: パス" の行で出し、バックアップがあれば続けて " (backup: バックアップ)" を出す。
+
 ## Examples
 
 ```gherkin
