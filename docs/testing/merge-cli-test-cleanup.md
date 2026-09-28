@@ -159,4 +159,7 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 | src/cli/merge.rs | test_make_args_default_format_is_text | テスト用の補助関数 `make_args` の既定値（format が "text"）だけを見ており、製品コードを通らない | 不要（製品の振る舞いを確かめていない）。--format の既定値が text であることは、--format を付けない実行ファイルのテスト（tests/contract/merge_cli_ssh.rs のテキスト出力の四件）が出力の形で確かめる | なし。製品コードを呼ばないため、どの変異も検知しない |
 | src/service/merge.rs | test_build_merge_output | 引数をそのまま構造体に詰める `build_merge_output` の結果の merged の件数と failed が空であることを見る。構造体を組み立てるだけの関数をなぞる | src/service/merge.rs の test_build_merge_output_with_ref、test_build_merge_output_no_ref_backward_compat、test_build_merge_output_with_deleted、test_build_merge_output_deleted_empty_backward_compat と、tests/contract/merge_results.rs の JSON の形の根拠テスト | なし。`build_merge_output` の変異（`Default::default()` にする）はコンパイルできず unviable で、ほかの変異はこの関数に入らない |
 
-利用者の判断を待つ。
+### 判断の結果
+
+利用者は候補の 3 件（test_merge_help_shows_options、test_make_args_default_format_is_text、test_build_merge_output）を全て消すと決めた。
+理由は上の表のとおりで、どれも整理前の変異テストの検知に効いておらず、merge の要件の根拠でもない。
