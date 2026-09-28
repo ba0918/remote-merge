@@ -57,3 +57,31 @@
 - source: docs/decision/records/2026-09-28-adopt-config-loading.md#A19
 
 実装は init・logs・events に --config を指定すると "Warning: --config is ignored for the 'サブコマンド名' subcommand" を出して設定を読まずに続ける。旧資料に記述がなくテストもない。
+
+### FLAG-config-009: 3 桁でないパーミッションの書き方
+- kind: ambiguity
+- related: REQ-config-015
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A8
+
+旧総合仕様のパーミッション文字列のフォーマットは 3 桁の形（"0o664"・"0664"・"664"）だけを挙げるが、実装は "64" や "7" のような短い数字の並びも 8 進数として受け付けて、0o777 以下なら権限として使う。3 桁でない形を拒むべきかが旧資料から読み取れない。
+
+### FLAG-config-010: auth が key のサーバの password の警告
+- kind: gap
+- related: REQ-config-014
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A9
+
+実装は auth が "key" のサーバに password が書かれているとき "servers.サーバ名: password is set but auth is 'key' — password will be ignored" の警告を出し、その password を認証に使わない。旧資料に記述がなく、警告を確かめるテストもない。
+
+### FLAG-config-011: 設定ファイルの平文のパスワード
+- kind: contradiction
+- related: REQ-config-019
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A10
+
+旧総合仕様はパスワードを設定ファイルに書かず接続時のプロンプトか環境変数で渡すとするが、実装は設定の password を平文のまま受け付けて使うときに "Server 'サーバ名': using plaintext password from config. Key authentication is recommended." の警告を出すだけで、接続時にパスワードを尋ねることはなく、環境変数にも設定にもパスワードがなければ "SSH authentication failed (user: ユーザ名@ホスト)" の認証エラーにする。
+
+### FLAG-config-012: sudo と agent の組み合わせを検出する時点
+- kind: contradiction
+- related: REQ-ssh-009
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A11
+
+旧総合仕様は sudo = true と agent.enabled = false の組み合わせを設定の読み込み時（サーバへの接続前）に検出してエラーで止め、Agent の有効化と NOPASSWD の設定を案内するとするが、実装は設定の読み込みでは止めず、そのサーバに接続するときに "sudo = true requires agent to be enabled. Set [agent] enabled = true in your config." で止め、NOPASSWD には触れない。そのため、そのサーバに接続しない操作は止まらない。

@@ -237,6 +237,81 @@ impl TestDirs {
         self.local_dir = own_local_dir;
     }
 
+    /// 設定の値のテストのための、`assert_isolated_config` とは別の隔離の確認。
+    ///
+    /// 知らない strict_host_key_checking・正しくない password・auth = "key" を書いた設定は
+    /// `assert_isolated_config` を通らないため、接続先がこのテスト自身の試験サーバであることと、
+    /// 読むファイルが一時ディレクトリの下にあることだけを確かめる。password の値は問わない。
+    /// `home` は実行ファイルに渡す HOME で、auth が "key" のときの鍵のパスはこれで解決する。
+    /// strict_host_key_checking は、`require_no_host_key_checking` が true のとき "no" を求める。
+    pub fn assert_isolated_values_config(
+        &self,
+        config_path: &Path,
+        home: &Path,
+        require_no_host_key_checking: bool,
+    ) {
+        let temp = self.temp.path();
+        let inside_temp = |path: &Path| {
+            path.is_absolute()
+                && !path
+                    .components()
+                    .any(|part| part == std::path::Component::ParentDir)
+                && path.starts_with(temp)
+        };
+        assert!(inside_temp(home), "HOME escapes fixture");
+        let config: toml::Value = fs::read_to_string(config_path)
+            .expect("fixture configuration missing")
+            .parse()
+            .expect("fixture configuration invalid");
+        let local = Path::new(
+            config["local"]["root_dir"]
+                .as_str()
+                .expect("fixture local root missing"),
+        );
+        assert!(inside_temp(local), "local root escapes fixture");
+        assert_eq!(config["agent"]["enabled"].as_bool(), Some(false));
+        if require_no_host_key_checking {
+            assert_eq!(
+                config["ssh"]["strict_host_key_checking"].as_str(),
+                Some("no")
+            );
+        }
+        let servers = config["servers"]
+            .as_table()
+            .expect("fixture servers missing");
+        assert!(!servers.is_empty());
+        for server in servers.values() {
+            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
+            let port = server["port"].as_integer().expect("fixture port missing");
+            assert!(
+                port > 0 && port != 22,
+                "refusing to connect to an unowned SSH port"
+            );
+            assert_eq!(
+                port,
+                i64::from(self._server.port()),
+                "fixture port is not owned"
+            );
+            assert_eq!(server["user"].as_str(), Some("fixture-user"));
+            let root = Path::new(server["root_dir"].as_str().expect("fixture root missing"));
+            assert!(inside_temp(root), "remote root escapes fixture");
+            match server["auth"].as_str() {
+                Some("password") => {}
+                Some("key") => {
+                    let key = match server.get("key").map(|key| key.as_str().unwrap()) {
+                        None => home.join(".ssh/id_rsa"),
+                        Some(key) => match key.strip_prefix("~/") {
+                            Some(rest) => home.join(rest),
+                            None => PathBuf::from(key),
+                        },
+                    };
+                    assert!(inside_temp(&key), "key path escapes fixture");
+                }
+                other => panic!("unexpected fixture auth {other:?}"),
+            }
+        }
+    }
+
     /// このテスト自身が起動した SSH の試験サーバのポート
     pub fn server_port(&self) -> u16 {
         self._server.port()
