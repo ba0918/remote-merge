@@ -142,3 +142,21 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 
 - 三つの中身がそろわないファイル（FLAG-cli-023）は構成に含めない。other.txt は local・develop・staging の三つにある。
 - src/service/merge.rs には `has_three_way_conflict` を直接確かめる単体テストがなかった。整理前の変異テストでは、この関数の変異は cli_results の a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge が検知していた。
+
+## 削除候補と利用者の判断
+
+整理の計画で削除を利用者が一括で判断する段の入力。
+利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除する。
+
+一覧は計画が名指しした 3 件である。
+上の審査で根拠の確かめ方の手本にした元のテストは候補に入れていない。
+「残る代わりのテスト」は、そのテストが確かめていた振る舞いを消した後も確かめているテスト。
+「整理前の変異テストでの働き」は、整理前の変異テスト（コミット 7209529）でそのテストが変異の検知に効いていたか。
+
+| ファイル | テスト | 理由 | 残る代わりのテスト | 整理前の変異テストでの働き |
+|---|---|---|---|---|
+| tests/cli_error_handling.rs | test_merge_help_shows_options | `merge --help` の出力に "--dry-run" があることだけを見る。ヘルプの文面は clap の引数定義から作られ、merge の IR はヘルプの内容を定めていない | なし（--dry-run の働きは tests/contract/merge_results.rs の dry_run_json_has_the_planned_file_as_would_merge と tests/contract/merge_cli_ssh.rs の dry_run_reports_the_planned_file_as_would_merge が確かめる）。ほかのサブコマンドのヘルプのテストと test_help_shows_usage は残る | なし。引数定義（src/main.rs）は変異テストの対象外 |
+| src/cli/merge.rs | test_make_args_default_format_is_text | テスト用の補助関数 `make_args` の既定値（format が "text"）だけを見ており、製品コードを通らない | 不要（製品の振る舞いを確かめていない）。--format の既定値が text であることは、--format を付けない実行ファイルのテスト（tests/contract/merge_cli_ssh.rs のテキスト出力の四件）が出力の形で確かめる | なし。製品コードを呼ばないため、どの変異も検知しない |
+| src/service/merge.rs | test_build_merge_output | 引数をそのまま構造体に詰める `build_merge_output` の結果の merged の件数と failed が空であることを見る。構造体を組み立てるだけの関数をなぞる | src/service/merge.rs の test_build_merge_output_with_ref、test_build_merge_output_no_ref_backward_compat、test_build_merge_output_with_deleted、test_build_merge_output_deleted_empty_backward_compat と、tests/contract/merge_results.rs の JSON の形の根拠テスト | なし。`build_merge_output` の変異（`Default::default()` にする）はコンパイルできず unviable で、ほかの変異はこの関数に入らない |
+
+利用者の判断を待つ。
