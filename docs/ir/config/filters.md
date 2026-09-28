@@ -41,10 +41,10 @@ include に書いた root_dir からの相対パスそのものと、その下�
 
 ### REQ-config-024: include の書き方を整える
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A4
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A4, docs/decision/records/2026-09-29-adopt-config-filters.md#A10
 - verification: unit
 
-include の値は先頭の "./" と末尾の "/" を取り除いて使い、空の値を無視し、絶対パスの値は "Absolute path is not allowed in include filter: 値"、".." を含む値は "Path traversal is not allowed in include filter: 値"、"*"・"?"・"[" を含む値は "Glob patterns are not supported in include filter: 値" の警告を出して無視する。
+include の値は先頭の "./" を取り除いて使い、空の値を無視し、絶対パスの値は "Absolute path is not allowed in include filter: 値"、".." を含む値は "Path traversal is not allowed in include filter: 値"、"*"・"?"・"[" を含む値は "Glob patterns are not supported in include filter: 値" の警告を出して無視する。
 
 ### REQ-config-025: include と exclude の両方を満たすものだけ
 - kind: state_driven
