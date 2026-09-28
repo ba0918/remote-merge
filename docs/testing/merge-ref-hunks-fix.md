@@ -140,7 +140,13 @@ scripts/mutants.sh --re '(reference_check_failure|merge_hunks_in_display_hunks|e
 | なし | src/cli/merge.rs:299:48 | replace \|\| with && in execute_merge | 前はこの分岐がなかった | 見逃し（見かけの検知。FLAG-cli-027） |
 
 前の記録の見逃しは全て同じ変異の見逃しのままで、前に検知されていた変異で見逃しになったものはない。増えた見逃しは、この修正で足した symlink の分岐の一件だけである。
-前の記録で `has_three_way_conflict` の `||` を `&&` にする変異（src/service/merge.rs:69）を落としていた a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written は期待を改めたが、`has_three_way_conflict` は今回の対象の関数でないため、この回では回していない。
+### 対象外の関数への影響
+
+前の記録で `has_three_way_conflict` の `||` を `&&` にする二つの変異（src/service/merge.rs:69:22 と 69:38）を落としていたのは a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written だった。
+このテストは期待を改め、ファイル全体の merge の通常ファイルは `has_three_way_conflict` を通らなくなったため、二つの変異を落とさなくなった。
+`has_three_way_conflict` は今回の対象の関数でないため変異テストでは回していないが、コミットに含めない一時的な書き換えで二つの変異をそれぞれ入れて `cargo nextest run --all-features --no-fail-fast` を実行すると、どちらも 2932 件が全て通った（書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた）。
+この関数を今も使うのは --hunks の三者の競合の判定（REQ-merge-031）と symlink のファイル（FLAG-cli-027）である。
+UTF-8 として読めない中身でしか違いが出ず、--hunks はそのファイルをバイナリとしてエラーで止めるため、落とすテストはどちらのエラーが先に出るかという IR が決めていない点に触れる。この計画の範囲外のため、テストは足さず、扱いを利用者の判断に残す。
 
 ## 要件の verification
 
