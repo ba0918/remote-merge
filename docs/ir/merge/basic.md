@@ -11,6 +11,20 @@
 
 左右と書き込み先を明示し、対象の読み取り・必要な確認・バックアップが成功し、競合と外部更新がないとき、通常ファイルの merge は指定した書き込み先だけを読み込み元の内容に更新する。
 
+### REQ-merge-021: ディレクトリ指定は差分のあるファイルを書く
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A3
+- verification: unit
+
+ディレクトリを指定した merge は、配下で中身の違うファイルを上書きし、読み込み元にだけあるファイルを書き込み先に作り、中身が同じファイルは書かない。
+
+### REQ-merge-022: 指定したパスをそれぞれ一度だけ書く
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A4
+- verification: unit
+
+複数のパスを指定した merge は指定したそれぞれのパスを書き込み、同じパスを重ねて指定しても一度だけ書き込む。
+
 ## Examples
 
 ```gherkin

@@ -1,15 +1,18 @@
 //! merge の契約テストが共有する準備と呼び出し。
 //!
 //! 書き込み先 "develop" と参照先 "staging" はリモートの設定を持つ。
-//! 関数呼び出しでは実体を一時ディレクトリに差し替え、バックアップの集約先も一時ディレクトリにする。
+//! 関数呼び出し（merge と sync）では実体を一時ディレクトリに差し替え、バックアップの集約先も一時ディレクトリにする。
 //! 実行ファイルの呼び出しは接続より前に止まる指定だけに使い、環境変数を消して HOME と XDG の
 //! ディレクトリを一時ディレクトリにし、利用者の設定を読ませない。
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::SystemTime;
 
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
+use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::format_json;
@@ -85,6 +88,39 @@ impl Fixture {
         fs::read_to_string(self.root(side).join(path)).unwrap()
     }
 
+    /// 配下のディレクトリを作る（`write` は親ディレクトリを作らないため先に呼ぶ）
+    pub fn create_dir(&self, side: &str, path: &str) {
+        fs::create_dir_all(self.root(side).join(path)).unwrap();
+    }
+
+    pub fn metadata(&self, side: &str, path: &str) -> fs::Metadata {
+        fs::metadata(self.root(side).join(path)).unwrap()
+    }
+
+    pub fn modified(&self, side: &str, path: &str) -> SystemTime {
+        self.metadata(side, path).modified().unwrap()
+    }
+
+    pub fn set_modified(&self, side: &str, path: &str, time: SystemTime) {
+        fs::OpenOptions::new()
+            .write(true)
+            .open(self.root(side).join(path))
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    /// 権限を 0o200 に落として読めなくする。
+    /// root で実行すると権限を落としても読めてしまうため、開けないことを確かめて前提の崩れを知らせる。
+    pub fn make_unreadable(&self, side: &str, path: &str) {
+        let full = self.root(side).join(path);
+        fs::set_permissions(&full, fs::Permissions::from_mode(0o200)).unwrap();
+        assert!(
+            fs::File::open(&full).is_err(),
+            "test needs an unreadable {side}/{path}"
+        );
+    }
+
     fn config(&self) -> AppConfig {
         load_config_from_paths(Some(&self.config_path), None).unwrap()
     }
@@ -104,6 +140,16 @@ impl Fixture {
         let result = execute_merge(args, self.config(), self.runtime_targets()).unwrap();
         let MergeCommandOutput::Files(output) = result.output else {
             panic!("expected per-file merge output")
+        };
+        let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+        (json, result.exit_code)
+    }
+
+    /// 関数呼び出しで sync し、結果の JSON と終了コードを返す
+    pub fn sync_json(&self, args: SyncArgs) -> (serde_json::Value, i32) {
+        let result = execute_sync(args, self.config(), self.runtime_targets()).unwrap();
+        let SyncCommandOutput::Result(output) = result.output else {
+            panic!("expected sync result")
         };
         let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
         (json, result.exit_code)
@@ -142,5 +188,22 @@ pub fn args(paths: &[&str]) -> MergeArgs {
         format: "json".into(),
         max_entries: None,
         hunks: None,
+    }
+}
+
+/// local から develop へ `paths` を同期する引数。
+/// 書き込む予定があると確認のプロンプトで標準入力を読むため --force を付ける。
+pub fn sync_args(paths: &[&str]) -> SyncArgs {
+    SyncArgs {
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        left: Some("local".into()),
+        right: vec!["develop".into()],
+        dry_run: false,
+        force: true,
+        delete: false,
+        with_permissions: false,
+        checksum: false,
+        format: "json".into(),
+        max_entries: None,
     }
 }

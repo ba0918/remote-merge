@@ -18,6 +18,13 @@ merge と sync の対象がメタデータ上等しく見える場合に、内�
 
 ディレクトリ指定の merge と sync に --checksum が与えられたとき、サイズと更新時刻が同じファイルも内容を比較し、異なるものを更新する。
 
+### REQ-merge-020: ディレクトリ指定の既定はサイズと更新時刻で判定する
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A2
+- verification: unit
+
+--checksum のないディレクトリ指定の merge と sync は、サイズと更新時刻で変更ありと判定した組のうちサイズが同じものだけ中身を読み比べて中身が同じ組は書かず、サイズと更新時刻が同じファイルは中身が違っても書かない。
+
 ## Examples
 
 ```gherkin

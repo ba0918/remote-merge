@@ -11,6 +11,13 @@
 
 merge・sync の内容比較で元または先を読み取れないファイルは、同一または空の内容とみなさず、書き込みを止めてそのファイルの失敗を報告する。他のファイルは処理を続ける。
 
+### REQ-merge-019: 読めなかった側と原因を示す
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A1
+- verification: unit
+
+merge・sync の中身の読み比べで読み取りに失敗したファイルの failed の error は、"read failed: " に続けて、読めなかった側ごとの "left: 原因" と "right: 原因" を "; " でつないだものにする。
+
 ## Examples
 
 ```gherkin
