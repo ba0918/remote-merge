@@ -150,7 +150,7 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 | src/ssh/client.rs:213:13 | delete field inactivity_timeout from struct client::Config expression in SshClient::build_client_config | SSH の接続設定の無通信のタイムアウト | 対象でない（正規表現に一致しない関数の、構造体のフィールドを消す変異） | 記録だけする（下の「利用者の判断」の 1） |
 | src/ssh/client.rs:214:13 | delete field keepalive_interval from struct client::Config expression in SshClient::build_client_config | keepalive の間隔 | 同上 | 同上 |
 | src/ssh/client.rs:215:13 | delete field keepalive_max from struct client::Config expression in SshClient::build_client_config | keepalive の最大回数 | 同上 | 同上。8c5ad49 では tui_merge のテストの失敗だけで caught と数えられた（負荷によるものと推測） |
-| src/ssh/client.rs:379:27 | replace == with != in SshClient::authenticate | 設定の password を使うときの平文の警告の条件（`if source == PasswordSource::Config`） | 対象でない（FLAG-config-011） | e01e78d では caught、8c5ad49 では survived。記録済みの「利用者の判断」の 2 はこの変異を実質の見逃しと推測したうえでの判断だが、前の実行で caught だったものが見逃しに変わったため、改めて利用者の判断を待つ（下の「利用者の判断」の 3） |
+| src/ssh/client.rs:379:27 | replace == with != in SshClient::authenticate | 設定の password を使うときの平文の警告の条件（`if source == PasswordSource::Config`） | 対象でない（FLAG-config-011） | e01e78d では caught、8c5ad49 では survived。「利用者の判断」の 2 がこの変異そのものを対象にした判断のため、caught か survived かによらずそのまま当てはまる。FLAG-config-011 を決着させるときに扱い、この回ではテストを足さず、同等変異としても登録しない |
 
 決着の対象の見逃しは残っていない。見逃しや新しいテストが不具合の疑いを示したものはない。同等変異の登録はしていない。
 
@@ -186,6 +186,4 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 
 その後、REQ-config-019 と 020 のテストの判定を変えたため、8c5ad49 で変異テストを回し直した（上の「整理後の変異テスト」）。
 886:32・213:13・214:13 の見逃しは記録済みの判断をそのまま当てはめる。886:13 と 215:13 は caught と数えられたが、負荷による検知と推測し、記録済みの判断（FLAG-config-010 の範囲、判断の 1）を当てはめる。
-次の一件は判断を待つ。
-
-3. src/ssh/client.rs:379:27（平文の警告）は、e01e78d の実行で caught（tui_merge のテストの失敗だけ）、8c5ad49 の実行で survived だった。前の実行で caught だったものが見逃しに変わったため、決着させずに記録する。推奨は、判断の 2 がこの変異を実質の見逃しとして扱っていたため、その判断をそのまま当てはめることである。
+src/ssh/client.rs:379:27（平文の警告）は、e01e78d の実行で caught（tui_merge のテストの失敗だけ）、8c5ad49 の実行で survived だった。判断の 2 はこの変異そのものを対象にした判断のため、caught か survived かによらずそのまま当てはまり、新しい判断は要らない。
