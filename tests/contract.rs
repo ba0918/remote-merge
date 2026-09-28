@@ -38,6 +38,8 @@ mod merge_paths;
 mod merge_results;
 #[path = "contract/merge_support.rs"]
 mod merge_support;
+#[path = "contract/merge_write.rs"]
+mod merge_write;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[path = "contract/scan_limits.rs"]

@@ -61,3 +61,36 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 | src/service/status.rs:137:5 | replace path_is_within_unloaded_dir -> bool with true | tui_merge の test_hunk_merge_left_to_right_with_l、test_hunk_merge_right_to_left_with_h_key、test_merge_cancel_with_n、test_sensitive_file_merge_requires_confirmation | status の規則で決着の対象ではない。整理後の比較では、この変異を見逃しの候補に含めて比べる |
 
 この一件は決着の対象の関数ではないため、見かけの検知かどうかは確かめていない。
+
+## 要件ごとの根拠テスト
+
+根拠テストは `tests/contract/merge_write.rs` にある。手本にした元のテスト（`tests/contract/merge_paths.rs`、`tests/cli_merge.rs`）は消さず、書き換えていない。
+新しく書いたテストは、書いた時点の実装に対して通ることを最初の実行で確かめた。
+一つの要件に複数の場合があるときは、場合ごとのテストに同じ要件の印を付け、印の付いたテストを合わせて要件の文を全て確かめる。
+
+準備は `tests/contract/merge_support.rs` の `Fixture` を使い、書き込み先 develop を `RuntimeTargets::with_local` で一時ディレクトリに差し替えて `execute_merge` と `execute_sync` を関数呼び出しで呼ぶ。
+結果は --format json と同じ `format_json` で JSON にして確かめる。バックアップは無効にした構成（`fixture`）を使う。
+sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --force を付ける（--force のない sync は書き込む予定があると確認のプロンプトで標準入力を読むため）。
+配下のディレクトリの作成（`Fixture::write` は親ディレクトリを作らない）、更新時刻の読み書き、読めないファイルの作成の補助も `Fixture` に足した。
+読めないファイルは権限を 0o200 に落として作り、開けないことを先に確かめる（root で実行されると読めてしまい、前提が崩れたことが分かるようにする）。
+
+### 読めなかった側と原因の示し方（REQ-merge-019）
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-merge-019（merge） | merge_reports_which_side_could_not_be_read | tests/contract/merge_paths.rs の explicit_merge_checks_readability_even_when_file_sizes_differ・unreadable_source_fails_one_file_without_blocking_the_other_merge・two_unreadable_sides_are_not_reported_as_identical_empty_files。元のテストは error が "read failed:" で始まることだけを見る。一回の merge で三つのファイルを明示し、読み込み元だけが読めない source-locked.txt の error が "read failed: left: " で始まり "right: " と "; " を含まないこと、書き込み先だけが読めない destination-locked.txt の error が "read failed: right: " で始まり "left: " と "; " を含まないこと、両側が読めない both-locked.txt の error が "read failed: left: " で始まりその後に "; right: " が続くことを確かめる。原因の文言は確かめない |
+| REQ-merge-019（sync） | sync_reports_which_side_could_not_be_read | 同じ三件と tests/contract/merge_paths.rs の sync_does_not_overwrite_a_destination_it_cannot_read。同じ構成を --force の sync で確かめる |
+
+- どのファイルも左右で中身の長さを変えた（ファイルを明示したときは長さによらず中身を読み比べる）。
+- 書き込み先を読めないが中身を読み比べない場合の error（FLAG-merge-005）は構成に含めない。ファイルを明示した読み比べだけを使う。
+
+### ディレクトリ指定の既定の比べ方（REQ-merge-020）
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-merge-020（merge） | directory_merge_without_checksum_writes_only_files_the_metadata_and_contents_show_as_changed | tests/contract/merge_paths.rs の directory_sync_without_checksum_uses_the_metadata_quick_check（sync で、サイズと更新時刻が同じで中身が違うファイルが書かれないことだけを見る）。--checksum のない folder の merge で、merged がちょうど folder/control.txt の一件で、書かれない二つのファイルの中身と更新時刻が変わらないことを確かめる |
+| REQ-merge-020（sync） | directory_sync_without_checksum_writes_only_files_the_metadata_and_contents_show_as_changed | 同じ元のテスト。同じ構成を --force の sync で確かめる |
+
+- 構成: folder の下に、サイズと更新時刻が同じで中身が違う same-metadata.txt（書き込み先の更新時刻を `File::set_modified` で読み込み元に揃える）、サイズと中身が同じで書き込み先の更新時刻を 120 秒前にずらした same-bytes.txt、左右で中身の長さが違う対照の control.txt を置く。呼ぶ前に、秒単位の更新時刻が same-metadata.txt では同じで same-bytes.txt では 60 秒以上違うことを確かめる。
+- merge の結果が per-file の出力（`MergeCommandOutput::Files`）になることは `Fixture::merge_json` が確かめる（それ以外の出力では落ちる）。書き込むものがないときの出力は確かめない。
+- 一時的な書き換え（コミットに含めない）で、`needs_merge_content_compare` が常に --checksum のときの組を読み比べるようにすると、この二件が落ちることを確かめた。REQ-merge-019 の二件は、読めなかった側をつなぐ "; " を別の文字に変える書き換えで落ちることを確かめた。書き換えは元に戻した。
