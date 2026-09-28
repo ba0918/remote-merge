@@ -136,9 +136,9 @@ src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with t
 
 | 位置 | 変異 | 決着 |
 |---|---|---|
-| src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | 未決着。下の「利用者の判断を待つ候補」の二件目 |
+| src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | FLAG-merge-007 の範囲として記録する（[決定記録 A1](../decision/records/2026-09-28-merge-write-mutant-flags.md#A1)）。テストは足さない（下の「利用者の判断を待つ候補」の二件目） |
 | src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 同上 |
-| src/service/status.rs:320:15 | replace && with \|\| in needs_merge_content_compare | 未決着。下の「利用者の判断を待つ候補」の一件目 |
+| src/service/status.rs:320:15 | replace && with \|\| in needs_merge_content_compare | テストを足した。tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing（REQ-merge-001）。local の folder/kind が通常ファイル、develop の folder/kind がディレクトリの構成を --checksum 付きのディレクトリ merge と sync にかけ、folder/kind が skipped に出て failed に出ず、書き込み先のディレクトリとその中身が変わらないことを確かめる。終了コード（FLAG-cli-016）と reason の文言は確かめない。変異では folder/kind が中身の読み比べに加わり、failed に出て落ちる（下の「利用者の判断を待つ候補」の一件目） |
 | src/service/status.rs:323:61 | replace && with \|\| in needs_merge_content_compare | 同上 |
 
 決着の対象でない見逃しは次の 9 件（整理後の見逃し 8 件と、見かけの検知として見逃しに数える :413:33）で、記録だけする。
@@ -166,10 +166,17 @@ src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with t
 二件目: src/service/merge_flow.rs:256:14 と :256:18（読み込み元の権限の値が 0 のときに書き込み先の権限を変えるか）
 
 - 観測: どちらの変異も、--with-permissions で読み込み元（ローカル）の権限の値が 0（mode 000）のときだけ、元のコードがしない `chmod(書き込み先, 0)` を行う。`copy_permissions` はどの経路でも読み込み元の中身を読んだ後に呼ばれるため、最初から mode 000 の読み込み元は読み取りで失敗し、ここまで届かない（root でない場合）。
-- 同等変異として登録できるかの試み: 別の文脈のエージェントに、merge と sync の公開された入口からこの二つの変異を落とすテストを書かせた。エージェントは、書き込み先を FIFO（名前付きパイプ）にして merge の書き込み先の読み取りと書き込みを止め、読み込み元を読んだ後・権限を読む前に読み込み元を mode 000 にする競合を作るテスト（mkfifo と inotify を使う Linux 専用のテスト。merge が書き込み先を読む回数（2 回）に依存する）で、二つとも落とした。元のコードでは書き込み先の権限が 0o640 のまま残り、変異では 0 になる。エージェントのテストはコミットしておらず、エージェントの作業ツリー `.claude/worktrees/agent-a710b2829eb9a7131` の `tests/contract/merge_write.rs` の末尾に未コミットの変更として残してある（`merge_with_permissions_leaves_destination_mode_when_source_mode_is_zero`）。この結果は、コミットに含めない一時的な書き換えでそれぞれの変異を入れて実行し、元のコードで通り、二つの変異で落ちることを確かめた。観測できる違いがあるため、同等変異としては登録しない。
+- 同等変異として登録できるかの試み: 別の文脈のエージェントに、merge と sync の公開された入口からこの二つの変異を落とすテストを書かせた。エージェントは、書き込み先を FIFO（名前付きパイプ）にして merge の書き込み先の読み取りと書き込みを止め、読み込み元を読んだ後・権限を読む前に読み込み元を mode 000 にする競合を作るテスト（mkfifo と inotify を使う Linux 専用のテスト。merge が書き込み先を読む回数（2 回）に依存する）で、二つとも落とした。元のコードでは書き込み先の権限が 0o640 のまま残り、変異では 0 になる。エージェントのテスト（`merge_with_permissions_leaves_destination_mode_when_source_mode_is_zero`）はコミットしていない。この結果は、コミットに含めない一時的な書き換えでそれぞれの変異を入れて実行し、元のコードで通り、二つの変異で落ちることを確かめた。観測できる違いがあるため、同等変異としては登録しない。
 - IR との関係: REQ-merge-014 は --with-permissions のとき読み込み元のファイル権限を書き込み先に反映するとする。読み込み元の権限が 0 のときに反映しない今の実装は、その文を字のとおり読むと食い違い、変異の挙動（0 を反映する）のほうが文に近い。一方で、この違いは読み込みと権限の読み取りの間に読み込み元の権限が変わる競合でしか起きない。FLAG-merge-002 から 004（リモートの読み込み元、新規ファイル、権限の変更の失敗）のどれにも当たらない。
 - テストを足さなかった理由: エージェントのテストは、IR が決めていない挙動（権限 0 を反映しない）を根拠テストで決めてしまい、読み取りの回数という実装の詳細と FIFO の競合に依存して壊れやすいため、利用者の判断なしには足さない。
 - 判断してほしいこと: (a) 新しい FLAG（読み込み元の権限が 0 のときの複製。kind は gap）として記録し、この二件をその範囲として決着させる、(b) 今の挙動（0 は反映しない）が意図どおりとして、エージェントのテストを REQ-merge-014 の印で足す、(c) 起きるのが競合の間だけで実際上は届かないとして、エージェントのテストで落とせたことを why に書いて同等変異に登録する（計画の登録の条件「別の文脈で書けなかった」は満たさない）、のどれにするか。推奨は (a)。IR の文と今の実装が食い違って見え、どちらに合わせるテストもその未決の点を決めてしまうため。
+
+利用者の判断: どちらも推奨を採った。
+
+- 一件目は (a)。REQ-merge-001 の印だけを付けたテストを merge と sync のそれぞれに足した（tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing）。既存のテストは変えていない。コミットに含めない一時的な書き換えで :320:15 と :323:61 の変異をそれぞれ入れ、二つのテストが両方の変異で落ち、元のコードで通ることを確かめた（書き換えは元に戻し、src/ に差分がないことを確かめた）。変異テストは回し直していない。
+- 二件目は (a)。FLAG-merge-007「読み込み元の権限が 0 のときの複製」（[決定記録 A1](../decision/records/2026-09-28-merge-write-mutant-flags.md#A1)）として記録された。この二件の見逃しはその FLAG の範囲として決着させ、エージェントのテストは足さない。
+
+これで決着の対象の見逃しは全て決着した。
 
 ## 要件の verification の見直し
 

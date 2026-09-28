@@ -258,3 +258,64 @@ fn a_path_given_twice_is_written_once() {
     assert_eq!(code, 0, "{json}");
     assert_eq!(fixture.read("develop", "a.txt"), "a new version\n");
 }
+
+/// folder/kind を local では通常ファイル、develop ではディレクトリにする
+fn file_against_directory_folder(fixture: &Fixture) {
+    fixture.create_dir("local", "folder");
+    fixture.create_dir("develop", "folder/kind");
+    fixture.write("local", "folder/kind", "a regular file\n");
+    fixture.write("develop", "folder/kind/inner.txt", "inner\n");
+}
+
+fn listed_paths(list: &serde_json::Value) -> Vec<&str> {
+    list.as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap())
+        .collect()
+}
+
+// @kotowari[REQ-merge-001]
+#[test]
+fn checksum_directory_merge_skips_a_file_against_a_directory_without_failing() {
+    let fixture = fixture();
+    file_against_directory_folder(&fixture);
+    let mut args = args(&["folder"]);
+    args.checksum = true;
+
+    let (json, _) = fixture.merge_json(args);
+
+    assert!(
+        listed_paths(&json["skipped"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(
+        !listed_paths(&json["failed"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(fixture.metadata("develop", "folder/kind").is_dir());
+    assert_eq!(fixture.read("develop", "folder/kind/inner.txt"), "inner\n");
+}
+
+// @kotowari[REQ-merge-001]
+#[test]
+fn checksum_directory_sync_skips_a_file_against_a_directory_without_failing() {
+    let fixture = fixture();
+    file_against_directory_folder(&fixture);
+    let mut args = sync_args(&["folder"]);
+    args.checksum = true;
+
+    let (json, _) = fixture.sync_json(args);
+
+    let target = &json["targets"][0];
+    assert!(
+        listed_paths(&target["skipped"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(
+        !listed_paths(&target["failed"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(fixture.metadata("develop", "folder/kind").is_dir());
+    assert_eq!(fixture.read("develop", "folder/kind/inner.txt"), "inner\n");
+}
