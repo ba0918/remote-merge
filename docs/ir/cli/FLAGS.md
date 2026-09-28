@@ -163,7 +163,7 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 --ref があり --force も --dry-run もない merge で、実装は左・右・参照先のどれかで中身がそろわないファイルを書き込まずに failed に error "three-way comparison incomplete" で出すため、左にだけある新しいファイルは --ref 付きでは --force なしに書き込めない。旧資料に記述がなくテストもない。
 
-### FLAG-cli-024: dry-run で競合を確かめない
+### FLAG-cli-024: dry-run で参照先に対する確認をしない
 - kind: gap
 - related: REQ-cli-004, REQ-cli-051
 - source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
@@ -175,7 +175,7 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - related: REQ-backup-018, REQ-cli-051
 - source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
-バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed に "three-way conflict" を出し、全てのファイルが機密ファイルなどのスキップで外れ競合もない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
+バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed にその確認の error（"three-way conflict" か "destination changed since reference"）を出し、全てのファイルが機密ファイルなどのスキップで外れ REQ-cli-051 の確認で外れたファイルもない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
 
 ### FLAG-cli-027: 参照先を使う merge での symlink
 - kind: ambiguity
