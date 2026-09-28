@@ -49,7 +49,7 @@ S1（REQ-cli-051）と S2（REQ-merge-032）は互いに独立した修正だが
 
 S3 には利用者の判断を待つ区切りがある。新しい FLAG の候補があれば記録に書いてコミットしたところで作業を返す。
 
-作業ブランチは `fix/merge-ref-hunks`（作業ツリーは `/home/mizumi/develop/remote-merge-fix`）。仕様は同じブランチにコミット済み。
+作業ブランチは `fix/merge-ref-hunks`（作業ツリーはこのブランチを取り出した別の作業ツリー）。仕様は同じブランチにコミット済み。
 
 ## Verification map
 
