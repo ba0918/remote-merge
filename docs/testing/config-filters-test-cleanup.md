@@ -56,3 +56,88 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 
 - 無効な値は必ず有効な "src" と一緒に書き（全て無効な include は FLAG-config-013 の範囲）、絶対パスと ".." を含む値は試験用の一時ディレクトリの中を指すものにした。変異の下で整え方が壊れても、走査が一時ディレクトリの外に向かわない。
 - 終了コードと接続の結果は確かめない。無効な値が無視されることは上の関数呼び出しのテストで確かめる。
+
+## 整理後の変異テスト
+
+変異テストは決着の対象の関数に絞って一度だけ実行した。並列数は既定の 2 である。
+
+```sh
+scripts/mutants.sh --re '(should_exclude|is_path_excluded|normalize_include_paths|is_path_included|is_sensitive|resolve_scan_roots|merge_configs)' src/filter.rs src/service/status.rs src/local/mod.rs src/config.rs
+```
+
+コミット 72c32e1（S2 までのテストと記録）で、作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
+結果は `mutants: caught=46 survived=1 timeout=0 unviable=1 equivalent=0`（48 件、約 13 分）だった。
+スクリプトの終了コードは 1（kotowari mutants が 1 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
+48 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異は一件も出なかった（他の関数のものも混ざらなかった）。
+見逃しを落とすためのテストは足していないため、回し直していない。
+
+関数ごとの内訳（`outcomes.json` から数えた）は次のとおり。
+
+| 関数 | caught | survived | unviable |
+|---|---|---|---|
+| should_exclude | 2 | 0 | 0 |
+| is_path_excluded | 5 | 1 | 0 |
+| normalize_include_paths | 15 | 0 | 0 |
+| is_path_included | 7 | 0 | 0 |
+| is_sensitive | 3 | 0 | 0 |
+| resolve_scan_roots | 7 | 0 | 0 |
+| merge_configs | 7 | 0 | 1 |
+
+unviable の 1 件は src/config.rs:511:5（`merge_configs` を `Ok(Default::default())` にする変異）で、`AppConfig` が `Default` を実装しないため組み立てられない。
+
+計画が範囲として記録だけすると定めていたもののうち、`is_path_excluded` の "../" を含むパターンの扱い（FLAG-config-015）、`normalize_include_paths` の全て無効なときの結果（FLAG-config-013）、`resolve_scan_roots` の存在しない include と root_dir の外を指す include の扱い（scan の話題）には、見逃しが出なかった（"../" の判定と存在しない include の分岐には変異が作られず、root_dir の外の判定 src/local/mod.rs:167:20 は既存の単体テストで caught）。
+`should_exclude`（エージェントの走査だけで使う。scan の話題）と `is_path_included`（TUI のツリーの経路だけで使う。TUI の範囲）の変異は全て既存の単体テストで caught だった。
+
+### 検知したテスト
+
+検知した 46 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異はなかった。
+
+- 足したテストが先に失敗したもの:
+  - src/config.rs:561:20（delete ! in merge_configs、グローバル設定の sensitive を足すときの重複除き）: sensitive_pattern_in_the_global_config_is_added_to_the_defaults
+  - src/config.rs:585:24（delete ! in merge_configs、プロジェクト設定の sensitive を足すときの重複除き）: sensitive_pattern_in_the_project_config_is_added_to_the_defaults
+  - src/config.rs:607:8（delete ! in merge_configs、include が空でないときだけ整える分岐）: empty_include_value_is_ignored・absolute_traversal_and_glob_include_values_are_ignored
+- 他の変異は src/filter.rs・src/config.rs・src/local/mod.rs・src/service/status.rs・src/app/report.rs・src/agent/ の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined・status_excludes_files_matching_either_configuration_level）が先に失敗した。足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
+
+### 前の回から引き継いだ二件
+
+前の回（[記録](./config-loading-test-cleanup.md)）でフィルターの回に回した `merge_configs` の二件は、どちらもこの回で caught になった。
+
+- src/config.rs:585:24（delete ! in merge_configs）: 変異でプロジェクト設定だけに書いた新しいパターンが足されなくなり、REQ-config-026 に反する。上のとおり、REQ-config-026 のプロジェクト設定の場合のテスト sensitive_pattern_in_the_project_config_is_added_to_the_defaults で落ちた。
+- src/config.rs:607:8（delete ! in merge_configs）: 変異で include が空でないときに整えなくなる。変異のログでは関数呼び出しの empty_include_value_is_ignored と absolute_traversal_and_glob_include_values_are_ignored が落ちた。S2 の警告のテストがこの変異で落ちることはログからは分からなかったため、変異を一時的に書き入れて `cargo nextest run --all-features --no-fail-fast --test contract -E 'test(/config_filters/)'` を回し、上の二つに加えて absolute_traversal_and_glob_include_values_each_warn_with_the_value も落ちる（14 件中 3 件が失敗）ことを確かめた。その後 `git checkout src/config.rs` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
+
+### merge_configs のフィルター以外の部分（前の回との比較）
+
+前の回（d962aaf）では `merge_configs` の変異は 8 件（caught 6・survived 1・unviable 1）で、見逃しは 585:24 の一件だった（その回では tui_merge のテストの負荷による失敗で caught と数えられたが、見逃しとして扱った）。
+この回も `merge_configs` の変異は同じ 8 件で、caught 7・survived 0・unviable 1 になった。
+フィルターの合成（552 行から 613 行付近）の外にある変異は 511:5 の unviable の一件だけで、前の回と同じである。前の回に記録だけした max_scan_entries と badge_scan_max_files の変異（FLAG-config-003）と [local] がないときのエラーの変異（FLAG-config-002）は、この回も見逃しとして出なかった。
+
+### 見逃しと決着
+
+計画の区別により、FLAG-config-013・015 の挙動、TUI のツリーの表示の範囲、scan の話題は決着の対象から外して記録だけする。それ以外の見逃しは全て決着の対象にした。
+
+| 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
+|---|---|---|---|---|
+| src/filter.rs:62:35 | replace \|\| with && in is_path_excluded | "dir/**" の形のパターンでディレクトリそのものを外す枝刈り（`if path == prefix \|\| glob_match::glob_match(prefix, path)`） | 対象でない（TUI のツリーの表示の範囲） | 記録だけする。変異で変わるのは、prefix に glob 文字を含み（例 "vendor/*/**"）path が prefix と文字として違うディレクトリ（例 "vendor/x"）を外すかどうかだけである。その下のファイル（"vendor/x/a.txt"）はパス全体の glob（`glob_match(pattern, path)`）で外れるため、status のファイルの一覧は変わらず、ディレクトリの行を出す TUI のツリーでだけ見える（実装を読んだ判断で、TUI で実行しての確認はしていない）。既存の単体テスト（src/filter.rs の test_path_pattern_vendor_legacy など）でも落ちていない。prefix に glob 文字を含まない "vendor/legacy/**" では、`path == prefix` が真なら `glob_match(prefix, path)` も真のため、変異の前後で結果が変わらない |
+
+決着の対象の見逃しは残っていない。見逃しや新しいテストが不具合の疑いを示したものはない。同等変異の登録はしていない。
+
+## 要件の verification の見直し
+
+REQ-config-021 から 026 の verification は全て unit で、いずれも具体的なパターン・include の値・ファイルのパスの組み合わせで、一覧に出るかと sensitive かが決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-config-021 | unit | "/" を含まないパターンと、要素（ファイル名・途中のディレクトリ名）の具体的なパスの組で、外れるかが決まる |
+| REQ-config-022 | unit | "/" を含むパターンと具体的な相対パスの組で、外れるかが決まる |
+| REQ-config-023 | unit | include の値と、区切りの単位で続くか途中で続くかの具体的なパスの組で、対象になるかが決まる |
+| REQ-config-024 | unit | 有限の書き方（"./"・"/"・空）と三つの無効な値の種類で、整えた値か警告の文言が決まる |
+| REQ-config-025 | unit | include と exclude のそれぞれに当たるかの組み合わせで、対象になるかが決まる |
+| REQ-config-026 | unit | 六つの既定のパターンと設定に書いたパターン（グローバル・プロジェクト）で、sensitive かが決まる |
+
+## 利用者の判断
+
+新しい FLAG の候補、verification の見直しの候補、決着の対象でない見逃しで計画の区分に当てはまらないものはない。
+決着の対象でない見逃しは src/filter.rs:62:35 の一件で、計画が TUI の範囲として記録だけすると定めていた `is_path_excluded` の "dir/**" のディレクトリの枝刈りに当たる。
