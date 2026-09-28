@@ -37,30 +37,35 @@ fn error_of<'a>(failed: &'a serde_json::Value, path: &str) -> &'a str {
         .unwrap_or_else(|| panic!("{path} is not in failed: {failed}"))
 }
 
-/// 読めなかった側ごとの "left: " と "right: " が "; " でつながることを確かめる（原因の文言は確かめない）
+/// 読めなかった側ごとの "left: " と "right: " が "; " でつながり、それぞれに原因が続くことを確かめる
+/// （原因の文言は確かめない）
 fn assert_read_failures(failed: &serde_json::Value) {
     let source = error_of(failed, "source-locked.txt");
-    assert!(source.starts_with("read failed: left: "), "{source}");
+    let source_cause = source
+        .strip_prefix("read failed: left: ")
+        .unwrap_or_else(|| panic!("{source}"));
+    assert!(!source_cause.is_empty(), "{source}");
     assert!(
         !source.contains("right: ") && !source.contains("; "),
         "{source}"
     );
 
     let destination = error_of(failed, "destination-locked.txt");
-    assert!(
-        destination.starts_with("read failed: right: "),
-        "{destination}"
-    );
+    let destination_cause = destination
+        .strip_prefix("read failed: right: ")
+        .unwrap_or_else(|| panic!("{destination}"));
+    assert!(!destination_cause.is_empty(), "{destination}");
     assert!(
         !destination.contains("left: ") && !destination.contains("; "),
         "{destination}"
     );
 
     let both = error_of(failed, "both-locked.txt");
-    let causes = both
+    let (left_cause, right_cause) = both
         .strip_prefix("read failed: left: ")
+        .and_then(|causes| causes.split_once("; right: "))
         .unwrap_or_else(|| panic!("{both}"));
-    assert!(causes.contains("; right: "), "{both}");
+    assert!(!left_cause.is_empty() && !right_cause.is_empty(), "{both}");
 }
 
 // @kotowari[REQ-merge-019]
