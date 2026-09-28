@@ -80,12 +80,12 @@ FLAG-merge-008 から 014 と FLAG-cli-016 から 026 の挙動（スキップ�
 | REQ-merge-023（sync） | sync_creates_a_missing_destination_symlink_without_following_it | 同じ元のテスト。同じ構成を --force の sync で確かめる |
 | REQ-merge-024（merge） | merge_without_delete_skips_a_destination_only_file | src/service/path_resolver.rs の filter_merge_candidates_excludes_equal_and_right_only と tests/contract/merge_paths.rs の sync_without_delete_keeps_destination_only_regular_files（sync で deleted が空でファイルが残ることだけを見る）。develop にだけ only-here.txt を置き、引数 "." の --delete のない merge で、ファイルの中身が変わらず、skipped の only-here.txt の reason がちょうど "right-only file (use --delete to remove)" の一件であることを確かめる |
 | REQ-merge-024（sync） | sync_without_delete_skips_a_destination_only_file | 同じ元のテスト。同じ構成を --force の sync で確かめる |
-| REQ-merge-025（merge） | merge_delete_without_force_keeps_a_destination_only_sensitive_file | src/service/sync.rs の plan_deletions_sensitive_skipped_without_force。develop にだけ .env を置き、引数 "." の --delete（--force なし）の merge で、.env の中身が変わらず、skipped の .env の reason がちょうど "sensitive file (use --force to include)" の一件で、deleted が空であることを確かめる |
+| REQ-merge-025（merge） | merge_delete_without_force_keeps_a_destination_only_sensitive_file | src/service/sync.rs の plan_deletions_sensitive_skipped_without_force。設定の `[filter]` の `sensitive` に "*.vault" を書いた構成で develop にだけ deploy.vault を置き、引数 "." の --delete（--force なし）の merge で、deploy.vault の中身が変わらず、skipped の deploy.vault の reason がちょうど "sensitive file (use --force to include)" の一件で、deleted が空であることを確かめる |
 | REQ-merge-025（sync） | sync_delete_without_force_keeps_a_destination_only_sensitive_file | 同じ元のテスト。同じ構成を --delete・--force なし・--dry-run なしの sync で確かめる |
 
 - REQ-merge-023 は引数にリンクのパスだけを渡す（"." を渡すと local の target.txt も読み込み元にだけあるファイルとして正当に書き込まれ、リンクの先へ辿らないことを確かめられなくなるため）。
-- REQ-merge-025 の sync は、書き込み先にだけある .env の他に書き込むものも削除するものもない構成にした。書き込む予定がないため `execute_sync` は確認のプロンプトの前に戻り、標準入力を読まない（読んでいれば取り消しの結果になり、`Fixture::sync_json` が落ちる）。
-- .env が機密ファイルであることは設定の既定の機密ファイルのパターンによる（fixture の設定は filter を書かない）。
+- REQ-merge-025 の sync は、書き込み先にだけある deploy.vault の他に書き込むものも削除するものもない構成にした。書き込む予定がないため `execute_sync` は確認のプロンプトの前に戻り、標準入力を読まない（読んでいれば取り消しの結果になり、`Fixture::sync_json` が落ちる）。
+- deploy.vault が機密ファイルであることは、`Fixture` の `fixture_with_sensitive` で設定の `[filter]` の `sensitive` に書いた "*.vault" だけによる（"*.vault" は既定の機密ファイルのパターンのどれにも一致しない）。設定にこのパターンを書かずに同じテストを一時的に実行すると、merge は deploy.vault を削除し、sync は削除の予定があるため確認のプロンプトで標準入力を読んで取り消しになり、どちらも失敗することを確かめた（この一時的な変更はコミットしていない）。
 
 ### 削除の結果の JSON とテキスト（REQ-merge-026、REQ-merge-027）
 
