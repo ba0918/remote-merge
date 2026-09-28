@@ -296,6 +296,21 @@ fn unparsable_config_option_file_stops_with_a_parse_error() {
     assert_stops_with_parse_error(&output);
 }
 
+// @kotowari[REQ-config-009]
+#[cfg(target_os = "linux")]
+#[test]
+fn unparsable_global_config_stops_with_a_parse_error_even_with_a_valid_project_config() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    workspace.write_unparsable(&workspace.global_config_path());
+    let local = workspace.local_root_with("project-local", "from-project.txt");
+    workspace.write_config(&cwd.join(".remote-merge.toml"), &local);
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_stops_with_parse_error(&output);
+}
+
 // @kotowari[REQ-config-010]
 #[test]
 fn local_root_starting_with_tilde_is_resolved_under_home() {
