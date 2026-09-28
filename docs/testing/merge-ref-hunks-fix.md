@@ -78,3 +78,70 @@ diff の hunk の数は、`merge_support.rs` に足した `Fixture::diff_json`�
 
 純粋関数の単体テストは、本体を `todo!()` にした関数の形だけを足して三件とも落ちることを確かめてから本体を書いた。
 修正の後、既存の `merge_hunks.rs` のテストと `merge_paths.rs` の selected_hunk_changes_only_the_selected_region・selecting_all_hunks_applies_both_regions を含む `cargo nextest run --all-features` の全 2932 件が通った。
+
+## 変異テスト
+
+テストを削除しない修正のため、最初の実行は省き（[決定記録](../decision/records/2026-09-28-mutation-scope.md)）、全てのテストを足した後のコミット 6a2d327 で一回だけ実行した。実行中は作業ツリーに触れていない。
+直した二つの純粋関数と `execute_hunk_merge`、`execute_merge` に絞った。並列数は既定の 2 である。
+
+```sh
+scripts/mutants.sh --re '(reference_check_failure|merge_hunks_in_display_hunks|execute_hunk_merge|execute_merge)' src/service/merge.rs src/cli/merge.rs src/service/merge_flow.rs src/diff/engine.rs
+```
+
+全体の集計は `mutants: caught=43 survived=4 timeout=0 unviable=1 equivalent=0`（48 件、実行時間は約 20 分）。
+スクリプトの終了コードは 1（見逃しの error による。メモリ上限での停止ではない）。
+
+| 関数 | caught | survived | unviable |
+|---|---|---|---|
+| reference_check_failure（src/service/merge.rs） | 7 | 0 | 0 |
+| merge_hunks_in_display_hunks（src/diff/engine.rs） | 6 | 0 | 0 |
+| execute_hunk_merge（src/service/merge_flow.rs） | 13 | 2 | 0 |
+| execute_merge（src/cli/merge.rs） | 17 | 2 | 1 |
+
+`execute_merge` の unviable は関数全体を `Ok(Default::default())` にする変異（105:5）である。
+二つの純粋関数の変異は全て、その関数の単体テストで検知された。
+`execute_hunk_merge` の番号の数え方を変えた箇所の変異（453:24 の範囲外の判定、465:61 の全ての区切りを選んだときの近道）は `merge_hunks.rs` のテストで検知された。
+
+### 変異と関係のないテストだけによる検知
+
+変異ごとのログから、先に失敗したテストの名前を集めた。
+負荷の下で落ちることのある tui_merge のテストだけで検知された変異が二件あった。
+どちらも、コミットに含めない一時的な書き換えでその変異を入れて `cargo nextest run --all-features --no-fail-fast` を実行すると 2932 件が全て通ったため、見かけの検知と判断し、見逃しとして扱う（書き換えの後に `git diff --stat src/` が空に戻ったことを確かめた）。
+
+| 位置 | 変異 | 失敗したテスト |
+|---|---|---|
+| src/cli/merge.rs:299:48 | replace \|\| with && in execute_merge | tui_merge の test_merge_cancel_with_n |
+| src/cli/merge.rs:246:47 | replace && with \|\| in execute_merge | tui_merge の test_merge_cancel_with_n、test_hunk_merge_right_to_left_with_h_key |
+
+### 見逃しと決着
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/cli/merge.rs:299:48 | replace \|\| with && in execute_merge（見かけの検知を数え戻したもの） | FLAG-cli-027 の範囲として記録する。読み込み元か書き込み先のどちらか一方だけが symlink のファイルを従来の判定に回す分岐で、symlink の扱いは今回の対象外（A9）のためテストは足さない |
+| src/cli/merge.rs:246:32 | replace && with \|\| in execute_merge | --ref の判定でない部分（機密ファイルの件数の通知の条件）。記録だけする（前の記録では FLAG-cli-022 の範囲） |
+| src/cli/merge.rs:246:47 | replace && with \|\| in execute_merge（見かけの検知を数え戻したもの） | 同上 |
+| src/cli/merge.rs:324:62 | delete ! in execute_merge | 全てのファイルが参照先に対する確認で外れたときの早期の戻り。FLAG-cli-026 の範囲として記録する（書き込むファイルのない merge と集約先の場所） |
+| src/service/merge_flow.rs:430:13 | delete field path from struct MergeFileResult expression in execute_hunk_merge | FLAG-merge-019 の範囲として記録する（差分のないファイルの "skipped (no changes)" の結果） |
+| src/service/merge_flow.rs:431:13 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
+
+同等変異の登録はない。新しい FLAG の候補はない。
+
+### 前の記録との比較
+
+最初の実行を省いたため、[merge の指定・確認・出力](merge-cli-test-cleanup.md) と [merge の変更のまとまりを選ぶマージ](merge-hunks-test-cleanup.md) の整理後の最後の記録と比べる。修正で行がずれたため、位置は今のコードの行で書く。
+
+| 前の記録の位置 | 今の位置 | 変異 | 前の記録 | この回 |
+|---|---|---|---|---|
+| src/cli/merge.rs:246:32 | 246:32 | replace && with \|\| in execute_merge | 見逃し（FLAG-cli-022） | 見逃し |
+| src/cli/merge.rs:246:47 | 246:47 | replace && with \|\| in execute_merge | 見逃し（FLAG-cli-022） | 見逃し（見かけの検知） |
+| src/cli/merge.rs:316:62 | 324:62 | delete ! in execute_merge | 見逃し（FLAG-cli-026） | 見逃し |
+| src/service/merge_flow.rs:427:13 | 430:13 | delete field path in execute_hunk_merge | 見逃し（FLAG-merge-019） | 見逃し |
+| src/service/merge_flow.rs:428:13 | 431:13 | delete field status in execute_hunk_merge | 見逃し（FLAG-merge-019） | 見逃し |
+| なし | src/cli/merge.rs:299:48 | replace \|\| with && in execute_merge | 前はこの分岐がなかった | 見逃し（見かけの検知。FLAG-cli-027） |
+
+前の記録の見逃しは全て同じ変異の見逃しのままで、前に検知されていた変異で見逃しになったものはない。増えた見逃しは、この修正で足した symlink の分岐の一件だけである。
+前の記録で `has_three_way_conflict` の `||` を `&&` にする変異（src/service/merge.rs:69）を落としていた a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written は期待を改めたが、`has_three_way_conflict` は今回の対象の関数でないため、この回では回していない。
+
+## 要件の verification
+
+REQ-cli-051 と REQ-merge-032 の verification はどちらも unit で、具体的な三つの中身や指定した番号の構成の入力で結果が決まる挙動のため、要件の性質に合う。見直しの候補はない。
