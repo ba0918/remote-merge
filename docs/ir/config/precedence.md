@@ -18,6 +18,20 @@
 
 除外・機密・対象フィルターをグローバル設定とプロジェクト設定の両方に指定したとき、両方の指定を結合して適用する。
 
+### REQ-config-011: ssh・backup・agent はセクションごと置き換える
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A6
+- verification: unit
+
+[ssh]・[backup]・[agent] が `プロジェクト設定` にあるときはセクション全体をプロジェクト側に置き換えて省いたキーには既定値を使い、`プロジェクト設定` にないときは `グローバル設定` のセクションを使う。
+
+### REQ-config-012: defaults はキーごとに合成する
+- kind: state_driven
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A7
+- verification: unit
+
+[defaults] の file_permissions と dir_permissions は、`プロジェクト設定` にあるキーはプロジェクト側、`プロジェクト設定` になく `グローバル設定` にあるキーはグローバル側、どちらにもないキーは既定値を使う。
+
 ## Examples
 
 ```gherkin

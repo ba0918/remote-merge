@@ -10,3 +10,5 @@
 | 参照先 | --ref で指定し、左右との比較にだけ使うサーバまたは local。 | docs/decision/records/2026-09-27-adopt-status.md#A13 |
 | 既定サーバ | 設定のサーバ名を名前順に並べて最初のサーバ。 | docs/decision/records/2026-09-27-adopt-status.md#A14 |
 | 競合 | 参照先に対して左右が同じ箇所を異なる内容に変えたこと。同じ箇所とは参照先からの変更の行の範囲が重なることで、バイナリや UTF-8 として読めないファイルはファイル全体を一つの箇所とする。左右の両方が参照先から変わっていても、変わった箇所が重ならなければ競合と呼ばない。 | docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4 |
+| グローバル設定 | 利用者ごとに一つ置き、どのプロジェクトで実行しても読まれる設定ファイル。 | docs/decision/records/2026-09-28-adopt-config-loading.md#A10 |
+| プロジェクト設定 | カレントディレクトリの ".remote-merge.toml"、または --config で指定した設定ファイル。 | docs/decision/records/2026-09-28-adopt-config-loading.md#A11 |
