@@ -201,8 +201,8 @@ fn project_config_in_a_parent_directory_is_not_searched() {
 fn config_option_is_read_relative_to_the_current_directory_instead_of_the_project_config() {
     let mut workspace = Workspace::new();
     let cwd = workspace.dir("work");
-    let ignored = workspace.local_root_with("cwd-local", "from-cwd.txt");
-    workspace.write_config(&cwd.join(".remote-merge.toml"), &ignored);
+    // 読まれれば止まる内容にして、下の層として合成される壊れ方とも見分ける
+    workspace.write_unparsable(&cwd.join(".remote-merge.toml"));
     let chosen = workspace.local_root_with("chosen-local", "from-option.txt");
     workspace.write_config(&cwd.join("configs").join("chosen.toml"), &chosen);
 
