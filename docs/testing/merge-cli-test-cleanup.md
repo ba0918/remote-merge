@@ -163,3 +163,5 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 
 利用者は候補の 3 件（test_merge_help_shows_options、test_make_args_default_format_is_text、test_build_merge_output）を全て消すと決めた。
 理由は上の表のとおりで、どれも整理前の変異テストの検知に効いておらず、merge の要件の根拠でもない。
+
+決まった 3 件だけを消し、消した後に `cargo nextest run --all-features` が通ることを確かめた（2879 tests run: 2879 passed）。

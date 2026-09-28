@@ -176,18 +176,6 @@ fn test_diff_help_shows_options() {
     assert_stdout_contains(&output, "--format");
 }
 
-/// merge --help → exit=0, stdout に "--dry-run"
-#[test]
-fn test_merge_help_shows_options() {
-    let output = remote_merge_cmd()
-        .args(["merge", "--help"])
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-    assert_stdout_contains(&output, "--dry-run");
-}
-
 /// logs --help → exit=0, stdout に "--level"
 #[test]
 fn test_logs_help_shows_options() {
