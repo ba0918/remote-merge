@@ -85,3 +85,24 @@
 - source: docs/decision/records/2026-09-28-adopt-config-values.md#A11
 
 旧総合仕様は sudo = true と agent.enabled = false の組み合わせを設定の読み込み時（サーバへの接続前）に検出してエラーで止め、Agent の有効化と NOPASSWD の設定を案内するとするが、実装は設定の読み込みでは止めず、そのサーバに接続するときに "sudo = true requires agent to be enabled. Set [agent] enabled = true in your config." で止め、NOPASSWD には触れない。そのため、そのサーバに接続しない操作は止まらない。
+
+### FLAG-config-013: 全て無効な include
+- kind: contradiction
+- related: REQ-config-004, REQ-config-024
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A7
+
+旧総合仕様の設定ファイルの例は include を指定したとき一致するパスだけを走査するとするが、実装は include の値が全て無効（絶対パス、".." を含む、glob 文字を含む）なとき警告を出して include を空として扱うため、全てのパスが走査の対象になる（実装を読んで分かったことで未実行）。
+
+### FLAG-config-014: 既定の sensitive を外せない
+- kind: contradiction
+- related: REQ-config-026
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A8
+
+旧総合仕様のセンシティブファイル警告の節は既定の sensitive のパターンを設定で追加・上書きできるとするが、実装は設定のパターンを既定のパターンに足すだけで、既定のパターンを外す方法がない。
+
+### FLAG-config-015: "../" を含む exclude のパターンの警告
+- kind: gap
+- related: REQ-config-022
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A9
+
+実装は "../" を含む exclude のパターンを無視し、パスを一つ調べるたびに "Skipping suspicious exclude pattern containing '../': パターン" の警告を出す。旧資料に記述がなく、警告を確かめるテストもない。
