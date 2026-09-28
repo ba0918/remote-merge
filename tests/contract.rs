@@ -26,6 +26,8 @@ mod config_loading_cli;
 mod config_merging;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
+#[path = "contract/config_values.rs"]
+mod config_values;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
 #[path = "contract/filters.rs"]
