@@ -127,8 +127,8 @@ cargo nextest run --all-features
 - Specification: docs/ir/testing/methods.md#REQ-testing-012, docs/ir/testing/methods.md#REQ-testing-009, docs/ir/testing/methods.md#REQ-testing-010
 - Prerequisites: S3
 - May change: tests/contract/ の merge 用モジュール（テストの追加。Approach and why のとおり既存要件の ID の印を付けてよい）, tests/contract.rs, .kotowari/mutants-equivalents.yaml, docs/testing/merge-links-test-cleanup.md
-- Done when: 最後のテストの状態で回した S1 と同じ四ファイルの変異テストの見逃しが、S1 の見逃しと、S1 で負荷の下で落ちるテストだけに検知された変異とを合わせたものの部分集合になっている。決着の対象の見逃しの全てに、足したテスト、同等変異の一覧への理由付きの登録（別の文脈のエージェントが落とすテストを書けなかった試みつき）、既存の FLAG の範囲としての記録、新しい FLAG の候補としての報告のどれかが docs/testing/merge-links-test-cleanup.md に記録されている。決着の対象でない見逃しは一覧として記録されている。同じ文書に REQ-merge-023 から 027 の verification とそれが要件の性質に合う理由が一行ずつあり、合わないと判断したものは IR を直さず候補として挙がっている
-- Shown by: external — `scripts/mutants.sh src/service/merge.rs src/service/sync.rs src/service/path_resolver.rs src/service/merge_flow.rs` の出力と S1 の記録を突き合わせた結果を docs/testing/merge-links-test-cleanup.md の「整理後」の節に書き、利用者がそれを読んで見逃しの決着を確かめる
+- Done when: 最後のテストの状態で決着の対象の関数に絞って回した変異テストの見逃しが、S1 の同じ関数の見逃しと、S1 で負荷の下で落ちるテストだけに検知された変異とを合わせたものの部分集合になっている。決着の対象の見逃しの全てに、足したテスト、同等変異の一覧への理由付きの登録（別の文脈のエージェントが落とすテストを書けなかった試みつき）、既存の FLAG の範囲としての記録、新しい FLAG の候補としての報告のどれかが docs/testing/merge-links-test-cleanup.md に記録されている。決着の対象でない見逃しは一覧として記録されている。同じ文書に REQ-merge-023 から 027 の verification とそれが要件の性質に合う理由が一行ずつあり、合わないと判断したものは IR を直さず候補として挙がっている
+- Shown by: external — `scripts/mutants.sh --re '(find_symlink_target|determine_merge_action|plan_deletions|skip_symlink_deletions|check_path_traversal|filter_merge_candidates|execute_deletions|execute_single_merge)' src/service/merge.rs src/service/sync.rs src/service/path_resolver.rs src/service/merge_flow.rs`（決着の対象の関数だけに絞った実行。対象外の関数の見逃しは S1 の記録のまま扱う）の出力と、S1 の記録のうち同じ関数の部分を突き合わせた結果を docs/testing/merge-links-test-cleanup.md の「整理後」の節に書き、利用者がそれを読んで見逃しの決着を確かめる
 - Left to the implementer: none
 - Stop and hand back if: 見逃しが不具合の疑いを示した、または verification の見直しの候補がある（どちらも文書に書いてコミットして作業を返し、利用者の判断が書き足されるまで S4 は完了しない。実装と IR は直さない）、負荷の下で落ちるテストによる見かけの検知が集計に混ざり、比較が成り立たない
 
