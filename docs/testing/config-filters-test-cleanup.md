@@ -28,7 +28,7 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 | REQ-config-022（"**"） | path_pattern_ending_in_double_star_excludes_everything_below_the_directory | src/filter.rs の test_path_pattern_vendor_legacy・test_double_star_rs_pattern。exclude "vendor/legacy/**" で "vendor/legacy/a.txt" と "vendor/legacy/deep/b.txt" が外れ、"vendor/current/a.txt" と "legacy/a.txt" が残る |
 | REQ-config-023（区切りの単位） | include_selects_the_directory_and_below_but_not_a_name_that_only_starts_with_it | src/filter.rs の test_is_path_included_descendant・test_is_path_included_no_false_prefix、src/local/mod.rs の test_resolve_scan_roots_with_existing_dirs・test_include_scans_only_specified_subdirs、tests/contract/filters.rs の include_restricts_status_and_sync_to_selected_files。include "src" で "src/a.txt" と "src/deep/b.txt" だけが出て、"srcx/a.txt" と "top.txt" は出ない |
 | REQ-config-023（入れ子） | nested_include_selects_only_below_the_nested_directory | 同じ元のテスト。include "a/b" で "a/b/c.txt" と "a/b/d/e.txt" だけが出て、親の "a/other.txt"、"a/bx/c.txt"、"top.txt" は出ない |
-| REQ-config-024（"./" と "/"） | include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value | src/filter.rs の test_normalize_trailing_slash・test_normalize_leading_dot_slash。"src" の外にもファイルがある構成で、include "./src/" の一覧が include "src" の一覧（"src/a.txt" と "src/deep/b.txt"）と同じになる |
+| REQ-config-024（印は残すが "./" も末尾の "/" も見分けられない） | include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value | src/filter.rs の test_normalize_trailing_slash・test_normalize_leading_dot_slash。"src" の外にもファイルがある構成で、include "./src/" の一覧が include "src" の一覧（"src/a.txt" と "src/deep/b.txt"）と同じになる。ただし、ローカルの走査（src/local/mod.rs の resolve_scan_roots）は root_dir と include の値を繋いで canonicalize するため "./" と末尾の "/" を吸収し、整え方が壊れても落ちない。印を外すと kotowari check が test_without_id を error にするため印は残し、扱いは利用者の判断を待つ（下の節の注と「利用者の判断」） |
 | REQ-config-024（空の値） | empty_include_value_is_ignored | src/filter.rs の test_normalize_empty_strings_removed。include `["", "src"]` で "src" の下だけが出る。空の値は整えられなければ root_dir 全体を指すため、"src" の外の "top.txt" と "other/c.txt" が出ないことで無視を見分ける |
 | REQ-config-024（無効な値の無視） | absolute_traversal_and_glob_include_values_are_ignored | src/filter.rs の test_normalize_rejects_absolute_path・test_normalize_rejects_traversal・test_normalize_glob_warning。include に左の root_dir の中の実在するディレクトリ "absolute" を指す絶対パス、"src/../traversal"、名前に glob 文字を含む実在するディレクトリ "lib[1]"・"lib*"・"lib?"（"["・"*"・"?" のそれぞれ）、"src" を書き、"src/a.txt" だけが出る。無効な値は整えられなければ root_dir の中の実在するディレクトリとして走査されるため、その下のファイルが出ないことで無視を見分ける。警告の文言は実行ファイルのテストで確かめる（下の節） |
 | REQ-config-025 | exclude_removes_matching_paths_from_the_include_target | src/local/mod.rs の test_include_with_exclude_combined。include "src" と exclude "*.log" で "src/a.txt" だけが出て、include の中の "src/a.log"・"src/deep/b.log" と、include の外の "top.txt"・"top.log" は出ない |
@@ -40,7 +40,7 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 - 計画は設定に書く sensitive のパターンの例に "*.secretish" を挙げていたが、"secretish" は "secret" を含み既定の "*secret*" に当たるため、例として使えなかった（最初の実行で "token.secretish" が sensitive を書かなくても true になって落ちた）。計画の条件（既定のパターンにも "*secret*" にも当たらない名前）に合わせて "*.confidential" にした。計画からの逸れとして記録する。
 - 絶対パスの include は左の root_dir の中を指す。右（develop）の root_dir は別の一時ディレクトリのため、整えられなかったときも右では root_dir の外として捨てられるが、左で走査されて一覧に出るため見分けられる。
 
-### include の無効な値の警告（REQ-config-024）
+### include の無効な値の警告と先頭の "./"（REQ-config-024）
 
 根拠テストは `tests/contract/config_filters_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
 警告は設定の読み込み時に標準エラー（tracing の出力）に出て関数呼び出しでは観測できないため、前の回の `tests/contract/config_values_cli.rs` と同じく実行ファイルを起動して確かめる。
@@ -53,9 +53,12 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 | 要件 | 根拠テスト | 元にしたテストと確かめること |
 |---|---|---|
 | REQ-config-024（警告） | absolute_traversal_and_glob_include_values_each_warn_with_the_value | src/filter.rs の test_normalize_rejects_absolute_path・test_normalize_rejects_traversal・test_normalize_glob_warning と、tests/contract/config_values_cli.rs の起動の組み方。include に左の root_dir の下の "src" を指す絶対パス、"src/../src"、"lib[1]"・"lib*"・"lib?"、"src" を書いて起動し、標準出力と標準エラーをつないだもの（ANSI のエスケープを除く）に "Absolute path is not allowed in include filter: 絶対パス"・"Path traversal is not allowed in include filter: src/../src"・"Glob patterns are not supported in include filter: 値"（"lib[1]"・"lib*"・"lib?" のそれぞれ）が含まれる |
+| REQ-config-024（"./"） | include_with_leading_dot_slash_lists_the_same_paths_as_the_plain_value_over_ssh | src/filter.rs の test_normalize_leading_dot_slash。左右に "src/a.txt" と "top.txt" を中身を違えて置き、`status --left local --right develop --format json` の標準出力の "files" の "path" の集合が、include "src" でも include "./src" でも "src/a.txt" だけになる。右の SSH の走査は include の値を find の開始パスにそのまま繋ぎ（src/ssh/tree_parser.rs の build_find_command）、走査の結果から root_dir を取り除いたものをパスにするため、"./" が取り除かれなければ右のパスが "./src/a.txt" になって一覧に出る |
 
 - 無効な値は必ず有効な "src" と一緒に書き（全て無効な include は FLAG-config-013 の範囲）、絶対パスと ".." を含む値は試験用の一時ディレクトリの中を指すものにした。変異の下で整え方が壊れても、走査が一時ディレクトリの外に向かわない。
 - 終了コードと接続の結果は確かめない。無効な値が無視されることは上の関数呼び出しのテストで確かめる。
+- 先頭の "./" と末尾の "/" の取り除きが観測で見分けられるかを、src/filter.rs の normalize_include_paths の該当する処理を一時的に外して `cargo nextest run --all-features --no-fail-fast --test contract -E 'test(/config_filters/)'` で確かめた。"./" を取り除く繰り返しを外すと、SSH の走査のテスト include_with_leading_dot_slash_lists_the_same_paths_as_the_plain_value_over_ssh が一覧 {"./src/a.txt", "src/a.txt"} で落ち、関数呼び出しの include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value は通った。`trim_end_matches('/')` を外すと、どちらも通った（関数呼び出しのテストに加え、SSH の走査で include "src/" を試す候補のテストも、include `["src/", "src/deep"]` を試す使い捨てのテストも通った。どちらの SSH の走査でも一覧に "src//a.txt" のようなパスや同じパスの重複は出なかったことから、find は末尾に "/" のある開始パスでも "/" を重ねずに出力し、入れ子の include の重なりも一覧では一つにまとまると判断した。find の出力そのものは読んでいない）。どれも確かめた後に `git checkout src/filter.rs` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
+- このため、関数呼び出しの include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value は "./" も末尾の "/" も見分けられない。印を外すと kotowari check が test_without_id を error にするため、印を残したまま扱いを利用者の判断に回した。末尾の "/" の取り除きは、status の JSON の "files" の "path" の範囲で見分けられる観測が見つからず、根拠テストがない（下の「利用者の判断」）。見分けられなかった SSH の走査の候補のテストは足していない。
 - glob 文字の値は "[" だけでなく "*" と "?" のそれぞれについて書いた。src/filter.rs の normalize_include_paths の glob 文字の判定から `s.contains('*') ||` を一時的に取り除くと、関数呼び出しの absolute_traversal_and_glob_include_values_are_ignored（一覧に "lib*/a.txt" が出る）とこの節の警告のテストが落ち、`s.contains('?') ||` を取り除くと同じ二つが落ちる（"lib?/a.txt" が出る）ことを `cargo nextest run --all-features --no-fail-fast --test contract -E 'test(/config_filters/)'` で確かめた。どちらも確かめた後に `git checkout src/filter.rs` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
 
 ## 整理後の変異テスト
@@ -142,3 +145,6 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 
 新しい FLAG の候補、verification の見直しの候補、決着の対象でない見逃しで計画の区分に当てはまらないものはない。
 決着の対象でない見逃しは src/filter.rs:62:35 の一件で、計画が TUI の範囲として記録だけすると定めていた `is_path_excluded` の "dir/**" のディレクトリの枝刈りに当たる。
+
+REQ-config-024 の末尾の "/" の取り除きには根拠テストがない。ローカルの走査は canonicalize で、SSH の走査は find の出力で末尾の "/" を吸収し、status の JSON の "files" の "path" では整え方が壊れても違いが出なかった（上の「include の無効な値の警告と先頭の "./"」の節の注）。見分けられる観測を別の契約（警告の有無など、IR が契約にしていないもの）に求めるか、根拠テストのないまま記録にとどめるかは利用者の判断を待つ。
+見分けられない関数呼び出しのテスト include_with_leading_dot_slash_and_trailing_slash_selects_the_same_as_the_plain_value の REQ-config-024 の印を残すか、テストを消すか（印を外すだけでは kotowari check が error になる）も利用者の判断を待つ。
