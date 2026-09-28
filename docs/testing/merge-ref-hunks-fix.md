@@ -49,3 +49,32 @@ merge の二つの問題（--ref を使うファイル全体の merge が書き�
 
 - `tests/contract/cli_results.rs` の reference_side_is_not_modified_by_a_three_way_merge は --force で三つとも違うファイルを書くテストで、A1 の確認を通らない。本体は変えず、印から EX-cli-021 を外して EX-cli-034 の根拠として残した。
 - `tests/contract/merge_results.rs` の a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written を a_binary_changed_only_on_the_source_is_written_and_one_changed_only_on_the_destination_fails に改め、merged がちょうど [a.bin]、failed がちょうど [{path: b.bin, error: "destination changed since reference"}]、終了コード 2、develop の a.bin が読み込み元のバイト列、b.bin が変わらないことを確かめるようにした。
+
+## --hunks の番号の数え方（REQ-merge-032）
+
+`execute_hunk_merge`（`src/service/merge_flow.rs`）は、番号・hunks_total・範囲外の判定を `DiffResult::Modified` の `hunks`（文脈 3 行の区切り。diff --format json と同じもの）の数で数えるようにした。
+選んだ区切りに入る `merge_hunks`（文脈 0 行の区切り）は `src/diff/engine.rs` の純粋関数 `merge_hunks_in_display_hunks` が行の範囲の包含で選び、選ばれたものを全て適用する。
+全ての `merge_hunks` が選ばれたときは、従来どおり読み込み元の中身をそのまま使う。
+hunks_applied は利用者が渡した番号のまま出す。
+
+構成は、先頭と末尾の行を変える二つの変更の間に変わらない行を挟んだテキストのファイル file.txt 一つ。
+テストは `merge_hunks.rs` と同じく --force を付けて参照先を付けない（--hunks が確認を出さないこと（FLAG-merge-016）に頼らない）。
+diff の hunk の数は、`merge_support.rs` に足した `Fixture::diff_json`（`execute_diff` を関数として呼ぶ）で確かめる。
+
+| 例 | 根拠テスト | 確かめること |
+|---|---|---|
+| EX-merge-038 | two_changes_two_lines_apart_are_one_hunk_in_diff_and_in_merge | 変わらない行を 2 行挟んだ構成で、diff の JSON の hunks がちょうど一つ、--hunks 0 の merge の hunks_total が 1、develop に二つの変更の両方が入る |
+| EX-merge-038 | hunk_index_one_is_out_of_range_when_two_changes_are_one_hunk | 同じ構成で --hunks 1 のエラーの文言がちょうど "Hunk index 1 is out of range (total hunks: 1)" で、develop が変わらない |
+| EX-merge-039 | hunk_index_one_applies_only_the_second_of_two_changes_seven_lines_apart | 変わらない行を 7 行挟んだ構成で、--hunks 1 の merge の hunks_total が 2、develop には二つ目の変更だけが入る |
+
+純粋関数の単体テスト（`src/diff/engine.rs`）は、一つの表示用の区切りに二つの変更が入る場合（番号 0 で両方が選ばれる）、二つの区切りに分かれる場合（番号 1 で二つ目だけが選ばれる）、何も選ばない場合を確かめる。
+
+### 修正の前の実行
+
+`cargo nextest run --all-features --test contract merge_ref_hunks_fix` を `execute_hunk_merge` を直す前に実行した。
+
+- 落ちた: two_changes_two_lines_apart_are_one_hunk_in_diff_and_in_merge（hunks_total が 2。diff の hunks が一つであることの確かめは通った）、hunk_index_one_is_out_of_range_when_two_changes_are_one_hunk（merge がエラーにならず成功した）
+- 通った: hunk_index_one_applies_only_the_second_of_two_changes_seven_lines_apart（離れた変更では従来も番号が一致していた）
+
+純粋関数の単体テストは、本体を `todo!()` にした関数の形だけを足して三件とも落ちることを確かめてから本体を書いた。
+修正の後、既存の `merge_hunks.rs` のテストと `merge_paths.rs` の selected_hunk_changes_only_the_selected_region・selecting_all_hunks_applies_both_regions を含む `cargo nextest run --all-features` の全 2932 件が通った。
