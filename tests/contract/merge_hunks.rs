@@ -8,7 +8,9 @@ use std::fs;
 
 use remote_merge::cli::merge::MergeArgs;
 
-use super::merge_support::{args, fixture, fixture_with_sensitive, Fixture};
+use serde_json::json;
+
+use super::merge_support::{args, fixture, fixture_with_backup, fixture_with_sensitive, Fixture};
 
 const PATH: &str = "file.txt";
 /// 設定で機密ファイルのパターンにする。既定の機密ファイルのパターンには一致しない
@@ -24,14 +26,24 @@ fn hunk_args(path: &str, hunks: &[usize]) -> MergeArgs {
     }
 }
 
+/// 二つの変更の間に挟む変わらない 12 行
+fn middle() -> String {
+    (0..12).map(|i| format!("stable {i}\n")).collect()
+}
+
 /// 間に変わらない 12 行を挟んだ二つの変更を持つ `path` を local と develop に置き、
 /// develop の元の内容を返す。二つの変更は別々の変更のまとまりになる
 fn two_separate_changes(fixture: &Fixture, path: &str) -> String {
-    let middle = (0..12).map(|i| format!("stable {i}\n")).collect::<String>();
+    let middle = middle();
     let original = format!("old first\n{middle}old last\n");
     fixture.write("local", path, &format!("new first\n{middle}new last\n"));
     fixture.write("develop", path, &original);
     original
+}
+
+/// two_separate_changes の二つ目の変更（番号 1）だけを書き込んだ内容
+fn with_only_the_second_change() -> String {
+    format!("old first\n{}new last\n", middle())
 }
 
 fn write_bytes(fixture: &Fixture, side: &str, path: &str, bytes: &[u8]) {
@@ -215,4 +227,124 @@ fn hunks_dry_run_with_a_three_way_conflict_stops_the_same_way() {
 
     assert_eq!(error.to_string(), "three-way conflict: file.txt");
     assert_eq!(fixture.read("develop", PATH), "right change\n");
+}
+
+/// 番号 1 を渡したときの、backup を除いた merged の一件
+fn merged_entry(status: &str) -> serde_json::Value {
+    json!({
+        "path": PATH,
+        "status": status,
+        "hunks_applied": [1],
+        "hunks_total": 2,
+        "direction": "left_to_right",
+    })
+}
+
+/// merged の一件の backup を返す
+fn backup_of(json: &serde_json::Value) -> String {
+    json["merged"][0]["backup"]
+        .as_str()
+        .unwrap_or_else(|| panic!("backup missing: {json}"))
+        .to_string()
+}
+
+/// "Merged: " か "Would merge: " で始まる行
+fn merged_lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter(|line| line.starts_with("Merged: ") || line.starts_with("Would merge: "))
+        .collect()
+}
+
+// @kotowari[REQ-merge-029]
+#[test]
+fn hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled() {
+    let fixture = fixture();
+    two_separate_changes(&fixture, PATH);
+
+    let (json, _) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
+
+    assert_eq!(json["merged"], json!([merged_entry("merged")]), "{json}");
+    assert_eq!(fixture.read("develop", PATH), with_only_the_second_change());
+}
+
+// @kotowari[REQ-merge-029]
+#[test]
+fn hunks_json_reports_the_backup_when_backup_is_enabled() {
+    let fixture = fixture_with_backup();
+    two_separate_changes(&fixture, PATH);
+
+    let (json, _) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
+
+    let mut expected = merged_entry("merged");
+    expected["backup"] = json!(backup_of(&json));
+    assert_eq!(json["merged"], json!([expected]), "{json}");
+    assert_eq!(fixture.read("develop", PATH), with_only_the_second_change());
+}
+
+// @kotowari[REQ-merge-029]
+#[test]
+fn hunks_dry_run_json_reports_would_merge_without_writing() {
+    let fixture = fixture();
+    let original = two_separate_changes(&fixture, PATH);
+
+    let (json, _) = fixture.merge_json_and_text(MergeArgs {
+        dry_run: true,
+        ..hunk_args(PATH, &[1])
+    });
+
+    assert_eq!(
+        json["merged"],
+        json!([merged_entry("would merge")]),
+        "{json}"
+    );
+    assert_eq!(fixture.read("develop", PATH), original);
+}
+
+// @kotowari[REQ-merge-030]
+#[test]
+fn hunks_text_shows_the_applied_hunk_when_backup_is_disabled() {
+    let fixture = fixture();
+    two_separate_changes(&fixture, PATH);
+
+    let (_, text) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
+
+    assert_eq!(
+        merged_lines(&text),
+        ["Merged: file.txt (hunks: 1/2)"],
+        "{text}"
+    );
+}
+
+// @kotowari[REQ-merge-030]
+#[test]
+fn hunks_text_shows_the_backup_when_backup_is_enabled() {
+    let fixture = fixture_with_backup();
+    two_separate_changes(&fixture, PATH);
+
+    let (json, text) = fixture.merge_json_and_text(hunk_args(PATH, &[1]));
+
+    let backup = backup_of(&json);
+    assert_eq!(
+        merged_lines(&text),
+        [format!("Merged: file.txt (hunks: 1/2) (backup: {backup})")],
+        "{text}"
+    );
+}
+
+// @kotowari[REQ-merge-030]
+#[test]
+fn hunks_dry_run_text_shows_would_merge() {
+    let fixture = fixture();
+    two_separate_changes(&fixture, PATH);
+
+    let (_, text) = fixture.merge_json_and_text(MergeArgs {
+        dry_run: true,
+        ..hunk_args(PATH, &[1])
+    });
+
+    assert_eq!(
+        merged_lines(&text),
+        ["Would merge: file.txt (hunks: 1/2)"],
+        "{text}"
+    );
 }
