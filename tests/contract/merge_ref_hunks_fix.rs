@@ -188,3 +188,29 @@ fn hunk_index_one_applies_only_the_second_of_two_changes_seven_lines_apart() {
         with_gap(7, "old first", "new last")
     );
 }
+
+/// UTF-8 として読めない中身（NUL を含まない）。`tag` で中身を変える
+fn non_utf8(tag: u8) -> Vec<u8> {
+    vec![0xff, 0xfe, tag, b'\n']
+}
+
+// @kotowari[REQ-merge-031, REQ-merge-028]
+#[test]
+fn hunks_on_a_non_utf8_file_changed_only_on_the_destination_stop_as_binary() {
+    let fixture = fixture();
+    fixture.write_bytes("local", PATH, &non_utf8(b'a'));
+    fixture.write_bytes("develop", PATH, &non_utf8(b'b'));
+    fixture.write_bytes("staging", PATH, &non_utf8(b'a'));
+    let args = MergeArgs {
+        hunks: Some(vec![0]),
+        ..ref_args(false)
+    };
+
+    let error = fixture.merge_error(args);
+
+    assert_eq!(
+        error.to_string(),
+        format!("Hunk merge is not supported for binary files: '{PATH}'")
+    );
+    assert_eq!(fixture.read_bytes("develop", PATH), non_utf8(b'b'));
+}

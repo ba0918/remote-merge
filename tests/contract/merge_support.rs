@@ -93,6 +93,15 @@ impl Fixture {
         fs::write(self.root(side).join(path), content).unwrap();
     }
 
+    /// UTF-8 として読めない中身も置けるよう、バイト列のまま書く
+    pub fn write_bytes(&self, side: &str, path: &str, content: &[u8]) {
+        fs::write(self.root(side).join(path), content).unwrap();
+    }
+
+    pub fn read_bytes(&self, side: &str, path: &str) -> Vec<u8> {
+        fs::read(self.root(side).join(path)).unwrap()
+    }
+
     pub fn read(&self, side: &str, path: &str) -> String {
         fs::read_to_string(self.root(side).join(path)).unwrap()
     }
