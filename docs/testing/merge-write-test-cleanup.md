@@ -58,9 +58,9 @@ nextest は最初の失敗から少し進んで止まるため、集めた名前
 
 | 位置 | 変異 | 失敗したテスト | 扱い |
 |---|---|---|---|
-| src/service/status.rs:137:5 | replace path_is_within_unloaded_dir -> bool with true | tui_merge の test_hunk_merge_left_to_right_with_l、test_hunk_merge_right_to_left_with_h_key、test_merge_cancel_with_n、test_sensitive_file_merge_requires_confirmation | status の規則で決着の対象ではない。整理後の比較では、この変異を見逃しの候補に含めて比べる |
+| src/service/status.rs:137:5 | replace path_is_within_unloaded_dir -> bool with true | tui_merge の test_hunk_merge_left_to_right_with_l、test_hunk_merge_right_to_left_with_h_key、test_merge_cancel_with_n、test_sensitive_file_merge_requires_confirmation | status の規則で決着の対象ではない。`.kotowari/mutants-equivalents.yaml` に status の整理で同等変異として登録済みのため、見かけの検知とみなし、見逃しにも見逃しの候補にも数えない |
 
-この一件は決着の対象の関数ではないため、見かけの検知かどうかは確かめていない。
+この一件は決着の対象の関数ではないため、変異がテストに観測されるかどうかはこの整理では確かめていない（同等変異としての登録の理由は `.kotowari/mutants-equivalents.yaml` の why にある）。
 
 ## 要件ごとの根拠テスト
 
@@ -78,7 +78,7 @@ sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --forc
 
 | 要件 | 根拠テスト | 元にしたテスト |
 |---|---|---|
-| REQ-merge-019（merge） | merge_reports_which_side_could_not_be_read | tests/contract/merge_paths.rs の explicit_merge_checks_readability_even_when_file_sizes_differ・unreadable_source_fails_one_file_without_blocking_the_other_merge・two_unreadable_sides_are_not_reported_as_identical_empty_files。元のテストは error が "read failed:" で始まることだけを見る。一回の merge で三つのファイルを明示し、読み込み元だけが読めない source-locked.txt の error が "read failed: left: " で始まり "right: " と "; " を含まないこと、書き込み先だけが読めない destination-locked.txt の error が "read failed: right: " で始まり "left: " と "; " を含まないこと、両側が読めない both-locked.txt の error が "read failed: left: " で始まりその後に "; right: " が続くことを確かめる。原因の文言は確かめない |
+| REQ-merge-019（merge） | merge_reports_which_side_could_not_be_read | tests/contract/merge_paths.rs の explicit_merge_checks_readability_even_when_file_sizes_differ・unreadable_source_fails_one_file_without_blocking_the_other_merge・two_unreadable_sides_are_not_reported_as_identical_empty_files。元のテストは error が "read failed:" で始まることだけを見る。一回の merge で三つのファイルを明示し、読み込み元だけが読めない source-locked.txt の error が "read failed: left: " で始まり "right: " と "; " を含まないこと、書き込み先だけが読めない destination-locked.txt の error が "read failed: right: " で始まり "left: " と "; " を含まないこと、両側が読めない both-locked.txt の error が "read failed: left: " で始まりその後に "; right: " が続くことを確かめる。どの場合も "left: " と "right: " の後に続く原因が空でないことを確かめ、原因の文言は確かめない |
 | REQ-merge-019（sync） | sync_reports_which_side_could_not_be_read | 同じ三件と tests/contract/merge_paths.rs の sync_does_not_overwrite_a_destination_it_cannot_read。同じ構成を --force の sync で確かめる |
 
 - どのファイルも左右で中身の長さを変えた（ファイルを明示したときは長さによらず中身を読み比べる）。
@@ -93,7 +93,7 @@ sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --forc
 
 - 構成: folder の下に、サイズと更新時刻が同じで中身が違う same-metadata.txt（書き込み先の更新時刻を `File::set_modified` で読み込み元に揃える）、サイズと中身が同じで書き込み先の更新時刻を 120 秒前にずらした same-bytes.txt、左右で中身の長さが違う対照の control.txt を置く。呼ぶ前に、秒単位の更新時刻が same-metadata.txt では同じで same-bytes.txt では 60 秒以上違うことを確かめる。
 - merge の結果が per-file の出力（`MergeCommandOutput::Files`）になることは `Fixture::merge_json` が確かめる（それ以外の出力では落ちる）。書き込むものがないときの出力は確かめない。
-- 一時的な書き換え（コミットに含めない）で、`needs_merge_content_compare` が常に --checksum のときの組を読み比べるようにすると、この二件が落ちることを確かめた。REQ-merge-019 の二件は、読めなかった側をつなぐ "; " を別の文字に変える書き換えで落ちることを確かめた。書き換えは元に戻した。
+- 一時的な書き換え（コミットに含めない）で、`needs_merge_content_compare` が常に --checksum のときの組を読み比べるようにすると、この二件が落ちることを確かめた。REQ-merge-019 の二件は、読めなかった側をつなぐ "; " を別の文字に変える書き換えと、`verified_content_pairs` が "left: " と "right: " の後の原因を書かない書き換え（片側だけ書かない場合も含む）で落ちることを確かめた。書き換えは元に戻した。
 
 ### ディレクトリ指定と複数パスの書き込み（REQ-merge-021、REQ-merge-022）
 
@@ -107,30 +107,40 @@ sync の呼び出しに足した `Fixture::sync_json` と `sync_args` は --forc
 
 ## 整理後の変異テスト
 
-根拠テストを足し終えたコミット 48093a8 で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
+整理の最後のコミット c108848 で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
 
 ```sh
 scripts/mutants.sh src/service/merge_flow.rs src/cli/tolerant_io.rs src/service/status.rs
 ```
 
-全体の集計は `mutants: caught=134 survived=12 timeout=0 unviable=17 equivalent=0`（163 件、実行時間は約 40 分）。
+全体の集計は `mutants: caught=136 survived=9 timeout=0 unviable=17 equivalent=1`（163 件、実行時間は約 41 分）。
 スクリプトの終了コードは整理前と同じく 1（見逃しの error による。メモリ上限での停止ではない）。
+equivalent の 1 件は src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with true）で、今回は cargo-mutants が見逃しと判定し、`.kotowari/mutants-equivalents.yaml` の登録により kotowari mutants が同等変異として数えた。
+ファイルごとの内訳は `outcomes.json` から数えた（status.rs:137:5 は survived に数えている）。
 
 | ファイル | caught | survived | timeout | unviable |
 |---|---|---|---|---|
 | src/service/merge_flow.rs | 24 | 9 | 0 | 8 |
 | src/cli/tolerant_io.rs | 8 | 0 | 0 | 0 |
-| src/service/status.rs | 102 | 3 | 0 | 9 |
+| src/service/status.rs | 104 | 1 | 0 | 9 |
 
 ### 整理前との比較
 
-整理後の見逃し 12 件は全て整理前の見逃しに含まれる（整理前の 13 件から src/service/merge_flow.rs:413:33 を除いたもの）。
-この計画はテストを消していないため、見逃しが増えないことは予想どおりだった。足したテストは決着の対象の見逃しのどれにも触れる構成を持たないため、見逃しは減っていない。
+整理前の見逃しは 13 件で、status.rs:137:5 は見かけの検知として同等変異の扱いにしていた。
+整理後に cargo-mutants が見逃しと判定したのは、src/service/merge_flow.rs の 9 件（:256:14、:256:18 と execute_hunk_merge の 7 件）と、同等変異として登録済みの status.rs:137:5 の 10 件だった。
 
-src/service/merge_flow.rs:413:33（replace || with && in execute_hunk_merge）は、整理前は見逃し、整理後は tui_merge の test_sensitive_file_merge_requires_confirmation だけに検知された。
-この変異は変更のまとまりを選ぶマージの関数にあり、機密ファイルの確認のテストが通る経路ではないため、負荷の下での見かけの検知とみなし、見逃しとして扱う（決着の対象ではない）。
-src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with true）は整理前と同じく tui_merge のテストだけに検知された。この変異は `.kotowari/mutants-equivalents.yaml` に status の整理で同等変異として登録済みで、見かけの検知である。
-これ以外に、負荷の下で落ちるテストだけで検知された変異はなかった。
+整理後の見逃しの判定には、変異と関係のないテストだけによる検知を見逃しに数え戻す（検知した 136 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めて確かめた）。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異は次の二件で、どちらも整理前には見逃しだった。
+
+| 位置 | 変異 | 失敗したテスト | 扱い |
+|---|---|---|---|
+| src/service/merge_flow.rs:413:33 | replace \|\| with && in execute_hunk_merge | tui_merge の test_hunk_merge_left_to_right_with_l | TUI の変更のまとまりのマージは src/handler/merge_exec.rs の別の execute_hunk_merge を呼び、この関数を通らない（呼び出し元の検索による）。見かけの検知とみなし、見逃しに数える |
+| src/service/status.rs:143:37 | replace + with * in collect_all_file_paths | tui_merge の confirming_a_tree_merge_copies_the_loaded_source_bytes | 容量の見積もりだけに使う式で、結果の中身を変えない。見かけの検知とみなし、見逃しに数える |
+
+これを数え戻した整理後の見逃しは 11 件で、全て整理前の見逃しに含まれる。整理前の 13 件から、決着としてテストを足した src/service/status.rs:320:15 と :323:61 を除いたものに一致する。
+:320:15 と :323:61 は、tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing に検知された（どちらの変異のログでも、失敗したのはこの二つのテストだった）。
+status.rs:137:5 は同等変異の扱いのまま、見逃しの候補に数えない。
+この計画はテストを消していないため、見逃しが増えないことは予想どおりだった。
 
 ### 見逃しの決着
 
@@ -138,10 +148,10 @@ src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with t
 |---|---|---|
 | src/service/merge_flow.rs:256:14 | replace > with >= in copy_permissions | FLAG-merge-007 の範囲として記録する（[決定記録 A1](../decision/records/2026-09-28-merge-write-mutant-flags.md#A1)）。テストは足さない（下の「利用者の判断を待つ候補」の二件目） |
 | src/service/merge_flow.rs:256:18 | replace && with \|\| in copy_permissions | 同上 |
-| src/service/status.rs:320:15 | replace && with \|\| in needs_merge_content_compare | テストを足した。tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing（REQ-merge-001）。local の folder/kind が通常ファイル、develop の folder/kind がディレクトリの構成を --checksum 付きのディレクトリ merge と sync にかけ、folder/kind が skipped に出て failed に出ず、書き込み先のディレクトリとその中身が変わらないことを確かめる。終了コード（FLAG-cli-016）と reason の文言は確かめない。変異では folder/kind が中身の読み比べに加わり、failed に出て落ちる（下の「利用者の判断を待つ候補」の一件目） |
+| src/service/status.rs:320:15 | replace && with \|\| in needs_merge_content_compare | テストを足し、整理後の変異テストで検知された。tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing（REQ-merge-001）。local の folder/kind が通常ファイル、develop の folder/kind がディレクトリの構成を --checksum 付きのディレクトリ merge と sync にかけ、folder/kind が skipped に出て failed に出ず、書き込み先のディレクトリとその中身が変わらないことを確かめる。終了コード（FLAG-cli-016）と reason の文言は確かめない。変異では folder/kind が中身の読み比べに加わり、failed に出て落ちる（下の「利用者の判断を待つ候補」の一件目） |
 | src/service/status.rs:323:61 | replace && with \|\| in needs_merge_content_compare | 同上 |
 
-決着の対象でない見逃しは次の 9 件（整理後の見逃し 8 件と、見かけの検知として見逃しに数える :413:33）で、記録だけする。
+決着の対象でない見逃しは次の 9 件（cargo-mutants の見逃し 7 件と、見かけの検知として見逃しに数える :413:33 と status.rs:143:37）で、記録だけする。
 
 | 位置 | 変異 | 扱う回 |
 |---|---|---|
@@ -153,7 +163,7 @@ src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with t
 | src/service/merge_flow.rs:481:21 | delete field hunk_info from struct MergeFileResult expression in execute_hunk_merge | 同上 |
 | src/service/merge_flow.rs:502:17 | delete field path from struct MergeFileResult expression in execute_hunk_merge | 同上 |
 | src/service/merge_flow.rs:503:17 | delete field status from struct MergeFileResult expression in execute_hunk_merge | 同上 |
-| src/service/status.rs:143:37 | replace + with * in collect_all_file_paths | status の規則（容量の見積もりだけに使う式） |
+| src/service/status.rs:143:37 | replace + with * in collect_all_file_paths | status の規則（容量の見積もりだけに使う式。整理後は見かけの検知） |
 
 ### 利用者の判断を待つ候補
 
@@ -173,7 +183,7 @@ src/service/status.rs:137:5（replace path_is_within_unloaded_dir -> bool with t
 
 利用者の判断: どちらも推奨を採った。
 
-- 一件目は (a)。REQ-merge-001 の印だけを付けたテストを merge と sync のそれぞれに足した（tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing）。既存のテストは変えていない。コミットに含めない一時的な書き換えで :320:15 と :323:61 の変異をそれぞれ入れ、二つのテストが両方の変異で落ち、元のコードで通ることを確かめた（書き換えは元に戻し、src/ に差分がないことを確かめた）。変異テストは回し直していない。
+- 一件目は (a)。REQ-merge-001 の印だけを付けたテストを merge と sync のそれぞれに足した（tests/contract/merge_write.rs の checksum_directory_merge_skips_a_file_against_a_directory_without_failing と checksum_directory_sync_skips_a_file_against_a_directory_without_failing）。既存のテストは変えていない。コミットに含めない一時的な書き換えで :320:15 と :323:61 の変異をそれぞれ入れ、二つのテストが両方の変異で落ち、元のコードで通ることを確かめた（書き換えは元に戻し、src/ に差分がないことを確かめた）。整理後の変異テストでも二つの変異はこの二つのテストに検知された。
 - 二件目は (a)。FLAG-merge-007「読み込み元の権限が 0 のときの複製」（[決定記録 A1](../decision/records/2026-09-28-merge-write-mutant-flags.md#A1)）として記録された。この二件の見逃しはその FLAG の範囲として決着させ、エージェントのテストは足さない。
 
 これで決着の対象の見逃しは全て決着した。
