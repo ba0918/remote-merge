@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # 渡されたファイルの変異テストをメモリ上限つきで毎回新しく実行し、その結果を kotowari mutants で読む。
 #
-# 使い方: scripts/mutants.sh <file> [<file>...]
+# 使い方: scripts/mutants.sh [--re <regex>]... <file> [<file>...]
+#
+# --re を付けると、変異の名前（cargo mutants --list の表示）がその正規表現に一致するものだけを回す。
+# 対象の関数だけを確かめたいときに、ファイルの他の関数の変異に実行時間を使わないためのもの。
 #
 # cargo-mutants は systemd-run --user のサービスとして起動する。変異テストの実行中にメモリを
 # 使い切って WSL ごと落ちたことがあるため、上限はサービスの cgroup にかける。
@@ -15,8 +18,18 @@
 # OOMPolicy=stop でサービス全体を止め、失敗として 0 以外で終了し、途中までの結果は読まない。
 set -euo pipefail
 
+filter_args=()
+while [ "$#" -gt 0 ] && [ "$1" = "--re" ]; do
+    if [ "$#" -lt 2 ]; then
+        echo "usage: scripts/mutants.sh [--re <regex>]... <file> [<file>...]" >&2
+        exit 64
+    fi
+    filter_args+=(--re "$2")
+    shift 2
+done
+
 if [ "$#" -eq 0 ]; then
-    echo "usage: scripts/mutants.sh <file> [<file>...]" >&2
+    echo "usage: scripts/mutants.sh [--re <regex>]... <file> [<file>...]" >&2
     exit 64
 fi
 
@@ -71,7 +84,8 @@ systemd-run --user --unit "$unit" --wait --pipe --quiet --same-dir \
     --all-features \
     --test-tool nextest \
     --output "$output_dir" \
-    "${file_args[@]}" >&2
+    "${file_args[@]}" \
+    "${filter_args[@]}" >&2
 status=$?
 set -e
 trap - INT TERM

@@ -15,7 +15,7 @@ use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::{load_config_from_paths, AppConfig};
 use remote_merge::runtime::RuntimeTargets;
-use remote_merge::service::output::format_json;
+use remote_merge::service::output::{format_json, format_merge_text};
 use tempfile::TempDir;
 
 const SERVERS: [&str; 2] = ["develop", "staging"];
@@ -30,15 +30,20 @@ pub struct Fixture {
 
 /// バックアップを無効にした構成
 pub fn fixture() -> Fixture {
-    build(false)
+    build(false, &[])
 }
 
 /// バックアップを有効にし、集約先を一時ディレクトリに差し替えた構成
 pub fn fixture_with_backup() -> Fixture {
-    build(true)
+    build(true, &[])
 }
 
-fn build(backup_enabled: bool) -> Fixture {
+/// バックアップを無効にし、設定の `[filter]` の `sensitive` に `patterns` を書いた構成
+pub fn fixture_with_sensitive(patterns: &[&str]) -> Fixture {
+    build(false, patterns)
+}
+
+fn build(backup_enabled: bool, sensitive: &[&str]) -> Fixture {
     let home = TempDir::new().unwrap();
     let local = TempDir::new().unwrap();
     let servers: Vec<(&'static str, TempDir)> = SERVERS
@@ -56,6 +61,9 @@ fn build(backup_enabled: bool) -> Fixture {
         ));
     }
     text.push_str(&format!("[backup]\nenabled = {backup_enabled}\n"));
+    if !sensitive.is_empty() {
+        text.push_str(&format!("[filter]\nsensitive = {sensitive:?}\n"));
+    }
     let config_path = home.path().join("config.toml");
     fs::write(&config_path, text).unwrap();
     Fixture {
@@ -86,6 +94,11 @@ impl Fixture {
 
     pub fn read(&self, side: &str, path: &str) -> String {
         fs::read_to_string(self.root(side).join(path)).unwrap()
+    }
+
+    /// `side` の `path` に `target` を指す symlink を作る
+    pub fn symlink(&self, side: &str, path: &str, target: &str) {
+        std::os::unix::fs::symlink(target, self.root(side).join(path)).unwrap();
     }
 
     /// 配下のディレクトリを作る（`write` は親ディレクトリを作らないため先に呼ぶ）
@@ -143,6 +156,17 @@ impl Fixture {
         };
         let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
         (json, result.exit_code)
+    }
+
+    /// 関数呼び出しで一度 merge し、同じ結果を `format_json` の JSON と
+    /// --format text と同じ `format_merge_text` の文字列にして返す
+    pub fn merge_json_and_text(&self, args: MergeArgs) -> (serde_json::Value, String) {
+        let result = execute_merge(args, self.config(), self.runtime_targets()).unwrap();
+        let MergeCommandOutput::Files(output) = result.output else {
+            panic!("expected per-file merge output")
+        };
+        let json = serde_json::from_str(&format_json(&output).unwrap()).unwrap();
+        (json, format_merge_text(&output))
     }
 
     /// 関数呼び出しで sync し、結果の JSON と終了コードを返す

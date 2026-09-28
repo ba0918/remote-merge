@@ -32,6 +32,8 @@ mod merge_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_cli_ssh.rs"]
 mod merge_cli_ssh;
+#[path = "contract/merge_links.rs"]
+mod merge_links;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[path = "contract/merge_results.rs"]
