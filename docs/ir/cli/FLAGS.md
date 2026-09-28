@@ -169,3 +169,17 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15
 
 --ref がある --dry-run の merge で、実装は三者の競合を確かめないため、実際に実行すると競合で失敗するファイルも merged に status "would merge" で出す。旧資料に記述がなくテストもない。
+
+### FLAG-cli-025: 別々の箇所の変更は競合か
+- kind: ambiguity
+- related: REQ-cli-016, REQ-cli-017, REQ-cli-051
+- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A1
+
+--ref があり --force のない merge で、参照先に対して左右がテキストのファイルの別々の箇所を変えたとき（参照先 "a b c d e"、左 "A b c d e"、右 "a b c d E" の各行）、実装は重なる変更がないため競合とせず、書き込み先を左の中身で上書きし、右の変更 "E" は失われ、failed は空で終了コード 0 になる。REQ-cli-016 と REQ-cli-051 の「参照先に対して左右が異なる変更」に別々の箇所の変更が含まれるかを IR は決めておらず、含むと読むなら実装は REQ-cli-017 と食い違い、書き込み先の変更を黙って失う不具合の疑いがある。
+
+### FLAG-cli-026: 書き込むファイルのない merge と集約先の場所
+- kind: ambiguity
+- related: REQ-backup-018, REQ-cli-051
+- source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2
+
+バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが参照先に対する競合で外れた場合はエラーで止まらず failed に "three-way conflict" を出し、全てのファイルが機密ファイルなどのスキップで外れ競合もない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
