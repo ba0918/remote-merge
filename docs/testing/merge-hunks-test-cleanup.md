@@ -50,15 +50,18 @@ FLAG-merge-015 から 020 と FLAG-cli-016 から 026 の挙動（diff の JSON 
 番号 0 でなく 1 を渡すのは、hunks_applied の値と書き込まれた位置が既定の値や先頭の変更と見分けられるようにするためである。
 二つの変更を離しておけば、`--hunks` の番号の区切りと表示用の区切りの数が合い、FLAG-merge-015 の違いに触れない。
 差分のないファイルは構成に含めない（FLAG-merge-019）。
+番号を複数渡した場合（REQ-merge-029 の「指定した番号」と REQ-merge-030 の「番号,番号」）は、同じ 12 行を挟んで先頭・中ほど・末尾の三行を変えたファイルに番号 0 と 2 を渡して確かめる。この構成も各変更の間が 7 行以上離れているため、三つの変更がそれぞれ一つの変更のまとまりになる。
 
 | 要件 | 根拠テスト | 元にしたテストと確かめること |
 |---|---|---|
 | REQ-merge-029（書き込み、バックアップが無効） | hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled | tests/contract/merge_paths.rs の selected_hunk_changes_only_the_selected_region（hunks_total と書き込み先の中身だけを見る）。merged が一件で、その status が "merged"、hunks_applied が [1]、hunks_total が 2、direction が "left_to_right" で、backup の項目がなく、develop には二つ目の変更だけが入る |
 | REQ-merge-029（書き込み、バックアップが有効） | hunks_json_reports_the_backup_when_backup_is_enabled | 同じ元のテスト。バックアップを有効にした構成で、merged の一件の項目が上と同じ値で、backup が文字列で出て、develop には二つ目の変更だけが入る |
 | REQ-merge-029（--dry-run） | hunks_dry_run_json_reports_would_merge_without_writing | 同じ元のテスト。バックアップを無効にした構成に --dry-run を付け、merged の一件の status が "would merge" で他の項目が上と同じ値で、backup の項目がなく、develop が変わらない |
+| REQ-merge-029（番号を二つ渡す） | hunks_json_reports_every_applied_hunk_when_two_are_given | 手本の単体テストはない。三つの変更のファイルにバックアップを無効にして番号 0 と 2 を渡し、merged の一件の status が "merged"、hunks_applied が [0, 2]、hunks_total が 3、direction が "left_to_right" で、develop には一つ目と三つ目の変更だけが入る |
 | REQ-merge-030（書き込み、バックアップが無効） | hunks_text_shows_the_applied_hunk_when_backup_is_disabled | src/service/output.rs の test_format_merge_text_hunk_merge_info（手で組んだ結果を整形し、文言の一部だけを見る）。"Merged: " か "Would merge: " で始まる行がちょうど "Merged: file.txt (hunks: 1/2)" の一行 |
 | REQ-merge-030（書き込み、バックアップが有効） | hunks_text_shows_the_backup_when_backup_is_enabled | 同じ元のテスト。同じ結果の JSON の backup の値を使い、その行がちょうど "Merged: file.txt (hunks: 1/2) (backup: その backup の値)" の一行 |
 | REQ-merge-030（--dry-run） | hunks_dry_run_text_shows_would_merge | 同じ元のテスト。バックアップを無効にした構成に --dry-run を付け、その行がちょうど "Would merge: file.txt (hunks: 1/2)" の一行 |
+| REQ-merge-030（番号を二つ渡す） | hunks_text_joins_every_applied_hunk_with_commas | 手本の単体テストはない。同じ三つの変更のファイルにバックアップを無効にして番号 0 と 2 を渡し、その行がちょうど "Merged: file.txt (hunks: 0,2/3)" の一行で、develop には一つ目と三つ目の変更だけが入る |
 
 - JSON とテキストは `Fixture::merge_json_and_text` で得る。一度の `execute_merge` の結果を `format_json` と公開された `remote_merge::service::output::format_merge_text` の両方に渡す。テキストと JSON の振り分けと実行ファイルの出力は REQ-cli-049 の実行ファイルのテストが確かめている。
 - JSON は REQ-merge-029 が述べる項目（status、hunks_applied、hunks_total、direction、backup の有無）を一つずつ確かめる。要件が述べていない項目（path、ref_badge など）が出るか出ないかは確かめない。
@@ -67,7 +70,7 @@ FLAG-merge-015 から 020 と FLAG-cli-016 から 026 の挙動（diff の JSON 
 ## 整理後の変異テスト
 
 テストの最後のコミット 3654888 の後の、記録だけを足したコミット acb7bda（作業ツリーに変更のない状態）で、決着の対象の関数に絞って次のコマンドを一回実行した。実行中は作業ツリーに触れていない。
-この実行の後にテストは足していない。
+この実行の後に、JSON の比べ方を要件の述べる項目ごとに改め、番号を二つ渡すテスト 2 件を足した。変異テストは回し直していないため、下の結果と検知したテストの名前はこの実行の時点のテストによる。
 
 ```sh
 scripts/mutants.sh --re '(validate_merge_args|run_hunk_merge|validate_hunk_merge_target|execute_hunk_merge|apply_selected_hunks_single_pass)' src/cli/merge.rs src/service/merge_flow.rs src/diff/engine.rs

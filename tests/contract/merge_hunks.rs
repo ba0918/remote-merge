@@ -46,6 +46,28 @@ fn with_only_the_second_change() -> String {
     format!("old first\n{}new last\n", middle())
 }
 
+/// 間に変わらない 12 行を挟んだ三つの変更を持つ `path` を local と develop に置く。
+/// 三つの変更は別々の変更のまとまりになる
+fn three_separate_changes(fixture: &Fixture, path: &str) {
+    let middle = middle();
+    fixture.write(
+        "local",
+        path,
+        &format!("new first\n{middle}new mid\n{middle}new last\n"),
+    );
+    fixture.write(
+        "develop",
+        path,
+        &format!("old first\n{middle}old mid\n{middle}old last\n"),
+    );
+}
+
+/// three_separate_changes の一つ目と三つ目の変更（番号 0 と 2）だけを書き込んだ内容
+fn with_the_first_and_third_changes() -> String {
+    let middle = middle();
+    format!("new first\n{middle}old mid\n{middle}new last\n")
+}
+
 fn write_bytes(fixture: &Fixture, side: &str, path: &str, bytes: &[u8]) {
     fs::write(fixture.root(side).join(path), bytes).unwrap();
 }
@@ -301,6 +323,21 @@ fn hunks_dry_run_json_reports_would_merge_without_writing() {
     assert_eq!(fixture.read("develop", PATH), original);
 }
 
+// @kotowari[REQ-merge-029]
+#[test]
+fn hunks_json_reports_every_applied_hunk_when_two_are_given() {
+    let fixture = fixture();
+    three_separate_changes(&fixture, PATH);
+
+    let (json, _) = fixture.merge_json_and_text(hunk_args(PATH, &[0, 2]));
+
+    assert_merged_entry(&json, "merged", &[0, 2], 3);
+    assert_eq!(
+        fixture.read("develop", PATH),
+        with_the_first_and_third_changes()
+    );
+}
+
 // @kotowari[REQ-merge-030]
 #[test]
 fn hunks_text_shows_the_applied_hunk_when_backup_is_disabled() {
@@ -347,5 +384,24 @@ fn hunks_dry_run_text_shows_would_merge() {
         merged_lines(&text),
         ["Would merge: file.txt (hunks: 1/2)"],
         "{text}"
+    );
+}
+
+// @kotowari[REQ-merge-030]
+#[test]
+fn hunks_text_joins_every_applied_hunk_with_commas() {
+    let fixture = fixture();
+    three_separate_changes(&fixture, PATH);
+
+    let (_, text) = fixture.merge_json_and_text(hunk_args(PATH, &[0, 2]));
+
+    assert_eq!(
+        merged_lines(&text),
+        ["Merged: file.txt (hunks: 0,2/3)"],
+        "{text}"
+    );
+    assert_eq!(
+        fixture.read("develop", PATH),
+        with_the_first_and_third_changes()
     );
 }
