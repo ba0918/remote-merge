@@ -39,3 +39,20 @@ FLAG-config-013 から 015 の挙動（全て無効な include、既定の sensi
 - どちらの設定にも同じ [local] を書く。[local] がないときの挙動は FLAG-config-002 の範囲のため避けた。
 - 計画は設定に書く sensitive のパターンの例に "*.secretish" を挙げていたが、"secretish" は "secret" を含み既定の "*secret*" に当たるため、例として使えなかった（最初の実行で "token.secretish" が sensitive を書かなくても true になって落ちた）。計画の条件（既定のパターンにも "*secret*" にも当たらない名前）に合わせて "*.confidential" にした。計画からの逸れとして記録する。
 - 絶対パスの include は左の root_dir の中を指す。右（develop）の root_dir は別の一時ディレクトリのため、整えられなかったときも右では root_dir の外として捨てられるが、左で走査されて一覧に出るため見分けられる。
+
+### include の無効な値の警告（REQ-config-024）
+
+根拠テストは `tests/contract/config_filters_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
+警告は設定の読み込み時に標準エラー（tracing の出力）に出て関数呼び出しでは観測できないため、前の回の `tests/contract/config_values_cli.rs` と同じく実行ファイルを起動して確かめる。
+
+- `tests/common/mod.rs` の `TestDirs::new_2way` で一時ディレクトリと SSH の試験サーバを用意し、左右に "src/a.txt" を置く。
+- 設定は `gen_config` の本文の [filter] の `exclude = [".git", "target"]` の行を include の行に置き換えて作り、置き換えが起きたことを `assert_ne!` で確かめる（表を重ねると TOML として読めず、末尾に足すと別の表に入って無視されるため）。
+- 置き換えるのは [filter] の行だけで、接続先・認証・root_dir・[agent]・[ssh] は `gen_config` のままのため、既存の隔離の確認 `TestDirs::assert_isolated_config_at` をそのまま通してから起動する。前の回の `Workspace` と `assert_isolated_values_config` は共有せず、起動の補助を新しいモジュールに置いた（既存の確認のほうが厳しく、この設定はそれを通るため）。
+- 実行ファイルは `env_clear` したうえで `HOME`・`XDG_CONFIG_HOME`・`XDG_DATA_HOME` を一時ディレクトリの下に向け、`PATH` だけを引き継ぎ、標準入力を `Stdio::null()` にして `status --left local --right develop` を起動する。
+
+| 要件 | 根拠テスト | 元にしたテストと確かめること |
+|---|---|---|
+| REQ-config-024（警告） | absolute_traversal_and_glob_include_values_each_warn_with_the_value | src/filter.rs の test_normalize_rejects_absolute_path・test_normalize_rejects_traversal・test_normalize_glob_warning と、tests/contract/config_values_cli.rs の起動の組み方。include に左の root_dir の下の "src" を指す絶対パス、"src/../src"、"lib[1]"、"src" を書いて起動し、標準出力と標準エラーをつないだもの（ANSI のエスケープを除く）に "Absolute path is not allowed in include filter: 絶対パス"・"Path traversal is not allowed in include filter: src/../src"・"Glob patterns are not supported in include filter: lib[1]" の三つが含まれる |
+
+- 無効な値は必ず有効な "src" と一緒に書き（全て無効な include は FLAG-config-013 の範囲）、絶対パスと ".." を含む値は試験用の一時ディレクトリの中を指すものにした。変異の下で整え方が壊れても、走査が一時ディレクトリの外に向かわない。
+- 終了コードと接続の結果は確かめない。無効な値が無視されることは上の関数呼び出しのテストで確かめる。
