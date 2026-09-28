@@ -18,6 +18,48 @@
 
 include 指定があるとき、ツリー・status・merge・sync は一致するパスだけを対象にする。
 
+### REQ-config-021: 名前のパターンは各要素に当てる
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A1
+- verification: unit
+
+"/" を含まない exclude のパターンは、root_dir からの相対パスのいずれかの要素（ファイル名かディレクトリ名）に glob で当たるときそのパスを除外し、ディレクトリ名に当たればその下のパスも全て除外する。
+
+### REQ-config-022: パスのパターンはパス全体に当てる
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A2
+- verification: unit
+
+"/" を含む exclude のパターンは、root_dir からの相対パス全体に glob で当たるときそのパスを除外する。
+
+### REQ-config-023: include は区切りの単位の前方一致
+- kind: state_driven
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A3
+- verification: unit
+
+include に書いた root_dir からの相対パスそのものと、その下の "/" の区切りの単位で続くパスだけを対象にし、"src" に対する "srcx" のように区切りの途中で続くパスは対象にしない。
+
+### REQ-config-024: include の書き方を整える
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A4
+- verification: unit
+
+include の値は先頭の "./" と末尾の "/" を取り除いて使い、空の値を無視し、絶対パスの値は "Absolute path is not allowed in include filter: 値"、".." を含む値は "Path traversal is not allowed in include filter: 値"、"*"・"?"・"[" を含む値は "Glob patterns are not supported in include filter: 値" の警告を出して無視する。
+
+### REQ-config-025: include と exclude の両方を満たすものだけ
+- kind: state_driven
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A5
+- verification: unit
+
+include と exclude を併せて指定したとき、include の対象のうち exclude に当たらないパスだけを対象にする。
+
+### REQ-config-026: 既定の sensitive のパターン
+- kind: ubiquitous
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A6
+- verification: unit
+
+".env"・".env.*"・"*.pem"・"*.key"・"credentials.*"・"*secret*" を常に sensitive のパターンとし、設定の sensitive に書いたパターンをそれに足す。
+
 ## Examples
 
 ```gherkin
