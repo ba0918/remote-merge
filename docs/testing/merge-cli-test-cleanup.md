@@ -201,15 +201,15 @@ src/cli/merge.rs:316:62 の `delete !` は、整理前は見逃し、整理後�
 | src/cli/merge.rs:246:47 | replace && with \|\| in execute_merge | 同上 |
 | src/service/merge.rs:69:22 | replace \|\| with && in has_three_way_conflict | テストを足した。tests/contract/merge_results.rs の a_binary_file_changed_on_only_one_side_is_not_a_conflict_and_is_written（REQ-cli-051）で、UTF-8 として読めない二つのファイルのうち a.bin は左だけ、b.bin は右だけが参照先から変わる構成で、failed が空、二つとも merged に並び書き込まれ、終了コード 0 になることを確かめる。変異では b.bin（左が参照先と同じ）が中身の比較に進み、UTF-8 でないため競合とされて落ちる |
 | src/service/merge.rs:69:38 | replace \|\| with && in has_three_way_conflict | 同じテストを足した。変異では a.bin（右が参照先と同じ）も b.bin も競合とされて落ちる |
-| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | 未決着。新しい FLAG の候補として手渡す（下の「新しい FLAG の候補」の一件目） |
-| src/cli/merge.rs:316:62 | delete ! in execute_merge | 未決着。新しい FLAG の候補として手渡す（下の「新しい FLAG の候補」の二件目） |
+| src/service/merge.rs:77:9 | delete match arm (Ok(base), Ok(left), Ok(right)) in has_three_way_conflict | FLAG-cli-025 の範囲として記録する（[決定記録 A1](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A1)）。別々の箇所の変更を競合とするかは未決のため、テストは足さない（下の「新しい FLAG の候補と利用者の判断」の一件目） |
+| src/cli/merge.rs:316:62 | delete ! in execute_merge | FLAG-cli-026 の範囲として記録する（[決定記録 A2](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A2)）。書き込むファイルのない merge で集約先の場所が決まらないときに止まるかは未決のため、テストは足さない（下の「新しい FLAG の候補と利用者の判断」の二件目） |
 
 決着の対象でない見逃しはない（整理前も整理後も、見逃しは全て決着の対象か FLAG の範囲だった）。
 テストを足した二件は、足した後に変異テストを回し直してはいない。一件ずつ一時的な書き換えで検知を確かめた。
 
-### 新しい FLAG の候補
+### 新しい FLAG の候補と利用者の判断
 
-どちらも、変異を落とすテストを書くと、IR が決めていない挙動を根拠テストで決めてしまうため、テストを足さずに利用者の判断を待つ。実装と IR は変えていない。
+どちらも、変異を落とすテストを書くと、IR が決めていない挙動を根拠テストで決めてしまうため、テストを足さずに利用者の判断を待った。実装と IR は変えていない。
 
 一件目: src/service/merge.rs:77:9（参照先に対して左右が別々の箇所を変えたテキストのファイル）
 
@@ -222,6 +222,9 @@ src/cli/merge.rs:316:62 の `delete !` は、整理前は見逃し、整理後�
 - 観測: この変異では、全てのファイルが参照先に対する競合で外れた merge が早期に戻らず書き込みの段に進み、何も書き込まずに同じ出力を返す。違いはバックアップの集約先の予約だけで、予約した空の場所は `finish_backup_session` が片付ける。そのため違いが出るのは、バックアップが有効で集約先の場所が決まらない構成だけである。その構成では、今の実装は failed に "three-way conflict" を出すが、変異では "backup store location could not be determined" のエラーで止まる。逆向き（ファイルが全て機密ファイルのスキップなどで外れ、競合もないとき）には、今の実装が書き込みの段に進んでエラーで止まり、変異では早期に戻ってスキップの結果を返す。
 - IR との関係: REQ-backup-018 は「バックアップが有効で集約先の場所が決まらないとき、merge と sync は書き込む前にエラーで止まる」とする。書き込むファイルが一つもない merge にもこれが及ぶかを IR は決めておらず、今の実装は競合で外れたときは止まらず、スキップで外れたときは止まる。どちらに合わせるテストも、その決まっていない点を決めてしまう。
 - 判断してほしいこと: (a) 書き込むファイルがないときは止まらないのが意図どおり（競合の場合の今の挙動を根拠テストで確かめ、スキップの場合との違いを FLAG にする）、(b) 書き込むファイルがなくても止まるのが意図どおり（競合の場合の今の挙動を FLAG として記録する）、(c) 未決の FLAG として残す、のどれにするか。同等変異としては登録しない（集約先の場所が決まらない構成で観測できる違いがあるため）。
+
+利用者の判断: 二件ともどちらの扱いも決めず、(c) 未決の FLAG として残す。一件目は FLAG-cli-025「別々の箇所の変更は競合か」（[決定記録 A1](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A1)）、二件目は FLAG-cli-026「書き込むファイルのない merge と集約先の場所」（[決定記録 A2](../decision/records/2026-09-28-merge-cli-mutant-flags.md#A2)）として記録された。
+この二件の見逃しはそれぞれの FLAG の範囲として決着させ、テストは足さない。これで決着の対象の見逃しは全て決着した。
 
 ## 要件の verification の見直し
 
