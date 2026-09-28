@@ -131,3 +131,14 @@ ref_badge と ref の場合は、staging に develop と同じ中身を置いた
 | REQ-cli-049（"Failed: パス (理由)"） | a_failed_file_is_reported_with_its_reason | 新しく書いた。local・develop・staging に競合する中身を置き --ref staging で起動し、標準出力がちょうど "Failed: file.txt (three-way conflict)" で、書き込み先が変わらない |
 | REQ-cli-049（"no files to merge in the specified path(s)"） | nothing_to_merge_is_reported_as_no_files_to_merge | tests/cli_merge.rs の test_merge_equal_file_skipped（"no files to merge" を含むことだけを見る）と src/service/output.rs の test_format_merge_outcome_text_no_files、test_format_merge_outcome_text_success。同じ中身の file.txt で、標準出力がちょうどその一行 |
 | REQ-cli-050 | a_reference_equal_to_either_side_is_warned_about_and_not_used | src/cli/ref_guard.rs の ref_same_as_left_returns_none、ref_same_as_right_returns_none（ref_different_returns_some、ref_none_returns_none も審査した）。--ref local（左と同じ）と --ref develop（右と同じ）のそれぞれで、標準エラーの一行が要件の文言と一致し、終了コード 0 で書き込み先が更新され、--format json の出力に ref の項目がない |
+
+### 競合のあるファイルを失敗として出す（REQ-cli-051）
+
+根拠テストは `tests/contract/merge_results.rs` にある（関数呼び出し。準備は上の終了コードと JSON の形の節と同じ）。
+
+| 要件 | 根拠テスト | 元にしたテスト |
+|---|---|---|
+| REQ-cli-051 | a_conflicting_file_fails_as_a_three_way_conflict_and_other_files_are_written | tests/contract/cli_results.rs の three_way_conflict_is_not_written_without_explicit_override（error の値を "conflict" を含むかでしか見ない）と a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge（error の値を見ない）。--ref staging があり --force も --dry-run もない一回の実行で、failed がちょうど `[{"path": "file.txt", "error": "three-way conflict"}]` で、競合のある file.txt が書き込まれず、競合のない other.txt（staging が develop と同じ中身）が merged のただ一件として書き込まれる |
+
+- 三つの中身がそろわないファイル（FLAG-cli-023）は構成に含めない。other.txt は local・develop・staging の三つにある。
+- src/service/merge.rs には `has_three_way_conflict` を直接確かめる単体テストがなかった。整理前の変異テストでは、この関数の変異は cli_results の a_conflict_in_one_file_does_not_block_an_unrelated_three_way_merge が検知していた。

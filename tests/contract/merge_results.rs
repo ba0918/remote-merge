@@ -129,3 +129,27 @@ fn json_has_failed_files_with_path_and_error() {
     assert_eq!(json["failed"][0]["path"], "file.txt", "{json}");
     assert!(is_non_empty_string(&json["failed"][0]["error"]), "{json}");
 }
+
+// @kotowari[REQ-cli-051]
+#[test]
+fn a_conflicting_file_fails_as_a_three_way_conflict_and_other_files_are_written() {
+    let fixture = fixture();
+    conflicting_file(&fixture);
+    fixture.write("local", "other.txt", "new\n");
+    fixture.write("develop", "other.txt", "old\n");
+    fixture.write("staging", "other.txt", "old\n");
+    let mut args = args(&["file.txt", "other.txt"]);
+    args.ref_server = Some("staging".into());
+
+    let (json, _) = fixture.merge_json(args);
+
+    assert_eq!(
+        json["failed"],
+        serde_json::json!([{ "path": "file.txt", "error": "three-way conflict" }]),
+        "{json}"
+    );
+    assert_eq!(json["merged"][0]["path"], "other.txt", "{json}");
+    assert_eq!(json["merged"].as_array().unwrap().len(), 1, "{json}");
+    assert_eq!(fixture.read("develop", "file.txt"), "right change\n");
+    assert_eq!(fixture.read("develop", "other.txt"), "new\n");
+}
