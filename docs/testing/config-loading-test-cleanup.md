@@ -69,3 +69,85 @@ HOME と XDG_CONFIG_HOME を一時ディレクトリに向けると利用者の�
 | REQ-config-013（[servers.名前] の 3 行） | omitted_server_keys_use_the_default_port_auth_and_sudo | src/config.rs の test_minimal_config。host・user・root_dir だけのサーバを、グローバル設定だけ・プロジェクト設定だけ・両方（プロジェクト側に書く）の三通りに置き、port が 22、auth が "key"、sudo が false になる |
 | REQ-config-013（残る 11 行、セクションなし） | absent_sections_use_the_default_values | src/config.rs の test_agent_config_defaults_when_absent、test_defaults_absent_uses_hardcoded_fallback。[ssh]・[backup]・[agent]・[defaults] のない設定を三通りに置き、11 行の全てが既定値になる |
 | REQ-config-013（残る 11 行、キーを全て省く） | sections_with_every_key_omitted_use_the_default_values | src/config.rs の test_ssh_config_strict_host_key_checking_default_when_omitted。キーを一つも書かない四つのセクションを、グローバル設定だけ、プロジェクト設定だけ、両方の設定でプロジェクト側だけ・グローバル側だけ・両方に置く五通りで、11 行の全てが既定値になる |
+
+## 整理後の変異テスト
+
+変異テストは決着の対象の関数に絞って一度実行した。
+記録の最初のコミット c98fceb（テストの最後のコミットは f40f05e）で、作業ツリーに変更のない状態で実行し、実行中は作業ツリーに触れていない。
+コマンドは次のとおりで、並列数は既定の 2 である。
+
+```sh
+scripts/mutants.sh --re '(global_config_path|project_config_path|load_config_with_project_override|load_config_from_paths|load_raw_config|merge_configs|convert_agent_config|convert_raw_ssh_config|merge_raw_defaults|convert_defaults_config|convert_server_config|expand_tilde)' src/config.rs
+```
+
+全体の集計は `mutants: caught=17 survived=4 timeout=0 unviable=6 equivalent=0`（27 件、実行時間は約 7 分）。
+スクリプトの終了コードは 1（kotowari mutants が 4 件の見逃しを error として報告したため。メモリ上限での停止ではない）。
+27 件は全て正規表現に名前の一致する関数の変異で、構造体のフィールドを消す変異は一件も出なかった（他の関数のものも混ざらなかった）。
+
+関数ごとの内訳（`outcomes.json` から数えた）は次のとおり。
+
+| 関数 | caught | survived | unviable |
+|---|---|---|---|
+| global_config_path | 2 | 0 | 0 |
+| project_config_path | 1 | 0 | 0 |
+| load_config_with_project_override | 2 | 0 | 1 |
+| load_config_from_paths | 1 | 0 | 1 |
+| load_raw_config | 0 | 0 | 1 |
+| merge_configs | 5 | 2 | 1 |
+| convert_agent_config | 1 | 0 | 0 |
+| convert_raw_ssh_config | 1 | 0 | 0 |
+| merge_raw_defaults | 1 | 0 | 1 |
+| convert_defaults_config | 1 | 0 | 0 |
+| convert_server_config | 1 | 2 | 1 |
+| expand_tilde | 1 | 0 | 0 |
+
+unviable の 6 件は、`Result<AppConfig>`・`Result<RawConfig>`・`Result<ServerConfig>` を `Ok(Default::default())` にする変異と `merge_raw_defaults` を `Some(Default::default())` にする変異で、これらの型が `Default` を実装しないため組み立てられない。
+
+### 検知したテスト
+
+検知した 17 件の変異ごとに、cargo-mutants の変異ごとのログから失敗したテストを集めた。
+nextest は最初の失敗から少し進んで止まるため、集めた名前は検知したテストの全てではなく、先に失敗したものである。
+負荷の下で落ちることのあるテスト（tui_merge や agent_ssh のテスト）だけで検知された変異はなかった。
+
+- この回で足したテストが先に失敗したもの: `global_config_path` の 2 件（config_option_still_merges_servers_from_the_global_config）、`project_config_path` の 1 件（project_config_in_the_current_directory_is_read、local_root_starting_with_tilde_is_resolved_under_home）。
+- 他の変異は src/config.rs の既存の単体テストか、既存の契約テスト（config_precedence の filter_patterns_from_both_levels_are_combined、merge_hunks の hunks_on_a_configured_sensitive_file_without_force_stops_without_writing）が先に失敗した。この回で足したテストが同じ変異で落ちるかは、nextest が先に止まったため、このログからは分からない。
+
+### 見逃しと決着
+
+計画の区別により、`merge_configs` のフィルターの重複除き・バックアップ領域の除外・include の正規化と、`convert_server_config` の値の検査（port が 0、auth の不明な値、root_dir が空、パーミッション、password の警告）の変異は、値の検査とフィルターの回で要件になる振る舞いのため、この回では要件に基づくテストを足さない。
+`merge_configs` の max_scan_entries と badge_scan_max_files の変異（FLAG-config-003）と、[local] がないときのエラーの変異（FLAG-config-002）は、この回の結果に見逃しとして出なかった。
+
+| 位置 | 変異 | 行の中身 | 決着の対象 | 決着 |
+|---|---|---|---|---|
+| src/config.rs:585:24 | delete ! in merge_configs | プロジェクト設定の [filter] の sensitive を足すときの重複除き（`if !filter.sensitive.contains(&s)`） | 対象でない（フィルター） | 後の回に回す候補（下の注 1） |
+| src/config.rs:607:8 | delete ! in merge_configs | include が空でないときだけ正規化する分岐（`if !filter.include.is_empty()`） | 対象でない（フィルター） | 後の回に回す候補（下の注 2） |
+| src/config.rs:886:13 | replace == with != in convert_server_config | auth が "key" で password があるときの警告（`if auth == AuthMethod::Key && password.is_some()`） | 対象でない（値の検査） | 後の回に回す候補（下の注 3） |
+| src/config.rs:886:32 | replace && with \|\| in convert_server_config | 同じ行 | 対象でない（値の検査） | 同上 |
+
+決着の対象の見逃しはない。見逃しや新しいテストが不具合の疑いを示したものもない。
+
+1. 585:24 は、変異で同じパターンが sensitive に二度入るか、新しいパターンが入らなくなる。後者は config_precedence の filter_patterns_from_both_levels_are_combined の "*.pem" で落ちそうに見えるが、"*.pem" は既定の sensitive に含まれるため、変異の下でも一覧に残り落ちない。既定にない新しいパターンをプロジェクト設定の sensitive にだけ書く構成なら落とせる見込みだが、確かめていない。フィルターの回で要件（REQ-config-002 の和集合の範囲か、フィルターの要件）に基づくテストにするか判断する。
+2. 607:8 は、変異で include が空のときだけ正規化を呼び、空でないときは呼ばなくなる。正規化はパストラバーサル・絶対パス・glob の include を拒否するため、それらを include に書いた構成で落とせる見込みだが、確かめていない。フィルターの回の候補。
+3. 886 の二件は、変わるのが tracing の警告を出すかどうかだけで、設定の値・標準出力・終了コードは変わらない。警告はログにだけ出るため、値の検査の回でこの警告を要件にするか（要件にしないなら同等変異として登録するか、製品コードから除くか）を判断する。
+
+## 要件の verification の見直し
+
+REQ-config-005 から 013 の verification は全て unit で、いずれも具体的な設定ファイルの置き方と中身で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010（proptest で検査範囲に置く）に当たるテストはない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-config-005 | unit | カレントディレクトリとその親に置いた設定の組み合わせごとに、読まれる設定が決まる |
+| REQ-config-006 | unit | --config の相対パスとカレントディレクトリの設定・グローバル設定の組み合わせごとに、読まれる設定が決まる |
+| REQ-config-007 | unit | 存在しないパスとディレクトリの二つの場面で、エラーの文言と終了コードが決まる |
+| REQ-config-008 | unit | どちらの設定もない一つの場面で、エラーの文言と終了コードが決まる |
+| REQ-config-009 | unit | TOML として読めない設定の場面で、エラーの文言と終了コードが決まる |
+| REQ-config-010 | unit | "~/" で始まる root_dir と HOME の組み合わせで、使うディレクトリが決まる |
+| REQ-config-011 | unit | セクションの有無と省いたキーの組み合わせごとに、合成した値が決まる |
+| REQ-config-012 | unit | 二つのキーのそれぞれがどちらの設定にあるかの組み合わせごとに、値が決まる |
+| REQ-config-013 | unit | TBL-config-001 の有限の行と、セクションの置き方の有限の組み合わせで、値が決まる |
+
+## 利用者の判断を待つこと
+
+- 上の見逃し 4 件（フィルターの 2 件と、値の検査の password の警告の 2 件）を、フィルターの回と値の検査の回に回すこと。計画はこれらが残ったら利用者の判断を待つとしているため、この判断が書き足されるまで変異テストの手順は完了しない。
+- 新しい FLAG の候補と verification の見直しの候補はない。
