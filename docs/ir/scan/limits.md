@@ -43,7 +43,7 @@ status は常に root_dir 全体を走査し、diff はパスを指定しない�
 ## Decision tables
 
 ### TBL-scan-001: merge・sync の走査の範囲
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2, docs/decision/records/2026-09-29-adopt-scan-limits.md#A8
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2, docs/decision/records/2026-09-29-adopt-scan-limits.md#A8, docs/decision/records/2026-09-29-adopt-scan-limits.md#A9
 
 | 指定したパス | 走査の範囲 |
 |---|---|
@@ -53,7 +53,7 @@ status は常に root_dir 全体を走査し、diff はパスを指定しない�
 | 末尾が "/" のものとそうでないものが混ざる | root_dir 全体 |
 | merge・sync に --delete を付けた | root_dir 全体 |
 | 全て末尾が "/" | それぞれのディレクトリの下だけで、件数の上限はディレクトリごとの走査に当てる |
-| 全て末尾が "/" でない | 各パスの親ディレクトリの下だけ。root_dir の直下のファイルが含まれれば root_dir 全体 |
+| 全て末尾が "/" でない | 各パスの親ディレクトリの下だけで、件数の上限は親ディレクトリごとの走査に当てる。root_dir の直下のファイルが含まれれば root_dir 全体 |
 
 ## Examples
 
