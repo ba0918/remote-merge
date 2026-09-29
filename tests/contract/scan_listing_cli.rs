@@ -4,16 +4,22 @@
 //!
 //! 関数呼び出しで status を実行する組み方はリモートの経路を通らないため、実行ファイルを試験 SSH
 //! サーバに対して `status --left local --right develop --all --format json` で起動する。
+//! 右のリモートの経路は、エージェントを無効にした SSH の経路と、エージェントを有効にした経路の
+//! それぞれで起動する。
 //! 左右の root_dir に同じ構成を置き、確かめたい項目が "equal" で出ることを、左のローカルの経路と
 //! 右のリモートの経路の両方がその項目を一覧に載せた証拠にする（片側が載せなければ "left_only" か
 //! "right_only" になる）。
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use tempfile::TempDir;
+
 use super::common::{gen_config, place_files, place_symlink, TestDirs};
+use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
 fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
@@ -32,32 +38,37 @@ fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// `config` を書き、隔離を確かめてから全件表示の status を JSON で起動する
+/// `config_path` の設定で全件表示の status を JSON で起動する。隔離の確認は呼び出し側で済ませる
 ///
 /// `--config` を必ず渡し、作業ディレクトリを一時ディレクトリの下にする。渡さないと実行ファイルは
 /// 作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に接続しうる。
-/// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリの下に向け、PATH だけを引き継ぐ。
-fn status_over_ssh(dirs: &mut TestDirs, config: &str, local_root: &Path) -> Output {
-    let config_path = dirs.temp.path().join("scan-listing-config.toml");
-    fs::write(&config_path, config).unwrap();
-    dirs.assert_isolated_config_at(&config_path, local_root);
-    let home: PathBuf = dirs.temp.path().join("home");
+/// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリ `temp` の下に向け、PATH だけを引き継ぐ。
+fn launch_status(temp: &Path, config_path: &Path) -> Output {
+    let home: PathBuf = temp.join("home");
     fs::create_dir_all(&home).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
     cmd.env_clear();
     cmd.env("HOME", &home);
     cmd.env("XDG_CONFIG_HOME", home.join(".config"));
-    cmd.env("XDG_DATA_HOME", dirs.temp.path().join("xdg-data"));
+    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
     if let Ok(path) = std::env::var("PATH") {
         cmd.env("PATH", path);
     }
     cmd.current_dir(&home);
-    cmd.arg("--config").arg(&config_path);
+    cmd.arg("--config").arg(config_path);
     cmd.args([
         "status", "--left", "local", "--right", "develop", "--all", "--format", "json",
     ]);
     cmd.stdin(Stdio::null());
     cmd.output().expect("failed to execute status")
+}
+
+/// `config` を書き、既存の隔離の確認を通してから status を起動する
+fn status_over_ssh(dirs: &mut TestDirs, config: &str, local_root: &Path) -> Output {
+    let config_path = dirs.temp.path().join("scan-listing-config.toml");
+    fs::write(&config_path, config).unwrap();
+    dirs.assert_isolated_config_at(&config_path, local_root);
+    launch_status(dirs.temp.path(), &config_path)
 }
 
 /// 左右の root_dir を `local_root`・`remote_root` にした設定で status を起動し、一覧を返す
@@ -71,34 +82,31 @@ fn listed_over_ssh(
     statuses_by_path(&output)
 }
 
-/// 左右の root_dir に同じ symlink を置く
-fn place_symlink_on_both_sides(dirs: &TestDirs, link: &str, target: &str) {
-    place_symlink(&dirs.local_dir, link, target);
-    place_symlink(&dirs.remote_dir, link, target);
-}
-
-// @kotowari[REQ-scan-006]
-#[test]
-fn status_lists_symlinks_themselves_with_their_target_text_over_ssh() {
+/// REQ-scan-006 の場合の構成を左右の root_dir に置く
+///
+/// 左右に同じ "target.txt"、それを指す "link"、存在しない "missing.txt" を指す "dangling"、
+/// 中身のない "emptydir" を指す "dirlink" を置き、"retarget" だけはリンク先の文字列を左右で
+/// 違えて同じ中身の "a.txt" と "b.txt" に向ける。
+fn place_symlink_cases(local: &Path, remote: &Path) {
     let same = [
         ("target.txt", "target\n"),
         ("a.txt", "same\n"),
         ("b.txt", "same\n"),
     ];
-    let mut dirs = TestDirs::new_2way(&same, &same);
-    for root in [&dirs.local_dir, &dirs.remote_dir] {
+    for root in [local, remote] {
+        place_files(root, &same);
         // "dirlink" の先を中身のないディレクトリにして、配下のファイルの扱いに触れない
         fs::create_dir(root.join("emptydir")).unwrap();
+        place_symlink(root, "link", "target.txt");
+        place_symlink(root, "dangling", "missing.txt");
+        place_symlink(root, "dirlink", "emptydir");
     }
-    place_symlink_on_both_sides(&dirs, "link", "target.txt");
-    place_symlink_on_both_sides(&dirs, "dangling", "missing.txt");
-    place_symlink_on_both_sides(&dirs, "dirlink", "emptydir");
-    // リンク先の文字列だけが違い、リンク先の中身は同じ
-    place_symlink(&dirs.local_dir, "retarget", "a.txt");
-    place_symlink(&dirs.remote_dir, "retarget", "b.txt");
+    place_symlink(local, "retarget", "a.txt");
+    place_symlink(remote, "retarget", "b.txt");
+}
 
-    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
-    let statuses = listed_over_ssh(&mut dirs, &local_root, &remote_root);
+/// symlink が左右の経路でリンク先の文字列とともに一覧に載ったことを確かめる
+fn assert_symlinks_listed_with_their_target_text(statuses: &BTreeMap<String, String>) {
     for path in ["link", "dangling", "dirlink"] {
         assert_eq!(
             statuses.get(path).map(String::as_str),
@@ -113,20 +121,28 @@ fn status_lists_symlinks_themselves_with_their_target_text_over_ssh() {
     );
 }
 
-/// 一時ディレクトリの中に実在するディレクトリ（"f.txt" と "sub/g.txt" を置く）と、それを指す
-/// symlink を左右それぞれに作り、symlink のパスを返す
-fn linked_roots(dirs: &TestDirs) -> (PathBuf, PathBuf) {
+// @kotowari[REQ-scan-006]
+#[test]
+fn status_lists_symlinks_themselves_with_their_target_text_over_ssh() {
+    let mut dirs = TestDirs::new_2way(&[], &[]);
+    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
+    place_symlink_cases(&local_root, &remote_root);
+    let statuses = listed_over_ssh(&mut dirs, &local_root, &remote_root);
+    assert_symlinks_listed_with_their_target_text(&statuses);
+}
+
+/// `temp` の中に実在するディレクトリ（"f.txt" と "sub/g.txt" を置く）と、それを指す symlink を
+/// 左右それぞれに作り、symlink のパスを返す
+fn linked_roots(temp: &Path) -> (PathBuf, PathBuf) {
     let files = [("f.txt", "same\n"), ("sub/g.txt", "same\n")];
-    let temp = dirs.temp.path();
-    let mut roots = Vec::new();
-    for side in ["local", "remote"] {
+    let [local, remote] = ["local", "remote"].map(|side| {
         let target = temp.join(format!("{side}-target"));
         place_files(&target, &files);
         let root = temp.join(format!("{side}-root"));
-        std::os::unix::fs::symlink(&target, &root).unwrap();
-        roots.push(root);
-    }
-    (roots[0].clone(), roots[1].clone())
+        symlink(&target, &root).unwrap();
+        root
+    });
+    (local, remote)
 }
 
 fn with_trailing_slash(path: &Path) -> PathBuf {
@@ -144,7 +160,7 @@ fn only_the_linked_files_as_equal() -> BTreeMap<String, String> {
 #[test]
 fn status_lists_the_files_below_a_root_dir_that_is_a_directory_symlink_over_ssh() {
     let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = linked_roots(&dirs);
+    let (local_root, remote_root) = linked_roots(dirs.temp.path());
     assert_eq!(
         listed_over_ssh(&mut dirs, &local_root, &remote_root),
         only_the_linked_files_as_equal()
@@ -155,7 +171,7 @@ fn status_lists_the_files_below_a_root_dir_that_is_a_directory_symlink_over_ssh(
 #[test]
 fn a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_over_ssh() {
     let mut dirs = TestDirs::new_2way(&[], &[]);
-    let (local_root, remote_root) = linked_roots(&dirs);
+    let (local_root, remote_root) = linked_roots(dirs.temp.path());
     assert_eq!(
         listed_over_ssh(
             &mut dirs,
@@ -173,8 +189,9 @@ fn status_lists_files_inside_a_directory_link_over_ssh() {
     // 共有のディレクトリは試験サーバの home の下で、どちらの root_dir の外に置く
     let shared = dirs.temp.path().join("shared");
     place_files(&shared, &[("alpha.txt", "alpha\n"), ("beta.txt", "beta\n")]);
-    let shared_text = shared.display().to_string();
-    place_symlink_on_both_sides(&dirs, "linked", &shared_text);
+    for root in [&dirs.local_dir, &dirs.remote_dir] {
+        symlink(&shared, root.join("linked")).unwrap();
+    }
 
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     let statuses = listed_over_ssh(&mut dirs, &local_root, &remote_root);
@@ -185,4 +202,162 @@ fn status_lists_files_inside_a_directory_link_over_ssh() {
             "{path}: {statuses:?}"
         );
     }
+}
+
+// ─── エージェントの経路 ─────────────────────────────────
+
+/// 設定の user。エージェントの配置先はユーザー名で決まるため、配置する symlink のパスと揃える
+const AGENT_USER: &str = "fixture-user";
+
+/// エージェントを有効にした試験サーバと一時ディレクトリ
+///
+/// `TestDirs` の試験サーバはエージェントを起動せず、受けたコマンドも読めないため、
+/// `TestServer::filesystem_with_agent` を直接使う。
+struct AgentFixture {
+    temp: TempDir,
+    server: TestServer,
+    deploy_dir: PathBuf,
+}
+
+impl AgentFixture {
+    async fn new() -> Self {
+        let temp = TempDir::new().unwrap();
+        let deploy_dir = temp.path().join("agent");
+        let deployed = deploy_dir.join(format!("remote-merge-{AGENT_USER}/remote-merge"));
+        fs::create_dir_all(deployed.parent().unwrap()).unwrap();
+        symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
+        let server = TestServer::filesystem_with_agent(temp.path()).await;
+        Self {
+            temp,
+            server,
+            deploy_dir,
+        }
+    }
+
+    fn config(&self, local_root: &Path, remote_root: &Path) -> String {
+        format!(
+            "[local]\nroot_dir = {:?}\n\n[servers.develop]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"{AGENT_USER}\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n\n[agent]\nenabled = true\ndeploy_dir = {:?}\n\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
+            local_root.display().to_string(),
+            self.server.port(),
+            remote_root.display().to_string(),
+            self.deploy_dir.display().to_string(),
+        )
+    }
+
+    /// エージェントを有効にした設定が、この試験サーバと一時ディレクトリの中だけを指すことを確かめる
+    ///
+    /// 試験サーバはコマンドを実際の `sh -c` で実行するため、sudo が有効だとホストで sudo が走る。
+    fn assert_isolated_agent_config(&self, config_path: &Path) {
+        let temp = self.temp.path();
+        let inside_temp = |value: &toml::Value| {
+            let path = Path::new(value.as_str().expect("fixture path missing"));
+            path.is_absolute()
+                && !path
+                    .components()
+                    .any(|part| part == std::path::Component::ParentDir)
+                && path.starts_with(temp)
+        };
+        let config: toml::Value = fs::read_to_string(config_path)
+            .expect("fixture configuration missing")
+            .parse()
+            .expect("fixture configuration invalid");
+        assert!(
+            inside_temp(&config["local"]["root_dir"]),
+            "local root escapes fixture"
+        );
+        assert_eq!(config["agent"]["enabled"].as_bool(), Some(true));
+        assert!(
+            inside_temp(&config["agent"]["deploy_dir"]),
+            "deploy dir escapes fixture"
+        );
+        assert_eq!(
+            config["ssh"]["strict_host_key_checking"].as_str(),
+            Some("no")
+        );
+        let servers = config["servers"]
+            .as_table()
+            .expect("fixture servers missing");
+        assert!(!servers.is_empty());
+        for server in servers.values() {
+            assert_eq!(server["host"].as_str(), Some("127.0.0.1"));
+            let port = server["port"].as_integer().expect("fixture port missing");
+            assert!(
+                port > 0 && port != 22,
+                "refusing to connect to an unowned SSH port"
+            );
+            assert_eq!(
+                port,
+                i64::from(self.server.port()),
+                "fixture port is not owned"
+            );
+            assert_eq!(server["auth"].as_str(), Some("password"));
+            assert!(server.get("key").is_none(), "refusing a HOME key path");
+            assert!(
+                matches!(server.get("sudo"), None | Some(toml::Value::Boolean(false))),
+                "refusing sudo on the host"
+            );
+            assert!(
+                inside_temp(&server["root_dir"]),
+                "remote root escapes fixture"
+            );
+        }
+    }
+
+    /// 隔離を確かめてから status を起動し、右の走査がエージェントの経路を通ったことを確かめて一覧を返す
+    fn listed_via_agent(&self, local_root: &Path, remote_root: &Path) -> BTreeMap<String, String> {
+        let config_path = self.temp.path().join("scan-listing-agent-config.toml");
+        fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
+        self.assert_isolated_agent_config(&config_path);
+        let output = launch_status(self.temp.path(), &config_path);
+        // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
+        let commands = self.server.commands();
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.contains(" agent --root ")),
+            "the agent was not started: {commands:?}"
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command.starts_with("find -L")),
+            "the tree was scanned over plain SSH: {commands:?}"
+        );
+        statuses_by_path(&output)
+    }
+}
+
+// @kotowari[REQ-scan-006]
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_symlinks_themselves_with_their_target_text_via_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    place_symlink_cases(&local_root, &remote_root);
+    let statuses = fixture.listed_via_agent(&local_root, &remote_root);
+    assert_symlinks_listed_with_their_target_text(&statuses);
+}
+
+// @kotowari[REQ-scan-007]
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_the_files_below_a_root_dir_that_is_a_directory_symlink_via_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let (local_root, remote_root) = linked_roots(fixture.temp.path());
+    assert_eq!(
+        fixture.listed_via_agent(&local_root, &remote_root),
+        only_the_linked_files_as_equal()
+    );
+}
+
+// @kotowari[REQ-scan-007]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_via_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let (local_root, remote_root) = linked_roots(fixture.temp.path());
+    assert_eq!(
+        fixture.listed_via_agent(
+            &with_trailing_slash(&local_root),
+            &with_trailing_slash(&remote_root)
+        ),
+        only_the_linked_files_as_equal()
+    );
 }

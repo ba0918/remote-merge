@@ -32,3 +32,22 @@ FLAG-scan-001 から 007 の挙動（エージェントの経路でのディレ�
 - "dirlink" の先を中身のないディレクトリにしたのは、エージェントの経路がディレクトリ symlink の配下を載せない FLAG-scan-001 の挙動に触れないためで、配下のファイルについては何も確かめない。
 - REQ-scan-007 は status・diff・merge・sync を名指しするが、パスを指定しない diff・merge・sync のツリーの取得は status と同じ関数（`CoreRuntime::fetch_tree_recursive`）を通るため、status で代表させた。
 - REQ-scan-002 の件数の上限と循環の報告は scan の次の回の範囲のため、ここでは確かめない。
+
+### エージェントの経路（REQ-scan-006・007）
+
+根拠テストは同じ `tests/contract/scan_listing_cli.rs` にある。
+起動の組み方は `tests/contract/ssh_fallback.rs` の an_available_remote_agent_completes_comparison_and_merge と同じで、`TestServer::filesystem_with_agent` で試験サーバを起動し、`[agent] enabled = true` と一時ディレクトリの下の deploy_dir を書いた設定で実行ファイルを起動する。
+`TestDirs` の試験サーバはエージェントを起動せず、受けたコマンドも読めないため、試験サーバを直接使う補助 `AgentFixture` を新しいモジュールに置いた。
+
+- 実行ファイルへの symlink を "{deploy_dir}/remote-merge-{user}/remote-merge" に置く。配置先はユーザー名で決まるため、設定の user と symlink のパスの user を同じ定数から作る。
+- 既存の `assert_isolated_config_at` はエージェントが無効であることを求めるため、起動の前に、host が "127.0.0.1"、port がそのサーバのもので 22 でも 0 でもない、auth が "password"、key がない、sudo がないか false、strict_host_key_checking が "no"、左右の root_dir と deploy_dir が一時ディレクトリの下、であることを確かめる隔離の確認 `assert_isolated_agent_config` を同じモジュールに置いた（試験サーバはコマンドを実際の `sh -c` で実行するため、sudo が有効だとホストで sudo が走る）。
+- 起動の補助（`--config`、作業ディレクトリ、環境変数、標準入力）は SSH の経路と共有する。手本の ssh_fallback のテストは `env_clear` をしていないが、ここでは SSH の経路と同じく環境変数を全て消す。
+- 起動の後、`TestServer::commands()` に " agent --root " を含むコマンドがあり、"find -L" で始まるコマンド（SSH の経路の走査）がないことを確かめる。経路の取り違えを防ぐ前提の確認で、要件の観測ではない。使い捨ての出力で確かめたところ、試験サーバが受けたコマンドはエージェントの版の確認とエージェントの起動の二つだけだった。
+
+| 要件 | 根拠テスト | 確かめること |
+|---|---|---|
+| REQ-scan-006 | status_lists_symlinks_themselves_with_their_target_text_via_the_agent | SSH の経路の REQ-scan-006 のテストと同じ構成と期待（"link"・"dangling"・"dirlink" が "equal"、"retarget" が "modified"） |
+| REQ-scan-007（末尾の "/" なし） | status_lists_the_files_below_a_root_dir_that_is_a_directory_symlink_via_the_agent | SSH の経路と同じ構成と期待（一覧が "f.txt" と "sub/g.txt" の "equal" だけ） |
+| REQ-scan-007（末尾の "/" 付き） | a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_via_the_agent | 同じ構成で root_dir を末尾の "/" 付きで書き、一覧が同じものに一致する |
+
+- エージェントの経路では REQ-scan-002 を確かめない（FLAG-scan-001 の範囲）。
