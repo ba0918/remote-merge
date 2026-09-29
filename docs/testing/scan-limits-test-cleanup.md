@@ -167,10 +167,10 @@ tui_merge と agent_ssh のテストだけに検知された変異はなかっ�
 
 #### 決着の対象の見逃し
 
-| 位置 | 変異 | 行の中身 | 決着（案） |
+| 位置 | 変異 | 行の中身 | 決着 |
 |---|---|---|---|
-| src/agent/dispatch.rs:104:13 | delete field max_entries from struct ScanOptions expression in Dispatcher::handle_list_tree | `max_entries,` | 記録だけする（`fail_on_truncation` が偽のときの扱い、TUI の範囲）。下の説明を参照。利用者の判断に挙げる |
-| src/runtime/side_io.rs:783:9 | replace CoreRuntime::try_agent_fetch_tree_for_subpath -> Option<anyhow::Result<FileTree>> with None | 関数全体 | 既存の FLAG（FLAG-scan-010・011・013・001）の範囲として記録する。下の説明を参照。利用者の判断に挙げる |
+| src/agent/dispatch.rs:104:13 | delete field max_entries from struct ScanOptions expression in Dispatcher::handle_list_tree | `max_entries,` | 記録だけする（`fail_on_truncation` が偽のときの扱い、TUI の範囲。引き継ぎ先は凍結中の TUI）。下の説明を参照。利用者の判断で確定 |
+| src/runtime/side_io.rs:783:9 | replace CoreRuntime::try_agent_fetch_tree_for_subpath -> Option<anyhow::Result<FileTree>> with None | 関数全体 | 既存の FLAG（FLAG-scan-010・011・013・001）の範囲として記録する。下の説明を参照。利用者の判断で確定 |
 
 src/agent/dispatch.rs:104:13 について（実装を読んだ判断で、変異の下の出力は比べていない）: 変異で `ScanOptions` の max_entries が既定値の `usize::MAX` になり、エージェントは件数で走査を止めずに全ての項目を返す。
 打ち切りの印は同じ関数の 113 行で、要求された max_entries と数えた件数から `chunk.is_last && chunk.total_scanned >= max_entries` で求める。元のコードでは数えた件数は min(全件数, 上限) で、変異では全件数のため、どちらも「全件数が上限以上」のときに限り印が立ち、印の立ち方は変わらない（ちょうど上限の件数で印が立つのは FLAG-scan-011 の挙動で、これも変わらない）。
@@ -204,3 +204,10 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 
 1. src/agent/dispatch.rs:104:13（エージェントの走査に max_entries が渡らない）: CLI の上限の超過の検出と報告は変わらず、違いは `fail_on_truncation` が偽の TUI の走査が受け取る一覧だけのため、TUI の範囲として記録だけにする案。
 2. src/runtime/side_io.rs:783:9（エージェントを有効にしたサーバの部分走査が SSH の経路に切り替わる）: 二つの経路の一覧の違いは既存の FLAG-scan-010・011・013・001 の挙動だけのため、その範囲として記録し、テストを足さない案。代わりに、部分走査がエージェントの経路を通ることを試験サーバのコマンドで確かめるテストを足す選び方もある（IR に経路の要件はない）。
+
+利用者の判断（2026-09-29）:
+
+1. src/agent/dispatch.rs:104:13（エージェントの走査に max_entries が渡らない）は、案どおり TUI の範囲（`fail_on_truncation` が偽の走査が受け取る一覧）として記録だけにする。引き継ぎ先は凍結中の TUI。
+2. src/runtime/side_io.rs:783:9（エージェントを有効にしたサーバの部分走査が SSH の経路に切り替わる）は、案どおり既存の FLAG（FLAG-scan-010・011・013・001）の範囲として記録し、経路を確かめるだけのテストは足さない。
+
+テストを変えていないため、変異テストは回し直していない。決着の対象の見逃しは残っていない。
