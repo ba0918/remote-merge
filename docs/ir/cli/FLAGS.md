@@ -240,13 +240,6 @@ include の外のディレクトリを指定した diff は、ローカルと SS
 
 REQ-cli-009 はバイナリの一致または不一致を示すとするが、中身の同じバイナリのパスを指定した diff は同じハッシュのまま "Binary files differ" と出し、終了コード 0 を返す。
 
-### FLAG-cli-036: --max-files が数える単位と残りの件数の溢れ
-- kind: gap
-- related: REQ-cli-055
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A19
-
---max-files が一件と数える単位は、パスを指定した diff では指定したパス（ディレクトリも一件で、展開した配下は制限されない）、パスなしの diff では変更のあるファイルで違う。変更のあるディレクトリを二つ以上指定して打ち切ると、テキストの残りの件数の引き算が溢れ、デバッグ版では panic して終了コード 101 で止まり、リリース版では巨大な数を出すと実装からは読める。
-
 ### FLAG-cli-037: ディレクトリの配下の変更のない機密ファイル
 - kind: gap
 - related: REQ-cli-059, REQ-cli-056

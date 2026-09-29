@@ -27,10 +27,10 @@ diff の JSON は files と summary を持ち、--max-files で打ち切った�
 
 ### REQ-cli-055: 出すファイルの数を打ち切る
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A4
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A4, docs/decision/records/2026-09-29-diff-max-files.md#A1
 - verification: unit
 
-diff の --max-files の既定は 100 で 0 は無制限とし、打ち切ったときは JSON に truncated と changed_files_total を出し、テキストでは "... and 残りの件数 more files (truncated, use --max-files 0 for all)" を出す。
+diff の --max-files の既定は 100 で 0 は無制限とする。0 でないときはパスの指定の仕方によらずディレクトリを展開した後の変更のあるファイルを数え、出す変更のあるファイルは先頭から値の件数までとし、それを超えたときは JSON に truncated を true、changed_files_total を変更のあるファイルの総数として出し、テキストでは "... and 総数から出した変更のあるファイルの数を引いた数 more files (truncated, use --max-files 0 for all)" を出す。
 
 ### REQ-cli-056: 終了コード
 - kind: ubiquitous
