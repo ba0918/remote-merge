@@ -18,6 +18,13 @@
 
 バイナリファイルをマージした後の書き込み先は、読み込み元と同じバイト列になる。
 
+### REQ-cli-061: バイナリの判定と差分の出し方
+- kind: state_driven
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A9
+- verification: unit
+
+先頭 8,192 バイトに NUL か不正な UTF-8 を含むファイルをバイナリとし、diff のテキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出してない側や読めない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。
+
 ## Examples
 
 ```gherkin

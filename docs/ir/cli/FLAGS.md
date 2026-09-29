@@ -183,3 +183,87 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A9
 
 --ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。
+
+### FLAG-cli-028: 旧総合仕様の diff の JSON の例
+- kind: contradiction
+- related: REQ-cli-053
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A11
+
+旧総合仕様の diff の JSON の例は一つのファイルのオブジェクト（left・right に updated_at、conflict_count など）だが、実装は常に files の配列を持つ形で、left・right は label と root を持つ。
+
+### FLAG-cli-029: リモートのバイナリのハッシュを計算する場所
+- kind: contradiction
+- related: REQ-cli-061
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A12
+
+旧総合仕様はリモートのファイルのハッシュをリモート側で計算し、ダウンロードしてからの計算を禁じるが、実装の diff はファイルの中身を全て読んでからローカルでハッシュを計算する（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-030: 片側で読めないファイルの diff
+- kind: gap
+- related: REQ-cli-056
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A13
+
+左右にあるファイルが片側で読めないとき、diff はその側を空として全ての行を削除または追加として出し、終了コード 1 を返してエラーにしない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-031: パスを指定した diff と exclude
+- kind: contradiction
+- related: REQ-config-003, REQ-cli-052
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A14
+
+旧総合仕様の除外フィルターの節は exclude のパターンを比較の対象から除外するとするが、20 個以下のパスを指定した diff は exclude に当たるファイルのパスでも差分を出す（パスなしの diff は除外する）。
+
+### FLAG-cli-032: 0 始まりの行番号
+- kind: gap
+- related: REQ-cli-058, REQ-cli-053
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A15
+
+diff のテキストの "@@" の行と JSON の left_start・right_start は 0 始まりの行番号で、先頭の行の変更が "@@ -0,1 +0,1 @@" になる。旧資料に記述がなく、行番号を確かめるテストもない。
+
+### FLAG-cli-033: include の外のディレクトリを指定した diff
+- kind: gap
+- related: REQ-config-004, REQ-cli-052
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A16
+
+include の外のディレクトリを指定した diff は、ローカルと SSH の比較ではそのディレクトリを中身のない項目として出して終了コード 0 を返し、ほかの経路では見つからないパスのエラーになると実装からは読める。旧資料に記述がない。
+
+### FLAG-cli-034: files_with_changes が数えるもの
+- kind: contradiction
+- related: REQ-cli-053
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A17
+
+利用者向けの手引きは summary の files_with_changes を hunk を一つ以上持つファイルの数とするが、実装はハッシュの違うバイナリ、リンク先の違う symlink、中身を隠した機密ファイルも数える。
+
+### FLAG-cli-035: 中身の同じバイナリの diff
+- kind: contradiction
+- related: REQ-cli-009, REQ-cli-061
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A18
+
+REQ-cli-009 はバイナリの一致または不一致を示すとするが、中身の同じバイナリのパスを指定した diff は同じハッシュのまま "Binary files differ" と出し、終了コード 0 を返す。
+
+### FLAG-cli-036: --max-files が数える単位と残りの件数の溢れ
+- kind: gap
+- related: REQ-cli-055
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A19
+
+--max-files が一件と数える単位は、パスを指定した diff では指定したパス（ディレクトリも一件で、展開した配下は制限されない）、パスなしの diff では変更のあるファイルで違う。変更のあるディレクトリを二つ以上指定して打ち切ると、テキストの残りの件数の引き算が溢れ、デバッグ版では panic して終了コード 101 で止まり、リリース版では巨大な数を出すと実装からは読める。
+
+### FLAG-cli-037: ディレクトリの配下の変更のない機密ファイル
+- kind: gap
+- related: REQ-cli-059, REQ-cli-056
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A20
+
+ディレクトリのパスを指定した diff は、配下の変更のない機密ファイルも中身を隠した形で出し、変更のあるファイルに数えて終了コード 1 を返す（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-038: 片側にだけある中身のないファイル
+- kind: gap
+- related: REQ-cli-060
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A21
+
+片側にだけある 0 バイトのファイルの diff は、両側を空として差分なしと扱い、見出しだけを出して終了コード 0 を返す。ディレクトリを展開したときは項目を出さず、ない側について標準エラーに "treating as empty" の警告を出すと実装からは読める。
+
+### FLAG-cli-039: 100MB を超えるファイルの diff
+- kind: gap
+- related: REQ-cli-061
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A22
+
+100MB を超えるファイルの diff は、ローカルと SSH の経路では読み取りに失敗してその側を空か "missing" として扱うが、エージェントの経路では大きさの制限なく読むと実装からは読める（未実行）。旧資料に記述がない。
