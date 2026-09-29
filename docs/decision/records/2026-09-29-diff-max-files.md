@@ -11,3 +11,6 @@ CLI diff の取り込み（[取り込みの記録](./2026-09-29-adopt-diff-outpu
   - why: 数える単位が経路で違うと、打ち切りの件数の意味が変わり、残りの件数の引き算が溢れて落ちる。利用者向けの手引きは --max-files を出すファイルの数の上限としており、変更のあるファイルで数えるのがそれに合う。
   - rejected: 残りの件数の引き算が負にならないようにだけ直す案。落ちなくなるが、件数の意味が経路で違ったまま残る。
   - decided_by: 利用者
+- A2 diff の --max-files で打ち切ったとき、summary の files_with_changes とテキストの "file(s) with changes" の数は、出した変更のあるファイルの数とする。打ち切る前の総数は changed_files_total で示す。
+  - why: 総数は changed_files_total で別に出しており、files_with_changes は出力に含まれる項目と対応させるほうが読み手が数を突き合わせやすい。パスなしの diff は以前からこの数え方だった。
+  - decided_by: 利用者（推奨を採用）
