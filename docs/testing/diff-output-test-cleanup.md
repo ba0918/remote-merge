@@ -197,7 +197,7 @@ src/cli/diff.rs:353:21（replace || with && in execute_diff）は tests/contract
 
 ### 見逃しと決着
 
-見逃しは回し直しの後の survived の 30 件である。どれも survived のため、既存の単体テストを含む全てのテストで落ちていない。
+見逃しは、テストを足した後の回し直しの survived の 30 件と、根拠テストを置き換えたことで見逃しに戻った src/cli/diff.rs:174:74 と src/service/types.rs:131:32 の 2 件である。30 件は全てのテストを流した回し直しで survived のため、既存の単体テストを含む全てのテストで落ちていない。2 件は流すテストを絞った回し直しで survived で、全てのテストでは確かめていない（174:74 は前の全てのテストの実行で負荷の下で落ちる tui_merge のテストだけで caught と数えられていた。[決定記録 2026-09-29-mutation-test-selection の A1](../decision/records/2026-09-29-mutation-test-selection.md#A1)）。
 
 #### 記録だけするもの（計画の区分に当てはまる）
 
