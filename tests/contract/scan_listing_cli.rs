@@ -22,7 +22,7 @@ use super::common::{gen_config, place_files, place_symlink, TestDirs};
 use super::ssh_server::TestServer;
 
 /// 標準出力の JSON の "files" を "path" から "status" への対応にする
-fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
+pub(super) fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"));
     json["files"]
@@ -43,7 +43,8 @@ fn statuses_by_path(output: &Output) -> BTreeMap<String, String> {
 /// `--config` を必ず渡し、作業ディレクトリを一時ディレクトリの下にする。渡さないと実行ファイルは
 /// 作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に接続しうる。
 /// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリ `temp` の下に向け、PATH だけを引き継ぐ。
-fn launch_status(temp: &Path, config_path: &Path) -> Output {
+/// `extra_args` は status の引数の後に足す（走査の上限の `--max-entries` など）。
+pub(super) fn launch_status(temp: &Path, config_path: &Path, extra_args: &[&str]) -> Output {
     let home: PathBuf = temp.join("home");
     fs::create_dir_all(&home).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
@@ -59,16 +60,22 @@ fn launch_status(temp: &Path, config_path: &Path) -> Output {
     cmd.args([
         "status", "--left", "local", "--right", "develop", "--all", "--format", "json",
     ]);
+    cmd.args(extra_args);
     cmd.stdin(Stdio::null());
     cmd.output().expect("failed to execute status")
 }
 
 /// `config` を書き、既存の隔離の確認を通してから status を起動する
-fn status_over_ssh(dirs: &mut TestDirs, config: &str, local_root: &Path) -> Output {
+pub(super) fn status_over_ssh(
+    dirs: &mut TestDirs,
+    config: &str,
+    local_root: &Path,
+    extra_args: &[&str],
+) -> Output {
     let config_path = dirs.temp.path().join("scan-listing-config.toml");
     fs::write(&config_path, config).unwrap();
     dirs.assert_isolated_config_at(&config_path, local_root);
-    launch_status(dirs.temp.path(), &config_path)
+    launch_status(dirs.temp.path(), &config_path, extra_args)
 }
 
 /// 左右の root_dir を `local_root`・`remote_root` にした設定で status を起動し、一覧を返す
@@ -78,7 +85,7 @@ fn listed_over_ssh(
     remote_root: &Path,
 ) -> BTreeMap<String, String> {
     let config = gen_config(local_root, remote_root, None, dirs.server_port());
-    let output = status_over_ssh(dirs, &config, local_root);
+    let output = status_over_ssh(dirs, &config, local_root, &[]);
     statuses_by_path(&output)
 }
 
@@ -213,14 +220,14 @@ const AGENT_USER: &str = "fixture-user";
 ///
 /// `TestDirs` の試験サーバはエージェントを起動せず、受けたコマンドも読めないため、
 /// `TestServer::filesystem_with_agent` を直接使う。
-struct AgentFixture {
-    temp: TempDir,
+pub(super) struct AgentFixture {
+    pub(super) temp: TempDir,
     server: TestServer,
     deploy_dir: PathBuf,
 }
 
 impl AgentFixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let temp = TempDir::new().unwrap();
         let deploy_dir = temp.path().join("agent");
         let deployed = deploy_dir.join(format!("remote-merge-{AGENT_USER}/remote-merge"));
@@ -305,10 +312,20 @@ impl AgentFixture {
 
     /// 隔離を確かめてから status を起動し、右の走査がエージェントの経路を通ったことを確かめて一覧を返す
     fn listed_via_agent(&self, local_root: &Path, remote_root: &Path) -> BTreeMap<String, String> {
+        statuses_by_path(&self.status_via_agent(local_root, remote_root, &[]))
+    }
+
+    /// 隔離を確かめてから status を起動し、右の走査がエージェントの経路を通ったことを確かめて出力を返す
+    pub(super) fn status_via_agent(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        extra_args: &[&str],
+    ) -> Output {
         let config_path = self.temp.path().join("scan-listing-agent-config.toml");
         fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
         self.assert_isolated_agent_config(&config_path);
-        let output = launch_status(self.temp.path(), &config_path);
+        let output = launch_status(self.temp.path(), &config_path, extra_args);
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.server.commands();
         assert!(
@@ -323,7 +340,7 @@ impl AgentFixture {
                 .any(|command| command.starts_with("find -L")),
             "the tree was scanned over plain SSH: {commands:?}"
         );
-        statuses_by_path(&output)
+        output
     }
 }
 

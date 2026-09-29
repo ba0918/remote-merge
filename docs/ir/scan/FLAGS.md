@@ -64,3 +64,38 @@ REQ-config-003 と REQ-config-004 は exclude と include が merge と sync の
 - source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A12
 
 SSH の経路の走査は find の出力を行ごとに読むため、名前に改行を含むファイルがあると、改行の前までを名前とするファイルを一覧に載せると実装からは読める（未実行）。旧資料に記述がなく、確かめるテストもない。
+
+### FLAG-scan-010: 件数の上限の数え方
+- kind: contradiction
+- related: REQ-scan-003
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A3
+
+REQ-scan-003 はファイル件数の上限とするが、ローカルと SSH の走査はディレクトリも一件として数え（ファイル 2 件とディレクトリ 1 件で上限 2 のとき打ち切る）、エージェントの走査はファイルと symlink だけを数えるため、同じツリーでも経路によって打ち切られる件数が違う。
+
+### FLAG-scan-011: エージェントの経路のちょうど上限の件数
+- kind: contradiction
+- related: REQ-scan-004, EX-scan-009
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A4
+
+EX-scan-009 は上限以下のファイル数なら件数の上限を理由に打ち切らないとするが、エージェントの走査は数えた件数が上限とちょうど同じときも、それ以上の項目がなくても打ち切ったと報告する（実装を読んで分かったことで未実行）。
+
+### FLAG-scan-012: find のタイムアウト
+- kind: contradiction
+- related: REQ-scan-004
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A5
+
+旧総合仕様は find の実行時間の上限を 30 秒とするが、実装の SSH の経路の走査は 120 秒で固定し、設定では変えられず、超えたときは接続のタイムアウトと読める "SSH connection timed out (120s): サーバ名" のエラーを出す（実装を読んで分かったことで未実行）。
+
+### FLAG-scan-013: 読めないディレクトリ
+- kind: gap
+- related: REQ-scan-005
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A6
+
+走査の途中に読めないディレクトリがあるとき、ローカルは "Directory scan incomplete:"、SSH は "SSH command execution failed:" で始まるエラーで止まり status は終了コード 2 を返すが、エージェントはそのディレクトリを飛ばし、欠けた一覧を完全な一覧として返す。REQ-scan-005 は件数の上限とリンクの循環だけを挙げ、読めないディレクトリについて述べない。
+
+### FLAG-scan-014: 同じ最上位のディレクトリの下を複数指定した sync
+- kind: gap
+- related: REQ-scan-009, REQ-cli-045
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A7
+
+sync に同じ最上位のディレクトリの下のディレクトリを二つ以上指定すると（例 "a/x/" と "a/y/"）、後のディレクトリの配下が一覧から落ち、そのディレクトリのパスが "IO error: Is a directory" の失敗になって書き込み先の status は "partial"、終了コードは 2 になり、--dry-run ではそのパスを merged に status "would merge" で出す。同じ指定の merge と diff は両方の配下を扱う。旧資料に記述がなくテストもない。

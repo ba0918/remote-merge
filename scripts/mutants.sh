@@ -15,6 +15,9 @@
 #   MUTANTS_MEMORY_SWAP_MAX  MemorySwapMax（既定 0）
 #   MUTANTS_JOBS             cargo-mutants の並列数（既定 2）
 #
+# サービスは CPUWeight=idle と Nice=19 で動かし、他の作業が CPU を使うときはそちらを優先させる
+# （変異テストのビルドとテストが CPU を占め、他の作業が止まりかけたため）。
+#
 # メモリ上限で強制終了されたテストを cargo-mutants は変異の検知と数えてしまう。そのため
 # OOMPolicy=stop でサービス全体を止め、失敗として 0 以外で終了し、途中までの結果は読まない。
 set -euo pipefail
@@ -80,6 +83,8 @@ systemd-run --user --unit "$unit" --wait --pipe --quiet --same-dir \
     -p MemoryMax="$memory_max" \
     -p MemorySwapMax="$memory_swap_max" \
     -p OOMPolicy=stop \
+    -p CPUWeight=idle \
+    -p Nice=19 \
     cargo mutants \
     --jobs "$jobs" \
     --all-features \
