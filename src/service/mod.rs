@@ -15,6 +15,7 @@
 
 pub mod diff;
 pub mod fast_path;
+pub mod max_files;
 pub mod merge;
 pub mod merge_flow;
 pub mod output;

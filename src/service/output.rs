@@ -4,6 +4,7 @@
 
 use serde::Serialize;
 
+use super::max_files::omitted_changed_files;
 use super::types::*;
 
 /// JSON エラーレスポンス（`--format json` 指定時のエラー出力用）
@@ -281,7 +282,7 @@ pub fn format_multi_diff_text(output: &MultiDiffOutput) -> String {
         if let Some(total) = output.changed_files_total {
             result.push_str(&format!(
                 "\n... and {} more files (truncated, use --max-files 0 for all)\n",
-                total - output.files.len()
+                omitted_changed_files(&output.files, total)
             ));
         }
     }

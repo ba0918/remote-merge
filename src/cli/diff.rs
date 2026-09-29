@@ -11,6 +11,7 @@ use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
     build_diff_output, build_masked_diff_output, build_symlink_diff_output,
 };
+use crate::service::max_files::limit_changed_files;
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
@@ -139,19 +140,6 @@ pub fn execute_diff(
         )?,
     };
 
-    // Apply max-files truncation
-    let truncated = args.max_files > 0 && diff_files.len() > args.max_files;
-    let changed_files_total = if truncated {
-        Some(diff_files.len())
-    } else {
-        None
-    };
-    let process_files = if truncated {
-        &diff_files[..args.max_files]
-    } else {
-        &diff_files
-    };
-
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
@@ -166,7 +154,7 @@ pub fn execute_diff(
     let mut file_diffs = Vec::new();
     let mut errors = Vec::new();
     let mut has_read_error = false;
-    let mut pending: VecDeque<String> = process_files.iter().cloned().collect();
+    let mut pending: VecDeque<String> = diff_files.iter().cloned().collect();
     let mut scanned_files = existing_files.len();
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
@@ -542,27 +530,18 @@ pub fn execute_diff(
         }
     }
 
-    let files_with_changes = file_diffs
-        .iter()
-        .filter(|d| {
-            (d.binary && d.left_hash != d.right_hash)
-                || (d.symlink
-                    && d.link_targets
-                        .as_ref()
-                        .is_some_and(|targets| targets.left != targets.right))
-                || !d.hunks.is_empty()
-                || (d.sensitive && d.note.is_some())
-        })
-        .count();
+    // --max-files はディレクトリを展開した後の変更のあるファイルを数える
+    let limited = limit_changed_files(file_diffs, args.max_files);
+    let files_with_changes = limited.files.iter().filter(|d| d.has_changes()).count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
             scanned_files,
             files_with_changes,
         },
-        files: file_diffs,
+        files: limited.files,
         errors,
-        truncated,
-        changed_files_total,
+        truncated: limited.changed_files_total.is_some(),
+        changed_files_total: limited.changed_files_total,
     };
 
     let code = if has_read_error {

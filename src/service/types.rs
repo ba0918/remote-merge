@@ -118,6 +118,20 @@ pub struct DiffOutput {
     pub conflict_regions: Vec<crate::diff::conflict::ConflictRegion>,
 }
 
+impl DiffOutput {
+    /// summary の files_with_changes と --max-files が数える「変更のあるファイル」か
+    pub fn has_changes(&self) -> bool {
+        (self.binary && self.left_hash != self.right_hash)
+            || (self.symlink
+                && self
+                    .link_targets
+                    .as_ref()
+                    .is_some_and(|targets| targets.left != targets.right))
+            || !self.hunks.is_empty()
+            || (self.sensitive && self.note.is_some())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkTargets {
     pub left: Option<String>,

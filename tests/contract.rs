@@ -38,6 +38,8 @@ mod config_values;
 mod config_values_cli;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
+#[path = "contract/diff_max_files.rs"]
+mod diff_max_files;
 #[path = "contract/filters.rs"]
 mod filters;
 #[path = "contract/init.rs"]
