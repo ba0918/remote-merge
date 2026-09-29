@@ -260,3 +260,24 @@ REQ-cli-009 はバイナリの一致または不一致を示すとするが、�
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A22
 
 100MB を超えるファイルの diff は、ローカルと SSH の経路では読み取りに失敗してその側を空か "missing" として扱うが、エージェントの経路では大きさの制限なく読むと実装からは読める（未実行）。旧資料に記述がない。
+
+### FLAG-cli-040: root_dir を指すパスを渡した diff
+- kind: gap
+- related: REQ-cli-052, REQ-cli-056
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A23
+
+diff にパスとして "."・"./"・空の値・"/" を渡すと、左右に変更のあるファイルがあってもファイルを一つも出さず、終了コード 0 を返す。REQ-cli-052 はパスを指定しないとき root_dir 全体を比べるとするが、root_dir を指すこれらのパスの扱いは要件にない。
+
+### FLAG-cli-041: 読まずに数えたファイルが読むと同じになる場合
+- kind: contradiction
+- related: REQ-cli-055
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A24
+
+先頭の 8,192 バイトより後にだけ不正な UTF-8 を含み、読むと左右が同じテキストになるファイルがあると、--max-files が 1 のときだけそのファイルを読まずに変更のあるファイルと数え、truncated を true、changed_files_total を実際より多く出す。REQ-cli-055 は変更のあるファイルを数えるとする。
+
+### FLAG-cli-042: 境目で切れた多バイトの文字
+- kind: ambiguity
+- related: REQ-cli-061
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A25
+
+正しい UTF-8 のテキストでも、先頭の 8,192 バイトの境目で多バイトの文字が切れるとバイナリと判定される。REQ-cli-061 の「先頭 8,192 バイトに不正な UTF-8 を含む」に境目で切れた文字が当たるかは読み分けられない。

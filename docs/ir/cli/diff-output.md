@@ -48,10 +48,10 @@ diff は指定したパスが左右のどちらにもないとき、パスごと
 
 ### REQ-cli-058: テキストの形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A7
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A7, docs/decision/records/2026-09-29-adopt-diff-output.md#A26
 - verification: unit
 
-diff のテキストは、ファイルごとに "--- a/パス (左のラベル)" と "+++ b/パス (右のラベル)" の見出し、"@@" の行、文脈・削除・追加の行を " "・"-"・"+" の接頭辞で出し、最後に "変更のあるファイルの数 file(s) with changes out of 走査したファイルの数 total" を出す。
+diff のテキストは、ファイルごとに "--- a/パス (左のラベル)" と "+++ b/パス (右のラベル)" の見出し、"@@" の行、文脈・削除・追加の行を " "・"-"・"+" の接頭辞で出し、最後に "変更のあるファイルの数 file(s) with changes out of 走査したファイルの数 total" を出す。変更の行の前後に 3 行ずつ文脈の行を出し、文脈の範囲が重なるか接する変更は一つの "@@" の塊にまとめ、最初のファイルの見出しから書き始める。
 
 ### REQ-cli-059: 機密ファイルの差分の隠し方
 - kind: state_driven
