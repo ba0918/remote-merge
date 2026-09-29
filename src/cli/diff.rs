@@ -11,7 +11,7 @@ use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
     build_diff_output, build_masked_diff_output, build_symlink_diff_output,
 };
-use crate::service::max_files::{limit_changed_files, ChangedFileBudget};
+use crate::service::max_files::{changes_without_reading, limit_changed_files, ChangedFileBudget};
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
@@ -30,21 +30,25 @@ use crate::service::types::{
     MultiDiffSummary,
 };
 use crate::service::{resolve_scan_strategy, ScanStrategy};
-use crate::tree::FileTree;
+use crate::tree::{FileNode, FileTree};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
-/// known_changed_files）。known_changed_files は diff_files のうち、中身を読む前から変更のある
-/// 通常のファイルと分かっているパス（--max-files の枠が埋まった後は読まずに数える）。
+/// plain_file_sizes）。plain_file_sizes は diff_files のうち、中身を読む前に通常のファイルと
+/// 分かっているパスの左右の大きさ（ない側は None）。--max-files の枠が埋まった後に読まずに
+/// 数えてよいかの判定に使う。
 type DiffScanResult = (
     FileTree,
     FileTree,
     Vec<FileStatus>,
     Vec<String>,
     Vec<String>,
-    HashSet<String>,
+    PlainFileSizes,
 );
+
+/// パスごとの、通常のファイルとしてある側の大きさ（左, 右）
+type PlainFileSizes = HashMap<String, (Option<u64>, Option<u64>)>;
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
@@ -112,7 +116,7 @@ pub fn execute_diff(
     // ScanStrategy で分岐: FastPath / PartialScan / FullScan
     let strategy = resolve_scan_strategy(&args.paths, false);
 
-    let (left_tree, right_tree, statuses, existing_files, diff_files, known_changed_files) =
+    let (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes) =
         match strategy {
             ScanStrategy::FastPath(ref target_paths) => {
                 check_path_traversal(target_paths)?;
@@ -163,10 +167,19 @@ pub fn execute_diff(
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
     let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
+    // 中身を読まなくても変更のあるファイルと分かるもの
+    let known_changed_files: HashSet<&str> = plain_file_sizes
+        .iter()
+        .filter(|(path, (left_size, right_size))| {
+            let masked = is_sensitive(path, &config.filter.sensitive) && !args.force;
+            changes_without_reading(*left_size, *right_size, masked)
+        })
+        .map(|(path, _)| path.as_str())
+        .collect();
     let mut budget = ChangedFileBudget::new(args.max_files);
     while let Some(owned_path) = pending.pop_front() {
         let path = &owned_path;
-        if known_changed_files.contains(path)
+        if known_changed_files.contains(path.as_str())
             && !expanded_children.contains(path)
             && budget.skip_unread(&file_diffs)
         {
@@ -632,8 +645,8 @@ fn sensitive_link_chain(
 
 /// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。
 ///
-/// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files)
-/// ツリーは空（FastPath ではツリーを使わないため）。
+/// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes)
+/// ツリーは空（FastPath ではツリーを使わないため）。plain_file_sizes は読んだ大きさから作る。
 fn run_diff_fast_path(
     target_paths: &[String],
     left: &Side,
@@ -648,7 +661,7 @@ fn run_diff_fast_path(
     let mut statuses = Vec::new();
     let mut existing = Vec::new();
     let mut equal_binary_paths = Vec::new();
-    let mut known_changed_files = HashSet::new();
+    let mut plain_file_sizes = PlainFileSizes::new();
 
     for path in target_paths {
         let left_path = core.inspect_path(left, path)?;
@@ -707,7 +720,9 @@ fn run_diff_fast_path(
                     equal_binary_paths.push(path.clone());
                 }
                 if kind != FileStatusKind::Equal {
-                    known_changed_files.insert(path.clone());
+                    let left_size = left_ok.then_some(left_bytes.len() as u64);
+                    let right_size = right_ok.then_some(right_bytes.len() as u64);
+                    plain_file_sizes.insert(path.clone(), (left_size, right_size));
                 }
                 statuses.push(FileStatus {
                     path: path.clone(),
@@ -737,7 +752,7 @@ fn run_diff_fast_path(
         statuses,
         existing,
         diff_files,
-        known_changed_files,
+        plain_file_sizes,
     ))
 }
 
@@ -882,10 +897,11 @@ fn compute_statuses_and_resolve(
     }
 
     let diff_files = filter_changed_files(&existing_files, &statuses);
-    let known_changed_files = diff_files
+    let plain_file_sizes = diff_files
         .iter()
-        .filter(|path| is_plain_file_in_trees(path, &left_tree, &right_tree))
-        .cloned()
+        .filter_map(|path| {
+            plain_file_sizes(path, &left_tree, &right_tree).map(|sizes| (path.clone(), sizes))
+        })
         .collect();
     Ok((
         left_tree,
@@ -893,14 +909,27 @@ fn compute_statuses_and_resolve(
         statuses,
         existing_files,
         diff_files,
-        known_changed_files,
+        plain_file_sizes,
     ))
 }
 
-/// 左右のツリーの少なくとも一方にあり、ある側ではどちらも通常のファイルか
-fn is_plain_file_in_trees(path: &str, left_tree: &FileTree, right_tree: &FileTree) -> bool {
-    let nodes = [left_tree.find_node(path), right_tree.find_node(path)];
-    nodes.iter().any(Option::is_some) && nodes.iter().flatten().all(|node| node.is_file())
+/// 左右のツリーの少なくとも一方にあり、ある側ではどちらも大きさの分かる通常のファイルなら、
+/// その左右の大きさ（ない側は None）
+fn plain_file_sizes(
+    path: &str,
+    left_tree: &FileTree,
+    right_tree: &FileTree,
+) -> Option<(Option<u64>, Option<u64>)> {
+    let size_of = |node: Option<&FileNode>| -> Result<Option<u64>, ()> {
+        match node {
+            None => Ok(None),
+            Some(node) if node.is_file() => node.size.map(Some).ok_or(()),
+            Some(_) => Err(()),
+        }
+    };
+    let left = size_of(left_tree.find_node(path)).ok()?;
+    let right = size_of(right_tree.find_node(path)).ok()?;
+    (left.is_some() || right.is_some()).then_some((left, right))
 }
 
 /// LeftOnly/RightOnly に基づき、存在しない側の quiet フラグを決定する。
@@ -957,31 +986,40 @@ mod tests {
         tree
     }
 
-    // ── known changed files ──
+    // ── plain file sizes ──
 
-    #[test]
-    fn plain_file_on_either_side_is_known_before_reading() {
-        let left = tree(vec![FileNode::new_dir_with_children(
-            "a",
-            vec![FileNode::new_file("1.txt")],
-        )]);
-        let right = tree(vec![]);
-
-        assert!(super::is_plain_file_in_trees("a/1.txt", &left, &right));
+    fn file(name: &str, size: u64) -> FileNode {
+        let mut node = FileNode::new_file(name);
+        node.size = Some(size);
+        node
     }
 
     #[test]
-    fn directory_symlink_or_missing_path_is_not_known_before_reading() {
-        let left = tree(vec![FileNode::new_dir("dir"), FileNode::new_file("mixed")]);
+    fn plain_file_sizes_are_taken_from_the_sides_that_have_it() {
+        let left = tree(vec![FileNode::new_dir_with_children(
+            "a",
+            vec![file("1.txt", 3)],
+        )]);
+        let right = tree(vec![]);
+
+        assert_eq!(
+            super::plain_file_sizes("a/1.txt", &left, &right),
+            Some((Some(3), None))
+        );
+    }
+
+    #[test]
+    fn directory_symlink_or_missing_path_has_no_plain_file_sizes() {
+        let left = tree(vec![FileNode::new_dir("dir"), file("mixed", 1)]);
         let right = tree(vec![
             FileNode::new_symlink("link", "target"),
             FileNode::new_dir("mixed"),
         ]);
 
-        assert!(!super::is_plain_file_in_trees("dir", &left, &right));
-        assert!(!super::is_plain_file_in_trees("link", &left, &right));
-        assert!(!super::is_plain_file_in_trees("mixed", &left, &right));
-        assert!(!super::is_plain_file_in_trees("missing", &left, &right));
+        assert_eq!(super::plain_file_sizes("dir", &left, &right), None);
+        assert_eq!(super::plain_file_sizes("link", &left, &right), None);
+        assert_eq!(super::plain_file_sizes("mixed", &left, &right), None);
+        assert_eq!(super::plain_file_sizes("missing", &left, &right), None);
     }
 
     // ── quiet flags for status ──

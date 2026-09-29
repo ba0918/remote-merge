@@ -38,13 +38,35 @@ fn place_tree(root: &Path, content: &str, top: &str) {
 
 /// `top_changed` が true なら "c.txt" も左右で中身を変える
 fn diff_fixture(top_changed: bool) -> DiffFixture {
+    let right_top = if top_changed { "other top\n" } else { "top\n" };
+    fixture_with(
+        |left| place_tree(left, "left\n", "top\n"),
+        |right| place_tree(right, "right\n", right_top),
+    )
+}
+
+/// 左に中身の違う "a/1.txt" と空の "d.txt"、右に "a/1.txt" だけを置く
+fn empty_left_only_fixture() -> DiffFixture {
+    fixture_with(
+        |left| {
+            fs::create_dir_all(left.join("a")).unwrap();
+            fs::write(left.join("a/1.txt"), "left\n").unwrap();
+            fs::write(left.join("d.txt"), "").unwrap();
+        },
+        |right| {
+            fs::create_dir_all(right.join("a")).unwrap();
+            fs::write(right.join("a/1.txt"), "right\n").unwrap();
+        },
+    )
+}
+
+fn fixture_with(place_left: impl FnOnce(&Path), place_right: impl FnOnce(&Path)) -> DiffFixture {
     let config_dir = TempDir::new().unwrap();
     let left = TempDir::new().unwrap();
     let right = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    place_tree(left.path(), "left\n", "top\n");
-    let right_top = if top_changed { "other top\n" } else { "top\n" };
-    place_tree(right.path(), "right\n", right_top);
+    place_left(left.path());
+    place_right(right.path());
     let config_path = config_dir.path().join("config.toml");
     fs::write(&config_path, format!(
         "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = false\n",
@@ -157,4 +179,25 @@ fn req_cli_055_zero_outputs_every_changed_file() {
     assert!(!output.truncated);
     assert_eq!(output.changed_files_total, None);
     assert!(!format_multi_diff_text(&output).contains("more files"));
+}
+
+// 片側にだけある空のファイルは変更のあるファイルではないので、数えも打ち切りもしない
+// @kotowari[REQ-cli-055]
+#[test]
+fn req_cli_055_empty_file_on_one_side_is_not_counted_without_paths() {
+    let output = diff(empty_left_only_fixture(), &[], 1);
+
+    assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
+    assert!(!output.truncated);
+    assert_eq!(output.changed_files_total, None);
+}
+
+// @kotowari[REQ-cli-055]
+#[test]
+fn req_cli_055_empty_file_on_one_side_is_not_counted_with_file_paths() {
+    let output = diff(empty_left_only_fixture(), &["a/1.txt", "d.txt"], 1);
+
+    assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
+    assert!(!output.truncated);
+    assert_eq!(output.changed_files_total, None);
 }
