@@ -1,0 +1,16 @@
+# CLI diff の --max-files が数える単位を揃える判断
+
+## Context
+
+CLI diff の取り込み（[取り込みの記録](./2026-09-29-adopt-diff-output.md)）で、--max-files が一件と数える単位がパスを指定した diff（指定したパス、ディレクトリも一件）とパスなしの diff（変更のあるファイル）で違い、変更のあるディレクトリを二つ以上指定して打ち切るとテキストの残りの件数の引き算が溢れて panic することが分かり、FLAG-cli-036 に残した（[A19](./2026-09-29-adopt-diff-output.md#A19)）。この判断で要件 [REQ-cli-055](../../ir/cli/diff-output.md#REQ-cli-055) に決着させ、FLAG-cli-036 を外す。
+落ちる不具合のため取り込みの直後に決着させる。利用者は、数える単位を揃える案と、引き算だけを直す案のうち、前者を選んだ。
+
+## Agreements
+
+- A1 diff の --max-files の値 N が 0 でないとき、パスの指定の仕方によらず、ディレクトリを展開した後の変更のあるファイル（summary の files_with_changes に数えるもの）を数え、出す変更のあるファイルは先頭から N 件までとする。変更のあるファイルが N 件を超えたときは、JSON の truncated を true、changed_files_total を変更のあるファイルの総数とし、テキストの残りの件数は総数から出した変更のあるファイルの数を引いた数とする。
+  - why: 数える単位が経路で違うと、打ち切りの件数の意味が変わり、残りの件数の引き算が溢れて落ちる。利用者向けの手引きは --max-files を出すファイルの数の上限としており、変更のあるファイルで数えるのがそれに合う。
+  - rejected: 残りの件数の引き算が負にならないようにだけ直す案。落ちなくなるが、件数の意味が経路で違ったまま残る。
+  - decided_by: 利用者
+- A2 diff の --max-files で打ち切ったとき、summary の files_with_changes とテキストの "file(s) with changes" の数は、出した変更のあるファイルの数とする。打ち切る前の総数は changed_files_total で示す。
+  - why: 総数は changed_files_total で別に出しており、files_with_changes は出力に含まれる項目と対応させるほうが読み手が数を突き合わせやすい。パスなしの diff は以前からこの数え方だった。
+  - decided_by: 利用者（推奨を採用）
