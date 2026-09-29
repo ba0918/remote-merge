@@ -195,3 +195,36 @@ fn req_cli_061_the_unreadable_side_of_a_binary_is_missing() {
     );
     assert!(text.lines().any(|line| line == expected), "{text}");
 }
+
+// 中身のない側もあるファイルとして SHA-256 を出し、"missing" にしない
+// @kotowari[REQ-cli-061]
+#[test]
+fn req_cli_061_an_existing_empty_side_of_a_binary_has_a_hash() {
+    let content: &[u8] = b"bin\0ary";
+    for (left, right) in [(b"" as &[u8], content), (content, b"" as &[u8])] {
+        let fixture = DiffFixture::new(&[("f", left)], &[("f", right)]);
+
+        let (output, _) = fixture.diff(&["f"]);
+        let json = json(&output);
+        let file = entry(&json, "f");
+
+        assert_eq!(file["left_hash"], sha256(left), "{json}");
+        assert_eq!(file["right_hash"], sha256(right), "{json}");
+        assert!(!format_multi_diff_text(&output).contains("missing"));
+    }
+}
+
+// @kotowari[REQ-cli-061, REQ-cli-052]
+#[test]
+fn req_cli_061_a_changed_binary_under_a_directory_is_reported() {
+    let (left, right): (&[u8], &[u8]) = (b"left\0", b"right\0");
+    let fixture = DiffFixture::new(&[("d/b.bin", left)], &[("d/b.bin", right)]);
+
+    let (output, _) = fixture.diff(&["d"]);
+    let json = json(&output);
+    let file = entry(&json, "d/b.bin");
+
+    assert_eq!(file["binary"], true, "{json}");
+    assert_eq!(file["left_hash"], sha256(left), "{json}");
+    assert_eq!(file["right_hash"], sha256(right), "{json}");
+}

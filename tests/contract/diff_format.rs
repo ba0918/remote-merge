@@ -203,3 +203,77 @@ fn req_cli_058_text_has_headers_hunk_lines_and_the_summary() {
         "{text}"
     );
 }
+
+// 文脈の範囲で近い二つの変更は一つの hunk にまとまり、どちらの変更の行も出る
+// @kotowari[REQ-cli-058]
+#[test]
+fn req_cli_058_nearby_changes_are_all_shown_with_their_context() {
+    let fixture = DiffFixture::new(
+        &[("f.txt", b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")],
+        &[("f.txt", b"1\nB\n3\n4\nE\n6\n7\n8\n9\n10\n")],
+    );
+
+    let (output, _) = fixture.diff(&["f.txt"]);
+    let text = format_multi_diff_text(&output);
+    let body: Vec<&str> = text
+        .lines()
+        .skip_while(|line| !line.starts_with("@@"))
+        .skip(1)
+        .take_while(|line| line.starts_with([' ', '-', '+']))
+        .collect();
+
+    assert_eq!(
+        body,
+        [" 1", "-2", "+B", " 3", " 4", "-5", "+E", " 6", " 7", " 8"],
+        "{text}"
+    );
+}
+
+// @kotowari[REQ-cli-058]
+#[test]
+fn req_cli_058_text_starts_with_the_first_file_header() {
+    let fixture = DiffFixture::new(
+        &[("f.txt", b"old\n"), ("g.txt", b"old\n")],
+        &[("f.txt", b"new\n"), ("g.txt", b"new\n")],
+    );
+
+    let (output, _) = fixture.diff(&["f.txt", "g.txt"]);
+    let text = format_multi_diff_text(&output);
+
+    assert!(text.starts_with("--- a/f.txt (local)\n"), "{text:?}");
+}
+
+// 文脈の範囲より離れた二つの変更はそれぞれの hunk に分かれ、どちらの変更の行も出る。
+// 二つ目は一行だけの削除にし、hunk の終わりをその一行から求める場合を通す
+// @kotowari[REQ-cli-058]
+#[test]
+fn req_cli_058_distant_changes_are_shown_in_separate_hunks() {
+    let left: String = (1..=20).map(|n| format!("{n}\n")).collect();
+    let right = left.replacen("2\n", "B\n", 1).replacen("\n15\n", "\n", 1);
+    let fixture = DiffFixture::new(
+        &[("f.txt", left.as_bytes())],
+        &[("f.txt", right.as_bytes())],
+    );
+
+    let (output, _) = fixture.diff(&["f.txt"]);
+    let text = format_multi_diff_text(&output);
+    let hunks: Vec<Vec<&str>> = text
+        .split("\n@@")
+        .skip(1)
+        .map(|hunk| {
+            hunk.lines()
+                .skip(1)
+                .take_while(|line| line.starts_with([' ', '-', '+']))
+                .collect()
+        })
+        .collect();
+
+    assert_eq!(
+        hunks,
+        [
+            vec![" 1", "-2", "+B", " 3", " 4", " 5"],
+            vec![" 12", " 13", " 14", "-15", " 16", " 17", " 18"],
+        ],
+        "{text}"
+    );
+}

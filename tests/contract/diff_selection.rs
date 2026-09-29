@@ -136,3 +136,23 @@ fn req_cli_057_a_glob_path_that_matches_nothing_is_an_error() {
         "{error:#}"
     );
 }
+
+// 片側にだけあるディレクトリも配下を比べ、全ての行を削除か追加として出す
+// @kotowari[REQ-cli-052, REQ-cli-060]
+#[test]
+fn req_cli_052_a_directory_on_one_side_compares_its_children() {
+    let fixture = DiffFixture::new(&[("d/a.txt", b"one\n"), ("d/b.txt", b"two\n")], &[]);
+
+    for path in ["d", "d/"] {
+        let (output, code) = fixture.diff(&[path]);
+        let json = json(&output);
+
+        assert_eq!(paths_of(&output), set(&["d/a.txt", "d/b.txt"]), "{path}");
+        assert_eq!(
+            lines_of(entry(&json, "d/a.txt")),
+            vec![("removed".to_string(), "one".to_string())],
+            "{path}"
+        );
+        assert_eq!(code, exit_code::DIFF_FOUND, "{path}");
+    }
+}
