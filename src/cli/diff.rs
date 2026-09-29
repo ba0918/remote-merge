@@ -11,7 +11,7 @@ use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
     build_diff_output, build_masked_diff_output, build_symlink_diff_output,
 };
-use crate::service::max_files::limit_changed_files;
+use crate::service::max_files::{limit_changed_files, ChangedFileBudget};
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
@@ -34,13 +34,16 @@ use crate::tree::FileTree;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 
-/// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files）
+/// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
+/// known_changed_files）。known_changed_files は diff_files のうち、中身を読む前から変更のある
+/// 通常のファイルと分かっているパス（--max-files の枠が埋まった後は読まずに数える）。
 type DiffScanResult = (
     FileTree,
     FileTree,
     Vec<FileStatus>,
     Vec<String>,
     Vec<String>,
+    HashSet<String>,
 );
 
 /// diff サブコマンドの引数
@@ -109,36 +112,37 @@ pub fn execute_diff(
     // ScanStrategy で分岐: FastPath / PartialScan / FullScan
     let strategy = resolve_scan_strategy(&args.paths, false);
 
-    let (left_tree, right_tree, statuses, existing_files, diff_files) = match strategy {
-        ScanStrategy::FastPath(ref target_paths) => {
-            check_path_traversal(target_paths)?;
-            run_diff_fast_path(
-                target_paths,
+    let (left_tree, right_tree, statuses, existing_files, diff_files, known_changed_files) =
+        match strategy {
+            ScanStrategy::FastPath(ref target_paths) => {
+                check_path_traversal(target_paths)?;
+                run_diff_fast_path(
+                    target_paths,
+                    &pair.left,
+                    &pair.right,
+                    &mut core,
+                    &config,
+                    args.follow_external_links,
+                )?
+            }
+            ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
+                dir_paths,
+                &args.paths,
                 &pair.left,
                 &pair.right,
                 &mut core,
                 &config,
-                args.follow_external_links,
-            )?
-        }
-        ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
-            dir_paths,
-            &args.paths,
-            &pair.left,
-            &pair.right,
-            &mut core,
-            &config,
-            max_entries,
-        )?,
-        ScanStrategy::FullScan => run_diff_full_scan(
-            &args.paths,
-            &pair.left,
-            &pair.right,
-            &mut core,
-            &config,
-            max_entries,
-        )?,
-    };
+                max_entries,
+            )?,
+            ScanStrategy::FullScan => run_diff_full_scan(
+                &args.paths,
+                &pair.left,
+                &pair.right,
+                &mut core,
+                &config,
+                max_entries,
+            )?,
+        };
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
@@ -159,8 +163,15 @@ pub fn execute_diff(
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
     let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
+    let mut budget = ChangedFileBudget::new(args.max_files);
     while let Some(owned_path) = pending.pop_front() {
         let path = &owned_path;
+        if known_changed_files.contains(path)
+            && !expanded_children.contains(path)
+            && budget.skip_unread(&file_diffs)
+        {
+            continue;
+        }
         if !args.follow_external_links
             && (path_escapes_root(&mut core, &pair.left, &config, path)?
                 || path_escapes_root(&mut core, &pair.right, &config, path)?)
@@ -531,7 +542,7 @@ pub fn execute_diff(
     }
 
     // --max-files はディレクトリを展開した後の変更のあるファイルを数える
-    let limited = limit_changed_files(file_diffs, args.max_files);
+    let limited = limit_changed_files(file_diffs, args.max_files, budget.unread());
     let files_with_changes = limited.files.iter().filter(|d| d.has_changes()).count();
     let multi_output = MultiDiffOutput {
         summary: MultiDiffSummary {
@@ -637,6 +648,7 @@ fn run_diff_fast_path(
     let mut statuses = Vec::new();
     let mut existing = Vec::new();
     let mut equal_binary_paths = Vec::new();
+    let mut known_changed_files = HashSet::new();
 
     for path in target_paths {
         let left_path = core.inspect_path(left, path)?;
@@ -694,6 +706,9 @@ fn run_diff_fast_path(
                 {
                     equal_binary_paths.push(path.clone());
                 }
+                if kind != FileStatusKind::Equal {
+                    known_changed_files.insert(path.clone());
+                }
                 statuses.push(FileStatus {
                     path: path.clone(),
                     status: kind,
@@ -716,7 +731,14 @@ fn run_diff_fast_path(
 
     let mut diff_files = filter_changed_files(&existing, &statuses);
     diff_files.extend(equal_binary_paths);
-    Ok((left_tree, right_tree, statuses, existing, diff_files))
+    Ok((
+        left_tree,
+        right_tree,
+        statuses,
+        existing,
+        diff_files,
+        known_changed_files,
+    ))
 }
 
 fn resolved_path_outside_root(path: &TargetPath, side: &Side, config: &AppConfig) -> bool {
@@ -860,7 +882,25 @@ fn compute_statuses_and_resolve(
     }
 
     let diff_files = filter_changed_files(&existing_files, &statuses);
-    Ok((left_tree, right_tree, statuses, existing_files, diff_files))
+    let known_changed_files = diff_files
+        .iter()
+        .filter(|path| is_plain_file_in_trees(path, &left_tree, &right_tree))
+        .cloned()
+        .collect();
+    Ok((
+        left_tree,
+        right_tree,
+        statuses,
+        existing_files,
+        diff_files,
+        known_changed_files,
+    ))
+}
+
+/// 左右のツリーの少なくとも一方にあり、ある側ではどちらも通常のファイルか
+fn is_plain_file_in_trees(path: &str, left_tree: &FileTree, right_tree: &FileTree) -> bool {
+    let nodes = [left_tree.find_node(path), right_tree.find_node(path)];
+    nodes.iter().any(Option::is_some) && nodes.iter().flatten().all(|node| node.is_file())
 }
 
 /// LeftOnly/RightOnly に基づき、存在しない側の quiet フラグを決定する。
@@ -909,6 +949,40 @@ fn read_file_bytes_tolerant(
 #[cfg(test)]
 mod tests {
     use crate::service::types::FileStatusKind;
+    use crate::tree::{FileNode, FileTree};
+
+    fn tree(nodes: Vec<FileNode>) -> FileTree {
+        let mut tree = FileTree::new("/root");
+        tree.nodes = nodes;
+        tree
+    }
+
+    // ── known changed files ──
+
+    #[test]
+    fn plain_file_on_either_side_is_known_before_reading() {
+        let left = tree(vec![FileNode::new_dir_with_children(
+            "a",
+            vec![FileNode::new_file("1.txt")],
+        )]);
+        let right = tree(vec![]);
+
+        assert!(super::is_plain_file_in_trees("a/1.txt", &left, &right));
+    }
+
+    #[test]
+    fn directory_symlink_or_missing_path_is_not_known_before_reading() {
+        let left = tree(vec![FileNode::new_dir("dir"), FileNode::new_file("mixed")]);
+        let right = tree(vec![
+            FileNode::new_symlink("link", "target"),
+            FileNode::new_dir("mixed"),
+        ]);
+
+        assert!(!super::is_plain_file_in_trees("dir", &left, &right));
+        assert!(!super::is_plain_file_in_trees("link", &left, &right));
+        assert!(!super::is_plain_file_in_trees("mixed", &left, &right));
+        assert!(!super::is_plain_file_in_trees("missing", &left, &right));
+    }
 
     // ── quiet flags for status ──
 
