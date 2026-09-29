@@ -38,11 +38,11 @@ property の要件は proptest を使い、公開された関数を通して "te
 
 ### REQ-testing-013: 変異テストをメモリ上限の中で実行する
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-test-method-selection.md#A9, docs/decision/records/2026-09-27-test-method-selection.md#A14, docs/decision/records/2026-09-27-test-method-selection.md#A15, docs/decision/records/2026-09-28-mutation-scope.md#A3, docs/decision/records/2026-09-29-mutation-rerun-and-load.md#A1
+- source: docs/decision/records/2026-09-27-test-method-selection.md#A9, docs/decision/records/2026-09-27-test-method-selection.md#A14, docs/decision/records/2026-09-27-test-method-selection.md#A15, docs/decision/records/2026-09-28-mutation-scope.md#A3, docs/decision/records/2026-09-29-mutation-rerun-and-load.md#A1, docs/decision/records/2026-09-29-mutation-test-selection.md#A1, docs/decision/records/2026-09-29-mutation-test-selection.md#A2, docs/decision/records/2026-09-29-mutation-test-selection.md#A3
 - verification: review
-- how_to_verify: MemoryMax を小さく上書きして "scripts/mutants.sh" を実行し、0 以外で終了して kotowari mutants の結果を出さないことを確かめ、既定の設定では cargo-mutants が systemd-run --user のサービスとして MemoryHigh 35%、MemoryMax 40%、MemorySwapMax 0、並列数 2、CPUWeight idle、Nice 19 で起動されることを人がスクリプトと実行ログで確かめる。
+- how_to_verify: MemoryMax を小さく上書きして "scripts/mutants.sh" を実行し、0 以外で終了して kotowari mutants の結果を出さないことを確かめ、既定の設定では cargo-mutants が systemd-run --user のサービスとして MemoryHigh 35%、MemoryMax 40%、MemorySwapMax 0、並列数 2、CPUWeight idle、Nice 19 で起動され、変異ごとに流すテストが --lib と "tests/contract" と "tests/cli_diff.rs" で同時に 3 つまで、ビルドがデバッグ情報なしであることを人がスクリプトと実行ログで確かめる。
 
-"scripts/mutants.sh" は渡されたファイルの変異テストを、ファイルの前に "--re" と正規表現を渡したときは変異の名前がその正規表現に一致するものに絞って、毎回新しく実行して kotowari mutants で読み、cargo-mutants を systemd-run --user のサービスとして既定で MemoryHigh 35%、MemoryMax 40%、MemorySwapMax 0、並列数 2 で起動し、各値は環境変数で上書きでき、サービスは CPUWeight idle と Nice 19 で動かす。メモリ上限でプロセスが強制終了された実行は 0 以外で終了し、その結果を読まない。
+"scripts/mutants.sh" は渡されたファイルの変異テストを、ファイルの前に "--re" と正規表現を渡したときは変異の名前がその正規表現に一致するものに絞って、毎回新しく実行して kotowari mutants で読み、cargo-mutants を systemd-run --user のサービスとして既定で MemoryHigh 35%、MemoryMax 40%、MemorySwapMax 0、並列数 2 で起動し、各値は環境変数で上書きでき、サービスは CPUWeight idle と Nice 19 で動かし、変異ごとに流すテストを単体テスト（--lib）と "tests/contract" と "tests/cli_diff.rs" に限って同時に 3 つまで走らせ、ビルドはデバッグ情報なしで行う。メモリ上限でプロセスが強制終了された実行は 0 以外で終了し、その結果を読まない。
 
 ## Examples
 

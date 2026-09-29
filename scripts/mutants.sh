@@ -18,6 +18,12 @@
 # サービスは CPUWeight=idle と Nice=19 で動かし、他の作業が CPU を使うときはそちらを優先させる
 # （変異テストのビルドとテストが CPU を占め、他の作業が止まりかけたため）。
 #
+# 変異ごとに流すテストは単体テスト（--lib）と IR の根拠に数えるテスト（kotowari の tests.files の
+# tests/contract と tests/cli_diff.rs）に限り、同時に走らせるテストは 3 つまでにする。ビルドはデバッグ情報を
+# 付けない。全てのテストを全コアで流すと 1 件に約 30 秒かかって CPU が張り付き、範囲外の TUI の結合テストが
+# 負荷で落ちて変異を検知したように見えることもあったため。流すテストを減らしても、検知が見逃しに変わる
+# 方向にしか結果は動かない。
+#
 # メモリ上限で強制終了されたテストを cargo-mutants は変異の検知と数えてしまう。そのため
 # OOMPolicy=stop でサービス全体を止め、失敗として 0 以外で終了し、途中までの結果は読まない。
 set -euo pipefail
@@ -68,7 +74,7 @@ echo "mutants.sh: unit=$unit MemoryHigh=$memory_high MemoryMax=$memory_max Memor
 # systemd-run に渡した値はプロセスの引数とサービスの Environment に残るため、認証情報を含みうる
 # 変数（MISE_GITHUB_TOKEN など）を渡さないよう、引き継ぐ変数は秘密を含まない名前だけに限定する。
 # MISE_GLOBAL_CONFIG_FILE は、mise の shim（cargo-nextest など）が使うバージョンを決めるのに要る。
-env_args=(--setenv=PATH="$PATH")
+env_args=(--setenv=PATH="$PATH" --setenv=CARGO_PROFILE_DEV_DEBUG=0 --setenv=CARGO_PROFILE_TEST_DEBUG=0)
 for name in RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME MISE_GLOBAL_CONFIG_FILE; do
     if [ -n "${!name:-}" ]; then
         env_args+=(--setenv="$name=${!name}")
@@ -91,7 +97,8 @@ systemd-run --user --unit "$unit" --wait --pipe --quiet --same-dir \
     --test-tool nextest \
     --output "$output_dir" \
     "${file_args[@]}" \
-    "${filter_args[@]}" >&2
+    "${filter_args[@]}" \
+    -- --lib --test contract --test cli_diff --test-threads 3 >&2
 status=$?
 set -e
 trap - INT TERM
