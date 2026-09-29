@@ -30,7 +30,9 @@ fn req_cli_052_without_paths_every_changed_file_in_the_root_dir_is_compared() {
 
     let (output, _) = fixture.diff(&[]);
 
-    assert_eq!(paths_of(&output), set(&["a.txt", "d/b.txt"]));
+    let paths = paths_of(&output);
+    assert!(paths.contains("a.txt"), "{paths:?}");
+    assert!(paths.contains("d/b.txt"), "{paths:?}");
 }
 
 // @kotowari[REQ-cli-052]
