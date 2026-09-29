@@ -93,6 +93,23 @@ fn req_cli_053_binary_hashes_and_note_appear_only_on_the_files_they_apply_to() {
     assert!(json.get("errors").is_none(), "{json}");
 }
 
+// @kotowari[REQ-cli-053]
+#[test]
+fn req_cli_053_json_has_truncated_and_changed_files_total_when_max_files_truncates() {
+    let fixture = DiffFixture::new(
+        &[("f.txt", b"old\n"), ("g.txt", b"old\n")],
+        &[("f.txt", b"new\n"), ("g.txt", b"new\n")],
+    );
+    let mut args = args(&["f.txt", "g.txt"]);
+    args.max_files = 1;
+
+    let (output, _) = fixture.run(args);
+    let json = json(&output);
+
+    assert_eq!(json["truncated"], true, "{json}");
+    assert_eq!(json["changed_files_total"], 2, "{json}");
+}
+
 // ── REQ-cli-054: 変更の行数で打ち切る ──
 
 /// 文脈の 3 行の後に、削除 2 行と追加 3 行の変更がある "f.txt"
