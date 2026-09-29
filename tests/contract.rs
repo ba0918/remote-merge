@@ -44,6 +44,9 @@ mod diff_file_kinds;
 mod diff_format;
 #[path = "contract/diff_max_files.rs"]
 mod diff_max_files;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_output_cli.rs"]
+mod diff_output_cli;
 #[path = "contract/diff_selection.rs"]
 mod diff_selection;
 #[path = "contract/diff_support.rs"]
