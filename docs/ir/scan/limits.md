@@ -1,6 +1,6 @@
 # ツリー走査の上限
 
-多数のファイルを持つ書き込み先で、一覧が途中までしか取得できない場合の扱い。
+多数のファイルを持つ書き込み先で、一覧が途中までしか取得できない場合の扱いと、パスを指定したときの走査の範囲。
 
 ## Requirements
 
@@ -24,6 +24,37 @@
 - verification: unit
 
 元または先のディレクトリ一覧が件数上限やリンクの循環で不完全なとき、そのディレクトリの merge・sync は削除指定の有無によらず書き込みを開始せず、理由を報告する。
+
+### REQ-scan-008: 上限の超過を案内付きで知らせる
+- kind: event_driven
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A1
+- verification: unit
+
+status・diff・merge・sync の走査が件数の上限を超えたとき、"Tree scan truncated at 上限 entries." で始まり、--max-entries で上限を上げること、設定の max_scan_entries を設定すること、全体を走査せずにファイルのパスを指定することを案内するエラーを出す。
+
+### REQ-scan-009: 指定したパスで走査の範囲を選ぶ
+- kind: state_driven
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2
+- verification: unit
+- definition: TBL-scan-001
+
+status は常に root_dir 全体を走査し、diff・merge・sync は指定したパスによって TBL-scan-001 に従って走査の範囲を選ぶ。
+
+## Decision tables
+
+### TBL-scan-001: 走査の範囲
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2
+
+| 指定したパス | 走査の範囲 |
+|---|---|
+| なし | root_dir 全体 |
+| "."・"./"・空の値のいずれかがある | root_dir 全体 |
+| glob 文字（"*"・"?"・"["）を含むものがある | root_dir 全体 |
+| 21 個以上 | root_dir 全体 |
+| 末尾が "/" のものとそうでないものが混ざる | root_dir 全体 |
+| merge・sync に --delete を付けた | root_dir 全体 |
+| 全て末尾が "/" | それぞれのディレクトリの下だけで、件数の上限はディレクトリごとの走査に当てる |
+| 全て末尾が "/" でない（merge・sync） | 各パスの親ディレクトリの下だけ。root_dir の直下のファイルが含まれれば root_dir 全体 |
 
 ## Examples
 
