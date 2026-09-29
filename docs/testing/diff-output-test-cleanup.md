@@ -47,3 +47,16 @@ JSON は `format_json` を通した文字列を `serde_json` で読み、テキ�
 - 中身の同じバイナリを指定する場合（FLAG-cli-035）と、バイナリでない片側で読めないファイル（FLAG-cli-030）は使わない。
 - errors は、比べられないパスがあるときの出方が diff の次の回（symlink と root_dir の外）の範囲のため、出ないことだけを確かめた。left_start・right_start は値を確かめない（FLAG-cli-032）。
 - REQ-cli-056 のエラーの 2 と REQ-cli-057 の警告と JSON のエラーは、次の節の実行ファイルのテストで確かめる。比べられないファイルによる 2 と通常の出力は diff の次の回の範囲のため確かめない。
+
+### 見つからないパスの警告とエラーの根拠テスト（REQ-cli-057・056、実行ファイル）
+
+根拠テストは `tests/contract/diff_output_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
+標準エラーの警告と、main.rs が出すエラー（テキストでは標準エラーの "Error: …"、JSON では標準出力の {"error": ...}）と終了コード 2 は関数呼び出しでは観測できないため、実行ファイルを試験 SSH サーバに対して `diff --left local --right develop` で起動する。パスを 1〜20 個指定する経路（`run_diff_fast_path`）を通る。
+起動の組み方は `tests/contract/scan_listing_cli.rs` の `launch_status` と同じで（`--config` に一時ディレクトリの設定を渡し、作業ディレクトリを一時ディレクトリの下にし、`env_clear` のうえ HOME・XDG の変数を一時ディレクトリに向けて PATH だけを引き継ぐ）、その補助は status に固定されているため、diff 用の `launch_diff` を同じ形で新しいモジュールに書いた。起動の前に `TestDirs::assert_isolated_config_at` の隔離の確認を通す。
+場合は `tests/cli_diff_general.rs` の test_diff_nonexistent_file を手本にした。
+
+| 要件 | 根拠テスト | 確かめること |
+|---|---|---|
+| REQ-cli-057 | req_cli_057_a_missing_path_is_warned_and_the_rest_are_compared | 変更のある "a.txt" と見つからない "missing.txt" を指定すると、標準エラーに "Warning: 'missing.txt' not found on either side" が出て（"a.txt" の警告とエラーは出ない）、標準出力に "a.txt" の差分が出て、終了コードが 1 になる |
+| REQ-cli-057・056 | req_cli_057_every_path_missing_is_an_error_on_stderr_in_text | 見つからない 2 件を指定したテキストで、標準エラーに 2 件それぞれの警告と "Error: specified path(s) not found on either side" の行が出て、標準出力が空で、終了コードが 2 になる |
+| REQ-cli-057・056 | req_cli_057_every_path_missing_is_a_json_error_on_stdout | 見つからない 1 件を指定した JSON で、標準出力が {"error": "specified path(s) not found on either side"} に一致し、標準エラーに警告が出て、終了コードが 2 になる |
