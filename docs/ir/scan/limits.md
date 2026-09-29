@@ -34,27 +34,26 @@ status・diff・merge・sync の走査が件数の上限を超えたとき、"Tr
 
 ### REQ-scan-009: 指定したパスで走査の範囲を選ぶ
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2, docs/decision/records/2026-09-29-adopt-scan-limits.md#A8
 - verification: unit
 - definition: TBL-scan-001
 
-status は常に root_dir 全体を走査し、diff・merge・sync は指定したパスによって TBL-scan-001 に従って走査の範囲を選ぶ。
+status は常に root_dir 全体を走査し、diff はパスを指定しないとき root_dir 全体を走査し、merge・sync は指定したパスによって TBL-scan-001 に従って走査の範囲を選ぶ。
 
 ## Decision tables
 
-### TBL-scan-001: 走査の範囲
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2
+### TBL-scan-001: merge・sync の走査の範囲
+- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A2, docs/decision/records/2026-09-29-adopt-scan-limits.md#A8
 
 | 指定したパス | 走査の範囲 |
 |---|---|
-| なし | root_dir 全体 |
 | "."・"./"・空の値のいずれかがある | root_dir 全体 |
 | glob 文字（"*"・"?"・"["）を含むものがある | root_dir 全体 |
 | 21 個以上 | root_dir 全体 |
 | 末尾が "/" のものとそうでないものが混ざる | root_dir 全体 |
 | merge・sync に --delete を付けた | root_dir 全体 |
 | 全て末尾が "/" | それぞれのディレクトリの下だけで、件数の上限はディレクトリごとの走査に当てる |
-| 全て末尾が "/" でない（merge・sync） | 各パスの親ディレクトリの下だけ。root_dir の直下のファイルが含まれれば root_dir 全体 |
+| 全て末尾が "/" でない | 各パスの親ディレクトリの下だけ。root_dir の直下のファイルが含まれれば root_dir 全体 |
 
 ## Examples
 
