@@ -63,6 +63,8 @@ mod merge_support;
 mod merge_write;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
+#[path = "contract/scan_limit_scope.rs"]
+mod scan_limit_scope;
 #[path = "contract/scan_limits.rs"]
 mod scan_limits;
 #[cfg(feature = "test-utils")]
