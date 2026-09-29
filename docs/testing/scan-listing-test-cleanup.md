@@ -154,18 +154,18 @@ agent_ssh のテストだけに検知された変異はなかった。
 | src/ssh/tree_parser.rs:80:13 | delete match arm (false, true) in build_tree_from_flat::dir_first_sort（負荷の下の失敗だけ） | `(false, true) => std::cmp::Ordering::Greater,` | 同じ。SSH とエージェントの経路でも `build_tree_from_flat` の後に `tree.sort()` がかかる（src/runtime/core.rs、src/runtime/side_io.rs） | 同じ |
 | src/ssh/tree_parser.rs:131:34 | replace && with \|\| in build_tree_from_flat::insert_into_tree | `if node.is_dir() && node.children.is_none() {` | 書けなかった。末端のファイルと symlink の children が未取得（None）から空（Some）になるが、status の `record_node` はどちらでもそのパスを一覧に積むだけで、他の CLI の経路も種類で判定するか children を運ぶだけだった。空と未取得を見分ける `find_node_or_unloaded` を使うのは src/app/badge.rs と src/handler/reconnect.rs（TUI）だけ | 記録だけする（TUI だけが使う値。ディレクトリの children を未取得にする扱いと同じ区分） |
 | src/ssh/tree_parser.rs:61:41 | replace && with \|\| in parse_find_line | `node.link_is_dir = file_type == "l" && parts.get(6).is_some_and(\|kind\| *kind == "d");` | 書けなかった。変異で SSH の経路のファイルを指す symlink とリンク先のない symlink も link_is_dir が真になり、`into_file_node` でその children が空（Some）になるが、上と同じ理由で CLI の出力は変わらなかった。link_is_dir を読むのは `into_file_node` と TUI（src/app/tree_ops.rs、src/handler/tree_keys.rs）だけ。ディレクトリを指す symlink はもともと真のため、配下の列挙は変わらない | 記録だけする（TUI だけが使う値）。計画は SSH の経路の link_is_dir を「配下の列挙として決着の対象」としていたが、この変異は配下の列挙を変えないため TUI の範囲に入れた。この区分の当て方を利用者の判断に挙げる |
-| src/agent/dispatch.rs:357:24 | replace \|\| with && in resolve_scan_root | `if root.is_empty() \|\| root == "." {` | 書けた。ただし元のコードの振る舞いが不具合の疑いを示した（下） | 未決着。利用者の判断に挙げる |
+| src/agent/dispatch.rs:357:24 | replace \|\| with && in resolve_scan_root | `if root.is_empty() \|\| root == "." {` | 書けた。ただし元のコードの振る舞いが不具合の疑いを示した（下） | FLAG-scan-008 の範囲として決着（[決定記録 A11](../decision/records/2026-09-29-adopt-scan-listing.md#A11)）。テストは足さない |
 
 src/agent/dispatch.rs:357:24 について: エージェントは、左右の root_dir をディレクトリを指す symlink にし、`[filter] include = ["sub"]` を書いた設定で、エージェントを有効にした status を実行するテストを書いた。元のコードでは右の一覧に何も載らず、"sub/g.txt" が "left_only" になり、変異の下では "equal" になった。
 この回でも、そのテストの本文を一時的なモジュールに置いて `cargo nextest run --all-features --no-fail-fast --test contract -E 'test(/zz_probe/)'` で回し、元のコードで通り（"left_only" を期待する形）、変異を書き入れると `left: [("sub/g.txt", "equal")] right: [("sub/g.txt", "left_only")]` で落ちることを確かめた。確かめた後にモジュールを消して `git checkout` で戻し、`git status --short` と `git diff --stat src/` が空に戻ることを確かめた。
 元のコードでは、エージェントは走査の起点を root_dir の symlink のパスのままにし、include の起点は `resolve_include_roots` が実パスに直すため、src/agent/tree_scan.rs の `process_entry` で実パスの下の項目を起点からの相対パスにできず（`strip_prefix` の失敗）、全ての項目を捨てる（実装を読んだ判断）。エージェントの報告では、同じ構成をエージェントを無効にした SSH の経路で実行すると "sub/g.txt" は "equal" になった（この回では確かめていない）。
-変異は起点を実パスに直すため、この食い違いを直す方向に働く。変異を落とすテストは、この不具合らしい振る舞いを固定するテストになるため、足していない。
+変異は起点を実パスに直すため、この食い違いを直す方向に働く。変異を落とすテストは、この不具合らしい振る舞いを固定するテストになるため、足していない。利用者の判断で FLAG-scan-008 として残し、修正はこの整理の後に回す。
 
 #### 不具合の疑いとして報告するもの
 
 | 位置 | 変異 | 行の中身 | 記録 |
 |---|---|---|---|
-| src/ssh/tree_parser.rs:19:20 | replace < with <= in parse_find_line | `if parts.len() < 5 {` | 未決着。build_find_command の出力は、通常の項目で 6 列、symlink で 7 列のため、ちょうど 5 列の行は、名前に改行を含むファイルの出力が行の途中で分かれたときにだけできる（実装を読んだ判断で、実行はしていない）。元のコードはその断片を名前の途中までのファイルとして一覧に載せ、変異はその断片を捨てる。名前に改行を含むファイルの扱いは IR にも旧資料にもなく、どちらの振る舞いを確かめるテストも、要件のない振る舞いを固定することになるため、テストを足していない |
+| src/ssh/tree_parser.rs:19:20 | replace < with <= in parse_find_line | `if parts.len() < 5 {` | FLAG-scan-009 の範囲として決着（[決定記録 A12](../decision/records/2026-09-29-adopt-scan-listing.md#A12)）。build_find_command の出力は、通常の項目で 6 列、symlink で 7 列のため、ちょうど 5 列の行は、名前に改行を含むファイルの出力が行の途中で分かれたときにだけできる（実装を読んだ判断で、実行はしていない）。元のコードはその断片を名前の途中までのファイルとして一覧に載せ、変異はその断片を捨てる。名前に改行を含むファイルの扱いは IR にも旧資料にもなく、どちらの振る舞いを確かめるテストも、要件のない振る舞いを固定することになるため、テストを足していない |
 
 同等変異の登録はしていない（決着の対象の見逃しのうち、試みで書けなかった 5 件は、CLI の出力では違いが出ないが TUI では違いうるため、「全ての観測で同等」とは言えず、記録だけする区分に入れた）。
 計画に従い、この後にテストを足していないため、変異テストは回し直していない。
@@ -183,7 +183,7 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 
 ## 利用者の判断
 
-次の二件の見逃しが不具合の疑いを示したため、未決着のまま報告する。新しい FLAG の候補である。
+次の二件の見逃しが不具合の疑いを示したため、未決着のまま報告した。どちらも新しい FLAG の候補だった。
 
 1. src/agent/dispatch.rs:357:24: root_dir がディレクトリを指す symlink で include を書いたとき、エージェントの経路は右の一覧に何も載せない（実行で確かめた）。ローカルの経路は載せ、エージェントの報告では SSH の経路も載せる。REQ-scan-007（root_dir の symlink を辿る）と REQ-config-023（include の対象を走査する）の組み合わせに反する疑いがある。既存の FLAG-scan-006（include にディレクトリを指す symlink を書いたとき）とは、symlink が root_dir 自体である点で別の場合である。
 2. src/ssh/tree_parser.rs:19:20: 名前に改行を含むファイルの SSH の経路での扱い（find の出力の行の分け方）が IR にない（実装を読んだ判断）。
@@ -192,4 +192,10 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 
 3. src/ssh/tree_parser.rs:61:41: 計画は SSH の経路の link_is_dir を配下の列挙として決着の対象としていたが、この変異は配下の列挙を変えず、CLI の出力でも違いが出なかったため、TUI だけが使う値として記録だけにした。
 
-利用者の判断: （未記入）
+利用者の判断（2026-09-29）:
+
+1. src/agent/dispatch.rs:357:24（root_dir の symlink と include を併せたエージェントの経路）は、新しい FLAG として残した（[決定記録 A11](../decision/records/2026-09-29-adopt-scan-listing.md#A11)、FLAG-scan-008）。修正はこの整理の後に回す。この見逃しは FLAG-scan-008 の範囲として決着させ、テストは足さない。
+2. src/ssh/tree_parser.rs:19:20（名前に改行を含むファイルの SSH の経路）は、欠落の FLAG として残した（[決定記録 A12](../decision/records/2026-09-29-adopt-scan-listing.md#A12)、FLAG-scan-009）。この見逃しは FLAG-scan-009 の範囲として決着させる。
+3. src/ssh/tree_parser.rs:61:41（SSH の経路の link_is_dir）を TUI だけが使う値として記録だけにする区分の当て方は了承された。
+
+テストを変えていないため、変異テストは回し直していない。決着の対象の見逃しは残っていない。
