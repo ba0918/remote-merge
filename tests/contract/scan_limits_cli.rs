@@ -40,9 +40,12 @@ fn many_files(root: &Path) {
     place_files(root, &files);
 }
 
-/// 上限の超過のエラーで終わったことを確かめる。上限の超過のときは標準出力が JSON にならない
+/// 上限の超過のエラーで終わり、一覧（"files" を持つ JSON）が標準出力に返されないことを確かめる
 fn assert_scan_limit_reported(output: &Output) {
     assert!(!output.status.success(), "{output:?}");
+    let listed = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .is_ok_and(|json| json.get("files").is_some());
+    assert!(!listed, "a file list must not be returned: {output:?}");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
