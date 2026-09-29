@@ -101,6 +101,7 @@ fn req_cli_055_directories_are_limited_by_their_changed_files() {
     assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
     assert!(output.truncated);
     assert_eq!(output.changed_files_total, Some(4));
+    assert_eq!(output.summary.files_with_changes, 1);
 }
 
 // @kotowari[REQ-cli-055]
@@ -114,6 +115,7 @@ fn req_cli_055_text_for_directories_counts_the_changed_files_left_out() {
         text.contains("... and 3 more files (truncated, use --max-files 0 for all)"),
         "{text}"
     );
+    assert!(text.contains("1 file(s) with changes"), "{text}");
 }
 
 // @kotowari[REQ-cli-055]
@@ -124,8 +126,10 @@ fn req_cli_055_without_paths_the_same_changed_files_are_counted() {
     assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
     assert!(output.truncated);
     assert_eq!(output.changed_files_total, Some(4));
+    assert_eq!(output.summary.files_with_changes, 1);
     let text = format_multi_diff_text(&output);
     assert!(text.contains("... and 3 more files"), "{text}");
+    assert!(text.contains("1 file(s) with changes"), "{text}");
 }
 
 // @kotowari[REQ-cli-055]
