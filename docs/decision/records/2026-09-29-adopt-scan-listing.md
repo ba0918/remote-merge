@@ -38,3 +38,10 @@ status・diff・merge・sync がツリーを走査したとき一覧に何が載
 - A9 未決の FLAG として残す。[REQ-config-003](../../ir/config/filters.md#REQ-config-003) と [REQ-config-004](../../ir/config/filters.md#REQ-config-004) は exclude と include が merge と sync の走査の対象にも効くとし、[REQ-config-022](../../ir/config/filters.md#REQ-config-022) は "/" を含む exclude のパターンを root_dir からの相対パスに当てるとするが、ディレクトリのパスを指定した merge と sync はそのディレクトリだけを走査し、include を当てず、"/" を含む exclude のパターンを指定したディレクトリからの相対パスに当てる。そのため include の外のファイルや "a/x.txt" のようなパスのパターンで除外したファイルも書き込みの対象になる（merge と sync の --dry-run で確かめた）。同じ指定の diff はそれらを除く。
   - why: 既存要件と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+- A10 A2 のうちエージェントの経路の記述を正す。status のようにパスを指定しない走査では、エージェントは root_dir を実パスに直さず、root_dir をそのまま起点にしてディレクトリを読むため、読む時点で root_dir の symlink を辿る。これは実装を読んで分かったことで未実行。REQ-scan-007 の文は変えない。
+  - why: テスト整理の計画のレビューで、root_dir を実パスに直す処理は走査の起点のパスが空でないときだけ動くと指摘され、コードで確かめた。承認済みの A2 は書き換えず、この決定で正す。
+  - decided_by: 利用者（推奨を採用）
+
+## Revisions
+
+- 2026-09-29: A10 を追加し、A2 のエージェントの経路の記述（root_dir を実パスに直してから走査する）を正した。A2 と REQ-scan-007 は変更しない。
