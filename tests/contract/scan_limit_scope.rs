@@ -3,9 +3,10 @@
 //!
 //! どの範囲を走査したかは、上限を超える範囲を走査したときだけ上限の超過のエラーになることで
 //! 見分ける。左右の root_dir に、ファイル 10 件の "big/"、3 件ずつの "small/" と "small2/"、
-//! 直下のファイル "top.txt" を置き、上限を 5 にする。全体は 5 を大きく超え、"small/" だけ・
-//! "small2/" だけは 5 を大きく下回り、二つを合わせると 5 を超える。ディレクトリを数えるか
-//! どうかで結果が変わらない件数にし、ちょうど上限の件数には触れない。
+//! ファイル 1 件ずつの "one00/" から "one20/" の 21 個、直下のファイル "top.txt" を置き、上限を 5
+//! にする。全体は 5 を大きく超え、"small/" だけ・"small2/" だけ・"oneNN/" の一つだけは 5 を大きく
+//! 下回り、"small/" と "small2/" を合わせると 5 を超える。ディレクトリを数えるかどうかで結果が
+//! 変わらない件数にし、ちょうど上限の件数には触れない。
 //! merge と sync は必ず --dry-run で実行し、書き込みを起こさない。
 
 use std::collections::BTreeSet;
@@ -31,12 +32,20 @@ struct ScopeFixture {
     targets: RuntimeTargets,
 }
 
-/// `root` に "big/"・"small/"・"small2/"・"top.txt" を中身 `content` で置く
+/// 互いに異なる最上位のディレクトリの下のファイルのパス "one00/f.txt" から `count` 個
+fn one_file_paths(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|index| format!("one{index:02}/f.txt"))
+        .collect()
+}
+
+/// `root` に "big/"・"small/"・"small2/"・"one00/" から "one20/"・"top.txt" を中身 `content` で置く
 fn place_tree(root: &Path, content: &str) {
     let mut files: Vec<String> = (0..10).map(|index| format!("big/{index}.txt")).collect();
     for dir in ["small", "small2"] {
         files.extend(["a.txt", "b.txt", "c.txt"].map(|name| format!("{dir}/{name}")));
     }
+    files.extend(one_file_paths(21));
     files.push("top.txt".into());
     for file in files {
         let path = root.join(file);
@@ -232,14 +241,14 @@ fn a_path_with_glob_characters_scans_the_whole_root_dir() {
 // @kotowari[REQ-scan-009]
 #[test]
 fn twenty_one_paths_scan_the_whole_root_dir_but_twenty_do_not() {
+    // 互いに異なる最上位のディレクトリの下のファイルのため、親ディレクトリごとの走査は 1 件ずつで
+    // 上限を大きく下回り、エラーになるかどうかはパスの個数だけで決まる
+    let twenty_one = one_file_paths(21);
+    let twenty_one: Vec<&str> = twenty_one.iter().map(String::as_str).collect();
+    let twenty = &twenty_one[..20];
     for (command, run) in COMMANDS {
-        // 判定は重複を除かずに数えるため、同じパスを重ねて個数だけを変える
-        assert_truncated(run(&["small/a.txt"; 21], false), command);
-        assert_eq!(
-            run(&["small/a.txt"; 20], false).unwrap(),
-            set(&["small/a.txt"]),
-            "{command}"
-        );
+        assert_truncated(run(&twenty_one, false), command);
+        assert_eq!(run(twenty, false).unwrap(), set(twenty), "{command}");
     }
 }
 
