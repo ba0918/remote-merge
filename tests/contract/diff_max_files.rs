@@ -202,17 +202,18 @@ fn req_cli_055_empty_file_on_one_side_is_not_counted_with_file_paths() {
     assert_eq!(output.changed_files_total, None);
 }
 
-// --force で中身を出す機密ファイルは隠さないため、片側にだけある空の機密ファイルも中身を読んで
-// 変更のないものとし、数えも打ち切りもしない
+// --force で中身を出す機密ファイルは隠さないため、左右で中身の同じ機密ファイルは変更のないものとし、
+// 数えも打ち切りもしない
 // @kotowari[REQ-cli-055]
 #[test]
-fn req_cli_055_forced_empty_sensitive_file_on_one_side_is_not_counted() {
+fn req_cli_055_forced_unchanged_sensitive_file_is_not_counted() {
+    let place = |root: &Path, content: &str| {
+        fs::write(root.join("a.txt"), content).unwrap();
+        fs::write(root.join(".env"), "KEY=same\n").unwrap();
+    };
     let fixture = fixture_with(
-        |left| {
-            fs::write(left.join("a.txt"), "left\n").unwrap();
-            fs::write(left.join(".env"), "").unwrap();
-        },
-        |right| fs::write(right.join("a.txt"), "right\n").unwrap(),
+        |left| place(left, "left\n"),
+        |right| place(right, "right\n"),
     );
     let args = DiffArgs {
         paths: vec!["a.txt".into(), ".env".into()],
