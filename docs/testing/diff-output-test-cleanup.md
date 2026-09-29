@@ -175,7 +175,25 @@ MUTANTS_JOBS=1 scripts/mutants.sh --re '(execute_diff|run_diff_fast_path|compute
 
 ### 根拠テストを直した後の回し直し
 
-根拠テストを直した後の、`execute_diff`・`has_changes`・`build_hunks`・`format_multi_diff_text` に絞った回し直し（[決定記録 A2](../decision/records/2026-09-29-mutation-rerun-and-load.md#A2)）は、負荷のため中断し、未実施。流すテストを絞る判断（[決定記録 2026-09-29-mutation-test-selection](../decision/records/2026-09-29-mutation-test-selection.md)）の後に、その設定で回し直す。
+フルレビューの指摘で根拠テストを直した（値の固定を外し、テストを置き換えた）後に、直したテストが確かめる関数に絞って回し直した（[決定記録 A2](../decision/records/2026-09-29-mutation-rerun-and-load.md#A2)）。最初の試みは負荷のため途中で止め、その結果は使っていない。
+流すテストを絞る判断（[決定記録 2026-09-29-mutation-test-selection](../decision/records/2026-09-29-mutation-test-selection.md)）の後の設定（--lib・tests/contract・tests/cli_diff.rs、テストの並列 3、デバッグ情報なし）で、コミット 9c9ff66 の作業ツリーに変更のない状態で行い、実行中は作業ツリーにも他の cargo のコマンドにも触れていない。
+
+```sh
+MUTANTS_JOBS=1 scripts/mutants.sh --re '(execute_diff|has_changes|build_hunks|format_multi_diff_text)' src/cli/diff.rs src/service/types.rs src/diff/engine.rs src/service/output.rs
+```
+
+結果は `mutants: caught=84 survived=21 timeout=0 unviable=4 equivalent=0`（109 件、43 分）。スクリプトの終了コードは 1 で、kotowari mutants が見逃しを error として報告したためである（メモリ上限での停止ではない）。
+
+| ファイル | 関数 | 件数 | caught | survived | unviable |
+|---|---|---|---|---|---|
+| src/cli/diff.rs | execute_diff | 74 | 51 | 20 | 3 |
+| src/diff/engine.rs | build_hunks | 16 | 15 | 0 | 1 |
+| src/service/output.rs | format_multi_diff_text | 8 | 8 | 0 | 0 |
+| src/service/types.rs | DiffOutput::has_changes | 11 | 10 | 1 | 0 |
+
+survived の 21 件は全て下の「見逃しと決着」の表にある。前の回し直しと比べて、src/cli/diff.rs:174:74 と src/service/types.rs:131:32 が見逃しに戻り（上の「見逃しを落とすために足したテスト」のとおりテストを置き換えたため）、src/cli/diff.rs:353:21 が caught と数えられた。
+
+src/cli/diff.rs:353:21（replace || with && in execute_diff）は tests/contract/merge_paths.rs の a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target だけの失敗で caught と数えられた（"linked" を飛ばしたのに "linked/file.txt" を書き込んだ）。変異を一時的に書き入れて、そのテストだけを `cargo nextest run --stress-count 30` で 30 回、同じ絞ったテスト全体を 3 回回すと、どれも通った。変異で落ちたものと確かめられないため survived として扱い、決着は前の回し直しの記録のまま（下の表の 353:21）とする。確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。このテストが一度だけ落ちた原因は調べていない。
 
 ### 見逃しと決着
 
