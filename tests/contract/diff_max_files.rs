@@ -201,3 +201,37 @@ fn req_cli_055_empty_file_on_one_side_is_not_counted_with_file_paths() {
     assert!(!output.truncated);
     assert_eq!(output.changed_files_total, None);
 }
+
+// --force で中身を出す機密ファイルは隠さないため、片側にだけある空の機密ファイルも中身を読んで
+// 変更のないものとし、数えも打ち切りもしない
+// @kotowari[REQ-cli-055]
+#[test]
+fn req_cli_055_forced_empty_sensitive_file_on_one_side_is_not_counted() {
+    let fixture = fixture_with(
+        |left| {
+            fs::write(left.join("a.txt"), "left\n").unwrap();
+            fs::write(left.join(".env"), "").unwrap();
+        },
+        |right| fs::write(right.join("a.txt"), "right\n").unwrap(),
+    );
+    let args = DiffArgs {
+        paths: vec!["a.txt".into(), ".env".into()],
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        format: "json".into(),
+        max_lines: None,
+        max_files: 1,
+        force: true,
+        follow_external_links: false,
+        max_entries: None,
+    };
+
+    let output = execute_diff(args, fixture.config, fixture.targets)
+        .expect("diff failed")
+        .0;
+
+    assert_eq!(changed_paths(&output), vec!["a.txt".to_string()]);
+    assert!(!output.truncated);
+    assert_eq!(output.changed_files_total, None);
+}
