@@ -59,7 +59,7 @@ JSON は `format_json` を通した文字列を `serde_json` で読み、テキ�
 | 要件 | 根拠テスト | 確かめること |
 |---|---|---|
 | REQ-cli-057 | req_cli_057_a_missing_path_is_warned_and_the_rest_are_compared | 変更のある "a.txt" と見つからない "missing.txt" を指定すると、標準エラーに "Warning: 'missing.txt' not found on either side" が出て（"a.txt" の警告とエラーは出ない）、標準出力に "a.txt" の差分が出て、終了コードが 1 になる |
-| REQ-cli-057・056 | req_cli_057_every_path_missing_is_an_error_on_stderr_in_text | 見つからない 2 件を指定したテキストで、標準エラーに 2 件それぞれの警告と "specified path(s) not found on either side" の文が出て、終了コードが 2 になる。行の "Error: " の接頭辞と標準出力が空であることは要件にないため確かめない |
+| REQ-cli-057・056 | req_cli_057_every_path_missing_is_an_error_in_text | 見つからない 2 件を指定したテキストで、標準エラーに 2 件それぞれの警告が出て、標準出力か標準エラーに "specified path(s) not found on either side" の文が出て、終了コードが 2 になる。エラーの文の出力先、行の "Error: " の接頭辞、標準出力が空であることは要件にないため確かめない |
 | REQ-cli-057・056 | req_cli_057_every_path_missing_is_a_json_error_on_stdout | 見つからない 1 件を指定した JSON で、標準出力が JSON として読めて "specified path(s) not found on either side" の文を含み、標準エラーに警告が出て、終了コードが 2 になる。JSON の形（{"error": ...}）は要件にないため確かめない |
 
 ## 整理後の変異テスト

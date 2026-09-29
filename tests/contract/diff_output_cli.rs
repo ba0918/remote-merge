@@ -81,13 +81,17 @@ fn req_cli_057_a_missing_path_is_warned_and_the_rest_are_compared() {
 
 // @kotowari[REQ-cli-057, REQ-cli-056]
 #[test]
-fn req_cli_057_every_path_missing_is_an_error_on_stderr_in_text() {
+fn req_cli_057_every_path_missing_is_an_error_in_text() {
     let output = diff_over_ssh(&["a.txt"], &["missing.txt", "gone.txt"]);
 
     let stderr = stderr(&output);
     assert!(stderr.contains(&warning("missing.txt")), "{output:?}");
     assert!(stderr.contains(&warning("gone.txt")), "{output:?}");
-    assert!(stderr.contains(NOT_FOUND), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(NOT_FOUND) || stderr.contains(NOT_FOUND),
+        "{output:?}"
+    );
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
