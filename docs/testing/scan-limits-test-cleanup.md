@@ -67,8 +67,9 @@ merge と sync は全て `dry_run: true` で実行し、書き込みを起こさ
 
 ## 整理後の変異テスト
 
-変異テストは決着の対象の関数に絞って一度だけ実行した。並列数は既定の 2 である。
-実行したのはテストと記録を足した後のコミット 5cf5fc4 で、作業ツリーに変更のない状態で行い、実行中は作業ツリーに触れていない。
+変異テストは決着の対象の関数の全ての変異を一度実行し（全体の実行）、その後にテストを足したため、全体の実行で caught にならなかった変異を含む関数に絞って回し直した（下の「テストを足した後の回し直し」）。
+全体の実行の並列数は既定の 2 である。
+全体の実行をしたのはテストと記録を足した後のコミット 5cf5fc4 で、作業ツリーに変更のない状態で行い、実行中は作業ツリーに触れていない。
 
 ```sh
 scripts/mutants.sh --re '(check_truncation|resolve_max_entries|resolve_scan_strategy|fast_path_to_parent_dirs|has_root_parent_dir|is_root_marker|has_glob_chars|fetch_tree_by_strategy|fetch_partial_tree|fetch_trees_and_statuses_for_merge|fetch_partial_trees|run_diff_full_scan|fetch_(remote_)?tree_recursive|fetch_(remote_)?tree_for_subpath|walk_single_root|scan_local_tree_recursive_with_include|list_tree_recursive|list_tree\b|handle_list_tree|ScanIterator.*::next)' src/runtime/side_io.rs src/runtime/target_io.rs src/runtime/core.rs src/config.rs src/service/fast_path.rs src/cli/sync.rs src/cli/merge.rs src/cli/diff.rs src/local/mod.rs src/ssh/client.rs src/agent/client.rs src/agent/dispatch.rs src/agent/tree_scan.rs
@@ -130,10 +131,11 @@ timeout の 2 件（src/agent/dispatch.rs:96:9 の handle_list_tree を `vec![]`
 
 nextest は最初の失敗から少し進んで止まるため、cargo-mutants の変異ごとのログに集まる失敗したテストの名前は先に失敗したものだけになる。
 そのため、足したテストが要件の変異で落ちることを、変異（cargo-mutants が書き出した差分）を一時的に書き入れて `cargo nextest run --all-features --no-fail-fast --test contract -E 'test(/scan_limit_scope|scan_limits_cli/)'` を回して確かめた。どれも確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
+表は、全体の実行の後にテストに場合を足した（コミット 19e5499・9db827c・a6077f7。テストの関数は 13 件のまま）後のテストでの結果である。場合を足して落ちるテストが変わりうる check_truncation と 76:42 の二つは、足した後のテスト（コミット de3e2a4）で書き入れて回し直した。check_truncation では、"big/" などで上限の超過を期待する場合を足した directory_paths_scan_only_below_each_directory_with_the_limit_per_directory も落ちるようになり、10 件から 11 件になった。76:42 は変わらなかった。残りの行は、場合を足したテストでも前から落ちていた確かめ方を変えていないため変わらない（テストを読んだ判断で、書き入れて回し直してはいない）。
 
 | 変異 | 落ちた足したテスト（13 件中） |
 |---|---|
-| src/runtime/side_io.rs:1077:5 check_truncation を `Ok(())` にする（上限の超過を報告しない） | 上限の超過を期待する 10 件全て（scan_limit_scope の 8 件と scan_limits_cli の上限の超過の 2 件） |
+| src/runtime/side_io.rs:1077:5 check_truncation を `Ok(())` にする（上限の超過を報告しない） | 上限の超過を期待する 11 件全て（scan_limit_scope の 9 件全てと scan_limits_cli の上限の超過の 2 件） |
 | src/service/fast_path.rs:70:20 replace > with >= in resolve_scan_strategy（20 個で全体を走査する） | twenty_one_paths_scan_the_whole_root_dir_but_twenty_do_not |
 | src/service/fast_path.rs:76:42 delete ! in resolve_scan_strategy（全て末尾が "/" でも全体を走査する） | directory_paths_scan_only_below_each_directory_with_the_limit_per_directory |
 | src/service/fast_path.rs:101:5 has_glob_chars を false にする | a_path_with_glob_characters_scans_the_whole_root_dir |
@@ -184,7 +186,35 @@ src/runtime/side_io.rs:783:9 について（実装を読んだ判断で、変異
 変異を落とすテストは、(1) これらの FLAG の挙動の違いを確かめるもの（計画の止める条件に当たる）か、(2) 試験サーバが受けたコマンドで部分走査がエージェントの経路を通ったことを確かめるもの、になる。(2) は、走査の一覧のテストで「経路の取り違えを防ぐ前提の確認で、要件の観測ではない」とした確認で変異を落とすことになり、IR に部分走査がエージェントを使うことの要件はない。
 そのため、既存の FLAG の範囲として記録し、テストは足さない案とした。部分走査の経路を要件にするかどうか（(2) のテストを足すか）を利用者の判断に挙げる。
 
-同等変異の登録はしていない。この後にテストを足していないため、変異テストは回し直していない。
+同等変異の登録はしていない。
+
+### テストを足した後の回し直し
+
+全体の実行の後、テストに場合を足した（コミット 19e5499・9db827c・a6077f7。テストを消す・書き換える変更と、製品のコードの変更はない）。
+そのため、[決定記録 A2](../decision/records/2026-09-29-mutation-rerun-and-load.md#A2) が認める回し直しとして、全体の実行で見逃しかタイムアウトになった変異を含む関数だけに `--re` で絞って回し直し、結果を上の全体の実行の記録と合わせて読む。
+対象の関数は、見逃しの src/agent/dispatch.rs:103:13・104:13 と src/runtime/side_io.rs:783:9、タイムアウトの src/agent/dispatch.rs:96:9 と src/agent/tree_scan.rs:123:9 を含む `Dispatcher::handle_list_tree`・`CoreRuntime::try_agent_fetch_tree_for_subpath`・`ScanIterator::next_valid_path` である。
+src/ssh/client.rs の `SshClient::build_client_config` のフィールドを消す変異（213:13・214:13・215:13）はどの対象の関数の外でもあるため回し直さず、上の記録のままとする。
+
+実行したのはコミット de3e2a4 で、作業ツリーに変更のない状態で行い、実行中は作業ツリーにも他の cargo のコマンドにも触れていない。
+PC の負荷を抑えるため並列数を 1 にした（スクリプトはサービスを CPUWeight=idle と Nice=19 で動かす）。
+
+```sh
+MUTANTS_JOBS=1 scripts/mutants.sh --re '(handle_list_tree|try_agent_fetch_tree_for_subpath|next_valid_path)' src/agent/dispatch.rs src/runtime/side_io.rs src/agent/tree_scan.rs
+```
+
+結果は `mutants: caught=6 survived=3 timeout=2 unviable=1 equivalent=0`（12 件、11 分）。スクリプトの終了コードは 1 で、kotowari mutants が見逃しを error として報告したためである（メモリ上限での停止ではない）。
+12 件は全体の実行でのこの三つの関数の件数（8・2・2）と同じで、変異ごとの結果も全体の実行と同じだった。
+
+| 位置 | 変異 | 全体の実行 | 回し直し |
+|---|---|---|---|
+| src/agent/dispatch.rs:103:13 | delete field include（handle_list_tree） | survived | survived |
+| src/agent/dispatch.rs:104:13 | delete field max_entries（handle_list_tree） | survived | survived |
+| src/runtime/side_io.rs:783:9 | try_agent_fetch_tree_for_subpath を None にする | survived | survived |
+| src/agent/dispatch.rs:96:9 | handle_list_tree を `vec![]` にする | timeout | timeout |
+| src/agent/tree_scan.rs:123:9 | next_valid_path を `Some(Default::default())` にする | timeout | timeout |
+
+残りの 7 件（handle_list_tree の caught 4 件と unviable 1 件、next_valid_path を None にする変異の caught、try_agent_fetch_tree_for_subpath を `Some(Ok(Default::default()))` にする変異の caught）も全体の実行と同じ結果で、caught の変異を落としたテストは src/agent の単体テストと tests/cli_merge.rs の test_merge_directory で、負荷の下で落ちるテストだけに検知された変異はなかった。
+新しい見逃しはなく、見逃しの 3 件は上の「見逃しと決着」の区分と決着のままである。足したテストで caught に変わった見逃しはない。
 
 ## 要件の verification の見直し
 
@@ -212,4 +242,4 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 1. src/agent/dispatch.rs:104:13（エージェントの走査に max_entries が渡らない）は、案どおり TUI の範囲（`fail_on_truncation` が偽の走査が受け取る一覧）として記録だけにする。引き継ぎ先は凍結中の TUI。
 2. src/runtime/side_io.rs:783:9（エージェントを有効にしたサーバの部分走査が SSH の経路に切り替わる）は、案どおり既存の FLAG（FLAG-scan-010・011・013・001）の範囲として記録し、経路を確かめるだけのテストは足さない。
 
-テストを変えていないため、変異テストは回し直していない。決着の対象の見逃しは残っていない。
+この判断の後にテストに場合を足し、上の「テストを足した後の回し直し」で見逃しの結果が変わらないことを確かめた。決着の対象の見逃しは残っていない。
