@@ -41,3 +41,24 @@ merge と sync は全て `dry_run: true` で実行し、書き込みを起こさ
 
 - 判定表の行ごとにテストを分け、各テストの中で merge と sync を同じ場合で回した。
 - merged の比較は集まり（`BTreeSet`）で行い、重ねて指定したパスが merged で一つにまとまるかどうかには触れない。
+
+### 上限の超過と上限の内の一覧をリモートの経路で（EX-scan-008・009、REQ-scan-004）
+
+根拠テストは `tests/contract/scan_limits_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
+既存の `tests/contract/scan_limits.rs` の status_reports_a_scan_limit_instead_of_returning_a_partial_file_list と status_uses_the_explicit_limit_and_lists_every_file_when_it_fits は関数呼び出しでローカルの経路だけを通るため、前の回の[記録](./scan-listing-test-cleanup.md)の `tests/contract/scan_listing_cli.rs` と同じ組み方で、実行ファイルを試験 SSH サーバに対して `status --left local --right develop --all --format json --max-entries <上限>` で起動する。
+起動の前後の確認（`--config` と一時ディレクトリの作業ディレクトリ、`env_clear`、SSH の経路の `TestDirs::assert_isolated_config_at`、エージェントの経路の `assert_isolated_agent_config` と、起動の後の試験サーバのコマンドの記録で " agent --root " があり "find -L" がないことの確認）は前の回のテストと同じで、補助を共有した。
+共有のため、`scan_listing_cli.rs` の起動の補助 `launch_status`・`status_over_ssh` に status の後に足す引数を渡せるようにし、エージェントの経路の起動を一覧に直す前の出力を返す `AgentFixture::status_via_agent` に分け、これらと `statuses_by_path`・`AgentFixture` をモジュールの外から使えるようにした。前の回のテストの中身と期待は変えていない。
+
+上限の超過のエラーの文は三つの経路で同じで、どちらの側の走査かを示さない。左の走査が先にエラーになると右の経路を通らずに通ってしまうため、上限の超過の場合は左の local の root_dir をファイル 1 件にし、右だけにファイル 10 件を置いて上限を 3 にした。
+上限の超過のときは標準出力が JSON にならないため、終了コードが 0 以外であることと、標準出力と標準エラーをつないだものに "Tree scan truncated" が含まれることで確かめる。
+使い捨ての確認として、同じ構成のまま上限だけを 50 にするとこの二つのテストが失敗する（status が成功する）ことを確かめ、エラーが右の走査の上限で起きていることを確かめた（確かめた後に元に戻した）。
+上限の内の場合は左右に同じ 3 件（"a.txt"、"dir/b.txt"、"dir/c.txt"）を置いて上限を 50 にし、一覧がその 3 件の "equal" だけに一致する（`assert_eq!`）ことで、右の経路が打ち切らずに全てのファイルを載せたことを確かめる。
+
+| 例 | 経路 | 根拠テスト | 確かめること |
+|---|---|---|---|
+| EX-scan-008 | SSH | status_reports_a_scan_limit_on_the_remote_side_over_ssh | 左 1 件・右 10 件・上限 3 で、終了コードが 0 以外になり "Tree scan truncated" が出る |
+| EX-scan-008 | エージェント | status_reports_a_scan_limit_on_the_remote_side_via_the_agent | 同じ構成と期待。エージェントで走査したことを起動の後に確かめる |
+| EX-scan-009 | SSH | status_lists_every_remote_file_within_the_scan_limit_over_ssh | 左右に同じ 3 件・上限 50 で、終了コードが 0 で、一覧が 3 件の "equal" だけになる |
+| EX-scan-009 | エージェント | status_lists_every_remote_file_within_the_scan_limit_via_the_agent | 同じ構成と期待。エージェントで走査したことを起動の後に確かめる |
+
+- ファイルの数と上限には十分な差を取り、件数の数え方（FLAG-scan-010）とちょうど上限の件数（FLAG-scan-011）に触れない。
