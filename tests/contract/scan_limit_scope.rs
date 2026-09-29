@@ -234,7 +234,9 @@ fn a_root_marker_or_an_empty_path_scans_the_whole_root_dir() {
 #[test]
 fn a_path_with_glob_characters_scans_the_whole_root_dir() {
     for (command, run) in COMMANDS {
-        assert_truncated(run(&["small/*.txt"], false), command);
+        for path in ["small/*.txt", "small/?.txt", "small/[ab].txt"] {
+            assert_truncated(run(&[path], false), &format!("{command} {path:?}"));
+        }
     }
 }
 
@@ -277,6 +279,12 @@ fn directory_paths_scan_only_below_each_directory_with_the_limit_per_directory()
             set(&["small/a.txt", "small/b.txt", "small/c.txt"]),
             "{command}"
         );
+        assert_truncated(run(&["big/"], false), &format!("{command} big/"));
+        // 二つ目のディレクトリも走査する
+        assert_truncated(
+            run(&["small/", "big/"], false),
+            &format!("{command} small/ big/"),
+        );
         // 二つを合わせると上限を超えるが、上限はディレクトリごとの走査に当てる
         assert_eq!(
             run(&["small/", "small2/"], false).unwrap(),
@@ -301,6 +309,18 @@ fn file_paths_scan_only_their_parent_directories_unless_one_is_directly_under_th
             run(&["small/a.txt"], false).unwrap(),
             set(&["small/a.txt"]),
             "{command}"
+        );
+        // 二つの親ディレクトリを合わせると上限を超えるが、root_dir 全体は走査せずエラーにならない
+        assert_eq!(
+            run(&["small/a.txt", "small2/a.txt"], false).unwrap(),
+            set(&["small/a.txt", "small2/a.txt"]),
+            "{command}"
+        );
+        // 親ディレクトリ "big/" の走査は上限を超える。二つ目のパスの親ディレクトリも走査する
+        assert_truncated(run(&["big/0.txt"], false), &format!("{command} big/0.txt"));
+        assert_truncated(
+            run(&["small/a.txt", "big/0.txt"], false),
+            &format!("{command} small/a.txt big/0.txt"),
         );
         assert_truncated(run(&["top.txt"], false), command);
     }
