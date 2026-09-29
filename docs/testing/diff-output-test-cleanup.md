@@ -24,12 +24,13 @@ JSON は `format_json` を通した文字列を `serde_json` で読み、テキ�
 
 | 要件 | 根拠テスト | 確かめること |
 |---|---|---|
-| REQ-cli-052 | req_cli_052_without_paths_every_changed_file_in_the_root_dir_is_compared | パスなしで、root_dir の直下と "d/" の下の変更のあるファイルが出て、変更のない "same.txt" は出ない |
+| REQ-cli-052 | req_cli_052_without_paths_every_changed_file_in_the_root_dir_is_compared | パスなしで、root_dir の直下の "a.txt" と "d/" の下の "d/b.txt"（どちらも変更のあるファイル）が出る。変更のない "same.txt" が出ないことは要件にないため確かめない |
 | REQ-cli-052 | req_cli_052_file_paths_compare_only_those_files | 変更のあるファイル 3 件のうち 2 件のパスを指定すると、その 2 件だけが出る |
 | REQ-cli-052 | req_cli_052_directory_path_compares_its_children_with_or_without_a_slash | "d/" の指定で "d/" の下（孫を含む）の変更のあるファイルだけが出て、ほかのディレクトリと直下のファイルは出ない。"d" の指定と JSON の文字列と終了コードが一致する |
 | REQ-cli-001 | req_cli_001_directory_json_has_a_structured_entry_for_each_changed_file | ディレクトリを指定した JSON の files が配下の 2 件の項目を持ち、それぞれの hunks の lines が削除と追加の行になる |
-| REQ-cli-053 | req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys | 打ち切らない JSON の上位のキーが files と summary だけで（truncated・changed_files_total・errors がない）、テキストの項目のキーが path・left・right・sensitive・truncated・hunks だけで（binary・left_hash・right_hash・note がない）、left と right の label と root、hunks の index・left_start・right_start が数であること、lines の type が "context"・"removed"・"added" の三つになり content が行の中身であること |
+| REQ-cli-053 | req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys | 打ち切らない JSON の上位のキーが files と summary だけで（truncated・changed_files_total・errors がない）、テキストの項目のキーが path・left・right・sensitive・truncated・hunks だけで（binary・left_hash・right_hash・note がない）、left と right の label が "local" と "develop" で root が文字列であること（root の書き方は要件にないため確かめない）、hunks の index・left_start・right_start が数であること、lines の type が "context"・"removed"・"added" の三つになり content が行の中身であること |
 | REQ-cli-053 | req_cli_053_binary_hashes_and_note_appear_only_on_the_files_they_apply_to | テキスト・バイナリ・機密ファイルを並べて比べ、binary・left_hash・right_hash がバイナリの項目だけに、note が機密ファイルの項目だけに出る。errors が出ない |
+| REQ-cli-053 | req_cli_053_json_has_truncated_and_changed_files_total_when_max_files_truncates | 変更のあるテキストファイル 2 件を --max-files 1 で比べると、JSON の上位に truncated が true、changed_files_total が 2 で出る |
 | REQ-cli-054 | req_cli_054_change_lines_stop_at_the_limit_without_counting_context | 文脈 3 行の後に削除 2 行と追加 3 行の変更があるファイルで --max-lines 3 のとき、追加と削除の行が 3 行（削除 2 行と最初の追加 1 行）で止まり、前の文脈の行も出て、truncated が true で、テキストに "... (output truncated)" が出る。文脈の行を数えると変更の行が一行も出ないため、文脈を数えないことが分かる |
 | REQ-cli-054 | req_cli_054_zero_or_no_limit_outputs_every_change_line | 同じファイルで --max-lines 0 と指定なしのそれぞれで、5 行全てが出て truncated が false で、"(output truncated)" が出ない |
 | REQ-cli-056 | req_cli_056_exit_code_is_zero_without_changes_and_one_with_changes | 変更のないテキストファイルで 0、変更のあるテキストファイルで 1 |
@@ -51,15 +52,15 @@ JSON は `format_json` を通した文字列を `serde_json` で読み、テキ�
 ### 見つからないパスの警告とエラーの根拠テスト（REQ-cli-057・056、実行ファイル）
 
 根拠テストは `tests/contract/diff_output_cli.rs` にある（`test-utils` の feature が要る。SSH の試験サーバを使うため）。
-標準エラーの警告と、main.rs が出すエラー（テキストでは標準エラーの "Error: …"、JSON では標準出力の {"error": ...}）と終了コード 2 は関数呼び出しでは観測できないため、実行ファイルを試験 SSH サーバに対して `diff --left local --right develop` で起動する。パスを 1〜20 個指定する経路（`run_diff_fast_path`）を通る。
+標準エラーの警告と、main.rs が出すエラー（テキストでは標準エラー、JSON では標準出力の JSON）と終了コード 2 は関数呼び出しでは観測できないため、実行ファイルを試験 SSH サーバに対して `diff --left local --right develop` で起動する。パスを 1〜20 個指定する経路（`run_diff_fast_path`）を通る。
 起動の組み方は `tests/contract/scan_listing_cli.rs` の `launch_status` と同じで（`--config` に一時ディレクトリの設定を渡し、作業ディレクトリを一時ディレクトリの下にし、`env_clear` のうえ HOME・XDG の変数を一時ディレクトリに向けて PATH だけを引き継ぐ）、その補助は status に固定されているため、diff 用の `launch_diff` を同じ形で新しいモジュールに書いた。起動の前に `TestDirs::assert_isolated_config_at` の隔離の確認を通す。
 場合は `tests/cli_diff_general.rs` の test_diff_nonexistent_file を手本にした。
 
 | 要件 | 根拠テスト | 確かめること |
 |---|---|---|
 | REQ-cli-057 | req_cli_057_a_missing_path_is_warned_and_the_rest_are_compared | 変更のある "a.txt" と見つからない "missing.txt" を指定すると、標準エラーに "Warning: 'missing.txt' not found on either side" が出て（"a.txt" の警告とエラーは出ない）、標準出力に "a.txt" の差分が出て、終了コードが 1 になる |
-| REQ-cli-057・056 | req_cli_057_every_path_missing_is_an_error_on_stderr_in_text | 見つからない 2 件を指定したテキストで、標準エラーに 2 件それぞれの警告と "Error: specified path(s) not found on either side" の行が出て、標準出力が空で、終了コードが 2 になる |
-| REQ-cli-057・056 | req_cli_057_every_path_missing_is_a_json_error_on_stdout | 見つからない 1 件を指定した JSON で、標準出力が {"error": "specified path(s) not found on either side"} に一致し、標準エラーに警告が出て、終了コードが 2 になる |
+| REQ-cli-057・056 | req_cli_057_every_path_missing_is_an_error_on_stderr_in_text | 見つからない 2 件を指定したテキストで、標準エラーに 2 件それぞれの警告と "specified path(s) not found on either side" の文が出て、終了コードが 2 になる。行の "Error: " の接頭辞と標準出力が空であることは要件にないため確かめない |
+| REQ-cli-057・056 | req_cli_057_every_path_missing_is_a_json_error_on_stdout | 見つからない 1 件を指定した JSON で、標準出力が JSON として読めて "specified path(s) not found on either side" の文を含み、標準エラーに警告が出て、終了コードが 2 になる。JSON の形（{"error": ...}）は要件にないため確かめない |
 
 ## 整理後の変異テスト
 
@@ -135,10 +136,14 @@ src/diff/engine.rs の 205:46（compute_diff）・436:37・442:31（make_hunk）
 | src/cli/diff.rs:549:50 replace != with == in execute_diff | ディレクトリの配下のバイナリを出す条件 | req_cli_061_a_changed_binary_under_a_directory_is_reported（REQ-cli-061・052） |
 | src/diff/engine.rs:426:28 replace + with - in build_hunks | 新しい hunk の終わりの位置 | req_cli_058_distant_changes_are_shown_in_separate_hunks（REQ-cli-058。二つ目の hunk を一行だけの削除にした） |
 | src/service/output.rs:276:14 replace > with >= in format_multi_diff_text | ファイルの間の区切りの改行 | req_cli_058_text_starts_with_the_first_file_header（REQ-cli-058） |
-| src/cli/diff.rs:174:74 delete ! in execute_diff | 読まずに数える機密ファイルを --force なしに限る条件 | req_cli_055_forced_empty_sensitive_file_on_one_side_is_not_counted（REQ-cli-055、tests/contract/diff_max_files.rs） |
-| src/service/types.rs:131:32 replace && with \|\| in DiffOutput::has_changes | 機密ファイルを変更のあるファイルに数える条件 | 同上（回し直しで caught になった） |
 
 req_cli_058_nearby_changes_are_all_shown_with_their_context（文脈の範囲で近い二つの変更が一つの hunk に並ぶ）も同じ build_hunks の結合の場合を確かめるために足したが、426:28 はこのテストでは落ちなかった（結合の側の行は変異の行と別で、二つ目の変更の後の行で hunk の終わりが求め直されるため）。
+
+src/cli/diff.rs:174:74（delete ! in execute_diff。読まずに数える機密ファイルを --force なしに限る条件）と src/service/types.rs:131:32（replace && with || in DiffOutput::has_changes。機密ファイルを変更のあるファイルに数える条件）は、最初は `tests/contract/diff_max_files.rs` の req_cli_055_forced_empty_sensitive_file_on_one_side_is_not_counted（左にだけ空の ".env" を置き、--force で指定する）で落としていた。
+このテストは片側にだけある 0 バイトのファイルを変更なしと扱うこと（FLAG-cli-038）に頼っていたため、左右に中身の同じ ".env" を置く req_cli_055_forced_unchanged_sensitive_file_is_not_counted に置き換えた（パス "a.txt" と ".env"、--max-files 1、--force で、"a.txt" だけが数えられ打ち切らない）。
+置き換えたテストはどちらの変異でも落ちない。二つの変異を一つずつ一時的に書き入れて上と同じ `cargo nextest run` を回すと、どちらも 37 件全てが通った（確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた）。
+パスを指定する経路では左右で中身の同じファイルは比べる対象に入らず、ディレクトリを指定した場合も --force の変更のない ".env" は項目に出なかった（使い捨ての確認。テストのファイルは元に戻した）。
+二つの変異で出力が変わるのは、中身を読むまで変更のないことが分からない機密ファイル（片側にだけある 0 バイトのファイル、FLAG-cli-041 のファイル、読めないファイル）を --force で比べる場合だけで、どれも FLAG の範囲に触れるため、下の「見逃しと決着」で FLAG の範囲として決着とした。
 
 ### テストを足した後の回し直し
 
@@ -167,6 +172,10 @@ MUTANTS_JOBS=1 scripts/mutants.sh --re '(execute_diff|run_diff_fast_path|compute
 | src/service/types.rs | DiffOutput::has_changes | 11 | 11 | 0 | 0 |
 
 回し直しでは src/cli/diff.rs:718:21 replace && with || in run_diff_fast_path が agent_ssh_deploy の agent_ssh_read_files_roundtrip だけの失敗で caught と数えられた。変異を一時的に書き入れて全てのテストを `cargo nextest run --all-features --no-fail-fast` で回すと、tests/contract/cli_results.rs の different_binary_files_report_hashes_without_text_lines が落ち（ほかは通った）、負荷に頼らないテストで落ちるため caught のまま扱う（nextest が最初の失敗から少し進んで止まるため、ログには先に落ちたテストだけが残った）。確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
+
+### 根拠テストを直した後の回し直し
+
+根拠テストを直した後の、`execute_diff`・`has_changes`・`build_hunks`・`format_multi_diff_text` に絞った回し直し（[決定記録 A2](../decision/records/2026-09-29-mutation-rerun-and-load.md#A2)）は、負荷のため中断し、未実施。流すテストを絞る判断（[決定記録 2026-09-29-mutation-test-selection](../decision/records/2026-09-29-mutation-test-selection.md)）の後に、その設定で回し直す。
 
 ### 見逃しと決着
 
@@ -197,8 +206,12 @@ MUTANTS_JOBS=1 scripts/mutants.sh --re '(execute_diff|run_diff_fast_path|compute
 | src/cli/diff.rs:549:30 | replace && with \|\| in execute_diff | ディレクトリの配下のバイナリを、ハッシュが違うときだけ出す | 中身の同じバイナリの扱い（FLAG-cli-035）。変異では配下の中身の同じバイナリも "Binary files differ" として出る |
 | src/cli/diff.rs:718:48 | replace \|\| with && in run_diff_fast_path | 指定した中身の同じファイルがバイナリか | 中身の同じバイナリの扱い（FLAG-cli-035）。中身が同じため左右のバイナリの判定は同じになり、差が出ない（実装を読んだ判断） |
 | src/cli/diff.rs:875:8 | delete ! in compute_statuses_and_resolve | メタデータだけでは決まらないファイルの中身を比べるか | 状態の判定（REQ-cli-027 の範囲） |
+| src/cli/diff.rs:174:74 | delete ! in execute_diff | 読まずに数える機密ファイルを --force なしに限る条件 | 片側にだけある中身のないファイル（FLAG-cli-038）。落とせるのは --force で片側にだけある 0 バイトの機密ファイルを指定する場合で、FLAG-cli-038 の扱いに頼るため（上の「見逃しを落とすために足したテスト」） |
+| src/service/types.rs:131:32 | replace && with \|\| in DiffOutput::has_changes | 機密ファイルを変更のあるファイルに数える条件 | files_with_changes と --max-files が数えるもの（FLAG-cli-034）。変異では --force で中身を出した変更のない機密ファイルも数える。落とせる入力は上と同じく FLAG-cli-038 に頼る |
 
-#### 決着していない見逃し（利用者の判断を求める）
+#### 利用者の判断で決着した見逃し
+
+この表は記録を出した時点で決着していなかった見逃しで、状況の欄はその時点のものである。どれも下の「利用者の判断」で決着した。
 
 | 位置 | 変異 | 行の中身 | 状況 |
 |---|---|---|---|
@@ -206,7 +219,7 @@ MUTANTS_JOBS=1 scripts/mutants.sh --re '(execute_diff|run_diff_fast_path|compute
 | src/cli/diff.rs:183:16 | delete ! in execute_diff | 読まずに数える対象を、展開した子でないパスに限る | 別の文脈のエージェントに落とすテストを書かせたところ、下の「不具合の疑い」の 2 の入力で落とせるという回答だった。そのテストは不具合の疑いのある挙動を固定するため足していない |
 | src/cli/diff.rs:722:25 | replace != with == in run_diff_fast_path | 読まずに数えるための大きさを、変更のあるファイルだけに記録する | 同上（同じ入力で落とせる） |
 | src/service/max_files.rs:32:56 | replace > with >= in changes_without_reading | 左右にあるファイルを読まずに数えるのは、どちらも 0 バイトより大きく大きさが違うとき | 同じエージェントの回答では、左が 0 バイトより大きいのに読めず（パーミッション 000 か 100MB 超）右が 0 バイトのとき、元のコードは読んで変更なしとし、変異は読まずに数えて打ち切りと報告する。読めないファイルの扱い（FLAG-cli-030・039）に触れるテストになるため足していない |
-| src/cli/diff.rs:214:54 | replace == with != in execute_diff | 項目のステータスを探す（片側にだけあるときにない側の読み込みの警告を抑える） | 変異では片側にだけあるファイルのない側について標準エラーに "Warning: …: … (treating as empty)" が出る（実装を読んだ判断）。この警告を出さないことは IR にない。計画の区分のどれにも当てはまらない |
+| src/cli/diff.rs:214:54 | replace == with != in execute_diff | 項目のステータスを探す（片側にだけあるときにない側の読み込みの警告を抑える） | 変異では片側にだけあるファイルのない側について標準エラーに "Warning: …: … (treating as empty)" が出る（実装を読んだ判断）。この警告を出さないことは IR にない。計画の区分のどれにも当てはまらない。利用者の判断の 4 で FLAG-cli-030 の範囲として決着し、片側にだけあるファイルのない側の "treating as empty" の警告は FLAG-cli-038 にも書かれているため、引き継ぎ先に FLAG-cli-038 を併記する |
 | src/cli/diff.rs:965:16 | delete ! in read_file_bytes_tolerant | quiet でないときだけ読めない側の警告を出す | 変異では警告の出る場合と出ない場合が反転する（実装を読んだ判断）。上と同じく警告の出し方は IR になく、区分に当てはまらない |
 
 同等変異の登録はしていない。
