@@ -44,3 +44,46 @@ scripts/mutants.sh \
 
 `execute_diff` の中の symlink の参照先が root_dir の外かを見る部分も、実パスに直した root_dir を使うように変えたが、500 行を超える関数全体に広げないため、この回では回していない。
 この部分の腕を消す変異は、既に同等変異として登録されている（.kotowari/mutants-equivalents.yaml）。登録の理由（同じループの先頭の確かめが同じパスと同じ root_dir で同じ比較をする）は、どちらも実パスに直した root_dir を使うようになった後も成り立つ。
+
+## 機密の連鎖の判定の修正
+
+### 指摘
+
+上の修正の後のレビューで、機密の連鎖の判定（`sensitive_link_chain`）が漏れの原因になりうるという指摘を受けた。
+この判定は、連鎖の段のリンク文字列が絶対パスのとき、設定に書いた root_dir の文字列で前置きを外して次の段を辿り、外せなければ機密ではないとして辿るのをやめていた。
+root_dir が symlink を経由し、リンク文字列が実パスの形の絶対パスで書かれていると前置きを外せず、途中の段の名前が機密パターンに当たっても見ない。
+上の修正の前はこのファイルを root_dir の外として比べなかったが、修正の後は中として比べるため、--force なしの diff で最終参照先の中身が出る。
+これは [REQ-cli-023](../ir/cli/symlink-diff.md#REQ-cli-023)（入れ子の各段のリンク文字列が機密パターンに当たれば、root_dir の内外を問わず --force なしでは中身を表示しない）に反する。
+
+### テストと RED
+
+symlink にした側の root_dir の中だけに、連鎖 a.txt → "<root_dir の実パス>/mid" → "secret.pem" → "plain.txt" を置き、もう一方の側の a.txt は通常のファイルにして、--force なしの JSON で diff する。
+標準出力に plain.txt の中身の目印が出ないことと、a.txt の項目が出ることを確かめる（何も出さずに失敗した場合と区別するため）。文言と終了コードの値は IR が定めないため確かめない。
+
+| テスト（tests/cli_diff.rs、`// @kotowari[REQ-cli-023]`） | 構成 |
+|---|---|
+| sensitive_chain_link_under_a_local_root_dir_through_a_symlink_hides_contents | 左（ローカル）の root_dir を symlink にし、リンク文字列を実パスの形にする |
+| sensitive_chain_link_under_a_remote_root_dir_through_a_symlink_hides_contents | 右（SSH、エージェントは無効）の root_dir を symlink にし、リンク文字列を実パスの形にする |
+| sensitive_chain_link_written_through_the_configured_root_dir_hides_contents | 左右それぞれで、リンク文字列を設定に書いた root_dir（symlink）の形にする |
+
+修正の前（コミット 928fa99）は、上の二つが目印の確かめで落ちた。どちらも a.txt の項目の "sensitive" が false で、hunks に目印の行が出ており、漏れが実際に起きることを確かめた。
+
+### 修正
+
+`sensitive_link_chain` は、絶対パスのリンク文字列の前置きを、実パスに直した root_dir（execute_diff で側ごとに求めたもの）で外し、外せなければ設定に書いた root_dir で外す。どちらかで外せれば次の段を辿る。
+設定に書いた root_dir の形のリンク文字列は修正の前から辿れていた。三つ目のテストは、この扱いが修正の後も残ることを確かめるために後から足したもので、足したときから通った。このテストが設定の root_dir で外す部分を壊すと落ちることは、その部分を一時的に消して確かめてはいない（安全の確かめを一時的にも弱めないため）。下の変異テストもこの部分の変異を作らない。
+
+### 変異テスト
+
+修正のコミット 76a46f8 で、`sensitive_link_chain` と、それが使う `real_root_dir` に絞って回した（`execute_diff` の変更は呼び出しの引数だけのため含めていない）。
+
+```sh
+scripts/mutants.sh \
+  --re ' in (sensitive_link_chain|real_root_dir)$' \
+  --re 'replace (sensitive_link_chain|real_root_dir) -> ' \
+  src/cli/diff.rs
+```
+
+事前の `cargo mutants --list` は 8 件（sensitive_link_chain 7 件、real_root_dir 1 件）だった。
+結果は `mutants: caught=8 survived=0 timeout=0 unviable=0 equivalent=0`（約 4 分）で、決着の対象になる見逃しはない。
+cargo-mutants は `.or_else(|_| candidate.strip_prefix(root))` の中の変異を作らなかった。この部分は上の三つ目のテストで確かめる。
