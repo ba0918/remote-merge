@@ -275,13 +275,6 @@ REQ-cli-009 はバイナリの一致または不一致を示すとするが、�
 
 正しい UTF-8 のテキストでも、先頭の 8,192 バイトの境目で多バイトの文字が切れるとバイナリと判定される。REQ-cli-061 の「先頭 8,192 バイトに不正な UTF-8 を含む」に境目で切れた文字が当たるかは読み分けられない。
 
-### FLAG-cli-043: symlink を経由する root_dir の diff
-- kind: contradiction
-- related: REQ-cli-026
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A1
-
-REQ-cli-026 は root_dir 内の symlink を通常どおり辿り root_dir の外へ出る参照先だけを --follow-external-links のときに辿るとするが、設定の root_dir が symlink を経由するとき、diff は root_dir の中の通常のファイルまで "content not compared (outside root_dir; use --follow-external-links)" のエラーにし、終了コード 2 を返す。
-
 ### FLAG-cli-044: SSH の側だけ参照先がない symlink
 - kind: contradiction
 - related: REQ-cli-022
