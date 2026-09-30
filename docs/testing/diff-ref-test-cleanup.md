@@ -222,3 +222,96 @@ tests/contract/cli_results.rs の二件は変えていない。
 - status の整理と同じく、実行ファイルを起動する tests/ の直下の重複テストだけを消し、失敗の場所がすぐ分かる速い単体テストは残す。
 - test_diff_with_ref が確かめていたこと（"local" の参照先での三者比較、左右の見出し、参照先との差の見出しと中身）は、tests/contract/diff_ref_cli.rs の req_cli_062_local_as_ref_makes_a_three_way_diff と req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff が全て確かめる。
 - B の 7 件は入口を通す代わりの根拠がなく、挿入だけの変更の 2 件は見逃しのあった挿入の分岐の近くを確かめる唯一のテストである。
+
+## 整理後の変異テスト
+
+削除を終えたコミット 22e1f4a で、整理前と同じコマンドを一回実行した。実行中は作業ツリーに触れていない。
+回す前の `cargo mutants --list` は整理前と同じ 93 件だった。
+
+全体の集計は `mutants: caught=59 survived=17 timeout=4 unviable=13 equivalent=0`（93 件、実行時間は約 28 分）。スクリプトの終了コードは整理前と同じく 1 で、kotowari mutants が見逃しを error として返したもの。
+
+| ファイル | 関数 | caught | survived | timeout | unviable |
+|---|---|---|---|---|---|
+| src/service/diff.rs | build_diff_output | 5 | 2 | 0 | 1 |
+| src/diff/conflict.rs | detect_conflicts | 19 | 11 | 0 | 0 |
+| src/diff/conflict.rs | extract_changes | 28 | 1 | 4 | 3 |
+| src/diff/conflict.rs | merge_overlapping_regions | 2 | 2 | 0 | 0 |
+| src/diff/conflict.rs | merge_ranges | 0 | 1 | 0 | 7 |
+| src/cli/ref_guard.rs | validate_ref_side | 3 | 0 | 0 | 1 |
+| src/service/source_pair.rs | resolve_ref_source | 2 | 0 | 0 | 1 |
+
+### 整理前との比較
+
+整理後の見逃し 17 件は全て整理前の見逃しに含まれる。削除で増えた見逃しはないため、戻した削除はない。
+消した tests/cli_diff_general.rs の test_diff_with_ref は `scripts/mutants.sh` が変異ごとに流すテストに入らないため、もともと変異テストには現れない。
+
+整理前の見逃しのうち、src/diff/conflict.rs:227 の `replace && with ||` と `replace < with >` の二件は整理後に検知された。
+どちらも req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text が落ちた。same_delete.txt で右が末尾に足した行（左の消した行から離れた挿入）を、変異では競合と数えるためである。
+
+### テストを足した後の回し直し
+
+見逃しを落とすため、req_cli_065 の三つのテストの構成に場合を足した（コミット c219976）。
+競合のある組として、右の範囲が左の範囲を含む組（overlapping_mirror.txt）を、競合のない組として、隣り合う行をそれぞれが変えた組（adjacent.txt）と、一方が行を足しただけで他方の変えた行から離れているか直後に足した組（left_insert_before.txt、left_insert_after.txt、left_insert_next.txt、right_insert_before.txt、right_insert_next.txt）を加えた。
+行を足しただけの変更が他方の変えた範囲の中や同じ位置に入る場合は、用語「競合」が空の範囲の重なりを定めていないため置いていない（下の新しい FLAG の候補）。
+
+回し直しは決定記録 2026-09-29-mutation-rerun-and-load の A2 に従い、整理後の実行で caught にならなかった 21 件（見逃し 17 件とタイムアウト 4 件）だけを、その名前に完全に一致する `--re` で回した。回す前の `cargo mutants --list` で 21 件であることを確かめた。
+
+```sh
+scripts/mutants.sh --re '^(<整理後の実行で caught にならなかった 21 件の名前を正規表現に書き直して | でつないだもの>)$' \
+  src/service/diff.rs src/diff/conflict.rs src/cli/ref_guard.rs src/service/source_pair.rs
+```
+
+結果は `mutants: caught=10 survived=6 timeout=5 unviable=0 equivalent=0`（21 件、約 20 分、コミット c219976）。
+
+- caught の 10 件は src/diff/conflict.rs の 224 行の五件、225 行、227 行の三件（`>=` を `<`、`<` を `==`、`<` を `<=`）、230 行。225 行は req_cli_065_json_counts_and_locates_conflicts と req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end（overlapping_mirror.txt が競合でなくなる）、ほかの九件は req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text（足した組を競合と数える）で落ちた。
+- src/diff/conflict.rs:153 の `replace + with * in extract_changes` はタイムアウトになった。ログでは、変異と関係のない tests/cli_diff.rs のディレクトリのリンクのテスト三件が 217 秒を超えて止まっており、diff_ref_cli のテストの結果はログにない。そのため、コミットに含めない一時的な書き換えでこの変異を入れ、`cargo nextest run --all-features --no-fail-fast --test contract diff_ref_cli` を流すと、req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text が落ちた（13 件のうち 1 件失敗）。変異では直後に足した行の位置が一行前にずれ、他方の変えた行と重なるためである。確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
+- 整理前から続くタイムアウトの四件（extract_changes の `+=` を `*=`）は、ログで src/diff/conflict.rs の単体テストが 217 秒を超えて止まっており、添字が進まずに止まらなくなる変異である。
+
+### 見逃しの決着
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/diff/conflict.rs:153 | replace + with * in extract_changes | テストを足した（left_insert_next.txt ほか、他方の変えた行の直後に足す組）。上の一時的な書き換えで検知を確かめた |
+| src/diff/conflict.rs:224 | replace && with \|\| など五件 | テストを足した（left_insert_before.txt・left_insert_after.txt・left_insert_next.txt）。回し直しで caught |
+| src/diff/conflict.rs:225 | replace == with != in detect_conflicts | テストを足した（overlapping_mirror.txt）。回し直しで caught |
+| src/diff/conflict.rs:227 | replace >= with <、replace < with ==、replace < with <= | テストを足した（right_insert_before.txt・right_insert_next.txt）。回し直しで caught |
+| src/diff/conflict.rs:230 | replace < with <= in detect_conflicts | テストを足した（adjacent.txt）。回し直しで caught |
+| src/diff/conflict.rs:219 | replace && with \|\| in detect_conflicts | 新しい FLAG の候補（挿入だけの変更の重なり）。下の節 |
+| src/diff/conflict.rs:265 | replace < with == in merge_overlapping_regions | 新しい FLAG の候補（一つの変更が他方の複数の変更と重なるときの競合の数）。下の節 |
+| src/diff/conflict.rs:265 | replace < with <= in merge_overlapping_regions | 新しい FLAG の候補（挿入だけの変更の重なり）。下の節 |
+| src/diff/conflict.rs:286 | replace merge_ranges -> Option<Range<usize>> with None | 既存の FLAG-cli-058 の範囲として記録する。merge_ranges の結果は、まとめた競合の "conflict_regions" の要素の中の "left_diff_range"・"right_diff_range"（TUI 用の範囲）にだけ入り、"conflict_count" と "conflict_regions" があることは変わらない。要素の形は FLAG-cli-058 で未決のため根拠テストで確かめない |
+| src/service/diff.rs:47 | delete match arm engine::DiffResult::Equal in build_diff_output | 同等変異として .kotowari/mutants-equivalents.yaml に登録した。この腕を消すと Equal は後ろの `_ => Some(vec![])` の腕に入り、同じ値を返す。別の文脈のエージェントに、公開された build_diff_output を参照先の中身を左と同じにして呼び、左右に差がある組・左右とも同じ組・左が空の組で "ref_hunks" とその JSON を確かめるテストを書かせたが、変異を書き入れても通り、落ちるテストを書けなかった |
+
+同等変異を登録した後に結果を読み直すと、整理後の実行は `mutants: caught=59 survived=16 timeout=4 unviable=13 equivalent=1`、回し直しは `mutants: caught=10 survived=5 timeout=5 unviable=0 equivalent=1` になる（`kotowari mutants --tool cargo-mutants --format text` を同じ outcomes.json に対して実行）。
+回し直しで残る見逃し 5 件は、下の新しい FLAG の候補の三件、FLAG-cli-058 の範囲の一件、決着の対象でない一件である。
+
+決着の対象でない見逃し（整理前から変わらない）:
+
+- src/service/diff.rs:68 の `replace && with || in build_diff_output`（バイナリと symlink の競合。FLAG-cli-059・063 の範囲）
+
+### 新しい FLAG の候補
+
+次の二つは IR が定めていないため、根拠テストで固定せず、利用者の判断を待つ。IR も実装も直していない。
+どちらもコミットに含めない一時的なテスト（`detect_conflicts` を直接呼ぶもの）で、元のコードと変異での競合の数を確かめた。確かめた後にテストを消し、`git checkout` で src を戻して `git diff --stat src/` と `git status --short` が空に戻ることを確かめた。
+
+1. 挿入だけの変更の重なり（src/diff/conflict.rs:219 と、265 の `<=`）
+   用語「競合」は「同じ箇所とは参照先からの変更の行の範囲が重なること」とするが、行を足すだけの変更は参照先の行の範囲が空で、空の範囲が重なるかを定めていない。
+   実装は、両方が同じ位置に足したときと、一方が足した位置が他方の変えた範囲の中（範囲の先頭の行の後ろから末尾の行まで）にあるときを競合とし、範囲の先頭の行の前に足したときも競合とする。
+   219 行の変異は、一方だけが足したときに位置が範囲の先頭と同じときだけを競合とするもので、参照先 "1..5" の 2・3 行を左が変え、右が 2 行と 3 行の間に足した組で、元のコードでは競合 1、変異では 0 になった。
+   265 行の `<=` は、隣り合う二つの競合を一つにまとめる変異で、行を変える変更どうしでは隣り合う競合ができないため、挿入だけの変更が関わるときにだけ違いが出ると見られる（コードを読んだ推測で、違いの出る入力は確かめていない）。
+2. 一つの変更が他方の複数の変更と重なるときの競合の数（src/diff/conflict.rs:265 の `==`）
+   参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変えた組で、実装は重なる二つの組を一つにまとめて "conflict_count" を 1 とし、変異では 2 になった。REQ-cli-065 の「競合の数」がこの場合に 1 か 2 かを IR は定めていない。
+
+## 要件の verification の見直し
+
+この計画の要件の verification は全て unit で、いずれも具体的な場面の入力で結果が決まる挙動のため、要件の性質に合う（REQ-testing-009 の選び方）。見直しの候補はない。
+property の要件はないため、REQ-testing-010 の proptest の置き場所の確かめは当たらない。
+
+| 要件 | verification | 合う理由 |
+|---|---|---|
+| REQ-cli-062 | unit | 指定した参照先の名前ごとに、三者比較になるかエラーになるかが決まる |
+| REQ-cli-063 | unit | 参照先の有無と左と参照先の中身の組ごとに、JSON の項目が決まる |
+| REQ-cli-064 | unit | 参照先との差が空かどうかで、テキストの見出しと hunk の有無が決まる |
+| REQ-cli-065 | unit | 三つの中身の組ごとに、競合の数と表示が決まる |
+| REQ-cli-066 | unit | 参照先が左と同じか右と同じかで、警告の文言と比較の続け方が決まる |
+| REQ-cli-016 | unit | 参照先に対する左右の変更の組ごとに、競合を示すかが決まる |
