@@ -12,6 +12,7 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 テストは全て `tests/cli_diff.rs` にあり、左はローカル、右は試験 SSH サーバ（エージェントは無効）で、実行ファイルを起動して標準出力と終了コードを確かめる。root_dir の外に置くファイルとディレクトリは、既存のテストと同じく一時ディレクトリの base（local と remote の親）の下の、local と remote のどちらでもない場所に置いた。
 
 判定の「十分」は印付きのテストが FLAG に当たらない部分を全て観測していること、「補った」は足りない部分にテストを足したこと、「FLAG の範囲として補わない」は足りない部分が FLAG の範囲にだけあることを表す。
+判定に続く括弧は、テストを足しても製品の出力から観測できない部分が残る場合に、その部分をどう扱ったかを表す。
 
 ### 例
 
@@ -26,7 +27,7 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 | EX-cli-043 | directory_links_report_link_names_and_children_under_entry_path | 十分 | "shared" の項目の左右のリンク文字列と、"shared/child.txt" の項目の左右の内容を確かめている |
 | EX-cli-044 | nested_directory_link_cycle_keeps_readable_child_diff_and_reports_cycle、cycle_on_one_side_of_a_directory_link_is_reported（足した） | 補った | 左右の両方で循環する場合だけを試していた。例の Given は「配下の symlink が既に辿った祖先を指す」で、左右のどちらかだけで起きても循環である。左だけに循環のリンクを置き、循環の理由と終了コード 2、読めた子の左右の内容が残ることを確かめるテストを足した |
 | EX-cli-045 | directory_link_entry_limit_counts_children_across_nested_links、directory_link_entry_limit_keeps_the_child_diff_read_before_the_limit（足した） | 補った | 「読めた範囲の差分」を files に "left" が含まれることで確かめていたが、"shared" の項目のリンク文字列 "left-dir" だけで満たされ、子の差分が残ることを観測していなかった。上限に達する前に読んだ "shared/a.txt" の項目に左右の内容が残ることを確かめるテストを足した |
-| EX-cli-055 | external_directory_nested_secret_stays_hidden_without_force、nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes（足した） | 補った | 下の「EX-cli-055 に足したテスト」のとおり |
+| EX-cli-055 | external_directory_nested_secret_stays_hidden_without_force、nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes（足した） | 補った（Then の「入れ子のリンクも解決され」はこの例の構成では出力から観測できず、入れ子のリンクの解決は root_dir の中の構成で EX-cli-045 と EX-cli-044 のテストが確かめる） | 下の「EX-cli-055 に足したテスト」のとおり |
 | EX-cli-046 | directory_link_against_plain_directory_keeps_link_and_child_results、directory_link_against_plain_directory_compares_the_child_read_through_the_link（足した） | 補った | 子の差分を右（通常のディレクトリ）の内容が含まれることでしか見ておらず、左のリンクを通して子を読んだことを観測していなかった。"shared/child.txt" の項目に左右の内容が出ることを確かめるテストを足した |
 | EX-cli-061 | directory_link_against_regular_file_shows_both_kinds_of_content、directory_link_against_regular_file_reports_the_link_target（足した） | 補った | 左の子と右の本文は確かめていたが、Then の「リンク文字列の差」を見ていなかった。"shared" の項目の link_targets の left が "actual"、right が null であることを確かめるテストを足した。種類の違いの note の文言は FLAG-cli-048、向きが逆の組は FLAG-cli-045 |
 | EX-cli-056 | one_sided_directory_link_shows_child_contents_without_read_error、one_sided_directory_link_reports_its_link_target_and_null_for_the_missing_side（足した） | 補った | 子の内容とエラーがないことは確かめていたが、Then の「片側のリンク文字列」を見ていなかった。"shared" の項目の link_targets の left が "actual"、項目がない右が null であることを確かめるテストを足した |
@@ -65,6 +66,12 @@ nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes 
 --follow-external-links を付け --force なしの JSON で、標準出力に左右の中身の目印（"left-example"・"right-example"）が出ず、"shared/nested" の項目があり、その left_hash と right_hash が null であることを確かめる。
 "shared/nested" の項目が出ることは、root_dir の外の外部のディレクトリを指す外側のリンク "shared" が辿られ、その配下が展開されたことを示す。項目の link_targets が左右とも "../secret/.env" であることも確かめるが、これはリンク文字列そのもので、入れ子のリンクが解決されたことの根拠にはならない。
 このテストで内容とハッシュが隠れるのは、入れ子のリンクのリンク文字列の名前 ".env" が機密パターンに当たる経路で、製品はその時点で参照先を読まずに隠す。そのため例の Then の「入れ子のリンクも解決され」は、このテストでは観測できない。
+既存の external_directory_nested_secret_stays_hidden_without_force も、入れ子のリンク "nested.txt" のリンク文字列 ".env" が機密パターンに当たる同じ経路である。
+例の Given では最終参照先が機密ファイルのため、参照先の中身もハッシュも出力に出ない。そのため、この例の構成で入れ子のリンクが解決されたことを出力から確かめる手段はなく、この部分は例のテストでは確かめない部分として残す。
+root_dir の外のディレクトリの配下の入れ子のリンクが解決されることを、中身が見える形で確かめるテストもない（--follow-external-links を付けてディレクトリリンクを指定するテストは、この例の二つだけである）。
+ディレクトリリンクの配下の入れ子のリンクが解決されることは、root_dir の中の構成で別の印付きのテストが確かめる。
+EX-cli-045 の directory_link_entry_limit_counts_children_across_nested_links は、"shared" の配下に "../second-dir" を指す入れ子のディレクトリリンク "next" を置き、--max-entries 3 で終了コード 2 と件数超過のエラー（errors に "entry limit"）になることを確かめる。"next" を辿らなければ配下は "a.txt" と "next" の 2 件で上限を超えないため、件数超過は入れ子のリンクが辿られたことを示す。
+EX-cli-044 の nested_directory_link_cycle_keeps_readable_child_diff_and_reports_cycle は、"shared" の配下に "." を指す入れ子のリンク "loop" を置き、循環のエラー（errors に "cycle"）と終了コード 2 を確かめる。循環は入れ子のリンクの参照先を解決しないと見つからない。
 "shared" の項目そのもの（FLAG-cli-054）と終了コード（FLAG-cli-046）は確かめない。リンク文字列を左右で同じにしたため、"shared/nested" の hunks にリンク文字列の行は出ない（FLAG-cli-052 に触れない）。
 `sensitive_link_chain` が root_dir の外で連鎖を辿らない部分（FLAG-cli-051）は確かめない。
 
@@ -210,6 +217,7 @@ scripts/mutants.sh \
 
 決着していない見逃し、新しい FLAG の候補、verification の見直しの候補はない。
 要件の文から決まらないため値や挙動を固定しなかった点が二つある。ディレクトリ symlink の項目自体を REQ-cli-058 の「走査したファイルの数」に数えるか（上の 394:35）と、REQ-cli-026 の「status・merge・sync には適用せず」がオプションを拒否することか無視することか（上の「要件」の表）である。どちらも今の要件の読みで満たせるように確かめたため FLAG の候補にはしていないが、要件を詳しくするときの材料として残す。
+このほか、例の文のうち出力から観測できない部分が一つある。EX-cli-055 の Then の「入れ子のリンクも解決され」で、扱いは上の「EX-cli-055 に足したテスト」のとおりである。解決されることは別の例のテストで確かめ、この例の構成では中身もハッシュも出ないことを確かめているため、FLAG の候補にはしていない。
 
 ### テストを緩めた後の回し直し
 
