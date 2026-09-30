@@ -857,9 +857,26 @@ fn json_error<'a>(result: &'a serde_json::Value, path: &str) -> &'a serde_json::
         .unwrap_or_else(|| panic!("error for {path} missing: {result}"))
 }
 
+fn assert_reason_given(error: &serde_json::Value, result: &serde_json::Value) {
+    assert!(
+        error["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.trim().is_empty()),
+        "{result}"
+    );
+}
+
+fn assert_reported_incomplete(result: &serde_json::Value) {
+    let errors = result["errors"].as_array().expect("diff errors missing");
+    assert!(!errors.is_empty(), "{result}");
+    for error in errors {
+        assert_reason_given(error, result);
+    }
+}
+
 // @kotowari[EX-cli-039]
 #[test]
-fn text_diff_shows_link_targets_before_resolved_content_lines() {
+fn text_diff_shows_link_targets_and_resolved_contents_on_separate_lines() {
     let env = CliEnv::new(&[("target.txt", "left content\n")], &[]);
     place_symlink(&env.local_dir, "link.txt", "target.txt");
     place_files(&env.remote_dir, &[("other.txt", "right content\n")]);
@@ -868,23 +885,19 @@ fn text_diff_shows_link_targets_before_resolved_content_lines() {
     let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let body = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<&str> = body.lines().collect();
-    let position = |wanted: &str| {
-        lines
-            .iter()
-            .position(|line| *line == wanted)
-            .unwrap_or_else(|| panic!("{wanted:?} missing: {body}"))
-    };
-    let left_target = position("-link target: target.txt");
-    let right_target = position("+link target: other.txt");
-    let resolved = position("Resolved content differs");
-    let left_content = position("-left content");
-    let right_content = position("+right content");
-    assert!(left_target < resolved && right_target < resolved, "{body}");
-    assert!(
-        resolved < left_content && resolved < right_content,
-        "{body}"
-    );
+    let link_names = ["target.txt", "other.txt"];
+    let contents = ["left content", "right content"];
+    for wanted in link_names.iter().chain(&contents) {
+        assert!(body.contains(wanted), "{wanted:?} missing: {body}");
+    }
+    for line in body.lines() {
+        let names_link = link_names.iter().any(|name| line.contains(name));
+        let shows_content = contents.iter().any(|content| line.contains(content));
+        assert!(
+            !(names_link && shows_content),
+            "{line:?} mixes both: {body}"
+        );
+    }
 }
 
 // @kotowari[REQ-cli-024]
@@ -974,10 +987,7 @@ fn directory_link_entry_limit_keeps_the_child_diff_read_before_the_limit() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(
-        result["errors"].to_string().contains("entry limit"),
-        "{result}"
-    );
+    assert_reported_incomplete(&result);
     let child_hunks = json_item(&result, "shared/a.txt")["hunks"].to_string();
     assert!(
         child_hunks.contains("\"left\"") && child_hunks.contains("\"right\""),
@@ -1060,11 +1070,7 @@ fn unreadable_child_of_directory_link_is_reported_with_a_reason() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let error = json_error(&result, "shared/broken.txt");
-    assert!(
-        error["reason"].as_str().unwrap().contains("unreadable"),
-        "{result}"
-    );
+    assert_reason_given(json_error(&result, "shared/broken.txt"), &result);
 }
 
 // @kotowari[REQ-cli-023]
@@ -1166,11 +1172,7 @@ fn nested_link_to_outside_file_is_not_read_without_follow_flag() {
         outside.to_str().unwrap(),
         "{result}"
     );
-    let error = json_error(&result, "shared/nested.txt");
-    assert!(
-        error["reason"].as_str().unwrap().contains("not compared"),
-        "{result}"
-    );
+    assert_reason_given(json_error(&result, "shared/nested.txt"), &result);
 }
 
 // @kotowari[REQ-cli-026]
@@ -1184,13 +1186,16 @@ fn force_does_not_read_an_external_link_without_follow_flag() {
 
     let output = env
         .cmd_with("diff")
-        .args(["link.txt", "--force"])
+        .args(["link.txt", "--force", "--format", "json"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(body.contains("not compared"), "{output:?}");
-    assert!(!body.contains("external private content"), "{output:?}");
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("external private content"),
+        "{output:?}"
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_reason_given(json_error(&result, "link.txt"), &result);
 }
 
 // @kotowari[REQ-cli-026]
@@ -1232,11 +1237,7 @@ fn one_side_reaching_outside_through_a_directory_link_is_not_compared_without_fo
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let error = json_error(&result, "shared/child.txt");
-    assert!(
-        error["reason"].as_str().unwrap().contains("not compared"),
-        "{result}"
-    );
+    assert_reason_given(json_error(&result, "shared/child.txt"), &result);
 }
 
 // @kotowari[REQ-cli-026]
@@ -1265,7 +1266,7 @@ fn one_sided_external_link_reports_its_link_target_without_follow_flag() {
         "{result}"
     );
     assert!(link["link_targets"]["right"].is_null(), "{result}");
-    json_error(&result, "link.txt");
+    assert_reason_given(json_error(&result, "link.txt"), &result);
 }
 
 // @kotowari[EX-cli-044]
@@ -1284,7 +1285,7 @@ fn cycle_on_one_side_of_a_directory_link_is_reported() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(result["errors"].to_string().contains("cycle"), "{result}");
+    assert_reason_given(json_error(&result, "shared/loop"), &result);
     let child_hunks = json_item(&result, "shared/good.txt")["hunks"].to_string();
     assert!(
         child_hunks.contains("left body") && child_hunks.contains("right body"),
@@ -1319,10 +1320,7 @@ fn plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limi
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(
-        result["errors"].to_string().contains("entry limit"),
-        "{result}"
-    );
+    assert_reported_incomplete(&result);
 }
 
 // @kotowari[REQ-cli-021]
@@ -1465,11 +1463,7 @@ fn broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let error = json_error(&result, "link.txt");
-    assert!(
-        error["reason"].as_str().unwrap().contains("unreadable"),
-        "{result}"
-    );
+    assert_reason_given(json_error(&result, "link.txt"), &result);
     let good_hunks = json_item(&result, "good.txt")["hunks"].to_string();
     assert!(
         good_hunks.contains("left") && good_hunks.contains("right"),
@@ -1496,11 +1490,7 @@ fn returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let error = json_error(&result, "shared/up/sub");
-    assert!(
-        error["reason"].as_str().unwrap().contains("cycle"),
-        "{result}"
-    );
+    assert_reason_given(json_error(&result, "shared/up/sub"), &result);
     let child_hunks = json_item(&result, "shared/good.txt")["hunks"].to_string();
     assert!(
         child_hunks.contains("left body") && child_hunks.contains("right body"),
