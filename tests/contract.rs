@@ -48,6 +48,9 @@ mod diff_max_files;
 #[path = "contract/diff_output_cli.rs"]
 mod diff_output_cli;
 #[cfg(feature = "test-utils")]
+#[path = "contract/diff_ref_cli.rs"]
+mod diff_ref_cli;
+#[cfg(feature = "test-utils")]
 #[path = "contract/diff_root_link_cli.rs"]
 mod diff_root_link_cli;
 #[path = "contract/diff_selection.rs"]
