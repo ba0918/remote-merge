@@ -252,7 +252,7 @@ tests/contract/cli_results.rs の二件は変えていない。
 
 見逃しを落とすため、req_cli_065 の三つのテストの構成に場合を足した（コミット c219976）。
 競合のある組として、右の範囲が左の範囲を含む組（overlapping_mirror.txt）を、競合のない組として、隣り合う行をそれぞれが変えた組（adjacent.txt）と、一方が行を足しただけで他方の変えた行から離れているか直後に足した組（left_insert_before.txt、left_insert_after.txt、left_insert_next.txt、right_insert_before.txt、right_insert_next.txt）を加えた。
-行を足しただけの変更が他方の変えた範囲の中や同じ位置に入る場合は、用語「競合」が空の範囲の重なりを定めていないため置いていない（下の新しい FLAG の候補）。
+行を足しただけの変更が他方の変えた範囲の中や同じ位置に入る場合は、用語「競合」が空の範囲の重なりを定めていないため置いていない（下の新しい FLAG の候補。FLAG-cli-071 になった）。
 
 回し直しは決定記録 2026-09-29-mutation-rerun-and-load の A2 に従い、整理後の実行で caught にならなかった 21 件（見逃し 17 件とタイムアウト 4 件）だけを、その名前に完全に一致する `--re` で回した。回す前の `cargo mutants --list` で 21 件であることを確かめた。
 
@@ -276,14 +276,14 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
 | src/diff/conflict.rs:225 | replace == with != in detect_conflicts | テストを足した（overlapping_mirror.txt）。回し直しで caught |
 | src/diff/conflict.rs:227 | replace >= with <、replace < with ==、replace < with <= | テストを足した（right_insert_before.txt・right_insert_next.txt）。回し直しで caught |
 | src/diff/conflict.rs:230 | replace < with <= in detect_conflicts | テストを足した（adjacent.txt）。回し直しで caught |
-| src/diff/conflict.rs:219 | replace && with \|\| in detect_conflicts | 新しい FLAG の候補（挿入だけの変更の重なり）。下の節 |
-| src/diff/conflict.rs:265 | replace < with == in merge_overlapping_regions | 新しい FLAG の候補（一つの変更が他方の複数の変更と重なるときの競合の数）。下の節 |
-| src/diff/conflict.rs:265 | replace < with <= in merge_overlapping_regions | 新しい FLAG の候補（挿入だけの変更の重なり）。下の節 |
+| src/diff/conflict.rs:219 | replace && with \|\| in detect_conflicts | FLAG-cli-071 の範囲として記録する（行を足すだけの変更の競合。利用者の判断で未決の FLAG として残した）。下の節 |
+| src/diff/conflict.rs:265 | replace < with == in merge_overlapping_regions | FLAG-cli-072 の範囲として記録する（複数の変更と重なる変更の競合の数。利用者の判断で未決の FLAG として残した）。下の節 |
+| src/diff/conflict.rs:265 | replace < with <= in merge_overlapping_regions | FLAG-cli-071 の範囲として記録する。下の節 |
 | src/diff/conflict.rs:286 | replace merge_ranges -> Option<Range<usize>> with None | 既存の FLAG-cli-058 の範囲として記録する。merge_ranges の結果は、まとめた競合の "conflict_regions" の要素の中の "left_diff_range"・"right_diff_range"（TUI 用の範囲）にだけ入り、"conflict_count" と "conflict_regions" があることは変わらない。要素の形は FLAG-cli-058 で未決のため根拠テストで確かめない |
 | src/service/diff.rs:47 | delete match arm engine::DiffResult::Equal in build_diff_output | 同等変異として .kotowari/mutants-equivalents.yaml に登録した。この腕を消すと Equal は後ろの `_ => Some(vec![])` の腕に入り、同じ値を返す。別の文脈のエージェントに、公開された build_diff_output を参照先の中身を左と同じにして呼び、左右に差がある組・左右とも同じ組・左が空の組で "ref_hunks" とその JSON を確かめるテストを書かせたが、変異を書き入れても通り、落ちるテストを書けなかった |
 
 同等変異を登録した後に結果を読み直すと、整理後の実行は `mutants: caught=59 survived=16 timeout=4 unviable=13 equivalent=1`、回し直しは `mutants: caught=10 survived=5 timeout=5 unviable=0 equivalent=1` になる（`kotowari mutants --tool cargo-mutants --format text` を同じ outcomes.json に対して実行）。
-回し直しで残る見逃し 5 件は、下の新しい FLAG の候補の三件、FLAG-cli-058 の範囲の一件、決着の対象でない一件である。
+回し直しで残る見逃し 5 件は、FLAG-cli-071・072 の範囲の三件、FLAG-cli-058 の範囲の一件、決着の対象でない一件である。
 
 決着の対象でない見逃し（整理前から変わらない）:
 
@@ -291,7 +291,7 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
 
 ### 新しい FLAG の候補
 
-次の二つは IR が定めていないため、根拠テストで固定せず、利用者の判断を待つ。IR も実装も直していない。
+次の二つは IR が定めていないため、根拠テストで固定せず、利用者の判断を仰いだ。実装は直していない。
 どちらもコミットに含めない一時的なテスト（`detect_conflicts` を直接呼ぶもの）で、元のコードと変異での競合の数を確かめた。確かめた後にテストを消し、`git checkout` で src を戻して `git diff --stat src/` と `git status --short` が空に戻ることを確かめた。
 
 1. 挿入だけの変更の重なり（src/diff/conflict.rs:219 と、265 の `<=`）
@@ -301,6 +301,13 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
    265 行の `<=` は、隣り合う二つの競合を一つにまとめる変異で、行を変える変更どうしでは隣り合う競合ができないため、挿入だけの変更が関わるときにだけ違いが出ると見られる（コードを読んだ推測で、違いの出る入力は確かめていない）。
 2. 一つの変更が他方の複数の変更と重なるときの競合の数（src/diff/conflict.rs:265 の `==`）
    参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変えた組で、実装は重なる二つの組を一つにまとめて "conflict_count" を 1 とし、変異では 2 になった。REQ-cli-065 の「競合の数」がこの場合に 1 か 2 かを IR は定めていない。
+
+利用者の判断: 二つとも未決の FLAG として残す（勧めを採用）。取り込みとテスト整理の中では仕様を決めず、次にこの機能を扱うときに決める。
+
+- 1 は FLAG-cli-071（行を足すだけの変更の競合）として docs/ir/cli/FLAGS.md に記録された。判断は決定記録 [2026-09-30-diff-ref-mutant-flags](../decision/records/2026-09-30-diff-ref-mutant-flags.md) の A1。src/diff/conflict.rs:219 の `replace && with ||` と 265 の `replace < with <=` はこの FLAG の範囲とする。
+- 2 は FLAG-cli-072（複数の変更と重なる変更の競合の数）として記録された。判断は同じ決定記録の A2。src/diff/conflict.rs:265 の `replace < with ==` はこの FLAG の範囲とする。
+
+これで決着の対象の見逃しは全て決着した。
 
 ## 要件の verification の見直し
 
