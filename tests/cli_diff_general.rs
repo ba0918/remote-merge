@@ -145,45 +145,6 @@ fn test_diff_directory() {
     );
 }
 
-/// 3way diff で --ref を指定するとリファレンス差分情報が表示される
-#[test]
-fn test_diff_with_ref() {
-    let env = CliEnv::new_3way(
-        &[("file.txt", "local ref version\n")],
-        &[("file.txt", "develop version of the file\n")],
-        &[("file.txt", "staging\n")],
-    );
-
-    let output = env
-        .cmd_with("diff")
-        .args([
-            "file.txt", "--left", "develop", "--right", "staging", "--ref", "local",
-        ])
-        .output()
-        .expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{}{}", stdout, stderr);
-    // 実際の出力: "--- a/file.txt (develop)" / "+++ b/file.txt (staging)" /
-    //   "--- ref:local:file.txt (reference diff vs left)" / "Conflicts: ..."
-    assert!(
-        combined.contains("--- a/file.txt (develop)")
-            && combined.contains("+++ b/file.txt (staging)"),
-        "Expected 3-way diff headers with server names, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("ref:local:file.txt"),
-        "Expected reference diff section, got: {}",
-        combined
-    );
-    assert!(
-        combined.contains("local ref version") && combined.contains("staging"),
-        "{output:?}"
-    );
-}
-
 /// 大きなファイルに --max-lines を指定すると出力が制限される
 #[test]
 fn test_diff_max_lines() {

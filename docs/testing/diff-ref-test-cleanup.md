@@ -217,4 +217,8 @@ tests/contract/cli_results.rs の二件は変えていない。
 
 ### 判断の結果
 
-（利用者の返答を待っている）
+利用者は勧めのとおりにすると答えた。消すのは tests/cli_diff_general.rs の test_diff_with_ref の 1 件だけで、A の残りの 29 件と B の 7 件は全て残す。
+
+- status の整理と同じく、実行ファイルを起動する tests/ の直下の重複テストだけを消し、失敗の場所がすぐ分かる速い単体テストは残す。
+- test_diff_with_ref が確かめていたこと（"local" の参照先での三者比較、左右の見出し、参照先との差の見出しと中身）は、tests/contract/diff_ref_cli.rs の req_cli_062_local_as_ref_makes_a_three_way_diff と req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff が全て確かめる。
+- B の 7 件は入口を通す代わりの根拠がなく、挿入だけの変更の 2 件は見逃しのあった挿入の分岐の近くを確かめる唯一のテストである。
