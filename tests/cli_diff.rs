@@ -1823,99 +1823,46 @@ fn sensitive_chain_link_written_through_the_configured_root_dir_hides_contents()
 
 // ─── 字面で root_dir の下に辿れない連鎖 ─────────────────
 
-/// リンク文字列の書き方
-enum ChainLinkText {
-    /// "../<root_dir のディレクトリ名>/mid"
-    ParentOfRoot,
-    /// "<root_dir の実パス>/../<root_dir のディレクトリ名>/mid"
-    RealRootThroughParent,
-    /// root_dir を指す別名の symlink を通る絶対パス "<別名>/mid"
-    AliasOfRoot,
-}
-
-/// `linked` の側の root_dir にだけ、実際には root_dir の中にとどまるが、最初の段のリンク文字列が
-/// 字面では root_dir の外を通る連鎖（a.txt → `text` → mid → secret.pem → plain.txt）を置き、
-/// もう一方の側の a.txt は通常のファイルにして --force なしの JSON で diff し、最終参照先の
-/// 中身が出ないことと a.txt の項目が出ることを確かめる
-fn assert_unfollowable_chain_hides_contents(linked: LinkedRoot, text: ChainLinkText) {
-    let env = CliEnv::new(&[], &[]);
-    let (root, other) = match linked {
-        LinkedRoot::Local => (&env.local_dir, &env.remote_dir),
-        LinkedRoot::Remote => (&env.remote_dir, &env.local_dir),
-    };
-    let name = root.file_name().unwrap().to_str().unwrap();
-    let link_text = match text {
-        ChainLinkText::ParentOfRoot => format!("../{name}/mid"),
-        ChainLinkText::RealRootThroughParent => format!(
-            "{}/../{name}/mid",
-            std::fs::canonicalize(root).unwrap().display()
-        ),
-        ChainLinkText::AliasOfRoot => {
-            let alias = env.temp_root().join(format!("{name}-alias"));
-            std::os::unix::fs::symlink(root, &alias).unwrap();
-            format!("{}/mid", alias.display())
-        }
-    };
-    place_files(root, &[("plain.txt", "chain-secret-marker\n")]);
-    place_symlink(root, "secret.pem", "plain.txt");
-    place_symlink(root, "mid", "secret.pem");
-    place_symlink(root, "a.txt", &link_text);
-    place_files(other, &[("a.txt", "other body\n")]);
-
-    let output = env
-        .cmd_with("diff")
-        .args(["a.txt", "--format", "json"])
-        .output()
-        .unwrap();
+/// 左右それぞれの root_dir に、その側の root_dir を受け取って `link_text` が作るリンク文字列で
+/// target.txt を指す link.txt を置き、--force なしで link.txt を diff して、左右の target.txt の
+/// 中身がどちらも出て差分ありと報告されることを確かめる
+fn assert_unfollowable_link_shows_contents(
+    link_text: impl Fn(&CliEnv, &std::path::Path) -> String,
+) {
+    let env = CliEnv::new(
+        &[("target.txt", "left body\n")],
+        &[("target.txt", "right body\n")],
+    );
+    for root in [&env.local_dir, &env.remote_dir] {
+        place_symlink(root, "link.txt", &link_text(&env, root));
+    }
+    let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !String::from_utf8_lossy(&output.stdout).contains("chain-secret-marker"),
+        body.contains("left body") && body.contains("right body"),
         "{output:?}"
     );
-    let result: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
-    json_item(&result, "a.txt");
 }
 
-// @kotowari[REQ-cli-023]
+// @kotowari[EX-cli-067]
 #[test]
-fn chain_link_through_the_parent_of_the_local_root_dir_hides_contents() {
-    assert_unfollowable_chain_hides_contents(LinkedRoot::Local, ChainLinkText::ParentOfRoot);
+fn link_through_the_real_name_of_the_root_dir_shows_contents() {
+    assert_unfollowable_link_shows_contents(|_, root| {
+        let name = root.file_name().unwrap().to_str().unwrap();
+        format!("../{name}/target.txt")
+    });
 }
 
-// @kotowari[REQ-cli-023]
+// @kotowari[EX-cli-068]
 #[test]
-fn chain_link_through_the_parent_of_the_remote_root_dir_hides_contents() {
-    assert_unfollowable_chain_hides_contents(LinkedRoot::Remote, ChainLinkText::ParentOfRoot);
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn chain_link_through_dot_dot_after_the_local_real_root_hides_contents() {
-    assert_unfollowable_chain_hides_contents(
-        LinkedRoot::Local,
-        ChainLinkText::RealRootThroughParent,
-    );
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn chain_link_through_dot_dot_after_the_remote_real_root_hides_contents() {
-    assert_unfollowable_chain_hides_contents(
-        LinkedRoot::Remote,
-        ChainLinkText::RealRootThroughParent,
-    );
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn chain_link_through_an_alias_of_the_local_root_dir_hides_contents() {
-    assert_unfollowable_chain_hides_contents(LinkedRoot::Local, ChainLinkText::AliasOfRoot);
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn chain_link_through_an_alias_of_the_remote_root_dir_hides_contents() {
-    assert_unfollowable_chain_hides_contents(LinkedRoot::Remote, ChainLinkText::AliasOfRoot);
+fn link_through_an_alias_of_the_root_dir_shows_contents() {
+    assert_unfollowable_link_shows_contents(|env, root| {
+        let name = root.file_name().unwrap().to_str().unwrap();
+        let alias = env.temp_root().join(format!("{name}-alias"));
+        std::os::unix::fs::symlink(root, &alias).unwrap();
+        format!("{}/target.txt", alias.display())
+    });
 }
 
 // @kotowari[EX-cli-040]

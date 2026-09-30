@@ -588,8 +588,7 @@ fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
 /// `real_root` は `side` の root_dir を実パスに直したもの。絶対パスのリンク文字列は、それと
 /// 設定に書いた root_dir のどちらかの下にあれば root_dir の中として次の段を辿る。
 ///
-/// 段を root_dir の下に字面で辿れなくなったときは、途中の段が機密かを確かめられないため、
-/// `path` の実パスが root_dir の中なら機密として扱う。
+/// 段を root_dir の下に字面で辿れなくなったときは、その先の段を機密でないとみなす。
 fn sensitive_link_chain(
     core: &mut CoreRuntime,
     (side, real_root): (&Side, &Path),
@@ -602,7 +601,6 @@ fn sensitive_link_chain(
     };
     let mut current = PathBuf::from(path);
     let mut seen = HashSet::new();
-    let mut entry_inside_root = None;
     while seen.insert(current.clone()) {
         let inspected = match core.inspect_path(side, &current.to_string_lossy()) {
             Ok(inspected) => inspected,
@@ -620,9 +618,6 @@ fn sensitive_link_chain(
         {
             return true;
         }
-        // 連鎖の最初の段（path そのもの）の実パスで決める
-        let inside_root =
-            *entry_inside_root.get_or_insert_with(|| real_path.starts_with(real_root));
         let candidate = if link_target.is_absolute() {
             link_target
         } else {
@@ -634,7 +629,7 @@ fn sensitive_link_chain(
                 .or_else(|_| candidate.strip_prefix(root))
             {
                 Ok(relative) => relative,
-                Err(_) => return inside_root,
+                Err(_) => return false,
             }
         } else {
             candidate.as_path()
@@ -645,7 +640,7 @@ fn sensitive_link_chain(
                 Component::Normal(name) => next.push(name),
                 Component::CurDir => {}
                 Component::ParentDir if next.pop() => {}
-                _ => return inside_root,
+                _ => return false,
             }
         }
         current = next;

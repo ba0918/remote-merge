@@ -27,10 +27,10 @@ symlink の参照先がないか読めないとき、片側の項目自体がな
 
 ### REQ-cli-023: symlink 経由の機密内容を隠す
 - kind: prohibition
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A5, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A10, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A22
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A5, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A10, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A22, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A6, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A9, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A10, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A11
 - verification: unit
 
-入口名、入れ子になった各段階のリンク文字列、または最終参照先のパスが機密パターンに該当するファイルは、root_dir 内外を問わず通常の CLI diff で内容をテキスト・JSON・バイナリハッシュに表示しない。明示的に --force を指定したときだけ内容差を表示する。
+入口名、入れ子になった各段階のリンク文字列、または最終参照先のパスが機密パターンに該当するファイルは、通常の CLI diff で内容をテキスト・JSON・バイナリハッシュに表示しない。入口名と最終参照先のパスは root_dir 内外を問わず見る。入れ子の段は、入口から先のリンク文字列を字面で結んで root_dir の中に辿れる範囲で見て、字面で辿れない段と読めない段は機密でないとみなす。入口のパスの途中の要素にあるディレクトリ symlink は段に含めない。明示的に --force を指定したときだけ内容差を表示する。
 
 ### REQ-cli-024: リンクの差を JSON とテキストに分けて示す
 - kind: state_driven
@@ -60,6 +60,20 @@ Scenario: 同じリンク文字列の先で内容だけが異なる
 Given 左右の symlink は同じリンク文字列を持ち参照先の内容が異なる
 When CLI diff でそのリンクを指定する
 Then 内容差が表示され差分ありと報告される
+
+@id=EX-cli-067 @about=REQ-cli-020,REQ-cli-023 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12
+Scenario: root_dir の実ディレクトリ名を通る相対のリンク
+Given 左右の symlink は "../<root_dir の実ディレクトリ名>/target.txt" の形のリンク文字列を持ち機密パターンに当たる名前を含まない
+And 参照先は root_dir の中にあり内容が異なる
+When --force を指定せず CLI diff でそのリンクを指定する
+Then 参照先の内容差が表示され差分ありと報告される
+
+@id=EX-cli-068 @about=REQ-cli-020,REQ-cli-023 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12
+Scenario: root_dir の別名を通る絶対パスのリンク
+Given 左右の symlink は root_dir を指す別名の symlink を通る絶対パスのリンク文字列を持ち機密パターンに当たる名前を含まない
+And 参照先は root_dir の中にあり内容が異なる
+When --force を指定せず CLI diff でそのリンクを指定する
+Then 参照先の内容差が表示され差分ありと報告される
 
 @id=EX-cli-053 @about=REQ-cli-020 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29
 Scenario: リンク文字列も参照先内容も同じ
