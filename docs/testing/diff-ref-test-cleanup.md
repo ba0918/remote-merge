@@ -146,3 +146,75 @@ tests/contract/cli_results.rs の二件は変えていない。
 | src/service/source_pair.rs | test_resolve_ref_source_none | req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks |
 | src/service/source_pair.rs | test_resolve_ref_source_same_as_left | req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref（左右と同じ名前をエラーにせず、警告して参照先なしで続ける） |
 | tests/cli_diff_general.rs | test_diff_with_ref | req_cli_062_local_as_ref_makes_a_three_way_diff と req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff |
+
+## 削除候補と利用者の判断
+
+整理の計画で削除を利用者が一括で判断する段の入力。
+利用者の返答（消すものの一覧）を下の「判断の結果」に書き足してから削除する。
+
+一覧は、上の審査の置き換え元の 37 件を、入口を通す根拠テストで置き換えたもの（A、30 件）と、置き換えていないもの（B、7 件）に分けたもの。
+「代わりの根拠」は、そのテストが確かめていた振る舞いを今確かめている根拠テスト（全て tests/contract/diff_ref_cli.rs）。
+
+- src/cli/ref_guard.rs の候補（4 件）は、status の整理と merge の整理でも根拠にしたテストである。
+- src/service/source_pair.rs の候補（5 件）は、status の整理でも根拠にしたテストである。
+- src/service/output.rs の候補と tests/cli_diff_general.rs の test_diff_with_ref は、変異テストの裏付けがない。src/service/output.rs は変異テストの対象外で、tests/cli_diff_general.rs は `scripts/mutants.sh` が変異ごとに流すテストに入らないため、消しても整理後の変異テストで見逃しの増減として現れない。該当する行に「裏付けなし」と書いた。
+
+候補にしていないもの:
+
+- FLAG の挙動のテスト（src/diff/conflict.rs の test_conflict_info_serialization〈FLAG-cli-058〉、src/service/diff.rs の test_max_lines_applied_independently_to_ref_hunks〈FLAG-cli-061〉と test_conflict_count_binary_is_zero〈FLAG-cli-059〉）。
+- src/diff/conflict.rs の TUI 用の行の判定の 9 件と `compute_conflict_if_complete` の 6 件。
+- tests/contract/cli_results.rs の EX-cli-031・032 のテスト。
+
+### A. 入口を通す根拠テストに置き換えた単体テスト（30 件）
+
+| ファイル | テスト | 代わりの根拠 |
+|---|---|---|
+| src/service/diff.rs | test_ref_content_produces_ref_hunks | req_cli_063_json_has_the_ref_and_the_diff_from_left_to_ref |
+| src/service/diff.rs | test_ref_content_same_as_left_produces_empty_ref_hunks | req_cli_063_ref_hunks_are_empty_when_left_equals_the_ref |
+| src/service/diff.rs | test_ref_content_none_produces_none_ref_hunks | req_cli_063_only_the_ref_is_shown_when_the_ref_file_cannot_be_read |
+| src/service/diff.rs | test_no_ref_backward_compat | req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks |
+| src/service/diff.rs | test_conflict_count_with_ref | req_cli_065_json_counts_and_locates_conflicts |
+| src/diff/conflict.rs | test_basic_conflict | req_cli_065_json_counts_and_locates_conflicts（one.txt） |
+| src/diff/conflict.rs | test_one_sided_change_no_conflict | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text（disjoint.txt） |
+| src/diff/conflict.rs | test_both_same_change_no_conflict | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text（same_change.txt） |
+| src/diff/conflict.rs | test_multi_line_conflict | req_cli_065_json_counts_and_locates_conflicts（overlapping.txt） |
+| src/diff/conflict.rs | test_separate_conflicts | req_cli_065_json_counts_and_locates_conflicts（two.txt） |
+| src/diff/conflict.rs | test_delete_vs_modify_conflict | req_cli_065_json_counts_and_locates_conflicts（delete_vs_modify.txt） |
+| src/diff/conflict.rs | test_both_delete_same_line_no_conflict | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text（same_delete.txt） |
+| src/diff/conflict.rs | test_overlapping_range_conflict | req_cli_065_json_counts_and_locates_conflicts（overlapping.txt） |
+| src/service/output.rs | test_format_diff_text_with_ref_hunks | req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff。裏付けなし |
+| src/service/output.rs | test_format_diff_text_with_conflicts | req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end。裏付けなし |
+| src/service/output.rs | test_format_diff_text_no_conflicts | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text。裏付けなし |
+| src/service/output.rs | test_format_multi_diff_text_with_conflicts | req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end。裏付けなし |
+| src/service/output.rs | test_format_multi_diff_text_no_conflicts | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text。裏付けなし |
+| src/service/output.rs | test_diff_output_conflict_count_zero_omitted_in_json | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text。裏付けなし |
+| src/service/output.rs | test_diff_output_conflict_count_nonzero_in_json | req_cli_065_json_counts_and_locates_conflicts。裏付けなし |
+| src/cli/ref_guard.rs | ref_same_as_left_returns_none | req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref。status と merge の整理でも根拠にした |
+| src/cli/ref_guard.rs | ref_same_as_right_returns_none | 同上。status と merge の整理でも根拠にした |
+| src/cli/ref_guard.rs | ref_different_returns_some | req_cli_062_a_configured_server_as_ref_makes_a_three_way_diff。status と merge の整理でも根拠にした |
+| src/cli/ref_guard.rs | ref_none_returns_none | req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks。status と merge の整理でも根拠にした |
+| src/service/source_pair.rs | test_resolve_ref_source_remote | req_cli_062_a_configured_server_as_ref_makes_a_three_way_diff。status の整理でも根拠にした |
+| src/service/source_pair.rs | test_resolve_ref_source_local | req_cli_062_local_as_ref_makes_a_three_way_diff。status の整理でも根拠にした |
+| src/service/source_pair.rs | test_resolve_ref_source_nonexistent | req_cli_062_an_unknown_ref_server_is_an_error_with_exit_code_two。status の整理でも根拠にした |
+| src/service/source_pair.rs | test_resolve_ref_source_none | req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks。status の整理でも根拠にした |
+| src/service/source_pair.rs | test_resolve_ref_source_same_as_left | req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref。status の整理でも根拠にした |
+| tests/cli_diff_general.rs | test_diff_with_ref | req_cli_062_local_as_ref_makes_a_three_way_diff と req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff。裏付けなし |
+
+### B. 置き換えていない単体テスト（7 件）
+
+入口を通す根拠テストがないため、消すとその振る舞いを確かめるテストがなくなる。残すことを勧める。
+挿入だけの変更の二件は、整理前の変異テストで見逃しのあった detect_conflicts の挿入の分岐（219 行から 227 行）の近くを確かめる唯一のテストでもある。
+
+| ファイル | テスト | 置き換えていない理由 |
+|---|---|---|
+| src/service/diff.rs | test_conflict_count_without_ref | --ref がないときの競合の項目は REQ-cli-065 が定めない |
+| src/diff/conflict.rs | test_no_ref_returns_empty | 同上 |
+| src/diff/conflict.rs | test_all_identical_no_conflicts | 三つが同じファイルは出力に出ず、入口から観測できない |
+| src/diff/conflict.rs | test_empty_files | 同上 |
+| src/diff/conflict.rs | test_insert_conflict_both_insert_different | 挿入だけの変更どうしの重なりは IR が定めない |
+| src/diff/conflict.rs | test_ref_empty_both_add_different | 同上 |
+| src/service/output.rs | test_format_diff_text_no_ref_backward_compat | --ref がないときのテキストは REQ-cli-064 が定めない。裏付けなし |
+
+### 判断の結果
+
+（利用者の返答を待っている）
