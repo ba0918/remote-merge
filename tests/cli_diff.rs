@@ -1477,6 +1477,89 @@ fn broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads() {
     );
 }
 
+// @kotowari[EX-cli-044]
+#[test]
+fn returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle() {
+    let env = CliEnv::new(&[("left-dir/sub/good.txt", "left body\n")], &[]);
+    place_files(
+        &env.remote_dir,
+        &[("right-dir/sub/good.txt", "right body\n")],
+    );
+    place_symlink(&env.local_dir, "shared", "left-dir/sub");
+    place_symlink(&env.remote_dir, "shared", "right-dir/sub");
+    place_symlink(&env.local_dir, "left-dir/sub/up", "..");
+
+    let output = env
+        .cmd_with("diff")
+        .args(["shared", "--format", "json", "--max-entries", "20"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let error = json_error(&result, "shared/up/sub");
+    assert!(
+        error["reason"].as_str().unwrap().contains("cycle"),
+        "{result}"
+    );
+    let child_hunks = json_item(&result, "shared/good.txt")["hunks"].to_string();
+    assert!(
+        child_hunks.contains("left body") && child_hunks.contains("right body"),
+        "{result}"
+    );
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_intermediate_link_reached_through_dot_components_hides_contents() {
+    let env = CliEnv::new(
+        &[("public.txt", "left private body\n")],
+        &[("public.txt", "right private body\n")],
+    );
+    for root in [&env.local_dir, &env.remote_dir] {
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        place_symlink(root, ".env", "public.txt");
+        place_symlink(root, "inner.txt", ".env");
+        place_symlink(root, "dot.txt", "./inner.txt");
+        place_symlink(root, "parent.txt", "sub/../inner.txt");
+    }
+
+    for path in ["dot.txt", "parent.txt"] {
+        let output = env
+            .cmd_with("diff")
+            .args([path, "--format", "json"])
+            .output()
+            .unwrap();
+        let body = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !body.contains("left private body") && !body.contains("right private body"),
+            "{path}: {output:?}"
+        );
+    }
+}
+
+// @kotowari[REQ-cli-058]
+#[test]
+fn text_total_counts_the_children_compared_under_a_directory_link() {
+    let env = CliEnv::new(
+        &[("actual/a.txt", "left a\n"), ("actual/b.txt", "left b\n")],
+        &[("actual/a.txt", "right a\n"), ("actual/b.txt", "right b\n")],
+    );
+    place_symlink(&env.local_dir, "shared", "actual");
+    place_symlink(&env.remote_dir, "shared", "actual");
+
+    let output = env.cmd_with("diff").arg("shared").output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    let total: usize = body
+        .lines()
+        .rev()
+        .find_map(|line| line.trim_end().strip_suffix(" total"))
+        .and_then(|rest| rest.rsplit(' ').next())
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("no total in the last line: {body}"));
+    assert!(total >= 2, "{body}");
+}
+
 /// 機密ファイル (.env) の diff で内容が隠され、--force の案内が表示される
 // @kotowari[REQ-cli-005]
 #[test]
