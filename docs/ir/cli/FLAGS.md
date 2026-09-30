@@ -358,3 +358,17 @@ diff は、リンク文字列も参照先の内容も同じ symlink を差分の
 - source: docs/decision/records/2026-09-30-adopt-diff-links.md#A13
 
 利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例はリンク先を "left_symlink_target" と "right_symlink_target" で出すとするが、REQ-cli-024 と実装は link_targets の left と right で出す。
+
+### FLAG-cli-056: 字面で辿る機密の連鎖の判定の迂回
+- kind: contradiction
+- related: REQ-cli-023, FLAG-cli-051
+- source: docs/decision/records/2026-09-30-diff-root-symlink.md#A5
+
+REQ-cli-023 は入れ子の各段階のリンク文字列が機密パターンに当たれば root_dir の内外を問わず --force なしでは内容を表示しないとするが、diff の機密の連鎖の判定はリンク文字列を字面で結んで次の段を求めるため、OS が途中のディレクトリ symlink を先に解決してから ".." を当てる場合（例 ディレクトリ symlink の中のリンクが "../mid" を指す）に別のファイルを指したと判定し、途中の段の機密の名前を見ないまま root_dir の中の最終参照先の内容を表示しうる。連鎖の最初の項目の実パスが root_dir の外にあるときは、外へ出る前の root_dir の中の段も字面で辿れなければ見ない（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-057: 字面で辿れない連鎖の内容差を隠す
+- kind: contradiction
+- related: REQ-cli-020, EX-cli-040
+- source: docs/decision/records/2026-09-30-diff-root-symlink.md#A6
+
+REQ-cli-020 と EX-cli-040 は参照先の内容差を示すとするが、機密パターンに当たる名前を含まない連鎖でも、リンク文字列が "../<root_dir の実ディレクトリ名>/target.txt" や root_dir の別名を通る絶対パスの形で字面で辿れず実パスが root_dir の中にあると、diff は --force なしでは参照先の内容差を表示しない。
