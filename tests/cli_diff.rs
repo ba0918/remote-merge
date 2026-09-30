@@ -1665,3 +1665,98 @@ fn test_diff_null_bytes_detected_as_binary() {
         stdout
     );
 }
+
+// ─── symlink を経由する root_dir ─────────────────────────
+
+/// root_dir を symlink にする側
+enum LinkedRoot {
+    Local,
+    Remote,
+}
+
+/// 左右の file.txt を中身を違えて置き、それを指す link.txt も左右に置く。`linked` 側の root_dir を
+/// 実ディレクトリへの symlink にした設定で `diff <path> --format json` を起動し、JSON を返す
+///
+/// 設定は一時ディレクトリに書いて隔離の確認を通し、`--config` で渡す。環境変数は全て消して
+/// HOME・XDG の変数を一時ディレクトリの下に向け、作業ディレクトリも一時ディレクトリの下にする。
+fn diff_with_linked_root(
+    linked: LinkedRoot,
+    path: &str,
+) -> (std::process::Output, serde_json::Value) {
+    let mut dirs = TestDirs::new_2way(
+        &[("file.txt", "left body\n")],
+        &[("file.txt", "right body\n")],
+    );
+    place_symlink(&dirs.local_dir, "link.txt", "file.txt");
+    place_symlink(&dirs.remote_dir, "link.txt", "file.txt");
+    let temp = dirs.temp.path().to_path_buf();
+    let (mut local_root, mut remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
+    let link = temp.join("linked-root");
+    let real = match linked {
+        LinkedRoot::Local => std::mem::replace(&mut local_root, link.clone()),
+        LinkedRoot::Remote => std::mem::replace(&mut remote_root, link.clone()),
+    };
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let config_path = temp.join("linked-root-config.toml");
+    let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
+    std::fs::write(&config_path, config).unwrap();
+    dirs.assert_isolated_config_at(&config_path, &local_root);
+
+    let home = temp.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+    cmd.env_clear();
+    cmd.env("HOME", &home);
+    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
+    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
+    cmd.current_dir(&home);
+    cmd.arg("--config").arg(&config_path);
+    cmd.args(["diff", path, "--format", "json"]);
+    cmd.stdin(std::process::Stdio::null());
+    let output = cmd.output().expect("failed to execute diff");
+    let result = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    (output, result)
+}
+
+/// root_dir の中のファイルの中身の差分が出て、root_dir の外という報告がないことを確かめる
+fn assert_compared_inside_root(
+    output: &std::process::Output,
+    result: &serde_json::Value,
+    path: &str,
+) {
+    let file = json_item(result, path);
+    let hunks = file["hunks"].to_string();
+    assert!(
+        hunks.contains("left body") && hunks.contains("right body"),
+        "{result}"
+    );
+    assert!(!result.to_string().contains("outside root_dir"), "{result}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn local_root_dir_through_a_symlink_compares_files_inside_it() {
+    let (output, result) = diff_with_linked_root(LinkedRoot::Local, "file.txt");
+    assert_compared_inside_root(&output, &result, "file.txt");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn remote_root_dir_through_a_symlink_compares_files_inside_it() {
+    let (output, result) = diff_with_linked_root(LinkedRoot::Remote, "file.txt");
+    assert_compared_inside_root(&output, &result, "file.txt");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn link_inside_a_root_dir_through_a_symlink_is_followed_without_follow_flag() {
+    for linked in [LinkedRoot::Local, LinkedRoot::Remote] {
+        let (output, result) = diff_with_linked_root(linked, "link.txt");
+        assert_compared_inside_root(&output, &result, "link.txt");
+    }
+}

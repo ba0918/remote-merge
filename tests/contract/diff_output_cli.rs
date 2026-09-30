@@ -20,7 +20,7 @@ const NOT_FOUND: &str = "specified path(s) not found on either side";
 /// `--config` を必ず渡し、作業ディレクトリを一時ディレクトリの下にする。渡さないと実行ファイルは
 /// 作業ディレクトリの ".remote-merge.toml" を読み、テストが書いた設定の外に接続しうる。
 /// 環境変数は全て消し、HOME・XDG の変数を一時ディレクトリ `temp` の下に向け、PATH だけを引き継ぐ。
-fn launch_diff(temp: &Path, config_path: &Path, args: &[&str]) -> Output {
+pub(super) fn launch_diff(temp: &Path, config_path: &Path, args: &[&str]) -> Output {
     let home: PathBuf = temp.join("home");
     fs::create_dir_all(&home).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));

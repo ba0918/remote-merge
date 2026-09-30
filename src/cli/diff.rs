@@ -112,6 +112,8 @@ pub fn execute_diff(
 
     let left_info = build_source_info(&pair.left, &core)?;
     let right_info = build_source_info(&pair.right, &core)?;
+    let left_root = real_root_dir(&mut core, &pair.left, &config)?;
+    let right_root = real_root_dir(&mut core, &pair.right, &config)?;
 
     // ScanStrategy で分岐: FastPath / PartialScan / FullScan
     let strategy = resolve_scan_strategy(&args.paths, false);
@@ -122,8 +124,8 @@ pub fn execute_diff(
                 check_path_traversal(target_paths)?;
                 run_diff_fast_path(
                     target_paths,
-                    &pair.left,
-                    &pair.right,
+                    (&pair.left, &left_root),
+                    (&pair.right, &right_root),
                     &mut core,
                     &config,
                     args.follow_external_links,
@@ -186,8 +188,8 @@ pub fn execute_diff(
             continue;
         }
         if !args.follow_external_links
-            && (path_escapes_root(&mut core, &pair.left, &config, path)?
-                || path_escapes_root(&mut core, &pair.right, &config, path)?)
+            && (path_escapes_root(&mut core, &pair.left, &left_root, path)?
+                || path_escapes_root(&mut core, &pair.right, &right_root, path)?)
         {
             let reason = "content not compared (outside root_dir; use --follow-external-links)";
             let mut output = build_masked_diff_output(path, left_info.clone(), right_info.clone());
@@ -295,16 +297,12 @@ pub fn execute_diff(
                 file_diffs.push(link_diff);
                 continue;
             }
-            let external = [&pair.left, &pair.right].into_iter().any(|side| {
-                let root = match side {
-                    Side::Local => &config.local.root_dir,
-                    Side::Remote(name) => &config.servers[name].root_dir,
-                };
-                match core.inspect_path(side, path) {
+            let external = [(&pair.left, &left_root), (&pair.right, &right_root)]
+                .into_iter()
+                .any(|(side, root)| match core.inspect_path(side, path) {
                     Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),
                     _ => false,
-                }
-            });
+                });
             if external && !args.follow_external_links {
                 let reason = "content not compared (outside root_dir; use --follow-external-links)";
                 link_diff.note = Some(reason.into());
@@ -647,10 +645,12 @@ fn sensitive_link_chain(
 ///
 /// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes)
 /// ツリーは空（FastPath ではツリーを使わないため）。plain_file_sizes は読んだ大きさから作る。
+///
+/// `left`・`right` は比べる側と、その root_dir を実パスに直したもの。
 fn run_diff_fast_path(
     target_paths: &[String],
-    left: &Side,
-    right: &Side,
+    (left, left_root): (&Side, &Path),
+    (right, right_root): (&Side, &Path),
     core: &mut CoreRuntime,
     config: &AppConfig,
     follow_external_links: bool,
@@ -667,8 +667,8 @@ fn run_diff_fast_path(
         let left_path = core.inspect_path(left, path)?;
         let right_path = core.inspect_path(right, path)?;
         if (!follow_external_links
-            && (resolved_path_outside_root(&left_path, left, config)
-                || resolved_path_outside_root(&right_path, right, config)))
+            && (resolved_path_outside_root(&left_path, left_root)
+                || resolved_path_outside_root(&right_path, right_root)))
             || matches!(left_path, TargetPath::Symlink { .. })
             || matches!(right_path, TargetPath::Symlink { .. })
         {
@@ -756,11 +756,23 @@ fn run_diff_fast_path(
     ))
 }
 
-fn resolved_path_outside_root(path: &TargetPath, side: &Side, config: &AppConfig) -> bool {
-    let root = match side {
+/// 側の root_dir を、ファイルと同じ inspect_path で実パスに直す。
+///
+/// root_dir がまだない場合は、設定に書いた root_dir をそのまま使う。
+fn real_root_dir(
+    core: &mut CoreRuntime,
+    side: &Side,
+    config: &AppConfig,
+) -> anyhow::Result<PathBuf> {
+    let configured = match side {
         Side::Local => &config.local.root_dir,
         Side::Remote(name) => &config.servers[name].root_dir,
     };
+    Ok(inspected_real_path(core.inspect_path(side, "")?).unwrap_or_else(|| configured.clone()))
+}
+
+/// `root` は実パスに直した root_dir。
+fn resolved_path_outside_root(path: &TargetPath, root: &Path) -> bool {
     match path {
         TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => {
             !real_path.starts_with(root)
@@ -772,11 +784,11 @@ fn resolved_path_outside_root(path: &TargetPath, side: &Side, config: &AppConfig
 fn path_escapes_root(
     core: &mut CoreRuntime,
     side: &Side,
-    config: &AppConfig,
+    real_root: &Path,
     path: &str,
 ) -> anyhow::Result<bool> {
     let inspected = core.inspect_path(side, path)?;
-    Ok(resolved_path_outside_root(&inspected, side, config))
+    Ok(resolved_path_outside_root(&inspected, real_root))
 }
 
 fn read_existing_diff_file(
