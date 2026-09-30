@@ -184,6 +184,7 @@ scripts/mutants.sh \
 最初の実行で回して回し直していない関数（`format_diff_text` の位置の指定、`path_escapes_root`・`resolved_path_outside_root`・`link_target_for_diff`・`inspected_real_path`・`read_existing_diff_file`・`build_symlink_diff_output`）は、最初の実行で見逃しがなかった。
 
 決着していない見逃し、新しい FLAG の候補、verification の見直しの候補はない。
+要件の文から決まらないため値や挙動を固定しなかった点が二つある。ディレクトリ symlink の項目自体を REQ-cli-058 の「走査したファイルの数」に数えるか（上の 394:35）と、REQ-cli-026 の「status・merge・sync には適用せず」がオプションを拒否することか無視することか（上の「要件」の表）である。どちらも今の要件の読みで満たせるように確かめたため FLAG の候補にはしていないが、要件を詳しくするときの材料として残す。
 
 ## 要件の verification の見直し
 
