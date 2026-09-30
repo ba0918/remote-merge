@@ -290,3 +290,14 @@ property の要件はないため、REQ-testing-010（proptest で検査範囲�
 4. src/cli/diff.rs:214:54 と 965:16（警告の出し方）は、読めないファイルの扱い（FLAG-cli-030）の範囲として記録だけにする。
 
 この判断でテストは変えないため、変異テストは回し直していない。決着していない見逃しと、verification の見直しの候補は残っていない。
+
+## FLAG-cli-040 を直す前の確かめ直し（2026-09-30）
+
+FLAG-cli-040 を直す前に、上の「不具合の疑い」の 1 と同じ製品コード（この記録を書いてから `src/` は変わっていない）で確かめ直すと、再現しなかった。
+左右に中身の違う "a.txt" と "d/b.txt" を置き、execute_diff を呼ぶ契約テストでパスに "."・"./"・空の値・"/" の一つずつと、"." と "a.txt" を並べたものを渡すと、どれもパスなしと同じ JSON と終了コード 1 になった。
+試験 SSH サーバに対して実行ファイルを起動し、パスに "."・"./"・空の値・"/"・"//" の一つずつを渡しても、どれもパスなしと同じテキストと終了コード 1 になった（使い捨ての確認。テストのファイルは元に戻した）。
+先の確認で違う結果になった原因は分からない。
+
+利用者の判断で、この挙動を REQ-cli-052 に書き足して FLAG-cli-040 を外した（[決定記録](../decision/records/2026-09-30-diff-root-dir-path.md#A1)）。根拠テストとして `tests/contract/diff_selection.rs` に req_cli_052_a_path_naming_the_root_dir_compares_the_whole_root_dir を足した。今の挙動を確かめるテストのため、失敗する段階はない。
+
+FLAG-cli-040 の範囲として決着していた src/cli/diff.rs:98:24（replace == with != in execute_diff）は、同等変異として `.kotowari/mutants-equivalents.yaml` に登録した。変異で変わるのは ""・"/"・"//" が "." になるかどうかだけで、どれも root_dir を指すパスとして扱われる。別の文脈のエージェントに落とすテストを探させたが書けず（コードを読んだ判断）、変異を一時的に書き入れて diff の契約テスト 53 件を回すと全て通った。確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。登録の後に最後の回し直しの結果を kotowari mutants で読むと `caught=84 survived=20 timeout=0 unviable=4 equivalent=1` になった。

@@ -6,10 +6,10 @@ CLI diff がどのファイルを比べ、差分をテキストと JSON でど�
 
 ### REQ-cli-052: 比べる対象をパスで選ぶ
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A1
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A1, docs/decision/records/2026-09-30-diff-root-dir-path.md#A1
 - verification: unit
 
-diff はパスを指定しないとき root_dir 全体、ファイルのパスを複数指定したときはそれぞれのファイル、ディレクトリのパスを指定したときは末尾の "/" の有無によらずその配下を比べる。
+diff はパスを指定しないときと、指定したパスに "."・"./"・空の値・"/" のどれかがあるときは root_dir 全体、ファイルのパスを複数指定したときはそれぞれのファイル、ディレクトリのパスを指定したときは末尾の "/" の有無によらずその配下を比べる。
 
 ### REQ-cli-053: JSON の形
 - kind: ubiquitous

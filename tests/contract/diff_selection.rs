@@ -80,6 +80,28 @@ fn req_cli_052_directory_path_compares_its_children_with_or_without_a_slash() {
     assert_eq!(slash_code, plain_code);
 }
 
+// @kotowari[REQ-cli-052]
+#[test]
+fn req_cli_052_a_path_naming_the_root_dir_compares_the_whole_root_dir() {
+    let fixture = DiffFixture::new(
+        &[("a.txt", b"left\n"), ("d/b.txt", b"left\n")],
+        &[("a.txt", b"right\n"), ("d/b.txt", b"right\n")],
+    );
+    let (whole, whole_code) = fixture.diff(&[]);
+
+    for paths in [&["."][..], &["./"], &[""], &["/"], &[".", "a.txt"]] {
+        let (output, code) = fixture.diff(paths);
+
+        assert_eq!(paths_of(&output), set(&["a.txt", "d/b.txt"]), "{paths:?}");
+        assert_eq!(
+            format_json(&output).unwrap(),
+            format_json(&whole).unwrap(),
+            "{paths:?}"
+        );
+        assert_eq!(code, whole_code, "{paths:?}");
+    }
+}
+
 // ── REQ-cli-001: ディレクトリ指定の差分を JSON で返す ──
 
 // @kotowari[REQ-cli-001]
