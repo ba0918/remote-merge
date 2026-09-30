@@ -274,3 +274,94 @@ REQ-cli-009 はバイナリの一致または不一致を示すとするが、�
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A25
 
 正しい UTF-8 のテキストでも、先頭の 8,192 バイトの境目で多バイトの文字が切れるとバイナリと判定される。REQ-cli-061 の「先頭 8,192 バイトに不正な UTF-8 を含む」に境目で切れた文字が当たるかは読み分けられない。
+
+### FLAG-cli-043: symlink を経由する root_dir の diff
+- kind: contradiction
+- related: REQ-cli-026
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A1
+
+REQ-cli-026 は root_dir 内の symlink を通常どおり辿り root_dir の外へ出る参照先だけを --follow-external-links のときに辿るとするが、設定の root_dir が symlink を経由するとき、diff は root_dir の中の通常のファイルまで "content not compared (outside root_dir; use --follow-external-links)" のエラーにし、終了コード 2 を返す。
+
+### FLAG-cli-044: SSH の側だけ参照先がない symlink
+- kind: contradiction
+- related: REQ-cli-022
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A2
+
+REQ-cli-022 は symlink の参照先がないか読めないとき空ファイルと同一扱いせずエラー終了するとするが、SSH の経路の側だけ参照先がない symlink は、エラーにならずその側を空として比べ、終了コード 1 を返す（ローカルの側ならエラーになる）。
+
+### FLAG-cli-045: SSH の側のディレクトリ symlink と通常ファイル
+- kind: contradiction
+- related: REQ-cli-021, EX-cli-061
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A3
+
+REQ-cli-021 と EX-cli-061 はディレクトリ symlink と通常ファイルの組でも配下を入口からの子パスで示すとするが、ローカルの側が通常ファイルで SSH の側がディレクトリ symlink のとき、diff はリンクの配下の子ファイルを出さない（逆の向きは出す）。
+
+### FLAG-cli-046: 機密ファイルを指す同じ symlink
+- kind: contradiction
+- related: REQ-cli-020
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A4
+
+REQ-cli-020 はリンク文字列・種類・内容が全て同じなら差分なしとするが、機密ファイルを指す symlink は、--force なしで内容を隠すとき、左右のリンク文字列も参照先の内容も同じでも差分ありと数え、終了コード 1 を返す。
+
+### FLAG-cli-047: パスを指定しない diff の symlink
+- kind: ambiguity
+- related: REQ-cli-020, REQ-cli-021
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A5
+
+REQ-cli-020 と REQ-cli-021 の文は経路を限らないが、その文書の導入は symlink を明示指定したときとし、パスを指定しない diff では、リンク文字列が同じ symlink を一覧に出さず参照先の内容も比べない。要件がパスを指定しない diff にも当たるかが読み分けられない。
+
+### FLAG-cli-048: 種類の違いの note の文言
+- kind: contradiction
+- related: REQ-cli-020
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A6
+
+REQ-cli-020 は解決後の種類の差を示すとするが、note は相手側に項目がない片側だけの symlink でも "type mismatch: symlink vs file"、相手側が通常ファイルのディレクトリ symlink でも "type mismatch: symlink vs directory" と出し、相手側の種類を正しく示さない場合がある（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-049: ディレクトリの子の一覧の件数の打ち切り
+- kind: contradiction
+- related: REQ-cli-021
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A7
+
+REQ-cli-021 は件数超過を不完全な比較としてエラーで報告するとするが、diff がディレクトリの子を一覧するときは一つのディレクトリにつき 10,000 件で黙って打ち切り、不完全な比較として報告しない（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-050: 通常のディレクトリの展開の理由のテキスト
+- kind: contradiction
+- related: REQ-cli-022
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A8
+
+REQ-cli-022 は比較できなかったパスと理由を示すとするが、通常のディレクトリの展開で循環や件数超過が起きたとき、テキスト出力には理由が出ない（JSON では errors に出る。実装を読んで分かったことで未実行）。
+
+### FLAG-cli-051: root_dir の外へ出るリンクの連鎖の機密の判定
+- kind: contradiction
+- related: REQ-cli-023
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A9
+
+REQ-cli-023 は入れ子の各段階のリンク文字列のいずれかが機密パターンに当たるとき内容を表示しないとするが、実装はリンクの連鎖を root_dir の中でだけ辿り、途中で root_dir の外へ出るとその先の段のリンク文字列を調べない（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-052: 比べなかったときの hunks のリンク文字列
+- kind: contradiction
+- related: REQ-cli-024
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A10
+
+REQ-cli-024 はリンク文字列と参照先の内容差を区別して示すとするが、機密として隠したとき、root_dir の外で内容を比べなかったとき、参照先のディレクトリが読めないとき、循環したときにも hunks にリンク文字列の削除と追加の行が残り、テキストではその前に "Resolved content differs" と出る（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-053: symlink の参照先の内容の --max-lines
+- kind: contradiction
+- related: REQ-cli-054
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A11
+
+REQ-cli-054 は --max-lines で打ち切ったファイルの truncated を true にするとするが、symlink の参照先の内容の差分は、打ち切っても truncated を true にせず、テキストにも "... (output truncated)" を出さない（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-054: symlink の diff の仕様のない挙動
+- kind: gap
+- related: REQ-cli-020
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A12
+
+diff は、リンク文字列も参照先の内容も同じ symlink を差分のない項目として files に残してテキストにも "Link target:" を出し、100MB を超える参照先を --force を付けても読めないエラーにし、絶対パスの指定を拒否しない（実装を読んで分かったことで未実行）。旧資料に記述がなくテストもない。
+
+### FLAG-cli-055: 手引きの symlink の欄名
+- kind: contradiction
+- related: REQ-cli-024
+- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A13
+
+利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例はリンク先を "left_symlink_target" と "right_symlink_target" で出すとするが、REQ-cli-024 と実装は link_targets の left と right で出す。

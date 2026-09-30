@@ -45,3 +45,8 @@
   text: "} else if path == \"./\" {"
   class: equivalent
   why: 変わるのは末尾の "/" を取ると空になるパス（""・"/"・"//"）がそのまま残るか "." になるかだけで、どちらも root_dir を指すパスとして扱われる。execute_diff がパスを渡す走査の範囲の判定（resolve_scan_strategy）と対象の解決（resolve_target_files_from_statuses）はどちらも末尾の "/" を取って "." か空なら root_dir 全体とし、それより後はパスを読まない。別の文脈のエージェントに、これらのパスをファイル・ディレクトリ・glob・見つからないパス・".." を含むパスと組み合わせた場合や --max-files・--ref を付けた場合で落ちるテストを探させたが、コードを読んだ範囲で違いが見つからず書けなかった。変異を書き入れて diff の契約テスト（"."・"./"・空の値・"/" と、"." とファイルを並べた場合を含む）を回しても全て通った
+- file: src/cli/diff.rs
+  change: delete match arm Ok(TargetPath::Symlink{real_path, ..}) in execute_diff
+  text: "Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),"
+  class: equivalent
+  why: この腕が true を返すのは --follow-external-links がないときに symlink の実パスが root_dir の外にある場合だけだが、同じループの先頭の確かめ（path_escapes_root）が同じパス・同じ root_dir・同じ inspect_path の結果で同じ比較をして、先に "outside root_dir" のエラーにして次のパスへ進むため、この腕に来るときは必ず false になる。別の文脈のエージェントに、相対や symlink を経由する root_dir、機密のリンク、ディレクトリ symlink とその子、走査の三つの経路、--force・--max-entries・--max-files の組み合わせで出力が変わる入力を探させたが、コードを読んだ範囲で見つからず書けなかった（inspect_path はローカル・SSH・エージェントのどれもキャッシュを持たず同じ入力に同じ結果を返す）
