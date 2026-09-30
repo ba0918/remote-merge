@@ -1300,6 +1300,7 @@ fn plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limi
         ("left-dir/sub/a.txt", "left\n"),
         ("left-dir/sub/b.txt", "left\n"),
         ("left-dir/sub/c.txt", "left\n"),
+        ("left-dir/sub/d.txt", "left\n"),
     ];
     let env = CliEnv::new(&children, &[]);
     place_files(
@@ -1308,6 +1309,7 @@ fn plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limi
             ("right-dir/sub/a.txt", "right\n"),
             ("right-dir/sub/b.txt", "right\n"),
             ("right-dir/sub/c.txt", "right\n"),
+            ("right-dir/sub/d.txt", "right\n"),
         ],
     );
     place_symlink(&env.local_dir, "shared", "left-dir");
