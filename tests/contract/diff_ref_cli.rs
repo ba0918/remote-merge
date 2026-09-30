@@ -408,16 +408,33 @@ fn req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end()
     let conflicts = |count: u64| {
         format!("Conflicts: {count} region(s) where both sides changed the same lines differently")
     };
-    for count in [1, 2] {
-        assert!(text.lines().any(|line| line == conflicts(count)), "{text}");
-    }
-    assert_eq!(
-        text.lines()
+    let lines: Vec<&str> = text.lines().collect();
+    let header = |path: &str| format!("--- a/{path} (local)");
+    let header_at = |path: &str| {
+        lines
+            .iter()
+            .position(|line| *line == header(path))
+            .unwrap_or_else(|| panic!("{path}: {text}"))
+    };
+    // ファイルの並び順は IR が定めないため、各ファイルの見出しから次に現れる見出しまでをそのファイルの区間とする
+    let starts: Vec<usize> = CONFLICTING
+        .iter()
+        .map(|(path, _)| header_at(path))
+        .collect();
+    for (&(path, count), &start) in CONFLICTING.iter().zip(&starts) {
+        let end = starts
+            .iter()
+            .copied()
+            .filter(|&other| other > start)
+            .min()
+            .unwrap_or(lines.len());
+        let found: Vec<&str> = lines[start..end]
+            .iter()
+            .copied()
             .filter(|line| line.starts_with("Conflicts: "))
-            .count(),
-        CONFLICTING.len(),
-        "{text}"
-    );
+            .collect();
+        assert_eq!(found, [conflicts(count)], "{path}: {text}");
+    }
     let last = text.lines().rev().find(|line| !line.is_empty()).unwrap();
     assert_eq!(last, "6 conflict(s) detected across files", "{text}");
 }
