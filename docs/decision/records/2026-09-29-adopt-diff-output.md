@@ -80,6 +80,7 @@ CLI の FLAGS.md はこの回の FLAG で limits.lines の 200 行を超える�
 - A23 未決の FLAG として残す。diff にパスとして "."・"./"・空の値・"/" を渡すと、左右に変更のあるファイルがあってもファイルを一つも出さず、終了コード 0 を返す（テスト整理の変異テストの確かめで実行して確かめた）。[REQ-cli-052](../../ir/cli/diff-output.md#REQ-cli-052) はパスを指定しないとき root_dir 全体を比べるとするが、root_dir を指すこれらのパスの扱いは要件にない。
   - why: 変更があるのに差分なしと報告する挙動で、利用者の判断で FLAG に残し、テスト整理の後に直す。
   - decided_by: 利用者（推奨を採用）
+  - superseded_by: [A1 (2026-09-30-diff-root-dir-path)](./2026-09-30-diff-root-dir-path.md#A1)
 - A24 未決の FLAG として残す。先頭の 8,192 バイトより後にだけ不正な UTF-8 を含み、読むと左右が同じテキストになるファイルがあると、--max-files が 1 のときだけそのファイルを読まずに変更のあるファイルと数え、truncated を true、changed_files_total を実際より多く出す（テスト整理の確かめで実行して確かめた）。[REQ-cli-055](../../ir/cli/diff-output.md#REQ-cli-055) は変更のあるファイルを数えるとする。
   - why: 起きる条件がごく限られ、利用者の判断で FLAG に残す。
   - decided_by: 利用者（推奨を採用）
@@ -94,3 +95,4 @@ CLI の FLAGS.md はこの回の FLAG で limits.lines の 200 行を超える�
 
 - 2026-09-29: テスト整理の変異テストの確かめで見つかった三件を A23 から A25 として追加し、FLAG-cli-040 から 042 に残した。
 - 2026-09-29: A26 を追加し、[REQ-cli-058](../../ir/cli/diff-output.md#REQ-cli-058) に文脈の行数、"@@" の塊のまとめ方、書き始めを書き足して、出典に A26 を足した。
+- 2026-09-30: A23 の挙動は確かめ直すと再現せず、[root_dir を指すパスの判断](./2026-09-30-diff-root-dir-path.md#A1) で要件に書き足して FLAG-cli-040 を外したため、A23 に superseded_by を足した。
