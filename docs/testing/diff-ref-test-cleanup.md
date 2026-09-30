@@ -299,7 +299,7 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:153:57:\ replace\ \+\ with\ \*\
 | src/diff/conflict.rs:230 | replace < with <= in detect_conflicts | テストを足した（adjacent.txt）。回し直しで caught |
 | src/diff/conflict.rs:219 | replace && with \|\| in detect_conflicts | FLAG-cli-071 の範囲として記録する（行を足すだけの変更の競合。利用者の判断で未決の FLAG として残した）。下の節 |
 | src/diff/conflict.rs:265 | replace < with == in merge_overlapping_regions | FLAG-cli-072 の範囲として記録する（複数の変更と重なる変更の競合の数。利用者の判断で未決の FLAG として残した）。下の節 |
-| src/diff/conflict.rs:265 | replace < with <= in merge_overlapping_regions | FLAG-cli-071 の範囲として記録する。下の節 |
+| src/diff/conflict.rs:265 | replace < with <= in merge_overlapping_regions | FLAG-cli-072 の範囲として記録する（接するが別々の二つの競合の数。決定記録の A3 で FLAG-cli-071 から移した）。下の節 |
 | src/diff/conflict.rs:286 | replace merge_ranges -> Option<Range<usize>> with None | 既存の FLAG-cli-058 の範囲として記録する。merge_ranges の結果は、まとめた競合の "conflict_regions" の要素の中の "left_diff_range"・"right_diff_range"（TUI 用の範囲）にだけ入り、"conflict_count" と "conflict_regions" があることは変わらない。要素の形は FLAG-cli-058 で未決のため根拠テストで確かめない |
 | src/service/diff.rs:47 | delete match arm engine::DiffResult::Equal in build_diff_output | 同等変異として .kotowari/mutants-equivalents.yaml に登録した。この腕を消すと Equal は後ろの `_ => Some(vec![])` の腕に入り、同じ値を返す。別の文脈のエージェントに、公開された build_diff_output を参照先の中身を左と同じにして呼び、左右に差がある組・左右とも同じ組・左が空の組で "ref_hunks" とその JSON を確かめるテストを書かせたが、変異を書き入れても通り、落ちるテストを書けなかった |
 
@@ -321,14 +321,18 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:153:57:\ replace\ \+\ with\ \*\
    実装は、両方が同じ位置に足したときと、一方が足した位置が他方の変えた範囲の中（範囲の先頭の行の後ろから末尾の行まで）にあるときを競合とし、範囲の先頭の行の前に足したときも競合とする。
    219 行の変異は、一方だけが足したときに位置が範囲の先頭と同じときだけを競合とするもので、参照先 "1..5" の 2・3 行を左が変え、右が 2 行と 3 行の間に足した組で、元のコードでは競合 1、変異では 0 になった。
    265 行の `<=` は、隣り合う二つの競合を一つにまとめる変異で、行を変える変更どうしでは隣り合う競合ができないため、挿入だけの変更が関わるときにだけ違いが出ると見られる（コードを読んだ推測で、違いの出る入力は確かめていない）。
+   この推測は後の確かめで誤りと分かった（下の「利用者の判断」の後の段落）。
 2. 一つの変更が他方の複数の変更と重なるときの競合の数（src/diff/conflict.rs:265 の `==`）
    参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変えた組で、実装は重なる二つの組を一つにまとめて "conflict_count" を 1 とし、変異では 2 になった。REQ-cli-065 の「競合の数」がこの場合に 1 か 2 かを IR は定めていない。
 
 利用者の判断: 二つとも未決の FLAG として残す（勧めを採用）。取り込みとテスト整理の中では仕様を決めず、次にこの機能を扱うときに決める。
 
 - 1 は FLAG-cli-071（行を足すだけの変更の競合）として docs/ir/cli/FLAGS.md に記録された。判断は決定記録 [2026-09-30-diff-ref-mutant-flags](../decision/records/2026-09-30-diff-ref-mutant-flags.md) の A1。src/diff/conflict.rs:219 の `replace && with ||` と 265 の `replace < with <=` はこの FLAG の範囲とする。
-  直後に足す組を除いた後は、153 の `replace + with *`、224 と 227 の `replace < with ==` と `replace < with <=` の五件もこの FLAG の範囲とする（上の決着の表）。決定記録の A1 はこの五件を挙げていない。
+  直後に足す組を除いた後は、153 の `replace + with *`、224 と 227 の `replace < with ==` と `replace < with <=` の五件もこの FLAG の範囲とする（上の決着の表。決定記録の A3 で追認した）。265 の `replace < with <=` は後で A3 により FLAG-cli-072 の範囲に移した。
 - 2 は FLAG-cli-072（複数の変更と重なる変更の競合の数）として記録された。判断は同じ決定記録の A2。src/diff/conflict.rs:265 の `replace < with ==` はこの FLAG の範囲とする。
+
+その後のレビューの指摘を受け、コミットに含めない一時的なテストで、行を変えるだけの組（参照先 "1\n2\n3\n4\n5\n"、左 "A\nB\n3\nC\nD\n"、右 "1\nX\nY\n4\nZ\n"）を `detect_conflicts` に渡した。元のコードでは競合が参照先の 0..3 と 3..5 の二つ、265 行の `<=` の変異では 0..5 の一つになり、この変異は挿入だけの変更が関わらなくても、接するが別々の二つの競合の数を変えると分かった（確かめた後に src を戻し、`git diff --stat src/` と `git status --short` が空に戻ることを確かめた）。
+利用者の判断で、決定記録 [2026-09-30-diff-ref-mutant-flags](../decision/records/2026-09-30-diff-ref-mutant-flags.md) に A3 を足して割り当てを訂正した。265 行の `replace < with <=` は FLAG-cli-072 の範囲（FLAG-cli-072 は接するが別々の二つの競合の数も含む）に移し、FLAG-cli-071 の範囲の見逃しは 219 行の一件と上の五件の計六件とした。A1 と A2 の本文は書き換えていない。
 
 これで決着の対象の見逃しは全て決着した。
 
