@@ -1665,3 +1665,273 @@ fn test_diff_null_bytes_detected_as_binary() {
         stdout
     );
 }
+
+// ─── symlink を経由する root_dir ─────────────────────────
+
+/// root_dir を symlink にする側
+enum LinkedRoot {
+    Local,
+    Remote,
+}
+
+/// 左右の file.txt を中身を違えて置き、それを指す link.txt も左右に置く。`linked` 側の root_dir を
+/// 実ディレクトリへの symlink にした設定で `diff <path> --format json` を起動し、JSON を返す
+///
+/// 設定は一時ディレクトリに書いて隔離の確認を通し、`--config` で渡す。環境変数は全て消して
+/// HOME・XDG の変数を一時ディレクトリの下に向け、作業ディレクトリも一時ディレクトリの下にする。
+fn diff_with_linked_root(
+    linked: LinkedRoot,
+    path: &str,
+) -> (std::process::Output, serde_json::Value) {
+    diff_with_linked_root_placing(linked, path, |_, _, _| {})
+}
+
+/// `diff_with_linked_root` と同じ構成に、`place` で root_dir の中身を足してから diff を起動する
+///
+/// `place` は symlink にした側の実ディレクトリの実パス、その側の設定に書く root_dir（symlink）、
+/// もう一方の側の root_dir を受け取る。
+fn diff_with_linked_root_placing(
+    linked: LinkedRoot,
+    path: &str,
+    place: impl FnOnce(&std::path::Path, &std::path::Path, &std::path::Path),
+) -> (std::process::Output, serde_json::Value) {
+    let mut dirs = TestDirs::new_2way(
+        &[("file.txt", "left body\n")],
+        &[("file.txt", "right body\n")],
+    );
+    place_symlink(&dirs.local_dir, "link.txt", "file.txt");
+    place_symlink(&dirs.remote_dir, "link.txt", "file.txt");
+    let temp = dirs.temp.path().to_path_buf();
+    let (mut local_root, mut remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
+    let link = temp.join("linked-root");
+    let real = match linked {
+        LinkedRoot::Local => std::mem::replace(&mut local_root, link.clone()),
+        LinkedRoot::Remote => std::mem::replace(&mut remote_root, link.clone()),
+    };
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let other = match linked {
+        LinkedRoot::Local => &remote_root,
+        LinkedRoot::Remote => &local_root,
+    };
+    place(&std::fs::canonicalize(&real).unwrap(), &link, other);
+    let config_path = temp.join("linked-root-config.toml");
+    let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
+    std::fs::write(&config_path, config).unwrap();
+    dirs.assert_isolated_config_at(&config_path, &local_root);
+
+    let home = temp.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+    cmd.env_clear();
+    cmd.env("HOME", &home);
+    cmd.env("XDG_CONFIG_HOME", home.join(".config"));
+    cmd.env("XDG_DATA_HOME", temp.join("xdg-data"));
+    if let Ok(path) = std::env::var("PATH") {
+        cmd.env("PATH", path);
+    }
+    cmd.current_dir(&home);
+    cmd.arg("--config").arg(&config_path);
+    cmd.args(["diff", path, "--format", "json"]);
+    cmd.stdin(std::process::Stdio::null());
+    let output = cmd.output().expect("failed to execute diff");
+    let result = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    (output, result)
+}
+
+/// root_dir の中のファイルの中身の差分が出て、root_dir の外という報告がないことを確かめる
+fn assert_compared_inside_root(
+    output: &std::process::Output,
+    result: &serde_json::Value,
+    path: &str,
+) {
+    let file = json_item(result, path);
+    let hunks = file["hunks"].to_string();
+    assert!(
+        hunks.contains("left body") && hunks.contains("right body"),
+        "{result}"
+    );
+    assert!(!result.to_string().contains("outside root_dir"), "{result}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn local_root_dir_through_a_symlink_compares_files_inside_it() {
+    let (output, result) = diff_with_linked_root(LinkedRoot::Local, "file.txt");
+    assert_compared_inside_root(&output, &result, "file.txt");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn remote_root_dir_through_a_symlink_compares_files_inside_it() {
+    let (output, result) = diff_with_linked_root(LinkedRoot::Remote, "file.txt");
+    assert_compared_inside_root(&output, &result, "file.txt");
+}
+
+// @kotowari[REQ-cli-026]
+#[test]
+fn link_inside_a_root_dir_through_a_symlink_is_followed_without_follow_flag() {
+    for linked in [LinkedRoot::Local, LinkedRoot::Remote] {
+        let (output, result) = diff_with_linked_root(linked, "link.txt");
+        assert_compared_inside_root(&output, &result, "link.txt");
+    }
+}
+
+/// symlink にした側だけに、絶対パスのリンク文字列で始まり、途中の段の名前が機密パターンに当たる
+/// 連鎖（a.txt → <root_dir>/mid → secret.pem → plain.txt）を置き、もう一方の側の a.txt は
+/// 通常のファイルにして、--force なしで diff する
+///
+/// `configured_form` が true なら a.txt のリンク文字列を設定に書いた root_dir（symlink）の形に、
+/// false なら実パスの形にする。
+fn diff_sensitive_chain_through_absolute_link(linked: LinkedRoot, configured_form: bool) {
+    let (output, result) =
+        diff_with_linked_root_placing(linked, "a.txt", |real, configured, other| {
+            let root = if configured_form { configured } else { real };
+            place_files(real, &[("plain.txt", "chain-secret-marker\n")]);
+            place_symlink(real, "secret.pem", "plain.txt");
+            place_symlink(real, "mid", "secret.pem");
+            place_symlink(real, "a.txt", root.join("mid").to_str().unwrap());
+            place_files(other, &[("a.txt", "other body\n")]);
+        });
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("chain-secret-marker"),
+        "{output:?}"
+    );
+    json_item(&result, "a.txt");
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_chain_link_under_a_local_root_dir_through_a_symlink_hides_contents() {
+    diff_sensitive_chain_through_absolute_link(LinkedRoot::Local, false);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_chain_link_under_a_remote_root_dir_through_a_symlink_hides_contents() {
+    diff_sensitive_chain_through_absolute_link(LinkedRoot::Remote, false);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_chain_link_written_through_the_configured_root_dir_hides_contents() {
+    for linked in [LinkedRoot::Local, LinkedRoot::Remote] {
+        diff_sensitive_chain_through_absolute_link(linked, true);
+    }
+}
+
+// ─── 字面で root_dir の下に辿れない連鎖 ─────────────────
+
+/// リンク文字列の書き方
+enum ChainLinkText {
+    /// "../<root_dir のディレクトリ名>/mid"
+    ParentOfRoot,
+    /// "<root_dir の実パス>/../<root_dir のディレクトリ名>/mid"
+    RealRootThroughParent,
+    /// root_dir を指す別名の symlink を通る絶対パス "<別名>/mid"
+    AliasOfRoot,
+}
+
+/// `linked` の側の root_dir にだけ、実際には root_dir の中にとどまるが、最初の段のリンク文字列が
+/// 字面では root_dir の外を通る連鎖（a.txt → `text` → mid → secret.pem → plain.txt）を置き、
+/// もう一方の側の a.txt は通常のファイルにして --force なしの JSON で diff し、最終参照先の
+/// 中身が出ないことと a.txt の項目が出ることを確かめる
+fn assert_unfollowable_chain_hides_contents(linked: LinkedRoot, text: ChainLinkText) {
+    let env = CliEnv::new(&[], &[]);
+    let (root, other) = match linked {
+        LinkedRoot::Local => (&env.local_dir, &env.remote_dir),
+        LinkedRoot::Remote => (&env.remote_dir, &env.local_dir),
+    };
+    let name = root.file_name().unwrap().to_str().unwrap();
+    let link_text = match text {
+        ChainLinkText::ParentOfRoot => format!("../{name}/mid"),
+        ChainLinkText::RealRootThroughParent => format!(
+            "{}/../{name}/mid",
+            std::fs::canonicalize(root).unwrap().display()
+        ),
+        ChainLinkText::AliasOfRoot => {
+            let alias = env.temp_root().join(format!("{name}-alias"));
+            std::os::unix::fs::symlink(root, &alias).unwrap();
+            format!("{}/mid", alias.display())
+        }
+    };
+    place_files(root, &[("plain.txt", "chain-secret-marker\n")]);
+    place_symlink(root, "secret.pem", "plain.txt");
+    place_symlink(root, "mid", "secret.pem");
+    place_symlink(root, "a.txt", &link_text);
+    place_files(other, &[("a.txt", "other body\n")]);
+
+    let output = env
+        .cmd_with("diff")
+        .args(["a.txt", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("chain-secret-marker"),
+        "{output:?}"
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    json_item(&result, "a.txt");
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_the_parent_of_the_local_root_dir_hides_contents() {
+    assert_unfollowable_chain_hides_contents(LinkedRoot::Local, ChainLinkText::ParentOfRoot);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_the_parent_of_the_remote_root_dir_hides_contents() {
+    assert_unfollowable_chain_hides_contents(LinkedRoot::Remote, ChainLinkText::ParentOfRoot);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_dot_dot_after_the_local_real_root_hides_contents() {
+    assert_unfollowable_chain_hides_contents(
+        LinkedRoot::Local,
+        ChainLinkText::RealRootThroughParent,
+    );
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_dot_dot_after_the_remote_real_root_hides_contents() {
+    assert_unfollowable_chain_hides_contents(
+        LinkedRoot::Remote,
+        ChainLinkText::RealRootThroughParent,
+    );
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_an_alias_of_the_local_root_dir_hides_contents() {
+    assert_unfollowable_chain_hides_contents(LinkedRoot::Local, ChainLinkText::AliasOfRoot);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn chain_link_through_an_alias_of_the_remote_root_dir_hides_contents() {
+    assert_unfollowable_chain_hides_contents(LinkedRoot::Remote, ChainLinkText::AliasOfRoot);
+}
+
+// @kotowari[EX-cli-040]
+#[test]
+fn link_text_with_a_dot_component_still_shows_changed_contents() {
+    let env = CliEnv::new(
+        &[("target.txt", "left body\n")],
+        &[("target.txt", "right body\n")],
+    );
+    place_symlink(&env.local_dir, "link.txt", "./target.txt");
+    place_symlink(&env.remote_dir, "link.txt", "./target.txt");
+    let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        body.contains("left body") && body.contains("right body"),
+        "{output:?}"
+    );
+}

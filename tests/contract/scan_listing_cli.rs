@@ -327,13 +327,7 @@ impl AgentFixture {
         self.assert_isolated_agent_config(&config_path);
         let output = launch_status(self.temp.path(), &config_path, extra_args);
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
-        let commands = self.server.commands();
-        assert!(
-            commands
-                .iter()
-                .any(|command| command.contains(" agent --root ")),
-            "the agent was not started: {commands:?}"
-        );
+        let commands = self.assert_agent_started();
         assert!(
             !commands
                 .iter()
@@ -341,6 +335,41 @@ impl AgentFixture {
             "the tree was scanned over plain SSH: {commands:?}"
         );
         output
+    }
+
+    /// 隔離を確かめてから `diff --left local --right develop <args>` を起動し、右のパスの確認が
+    /// エージェントの経路を通ったことを確かめて出力を返す
+    pub(super) fn diff_via_agent(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        args: &[&str],
+    ) -> Output {
+        let config_path = self.temp.path().join("diff-agent-config.toml");
+        fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
+        self.assert_isolated_agent_config(&config_path);
+        let output = super::diff_output_cli::launch_diff(self.temp.path(), &config_path, args);
+        // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
+        let commands = self.assert_agent_started();
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command.contains("resolve_existing_prefix")),
+            "a path was inspected over plain SSH: {commands:?}"
+        );
+        output
+    }
+
+    /// 試験サーバがエージェントの起動を受けたことを確かめ、受けたコマンドを返す
+    fn assert_agent_started(&self) -> Vec<String> {
+        let commands = self.server.commands();
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.contains(" agent --root ")),
+            "the agent was not started: {commands:?}"
+        );
+        commands
     }
 }
 
