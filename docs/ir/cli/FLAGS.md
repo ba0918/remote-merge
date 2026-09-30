@@ -442,3 +442,17 @@ CLI のヘルプは --ref を参照先のバッジ（"[ref≠]"）を示すも�
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18
 
 diff の機密ファイルの判定と root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの項目が機密ファイルや root_dir の外を指す symlink のとき、--force や --follow-external-links なしでもその内容が "ref_hunks" に出うる（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-071: 行を足すだけの変更の競合
+- kind: ambiguity
+- related: REQ-cli-016, REQ-cli-065
+- source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A1
+
+用語「競合」は同じ箇所を参照先からの変更の行の範囲が重なることとするが、行を足すだけの変更は参照先の行の範囲が空で、空の範囲が重なるかを定めていない。diff は、左右が同じ位置に行を足したとき、一方が足した位置が他方の変えた範囲の中にあるとき、他方の変えた範囲の先頭の行の前に足したときを競合として示す。
+
+### FLAG-cli-072: 複数の変更と重なる変更の競合の数
+- kind: ambiguity
+- related: REQ-cli-065
+- source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A2
+
+diff は一方の一つの変更が他方の複数の変更と重なるとき（例 参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変える）、重なる組を一つにまとめて "conflict_count" を 1 とするが、REQ-cli-065 の競合の数がこの場合に 1 か 2 かは定めていない。
