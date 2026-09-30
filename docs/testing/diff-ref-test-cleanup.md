@@ -267,14 +267,35 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
 - src/diff/conflict.rs:153 の `replace + with * in extract_changes` はタイムアウトになった。ログでは、tests/cli_diff.rs のディレクトリのリンクのテスト三件（directory_link_spelling_keeps_link_and_child_changes、directory_links_report_link_names_and_children_under_entry_path、directory_spelling_with_or_without_slash_finds_same_child_diff。どれも本体に --ref がなく、競合を調べる経路を通らないことを読んで確かめた。止まった理由は確かめていない）が 217 秒を超えて止まっており、diff_ref_cli のテストの結果はログにない。そのため、コミットに含めない一時的な書き換えでこの変異を入れ、`cargo nextest run --all-features --no-fail-fast --test contract diff_ref_cli` を流すと、req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text が落ちた（13 件のうち 1 件失敗）。変異では直後に足した行の位置が一行前にずれ、他方の変えた行と重なるためである。確かめた後に `git checkout` で戻し、`git diff --stat src/` が空に戻ることを確かめた。
 - 整理前から続くタイムアウトの四件（extract_changes の `+=` を `*=`）は、ログで src/diff/conflict.rs の単体テストが 217 秒を超えて止まっており、添字が進まずに止まらなくなる変異である。
 
+### 直後に足す組を除いた後の回し直し
+
+足した組のうち left_insert_next.txt と right_insert_next.txt は、行を足すだけの変更が他方の変えた範囲の終わりに接するときを競合でないとするもので、FLAG-cli-071 が未決に残した空の範囲の重なりの一方の端を固定していた。
+そのため二組を根拠テストから除いた（コミット 28cc95d）。競合のない組は七つになる。
+
+除いたことで検知されなくなる変異を確かめるため、上の回し直しで caught とした、または一時的な書き換えで検知を確かめた src/diff/conflict.rs の 153 行・224 行・227 行の九件だけを、その名前に完全に一致する `--re` で回した（コミット 7bb7181。28cc95d の後にテキストの競合の数の確かめ方だけを変えたコミット）。
+回す前の `cargo mutants --list` で、この三行の変異のうち九件がこの名前に当たることを確かめた。三行のほかの三件（153 行の `+` を `-`、227 行の `&&` を `||` と `<` を `>`）は、組を足す前の整理後の実行（22e1f4a）で caught だったため含めていない。
+
+```sh
+scripts/mutants.sh --re '^(src/diff/conflict\.rs:153:57:\ replace\ \+\ with\ \*\ in\ extract_changes|src/diff/conflict\.rs:224:36:\ replace\ \&\&\ with\ \|\|\ in\ detect_conflicts|src/diff/conflict\.rs:224:25:\ replace\ >=\ with\ <\ in\ detect_conflicts|src/diff/conflict\.rs:224:47:\ replace\ <\ with\ ==\ in\ detect_conflicts|src/diff/conflict\.rs:224:47:\ replace\ <\ with\ >\ in\ detect_conflicts|src/diff/conflict\.rs:224:47:\ replace\ <\ with\ <=\ in\ detect_conflicts|src/diff/conflict\.rs:227:25:\ replace\ >=\ with\ <\ in\ detect_conflicts|src/diff/conflict\.rs:227:47:\ replace\ <\ with\ ==\ in\ detect_conflicts|src/diff/conflict\.rs:227:47:\ replace\ <\ with\ <=\ in\ detect_conflicts)$' \
+  src/diff/conflict.rs
+```
+
+結果は `mutants: caught=4 survived=5 timeout=0 unviable=0 equivalent=0`（9 件、約 6 分）。スクリプトの終了コードは 1 で、kotowari mutants が見逃しを error として返したもの。
+
+- caught の四件は 224 行の `replace && with ||`、`replace >= with <`、`replace < with >` と、227 行の `replace >= with <`。どれも req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text が落ちた。残した挿入だけの組（left_insert_before.txt・left_insert_after.txt・right_insert_before.txt）のどれかを競合と数えるためと見られる（どの組で落ちたかはログにない）。
+- 見逃しの五件は 153 行の `replace + with * in extract_changes`、224 行と 227 行の `replace < with ==` と `replace < with <=`。どれも二組でしか検知されていなかった。
+- 153 行の変異は今回はタイムアウトにならず、テストが約 49 秒で終わって見逃しになった。前の回し直しでのタイムアウトの理由は確かめていない。
+
 ### 見逃しの決着
 
 | 位置 | 変異 | 決着 |
 |---|---|---|
-| src/diff/conflict.rs:153 | replace + with * in extract_changes | テストを足した（left_insert_next.txt ほか、他方の変えた行の直後に足す組）。上の一時的な書き換えで検知を確かめた |
-| src/diff/conflict.rs:224 | replace && with \|\| など五件 | テストを足した（left_insert_before.txt・left_insert_after.txt・left_insert_next.txt）。回し直しで caught |
+| src/diff/conflict.rs:153 | replace + with * in extract_changes | FLAG-cli-071 の範囲として記録する。検知していた直後に足す組を除いたため（上の節）。挿入だけの変更の位置を一行前にずらす変異で、他方の変えた範囲の終わりに接する挿入を範囲の中に入れる。残した組では検知されない（直後に足す組を除いた後の回し直しで見逃し）。空の範囲の端の扱いのほかに検知できる入力があるかは確かめていない |
+| src/diff/conflict.rs:224 | replace && with \|\|、replace >= with <、replace < with > | テストを足した（left_insert_before.txt・left_insert_after.txt）。直後に足す組を除いた後の回し直しで caught |
+| src/diff/conflict.rs:224 | replace < with ==、replace < with <= | FLAG-cli-071 の範囲として記録する。直後に足す組を除いた後の回し直しで見逃し（上の節）。`<=` は他方の変えた範囲の終わりに接する挿入を競合とし、`==` は範囲の中への挿入を競合とせず終わりに接する挿入を競合とする。どちらも挿入だけの変更と他方の範囲の重なりの扱い（FLAG-cli-071）を変える |
 | src/diff/conflict.rs:225 | replace == with != in detect_conflicts | テストを足した（overlapping_mirror.txt）。回し直しで caught |
-| src/diff/conflict.rs:227 | replace >= with <、replace < with ==、replace < with <= | テストを足した（right_insert_before.txt・right_insert_next.txt）。回し直しで caught |
+| src/diff/conflict.rs:227 | replace >= with < | テストを足した（right_insert_before.txt）。直後に足す組を除いた後の回し直しで caught |
+| src/diff/conflict.rs:227 | replace < with ==、replace < with <= | FLAG-cli-071 の範囲として記録する。224 行の同じ変異と同じ理由（左右を入れ替えた分岐） |
 | src/diff/conflict.rs:230 | replace < with <= in detect_conflicts | テストを足した（adjacent.txt）。回し直しで caught |
 | src/diff/conflict.rs:219 | replace && with \|\| in detect_conflicts | FLAG-cli-071 の範囲として記録する（行を足すだけの変更の競合。利用者の判断で未決の FLAG として残した）。下の節 |
 | src/diff/conflict.rs:265 | replace < with == in merge_overlapping_regions | FLAG-cli-072 の範囲として記録する（複数の変更と重なる変更の競合の数。利用者の判断で未決の FLAG として残した）。下の節 |
@@ -284,6 +305,7 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
 
 同等変異を登録した後に結果を読み直すと、整理後の実行は `mutants: caught=59 survived=16 timeout=4 unviable=13 equivalent=1`、回し直しは `mutants: caught=10 survived=5 timeout=5 unviable=0 equivalent=1` になる（`kotowari mutants --tool cargo-mutants --format text` を同じ outcomes.json に対して実行）。
 回し直しで残る見逃し 5 件は、FLAG-cli-071・072 の範囲の三件、FLAG-cli-058 の範囲の一件、決着の対象でない一件である。
+直後に足す組を除いた後は、この回し直しで caught だった 224 行と 227 行の四件と、一時的な書き換えで検知を確かめた 153 行の一件も見逃しになり、FLAG-cli-071 の範囲に移した。
 
 決着の対象でない見逃し（整理前から変わらない）:
 
@@ -305,6 +327,7 @@ scripts/mutants.sh --re '^(src/diff/conflict\.rs:120:19:\ replace\ \+=\ with\ \*
 利用者の判断: 二つとも未決の FLAG として残す（勧めを採用）。取り込みとテスト整理の中では仕様を決めず、次にこの機能を扱うときに決める。
 
 - 1 は FLAG-cli-071（行を足すだけの変更の競合）として docs/ir/cli/FLAGS.md に記録された。判断は決定記録 [2026-09-30-diff-ref-mutant-flags](../decision/records/2026-09-30-diff-ref-mutant-flags.md) の A1。src/diff/conflict.rs:219 の `replace && with ||` と 265 の `replace < with <=` はこの FLAG の範囲とする。
+  直後に足す組を除いた後は、153 の `replace + with *`、224 と 227 の `replace < with ==` と `replace < with <=` の五件もこの FLAG の範囲とする（上の決着の表）。決定記録の A1 はこの五件を挙げていない。
 - 2 は FLAG-cli-072（複数の変更と重なる変更の競合の数）として記録された。判断は同じ決定記録の A2。src/diff/conflict.rs:265 の `replace < with ==` はこの FLAG の範囲とする。
 
 これで決着の対象の見逃しは全て決着した。
