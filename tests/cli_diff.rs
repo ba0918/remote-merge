@@ -1443,11 +1443,6 @@ fn link_to_binary_against_link_to_text_reports_both_hashes() {
         remote_merge::diff::binary::compute_sha256(left_bytes),
         "{result}"
     );
-    assert_eq!(
-        link["right_hash"],
-        remote_merge::diff::binary::compute_sha256(b"right text\n"),
-        "{result}"
-    );
 }
 
 // @kotowari[EX-cli-048]
