@@ -18,6 +18,14 @@
 
 三者比較で競合がある内容を、利用者の判断なしに一方の変更だけを選んで上書きしない。
 
+### REQ-cli-065: diff に競合の数と場所を出す
+- kind: state_driven
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A4
+- verification: unit
+
+--ref を指定した diff は、競合があるファイルについて、JSON に "conflict_count"（競合の数）と "conflict_regions" を出し、テキストに "Conflicts: N region(s) where both sides changed the same lines differently" を出す。
+複数のファイルのテキストでは、末尾に "N conflict(s) detected across files" を出す。競合がなければどれも出さない。
+
 ## Examples
 
 ```gherkin

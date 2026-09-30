@@ -351,3 +351,94 @@ diff は、リンク文字列も参照先の内容も同じ symlink を差分の
 - source: docs/decision/records/2026-09-30-adopt-diff-links.md#A13
 
 利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例はリンク先を "left_symlink_target" と "right_symlink_target" で出すとするが、REQ-cli-024 と実装は link_targets の left と right で出す。
+
+### FLAG-cli-058: conflict_regions の要素の形
+- kind: contradiction
+- related: REQ-cli-065
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A6
+
+旧総合仕様の diff の JSON の例は conflict_regions の要素を "ref_range": [10, 12]、"left_lines"、"right_lines" の三つとするが、実装は "ref_range" を "start" と "end" を持つオブジェクト（0 始まりで終端を含まない）で出し、TUI 用の "left_diff_range"・"right_diff_range"・"left_file_lines"・"right_file_lines" も出す。
+
+### FLAG-cli-059: バイナリのファイルの競合
+- kind: contradiction
+- related: REQ-cli-016
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A7
+
+用語「競合」はバイナリや UTF-8 として読めないファイルをファイル全体で一つの箇所とし、REQ-cli-016 は競合を比較結果に示すとするが、diff は左右がバイナリ（先頭 8192 バイトに NUL を含むか UTF-8 として不正）のファイルで競合を示さない。先頭 8192 バイトより後ろにだけ不正な UTF-8 があるファイルは、置換文字を含むテキストとして行単位で競合を調べる。
+
+### FLAG-cli-060: 参照先にないかバイナリのファイルの競合
+- kind: ambiguity
+- related: REQ-cli-016
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A8
+
+diff は参照先にファイルがないとき、または参照先のファイルだけがバイナリのとき、競合を調べず示さない。左右が同じ位置に別の内容を持つこの場合を REQ-cli-016 と用語「競合」の競合に当たるとするかが決まらない。
+
+### FLAG-cli-061: 参照先との差の打ち切り
+- kind: ambiguity
+- related: REQ-cli-054, REQ-cli-063
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A9
+
+REQ-cli-054 は --max-lines で打ち切ったファイルの truncated を true にするとするが、diff は --max-lines を "ref_hunks" にも別に当てて打ち切り、参照先との差を打ち切ってもそのファイルの "truncated" を変えない。参照先との差の打ち切りに要件が及ぶかが決まらない。
+
+### FLAG-cli-062: 参照先を読めない理由
+- kind: gap
+- related: REQ-cli-063
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A10
+
+diff は参照先のファイルを読むのに失敗したとき、ないとき以外の理由でも、ないときと同じく "ref_hunks" を出さず、エラーも警告も出さない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-063: 参照先と比べない項目
+- kind: gap
+- related: REQ-cli-063
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A11
+
+diff は symlink の項目、--force なしで内容を隠す機密ファイルの項目、root_dir の外に解決される項目、--max-files の枠を超えて読まないファイルには、--ref があっても "ref" を付けず参照先と比べない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-064: バイナリのファイルの参照先との差
+- kind: gap
+- related: REQ-cli-063
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A12
+
+diff は左右がバイナリのファイルに "ref_hunks" を出さず、参照先のファイルだけがバイナリのときは "ref_hunks" を空の配列にするため、参照先が左と同じ場合と見分けられない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-065: 左右が同じファイルの参照先との差
+- kind: gap
+- related: REQ-cli-063, REQ-cli-064
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A13
+
+diff は左右に差のないファイルを出力に含めないため、参照先だけが違うファイルの参照先との差は --ref を付けても示さない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-066: 参照先にだけあるファイル
+- kind: gap
+- related: REQ-cli-062
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A14
+
+diff は参照先にだけあるファイルを出力に含めない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-067: 片側にないファイルの競合
+- kind: ambiguity
+- related: REQ-cli-016
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A15
+
+diff は片側にないファイルを、ない側を空の内容として参照先と比べて競合を調べるため、片側にないことが参照先からの全行の削除として扱われ競合が示されうる。これが REQ-cli-016 の競合に当たるかが決まらない（実装を読んで分かったことで未実行）。
+
+### FLAG-cli-068: 参照先に接続できないとき
+- kind: gap
+- related: REQ-cli-062
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A16
+
+diff は --ref の参照先に接続できないとき、全体を終了コード 2 のエラーで終え、左右の比較の結果も出さない。旧資料に記述がなくテストもない。
+
+### FLAG-cli-069: ヘルプの --ref の説明
+- kind: contradiction
+- related: REQ-cli-062
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A17
+
+CLI のヘルプは --ref を参照先のバッジ（"[ref≠]"）を示すものと説明するが、diff はバッジを出さず、参照先との差と競合を示す。
+
+### FLAG-cli-070: 参照先の機密と root_dir の外の判定
+- kind: gap
+- related: REQ-cli-023, REQ-cli-026, REQ-cli-063
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18
+
+diff の機密ファイルの判定と root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの項目が機密ファイルや root_dir の外を指す symlink のとき、--force や --follow-external-links なしでもその内容が "ref_hunks" に出うる（実装を読んで分かったことで未実行）。
