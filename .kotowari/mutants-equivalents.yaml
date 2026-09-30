@@ -40,3 +40,8 @@
   text: "if hunk_idx < merge_hunks.len() {"
   class: equivalent
   why: 変わるのは選んだ番号に hunk の数と等しいものがあるときに黙って無視するか panic するかだけで、製品で唯一の呼び出し元の execute_hunk_merge は hunk の数以上の番号を先に "Hunk index N is out of range" のエラーで止めるため、そのような番号が渡ることがない。別の文脈のエージェントに merge の公開された入口から落ちるテストを書かせたが、番号が hunk の数と等しいと呼び出しの前に範囲外のエラーで止まり書けなかった。落とせたのはこの関数を直接呼んで hunk の数と等しい番号を渡すテストだけで、その入力は IR のどこにも定められていないため根拠にならないテストだった
+- file: src/cli/diff.rs
+  change: replace == with != in execute_diff
+  text: "} else if path == \"./\" {"
+  class: equivalent
+  why: 変わるのは末尾の "/" を取ると空になるパス（""・"/"・"//"）がそのまま残るか "." になるかだけで、どちらも root_dir を指すパスとして扱われる。execute_diff がパスを渡す走査の範囲の判定（resolve_scan_strategy）と対象の解決（resolve_target_files_from_statuses）はどちらも末尾の "/" を取って "." か空なら root_dir 全体とし、それより後はパスを読まない。別の文脈のエージェントに、これらのパスをファイル・ディレクトリ・glob・見つからないパス・".." を含むパスと組み合わせた場合や --max-files・--ref を付けた場合で落ちるテストを探させたが、コードを読んだ範囲で違いが見つからず書けなかった。変異を書き入れて diff の契約テスト（"."・"./"・空の値・"/" と、"." とファイルを並べた場合を含む）を回しても全て通った
