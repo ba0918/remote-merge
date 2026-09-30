@@ -86,4 +86,57 @@ scripts/mutants.sh \
 
 事前の `cargo mutants --list` は 8 件（sensitive_link_chain 7 件、real_root_dir 1 件）だった。
 結果は `mutants: caught=8 survived=0 timeout=0 unviable=0 equivalent=0`（約 4 分）で、決着の対象になる見逃しはない。
-cargo-mutants は `.or_else(|_| candidate.strip_prefix(root))` の中の変異を作らなかった。この部分は上の三つ目のテストで確かめる。
+cargo-mutants は `.or_else(|_| candidate.strip_prefix(root))` の中の変異を作らなかった。この部分は上の三つ目のテストで確かめる設計である（その部分を壊して落ちることは確かめていない）。
+
+## 字面で辿れない連鎖の修正
+
+### 指摘
+
+上の修正の後の再レビューで、機密の連鎖の判定がもう一つの漏れの原因になりうるという指摘を受けた。
+この判定は段のリンク文字列を root_dir（実パスか設定の形）の下に字面で収めて正規化できないと、機密ではないとして以降の段を見なかった。
+一方、root_dir の外かどうか（`path_escapes_root`）は OS が解決した実パスで決める。
+そのため、実際には root_dir の中にとどまる連鎖でも、リンク文字列が字面で root_dir の外を通る書き方なら、途中の段の名前が機密パターンに当たっても --force なしで最終参照先の中身が比べられる。
+扱いは[決定記録 A4](../decision/records/2026-09-30-diff-root-symlink.md#A4)（字面で辿れなくなったとき、その項目の実パスが root_dir の中なら、機密ファイルと同じく --force なしでは内容を表示しない）で決めた。
+
+### テストと RED
+
+`linked` の側の root_dir にだけ連鎖 a.txt → <リンク文字列> → mid → secret.pem → plain.txt を置き、もう一方の側の a.txt は通常のファイルにして、--force なしの JSON で diff する。
+root_dir は symlink にしていない（字面で外を通る書き方は、root_dir が symlink を経由しなくても起きる）。
+標準出力に plain.txt の中身の目印が出ないことと、a.txt の項目が出ることを確かめる。文言と終了コードの値は IR が定めないため確かめない。
+
+| テスト（tests/cli_diff.rs、`// @kotowari[REQ-cli-023]`） | 側 | a.txt のリンク文字列 |
+|---|---|---|
+| chain_link_through_the_parent_of_the_local_root_dir_hides_contents | ローカル | "../<root_dir のディレクトリ名>/mid" |
+| chain_link_through_the_parent_of_the_remote_root_dir_hides_contents | SSH | 同上 |
+| chain_link_through_dot_dot_after_the_local_real_root_hides_contents | ローカル | "<root_dir の実パス>/../<root_dir のディレクトリ名>/mid" |
+| chain_link_through_dot_dot_after_the_remote_real_root_hides_contents | SSH | 同上 |
+| chain_link_through_an_alias_of_the_local_root_dir_hides_contents | ローカル | root_dir を指す別名の symlink を通る絶対パス "<別名>/mid" |
+| chain_link_through_an_alias_of_the_remote_root_dir_hides_contents | SSH | 同上 |
+
+修正の前（コミット 96ce92b）は、六つとも目印が出ないことの確かめで落ち、漏れが実際に起きることを確かめた。
+
+### 修正
+
+`sensitive_link_chain` は、段を root_dir の下に字面で辿れなくなったとき（絶対パスのリンク文字列の前置きを外せないとき、または ".." で root_dir より上に出るとき）、連鎖の最初の段（diff する項目そのもの）の実パスが実パスに直した root_dir の中なら機密として扱う。外なら今までどおり機密ではないとする（実際に root_dir の外へ出る連鎖は FLAG-cli-051 のまま）。
+root_dir の外へ出る連鎖の既存のテスト（EX-cli-059 など）を含め、既存のテストは全て通った。
+
+### 変異テスト
+
+修正のコミット 9aa26e7 で、`sensitive_link_chain` に絞って回した（`execute_diff` は変えていない）。
+
+```sh
+scripts/mutants.sh \
+  --re ' in sensitive_link_chain$' \
+  --re 'replace sensitive_link_chain -> ' \
+  src/cli/diff.rs
+```
+
+事前の `cargo mutants --list` は 7 件だった。
+結果は `mutants: caught=6 survived=1 timeout=0 unviable=0 equivalent=0`（約 3 分）だった。
+足した `get_or_insert_with` の中と `return inside_root` の変異は、cargo-mutants が作らなかった。
+
+| 位置 | 変異 | 決着 |
+|---|---|---|
+| src/cli/diff.rs:646:17 | delete match arm Component::CurDir in sensitive_link_chain | テストを足した。修正の前はこの腕を消すと "." の段で機密ではないとして辿るのをやめ、機密の名前の段を見落として既存のテストが落ちた。修正の後は字面で辿れないとして root_dir の中なら隠すため、隠れることを確かめる既存のテストでは落ちない。"./target.txt" を指すリンクで左右の内容が出ることを確かめる link_text_with_a_dot_component_still_shows_changed_contents（EX-cli-040）を足した。この変異を一時的に書き入れて `cargo nextest run --all-features --no-fail-fast --test cli_diff --test contract`（529 件）を回すと、このテストの一件だけが落ちた（`git checkout -- src/` で戻し、`git diff --stat src/` が空であることを確かめた） |
+
+テストを足したコミット 72e0b62 で同じコマンドを回し直すと `mutants: caught=7 survived=0 timeout=0 unviable=0 equivalent=0` になった。
