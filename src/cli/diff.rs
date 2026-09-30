@@ -288,8 +288,8 @@ pub fn execute_diff(
                 .into_iter()
                 .flatten()
                 .any(|target| is_sensitive(target, &config.filter.sensitive))
-                || sensitive_link_chain(&mut core, &pair.left, path, &config)
-                || sensitive_link_chain(&mut core, &pair.right, path, &config);
+                || sensitive_link_chain(&mut core, (&pair.left, &left_root), path, &config)
+                || sensitive_link_chain(&mut core, (&pair.right, &right_root), path, &config);
             if (sensitive || target_sensitive) && !args.force {
                 link_diff.sensitive = true;
                 link_diff.note =
@@ -585,9 +585,11 @@ fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
     }
 }
 
+/// `real_root` は `side` の root_dir を実パスに直したもの。絶対パスのリンク文字列は、それと
+/// 設定に書いた root_dir のどちらかの下にあれば root_dir の中として次の段を辿る。
 fn sensitive_link_chain(
     core: &mut CoreRuntime,
-    side: &Side,
+    (side, real_root): (&Side, &Path),
     path: &str,
     config: &AppConfig,
 ) -> bool {
@@ -620,7 +622,10 @@ fn sensitive_link_chain(
             current.parent().unwrap_or(Path::new("")).join(link_target)
         };
         let relative = if candidate.is_absolute() {
-            match candidate.strip_prefix(root) {
+            match candidate
+                .strip_prefix(real_root)
+                .or_else(|_| candidate.strip_prefix(root))
+            {
                 Ok(relative) => relative,
                 Err(_) => return false,
             }

@@ -1683,6 +1683,17 @@ fn diff_with_linked_root(
     linked: LinkedRoot,
     path: &str,
 ) -> (std::process::Output, serde_json::Value) {
+    diff_with_linked_root_placing(linked, path, |_, _| {})
+}
+
+/// `diff_with_linked_root` と同じ構成に、`place` で root_dir の中身を足してから diff を起動する
+///
+/// `place` は symlink にした側の実ディレクトリの実パスと、もう一方の側の root_dir を受け取る。
+fn diff_with_linked_root_placing(
+    linked: LinkedRoot,
+    path: &str,
+    place: impl FnOnce(&std::path::Path, &std::path::Path),
+) -> (std::process::Output, serde_json::Value) {
     let mut dirs = TestDirs::new_2way(
         &[("file.txt", "left body\n")],
         &[("file.txt", "right body\n")],
@@ -1697,6 +1708,11 @@ fn diff_with_linked_root(
         LinkedRoot::Remote => std::mem::replace(&mut remote_root, link.clone()),
     };
     std::os::unix::fs::symlink(&real, &link).unwrap();
+    let other = match linked {
+        LinkedRoot::Local => &remote_root,
+        LinkedRoot::Remote => &local_root,
+    };
+    place(&std::fs::canonicalize(&real).unwrap(), other);
     let config_path = temp.join("linked-root-config.toml");
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     std::fs::write(&config_path, config).unwrap();
@@ -1759,4 +1775,34 @@ fn link_inside_a_root_dir_through_a_symlink_is_followed_without_follow_flag() {
         let (output, result) = diff_with_linked_root(linked, "link.txt");
         assert_compared_inside_root(&output, &result, "link.txt");
     }
+}
+
+/// symlink にした側だけに、実パスの形の絶対パスのリンク文字列で始まり、途中の段の名前が機密
+/// パターンに当たる連鎖（a.txt → <実パス>/mid → secret.pem → plain.txt）を置き、もう一方の
+/// 側の a.txt は通常のファイルにして、--force なしで diff する
+fn diff_sensitive_chain_through_real_path_link(linked: LinkedRoot) {
+    let (output, result) = diff_with_linked_root_placing(linked, "a.txt", |real, other| {
+        place_files(real, &[("plain.txt", "chain-secret-marker\n")]);
+        place_symlink(real, "secret.pem", "plain.txt");
+        place_symlink(real, "mid", "secret.pem");
+        place_symlink(real, "a.txt", real.join("mid").to_str().unwrap());
+        place_files(other, &[("a.txt", "other body\n")]);
+    });
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("chain-secret-marker"),
+        "{output:?}"
+    );
+    json_item(&result, "a.txt");
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_chain_link_under_a_local_root_dir_through_a_symlink_hides_contents() {
+    diff_sensitive_chain_through_real_path_link(LinkedRoot::Local);
+}
+
+// @kotowari[REQ-cli-023]
+#[test]
+fn sensitive_chain_link_under_a_remote_root_dir_through_a_symlink_hides_contents() {
+    diff_sensitive_chain_through_real_path_link(LinkedRoot::Remote);
 }
