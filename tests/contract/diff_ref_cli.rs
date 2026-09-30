@@ -302,8 +302,12 @@ fn req_cli_064_text_has_no_ref_section_when_left_equals_the_ref() {
 /// 競合を見る構成。参照先は staging に置き、左 local・右 develop で比べる
 ///
 /// 競合のあるファイルは、一行の競合、離れた二か所の競合、一方が消し他方が変えた行、
-/// 範囲の一部だけが重なる変更。競合のないファイルは、左右が別々の行を変えたもの、
-/// 同じ行を同じ内容に変えてほかの行で左右が違うもの、同じ行を消してほかの行で左右が違うもの。
+/// 範囲の一部だけが重なる変更（左の範囲が右の範囲を含む組と、右の範囲が左の範囲を含む組）。
+/// 競合のないファイルは、左右が別々の行を変えたもの、同じ行を同じ内容に変えてほかの行で左右が
+/// 違うもの、同じ行を消してほかの行で左右が違うもの、隣り合う行をそれぞれが変えたもの、
+/// 一方が行を足しただけで他方の変えた行から離れているか、他方の変えた行のすぐ後ろに足したもの。
+/// 行を足しただけの変更が他方の変えた範囲の中や同じ位置に入る場合は、用語「競合」の
+/// 「範囲が重なる」が空の範囲について定めていないため置かない。
 fn conflict_env() -> CliEnv {
     CliEnv::new_3way(
         &[
@@ -314,6 +318,13 @@ fn conflict_env() -> CliEnv {
             ("disjoint.txt", "L\n2\n3\n4\n5\n"),
             ("same_change.txt", "S\n2\n3\n4\n5\n"),
             ("same_delete.txt", "a\nc\n"),
+            ("overlapping_mirror.txt", "a\nX\nc\n"),
+            ("adjacent.txt", "a\nX\nc\n"),
+            ("left_insert_before.txt", "1\nNEW\n2\n3\n4\n5\n"),
+            ("left_insert_after.txt", "1\n2\n3\n4\n5\nNEW\n"),
+            ("left_insert_next.txt", "1\n2\nNEW\n3\n4\n5\n"),
+            ("right_insert_before.txt", "1\n2\n3\n4\nL\n"),
+            ("right_insert_next.txt", "1\nL\n3\n4\n5\n"),
         ],
         &[
             ("one.txt", "1\nright\n3\n"),
@@ -323,6 +334,13 @@ fn conflict_env() -> CliEnv {
             ("disjoint.txt", "1\n2\n3\n4\nR\n"),
             ("same_change.txt", "S\n2\n3\n4\nR\n"),
             ("same_delete.txt", "a\nc\nR\n"),
+            ("overlapping_mirror.txt", "Y\nZ\nc\n"),
+            ("adjacent.txt", "Y\nb\nc\n"),
+            ("left_insert_before.txt", "1\n2\n3\n4\nR\n"),
+            ("left_insert_after.txt", "R\n2\n3\n4\n5\n"),
+            ("left_insert_next.txt", "1\nR\n3\n4\n5\n"),
+            ("right_insert_before.txt", "1\nNEW\n2\n3\n4\n5\n"),
+            ("right_insert_next.txt", "1\n2\nNEW\n3\n4\n5\n"),
         ],
         &[
             ("one.txt", "1\n2\n3\n"),
@@ -332,18 +350,36 @@ fn conflict_env() -> CliEnv {
             ("disjoint.txt", "1\n2\n3\n4\n5\n"),
             ("same_change.txt", "1\n2\n3\n4\n5\n"),
             ("same_delete.txt", "a\nb\nc\n"),
+            ("overlapping_mirror.txt", "a\nb\nc\n"),
+            ("adjacent.txt", "a\nb\nc\n"),
+            ("left_insert_before.txt", "1\n2\n3\n4\n5\n"),
+            ("left_insert_after.txt", "1\n2\n3\n4\n5\n"),
+            ("left_insert_next.txt", "1\n2\n3\n4\n5\n"),
+            ("right_insert_before.txt", "1\n2\n3\n4\n5\n"),
+            ("right_insert_next.txt", "1\n2\n3\n4\n5\n"),
         ],
     )
 }
 
-const CONFLICTING: [(&str, u64); 4] = [
+const CONFLICTING: [(&str, u64); 5] = [
     ("one.txt", 1),
     ("two.txt", 2),
     ("delete_vs_modify.txt", 1),
     ("overlapping.txt", 1),
+    ("overlapping_mirror.txt", 1),
 ];
 
-const NOT_CONFLICTING: [&str; 3] = ["disjoint.txt", "same_change.txt", "same_delete.txt"];
+const NOT_CONFLICTING: [&str; 9] = [
+    "disjoint.txt",
+    "same_change.txt",
+    "same_delete.txt",
+    "adjacent.txt",
+    "left_insert_before.txt",
+    "left_insert_after.txt",
+    "left_insert_next.txt",
+    "right_insert_before.txt",
+    "right_insert_next.txt",
+];
 
 fn text_with_staging_ref(env: &CliEnv, paths: &[&str]) -> String {
     let mut args = paths.to_vec();
@@ -391,7 +427,7 @@ fn req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end()
         "{text}"
     );
     let last = text.lines().rev().find(|line| !line.is_empty()).unwrap();
-    assert_eq!(last, "5 conflict(s) detected across files", "{text}");
+    assert_eq!(last, "6 conflict(s) detected across files", "{text}");
 }
 
 // @kotowari[REQ-cli-065, REQ-cli-016]
