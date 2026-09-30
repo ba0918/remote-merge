@@ -1391,10 +1391,14 @@ fn sensitive_link_chain_on_one_side_hides_its_contents() {
             .args(["link.txt", "--format", format])
             .output()
             .unwrap();
-        assert!(
-            !String::from_utf8_lossy(&output.stdout).contains("left-example"),
-            "{output:?}"
-        );
+        let body = String::from_utf8_lossy(&output.stdout);
+        assert!(!body.contains("left-example"), "{output:?}");
+        if format == "json" {
+            let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            json_item(&result, "link.txt");
+        } else {
+            assert!(body.contains("link.txt"), "{output:?}");
+        }
     }
 }
 
@@ -1521,6 +1525,8 @@ fn sensitive_intermediate_link_reached_through_dot_components_hides_contents() {
             !body.contains("left private body") && !body.contains("right private body"),
             "{path}: {output:?}"
         );
+        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        json_item(&result, path);
     }
 }
 
