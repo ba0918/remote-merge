@@ -1450,7 +1450,7 @@ fn link_to_binary_against_link_to_text_reports_both_hashes() {
     );
 }
 
-// @kotowari[REQ-cli-022]
+// @kotowari[EX-cli-048]
 #[test]
 fn broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads() {
     let env = CliEnv::new(&[("good.txt", "left\n")], &[("good.txt", "right\n")]);
