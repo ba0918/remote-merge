@@ -1917,3 +1917,21 @@ fn chain_link_through_an_alias_of_the_local_root_dir_hides_contents() {
 fn chain_link_through_an_alias_of_the_remote_root_dir_hides_contents() {
     assert_unfollowable_chain_hides_contents(LinkedRoot::Remote, ChainLinkText::AliasOfRoot);
 }
+
+// @kotowari[EX-cli-040]
+#[test]
+fn link_text_with_a_dot_component_still_shows_changed_contents() {
+    let env = CliEnv::new(
+        &[("target.txt", "left body\n")],
+        &[("target.txt", "right body\n")],
+    );
+    place_symlink(&env.local_dir, "link.txt", "./target.txt");
+    place_symlink(&env.remote_dir, "link.txt", "./target.txt");
+    let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let body = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        body.contains("left body") && body.contains("right body"),
+        "{output:?}"
+    );
+}
