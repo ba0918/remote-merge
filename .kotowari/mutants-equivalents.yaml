@@ -50,3 +50,8 @@
   text: "Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),"
   class: equivalent
   why: この腕が true を返すのは --follow-external-links がないときに symlink の実パスが root_dir の外にある場合だけだが、同じループの先頭の確かめ（path_escapes_root）が同じパス・同じ root_dir・同じ inspect_path の結果で同じ比較をして、先に "outside root_dir" のエラーにして次のパスへ進むため、この腕に来るときは必ず false になる。別の文脈のエージェントに、相対や symlink を経由する root_dir、機密のリンク、ディレクトリ symlink とその子、走査の三つの経路、--force・--max-entries・--max-files の組み合わせで出力が変わる入力を探させたが、コードを読んだ範囲で見つからず書けなかった（inspect_path はローカル・SSH・エージェントのどれもキャッシュを持たず同じ入力に同じ結果を返す）
+- file: src/service/diff.rs
+  change: delete match arm engine::DiffResult::Equal in build_diff_output
+  text: "engine::DiffResult::Equal => Some(vec![]),"
+  class: equivalent
+  why: 左と参照先の差を作る match で、この腕を消すと Equal は最後の `_ => Some(vec![])` の腕に入り、消した腕と同じ値を返す。どちらの腕にも副作用はない。別の文脈のエージェントに、公開された build_diff_output を参照先の中身を左と同じにして（Equal の経路を通して）呼び、左右に差がある組・左右とも同じ組・左が空の組で ref_hunks とその JSON を確かめるテストを書かせたが、変異を書き入れても通り、落ちるテストを書けなかった
