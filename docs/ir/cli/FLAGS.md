@@ -453,6 +453,6 @@ diff の機密ファイルの判定と root_dir の外の判定は左右の項�
 ### FLAG-cli-072: 複数の変更と重なる変更の競合の数
 - kind: ambiguity
 - related: REQ-cli-065
-- source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A2
+- source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A2, docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A3
 
-diff は一方の一つの変更が他方の複数の変更と重なるとき（例 参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変える）、重なる組を一つにまとめて "conflict_count" を 1 とするが、REQ-cli-065 の競合の数がこの場合に 1 か 2 かは定めていない。
+diff は一方の一つの変更が他方の複数の変更と重なるとき（例 参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変える）、重なる組を一つにまとめて "conflict_count" を 1 とするが、REQ-cli-065 の競合の数がこの場合に 1 か 2 かは定めていない。接するが別々の二つの競合（例 参照先 "1\n2\n3\n4\n5\n"、左 "A\nB\n3\nC\nD\n"、右 "1\nX\nY\n4\nZ\n" で、参照先の 0..3 と 3..5）は、diff は二つとして "conflict_count" を 2 とするが、一つと数えるか二つと数えるかも定めていない。
