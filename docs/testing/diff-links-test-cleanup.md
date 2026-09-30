@@ -17,7 +17,7 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 
 | 例 | 印付きのテスト | 判定 | 理由 |
 |---|---|---|---|
-| EX-cli-039 | diff_shows_link_targets_and_resolved_file_contents、json_diff_keeps_link_targets_and_reports_unexamined_external_content、json_diff_separates_link_names_from_resolved_text_changes、link_target_and_resolved_text_have_separate_json_fields（tests/contract/cli_results.rs）、text_diff_shows_link_targets_before_resolved_content_lines（足した） | 補った | JSON ではリンク文字列（link_targets）と内容（hunks）が分かれることを確かめていたが、テキストはリンク文字列と内容が出力のどこかに含まれることしか見ていなかった。"-link target:"・"+link target:" の行、"Resolved content differs"、内容の "-"・"+" の行がこの順に別々の行で出ることを確かめるテストを足した |
+| EX-cli-039 | diff_shows_link_targets_and_resolved_file_contents、json_diff_keeps_link_targets_and_reports_unexamined_external_content、json_diff_separates_link_names_from_resolved_text_changes、link_target_and_resolved_text_have_separate_json_fields（tests/contract/cli_results.rs）、text_diff_shows_link_targets_and_resolved_contents_on_separate_lines（足した） | 補った | JSON ではリンク文字列（link_targets）と内容（hunks）が分かれることを確かめていたが、テキストはリンク文字列と内容が出力のどこかに含まれることしか見ていなかった。左右のリンク文字列と左右の参照先の内容がどれも出て、リンク文字列と内容が同じ行に混ざらない（別々の行に出る）ことを確かめるテストを足した。行の文言（"link target:" や "Resolved content differs"）と並び順は IR が定めないため確かめない（下の「IR にない文言と順序を確かめなくした見直し」） |
 | EX-cli-040 | same_link_target_with_changed_content_is_a_diff | 十分 | 左右の内容が出ることと終了コード 1 を確かめている |
 | EX-cli-053 | matching_links_with_matching_contents_have_no_difference | 十分 | 終了コード 0 と "0 file(s) with changes" を確かめている。差分のない項目が出ること（FLAG-cli-054）は確かめない |
 | EX-cli-041 | link_and_regular_file_with_equal_contents_still_differ_in_kind | 十分 | 終了コード 1、左のリンク文字列、右（通常ファイル）が null、内容の差がないことを確かめている。種類の違いの note の文言は FLAG-cli-048 |
@@ -31,8 +31,8 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 | EX-cli-061 | directory_link_against_regular_file_shows_both_kinds_of_content、directory_link_against_regular_file_reports_the_link_target（足した） | 補った | 左の子と右の本文は確かめていたが、Then の「リンク文字列の差」を見ていなかった。"shared" の項目の link_targets の left が "actual"、right が null であることを確かめるテストを足した。種類の違いの note の文言は FLAG-cli-048、向きが逆の組は FLAG-cli-045 |
 | EX-cli-056 | one_sided_directory_link_shows_child_contents_without_read_error、one_sided_directory_link_reports_its_link_target_and_null_for_the_missing_side（足した） | 補った | 子の内容とエラーがないことは確かめていたが、Then の「片側のリンク文字列」を見ていなかった。"shared" の項目の link_targets の left が "actual"、項目がない右が null であることを確かめるテストを足した |
 | EX-cli-057 | different_directory_link_names_count_as_change_even_if_children_match | 十分 | 終了コード 1、files_with_changes が 1、files が "shared" の一件だけであることを確かめている |
-| EX-cli-047 | unreadable_child_of_directory_link_keeps_other_child_diffs、unreadable_child_of_directory_link_is_reported_with_a_reason（足した） | 補った | 読めない子の errors の path は確かめていたが、reason を見ていなかった。reason に "unreadable" が含まれることを確かめるテストを足した。読めない子は壊れたリンクの場合だけを試し、読めない通常のファイルの子は読めない通常のファイルの扱い（FLAG-cli-030）の範囲のため補わない |
-| EX-cli-048 | broken_link_keeps_other_diffs_and_reports_unreadable_target、broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads（足した） | 補った | 左右の両方で参照先がない場合だけを試していた。ローカルの側だけ参照先がなく SSH の側は読める場合に、エラー（errors の path と reason）と終了コード 2 になり他のファイルの差分が残ることを確かめるテストを足した。SSH の側だけ参照先がない場合は FLAG-cli-044 の範囲のため確かめない |
+| EX-cli-047 | unreadable_child_of_directory_link_keeps_other_child_diffs、unreadable_child_of_directory_link_is_reported_with_a_reason（足した） | 補った | 読めない子の errors の path は確かめていたが、reason を見ていなかった。その path の errors の reason が空でないことを確かめるテストを足した（理由の文言は IR が定めないため確かめない）。読めない子は壊れたリンクの場合だけを試し、読めない通常のファイルの子は読めない通常のファイルの扱い（FLAG-cli-030）の範囲のため補わない |
+| EX-cli-048 | broken_link_keeps_other_diffs_and_reports_unreadable_target、broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads（足した） | 補った | 左右の両方で参照先がない場合だけを試していた。ローカルの側だけ参照先がなく SSH の側は読める場合に、エラー（errors の path と空でない reason）と終了コード 2 になり他のファイルの差分が残ることを確かめるテストを足した。印はこの例の ID（@kotowari[EX-cli-048]）にした。SSH の側だけ参照先がない場合は FLAG-cli-044 の範囲のため確かめない |
 | EX-cli-049 | sensitive_target_contents_remain_hidden_through_an_ordinary_link_name | 十分 | テキストと JSON の両方で参照先の内容が出ないことを確かめている |
 | EX-cli-050 | force_explicitly_shows_sensitive_link_target_changes | 十分 | --force で左右の内容が出ることと終了コード 1 を確かめている |
 | EX-cli-058 | external_link_is_not_read_without_explicit_permission、json_diff_keeps_link_targets_and_reports_unexamined_external_content | 十分 | 終了コード 2、リンク文字列、"not compared" の理由、errors の path、内容が出ないことを確かめている |
@@ -47,13 +47,13 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 
 | 要件 | 要件に直接印を付けたテスト | 判定 | 理由 |
 |---|---|---|---|
-| REQ-cli-020 | directory_link_against_binary_file_reports_the_file_hash（足した）、link_to_binary_against_link_to_text_reports_both_hashes（足した） | 補った | 例のバイナリの場合は左右ともバイナリの参照先だけだった。「参照先がバイナリなら通常のバイナリ diff と同じ SHA-256 ハッシュ」は片側だけがバイナリでも当たる（通常のファイルの diff は片側がバイナリならバイナリとして扱う）。左がバイナリを指すリンク・右がテキストを指すリンクの組で両側のハッシュを、左がディレクトリ symlink・右がバイナリの通常ファイルの組で右のハッシュを確かめるテストを足した。「組み合わせによらず」のうち例のない組（ファイル symlink と通常のディレクトリなど）は、例として定められていないため足していない |
-| REQ-cli-021 | cycle_below_plain_subdirectory_is_reported_before_entry_limit、plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limit（足した）、entries_up_to_the_limit_under_a_directory_link_are_compared_completely（足した） | 補った | 「指定した比較全体で既存の最大走査件数を一回だけ適用」について、例 EX-cli-045 は入れ子のリンクの配下を数える場合だけで、リンクの配下の通常のサブディレクトリの子を数えることと、上限ちょうどの件数では不完全としないこと（既存の走査の上限の EX-scan-009「上限以下なら打ち切らない」）を確かめていなかった。前者は --max-entries 3 でサブディレクトリと子 3 件（計 4 件）なら件数超過のエラーになること、後者は --max-entries 3 で子 3 件のリンクと、サブディレクトリ 1 件と子 2 件のリンクがそれぞれエラーにならず全ての子を比べることを確かめるテストを足した。後者はディレクトリも 1 件と数えるか（FLAG-scan-010）によらず上限以下になる構成にした |
+| REQ-cli-020 | directory_link_against_binary_file_reports_the_file_hash（足した）、link_to_binary_against_link_to_text_reports_both_hashes（足した） | 補った | 例のバイナリの場合は左右ともバイナリの参照先だけだった。「参照先がバイナリなら通常のバイナリ diff と同じ SHA-256 ハッシュ」は参照先ごとの定めのため、左右の片方の参照先だけがバイナリの組でも、そのバイナリの側に当たる。左がバイナリを指すリンク・右がテキストを指すリンクの組で左（バイナリ側）の left_hash が参照先の中身の SHA-256 であることを、左がディレクトリ symlink・右がバイナリの通常ファイルの組で右のハッシュを確かめるテストを足した。テキストの参照先の側にハッシュを出すかは REQ-cli-020 が定めないため確かめない。「組み合わせによらず」のうち例のない組（ファイル symlink と通常のディレクトリなど）は、例として定められていないため足していない |
+| REQ-cli-021 | cycle_below_plain_subdirectory_is_reported_before_entry_limit、plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limit（足した）、entries_up_to_the_limit_under_a_directory_link_are_compared_completely（足した） | 補った | 「指定した比較全体で既存の最大走査件数を一回だけ適用」について、例 EX-cli-045 は入れ子のリンクの配下を数える場合だけで、リンクの配下の通常のサブディレクトリの子を数えることと、上限ちょうどの件数では不完全としないこと（既存の走査の上限の EX-scan-009「上限以下なら打ち切らない」）を確かめていなかった。前者は --max-entries 3 でサブディレクトリと子 4 件なら件数超過のエラー（空でない reason の errors と終了コード 2）になること、後者は --max-entries 3 で子 3 件のリンクと、サブディレクトリ 1 件と子 2 件のリンクがそれぞれエラーにならず全ての子を比べることを確かめるテストを足した。前者はディレクトリも 1 件と数えるか（FLAG-scan-010）によらず上限を超える構成に、後者は同じく上限以下になる構成にした。前者は最初は子 3 件（ディレクトリも数えるときだけ上限を超える構成）で、数え方を固定していたため子 4 件に直した |
 | REQ-cli-022 | なし | 十分 | 各部分は EX-cli-047・048・058（読めない参照先、読めない子、範囲外）、EX-cli-044・045（循環と件数超過）、EX-cli-054（片側の項目がない場合はエラーにならない）で確かめている。通常のディレクトリの展開のテキストの理由は FLAG-cli-050 |
-| REQ-cli-023 | nested_link_to_sensitive_file_does_not_show_resolved_contents、sensitive_intermediate_link_name_masks_even_when_final_name_is_public、sensitive_link_name_hides_the_target_contents_without_force（足した）、sensitive_link_chain_on_one_side_hides_its_contents（足した） | 補った | 最終参照先と途中の段のリンク文字列は確かめていたが、入口名が機密パターンに当たる symlink の場合と、左右の片側だけの連鎖が機密ファイルに行き着く場合を試していなかった。".env" という名前のリンクが普通の名前のファイルを指す場合と、左だけ途中のリンクが ".env" を指す場合に、テキストと JSON に内容が出ないことを確かめるテストを足した。root_dir の外と「バイナリハッシュに表示しない」は EX-cli-055 に足したテストで確かめる |
+| REQ-cli-023 | nested_link_to_sensitive_file_does_not_show_resolved_contents、sensitive_intermediate_link_name_masks_even_when_final_name_is_public、sensitive_link_name_hides_the_target_contents_without_force（足した）、sensitive_link_chain_on_one_side_hides_its_contents（足した） | 補った | 最終参照先と途中の段のリンク文字列は確かめていたが、入口名が機密パターンに当たる symlink の場合と、左右の片側だけの連鎖が機密ファイルに行き着く場合を試していなかった。".env" という名前のリンクが普通の名前のファイルを指す場合と、左だけ途中のリンクが ".env" を指す場合に、テキストと JSON に内容が出ないことを確かめるテストを足した。内容が出ないことだけでは項目を出さずに失敗した場合も通るため、片側の連鎖のテストと下の見逃しで足したテストは、対象のパスの項目が出る（JSON では files の項目、テキストではパス）ことも確かめる。root_dir の外と「バイナリハッシュに表示しない」は EX-cli-055 に足したテストで確かめる |
 | REQ-cli-024 | json_link_item_keeps_the_symlink_flag（足した） | 補った | JSON の symlink の項目の symlink フラグをどのテストも確かめていなかった。symlink が true で link_targets の left と right を持つことを確かめるテストを足した。テキストの区別は EX-cli-039、項目がない側が null は EX-cli-056、通常ファイルの側が null は EX-cli-041 で確かめる |
 | REQ-cli-025 | trailing_slash_does_not_bypass_external_directory_link_guard、empty_directory_has_same_no_diff_result_with_or_without_slash | 十分 | 例 EX-cli-051・052・060 と合わせて、ディレクトリとディレクトリ symlink の "/" の有無で結果が変わらないことを確かめている |
-| REQ-cli-026 | a_parent_link_cannot_read_outside_root_without_follow_flag、trailing_slash_does_not_bypass_external_directory_link_guard、nested_link_to_outside_file_is_not_read_without_follow_flag（足した）、force_does_not_read_an_external_link_without_follow_flag（足した）、parent_directory_path_is_rejected_even_with_follow_flag（足した）、one_side_reaching_outside_through_a_directory_link_is_not_compared_without_follow_flag（足した）、one_sided_external_link_reports_its_link_target_without_follow_flag（足した） | 補った | 入口のリンクが root_dir の外を指す場合は確かめていたが、次を試していなかった。root_dir の中のディレクトリリンクの配下の入れ子のリンクが外を指す場合、--force だけでは外を辿らないこと（--force と独立）、入力パスの親ディレクトリへの遡りが --follow-external-links でも拒否されること、左右の片側だけが外へ出る場合（ディレクトリリンクを通るパスで中身が同じとき、片側だけのリンクのリンク文字列）。それぞれテストを足した。「status・merge・sync には適用せず」は、実装ではこのオプションが diff のサブコマンドにしか定義されていないが、要件は他のコマンドで拒否するか無視するかを定めないため、今の拒否を固定するテストは足していない |
+| REQ-cli-026 | a_parent_link_cannot_read_outside_root_without_follow_flag、trailing_slash_does_not_bypass_external_directory_link_guard、nested_link_to_outside_file_is_not_read_without_follow_flag（足した）、force_does_not_read_an_external_link_without_follow_flag（足した）、parent_directory_path_is_rejected_even_with_follow_flag（足した）、one_side_reaching_outside_through_a_directory_link_is_not_compared_without_follow_flag（足した）、one_sided_external_link_reports_its_link_target_without_follow_flag（足した） | 補った | 入口のリンクが root_dir の外を指す場合は確かめていたが、次を試していなかった。root_dir の中のディレクトリリンクの配下の入れ子のリンクが外を指す場合、--force だけでは外を辿らないこと（--force と独立）、入力パスの親ディレクトリへの遡りが --follow-external-links でも拒否されること、左右の片側だけが外へ出る場合（ディレクトリリンクを通るパスで中身が同じとき、片側だけのリンクのリンク文字列）。それぞれテストを足した。理由の文言（"not compared"）は IR が定めないため、errors のその path の reason が空でないことで確かめる。ただし parent_directory_path_is_rejected_even_with_follow_flag は安全の境界のテストのため、終了コード 2 と標準エラーの "traversal" の確かめをそのまま残した（利用者の判断、2026-09-30）。「status・merge・sync には適用せず」は、実装ではこのオプションが diff のサブコマンドにしか定義されていないが、要件は他のコマンドで拒否するか無視するかを定めないため、今の拒否を固定するテストは足していない |
 
 このほか、変異テストの見逃しを落とすために、EX-cli-044 に returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle、REQ-cli-023 に sensitive_intermediate_link_reached_through_dot_components_hides_contents、REQ-cli-058（この計画の対象の外の要件で、テキストの総数を定める）に text_total_counts_the_children_compared_under_a_directory_link を足した。理由は下の「見逃しと決着」にある。
 
@@ -62,9 +62,11 @@ FLAG-cli-043 から 055 と既存の FLAG に当たる部分は確かめない�
 nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes は例の Given のとおりに組む。
 左右それぞれに root_dir の外の別の場所（base の下の "left-outside" と "right-outside"）を用意し、その中の "shared-dir" に、同じ場所の "secret/.env" を指す相対のリンク "nested"（リンク文字列は左右とも "../secret/.env"）を置く。左右の root_dir の "shared" は、それぞれの "shared-dir" を絶対パスで指すディレクトリ symlink にする。
 ".env" の中身は NUL を含むバイナリで、左右で違う。symlink の項目のハッシュは参照先がバイナリのときだけ付くため、テキストではハッシュが出ないという確認が隠す処理を壊しても通ってしまうからである。
---follow-external-links を付け --force なしの JSON で、標準出力に左右の中身の目印（"left-example"・"right-example"）が出ず、"shared/nested" の項目の link_targets が左右とも "../secret/.env"（入れ子のリンクが解決されている）で、left_hash と right_hash が null であることを確かめる。
+--follow-external-links を付け --force なしの JSON で、標準出力に左右の中身の目印（"left-example"・"right-example"）が出ず、"shared/nested" の項目があり、その left_hash と right_hash が null であることを確かめる。
+"shared/nested" の項目が出ることは、root_dir の外の外部のディレクトリを指す外側のリンク "shared" が辿られ、その配下が展開されたことを示す。項目の link_targets が左右とも "../secret/.env" であることも確かめるが、これはリンク文字列そのもので、入れ子のリンクが解決されたことの根拠にはならない。
+このテストで内容とハッシュが隠れるのは、入れ子のリンクのリンク文字列の名前 ".env" が機密パターンに当たる経路で、製品はその時点で参照先を読まずに隠す。そのため例の Then の「入れ子のリンクも解決され」は、このテストでは観測できない。
 "shared" の項目そのもの（FLAG-cli-054）と終了コード（FLAG-cli-046）は確かめない。リンク文字列を左右で同じにしたため、"shared/nested" の hunks にリンク文字列の行は出ない（FLAG-cli-052 に触れない）。
-このテストで隠れるのは、入れ子のリンクのリンク文字列の名前 ".env" が機密パターンに当たる経路である。`sensitive_link_chain` が root_dir の外で連鎖を辿らない部分（FLAG-cli-051）は確かめない。
+`sensitive_link_chain` が root_dir の外で連鎖を辿らない部分（FLAG-cli-051）は確かめない。
 
 既存の external_directory_nested_secret_stays_hidden_without_force は、最終参照先が外部のディレクトリの中の ".env" で、左右が同じ外部のディレクトリを指すため、連鎖が外部のディレクトリからさらに別の場所へ出る場合を試しておらず、中身がテキストのためハッシュを確かめられない。
 
@@ -76,7 +78,7 @@ nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes 
 
 | 足したテスト | 一時的な変更 | 結果 | 既存のテスト |
 |---|---|---|---|
-| text_diff_shows_link_targets_before_resolved_content_lines | src/service/output.rs の format_diff_text の `if !output.hunks.is_empty()`（"Resolved content differs" を出す条件）の `!` を消す | 落ちた | diff_shows_link_targets_and_resolved_file_contents は通った |
+| text_diff_shows_link_targets_before_resolved_content_lines（後に text_diff_shows_link_targets_and_resolved_contents_on_separate_lines に直した） | src/service/output.rs の format_diff_text の `if !output.hunks.is_empty()`（"Resolved content differs" を出す条件）の `!` を消す | 落ちた（直した後は落ちない。下の「IR にない文言と順序を確かめなくした見直し」） | diff_shows_link_targets_and_resolved_file_contents は通った |
 | json_link_item_keeps_the_symlink_flag | src/service/diff.rs の build_symlink_diff_output の `symlink: true` を false にする | 落ちた | — |
 | external_binary_link_hashes_are_sha256_of_the_target_contents | src/cli/diff.rs のファイル symlink の left_hash を中身の先頭 1 バイトを除いた SHA-256 にする | 落ちた | external_binary_links_report_distinct_targets_and_sha256_hashes は通った |
 | directory_link_entry_limit_keeps_the_child_diff_read_before_the_limit | ディレクトリ symlink の展開で件数超過を検出したときに、それまでの files を捨てる（`file_diffs.clear()`） | 落ちた | directory_link_entry_limit_counts_children_across_nested_links は通った |
@@ -108,6 +110,29 @@ nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes 
 
 同じ確かめで、src/cli/diff.rs:233:21（replace || with && in execute_diff。通常のディレクトリの右の実パスが祖先にあるか）と 394:35（replace += with *= in execute_diff。ディレクトリ symlink を展開した項目を summary.scanned_files に数える）は 60 件全てが通った。この二つは下の変異テストの結果で決着させる。
 
+### IR にない文言と順序を確かめなくした見直し
+
+足したテストは、IR が定めない文言・行の順序を確かめていた。テキストの "link target:" と "Resolved content differs" の行とその順序、errors の reason や標準エラーの "unreadable"・"not compared"・"cycle"・"entry limit" である。
+利用者の判断（2026-09-30）で、IR に文言を足さずにテストを緩めた。代わりに要件が定める観測を確かめる。
+- テキストでは、リンク文字列と参照先の内容が別々の行に出ること（REQ-cli-024、EX-cli-039）。
+- 比較が不完全なときは、JSON の errors にその path の項目があり reason が空でないこと（REQ-cli-021・022・026）。
+- 終了コードは REQ-cli-022 と REQ-cli-056 が定める 1 と 2 だけを確かめる。
+- 遡りのテスト（parent_directory_path_is_rejected_even_with_follow_flag）は、安全の境界のテストのため、終了コード 2 と "traversal" の確かめをそのまま残した（利用者の判断、2026-09-30）。
+
+force_does_not_read_an_external_link_without_follow_flag は、理由を文言なしで確かめるため、テキストから JSON の出力に変えた。循環の二つのテストは、理由の文言の代わりに循環のエラーのパス（"shared/loop" と "shared/up/sub"）を確かめる。件数超過の二つのテストは、errors が一件以上あり、どの reason も空でないことを確かめる。
+
+緩めたテストが狙いの変更で引き続き落ちるかは、次の二通りで確かめた。
+- 安全に関わらない一時的な変更は、上と同じく `cargo nextest run --all-features --no-fail-fast --test cli_diff`（63 件）を回した。確かめるたびに `git checkout -- src/` で戻し、`git diff --stat src/` が空であることを確かめた。
+- 製品の安全の確かめ（root_dir の外の判定、遡りの拒否）を手で一時的に弱める確かめはしなかった（利用者の判断、2026-09-30）。これらのテストが変異で落ちるかは、下の「テストを緩めた後の回し直し」の結果で確かめる。
+
+| 緩めたテスト | 一時的な変更 | 結果 | 同じ変更で落ちた他のテスト |
+|---|---|---|---|
+| unreadable_child_of_directory_link_is_reported_with_a_reason、broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads | 参照先が読めないときの理由（二か所）を空の文字列にする | 両方落ちた | broken_link_keeps_other_diffs_and_reports_unreadable_target（unreadable_child_of_directory_link_keeps_other_child_diffs は通った） |
+| directory_link_entry_limit_keeps_the_child_diff_read_before_the_limit | ディレクトリ symlink の展開で件数超過を検出したときに、それまでの files を捨てる（`file_diffs.clear()`） | 落ちた | なし |
+
+text_diff_shows_link_targets_and_resolved_contents_on_separate_lines は、src/service/output.rs:155:12（"Resolved content differs" の行を出す条件の `!` を消す）では落ちなくなった。
+この変異が変えるのは "Resolved content differs" の行を出すかどうかだけで、その行の有無は IR にない文言である。そのため、変異テストの見逃しは FLAG-cli-052（比べなかったときの hunks とテキストの "Resolved content differs"）の範囲として記録だけにする（利用者の判断、2026-09-30）。
+
 ## 変異テスト
 
 この範囲の見逃しに絞って、足したテストをコミットした後のコミット 2e28690 で一度回した（作業ツリーの変更は、この記録の新しいファイルだけ）。
@@ -129,7 +154,7 @@ scripts/mutants.sh \
 ### 実行の前の一覧と正規表現の直し
 
 実行の前に、計画の三つの `--re` と三つのファイルで `cargo mutants --list --all-features` をメモリ上限と低い CPU 優先度の中で実行すると 33 件だった。
-位置の指定に当たる変異は 23 件で、前の回の表の 18 件は全て現れた。残りの 5 件は同じ位置の別の演算子の変異（254:37 と 394:35 の `-=`、255:40 と 377:40 の `<`。前の回は caught）で、位置で錨を打った正規表現には演算子を区別する手段がないため含めて回した。
+位置の指定に当たる変異は 22 件で、前の回の表の 18 件は全て現れた。残りの 4 件は同じ位置の別の演算子の変異（254:37 と 394:35 の `-=`、255:40 と 377:40 の `<`。前の回は caught）で、位置で錨を打った正規表現には演算子を区別する手段がないため含めて回した。
 `execute_diff` の変異は位置の指定に当たる 20 件だけで、それ以外の変異は混ざっていなかった。構造体のフィールドを消す変異は一覧になかった（三つのファイルの全ての変異の一覧 247 件にもなかった）。
 
 ただし計画の三つ目の `--re`（`' in (関数名)$'`）は、名前が "in 関数名" で終わる関数の中の変異にしか当たらず、関数全体の戻り値を置き換える変異（名前が "replace 関数名 -> 型 with 値" の形）に当たらなかった。
@@ -185,6 +210,37 @@ scripts/mutants.sh \
 
 決着していない見逃し、新しい FLAG の候補、verification の見直しの候補はない。
 要件の文から決まらないため値や挙動を固定しなかった点が二つある。ディレクトリ symlink の項目自体を REQ-cli-058 の「走査したファイルの数」に数えるか（上の 394:35）と、REQ-cli-026 の「status・merge・sync には適用せず」がオプションを拒否することか無視することか（上の「要件」の表）である。どちらも今の要件の読みで満たせるように確かめたため FLAG の候補にはしていないが、要件を詳しくするときの材料として残す。
+
+### テストを緩めた後の回し直し
+
+上の回し直しの後に、足したテストを直した。IR にない文言と順序を確かめなくし、件数超過のテストの子を 4 件にし、機密の連鎖の二つのテストで項目が出ることも確かめ、テキスト側のハッシュを確かめなくした。
+テストを足しただけでなく書き換えたため、最初の実行と同じ 49 件のコマンド（上の「変異テスト」の最初のコマンド。三つの `--re` と三つのファイル）で回し直した。
+実行したのは直したテストをコミットした後のコミット 45d7754 である（作業ツリーの変更はこの記録だけ）。実行中は src/ にも他の cargo のコマンドにも触れていない。
+
+結果は `mutants: caught=46 survived=1 timeout=0 unviable=1 equivalent=1`（49 件、約 10 分）。スクリプトの終了コードは 1 で、kotowari mutants が見逃しを error として報告したためである（メモリ上限での停止ではない）。
+- 見逃しは src/service/output.rs:155:12（delete ! in format_diff_text）の 1 件である。上の「IR にない文言と順序を確かめなくした見直し」のとおり、"Resolved content differs" の行の有無は IR にない文言のため、FLAG-cli-052 の範囲として記録だけにする（利用者の判断、2026-09-30）。
+- 304:21 は同等変異として数えられた。
+- unviable は最初の実行と同じ `replace build_symlink_diff_output -> DiffOutput with Default::default()` である。
+
+製品の安全の確かめに当たる変異は、どれも緩めたテストか既存のテストが落とした。
+変異ごとのログで失敗したテストは次のとおり（nextest は最初に失敗したテストで止まることがあるため、落とせるテストを全て並べたものではない）。
+
+| 変異 | 失敗したテスト |
+|---|---|
+| src/cli/diff.rs:190:17・671:17 replace \|\| with && | one_side_reaching_outside_through_a_directory_link_is_not_compared_without_follow_flag |
+| src/cli/diff.rs:198:38 replace \|\| with && | one_sided_external_link_reports_its_link_target_without_follow_flag |
+| src/cli/diff.rs:233:21 replace \|\| with && | returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle |
+| src/cli/diff.rs:254:37 replace += with *= | plain_subdirectory_entries_under_a_directory_link_count_toward_the_entry_limit（子 4 件にした後も落ちる） |
+| src/cli/diff.rs:289:17・290:17 replace \|\| with && | sensitive_link_chain_on_one_side_hides_its_contents |
+| src/cli/diff.rs:353:21 replace \|\| with && | cycle_on_one_side_of_a_directory_link_is_reported（循環のエラーのパス "shared/loop" で落ちる） |
+| src/cli/diff.rs:426:38 replace \|\| with && | broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads |
+| src/cli/diff.rs:440:17 replace \|\| with && | link_to_binary_against_link_to_text_reports_both_hashes（left_hash だけにした後も落ちる） |
+| src/cli/diff.rs:636:17・637:41（2 件） | sensitive_intermediate_link_reached_through_dot_components_hides_contents |
+
+nested_link_to_outside_file_is_not_read_without_follow_flag と force_does_not_read_an_external_link_without_follow_flag は、最初に狙った一時的な変更（root_dir の外の二つの確かめを、ディレクトリを展開した子と --force のときに行わない）では確かめ直していない。この変更は 49 件の変異に含まれず、安全の確かめを手で弱める確かめをしないと決めたためである（利用者の判断、2026-09-30）。
+二つのテストは終了コード 2 と、その path の errors の項目があることを、緩める前と同じく確かめている。そのため、外を辿ってエラーにならない変更では引き続き落ちると考えるが、実行はしていない。
+
+決着していない見逃し、新しい FLAG の候補、verification の見直しの候補はない。
 
 ## 要件の verification の見直し
 
