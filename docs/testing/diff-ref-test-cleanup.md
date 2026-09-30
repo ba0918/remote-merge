@@ -90,9 +90,9 @@ scripts/mutants.sh \
 | REQ-cli-063（--ref がない） | req_cli_063_without_ref_json_has_neither_ref_nor_ref_hunks | "ref" も "ref_hunks" もない |
 | REQ-cli-064（参照先との差が空でない） | req_cli_064_text_shows_the_ref_diff_after_the_left_right_diff | 左右の差の行、"--- ref:staging:differs.txt (reference diff vs left)"、hunk の見出し "@@"、参照先の行の順に出る |
 | REQ-cli-064（参照先との差が空） | req_cli_064_text_has_no_ref_section_when_left_equals_the_ref | 左右の差は出て、"--- ref:" の見出しは出ない |
-| REQ-cli-065・REQ-cli-016（JSON） | req_cli_065_json_counts_and_locates_conflicts | 競合のある四つのファイル（一行の競合、離れた二か所の競合、一方が消し他方が変えた行、範囲の一部だけが重なる変更）で "conflict_count" が 1・2・1・1、"conflict_regions" が空でない。要素の中身は FLAG-cli-058 のため見ない |
-| REQ-cli-065・REQ-cli-016（テキスト） | req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end | 同じ四つのファイルで "Conflicts: 1 region(s) …" と "Conflicts: 2 region(s) …" の行がファイルごとに一つずつ、空行を除いた最後の行が "5 conflict(s) detected across files" |
-| REQ-cli-065・REQ-cli-016（競合がない） | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text | 左右が別々の行を変えたファイル、同じ行を同じ内容に変えてほかの行で左右が違うファイル、同じ行を消してほかの行で左右が違うファイル（どれも左右に差があり出力に出る）で、JSON に "conflict_count" も "conflict_regions" もなく、テキストに "Conflicts: " も "conflict(s) detected across files" もない |
+| REQ-cli-065・REQ-cli-016（JSON） | req_cli_065_json_counts_and_locates_conflicts | 競合のある五つのファイル（一行の競合、離れた二か所の競合、一方が消し他方が変えた行、範囲の一部だけが重なる変更で左の範囲が右の範囲を含む組と右の範囲が左の範囲を含む組）で "conflict_count" が 1・2・1・1・1、"conflict_regions" が空でない。要素の中身は FLAG-cli-058 のため見ない |
+| REQ-cli-065・REQ-cli-016（テキスト） | req_cli_065_text_states_the_conflicts_of_each_file_and_the_total_at_the_end | 同じ五つのファイルで、各ファイルの見出し "--- a/パス (local)"（REQ-cli-058）から次のファイルの見出しまでの区間に、そのファイルの数の "Conflicts: N region(s) …" の行が一つだけあり、空行を除いた最後の行が "6 conflict(s) detected across files"。ファイルの並び順は IR が定めないため固定しない |
+| REQ-cli-065・REQ-cli-016（競合がない） | req_cli_065_files_without_conflicts_show_no_conflict_in_json_or_text | 左右が別々の行を変えたファイル、同じ行を同じ内容に変えてほかの行で左右が違うファイル、同じ行を消してほかの行で左右が違うファイル、隣り合う行をそれぞれが変えたファイル、一方が行を足しただけで他方の変えた行から離れているファイル三つ（左が他方の変えた行の前に足す組と後ろに足す組、右が前に足す組）の七つ（どれも左右に差があり出力に出る）で、JSON に "conflict_count" も "conflict_regions" もなく、テキストに "Conflicts: " も "conflict(s) detected across files" もない |
 | REQ-cli-066 | req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref | 左 local・右 develop で `--ref local` と `--ref develop` のそれぞれで警告の文言が標準エラーに出て、JSON に "ref" も "ref_hunks" もなく、左右の差の "hunks" が出る |
 
 - ファイルが一つのときに "N conflict(s) detected across files" が出るかは IR が定めないため確かめない。
