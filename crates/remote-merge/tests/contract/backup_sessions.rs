@@ -322,7 +322,7 @@ fn property_config() -> ProptestConfig {
     ProptestConfig {
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/proptest-regressions/tests/contract/backup_sessions.txt"
+            "/../../proptest-regressions/tests/contract/backup_sessions.txt"
         )))),
         ..ProptestConfig::default()
     }

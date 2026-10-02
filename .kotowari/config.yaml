@@ -4,8 +4,8 @@ decisions:
   adr: docs/decision/adr
 tests:
   files:
-    - "tests/contract/**/*.rs"
-    - "tests/cli_diff.rs"
+    - "crates/remote-merge/tests/contract/**/*.rs"
+    - "crates/remote-merge/tests/cli_diff.rs"
     - "tests/container-e2e/tests/sudo.rs"
   rust:
     attributes: []
@@ -17,6 +17,7 @@ mutants:
   equivalents: .kotowari/mutants-equivalents.yaml
 changes:
   files:
+    - "crates/**"
     - "src/**"
     - "tests/**"
     - "skills/**"

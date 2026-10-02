@@ -1,0 +1,53 @@
+[package]
+name = "remote-merge"
+version = "0.2.13"
+edition = "2021"
+description = "TUI tool for comparing and merging files between local and remote servers via SSH"
+
+[dependencies]
+russh = "0.57"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+glob-match = "0.2"
+ratatui = "0.30"
+crossterm = "0.29"
+similar = "2"
+base64 = "0.22"
+hmac = "0.12"
+sha1 = "0.10"
+walkdir = "2"
+syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
+unicode-width = "0.2.2"
+sha2 = "0.10"
+serde_json = "1.0.149"
+rmp-serde = "1"
+arboard = "3"
+libc = "0.2"
+rpassword = "7"
+zeroize = "1"
+
+[features]
+## テスト用ユーティリティを公開する（インテグレーションテスト向け）
+test-utils = []
+
+[dev-dependencies]
+tempfile = "3"
+expectrl = "0.8.0"
+serial_test = "3"
+proptest = "1.11.0"
+
+[[test]]
+name = "ssh_integration"
+required-features = ["test-utils"]
+
+[[test]]
+name = "agent_ssh_deploy"
+required-features = ["test-utils"]
