@@ -75,7 +75,7 @@ echo "mutants.sh: unit=$unit MemoryHigh=$memory_high MemoryMax=$memory_max Memor
 # 変数（MISE_GITHUB_TOKEN など）を渡さないよう、引き継ぐ変数は秘密を含まない名前だけに限定する。
 # MISE_GLOBAL_CONFIG_FILE は、mise の shim（cargo-nextest など）が使うバージョンを決めるのに要る。
 env_args=(--setenv=PATH="$PATH" --setenv=CARGO_PROFILE_DEV_DEBUG=0 --setenv=CARGO_PROFILE_TEST_DEBUG=0)
-for name in RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME MISE_GLOBAL_CONFIG_FILE; do
+for name in RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME MISE_GLOBAL_CONFIG_FILE HOME XDG_CONFIG_HOME XDG_DATA_HOME TMPDIR; do
     if [ -n "${!name:-}" ]; then
         env_args+=(--setenv="$name=${!name}")
     fi
