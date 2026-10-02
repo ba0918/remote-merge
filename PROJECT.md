@@ -20,6 +20,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 | Check | `cargo fmt --all --check` / `cargo clippy --all-targets --all-features -- -D warnings` |
 | Run | `cargo run -- --right <server>`（引数なしは TUI、サブコマンドありは CLI） |
 | Spec check | `kotowari check` |
+| Change conformance | `kotowari changes --base <full-base-id> --head <full-head-id> --phase review --format json` |
 | Real OpenSSH/sudo tests | `scripts/run-container-e2e.sh`（Docker 必須、通常テストと別パッケージ） |
 
 ## Conventions specific to this project
@@ -29,6 +30,17 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - TUI は WebView 方式への移行を想定して凍結中。ただし `docs/ir/scan/directory-links.md` のディレクトリ symlink 展開については対応を認める。それ以外の変更は依頼された機能に関わる最小限にとどめる。
 - `lefthook.yml` は fmt・仕様検査を pre-commit、Clippy・通常テストを pre-push で読み取り専用で実行する。既存の個人フックを置き換えないため `lefthook install` は自動実行しない。既存フックの所有者が内容を確認し、必要なら手動で統合する。未ステージの変更も手動検査する場合は `lefthook run pre-commit --force --no-auto-install` / `lefthook run pre-push --force --no-auto-install` を使う。
 - 旧 OpenSSH の手動負荷試行は `bench/legacy-ssh/setup.sh` から開始する。試行中のシェルを終了すると専用コンテナ・イメージ・鍵・known_hosts・データが破棄され、個人の SSH 設定は変更されない。CI の保証範囲には含めない。
+
+## Change conformance
+
+- kotowari 0.3.0 の `changes` を使用する。検査対象と記録先は `.kotowari/config.yaml` の `changes` に定義する。コード、全テスト、配布スキル、スクリプト、ベンチ環境、ビルド設定、フック、CI を対象にし、生成物の除外は現時点では設けない。
+- 比較元と対象の完全なコミット ID は、記録の自己申告ではなくブランチの履歴から確定する。最終検査はブランチ全体の比較とし、HEAD の親だけを比較しない。
+- `changes` は対象コミットまたはステージ領域の設定と記録を読む。作業ツリーだけにある変更は検査に使われないため、設定の有効化後も未コミットの設定を `--head` で検査することはできない。
+- 実装者は `.kotowari/changes/implementation.yaml`、実装と別のレビュー担当は `.kotowari/changes/review.yaml` を作成する。書式とハッシュの算出方法は kotowari スキルの changes 参照に従う。自己レビューを reviewer の記録として扱わない。
+- このディレクトリには現在の比較の記録だけを置く。コード・関連 IR・決定の意味や履歴が変わり最終記録が無効になったら、両方の記録を除いて比較全体を照合し直し、独立レビュー後に再作成する。過去の記録は Git 履歴で参照する。
+- 統合前に `kotowari check --format json` と上記の Change conformance コマンドの両方で終了コード 0 を確認する。`check` の成功だけでは変更の照合は完了していない。
+- 中間コミットには記録を要求しない。任意の自己検査は `kotowari changes --base HEAD --staged --phase implementation --format json`。フックでは `changes` を実行しない。CI の変更照合ゲートはまだ追加していない。
+- `.ignore` は通常の検索から機械用記録を外すための設定で、Git 管理からは外さない。照合時はファイルを直接読むか `rg --no-ignore` を使う。
 
 ## Constraints
 

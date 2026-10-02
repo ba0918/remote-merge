@@ -15,6 +15,24 @@ guides:
   files: []
 mutants:
   equivalents: .kotowari/mutants-equivalents.yaml
+changes:
+  files:
+    - "src/**"
+    - "tests/**"
+    - "skills/**"
+    - "scripts/**"
+    - "bench/**"
+    - "Cargo.toml"
+    - "Cargo.lock"
+    - "build.rs"
+    - ".cargo/**"
+    - "lefthook.yml"
+    - ".github/workflows/**"
+    - ".gitignore"
+    - ".ignore"
+  exclude: []
+  records:
+    - ".kotowari/changes/*.yaml"
 limits:
   lines: 200
   requirements: 10

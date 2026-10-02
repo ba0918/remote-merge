@@ -31,7 +31,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Install pinned kotowari
-        run: cargo install --git https://github.com/ba0918/kotowari.git --rev d17ec08914ce3d87008bb04155dfdd3e447424ec --locked kotowari
+        run: cargo install --git https://github.com/ba0918/kotowari.git --rev 5fe0f2998273e8f831e1ba4a5724bc34e57e4816 --locked kotowari
 
       - name: Check specifications
         run: kotowari check --format json
