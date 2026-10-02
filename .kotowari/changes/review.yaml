@@ -1,0 +1,1582 @@
+version: 1
+entries:
+- id: reviewed-package-relocation
+  base: 0700f9f64e35de5b91a09beda48c7b85a37f289b
+  role: reviewer
+  files:
+  - path: Cargo.toml
+    before: sha256:f010d47f80b6bbd318fb4511812f66a0cbaf0c3c457c1391b5df68c41bde59e0
+    after: sha256:2b4af9dfd0ab3dc4d84c558b6f2a08710fc9aa6ccfbcbb9eb6767967fafce2b5
+  - path: build.rs
+    before: sha256:5623a6b41427c9adbb1b63c67598ad71d2557c8f586c5898534472efe9193f8d
+    after: null
+  - path: crates/remote-merge/Cargo.toml
+    before: null
+    after: sha256:79219417f23cb4041ecc2828affe5914cf9f28c2862b498ea2a4ceef71d726e8
+  - path: crates/remote-merge/build.rs
+    before: null
+    after: sha256:5623a6b41427c9adbb1b63c67598ad71d2557c8f586c5898534472efe9193f8d
+  - path: crates/remote-merge/src/agent/client.rs
+    before: null
+    after: sha256:dca17b6db44652f95b5a69ba060b3f3eb91fa85cb7140a744fcc85f02719e637
+  - path: crates/remote-merge/src/agent/deploy/mod.rs
+    before: null
+    after: sha256:e5acd082330fbfa00d90542a48ac30a9aff75c584f86c40fe6ea2ca6fd4c3601
+  - path: crates/remote-merge/src/agent/deploy/remote_target.rs
+    before: null
+    after: sha256:82d9903a6a84fc3552df84c659a8d09f10c34206e3c5cad60b47897d29cbc34c
+  - path: crates/remote-merge/src/agent/deploy/resolve.rs
+    before: null
+    after: sha256:7993a4a778e80994d8df9c82040fe2443ea00becaf15dc1e8139bde2a611213f
+  - path: crates/remote-merge/src/agent/deploy/sudo.rs
+    before: null
+    after: sha256:0b3309e46f99e9580c7d529ae49622c74e1491b0785aeb632f21883b6a5248da
+  - path: crates/remote-merge/src/agent/deploy/transfer.rs
+    before: null
+    after: sha256:1d654d3f538d1847f031a17ffb3666370d7c0db2b0b6f91aadedbe1b484117ff
+  - path: crates/remote-merge/src/agent/deploy/verify.rs
+    before: null
+    after: sha256:37a561ff0d61b7eb2c0b97907d815608533b3634fd5bdbbe9aef20e868b835a7
+  - path: crates/remote-merge/src/agent/dispatch.rs
+    before: null
+    after: sha256:c3a21d47c098b1bdb5d2b9ac7563f30dee2b9ffa2539b63bde316e1be82feaef
+  - path: crates/remote-merge/src/agent/file_io.rs
+    before: null
+    after: sha256:50941ab0579daaf5c96f83a92aca9a1d980a5f586db4f702172c685be90d28f3
+  - path: crates/remote-merge/src/agent/framing.rs
+    before: null
+    after: sha256:88b6c23bc341f7a22f3d4c29ba0478da5c19cfebfcda1b8d7c5762483432cc5c
+  - path: crates/remote-merge/src/agent/mod.rs
+    before: null
+    after: sha256:b5c33eb76c4c9d8712ef75119e00ae0475f9580c023a55c738c9c40523dc20b2
+  - path: crates/remote-merge/src/agent/protocol.rs
+    before: null
+    after: sha256:00891539bfa67f0766d3d65760fabcf935aa15c50a773cb55b15120fa32616ba
+  - path: crates/remote-merge/src/agent/server.rs
+    before: null
+    after: sha256:8972d602ac08cbcceccf7746c1bf59f9f31f8f179fc9aadd2dd36012d68ec45d
+  - path: crates/remote-merge/src/agent/ssh_transport.rs
+    before: null
+    after: sha256:a49be0c2a68cb1de86d0d1699e27234593fabdde0414e56a15cfc95e03e94bfc
+  - path: crates/remote-merge/src/agent/tests.rs
+    before: null
+    after: sha256:4646dd94a13ca8d566b097f36c5d6b599aafbc81ac0133d2e21488e29c0d97eb
+  - path: crates/remote-merge/src/agent/tree_scan.rs
+    before: null
+    after: sha256:491a8c8c3ea9fdd94a1ca74e61cf72031e5178024280f8c9e8e5a7bd88bf77ab
+  - path: crates/remote-merge/src/app/badge.rs
+    before: null
+    after: sha256:db4953476373d118f841a617c18e62377cd6b5f92fbad46bd65c68bdb120050a
+  - path: crates/remote-merge/src/app/cache.rs
+    before: null
+    after: sha256:2d50dc2e8fe7b41e6502a421b8b6be160ff856d2caf46d53e0ef066981d4500f
+  - path: crates/remote-merge/src/app/clipboard.rs
+    before: null
+    after: sha256:27481089a04d07f3dc5545dd3211abedaec3b2237710d73144656e308d39f1bf
+  - path: crates/remote-merge/src/app/clipboard_write.rs
+    before: null
+    after: sha256:54a04820538e63c2318296164d48ad7425d84b0b03e1e87a62c631088cceb43e
+  - path: crates/remote-merge/src/app/dialog_ops.rs
+    before: null
+    after: sha256:2a053905fdef2aaeef5e3433bcdf85cdf03566b1737922ae6d070e3088eaa2ad
+  - path: crates/remote-merge/src/app/dialog_types.rs
+    before: null
+    after: sha256:ba7419790191e5f4ff2778591f5739426e034c77762d5c34c630daa28f642f31
+  - path: crates/remote-merge/src/app/diff_search.rs
+    before: null
+    after: sha256:02e81e10ec8c067cb7fd93b2c8c801c842610c69059ba4b514baf84905429b2d
+  - path: crates/remote-merge/src/app/hunk_ops.rs
+    before: null
+    after: sha256:c0b9937d90942bae30fab6b21e37fb6129a5bdd3fa854a78dd72324ac7f80a2a
+  - path: crates/remote-merge/src/app/merge_collect.rs
+    before: null
+    after: sha256:0c5e90311f0c7202c7a2ad5cd5dffe607b0c4150f99a82b0017de733779de66f
+  - path: crates/remote-merge/src/app/mod.rs
+    before: null
+    after: sha256:a57dc89a5aa825f70bc6bd46ebb196596b99e4c614192b1feef5367345492063
+  - path: crates/remote-merge/src/app/navigation.rs
+    before: null
+    after: sha256:e57bd88642ac5dc0508cf4197a92f494802c648328f33395af75316d7b7771fe
+  - path: crates/remote-merge/src/app/ref_swap.rs
+    before: null
+    after: sha256:4816756765b510612821a75c3accb84225f2eccd2f24f4769c3d755f2c2b4d67
+  - path: crates/remote-merge/src/app/report.rs
+    before: null
+    after: sha256:f7da317106bf169884d7e005be8802713432a1f3a30f439f198dc30ebf8a77e1
+  - path: crates/remote-merge/src/app/scan.rs
+    before: null
+    after: sha256:ffc89c19ccf8e9e48bc48377385f9bfa18f1aa6e84085af9efd4aac5fdf2d73c
+  - path: crates/remote-merge/src/app/search.rs
+    before: null
+    after: sha256:409cfc5cd15e1a4f22e317e9fb2ee5615969b47821acde1d847c77077070dddd
+  - path: crates/remote-merge/src/app/selection.rs
+    before: null
+    after: sha256:95e70ba141ebc5f46d70d6b50643c6ba7036c03cf30713cd1ca57eb2e6b499ec
+  - path: crates/remote-merge/src/app/server_switch.rs
+    before: null
+    after: sha256:143acf504bd0f0a917367cc929b2518c5e0a622a300c4cf3641781f9381cb089
+  - path: crates/remote-merge/src/app/side.rs
+    before: null
+    after: sha256:21996b4e79802603dbaf9c99a8183d87520a86adedee1bb1b2f06ad569a6dbfc
+  - path: crates/remote-merge/src/app/three_way.rs
+    before: null
+    after: sha256:b4bee24f2975d15ff268788bf2781d4fd3cb2cf07f5c5ffbed884d107ca01df1
+  - path: crates/remote-merge/src/app/three_way_summary.rs
+    before: null
+    after: sha256:bed10615512b766778c15a049ff36c5facbd82b0b73cf1c94450a4df4b890549
+  - path: crates/remote-merge/src/app/tree_ops.rs
+    before: null
+    after: sha256:0374fef86eccca605a0cebe60cb5616147c7ed2250e4f4c69db05b5c6961de1e
+  - path: crates/remote-merge/src/app/types.rs
+    before: null
+    after: sha256:9030507319615ef2259f75e7f537a18e582cf630233e54b6a1a954bc965a93d4
+  - path: crates/remote-merge/src/app/undo.rs
+    before: null
+    after: sha256:9138a299d14b6ac615b44991d77ede151aeca0f783974b9c487d6d4622d69d57
+  - path: crates/remote-merge/src/backup/mod.rs
+    before: null
+    after: sha256:55537d620215e2f3f84adbe348e8923f92547e1f20c45fab1e838b2db4bc0c34
+  - path: crates/remote-merge/src/cli/diff.rs
+    before: null
+    after: sha256:2f7cf32a76af8e6ec97e6519b868bb1dbe8575ae5da1d871d13d14c704b495ab
+  - path: crates/remote-merge/src/cli/events.rs
+    before: null
+    after: sha256:23fb43e18ef58f52e3d0fbcff126cc867839095462366b29871cf77314aee5c7
+  - path: crates/remote-merge/src/cli/logs.rs
+    before: null
+    after: sha256:d13b009062bef26eeb232e4f39f3b81c603b51cdc5fb4d2ca3f5cbd06d7e3c6c
+  - path: crates/remote-merge/src/cli/merge.rs
+    before: null
+    after: sha256:4a1b64fc7286470b942eca20485320f08720a77938a72a2aab02f0424af371a2
+  - path: crates/remote-merge/src/cli/mod.rs
+    before: null
+    after: sha256:5b060fcdee01c3039772ab88c983999ea8df7cd653556cd277e4eec7c2868f52
+  - path: crates/remote-merge/src/cli/ref_guard.rs
+    before: null
+    after: sha256:c1fca68f1710cd57c1b49dafdc63b934f260e1dab84570b9a5868311f0a6338e
+  - path: crates/remote-merge/src/cli/rollback.rs
+    before: null
+    after: sha256:a55775ebb6a88dbdffae7a8169743dff60048c12299ee68699be21bb53bc9b0c
+  - path: crates/remote-merge/src/cli/status.rs
+    before: null
+    after: sha256:f0d1445d3b702788af01c6fac17d77c1d0200e9157c43696263df6d7b8227584
+  - path: crates/remote-merge/src/cli/sync.rs
+    before: null
+    after: sha256:eedcc0e14ef3705484101e92fc0357faf75f96965bf1f0844314b2bf602fa509
+  - path: crates/remote-merge/src/cli/tolerant_io.rs
+    before: null
+    after: sha256:ac6d05a2f587ed52fdd5b896411b467ab6679480e53f373dacb83846239197b2
+  - path: crates/remote-merge/src/config.rs
+    before: null
+    after: sha256:9344b7b47d9242b936e1ee4c7d9fa2c6fcda9b439b11e3c7d324ab5b0d672b34
+  - path: crates/remote-merge/src/diff/binary.rs
+    before: null
+    after: sha256:4d170848942420107d37c4e006952cf7e2df406159f2112e869c24559906873a
+  - path: crates/remote-merge/src/diff/conflict.rs
+    before: null
+    after: sha256:3fad57ac785539333011c25fcbeb8977e660a8b770effe7a4898acf82c0fcb26
+  - path: crates/remote-merge/src/diff/engine.rs
+    before: null
+    after: sha256:89c586d01f728c5af3f080462bb6eab9ce24150b34475cb0fc1cb893cb9a6b7d
+  - path: crates/remote-merge/src/diff/mod.rs
+    before: null
+    after: sha256:c592ba0d7f4d64daf7140a6f7efd7872a6a8865c779825248ae33a9508d81455
+  - path: crates/remote-merge/src/diff/symlink.rs
+    before: null
+    after: sha256:17763a67c7901cf49ef091fe7b884a87866def51dfa76e4098fa7ec89609211b
+  - path: crates/remote-merge/src/error.rs
+    before: null
+    after: sha256:7ded56b747e03a5aaba2b93ca9835d8dbb64a4eb3f3ef4d63bd401a40c893fed
+  - path: crates/remote-merge/src/filter.rs
+    before: null
+    after: sha256:b09ff487a0b978bcfd1395991ed74c954218887188047ae23e7d47630716b8f4
+  - path: crates/remote-merge/src/format.rs
+    before: null
+    after: sha256:6f500d038a67c4322ca97d16fed8066a0f52f64ae3ededafa07e0cf4bf5805d5
+  - path: crates/remote-merge/src/handler/dialog_keys.rs
+    before: null
+    after: sha256:04f36c28e6db4fec3110524b271e02644c572740c98428dcbcfbfe65f1d8def7
+  - path: crates/remote-merge/src/handler/diff_keys.rs
+    before: null
+    after: sha256:934ea36b2e53b5e029b88b9e735245a4d7e40a9cd4d92d27a0d2d8710de1b3dd
+  - path: crates/remote-merge/src/handler/diff_search_keys.rs
+    before: null
+    after: sha256:4eaaf1b748b94111afe5b1d24e39ee9d458038b995f9023231d52ad89bbfcd52
+  - path: crates/remote-merge/src/handler/merge_batch.rs
+    before: null
+    after: sha256:cd726034f8f8642fdf8796b24f1c02c1c641cc8febebf6462b33c0de52014efe
+  - path: crates/remote-merge/src/handler/merge_content.rs
+    before: null
+    after: sha256:6996c3ff1d58d671d08f5964b787408b617883b0f658713f8bd191a984ceb134
+  - path: crates/remote-merge/src/handler/merge_content_logic.rs
+    before: null
+    after: sha256:471bace2b48d8fe931e9f35a15c6252ca018217c90854031e148ce75d58d4bc8
+  - path: crates/remote-merge/src/handler/merge_exec.rs
+    before: null
+    after: sha256:cd3f9a7878bc225675d5ee5e9de6500caed363897166f6e33ee2f0f8232343ce
+  - path: crates/remote-merge/src/handler/merge_exec_logic.rs
+    before: null
+    after: sha256:407b138c4c04ec48dc0489885dddd64d3fce4859646f7f4acef0f1e77fbabefa
+  - path: crates/remote-merge/src/handler/merge_file_io.rs
+    before: null
+    after: sha256:e53f99a31d50e19d2a4f0476305bd18d9cc64251aced576b223ff2ce29644c02
+  - path: crates/remote-merge/src/handler/merge_mtime.rs
+    before: null
+    after: sha256:2fad89868f16afc1ec00a00ad4a175a14b082b7e24b4ddea3fd785ae3728d3e3
+  - path: crates/remote-merge/src/handler/merge_mtime_logic.rs
+    before: null
+    after: sha256:57738b4c8eb50c15d6261bb847422da2de5e3713eca5ce9b68674a3f13806370
+  - path: crates/remote-merge/src/handler/merge_tree_load.rs
+    before: null
+    after: sha256:5bccf98cf55a67754769c72f0ae59b22c8debe1b50f7687832f26f9e739f5cbd
+  - path: crates/remote-merge/src/handler/mod.rs
+    before: null
+    after: sha256:c0526ab72dfeb546f431e58503b82f5ae6f5f3662f9da73c2478c74aea3e6a24
+  - path: crates/remote-merge/src/handler/reconnect.rs
+    before: null
+    after: sha256:8cb5b4f8cf42bc53b3bc9fdfef980b77f9bcca548f5482ad778897f570ed0227
+  - path: crates/remote-merge/src/handler/search_keys.rs
+    before: null
+    after: sha256:469e582bcf3d23578b85f7ad204ecb241d6a6db478401fcf7831576dc7ee484e
+  - path: crates/remote-merge/src/handler/symlink_merge.rs
+    before: null
+    after: sha256:5e90011d7ac434ada59bed5aa330e9d4f3a0c8c90cca5521dcccbe3f73cd633e
+  - path: crates/remote-merge/src/handler/three_way_summary_handler.rs
+    before: null
+    after: sha256:8504c41f2d1b858f7da08505a5a2440b602e33e1c49cfa391808046ed0d8cd91
+  - path: crates/remote-merge/src/handler/tree_keys.rs
+    before: null
+    after: sha256:96a2a4ff9a630f57afaeb735e6573bd34ba51767df134d8b7e4171cd896251bb
+  - path: crates/remote-merge/src/highlight/cache.rs
+    before: null
+    after: sha256:40edfcf7263e7c2332f24df395390ef18a607170a2c5ac9ae0eacfcda8f346a2
+  - path: crates/remote-merge/src/highlight/convert.rs
+    before: null
+    after: sha256:04732379434b2f95cb45e26822d8733ac4ca2e0b8901308c66eec08d5da66b6d
+  - path: crates/remote-merge/src/highlight/engine.rs
+    before: null
+    after: sha256:d7fa025776b0fda5ec7f5ca339df36f6497d566d18b84fff495d22b6c0618f0b
+  - path: crates/remote-merge/src/highlight/mod.rs
+    before: null
+    after: sha256:1577cbe8713d980bbce1bc06f25652edf03cc6042143b09f6c94a4dc8d1a0360
+  - path: crates/remote-merge/src/init.rs
+    before: null
+    after: sha256:6397b7dbd6368f5c01089a536c6168bf5c53189f3bca5d34613c33eb45ad016f
+  - path: crates/remote-merge/src/lib.rs
+    before: null
+    after: sha256:5648af391bb97b064aa96be4f491e486147f85638ea2c51c12a3d3c6e77b6e07
+  - path: crates/remote-merge/src/local/mod.rs
+    before: null
+    after: sha256:ac7a29b6e0a33e7978b7ac453e835e9c385eee247e0dbe7812f89ab11032e476
+  - path: crates/remote-merge/src/main.rs
+    before: null
+    after: sha256:673b8fc4b2643c82420c426db01be4ba1157cda53ed99439c8af5b719a291fe9
+  - path: crates/remote-merge/src/merge/executor.rs
+    before: null
+    after: sha256:5d389dd08f6bd4d6539a8961680ce4b97f569d62734ed3a867e432cfa465bf0f
+  - path: crates/remote-merge/src/merge/mod.rs
+    before: null
+    after: sha256:811aee7f5c852ca80bb3b62fa1bd7b421c745ee2026734b7e6dab4f279a5b618
+  - path: crates/remote-merge/src/merge/optimistic_lock.rs
+    before: null
+    after: sha256:d4ae3cb67b23b17e8e246f70a0a4a1415dce8beca030e835cd1e728d8086c898
+  - path: crates/remote-merge/src/runtime/backup_store.rs
+    before: null
+    after: sha256:a70f9078da4fade8751b5fc444fe61ed885c38e2ae75cdd33cf13ae2d3994b1d
+  - path: crates/remote-merge/src/runtime/badge_scan/helpers.rs
+    before: null
+    after: sha256:b0ce748d8b82cd9ed9096e1c3213369876a6d5f58789e8c43f45e3f3ae0c8e1d
+  - path: crates/remote-merge/src/runtime/badge_scan/mod.rs
+    before: null
+    after: sha256:f2c40693ee1a67a90d0fa3b1cfa3fb6f340dec1149d12888386a92bad505092c
+  - path: crates/remote-merge/src/runtime/badge_scan/poll.rs
+    before: null
+    after: sha256:4a2896e16afe51d8b670d3416a8a8c31b4e43b22a016cb763e082ea44c1c687a
+  - path: crates/remote-merge/src/runtime/badge_scan/task.rs
+    before: null
+    after: sha256:b9fdec927adf8eff9fff4ab69bc396d321782e202a5e6af9728b76e67c117b8f
+  - path: crates/remote-merge/src/runtime/bootstrap.rs
+    before: null
+    after: sha256:4fa2a6bb32bf19de1db519f9ff2aad305c3ed0d66bad561bf7d5071369e6e166
+  - path: crates/remote-merge/src/runtime/core.rs
+    before: null
+    after: sha256:53293d3a8855576d715d15ec7e0947f4754bde5bf18d57e707d696be60088b92
+  - path: crates/remote-merge/src/runtime/merge_scan/apply.rs
+    before: null
+    after: sha256:a65a747f300d6a31b736be01d395c96a6a0126c9bb09d6143fac8a376781318f
+  - path: crates/remote-merge/src/runtime/merge_scan/mod.rs
+    before: null
+    after: sha256:2dcc7cc5bbfee5acd26be19ac2c4c02e96fe17a83bd62b5c4b6d0c2c5ba951f9
+  - path: crates/remote-merge/src/runtime/merge_scan/poll.rs
+    before: null
+    after: sha256:fea7f7fd134c724ef4641b472ab45cce64bd25a1410f2226df8057b535f8074f
+  - path: crates/remote-merge/src/runtime/merge_scan/task.rs
+    before: null
+    after: sha256:4194c94b1850c61ba1787c045509c37f556720be2fb0130296b347dbd403e0c7
+  - path: crates/remote-merge/src/runtime/mod.rs
+    before: null
+    after: sha256:3db607f59a235421e53f232613e68d605d273968050bf989d27a91055143cbe3
+  - path: crates/remote-merge/src/runtime/remote_io.rs
+    before: null
+    after: sha256:56ee9eafad93dbb9de6bcad06abf7092fe012908ec2ba9ca3e9620b0120c120c
+  - path: crates/remote-merge/src/runtime/remote_path.rs
+    before: null
+    after: sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6
+  - path: crates/remote-merge/src/runtime/scanner.rs
+    before: null
+    after: sha256:fcf95d8901793c83c294d69f3e407a171cadf5ff5fdc0e4f97c91efa4987d3a6
+  - path: crates/remote-merge/src/runtime/side_io.rs
+    before: null
+    after: sha256:b7a2d56d0b2a864e68c0a38feeb8ca8a4945210b198205c23315b083e7bdbdb7
+  - path: crates/remote-merge/src/runtime/target_io.rs
+    before: null
+    after: sha256:e87ddd400aa708815d6b446fd7dea0f83840d19ac5aa9885f34aff1e1775e2c1
+  - path: crates/remote-merge/src/service/diff.rs
+    before: null
+    after: sha256:2b8fac20bfead188dadb9e0e048ca10af0842018de26de168ba92c0b433e9676
+  - path: crates/remote-merge/src/service/fast_path.rs
+    before: null
+    after: sha256:30865ae41835e78c7d033c5185e038a16531609f1c2a95a973dbc6077cbbf6b8
+  - path: crates/remote-merge/src/service/max_files.rs
+    before: null
+    after: sha256:74fa5dbf21bb514b71ffa453489d6dec72995269533778f79f444578204f13b3
+  - path: crates/remote-merge/src/service/merge.rs
+    before: null
+    after: sha256:6462a61d22122db65b2240b52d8cbc1e079c7e8db7a733efad46ec795305bea4
+  - path: crates/remote-merge/src/service/merge_flow.rs
+    before: null
+    after: sha256:2422fdb6163c3ad0e81e3b26c4dd9621f087a4139d8976bcfa59e0a0052b2a2e
+  - path: crates/remote-merge/src/service/mod.rs
+    before: null
+    after: sha256:63688fb583c06d3fa2f2df41de684ee40ae3eb98262069b958e873c43e1fa7b1
+  - path: crates/remote-merge/src/service/output.rs
+    before: null
+    after: sha256:0de2c9550cd497f04e0bd5ee5b36b825b2950c8b038120a16cc8cc5e82fd49f4
+  - path: crates/remote-merge/src/service/path_resolver.rs
+    before: null
+    after: sha256:ff90f4201a2014097b2d442b29940a31954f144d4173df13bb6c8b131e21a7f0
+  - path: crates/remote-merge/src/service/rollback.rs
+    before: null
+    after: sha256:322652b5e67f683daa40eb0fc2b763ad20ea4eddf59169e7836be78231229bc7
+  - path: crates/remote-merge/src/service/source_pair.rs
+    before: null
+    after: sha256:335be73eaeff38fe57c095851b88bbf4a1e5e8c037a0f1d960adad42a52161b6
+  - path: crates/remote-merge/src/service/status.rs
+    before: null
+    after: sha256:af01265ca86844d8e92338c08cc8c80cc11d6bd9f1fbb007965c0d0dd28d5c7b
+  - path: crates/remote-merge/src/service/sync.rs
+    before: null
+    after: sha256:9ba361d0cd2afe564af2fab08a95a7ecf43d42d20441e7fd33a98e8c06735f81
+  - path: crates/remote-merge/src/service/types.rs
+    before: null
+    after: sha256:948c958481dc25987223fd7740a8fb0921a8b93a3de430c988489e819ea42922
+  - path: crates/remote-merge/src/ssh/batch_read.rs
+    before: null
+    after: sha256:7fde4a78dc77381d5b24108420ccc265f7b42f20caa889e5c4cdaebf63060fdb
+  - path: crates/remote-merge/src/ssh/client.rs
+    before: null
+    after: sha256:6f1c5b2df572395efc8f64f059a7899baaa447dcbf8cfb754319a220c0cbc30e
+  - path: crates/remote-merge/src/ssh/hint.rs
+    before: null
+    after: sha256:7835b025bbd207703a35954f547eaedb883850d77de0a3b0771fc81260de6d58
+  - path: crates/remote-merge/src/ssh/host_key_verifier.rs
+    before: null
+    after: sha256:3dceb5c9100da9b2a1bc2b6ff5bf84bdbcced88f4d4e2453b2f437355c353e79
+  - path: crates/remote-merge/src/ssh/known_hosts.rs
+    before: null
+    after: sha256:19576ae0b6564f5a05392eeb0cc3d37dea47c94d334e9ccdb1ea2344031eab8a
+  - path: crates/remote-merge/src/ssh/known_hosts_io.rs
+    before: null
+    after: sha256:6d8812de2694c78a0a7b578f07e10a4be4740daa82fd47e92f4d67fdc3c431e3
+  - path: crates/remote-merge/src/ssh/mod.rs
+    before: null
+    after: sha256:a32e5c1ab33174f0a61a18cdd02e78d6a5dfe545b6c208b0776394ccb7ed34e3
+  - path: crates/remote-merge/src/ssh/passphrase_provider.rs
+    before: null
+    after: sha256:54aabc3d80c06c42f39c4c27db9e09fbb65167d084b9f822c05accb127b3f43f
+  - path: crates/remote-merge/src/ssh/preferred.rs
+    before: null
+    after: sha256:ae29553a9080c41574fef1dbf2d6bd4e300b560b4492477c404868ebfab35e0b
+  - path: crates/remote-merge/src/ssh/tree_parser.rs
+    before: null
+    after: sha256:2777670b3042511994c82283e0822b9a3cb9336d8e40bc5ec57a470a8378f557
+  - path: crates/remote-merge/src/state.rs
+    before: null
+    after: sha256:9597f45904dabdcbc909dd1995658d59e3de7698d42cbedd84ade181f12685bb
+  - path: crates/remote-merge/src/telemetry/event_recorder.rs
+    before: null
+    after: sha256:2ee182e72997d7f2180afc85a4b4aa751d754e2dc1cbbc8994614a8192000171
+  - path: crates/remote-merge/src/telemetry/event_types.rs
+    before: null
+    after: sha256:ed21b311a4eab6914035fb87b608fb370c3dbdf4632225ac4c8fced3086224e7
+  - path: crates/remote-merge/src/telemetry/log_reader.rs
+    before: null
+    after: sha256:b109ac992195c72658685569892242862fc4d4cd404fb76b947a80e11e3d98d9
+  - path: crates/remote-merge/src/telemetry/mod.rs
+    before: null
+    after: sha256:cb1ef6aa207ed21ffb4e0498d4a08ee1eb3666d0db2ef5da1137620e1a349f21
+  - path: crates/remote-merge/src/telemetry/state_dumper.rs
+    before: null
+    after: sha256:9f4d16615fe19a5d712c3a19663b7c39b2b18f46c158fb210e41c6e562f076e2
+  - path: crates/remote-merge/src/telemetry/structured_log.rs
+    before: null
+    after: sha256:d24c0e54efa23b2ff8f14463938c00a5936db0d80273617431e6838d1ed95f2f
+  - path: crates/remote-merge/src/telemetry/truncate.rs
+    before: null
+    after: sha256:a74a71422bf71ab6f23d80b4af2c11c2cfc79e4742317e2978f726502e987b3e
+  - path: crates/remote-merge/src/theme/mod.rs
+    before: null
+    after: sha256:a1946a4d12eed613224977258790c13e32220db26235e42fd91bcc33987277e6
+  - path: crates/remote-merge/src/theme/palette.rs
+    before: null
+    after: sha256:cfceb7b32657d7ef6f4ba4df9170c688d3ca1a4167be3ca6b3e0cc31701df7a2
+  - path: crates/remote-merge/src/tree.rs
+    before: null
+    after: sha256:2783326e48cfb14269c8ed72bb54d9219ff06d9c09ccdb897ab0f8b277b1958f
+  - path: crates/remote-merge/src/ui/dialog/batch_confirm.rs
+    before: null
+    after: sha256:872bf8024ab51991597b6dfb2e6a4ccf83fc4b871ab43eedabe82f7f636f6c23
+  - path: crates/remote-merge/src/ui/dialog/confirm.rs
+    before: null
+    after: sha256:09919fc1b934d29a7b697589b7f0fc6503d642b74aaeed72a8fc1b8d3da8f8b5
+  - path: crates/remote-merge/src/ui/dialog/filter_panel.rs
+    before: null
+    after: sha256:a4a22c392aed1f335f951b826147621219c68737dfad9888b9d487963dd72940
+  - path: crates/remote-merge/src/ui/dialog/help.rs
+    before: null
+    after: sha256:514a593498ce9cdfb33fee0d70ffb1702b82f34709dad96734c5ed046d933067
+  - path: crates/remote-merge/src/ui/dialog/hunk_preview.rs
+    before: null
+    after: sha256:751cc36dff41ead9caa817e8eb846a175ef3ea0a42751c35f55e13bbd5fac595
+  - path: crates/remote-merge/src/ui/dialog/mod.rs
+    before: null
+    after: sha256:cfc29c43d87dcfbd262c55c6df5c6a21e12ac333399aa0869731c47ae42345ab
+  - path: crates/remote-merge/src/ui/dialog/mtime_warning.rs
+    before: null
+    after: sha256:e95ca4447f3e3a668efe2c3bd3b430922017324ff4e3616f5ae228dec6097c48
+  - path: crates/remote-merge/src/ui/dialog/pair_server_menu.rs
+    before: null
+    after: sha256:4a14510c11b64ae1ce66d8d4819b825795493e8d6abccf0490c2779237d37cbb
+  - path: crates/remote-merge/src/ui/dialog/server_menu.rs
+    before: null
+    after: sha256:b3d671da26ae355b0db0905bbb8243e8ef873c131ef4fc3311eda99821dd0de5
+  - path: crates/remote-merge/src/ui/dialog/three_way_summary.rs
+    before: null
+    after: sha256:39181e11a9cace698817f3d275a571fcca38a5928593157e2ce5c690c716572a
+  - path: crates/remote-merge/src/ui/diff_view/content_render.rs
+    before: null
+    after: sha256:fb5e47a6a20164d96026bdf156743bf4315a008875f1185ca7fb34f40ee15c55
+  - path: crates/remote-merge/src/ui/diff_view/line_render.rs
+    before: null
+    after: sha256:4b0ab790798ed7e6784455afe289e733be950944d91c92cef396eb7c30836c01
+  - path: crates/remote-merge/src/ui/diff_view/mod.rs
+    before: null
+    after: sha256:2a4bd5cacbb59f19f7f665b45c02410a54a1ce12f9d361c5a7a2a7a4a253ca29
+  - path: crates/remote-merge/src/ui/diff_view/search.rs
+    before: null
+    after: sha256:a4a3859e001771168122016ed10904647795bd2aa2b9f6b9ba280beec00c90d0
+  - path: crates/remote-merge/src/ui/diff_view/style_utils.rs
+    before: null
+    after: sha256:d2b0761cbb4e39408cd53c44733f1bb3dd7f1b15e1ce5c7a6443bd6599663b77
+  - path: crates/remote-merge/src/ui/diff_view/three_way_badge.rs
+    before: null
+    after: sha256:a9e947ae171b0b1889e6ff077292da0152cb1d88f8da2135502e11176667f2f3
+  - path: crates/remote-merge/src/ui/layout.rs
+    before: null
+    after: sha256:c63710b3d7078aff3fbc80e6870f68cc5b70a7c101f12dfd6850bc8ee265f4cd
+  - path: crates/remote-merge/src/ui/metadata.rs
+    before: null
+    after: sha256:a4051a3851085180187cbd2e4ba39e0fdfb57fa7a43ac229a8037d5c6d3780ff
+  - path: crates/remote-merge/src/ui/mod.rs
+    before: null
+    after: sha256:16e5f01bb5517a8e61ee30fb60a770985a0312d123b23a70401acb0ddc52b50a
+  - path: crates/remote-merge/src/ui/render.rs
+    before: null
+    after: sha256:452c93fbc1d3bf908b9d7c02c48453368a3e5e314a5946e299202519d9690460
+  - path: crates/remote-merge/src/ui/tree_view.rs
+    before: null
+    after: sha256:87b5b5118384bd61c97975b623fed72721b8732d3ce05c0c95c8fb91a0f33ce4
+  - path: crates/remote-merge/tests/agent_process.rs
+    before: null
+    after: sha256:0e8bc2dde25f75340510e52489720c9c5c36d87d55a84ef7e8cae115beac57d7
+  - path: crates/remote-merge/tests/agent_ssh_deploy.rs
+    before: null
+    after: sha256:bfb60ed1b2303b7f3e487531f056c470ddca91cf1857b106a832d81365d78a61
+  - path: crates/remote-merge/tests/cli_diff.rs
+    before: null
+    after: sha256:631aaa565105ec6b07034a93cd64e7b6f60094469e7a2100857c132d48f3a2dc
+  - path: crates/remote-merge/tests/cli_diff_general.rs
+    before: null
+    after: sha256:8fe216732064a5d4939e1d139692a77c21af01b1c7d21d62bdb6bab22bfe9b16
+  - path: crates/remote-merge/tests/cli_error_handling.rs
+    before: null
+    after: sha256:1ef6e45807245785a1ccc623cd5ccaea56a1fea52b10c8c63af4e55471862e44
+  - path: crates/remote-merge/tests/cli_exit_codes.rs
+    before: null
+    after: sha256:e4ecc96e807a3919909a277e08d03ee070f6a793ddbf0b7cd8dc6bc1a2296896
+  - path: crates/remote-merge/tests/cli_init.rs
+    before: null
+    after: sha256:8611e9f0ba8ca2e5fdc93fe9716e8d1c9524484eb01cdb1e3f72b5141275c9d7
+  - path: crates/remote-merge/tests/cli_logs_events.rs
+    before: null
+    after: sha256:d0fd8c0c02f2dfe208b963d2e118aee7b2093fd7a0b7ebdaa5e2963f817e748b
+  - path: crates/remote-merge/tests/cli_merge.rs
+    before: null
+    after: sha256:77dafc51f39a5981f33f4326cc287109bd7715b89223d739b3ac0a8ee7ffe617
+  - path: crates/remote-merge/tests/cli_rollback_local.rs
+    before: null
+    after: sha256:ff496815278715fd896f827c114f2326125abf37f2357ea136c4b6a48b722637
+  - path: crates/remote-merge/tests/cli_status.rs
+    before: null
+    after: sha256:361ffd64724f7e8e16c0bbc2542a68777829a813466f98bb48d35bdba1dc065e
+  - path: crates/remote-merge/tests/cli_test_environment.rs
+    before: null
+    after: sha256:11cf807fe2360e2e2bb274c45920a965a633bf89d318302928f45199dfdd9dca
+  - path: crates/remote-merge/tests/common/mod.rs
+    before: null
+    after: sha256:a50e93778bae1c90f0871ff5d0ef5e284ebd6916c6e9a7db573ab69b75583a1d
+  - path: crates/remote-merge/tests/contract.rs
+    before: null
+    after: sha256:ed47b4567b3adbdb312cdb854575e2d5fb1770c218a6fdeb7617e250904ba007
+  - path: crates/remote-merge/tests/contract/backup_cleanup.rs
+    before: null
+    after: sha256:6cf0ffa9ca1a8b0461ac0b498ef0be7cd617fb08635817787dd789b6c6ce313c
+  - path: crates/remote-merge/tests/contract/backup_failure.rs
+    before: null
+    after: sha256:78f527c9a280b12dfbe9355ae192c63dfdd53dc42e35bc2fd5242934f702ca3e
+  - path: crates/remote-merge/tests/contract/backup_location.rs
+    before: null
+    after: sha256:6396c2b791eee5145b2c9e14e91deb1453b734e15fd3d0dfb1119206fe98cc21
+  - path: crates/remote-merge/tests/contract/backup_rollback_cli.rs
+    before: null
+    after: sha256:2f0cdb1014edcb2c418fd2f55fd4b4e46c9a8e3b02d8e4890341e7e9ab8e8be4
+  - path: crates/remote-merge/tests/contract/backup_rollback_cli_e2e.rs
+    before: null
+    after: sha256:e8baa2f0c60c27b6679a360218b2f58f38e22ded95eb3f0512e27413755642a1
+  - path: crates/remote-merge/tests/contract/backup_rollback_path.rs
+    before: null
+    after: sha256:79a5682cb50edd75ef7646321d5a5c0239041d3b1b587ecb25b5cc4bf48e8b3e
+  - path: crates/remote-merge/tests/contract/backup_sessions.rs
+    before: null
+    after: sha256:1610168282cc465ce61179f9ba7e395e33cfb6cb00a3a7fcb95cac4d2faa25a8
+  - path: crates/remote-merge/tests/contract/backup_storage.rs
+    before: null
+    after: sha256:798e349684545d1e1fc3ec2756d940bf429fc5276e8565dc412afcb97c3f2f9b
+  - path: crates/remote-merge/tests/contract/backup_support.rs
+    before: null
+    after: sha256:d3219ec4debb37af9ac77b63443da02d9c9db35b9efb89549d5824d6f557a3ec
+  - path: crates/remote-merge/tests/contract/cli_results.rs
+    before: null
+    after: sha256:9fdb3a57e98e2727dc1bba5e7e27bae2f34d669a2b30443dadcbade79309acad
+  - path: crates/remote-merge/tests/contract/config_filters.rs
+    before: null
+    after: sha256:374314893dcbe62111c1f1441f8efd24debdf1ba4320fbab4b16b92177300aa0
+  - path: crates/remote-merge/tests/contract/config_filters_cli.rs
+    before: null
+    after: sha256:1d3a587ac631eeea1e44991d7f4afaf3d28d816c46ab8cb86e34291b47cf1953
+  - path: crates/remote-merge/tests/contract/config_loading_cli.rs
+    before: null
+    after: sha256:71767ed06fc1b748b7b943ebe215c763b74987bd29ae268b1d4d9d721e59aa2a
+  - path: crates/remote-merge/tests/contract/config_merging.rs
+    before: null
+    after: sha256:da4908820e86135571de8c47202b179001d3b95572b60e21694233cfb04a0b82
+  - path: crates/remote-merge/tests/contract/config_precedence.rs
+    before: null
+    after: sha256:1d1d0e01ab73e3d5d269af6f6b1dff9eb83a614069f078653e47556ee658f747
+  - path: crates/remote-merge/tests/contract/config_values.rs
+    before: null
+    after: sha256:2b7eaa814aedda4dab1608ccbadc006eb40aeb67556c5fe73b2db1392b8525ce
+  - path: crates/remote-merge/tests/contract/config_values_cli.rs
+    before: null
+    after: sha256:4ed8d102954fec8535e5275cf426357a15e744c89db8e174baa745091405107a
+  - path: crates/remote-merge/tests/contract/diagnostics.rs
+    before: null
+    after: sha256:033525602cfa8ee154e956e57b3ac12ac304873c29fa47473bf08e74fb87c26c
+  - path: crates/remote-merge/tests/contract/diff_file_kinds.rs
+    before: null
+    after: sha256:d00d9f45a3911e82438ffcde9b274991beb30009c73abfd6c36767ac9df1cf05
+  - path: crates/remote-merge/tests/contract/diff_format.rs
+    before: null
+    after: sha256:06ea79eef57d69737659a878b6e72fa689f61982a8a96807200f1fa35b1409b6
+  - path: crates/remote-merge/tests/contract/diff_max_files.rs
+    before: null
+    after: sha256:4c8ce5c6e8781a2d1ebffa9b4de0f3e65b023c577cb3c40dc88df98a4e8a20ac
+  - path: crates/remote-merge/tests/contract/diff_output_cli.rs
+    before: null
+    after: sha256:6ab705154d8248ea942ed8c421c057ee942dde82310cb0e29787b1099c8886bf
+  - path: crates/remote-merge/tests/contract/diff_ref_cli.rs
+    before: null
+    after: sha256:d05957fedcd14581ddd178a3fd71a00ed55e4b80957a16983ce1f49ec5a4e869
+  - path: crates/remote-merge/tests/contract/diff_root_link_cli.rs
+    before: null
+    after: sha256:add16aa0b54cf0629269032611606cd934f7530875af30b64a1b1c8b0465b53c
+  - path: crates/remote-merge/tests/contract/diff_selection.rs
+    before: null
+    after: sha256:7d86856edbe23b187d0fca048ffb06359e4521094597d817f67e7cde50f7c5ab
+  - path: crates/remote-merge/tests/contract/diff_support.rs
+    before: null
+    after: sha256:a65929afd3b2ac92ddb6693b7a4315de10802588c12c1ccf7b1189ed4c2b3ff8
+  - path: crates/remote-merge/tests/contract/filters.rs
+    before: null
+    after: sha256:36d18100a2d031ab62c2d85350eb90638afd25be42d1b52893886444bc9c9bdb
+  - path: crates/remote-merge/tests/contract/init.rs
+    before: null
+    after: sha256:53197c5ebac494d52ac8ee5797dac020b6895c8da422fc0749b777cf4bdae8ab
+  - path: crates/remote-merge/tests/contract/merge_cli.rs
+    before: null
+    after: sha256:9895cb779b617618c98015b19e2bfd6281523926b1312464fd9c572791a65560
+  - path: crates/remote-merge/tests/contract/merge_cli_ssh.rs
+    before: null
+    after: sha256:46f738bc487b7257116f97bebd61b535e59787fced0e1b493a7da9e7728eabac
+  - path: crates/remote-merge/tests/contract/merge_hunks.rs
+    before: null
+    after: sha256:3584fa5ca7690d0b842f12eb7f04f0ac06cfef2102c205af6f7f10ce63463c57
+  - path: crates/remote-merge/tests/contract/merge_links.rs
+    before: null
+    after: sha256:b88ddc13d51f36aa04960ddaa9f09362984f0ef6c8b6b362cdacb26f038e920e
+  - path: crates/remote-merge/tests/contract/merge_paths.rs
+    before: null
+    after: sha256:3d3efee114ec097f6bb324a49b5c61227e0b86ccb1c0f41b4f9c3b752d02f009
+  - path: crates/remote-merge/tests/contract/merge_ref_hunks_fix.rs
+    before: null
+    after: sha256:2bee347b33bfbec752d7b669238df264b537781567c9957107d638fb00faa431
+  - path: crates/remote-merge/tests/contract/merge_results.rs
+    before: null
+    after: sha256:106cc7ddb20c6a9a5a212a08ef6b54b8bf85c11be9f6524cb8fc16a0115a291c
+  - path: crates/remote-merge/tests/contract/merge_support.rs
+    before: null
+    after: sha256:10891ec5db2d654f783ac0e82d11c81fe3b749c31c26269319319aaec612c99b
+  - path: crates/remote-merge/tests/contract/merge_write.rs
+    before: null
+    after: sha256:ce825cac7badb417581e9fc638b9c4945494d4794438534646816dcedd736673
+  - path: crates/remote-merge/tests/contract/rollback_paths.rs
+    before: null
+    after: sha256:66d02256a41b367ba6115f1469969e55b9b0f6bb624b20ceef926755f577fb1f
+  - path: crates/remote-merge/tests/contract/scan_limit_scope.rs
+    before: null
+    after: sha256:26a030db88ccc920cbef24e95ec85323a08343e4d51b052a867a5d2b9a29d8c0
+  - path: crates/remote-merge/tests/contract/scan_limits.rs
+    before: null
+    after: sha256:d07d509e1f550a9a8bee50a6b3145f139900e908969533d56bad82cce317cf4a
+  - path: crates/remote-merge/tests/contract/scan_limits_cli.rs
+    before: null
+    after: sha256:4c6e99558974a27d6cf5b93be02b2685cdae0df6296def048c665e2a86c68944
+  - path: crates/remote-merge/tests/contract/scan_listing_cli.rs
+    before: null
+    after: sha256:c7364632296c87b0ebbfb8deeb46a24028ff759b645d25bb1dbddf42694b34cd
+  - path: crates/remote-merge/tests/contract/ssh_compatibility.rs
+    before: null
+    after: sha256:04a31dc043185ca0acc09502a3c39fcdb936fe6a789e46d19857ec7e27b8152f
+  - path: crates/remote-merge/tests/contract/ssh_disconnect.rs
+    before: null
+    after: sha256:149c767091354d544512b7ad536a3536987787d028b23a64482e0fb29527c0a2
+  - path: crates/remote-merge/tests/contract/ssh_external_link.rs
+    before: null
+    after: sha256:b5a393d9d6ddc80e184f336ae8c656778f1ebc037ecf6176ca5dbe70c36839a8
+  - path: crates/remote-merge/tests/contract/ssh_fallback.rs
+    before: null
+    after: sha256:2429cf3b3b434f458001c37c21a97f68e53f2f42e69619963f494e79ca9630fd
+  - path: crates/remote-merge/tests/contract/ssh_host_key.rs
+    before: null
+    after: sha256:5abf595f66a02fa72a40f1ddb374d7f2f78dd5319e99e8cc302c2e948b270454
+  - path: crates/remote-merge/tests/contract/ssh_reconnect.rs
+    before: null
+    after: sha256:0d660792ea3470008e8b71eee3919685e3f00b2f4d709a1ca3ff00db160c4a5f
+  - path: crates/remote-merge/tests/contract/ssh_server.rs
+    before: null
+    after: sha256:5cf1c0b75586580f532b136fb309967023e5e756d90f0b4a471ff15702a88cc6
+  - path: crates/remote-merge/tests/contract/ssh_sudo.rs
+    before: null
+    after: sha256:592dc6c3dfd53be217d1c70808662ef6386a1975f3146277f4a2c78ad904eb87
+  - path: crates/remote-merge/tests/contract/status_judgement.rs
+    before: null
+    after: sha256:238b9be82e0da568c7dbad041e2fed8d6f0a92fd4c14c653d1eefe8b41e328dd
+  - path: crates/remote-merge/tests/contract/status_output.rs
+    before: null
+    after: sha256:8139bf65faedca89f36f977850f89ba1d96482b741df935f061b202bf43840c9
+  - path: crates/remote-merge/tests/contract/status_results.rs
+    before: null
+    after: sha256:72082049e235c7c3117b70d4805e4a9df5ac6dfb09307eddd3a47fd46152ddfd
+  - path: crates/remote-merge/tests/contract/status_support.rs
+    before: null
+    after: sha256:d94c8a4884e37d29ea3b2f4c8660af20617f6a29eaa696e475288cd685e113e8
+  - path: crates/remote-merge/tests/contract/status_targets.rs
+    before: null
+    after: sha256:33c41b9545ed6b5dc13b90752cb121357f0887e99b6d7e14a76302b352031eb2
+  - path: crates/remote-merge/tests/contract/sync_cli.rs
+    before: null
+    after: sha256:429925a3f9a528c81ebe6cb592918c4f2fe685cdfdd03eef9d60b1014b9363bd
+  - path: crates/remote-merge/tests/contract/sync_results.rs
+    before: null
+    after: sha256:150139609a19344197de147273fe6852c2d530fac823efc17c6fba36cacc6dab
+  - path: crates/remote-merge/tests/contract/sync_support.rs
+    before: null
+    after: sha256:f81f9f8ea71b0cab4439e9ec8055e7c2b1e6ba1ee2cd98f20cc4a64a16bf7f75
+  - path: crates/remote-merge/tests/contract/sync_targets.rs
+    before: null
+    after: sha256:09670f16f248d9492b35b04d0461900b5c4c07c21ed275d0261b94fe390841f3
+  - path: crates/remote-merge/tests/contract/tui_confirm.rs
+    before: null
+    after: sha256:f9f52825173286e253e73c371689009be75a1de60c2d9ba9fa10e04399c511a4
+  - path: crates/remote-merge/tests/contract/tui_directory_links.rs
+    before: null
+    after: sha256:20a559434afd94ddb4be5462efa94cc5e51b18b2abcfad84703fcd284ce498f3
+  - path: crates/remote-merge/tests/contract/tui_export.rs
+    before: null
+    after: sha256:589133685d7e13926684af618f039ee6cc76e44d612ead8c8fc68a0f2eb28f5b
+  - path: crates/remote-merge/tests/contract/tui_navigation.rs
+    before: null
+    after: sha256:f79a80b1041281c5f78f5d18b0ab7dd165eafdb61bb63fbb311d58b57b734cf4
+  - path: crates/remote-merge/tests/contract/tui_reference.rs
+    before: null
+    after: sha256:9d3ec6ab60cd02a063c05e9f776a2350bd3f0135a1b9fe2375a31082da5559f0
+  - path: crates/remote-merge/tests/local_backup_store.rs
+    before: null
+    after: sha256:fde0e8cdb911b08c47b324a68e217a6ab4835ed91ef21ba19e2c571f50299094
+  - path: crates/remote-merge/tests/local_target_merge.rs
+    before: null
+    after: sha256:ef852a7d1ef07634134bd27b79c9cb36621a9c8e9f5e28b7891364963dc0a3f2
+  - path: crates/remote-merge/tests/ssh_integration.rs
+    before: null
+    after: sha256:cedd30ff5dc5ed4cf4362889fdad1ee1c19c659113d9401cf591d012cd22d70b
+  - path: crates/remote-merge/tests/tui_3way.rs
+    before: null
+    after: sha256:79608822f087baa1f90ed4a3c79a118634af9a0d51613c7b6a9538ac174c9454
+  - path: crates/remote-merge/tests/tui_diff_view.rs
+    before: null
+    after: sha256:b23fbe8386ba704fed04bd417515511531a89c0ea8030858c3157117eadfecf9
+  - path: crates/remote-merge/tests/tui_integration.rs
+    before: null
+    after: sha256:b63cca516cf26c454bba12191369f11d18e5cbc299a79d1ee1dcc5452db7cd63
+  - path: crates/remote-merge/tests/tui_merge.rs
+    before: null
+    after: sha256:91dd3f1382b9269eb4118da9992f7ce4d90f7054c97a8cebcc3744e6b1e7a64a
+  - path: crates/remote-merge/tests/tui_navigation.rs
+    before: null
+    after: sha256:05470ad3ca5bd3ca004aa4e2828748937313e498350a345929e69b380e8c918a
+  - path: crates/remote-merge/tests/tui_search.rs
+    before: null
+    after: sha256:b792f8899a94a74399a146ffaffef2c6e61b625ff1c5b0df32b4729341969f2b
+  - path: crates/remote-merge/tests/tui_server_switch.rs
+    before: null
+    after: sha256:afa44e818430519237e1ca76098de5f2b36cb7fdc27a290997c9ad45ebf5961b
+  - path: crates/remote-merge/tests/tui_startup.rs
+    before: null
+    after: sha256:04b05c77cd696f789459f1625dc1c484e8f881f76f16b8071872f519c90d31ed
+  - path: src/agent/client.rs
+    before: sha256:dca17b6db44652f95b5a69ba060b3f3eb91fa85cb7140a744fcc85f02719e637
+    after: null
+  - path: src/agent/deploy/mod.rs
+    before: sha256:e5acd082330fbfa00d90542a48ac30a9aff75c584f86c40fe6ea2ca6fd4c3601
+    after: null
+  - path: src/agent/deploy/remote_target.rs
+    before: sha256:82d9903a6a84fc3552df84c659a8d09f10c34206e3c5cad60b47897d29cbc34c
+    after: null
+  - path: src/agent/deploy/resolve.rs
+    before: sha256:7993a4a778e80994d8df9c82040fe2443ea00becaf15dc1e8139bde2a611213f
+    after: null
+  - path: src/agent/deploy/sudo.rs
+    before: sha256:0b3309e46f99e9580c7d529ae49622c74e1491b0785aeb632f21883b6a5248da
+    after: null
+  - path: src/agent/deploy/transfer.rs
+    before: sha256:1d654d3f538d1847f031a17ffb3666370d7c0db2b0b6f91aadedbe1b484117ff
+    after: null
+  - path: src/agent/deploy/verify.rs
+    before: sha256:37a561ff0d61b7eb2c0b97907d815608533b3634fd5bdbbe9aef20e868b835a7
+    after: null
+  - path: src/agent/dispatch.rs
+    before: sha256:c3a21d47c098b1bdb5d2b9ac7563f30dee2b9ffa2539b63bde316e1be82feaef
+    after: null
+  - path: src/agent/file_io.rs
+    before: sha256:50941ab0579daaf5c96f83a92aca9a1d980a5f586db4f702172c685be90d28f3
+    after: null
+  - path: src/agent/framing.rs
+    before: sha256:88b6c23bc341f7a22f3d4c29ba0478da5c19cfebfcda1b8d7c5762483432cc5c
+    after: null
+  - path: src/agent/mod.rs
+    before: sha256:b5c33eb76c4c9d8712ef75119e00ae0475f9580c023a55c738c9c40523dc20b2
+    after: null
+  - path: src/agent/protocol.rs
+    before: sha256:00891539bfa67f0766d3d65760fabcf935aa15c50a773cb55b15120fa32616ba
+    after: null
+  - path: src/agent/server.rs
+    before: sha256:8972d602ac08cbcceccf7746c1bf59f9f31f8f179fc9aadd2dd36012d68ec45d
+    after: null
+  - path: src/agent/ssh_transport.rs
+    before: sha256:a49be0c2a68cb1de86d0d1699e27234593fabdde0414e56a15cfc95e03e94bfc
+    after: null
+  - path: src/agent/tests.rs
+    before: sha256:4646dd94a13ca8d566b097f36c5d6b599aafbc81ac0133d2e21488e29c0d97eb
+    after: null
+  - path: src/agent/tree_scan.rs
+    before: sha256:491a8c8c3ea9fdd94a1ca74e61cf72031e5178024280f8c9e8e5a7bd88bf77ab
+    after: null
+  - path: src/app/badge.rs
+    before: sha256:db4953476373d118f841a617c18e62377cd6b5f92fbad46bd65c68bdb120050a
+    after: null
+  - path: src/app/cache.rs
+    before: sha256:2d50dc2e8fe7b41e6502a421b8b6be160ff856d2caf46d53e0ef066981d4500f
+    after: null
+  - path: src/app/clipboard.rs
+    before: sha256:27481089a04d07f3dc5545dd3211abedaec3b2237710d73144656e308d39f1bf
+    after: null
+  - path: src/app/clipboard_write.rs
+    before: sha256:54a04820538e63c2318296164d48ad7425d84b0b03e1e87a62c631088cceb43e
+    after: null
+  - path: src/app/dialog_ops.rs
+    before: sha256:2a053905fdef2aaeef5e3433bcdf85cdf03566b1737922ae6d070e3088eaa2ad
+    after: null
+  - path: src/app/dialog_types.rs
+    before: sha256:ba7419790191e5f4ff2778591f5739426e034c77762d5c34c630daa28f642f31
+    after: null
+  - path: src/app/diff_search.rs
+    before: sha256:02e81e10ec8c067cb7fd93b2c8c801c842610c69059ba4b514baf84905429b2d
+    after: null
+  - path: src/app/hunk_ops.rs
+    before: sha256:c0b9937d90942bae30fab6b21e37fb6129a5bdd3fa854a78dd72324ac7f80a2a
+    after: null
+  - path: src/app/merge_collect.rs
+    before: sha256:0c5e90311f0c7202c7a2ad5cd5dffe607b0c4150f99a82b0017de733779de66f
+    after: null
+  - path: src/app/mod.rs
+    before: sha256:a57dc89a5aa825f70bc6bd46ebb196596b99e4c614192b1feef5367345492063
+    after: null
+  - path: src/app/navigation.rs
+    before: sha256:e57bd88642ac5dc0508cf4197a92f494802c648328f33395af75316d7b7771fe
+    after: null
+  - path: src/app/ref_swap.rs
+    before: sha256:4816756765b510612821a75c3accb84225f2eccd2f24f4769c3d755f2c2b4d67
+    after: null
+  - path: src/app/report.rs
+    before: sha256:f7da317106bf169884d7e005be8802713432a1f3a30f439f198dc30ebf8a77e1
+    after: null
+  - path: src/app/scan.rs
+    before: sha256:ffc89c19ccf8e9e48bc48377385f9bfa18f1aa6e84085af9efd4aac5fdf2d73c
+    after: null
+  - path: src/app/search.rs
+    before: sha256:409cfc5cd15e1a4f22e317e9fb2ee5615969b47821acde1d847c77077070dddd
+    after: null
+  - path: src/app/selection.rs
+    before: sha256:95e70ba141ebc5f46d70d6b50643c6ba7036c03cf30713cd1ca57eb2e6b499ec
+    after: null
+  - path: src/app/server_switch.rs
+    before: sha256:143acf504bd0f0a917367cc929b2518c5e0a622a300c4cf3641781f9381cb089
+    after: null
+  - path: src/app/side.rs
+    before: sha256:21996b4e79802603dbaf9c99a8183d87520a86adedee1bb1b2f06ad569a6dbfc
+    after: null
+  - path: src/app/three_way.rs
+    before: sha256:b4bee24f2975d15ff268788bf2781d4fd3cb2cf07f5c5ffbed884d107ca01df1
+    after: null
+  - path: src/app/three_way_summary.rs
+    before: sha256:bed10615512b766778c15a049ff36c5facbd82b0b73cf1c94450a4df4b890549
+    after: null
+  - path: src/app/tree_ops.rs
+    before: sha256:0374fef86eccca605a0cebe60cb5616147c7ed2250e4f4c69db05b5c6961de1e
+    after: null
+  - path: src/app/types.rs
+    before: sha256:9030507319615ef2259f75e7f537a18e582cf630233e54b6a1a954bc965a93d4
+    after: null
+  - path: src/app/undo.rs
+    before: sha256:9138a299d14b6ac615b44991d77ede151aeca0f783974b9c487d6d4622d69d57
+    after: null
+  - path: src/backup/mod.rs
+    before: sha256:55537d620215e2f3f84adbe348e8923f92547e1f20c45fab1e838b2db4bc0c34
+    after: null
+  - path: src/cli/diff.rs
+    before: sha256:2f7cf32a76af8e6ec97e6519b868bb1dbe8575ae5da1d871d13d14c704b495ab
+    after: null
+  - path: src/cli/events.rs
+    before: sha256:23fb43e18ef58f52e3d0fbcff126cc867839095462366b29871cf77314aee5c7
+    after: null
+  - path: src/cli/logs.rs
+    before: sha256:d13b009062bef26eeb232e4f39f3b81c603b51cdc5fb4d2ca3f5cbd06d7e3c6c
+    after: null
+  - path: src/cli/merge.rs
+    before: sha256:4a1b64fc7286470b942eca20485320f08720a77938a72a2aab02f0424af371a2
+    after: null
+  - path: src/cli/mod.rs
+    before: sha256:5b060fcdee01c3039772ab88c983999ea8df7cd653556cd277e4eec7c2868f52
+    after: null
+  - path: src/cli/ref_guard.rs
+    before: sha256:c1fca68f1710cd57c1b49dafdc63b934f260e1dab84570b9a5868311f0a6338e
+    after: null
+  - path: src/cli/rollback.rs
+    before: sha256:a55775ebb6a88dbdffae7a8169743dff60048c12299ee68699be21bb53bc9b0c
+    after: null
+  - path: src/cli/status.rs
+    before: sha256:f0d1445d3b702788af01c6fac17d77c1d0200e9157c43696263df6d7b8227584
+    after: null
+  - path: src/cli/sync.rs
+    before: sha256:eedcc0e14ef3705484101e92fc0357faf75f96965bf1f0844314b2bf602fa509
+    after: null
+  - path: src/cli/tolerant_io.rs
+    before: sha256:ac6d05a2f587ed52fdd5b896411b467ab6679480e53f373dacb83846239197b2
+    after: null
+  - path: src/config.rs
+    before: sha256:9344b7b47d9242b936e1ee4c7d9fa2c6fcda9b439b11e3c7d324ab5b0d672b34
+    after: null
+  - path: src/diff/binary.rs
+    before: sha256:4d170848942420107d37c4e006952cf7e2df406159f2112e869c24559906873a
+    after: null
+  - path: src/diff/conflict.rs
+    before: sha256:3fad57ac785539333011c25fcbeb8977e660a8b770effe7a4898acf82c0fcb26
+    after: null
+  - path: src/diff/engine.rs
+    before: sha256:89c586d01f728c5af3f080462bb6eab9ce24150b34475cb0fc1cb893cb9a6b7d
+    after: null
+  - path: src/diff/mod.rs
+    before: sha256:c592ba0d7f4d64daf7140a6f7efd7872a6a8865c779825248ae33a9508d81455
+    after: null
+  - path: src/diff/symlink.rs
+    before: sha256:17763a67c7901cf49ef091fe7b884a87866def51dfa76e4098fa7ec89609211b
+    after: null
+  - path: src/error.rs
+    before: sha256:7ded56b747e03a5aaba2b93ca9835d8dbb64a4eb3f3ef4d63bd401a40c893fed
+    after: null
+  - path: src/filter.rs
+    before: sha256:b09ff487a0b978bcfd1395991ed74c954218887188047ae23e7d47630716b8f4
+    after: null
+  - path: src/format.rs
+    before: sha256:6f500d038a67c4322ca97d16fed8066a0f52f64ae3ededafa07e0cf4bf5805d5
+    after: null
+  - path: src/handler/dialog_keys.rs
+    before: sha256:04f36c28e6db4fec3110524b271e02644c572740c98428dcbcfbfe65f1d8def7
+    after: null
+  - path: src/handler/diff_keys.rs
+    before: sha256:934ea36b2e53b5e029b88b9e735245a4d7e40a9cd4d92d27a0d2d8710de1b3dd
+    after: null
+  - path: src/handler/diff_search_keys.rs
+    before: sha256:4eaaf1b748b94111afe5b1d24e39ee9d458038b995f9023231d52ad89bbfcd52
+    after: null
+  - path: src/handler/merge_batch.rs
+    before: sha256:cd726034f8f8642fdf8796b24f1c02c1c641cc8febebf6462b33c0de52014efe
+    after: null
+  - path: src/handler/merge_content.rs
+    before: sha256:6996c3ff1d58d671d08f5964b787408b617883b0f658713f8bd191a984ceb134
+    after: null
+  - path: src/handler/merge_content_logic.rs
+    before: sha256:471bace2b48d8fe931e9f35a15c6252ca018217c90854031e148ce75d58d4bc8
+    after: null
+  - path: src/handler/merge_exec.rs
+    before: sha256:cd3f9a7878bc225675d5ee5e9de6500caed363897166f6e33ee2f0f8232343ce
+    after: null
+  - path: src/handler/merge_exec_logic.rs
+    before: sha256:407b138c4c04ec48dc0489885dddd64d3fce4859646f7f4acef0f1e77fbabefa
+    after: null
+  - path: src/handler/merge_file_io.rs
+    before: sha256:e53f99a31d50e19d2a4f0476305bd18d9cc64251aced576b223ff2ce29644c02
+    after: null
+  - path: src/handler/merge_mtime.rs
+    before: sha256:2fad89868f16afc1ec00a00ad4a175a14b082b7e24b4ddea3fd785ae3728d3e3
+    after: null
+  - path: src/handler/merge_mtime_logic.rs
+    before: sha256:57738b4c8eb50c15d6261bb847422da2de5e3713eca5ce9b68674a3f13806370
+    after: null
+  - path: src/handler/merge_tree_load.rs
+    before: sha256:5bccf98cf55a67754769c72f0ae59b22c8debe1b50f7687832f26f9e739f5cbd
+    after: null
+  - path: src/handler/mod.rs
+    before: sha256:c0526ab72dfeb546f431e58503b82f5ae6f5f3662f9da73c2478c74aea3e6a24
+    after: null
+  - path: src/handler/reconnect.rs
+    before: sha256:8cb5b4f8cf42bc53b3bc9fdfef980b77f9bcca548f5482ad778897f570ed0227
+    after: null
+  - path: src/handler/search_keys.rs
+    before: sha256:469e582bcf3d23578b85f7ad204ecb241d6a6db478401fcf7831576dc7ee484e
+    after: null
+  - path: src/handler/symlink_merge.rs
+    before: sha256:5e90011d7ac434ada59bed5aa330e9d4f3a0c8c90cca5521dcccbe3f73cd633e
+    after: null
+  - path: src/handler/three_way_summary_handler.rs
+    before: sha256:8504c41f2d1b858f7da08505a5a2440b602e33e1c49cfa391808046ed0d8cd91
+    after: null
+  - path: src/handler/tree_keys.rs
+    before: sha256:96a2a4ff9a630f57afaeb735e6573bd34ba51767df134d8b7e4171cd896251bb
+    after: null
+  - path: src/highlight/cache.rs
+    before: sha256:40edfcf7263e7c2332f24df395390ef18a607170a2c5ac9ae0eacfcda8f346a2
+    after: null
+  - path: src/highlight/convert.rs
+    before: sha256:04732379434b2f95cb45e26822d8733ac4ca2e0b8901308c66eec08d5da66b6d
+    after: null
+  - path: src/highlight/engine.rs
+    before: sha256:d7fa025776b0fda5ec7f5ca339df36f6497d566d18b84fff495d22b6c0618f0b
+    after: null
+  - path: src/highlight/mod.rs
+    before: sha256:1577cbe8713d980bbce1bc06f25652edf03cc6042143b09f6c94a4dc8d1a0360
+    after: null
+  - path: src/init.rs
+    before: sha256:6397b7dbd6368f5c01089a536c6168bf5c53189f3bca5d34613c33eb45ad016f
+    after: null
+  - path: src/lib.rs
+    before: sha256:5648af391bb97b064aa96be4f491e486147f85638ea2c51c12a3d3c6e77b6e07
+    after: null
+  - path: src/local/mod.rs
+    before: sha256:ac7a29b6e0a33e7978b7ac453e835e9c385eee247e0dbe7812f89ab11032e476
+    after: null
+  - path: src/main.rs
+    before: sha256:673b8fc4b2643c82420c426db01be4ba1157cda53ed99439c8af5b719a291fe9
+    after: null
+  - path: src/merge/executor.rs
+    before: sha256:5d389dd08f6bd4d6539a8961680ce4b97f569d62734ed3a867e432cfa465bf0f
+    after: null
+  - path: src/merge/mod.rs
+    before: sha256:811aee7f5c852ca80bb3b62fa1bd7b421c745ee2026734b7e6dab4f279a5b618
+    after: null
+  - path: src/merge/optimistic_lock.rs
+    before: sha256:d4ae3cb67b23b17e8e246f70a0a4a1415dce8beca030e835cd1e728d8086c898
+    after: null
+  - path: src/runtime/backup_store.rs
+    before: sha256:a70f9078da4fade8751b5fc444fe61ed885c38e2ae75cdd33cf13ae2d3994b1d
+    after: null
+  - path: src/runtime/badge_scan/helpers.rs
+    before: sha256:b0ce748d8b82cd9ed9096e1c3213369876a6d5f58789e8c43f45e3f3ae0c8e1d
+    after: null
+  - path: src/runtime/badge_scan/mod.rs
+    before: sha256:f2c40693ee1a67a90d0fa3b1cfa3fb6f340dec1149d12888386a92bad505092c
+    after: null
+  - path: src/runtime/badge_scan/poll.rs
+    before: sha256:4a2896e16afe51d8b670d3416a8a8c31b4e43b22a016cb763e082ea44c1c687a
+    after: null
+  - path: src/runtime/badge_scan/task.rs
+    before: sha256:b9fdec927adf8eff9fff4ab69bc396d321782e202a5e6af9728b76e67c117b8f
+    after: null
+  - path: src/runtime/bootstrap.rs
+    before: sha256:4fa2a6bb32bf19de1db519f9ff2aad305c3ed0d66bad561bf7d5071369e6e166
+    after: null
+  - path: src/runtime/core.rs
+    before: sha256:53293d3a8855576d715d15ec7e0947f4754bde5bf18d57e707d696be60088b92
+    after: null
+  - path: src/runtime/merge_scan/apply.rs
+    before: sha256:a65a747f300d6a31b736be01d395c96a6a0126c9bb09d6143fac8a376781318f
+    after: null
+  - path: src/runtime/merge_scan/mod.rs
+    before: sha256:2dcc7cc5bbfee5acd26be19ac2c4c02e96fe17a83bd62b5c4b6d0c2c5ba951f9
+    after: null
+  - path: src/runtime/merge_scan/poll.rs
+    before: sha256:fea7f7fd134c724ef4641b472ab45cce64bd25a1410f2226df8057b535f8074f
+    after: null
+  - path: src/runtime/merge_scan/task.rs
+    before: sha256:4194c94b1850c61ba1787c045509c37f556720be2fb0130296b347dbd403e0c7
+    after: null
+  - path: src/runtime/mod.rs
+    before: sha256:3db607f59a235421e53f232613e68d605d273968050bf989d27a91055143cbe3
+    after: null
+  - path: src/runtime/remote_io.rs
+    before: sha256:56ee9eafad93dbb9de6bcad06abf7092fe012908ec2ba9ca3e9620b0120c120c
+    after: null
+  - path: src/runtime/remote_path.rs
+    before: sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6
+    after: null
+  - path: src/runtime/scanner.rs
+    before: sha256:fcf95d8901793c83c294d69f3e407a171cadf5ff5fdc0e4f97c91efa4987d3a6
+    after: null
+  - path: src/runtime/side_io.rs
+    before: sha256:b7a2d56d0b2a864e68c0a38feeb8ca8a4945210b198205c23315b083e7bdbdb7
+    after: null
+  - path: src/runtime/target_io.rs
+    before: sha256:e87ddd400aa708815d6b446fd7dea0f83840d19ac5aa9885f34aff1e1775e2c1
+    after: null
+  - path: src/service/diff.rs
+    before: sha256:2b8fac20bfead188dadb9e0e048ca10af0842018de26de168ba92c0b433e9676
+    after: null
+  - path: src/service/fast_path.rs
+    before: sha256:30865ae41835e78c7d033c5185e038a16531609f1c2a95a973dbc6077cbbf6b8
+    after: null
+  - path: src/service/max_files.rs
+    before: sha256:74fa5dbf21bb514b71ffa453489d6dec72995269533778f79f444578204f13b3
+    after: null
+  - path: src/service/merge.rs
+    before: sha256:6462a61d22122db65b2240b52d8cbc1e079c7e8db7a733efad46ec795305bea4
+    after: null
+  - path: src/service/merge_flow.rs
+    before: sha256:2422fdb6163c3ad0e81e3b26c4dd9621f087a4139d8976bcfa59e0a0052b2a2e
+    after: null
+  - path: src/service/mod.rs
+    before: sha256:63688fb583c06d3fa2f2df41de684ee40ae3eb98262069b958e873c43e1fa7b1
+    after: null
+  - path: src/service/output.rs
+    before: sha256:0de2c9550cd497f04e0bd5ee5b36b825b2950c8b038120a16cc8cc5e82fd49f4
+    after: null
+  - path: src/service/path_resolver.rs
+    before: sha256:ff90f4201a2014097b2d442b29940a31954f144d4173df13bb6c8b131e21a7f0
+    after: null
+  - path: src/service/rollback.rs
+    before: sha256:322652b5e67f683daa40eb0fc2b763ad20ea4eddf59169e7836be78231229bc7
+    after: null
+  - path: src/service/source_pair.rs
+    before: sha256:335be73eaeff38fe57c095851b88bbf4a1e5e8c037a0f1d960adad42a52161b6
+    after: null
+  - path: src/service/status.rs
+    before: sha256:af01265ca86844d8e92338c08cc8c80cc11d6bd9f1fbb007965c0d0dd28d5c7b
+    after: null
+  - path: src/service/sync.rs
+    before: sha256:9ba361d0cd2afe564af2fab08a95a7ecf43d42d20441e7fd33a98e8c06735f81
+    after: null
+  - path: src/service/types.rs
+    before: sha256:948c958481dc25987223fd7740a8fb0921a8b93a3de430c988489e819ea42922
+    after: null
+  - path: src/ssh/batch_read.rs
+    before: sha256:7fde4a78dc77381d5b24108420ccc265f7b42f20caa889e5c4cdaebf63060fdb
+    after: null
+  - path: src/ssh/client.rs
+    before: sha256:6f1c5b2df572395efc8f64f059a7899baaa447dcbf8cfb754319a220c0cbc30e
+    after: null
+  - path: src/ssh/hint.rs
+    before: sha256:7835b025bbd207703a35954f547eaedb883850d77de0a3b0771fc81260de6d58
+    after: null
+  - path: src/ssh/host_key_verifier.rs
+    before: sha256:3dceb5c9100da9b2a1bc2b6ff5bf84bdbcced88f4d4e2453b2f437355c353e79
+    after: null
+  - path: src/ssh/known_hosts.rs
+    before: sha256:19576ae0b6564f5a05392eeb0cc3d37dea47c94d334e9ccdb1ea2344031eab8a
+    after: null
+  - path: src/ssh/known_hosts_io.rs
+    before: sha256:6d8812de2694c78a0a7b578f07e10a4be4740daa82fd47e92f4d67fdc3c431e3
+    after: null
+  - path: src/ssh/mod.rs
+    before: sha256:a32e5c1ab33174f0a61a18cdd02e78d6a5dfe545b6c208b0776394ccb7ed34e3
+    after: null
+  - path: src/ssh/passphrase_provider.rs
+    before: sha256:54aabc3d80c06c42f39c4c27db9e09fbb65167d084b9f822c05accb127b3f43f
+    after: null
+  - path: src/ssh/preferred.rs
+    before: sha256:ae29553a9080c41574fef1dbf2d6bd4e300b560b4492477c404868ebfab35e0b
+    after: null
+  - path: src/ssh/tree_parser.rs
+    before: sha256:2777670b3042511994c82283e0822b9a3cb9336d8e40bc5ec57a470a8378f557
+    after: null
+  - path: src/state.rs
+    before: sha256:9597f45904dabdcbc909dd1995658d59e3de7698d42cbedd84ade181f12685bb
+    after: null
+  - path: src/telemetry/event_recorder.rs
+    before: sha256:2ee182e72997d7f2180afc85a4b4aa751d754e2dc1cbbc8994614a8192000171
+    after: null
+  - path: src/telemetry/event_types.rs
+    before: sha256:ed21b311a4eab6914035fb87b608fb370c3dbdf4632225ac4c8fced3086224e7
+    after: null
+  - path: src/telemetry/log_reader.rs
+    before: sha256:b109ac992195c72658685569892242862fc4d4cd404fb76b947a80e11e3d98d9
+    after: null
+  - path: src/telemetry/mod.rs
+    before: sha256:cb1ef6aa207ed21ffb4e0498d4a08ee1eb3666d0db2ef5da1137620e1a349f21
+    after: null
+  - path: src/telemetry/state_dumper.rs
+    before: sha256:9f4d16615fe19a5d712c3a19663b7c39b2b18f46c158fb210e41c6e562f076e2
+    after: null
+  - path: src/telemetry/structured_log.rs
+    before: sha256:d24c0e54efa23b2ff8f14463938c00a5936db0d80273617431e6838d1ed95f2f
+    after: null
+  - path: src/telemetry/truncate.rs
+    before: sha256:a74a71422bf71ab6f23d80b4af2c11c2cfc79e4742317e2978f726502e987b3e
+    after: null
+  - path: src/theme/mod.rs
+    before: sha256:a1946a4d12eed613224977258790c13e32220db26235e42fd91bcc33987277e6
+    after: null
+  - path: src/theme/palette.rs
+    before: sha256:cfceb7b32657d7ef6f4ba4df9170c688d3ca1a4167be3ca6b3e0cc31701df7a2
+    after: null
+  - path: src/tree.rs
+    before: sha256:2783326e48cfb14269c8ed72bb54d9219ff06d9c09ccdb897ab0f8b277b1958f
+    after: null
+  - path: src/ui/dialog/batch_confirm.rs
+    before: sha256:872bf8024ab51991597b6dfb2e6a4ccf83fc4b871ab43eedabe82f7f636f6c23
+    after: null
+  - path: src/ui/dialog/confirm.rs
+    before: sha256:09919fc1b934d29a7b697589b7f0fc6503d642b74aaeed72a8fc1b8d3da8f8b5
+    after: null
+  - path: src/ui/dialog/filter_panel.rs
+    before: sha256:a4a22c392aed1f335f951b826147621219c68737dfad9888b9d487963dd72940
+    after: null
+  - path: src/ui/dialog/help.rs
+    before: sha256:514a593498ce9cdfb33fee0d70ffb1702b82f34709dad96734c5ed046d933067
+    after: null
+  - path: src/ui/dialog/hunk_preview.rs
+    before: sha256:751cc36dff41ead9caa817e8eb846a175ef3ea0a42751c35f55e13bbd5fac595
+    after: null
+  - path: src/ui/dialog/mod.rs
+    before: sha256:cfc29c43d87dcfbd262c55c6df5c6a21e12ac333399aa0869731c47ae42345ab
+    after: null
+  - path: src/ui/dialog/mtime_warning.rs
+    before: sha256:e95ca4447f3e3a668efe2c3bd3b430922017324ff4e3616f5ae228dec6097c48
+    after: null
+  - path: src/ui/dialog/pair_server_menu.rs
+    before: sha256:4a14510c11b64ae1ce66d8d4819b825795493e8d6abccf0490c2779237d37cbb
+    after: null
+  - path: src/ui/dialog/server_menu.rs
+    before: sha256:b3d671da26ae355b0db0905bbb8243e8ef873c131ef4fc3311eda99821dd0de5
+    after: null
+  - path: src/ui/dialog/three_way_summary.rs
+    before: sha256:39181e11a9cace698817f3d275a571fcca38a5928593157e2ce5c690c716572a
+    after: null
+  - path: src/ui/diff_view/content_render.rs
+    before: sha256:fb5e47a6a20164d96026bdf156743bf4315a008875f1185ca7fb34f40ee15c55
+    after: null
+  - path: src/ui/diff_view/line_render.rs
+    before: sha256:4b0ab790798ed7e6784455afe289e733be950944d91c92cef396eb7c30836c01
+    after: null
+  - path: src/ui/diff_view/mod.rs
+    before: sha256:2a4bd5cacbb59f19f7f665b45c02410a54a1ce12f9d361c5a7a2a7a4a253ca29
+    after: null
+  - path: src/ui/diff_view/search.rs
+    before: sha256:a4a3859e001771168122016ed10904647795bd2aa2b9f6b9ba280beec00c90d0
+    after: null
+  - path: src/ui/diff_view/style_utils.rs
+    before: sha256:d2b0761cbb4e39408cd53c44733f1bb3dd7f1b15e1ce5c7a6443bd6599663b77
+    after: null
+  - path: src/ui/diff_view/three_way_badge.rs
+    before: sha256:a9e947ae171b0b1889e6ff077292da0152cb1d88f8da2135502e11176667f2f3
+    after: null
+  - path: src/ui/layout.rs
+    before: sha256:c63710b3d7078aff3fbc80e6870f68cc5b70a7c101f12dfd6850bc8ee265f4cd
+    after: null
+  - path: src/ui/metadata.rs
+    before: sha256:a4051a3851085180187cbd2e4ba39e0fdfb57fa7a43ac229a8037d5c6d3780ff
+    after: null
+  - path: src/ui/mod.rs
+    before: sha256:16e5f01bb5517a8e61ee30fb60a770985a0312d123b23a70401acb0ddc52b50a
+    after: null
+  - path: src/ui/render.rs
+    before: sha256:452c93fbc1d3bf908b9d7c02c48453368a3e5e314a5946e299202519d9690460
+    after: null
+  - path: src/ui/tree_view.rs
+    before: sha256:87b5b5118384bd61c97975b623fed72721b8732d3ce05c0c95c8fb91a0f33ce4
+    after: null
+  - path: tests/agent_process.rs
+    before: sha256:0e8bc2dde25f75340510e52489720c9c5c36d87d55a84ef7e8cae115beac57d7
+    after: null
+  - path: tests/agent_ssh_deploy.rs
+    before: sha256:bfb60ed1b2303b7f3e487531f056c470ddca91cf1857b106a832d81365d78a61
+    after: null
+  - path: tests/cli_diff.rs
+    before: sha256:631aaa565105ec6b07034a93cd64e7b6f60094469e7a2100857c132d48f3a2dc
+    after: null
+  - path: tests/cli_diff_general.rs
+    before: sha256:8fe216732064a5d4939e1d139692a77c21af01b1c7d21d62bdb6bab22bfe9b16
+    after: null
+  - path: tests/cli_error_handling.rs
+    before: sha256:1ef6e45807245785a1ccc623cd5ccaea56a1fea52b10c8c63af4e55471862e44
+    after: null
+  - path: tests/cli_exit_codes.rs
+    before: sha256:e4ecc96e807a3919909a277e08d03ee070f6a793ddbf0b7cd8dc6bc1a2296896
+    after: null
+  - path: tests/cli_init.rs
+    before: sha256:8611e9f0ba8ca2e5fdc93fe9716e8d1c9524484eb01cdb1e3f72b5141275c9d7
+    after: null
+  - path: tests/cli_logs_events.rs
+    before: sha256:d0fd8c0c02f2dfe208b963d2e118aee7b2093fd7a0b7ebdaa5e2963f817e748b
+    after: null
+  - path: tests/cli_merge.rs
+    before: sha256:77dafc51f39a5981f33f4326cc287109bd7715b89223d739b3ac0a8ee7ffe617
+    after: null
+  - path: tests/cli_rollback_local.rs
+    before: sha256:ff496815278715fd896f827c114f2326125abf37f2357ea136c4b6a48b722637
+    after: null
+  - path: tests/cli_status.rs
+    before: sha256:361ffd64724f7e8e16c0bbc2542a68777829a813466f98bb48d35bdba1dc065e
+    after: null
+  - path: tests/cli_test_environment.rs
+    before: sha256:11cf807fe2360e2e2bb274c45920a965a633bf89d318302928f45199dfdd9dca
+    after: null
+  - path: tests/common/mod.rs
+    before: sha256:a50e93778bae1c90f0871ff5d0ef5e284ebd6916c6e9a7db573ab69b75583a1d
+    after: null
+  - path: tests/contract.rs
+    before: sha256:ed47b4567b3adbdb312cdb854575e2d5fb1770c218a6fdeb7617e250904ba007
+    after: null
+  - path: tests/contract/backup_cleanup.rs
+    before: sha256:6cf0ffa9ca1a8b0461ac0b498ef0be7cd617fb08635817787dd789b6c6ce313c
+    after: null
+  - path: tests/contract/backup_failure.rs
+    before: sha256:78f527c9a280b12dfbe9355ae192c63dfdd53dc42e35bc2fd5242934f702ca3e
+    after: null
+  - path: tests/contract/backup_location.rs
+    before: sha256:6396c2b791eee5145b2c9e14e91deb1453b734e15fd3d0dfb1119206fe98cc21
+    after: null
+  - path: tests/contract/backup_rollback_cli.rs
+    before: sha256:2f0cdb1014edcb2c418fd2f55fd4b4e46c9a8e3b02d8e4890341e7e9ab8e8be4
+    after: null
+  - path: tests/contract/backup_rollback_cli_e2e.rs
+    before: sha256:e8baa2f0c60c27b6679a360218b2f58f38e22ded95eb3f0512e27413755642a1
+    after: null
+  - path: tests/contract/backup_rollback_path.rs
+    before: sha256:79a5682cb50edd75ef7646321d5a5c0239041d3b1b587ecb25b5cc4bf48e8b3e
+    after: null
+  - path: tests/contract/backup_sessions.rs
+    before: sha256:d7517ed44b4515950c126bfc4418a99087522fefd95a6aa00de3afc7c5dd4f92
+    after: null
+  - path: tests/contract/backup_storage.rs
+    before: sha256:798e349684545d1e1fc3ec2756d940bf429fc5276e8565dc412afcb97c3f2f9b
+    after: null
+  - path: tests/contract/backup_support.rs
+    before: sha256:d3219ec4debb37af9ac77b63443da02d9c9db35b9efb89549d5824d6f557a3ec
+    after: null
+  - path: tests/contract/cli_results.rs
+    before: sha256:9fdb3a57e98e2727dc1bba5e7e27bae2f34d669a2b30443dadcbade79309acad
+    after: null
+  - path: tests/contract/config_filters.rs
+    before: sha256:374314893dcbe62111c1f1441f8efd24debdf1ba4320fbab4b16b92177300aa0
+    after: null
+  - path: tests/contract/config_filters_cli.rs
+    before: sha256:1d3a587ac631eeea1e44991d7f4afaf3d28d816c46ab8cb86e34291b47cf1953
+    after: null
+  - path: tests/contract/config_loading_cli.rs
+    before: sha256:71767ed06fc1b748b7b943ebe215c763b74987bd29ae268b1d4d9d721e59aa2a
+    after: null
+  - path: tests/contract/config_merging.rs
+    before: sha256:da4908820e86135571de8c47202b179001d3b95572b60e21694233cfb04a0b82
+    after: null
+  - path: tests/contract/config_precedence.rs
+    before: sha256:1d1d0e01ab73e3d5d269af6f6b1dff9eb83a614069f078653e47556ee658f747
+    after: null
+  - path: tests/contract/config_values.rs
+    before: sha256:2b7eaa814aedda4dab1608ccbadc006eb40aeb67556c5fe73b2db1392b8525ce
+    after: null
+  - path: tests/contract/config_values_cli.rs
+    before: sha256:4ed8d102954fec8535e5275cf426357a15e744c89db8e174baa745091405107a
+    after: null
+  - path: tests/contract/diagnostics.rs
+    before: sha256:033525602cfa8ee154e956e57b3ac12ac304873c29fa47473bf08e74fb87c26c
+    after: null
+  - path: tests/contract/diff_file_kinds.rs
+    before: sha256:d00d9f45a3911e82438ffcde9b274991beb30009c73abfd6c36767ac9df1cf05
+    after: null
+  - path: tests/contract/diff_format.rs
+    before: sha256:06ea79eef57d69737659a878b6e72fa689f61982a8a96807200f1fa35b1409b6
+    after: null
+  - path: tests/contract/diff_max_files.rs
+    before: sha256:4c8ce5c6e8781a2d1ebffa9b4de0f3e65b023c577cb3c40dc88df98a4e8a20ac
+    after: null
+  - path: tests/contract/diff_output_cli.rs
+    before: sha256:6ab705154d8248ea942ed8c421c057ee942dde82310cb0e29787b1099c8886bf
+    after: null
+  - path: tests/contract/diff_ref_cli.rs
+    before: sha256:d05957fedcd14581ddd178a3fd71a00ed55e4b80957a16983ce1f49ec5a4e869
+    after: null
+  - path: tests/contract/diff_root_link_cli.rs
+    before: sha256:add16aa0b54cf0629269032611606cd934f7530875af30b64a1b1c8b0465b53c
+    after: null
+  - path: tests/contract/diff_selection.rs
+    before: sha256:7d86856edbe23b187d0fca048ffb06359e4521094597d817f67e7cde50f7c5ab
+    after: null
+  - path: tests/contract/diff_support.rs
+    before: sha256:a65929afd3b2ac92ddb6693b7a4315de10802588c12c1ccf7b1189ed4c2b3ff8
+    after: null
+  - path: tests/contract/filters.rs
+    before: sha256:36d18100a2d031ab62c2d85350eb90638afd25be42d1b52893886444bc9c9bdb
+    after: null
+  - path: tests/contract/init.rs
+    before: sha256:53197c5ebac494d52ac8ee5797dac020b6895c8da422fc0749b777cf4bdae8ab
+    after: null
+  - path: tests/contract/merge_cli.rs
+    before: sha256:9895cb779b617618c98015b19e2bfd6281523926b1312464fd9c572791a65560
+    after: null
+  - path: tests/contract/merge_cli_ssh.rs
+    before: sha256:46f738bc487b7257116f97bebd61b535e59787fced0e1b493a7da9e7728eabac
+    after: null
+  - path: tests/contract/merge_hunks.rs
+    before: sha256:3584fa5ca7690d0b842f12eb7f04f0ac06cfef2102c205af6f7f10ce63463c57
+    after: null
+  - path: tests/contract/merge_links.rs
+    before: sha256:b88ddc13d51f36aa04960ddaa9f09362984f0ef6c8b6b362cdacb26f038e920e
+    after: null
+  - path: tests/contract/merge_paths.rs
+    before: sha256:3d3efee114ec097f6bb324a49b5c61227e0b86ccb1c0f41b4f9c3b752d02f009
+    after: null
+  - path: tests/contract/merge_ref_hunks_fix.rs
+    before: sha256:2bee347b33bfbec752d7b669238df264b537781567c9957107d638fb00faa431
+    after: null
+  - path: tests/contract/merge_results.rs
+    before: sha256:106cc7ddb20c6a9a5a212a08ef6b54b8bf85c11be9f6524cb8fc16a0115a291c
+    after: null
+  - path: tests/contract/merge_support.rs
+    before: sha256:10891ec5db2d654f783ac0e82d11c81fe3b749c31c26269319319aaec612c99b
+    after: null
+  - path: tests/contract/merge_write.rs
+    before: sha256:ce825cac7badb417581e9fc638b9c4945494d4794438534646816dcedd736673
+    after: null
+  - path: tests/contract/rollback_paths.rs
+    before: sha256:66d02256a41b367ba6115f1469969e55b9b0f6bb624b20ceef926755f577fb1f
+    after: null
+  - path: tests/contract/scan_limit_scope.rs
+    before: sha256:26a030db88ccc920cbef24e95ec85323a08343e4d51b052a867a5d2b9a29d8c0
+    after: null
+  - path: tests/contract/scan_limits.rs
+    before: sha256:d07d509e1f550a9a8bee50a6b3145f139900e908969533d56bad82cce317cf4a
+    after: null
+  - path: tests/contract/scan_limits_cli.rs
+    before: sha256:4c6e99558974a27d6cf5b93be02b2685cdae0df6296def048c665e2a86c68944
+    after: null
+  - path: tests/contract/scan_listing_cli.rs
+    before: sha256:c7364632296c87b0ebbfb8deeb46a24028ff759b645d25bb1dbddf42694b34cd
+    after: null
+  - path: tests/contract/ssh_compatibility.rs
+    before: sha256:04a31dc043185ca0acc09502a3c39fcdb936fe6a789e46d19857ec7e27b8152f
+    after: null
+  - path: tests/contract/ssh_disconnect.rs
+    before: sha256:149c767091354d544512b7ad536a3536987787d028b23a64482e0fb29527c0a2
+    after: null
+  - path: tests/contract/ssh_external_link.rs
+    before: sha256:b5a393d9d6ddc80e184f336ae8c656778f1ebc037ecf6176ca5dbe70c36839a8
+    after: null
+  - path: tests/contract/ssh_fallback.rs
+    before: sha256:2429cf3b3b434f458001c37c21a97f68e53f2f42e69619963f494e79ca9630fd
+    after: null
+  - path: tests/contract/ssh_host_key.rs
+    before: sha256:5abf595f66a02fa72a40f1ddb374d7f2f78dd5319e99e8cc302c2e948b270454
+    after: null
+  - path: tests/contract/ssh_reconnect.rs
+    before: sha256:0d660792ea3470008e8b71eee3919685e3f00b2f4d709a1ca3ff00db160c4a5f
+    after: null
+  - path: tests/contract/ssh_server.rs
+    before: sha256:5cf1c0b75586580f532b136fb309967023e5e756d90f0b4a471ff15702a88cc6
+    after: null
+  - path: tests/contract/ssh_sudo.rs
+    before: sha256:592dc6c3dfd53be217d1c70808662ef6386a1975f3146277f4a2c78ad904eb87
+    after: null
+  - path: tests/contract/status_judgement.rs
+    before: sha256:238b9be82e0da568c7dbad041e2fed8d6f0a92fd4c14c653d1eefe8b41e328dd
+    after: null
+  - path: tests/contract/status_output.rs
+    before: sha256:8139bf65faedca89f36f977850f89ba1d96482b741df935f061b202bf43840c9
+    after: null
+  - path: tests/contract/status_results.rs
+    before: sha256:72082049e235c7c3117b70d4805e4a9df5ac6dfb09307eddd3a47fd46152ddfd
+    after: null
+  - path: tests/contract/status_support.rs
+    before: sha256:d94c8a4884e37d29ea3b2f4c8660af20617f6a29eaa696e475288cd685e113e8
+    after: null
+  - path: tests/contract/status_targets.rs
+    before: sha256:33c41b9545ed6b5dc13b90752cb121357f0887e99b6d7e14a76302b352031eb2
+    after: null
+  - path: tests/contract/sync_cli.rs
+    before: sha256:429925a3f9a528c81ebe6cb592918c4f2fe685cdfdd03eef9d60b1014b9363bd
+    after: null
+  - path: tests/contract/sync_results.rs
+    before: sha256:150139609a19344197de147273fe6852c2d530fac823efc17c6fba36cacc6dab
+    after: null
+  - path: tests/contract/sync_support.rs
+    before: sha256:f81f9f8ea71b0cab4439e9ec8055e7c2b1e6ba1ee2cd98f20cc4a64a16bf7f75
+    after: null
+  - path: tests/contract/sync_targets.rs
+    before: sha256:09670f16f248d9492b35b04d0461900b5c4c07c21ed275d0261b94fe390841f3
+    after: null
+  - path: tests/contract/tui_confirm.rs
+    before: sha256:f9f52825173286e253e73c371689009be75a1de60c2d9ba9fa10e04399c511a4
+    after: null
+  - path: tests/contract/tui_directory_links.rs
+    before: sha256:20a559434afd94ddb4be5462efa94cc5e51b18b2abcfad84703fcd284ce498f3
+    after: null
+  - path: tests/contract/tui_export.rs
+    before: sha256:589133685d7e13926684af618f039ee6cc76e44d612ead8c8fc68a0f2eb28f5b
+    after: null
+  - path: tests/contract/tui_navigation.rs
+    before: sha256:f79a80b1041281c5f78f5d18b0ab7dd165eafdb61bb63fbb311d58b57b734cf4
+    after: null
+  - path: tests/contract/tui_reference.rs
+    before: sha256:9d3ec6ab60cd02a063c05e9f776a2350bd3f0135a1b9fe2375a31082da5559f0
+    after: null
+  - path: tests/local_backup_store.rs
+    before: sha256:fde0e8cdb911b08c47b324a68e217a6ab4835ed91ef21ba19e2c571f50299094
+    after: null
+  - path: tests/local_target_merge.rs
+    before: sha256:ef852a7d1ef07634134bd27b79c9cb36621a9c8e9f5e28b7891364963dc0a3f2
+    after: null
+  - path: tests/ssh_integration.rs
+    before: sha256:cedd30ff5dc5ed4cf4362889fdad1ee1c19c659113d9401cf591d012cd22d70b
+    after: null
+  - path: tests/tui_3way.rs
+    before: sha256:79608822f087baa1f90ed4a3c79a118634af9a0d51613c7b6a9538ac174c9454
+    after: null
+  - path: tests/tui_diff_view.rs
+    before: sha256:b23fbe8386ba704fed04bd417515511531a89c0ea8030858c3157117eadfecf9
+    after: null
+  - path: tests/tui_integration.rs
+    before: sha256:b63cca516cf26c454bba12191369f11d18e5cbc299a79d1ee1dcc5452db7cd63
+    after: null
+  - path: tests/tui_merge.rs
+    before: sha256:91dd3f1382b9269eb4118da9992f7ce4d90f7054c97a8cebcc3744e6b1e7a64a
+    after: null
+  - path: tests/tui_navigation.rs
+    before: sha256:05470ad3ca5bd3ca004aa4e2828748937313e498350a345929e69b380e8c918a
+    after: null
+  - path: tests/tui_search.rs
+    before: sha256:b792f8899a94a74399a146ffaffef2c6e61b625ff1c5b0df32b4729341969f2b
+    after: null
+  - path: tests/tui_server_switch.rs
+    before: sha256:afa44e818430519237e1ca76098de5f2b36cb7fdc27a290997c9ad45ebf5961b
+    after: null
+  - path: tests/tui_startup.rs
+    before: sha256:04b05c77cd696f789459f1625dc1c484e8f881f76f16b8071872f519c90d31ed
+    after: null
+  ir:
+  - path: docs/ir/testing/methods.md
+    sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+  conclusion: new
+  reason: 承認された配置変更として旧パスの削除と新パスの追加を両方照合した。Git の blob とモードを独立に比較し、製品コードと既存テストは保存先の補正一か所以外同一である。manifest の依存・features・ターゲット指定と
+    release profile は維持され、唯一の member と default-member、ルートの target、独立した Docker E2E、ルートの失敗入力保存先が決定に一致する。比較資料の元出力からテスト名と無視状態、インストール後の表示、限定した変異の実行結果も確認した。crate
+    抽出や製品の振る舞い変更、新しいテスト・要件・開発方針 IR は含まれない。
+  requirements: []
+  decisions:
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A2
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A3
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A4
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A5
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A6
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D1
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D2
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D3
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D4
+  handoff: null
+  gaps: []
+- id: reviewed-mutation-environment
+  base: 0700f9f64e35de5b91a09beda48c7b85a37f289b
+  role: reviewer
+  files:
+  - path: scripts/mutants.sh
+    before: sha256:f421d5ce4843f7c07dac115ee7a3472893cac5fd6e3209f8dc918d6c380c531d
+    after: sha256:f8920880fbf2d9ef352b1c3b3ea10fcc8e702e8bce0ff10258fbfeed6405b743
+  ir:
+  - path: docs/ir/testing/methods.md
+    sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+  conclusion: new
+  reason: 差分は承認された四つの隔離先変数を内側のサービスへ渡す変更だけである。既存の負荷制限、テスト選択、変異対象の絞り込みと結果の判定は変えていない。実行ログと元の outcomes で、移動前後とも未変異の基準実行が成功し、同じ二つの変異だけが実行されたことを確認した。同等変異の登録内容はパス以外同一であり、新しい除外や同等判定はない。変数の許可リストに認証情報の名前は追加されていない。
+  requirements: []
+  decisions:
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D5
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D3
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A2
+  handoff: null
+  gaps: []
+- id: reviewed-current-path-documentation
+  base: 0700f9f64e35de5b91a09beda48c7b85a37f289b
+  role: reviewer
+  files:
+  - path: .claude/commands/release.md
+    before: sha256:9e9f1c4eb157e55c3851d58dd649f662a3f32780b55824cc549019dfcf14d1cb
+    after: sha256:0b18495aceaf8d5182c8fee243a05e23f6113580912ecb6d82bc1d45a0eb2dfd
+  - path: .kotowari/mutants-equivalents.yaml
+    before: sha256:f088f6618e32d95de29a27b706c2d228bd9d0e018f4c4f879358e5d52509fe24
+    after: sha256:4178f03a407128fc237011306d9d14eeacf67be3eb5bbb1d0d3a0bf1845135a0
+  - path: PROJECT.md
+    before: sha256:0f05363f71e8decd3ad294574da87405ccbbe8ee24c7f1a51d1c3fd274441fc2
+    after: sha256:0391b7e21279cf83603029163c921e15bbcb71286c1440b95ad7cabd56ce03fd
+  - path: README.md
+    before: sha256:e2b9f3940520ac2769b75240c2148e3a4906b1129e302a732f3d0ceafa259652
+    after: sha256:885bc5497afda74d6a8efaf0dbd75628304723690eeab3e8b5f7f3c4e69e5631
+  ir:
+  - path: docs/ir/testing/methods.md
+    sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+  conclusion: new
+  reason: 現行のソースインストールとリリース手順は member の manifest を参照し、配置説明は実際の workspace と独立 E2E に一致する。同等変異の file 指定は移動先だけに変わり、他の判断内容は保たれている。関連する
+    testing IR を決定と差分に照らして読み、既存の具体的な配置指定とその source だけの更新で、要件 ID、検証方針、期待値と印の対応を変えていないことを確認した。配置変更の方針を新しい IR や構造固定テストにしていない。
+  requirements: []
+  decisions:
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A2
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A3
+  - docs/decision/records/2026-10-02-cargo-workspace.md#A6
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D1
+  - docs/decision/records/2026-10-02-cargo-workspace-verification.md#D3
+  handoff: null
+  gaps: []
