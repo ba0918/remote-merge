@@ -7,8 +7,11 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 ## Stack and layout
 
 - Rust。主な依存は tokio、russh、ratatui、similar、serde。
-- `src/app/`: TUI の状態とロジック。`src/handler/` と `src/ui/`: 入力処理と描画。
-- `src/cli/` と `src/service/`: CLI と共通処理。`src/runtime/`: TUI の実行時処理。`src/ssh/` と `src/agent/`: リモート接続と転送。
+- ルートは Cargo ワークスペース。唯一の member と default-member は `crates/remote-merge/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
+- `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
+- `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
+- 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。
+- 製品バージョンの正本は `crates/remote-merge/Cargo.toml` の `package.version`。
 - 設定はグローバルの `~/.config/remote-merge/config.toml` と、プロジェクトの `.remote-merge.toml`。後者が優先し、`[filter]` は和集合でマージする。
 
 ## Commands

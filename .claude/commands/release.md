@@ -1,12 +1,12 @@
 ---
-description: Cargo.toml バージョンバンプ → コミット → push → タグで GitHub Actions リリースを発行。"/release 0.3.0" でバージョン指定、引数なしでパッチ自動提案。
+description: crates/remote-merge/Cargo.toml バージョンバンプ → コミット → push → タグで GitHub Actions リリースを発行。"/release 0.3.0" でバージョン指定、引数なしでパッチ自動提案。
 argument-hint: "[version]"
 allowed-tools: Read, Edit, Bash, Grep, AskUserQuestion
 ---
 
 # Release
 
-Cargo.toml のバージョンをバンプし、コミット・push・タグ作成で GitHub Actions リリースを発行する。
+crates/remote-merge/Cargo.toml のバージョンをバンプし、コミット・push・タグ作成で GitHub Actions リリースを発行する。
 
 ## パラメータ
 
@@ -16,8 +16,8 @@ Cargo.toml のバージョンをバンプし、コミット・push・タグ作�
 
 ### 1. バージョン決定
 
-- 引数がなければ Cargo.toml の現在のバージョンを読み取り、パッチバージョンを +1 した値を提案して AskUserQuestion で確認する
-- 引数があればそれを使用（`v` プレフィックスは strip して Cargo.toml 用にする）
+- 引数がなければ crates/remote-merge/Cargo.toml の現在のバージョンを読み取り、パッチバージョンを +1 した値を提案して AskUserQuestion で確認する
+- 引数があればそれを使用（`v` プレフィックスは strip して crates/remote-merge/Cargo.toml 用にする）
 
 ### 2. リリース内容の収集
 
@@ -33,9 +33,9 @@ git log $(git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~10")..HEAD --
 - **refactor/perf**: 改善
 - **その他**: chore, docs, test, style
 
-### 3. Cargo.toml 更新
+### 3. crates/remote-merge/Cargo.toml 更新
 
-`Cargo.toml` の `version = "X.Y.Z"` を新バージョンに更新する。
+`crates/remote-merge/Cargo.toml` の `version = "X.Y.Z"` を新バージョンに更新する。
 
 ### 4. コミット
 

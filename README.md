@@ -34,7 +34,7 @@ VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
 **ソースからビルド:**
 
 ```bash
-cargo install --path .
+cargo install --path crates/remote-merge
 ```
 
 ## Quick Start
