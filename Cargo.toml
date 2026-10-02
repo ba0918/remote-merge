@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/remote-merge", "crates/remote-merge-core", "crates/remote-merge-protocol", "crates/remote-merge-settings"]
-default-members = ["crates/remote-merge", "crates/remote-merge-core", "crates/remote-merge-protocol", "crates/remote-merge-settings"]
+members = ["crates/remote-merge", "crates/remote-merge-core", "crates/remote-merge-protocol", "crates/remote-merge-settings", "crates/remote-merge-ssh"]
+default-members = ["crates/remote-merge", "crates/remote-merge-core", "crates/remote-merge-protocol", "crates/remote-merge-settings", "crates/remote-merge-ssh"]
 resolver = "2"
 
 [profile.release]

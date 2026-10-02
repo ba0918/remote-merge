@@ -18,6 +18,7 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
     let parts: Vec<&str> = line.splitn(7, '\t').collect();
     if parts.len() < 5 {
         tracing::warn!(
+            target: "remote_merge::ssh::tree_parser",
             "Failed to parse find output (insufficient columns): {}",
             line
         );

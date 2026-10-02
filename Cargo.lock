@@ -2837,6 +2837,7 @@ dependencies = [
  "remote-merge-core",
  "remote-merge-protocol",
  "remote-merge-settings",
+ "remote-merge-ssh",
  "rmp-serde",
  "rpassword",
  "russh",
@@ -2887,6 +2888,16 @@ dependencies = [
 [[package]]
 name = "remote-merge-settings"
 version = "0.1.0"
+
+[[package]]
+name = "remote-merge-ssh"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "remote-merge-core",
+ "tempfile",
+ "tracing",
+]
 
 [[package]]
 name = "rfc6979"

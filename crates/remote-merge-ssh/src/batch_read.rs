@@ -173,6 +173,7 @@ pub fn parse_batch_output(output: &str, paths: &[String]) -> HashMap<String, Str
     // N個のファイル → N+1個の区切り文字が必要
     if delim_ranges.len() != paths.len() + 1 {
         tracing::warn!(
+            target: "remote_merge::ssh::batch_read",
             "Batch read: delimiter count mismatch: expected {}, found {}",
             paths.len() + 1,
             delim_ranges.len(),
@@ -231,6 +232,7 @@ pub fn parse_batch_output_bytes(output: &[u8], paths: &[String]) -> HashMap<Stri
     // N個のファイル → N+1個の区切り文字が必要
     if delim_ranges.len() != paths.len() + 1 {
         tracing::warn!(
+            target: "remote_merge::ssh::batch_read",
             "Batch read (bytes): delimiter count mismatch: expected {}, found {}",
             paths.len() + 1,
             delim_ranges.len(),

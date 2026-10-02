@@ -1,0 +1,13 @@
+[package]
+name = "remote-merge-ssh"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+remote-merge-core = { path = "../remote-merge-core" }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
