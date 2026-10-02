@@ -5,6 +5,7 @@ edition = "2021"
 description = "TUI tool for comparing and merging files between local and remote servers via SSH"
 
 [dependencies]
+remote-merge-settings = { path = "../remote-merge-settings" }
 remote-merge-protocol = { path = "../remote-merge-protocol" }
 remote-merge-core = { path = "../remote-merge-core" }
 russh = "0.57"

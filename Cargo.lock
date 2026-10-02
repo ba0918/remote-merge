@@ -2836,6 +2836,7 @@ dependencies = [
  "ratatui",
  "remote-merge-core",
  "remote-merge-protocol",
+ "remote-merge-settings",
  "rmp-serde",
  "rpassword",
  "russh",
@@ -2882,6 +2883,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "remote-merge-settings"
+version = "0.1.0"
 
 [[package]]
 name = "rfc6979"
