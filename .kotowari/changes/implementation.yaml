@@ -1,0 +1,108 @@
+version: 1
+entries:
+  - id: core-extraction-implementation
+    base: 7d7b13e055b0aeeb3ebf50814da6634e57d0a34d
+    role: implementer
+    files:
+      - path: .kotowari/mutants-equivalents.yaml
+        before: sha256:4178f03a407128fc237011306d9d14eeacf67be3eb5bbb1d0d3a0bf1845135a0
+        after: sha256:fc77607cc1a3e3903b4ef6af99de3987352210583109b99bc200f920309b1d2d
+      - path: Cargo.lock
+        before: sha256:eed237f1daf6ad503525b6d6bd6fe7f6e0dedd14fb6db1bb83192944f8a27489
+        after: sha256:abc8d97934effeedaf94c7f8b76d5a911defe8d52ebb1c6aad265250b3c70312
+      - path: Cargo.toml
+        before: sha256:2b4af9dfd0ab3dc4d84c558b6f2a08710fc9aa6ccfbcbb9eb6767967fafce2b5
+        after: sha256:1fd6e67f5cc55f5b5f2332876aa8a8e51cc01862e58a80e06d1a4b7b98fc9e91
+      - path: PROJECT.md
+        before: sha256:0391b7e21279cf83603029163c921e15bbcb71286c1440b95ad7cabd56ce03fd
+        after: sha256:7740ce2885c1a3e25dfbaa395b662645732058501ba2e30944eb3fcd78371ee8
+      - path: README.md
+        before: sha256:885bc5497afda74d6a8efaf0dbd75628304723690eeab3e8b5f7f3c4e69e5631
+        after: sha256:2827acfb223f7897fc0965edf55da213f32c624166a23a8b8cc3b1114aed3aca
+      - path: crates/remote-merge-core/Cargo.toml
+        before: null
+        after: sha256:86245e1fba6a08a96bf419a3a212d04f56c6ee05223ff59ec985e00eaa98e498
+      - path: crates/remote-merge-core/src/diff/binary.rs
+        before: null
+        after: sha256:4d170848942420107d37c4e006952cf7e2df406159f2112e869c24559906873a
+      - path: crates/remote-merge-core/src/diff/conflict.rs
+        before: null
+        after: sha256:3fad57ac785539333011c25fcbeb8977e660a8b770effe7a4898acf82c0fcb26
+      - path: crates/remote-merge-core/src/diff/engine.rs
+        before: null
+        after: sha256:89c586d01f728c5af3f080462bb6eab9ce24150b34475cb0fc1cb893cb9a6b7d
+      - path: crates/remote-merge-core/src/diff/mod.rs
+        before: null
+        after: sha256:c592ba0d7f4d64daf7140a6f7efd7872a6a8865c779825248ae33a9508d81455
+      - path: crates/remote-merge-core/src/diff/symlink.rs
+        before: null
+        after: sha256:17763a67c7901cf49ef091fe7b884a87866def51dfa76e4098fa7ec89609211b
+      - path: crates/remote-merge-core/src/error.rs
+        before: null
+        after: sha256:7ded56b747e03a5aaba2b93ca9835d8dbb64a4eb3f3ef4d63bd401a40c893fed
+      - path: crates/remote-merge-core/src/filter.rs
+        before: null
+        after: sha256:b09ff487a0b978bcfd1395991ed74c954218887188047ae23e7d47630716b8f4
+      - path: crates/remote-merge-core/src/lib.rs
+        before: null
+        after: sha256:a1a58826e3c45290107a3c283f95b77b3543bf4c82d99b3986089410e04910cb
+      - path: crates/remote-merge-core/src/tree.rs
+        before: null
+        after: sha256:2783326e48cfb14269c8ed72bb54d9219ff06d9c09ccdb897ab0f8b277b1958f
+      - path: crates/remote-merge/Cargo.toml
+        before: sha256:79219417f23cb4041ecc2828affe5914cf9f28c2862b498ea2a4ceef71d726e8
+        after: sha256:89caf345177444d2736d815f93efc52b94c1119d1edc9df0be81fd8fbdf1ff93
+      - path: crates/remote-merge/src/diff/binary.rs
+        before: sha256:4d170848942420107d37c4e006952cf7e2df406159f2112e869c24559906873a
+        after: null
+      - path: crates/remote-merge/src/diff/conflict.rs
+        before: sha256:3fad57ac785539333011c25fcbeb8977e660a8b770effe7a4898acf82c0fcb26
+        after: null
+      - path: crates/remote-merge/src/diff/engine.rs
+        before: sha256:89c586d01f728c5af3f080462bb6eab9ce24150b34475cb0fc1cb893cb9a6b7d
+        after: null
+      - path: crates/remote-merge/src/diff/mod.rs
+        before: sha256:c592ba0d7f4d64daf7140a6f7efd7872a6a8865c779825248ae33a9508d81455
+        after: null
+      - path: crates/remote-merge/src/diff/symlink.rs
+        before: sha256:17763a67c7901cf49ef091fe7b884a87866def51dfa76e4098fa7ec89609211b
+        after: null
+      - path: crates/remote-merge/src/error.rs
+        before: sha256:7ded56b747e03a5aaba2b93ca9835d8dbb64a4eb3f3ef4d63bd401a40c893fed
+        after: null
+      - path: crates/remote-merge/src/filter.rs
+        before: sha256:b09ff487a0b978bcfd1395991ed74c954218887188047ae23e7d47630716b8f4
+        after: null
+      - path: crates/remote-merge/src/lib.rs
+        before: sha256:5648af391bb97b064aa96be4f491e486147f85638ea2c51c12a3d3c6e77b6e07
+        after: sha256:5884609bc8880cc40a0ed189fe385d3259ee3ffd9683abf5843b225c89366a6e
+      - path: crates/remote-merge/src/tree.rs
+        before: sha256:2783326e48cfb14269c8ed72bb54d9219ff06d9c09ccdb897ab0f8b277b1958f
+        after: null
+      - path: docs/decision/records/2026-10-02-core-extraction-verification.md
+        before: null
+        after: sha256:fbfd4154cdd904f13f4e0b6a5eb4451b2f7087fddddf88144464a17e3e93c9a9
+      - path: docs/plans/core-extraction.md
+        before: null
+        after: sha256:9dec48987d3536a7a2073734c5da4bcba5e50bd246a6efc930b349c073b568a3
+      - path: scripts/mutants.sh
+        before: sha256:f8920880fbf2d9ef352b1c3b3ea10fcc8e702e8bce0ff10258fbfeed6405b743
+        after: sha256:55431792eba6fc0fd46808b475131460fb6314c56868ec7dff4bb0816ce319b5
+    ir: []
+    conclusion: new
+    reason: 承認済みの4モジュールだけを内容とGit modeを維持して内部crateへ移し、既存公開パスを同じ型の再公開で保つ。170単体テストの所属変更以外にテスト集合の差分はなく、外部依存と製品版を維持する。変異検査は両crateの単体と従来の製品契約targetを選び、計画と説明を承認済みの配置へ対応させる。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-02-core-extraction.md#A1
+      - docs/decision/records/2026-10-02-core-extraction.md#A2
+      - docs/decision/records/2026-10-02-core-extraction.md#A3
+      - docs/decision/records/2026-10-02-core-extraction.md#A4
+      - docs/decision/records/2026-10-02-core-extraction.md#A5
+      - docs/decision/records/2026-10-02-core-extraction.md#D2
+      - docs/decision/records/2026-10-02-core-extraction.md#D3
+      - docs/decision/records/2026-10-02-core-extraction-verification.md#D1
+      - docs/decision/records/2026-10-02-core-extraction-verification.md#D2
+      - docs/decision/records/2026-10-02-core-extraction-verification.md#D3
+      - docs/decision/records/2026-10-02-core-extraction-verification.md#D4
+    handoff: null
+    gaps: []
