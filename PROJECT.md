@@ -10,6 +10,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
 - `crates/remote-merge-core/src/`: tree・diff・error・filter とその単体テスト。製品は同じ型を `remote_merge::{tree, diff, error, filter}` から再公開する。
 - `crates/remote-merge-protocol/src/lib.rs`: Agentの通信型・シリアライズ・ハンドシェイクとその単体テスト。製品は `remote_merge::agent::protocol` から同じ型・定数・関数を再公開する。
+- `crates/remote-merge-protocol/src/framing.rs`: 長さプレフィクス付きフレームの読み書きとその単体テスト。製品は既存の `remote_merge::agent::framing` から再公開する。
 - `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
 - `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。

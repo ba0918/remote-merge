@@ -397,3 +397,5 @@ mod tests {
         assert_eq!(PROTOCOL_VERSION, 4);
     }
 }
+
+pub mod framing;
