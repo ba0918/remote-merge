@@ -2834,6 +2834,7 @@ dependencies = [
  "libc",
  "proptest",
  "ratatui",
+ "remote-merge-core",
  "rmp-serde",
  "rpassword",
  "russh",
@@ -2853,6 +2854,22 @@ dependencies = [
  "unicode-width",
  "walkdir",
  "zeroize",
+]
+
+[[package]]
+name = "remote-merge-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "glob-match",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "similar",
+ "thiserror 2.0.18",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
