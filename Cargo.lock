@@ -2835,6 +2835,7 @@ dependencies = [
  "proptest",
  "ratatui",
  "remote-merge-core",
+ "remote-merge-protocol",
  "rmp-serde",
  "rpassword",
  "russh",
@@ -2870,6 +2871,16 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "remote-merge-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rmp-serde",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
