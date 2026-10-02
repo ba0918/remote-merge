@@ -37,7 +37,7 @@ VERSION=v0.2.2 INSTALL_DIR=~/.local/bin sh -c "$(curl -fsSL ...)"
 cargo install --path crates/remote-merge
 ```
 
-ソースからのインストールには、同じcheckout内の `crates/remote-merge-core` も必要です。
+ソースからのインストールには、同じcheckout内の `crates/remote-merge-core` と `crates/remote-merge-protocol` も必要です。
 
 ## Quick Start
 
