@@ -1,0 +1,44 @@
+version: 1
+entries:
+  - id: ssh-settings-extraction-implementation
+    base: 0d683e86e13c3f7dec9a458a97ff7181e0691f37
+    role: implementer
+    files:
+      - path: Cargo.lock
+        before: sha256:5eb95cb611999bf897490b0f1e371696d3bbb595bf72096eeeff8cae5f040b16
+        after: sha256:15badc0aacdc492934c8546ad62659f8b864b181f5c0829703c30c09c4449f25
+      - path: Cargo.toml
+        before: sha256:85727a5c32f858e66bf054822c62fa15584fae844a72542a5cd776cdbba736a3
+        after: sha256:095d1c2ade78d02a014662317a934466241d60f8cc78b2e0df7d45be524023c2
+      - path: PROJECT.md
+        before: sha256:251578e68bb97678317ce3efbc0d8ee09da4bb9418d2a1616deb501cdb04f6d4
+        after: sha256:1585c8181da25616dc93c2256e1acfdb39a82ecdfd0246fb99d287047ccfc11b
+      - path: crates/remote-merge-settings/Cargo.toml
+        before: null
+        after: sha256:42b2a95ccb5b46898fad6bed650da00e7fe17e3f0837430bb7184e46d01fa1bd
+      - path: crates/remote-merge-settings/src/lib.rs
+        before: null
+        after: sha256:ec0160ccb0f11c2c5830549ab41e5fa6ea4ea625ba94a4db3f9cd588f088ddea
+      - path: crates/remote-merge/Cargo.toml
+        before: sha256:17bcb4bdfcc28c938634fbda2127ad7a37dc3a7782446d25522abc1cd43f2579
+        after: sha256:d09e9d1dac5804af9bd0b46d36591afb08ca6f244ca2b7120155c2fd9e091e95
+      - path: crates/remote-merge/src/config.rs
+        before: sha256:9344b7b47d9242b936e1ee4c7d9fa2c6fcda9b439b11e3c7d324ab5b0d672b34
+        after: sha256:ded7e1b98e41dc5ea43e8d9a5dd13bb75004c8902f5896e48b21604c456eff8d
+      - path: docs/decision/records/2026-10-03-ssh-settings-extraction.md
+        before: null
+        after: sha256:a38319558faa3cba011ba75eab7c4697c648e783714629839fc26ea68695198d
+    ir: []
+    conclusion: new
+    reason: 利用者が採用した5型と既存Debug・Default実装だけを内容・Git modeを維持して標準ライブラリのみの内部crateへ移す。configの読み込み・認証の解決・パース・89テストと全3109テストの所在・名前・無視状態を保ち、既存公開パスを同じ型の再公開で維持する。依存変更は新しいローカルpackageとpath依存辺だけで、製品版・外部依存・通信版・残る境界は変えない。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#A1
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#A2
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#A3
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#D1
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#D2
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#D3
+      - docs/decision/records/2026-10-03-ssh-settings-extraction.md#D4
+    handoff: null
+    gaps: []
