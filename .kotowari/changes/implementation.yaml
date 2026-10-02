@@ -1,0 +1,52 @@
+version: 1
+entries:
+  - id: protocol-extraction-implementation
+    base: 7d2331a0774cd4987cc7a7c39db0268914098e2a
+    role: implementer
+    files:
+      - path: Cargo.lock
+        before: sha256:abc8d97934effeedaf94c7f8b76d5a911defe8d52ebb1c6aad265250b3c70312
+        after: sha256:5eb95cb611999bf897490b0f1e371696d3bbb595bf72096eeeff8cae5f040b16
+      - path: Cargo.toml
+        before: sha256:1fd6e67f5cc55f5b5f2332876aa8a8e51cc01862e58a80e06d1a4b7b98fc9e91
+        after: sha256:85727a5c32f858e66bf054822c62fa15584fae844a72542a5cd776cdbba736a3
+      - path: PROJECT.md
+        before: sha256:7740ce2885c1a3e25dfbaa395b662645732058501ba2e30944eb3fcd78371ee8
+        after: sha256:69ba71627cb0106b495768b97613df768c91a8b97a315e295e2e8ba6dc2450e9
+      - path: README.md
+        before: sha256:2827acfb223f7897fc0965edf55da213f32c624166a23a8b8cc3b1114aed3aca
+        after: sha256:e0d9c74f033e8d4318332f0f6387c26a9a559b3eef8ea3307c26fcbf69142864
+      - path: crates/remote-merge-protocol/Cargo.toml
+        before: null
+        after: sha256:4a698556567caa57751d8690e8fa7a77aa0cf499576a37bc3ad65e898d841e90
+      - path: crates/remote-merge-protocol/src/lib.rs
+        before: null
+        after: sha256:4c0e5ac1df2e7862b6cf0ee9fdcbff98eafd7b20a16d3b8b9221403bc2ec4d8b
+      - path: crates/remote-merge/Cargo.toml
+        before: sha256:89caf345177444d2736d815f93efc52b94c1119d1edc9df0be81fd8fbdf1ff93
+        after: sha256:17bcb4bdfcc28c938634fbda2127ad7a37dc3a7782446d25522abc1cd43f2579
+      - path: crates/remote-merge/src/agent/protocol.rs
+        before: sha256:00891539bfa67f0766d3d65760fabcf935aa15c50a773cb55b15120fa32616ba
+        after: sha256:b240f35bfe6201f7f36f80cce71ab177de5a96948b9fb1c3861353e791131e1e
+      - path: docs/decision/records/2026-10-03-protocol-extraction-verification.md
+        before: null
+        after: sha256:8668671029abb555cdf0bf986c32c7ed59dff89783eb9783f6f175a2944948fe
+      - path: docs/plans/protocol-extraction.md
+        before: null
+        after: sha256:6437f3c2c9864ff768faa028cf35fcf81648a90a72e0cb461f613b9dc9052ad4
+    ir: []
+    conclusion: new
+    reason: 承認済みの通信プロトコルと14単体テストだけを内部crateへ移す。版構成以外の本文とGit mode、他の3095テストの所在と名前、通信形式、外部依存、製品版を維持する。単一の通信版リテラルから呼出元の製品版を使うマクロを生成し、既存公開パスとconst型を再公開と製品側定数で保つ。計画と説明をこの承認範囲に対応させる。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-next-crate-extraction.md#A2
+      - docs/decision/records/2026-10-03-next-crate-extraction.md#A3
+      - docs/decision/records/2026-10-03-next-crate-extraction.md#A4
+      - docs/decision/records/2026-10-03-next-crate-extraction.md#D1
+      - docs/decision/records/2026-10-03-next-crate-extraction.md#D2
+      - docs/decision/records/2026-10-03-protocol-extraction-verification.md#D1
+      - docs/decision/records/2026-10-03-protocol-extraction-verification.md#D2
+      - docs/decision/records/2026-10-03-protocol-extraction-verification.md#D3
+      - docs/decision/records/2026-10-03-protocol-extraction-verification.md#D4
+    handoff: null
+    gaps: []
