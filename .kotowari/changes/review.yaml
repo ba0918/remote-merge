@@ -1,0 +1,37 @@
+version: 1
+entries:
+  - id: framing-move-independent-review
+    base: cf24f532c627015d53da5664f881859fa655368a
+    role: reviewer
+    files:
+      - path: PROJECT.md
+        before: sha256:69ba71627cb0106b495768b97613df768c91a8b97a315e295e2e8ba6dc2450e9
+        after: sha256:251578e68bb97678317ce3efbc0d8ee09da4bb9418d2a1616deb501cdb04f6d4
+      - path: crates/remote-merge-protocol/src/framing.rs
+        before: null
+        after: sha256:88b6c23bc341f7a22f3d4c29ba0478da5c19cfebfcda1b8d7c5762483432cc5c
+      - path: crates/remote-merge-protocol/src/lib.rs
+        before: sha256:4c0e5ac1df2e7862b6cf0ee9fdcbff98eafd7b20a16d3b8b9221403bc2ec4d8b
+        after: sha256:db9a51a6d52db46cec4e869873c8ad2e733ca007765bbb98b7704c885264f019
+      - path: crates/remote-merge/src/agent/framing.rs
+        before: sha256:88b6c23bc341f7a22f3d4c29ba0478da5c19cfebfcda1b8d7c5762483432cc5c
+        after: null
+      - path: crates/remote-merge/src/agent/mod.rs
+        before: sha256:b5c33eb76c4c9d8712ef75119e00ae0475f9580c023a55c738c9c40523dc20b2
+        after: sha256:b50c6ed324ea1e4a501e6aaa8d10c83e6e9939b5c5d080149061b1aa68a5f727
+      - path: docs/decision/records/2026-10-03-framing-move.md
+        before: null
+        after: sha256:ca7a6d81c6a8f820d037e821463c236da3cd04b9eeabb1512f7d0d1ce92b6f30
+    ir: []
+    conclusion: new
+    reason: 固定した比較元と対象の全差分を独立に照合した。framing全137行は7単体テストを含めてGit blobとmodeが一致し、16 MBの上限、長さの通信形式、IOエラーの種類と伝播を変更していない。既存protocol crateの公開モジュール宣言と製品側の同名再公開だけで旧公開パスを維持し、client/serverの本文とsuper::framingのimportも一致する。全3109テストの名前・所属・属性を比較し、7件の所属と接頭辞だけが変わり、残る3102件は一致する。全manifest・lock・metadataと製品版表示は同一で、新しい依存・crate・IR・テストはない。保存された前後の通常検査と最終全テストの成功出力を確認した。追加した配置説明と決定記録はA1・A2の移動範囲を具体化している。任意のwrite_frame変異は実測でタイムアウトし、caughtとは扱わない。D4は呼出元が追加した必須条件の撤回であり、利用者の製品合意の変更ではない。候補側の変異は実行されておらず、過去の配布検査を今回の成功とは数えない。これらの根拠から承認済みの配置変更の範囲内と判断する。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-framing-move.md#A1
+      - docs/decision/records/2026-10-03-framing-move.md#A2
+      - docs/decision/records/2026-10-03-framing-move.md#D1
+      - docs/decision/records/2026-10-03-framing-move.md#D2
+      - docs/decision/records/2026-10-03-framing-move.md#D3
+      - docs/decision/records/2026-10-03-framing-move.md#D4
+    handoff: null
+    gaps: []
