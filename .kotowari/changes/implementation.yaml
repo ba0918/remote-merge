@@ -1,0 +1,43 @@
+version: 1
+entries:
+  - id: engine-local-helpers-ownership
+    base: e734aefa09f36e4a660b5137f9720b3ee659d6d2
+    role: implementer
+    files:
+      - path: Cargo.lock
+        before: sha256:ed35b4999603aae9b90c9321193230cb018ed8e03b42833b5161b50ebfe31bca
+        after: sha256:4160f7ce4368acd22d3e0a5997e74d08d0bb6fa50cc6386fe09a51f6afc395f1
+      - path: crates/remote-merge-engine/Cargo.toml
+        before: sha256:7896dadb079c1354085ad15a42b66ef8f411280b892bdb4525f0dbe78d1152b8
+        after: sha256:062181385cf15730b35d984b307d19b804e495bd3547b7beb58951b4652664d5
+      - path: crates/remote-merge-engine/src/lib.rs
+        before: sha256:277cf0065b1da5821b1e8c03419a16a40fd15b9e1eab3270ba343d6cde10909c
+        after: sha256:a91e01ac3ec7e0808a07d28e7ec54c0e2b3fc0c580b8055e9080cb566d69546c
+      - path: crates/remote-merge-engine/src/local_io.rs
+        before: null
+        after: sha256:0fa31b7f65511ba1b4c115c212a1b4244fb9627dfd7faa028af551b14726b894
+      - path: crates/remote-merge/src/runtime/side_io.rs
+        before: sha256:b7a2d56d0b2a864e68c0a38feeb8ca8a4945210b198205c23315b083e7bdbdb7
+        after: sha256:6dd289fae89646c09b04dfd43d5d64f8fb9b766187d5b239877f0c49b3c8c6b8
+      - path: crates/remote-merge/src/runtime/target_io.rs
+        before: sha256:e87ddd400aa708815d6b446fd7dea0f83840d19ac5aa9885f34aff1e1775e2c1
+        after: sha256:e60381a14dde0f4f774723822d170ee02f42e30ba0ea05e8701ad8d3418b7a7d
+    ir: []
+    conclusion: new
+    reason: >-
+      確定したローカル自由関数とパス検査だけを移し、製品adapterとprivate境界を維持する。
+      十一可視性・旧warn targetと個別に記録したsignature整形だけを逆変換して全helper本文を照合し、
+      enumと検査は承認されたroot/Self参照と正確な四space dedentだけを変える。
+      製品二ファイルは抽出block・再公開・未使用import除去と検査委譲以外同一で、
+      全3109テストのowner・名前・cfg・期待値と全consumer、protocol/coreの実体を維持する。
+      新しい振る舞い・制約や仕様gapはなく、所属変更の根拠は確定した設計判断に置く。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#A1
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D1
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D2
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D3
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D4
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D5
+    handoff: null
+    gaps: []
