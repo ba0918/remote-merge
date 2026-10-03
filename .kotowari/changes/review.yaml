@@ -1,0 +1,65 @@
+version: 1
+entries:
+  - id: engine-local-helpers-independent-review
+    base: e734aefa09f36e4a660b5137f9720b3ee659d6d2
+    role: reviewer
+    files:
+      - path: Cargo.lock
+        before: sha256:ed35b4999603aae9b90c9321193230cb018ed8e03b42833b5161b50ebfe31bca
+        after: sha256:4160f7ce4368acd22d3e0a5997e74d08d0bb6fa50cc6386fe09a51f6afc395f1
+      - path: PROJECT.md
+        before: sha256:e691a7292ca534b5dd158bf620aa9736c8425b4d4c35a8903930c76c5f5138b8
+        after: sha256:a522a201ea52489eba2632d87dc113f9448b583d92845650fc1360ac7b67868d
+      - path: crates/remote-merge-engine/Cargo.toml
+        before: sha256:7896dadb079c1354085ad15a42b66ef8f411280b892bdb4525f0dbe78d1152b8
+        after: sha256:062181385cf15730b35d984b307d19b804e495bd3547b7beb58951b4652664d5
+      - path: crates/remote-merge-engine/src/lib.rs
+        before: sha256:277cf0065b1da5821b1e8c03419a16a40fd15b9e1eab3270ba343d6cde10909c
+        after: sha256:a91e01ac3ec7e0808a07d28e7ec54c0e2b3fc0c580b8055e9080cb566d69546c
+      - path: crates/remote-merge-engine/src/local_io.rs
+        before: null
+        after: sha256:0fa31b7f65511ba1b4c115c212a1b4244fb9627dfd7faa028af551b14726b894
+      - path: crates/remote-merge/src/runtime/side_io.rs
+        before: sha256:b7a2d56d0b2a864e68c0a38feeb8ca8a4945210b198205c23315b083e7bdbdb7
+        after: sha256:6dd289fae89646c09b04dfd43d5d64f8fb9b766187d5b239877f0c49b3c8c6b8
+      - path: crates/remote-merge/src/runtime/target_io.rs
+        before: sha256:e87ddd400aa708815d6b446fd7dea0f83840d19ac5aa9885f34aff1e1775e2c1
+        after: sha256:e60381a14dde0f4f774723822d170ee02f42e30ba0ea05e8701ad8d3418b7a7d
+      - path: docs/decision/records/2026-10-03-engine-local-helpers-extraction.md
+        before: null
+        after: sha256:849cdc497e4fbeaeca963e5d4281eba80e3f8b782a90bfdf831884eb5de0271d
+    ir: []
+    conclusion: new
+    reason: >-
+      固定baseから対象までの全code・document差分を参照された実出力と独立に照合した。
+      十名・十一自由関数定義の全本文・docs・cfg・コメントは十一可視性、旧truncation warn target明記と保存されたhash signature一行化だけを戻すと元bytesに一致する。
+      TargetPathの三variant・fields・deriveは下位pub化だけで同一である。検査本文はroot引数とself.root置換、二Self helper参照と正確な四space dedentだけで一致し、二helperもそのdedentと一Self参照置換だけで一致する。
+      lower全fileはこの閉じたblock集合と既存型importだけで構成される。新算法・trait・registryやproductionの複製はない。
+      製品二file全体は移動block除去、private再公開、未使用Path・FileHashResult import除去、検査委譲と削除後separator除去だけで元本文から復元できる。
+      八通常helperと二cfg(test) helperの再公開、private runtime moduleとTargetPath aliasを維持し、lower二helperはprivateである。
+      LocalTargetIoの他method・validated_path、全RemoteTargetIo、CoreRuntime method・Agent変換・remote fallback・constants・delegate macroと混在test本文は不変である。
+      inspectionは元のvalidate_remote_pathを使い、validated_pathへ置き換えない。絶対入力を一律拒否する強化ではなく、traversalと絶対入力の元の結果・errorを保つ比較である。
+      hashのError skip・生symlink target、stat順序・欠損None・秒精度、missing-parent walk・canonical NotFound・chmod両cfgとsymlink削除作成順序・error chainは全文一致で維持される。
+      製品protocol再公開とengine直接依存は同じFileHashResultを参照し、FileNodeは両方coreの実体である。実compileされたprobeのfunction pointerは十helperと検査のprotocol/core/chrono signatureを確認する。
+      元free block・enum・検査methodと二helperのproducer bytesを固定baseと独立照合した。probeだけのroot holderと未使用runtime引数stand-inによる旧算法再現であり、旧CLI全体の実行ではない。
+      実compile/run出力とprobe sourceを確認し、自分の一時領域だけでfile・directory・relative/absolute symlink・missing target・cycle、hash/map/stat/tree、検査variant・全error chainとUnix操作を旧新比較している。
+      実利用者profileやnetwork・外部書き込みを検証したとは扱わない。四privacy probeは三E0603とcfg(test)不在のE0425、各exit101の意図した拒否であり通常build成功ではない。
+      全3109collection identityとmetadataはowner・binary・名前・prefix・属性を無変換で保ち、製品lib1418・engine358である。core51とside_io116の全167件は実final PASS行と一致する。2917件は狭い収集であって追加実行ではない。
+      全parsed manifest・lockはengineから既存protocolへの一通常path依存と一lock辺だけを戻すと一致する。全実metadataもその一依存以外一致し、八member・default-member、既存外部版・checksum・feature・他辺・製品0.2.13と通信v4を保つ。
+      全十pathの閉じた差分を確認し、mutant mappings、他caller・crate・test・IR・契約・scriptは不変である。PROJECTとA1・D1〜D5はこの所属変更に対応し、新仕様・恒久oracle・変異gateを加えない。
+      保存されたcommand-ledgerの全commandとexitを実fileへ照合し、baselineと修正後candidateの通常2999・全feature3109、Clippy・Linux install・musl・Docker六件と二件、version/help全bytes一致を確認した。
+      preflightのAgent同名過一致は初回exit未収集、patch comma拒否はrunner exitなしと区別する。fmt exit1・unused import Clippy101・privacy期待値comparator1は保存された失敗であり、成功と読み替えない。
+      unchanged TUI quit testは通常Cargoで十五秒終了待ちに失敗しexit101、isolatedとserial全suite、final通常nextestと両通常hookは成功している。原因やscheduling感度は未証明でtest/runtime修復もない。
+      coverageはregion81395から81401・function4676から4677へ変わり、各未到達7685・294とline49216・未到達4758、丸め率だけを保つ。全count・出力bytes一致ではない。
+      全追加行のcredential・account path・秘密鍵・unsafe/process追加scanと安全上重要な直接保存復元caller・関連merge/rollback契約を確認し、新安全判断や依存上向きを持ち込まない。
+      warnのlevel・message・args・旧targetは静的比較で確認したがsubscriber eventは未収集で、動的logging・source location同一性・macOSとnonUnix実行は未検証である。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#A1
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D1
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D2
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D3
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D4
+      - docs/decision/records/2026-10-03-engine-local-helpers-extraction.md#D5
+    handoff: null
+    gaps: []
