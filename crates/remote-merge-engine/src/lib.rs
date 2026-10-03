@@ -1,6 +1,8 @@
 pub mod backup;
 pub mod local;
 pub mod merge;
+pub mod service;
+pub mod side;
 
 use remote_merge_core::{diff, error, filter, tree};
 

@@ -15,9 +15,10 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - `crates/remote-merge-config/src/lib.rs`: 設定の読み込み・認証の解決・パースと既存89単体テスト。製品の `src/config.rs` は既存公開パスを明示的に再公開する。expand_tildeは下位のconfigに所属し、SSHから参照する。バックアップ除外に使うBACKUP_DIR_NAMEの正本もここに置き、製品の `backup` は同じ定数を再公開する。
 - `crates/remote-merge-ssh/src/`: 全SSH実装と既存132単体テスト。製品は `remote_merge::ssh::{client, batch_read, hint, host_key_verifier, passphrase_provider}` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。known_hosts・known_hosts_io・preferredはSSH crate内だけに置く。設定型はsettings、ホーム展開と既定の上限はconfig、error・filter・treeはcoreの同じ項目を使う。strict実行のinherent methodはcrate内に保ち、製品の三つの呼び出しは内部再公開した委譲関数を使う。製品のtest-utils featureはSSHの同名featureへ転送する。
 - `crates/remote-merge-agent/src/agent/`: Agentの実行処理・SSH転送と配置処理、既存191単体テスト。製品は既存 `remote_merge::agent` の同じ公開パスから再公開する。通信型とframingはprotocol、filter/treeはcore、shell escapeは通常依存のSSHを使う。配置の四つの版依存関数は製品側の旧signatureのwrapperから製品CLI_VERSIONを受け取る。版に関わる既存88テストとtest-only SHA helperは製品側に残す。両crateのbuild.rsはCargoのTARGETをそのままcompile時定数へ渡す。
-- `crates/remote-merge-engine/src/`: local・backup・merge/executor・merge/optimistic_lockと既存81単体テスト。製品の同じモジュールパスは同じ項目を再公開する。executorは既存公開項目を明示的に再公開し、validate_path_within_rootだけは製品crate内に保つ。coreとconfigの同じ型・定数を参照し、backup定数の正本はconfigのまま変えない。
+- `crates/remote-merge-engine/src/`: local・backup・merge/executor・merge/optimistic_lock、共有Side、service/types・max_files・path_resolver・fast_path・diffと既存233単体テスト。Sideの正本は `side` に置き、製品の `app::Side` と `app::side` は同じ型・関数を再公開する。serviceの五モジュールも製品の同じパスから同じ項目を再公開する。executorは既存公開項目を明示的に再公開し、validate_path_within_rootだけは製品crate内に保つ。coreとconfigの同じ型・定数を参照し、backup定数の正本はconfigのまま変えない。serdeの既存JSON表現は維持し、serde_jsonは既存テスト用のdev依存にだけ置く。
 - `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
 - `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
+- CLIの出力・service/statusとmerge/sync/rollbackの実行処理・runtimeのI/Oは製品側に残す。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。
 - 製品バージョンの正本は `crates/remote-merge/Cargo.toml` の `package.version`。
 - core の内部バージョンは `crates/remote-merge-core/Cargo.toml` の `package.version`。core は `publish = false` とし、製品のバージョンとは独立に扱う。

@@ -2918,6 +2918,8 @@ dependencies = [
  "chrono",
  "remote-merge-config",
  "remote-merge-core",
+ "serde",
+ "serde_json",
  "serial_test",
  "tempfile",
  "tracing",
