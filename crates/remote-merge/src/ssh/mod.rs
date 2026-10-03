@@ -1,9 +1,9 @@
 pub use remote_merge_ssh::batch_read;
 pub mod client;
-pub mod hint;
-pub mod host_key_verifier;
+pub use remote_merge_ssh::hint;
+pub use remote_merge_ssh::host_key_verifier;
 pub(crate) mod known_hosts;
 pub(crate) mod known_hosts_io;
-pub mod passphrase_provider;
+pub use remote_merge_ssh::passphrase_provider;
 pub(crate) mod preferred;
 pub(crate) use remote_merge_ssh::tree_parser;

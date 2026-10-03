@@ -29,7 +29,7 @@ pub struct AutoAcceptVerifier;
 
 impl HostKeyVerifier for AutoAcceptVerifier {
     fn verify_host_key(&self, host: &str, port: u16, _key_type: &str, _fingerprint: &str) -> bool {
-        tracing::info!("Auto-accepting host key for {}:{}", host, port,);
+        tracing::info!(target: "remote_merge::ssh::host_key_verifier", "Auto-accepting host key for {}:{}", host, port,);
         true
     }
 }
@@ -40,6 +40,7 @@ pub struct RejectVerifier;
 impl HostKeyVerifier for RejectVerifier {
     fn verify_host_key(&self, host: &str, port: u16, key_type: &str, fingerprint: &str) -> bool {
         tracing::warn!(
+            target: "remote_merge::ssh::host_key_verifier",
             "Rejecting unknown host key: {}:{} ({} {})",
             host,
             port,
@@ -121,6 +122,7 @@ pub fn verifier_from_policy(
         StrictHostKeyChecking::Ask => {
             if is_tui {
                 tracing::warn!(
+                    target: "remote_merge::ssh::host_key_verifier",
                     "StrictHostKeyChecking=ask requested in TUI mode; rejecting unknown hosts until interactive confirmation is implemented"
                 );
                 Box::new(RejectVerifier)

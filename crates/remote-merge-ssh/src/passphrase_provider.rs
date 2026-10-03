@@ -67,7 +67,7 @@ impl PassphraseProvider for CliPassphraseProvider {
             Ok(pass) if !pass.is_empty() => Some(Zeroizing::new(pass)),
             Ok(_) => None,
             Err(e) => {
-                tracing::debug!("Failed to read passphrase from terminal: {}", e);
+                tracing::debug!(target: "remote_merge::ssh::passphrase_provider", "Failed to read passphrase from terminal: {}", e);
                 eprintln!("Error: Could not read passphrase from terminal.");
                 None
             }

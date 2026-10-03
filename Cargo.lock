@@ -2895,8 +2895,12 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "remote-merge-core",
+ "remote-merge-settings",
+ "rpassword",
+ "serial_test",
  "tempfile",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]

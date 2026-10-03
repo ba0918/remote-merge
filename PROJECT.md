@@ -12,7 +12,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - `crates/remote-merge-protocol/src/lib.rs`: Agentの通信型・シリアライズ・ハンドシェイクとその単体テスト。製品は `remote_merge::agent::protocol` から同じ型・定数・関数を再公開する。
 - `crates/remote-merge-protocol/src/framing.rs`: 長さプレフィクス付きフレームの読み書きとその単体テスト。製品は既存の `remote_merge::agent::framing` から再公開する。
 - `crates/remote-merge-settings/src/lib.rs`: 標準ライブラリだけに依存する接続設定の5型と既存のDebug・Default実装。製品は `remote_merge::config` から同じ型を再公開する。設定の読み込み・認証の解決・パースと既存テストは製品の `src/config.rs` に残す。
-- `crates/remote-merge-ssh/src/`: tree_parser・batch_readとその単体テスト。製品は `remote_merge::ssh::batch_read` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。接続・認証・ホストキーなど残るSSH処理は製品の `src/ssh/` に置く。
+- `crates/remote-merge-ssh/src/`: tree_parser・batch_read・hint・host_key_verifier・passphrase_providerとその単体テスト。製品は `remote_merge::ssh::{batch_read, hint, host_key_verifier, passphrase_provider}` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。ホストキーポリシーにはsettingsの同じ型を使う。接続・known_hosts・preferredなど残るSSH処理は製品の `src/ssh/` に置く。
 - `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
 - `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。
