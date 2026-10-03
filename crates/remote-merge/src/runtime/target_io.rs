@@ -15,19 +15,7 @@ use super::side_io::{
     hash_results_to_map, remove_local_file, stat_local_files, wrap_nodes_in_subpath,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TargetPath {
-    Missing {
-        real_parent: PathBuf,
-    },
-    File {
-        real_path: PathBuf,
-    },
-    Symlink {
-        link_target: PathBuf,
-        real_path: PathBuf,
-    },
-}
+pub(crate) use remote_merge_engine::local_io::TargetPath;
 
 pub(crate) trait TargetIo {
     fn inspect_path(
@@ -137,84 +125,11 @@ impl LocalTargetIo {
     fn validated_path(&self, rel_path: &str) -> anyhow::Result<PathBuf> {
         executor::validate_path_within_root(&self.root, &self.root.join(rel_path))
     }
-
-    fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {
-        let mut current = path
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
-        let mut missing = Vec::new();
-        loop {
-            match std::fs::symlink_metadata(current) {
-                Ok(_) => {
-                    let mut resolved = std::fs::canonicalize(current)?;
-                    for component in missing.iter().rev() {
-                        resolved.push(component);
-                    }
-                    return Ok(resolved);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    missing.push(
-                        current
-                            .file_name()
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                            })?
-                            .to_os_string(),
-                    );
-                    current = current.parent().ok_or_else(|| {
-                        anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                    })?;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-    }
-
-    fn resolved_symlink(
-        path: &std::path::Path,
-        link_target: &std::path::Path,
-    ) -> anyhow::Result<PathBuf> {
-        let target = if link_target.is_absolute() {
-            link_target.to_path_buf()
-        } else {
-            path.parent()
-                .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?
-                .join(link_target)
-        };
-        match std::fs::canonicalize(&target) {
-            Ok(path) => Ok(path),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let mut parent = Self::resolved_missing_parent(&target)?;
-                parent.push(target.file_name().ok_or_else(|| {
-                    anyhow::anyhow!("symlink target has no file name: {}", target.display())
-                })?);
-                Ok(parent)
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
 }
 
 impl TargetIo for LocalTargetIo {
     fn inspect_path(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<TargetPath> {
-        let path = self.root.join(rel_path);
-        executor::validate_remote_path(&self.root.to_string_lossy(), rel_path)?;
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                let link_target = std::fs::read_link(&path)?;
-                Ok(TargetPath::Symlink {
-                    real_path: Self::resolved_symlink(&path, &link_target)?,
-                    link_target,
-                })
-            }
-            Ok(_) => Ok(TargetPath::File {
-                real_path: std::fs::canonicalize(path)?,
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(TargetPath::Missing {
-                real_parent: Self::resolved_missing_parent(&path)?,
-            }),
-            Err(error) => Err(error.into()),
-        }
+        remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
     }
 
     fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {

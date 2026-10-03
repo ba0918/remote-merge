@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 remote-merge-core = { path = "../remote-merge-core" }
 remote-merge-config = { path = "../remote-merge-config" }
+remote-merge-protocol = { path = "../remote-merge-protocol" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"

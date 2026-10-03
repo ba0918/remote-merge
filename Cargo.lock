@@ -2919,6 +2919,7 @@ dependencies = [
  "glob-match",
  "remote-merge-config",
  "remote-merge-core",
+ "remote-merge-protocol",
  "serde",
  "serde_json",
  "serial_test",
