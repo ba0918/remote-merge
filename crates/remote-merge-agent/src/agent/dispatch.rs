@@ -322,7 +322,7 @@ impl Dispatcher {
                 Err(e) => {
                     // handle_read_files と一貫性を持たせ、個別ファイルのエラーでは
                     // リクエスト全体を失敗させない。ファイル単位でスキップしログに記録する。
-                    tracing::warn!("stat error for {rel_path}: {e}");
+                    tracing::warn!(target: "remote_merge::agent::dispatch", "stat error for {rel_path}: {e}");
                 }
             }
         }

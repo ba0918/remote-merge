@@ -7,13 +7,14 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 ## Stack and layout
 
 - Rust。主な依存は tokio、russh、ratatui、similar、serde。
-- ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`、`crates/remote-merge-settings/`、`crates/remote-merge-ssh/`、`crates/remote-merge-config/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
+- ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`、`crates/remote-merge-settings/`、`crates/remote-merge-ssh/`、`crates/remote-merge-config/`、`crates/remote-merge-agent/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
 - `crates/remote-merge-core/src/`: tree・diff・error・filter とその単体テスト。製品は同じ型を `remote_merge::{tree, diff, error, filter}` から再公開する。
 - `crates/remote-merge-protocol/src/lib.rs`: Agentの通信型・シリアライズ・ハンドシェイクとその単体テスト。製品は `remote_merge::agent::protocol` から同じ型・定数・関数を再公開する。
 - `crates/remote-merge-protocol/src/framing.rs`: 長さプレフィクス付きフレームの読み書きとその単体テスト。製品は既存の `remote_merge::agent::framing` から再公開する。
 - `crates/remote-merge-settings/src/lib.rs`: 標準ライブラリだけに依存する接続設定の5型と既存のDebug・Default実装。configと製品は同じ型を再公開する。
 - `crates/remote-merge-config/src/lib.rs`: 設定の読み込み・認証の解決・パースと既存89単体テスト。製品の `src/config.rs` は既存公開パスを明示的に再公開する。expand_tildeは下位のconfigに所属し、SSHから参照する。バックアップ除外に使うBACKUP_DIR_NAMEの正本もここに置き、製品の `backup` は同じ定数を再公開する。
 - `crates/remote-merge-ssh/src/`: 全SSH実装と既存132単体テスト。製品は `remote_merge::ssh::{client, batch_read, hint, host_key_verifier, passphrase_provider}` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。known_hosts・known_hosts_io・preferredはSSH crate内だけに置く。設定型はsettings、ホーム展開と既定の上限はconfig、error・filter・treeはcoreの同じ項目を使う。strict実行のinherent methodはcrate内に保ち、製品の三つの呼び出しは内部再公開した委譲関数を使う。製品のtest-utils featureはSSHの同名featureへ転送する。
+- `crates/remote-merge-agent/src/agent/`: client・Unixのserver/dispatch/file_io・tree_scan・ssh_transportと既存157単体テスト。製品は既存 `remote_merge::agent` の同じ公開パスから再公開する。通信型とframingはprotocol、filter/treeはcoreの同じ項目を使う。SSHは既存テストのparser参照だけに使うdev依存。Agentの配置処理・製品CLI_VERSION・build.rsのTARGETは製品側に残す。
 - `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
 - `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。
@@ -23,6 +24,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - settings の内部バージョンは `crates/remote-merge-settings/Cargo.toml` の `package.version`。settings は版0.1.0・`publish = false` とし、製品版とは独立に扱う。
 - ssh の内部バージョンは `crates/remote-merge-ssh/Cargo.toml` の `package.version`。ssh は版0.1.0・`publish = false` とし、製品版とは独立に扱う。
 - config の内部バージョンは `crates/remote-merge-config/Cargo.toml` の `package.version`。configは版0.1.0・`publish = false` とし、製品版とは独立に扱う。
+- agent の内部バージョンは `crates/remote-merge-agent/Cargo.toml` の `package.version`。agentは版0.1.0・`publish = false` とし、製品版とは独立に扱う。
 - 設定はグローバルの `~/.config/remote-merge/config.toml` と、プロジェクトの `.remote-merge.toml`。後者が優先し、`[filter]` は和集合でマージする。
 
 ## Commands

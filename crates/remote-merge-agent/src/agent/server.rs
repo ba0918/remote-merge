@@ -71,11 +71,11 @@ pub(crate) fn run_agent_loop(
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 // stdin 閉鎖 — 親プロセス終了パターン
-                tracing::info!("stdin closed, agent shutting down");
+                tracing::info!(target: "remote_merge::agent::server", "stdin closed, agent shutting down");
                 break;
             }
             Err(e) => {
-                tracing::error!("frame read error: {e}");
+                tracing::error!(target: "remote_merge::agent::server", "frame read error: {e}");
                 return Err(e.into());
             }
         };
@@ -83,7 +83,7 @@ pub(crate) fn run_agent_loop(
         let request = match protocol::deserialize_request(&frame) {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("deserialization error: {e}");
+                tracing::error!(target: "remote_merge::agent::server", "deserialization error: {e}");
                 let resp = AgentResponse::Error {
                     message: format!("deserialization error: {e}"),
                 };
@@ -93,20 +93,20 @@ pub(crate) fn run_agent_loop(
         };
 
         // summarize_request は String を生成するためデバッグ無効時に呼ばないようガード
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            tracing::debug!(request = %summarize_request(&request), "received request");
+        if tracing::enabled!(target: "remote_merge::agent::server", tracing::Level::DEBUG) {
+            tracing::debug!(target: "remote_merge::agent::server", request = %summarize_request(&request), "received request");
         }
 
         match dispatcher.dispatch(request) {
             Some(responses) => {
-                tracing::debug!(count = responses.len(), "sending responses");
+                tracing::debug!(target: "remote_merge::agent::server", count = responses.len(), "sending responses");
                 for response in &responses {
                     send_response(&mut writer, response)?;
                 }
             }
             None => {
                 // Shutdown
-                tracing::info!("shutdown requested");
+                tracing::info!(target: "remote_merge::agent::server", "shutdown requested");
                 break;
             }
         }

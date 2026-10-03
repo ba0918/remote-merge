@@ -237,7 +237,7 @@ pub fn apply_metadata(
         // mode の下位12ビットのみ使用（permission bits）
         let perms = fs::Permissions::from_mode(m & 0o7777);
         if let Err(e) = fs::set_permissions(canonical_path, perms) {
-            tracing::warn!("chmod failed for {}: {e}", canonical_path.display());
+            tracing::warn!(target: "remote_merge::agent::file_io", "chmod failed for {}: {e}", canonical_path.display());
         }
     }
 
@@ -252,7 +252,7 @@ pub fn apply_metadata(
 /// chown を実行する。失敗時は warn レベルでログ出力のみ。
 fn apply_chown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     let Some(c_path) = path_to_cstring(path) else {
-        tracing::warn!("chown skipped: path contains NUL byte: {}", path.display());
+        tracing::warn!(target: "remote_merge::agent::file_io", "chown skipped: path contains NUL byte: {}", path.display());
         return;
     };
     let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
@@ -261,14 +261,14 @@ fn apply_chown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     let ret = unsafe { libc::chown(c_path.as_ptr(), uid_val, gid_val) };
     if ret != 0 {
         let err = std::io::Error::last_os_error();
-        tracing::warn!("chown failed for {}: {err}", path.display());
+        tracing::warn!(target: "remote_merge::agent::file_io", "chown failed for {}: {err}", path.display());
     }
 }
 
 /// lchown を実行する（シンボリックリンク自体の所有権を変更）。失敗時は warn レベルでログ出力のみ。
 fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     let Some(c_path) = path_to_cstring(path) else {
-        tracing::warn!("lchown skipped: path contains NUL byte: {}", path.display());
+        tracing::warn!(target: "remote_merge::agent::file_io", "lchown skipped: path contains NUL byte: {}", path.display());
         return;
     };
     let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
@@ -277,7 +277,7 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     let ret = unsafe { libc::lchown(c_path.as_ptr(), uid_val, gid_val) };
     if ret != 0 {
         let err = std::io::Error::last_os_error();
-        tracing::warn!("lchown failed for {}: {err}", path.display());
+        tracing::warn!(target: "remote_merge::agent::file_io", "lchown failed for {}: {err}", path.display());
     }
 }
 
@@ -289,7 +289,7 @@ pub fn apply_dir_permissions(path: &Path, mode: Option<u32>) -> std::io::Result<
     if let Some(m) = mode {
         let perms = fs::Permissions::from_mode(m & 0o7777);
         if let Err(e) = fs::set_permissions(path, perms) {
-            tracing::debug!("chmod failed for directory {}: {e}", path.display());
+            tracing::debug!(target: "remote_merge::agent::file_io", "chmod failed for directory {}: {e}", path.display());
         }
     }
     Ok(())

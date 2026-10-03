@@ -111,7 +111,7 @@ impl<'a> ScanIterator<'a> {
             match std::fs::read_dir(&dir) {
                 Ok(rd) => self.current_read_dir = Some(rd),
                 Err(e) => {
-                    tracing::warn!("cannot read directory {}: {e}", dir.display());
+                    tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read directory {}: {e}", dir.display());
                     continue;
                 }
             }
@@ -124,7 +124,7 @@ impl<'a> ScanIterator<'a> {
             let entry = match entry_result {
                 Ok(e) => e,
                 Err(e) => {
-                    tracing::warn!("error reading directory entry: {e}");
+                    tracing::warn!(target: "remote_merge::agent::tree_scan", "error reading directory entry: {e}");
                     continue;
                 }
             };
@@ -145,7 +145,7 @@ impl<'a> ScanIterator<'a> {
         let meta = match path.symlink_metadata() {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!("cannot read metadata for {}: {e}", path.display());
+                tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read metadata for {}: {e}", path.display());
                 return false;
             }
         };
@@ -277,7 +277,7 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
     let canonical_root = match root.canonicalize() {
         Ok(p) => p,
         Err(e) => {
-            tracing::warn!("cannot canonicalize root {}: {e}", root.display());
+            tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot canonicalize root {}: {e}", root.display());
             return vec![root.to_path_buf()];
         }
     };
@@ -287,14 +287,14 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
     for path_str in include {
         // 絶対パスおよびパストラバーサルを拒否
         if Path::new(path_str).is_absolute() {
-            tracing::warn!("include: absolute path not allowed: {path_str}");
+            tracing::warn!(target: "remote_merge::agent::tree_scan", "include: absolute path not allowed: {path_str}");
             continue;
         }
         if Path::new(path_str)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            tracing::warn!("include: path traversal detected: {path_str}");
+            tracing::warn!(target: "remote_merge::agent::tree_scan", "include: path traversal detected: {path_str}");
             continue;
         }
 
@@ -303,6 +303,7 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
             Ok(canonical) => {
                 if !canonical.starts_with(&canonical_root) {
                     tracing::warn!(
+                        target: "remote_merge::agent::tree_scan",
                         "include path escapes root: {} -> {}",
                         path_str,
                         canonical.display()
@@ -314,7 +315,7 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
                 }
             }
             Err(e) => {
-                tracing::warn!("include path does not exist, skipping: {path_str} ({e})");
+                tracing::warn!(target: "remote_merge::agent::tree_scan", "include path does not exist, skipping: {path_str} ({e})");
             }
         }
     }

@@ -64,7 +64,7 @@ impl Drop for TransportGuard {
         {
             while !t.is_finished() {
                 if Instant::now() >= deadline {
-                    tracing::warn!("Bridge thread did not terminate within timeout");
+                    tracing::warn!(target: "remote_merge::agent::ssh_transport", "Bridge thread did not terminate within timeout");
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(10));
@@ -191,7 +191,7 @@ impl Drop for SshAgentTransport {
         {
             while !t.is_finished() {
                 if Instant::now() >= deadline {
-                    tracing::warn!("Bridge thread did not terminate within timeout");
+                    tracing::warn!(target: "remote_merge::agent::ssh_transport", "Bridge thread did not terminate within timeout");
                     break; // スレッドをリークするが、ハングは回避
                 }
                 std::thread::sleep(Duration::from_millis(10));
@@ -238,7 +238,7 @@ fn bridge_loop(
     handle.block_on(async move {
         loop {
             if shutdown.load(Ordering::Acquire) {
-                tracing::debug!("bridge_loop: shutdown signal received");
+                tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: shutdown signal received");
                 break;
             }
             tokio::select! {
@@ -246,7 +246,7 @@ fn bridge_loop(
                     match msg {
                         Some(ChannelMsg::Data { ref data }) => {
                             if let Err(e) = write_all_with_backpressure(&mut bridge_write, data) {
-                                tracing::warn!("bridge_loop: write to pipe failed: {e}");
+                                tracing::warn!(target: "remote_merge::agent::ssh_transport", "bridge_loop: write to pipe failed: {e}");
                                 break;
                             }
                             let _ = bridge_write.flush();
@@ -254,11 +254,11 @@ fn bridge_loop(
                         Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                             // stderr をデバッグログに出力（診断用）
                             if let Ok(text) = std::str::from_utf8(data) {
-                                tracing::debug!("bridge_loop: stderr: {text}");
+                                tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: stderr: {text}");
                             }
                         }
                         Some(ChannelMsg::Eof) | None => {
-                            tracing::debug!("bridge_loop: channel EOF");
+                            tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: channel EOF");
                             let _ = bridge_write.shutdown(std::net::Shutdown::Write);
                             break;
                         }
@@ -269,13 +269,13 @@ fn bridge_loop(
                     match data {
                         Some(bytes) => {
                             if let Err(e) = channel.data(&bytes[..]).await {
-                                tracing::warn!("bridge_loop: channel.data() failed: {e}");
+                                tracing::warn!(target: "remote_merge::agent::ssh_transport", "bridge_loop: channel.data() failed: {e}");
                                 break;
                             }
                         }
                         None => {
                             // writer-relay が終了 → stdin EOF を送信
-                            tracing::debug!("bridge_loop: write_rx closed, sending EOF");
+                            tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: write_rx closed, sending EOF");
                             let _ = channel.eof().await;
                             // 読み取り方向はまだ継続する可能性があるが、
                             // 多くのプロトコルでは EOF 後に応答が返るため続行
@@ -300,7 +300,7 @@ fn writer_relay_loop(
     let mut buf = vec![0u8; 32 * 1024];
     loop {
         if shutdown.load(Ordering::Acquire) {
-            tracing::debug!("writer_relay_loop: shutdown signal received");
+            tracing::debug!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: shutdown signal received");
             break;
         }
         let n = match bridge_read.read(&mut buf) {
@@ -313,12 +313,12 @@ fn writer_relay_loop(
                 continue;
             }
             Err(e) => {
-                tracing::warn!("writer_relay_loop: read error: {e}");
+                tracing::warn!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: read error: {e}");
                 break;
             }
         };
         if write_tx.send(buf[..n].to_vec()).is_err() {
-            tracing::warn!("writer_relay_loop: mpsc send failed (bridge closed)");
+            tracing::warn!(target: "remote_merge::agent::ssh_transport", "writer_relay_loop: mpsc send failed (bridge closed)");
             break;
         }
     }

@@ -2834,6 +2834,7 @@ dependencies = [
  "libc",
  "proptest",
  "ratatui",
+ "remote-merge-agent",
  "remote-merge-config",
  "remote-merge-core",
  "remote-merge-protocol",
@@ -2858,6 +2859,23 @@ dependencies = [
  "unicode-width",
  "walkdir",
  "zeroize",
+]
+
+[[package]]
+name = "remote-merge-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "libc",
+ "remote-merge-core",
+ "remote-merge-protocol",
+ "remote-merge-ssh",
+ "russh",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

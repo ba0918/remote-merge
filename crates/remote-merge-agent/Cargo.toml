@@ -1,0 +1,20 @@
+[package]
+name = "remote-merge-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+remote-merge-core = { path = "../remote-merge-core" }
+remote-merge-protocol = { path = "../remote-merge-protocol" }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+tracing = "0.1"
+russh = "0.57"
+tokio = { version = "1", features = ["full"] }
+libc = "0.2"
+
+[dev-dependencies]
+remote-merge-ssh = { path = "../remote-merge-ssh" }
+tempfile = "3"
