@@ -1,0 +1,76 @@
+version: 1
+entries:
+  - id: agent-deploy-extraction-independent-review
+    base: 9e6fded5efffab0d5fcb3cc5145cfcabe44adf25
+    role: reviewer
+    files:
+      - path: Cargo.lock
+        before: sha256:ee2aacdb724b186af878c18b40380596b8d4aa59699039759a8064afc8c6abc6
+        after: sha256:2d9b073d14f4755759c32e81f739fa2d28f37a34ef30ed6180207ddc9f910991
+      - path: PROJECT.md
+        before: sha256:e32e0d043581aa5a8d800135e3e38760c4b45cc8836ef223d06d9185ed68ebe1
+        after: sha256:03e65c9473626868c12ac95c6bd4315b9a1dcbb3c74f57e8f9b8039d3c4956b6
+      - path: crates/remote-merge-agent/Cargo.toml
+        before: sha256:93cdec4a359d40b48f624d7d80010da0118f22dcf919e755f0bd85f0b9ff8ef5
+        after: sha256:78688ee26918788d4faf6d9b4c806b6b6c682d5e3e190e5721cf4cc18f5862a9
+      - path: crates/remote-merge-agent/build.rs
+        before: null
+        after: sha256:5623a6b41427c9adbb1b63c67598ad71d2557c8f586c5898534472efe9193f8d
+      - path: crates/remote-merge-agent/src/agent/deploy/mod.rs
+        before: null
+        after: sha256:5c9f3e43991e19728c24568ed5a896e4dcec65ce6bd9ca9f14007701e13a8a05
+      - path: crates/remote-merge-agent/src/agent/deploy/remote_target.rs
+        before: null
+        after: sha256:beb0160c1cc923c087fca54ba369f2f644dfa3990298a7f89aa464ac4d9ab7cc
+      - path: crates/remote-merge-agent/src/agent/deploy/resolve.rs
+        before: null
+        after: sha256:9e34467ea0f6e10baf7e166a468f45312643d574cf3bfe0ca3b023187ed8d51d
+      - path: crates/remote-merge-agent/src/agent/deploy/sudo.rs
+        before: null
+        after: sha256:0b3309e46f99e9580c7d529ae49622c74e1491b0785aeb632f21883b6a5248da
+      - path: crates/remote-merge-agent/src/agent/deploy/transfer.rs
+        before: null
+        after: sha256:5de435270cedab67165e0f7145b58ad472e90ce329e17cd1551a94e6e412d9ae
+      - path: crates/remote-merge-agent/src/agent/deploy/verify.rs
+        before: null
+        after: sha256:83851075ad578400d0272d8c7cf844d27614bbcf0a985a0b74988db519580958
+      - path: crates/remote-merge-agent/src/agent/mod.rs
+        before: sha256:757a8cb335e1f5630db5996539c62a2b159eb40239d48cf10d8954f0fd94354c
+        after: sha256:820ac89e99f71b6ea0d9a2594c799c7f45d83cdf835ff39291bc492c2d3c8a5e
+      - path: crates/remote-merge-agent/src/lib.rs
+        before: sha256:1bc45cd4439894ea0dddfed3ed6bdc8f8fe73166a07e6ca4529e2646ec5333eb
+        after: sha256:7d3af04c42eb72c51280eacf8fdab149f7c00b72129962085c8218a4b4070b4f
+      - path: crates/remote-merge/src/agent/deploy/mod.rs
+        before: sha256:e5acd082330fbfa00d90542a48ac30a9aff75c584f86c40fe6ea2ca6fd4c3601
+        after: sha256:87ec8f79788aa2f2935b677518c44f1b5c276cc67ba240083d17ae237bc8fe53
+      - path: crates/remote-merge/src/agent/deploy/remote_target.rs
+        before: sha256:82d9903a6a84fc3552df84c659a8d09f10c34206e3c5cad60b47897d29cbc34c
+        after: sha256:c697b02c2071b59491623a94f5656d1956472c2de32f448ea7111dc76d35b85b
+      - path: crates/remote-merge/src/agent/deploy/resolve.rs
+        before: sha256:7993a4a778e80994d8df9c82040fe2443ea00becaf15dc1e8139bde2a611213f
+        after: null
+      - path: crates/remote-merge/src/agent/deploy/sudo.rs
+        before: sha256:0b3309e46f99e9580c7d529ae49622c74e1491b0785aeb632f21883b6a5248da
+        after: null
+      - path: crates/remote-merge/src/agent/deploy/transfer.rs
+        before: sha256:1d654d3f538d1847f031a17ffb3666370d7c0db2b0b6f91aadedbe1b484117ff
+        after: sha256:88c59d1077c54e3679ccd25cfbd278306ad13f281895f958a98106e94efa67a4
+      - path: crates/remote-merge/src/agent/deploy/verify.rs
+        before: sha256:37a561ff0d61b7eb2c0b97907d815608533b3634fd5bdbbe9aef20e868b835a7
+        after: sha256:da789086aa7413b07f5181402aba10be43d3a886b86e42e619218279a1a92ce4
+      - path: docs/decision/records/2026-10-03-agent-deploy-extraction.md
+        before: null
+        after: sha256:6a9ea85cfe1594595c89d1b8ec9c228ab205de62166357158ec223b69e3cb84d
+    ir: []
+    conclusion: new
+    reason: 固定した比較元から対象までの全差分、承認範囲と参照された実出力を独立に照合した。六つの配置実装は四つの必須版引数・元定数参照・転送引数と五つの旧target明示、test/helper配置および元の一個の区切り改行だけを戻すと元の全bytesに一致し、Git modeも同じである。sudoは全blob同一、resolveの全テストと下位root二件は元本文のままである。全3109件の収集結果はresolve22・sudo10・root2件のpackageとlib binary ownerだけを対応付けて一致し、名前・接頭辞・属性と他3075件は無変換で一致する。製品に残るtransfer40・verify27・remote_target21件の全test moduleは無変換で一致し、122配置テストの各本文を正しいownerに一度だけ保つ。移動34件と残る88件全てに実際のPASS行がある。製品公開root項目集合を元宣言と照合し、型・enum・定数・Defaultは下位の同じ項目を再公開する。四つの製品wrapperは元signatureと引数を保ち製品CLI_VERSIONを渡すだけで、uname parserの旧rootとremote_targetパスは同じ製品wrapperを使う。private resolveとresolver helperは公開しない。test-only SHA helperのdoc・cfg・本文は製品だけに同一のまま残り、SHA importだけがtest cfgになる。元CARGO_PKG_VERSIONを使うテストは製品0.2.13に留まり、protocol.rsと版macroの正本を変えない。Agent build.rsは変更のない製品scriptと全bytes同一で、current_targetのenv!(TARGET)本文も同じである。hostとmuslの実consumer出力は旧二パスと下位の型・四signature・版判定・script bytes・Default・TARGETの一致を示す。基準TARGETは元sourceとbuild scriptを複製した隔離packageでのproducer再現であり元の全CLI再実行とは区別する。三つの外部private/helper参照は意図したCargo 101のE0603とE0425として通常検査から区別した。全parsed lockはAgentのdirs辺だけを除き同一で、manifestは元SSH pathのdevから通常への移動と既存dirs 6だけを除き同一、metadataもその二辺とcustom-build targetだけを除き元package記録と一致する。依存版・featureとroot/app manifestは変更しない。元shell escape、入力検証、エラー連鎖、atomic移動・失敗時処理と直接runtime callerは変わらない。前後の通常検査は2999件、全featureと最終検査は3109件の実成功を確認し、Linux install・musl・Docker・coverageと同一version/help表示も実出力を確認した。初回fmt失敗と採取exitのないcomparator二失敗を成功と扱わない。五ログは静的照合のみで動的captureとmacOSは未検証、file・line・module_pathの維持も主張しない。全追加行の秘密鍵・credential scanは該当なくhome pathは元からの架空fixtureのみである。PROJECTと決定A1・D1〜D5はこの閉じた所属変更を説明し、新IR・要件・policy test・必須変異検査と次の抽出を追加しないと判断する。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#A1
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#D1
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#D2
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#D3
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#D4
+      - docs/decision/records/2026-10-03-agent-deploy-extraction.md#D5
+    handoff: null
+    gaps: []
