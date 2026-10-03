@@ -1,19 +1,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 
 use crate::app::Side;
-use crate::local;
-use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
-use super::side_io::{
-    check_truncation, chmod_local_file, compute_local_hashes_batch, create_local_symlink,
-    hash_results_to_map, remove_local_file, stat_local_files, wrap_nodes_in_subpath,
-};
+use super::side_io::hash_results_to_map;
 
 pub(crate) use remote_merge_engine::local_io::TargetPath;
 
@@ -121,10 +115,6 @@ impl LocalTargetIo {
             runtime.config.filter.include.clone(),
         )
     }
-
-    fn validated_path(&self, rel_path: &str) -> anyhow::Result<PathBuf> {
-        executor::validate_path_within_root(&self.root, &self.root.join(rel_path))
-    }
 }
 
 impl TargetIo for LocalTargetIo {
@@ -133,8 +123,7 @@ impl TargetIo for LocalTargetIo {
     }
 
     fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {
-        executor::read_local_file(&self.root, rel_path)
-            .with_context(|| format!("read local file: {rel_path}"))
+        remote_merge_engine::local_io::read_file(&self.root, rel_path)
     }
 
     fn read_files_batch(
@@ -142,10 +131,7 @@ impl TargetIo for LocalTargetIo {
         _: &mut CoreRuntime,
         paths: &[String],
     ) -> anyhow::Result<HashMap<String, String>> {
-        paths
-            .iter()
-            .map(|path| Ok((path.clone(), executor::read_local_file(&self.root, path)?)))
-            .collect()
+        remote_merge_engine::local_io::read_files_batch(&self.root, paths)
     }
 
     fn read_file_bytes(
@@ -154,7 +140,7 @@ impl TargetIo for LocalTargetIo {
         path: &str,
         force: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        executor::read_local_file_bytes(&self.root, path, force)
+        remote_merge_engine::local_io::read_file_bytes(&self.root, path, force)
     }
 
     fn read_files_bytes_batch(
@@ -162,20 +148,11 @@ impl TargetIo for LocalTargetIo {
         _: &mut CoreRuntime,
         paths: &[String],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        paths
-            .iter()
-            .map(|path| {
-                Ok((
-                    path.clone(),
-                    executor::read_local_file_bytes(&self.root, path, false)?,
-                ))
-            })
-            .collect()
+        remote_merge_engine::local_io::read_files_bytes_batch(&self.root, paths)
     }
 
     fn write_file(&mut self, _: &mut CoreRuntime, path: &str, content: &str) -> anyhow::Result<()> {
-        executor::write_local_file(&self.root, path, content)
-            .with_context(|| format!("write local file: {path}"))
+        remote_merge_engine::local_io::write_file(&self.root, path, content)
     }
 
     fn write_file_bytes(
@@ -184,7 +161,7 @@ impl TargetIo for LocalTargetIo {
         path: &str,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        executor::write_local_file_bytes(&self.root, path, content)
+        remote_merge_engine::local_io::write_file_bytes(&self.root, path, content)
     }
 
     fn stat_files(
@@ -192,18 +169,15 @@ impl TargetIo for LocalTargetIo {
         _: &mut CoreRuntime,
         paths: &[String],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        for path in paths {
-            self.validated_path(path)?;
-        }
-        stat_local_files(&self.root, paths)
+        remote_merge_engine::local_io::stat_files(&self.root, paths)
     }
 
     fn chmod_file(&mut self, _: &mut CoreRuntime, path: &str, mode: u32) -> anyhow::Result<()> {
-        chmod_local_file(&self.validated_path(path)?, mode)
+        remote_merge_engine::local_io::chmod_file(&self.root, path, mode)
     }
 
     fn remove_file(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
-        remove_local_file(&self.validated_path(path)?)
+        remote_merge_engine::local_io::remove_file(&self.root, path)
     }
     fn create_symlink(
         &mut self,
@@ -211,10 +185,10 @@ impl TargetIo for LocalTargetIo {
         path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
-        create_local_symlink(&self.validated_path(path)?, target)
+        remote_merge_engine::local_io::create_symlink(&self.root, path, target)
     }
     fn fetch_tree(&mut self, _: &mut CoreRuntime) -> anyhow::Result<FileTree> {
-        local::scan_local_tree(&self.root, &self.exclude)
+        remote_merge_engine::local_io::fetch_tree(&self.root, &self.exclude)
     }
 
     fn fetch_tree_recursive(
@@ -223,19 +197,13 @@ impl TargetIo for LocalTargetIo {
         max: usize,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        let (nodes, truncated) = local::scan_local_tree_recursive_with_include(
+        remote_merge_engine::local_io::fetch_tree_recursive(
             &self.root,
             &self.exclude,
             &self.include,
             max,
-        )?;
-        if truncated {
-            check_truncation(max, fail)?;
-        }
-        let mut tree = FileTree::new(&self.root);
-        tree.nodes = nodes;
-        tree.sort();
-        Ok(tree)
+            fail,
+        )
     }
 
     fn fetch_tree_for_subpath(
@@ -245,34 +213,22 @@ impl TargetIo for LocalTargetIo {
         max: usize,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        let subpath = subpath.trim_end_matches('/');
-        if std::path::Path::new(subpath).is_absolute() {
-            anyhow::bail!("absolute subpath not allowed: {}", subpath);
-        }
-        if subpath.split('/').any(|part| part == "..") {
-            anyhow::bail!("path traversal not allowed: {}", subpath);
-        }
-        let scan_root = self.root.join(subpath);
-        if !scan_root.exists() || !scan_root.is_dir() {
-            return Ok(FileTree::new(&self.root));
-        }
-        let (nodes, truncated) = local::scan_local_tree_recursive(&scan_root, &self.exclude, max)?;
-        if truncated {
-            check_truncation(max, fail)?;
-        }
-        let mut tree = FileTree::new(&self.root);
-        tree.nodes = wrap_nodes_in_subpath(subpath, nodes);
-        tree.sort();
-        Ok(tree)
+        remote_merge_engine::local_io::fetch_tree_for_subpath(
+            &self.root,
+            &self.exclude,
+            subpath,
+            max,
+            fail,
+        )
     }
 
     fn fetch_children(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<FileNode>> {
-        let nodes = local::scan_dir(&self.root.join(path), &self.exclude, path)?;
-        Ok(crate::filter::filter_children_by_include(
-            nodes,
-            path,
+        remote_merge_engine::local_io::fetch_children(
+            &self.root,
+            &self.exclude,
             &self.include,
-        ))
+            path,
+        )
     }
     fn connect(&mut self, _: &mut CoreRuntime) -> anyhow::Result<()> {
         Ok(())
@@ -282,7 +238,7 @@ impl TargetIo for LocalTargetIo {
         true
     }
     fn hashes(&mut self, _: &mut CoreRuntime, paths: &[String]) -> Option<HashMap<String, String>> {
-        Some(compute_local_hashes_batch(&self.root, paths))
+        remote_merge_engine::local_io::hashes(&self.root, paths)
     }
 }
 

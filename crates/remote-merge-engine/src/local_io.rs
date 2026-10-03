@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use remote_merge_protocol::FileHashResult;
 
+use crate::local;
 use crate::merge::executor;
-use crate::tree::FileNode;
+use crate::tree::{FileNode, FileTree};
 
 // ── truncation 判定関数 ──
 
@@ -246,6 +248,138 @@ pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<TargetP
         }),
         Err(error) => Err(error.into()),
     }
+}
+
+pub fn read_file(root: &Path, rel_path: &str) -> anyhow::Result<String> {
+    executor::read_local_file(root, rel_path)
+        .with_context(|| format!("read local file: {rel_path}"))
+}
+
+pub fn read_files_batch(root: &Path, paths: &[String]) -> anyhow::Result<HashMap<String, String>> {
+    paths
+        .iter()
+        .map(|path| Ok((path.clone(), executor::read_local_file(root, path)?)))
+        .collect()
+}
+
+pub fn read_file_bytes(root: &Path, path: &str, force: bool) -> anyhow::Result<Vec<u8>> {
+    executor::read_local_file_bytes(root, path, force)
+}
+
+pub fn read_files_bytes_batch(
+    root: &Path,
+    paths: &[String],
+) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+    paths
+        .iter()
+        .map(|path| {
+            Ok((
+                path.clone(),
+                executor::read_local_file_bytes(root, path, false)?,
+            ))
+        })
+        .collect()
+}
+
+pub fn write_file(root: &Path, path: &str, content: &str) -> anyhow::Result<()> {
+    executor::write_local_file(root, path, content)
+        .with_context(|| format!("write local file: {path}"))
+}
+
+pub fn write_file_bytes(root: &Path, path: &str, content: &[u8]) -> anyhow::Result<()> {
+    executor::write_local_file_bytes(root, path, content)
+}
+
+pub fn stat_files(
+    root: &Path,
+    paths: &[String],
+) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
+    for path in paths {
+        validated_path(root, path)?;
+    }
+    stat_local_files(root, paths)
+}
+
+pub fn chmod_file(root: &Path, path: &str, mode: u32) -> anyhow::Result<()> {
+    chmod_local_file(&validated_path(root, path)?, mode)
+}
+
+pub fn remove_file(root: &Path, path: &str) -> anyhow::Result<()> {
+    remove_local_file(&validated_path(root, path)?)
+}
+
+pub fn create_symlink(root: &Path, path: &str, target: &str) -> anyhow::Result<()> {
+    create_local_symlink(&validated_path(root, path)?, target)
+}
+
+pub fn fetch_tree(root: &Path, exclude: &[String]) -> anyhow::Result<FileTree> {
+    local::scan_local_tree(root, exclude)
+}
+
+pub fn fetch_tree_recursive(
+    root: &Path,
+    exclude: &[String],
+    include: &[String],
+    max: usize,
+    fail: bool,
+) -> anyhow::Result<FileTree> {
+    let (nodes, truncated) =
+        local::scan_local_tree_recursive_with_include(root, exclude, include, max)?;
+    if truncated {
+        check_truncation(max, fail)?;
+    }
+    let mut tree = FileTree::new(root);
+    tree.nodes = nodes;
+    tree.sort();
+    Ok(tree)
+}
+
+pub fn fetch_tree_for_subpath(
+    root: &Path,
+    exclude: &[String],
+    subpath: &str,
+    max: usize,
+    fail: bool,
+) -> anyhow::Result<FileTree> {
+    let subpath = subpath.trim_end_matches('/');
+    if std::path::Path::new(subpath).is_absolute() {
+        anyhow::bail!("absolute subpath not allowed: {}", subpath);
+    }
+    if subpath.split('/').any(|part| part == "..") {
+        anyhow::bail!("path traversal not allowed: {}", subpath);
+    }
+    let scan_root = root.join(subpath);
+    if !scan_root.exists() || !scan_root.is_dir() {
+        return Ok(FileTree::new(root));
+    }
+    let (nodes, truncated) = local::scan_local_tree_recursive(&scan_root, exclude, max)?;
+    if truncated {
+        check_truncation(max, fail)?;
+    }
+    let mut tree = FileTree::new(root);
+    tree.nodes = wrap_nodes_in_subpath(subpath, nodes);
+    tree.sort();
+    Ok(tree)
+}
+
+pub fn fetch_children(
+    root: &Path,
+    exclude: &[String],
+    include: &[String],
+    path: &str,
+) -> anyhow::Result<Vec<FileNode>> {
+    let nodes = local::scan_dir(&root.join(path), exclude, path)?;
+    Ok(crate::filter::filter_children_by_include(
+        nodes, path, include,
+    ))
+}
+
+pub fn hashes(root: &Path, paths: &[String]) -> Option<HashMap<String, String>> {
+    Some(compute_local_hashes_batch(root, paths))
+}
+
+fn validated_path(root: &Path, rel_path: &str) -> anyhow::Result<PathBuf> {
+    executor::validate_path_within_root(root, &root.join(rel_path))
 }
 
 fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {

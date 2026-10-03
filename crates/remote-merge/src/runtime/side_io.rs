@@ -16,8 +16,12 @@ use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
 use super::TuiRuntime;
 
 pub(crate) use remote_merge_engine::local_io::{
-    check_truncation, chmod_local_file, compute_local_hashes_batch, create_local_symlink,
-    hash_results_to_map, remove_local_file, stat_local_files, wrap_nodes_in_subpath,
+    check_truncation, hash_results_to_map, wrap_nodes_in_subpath,
+};
+#[cfg(test)]
+pub(crate) use remote_merge_engine::local_io::{
+    chmod_local_file, compute_local_hashes_batch, create_local_symlink, remove_local_file,
+    stat_local_files,
 };
 #[cfg(test)]
 pub(crate) use remote_merge_engine::local_io::{compute_local_file_hash, extract_hash_string};
