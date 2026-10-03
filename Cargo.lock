@@ -2834,6 +2834,7 @@ dependencies = [
  "libc",
  "proptest",
  "ratatui",
+ "remote-merge-config",
  "remote-merge-core",
  "remote-merge-protocol",
  "remote-merge-settings",
@@ -2857,6 +2858,20 @@ dependencies = [
  "unicode-width",
  "walkdir",
  "zeroize",
+]
+
+[[package]]
+name = "remote-merge-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "remote-merge-core",
+ "remote-merge-settings",
+ "serde",
+ "tempfile",
+ "toml",
+ "tracing",
 ]
 
 [[package]]

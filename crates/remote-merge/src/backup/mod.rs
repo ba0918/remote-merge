@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use crate::config::{LocalConfig, ServerConfig};
 
 /// バックアップディレクトリ名
-pub const BACKUP_DIR_NAME: &str = ".remote-merge-backup";
+pub use remote_merge_config::BACKUP_DIR_NAME;
 
 /// XDG のデータディレクトリとホームディレクトリから集約先を決める。
 pub fn backup_store_path(xdg_data_home: Option<&Path>, home_dir: Option<&Path>) -> Option<PathBuf> {
