@@ -8,11 +8,30 @@
 mod common;
 use common::*;
 
-use expectrl::process::Healthcheck;
 use expectrl::Expect;
 use std::fs;
 use std::thread;
 use std::time::Duration;
+
+fn wait_for_confirmation(env: &E2eEnv) {
+    tui_session::wait_for_state(
+        &env.temp_root().join("xdg-cache/remote-merge/state.json"),
+        "has_dialog=true, dialog_kind=confirm",
+        |state| state["has_dialog"] == true && state["dialog_kind"] == "confirm",
+    );
+}
+
+fn wait_for_cancellation(env: &E2eEnv) {
+    tui_session::wait_for_state(
+        &env.temp_root().join("xdg-cache/remote-merge/state.json"),
+        "Merge cancelled, has_dialog=false, dialog_kind=null",
+        |state| {
+            state["status_message"] == "Merge cancelled"
+                && state["has_dialog"] == false
+                && state.get("dialog_kind") == Some(&serde_json::Value::Null)
+        },
+    );
+}
 
 #[test]
 fn confirming_a_tree_merge_copies_the_loaded_source_bytes() {
@@ -66,37 +85,25 @@ fn test_merge_cancel_with_n() {
         &[("app.txt", "remote content\nCANCEL_TEST_MARKER\n")],
     );
 
-    let mut session = env.spawn_tui();
-    session.set_expect_timeout(Some(Duration::from_secs(15)));
-
-    let result = session.expect("app.txt");
-    assert!(result.is_ok(), "Should see 'app.txt': {:?}", result.err());
-    thread::sleep(Duration::from_secs(2));
-
-    session.send("R").expect("request merge");
-    thread::sleep(Duration::from_millis(200));
+    let mut session = tui_session::DrainingSession::spawn(env.tui_command(&[]));
+    session.expect("app.txt");
+    session.send("R");
+    session.expect("Merge Confirmation");
+    wait_for_confirmation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/app.txt")).unwrap(),
         "remote content\nCANCEL_TEST_MARKER\n"
     );
 
-    // "n" でキャンセル
-    session.send("n").expect("Failed to send n");
-    thread::sleep(Duration::from_millis(500));
+    session.send("n");
+    wait_for_cancellation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/app.txt")).unwrap(),
         "remote content\nCANCEL_TEST_MARKER\n"
     );
 
-    // キャンセル後もクラッシュせず TUI が生きていることを q で確認
-    session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_millis(500));
-    assert!(
-        !session.get_process().is_alive().unwrap(),
-        "cancellation must close the dialog"
-    );
-
-    eprintln!("SUCCESS: merge cancel with n works");
+    session.send("q");
+    session.expect_exit();
 }
 
 /// 同一内容のファイルで "R" を押してもマージが無視される
@@ -146,34 +153,25 @@ fn test_sensitive_file_merge_requires_confirmation() {
         &[(".env", "SECRET_KEY=remote456\n")],
     );
 
-    let mut session = env.spawn_tui();
-    session.set_expect_timeout(Some(Duration::from_secs(15)));
-
-    let result = session.expect(".env");
-    assert!(result.is_ok(), "Should see '.env': {:?}", result.err());
-    thread::sleep(Duration::from_secs(2));
-
-    session.send("R").expect("request merge");
-    thread::sleep(Duration::from_millis(200));
+    let mut session = tui_session::DrainingSession::spawn(env.tui_command(&[]));
+    session.expect(".env");
+    session.send("R");
+    session.expect("Merge Confirmation");
+    wait_for_confirmation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
         "SECRET_KEY=remote456\n"
     );
 
-    // Esc または n でキャンセル
-    session.send("n").expect("Failed to send n");
-    thread::sleep(Duration::from_millis(500));
+    session.send("n");
+    wait_for_cancellation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
         "SECRET_KEY=remote456\n"
     );
 
-    session.send("q").expect("Failed to send quit");
-    thread::sleep(Duration::from_millis(500));
-    assert!(
-        !session.get_process().is_alive().unwrap(),
-        "cancel must close the sensitive merge dialog"
-    );
+    session.send("q");
+    session.expect_exit();
 }
 
 /// diff ビューで "l" キーによるハンクマージ（左→右）

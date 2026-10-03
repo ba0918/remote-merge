@@ -17,6 +17,8 @@ use tempfile::TempDir;
 #[path = "../contract/ssh_server.rs"]
 pub(crate) mod ssh_server;
 
+pub mod tui_session;
+
 // ─── 型エイリアス ────────────────────────────────────────
 
 /// TUI E2E テスト用の Session 型エイリアス
@@ -454,6 +456,7 @@ impl E2eEnv {
         cmd.env("HOME", self._dirs.temp.path().join("home"));
         cmd.env("XDG_CONFIG_HOME", self._dirs.temp.path().join("xdg-config"));
         cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
+        cmd.env("XDG_CACHE_HOME", self._dirs.temp.path().join("xdg-cache"));
         cmd.arg("--config").arg(&self.config_path);
         cmd.arg("--log-level").arg("debug");
         cmd.args(extra_args);
