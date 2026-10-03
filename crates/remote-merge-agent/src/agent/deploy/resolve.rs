@@ -86,13 +86,14 @@ pub fn resolve_agent_binary(remote_target: &str) -> Result<ResolvedBinary> {
     match &result {
         Ok(resolved) => {
             info!(
+                target: "remote_merge::agent::deploy::resolve",
                 path = %resolved.path.display(),
                 source = ?resolved.source,
                 "Resolved agent binary"
             );
         }
         Err(e) => {
-            warn!(error = %e, "Failed to resolve agent binary");
+            warn!(target: "remote_merge::agent::deploy::resolve", error = %e, "Failed to resolve agent binary");
         }
     }
 
@@ -194,11 +195,13 @@ pub fn agent_dir_candidates(
         let p = Path::new(env_dir);
         if !p.is_absolute() {
             warn!(
+                target: "remote_merge::agent::deploy::resolve",
                 path = env_dir,
                 "REMOTE_MERGE_AGENT_DIR is a relative path, ignoring"
             );
         } else if p.components().any(|c| c == Component::ParentDir) {
             warn!(
+                target: "remote_merge::agent::deploy::resolve",
                 path = env_dir,
                 "REMOTE_MERGE_AGENT_DIR contains '..', ignoring"
             );
@@ -250,6 +253,7 @@ pub fn validate_agent_binary(path: &Path) -> Result<()> {
 
     if size_mb > 20.0 {
         warn!(
+            target: "remote_merge::agent::deploy::resolve",
             path = %path.display(),
             size_mb = format!("{size_mb:.1}"),
             "Agent binary is {size_mb:.1}MB — this might be a debug build"

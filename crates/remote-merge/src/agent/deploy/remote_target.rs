@@ -1,51 +1,7 @@
-use anyhow::{bail, Result};
-
-// サポート対象のターゲットトリプル
-pub const TARGET_LINUX_X86_64_MUSL: &str = "x86_64-unknown-linux-musl";
-pub const TARGET_LINUX_AARCH64_MUSL: &str = "aarch64-unknown-linux-musl";
-pub const TARGET_DARWIN_X86_64: &str = "x86_64-apple-darwin";
-pub const TARGET_DARWIN_AARCH64: &str = "aarch64-apple-darwin";
-
-/// `uname -s && uname -m` の出力をパースしてターゲットトリプルを返す。
-///
-/// 入力は2行: 1行目が OS (Linux/Darwin)、2行目がアーキテクチャ (x86_64/aarch64/arm64)。
-/// macOS の `arm64` は `aarch64` に正規化される。
-pub fn parse_remote_target(output: &str) -> Result<&'static str> {
-    let mut lines = output.trim().lines();
-
-    let os = lines
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Empty uname output"))?
-        .trim();
-    let arch = lines
-        .next()
-        .ok_or_else(|| {
-            anyhow::anyhow!("Incomplete uname output: expected 2 lines (OS and architecture)")
-        })?
-        .trim();
-
-    match (os, arch) {
-        ("Linux", "x86_64") => Ok(TARGET_LINUX_X86_64_MUSL),
-        ("Linux", "aarch64") => Ok(TARGET_LINUX_AARCH64_MUSL),
-        ("Darwin", "x86_64") => Ok(TARGET_DARWIN_X86_64),
-        // macOS は arm64 を返すが、Rust ターゲットでは aarch64
-        ("Darwin", "arm64") | ("Darwin", "aarch64") => Ok(TARGET_DARWIN_AARCH64),
-        _ => bail!(
-            "Unsupported remote target: OS={os:?}, arch={arch:?}. \
-             Supported targets: Linux (x86_64, aarch64), macOS (x86_64, arm64)"
-        ),
-    }
-}
-
-/// ビルド時のターゲットトリプルを返す（build.rs で設定される）。
-pub fn current_target() -> &'static str {
-    env!("TARGET")
-}
-
-/// リモートの OS/arch を検出するための SSH コマンドを返す。
-pub fn detect_remote_target_command() -> &'static str {
-    "uname -s && uname -m"
-}
+pub use remote_merge_agent::agent::deploy::remote_target::{
+    current_target, detect_remote_target_command, parse_remote_target, TARGET_DARWIN_AARCH64,
+    TARGET_DARWIN_X86_64, TARGET_LINUX_AARCH64_MUSL, TARGET_LINUX_X86_64_MUSL,
+};
 
 /// uname + version check の統合出力をパースする。
 ///
@@ -65,36 +21,10 @@ pub fn detect_remote_target_command() -> &'static str {
 pub fn parse_uname_and_version(
     output: &str,
 ) -> (Option<anyhow::Result<&'static str>>, super::VersionCheck) {
-    use super::verify::parse_version_output;
-
-    let lines: Vec<&str> = output.lines().collect();
-
-    match lines.len() {
-        0 => {
-            // 両方失敗
-            (None, super::VersionCheck::NotFound)
-        }
-        1 => {
-            // uname 失敗、version output のみ
-            let version_check = parse_version_output(lines[0]);
-            (None, version_check)
-        }
-        _ => {
-            // 2行以上: 先頭2行が uname、残りが version output
-            let uname_output = format!("{}\n{}", lines[0], lines[1]);
-            let target_result = parse_remote_target(&uname_output);
-
-            // version 部分は3行目以降を結合
-            let version_part = if lines.len() >= 3 {
-                lines[2..].join("\n")
-            } else {
-                String::new()
-            };
-            let version_check = parse_version_output(&version_part);
-
-            (Some(target_result), version_check)
-        }
-    }
+    remote_merge_agent::agent::deploy::remote_target::parse_uname_and_version(
+        output,
+        crate::agent::protocol::CLI_VERSION,
+    )
 }
 
 #[cfg(test)]

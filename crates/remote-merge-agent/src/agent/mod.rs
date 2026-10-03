@@ -1,4 +1,5 @@
 pub mod client;
+pub mod deploy;
 #[cfg(unix)]
 pub mod dispatch;
 #[cfg(unix)]
