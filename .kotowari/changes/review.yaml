@@ -1,0 +1,93 @@
+version: 1
+entries:
+  - id: engine-service-types-independent-review
+    base: 32db611ad1485f3e6b5bacdd7305daed2e8b9ce4
+    role: reviewer
+    files:
+      - path: Cargo.lock
+        before: sha256:b292ec6ae0fb430f17c3018b3d461cac2622659a0e4f78441a3534440007ab51
+        after: sha256:37e896146290d709b107981bdf5185daecbad0ac1b5d0c8b8e96b467e3be29c0
+      - path: PROJECT.md
+        before: sha256:a9344162fc72a78d0dead0b1edcdc01cce18e7c8b30b0fb5607e04871812d393
+        after: sha256:33adfd0c73bf3399719a6ae69a9dc057a5ef0416f40f16282c80342c8c6e640e
+      - path: crates/remote-merge-engine/Cargo.toml
+        before: sha256:3b6e25ae6766f116a17222585303a8a415f826f08d1350859610ed7a05e9b43f
+        after: sha256:e6515dee3bac74c79b091695d3ebaa77d953682893c3789f0979ea9201d1233b
+      - path: crates/remote-merge-engine/src/lib.rs
+        before: sha256:08146146754e8d1061e562f776edc73f79b3790f0b2e47ec7e9dbb270b692384
+        after: sha256:42663ae071552d88773a65a4696e5b6f6df57f05790196de17170527593db5b3
+      - path: crates/remote-merge-engine/src/service/diff.rs
+        before: null
+        after: sha256:2b8fac20bfead188dadb9e0e048ca10af0842018de26de168ba92c0b433e9676
+      - path: crates/remote-merge-engine/src/service/fast_path.rs
+        before: null
+        after: sha256:30865ae41835e78c7d033c5185e038a16531609f1c2a95a973dbc6077cbbf6b8
+      - path: crates/remote-merge-engine/src/service/max_files.rs
+        before: null
+        after: sha256:74fa5dbf21bb514b71ffa453489d6dec72995269533778f79f444578204f13b3
+      - path: crates/remote-merge-engine/src/service/mod.rs
+        before: null
+        after: sha256:55040c2955003de66ccce56bc499e1f3863ed3dadce3db4919c4f16e6d7848b7
+      - path: crates/remote-merge-engine/src/service/path_resolver.rs
+        before: null
+        after: sha256:ff90f4201a2014097b2d442b29940a31954f144d4173df13bb6c8b131e21a7f0
+      - path: crates/remote-merge-engine/src/service/types.rs
+        before: null
+        after: sha256:948c958481dc25987223fd7740a8fb0921a8b93a3de430c988489e819ea42922
+      - path: crates/remote-merge-engine/src/side.rs
+        before: null
+        after: sha256:21996b4e79802603dbaf9c99a8183d87520a86adedee1bb1b2f06ad569a6dbfc
+      - path: crates/remote-merge/src/app/side.rs
+        before: sha256:21996b4e79802603dbaf9c99a8183d87520a86adedee1bb1b2f06ad569a6dbfc
+        after: sha256:4c64c98f07edd2fea724efb0dcedc5c5a156c209aa7bfac3b30c8dcee080d99c
+      - path: crates/remote-merge/src/service/diff.rs
+        before: sha256:2b8fac20bfead188dadb9e0e048ca10af0842018de26de168ba92c0b433e9676
+        after: sha256:18af92f3efb4a37f15f7496b862471e4ecdd1ba3698e46f142ba4e93745841bc
+      - path: crates/remote-merge/src/service/fast_path.rs
+        before: sha256:30865ae41835e78c7d033c5185e038a16531609f1c2a95a973dbc6077cbbf6b8
+        after: sha256:770bde290fa53b6de841fd06c1c6e3a380749ec85cde8dbd10e9c4e7523fd4b8
+      - path: crates/remote-merge/src/service/max_files.rs
+        before: sha256:74fa5dbf21bb514b71ffa453489d6dec72995269533778f79f444578204f13b3
+        after: sha256:2a6ea6594eb08b6666096b0aba50e77f27b4d27340cc6ab15792bd3e9b72ba5c
+      - path: crates/remote-merge/src/service/path_resolver.rs
+        before: sha256:ff90f4201a2014097b2d442b29940a31954f144d4173df13bb6c8b131e21a7f0
+        after: sha256:2f835b023f32b00ca0eb7cf1e1f362c561565d1b56495c30c880ea0bf8400229
+      - path: crates/remote-merge/src/service/types.rs
+        before: sha256:948c958481dc25987223fd7740a8fb0921a8b93a3de430c988489e819ea42922
+        after: sha256:5264560f8f3f0405db0044a2c3535f7c0c192fab696761488da3162adee8d787
+      - path: docs/decision/records/2026-10-03-engine-service-types-extraction.md
+        before: null
+        after: sha256:407bcbc017e32baa9ad584d4f7ab84deb86fe86fa55327dc1ee0b2fd78c26462
+    ir: []
+    conclusion: new
+    reason: >-
+      固定baseから対象までの全code・document差分と参照された実出力を独立に照合した。
+      共有Sideとserviceの五ファイルは全bytes・Git modeが元の六ファイルと無変換で一致し、private helpers・公開項目・inherent methods・serde属性・test本文と期待値を変えない。
+      製品の六facadeは各canonical moduleのglob再公開一行だけで、appとserviceのmodule宣言と消費側は不変である。
+      Sideのinherent実装はengineのside一か所にありstdだけを使い、engineにapp namespaceや上向き依存を足さない。
+      DTOのConflictRegionと算法のdiff・treeは既存core別名に解決され、外部private helper橋渡しやrestricted visibility変更を必要としない。
+      全3109件の実収集データと属性は152ownerとSide15件の接頭辞だけを対応させて一致する。
+      内訳はSide15・types30・max_files10・path_resolver39・fast_path27・diff31で、残る137移動名と他2957identityは不変、製品lib1543・engine233である。
+      移動152件の実PASSを確認し、狭い2917件は収集証拠だけで追加実行とは扱わない。
+      実consumerのcompile・runは旧appの両Sideパス、全33DTO、算法の公開型、core ConflictRegionとDTO fieldのnominal同一性および列挙された旧関数署名を確認する。
+      既存StatusOutput fixtureの省略filesとmodified数のassertionを実serdeで確認し旧新JSONが一致する。残るserde表現は無変更の本文と既存30typesテストで確認し、新JSON規約を作らない。
+      全parsed manifest・lockはengineのserde通常依存とserde_json dev依存の二辺だけを除くと一致し、metadata全体も同じ二宣言だけを除いて一致する。
+      元製品のderive feature・版指定を採用し、既存外部checksum・版・feature・他package辺、八member・製品0.2.13・protocol v4と変異mappingを変えない。
+      全差分のcredential・home path一致は元の架空fixtureだけで秘密鍵・unsafe・process起動の追加はなく、直接CLI callerのpath検証と機密maskの利用は同じ実装を通る。
+      保存されたcommandとexitを照合し、前後の通常2999件と全feature3109件、Clippy、Linux install・musl・Dockerと同一version/help表示の実成功を確認した。
+      Coverage TOTALはregion81377・未到達7685、function4674・未到達294、line49192・未到達4758で前後一致するが全出力bytesやper-file一致とは扱わない。
+      最終通常nextestのexit100は2232成功・一件失敗・876未実行であり、変更のないPTY testがq送信後500msで生存していた失敗を残す。
+      exact testのj1は一件成功・五件skip、j2全suiteと後続の通常設定二commit hookは3109成功である。さらに親の通常nextest実出力も3109成功・skipなしと確認したが以前の失敗を消さない。
+      並行度によるscheduling感度は仮説だけで原因証明やbug修復ではなく、成功のためのsource/test変更もない。
+      六移動sourceにログsiteはなく動的captureは行っていない。source-location metadataの同一性とmacOSの成功は未検証である。
+      PROJECTと決定A1・D1〜D5は閉じた共有型と純粋算法の所属変更に対応し、実行処理・I/O・残るengine抽出・IR・policy test・新oracleを追加しないと判断する。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#A1
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#D1
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#D2
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#D3
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#D4
+      - docs/decision/records/2026-10-03-engine-service-types-extraction.md#D5
+    handoff: null
+    gaps: []
