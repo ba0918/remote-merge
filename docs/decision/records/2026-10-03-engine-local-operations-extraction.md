@@ -27,6 +27,10 @@ engineのlocal_ioは既存helperとパス検査を持つ。
 - D4 比較元をe759c6d610f0ecd4fb473241e61f38f3579ec5e6に固定し、既存の順序付き検査・配布比較・producer parityを実行する。実装者はimplementation.yamlのみを書き、別担当がreview.yamlと独立検査を行う。変異実行は行わない。
   - why: 元producerの再現を全旧CLI実行や独立受け入れと混同せず、同じ変更bytesをbranch全体の記録に結び付ける。親担当は同一draftで全3109件・retryなしの実測passを、三回のquiet admissionと一時的なCPUWeight=100/Nice=0/MemoryMax=40%/Swap=0の条件付き最終検査として採用した。これは原因判定・timing不変・flakiness修正ではなく、以前の失敗は残す。commit hookは変更しない元runnerのidle/Nice=19で実行する。
   - decided_by: caller（確定した検査・記録・役割境界）
+  - superseded_by: [D6の新しい照合基準](#D6)
+- D6 親担当が別途承認し独立検査済みのTUI test-method修正をmainから通常mergeで取り込み、今回の再照合元をb492bcf52f94c4d375a3eb46437d83a31e920dfdとする。元の抽出比較元と失敗履歴は保持し、四抽出sourceは元の承認済みHEADと同じbytes、五harness sourceはmainと同じbytesに保つ。旧記録だけを退役して全3111 identityで新しい実装記録と独立レビューを結び直す。
+  - why: 別途承認されたテスト観測方法の修正を抽出の変更範囲に混ぜず、旧3109 identityと追加済み二utilityテストの合成を実測する。以前の失敗の原因・timing不変や無制限出力の保証は新たに主張しない。
+  - decided_by: caller（独立検査済みmainとの合流と固定baseの再照合を許可）
 - D5 hunk・handler・rollback request ruleは今回対象外とする。D2の追加import範囲以外の他runtime、side_io、他engine/crate、manifest/lock、IR/contracts、README/scripts/hooks/CIは変更しない。
   - why: 十五操作の所属変更に別のpolicyや構成の判断を広げない。
   - decided_by: caller（閉じた変更範囲）

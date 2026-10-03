@@ -3,6 +3,7 @@
 /tests/container-e2e/target/
 
 # Agents
+.agents/worktrees/
 .agents/artifacts
 .agents/runtime
 .agents/tmp
