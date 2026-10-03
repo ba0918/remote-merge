@@ -156,6 +156,7 @@ impl SshClient {
                 .await?;
 
                 tracing::info!(
+                    target: "remote_merge::ssh::client",
                     "SSH connection established: {}@{}",
                     server_config.user,
                     server_config.host
@@ -286,6 +287,7 @@ impl SshClient {
         .await?;
 
         tracing::info!(
+            target: "remote_merge::ssh::client",
             "SSH connection established (after TOFU): {}@{}",
             server_config.user,
             server_config.host
@@ -378,6 +380,7 @@ impl SshClient {
 
                 if source == PasswordSource::Config {
                     tracing::warn!(
+                        target: "remote_merge::ssh::client",
                         "Server '{}': using plaintext password from config. \
                          Key authentication is recommended.",
                         server_name
@@ -443,6 +446,7 @@ impl SshClient {
             Ok(ch) => Ok(ch),
             Err(e) => {
                 tracing::warn!(
+                    target: "remote_merge::ssh::client",
                     "SSH channel open failed (retrying): server={}, error={}",
                     self.server_name,
                     e
@@ -450,6 +454,7 @@ impl SshClient {
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 self.open_channel_with_timeout().await.map_err(|e2| {
                     tracing::error!(
+                        target: "remote_merge::ssh::client",
                         "SSH channel open failed (retry failed): server={}, error={}",
                         self.server_name,
                         e2
@@ -470,6 +475,7 @@ impl SshClient {
         if let Some(code) = result.exit_code {
             if code != 0 {
                 tracing::debug!(
+                    target: "remote_merge::ssh::client",
                     "Remote command exited with non-zero: cmd='{}', code={}",
                     command,
                     code
@@ -490,6 +496,7 @@ impl SshClient {
         if let Some(code) = result.exit_code {
             if code != 0 {
                 tracing::debug!(
+                    target: "remote_merge::ssh::client",
                     "Remote command (bytes) exited with non-zero: cmd='{}', code={}",
                     command,
                     code
@@ -514,6 +521,7 @@ impl SshClient {
 
         channel.exec(true, command).await.map_err(|e| {
             tracing::debug!(
+                target: "remote_merge::ssh::client",
                 "SSH exec failed for agent channel: cmd={}, error={}",
                 command,
                 e
@@ -582,7 +590,7 @@ impl SshClient {
             }
             if nodes.len() >= max_entries {
                 truncated = true;
-                tracing::warn!("Entry count reached limit {}: {}", max_entries, remote_path);
+                tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
                 break;
             }
             if let Some(node) = parse_find_line(line, remote_path, exclude) {
@@ -649,6 +657,7 @@ impl SshClient {
             if flat_nodes.len() >= max_entries {
                 truncated = true;
                 tracing::warn!(
+                    target: "remote_merge::ssh::client",
                     "Recursive scan: entry count reached limit {}: {}",
                     max_entries,
                     remote_path
@@ -890,7 +899,7 @@ impl SshClient {
         )
         .await?;
 
-        tracing::info!("Remote file write completed: {}", remote_path);
+        tracing::info!(target: "remote_merge::ssh::client", "Remote file write completed: {}", remote_path);
         Ok(())
     }
 
@@ -947,7 +956,7 @@ impl SshClient {
         )
         .await?;
 
-        tracing::info!("Remote file write (bytes) completed: {}", remote_path);
+        tracing::info!(target: "remote_merge::ssh::client", "Remote file write (bytes) completed: {}", remote_path);
         Ok(())
     }
 
@@ -1092,7 +1101,7 @@ fn load_secret_key_with_passphrase(
                 .into());
             }
 
-            tracing::debug!("Key '{}' appears to be passphrase-protected", expanded_path);
+            tracing::debug!(target: "remote_merge::ssh::client", "Key '{}' appears to be passphrase-protected", expanded_path);
         }
     }
 
@@ -1104,6 +1113,7 @@ fn load_secret_key_with_passphrase(
             Ok(key) => return Ok(key),
             Err(_) => {
                 tracing::warn!(
+                    target: "remote_merge::ssh::client",
                     "Passphrase from {} is incorrect for '{}'",
                     env_key,
                     expanded_path
@@ -1126,6 +1136,7 @@ fn load_secret_key_with_passphrase(
                 Err(_) => {
                     if attempt < MAX_PASSPHRASE_RETRIES {
                         tracing::debug!(
+                            target: "remote_merge::ssh::client",
                             "Passphrase attempt {}/{} failed for '{}'",
                             attempt,
                             MAX_PASSPHRASE_RETRIES,
@@ -1145,7 +1156,7 @@ fn load_secret_key_with_passphrase(
             },
             None => {
                 // プロバイダが None を返した（ユーザーがキャンセル等）
-                tracing::debug!("Passphrase provider returned None for '{}'", expanded_path);
+                tracing::debug!(target: "remote_merge::ssh::client", "Passphrase provider returned None for '{}'", expanded_path);
                 break;
             }
         }

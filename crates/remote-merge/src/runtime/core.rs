@@ -448,7 +448,10 @@ impl CoreRuntime {
         // sudo NOPASSWD チェック
         let sudo_cmd = deploy::build_sudo_check_command();
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        if let Err(_e) = self.rt.block_on(ssh_client.exec_strict(sudo_cmd)) {
+        if let Err(_e) = self
+            .rt
+            .block_on(crate::ssh::exec_strict(ssh_client, sudo_cmd))
+        {
             anyhow::bail!(
                 "sudo requires NOPASSWD to be configured for user '{}' on {}. \
                  Add to /etc/sudoers: {} ALL=(ALL) NOPASSWD: ALL",
@@ -548,7 +551,7 @@ impl CoreRuntime {
             deploy::build_post_write_script(remote_path, &tmp_path, &local_hash, sudo)?;
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         self.rt
-            .block_on(ssh_client.exec_strict(&post_script))
+            .block_on(crate::ssh::exec_strict(ssh_client, &post_script))
             .map_err(|e| {
                 anyhow::anyhow!(
                     "Agent deploy post-write script failed: server={}, path={}, error={}",

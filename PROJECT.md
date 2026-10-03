@@ -12,8 +12,8 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - `crates/remote-merge-protocol/src/lib.rs`: Agentの通信型・シリアライズ・ハンドシェイクとその単体テスト。製品は `remote_merge::agent::protocol` から同じ型・定数・関数を再公開する。
 - `crates/remote-merge-protocol/src/framing.rs`: 長さプレフィクス付きフレームの読み書きとその単体テスト。製品は既存の `remote_merge::agent::framing` から再公開する。
 - `crates/remote-merge-settings/src/lib.rs`: 標準ライブラリだけに依存する接続設定の5型と既存のDebug・Default実装。configと製品は同じ型を再公開する。
-- `crates/remote-merge-config/src/lib.rs`: 設定の読み込み・認証の解決・パースと既存89単体テスト。製品の `src/config.rs` は既存公開パスを明示的に再公開し、expand_tildeは製品crate内だけに保つ。バックアップ除外に使うBACKUP_DIR_NAMEの正本もここに置き、製品の `backup` は同じ定数を再公開する。
-- `crates/remote-merge-ssh/src/`: tree_parser・batch_read・hint・host_key_verifier・passphrase_providerとその単体テスト。製品は `remote_merge::ssh::{batch_read, hint, host_key_verifier, passphrase_provider}` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。ホストキーポリシーにはsettingsの同じ型を使う。接続・known_hosts・preferredなど残るSSH処理は製品の `src/ssh/` に置く。
+- `crates/remote-merge-config/src/lib.rs`: 設定の読み込み・認証の解決・パースと既存89単体テスト。製品の `src/config.rs` は既存公開パスを明示的に再公開する。expand_tildeは下位のconfigに所属し、SSHから参照する。バックアップ除外に使うBACKUP_DIR_NAMEの正本もここに置き、製品の `backup` は同じ定数を再公開する。
+- `crates/remote-merge-ssh/src/`: 全SSH実装と既存132単体テスト。製品は `remote_merge::ssh::{client, batch_read, hint, host_key_verifier, passphrase_provider}` を公開のまま再公開し、`ssh::tree_parser` は製品crate内だけの再公開を保つ。known_hosts・known_hosts_io・preferredはSSH crate内だけに置く。設定型はsettings、ホーム展開と既定の上限はconfig、error・filter・treeはcoreの同じ項目を使う。strict実行のinherent methodはcrate内に保ち、製品の三つの呼び出しは内部再公開した委譲関数を使う。製品のtest-utils featureはSSHの同名featureへ転送する。
 - `crates/remote-merge/src/app/`: TUI の状態とロジック。`crates/remote-merge/src/handler/` と `crates/remote-merge/src/ui/`: 入力処理と描画。
 - `crates/remote-merge/src/cli/` と `crates/remote-merge/src/service/`: CLI と共通処理。`crates/remote-merge/src/runtime/`: TUI の実行時処理。`crates/remote-merge/src/ssh/` と `crates/remote-merge/src/agent/`: リモート接続と転送。
 - 通常テストは `crates/remote-merge/tests/`。Docker E2E は `tests/container-e2e/` の独立ワークスペースに残す。proptest の失敗入力はルートの `proptest-regressions/` に保存する。

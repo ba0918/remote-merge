@@ -52,7 +52,7 @@ fn resolve_kex_names(user_list: &[String]) -> Option<Vec<kex::Name>> {
         .iter()
         .filter_map(|s| {
             kex::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(algorithm = %s, "Unknown kex algorithm in config, ignoring");
+                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown kex algorithm in config, ignoring");
                 None
             })
         })
@@ -81,7 +81,7 @@ fn resolve_cipher_names(user_list: &[String]) -> Option<Vec<cipher::Name>> {
         .iter()
         .filter_map(|s| {
             cipher::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(algorithm = %s, "Unknown cipher algorithm in config, ignoring");
+                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown cipher algorithm in config, ignoring");
                 None
             })
         })
@@ -109,7 +109,7 @@ fn resolve_mac_names(user_list: &[String]) -> Option<Vec<mac::Name>> {
         .iter()
         .filter_map(|s| {
             mac::Name::try_from(s.as_str()).ok().or_else(|| {
-                warn!(algorithm = %s, "Unknown MAC algorithm in config, ignoring");
+                warn!(target: "remote_merge::ssh::preferred", algorithm = %s, "Unknown MAC algorithm in config, ignoring");
                 None
             })
         })

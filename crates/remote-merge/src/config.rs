@@ -7,5 +7,3 @@ pub use remote_merge_config::{
     StrictHostKeyChecking, DEFAULT_BADGE_SCAN_MAX_FILES, DEFAULT_MAX_DIR_ENTRIES,
     DEFAULT_MAX_SCAN_ENTRIES,
 };
-
-pub(crate) use remote_merge_config::expand_tilde;

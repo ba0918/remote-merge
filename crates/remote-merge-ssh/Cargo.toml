@@ -5,12 +5,24 @@ edition = "2021"
 publish = false
 
 [dependencies]
+remote-merge-config = { path = "../remote-merge-config" }
+anyhow = "1"
+russh = "0.57"
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+dirs = "6"
 remote-merge-settings = { path = "../remote-merge-settings" }
 rpassword = "7"
 zeroize = "1"
 remote-merge-core = { path = "../remote-merge-core" }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
+
+[features]
+test-utils = []
 
 [dev-dependencies]
 serial_test = "3"

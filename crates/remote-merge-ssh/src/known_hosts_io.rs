@@ -15,13 +15,14 @@ pub(crate) fn format_fingerprint(public_key: &russh::keys::PublicKey) -> String 
     let openssh_str = match public_key.to_openssh() {
         Ok(s) => s,
         Err(e) => {
-            tracing::warn!("Failed to serialize public key to OpenSSH format: {}", e);
+            tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to serialize public key to OpenSSH format: {}", e);
             return "SHA256:<unknown>".to_string();
         }
     };
     let parts: Vec<&str> = openssh_str.splitn(2, ' ').collect();
     if parts.len() < 2 {
         tracing::warn!(
+            target: "remote_merge::ssh::known_hosts_io",
             "Invalid public key format (expected 'type base64'): {}",
             openssh_str
         );
@@ -30,7 +31,7 @@ pub(crate) fn format_fingerprint(public_key: &russh::keys::PublicKey) -> String 
     let key_bytes = match BASE64.decode(parts[1]) {
         Ok(b) => b,
         Err(e) => {
-            tracing::warn!("Failed to decode public key base64: {}", e);
+            tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to decode public key base64: {}", e);
             return "SHA256:<unknown>".to_string();
         }
     };
@@ -56,7 +57,7 @@ pub(crate) fn read_known_hosts() -> Option<String> {
 /// known_hosts ファイルにエントリを追加する
 pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, key_base64: &str) {
     let Some(path) = known_hosts_path() else {
-        tracing::warn!("Failed to get known_hosts path");
+        tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to get known_hosts path");
         return;
     };
 
@@ -64,7 +65,7 @@ pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, ke
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                tracing::warn!("Failed to create ~/.ssh directory: {}", e);
+                tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to create ~/.ssh directory: {}", e);
                 return;
             }
             #[cfg(unix)]
@@ -85,7 +86,7 @@ pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, ke
         .and_then(|mut f| f.write_all(line.as_bytes()));
 
     if let Err(e) = result {
-        tracing::warn!("Failed to write to known_hosts: {}", e);
+        tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to write to known_hosts: {}", e);
         return;
     }
 
@@ -95,7 +96,7 @@ pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, ke
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
 
-    tracing::info!("Added new host key to known_hosts: {}", host_entry);
+    tracing::info!(target: "remote_merge::ssh::known_hosts_io", "Added new host key to known_hosts: {}", host_entry);
 }
 
 #[cfg(test)]

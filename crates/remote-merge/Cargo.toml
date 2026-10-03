@@ -41,7 +41,7 @@ zeroize = "1"
 
 [features]
 ## テスト用ユーティリティを公開する（インテグレーションテスト向け）
-test-utils = []
+test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
 tempfile = "3"

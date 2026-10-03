@@ -51,7 +51,7 @@ impl client::Handler for SshHandler {
         server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, Self::Error> {
         if self.skip_host_key_check {
-            tracing::debug!("Skipping known_hosts check: {}", self.host);
+            tracing::debug!(target: "remote_merge::ssh::known_hosts", "Skipping known_hosts check: {}", self.host);
             return Ok(true);
         }
 
@@ -93,7 +93,7 @@ impl client::Handler for SshHandler {
 
             if kh.key_type == server_key_type {
                 if kh.key_base64 == server_key_base64 {
-                    tracing::debug!("known_hosts: host key matched: {}", self.host);
+                    tracing::debug!(target: "remote_merge::ssh::known_hosts", "known_hosts: host key matched: {}", self.host);
                     return Ok(true);
                 } else {
                     return Err(anyhow::anyhow!(
@@ -155,6 +155,7 @@ impl SshHandler {
             // 送信失敗（receiver が drop 済み）は無視して false を返す
             let _ = sender.send(info);
             tracing::debug!(
+                target: "remote_merge::ssh::known_hosts",
                 "Unknown host info sent via channel, rejecting connection: {}",
                 self.host
             );
@@ -162,6 +163,7 @@ impl SshHandler {
         } else {
             // sender がない = 旧来の自動承認モード
             tracing::info!(
+                target: "remote_merge::ssh::known_hosts",
                 "known_hosts: unknown host. TOFU: adding host key: {}",
                 self.host
             );

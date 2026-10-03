@@ -27,7 +27,9 @@ impl CoreRuntime {
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
-        let output = self.rt.block_on(client.exec_strict(&command))?;
+        let output = self
+            .rt
+            .block_on(crate::ssh::exec_strict(client, &command))?;
         super::remote_path::parse_inspect_path_output(&output)
     }
 
