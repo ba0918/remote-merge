@@ -467,6 +467,15 @@ impl E2eEnv {
         self._dirs.temp.path()
     }
 
+    pub fn tui_state_path(&self) -> PathBuf {
+        let cache_dir = if cfg!(any(target_os = "macos", target_os = "ios")) {
+            self._dirs.temp.path().join("home/Library/Caches")
+        } else {
+            self._dirs.temp.path().join("xdg-cache")
+        };
+        cache_dir.join("remote-merge/state.json")
+    }
+
     /// TUI をデフォルト引数で起動する。
     pub fn spawn_tui(&self) -> TuiSession {
         self.spawn_tui_with_args(&[])

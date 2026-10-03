@@ -15,7 +15,7 @@ use std::time::Duration;
 
 fn wait_for_confirmation(env: &E2eEnv) {
     tui_session::wait_for_state(
-        &env.temp_root().join("xdg-cache/remote-merge/state.json"),
+        &env.tui_state_path(),
         "has_dialog=true, dialog_kind=confirm",
         |state| state["has_dialog"] == true && state["dialog_kind"] == "confirm",
     );
@@ -23,7 +23,7 @@ fn wait_for_confirmation(env: &E2eEnv) {
 
 fn wait_for_cancellation(env: &E2eEnv) {
     tui_session::wait_for_state(
-        &env.temp_root().join("xdg-cache/remote-merge/state.json"),
+        &env.tui_state_path(),
         "Merge cancelled, has_dialog=false, dialog_kind=null",
         |state| {
             state["status_message"] == "Merge cancelled"
