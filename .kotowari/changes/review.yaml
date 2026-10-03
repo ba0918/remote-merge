@@ -1,0 +1,172 @@
+version: 1
+entries:
+  - id: engine-local-operations-reconciled-independent-conformance
+    base: b492bcf52f94c4d375a3eb46437d83a31e920dfd
+    role: reviewer
+    files:
+      - path: PROJECT.md
+        before: sha256:a522a201ea52489eba2632d87dc113f9448b583d92845650fc1360ac7b67868d
+        after: sha256:e8ad24d5698aaf39bed742ba83564faa1c3ba1b00bd2d8780035676685b30efd
+      - path: crates/remote-merge-engine/src/local_io.rs
+        before: sha256:0fa31b7f65511ba1b4c115c212a1b4244fb9627dfd7faa028af551b14726b894
+        after: sha256:07a46d197a5adcb5750150bf48a97d5467d68b8b67b2dc314d7399c6ffdb41e6
+      - path: crates/remote-merge/src/merge/executor.rs
+        before: sha256:846b6de7e66d4b0f340c6aa371469aeafb8e94e810cb28e807f38b428ba4701b
+        after: sha256:9e7aff6eebac24fba0958be74cec22efd25b7a1f49179b01eb541a4fff200c3c
+      - path: crates/remote-merge/src/runtime/side_io.rs
+        before: sha256:6dd289fae89646c09b04dfd43d5d64f8fb9b766187d5b239877f0c49b3c8c6b8
+        after: sha256:55d288ad2ace9a2ae383a258670f58022cae498d3a823738124048f292900706
+      - path: crates/remote-merge/src/runtime/target_io.rs
+        before: sha256:e60381a14dde0f4f774723822d170ee02f42e30ba0ea05e8701ad8d3418b7a7d
+        after: sha256:e7844af6c8e8ea85eca6eb16dbccf0d94584fdb1a2d7f5c6acbe5c4afe06f117
+      - path: docs/decision/records/2026-10-03-engine-local-operations-extraction.md
+        before: null
+        after: sha256:cccbb0b9e333cd2613ec58427c4b837b3eb52ccba2741913c7886b7538275bdd
+    ir:
+      - path: docs/ir/CONTEXT.md
+        sha256: sha256:5e45d6fb145cbf8f0766263567c53277599dcfc5f12c3b6c15957165c6af7afd
+      - path: docs/ir/backup/FLAGS.md
+        sha256: sha256:46755a08622a78ec0c858852f32a54a20807280db4dbe0a34991ceec155ae5bf
+      - path: docs/ir/backup/failure.md
+        sha256: sha256:f2c67252f4cc974644c95719e500224ec30d290b9b9753fe765ea600ac6ad98c
+      - path: docs/ir/backup/rollback-cli.md
+        sha256: sha256:fe68c5b82b6ff32b2aa718585b647fe2f38fba5444744be338e86c8a39e9fb8c
+      - path: docs/ir/backup/rollback-path.md
+        sha256: sha256:a2cc951a49b76540ca145d87997ccd8dc1ac726d848c727860503262fd2aeac2
+      - path: docs/ir/backup/sessions.md
+        sha256: sha256:025686b1f507ac4be70eed4e84fcb4f28af8f184c61292eed30be32927d859eb
+      - path: docs/ir/backup/storage.md
+        sha256: sha256:d3caa3da2ddeaf2f7f15129d2337fe75ed27c845a0c2dbf1c9ebf1ae65e0df6e
+      - path: docs/ir/cli/FLAGS.md
+        sha256: sha256:d0d66cc0de05ec544de998882e35f83cb57c5ce44dc37ca0dd5ec14e42195fbf
+      - path: docs/ir/cli/binary.md
+        sha256: sha256:58c049db382028678c564c01aebfbdbf3bf25bb5dcbd21d5e2cc482d28ca7e2a
+      - path: docs/ir/cli/conflicts.md
+        sha256: sha256:2201b390ba90a6dad36ec0550486745296a620e2d3bfa3448a18c72ff5938042
+      - path: docs/ir/cli/diagnostics.md
+        sha256: sha256:54a10a470d49937b2f15f1ff501ce17405fad9c31de229f3cbb2246fa56b217d
+      - path: docs/ir/cli/diff-json.md
+        sha256: sha256:993b02db4b6b972c7f2a508b46ded26492b9aff59d34ca88717f97744564f40b
+      - path: docs/ir/cli/diff-output.md
+        sha256: sha256:7654bf358f9229835ed13ac85bf4e9c5c3fdd681ed05153f2a91c792adc4c327
+      - path: docs/ir/cli/directory-paths.md
+        sha256: sha256:60ee534f0747d98ac1c4404207c1b3dcc144d8a2f947c9702041ec3c5f3f0ab6
+      - path: docs/ir/cli/init.md
+        sha256: sha256:26d84a8ac82bcecb0597db31dfb95f3ad3fe507fa8203d91b68629d43ae3e094
+      - path: docs/ir/cli/merge.md
+        sha256: sha256:00ed9483dce073f16e437a9f61156142652d6ea8d9f3603b76afb2bfecfa7ea4
+      - path: docs/ir/cli/reference.md
+        sha256: sha256:7d1cf2b9c0057a4e2925af7ea290a0acb919a4f1a60f6cfdaf7d7d9544fb0feb
+      - path: docs/ir/cli/results.md
+        sha256: sha256:e9e917ca6efdc3449f49fc9a239126b9312909de75903283775076e026d42ce6
+      - path: docs/ir/cli/safety.md
+        sha256: sha256:993c418bb27c5b414b9f30803217edd73eea956d691123f867c8d41131e27536
+      - path: docs/ir/cli/status-output.md
+        sha256: sha256:478ed32d6c014bad0070b8ac7c5819883b55fdae3ee6ccfa28de2ec827c419e8
+      - path: docs/ir/cli/status-targets.md
+        sha256: sha256:8170851fd16232c8f405207a0fe3b2a33ce0781bdced5eb2ec74c151116a06e7
+      - path: docs/ir/cli/status.md
+        sha256: sha256:f35d8b851831c25c45bfb2f2febb6c5f7ed55aa8bbd2db355f5824c1294572b6
+      - path: docs/ir/cli/symlink-diff.md
+        sha256: sha256:96f08ae8fc117498eb535d717c2d63ed5f284fe14f26b3e80b65567efcaa0e60
+      - path: docs/ir/cli/sync.md
+        sha256: sha256:301d631e5a10582ee648c1af8ed20438c03d388d408d8cd08b2576edd5eeaf4f
+      - path: docs/ir/config/FLAGS.md
+        sha256: sha256:d6852e4653a1d67ea864dec138ecddf26d18826793d1eaa7f16e315d6ed801ef
+      - path: docs/ir/config/defaults.md
+        sha256: sha256:dbe3f0be309816b5e01fc0d3ab843bdad94d865b83baa7bb613966a14db55ab1
+      - path: docs/ir/config/filters.md
+        sha256: sha256:705fa2e1c9690490cfc497959ffa83f25a8e2fa5123ae0f61eac0bf35f487781
+      - path: docs/ir/config/loading.md
+        sha256: sha256:e6687f0a079cd86e83e095903faafaf21d21a6461561bec760298c0223daf70f
+      - path: docs/ir/config/precedence.md
+        sha256: sha256:a04120b95ae956e13bf205c31d5661a240b39303c66885ffdc49da7d96c02462
+      - path: docs/ir/config/values.md
+        sha256: sha256:31a97affab0e3b5c9d87612334d513ade6b1159e9d11e52afeef82baa517b20d
+      - path: docs/ir/merge/FLAGS.md
+        sha256: sha256:1bbc0f25a454eab64bf2187fae0931f5d455b33dfd895269e68dbfc0d4fc2a31
+      - path: docs/ir/merge/basic.md
+        sha256: sha256:e8326ad65251eab4c55d6213fc8befed10e6c741dd37e6334faef0f5f6b6e328
+      - path: docs/ir/merge/comparison.md
+        sha256: sha256:d8cf9e1097d27b05119d906198380008bd1756d618e6efad49ed00270c6dc253
+      - path: docs/ir/merge/concurrency.md
+        sha256: sha256:dc4228f865d6795a8fd962a9a60b182acc3b76dfea78fcd9fa69455e67de1494
+      - path: docs/ir/merge/deletion.md
+        sha256: sha256:87c5b947bffb54a54490a4d37d8067b08e042e9710ab8437b5d66303da536ccd
+      - path: docs/ir/merge/hunks.md
+        sha256: sha256:f221338c8d92a65cb23db75a0dac0e97f65cd1fcf3f81b3d7aeb9bb34dfc5eec
+      - path: docs/ir/merge/multi-target.md
+        sha256: sha256:106d6246a8fcd764db697f4f078c3e3d4f8a68a1732aa6c4f010331e4780962b
+      - path: docs/ir/merge/permissions.md
+        sha256: sha256:d92c3c0eaa9254605239733005dd4756c2dc2d6a24ca2fc2dd5bddaf54ffe661
+      - path: docs/ir/merge/read-failure.md
+        sha256: sha256:dd9debd1e232ac7f42c1abad4f0e1c8402cd0910e814f4b46f12372b36d12714
+      - path: docs/ir/merge/symlink.md
+        sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
+      - path: docs/ir/scan/FLAGS.md
+        sha256: sha256:4ae45e1e609e068de8f85379f52d4a1d22d650b1671643f07bfa11ec86d36a03
+      - path: docs/ir/scan/directory-links.md
+        sha256: sha256:77e5755bde864ad04da8d3e09a5729a0af41e946dbff068efea2de7432f19d2a
+      - path: docs/ir/scan/limits.md
+        sha256: sha256:36215be528b8231fd3bb7a439827b292c6c56f370b304f01fe84534b857f4d93
+      - path: docs/ir/scan/listing.md
+        sha256: sha256:bd4fe1cfce62885cf9268de2a6f73ac7122b3430cbf81363e27da9045b7828cc
+      - path: docs/ir/ssh/compatibility.md
+        sha256: sha256:1ecd02a375a51a725f34a6d4d660dd60fe6b039f7a16bbebf7f08efc15db8a71
+      - path: docs/ir/ssh/fallback.md
+        sha256: sha256:8e904c682d2217b6d4a0f68cb8ca447806aae03f3186c1753c4c30ec768d3b52
+      - path: docs/ir/ssh/host-key.md
+        sha256: sha256:57020b7b84431b0613c30cb2717da1f803cb2a1f50511b6fe37d632246941889
+      - path: docs/ir/ssh/reconnect.md
+        sha256: sha256:672bd4c4ed3118edca4192ffac139412ddb1abc6cd7c1caa65b60fd95de0eb8c
+      - path: docs/ir/ssh/sudo.md
+        sha256: sha256:fff7515a23429bb7bb3fc7d3ecbc6b0cb14a865cdf3fb310566d181d3bca1c73
+      - path: docs/ir/testing/CONTEXT.md
+        sha256: sha256:ecb3b11e8ba6ccb6401e6ea1047169caf1ca34d84af0e5dffbdddcae2292f32b
+      - path: docs/ir/testing/environments.md
+        sha256: sha256:56c52677ebb8a295f80370f7631d812a999e3d0b9340abab19f8d701f909b708
+      - path: docs/ir/testing/methods.md
+        sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+      - path: docs/ir/tui/export.md
+        sha256: sha256:93042a1fbfc1751415589c9a2026565f2ed702c070d469e1a43afa9005310eeb
+      - path: docs/ir/tui/operations.md
+        sha256: sha256:1b87e7e9bac257a81316ac402587350e1576d8c093d045f995b163c54165759c
+      - path: docs/ir/tui/reference.md
+        sha256: sha256:8e88e851bf0885b202a9f23fd99e4eaa75a9282904431847667241f020a06b63
+      - path: docs/ir/tui/search.md
+        sha256: sha256:6940fe2e2d35d9f69ad31eac9c1fa1bab9a07c4a3f4310e672c063e03036d652
+    conclusion: new
+    reason: >-
+      実装と別の担当として新しい固定baseから9baa1b28197c822262eff556127e6c91cb28df8aまでの全差分を独立に照合した。
+      CodeとDocumentの両profileで、維持契約から実装と実装から根拠の両方向を検査した。
+      現行A1/D1-D6の選択、理由、決定者と範囲を確認し、D4の元根拠と失敗履歴をD6の通常mergeと新baseに結び直した。
+      四抽出sourceのmodeとblobは前回独立レビュー済みHEADと同一であり、元producer、型、privacy、公開API、依存と配布の照合根拠を再利用できる。
+      新baseに対して書込みのない本文比較を実行し、十五操作のsignatureと本文、private validator、全四ファイルの許可された変換を確認した。
+      同じroot/include/exclude/入力を渡し、read/write context、strict batch、bytes batchのforce=false、statの全path先行検査を保つ。
+      recursive include、subpath exclude-only、truncation、wrap/sort、childrenのjoin式全体への借用とfilter、hashの非検査も保つ。
+      dispatch、構築、inspection、接続no-op、RemoteTargetIo、既存混在テスト本文とconsumerは変更しない。
+      未使用private validator再公開の除去と五helperのcfg(test)化はD2の追加範囲だけである。
+      下位validatorとread/write/helper、直近のSideIO callerと復元の事前検査、backup、write順序を確認した。
+      新しいpath policyや強化された安全性を主張せず、既存IRのFLAGは未解決のまま扱う。
+      全56IRの保持済み読解に対し、新base、前回HEAD、現HEAD、作業bytesと全hashの同一性を再確認した。
+      五harness sourceとTUI決定は新baseに一致し、抽出差分にはテスト方法変更を含めない。
+      その他の全tracked mode/blobは新baseと不変で、PROJECTは承認済みownershipと一致する。
+      古い比較の記録の退役と新しいimplementer記録は独立受入を自己宣言せず、現在の比較だけを扱う。
+      新しい二hookの生ログを独立再集計し、各3111 unique PASSと数値exit0、zero skippedを確認した。
+      旧3109 identityをすべて保持し、追加は別途承認済みの二utility identityだけである。
+      歴史的なreview hookのexit1は失敗のまま残し、新hook成功から過去の根本原因やtiming不変を推定しない。
+      mode-NUL-blobとIRの全bytes hashは本担当がGitの固定snapshotから独立算出した。
+      新しい仕様gap、挙動変更、根拠のない追加や委任範囲外の変更は見つからない。
+      macOS/nonUnix実行、動的logging、syscall/terminal-fd分類は未検証であり、元producerの再現を旧CLI全体の実測とは扱わない。
+      本レビューではbuild/test、git変更、commit、統合を実行していない。親担当は二席を集約し、本記録のcommit後に両統合gateを実行する。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#A1
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D1
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D2
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D3
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D4
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D5
+      - docs/decision/records/2026-10-03-engine-local-operations-extraction.md#D6
+    handoff: null
+    gaps: []
