@@ -10,7 +10,7 @@
   text: Utc::now().format("%Y%m%d-%H%M%S").to_string()
   class: equivalent
   why: 上の String::new() の変異と同じ理由。無効時のセッション ID は出力にも集約先にも届かず、別の文脈のエージェントも落ちるテストを書けなかった
-- file: crates/remote-merge/src/runtime/backup_store.rs
+- file: crates/remote-merge-engine/src/backup_store.rs
   change: replace += with *= in BackupStore::cleanup_expired
   text: removed += 1;
   class: equivalent
