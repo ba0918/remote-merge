@@ -1,0 +1,88 @@
+version: 1
+entries:
+  - id: agent-runtime-extraction-implementation
+    base: 4542517039f404edb4bc14d555389e7f08cb1daa
+    role: implementer
+    files:
+      - path: Cargo.lock
+        before: sha256:f62316ecc5e897ca40957c01ab857f3d2a1ec7a2043d6efce0117a75fc6b27cf
+        after: sha256:ee2aacdb724b186af878c18b40380596b8d4aa59699039759a8064afc8c6abc6
+      - path: Cargo.toml
+        before: sha256:4045edde72e3d07c78464f8386a222135fa42fd62e6a9fb8bd9a67e28c3f77a5
+        after: sha256:1415b767b21180fc7c6f060df579a7d30dcc613a29d9e965be8d799e5caf865a
+      - path: PROJECT.md
+        before: sha256:c88f757af691f28937bf120c0989d5afdbcadb910c2dd964e1ec52fe66c73f19
+        after: sha256:e32e0d043581aa5a8d800135e3e38760c4b45cc8836ef223d06d9185ed68ebe1
+      - path: crates/remote-merge-agent/Cargo.toml
+        before: null
+        after: sha256:93cdec4a359d40b48f624d7d80010da0118f22dcf919e755f0bd85f0b9ff8ef5
+      - path: crates/remote-merge-agent/src/agent/client.rs
+        before: null
+        after: sha256:dca17b6db44652f95b5a69ba060b3f3eb91fa85cb7140a744fcc85f02719e637
+      - path: crates/remote-merge-agent/src/agent/dispatch.rs
+        before: null
+        after: sha256:78a8ba0283a7e71d97023af7c2e7c2a9812b20055599b07d5162345b428897f9
+      - path: crates/remote-merge-agent/src/agent/file_io.rs
+        before: null
+        after: sha256:a38e42e1627003538a0dc40ccf4c6438f645172cefddb6e18001bbe2497d04ed
+      - path: crates/remote-merge-agent/src/agent/mod.rs
+        before: null
+        after: sha256:757a8cb335e1f5630db5996539c62a2b159eb40239d48cf10d8954f0fd94354c
+      - path: crates/remote-merge-agent/src/agent/server.rs
+        before: null
+        after: sha256:7369c46fb6d0a062b27bcfd1d546e92873d87183729d3039e767ea47c5d84cdd
+      - path: crates/remote-merge-agent/src/agent/ssh_transport.rs
+        before: null
+        after: sha256:eb9fa3a74b2dbf3f867d01c9ee8ff377e58a9c7388f36c85a32f3867ccbef396
+      - path: crates/remote-merge-agent/src/agent/tests.rs
+        before: null
+        after: sha256:4646dd94a13ca8d566b097f36c5d6b599aafbc81ac0133d2e21488e29c0d97eb
+      - path: crates/remote-merge-agent/src/agent/tree_scan.rs
+        before: null
+        after: sha256:07fba0acf9678201622aff780ffc3d541537a2f6c7a30d274956cd2630116b37
+      - path: crates/remote-merge-agent/src/lib.rs
+        before: null
+        after: sha256:1bc45cd4439894ea0dddfed3ed6bdc8f8fe73166a07e6ca4529e2646ec5333eb
+      - path: crates/remote-merge/Cargo.toml
+        before: sha256:45a441a93d2457193e62d0633b28c4cdcfd4e0435240e6ab81f36b6041473d33
+        after: sha256:1c6715b2b7cd7fb05e3de9f5cb00fde0a0c6bdf1d81a0468290229d1eb4fc418
+      - path: crates/remote-merge/src/agent/client.rs
+        before: sha256:dca17b6db44652f95b5a69ba060b3f3eb91fa85cb7140a744fcc85f02719e637
+        after: null
+      - path: crates/remote-merge/src/agent/dispatch.rs
+        before: sha256:c3a21d47c098b1bdb5d2b9ac7563f30dee2b9ffa2539b63bde316e1be82feaef
+        after: null
+      - path: crates/remote-merge/src/agent/file_io.rs
+        before: sha256:50941ab0579daaf5c96f83a92aca9a1d980a5f586db4f702172c685be90d28f3
+        after: null
+      - path: crates/remote-merge/src/agent/mod.rs
+        before: sha256:b50c6ed324ea1e4a501e6aaa8d10c83e6e9939b5c5d080149061b1aa68a5f727
+        after: sha256:501f3e9d4b6f2fd5c6f3ba7d720bea08d2ed9b2f5ddba34cdd13327e09563223
+      - path: crates/remote-merge/src/agent/server.rs
+        before: sha256:8972d602ac08cbcceccf7746c1bf59f9f31f8f179fc9aadd2dd36012d68ec45d
+        after: null
+      - path: crates/remote-merge/src/agent/ssh_transport.rs
+        before: sha256:a49be0c2a68cb1de86d0d1699e27234593fabdde0414e56a15cfc95e03e94bfc
+        after: null
+      - path: crates/remote-merge/src/agent/tests.rs
+        before: sha256:4646dd94a13ca8d566b097f36c5d6b599aafbc81ac0133d2e21488e29c0d97eb
+        after: null
+      - path: crates/remote-merge/src/agent/tree_scan.rs
+        before: sha256:491a8c8c3ea9fdd94a1ca74e61cf72031e5178024280f8c9e8e5a7bd88bf77ab
+        after: null
+      - path: docs/decision/records/2026-10-03-agent-runtime-extraction.md
+        before: null
+        after: sha256:7ce554aa962a0c754c6e2949f31be457ccea9bddef767e53dae299f86a1d6c7a
+    ir: []
+    conclusion: new
+    reason: 確定した七ファイルと既存157単体テストをnested agentのまま内部crateへ移し、テスト名と他2952件の所在・無視状態を保つ。32イベントと1DEBUG guardのtarget追加だけを除く全本文とmodeおよび全テスト本文が一致し、run_agent_loopのprivate範囲と元のUnix gateを維持する。製品の公開パスとcore/protocol/russh/tokioの同じ型を再公開で保ち、製品CLI_VERSION・build.rs・deployは変更しない。依存は新ローカルpackageと既存指定への辺だけで外部版と他の依存を変えない。ログtargetは静的照合のみで、未取得の動的イベントや未実行環境を検証済みと扱わない。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#A1
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#D1
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#D2
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#D3
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#D4
+      - docs/decision/records/2026-10-03-agent-runtime-extraction.md#D5
+    handoff: null
+    gaps: []
