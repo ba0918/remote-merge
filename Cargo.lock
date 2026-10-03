@@ -2916,6 +2916,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "glob-match",
  "remote-merge-config",
  "remote-merge-core",
  "serde",

@@ -3,6 +3,7 @@ pub mod local;
 pub mod merge;
 pub mod service;
 pub mod side;
+pub mod three_way;
 
 use remote_merge_core::{diff, error, filter, tree};
 

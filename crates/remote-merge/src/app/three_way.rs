@@ -95,35 +95,22 @@ pub fn compute_file_badge(
     left_eq_right: bool,
     left_eq_ref: bool,
 ) -> ThreeWayFileBadge {
-    let all_exist = left_exists && right_exists && ref_exists;
-
-    // ref にだけ存在しない
-    if left_exists && right_exists && !ref_exists {
-        return ThreeWayFileBadge::MissingInRef;
-    }
-
-    // ref にだけ存在する（left/right 両方にない）
-    if !left_exists && !right_exists && ref_exists {
-        return ThreeWayFileBadge::ExistsOnlyInRef;
-    }
-
-    // 存在差がある（上記以外のパターン）が ref が絡む
-    if !all_exist {
-        // ref があって片方だけにもある → 3way で差分あり
-        if ref_exists {
-            return ThreeWayFileBadge::Differs;
+    match remote_merge_engine::three_way::compute_file_comparison(
+        left_exists,
+        right_exists,
+        ref_exists,
+        left_eq_right,
+        left_eq_ref,
+    ) {
+        remote_merge_engine::three_way::FileComparison::AllEqual => ThreeWayFileBadge::AllEqual,
+        remote_merge_engine::three_way::FileComparison::Differs => ThreeWayFileBadge::Differs,
+        remote_merge_engine::three_way::FileComparison::ExistsOnlyInRef => {
+            ThreeWayFileBadge::ExistsOnlyInRef
         }
-        // ref がなくて left/right の片方だけ → 2way の情報だけで十分、3way バッジ不要
-        return ThreeWayFileBadge::AllEqual;
+        remote_merge_engine::three_way::FileComparison::MissingInRef => {
+            ThreeWayFileBadge::MissingInRef
+        }
     }
-
-    // 全3サーバに存在 → 内容比較
-    if left_eq_right && left_eq_ref {
-        return ThreeWayFileBadge::AllEqual;
-    }
-
-    // どれかが違う → 3way で差分あり
-    ThreeWayFileBadge::Differs
 }
 
 /// 行単位の 3way バッジを計算する。
@@ -139,10 +126,9 @@ pub fn compute_line_badge(
     right: Option<&str>,
     ref_line: Option<&str>,
 ) -> ThreeWayLineBadge {
-    match (left, right, ref_line) {
-        (Some(l), Some(r), Some(rf)) if l == r && l == rf => ThreeWayLineBadge::AllEqual,
-        (None, None, None) => ThreeWayLineBadge::AllEqual,
-        _ => ThreeWayLineBadge::Differs,
+    match remote_merge_engine::three_way::compute_line_comparison(left, right, ref_line) {
+        remote_merge_engine::three_way::LineComparison::AllEqual => ThreeWayLineBadge::AllEqual,
+        remote_merge_engine::three_way::LineComparison::Differs => ThreeWayLineBadge::Differs,
     }
 }
 

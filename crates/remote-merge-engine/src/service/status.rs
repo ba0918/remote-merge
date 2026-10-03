@@ -1,0 +1,1592 @@
+//! status サービス: ファイル差分一覧の計算。
+//!
+//! 2つのツリーを受け取り、各ファイルの差分ステータスを計算する純粋関数群。
+//! CoreRuntime 経由のI/O操作は呼び出し側（CLI層）が行う。
+
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use crate::three_way;
+use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
+
+use super::types::*;
+
+#[derive(Default)]
+pub struct RequiredContents {
+    pub contents: HashMap<String, Vec<u8>>,
+    pub errors: HashMap<String, String>,
+}
+
+pub struct VerifiedComparisons {
+    pub pairs: HashMap<String, (Vec<u8>, Vec<u8>)>,
+    pub failures: Vec<MergeFailure>,
+}
+
+pub fn verified_content_pairs(
+    paths: &[String],
+    left: &RequiredContents,
+    right: &RequiredContents,
+) -> VerifiedComparisons {
+    let mut pairs = HashMap::new();
+    let mut failures = Vec::new();
+    for path in paths {
+        match (left.contents.get(path), right.contents.get(path)) {
+            (Some(left_bytes), Some(right_bytes)) => {
+                pairs.insert(path.clone(), (left_bytes.clone(), right_bytes.clone()));
+            }
+            (left_content, right_content) => {
+                let mut reasons = Vec::new();
+                if left_content.is_none() {
+                    reasons.push(format!(
+                        "left: {}",
+                        left.errors
+                            .get(path)
+                            .map(String::as_str)
+                            .unwrap_or("no content returned")
+                    ));
+                }
+                if right_content.is_none() {
+                    reasons.push(format!(
+                        "right: {}",
+                        right
+                            .errors
+                            .get(path)
+                            .map(String::as_str)
+                            .unwrap_or("no content returned")
+                    ));
+                }
+                failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: format!("read failed: {}", reasons.join("; ")),
+                });
+            }
+        }
+    }
+    VerifiedComparisons { pairs, failures }
+}
+
+/// ステータス判定用のツリーインデックス。
+///
+/// 実ファイルの候補パス一覧に加えて、ディレクトリ/未ロードノードも保持して
+/// `find_node*` の再帰探索を避ける。
+struct TreeIndex<'a> {
+    nodes: HashMap<String, &'a FileNode>,
+    file_paths: Vec<String>,
+    unloaded_dirs: Vec<String>,
+}
+
+impl<'a> TreeIndex<'a> {
+    fn build(tree: &'a FileTree) -> Self {
+        let mut index = Self {
+            nodes: HashMap::new(),
+            file_paths: Vec::new(),
+            unloaded_dirs: Vec::new(),
+        };
+
+        for node in &tree.nodes {
+            index.record_node(node, &node.name);
+        }
+
+        index
+    }
+
+    fn record_node(&mut self, node: &'a FileNode, path: &str) {
+        self.nodes.insert(path.to_string(), node);
+
+        if node.is_dir() || (node.is_symlink() && node.children.is_some()) {
+            if node.is_symlink() {
+                self.file_paths.push(path.to_string());
+            }
+            match &node.children {
+                Some(children) => {
+                    for child in children.values() {
+                        let child_path = format!("{}/{}", path, child.name);
+                        self.record_node(child, &child_path);
+                    }
+                }
+                None => self.unloaded_dirs.push(path.to_string()),
+            }
+            return;
+        }
+
+        self.file_paths.push(path.to_string());
+    }
+
+    fn find_node(&self, path: &str) -> Option<&'a FileNode> {
+        self.nodes.get(path).copied()
+    }
+
+    fn find_presence(&self, path: &str) -> NodePresence {
+        if self.nodes.contains_key(path) {
+            return NodePresence::Found;
+        }
+
+        if self
+            .unloaded_dirs
+            .iter()
+            .any(|dir| path_is_within_unloaded_dir(path, dir))
+        {
+            return NodePresence::Unloaded;
+        }
+
+        NodePresence::NotFound
+    }
+}
+
+fn path_is_within_unloaded_dir(path: &str, dir: &str) -> bool {
+    path.strip_prefix(dir)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// 2つのインデックスから実ファイル候補パスの union を計算する。
+fn collect_all_file_paths(left: &TreeIndex<'_>, right: &TreeIndex<'_>) -> Vec<String> {
+    let cap = left.file_paths.len() + right.file_paths.len();
+    let mut seen = HashSet::with_capacity(cap);
+    let mut paths = Vec::with_capacity(cap);
+
+    for path in left.file_paths.iter().chain(right.file_paths.iter()) {
+        if seen.insert(path.as_str()) {
+            paths.push(path.clone());
+        }
+    }
+
+    paths.sort();
+    paths
+}
+
+/// 指定パスがセンシティブファイルかどうかを判定する。
+pub fn is_sensitive(path: &str, patterns: &[String]) -> bool {
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    patterns
+        .iter()
+        .any(|p| glob_match::glob_match(p, filename) || glob_match::glob_match(p, path))
+}
+
+/// ツリー構造からファイルの差分ステータスを計算する（純粋関数）。
+///
+/// 存在チェック + メタデータ比較（size, mtime）で判定。
+/// - 片方のみ存在 → `LeftOnly` / `RightOnly`
+/// - 両方存在 + size異なる → `Modified`
+/// - 両方存在 + size同じ + mtime同じ → `Equal`
+/// - 両方存在 + size同じ + mtime異なる/不明 → `Modified`（コンテンツ未比較）
+///
+/// コンテンツ比較で正確な判定が必要なファイルは `needs_content_compare` で抽出し、
+/// `refine_status_with_content` で最終判定する。
+pub fn compute_status_from_trees(
+    left: &FileTree,
+    right: &FileTree,
+    sensitive_patterns: &[String],
+) -> Vec<FileStatus> {
+    let left_index = TreeIndex::build(left);
+    let right_index = TreeIndex::build(right);
+    let all_paths = collect_all_file_paths(&left_index, &right_index);
+    let mut results = Vec::with_capacity(all_paths.len());
+
+    for path in &all_paths {
+        let left_presence = left_index.find_presence(path);
+        let right_presence = right_index.find_presence(path);
+
+        let status = match (left_presence, right_presence) {
+            (NodePresence::Found, NodePresence::Found) => {
+                compare_by_metadata(left_index.find_node(path), right_index.find_node(path))
+            }
+            (NodePresence::Found, NodePresence::NotFound) => FileStatusKind::LeftOnly,
+            (NodePresence::NotFound, NodePresence::Found) => FileStatusKind::RightOnly,
+            _ => FileStatusKind::Modified, // Unloaded → 不確定だが Modified として扱う
+        };
+
+        results.push(FileStatus {
+            path: path.clone(),
+            status,
+            sensitive: is_sensitive(path, sensitive_patterns),
+            hunks: None,
+            ref_badge: None,
+        });
+    }
+
+    results
+}
+
+/// メタデータ（size, mtime）でファイルの差分を判定する。
+///
+/// 共通ロジック `tree::compare_metadata` を使用し、結果を `FileStatusKind` に変換する。
+/// `Undetermined`（コンテンツ比較が必要）は安全側に `Modified` として扱う。
+fn compare_by_metadata(
+    left_node: Option<&FileNode>,
+    right_node: Option<&FileNode>,
+) -> FileStatusKind {
+    match (left_node, right_node) {
+        (Some(l), Some(r)) => match crate::tree::compare_metadata(l, r) {
+            crate::tree::MetadataCmp::Equal => FileStatusKind::Equal,
+            crate::tree::MetadataCmp::Modified => FileStatusKind::Modified,
+            crate::tree::MetadataCmp::Undetermined => FileStatusKind::Modified,
+        },
+        _ => FileStatusKind::Modified, // ノード取得失敗 → 安全側に倒す
+    }
+}
+
+/// コンテンツ比較が必要なファイルのパスを抽出する（純粋関数）。
+///
+/// `compute_status_from_trees` で `Modified` と判定されたファイルのうち、
+/// size が一致しているもの（= メタデータだけでは判定できないもの）を返す。
+/// size が異なるファイルは確実に Modified なので比較不要。
+pub fn needs_content_compare(
+    files: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+) -> Vec<String> {
+    let left_index = TreeIndex::build(left);
+    let right_index = TreeIndex::build(right);
+
+    files
+        .iter()
+        .filter(|f| f.status == FileStatusKind::Modified)
+        .filter(|f| {
+            let ln = left_index.find_node(&f.path);
+            let rn = right_index.find_node(&f.path);
+            match (ln, rn) {
+                (Some(l), Some(r)) => {
+                    if l.is_symlink() || r.is_symlink() {
+                        return false;
+                    }
+                    // size が一致 → コンテンツ比較が必要
+                    match (l.size, r.size) {
+                        (Some(ls), Some(rs)) => ls == rs,
+                        _ => true, // size 不明 → 比較必要
+                    }
+                }
+                _ => true, // ノード不明 → 比較必要
+            }
+        })
+        .map(|f| f.path.clone())
+        .collect()
+}
+
+/// 全ファイルのコンテンツ比較が必要なパスを抽出する（--checksum 用）。
+///
+/// 両側に存在するファイル（Modified または Equal）をすべて返す。
+/// メタデータで Equal と判定されたファイルも含めて再比較する。
+pub fn needs_content_compare_all(files: &[FileStatus]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|f| f.status == FileStatusKind::Modified || f.status == FileStatusKind::Equal)
+        .map(|f| f.path.clone())
+        .collect()
+}
+
+pub fn needs_explicit_file_compare(
+    requested: &[String],
+    statuses: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+) -> Vec<String> {
+    statuses
+        .iter()
+        .filter(|status| {
+            matches!(
+                status.status,
+                FileStatusKind::Equal | FileStatusKind::Modified
+            ) && requested.contains(&status.path)
+        })
+        .filter(|status| {
+            left.find_node(&status.path)
+                .zip(right.find_node(&status.path))
+                .is_some_and(|(l, r)| {
+                    matches!(l.kind, NodeKind::File) && matches!(r.kind, NodeKind::File)
+                })
+        })
+        .map(|status| status.path.clone())
+        .collect()
+}
+
+pub fn needs_merge_content_compare(
+    requested: &[String],
+    statuses: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+    checksum: bool,
+) -> Vec<String> {
+    let mut paths = needs_content_compare(statuses, left, right);
+    for path in needs_explicit_file_compare(requested, statuses, left, right) {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    if checksum {
+        for status in statuses.iter().filter(|status| {
+            matches!(
+                status.status,
+                FileStatusKind::Modified | FileStatusKind::Equal
+            ) && left
+                .find_node(&status.path)
+                .zip(right.find_node(&status.path))
+                .is_some_and(|(left, right)| left.is_file() && right.is_file())
+        }) {
+            if !paths.contains(&status.path) {
+                paths.push(status.path.clone());
+            }
+        }
+    }
+    paths
+}
+
+/// コンテンツ比較結果で FileStatus を更新する（純粋関数）。
+///
+/// `contents` には左右のバイト列ペアが格納されている。
+/// バイト列が完全一致すれば Equal、異なれば Modified のまま。
+/// バイナリファイルでも lossy 変換なしで正しく比較できる。
+///
+/// Modified と Equal の両方を対象とする。--checksum モード使用時、
+/// タイムスタンプベースで Equal だったファイルが実際のコンテンツ比較で
+/// Modified に変更される場合がある。呼び出し元は適切なファイルのみを
+/// contents マップに含めること。
+pub fn refine_status_with_content(
+    files: &mut [FileStatus],
+    contents: &std::collections::HashMap<String, (Vec<u8>, Vec<u8>)>,
+) {
+    for file in files.iter_mut() {
+        // LeftOnly / RightOnly はコンテンツ比較対象外
+        if file.status != FileStatusKind::Modified && file.status != FileStatusKind::Equal {
+            continue;
+        }
+        if let Some((left_bytes, right_bytes)) = contents.get(&file.path) {
+            if left_bytes == right_bytes {
+                file.status = FileStatusKind::Equal;
+            } else {
+                file.status = FileStatusKind::Modified;
+            }
+        }
+    }
+}
+
+/// FileStatus 一覧からサマリーを計算する（純粋関数）。
+pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
+    let mut summary = StatusSummary::default();
+    for file in files {
+        match file.status {
+            FileStatusKind::Modified => summary.modified += 1,
+            FileStatusKind::LeftOnly => summary.left_only += 1,
+            FileStatusKind::RightOnly => summary.right_only += 1,
+            FileStatusKind::Equal => summary.equal += 1,
+        }
+    }
+    summary
+}
+
+/// 3-way バッジを全ファイルに対して計算する。
+///
+/// `three_way::compute_file_comparison()` を内部で呼び出す。
+/// sensitive ファイルはコンテンツ比較を行わず、ref に存在しない場合のみ "missing_in_ref" を返す。
+pub fn compute_ref_badges(
+    files: &[FileStatus],
+    left_tree: &FileTree,
+    right_tree: &FileTree,
+    ref_tree: &FileTree,
+    left_contents: &HashMap<String, Vec<u8>>,
+    right_contents: &HashMap<String, Vec<u8>>,
+    ref_contents: &HashMap<String, Vec<u8>>,
+) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for file in files {
+        if file.sensitive {
+            // コンテンツ比較不要: 存在チェックのみ
+            let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
+            if !ref_exists {
+                map.insert(file.path.clone(), "missing_in_ref".to_string());
+            }
+            // ref に存在する場合はコンテンツ比較できないため badge なし（unknown 状態）
+            continue;
+        }
+        let left_exists = left_tree.find_node(Path::new(&file.path)).is_some();
+        let right_exists = right_tree.find_node(Path::new(&file.path)).is_some();
+        let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
+        let left_eq_right = left_contents.get(&file.path) == right_contents.get(&file.path);
+        let left_eq_ref = left_contents.get(&file.path) == ref_contents.get(&file.path);
+        let badge = three_way::compute_file_comparison(
+            left_exists,
+            right_exists,
+            ref_exists,
+            left_eq_right,
+            left_eq_ref,
+        );
+        let badge_str = match badge {
+            three_way::FileComparison::AllEqual => "all_equal",
+            three_way::FileComparison::Differs => "differs",
+            three_way::FileComparison::ExistsOnlyInRef => "exists_only_in_ref",
+            three_way::FileComparison::MissingInRef => "missing_in_ref",
+        };
+        map.insert(file.path.clone(), badge_str.to_string());
+    }
+    map
+}
+
+/// ref バッジの集計を返す。
+pub fn compute_ref_summary(ref_badges: &HashMap<String, String>) -> (usize, usize, usize) {
+    let mut differs = 0;
+    let mut ref_only = 0;
+    let mut ref_missing = 0;
+    for badge in ref_badges.values() {
+        match badge.as_str() {
+            "differs" => differs += 1,
+            "exists_only_in_ref" => ref_only += 1,
+            "missing_in_ref" => ref_missing += 1,
+            _ => {} // all_equal — no count
+        }
+    }
+    (differs, ref_only, ref_missing)
+}
+
+/// StatusOutput を組み立てる（純粋関数）。
+pub fn build_status_output(
+    left_info: SourceInfo,
+    right_info: SourceInfo,
+    files: Vec<FileStatus>,
+    summary_only: bool,
+    ref_info: Option<SourceInfo>,
+    ref_badges: Option<&HashMap<String, String>>,
+) -> StatusOutput {
+    let summary = compute_summary(&files);
+
+    // Apply ref badges to files
+    let files_with_badges: Vec<FileStatus> = files
+        .into_iter()
+        .map(|mut f| {
+            if let Some(badges) = ref_badges {
+                f.ref_badge = badges.get(&f.path).cloned();
+            }
+            f
+        })
+        .collect();
+
+    // Compute ref summary
+    let (ref_differs, ref_only_count, ref_missing_count) =
+        ref_badges.map(compute_ref_summary).unwrap_or((0, 0, 0));
+
+    let mut summary_out = summary;
+    if ref_badges.is_some() {
+        summary_out.ref_differs = Some(ref_differs);
+        summary_out.ref_only = Some(ref_only_count);
+        summary_out.ref_missing = Some(ref_missing_count);
+    }
+
+    StatusOutput {
+        left: left_info,
+        right: right_info,
+        ref_: ref_info,
+        agent: None,
+        files: if summary_only {
+            None
+        } else {
+            Some(files_with_badges)
+        },
+        summary: summary_out,
+    }
+}
+
+/// stat + read 結果から個別ファイルのステータスを判定する純粋関数。
+/// fast path で使用（ツリー比較なしでステータスを判定）。
+///
+/// - left のみ存在 → LeftOnly
+/// - right のみ存在 → RightOnly
+/// - 両方存在 + 同一内容 → Equal
+/// - 両方存在 + 異なる内容 → Modified
+/// - 両方不在 → エラー（BothMissing）
+pub fn status_from_read_results(
+    left_exists: bool,
+    right_exists: bool,
+    left_content: Option<&[u8]>,
+    right_content: Option<&[u8]>,
+) -> anyhow::Result<FileStatusKind> {
+    match (left_exists, right_exists) {
+        (false, false) => anyhow::bail!("both sides missing"),
+        (true, false) => Ok(FileStatusKind::LeftOnly),
+        (false, true) => Ok(FileStatusKind::RightOnly),
+        (true, true) => match (left_content, right_content) {
+            (Some(l), Some(r)) => {
+                if l == r {
+                    Ok(FileStatusKind::Equal)
+                } else {
+                    Ok(FileStatusKind::Modified)
+                }
+            }
+            // コンテンツが取得できない場合は安全側に Modified とする
+            _ => Ok(FileStatusKind::Modified),
+        },
+    }
+}
+
+/// ハッシュベースのステータス判定（純粋関数）。
+///
+/// ローカルとリモートのハッシュ文字列を比較して equal/modified を判定する。
+/// シンボリックリンクの場合はターゲットパス文字列の一致で判定する。
+///
+/// 入力はハッシュまたはシンボリックリンクターゲットの文字列ペア。
+/// 両方が同じ文字列であれば Equal、異なれば Modified。
+pub fn status_from_hash_comparison(local_hash: &str, remote_hash: &str) -> FileStatusKind {
+    if local_hash == remote_hash {
+        FileStatusKind::Equal
+    } else {
+        FileStatusKind::Modified
+    }
+}
+
+/// ハッシュベースで FileStatus を更新する（純粋関数）。
+///
+/// `local_hashes` と `remote_hashes` にはパス → ハッシュ文字列（またはシンボリックリンクターゲット）
+/// のマッピングが格納されている。両方にエントリがあるファイルについて
+/// `status_from_hash_comparison` で Equal/Modified を判定する。
+///
+/// LeftOnly / RightOnly のファイルは変更しない。
+/// 片方のハッシュが存在しない場合も変更しない（安全側に倒す）。
+pub fn refine_status_with_hashes(
+    files: &mut [FileStatus],
+    local_hashes: &HashMap<String, String>,
+    remote_hashes: &HashMap<String, String>,
+) {
+    for file in files.iter_mut() {
+        if file.status != FileStatusKind::Modified && file.status != FileStatusKind::Equal {
+            continue;
+        }
+        if let (Some(local_h), Some(remote_h)) =
+            (local_hashes.get(&file.path), remote_hashes.get(&file.path))
+        {
+            file.status = status_from_hash_comparison(local_h, remote_h);
+        }
+    }
+}
+
+/// exit code を判定する。差分があれば 1、なければ 0。
+pub fn status_exit_code(summary: &StatusSummary) -> i32 {
+    if summary.modified > 0 || summary.left_only > 0 || summary.right_only > 0 {
+        exit_code::DIFF_FOUND
+    } else {
+        exit_code::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree::{FileNode, FileTree};
+    use std::path::PathBuf;
+
+    fn make_tree(nodes: Vec<FileNode>) -> FileTree {
+        FileTree {
+            root: PathBuf::from("/test"),
+            nodes,
+        }
+    }
+
+    // ── is_sensitive ──
+
+    #[test]
+    fn test_sensitive_env_file() {
+        let patterns = vec![".env".into(), ".env.*".into()];
+        assert!(is_sensitive(".env", &patterns));
+        assert!(is_sensitive(".env.production", &patterns));
+        assert!(!is_sensitive("README.md", &patterns));
+    }
+
+    #[test]
+    fn test_sensitive_nested_path() {
+        let patterns = vec!["*.pem".into()];
+        assert!(is_sensitive("certs/server.pem", &patterns));
+        assert!(!is_sensitive("certs/server.crt", &patterns));
+    }
+
+    #[test]
+    fn test_sensitive_wildcard() {
+        let patterns = vec!["*secret*".into()];
+        assert!(is_sensitive("config/secret.yml", &patterns));
+        assert!(is_sensitive("my-secret-key.txt", &patterns));
+        assert!(!is_sensitive("public.yml", &patterns));
+    }
+
+    // ── compute_status_from_trees ──
+
+    #[test]
+    fn test_status_left_only() {
+        let left = make_tree(vec![FileNode::new_file("only_local.rs")]);
+        let right = make_tree(vec![]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_status_right_only() {
+        let left = make_tree(vec![]);
+        let right = make_tree(vec![FileNode::new_file("only_remote.rs")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::RightOnly);
+    }
+
+    #[test]
+    fn test_status_both_exist() {
+        let left = make_tree(vec![FileNode::new_file("common.rs")]);
+        let right = make_tree(vec![FileNode::new_file("common.rs")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        // コンテンツ未比較なので Modified
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_sensitive_flag() {
+        let left = make_tree(vec![FileNode::new_file(".env")]);
+        let right = make_tree(vec![FileNode::new_file(".env")]);
+        let patterns = vec![".env".into()];
+        let files = compute_status_from_trees(&left, &right, &patterns);
+        assert!(files[0].sensitive);
+    }
+
+    #[test]
+    fn test_status_nested_files() {
+        let left = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")],
+        )]);
+        let right = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("b.rs"), FileNode::new_file("c.rs")],
+        )]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 3);
+
+        let a = files.iter().find(|f| f.path == "src/a.rs").unwrap();
+        assert_eq!(a.status, FileStatusKind::LeftOnly);
+
+        let b = files.iter().find(|f| f.path == "src/b.rs").unwrap();
+        assert_eq!(b.status, FileStatusKind::Modified);
+
+        let c = files.iter().find(|f| f.path == "src/c.rs").unwrap();
+        assert_eq!(c.status, FileStatusKind::RightOnly);
+    }
+
+    #[test]
+    fn test_status_unloaded_dir_vs_file_stays_modified() {
+        let left = make_tree(vec![FileNode::new_dir("src")]);
+        let right = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/main.rs");
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_file_vs_directory_path_conflict_is_modified() {
+        let left = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+        let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
+
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        let root_conflict = files.iter().find(|f| f.path == "src").unwrap();
+        let nested = files.iter().find(|f| f.path == "src/main.rs").unwrap();
+        assert_eq!(root_conflict.status, FileStatusKind::Modified);
+        assert_eq!(nested.status, FileStatusKind::LeftOnly);
+    }
+
+    // ── compute_summary ──
+
+    #[test]
+    fn test_summary() {
+        let files = vec![
+            FileStatus {
+                path: "a".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b".into(),
+                status: FileStatusKind::LeftOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "c".into(),
+                status: FileStatusKind::RightOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "d".into(),
+                status: FileStatusKind::Equal,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let summary = compute_summary(&files);
+        assert_eq!(summary.modified, 1);
+        assert_eq!(summary.left_only, 1);
+        assert_eq!(summary.right_only, 1);
+        assert_eq!(summary.equal, 1);
+    }
+
+    // ── build_status_output ──
+
+    #[test]
+    fn test_build_status_output_with_files() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let output = build_status_output(
+            SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            SourceInfo {
+                label: "dev".into(),
+                root: "/var/www".into(),
+            },
+            files,
+            false,
+            None,
+            None,
+        );
+        assert!(output.files.is_some());
+        assert_eq!(output.summary.modified, 1);
+    }
+
+    #[test]
+    fn test_build_status_output_summary_only() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let output = build_status_output(
+            SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            SourceInfo {
+                label: "dev".into(),
+                root: "/var/www".into(),
+            },
+            files,
+            true,
+            None,
+            None,
+        );
+        assert!(output.files.is_none());
+        assert_eq!(output.summary.modified, 1);
+    }
+
+    // ── exit code ──
+
+    #[test]
+    fn test_exit_code_no_diff() {
+        let summary = StatusSummary {
+            modified: 0,
+            left_only: 0,
+            right_only: 0,
+            equal: 5,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
+        };
+        assert_eq!(status_exit_code(&summary), exit_code::SUCCESS);
+    }
+
+    #[test]
+    fn test_exit_code_has_diff() {
+        let summary = StatusSummary {
+            modified: 1,
+            left_only: 0,
+            right_only: 0,
+            equal: 5,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
+        };
+        assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
+    }
+
+    #[test]
+    fn test_exit_code_left_only() {
+        let summary = StatusSummary {
+            modified: 0,
+            left_only: 1,
+            right_only: 0,
+            equal: 0,
+            ref_differs: None,
+            ref_only: None,
+            ref_missing: None,
+        };
+        assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
+    }
+
+    // ── メタデータ比較 ──
+
+    fn make_file_with_meta(
+        name: &str,
+        size: u64,
+        mtime: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> FileNode {
+        let mut node = FileNode::new_file(name);
+        node.size = Some(size);
+        node.mtime = mtime;
+        node
+    }
+
+    #[test]
+    fn test_status_equal_when_same_size_and_mtime() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
+        let right = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_modified_when_different_size() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
+        let right = make_tree(vec![make_file_with_meta("a.rs", 200, Some(ts))]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_modified_when_same_size_different_mtime() {
+        use chrono::TimeZone;
+        let ts1 = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let ts2 = chrono::Utc.timestamp_opt(1700000001, 0).unwrap();
+        let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts1))]);
+        let right = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts2))]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        // size一致 + mtime異なる → Modified（コンテンツ比較候補）
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_modified_when_no_metadata() {
+        // size/mtime が None → Modified（安全側）
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    // ── needs_content_compare ──
+
+    #[test]
+    fn test_needs_content_compare_filters_different_size() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let ts2 = chrono::Utc.timestamp_opt(1700000001, 0).unwrap();
+        // a.rs: size異なる → Modified確定、コンテンツ比較不要
+        // b.rs: size同じ + mtime異なる → コンテンツ比較必要
+        let left = make_tree(vec![
+            make_file_with_meta("a.rs", 100, Some(ts)),
+            make_file_with_meta("b.rs", 200, Some(ts)),
+        ]);
+        let right = make_tree(vec![
+            make_file_with_meta("a.rs", 999, Some(ts)),
+            make_file_with_meta("b.rs", 200, Some(ts2)),
+        ]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        let need_compare = needs_content_compare(&files, &left, &right);
+
+        // a.rs は size 違うのでコンテンツ比較不要
+        assert!(!need_compare.contains(&"a.rs".to_string()));
+        // b.rs は size 同じ + mtime 違うのでコンテンツ比較必要
+        assert!(need_compare.contains(&"b.rs".to_string()));
+    }
+
+    #[test]
+    fn test_needs_content_compare_handles_file_vs_directory_conflict() {
+        let left = make_tree(vec![FileNode::new_dir_with_children(
+            "src",
+            vec![FileNode::new_file("main.rs")],
+        )]);
+        let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        let need_compare = needs_content_compare(&files, &left, &right);
+
+        assert!(need_compare.contains(&"src".to_string()));
+        assert!(!need_compare.contains(&"src/main.rs".to_string()));
+    }
+
+    // ── needs_content_compare_all ──
+
+    #[test]
+    fn test_needs_content_compare_all_includes_equal() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let left = make_tree(vec![
+            make_file_with_meta("a.rs", 100, Some(ts)),
+            make_file_with_meta("b.rs", 200, Some(ts)),
+        ]);
+        let right = make_tree(vec![
+            make_file_with_meta("a.rs", 100, Some(ts)), // Equal by metadata
+            make_file_with_meta("b.rs", 999, Some(ts)), // Modified by size
+        ]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+
+        // needs_content_compare_all は Equal + Modified の両方を返す
+        let all = needs_content_compare_all(&files);
+        assert!(all.contains(&"a.rs".to_string())); // Equal
+        assert!(all.contains(&"b.rs".to_string())); // Modified
+    }
+
+    #[test]
+    fn test_needs_content_compare_all_excludes_left_right_only() {
+        let left = make_tree(vec![FileNode::new_file("only_left.rs")]);
+        let right = make_tree(vec![FileNode::new_file("only_right.rs")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        let all = needs_content_compare_all(&files);
+        assert!(all.is_empty());
+    }
+
+    // ── refine_status_with_content ──
+
+    #[test]
+    fn test_refine_status_equal_to_modified_when_content_differs() {
+        // --checksum 用: メタデータで Equal だが内容が異なるファイルを Modified に変更
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"old content".to_vec(), b"new content".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_status_equal_when_content_matches() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"same content".to_vec(), b"same content".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_status_stays_modified_when_content_differs() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"old content".to_vec(), b"new content".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_status_skips_non_modified() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert("a.rs".to_string(), (b"same".to_vec(), b"same".to_vec()));
+        refine_status_with_content(&mut files, &contents);
+        // LeftOnly はコンテンツ比較で変更されない
+        assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_refine_status_binary_identical_is_equal() {
+        // 同一バイナリ（バイト列完全一致）が Equal と判定される
+        let mut files = vec![FileStatus {
+            path: "image.png".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let binary_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x03];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert("image.png".to_string(), (binary_data.clone(), binary_data));
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_status_binary_different_is_modified() {
+        // 異なるバイナリ（同サイズ）が Modified と判定される
+        let mut files = vec![FileStatus {
+            path: "image.png".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x03];
+        let right_data = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02, 0x04];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert("image.png".to_string(), (left_data, right_data));
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_status_text_still_works() {
+        // テキストファイルの比較が引き続き正常に動作すること
+        let mut files = vec![
+            FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let mut contents = std::collections::HashMap::new();
+        contents.insert(
+            "a.rs".to_string(),
+            (b"fn main() {}".to_vec(), b"fn main() {}".to_vec()),
+        );
+        contents.insert(
+            "b.rs".to_string(),
+            (b"old code".to_vec(), b"new code".to_vec()),
+        );
+        refine_status_with_content(&mut files, &contents);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+        assert_eq!(files[1].status, FileStatusKind::Modified);
+    }
+
+    // ── compute_ref_badges ──
+
+    #[test]
+    fn test_compute_ref_badges_all_equal() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let mut left_c = HashMap::new();
+        left_c.insert("a.rs".into(), b"content".to_vec());
+        let mut right_c = HashMap::new();
+        right_c.insert("a.rs".into(), b"content".to_vec());
+        let mut ref_c = HashMap::new();
+        ref_c.insert("a.rs".into(), b"content".to_vec());
+
+        let badges =
+            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        assert_eq!(badges.get("a.rs").unwrap(), "all_equal");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_differs() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let mut left_c = HashMap::new();
+        left_c.insert("a.rs".into(), b"left_content".to_vec());
+        let mut right_c = HashMap::new();
+        right_c.insert("a.rs".into(), b"right_content".to_vec());
+        let mut ref_c = HashMap::new();
+        ref_c.insert("a.rs".into(), b"ref_content".to_vec());
+
+        let badges =
+            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        assert_eq!(badges.get("a.rs").unwrap(), "differs");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_missing_in_ref() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("a.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_sensitive_skipped() {
+        let files = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::Modified,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file(".env")]);
+        let right = make_tree(vec![FileNode::new_file(".env")]);
+        let ref_tree = make_tree(vec![FileNode::new_file(".env")]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(!badges.contains_key(".env"));
+    }
+
+    #[test]
+    fn test_compute_ref_summary() {
+        let mut badges = HashMap::new();
+        badges.insert("a.rs".into(), "differs".into());
+        badges.insert("b.rs".into(), "differs".into());
+        badges.insert("c.rs".into(), "exists_only_in_ref".into());
+        badges.insert("d.rs".into(), "all_equal".into());
+        badges.insert("e.rs".into(), "missing_in_ref".into());
+
+        let (differs, ref_only, ref_missing) = compute_ref_summary(&badges);
+        assert_eq!(differs, 2);
+        assert_eq!(ref_only, 1);
+        assert_eq!(ref_missing, 1);
+    }
+
+    #[test]
+    fn test_compute_ref_badges_empty_ref_tree() {
+        let files = vec![
+            FileStatus {
+                path: "a.rs".into(),
+                status: FileStatusKind::Modified,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+            FileStatus {
+                path: "b.rs".into(),
+                status: FileStatusKind::LeftOnly,
+                sensitive: false,
+                hunks: None,
+                ref_badge: None,
+            },
+        ];
+        let left = make_tree(vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")]);
+        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let ref_tree = make_tree(vec![]);
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    // ── status_from_read_results ──
+
+    #[test]
+    fn test_status_from_read_results_equal() {
+        let result = status_from_read_results(true, true, Some(b"hello"), Some(b"hello")).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_modified() {
+        let result = status_from_read_results(true, true, Some(b"hello"), Some(b"world")).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_left_only() {
+        let result = status_from_read_results(true, false, Some(b"data"), None).unwrap();
+        assert_eq!(result, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_status_from_read_results_right_only() {
+        let result = status_from_read_results(false, true, None, Some(b"data")).unwrap();
+        assert_eq!(result, FileStatusKind::RightOnly);
+    }
+
+    #[test]
+    fn test_status_from_read_results_both_missing() {
+        let result = status_from_read_results(false, false, None, None);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("both sides missing"));
+    }
+
+    #[test]
+    fn test_status_from_read_results_empty_content_equal() {
+        let result = status_from_read_results(true, true, Some(b""), Some(b"")).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_binary_content() {
+        // NUL バイトを含むバイナリコンテンツの比較
+        let left = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01];
+        let right = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x02];
+        let result = status_from_read_results(true, true, Some(left), Some(right)).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_binary_content_equal() {
+        let data = &[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01];
+        let result = status_from_read_results(true, true, Some(data), Some(data)).unwrap();
+        assert_eq!(result, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_from_read_results_both_exist_no_content() {
+        // 両方存在するがコンテンツが取得できない → Modified（安全側）
+        let result = status_from_read_results(true, true, None, None).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_from_read_results_one_side_no_content() {
+        // 片方のコンテンツのみ取得できない → Modified（安全側）
+        let result = status_from_read_results(true, true, Some(b"data"), None).unwrap();
+        assert_eq!(result, FileStatusKind::Modified);
+    }
+
+    // ── symlink ステータス ──
+
+    #[test]
+    fn test_status_symlink_same_target_is_equal() {
+        let left = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
+        let right = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_status_symlink_different_target_is_modified() {
+        let left = make_tree(vec![FileNode::new_symlink("link", "/opt/old")]);
+        let right = make_tree(vec![FileNode::new_symlink("link", "/opt/new")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_status_symlink_vs_file_is_modified() {
+        let left = make_tree(vec![FileNode::new_symlink("item", "/opt/target")]);
+        let right = make_tree(vec![FileNode::new_file("item")]);
+        let files = compute_status_from_trees(&left, &right, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_build_status_output_no_ref_backward_compat() {
+        let files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let output = build_status_output(
+            SourceInfo {
+                label: "local".into(),
+                root: ".".into(),
+            },
+            SourceInfo {
+                label: "dev".into(),
+                root: "/var/www".into(),
+            },
+            files,
+            false,
+            None,
+            None,
+        );
+        assert!(output.ref_.is_none());
+        assert!(output.summary.ref_differs.is_none());
+        // ref_badge should remain None on all files
+        for f in output.files.unwrap() {
+            assert!(f.ref_badge.is_none());
+        }
+    }
+
+    // ── compute_ref_badges: sensitive ファイルの存在チェック ──
+
+    #[test]
+    fn test_compute_ref_badges_sensitive_missing_in_ref() {
+        // sensitive ファイルが ref ツリーに存在しない → "missing_in_ref" バッジを付与
+        let files = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::Modified,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file(".env")]);
+        let right = make_tree(vec![FileNode::new_file(".env")]);
+        let ref_tree = make_tree(vec![]); // .env が存在しない
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(badges.get(".env").unwrap(), "missing_in_ref");
+    }
+
+    #[test]
+    fn test_compute_ref_badges_sensitive_exists_in_ref() {
+        // sensitive ファイルが ref ツリーに存在する → badge なし（コンテンツ比較しないため unknown）
+        let files = vec![FileStatus {
+            path: ".env".into(),
+            status: FileStatusKind::Modified,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file(".env")]);
+        let right = make_tree(vec![FileNode::new_file(".env")]);
+        let ref_tree = make_tree(vec![FileNode::new_file(".env")]); // .env が存在する
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        // ref に存在する場合は badge なし
+        assert!(!badges.contains_key(".env"));
+    }
+
+    #[test]
+    fn test_compute_ref_badges_sensitive_no_content_leak() {
+        // sensitive ファイルのコンテンツが contents マップにあっても比較されないことを確認
+        // （存在チェックのみで badge が決まる）
+        let files = vec![FileStatus {
+            path: "secret.pem".into(),
+            status: FileStatusKind::Modified,
+            sensitive: true,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let left = make_tree(vec![FileNode::new_file("secret.pem")]);
+        let right = make_tree(vec![FileNode::new_file("secret.pem")]);
+        // ref には存在しない
+        let ref_tree = make_tree(vec![]);
+        // コンテンツは全て異なる値を入れる（コンテンツ比較されたら badge が変わるはず）
+        let mut left_c = HashMap::new();
+        left_c.insert("secret.pem".into(), b"left_secret".to_vec());
+        let mut right_c = HashMap::new();
+        right_c.insert("secret.pem".into(), b"right_secret".to_vec());
+        let mut ref_c = HashMap::new();
+        ref_c.insert("secret.pem".into(), b"ref_secret".to_vec());
+
+        let badges =
+            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        // ref に存在しないので missing_in_ref（コンテンツ内容ではなく存在有無で決まる）
+        assert_eq!(badges.get("secret.pem").unwrap(), "missing_in_ref");
+
+        // ref に存在するケース: コンテンツ比較されても badge は付かないはず
+        let ref_tree_with_file = make_tree(vec![FileNode::new_file("secret.pem")]);
+        let badges2 = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree_with_file,
+            &left_c,
+            &right_c,
+            &ref_c,
+        );
+        // コンテンツ比較なし → badge なし
+        assert!(!badges2.contains_key("secret.pem"));
+    }
+
+    // ── refine_status_with_hashes ──
+
+    #[test]
+    fn test_refine_with_hashes_equal() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc123".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc123".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_modified() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "def".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_skips_left_only() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::LeftOnly,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "abc".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_missing_hash_keeps_status() {
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let local = HashMap::new(); // no hash for a.rs
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "abc".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        // ハッシュなし → ステータス変更なし
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_symlink_comparison() {
+        let mut files = vec![FileStatus {
+            path: "link".into(),
+            status: FileStatusKind::Modified,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("link".into(), "/opt/target".into());
+        let mut remote = HashMap::new();
+        remote.insert("link".into(), "/opt/target".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
+    }
+
+    #[test]
+    fn test_refine_with_hashes_metadata_equal_to_modified() {
+        // メタデータで Equal と判定されたが、ハッシュが異なる場合 → Modified に変更
+        let mut files = vec![FileStatus {
+            path: "a.rs".into(),
+            status: FileStatusKind::Equal,
+            sensitive: false,
+            hunks: None,
+            ref_badge: None,
+        }];
+        let mut local = HashMap::new();
+        local.insert("a.rs".into(), "old_hash".into());
+        let mut remote = HashMap::new();
+        remote.insert("a.rs".into(), "new_hash".into());
+        refine_status_with_hashes(&mut files, &local, &remote);
+        assert_eq!(files[0].status, FileStatusKind::Modified);
+    }
+}
