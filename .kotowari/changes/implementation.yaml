@@ -1,0 +1,61 @@
+version: 1
+entries:
+  - id: tui-cancellation-test-method
+    base: e759c6d610f0ecd4fb473241e61f38f3579ec5e6
+    role: implementer
+    files:
+      - path: crates/remote-merge/tests/common/mod.rs
+        before: sha256:a50e93778bae1c90f0871ff5d0ef5e284ebd6916c6e9a7db573ab69b75583a1d
+        after: sha256:e544fdc114e26cca3282935c70fd87565132b580370757ca11c3139ac97ac90b
+      - path: crates/remote-merge/tests/common/tui_session.rs
+        before: null
+        after: sha256:ef9f80facf2829438e7c75fb98ff7806b0933769fbf4be404573add0d45d2d94
+      - path: crates/remote-merge/tests/tui_merge.rs
+        before: sha256:91dd3f1382b9269eb4118da9992f7ce4d90f7054c97a8cebcc3744e6b1e7a64a
+        after: sha256:9fd873a91f209ad2d69f04f44db6b6331372dfd574ccc637078edb2146173696
+      - path: crates/remote-merge/tests/tui_session.rs
+        before: null
+        after: sha256:8f75a3f76f57d105b3e3819fb544fe0f414a53f54d7a36900ec8a721fe9a104a
+    ir:
+      - path: docs/ir/tui/operations.md
+        sha256: sha256:1b87e7e9bac257a81316ac402587350e1576d8c093d045f995b163c54165759c
+      - path: docs/ir/testing/methods.md
+        sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+    conclusion: existing
+    reason: >-
+      マージ前の確認と拒否時の宛先保護を変えず、許可されたテスト方法だけを改善する。
+      実PTYの確認、所有fixtureの確認状態から取消状態への遷移、取消前後の宛先内容、独立した終了EOFを検査する。
+      状態の観測先は既存dirsと子プロセスの所有HOME/XDG環境に合わせ、macOS/iOSと他の対象Unixの保存先差を扱う。
+      macOS/iOSの保存先一致は静的な照合であり、その環境での実行成功とは扱わない。
+      有限の実子プロセスによる出力消費と状態待機の回帰検査を加え、既存製品コード・IR・依存を変えない。
+      既存テレメトリのフィールドや英語文言を新しい製品契約とせず、REQ-tui-002の振る舞いを観測する手段に使う。
+      REQ-testing-009に沿って差分描画に合う観測方法を選び、無制限producerの終了・メモリ保証は主張しない。
+      過去の取消失敗の根本原因が証明されたとは扱わず、現行の有限producerとfixture TUIだけを受入範囲とする。
+    requirements:
+      - REQ-tui-002
+      - REQ-testing-009
+    decisions:
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A1
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A2
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A3
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A4
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A5
+    handoff: null
+    gaps: []
+  - id: tui-cancellation-worktree-ignore
+    base: e759c6d610f0ecd4fb473241e61f38f3579ec5e6
+    role: implementer
+    files:
+      - path: .gitignore
+        before: sha256:366d8f52a63904101dff16afda827a1163844e6cbe07740d9998efbd79da1696
+        after: sha256:bee63ea2e0093961b9705c619225caca22da0bbacabadc413de71811c1386b62
+    ir: []
+    conclusion: new
+    reason: >-
+      ユーザーが明示承認した .agents/worktrees/ 一行だけを追加し、宣言された作業場所をGit成果物から外す。
+      個人設定や .agents/ 全体の無視には広げず、製品の振る舞い・IR・依存を変えない。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A6
+    handoff: null
+    gaps: []
