@@ -2837,6 +2837,7 @@ dependencies = [
  "remote-merge-agent",
  "remote-merge-config",
  "remote-merge-core",
+ "remote-merge-engine",
  "remote-merge-protocol",
  "remote-merge-settings",
  "remote-merge-ssh",
@@ -2907,6 +2908,20 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "remote-merge-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "remote-merge-config",
+ "remote-merge-core",
+ "serial_test",
+ "tempfile",
+ "tracing",
+ "walkdir",
 ]
 
 [[package]]

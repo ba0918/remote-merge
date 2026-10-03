@@ -1,11 +1,11 @@
 # 変異テストの見逃しのうち、観測できる違いを生まないと判断した同等変異の一覧。
 # 登録は別の文脈でその変異を落とすテストを書こうとして書けなかったときだけ行い、why にその試みを書く。
-- file: crates/remote-merge/src/backup/mod.rs
+- file: crates/remote-merge-engine/src/backup/mod.rs
   change: replace backup_timestamp -> String with String::new()
   text: Utc::now().format("%Y%m%d-%H%M%S").to_string()
   class: equivalent
   why: backup_timestamp の値はバックアップが無効なときの merge・sync のセッション ID にだけ使われ、その ID が流れる保存・削除の表示・セッションの片付けは全てバックアップが有効なときの分岐の中にあり、結果の出力にも集約先にも届かない。別の文脈のエージェントに merge・sync の公開された入口からこの変異で落ちるテストを書かせたが、観測できる違いが見つからず書けなかった
-- file: crates/remote-merge/src/backup/mod.rs
+- file: crates/remote-merge-engine/src/backup/mod.rs
   change: replace backup_timestamp -> String with "xyzzy".into()
   text: Utc::now().format("%Y%m%d-%H%M%S").to_string()
   class: equivalent

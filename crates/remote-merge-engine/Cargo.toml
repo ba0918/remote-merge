@@ -1,0 +1,17 @@
+[package]
+name = "remote-merge-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+remote-merge-core = { path = "../remote-merge-core" }
+remote-merge-config = { path = "../remote-merge-config" }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"
