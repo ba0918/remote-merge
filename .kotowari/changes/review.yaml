@@ -1,0 +1,80 @@
+version: 1
+entries:
+  - id: tui-cancellation-independent-conformance
+    base: e759c6d610f0ecd4fb473241e61f38f3579ec5e6
+    role: reviewer
+    files:
+      - path: crates/remote-merge/tests/common/mod.rs
+        before: sha256:a50e93778bae1c90f0871ff5d0ef5e284ebd6916c6e9a7db573ab69b75583a1d
+        after: sha256:e544fdc114e26cca3282935c70fd87565132b580370757ca11c3139ac97ac90b
+      - path: crates/remote-merge/tests/common/tui_session.rs
+        before: null
+        after: sha256:ef9f80facf2829438e7c75fb98ff7806b0933769fbf4be404573add0d45d2d94
+      - path: crates/remote-merge/tests/tui_merge.rs
+        before: sha256:91dd3f1382b9269eb4118da9992f7ce4d90f7054c97a8cebcc3744e6b1e7a64a
+        after: sha256:9fd873a91f209ad2d69f04f44db6b6331372dfd574ccc637078edb2146173696
+      - path: crates/remote-merge/tests/tui_session.rs
+        before: null
+        after: sha256:8f75a3f76f57d105b3e3819fb544fe0f414a53f54d7a36900ec8a721fe9a104a
+    ir:
+      - path: docs/ir/tui/operations.md
+        sha256: sha256:1b87e7e9bac257a81316ac402587350e1576d8c093d045f995b163c54165759c
+      - path: docs/ir/testing/methods.md
+        sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+    conclusion: existing
+    reason: >-
+      固定比較元から対象コミットまでの全変更と現行IR全56文書を独立に照合した。
+      REQ-tui-002が求める書き込み前の確認と拒否時の対象保護は、実PTYの確認画面、確認前後の宛先内容で直接検査する。
+      nの前に確認状態を観測し、nの後に取消メッセージとダイアログ消失を要求してから別のqとEOFを検査するため、終了だけを取消の根拠にしない。
+      実アプリの描画後に保存される公開状態を使い、fixtureごとの新しい保存先と遷移によって過去の取消や別の子の状態を受け入れない。
+      状態待機と有限出力producerの検査は観測方法の回帰検査であり、REQ-testing-009の選択を変えず、新たな文言やJSON構造の製品契約を定めない。
+      一つのworkerが既存expectrlを所有し、待機中も出力を保持して照合する。wrapper後の15秒設定、読取り失敗の伝播、宛先保護と終了確認を維持する。
+      最初の独立レビューで見つけたmacOSの観測先不一致は、子の所有HOMEと既存dirsのmacOS/iOS分岐に合わせたaccessorで修正されている。
+      他の対象Unixでは所有する絶対XDG_CACHE_HOMEを使い、親の環境で保存先を解決しない。修正後のソースと決定は受け入れた差分の全bytesに一致する。
+      実Linuxログは二取消の確認から取消への状態遷移と四対象テストの成功を示し、最終二コミットの有効hookは各3111件成功と数値exit0を示す。
+      macOS/iOSについて確認したのは固定依存の静的保存先一致だけで、その環境でのcompileや実行は未検証である。
+      無条件joinと未照合bufferの成長は現行の有限producerとfixture TUIへの受入限界として扱い、任意の無制限出力の終了時間やメモリ保証を加えない。
+      既存製品コード、IR、依存、設定、hookは不変で、過去の取消失敗の根本原因や保存されていないRED baseline bytesは主張しない。
+    requirements:
+      - REQ-tui-002
+      - REQ-testing-009
+    decisions:
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A1
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A2
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A3
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A4
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A5
+    handoff: null
+    gaps: []
+  - id: tui-cancellation-independent-decision-and-ignore
+    base: e759c6d610f0ecd4fb473241e61f38f3579ec5e6
+    role: reviewer
+    files:
+      - path: .gitignore
+        before: sha256:366d8f52a63904101dff16afda827a1163844e6cbe07740d9998efbd79da1696
+        after: sha256:bee63ea2e0093961b9705c619225caca22da0bbacabadc413de71811c1386b62
+      - path: docs/decision/records/2026-10-04-tui-cancellation-test-method.md
+        before: null
+        after: sha256:48eabe4dcbb1afb90294cd3ea8c673f198ca064d8bd9c015264a4e1a751668fa
+    ir:
+      - path: docs/ir/tui/operations.md
+        sha256: sha256:1b87e7e9bac257a81316ac402587350e1576d8c093d045f995b163c54165759c
+      - path: docs/ir/testing/methods.md
+        sha256: sha256:80ea09ec048be5ec90898f6486426bd7c5ee5cef0a27a0a04e729a0678a3d56a
+    conclusion: new
+    reason: >-
+      無視規則の追加は明示承認された .agents/worktrees/ 一行だけで、既存規則、個人設定、製品の動作を変えない。
+      A6はこの作業場所の判断に対応し、A1からA5は承認されたテスト方法を具体化する根拠と限界を記録する。
+      決定の実PTY、宛先保護、状態遷移、worker、期限、所有保存先の記述は対象実装と一致する。
+      A4の修正は既存依存と子環境に合わせる観測先の説明で、macOS実行成功や新しいプラットフォーム保証を宣言しない。
+      この新しい記録と無視規則は新たな製品挙動や制約を追加せず、関連IRは不変である。仕様gapや委任範囲外の判断は見つからない。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A1
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A2
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A3
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A4
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A5
+      - docs/decision/records/2026-10-04-tui-cancellation-test-method.md#A6
+    handoff: null
+    gaps: []
