@@ -1,0 +1,46 @@
+version: 1
+entries:
+  - id: config-extraction-independent-review
+    base: 9870c96ea2102414e5da06ce72b1d6750388aa88
+    role: reviewer
+    files:
+      - path: Cargo.lock
+        before: sha256:ee1d6b9234150521dc1a198be800be0b0aadcc2cd4a5b7690c43974d3485c490
+        after: sha256:2b9d0ebd7c4c9d34b8c6261e54fb8429885d9168c8c7674cbc8e945d3f0e55d5
+      - path: Cargo.toml
+        before: sha256:8da7ff3bf52b3879ff849c25b95611ebe11a70e15adc11cd4851308887e8821c
+        after: sha256:4045edde72e3d07c78464f8386a222135fa42fd62e6a9fb8bd9a67e28c3f77a5
+      - path: PROJECT.md
+        before: sha256:b6071bcc915d51cef196f025c148fd0471f01c74394dc088b090f809d0af8eb7
+        after: sha256:cbd7af15e2f1a8fd69ee64e1489115e54876fd727dd80600724bbeed206e4a6f
+      - path: crates/remote-merge-config/Cargo.toml
+        before: null
+        after: sha256:e4d0538980d0736e7f5987804b332eedaa0529c86afdbeeb5c995e3dda3473e0
+      - path: crates/remote-merge-config/src/lib.rs
+        before: null
+        after: sha256:fec4e6144fac35cb6fc1905852bf67b5c3352a1701943fd63f946a104fd2666f
+      - path: crates/remote-merge/Cargo.toml
+        before: sha256:63166a26ca19f15b29d6e1ae09839f5fcb9deab0542baf99b985a2d16acd0d87
+        after: sha256:6d7849ce71da01ae4ca33c963d71d8d15a04fbe1ce971e596d5f949e54672911
+      - path: crates/remote-merge/src/backup/mod.rs
+        before: sha256:55537d620215e2f3f84adbe348e8923f92547e1f20c45fab1e838b2db4bc0c34
+        after: sha256:7227c6e8ba00bfce9303f2ba6f8157f7bfb5bc41f6d4e627141d8fcd898a2862
+      - path: crates/remote-merge/src/config.rs
+        before: sha256:ded7e1b98e41dc5ea43e8d9a5dd13bb75004c8902f5896e48b21604c456eff8d
+        after: sha256:9fa91eb7b4811eec5acdfc949f0e82df4135c69181f7330a002e53de9e405abc
+      - path: docs/decision/records/2026-10-03-config-extraction.md
+        before: null
+        after: sha256:e412c2cb1c7ddd0303039d7e8417f01b876b035d0401bc06cd9a73664149ed14
+    ir: []
+    conclusion: new
+    reason: 固定した比較元と対象の全差分および根拠の実出力を独立に照合した。coreのprivate別名と元backup定数の追加、単一参照とhelper可視性の変更、三つの正確なwarn target引数だけを逆変換すると旧configの全bytesとmodeに一致する。全テスト本文・cfg・期待値はそのままで、収集結果の全3109件は89件のownerとconfig接頭辞だけを対応付けて一致し、3020件は無変換で一致する。候補configの89件には実際のPASS出力がある。製品facadeの公開26項目は元の集合に一致し、Raw型・新backup定数・helperを製品configから追加公開しない。helperの製品crate内可視性は維持され、外部アクセスのE0603と製品config定数アクセスのE0425は意図した拒否として通常検査と区別した。consumerの実行成功とソースから全公開型、settingsの五型、coreのResultとbackup定数の同一性を確認した。backupの残る全本文、認証利用側、読み込み順序・既定値・serde・検証・エラー・機密フィルターと除外は変更されていない。新crateから上位の製品やSSHへ依存せず、全lockと既存metadataは新しいlocal packageと製品からの辺だけを除き一致する。manifestは元の依存指定とfeatureを使い、六つの通常memberに含まれる。三ログの旧target・level・message・引数と分岐は静的に照合しただけで、動的イベント、file・line・module_pathの維持やmacOS成功を主張しない。前後と最終の通常検査およびLinux install・表示・musl・Docker・coverageの実出力を確認した。初回fmt失敗は修正後の全順序再実行と区別し、初回path scanの未採取exitも成功と扱わない。47個のhome形式と10個のcredential形式の追加行は元のfixtureまたは宣言と一致し、環境情報の追加ではない。PROJECTと決定の説明は委任されたA1・A2と具体設計D1〜D4に一致し、新IR・テスト・変異や残る境界判断を追加しない配置変更と判断する。
+    requirements: []
+    decisions:
+      - docs/decision/records/2026-10-03-config-extraction.md#A1
+      - docs/decision/records/2026-10-03-config-extraction.md#A2
+      - docs/decision/records/2026-10-03-config-extraction.md#D1
+      - docs/decision/records/2026-10-03-config-extraction.md#D2
+      - docs/decision/records/2026-10-03-config-extraction.md#D3
+      - docs/decision/records/2026-10-03-config-extraction.md#D4
+    handoff: null
+    gaps: []
