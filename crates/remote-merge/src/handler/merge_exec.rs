@@ -80,6 +80,7 @@ pub fn execute_merge(state: &mut AppState, runtime: &mut TuiRuntime, confirm: &C
         MergeExecutionPlan::SkipDifferentKind => {
             state.status_message =
                 format!("{path}: source and destination have different file types");
+            return;
         }
         MergeExecutionPlan::SymlinkMerge => {
             let (source_side, target_side) = match direction {

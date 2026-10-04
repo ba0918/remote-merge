@@ -141,6 +141,8 @@ mod tui_confirm;
 mod tui_directory_links;
 #[path = "contract/tui_export.rs"]
 mod tui_export;
+#[path = "contract/tui_merge_kinds.rs"]
+mod tui_merge_kinds;
 #[path = "contract/tui_navigation.rs"]
 mod tui_navigation;
 #[path = "contract/tui_reference.rs"]
