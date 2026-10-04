@@ -45,3 +45,10 @@
 - verification: unit
 
 [local] の root_dir が "~/" で始まるとき、その部分を利用者のホームディレクトリに置き換えて使う。
+
+### REQ-config-028: 設定を使わないサブコマンドは --config を無視する
+- kind: event_driven
+- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A4
+- verification: unit
+
+init・logs・events に --config を指定したときは "Warning: --config is ignored for the 'サブコマンド名' subcommand" を標準エラーに出し、設定を読まずに続ける。

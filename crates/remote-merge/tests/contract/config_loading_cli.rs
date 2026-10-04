@@ -329,3 +329,69 @@ fn local_root_starting_with_tilde_is_resolved_under_home() {
 
     assert_eq!(listed_paths(&json), ["under-home.txt"]);
 }
+
+// ─── 設定を使わないサブコマンドの --config（REQ-config-028） ─────────────────
+
+// @kotowari[REQ-config-028]
+#[test]
+fn logs_and_events_warn_that_config_is_ignored_and_run_without_reading_it() {
+    // logs と events は保存済みの記録を読むだけで副作用がない。init は設定ファイルを書くため使わない
+    for (subcommand, args, file, entry, field, value) in [
+        (
+            "logs",
+            &["--format", "json"][..],
+            "debug.log",
+            r#"{"timestamp":"2026-01-01T00:00:00Z","level":"ERROR","target":"remote_merge::ssh","message":"saved entry","fields":{}}"#,
+            "message",
+            "saved entry",
+        ),
+        (
+            "events",
+            &[][..],
+            "events.jsonl",
+            r#"{"ts":"2026-01-01T00:00:00Z","event":"key_press","key":"j","result":"cursor_moved"}"#,
+            "event",
+            "key_press",
+        ),
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let cache = home.path().join("cache");
+        let log_dir = cache.join("remote-merge");
+        fs::create_dir_all(&log_dir).unwrap();
+        fs::write(log_dir.join(file), format!("{entry}\n")).unwrap();
+        let missing = home.path().join("missing.toml");
+        assert!(!missing.exists());
+
+        let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+            .env_clear()
+            .env("HOME", home.path())
+            .env("XDG_CACHE_HOME", &cache)
+            .env("XDG_CONFIG_HOME", home.path().join(".config"))
+            .current_dir(home.path())
+            .arg("--config")
+            .arg(&missing)
+            .arg(subcommand)
+            .args(args)
+            .output()
+            .unwrap();
+
+        // 指定先がない --config でも止まらず、保存済みの記録を出す
+        assert!(output.status.success(), "{subcommand}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "Warning: --config is ignored for the '{subcommand}' subcommand"
+            )),
+            "{subcommand}: {output:?}"
+        );
+        let stdout = String::from_utf8(output.stdout.clone()).unwrap();
+        let first: serde_json::Value = serde_json::from_str(
+            stdout
+                .lines()
+                .next()
+                .unwrap_or_else(|| panic!("{subcommand}: {output:?}")),
+        )
+        .unwrap_or_else(|err| panic!("{subcommand}: {err}: {output:?}"));
+        assert_eq!(first[field], value, "{subcommand}");
+    }
+}

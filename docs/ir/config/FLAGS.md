@@ -44,13 +44,6 @@
 
 実装は設定ファイルの知らないキーやセクションを知らせずに無視するため、キー名の書き間違いに利用者が気づけない。旧資料に記述がなくテストもない。
 
-### FLAG-config-008: --config を使わないサブコマンドの警告
-- kind: gap
-- related: REQ-config-006
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A19
-
-実装は init・logs・events に --config を指定すると "Warning: --config is ignored for the 'サブコマンド名' subcommand" を出して設定を読まずに続ける。旧資料に記述がなくテストもない。
-
 ### FLAG-config-010: auth が key のサーバの password の警告
 - kind: gap
 - related: REQ-config-014
