@@ -27,6 +27,11 @@ use anyhow::Result;
 #[cfg(unix)]
 use russh::ChannelMsg;
 
+/// リモートの agent が標準エラーに出した文字列を中継する記録の target。
+///
+/// 中身はリモートのシェルや sudo も含む外部の出力なので、診断ログのファイルには残さない。
+pub const REMOTE_STDERR_TARGET: &str = "remote_merge::agent::remote_stderr";
+
 /// ブリッジスレッドの join タイムアウト（秒）
 #[cfg(unix)]
 const JOIN_TIMEOUT_SECS: u64 = 2;
@@ -254,7 +259,7 @@ fn bridge_loop(
                         Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                             // stderr をデバッグログに出力（診断用）
                             if let Ok(text) = std::str::from_utf8(data) {
-                                tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: stderr: {text}");
+                                tracing::debug!(target: REMOTE_STDERR_TARGET, "bridge_loop: stderr: {text}");
                             }
                         }
                         Some(ChannelMsg::Eof) | None => {

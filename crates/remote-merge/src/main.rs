@@ -592,9 +592,11 @@ fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
                 telemetry::diagnostic_log::MAX_DIAGNOSTIC_LOG_BYTES,
             )
             .map(|file| {
-                telemetry::JsonLogLayer::new(file).with_filter(tracing_subscriber::EnvFilter::new(
-                    cli_level.unwrap_or("info"),
-                ))
+                use tracing_subscriber::filter::FilterExt;
+                // 細かさは指定どおりにし、残すのは remote-merge 自身の記録だけにする
+                let level = tracing_subscriber::EnvFilter::new(cli_level.unwrap_or("info"));
+                telemetry::JsonLogLayer::new(file)
+                    .with_filter(level.and(telemetry::file_filter::own_records()))
             });
             tracing_subscriber::registry()
                 .with(stderr_layer)

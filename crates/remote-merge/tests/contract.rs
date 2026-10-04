@@ -40,6 +40,9 @@ mod config_values;
 mod config_values_cli;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
+#[cfg(all(unix, feature = "test-utils"))]
+#[path = "contract/diagnostics_sent_data.rs"]
+mod diagnostics_sent_data;
 #[path = "contract/diff_file_kinds.rs"]
 mod diff_file_kinds;
 #[path = "contract/diff_format.rs"]
