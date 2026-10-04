@@ -27,7 +27,7 @@ pub(super) fn diff(env: &CliEnv, args: &[&str]) -> Output {
         .expect("failed to execute diff")
 }
 
-fn stdout(output: &Output) -> String {
+pub(super) fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 

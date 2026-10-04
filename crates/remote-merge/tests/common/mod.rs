@@ -548,6 +548,11 @@ impl CliEnv {
         self._dirs.temp.path()
     }
 
+    /// 試験 SSH サーバへのログインを `accepted` 回だけ受け入れ、以降の接続を認証で失敗させる
+    pub fn reject_logins_after(&self, accepted: usize) {
+        self._dirs._server.reject_logins_after(accepted);
+    }
+
     /// CLI コマンドをサブコマンド付きで生成
     pub fn cmd_with(&self, subcommand: &str) -> Command {
         let mut cmd = self.cmd();

@@ -49,6 +49,13 @@ diff の --ref に設定のサーバ名か "local" を指定すると、diff は
 
 diff は参照先を比べる相手として加えるだけで、参照先にだけあるファイルを files にも summary の数にも含めない。
 
+### REQ-cli-069: 参照先に接続できない diff はエラーで終える
+- kind: event_driven
+- source: docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A7
+- verification: unit
+
+--ref の参照先に接続できないとき、diff は比較の結果を出さずにエラーで終了コード 2 を返す。
+
 ### REQ-cli-066: 左右と同じ参照先では diff の三者比較をしない
 - kind: state_driven
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A5

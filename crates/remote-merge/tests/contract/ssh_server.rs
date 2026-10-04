@@ -24,6 +24,7 @@ pub struct TestServer {
     write_attempts: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
+    login_limit: Arc<AtomicUsize>,
 }
 
 impl TestServer {
@@ -93,6 +94,13 @@ impl TestServer {
         self.port
     }
 
+    /// 正しいパスワードでのログインを `accepted` 回だけ受け入れ、それ以降は認証を拒む。
+    ///
+    /// 同じポートの設定のまま、後から接続するサーバだけを接続できなくするのに使う。
+    pub fn reject_logins_after(&self, accepted: usize) {
+        self.login_limit.store(accepted, Ordering::SeqCst);
+    }
+
     async fn start(
         legacy: bool,
         incomplete_writes: bool,
@@ -139,6 +147,8 @@ impl TestServer {
         let received_commands = Arc::clone(&commands);
         let read_attempts = Arc::new(AtomicUsize::new(0));
         let attempts_on_read = Arc::clone(&read_attempts);
+        let login_limit = Arc::new(AtomicUsize::new(usize::MAX));
+        let limit_on_login = Arc::clone(&login_limit);
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -153,6 +163,8 @@ impl TestServer {
                 target,
                 sandbox_home,
                 agent_available,
+                login_limit: limit_on_login,
+                accepted_logins: Arc::new(AtomicUsize::new(0)),
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -162,6 +174,7 @@ impl TestServer {
             write_attempts,
             commands,
             read_attempts,
+            login_limit,
         }
     }
 }
@@ -182,6 +195,8 @@ struct LocalServer {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
+    login_limit: Arc<AtomicUsize>,
+    accepted_logins: Arc<AtomicUsize>,
 }
 
 impl server::Server for LocalServer {
@@ -198,6 +213,8 @@ impl server::Server for LocalServer {
             target: self.target.clone(),
             sandbox_home: self.sandbox_home.clone(),
             agent_available: self.agent_available,
+            login_limit: Arc::clone(&self.login_limit),
+            accepted_logins: Arc::clone(&self.accepted_logins),
             write_channels: HashMap::new(),
             agent_stdin: HashMap::new(),
         }
@@ -214,6 +231,8 @@ struct LocalHandler {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
+    login_limit: Arc<AtomicUsize>,
+    accepted_logins: Arc<AtomicUsize>,
     write_channels: HashMap<ChannelId, (String, Vec<u8>)>,
     agent_stdin: HashMap<ChannelId, ChildStdin>,
 }
@@ -263,7 +282,12 @@ impl server::Handler for LocalHandler {
     }
 
     async fn auth_password(&mut self, _: &str, password: &str) -> Result<Auth, Self::Error> {
-        Ok(if password == "fixture-password" {
+        if password != "fixture-password" {
+            return Ok(Auth::reject());
+        }
+        let limit = self.login_limit.load(Ordering::SeqCst);
+        let accepted = self.accepted_logins.fetch_add(1, Ordering::SeqCst);
+        Ok(if accepted < limit {
             Auth::Accept
         } else {
             Auth::reject()

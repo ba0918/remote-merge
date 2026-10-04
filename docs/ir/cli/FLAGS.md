@@ -380,13 +380,6 @@ diff は左右がバイナリのファイルに "ref_hunks" を出さず、参�
 
 diff は片側にないファイルを、ない側を空の内容として参照先と比べて競合を調べるため、片側にないことが参照先からの全行の削除として扱われ競合が示されうる。これが REQ-cli-016 の競合に当たるかが決まらない（実装を読んで分かったことで未実行）。
 
-### FLAG-cli-068: 参照先に接続できないとき
-- kind: gap
-- related: REQ-cli-062
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A16
-
-diff は --ref の参照先に接続できないとき、全体を終了コード 2 のエラーで終え、左右の比較の結果も出さない。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-069: ヘルプの --ref の説明
 - kind: contradiction
 - related: REQ-cli-062
