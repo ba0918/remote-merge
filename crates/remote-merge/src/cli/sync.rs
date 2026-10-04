@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::app::Side;
+use crate::cli::merge::merge_partial_nodes;
 use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
@@ -542,10 +543,9 @@ fn fetch_partial_tree(
     let mut tree = FileTree::new(&config.local.root_dir);
     for dir_path in dir_paths {
         let sub = core.fetch_tree_for_subpath(side, dir_path, max_entries, true)?;
-        tree.nodes.extend(sub.nodes);
+        merge_partial_nodes(&mut tree.nodes, sub.nodes);
     }
     tree.sort();
-    tree.nodes.dedup_by_key(|n| n.name.clone());
     Ok(tree)
 }
 

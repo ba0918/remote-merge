@@ -246,3 +246,66 @@ fn dry_run_lists_every_planned_file_as_would_merge_and_changes_no_target() {
     assert!(!fixture.exists("staging", "b.txt"));
     assert_eq!(fixture.read("develop", "gone.txt"), "only on develop\n");
 }
+
+/// 同じ最上位のディレクトリ "a" の下の "a/x/f.txt" と "a/y/g.txt" を local に置き、
+/// 書き込み先 develop には同じディレクトリに古い中身を置く
+fn two_directories_under_the_same_top_directory() -> super::sync_support::Fixture {
+    let fixture = fixture();
+    for side in ["local", "develop"] {
+        for dir in ["a/x", "a/y"] {
+            std::fs::create_dir_all(fixture.root(side).join(dir)).unwrap();
+        }
+    }
+    fixture.write("local", "a/x/f.txt", "incoming\n");
+    fixture.write("local", "a/y/g.txt", "incoming\n");
+    fixture.write("develop", "a/x/f.txt", "old\n");
+    fixture.write("develop", "a/y/g.txt", "old\n");
+    fixture
+}
+
+// @kotowari[REQ-scan-009, REQ-cli-041, REQ-cli-044]
+#[test]
+fn directories_under_the_same_top_directory_are_both_written() {
+    let fixture = two_directories_under_the_same_top_directory();
+
+    let (output, code) = fixture.sync(args(&["a/x/", "a/y/"], &["develop"]));
+
+    let develop = target(&output, "develop");
+    assert_eq!(
+        merged_paths(develop),
+        ["a/x/f.txt", "a/y/g.txt"],
+        "{output:?}"
+    );
+    assert!(develop.failed.is_empty(), "{output:?}");
+    assert_eq!(develop.status, SyncTargetStatus::Success);
+    assert_eq!(code, 0);
+    assert_eq!(fixture.read("develop", "a/x/f.txt"), "incoming\n");
+    assert_eq!(fixture.read("develop", "a/y/g.txt"), "incoming\n");
+}
+
+// @kotowari[REQ-scan-009, REQ-cli-045]
+#[test]
+fn dry_run_of_directories_under_the_same_top_directory_lists_only_their_files() {
+    let fixture = two_directories_under_the_same_top_directory();
+    let mut args = args(&["a/x/", "a/y/"], &["develop"]);
+    args.dry_run = true;
+    args.force = false;
+
+    let (output, _) = fixture.sync(args);
+
+    let develop = target(&output, "develop");
+    assert_eq!(
+        merged_paths(develop),
+        ["a/x/f.txt", "a/y/g.txt"],
+        "{output:?}"
+    );
+    assert!(
+        develop
+            .merged
+            .iter()
+            .all(|file| file.status == "would merge"),
+        "{output:?}"
+    );
+    assert_eq!(fixture.read("develop", "a/x/f.txt"), "old\n");
+    assert_eq!(fixture.read("develop", "a/y/g.txt"), "old\n");
+}

@@ -627,7 +627,8 @@ fn fetch_partial_trees(
     Ok((left_tree, right_tree))
 }
 
-fn merge_partial_nodes(target: &mut Vec<FileNode>, incoming: Vec<FileNode>) {
+/// 部分走査で得たサブツリーを、同じ名前のディレクトリの配下まで深くまとめる。
+pub(crate) fn merge_partial_nodes(target: &mut Vec<FileNode>, incoming: Vec<FileNode>) {
     for node in incoming {
         merge_partial_node(target, node);
     }
