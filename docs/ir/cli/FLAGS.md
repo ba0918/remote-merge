@@ -317,13 +317,6 @@ REQ-cli-022 は比較できなかったパスと理由を示すとするが、�
 
 diff は、リンク文字列も参照先の内容も同じ symlink を差分のない項目として files に残してテキストにも "Link target:" を出し、100MB を超える参照先を --force を付けても読めないエラーにし、絶対パスの指定を拒否しない（実装を読んで分かったことで未実行）。旧資料に記述がなくテストもない。
 
-### FLAG-cli-055: 手引きの symlink の欄名
-- kind: contradiction
-- related: REQ-cli-024
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A13
-
-利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例はリンク先を "left_symlink_target" と "right_symlink_target" で出すとするが、REQ-cli-024 と実装は link_targets の left と right で出す。
-
 ### FLAG-cli-058: conflict_regions の要素の形
 - kind: contradiction
 - related: REQ-cli-065

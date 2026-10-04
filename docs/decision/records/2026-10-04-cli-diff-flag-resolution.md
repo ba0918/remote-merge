@@ -30,3 +30,6 @@ CLI diff の取り込みで FLAG として残した未決事項のうち、承�
 - A7 FLAG-cli-068 を閉じ、現行の挙動を [REQ-cli-069](../../ir/cli/reference.md#REQ-cli-069) として仕様にする。--ref の参照先に接続できないとき、diff は比較の結果を出さずにエラーで終了コード 2 を返す。
   - why: diff は左右を走査した後に参照先へ接続し、失敗すると main が "Error: …" を出して終了コード 2 で終える。status と merge も参照先への接続の失敗を同じくエラーにしており、diff だけを別の扱いにする定めはない。終了コード 2 をエラーとする [REQ-cli-056](../../ir/cli/diff-output.md#REQ-cli-056) とも一致する。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A8 FLAG-cli-055 を閉じる。利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例を、リンク文字列を link_targets の left と right で出す形に直し、symlink の項目の hunks は参照先の内容差だけを持つと書き添える。IR は変えない。
+  - why: 承認済みの [REQ-cli-024](../../ir/cli/symlink-diff.md#REQ-cli-024) と実装はリンク文字列を link_targets の left と right で出し、手引きの "left_symlink_target" と "right_symlink_target" はどちらにもない欄名だった。手引きを要件と実装に合わせるだけで、決め直す点がない。hunks の書き添えは [A3](#A3) の修正後の挙動に合わせる。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

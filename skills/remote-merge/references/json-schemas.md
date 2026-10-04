@@ -123,10 +123,15 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
   "symlink": true,
   "truncated": false,
   "hunks": [],
-  "left_symlink_target": "../README.md",
-  "right_symlink_target": "../README.md"
+  "link_targets": {
+    "left": "../README.md",
+    "right": "../docs/README.md"
+  }
 }
 ```
+
+- `link_targets.left` / `link_targets.right`: the link string of the symlink on each side; `null` on a side where the path is a regular file or does not exist.
+- `hunks` holds only the diff of the resolved target content. A difference in the link strings appears in `link_targets`, never in `hunks`.
 
 ## merge
 
