@@ -227,3 +227,21 @@ fn a_sync_stopped_by_an_error_exits_with_two() {
     }
     assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
 }
+
+// @kotowari[REQ-cli-038]
+#[test]
+fn a_sync_without_a_path_stops_before_writing() {
+    let env = one_merge_and_one_deletion_on_each_target();
+
+    let output = env
+        .cmd_with("sync")
+        .args(["--left", "local", "--right", "develop"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    // 文言は引数解析ライブラリのものなので確かめない
+    assert_exit_error(&output, 2);
+    assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
+    assert_eq!(read(env.remote_dir.join("extra.txt")), "develop extra\n");
+}

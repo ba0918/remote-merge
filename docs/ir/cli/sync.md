@@ -65,10 +65,11 @@ sync はすべての書き込み先の status が "success" なら終了コー�
 ## Decision tables
 
 ### TBL-cli-006: sync の指定のエラー
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A1
+- source: docs/decision/records/2026-09-27-adopt-sync.md#A1, docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A3
 
 | 指定 | エラー |
 |---|---|
+| パスがない | 引数の解析エラー |
 | --left がない | "--left is required for sync command" |
 | --right がない | "--right requires at least one target server for sync command" |
 | --right に同じ名前が重なる | "Duplicate target server: 名前" |

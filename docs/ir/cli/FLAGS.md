@@ -23,13 +23,6 @@
 
 status が中身を読み比べる対象のファイルを読めなかったとき（読み取りの失敗やサイズ上限の超過）、実装は理由を示さずにメタデータでの判定（"modified"）のまま一覧に出す。旧資料に記述がなくテストもない。
 
-### FLAG-cli-006: パスを省いた sync
-- kind: contradiction
-- related: REQ-cli-038
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A9
-
-旧総合仕様のマルチサーバ同期の節はパスを省いた "sync --left local --right server1 server2 server3" で全体を同期する例を示すが、実装はパスを一つ以上必須とし、全体は "." で指定する。同じ旧資料の使い方の例 "sync . --left local --right server1 server2" とは一致する。
-
 ### FLAG-cli-007: 確認を断ったときの JSON
 - kind: ambiguity
 - related: REQ-cli-018, REQ-cli-040
