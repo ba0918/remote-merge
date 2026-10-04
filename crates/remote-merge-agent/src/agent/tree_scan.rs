@@ -57,6 +57,8 @@ pub fn scan_tree(options: &ScanOptions) -> impl Iterator<Item = Result<ScanChunk
 
 struct ScanIterator<'a> {
     options: &'a ScanOptions,
+    /// 一覧のパスを相対にする基準。走査の起点と同じ形（正規化の有無）にそろえる
+    relative_base: PathBuf,
     /// 未処理のディレクトリスタック
     dir_stack: Vec<PathBuf>,
     /// 現在読み込み中のディレクトリイテレータ
@@ -71,9 +73,10 @@ struct ScanIterator<'a> {
 
 impl<'a> ScanIterator<'a> {
     fn new(options: &'a ScanOptions) -> Self {
-        let initial_dirs = resolve_include_roots(&options.root, &options.include);
+        let (relative_base, initial_dirs) = resolve_include_roots(&options.root, &options.include);
         Self {
             options,
+            relative_base,
             dir_stack: initial_dirs,
             current_read_dir: None,
             buffer: Vec::new(),
@@ -150,7 +153,7 @@ impl<'a> ScanIterator<'a> {
             }
         };
 
-        let rel = match path.strip_prefix(&self.options.root) {
+        let rel = match path.strip_prefix(&self.relative_base) {
             Ok(r) => r.to_string_lossy().replace('\\', "/"),
             Err(_) => return false,
         };
@@ -264,21 +267,23 @@ fn get_permissions(_meta: &std::fs::Metadata, kind: &FileKind) -> u32 {
     }
 }
 
-/// include パスからスキャン起点を解決する。
+/// include パスからスキャン起点を解決し、一覧のパスを相対にする基準とともに返す。
 ///
-/// - include が空: root をそのまま返す
-/// - include が非空: 各パスを root に結合し、存在確認 + root 配下チェックを行う
+/// - include が空: 基準も起点も root をそのまま返す
+/// - include が非空: 各パスを root に結合し、存在確認 + root 配下チェックを行う。
+///   起点は正規化した実パスになるため、基準も正規化した root にする
+///   （root が symlink のときに起点が基準の配下と判定されなくなるのを防ぐ）
 /// - 祖先パスが既にリストにある場合、子孫パスは除去する
-fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
+fn resolve_include_roots(root: &Path, include: &[String]) -> (PathBuf, Vec<PathBuf>) {
     if include.is_empty() {
-        return vec![root.to_path_buf()];
+        return (root.to_path_buf(), vec![root.to_path_buf()]);
     }
 
     let canonical_root = match root.canonicalize() {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot canonicalize root {}: {e}", root.display());
-            return vec![root.to_path_buf()];
+            return (root.to_path_buf(), vec![root.to_path_buf()]);
         }
     };
 
@@ -334,7 +339,7 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> Vec<PathBuf> {
         .collect();
 
     // 全ての include パスが無効だった場合は空を返す（スキャンなし）
-    filtered
+    (canonical_root, filtered)
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,21 +1098,21 @@ mod tests {
     #[test]
     fn resolve_include_roots_empty_returns_root() {
         let dir = TempDir::new().unwrap();
-        let result = resolve_include_roots(dir.path(), &[]);
+        let (_, result) = resolve_include_roots(dir.path(), &[]);
         assert_eq!(result, vec![dir.path().to_path_buf()]);
     }
 
     #[test]
     fn resolve_include_roots_rejects_path_traversal() {
         let dir = TempDir::new().unwrap();
-        let result = resolve_include_roots(dir.path(), &["../escape".to_string()]);
+        let (_, result) = resolve_include_roots(dir.path(), &["../escape".to_string()]);
         assert!(result.is_empty(), "path traversal should be rejected");
     }
 
     #[test]
     fn resolve_include_roots_rejects_absolute_path() {
         let dir = TempDir::new().unwrap();
-        let result = resolve_include_roots(dir.path(), &["/etc".to_string()]);
+        let (_, result) = resolve_include_roots(dir.path(), &["/etc".to_string()]);
         assert!(result.is_empty(), "absolute path should be rejected");
     }
 
@@ -1117,7 +1122,7 @@ mod tests {
         let root = dir.path();
         fs::create_dir_all(root.join("a/b")).unwrap();
 
-        let result = resolve_include_roots(root, &["a".to_string(), "a/b".to_string()]);
+        let (_, result) = resolve_include_roots(root, &["a".to_string(), "a/b".to_string()]);
         // a/b は a の子孫なので除去される
         assert_eq!(result.len(), 1);
         assert!(

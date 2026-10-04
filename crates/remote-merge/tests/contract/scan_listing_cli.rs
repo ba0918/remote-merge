@@ -322,8 +322,26 @@ impl AgentFixture {
         remote_root: &Path,
         extra_args: &[&str],
     ) -> Output {
+        self.status_via_agent_with_config(self.config(local_root, remote_root), extra_args)
+    }
+
+    /// 設定に `[filter]` の include を足して status を起動し、一覧を返す
+    fn listed_via_agent_with_include(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        include: &[&str],
+    ) -> BTreeMap<String, String> {
+        let config = format!(
+            "{}\n[filter]\ninclude = {include:?}\n",
+            self.config(local_root, remote_root)
+        );
+        statuses_by_path(&self.status_via_agent_with_config(config, &[]))
+    }
+
+    fn status_via_agent_with_config(&self, config: String, extra_args: &[&str]) -> Output {
         let config_path = self.temp.path().join("scan-listing-agent-config.toml");
-        fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
+        fs::write(&config_path, config).unwrap();
         self.assert_isolated_agent_config(&config_path);
         let output = launch_status(self.temp.path(), &config_path, extra_args);
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
@@ -405,5 +423,19 @@ async fn a_trailing_slash_on_a_symlinked_root_dir_does_not_change_the_list_via_t
             &with_trailing_slash(&remote_root)
         ),
         only_the_linked_files_as_equal()
+    );
+}
+
+// @kotowari[REQ-scan-007]
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_the_included_files_below_a_root_dir_that_is_a_directory_symlink_via_the_agent(
+) {
+    let fixture = AgentFixture::new().await;
+    let (local_root, remote_root) = linked_roots(fixture.temp.path());
+    let only_sub: BTreeMap<String, String> =
+        [("sub/g.txt".to_string(), "equal".to_string())].into();
+    assert_eq!(
+        fixture.listed_via_agent_with_include(&local_root, &remote_root, &["sub"]),
+        only_sub
     );
 }
