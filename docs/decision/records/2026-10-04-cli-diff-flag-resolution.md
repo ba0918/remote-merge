@@ -18,3 +18,6 @@ CLI diff の取り込みで FLAG として残した未決事項のうち、承�
 - A3 FLAG-cli-052 を閉じる。diff は symlink のリンク文字列を link_targets だけで示し、hunks にはリンク文字列の削除と追加の行を入れない。機密として隠したとき、root_dir の外で内容を比べなかったとき、参照先のディレクトリが読めないとき、循環したときも hunks を空にする。
   - why: 承認済みの [REQ-cli-024](../../ir/cli/symlink-diff.md#REQ-cli-024) はリンク文字列を link_targets に置き、内容差を hunks で示すと定め、[REQ-cli-059](../../ir/cli/diff-output.md#REQ-cli-059) は --force のない機密ファイルの hunks を空にすると定める。リンク文字列が hunks に残る実装はこれに反しており、リンク文字列の違いは link_targets から差分ありと数えるため、hunks から外しても差分件数と終了コードは変わらない。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A4 FLAG-cli-053 を閉じる。diff は symlink の参照先の内容差を --max-lines で打ち切ったとき、通常のファイルと同じくそのファイルの truncated を true にし、テキストでは差分の行の後に "... (output truncated)" を出す。
+  - why: 承認済みの [REQ-cli-054](../../ir/cli/diff-output.md#REQ-cli-054) は --max-lines で打ち切ったファイルの truncated を true にし、テキストで "... (output truncated)" を出すと定め、symlink の参照先の内容差を例外にしていない。実装は参照先の差分から hunks だけを取り出して打ち切りの印を捨てており、要件に反していた。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

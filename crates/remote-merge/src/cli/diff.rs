@@ -404,7 +404,7 @@ pub fn execute_diff(
                         String::from_utf8_lossy(left_bytes.as_deref().unwrap_or_default());
                     let right_text =
                         String::from_utf8_lossy(right_bytes.as_deref().unwrap_or_default());
-                    link_diff.hunks = build_diff_output(
+                    let content_diff = build_diff_output(
                         path,
                         left_info.clone(),
                         right_info.clone(),
@@ -414,8 +414,9 @@ pub fn execute_diff(
                         args.max_lines,
                         None,
                         None,
-                    )
-                    .hunks;
+                    );
+                    link_diff.hunks = content_diff.hunks;
+                    link_diff.truncated = content_diff.truncated;
                 }
                 file_diffs.push(link_diff);
                 continue;
@@ -455,6 +456,7 @@ pub fn execute_diff(
                 None,
             );
             link_diff.hunks = content_diff.hunks;
+            link_diff.truncated = content_diff.truncated;
             file_diffs.push(link_diff);
             continue;
         }

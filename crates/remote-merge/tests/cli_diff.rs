@@ -270,6 +270,37 @@ fn req_cli_024_uncompared_external_link_keeps_link_strings_out_of_hunks() {
     );
 }
 
+// @kotowari[REQ-cli-054]
+#[test]
+fn req_cli_054_max_lines_truncates_the_content_diff_behind_a_symlink() {
+    let env = CliEnv::new(
+        &[("target.txt", "one\ntwo\nthree\n")],
+        &[("target.txt", "ONE\nTWO\nTHREE\n")],
+    );
+    place_symlink(&env.local_dir, "link.txt", "target.txt");
+    place_symlink(&env.remote_dir, "link.txt", "target.txt");
+
+    let output = env
+        .cmd_with("diff")
+        .args(["link.txt", "--max-lines", "1", "--format", "json"])
+        .output()
+        .unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json_item(&result, "link.txt")["truncated"],
+        true,
+        "{result}"
+    );
+
+    let output = env
+        .cmd_with("diff")
+        .args(["link.txt", "--max-lines", "1"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("... (output truncated)"), "{text}");
+}
+
 // @kotowari[EX-cli-050]
 #[test]
 fn force_explicitly_shows_sensitive_link_target_changes() {

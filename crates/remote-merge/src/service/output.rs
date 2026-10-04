@@ -124,6 +124,9 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
     lines.join("\n")
 }
 
+/// --max-lines で差分を打ち切ったファイルの末尾に出す印
+const TRUNCATED_MARKER: &str = "... (output truncated)";
+
 /// DiffOutput をテキストフォーマットする（unified diff 風）
 pub fn format_diff_text(output: &DiffOutput) -> String {
     let mut lines = Vec::new();
@@ -164,6 +167,9 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
                 };
                 lines.push(format!("{prefix}{}", line.content));
             }
+        }
+        if output.truncated {
+            lines.push(TRUNCATED_MARKER.into());
         }
         return lines.join("\n");
     }
@@ -210,7 +216,7 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
     }
 
     if output.truncated {
-        lines.push("... (output truncated)".into());
+        lines.push(TRUNCATED_MARKER.into());
     }
 
     if let (Some(ref_info), Some(ref_hunks)) = (&output.ref_, &output.ref_hunks) {

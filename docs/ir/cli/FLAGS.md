@@ -310,13 +310,6 @@ REQ-cli-021 は件数超過を不完全な比較としてエラーで報告す�
 
 REQ-cli-022 は比較できなかったパスと理由を示すとするが、通常のディレクトリの展開で循環や件数超過が起きたとき、テキスト出力には理由が出ない（JSON では errors に出る。実装を読んで分かったことで未実行）。
 
-### FLAG-cli-053: symlink の参照先の内容の --max-lines
-- kind: contradiction
-- related: REQ-cli-054
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A11
-
-REQ-cli-054 は --max-lines で打ち切ったファイルの truncated を true にするとするが、symlink の参照先の内容の差分は、打ち切っても truncated を true にせず、テキストにも "... (output truncated)" を出さない（実装を読んで分かったことで未実行）。
-
 ### FLAG-cli-054: symlink の diff の仕様のない挙動
 - kind: gap
 - related: REQ-cli-020
