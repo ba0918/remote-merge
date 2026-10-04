@@ -51,13 +51,6 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 
 --dry-run の merge --delete で書き込む予定がなく削除予定だけがあるとき、実装はテキストで削除予定を削除済みの形 "Deleted: パス" で出し、JSON でも deleted の status を実際に削除したときと同じ "ok" にするため、予定と実行済みを区別できない。旧資料に記述がなくテストもない。
 
-### FLAG-merge-016: CLI の --hunks の確認と衝突
-- kind: contradiction
-- related: REQ-merge-010, REQ-merge-031
-- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A6
-
-REQ-merge-010 は hunk マージが衝突の有無と書き込みの確認を経ずに書き込み先を変更しないとするが、CLI の --hunks の merge は確認を出さずに書き込み、衝突を確かめるのは --ref があり --force がないときだけである。
-
 ### FLAG-merge-017: --hunks の書き込み直前の確認
 - kind: contradiction
 - related: REQ-merge-011

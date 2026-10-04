@@ -11,13 +11,6 @@
 
 テキスト差分から選んだ hunk だけをマージしたとき、書き込み先にはその変更だけを適用し、選ばなかった変更は保持する。
 
-### REQ-merge-010: 部分マージ前に衝突と書き込みを確認する
-- kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A29
-- verification: unit
-
-hunk マージは衝突の有無と書き込みの確認を経ずに書き込み先を変更しない。
-
 ### REQ-merge-028: --hunks の指定の誤りをエラーで止める
 - kind: ubiquitous
 - source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A1
@@ -81,18 +74,6 @@ Scenario: 全ての変更を選ぶ
 Given テキスト差分に二つの hunk がある
 When 両方を選んでマージする
 Then 両方の変更が書き込み先に適用される
-
-@id=EX-merge-019 @about=REQ-merge-010 @source=docs/decision/records/2026-09-25-spec-migration.md#A29
-Scenario: 確認を拒否する
-Given 一つの hunk が選ばれている
-When 利用者が書き込み前の確認を拒否する
-Then 書き込み先は変更されない
-
-@id=EX-merge-020 @about=REQ-merge-010 @source=docs/decision/records/2026-09-25-spec-migration.md#A29
-Scenario: 衝突を検出する
-Given 適用先で対象行が変更されている
-When 選択した hunk を適用する
-Then 衝突が報告され確認なしに書き込み先は変更されない
 
 @id=EX-merge-038 @about=REQ-merge-032 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A3
 Scenario: 近い二つの変更は一つの hunk になる

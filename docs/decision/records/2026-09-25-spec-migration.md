@@ -104,6 +104,7 @@
 - A29 テキスト差分の選択された hunk だけを適用でき、選択していない変更は書き込み先に残す。適用前に衝突と書き込みを確認する。
   - why: ファイル全体を置き換えずに必要な変更だけ取り込めるようにする。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A15（hunk マージの確認の要件を除く）](./2026-10-04-tui-disposition.md#A15)
 - A30 kotowari の検査対象は仕様を検証する専用のテストファイルとし、既存の内部実装テストは cargo test に残して ID を義務付けない。既存テストから行動を確認できたものを専用の場所へ移す。
   - why: 約 2,800 件のテスト全てを内部実装の契約に見立てず、証拠になるテストを選び直すため。
   - decided_by: user (took the recommendation)

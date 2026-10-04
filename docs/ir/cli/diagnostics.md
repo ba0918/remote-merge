@@ -18,6 +18,13 @@ CLI の logs で、保存された診断ログを閲覧できる。
 
 診断ログに対象ファイルの内容や認証情報を記録しない。
 
+### REQ-cli-075: CLI の実行も診断ログを残す
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-04-tui-disposition.md#A14
+- verification: unit
+
+agent を除く CLI のサブコマンドの実行は診断ログを保存し、その記録は CLI の logs で閲覧できる。
+
 ## Examples
 
 ```gherkin
