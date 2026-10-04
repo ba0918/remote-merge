@@ -189,7 +189,14 @@ remote-merge status --format json
 
 ## Diagnostic Logs
 
-Every CLI run except `agent` appends information-level (and more severe) entries to `~/.cache/remote-merge/debug.log` (JSONL), even without `-v`. `-v`, `--debug` or `--log-level` make both the file and stderr more detailed. The logs never contain file contents or credentials.
+Every CLI run except `agent` appends entries to `~/.cache/remote-merge/debug.log` (JSONL). The file level is set as follows:
+
+- Default: information level (and more severe), even without `-v`.
+- `-vv`, `-vvv` and `--debug` make the file (and stderr) finer; `-v` is the same information level.
+- `--log-level <LEVEL>` sets the file to exactly that level, coarser ones included (`--log-level error` saves errors only).
+- `RUST_LOG` affects stderr only (and only when none of these flags is given); it never changes the file.
+
+Only remote-merge's own records are saved: records of external libraries (such as the SSH library) are never written to the file at any level, so the file does not contain file contents or credentials. When the cache location cannot be determined, nothing is saved and the command continues.
 
 ```bash
 # text output is the default, use --format json for machine parsing
