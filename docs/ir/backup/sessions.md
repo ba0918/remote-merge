@@ -55,10 +55,10 @@
 
 ### REQ-backup-025: 期限切れを整理する時点
 - kind: event_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A28
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A28, docs/decision/records/2026-10-04-tui-disposition.md#A7
 - verification: unit
 
-期限切れバックアップの整理は TUI の起動時と dry-run でない merge・sync の開始時にだけ行い、rollback はどのオプションでも整理しない。バックアップが無効でも整理し、集約先の場所が決まらないときは整理しない。
+期限切れバックアップの整理は dry-run でない merge・sync の開始時にだけ行い、rollback はどのオプションでも整理しない。バックアップが無効でも整理し、集約先の場所が決まらないときは整理しない。
 
 ### REQ-backup-026: 期限切れの境界
 - kind: invariant

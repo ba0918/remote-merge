@@ -21,8 +21,8 @@
 ## Examples
 
 ```gherkin
-@id=EX-ssh-001 @about=REQ-ssh-001 @source=docs/decision/records/2026-09-25-spec-migration.md#A20
-Scenario: 確認できない TUI に未知のホスト鍵が届く
+@id=EX-ssh-001 @about=REQ-ssh-001 @source=docs/decision/records/2026-09-25-spec-migration.md#A20,docs/decision/records/2026-10-04-tui-disposition.md#A7
+Scenario: 確認できない接続に未知のホスト鍵が届く
 Given 未知の SSH ホスト鍵が提示され利用者への確認手段がない
 When 明示的な自動承認なしに接続する
 Then 接続は停止し未知鍵は受け入れられない

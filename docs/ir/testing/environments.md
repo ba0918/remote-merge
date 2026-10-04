@@ -8,7 +8,7 @@ Linux CI と Unix 系の開発環境での通常テスト、実 OpenSSH 検証�
 - kind: invariant
 - source: docs/decision/records/2026-09-26-reproducible-test-environments.md#A1, docs/decision/records/2026-09-26-reproducible-test-environments.md#A4, docs/decision/records/2026-09-26-reproducible-test-environments.md#A5, docs/decision/records/2026-09-26-reproducible-test-environments.md#A13, docs/decision/records/2026-09-26-reproducible-test-environments.md#A19
 - verification: review
-- how_to_verify: Linux の隔離した HOME で cargo test --all-features と cargo nextest run --all-features を実行し、CI が少なくとも一方を実行することを確認する。Docker、個人の SSH 鍵、localhost:22 がなくても必要な CLI・TUI・SSH テストと旧鍵交換方式・サーバー別設定を検証するケースが外部環境不足でスキップされないことを実行ログとテスト一覧で確認する。コンテナ専用の Rust テストは主パッケージと独立したパッケージの専用コマンドでのみ収集する。
+- how_to_verify: Linux の隔離した HOME で cargo test --all-features と cargo nextest run --all-features を実行し、CI が少なくとも一方を実行することを確認する。Docker、個人の SSH 鍵、localhost:22 がなくても必要な CLI・SSH テストと旧鍵交換方式・サーバー別設定を検証するケースが外部環境不足でスキップされないことを実行ログとテスト一覧で確認する。コンテナ専用の Rust テストは主パッケージと独立したパッケージの専用コマンドでのみ収集する。
 
 「通常テスト」はテスト自身が起動した接続先を使い、個人の鍵や常設の SSH サーバーを必要としない。
 
@@ -16,7 +16,7 @@ Linux CI と Unix 系の開発環境での通常テスト、実 OpenSSH 検証�
 - kind: invariant
 - source: docs/decision/records/2026-09-26-reproducible-test-environments.md#A5, docs/decision/records/2026-09-26-reproducible-test-environments.md#A15
 - verification: review
-- how_to_verify: 必要な SSH テストが各テストで動的ポートと一時ディレクトリを使い、実際の CLI・TUI の表示とファイルの読み書き結果を確認することをテストと実行結果から確かめる。コマンド文字列や fixture の模擬応答だけを成功条件にしない。
+- how_to_verify: 必要な SSH テストが各テストで動的ポートと一時ディレクトリを使い、実際の CLI の表示とファイルの読み書き結果を確認することをテストと実行結果から確かめる。コマンド文字列や fixture の模擬応答だけを成功条件にしない。
 
 通常の SSH テストは試行ごとに独立した接続先とファイルを持ち、失敗と成功を他のテストや利用者のファイルに波及させない。
 
@@ -71,16 +71,16 @@ CI の合格には通常テストと仕様検査の両方が必要である。
 ## Examples
 
 ```gherkin
-@id=EX-testing-001 @about=REQ-testing-001 @source=docs/decision/records/2026-09-26-reproducible-test-environments.md#A13
+@id=EX-testing-001 @about=REQ-testing-001 @source=docs/decision/records/2026-09-26-reproducible-test-environments.md#A13,docs/decision/records/2026-10-04-tui-disposition.md#A7
 Scenario: 個人の SSH 接続先を持たない Linux CI
 Given Docker と利用者の SSH 鍵がなく localhost:22 にサーバーがない
 When 通常テストの二つのコマンドを実行する
-Then 必要な CLI・TUI・SSH ケースが接続先不足でスキップされずに実行される
+Then 必要な CLI・SSH ケースが接続先不足でスキップされずに実行される
 
-@id=EX-testing-002 @about=REQ-testing-002 @source=docs/decision/records/2026-09-26-reproducible-test-environments.md#A5,docs/decision/records/2026-09-26-reproducible-test-environments.md#A15
+@id=EX-testing-002 @about=REQ-testing-002 @source=docs/decision/records/2026-09-26-reproducible-test-environments.md#A5,docs/decision/records/2026-09-26-reproducible-test-environments.md#A15,docs/decision/records/2026-10-04-tui-disposition.md#A7
 Scenario: 別々のテストが SSH で同じ相対パスを扱う
 Given 各テストに別の接続先と一時ディレクトリがある
-When CLI と TUI がファイルを比較して更新する
+When CLI がファイルを比較して更新する
 Then 各テストの表示と書き込み先の内容は自分の一時ディレクトリだけを反映する
 
 @id=EX-testing-003 @about=REQ-testing-003 @source=docs/decision/records/2026-09-26-reproducible-test-environments.md#A10,docs/decision/records/2026-09-26-reproducible-test-environments.md#D1

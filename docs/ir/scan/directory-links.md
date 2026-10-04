@@ -1,15 +1,8 @@
 # ディレクトリ symlink の表示と走査
 
-共有ディレクトリを指すリンクの配下を、対話画面と CLI のファイル一覧にどう表示するか。
+共有ディレクトリを指すリンクの配下を、CLI のファイル一覧にどう表示するか。
 
 ## Requirements
-
-### REQ-scan-001: TUI でリンク先の直下を展開できる
-- kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A7
-- verification: unit
-
-ディレクトリを指す symlink を TUI で展開したとき、リンク先の直下を読み込み、展開前にはその配下を取得しない。
 
 ### REQ-scan-002: CLI の一覧にはリンク先の配下を含める
 - kind: state_driven
@@ -21,18 +14,6 @@ CLI status はディレクトリを指す symlink の配下も走査件数の上
 ## Examples
 
 ```gherkin
-@id=EX-scan-001 @about=REQ-scan-001 @source=docs/decision/records/2026-09-25-spec-migration.md#A7
-Scenario: リンクを開いたときだけ配下が現れる
-Given TUI のツリーに共有ディレクトリを指す symlink がある
-When 利用者がその symlink を展開する
-Then リンク先直下のファイルが表示される
-
-@id=EX-scan-002 @about=REQ-scan-001 @source=docs/decision/records/2026-09-25-spec-migration.md#A7
-Scenario: 開かないリンク先は事前取得しない
-Given TUI のツリーに共有ディレクトリを指す symlink がある
-When 利用者がその symlink を展開しない
-Then リンク先の配下は取得されない
-
 @id=EX-scan-003 @about=REQ-scan-002 @source=docs/decision/records/2026-09-25-spec-migration.md#A7
 Scenario: リンク先に複数のファイルがある
 Given ディレクトリを指す symlink の先に複数のファイルがある

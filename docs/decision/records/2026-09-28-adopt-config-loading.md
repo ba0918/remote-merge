@@ -35,6 +35,7 @@
 - A8 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料と実装は、設定で省いたときの値を次のとおりとする: サーバの port は 22、auth は "key"、sudo は false、[ssh] の timeout_sec は 300、strict_host_key_checking は "ask"、[backup] の enabled は true、retention_days は 7、[agent] の enabled は true、deploy_dir は "/var/tmp"、timeout_secs は 30、tree_chunk_size は 1000、max_file_chunk_bytes は 4194304、[defaults] の file_permissions は 0o664、dir_permissions は 0o775。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A9 現行実装をレビューなしで仕様とする。実装は [local] の root_dir が "~/" で始まるとき、その部分を利用者のホームディレクトリに置き換える。
   - why: 旧資料に記述はないが利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）

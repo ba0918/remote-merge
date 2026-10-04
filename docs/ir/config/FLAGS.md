@@ -51,13 +51,6 @@
 
 旧総合仕様はパスワードを設定ファイルに書かず接続時のプロンプトか環境変数で渡すとするが、実装は設定の password を平文のまま受け付けて使うときに "Server 'サーバ名': using plaintext password from config. Key authentication is recommended." の警告を出すだけで、接続時にパスワードを尋ねることはなく、環境変数にも設定にもパスワードがなければ "SSH authentication failed (user: ユーザ名@ホスト)" の認証エラーにする。
 
-### FLAG-config-012: sudo と agent の組み合わせを検出する時点
-- kind: contradiction
-- related: REQ-ssh-009
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A11
-
-旧総合仕様は sudo = true と agent.enabled = false の組み合わせを設定の読み込み時（サーバへの接続前）に検出してエラーで止め、Agent の有効化と NOPASSWD の設定を案内するとするが、実装は設定の読み込みでは止めず、そのサーバに接続するときに "sudo = true requires agent to be enabled. Set [agent] enabled = true in your config." で止め、NOPASSWD には触れない。そのため、そのサーバに接続しない操作は止まらない。
-
 ### FLAG-config-013: 全て無効な include
 - kind: contradiction
 - related: REQ-config-004, REQ-config-024

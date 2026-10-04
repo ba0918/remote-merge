@@ -6,7 +6,7 @@
 
 ### REQ-config-013: 省いたキーには既定値を使う
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3
 - verification: unit
 - definition: TBL-config-001
 
@@ -15,7 +15,7 @@
 ## Decision tables
 
 ### TBL-config-001: 省いたキーの既定値
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3, docs/decision/records/2026-10-04-tui-disposition.md#A5
 
 | セクション | キー | 既定値 |
 |---|---|---|
@@ -34,4 +34,3 @@
 | [defaults] | file_permissions | 0o664 |
 | [defaults] | dir_permissions | 0o775 |
 | (トップレベル) | max_scan_entries | 50000 |
-| (トップレベル) | badge_scan_max_files | 500 |

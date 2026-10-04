@@ -33,6 +33,7 @@
 - A7 ディレクトリを指す symlink の配下は、TUI ではそのリンクを展開したときだけ直下を取得し、CLI status では既存の件数上限内で再帰列挙する。循環と上限超過は明示し、取得できた一部だけを完全な一覧として扱わない。TUI の凍結方針には、このリンク展開の対応に限る例外を設ける。
   - why: 個別パス指定だけでは利用者にファイルが欠けているように見え、起動時の全リンク再帰では共有領域へのアクセスが重くなる。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A8 IR 化の対象は利用者が使う機能全体とする。旧総合仕様の配布手順や実装メモをそのまま要件にしない。
   - why: 既存の長文仕様に混在する構想や古い内部構造を、利用者に保証する動作と取り違えないため。
   - decided_by: user (took the recommendation)
@@ -81,6 +82,7 @@
 - A22 TUI の主要操作（ツリー選択・展開、左右差分、マージ前確認）を利用者向け仕様に含める。旧文書の画面レイアウトやキー名は検証せずに移さない。
   - why: 操作結果を保証し、古い画面案や誤ったキー名を契約化しない。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A23 利用者が --yes または strict_host_key_checking=no を明示した場合は未知の SSH ホスト鍵を承認できる。既定の確認不能時は [A20（未知の鍵を拒否）](./2026-09-25-spec-migration.md#A20) に従う。
   - why: 無人実行の明示的な例外を残しつつ、暗黙の信頼だけを禁止する。
   - decided_by: user (took the recommendation)
@@ -117,6 +119,7 @@
 - A34 CLI の logs と events は障害調査用の閲覧操作とし、記録にファイル内容や認証情報を含めない。内部形式と件数上限は利用者の契約にしない。
   - why: 問題の原因を見られるようにしつつ、ログへの機密漏洩を防ぐ。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A35 差分確認から書き込みまでに対象が別の操作で更新された場合は検知してマージを止める。
   - why: 読み込み後に変わったファイルを古い内容で上書きしない。
   - decided_by: user (took the recommendation)
@@ -138,6 +141,7 @@
 - A41 TUI でファイル名を検索でき、サーバ切替時にも選択とツリー展開を可能な範囲で維持する。
   - why: 大きなツリーや複数サーバで見ている場所を見失わないため。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A42 sync は複数の書き込み先を一回で指定でき、一つが失敗しても他の対象を処理し、対象ごとの結果と部分失敗を報告する。
   - why: 一部のサーバだけが利用できない場合にも、成功できる更新と失敗した更新を区別するため。
   - decided_by: user (took the recommendation)
@@ -147,6 +151,7 @@
 - A44 TUI は参照先と左右との差を区別して示し、三者の状態を概観するサマリーを提供する。色やキー名は契約に固定しない。
   - why: 三者の食い違いと競合の位置を対話画面でも判断できるようにする。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A45 元または先のディレクトリ走査が循環・件数上限などで不完全なときは、そのディレクトリの merge・sync と --delete を開始せず、理由を報告する。
   - why: 未取得のファイルを存在しないと誤認して削除したり、不完全な一覧から一部だけ更新したりしないため。
   - decided_by: user (took the recommendation)
@@ -166,6 +171,7 @@
   - why: 外部へ差分を持ち出す際にも機密ファイルの表示方針を維持する。
   - decided_by: user (took the recommendation)
   - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A51 merge・sync の内容比較で片側の読み取りが失敗したファイルは、同一や空の内容と扱わず、そのファイルの失敗として報告し、書き込みをしない。他のファイルは処理を続ける。
   - why: 読み取り不能を誤判定してデータを消さず、他のファイルの処理は続けられるようにする。
   - decided_by: user (took the recommendation)

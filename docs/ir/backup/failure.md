@@ -24,10 +24,3 @@ merge・--delete・sync でファイルのバックアップに失敗したと�
 - verification: unit
 
 集約先の場所が決まらないとき、rollback は --list と --dry-run を含むどのモードでも、バックアップの有効・無効に関係なくエラーで終わり、何も書き込まない。
-
-### REQ-backup-020: TUI はバックアップできない書き込みを断る
-- kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A18
-- verification: unit
-
-TUI でバックアップが有効なのに書き込み前のバックアップが取れないとき、ステータス行に "Backup failed: " に続けて原因を示し、書き込まない。w による書き込みは両側をバックアップし、どちらかが取れなければ両側とも書き込まない。集約先の場所が決まらなくても TUI は起動して差分を表示する。

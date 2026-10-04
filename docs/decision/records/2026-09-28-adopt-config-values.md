@@ -23,6 +23,7 @@
 - A4 現行実装をレビューなしで仕様とする。実装は設定の max_scan_entries が 1 から 1,000,000 の外のとき "Invalid config value: max_scan_entries - max_scan_entries must be between 1 and 1,000,000, got 値"、badge_scan_max_files が 1 から 10,000 の外のとき "Invalid config value: badge_scan_max_files - badge_scan_max_files must be between 1 and 10,000, got 値" のエラーで止まり、status・diff・merge・sync の --max-entries が 1 から 1,000,000 の外のとき "max_scan_entries must be between 1 and 1,000,000, got 値" のエラーで止まり、いずれも終了コード 2 を返す。
   - why: 旧資料に記述はないが利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A5 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は strict_host_key_checking を "yes"・"no"・"ask" とし、実装は大文字と小文字を区別せずに "ask" を ask、"yes" と "true" を yes、"no" と "false" を no として読み、それ以外の値は "Unknown strict_host_key_checking value: '値', falling back to 'ask'" の警告を出して ask として扱う。
   - why: 旧資料と実装の一致を確認し、旧資料にない値の扱いは利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
@@ -44,6 +45,7 @@
 - A11 未決の FLAG として残す。[旧総合仕様](../../archive/spec.md) の SSH フォールバック時の挙動の節は sudo = true と agent.enabled = false の組み合わせを設定の読み込み時（サーバへの接続前）に検出してエラーで止め、Agent の有効化と NOPASSWD の設定を案内するとするが、実装は設定の読み込みでは止めず、そのサーバに接続するときに "sudo = true requires agent to be enabled. Set [agent] enabled = true in your config." で止め、NOPASSWD には触れない。そのため、そのサーバに接続しない操作は止まらない。
   - why: 旧資料と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A12 現行実装をレビューなしで仕様とする。実装は auth が "key" のサーバの鍵ファイルを読めないとき "Failed to load SSH private key: パス" のエラーで止まり、パスには key を省いたときは "~/.ssh/id_rsa" を、key を書いたときは "~/" を利用者のホームディレクトリに置き換えた後のパスを示す。これは実装を読んで分かったことで、実行しての確認は根拠テストを書くときに行う。
   - why: A7 の鍵のパスの既定値と展開は、テスト用の SSH サーバがパスワード認証しか受け付けないため接続の成否では確かめられず、鍵を読めないときのエラーのパスでだけ観測できる。そのエラーの文言を仕様に含めて A7 を確かめられるようにする。
   - decided_by: 利用者（推奨を採用）

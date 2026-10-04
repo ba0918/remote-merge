@@ -34,10 +34,10 @@
 
 ### REQ-config-027: 走査の上限はキーごとに選ぶ
 - kind: state_driven
-- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A3
+- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A3, docs/decision/records/2026-10-04-tui-disposition.md#A5
 - verification: unit
 
-max_scan_entries と badge_scan_max_files は、`プロジェクト設定` にあればプロジェクト側、`プロジェクト設定` になく `グローバル設定` にあればグローバル側、どちらにもなければ既定値を使う。
+max_scan_entries は、`プロジェクト設定` にあればプロジェクト側、`プロジェクト設定` になく `グローバル設定` にあればグローバル側、どちらにもなければ既定値を使う。
 
 ## Examples
 

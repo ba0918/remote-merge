@@ -48,7 +48,7 @@
 
 ### REQ-config-028: 設定を使わないサブコマンドは --config を無視する
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A4
+- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A4, docs/decision/records/2026-10-04-tui-disposition.md#A4
 - verification: unit
 
-init・logs・events に --config を指定したときは "Warning: --config is ignored for the 'サブコマンド名' subcommand" を標準エラーに出し、設定を読まずに続ける。
+init・logs に --config を指定したときは "Warning: --config is ignored for the 'サブコマンド名' subcommand" を標準エラーに出し、設定を読まずに続ける。

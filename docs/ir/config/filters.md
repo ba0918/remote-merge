@@ -60,6 +60,13 @@ include と exclude を併せて指定したとき、include の対象のうち 
 
 `グローバル設定` か `プロジェクト設定` の [filter] に sensitive の指定があるときは、標準エラーに "Warning: [filter] sensitive is no longer used and is ignored" を一回の実行につき一度だけ出し、その指定を使わずに続ける。
 
+### REQ-config-031: badge_scan_max_files は使わずに警告する
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-tui-disposition.md#A5, docs/decision/records/2026-10-04-tui-disposition.md#A13
+- verification: unit
+
+`グローバル設定` か `プロジェクト設定` に badge_scan_max_files の指定があるときは、値を検査せずに標準エラーに "Warning: badge_scan_max_files is no longer used and is ignored" を一回の実行につき一度だけ出し、その指定を使わずに続ける。
+
 ## Examples
 
 ```gherkin

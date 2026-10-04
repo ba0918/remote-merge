@@ -76,10 +76,9 @@ auth が "key" のサーバに password が書かれているときは "servers.
 | root_dir | 空の文字列 | "root_dir must not be empty" |
 
 ### TBL-config-003: 走査の上限の範囲
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A4
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A4, docs/decision/records/2026-10-04-tui-disposition.md#A5
 
 | 値 | 範囲 | 範囲外のときのエラー |
 |---|---|---|
 | 設定の max_scan_entries | 1 から 1,000,000 | "Invalid config value: max_scan_entries - max_scan_entries must be between 1 and 1,000,000, got 値" |
-| 設定の badge_scan_max_files | 1 から 10,000 | "Invalid config value: badge_scan_max_files - badge_scan_max_files must be between 1 and 10,000, got 値" |
 | status・diff・merge・sync の --max-entries | 1 から 1,000,000 | "max_scan_entries must be between 1 and 1,000,000, got 値" |

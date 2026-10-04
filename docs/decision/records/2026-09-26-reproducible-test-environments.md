@@ -56,6 +56,7 @@ testenv/setup.sh は旧サーバーの負荷試験データを生成する手動
 - A15 通常系の SSH fixture はテスト固有の一時ディレクトリに対する実ファイル操作と CLI・TUI の表示を検証し、コマンド文字列や模擬応答のみで成功を判定しない。fixture が過剰なシェル再実装になるケースは実 OpenSSH テストへ回す。
   - why: 模擬応答を検査するテストでは比較・マージの実害ある失敗を検知できないため。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A1（TUI を完全に取り除く）](./2026-10-04-tui-disposition.md#A1)
 - A16 手動の旧 SSH 負荷環境は一試行ごとに生成し、専用の終了手順で鍵・設定・データ・コンテナを破棄する。
   - why: 永続状態による試行間の差異と、個人の SSH 設定に残る副作用を避けるため。
   - decided_by: user (took the recommendation)
