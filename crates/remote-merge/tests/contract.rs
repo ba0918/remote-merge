@@ -117,6 +117,9 @@ use common::ssh_server;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_sudo.rs"]
 mod ssh_sudo;
+#[cfg(feature = "test-utils")]
+#[path = "contract/status_agent_cli.rs"]
+mod status_agent_cli;
 #[path = "contract/status_judgement.rs"]
 mod status_judgement;
 #[cfg(feature = "test-utils")]

@@ -42,6 +42,14 @@ status は --format に "text" と "json" を受け付けて "diff" を "text" �
 
 --summary を指定した status は、テキストではファイルの行を出さずに見出しと集計だけを出し、JSON では "files" を出さない。
 
+### REQ-cli-100: -v で右の Agent の接続状態を示す
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A1
+- verification: unit
+
+-v を指定し右がリモートの status は、JSON では "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行（--ref があれば "Ref:" の行）の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。
+-v がないときと右がローカルのときは、JSON の "agent" もテキストの行も出さない。
+
 ## Decision tables
 
 ### TBL-cli-002: status の終了コード

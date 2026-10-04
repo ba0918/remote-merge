@@ -9,6 +9,9 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 
 ## Agreements
 
+- A1 FLAG-cli-001 を閉じ、[REQ-cli-100](../../ir/cli/status-output.md#REQ-cli-100) を足す。-v を指定し右がリモートの status は、JSON の "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。-v がないときと右がローカルのときは出さない。旧資料の {"status": "connected"} の形は採らない。
+  - why: 今の status はそのとおりに動き、利用者向けの手引きの JSON の説明も同じ文字列の形を示している。承認済みの [REQ-cli-032](../../ir/cli/status-output.md#REQ-cli-032) は "agent" を定めておらず、この挙動と矛盾する承認済みの要件はない。食い違うのは旧資料だけである。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
 - A2 FLAG-cli-005 を閉じ、--ref を指定した status でも、サイズが同じで更新時刻が違う機密ファイルの左右の中身を読み比べ、同じなら "equal" とするようにコードを直す。参照先とは今までどおり中身を比べない。
   - why: 承認済みの [TBL-cli-001](../../ir/cli/status.md#TBL-cli-001) は --ref の有無によらず、サイズが同じで更新時刻が違うファイルの中身を読み比べて同じなら "equal" とすると定めている。[REQ-cli-036](../../ir/cli/status-targets.md#REQ-cli-036) が禁じるのは機密ファイルの中身を参照先と比べることだけで、参照先との印の計算は機密ファイルの中身を使わないため、左右を読み比べてもこの要件に反しない。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

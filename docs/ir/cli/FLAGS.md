@@ -2,13 +2,6 @@
 
 ## Flags
 
-### FLAG-cli-001: agent の出力の形と出す条件
-- kind: contradiction
-- related: REQ-cli-032
-- source: docs/decision/records/2026-09-27-adopt-status.md#A15
-
-旧総合仕様の JSON 出力スキーマは agent を {"status": "connected"} の形で「該当する場合のみ」出すとするが、実装は "agent": "connected"（または "fallback"）の文字列で出し、-v を指定して右がリモートのときだけ出す。テキストでも同じ条件のときだけ "Agent: connected" または "Agent: fallback (SSH exec)" の行を出す。
-
 ### FLAG-cli-002: 参照先との違いの印の値
 - kind: contradiction
 - related: REQ-cli-035
