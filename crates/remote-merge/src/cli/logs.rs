@@ -38,8 +38,11 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
         tail: args.tail,
     };
 
-    let log_path = default_log_dir().join(DIAGNOSTIC_LOG_FILE);
-    let entries = log_reader::read_logs(&log_path, &filter)?;
+    // 置き場が決まらなければ保存もされていないので、読むものはない
+    let entries = match default_log_dir() {
+        Some(dir) => log_reader::read_logs(&dir.join(DIAGNOSTIC_LOG_FILE), &filter)?,
+        None => Vec::new(),
+    };
 
     match format {
         OutputFormat::Text => {

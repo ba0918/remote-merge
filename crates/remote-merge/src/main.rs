@@ -587,17 +587,20 @@ fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
                 .with_writer(std::io::stderr)
                 .with_filter(env_filter);
             // 標準エラーの既定（警告以上）とは別に、ファイルには指定がなくても情報レベル以上を残す
-            let file_layer = telemetry::diagnostic_log::open_diagnostic_log(
-                &telemetry::log_dir::default_log_dir(),
-                telemetry::diagnostic_log::MAX_DIAGNOSTIC_LOG_BYTES,
-            )
-            .map(|file| {
-                use tracing_subscriber::filter::FilterExt;
-                // 細かさは指定どおりにし、残すのは remote-merge 自身の記録だけにする
-                let level = tracing_subscriber::EnvFilter::new(cli_level.unwrap_or("info"));
-                telemetry::JsonLogLayer::new(file)
-                    .with_filter(level.and(telemetry::file_filter::own_records()))
-            });
+            let file_layer = telemetry::log_dir::default_log_dir()
+                .and_then(|dir| {
+                    telemetry::diagnostic_log::open_diagnostic_log(
+                        &dir,
+                        telemetry::diagnostic_log::MAX_DIAGNOSTIC_LOG_BYTES,
+                    )
+                })
+                .map(|file| {
+                    use tracing_subscriber::filter::FilterExt;
+                    // 細かさは指定どおりにし、残すのは remote-merge 自身の記録だけにする
+                    let level = tracing_subscriber::EnvFilter::new(cli_level.unwrap_or("info"));
+                    telemetry::JsonLogLayer::new(file)
+                        .with_filter(level.and(telemetry::file_filter::own_records()))
+                });
             tracing_subscriber::registry()
                 .with(stderr_layer)
                 .with(file_layer)
