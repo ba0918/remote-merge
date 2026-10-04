@@ -105,7 +105,7 @@ pub fn execute_merge(
     validate_merge_args(&args)?;
 
     // フォーマットを先にパースして不正値を早期エラーにする
-    let format = OutputFormat::parse(&args.format)?;
+    OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
     let source_args = SourceArgs {
@@ -178,8 +178,8 @@ pub fn execute_merge(
         filter_merge_candidates(&resolved_paths, &statuses, args.delete);
     diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
-    // マージ計画（センシティブファイルのフィルタリング）
-    let mut plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+    // マージ計画
+    let mut plan = plan_merge(&diff_files);
 
     let destination_paths: Vec<String> = plan
         .files
@@ -204,18 +204,12 @@ pub fn execute_merge(
         .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
     // BUG 2 fix: plan_deletions を早期リターンの前に実行
-    let (delete_targets, mut delete_skipped) = if args.delete {
-        plan_deletions(
-            &statuses,
-            &resolved_paths,
-            &config.filter.sensitive,
-            args.force,
-        )
+    let delete_targets = if args.delete {
+        plan_deletions(&statuses, &resolved_paths)
     } else {
-        (vec![], vec![])
+        vec![]
     };
-    let (delete_targets, link_skipped) = skip_symlink_deletions(delete_targets, &right_tree);
-    delete_skipped.extend(link_skipped);
+    let (delete_targets, delete_skipped) = skip_symlink_deletions(delete_targets, &right_tree);
 
     // merge と delete のスキップを統合（right_only_skipped を含む）
     let mut all_skipped = plan.skipped;
@@ -241,14 +235,6 @@ pub fn execute_merge(
                 exit_code,
             });
         }
-    }
-
-    // スキップされたセンシティブファイル数を表示（text 形式のみ。JSON は出力自体に含まれる）
-    if !all_skipped.is_empty() && !args.force && format == OutputFormat::Text {
-        eprintln!(
-            "{} sensitive file(s) will be skipped. Use --force to include them.",
-            all_skipped.len()
-        );
     }
 
     // Pre-merge: ref badge をマージ実行前に計算する
@@ -513,7 +499,6 @@ fn run_hunk_merge(
         core: &mut core,
         force,
         session_id: &session_id,
-        sensitive_patterns: &config.filter.sensitive,
     };
 
     let result = execute_hunk_merge(&mut ctx, path, hunk_indices, dry_run)?;

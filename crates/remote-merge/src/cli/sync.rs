@@ -194,8 +194,8 @@ pub fn execute_sync(
             filter_merge_candidates(&resolved_paths, &statuses, args.delete);
         diff_files.retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
-        // マージ計画（センシティブファイルのフィルタリング）
-        let mut plan = plan_merge(&diff_files, &config.filter.sensitive, args.force);
+        // マージ計画
+        let mut plan = plan_merge(&diff_files);
 
         let destination_paths: Vec<String> = plan
             .files
@@ -220,19 +220,13 @@ pub fn execute_sync(
             .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
         // 削除計画（--delete 指定時）
-        let (delete_targets, mut delete_skipped) = if args.delete {
-            plan_deletions(
-                &statuses,
-                &resolved_paths,
-                &config.filter.sensitive,
-                args.force,
-            )
+        let delete_targets = if args.delete {
+            plan_deletions(&statuses, &resolved_paths)
         } else {
-            (vec![], vec![])
+            vec![]
         };
-        let (delete_targets, link_skipped) =
+        let (delete_targets, delete_skipped) =
             crate::service::sync::skip_symlink_deletions(delete_targets, &right_tree);
-        delete_skipped.extend(link_skipped);
 
         let target_info = build_source_info(right_side, &core)?;
         server_plans.push(ServerPlan {
@@ -649,7 +643,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
         };
-        let plan = plan_merge(&["src/main.rs".into()], &[], false);
+        let plan = plan_merge(&["src/main.rs".into()]);
         let server_plans = vec![ServerPlan {
             pair,
             right_tree,
@@ -712,8 +706,8 @@ mod tests {
             plan,
             delete_targets: vec!["old_file.rs".into()],
             delete_skipped: vec![MergeSkipped {
-                path: ".env".into(),
-                reason: "sensitive file (use --force to include)".into(),
+                path: "link.txt".into(),
+                reason: "destination is a symlink; deletion skipped".into(),
             }],
             right_only_skipped: vec![],
             target_info: SourceInfo {
@@ -729,7 +723,7 @@ mod tests {
         assert_eq!(targets[0].deleted.len(), 1);
         assert_eq!(targets[0].deleted[0].path, "old_file.rs");
         assert_eq!(targets[0].skipped.len(), 1);
-        assert_eq!(targets[0].skipped[0].path, ".env");
+        assert_eq!(targets[0].skipped[0].path, "link.txt");
     }
 
     // sync_fast_path_to_parent_dirs テストは service::fast_path に移動済み

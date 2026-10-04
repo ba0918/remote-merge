@@ -812,8 +812,8 @@ mod tests {
                 hunk_info: None,
             }],
             skipped: vec![MergeSkipped {
-                path: ".env".into(),
-                reason: "sensitive file".into(),
+                path: "kind.txt".into(),
+                reason: "source and destination have different file types".into(),
             }],
             deleted: vec![],
             failed: vec![],
@@ -821,7 +821,9 @@ mod tests {
         };
         let text = format_merge_text(&output);
         assert!(text.contains("Merged: a.rs (backup: a.rs.bak)"));
-        assert!(text.contains("Skipped: .env (sensitive file)"));
+        assert!(
+            text.contains("Skipped: kind.txt (source and destination have different file types)")
+        );
     }
 
     #[test]
@@ -1905,30 +1907,6 @@ mod tests {
         assert!(!text.contains("backup"));
     }
 
-    #[test]
-    fn test_format_merge_text_sensitive_skip_reason() {
-        // sensitive ファイルがスキップされた際に理由が明確に表示される
-        let output = MergeOutput {
-            merged: vec![],
-            skipped: vec![
-                MergeSkipped {
-                    path: ".env".into(),
-                    reason: "sensitive file".into(),
-                },
-                MergeSkipped {
-                    path: "certs/server.pem".into(),
-                    reason: "sensitive file".into(),
-                },
-            ],
-            deleted: vec![],
-            failed: vec![],
-            ref_: None,
-        };
-        let text = format_merge_text(&output);
-        assert!(text.contains("Skipped: .env (sensitive file)"));
-        assert!(text.contains("Skipped: certs/server.pem (sensitive file)"));
-    }
-
     // ── format_merge_text: --delete 表示 ──
 
     #[test]
@@ -2163,8 +2141,8 @@ mod tests {
                 },
                 merged: vec![],
                 skipped: vec![MergeSkipped {
-                    path: ".env".into(),
-                    reason: "sensitive file".into(),
+                    path: "kind.txt".into(),
+                    reason: "source and destination have different file types".into(),
                 }],
                 deleted: vec![],
                 failed: vec![],
@@ -2180,8 +2158,8 @@ mod tests {
         };
         let text = format_sync_text(&output);
         assert!(text.contains("skip"));
-        assert!(text.contains(".env"));
-        assert!(text.contains("sensitive file"));
+        assert!(text.contains("kind.txt"));
+        assert!(text.contains("different file types"));
     }
 
     #[test]

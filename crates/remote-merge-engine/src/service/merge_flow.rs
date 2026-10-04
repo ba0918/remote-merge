@@ -7,7 +7,6 @@ use crate::diff::engine::{
     DiffResult,
 };
 use crate::merge::executor::MergeDirection;
-use crate::service::status::is_sensitive;
 use crate::service::types::{FileStatus, FileStatusKind, HunkMergeInfo};
 use crate::tree::{find_node_in_slice, FileTree};
 
@@ -43,7 +42,6 @@ pub fn check_source_exists(
 /// hunk merge 対象ファイルのバリデーション（純粋関数）。
 ///
 /// - symlink はエラー（hunk merge はテキスト専用）
-/// - sensitive ファイルは `force=false` でエラー
 ///
 /// バイナリ判定はファイル内容の読み込みが必要なため、ここでは行わない
 /// （呼び出し元で内容取得後にチェックする）。
@@ -51,19 +49,12 @@ pub fn validate_hunk_merge_target(
     path: &str,
     source_tree: &FileTree,
     target_tree: &FileTree,
-    sensitive_patterns: &[String],
-    force: bool,
 ) -> anyhow::Result<()> {
     // symlink チェック（ソース側・ターゲット側どちらか）
     let source_node = find_node_in_slice(&source_tree.nodes, path);
     let target_node = find_node_in_slice(&target_tree.nodes, path);
     if source_node.is_some_and(|n| n.is_symlink()) || target_node.is_some_and(|n| n.is_symlink()) {
         anyhow::bail!("Hunk merge is not supported for symlink files: '{}'", path);
-    }
-
-    // sensitive ファイルチェック
-    if !force && is_sensitive(path, sensitive_patterns) {
-        anyhow::bail!("Sensitive file '{}' requires --force for hunk merge", path);
     }
 
     Ok(())

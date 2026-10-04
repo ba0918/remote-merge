@@ -275,6 +275,24 @@ fn hunks_json_reports_the_applied_hunk_without_backup_when_backup_is_disabled() 
 
 // @kotowari[REQ-merge-029]
 #[test]
+fn hunks_on_a_dotenv_file_without_force_write_the_selected_hunk() {
+    let fixture = fixture();
+    two_separate_changes(&fixture, ".env");
+
+    let (json, _) = fixture.merge_json_and_text(MergeArgs {
+        force: false,
+        ..hunk_args(".env", &[1])
+    });
+
+    assert_merged_entry(&json, "merged", &[1], 2);
+    assert_eq!(
+        fixture.read("develop", ".env"),
+        with_only_the_second_change()
+    );
+}
+
+// @kotowari[REQ-merge-029]
+#[test]
 fn hunks_json_reports_the_backup_when_backup_is_enabled() {
     let fixture = fixture_with_backup();
     two_separate_changes(&fixture, PATH);

@@ -1,7 +1,6 @@
 //! sync サービス: 1:N マルチサーバ同期の計画・結果組み立て。
 //! 純粋関数のみ。I/O は cli/sync.rs で行う。
 
-use super::status::is_sensitive;
 use super::types::*;
 use crate::tree::{FileTree, NodeKind};
 
@@ -88,15 +87,8 @@ pub fn sync_exit_code(output: &SyncOutput) -> i32 {
 /// --delete 時に削除対象となるファイルを抽出する（純粋関数）。
 ///
 /// RightOnly ファイルのうち、`resolved_paths` に含まれるものを抽出。
-/// sensitive ファイルは `force=false` で MergeSkipped に振り分ける。
-pub fn plan_deletions(
-    statuses: &[FileStatus],
-    resolved_paths: &[String],
-    sensitive_patterns: &[String],
-    force: bool,
-) -> (Vec<String>, Vec<MergeSkipped>) {
+pub fn plan_deletions(statuses: &[FileStatus], resolved_paths: &[String]) -> Vec<String> {
     let mut to_delete = Vec::new();
-    let mut skipped = Vec::new();
 
     for file in statuses {
         if file.status != FileStatusKind::RightOnly {
@@ -105,17 +97,10 @@ pub fn plan_deletions(
         if !resolved_paths.contains(&file.path) {
             continue;
         }
-        if !force && is_sensitive(&file.path, sensitive_patterns) {
-            skipped.push(MergeSkipped {
-                path: file.path.clone(),
-                reason: "sensitive file (use --force to include)".into(),
-            });
-            continue;
-        }
         to_delete.push(file.path.clone());
     }
 
-    (to_delete, skipped)
+    to_delete
 }
 
 #[cfg(test)]
@@ -260,29 +245,9 @@ mod tests {
             make_file_status("d.rs", FileStatusKind::RightOnly),
         ];
         let resolved = vec!["b.rs".into(), "d.rs".into()];
-        let (to_delete, skipped) = plan_deletions(&statuses, &resolved, &[], false);
+        let to_delete = plan_deletions(&statuses, &resolved);
 
         assert_eq!(to_delete, vec!["b.rs", "d.rs"]);
-        assert!(skipped.is_empty());
-    }
-
-    #[test]
-    fn plan_deletions_sensitive_skipped_without_force() {
-        let statuses = vec![
-            make_file_status("app.rs", FileStatusKind::RightOnly),
-            make_file_status(".env", FileStatusKind::RightOnly),
-            make_file_status("secret.pem", FileStatusKind::RightOnly),
-        ];
-        let resolved: Vec<String> = vec!["app.rs".into(), ".env".into(), "secret.pem".into()];
-        let patterns = vec![".env".into(), "*.pem".into()];
-
-        let (to_delete, skipped) = plan_deletions(&statuses, &resolved, &patterns, false);
-
-        assert_eq!(to_delete, vec!["app.rs"]);
-        assert_eq!(skipped.len(), 2);
-        assert_eq!(skipped[0].path, ".env");
-        assert_eq!(skipped[0].reason, "sensitive file (use --force to include)");
-        assert_eq!(skipped[1].path, "secret.pem");
     }
 
     #[test]
@@ -294,21 +259,8 @@ mod tests {
         ];
         let resolved: Vec<String> = vec!["a.rs".into(), "b.rs".into(), "c.rs".into()];
 
-        let (to_delete, skipped) = plan_deletions(&statuses, &resolved, &[], false);
+        let to_delete = plan_deletions(&statuses, &resolved);
 
         assert!(to_delete.is_empty());
-        assert!(skipped.is_empty());
-    }
-
-    #[test]
-    fn plan_deletions_sensitive_with_force() {
-        let statuses = vec![make_file_status(".env", FileStatusKind::RightOnly)];
-        let resolved: Vec<String> = vec![".env".into()];
-        let patterns = vec![".env".into()];
-
-        let (to_delete, skipped) = plan_deletions(&statuses, &resolved, &patterns, true);
-
-        assert_eq!(to_delete, vec![".env"]);
-        assert!(skipped.is_empty());
     }
 }

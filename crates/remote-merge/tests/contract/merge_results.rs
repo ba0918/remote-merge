@@ -103,6 +103,41 @@ fn json_with_a_reference_has_ref_and_the_ref_badge() {
 
 // @kotowari[REQ-cli-048]
 #[test]
+fn json_has_a_dotenv_file_written_without_force_as_ok() {
+    let fixture = fixture();
+    fixture.write("local", ".env", "A=incoming\n");
+    fixture.write("develop", ".env", "A=develop old\n");
+
+    let (json, _) = fixture.merge_json(args(&[".env"]));
+
+    assert_eq!(json["merged"][0]["path"], ".env", "{json}");
+    assert_eq!(json["merged"][0]["status"], "ok", "{json}");
+    assert_eq!(json["merged"].as_array().unwrap().len(), 1, "{json}");
+    assert_eq!(json["skipped"], serde_json::json!([]), "{json}");
+    assert_eq!(fixture.read("develop", ".env"), "A=incoming\n");
+}
+
+// @kotowari[REQ-cli-048]
+#[test]
+fn json_has_a_destination_only_dotenv_file_deleted_without_force() {
+    let fixture = fixture();
+    fixture.write("local", "file.txt", "same\n");
+    fixture.write("develop", "file.txt", "same\n");
+    fixture.write("develop", ".env", "A=only on develop\n");
+    let mut args = args(&["."]);
+    args.delete = true;
+
+    let (json, _) = fixture.merge_json(args);
+
+    let deleted = json["deleted"].as_array().unwrap();
+    assert_eq!(deleted.len(), 1, "{json}");
+    assert_eq!(deleted[0]["path"], ".env", "{json}");
+    assert_eq!(json["skipped"], serde_json::json!([]), "{json}");
+    assert!(!fixture.root("develop").join(".env").exists());
+}
+
+// @kotowari[REQ-cli-048]
+#[test]
 fn json_has_skipped_files_with_path_and_reason() {
     let fixture = fixture();
     // 読み込み元は symlink、書き込み先は通常のファイルで、種類が違うため書き込まない

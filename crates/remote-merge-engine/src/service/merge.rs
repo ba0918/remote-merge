@@ -3,7 +3,6 @@
 //! 実際のI/O操作（SSH書き込み・バックアップ）は CLI 層が CoreRuntime 経由で行う。
 //! このモジュールは結果の組み立てと dry-run 判定のみ。
 
-use super::status::is_sensitive;
 use super::types::*;
 use crate::side::is_remote_to_remote;
 use crate::side::Side;
@@ -14,29 +13,16 @@ use crate::tree::{FileTree, NodeKind};
 pub struct MergePlan {
     /// マージ対象ファイル
     pub files: Vec<String>,
-    /// スキップ対象（センシティブ等）
+    /// スキップ対象（種類の違い等）
     pub skipped: Vec<MergeSkipped>,
 }
 
-/// マージ対象をフィルタリングし、MergePlan を構築する（純粋関数）。
-///
-/// センシティブファイルは `--force` なしではスキップする。
-pub fn plan_merge(paths: &[String], sensitive_patterns: &[String], force: bool) -> MergePlan {
-    let mut files = Vec::new();
-    let mut skipped = Vec::new();
-
-    for path in paths {
-        if !force && is_sensitive(path, sensitive_patterns) {
-            skipped.push(MergeSkipped {
-                path: path.clone(),
-                reason: "sensitive file".into(),
-            });
-        } else {
-            files.push(path.clone());
-        }
+/// マージ対象から MergePlan を構築する（純粋関数）。スキップは後段の判定で加える。
+pub fn plan_merge(paths: &[String]) -> MergePlan {
+    MergePlan {
+        files: paths.to_vec(),
+        skipped: Vec::new(),
     }
-
-    MergePlan { files, skipped }
 }
 
 /// マージ結果を組み立てる（純粋関数）。
@@ -242,30 +228,8 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_merge_skips_sensitive() {
-        let paths = vec![".env".into(), "src/main.rs".into(), "secret.pem".into()];
-        let patterns = vec![".env".into(), "*.pem".into()];
-        let plan = plan_merge(&paths, &patterns, false);
-
-        assert_eq!(plan.files, vec!["src/main.rs"]);
-        assert_eq!(plan.skipped.len(), 2);
-        assert_eq!(plan.skipped[0].path, ".env");
-        assert_eq!(plan.skipped[1].path, "secret.pem");
-    }
-
-    #[test]
-    fn test_plan_merge_force_includes_sensitive() {
-        let paths = vec![".env".into(), "src/main.rs".into()];
-        let patterns = vec![".env".into()];
-        let plan = plan_merge(&paths, &patterns, true);
-
-        assert_eq!(plan.files.len(), 2);
-        assert!(plan.skipped.is_empty());
-    }
-
-    #[test]
     fn test_plan_merge_empty() {
-        let plan = plan_merge(&[], &[], false);
+        let plan = plan_merge(&[]);
         assert!(plan.files.is_empty());
         assert!(plan.skipped.is_empty());
     }

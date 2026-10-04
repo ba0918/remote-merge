@@ -312,13 +312,12 @@ pub struct HunkMergeContext<'a> {
     pub core: &'a mut CoreRuntime,
     pub force: bool,
     pub session_id: &'a str,
-    pub sensitive_patterns: &'a [String],
 }
 
 /// hunk 単位マージを実行する。
 ///
 /// 引数バリデーション済みの値を受け取り、以下を行う:
-/// 1. ファイル種別バリデーション（symlink/sensitive）
+/// 1. ファイル種別バリデーション（symlink）
 /// 2. 両側のファイル内容取得
 /// 3. バイナリチェック
 /// 4. diff 計算 → hunk 取得
@@ -341,14 +340,8 @@ pub fn execute_hunk_merge(
         MergeDirection::RightToLeft => (ctx.right_tree, ctx.left_tree),
     };
 
-    // symlink / sensitive バリデーション
-    validate_hunk_merge_target(
-        path,
-        source_tree,
-        target_tree,
-        ctx.sensitive_patterns,
-        ctx.force,
-    )?;
+    // symlink バリデーション
+    validate_hunk_merge_target(path, source_tree, target_tree)?;
 
     // 両側の内容を取得
     let source_bytes = ctx.core.read_file_bytes(source, path, ctx.force)?;
@@ -583,14 +576,14 @@ mod tests {
     fn test_validate_hunk_merge_target_normal_file_ok() {
         let source = make_tree_with_file("src/foo.rs");
         let target = make_tree_with_file("src/foo.rs");
-        assert!(validate_hunk_merge_target("src/foo.rs", &source, &target, &[], false).is_ok());
+        assert!(validate_hunk_merge_target("src/foo.rs", &source, &target).is_ok());
     }
 
     #[test]
     fn test_validate_hunk_merge_target_source_symlink_error() {
         let source = make_tree_with_symlink("link.txt");
         let target = make_tree_with_file("link.txt");
-        let err = validate_hunk_merge_target("link.txt", &source, &target, &[], false);
+        let err = validate_hunk_merge_target("link.txt", &source, &target);
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
         assert!(msg.contains("symlink"), "unexpected error: {}", msg);
@@ -600,29 +593,10 @@ mod tests {
     fn test_validate_hunk_merge_target_target_symlink_error() {
         let source = make_tree_with_file("link.txt");
         let target = make_tree_with_symlink("link.txt");
-        let err = validate_hunk_merge_target("link.txt", &source, &target, &[], false);
+        let err = validate_hunk_merge_target("link.txt", &source, &target);
         assert!(err.is_err());
         let msg = format!("{}", err.unwrap_err());
         assert!(msg.contains("symlink"), "unexpected error: {}", msg);
-    }
-
-    #[test]
-    fn test_validate_hunk_merge_target_sensitive_without_force_error() {
-        let source = make_tree_with_file(".env");
-        let target = make_tree_with_file(".env");
-        let patterns = vec![".env".into()];
-        let err = validate_hunk_merge_target(".env", &source, &target, &patterns, false);
-        assert!(err.is_err());
-        let msg = format!("{}", err.unwrap_err());
-        assert!(msg.contains("Sensitive"), "unexpected error: {}", msg);
-    }
-
-    #[test]
-    fn test_validate_hunk_merge_target_sensitive_with_force_ok() {
-        let source = make_tree_with_file(".env");
-        let target = make_tree_with_file(".env");
-        let patterns = vec![".env".into()];
-        assert!(validate_hunk_merge_target(".env", &source, &target, &patterns, true).is_ok());
     }
 
     #[test]
@@ -630,6 +604,6 @@ mod tests {
         // ツリーに存在しないパス → symlink チェックはスキップ（OK 扱い）
         let source = FileTree::new(PathBuf::from("/tmp"));
         let target = FileTree::new(PathBuf::from("/tmp"));
-        assert!(validate_hunk_merge_target("nonexistent.rs", &source, &target, &[], false).is_ok());
+        assert!(validate_hunk_merge_target("nonexistent.rs", &source, &target).is_ok());
     }
 }

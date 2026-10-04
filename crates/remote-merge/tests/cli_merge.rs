@@ -186,29 +186,6 @@ fn test_merge_records_backup_only_in_aggregate_store() {
     );
 }
 
-/// 機密ファイルに --force を付けると merge が成功する
-#[test]
-fn test_merge_sensitive_file_with_force() {
-    let env = CliEnv::new(
-        &[(".env", "SECRET=local\n")],
-        &[(".env", "SECRET=remote\n")],
-    );
-
-    let output = env
-        .cmd_with("merge")
-        .args([".env", "--left", "local", "--right", "develop", "--force"])
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-
-    let remote_content = fs::read_to_string(env.remote_dir.join(".env")).unwrap();
-    assert_eq!(
-        remote_content, "SECRET=local\n",
-        ".env should be merged with --force"
-    );
-}
-
 /// バイナリファイルの merge でバイナリが正しくコピーされる
 #[test]
 fn test_merge_binary_file() {

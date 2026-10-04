@@ -157,7 +157,7 @@ enum Commands {
         /// Preview merge without writing files
         #[arg(long)]
         dry_run: bool,
-        /// Skip safety confirmations (remote-to-remote, sensitive files)
+        /// Skip safety confirmations (remote-to-remote)
         #[arg(long)]
         force: bool,
         /// Delete files that exist only on target (rsync --delete equivalent)
@@ -194,7 +194,7 @@ enum Commands {
         /// Preview sync without writing files
         #[arg(long)]
         dry_run: bool,
-        /// Skip safety confirmations (remote-to-remote, sensitive files)
+        /// Skip safety confirmations (remote-to-remote)
         #[arg(long)]
         force: bool,
         /// Delete files that exist only on target (rsync --delete equivalent)
