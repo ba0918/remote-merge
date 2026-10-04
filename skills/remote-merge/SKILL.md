@@ -104,7 +104,7 @@ remote-merge merge src/foo.rs --left local --right develop --hunks 0,2,5
 
 JSON output includes `hunks_applied`, `hunks_total`, and `direction` fields when `--hunks` is used.
 
-Sensitive files (`.env`, `*.pem`) auto-skipped; use `--force` to override. Backups created automatically. Optimistic locking checks mtime before writing.
+With `--hunks`, a sensitive file (`.env`, `*.pem`) stops the merge with an error unless `--force` is given. Backups created automatically. Optimistic locking checks mtime before writing.
 
 ### 3.5. Sync (1:N multi-server synchronization)
 

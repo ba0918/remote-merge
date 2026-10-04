@@ -16,13 +16,6 @@
 
 旧個別仕様 3.12 は辿り直せなかったファイルを "cannot resolve path: <原因>" で failed にするとするが、実装は一件でも辿れないとセッション内の全ファイルを failed にする。他のファイルを戻すべきかは旧資料からも spec-migration の A11 からも決まらない。
 
-### FLAG-backup-003: 機密ファイルのスキップと終了コード
-- kind: ambiguity
-- related: REQ-backup-036, REQ-backup-038
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A36
-
-旧個別仕様 3.12 は機密ファイルのスキップの終了コードへの影響を「今までどおり（戻したファイルが 0 件なら 2）」とし、旧総合仕様と実装は一件でもスキップがあれば 2 とする。他のファイルを戻せたときに機密ファイルのスキップで 2 を返すべきかが定まらない。
-
 ### FLAG-backup-004: 確認を断ったときの終了コード
 - kind: gap
 - related: REQ-backup-035
