@@ -68,7 +68,6 @@ impl SshClient {
         let verifier = super::host_key_verifier::verifier_from_policy(
             ssh_config.strict_host_key_checking,
             ssh_config.auto_yes,
-            ssh_config.is_tui,
         );
         Self::connect_with_verifier(
             server_name,

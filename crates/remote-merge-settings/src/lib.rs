@@ -60,8 +60,6 @@ pub struct SshConfig {
     pub strict_host_key_checking: StrictHostKeyChecking,
     /// `--yes` フラグ: 未知ホストキーを自動承認する
     pub auto_yes: bool,
-    /// TUI モードかどうか（TUI では stdin ベースの CliVerifier を使わない）
-    pub is_tui: bool,
 }
 
 /// ホストキー確認ポリシー
@@ -81,7 +79,6 @@ impl Default for SshConfig {
             timeout_sec: 300,
             strict_host_key_checking: StrictHostKeyChecking::Ask,
             auto_yes: false,
-            is_tui: false,
         }
     }
 }

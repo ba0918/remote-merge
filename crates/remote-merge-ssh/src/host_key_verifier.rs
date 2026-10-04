@@ -107,29 +107,17 @@ impl HostKeyVerifier for CliVerifier {
 
 /// StrictHostKeyChecking 設定からデフォルトの HostKeyVerifier を選択する
 ///
-/// - `is_tui = true`: TUI モードでは stdin を読めないため、
-///   Ask を暗黙に受け入れへ落とさず RejectVerifier を使う。
-/// - `is_tui = false`: CLI モードでは CliVerifier で stdin 確認。
+/// Ask は標準入力で確認する。答えを読めない（入力の終わり）ときは拒否するので、
+/// 確認手段のない接続も未知の鍵を受け入れない。
 pub fn verifier_from_policy(
     policy: crate::config::StrictHostKeyChecking,
     auto_yes: bool,
-    is_tui: bool,
 ) -> Box<dyn HostKeyVerifier> {
     use crate::config::StrictHostKeyChecking;
     match policy {
         StrictHostKeyChecking::No => Box::new(AutoAcceptVerifier),
         StrictHostKeyChecking::Yes => Box::new(RejectVerifier),
-        StrictHostKeyChecking::Ask => {
-            if is_tui {
-                tracing::warn!(
-                    target: "remote_merge::ssh::host_key_verifier",
-                    "StrictHostKeyChecking=ask requested in TUI mode; rejecting unknown hosts until interactive confirmation is implemented"
-                );
-                Box::new(RejectVerifier)
-            } else {
-                Box::new(CliVerifier { auto_yes })
-            }
-        }
+        StrictHostKeyChecking::Ask => Box::new(CliVerifier { auto_yes }),
     }
 }
 
@@ -158,45 +146,43 @@ mod tests {
     #[test]
     fn test_verifier_from_policy_no() {
         use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::No, false, false);
+        let v = verifier_from_policy(StrictHostKeyChecking::No, false);
         assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
     }
 
     #[test]
     fn test_verifier_from_policy_yes() {
         use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::Yes, false, false);
+        let v = verifier_from_policy(StrictHostKeyChecking::Yes, false);
         assert!(!v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
     }
 
     #[test]
     fn test_verifier_from_policy_ask_with_auto_yes() {
         use crate::config::StrictHostKeyChecking;
-        let v = verifier_from_policy(StrictHostKeyChecking::Ask, true, false);
+        let v = verifier_from_policy(StrictHostKeyChecking::Ask, true);
         assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
     }
 
     #[test]
-    fn test_verifier_from_policy_ask_tui_rejects_unknown_hosts() {
-        use crate::config::StrictHostKeyChecking;
-        // TUI モードでは Ask を暗黙に auto-accept しない
-        let v = verifier_from_policy(StrictHostKeyChecking::Ask, false, true);
-        assert!(!v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
+    fn test_cli_verifier_rejects_when_input_ends_without_an_answer() {
+        let v = CliVerifier { auto_yes: false };
+        let mut input = "".as_bytes();
+        assert!(!v.verify_host_key_with_input("host", 22, "ssh-ed25519", "SHA256:abc", &mut input));
     }
 
     #[test]
-    fn test_verifier_from_policy_yes_tui_still_rejects() {
-        use crate::config::StrictHostKeyChecking;
-        // TUI モードでも Yes ポリシーは RejectVerifier
-        let v = verifier_from_policy(StrictHostKeyChecking::Yes, false, true);
-        assert!(!v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
-    }
-
-    #[test]
-    fn test_verifier_from_policy_no_tui_auto_accepts() {
-        use crate::config::StrictHostKeyChecking;
-        // TUI モードでも No ポリシーは AutoAcceptVerifier
-        let v = verifier_from_policy(StrictHostKeyChecking::No, false, true);
-        assert!(v.verify_host_key("host", 22, "ssh-ed25519", "SHA256:abc"));
+    fn test_cli_verifier_accepts_yes_and_y() {
+        let v = CliVerifier { auto_yes: false };
+        for answer in ["yes\n", "y\n"] {
+            let mut input = answer.as_bytes();
+            assert!(v.verify_host_key_with_input(
+                "host",
+                22,
+                "ssh-ed25519",
+                "SHA256:abc",
+                &mut input
+            ));
+        }
     }
 }

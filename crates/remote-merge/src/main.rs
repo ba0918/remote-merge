@@ -596,7 +596,6 @@ fn try_main() -> anyhow::Result<()> {
         None => {
             let mut config = config::load_config_with_project_override(cli.config.as_deref())?;
             config.ssh.auto_yes = cli.yes;
-            config.ssh.is_tui = true;
             let right_server = cli.right.map(Ok).unwrap_or_else(|| {
                 config.servers.keys().next().cloned().ok_or_else(|| {
                     anyhow::anyhow!(

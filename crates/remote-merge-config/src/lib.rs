@@ -650,9 +650,8 @@ fn convert_raw_ssh_config(raw: &RawSshConfig) -> SshConfig {
             .as_deref()
             .map(parse_strict_host_key_checking)
             .unwrap_or(StrictHostKeyChecking::Ask),
-        // auto_yes / is_tui は TOML から設定しない（CLI フラグで上書きする）
+        // auto_yes は TOML から設定しない（CLI フラグで上書きする）
         auto_yes: false,
-        is_tui: false,
     }
 }
 
