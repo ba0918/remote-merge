@@ -10,10 +10,11 @@ use std::process::Output;
 use remote_merge::cli::status::execute_status;
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::RuntimeTargets;
+use remote_merge::service::types::FileStatusKind;
 use tempfile::TempDir;
 
 use super::common::{assert_exit_error, CliEnv};
-use super::status_support::{args, fixture};
+use super::status_support::{args, fixture, write_at};
 
 fn sides(left: Option<&str>, right: Option<&str>) -> (String, String) {
     let output = fixture().run(args(left, right)).unwrap().output;
@@ -91,6 +92,36 @@ fn a_needed_default_server_without_any_server_configured_is_an_error() {
         );
         assert!(result.is_err(), "--left {left:?} --right {right:?}");
     }
+}
+
+// @kotowari[REQ-cli-027, REQ-cli-036]
+#[test]
+fn a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
+    let fixture = fixture();
+    // .env は中身もサイズも同じで更新時刻だけが違う。三つの側のどれにもある
+    write_at(fixture.local.path(), ".env", b"A=1\n", 1_700_000_000);
+    write_at(fixture.develop.path(), ".env", b"A=1\n", 1_700_000_100);
+    write_at(fixture.staging.path(), ".env", b"A=1\n", 1_700_000_200);
+    // 機密でないファイルの参照先との印が変わらないことも同じ実行で見る
+    write_at(fixture.local.path(), "file.txt", b"same\n", 1_700_000_000);
+    write_at(fixture.develop.path(), "file.txt", b"same\n", 1_700_000_100);
+    write_at(fixture.staging.path(), "file.txt", b"base\n", 1_700_000_000);
+
+    let mut with_ref = args(Some("local"), Some("develop"));
+    with_ref.ref_server = Some("staging".into());
+    with_ref.all = true;
+    let files = fixture.run(with_ref).unwrap().output.files.unwrap();
+
+    let file = |path: &str| {
+        files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("{path} missing: {files:?}"))
+    };
+    assert_eq!(file(".env").status, FileStatusKind::Equal, "{files:?}");
+    assert_eq!(file(".env").ref_badge, None, "{files:?}");
+    assert_eq!(file("file.txt").status, FileStatusKind::Equal, "{files:?}");
+    assert_eq!(file("file.txt").ref_badge.as_deref(), Some("differs"));
 }
 
 /// 左 develop・右 staging・参照先 local の三者比較の構成

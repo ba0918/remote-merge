@@ -30,13 +30,6 @@
 
 status が中身を読み比べる対象のファイルを読めなかったとき（読み取りの失敗やサイズ上限の超過）、実装は理由を示さずにメタデータでの判定（"modified"）のまま一覧に出す。旧資料に記述がなくテストもない。
 
-### FLAG-cli-005: 三者比較での機密ファイルの判定
-- kind: gap
-- related: REQ-cli-027, REQ-cli-036
-- source: docs/decision/records/2026-09-27-adopt-status.md#A19
-
---ref を指定した status は機密ファイルの中身を読まないため、サイズが同じで更新時刻が違い中身が同じ機密ファイルを "modified" のまま出し、--ref なしなら "equal" に直す。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-006: パスを省いた sync
 - kind: contradiction
 - related: REQ-cli-038

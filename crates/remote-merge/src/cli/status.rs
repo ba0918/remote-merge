@@ -117,12 +117,14 @@ pub fn execute_status(
     };
 
     // ref 指定時は全非 sensitive ファイルのコンテンツが必要（badge 計算用）。
+    // 左右の判定のため paths_to_compare の sensitive ファイルも読む。badge の計算は
+    // sensitive ファイルの中身を使わないため、参照先との比較には漏れない。
     // ref 未指定時でハッシュ比較が失敗した場合は paths_to_compare のコンテンツが必要。
     // ハッシュ比較が成功した場合はコンテンツ取得をスキップする。
     let content_paths = if ref_side.is_some() {
         files
             .iter()
-            .filter(|f| !f.sensitive)
+            .filter(|f| !f.sensitive || paths_to_compare.contains(&f.path))
             .map(|f| f.path.clone())
             .collect::<Vec<_>>()
     } else if hash_resolved {
