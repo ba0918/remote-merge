@@ -87,7 +87,6 @@ pub struct DiffOutput {
     pub right: SourceInfo,
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
     pub ref_: Option<SourceInfo>,
-    pub sensitive: bool,
     /// バイナリファイルの場合 true（hunks は空になる）
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub binary: bool,
@@ -106,7 +105,7 @@ pub struct DiffOutput {
     /// バイナリファイルの右側 SHA-256 ハッシュ
     #[serde(skip_serializing_if = "Option::is_none")]
     pub right_hash: Option<String>,
-    /// 補足情報（sensitive マスク時・type mismatch 時等）
+    /// 補足情報（中身を比べなかった理由・type mismatch 時等）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     /// コンフリクト数（3way diff 時のみ）
@@ -127,7 +126,6 @@ impl DiffOutput {
                     .as_ref()
                     .is_some_and(|targets| targets.left != targets.right))
             || !self.hunks.is_empty()
-            || (self.sensitive && self.note.is_some())
     }
 }
 
@@ -482,7 +480,6 @@ mod tests {
                 root: "/var/www".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -659,7 +656,6 @@ mod tests {
                 label: "staging".into(),
                 root: "/s".into(),
             }),
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -690,7 +686,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -805,7 +800,6 @@ mod tests {
                     root: "/r".into(),
                 },
                 ref_: None,
-                sensitive: false,
                 binary: false,
                 symlink: false,
                 link_targets: None,
@@ -877,7 +871,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,

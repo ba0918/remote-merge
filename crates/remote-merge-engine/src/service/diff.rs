@@ -16,7 +16,6 @@ pub fn build_diff_output(
     right_info: SourceInfo,
     left_content: &str,
     right_content: &str,
-    sensitive: bool,
     max_lines: Option<usize>,
     ref_info: Option<SourceInfo>,
     ref_content: Option<&str>,
@@ -76,7 +75,6 @@ pub fn build_diff_output(
         left: left_info,
         right: right_info,
         ref_: ref_info_out,
-        sensitive,
         binary,
         symlink,
         link_targets: None,
@@ -148,14 +146,8 @@ fn convert_hunks(
 }
 
 /// diff の exit code を判定する。差分があれば 1、なければ 0。
-///
-/// sensitive マスク時（note 付き）も差分ありとして DIFF_FOUND を返す。
 pub fn diff_exit_code(output: &DiffOutput) -> i32 {
-    if output.binary
-        || output.symlink
-        || !output.hunks.is_empty()
-        || (output.sensitive && output.note.is_some())
-    {
+    if output.binary || output.symlink || !output.hunks.is_empty() {
         exit_code::DIFF_FOUND
     } else {
         exit_code::SUCCESS
@@ -172,7 +164,6 @@ pub fn build_symlink_diff_output(
     right_info: SourceInfo,
     left_target: Option<&str>,
     right_target: Option<&str>,
-    sensitive: bool,
 ) -> DiffOutput {
     let note = match (left_target, right_target) {
         (Some(_), Some(_)) => None,
@@ -185,7 +176,6 @@ pub fn build_symlink_diff_output(
         left: left_info,
         right: right_info,
         ref_: None,
-        sensitive,
         binary: false,
         symlink: true,
         link_targets: Some(crate::service::types::LinkTargets {
@@ -204,18 +194,18 @@ pub fn build_symlink_diff_output(
     }
 }
 
-/// sensitive ファイル用のマスクされた DiffOutput を構築
-pub fn build_masked_diff_output(
+/// 中身を比べなかったパスの DiffOutput を、比べなかった理由 `note` を添えて構築
+pub fn build_uncompared_diff_output(
     path: &str,
     left_info: SourceInfo,
     right_info: SourceInfo,
+    note: &str,
 ) -> DiffOutput {
     DiffOutput {
         path: path.to_string(),
         left: left_info,
         right: right_info,
         ref_: None,
-        sensitive: true,
         binary: false,
         symlink: false,
         link_targets: None,
@@ -224,7 +214,7 @@ pub fn build_masked_diff_output(
         ref_hunks: None,
         left_hash: None,
         right_hash: None,
-        note: Some("Content hidden (sensitive file). Use --force to show.".to_string()),
+        note: Some(note.to_string()),
         conflict_count: 0,
         conflict_regions: vec![],
     }
@@ -249,7 +239,6 @@ mod tests {
             info("dev"),
             "hello\nworld\n",
             "hello\nworld\n",
-            false,
             None,
             None,
             None,
@@ -266,7 +255,6 @@ mod tests {
             info("dev"),
             "line1\nline2\nline3\n",
             "line1\nchanged\nline3\n",
-            false,
             None,
             None,
             None,
@@ -304,7 +292,6 @@ mod tests {
             info("r"),
             &old,
             &new,
-            false,
             Some(5),
             None,
             None,
@@ -338,7 +325,6 @@ mod tests {
             info("r"),
             &old,
             &new,
-            false,
             Some(0),
             None,
             None,
@@ -362,7 +348,6 @@ mod tests {
             info("r"),
             old,
             new,
-            false,
             Some(3),
             None,
             None,
@@ -390,28 +375,11 @@ mod tests {
             info("r"),
             "aaa\nbbb\nccc\n",
             "aaa\nBBB\nccc\n",
-            false,
             Some(100),
             None,
             None,
         );
         assert!(!output.truncated);
-    }
-
-    #[test]
-    fn test_sensitive_flag() {
-        let output = build_diff_output(
-            ".env",
-            info("l"),
-            info("r"),
-            "SECRET=old",
-            "SECRET=new",
-            true,
-            None,
-            None,
-            None,
-        );
-        assert!(output.sensitive);
     }
 
     #[test]
@@ -422,7 +390,6 @@ mod tests {
             info("r"),
             "same",
             "same",
-            false,
             None,
             None,
             None,
@@ -432,17 +399,8 @@ mod tests {
 
     #[test]
     fn test_exit_code_has_diff() {
-        let output = build_diff_output(
-            "a.rs",
-            info("l"),
-            info("r"),
-            "old",
-            "new",
-            false,
-            None,
-            None,
-            None,
-        );
+        let output =
+            build_diff_output("a.rs", info("l"), info("r"), "old", "new", None, None, None);
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
 
@@ -454,7 +412,6 @@ mod tests {
             info("r"),
             "aaa\nbbb\nccc\n",
             "aaa\nBBB\nccc\n",
-            false,
             None,
             None,
             None,
@@ -475,7 +432,6 @@ mod tests {
             info("dev"),
             "line1\nline2\nline3\n",
             "line1\nchanged\nline3\n",
-            false,
             None,
             Some(info("staging")),
             Some("line1\nref_changed\nline3\n"),
@@ -494,7 +450,6 @@ mod tests {
             info("dev"),
             "same content\n",
             "different\n",
-            false,
             None,
             Some(info("staging")),
             Some("same content\n"),
@@ -511,7 +466,6 @@ mod tests {
             info("dev"),
             "content\n",
             "other\n",
-            false,
             None,
             Some(info("staging")),
             None,
@@ -528,7 +482,6 @@ mod tests {
             info("dev"),
             "old\n",
             "new\n",
-            false,
             None,
             None,
             None,
@@ -545,7 +498,6 @@ mod tests {
             left: info("l"),
             right: info("r"),
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -569,7 +521,6 @@ mod tests {
             left: info("l"),
             right: info("r"),
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: true,
             link_targets: None,
@@ -596,7 +547,6 @@ mod tests {
             left: info("l"),
             right: info("r"),
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: true,
             link_targets: None,
@@ -623,7 +573,6 @@ mod tests {
             info("r"),
             binary_content,
             "different\x00data",
-            false,
             None,
             None,
             None,
@@ -640,7 +589,6 @@ mod tests {
             info("r"),
             "old\n",
             "new\n",
-            false,
             None,
             None,
             None,
@@ -670,7 +618,6 @@ mod tests {
             info("r"),
             &old,
             &new,
-            false,
             Some(5),
             Some(info("ref")),
             Some(&ref_content),
@@ -712,7 +659,6 @@ mod tests {
             info("dev"),
             Some("/old/target"),
             Some("/new/target"),
-            false,
         );
         assert!(output.symlink);
         assert!(!output.binary);
@@ -733,7 +679,6 @@ mod tests {
             info("dev"),
             Some("/same/target"),
             Some("/same/target"),
-            false,
         );
         assert!(output.symlink);
         assert!(output.hunks.is_empty());
@@ -741,14 +686,8 @@ mod tests {
 
     #[test]
     fn test_build_symlink_diff_output_type_mismatch() {
-        let output = build_symlink_diff_output(
-            "link",
-            info("local"),
-            info("dev"),
-            Some("/target"),
-            None,
-            false,
-        );
+        let output =
+            build_symlink_diff_output("link", info("local"), info("dev"), Some("/target"), None);
         assert!(output.symlink);
         assert_eq!(
             output.note.as_deref(),
@@ -764,7 +703,6 @@ mod tests {
             info("dev"),
             Some(""),
             Some("/target"),
-            false,
         );
         assert!(output.symlink);
         // 空文字列のリンク文字列も link_targets の差として残り、hunks には入らない
@@ -772,59 +710,6 @@ mod tests {
         assert_eq!(targets.left.as_deref(), Some(""));
         assert!(output.hunks.is_empty());
         assert!(output.has_changes());
-    }
-
-    // ── build_masked_diff_output tests ──
-
-    #[test]
-    fn test_build_masked_diff_output() {
-        let output = build_masked_diff_output(".env", info("local"), info("dev"));
-        assert!(output.sensitive);
-        assert!(output.hunks.is_empty());
-        assert!(output.left_hash.is_none());
-        assert!(output.right_hash.is_none());
-        assert!(output.note.as_deref().unwrap().contains("Content hidden"));
-        assert!(output.note.as_deref().unwrap().contains("--force"));
-    }
-
-    #[test]
-    fn test_build_masked_diff_output_is_not_binary() {
-        let output = build_masked_diff_output(".env", info("local"), info("dev"));
-        assert!(!output.binary);
-        assert!(!output.symlink);
-    }
-
-    // ── diff_exit_code + sensitive mask tests ──
-
-    #[test]
-    fn test_exit_code_sensitive_masked_diff_found() {
-        // sensitive マスク（note 付き）→ 差分ありとして DIFF_FOUND
-        let output = build_masked_diff_output(".env", info("l"), info("r"));
-        assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
-    }
-
-    #[test]
-    fn test_exit_code_sensitive_forced_no_diff() {
-        // --force で sensitive ファイルを表示（差分なし）→ SUCCESS
-        let output = DiffOutput {
-            path: ".env".into(),
-            left: info("l"),
-            right: info("r"),
-            ref_: None,
-            sensitive: true,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            note: None,
-            conflict_count: 0,
-            conflict_regions: vec![],
-        };
-        assert_eq!(diff_exit_code(&output), exit_code::SUCCESS);
     }
 
     // ── conflict detection in build_diff_output ──
@@ -837,7 +722,6 @@ mod tests {
             info("r"),
             "B\n",
             "C\n",
-            false,
             None,
             Some(info("ref")),
             Some("A\n"),
@@ -848,17 +732,8 @@ mod tests {
 
     #[test]
     fn test_conflict_count_without_ref() {
-        let output = build_diff_output(
-            "a.rs",
-            info("l"),
-            info("r"),
-            "B\n",
-            "C\n",
-            false,
-            None,
-            None,
-            None,
-        );
+        let output =
+            build_diff_output("a.rs", info("l"), info("r"), "B\n", "C\n", None, None, None);
         assert_eq!(output.conflict_count, 0);
         assert!(output.conflict_regions.is_empty());
     }
@@ -872,7 +747,6 @@ mod tests {
             info("r"),
             binary_content,
             "different\x00data",
-            false,
             None,
             Some(info("ref")),
             Some("original\x00content"),

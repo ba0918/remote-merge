@@ -9,7 +9,7 @@ use crate::diff::engine::is_binary;
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
-    build_diff_output, build_masked_diff_output, build_symlink_diff_output,
+    build_diff_output, build_symlink_diff_output, build_uncompared_diff_output,
 };
 use crate::service::max_files::{changes_without_reading, limit_changed_files, ChangedFileBudget};
 use crate::service::merge::find_symlink_target;
@@ -22,7 +22,7 @@ use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
-    compute_status_from_trees, is_sensitive, needs_content_compare, refine_status_with_content,
+    compute_status_from_trees, needs_content_compare, refine_status_with_content,
     status_from_read_results,
 };
 use crate::service::types::{
@@ -32,7 +32,7 @@ use crate::service::types::{
 use crate::service::{resolve_scan_strategy, ScanStrategy};
 use crate::tree::{FileNode, FileTree};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
 /// plain_file_sizes）。plain_file_sizes は diff_files のうち、中身を読む前に通常のファイルと
@@ -172,10 +172,7 @@ pub fn execute_diff(
     // 中身を読まなくても変更のあるファイルと分かるもの
     let known_changed_files: HashSet<&str> = plain_file_sizes
         .iter()
-        .filter(|(path, (left_size, right_size))| {
-            let masked = is_sensitive(path, &config.filter.sensitive) && !args.force;
-            changes_without_reading(*left_size, *right_size, masked)
-        })
+        .filter(|(_, (left_size, right_size))| changes_without_reading(*left_size, *right_size))
         .map(|(path, _)| path.as_str())
         .collect();
     let mut budget = ChangedFileBudget::new(args.max_files);
@@ -192,9 +189,8 @@ pub fn execute_diff(
                 || path_escapes_root(&mut core, &pair.right, &right_root, path)?)
         {
             let reason = "content not compared (outside root_dir; use --follow-external-links)";
-            let mut output = build_masked_diff_output(path, left_info.clone(), right_info.clone());
-            output.sensitive = false;
-            output.note = Some(reason.into());
+            let mut output =
+                build_uncompared_diff_output(path, left_info.clone(), right_info.clone(), reason);
             let left_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
             let right_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
             if left_target.is_some() || right_target.is_some() {
@@ -216,9 +212,7 @@ pub fn execute_diff(
         let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
         let (left_quiet, right_quiet) = quiet_flags_for_status(status);
 
-        let sensitive = is_sensitive(path, &config.filter.sensitive);
-
-        // symlink 判定（ツリー情報から）— sensitive でもターゲットパスは機密情報ではないため先に判定
+        // symlink 判定（ツリー情報から）
         let left_symlink_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
         let right_symlink_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
         if left_symlink_target.is_none() && right_symlink_target.is_none() {
@@ -282,21 +276,7 @@ pub fn execute_diff(
                 right_info.clone(),
                 left_symlink_target.as_deref(),
                 right_symlink_target.as_deref(),
-                sensitive,
             );
-            let target_sensitive = [&left_symlink_target, &right_symlink_target]
-                .into_iter()
-                .flatten()
-                .any(|target| is_sensitive(target, &config.filter.sensitive))
-                || sensitive_link_chain(&mut core, (&pair.left, &left_root), path, &config)
-                || sensitive_link_chain(&mut core, (&pair.right, &right_root), path, &config);
-            if (sensitive || target_sensitive) && !args.force {
-                link_diff.sensitive = true;
-                link_diff.note =
-                    Some("Content hidden (sensitive file). Use --force to show.".into());
-                file_diffs.push(link_diff);
-                continue;
-            }
             let external = [(&pair.left, &left_root), (&pair.right, &right_root)]
                 .into_iter()
                 .any(|(side, root)| match core.inspect_path(side, path) {
@@ -410,7 +390,6 @@ pub fn execute_diff(
                         right_info.clone(),
                         &left_text,
                         &right_text,
-                        sensitive,
                         args.max_lines,
                         None,
                         None,
@@ -450,7 +429,6 @@ pub fn execute_diff(
                 right_info.clone(),
                 &left_text,
                 &right_text,
-                sensitive,
                 args.max_lines,
                 None,
                 None,
@@ -458,16 +436,6 @@ pub fn execute_diff(
             link_diff.hunks = content_diff.hunks;
             link_diff.truncated = content_diff.truncated;
             file_diffs.push(link_diff);
-            continue;
-        }
-
-        // sensitive マスク（--force なしの場合、内容を読み込まずにマスク）
-        if sensitive && !args.force {
-            file_diffs.push(build_masked_diff_output(
-                path,
-                left_info.clone(),
-                right_info.clone(),
-            ));
             continue;
         }
 
@@ -506,7 +474,6 @@ pub fn execute_diff(
                 left: left_info.clone(),
                 right: right_info.clone(),
                 ref_: ref_info_out,
-                sensitive,
                 binary: true,
                 symlink: false,
                 link_targets: None,
@@ -536,7 +503,6 @@ pub fn execute_diff(
                 right_info.clone(),
                 &left_content,
                 &right_content,
-                sensitive,
                 args.max_lines,
                 ref_info_opt.clone(),
                 ref_content.as_deref(),
@@ -582,69 +548,6 @@ fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
         TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => Some(real_path),
         TargetPath::Missing { .. } => None,
     }
-}
-
-/// `real_root` は `side` の root_dir を実パスに直したもの。絶対パスのリンク文字列は、それと
-/// 設定に書いた root_dir のどちらかの下にあれば root_dir の中として次の段を辿る。
-///
-/// 段を root_dir の下に字面で辿れなくなったときは、その先の段を機密でないとみなす。
-fn sensitive_link_chain(
-    core: &mut CoreRuntime,
-    (side, real_root): (&Side, &Path),
-    path: &str,
-    config: &AppConfig,
-) -> bool {
-    let root = match side {
-        Side::Local => &config.local.root_dir,
-        Side::Remote(name) => &config.servers[name].root_dir,
-    };
-    let mut current = PathBuf::from(path);
-    let mut seen = HashSet::new();
-    while seen.insert(current.clone()) {
-        let inspected = match core.inspect_path(side, &current.to_string_lossy()) {
-            Ok(inspected) => inspected,
-            Err(_) => return false,
-        };
-        let TargetPath::Symlink {
-            link_target,
-            real_path,
-        } = inspected
-        else {
-            return false;
-        };
-        if is_sensitive(&link_target.to_string_lossy(), &config.filter.sensitive)
-            || is_sensitive(&real_path.to_string_lossy(), &config.filter.sensitive)
-        {
-            return true;
-        }
-        let candidate = if link_target.is_absolute() {
-            link_target
-        } else {
-            current.parent().unwrap_or(Path::new("")).join(link_target)
-        };
-        let relative = if candidate.is_absolute() {
-            match candidate
-                .strip_prefix(real_root)
-                .or_else(|_| candidate.strip_prefix(root))
-            {
-                Ok(relative) => relative,
-                Err(_) => return false,
-            }
-        } else {
-            candidate.as_path()
-        };
-        let mut next = PathBuf::new();
-        for component in relative.components() {
-            match component {
-                Component::Normal(name) => next.push(name),
-                Component::CurDir => {}
-                Component::ParentDir if next.pop() => {}
-                _ => return false,
-            }
-        }
-        current = next;
-    }
-    false
 }
 
 /// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。

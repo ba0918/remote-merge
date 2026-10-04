@@ -178,13 +178,6 @@ pub fn format_diff_text(output: &DiffOutput) -> String {
         return lines.join("\n");
     }
 
-    // sensitive マスク: build_masked_diff_output で構築された DiffOutput のみがこのパスに到達する。
-    // --force 使用時は note=None のため通常の hunk 表示にフォールスルーする。
-    if let (true, Some(note)) = (output.sensitive, &output.note) {
-        lines.push(note.to_string());
-        return lines.join("\n");
-    }
-
     if let Some(note) = &output.note {
         lines.push(note.to_string());
         return lines.join("\n");
@@ -741,7 +734,6 @@ mod tests {
                 root: "/var/www".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -793,7 +785,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -953,7 +944,6 @@ mod tests {
                 label: "staging".into(),
                 root: "/s".into(),
             }),
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -999,7 +989,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1030,7 +1019,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -1064,7 +1052,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: true,
             link_targets: Some(crate::service::types::LinkTargets {
@@ -1213,7 +1200,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1363,7 +1349,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -1396,7 +1381,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -1426,7 +1410,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -1457,7 +1440,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: true,
             symlink: false,
             link_targets: None,
@@ -1491,7 +1473,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1584,69 +1565,6 @@ mod tests {
         assert!(!json.contains("/home/"));
     }
 
-    #[test]
-    fn test_format_diff_text_sensitive_masked() {
-        let output = DiffOutput {
-            path: ".env".into(),
-            left: SourceInfo {
-                label: "local".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "dev".into(),
-                root: "/r".into(),
-            },
-            ref_: None,
-            sensitive: true,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            note: Some("Content hidden (sensitive file). Use --force to show.".into()),
-            conflict_count: 0,
-            conflict_regions: vec![],
-        };
-        let text = format_diff_text(&output);
-        assert!(text.contains("--- a/.env (local)"));
-        assert!(text.contains("+++ b/.env (dev)"));
-        assert!(text.contains("Content hidden (sensitive file)"));
-        assert!(!text.contains("@@"));
-    }
-
-    #[test]
-    fn test_format_diff_text_not_sensitive_no_note() {
-        let output = DiffOutput {
-            path: "a.rs".into(),
-            left: SourceInfo {
-                label: "l".into(),
-                root: ".".into(),
-            },
-            right: SourceInfo {
-                label: "r".into(),
-                root: "/r".into(),
-            },
-            ref_: None,
-            sensitive: false,
-            binary: false,
-            symlink: false,
-            link_targets: None,
-            truncated: false,
-            hunks: vec![],
-            ref_hunks: None,
-            left_hash: None,
-            right_hash: None,
-            note: None,
-            conflict_count: 0,
-            conflict_regions: vec![],
-        };
-        let text = format_diff_text(&output);
-        assert!(!text.contains("Content hidden"));
-    }
-
     // ── conflict output tests ──
 
     #[test]
@@ -1662,7 +1580,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1692,7 +1609,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1756,7 +1672,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -1900,7 +1815,6 @@ mod tests {
                 root: "/r".into(),
             },
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,

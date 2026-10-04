@@ -17,16 +17,8 @@ pub struct LimitedFiles {
 /// 中身を読まなくても変更のあるファイル（`DiffOutput::has_changes` が真）になると分かるか。
 ///
 /// 大きさは通常のファイルとしてある側だけ Some。片側にだけある 0 バイトのファイルや、
-/// 大きさの同じファイルは読んで比べるまで分からない。--force なしの機密ファイルは
-/// 中身を隠した形で出て変更に数えるため、大きさによらず分かる。
-pub fn changes_without_reading(
-    left_size: Option<u64>,
-    right_size: Option<u64>,
-    masked_sensitive: bool,
-) -> bool {
-    if masked_sensitive {
-        return left_size.is_some() || right_size.is_some();
-    }
+/// 大きさの同じファイルは読んで比べるまで分からない。
+pub fn changes_without_reading(left_size: Option<u64>, right_size: Option<u64>) -> bool {
     match (left_size, right_size) {
         (Some(size), None) | (None, Some(size)) => size > 0,
         (Some(left), Some(right)) => left > 0 && right > 0 && left != right,
@@ -127,7 +119,6 @@ mod tests {
             left: source.clone(),
             right: source,
             ref_: None,
-            sensitive: false,
             binary: false,
             symlink: false,
             link_targets: None,
@@ -236,23 +227,17 @@ mod tests {
 
     #[test]
     fn sizes_that_guarantee_a_change_are_known_without_reading() {
-        assert!(changes_without_reading(Some(3), None, false));
-        assert!(changes_without_reading(None, Some(3), false));
-        assert!(changes_without_reading(Some(3), Some(5), false));
+        assert!(changes_without_reading(Some(3), None));
+        assert!(changes_without_reading(None, Some(3)));
+        assert!(changes_without_reading(Some(3), Some(5)));
     }
 
     #[test]
     fn sizes_that_may_compare_equal_need_reading() {
-        assert!(!changes_without_reading(Some(0), None, false));
-        assert!(!changes_without_reading(None, Some(0), false));
-        assert!(!changes_without_reading(Some(4), Some(4), false));
-        assert!(!changes_without_reading(Some(0), Some(4), false));
-        assert!(!changes_without_reading(None, None, false));
-    }
-
-    #[test]
-    fn masked_sensitive_file_is_known_without_reading() {
-        assert!(changes_without_reading(Some(0), None, true));
-        assert!(changes_without_reading(Some(4), Some(4), true));
+        assert!(!changes_without_reading(Some(0), None));
+        assert!(!changes_without_reading(None, Some(0)));
+        assert!(!changes_without_reading(Some(4), Some(4)));
+        assert!(!changes_without_reading(Some(0), Some(4)));
+        assert!(!changes_without_reading(None, None));
     }
 }

@@ -129,7 +129,7 @@ enum Commands {
         /// Maximum number of files to process (0 for unlimited)
         #[arg(long, default_value = "100")]
         max_files: usize,
-        /// Override safety guards (show sensitive file contents)
+        /// No effect; accepted for compatibility with existing scripts
         #[arg(long)]
         force: bool,
         /// Allow diff to read symlink targets outside the configured root

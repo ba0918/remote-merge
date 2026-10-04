@@ -36,14 +36,13 @@ fn req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys(
         .collect();
     assert_eq!(
         keys,
-        BTreeSet::from(["path", "left", "right", "sensitive", "truncated", "hunks"]),
+        BTreeSet::from(["path", "left", "right", "truncated", "hunks"]),
         "{json}"
     );
     assert_eq!(file["left"]["label"], "local");
     assert!(file["left"]["root"].is_string(), "{json}");
     assert_eq!(file["right"]["label"], "develop");
     assert!(file["right"]["root"].is_string(), "{json}");
-    assert_eq!(file["sensitive"], false);
     assert_eq!(file["truncated"], false);
     for hunk in file["hunks"].as_array().unwrap() {
         assert!(hunk["index"].is_u64(), "{hunk}");
@@ -60,6 +59,41 @@ fn req_cli_053_json_has_files_and_summary_and_each_file_has_the_documented_keys(
             ("added".to_string(), "new".to_string())
         ]
     );
+}
+
+// @kotowari[REQ-cli-053]
+#[test]
+fn req_cli_053_dotenv_and_a_link_to_it_show_their_content_diff_with_or_without_force() {
+    let fixture = DiffFixture::new(&[(".env", b"KEY=left\n")], &[(".env", b"KEY=right\n")]);
+    for root in [fixture.left.path(), fixture.right.path()] {
+        std::os::unix::fs::symlink(".env", root.join("link.txt")).unwrap();
+    }
+
+    let (output, _) = fixture.diff(&[".env", "link.txt"]);
+    let json = json(&output);
+
+    let expected = vec![
+        ("removed".to_string(), "KEY=left".to_string()),
+        ("added".to_string(), "KEY=right".to_string()),
+    ];
+    assert_eq!(lines_of(entry(&json, ".env")), expected, "{json}");
+    assert_eq!(lines_of(entry(&json, "link.txt")), expected, "{json}");
+    let keys: BTreeSet<&str> = entry(&json, ".env")
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        BTreeSet::from(["path", "left", "right", "truncated", "hunks"]),
+        "{json}"
+    );
+
+    let mut forced = args(&[".env", "link.txt"]);
+    forced.force = true;
+    let (forced_output, _) = fixture.run(forced);
+    assert_eq!(super::diff_support::json(&forced_output), json);
 }
 
 // @kotowari[REQ-cli-053]

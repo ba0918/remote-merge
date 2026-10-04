@@ -202,11 +202,10 @@ fn req_cli_055_empty_file_on_one_side_is_not_counted_with_file_paths() {
     assert_eq!(output.changed_files_total, None);
 }
 
-// --force で中身を出す機密ファイルは隠さないため、左右で中身の同じ機密ファイルは変更のないものとし、
-// 数えも打ち切りもしない
+// 左右で中身の同じ ".env" は他のファイルと同じく変更のないものとし、数えも打ち切りもしない
 // @kotowari[REQ-cli-055]
 #[test]
-fn req_cli_055_forced_unchanged_sensitive_file_is_not_counted() {
+fn req_cli_055_unchanged_dotenv_file_is_not_counted() {
     let place = |root: &Path, content: &str| {
         fs::write(root.join("a.txt"), content).unwrap();
         fs::write(root.join(".env"), "KEY=same\n").unwrap();
@@ -223,7 +222,7 @@ fn req_cli_055_forced_unchanged_sensitive_file_is_not_counted() {
         format: "json".into(),
         max_lines: None,
         max_files: 1,
-        force: true,
+        force: false,
         follow_external_links: false,
         max_entries: None,
     };

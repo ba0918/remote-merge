@@ -282,28 +282,6 @@ fn req_cli_054_max_lines_truncates_the_content_diff_behind_a_symlink() {
     assert!(text.contains("... (output truncated)"), "{text}");
 }
 
-// @kotowari[EX-cli-050]
-#[test]
-fn force_explicitly_shows_sensitive_link_target_changes() {
-    let env = CliEnv::new(
-        &[(".env", "TEST_SECRET=left-example\n")],
-        &[(".env", "TEST_SECRET=right-example\n")],
-    );
-    place_symlink(&env.local_dir, "link.txt", ".env");
-    place_symlink(&env.remote_dir, "link.txt", ".env");
-    let output = env
-        .cmd_with("diff")
-        .args(["link.txt", "--force"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        body.contains("left-example") && body.contains("right-example"),
-        "{output:?}"
-    );
-}
-
 // @kotowari[EX-cli-053]
 #[test]
 fn matching_links_with_matching_contents_have_no_difference() {
@@ -1514,30 +1492,6 @@ fn text_total_counts_the_children_compared_under_a_directory_link() {
         .and_then(|number| number.parse().ok())
         .unwrap_or_else(|| panic!("no total in the last line: {body}"));
     assert!(total >= 2, "{body}");
-}
-
-/// 機密ファイルに --force を付けると内容が表示される
-// @kotowari[REQ-cli-005]
-#[test]
-fn test_diff_sensitive_file_force() {
-    let env = CliEnv::new(
-        &[(".env", "SECRET_KEY=abc123\n")],
-        &[(".env", "SECRET_KEY=xyz789\n")],
-    );
-
-    let output = env
-        .cmd_with("diff")
-        .args([".env", "--force"])
-        .output()
-        .expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // 実際の出力: "-SECRET_KEY=abc123" / "+SECRET_KEY=xyz789"
-    assert!(
-        stdout.contains("-SECRET_KEY=abc123") && stdout.contains("+SECRET_KEY=xyz789"),
-        "With --force, sensitive diff content should be shown, got: {}",
-        stdout
-    );
 }
 
 /// 末尾スラッシュの有無で同じ結果が得られる（パス正規化）

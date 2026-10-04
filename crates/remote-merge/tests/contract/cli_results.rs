@@ -666,56 +666,6 @@ fn selected_hunk_with_three_way_conflict_does_not_overwrite_the_target() {
     );
 }
 
-// @kotowari[EX-cli-009]
-#[test]
-fn sensitive_diff_hides_file_bytes_without_force() {
-    let mut fixture = sync_fixture();
-    fixture.config.filter.sensitive.push("*.key".into());
-    fs::write(
-        fixture.source.path().join("private.key"),
-        "left secret phrase\n",
-    )
-    .unwrap();
-    fs::write(
-        fixture.first.path().join("private.key"),
-        "right secret phrase\n",
-    )
-    .unwrap();
-    let mut args = diff_args();
-    args.paths = vec!["private.key".into()];
-    let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
-    assert_eq!(output.files.len(), 1);
-    assert!(output.files[0].sensitive);
-    let json = format_json(&output).unwrap();
-    assert!(!json.contains("left secret phrase"), "{json}");
-    assert!(!json.contains("right secret phrase"), "{json}");
-}
-
-// @kotowari[EX-cli-010]
-#[test]
-fn sensitive_diff_shows_file_bytes_when_force_is_explicit() {
-    let mut fixture = sync_fixture();
-    fixture.config.filter.sensitive.push("*.key".into());
-    fs::write(
-        fixture.source.path().join("private.key"),
-        "left secret phrase\n",
-    )
-    .unwrap();
-    fs::write(
-        fixture.first.path().join("private.key"),
-        "right secret phrase\n",
-    )
-    .unwrap();
-    let mut args = diff_args();
-    args.paths = vec!["private.key".into()];
-    args.force = true;
-    let (output, _) = execute_diff(args, fixture.config, fixture.targets).unwrap();
-    assert_eq!(output.files.len(), 1);
-    let json = format_json(&output).unwrap();
-    assert!(json.contains("left secret phrase"), "{json}");
-    assert!(json.contains("right secret phrase"), "{json}");
-}
-
 // @kotowari[EX-cli-036]
 #[test]
 fn json_diff_returns_a_parseable_error_when_configuration_is_invalid() {
