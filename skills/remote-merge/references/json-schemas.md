@@ -18,8 +18,8 @@ Exit code is `2` on error. Config-not-found errors display both searched paths (
   "right": { "label": "develop", "root": "dev:/var/www/app" },
   "ref":   { "label": "staging", "root": "stg:/var/www/app" },
   "files": [
-    { "path": "src/config.ts", "status": "modified", "sensitive": false },
-    { "path": ".env", "status": "modified", "sensitive": true, "ref_badge": "ref_differs" }
+    { "path": "src/config.ts", "status": "modified" },
+    { "path": ".env", "status": "modified", "ref_badge": "differs" }
   ],
   "summary": {
     "modified": 2,
@@ -56,7 +56,6 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
       "path": "src/config.ts",
       "left":  { "label": "local", "root": "/home/user/app" },
       "right": { "label": "develop", "root": "dev:/var/www/app" },
-      "sensitive": false,
       "truncated": false,
       "hunks": [
         {
@@ -88,24 +87,11 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `changed_files_total`: total number of changed files before truncation. Present only when `truncated` is true.
 - Line types within hunks: `context`, `added`, `removed`. Per-file `truncated` is true when `--max-lines` was hit.
 
-### Sensitive file (without --force)
-
-```json
-{
-  "path": ".env",
-  "sensitive": true,
-  "truncated": false,
-  "hunks": [],
-  "note": "Content hidden (sensitive file). Use --force to show."
-}
-```
-
 ### Binary file
 
 ```json
 {
   "path": "assets.bin",
-  "sensitive": false,
   "binary": true,
   "truncated": false,
   "hunks": [],
@@ -119,7 +105,6 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 ```json
 {
   "path": "readme_link",
-  "sensitive": false,
   "symlink": true,
   "truncated": false,
   "hunks": [],
@@ -141,7 +126,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
     { "path": "src/config.ts", "status": "ok", "backup": "20260311-140000/src/config.ts" }
   ],
   "skipped": [
-    { "path": ".env", "reason": "sensitive file" }
+    { "path": "current", "reason": "source and destination have different file types" }
   ],
   "deleted": [
     { "path": "old-file.ts", "status": "ok", "backup": "20260311-140000/old-file.ts" }
@@ -155,7 +140,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `merged[].backup`: backup reference in format `{session_id}/{relative_path}`. It does not expose the absolute path of the local backup store. Omitted when the destination file was newly created or backups are disabled.
 - `merged[].status`: `"ok"` on success, `"would merge"` in dry-run mode
 - `merged[].ref_badge`: optional reference badge (present only with `--ref`)
-- `skipped`: files skipped (sensitive files without `--force`, remote-to-remote without `--force`)
+- `skipped`: files skipped with the reason (for example, the source and destination have different file types)
 - `deleted`: files deleted by `--delete` flag. Always present (empty array `[]` when no files are deleted). Each entry has `path`, `status` (`"ok"` or `"failed"`), and optional `backup` path.
 - `failed`: files that failed to merge or delete with error details
 - `ref`: optional reference server info (present only with `--ref`)
@@ -172,7 +157,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
         { "path": "src/config.ts", "status": "ok", "backup": "20260311-140000/src/config.ts" }
       ],
       "skipped": [
-        { "path": ".env", "reason": "sensitive file (use --force to include)" }
+        { "path": "current", "reason": "destination is a symlink; deletion skipped" }
       ],
       "deleted": [
         { "path": "old-file.ts", "status": "ok", "backup": "20260311-140000/old-file.ts" }
@@ -247,7 +232,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
     { "path": "src/config.ts", "pre_rollback_backup": "20260311-150000" }
   ],
   "skipped": [
-    { "path": ".env", "reason": "sensitive file (use --force to override)" }
+    { "path": "current", "reason": "symlink restore not supported" }
   ],
   "failed": [
     { "path": "broken.ts", "error": "file not found in backup" }

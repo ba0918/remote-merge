@@ -108,7 +108,6 @@ root_dir = "/var/www/project"
 
 [filter]
 exclude = [".git", "node_modules", "vendor"]
-sensitive = [".env", "*.pem"]
 
 [ssh]
 timeout_sec = 300

@@ -80,8 +80,8 @@ remote-merge merge . --left local --right develop --delete --dry-run
 
 Options:
 - `--dry-run` — preview without writing
-- `--force` — skip safety confirmations (sensitive files, remote-to-remote)
-- `--delete` — delete files that exist only on the target side (RightOnly). Without this flag, RightOnly files are kept. Sensitive files require `--force` to delete.
+- `--force` — skip safety confirmations (remote-to-remote)
+- `--delete` — delete files that exist only on the target side (RightOnly). Without this flag, RightOnly files are kept.
 - `--with-permissions` — copy source file permissions to destination
 - `--format text|json` — output format (default: text)
 - `--ref <server>` — reference server for 3-way comparison
@@ -104,7 +104,7 @@ remote-merge merge src/foo.rs --left local --right develop --hunks 0,2,5
 
 JSON output includes `hunks_applied`, `hunks_total`, and `direction` fields when `--hunks` is used.
 
-With `--hunks`, a sensitive file (`.env`, `*.pem`) stops the merge with an error unless `--force` is given. Backups created automatically. Optimistic locking checks mtime before writing.
+Backups created automatically. Optimistic locking checks mtime before writing.
 
 ### 3.5. Sync (1:N multi-server synchronization)
 
@@ -131,7 +131,7 @@ Options:
 - `--left <side>` — source side (required, exactly one)
 - `--right <side>...` — target servers (required, one or more)
 - `--dry-run` — preview without writing
-- `--force` — skip safety confirmations (remote-to-remote, sensitive files)
+- `--force` — skip safety confirmations (remote-to-remote)
 - `--delete` — delete RightOnly files from targets (default: keep)
 - `--with-permissions` — copy source file permissions
 - `--format text|json` — output format (default: text)
@@ -169,7 +169,7 @@ Options:
 - `--list` — list backup sessions without restoring
 - `--session <id>` — specific session to restore (default: latest non-expired)
 - `--dry-run` — preview without executing
-- `--force` — skip confirmation, allow expired/sensitive files
+- `--force` — skip confirmation, allow restoring an expired session
 - `--format text|json` — output format (default: text)
 
 Exit codes: 0 = success, 2 = error (partial or total failure).
@@ -280,7 +280,6 @@ root_dir = "/var/www/app"
 [filter]
 exclude = ["node_modules", "*.log", "vendor/**"]
 include = ["src/", "config/"]           # Whitelist dirs (default: [] = scan all)
-sensitive = [".env", "*.pem", "*.key"]  # Warn before merge/diff (has defaults)
 
 # ── SSH ──
 [ssh]
@@ -308,7 +307,8 @@ timeout_secs = 30                       # Agent ping timeout (default: 30)
 
 - **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
 - **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
-- **sensitive**: Glob patterns for files requiring `--force` to merge/diff. Has sensible defaults (`.env`, `*.pem`, etc.).
+
+remote-merge does not protect confidential files. diff, status, merge, sync, rollback and the TUI handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`. A leftover `sensitive` key under `[filter]` is ignored with a warning.
 
 ## Global CLI Options
 
@@ -345,7 +345,6 @@ These environment variables are useful for non-interactive CI/CD pipelines and a
 ## Error Recovery
 
 - **SSH connection failed** -> check `.remote-merge.toml`
-- **Sensitive file skipped** -> add `--force`
 - **Optimistic lock failed** -> retry (file changed during merge)
 - **TUI unresponsive** -> check `state.json` for `is_connected`, inspect `debug.log`
 
