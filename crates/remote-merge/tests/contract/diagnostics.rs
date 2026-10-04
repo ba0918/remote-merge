@@ -26,28 +26,6 @@ fn logs_command_reads_a_saved_diagnostic_entry() {
     assert_eq!(first["level"], "ERROR");
 }
 
-// @kotowari[EX-cli-028]
-#[test]
-fn events_command_reads_a_saved_interactive_operation() {
-    let home = TempDir::new().unwrap();
-    let cache = home.path().join("cache");
-    let log_dir = cache.join("remote-merge");
-    fs::create_dir_all(&log_dir).unwrap();
-    fs::write(log_dir.join("events.jsonl"),
-        "{\"ts\":\"2026-01-01T00:00:00Z\",\"event\":\"key_press\",\"key\":\"j\",\"result\":\"cursor_moved\"}\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-        .env("HOME", home.path())
-        .env("XDG_CACHE_HOME", &cache)
-        .arg("events")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let lines = String::from_utf8(output.stdout).unwrap();
-    let first: serde_json::Value = serde_json::from_str(lines.lines().next().unwrap()).unwrap();
-    assert_eq!(first["event"], "key_press");
-    assert_eq!(first["result"], "cursor_moved");
-}
-
 /// SSH の試験サーバーに password 認証でつなぐ設定と、診断ログの置き場を一時ディレクトリへ向けた
 /// 実行ファイルの起動を用意する
 #[cfg(all(unix, feature = "test-utils"))]

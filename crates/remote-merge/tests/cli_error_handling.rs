@@ -187,15 +187,3 @@ fn test_logs_help_shows_options() {
     assert_exit_success(&output);
     assert_stdout_contains(&output, "--level");
 }
-
-/// events --help → exit=0, stdout に "--type"
-#[test]
-fn test_events_help_shows_options() {
-    let output = remote_merge_cmd()
-        .args(["events", "--help"])
-        .output()
-        .expect("failed to execute");
-
-    assert_exit_success(&output);
-    assert_stdout_contains(&output, "--event-type");
-}

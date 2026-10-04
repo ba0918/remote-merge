@@ -239,19 +239,6 @@ enum Commands {
         #[arg(long)]
         dir_permissions: Option<u32>,
     },
-
-    /// Show TUI events
-    Events {
-        /// Filter by event type (key_press, error, render_slow, ssh_exec, state_change, dialog)
-        #[arg(long, name = "type")]
-        event_type: Option<String>,
-        /// Show events since duration (e.g. 5m, 1h, 30s)
-        #[arg(long)]
-        since: Option<String>,
-        /// Show last N events
-        #[arg(long)]
-        tail: Option<usize>,
-    },
 }
 
 fn main() {
@@ -538,22 +525,6 @@ fn try_main() -> anyhow::Result<()> {
                 );
                 anyhow::bail!("The agent subcommand is only supported on Unix platforms");
             }
-        }
-        Commands::Events {
-            event_type,
-            since,
-            tail,
-        } => {
-            if cli.config.is_some() {
-                eprintln!("Warning: --config is ignored for the 'events' subcommand");
-            }
-            let code =
-                remote_merge::cli::events::run_events(remote_merge::cli::events::EventsArgs {
-                    event_type,
-                    since,
-                    tail,
-                })?;
-            std::process::exit(code);
         }
     }
 

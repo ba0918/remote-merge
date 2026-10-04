@@ -1,40 +1,9 @@
-//! ログ/イベントファイルのトランケーション。
+//! ログファイルのトランケーション。
 //!
-//! 起動時に呼び出して、古いログ/イベントを破棄する。
-//! - `debug.log`: 10MB 上限
-//! - `events.jsonl`: 10,000 行上限
+//! 実行の始めに呼び出して、上限を超えた古いログを破棄する。
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-
-/// ファイルの行数上限でトランケートする。
-///
-/// 上限を超えている場合、末尾 `max_lines` 行のみ残す。
-/// ファイルが存在しない場合は何もしない。
-pub fn truncate_file_lines(path: &Path, max_lines: usize) -> io::Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-
-    let content = std::fs::read_to_string(path)?;
-    let lines: Vec<&str> = content.lines().collect();
-
-    if lines.len() <= max_lines {
-        return Ok(());
-    }
-
-    // 末尾 max_lines 行だけ残す
-    let keep = &lines[lines.len() - max_lines..];
-    let truncated = keep.join("\n");
-
-    let mut file = std::fs::File::create(path)?;
-    file.write_all(truncated.as_bytes())?;
-    if !truncated.is_empty() {
-        file.write_all(b"\n")?;
-    }
-
-    Ok(())
-}
 
 /// ファイルのバイトサイズ上限でトランケートする。
 ///
@@ -84,57 +53,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_truncate_file_lines_under_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("small.log");
-        std::fs::write(&path, "line1\nline2\nline3\n").unwrap();
-
-        truncate_file_lines(&path, 10).unwrap();
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "line1\nline2\nline3\n");
-    }
-
-    #[test]
-    fn test_truncate_file_lines_over_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big.log");
-        let lines: Vec<String> = (0..100).map(|i| format!("line{}", i)).collect();
-        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
-
-        truncate_file_lines(&path, 10).unwrap();
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        let result_lines: Vec<&str> = content.trim().lines().collect();
-        assert_eq!(result_lines.len(), 10);
-        assert_eq!(result_lines[0], "line90");
-        assert_eq!(result_lines[9], "line99");
-    }
-
-    #[test]
-    fn test_truncate_file_lines_nonexistent() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nonexistent.log");
-
-        let result = truncate_file_lines(&path, 10);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_truncate_file_lines_exact_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("exact.log");
-        std::fs::write(&path, "a\nb\nc").unwrap();
-
-        truncate_file_lines(&path, 3).unwrap();
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("a"));
-        assert!(content.contains("b"));
-        assert!(content.contains("c"));
-    }
-
-    #[test]
     fn test_truncate_file_bytes_under_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("small.log");
@@ -174,17 +92,5 @@ mod tests {
 
         let result = truncate_file_bytes(&path, 1024);
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_truncate_file_lines_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("empty.log");
-        std::fs::write(&path, "").unwrap();
-
-        truncate_file_lines(&path, 10).unwrap();
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "");
     }
 }
