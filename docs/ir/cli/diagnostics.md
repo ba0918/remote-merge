@@ -20,11 +20,12 @@ CLI の logs で、保存された診断ログを閲覧できる。
 
 ### REQ-cli-075: CLI の実行も診断ログを残す
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-04-tui-disposition.md#A14, docs/decision/records/2026-10-04-tui-disposition.md#A16, docs/decision/records/2026-10-04-tui-disposition.md#A17
+- source: docs/decision/records/2026-10-04-tui-disposition.md#A14, docs/decision/records/2026-10-04-tui-disposition.md#A16, docs/decision/records/2026-10-04-tui-disposition.md#A17, docs/decision/records/2026-10-04-tui-disposition.md#A22, docs/decision/records/2026-10-04-tui-disposition.md#A23
 - verification: unit
 
 agent を除く CLI のサブコマンドの実行は、ログの細かさを指定しなくても情報レベル以上の診断ログを保存し、その記録は CLI の logs で閲覧できる。
-診断ログを保存できないときは、保存をあきらめてコマンドを続ける。
+診断ログには remote-merge 自身の記録だけを残し、外部の crate の記録は残さない。
+利用者のキャッシュの場所が決まらないときや診断ログを保存できないときは、保存をあきらめてコマンドを続ける。
 
 ## Examples
 

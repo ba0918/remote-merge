@@ -76,6 +76,19 @@ TUI は WebView 方式への移行を想定して凍結中だが、製品 crate 
   - why: A13 の「値を検査しない」を、型の違う値にも及ぼす。
   - decided_by: user (took the recommendation)
 
+- A22 診断ログのファイルには remote-merge 自身の記録だけを残し、SSH ライブラリなど外部の crate の記録は細かさの指定にかかわらず残さない。
+  - why: 最も細かい指定では外部の SSH ライブラリが暗号化前の送信データを記録し、ファイルの中身や認証情報がファイルに残る（レビューで再現）。A16 の -v や --debug でファイルを細かくする働きは自分の記録について保つ。
+  - decided_by: user (took the recommendation)
+- A23 診断ログの置き場（利用者のキャッシュの場所）が決まらないときは、共有の一時ディレクトリへ逃がさずに保存をあきらめる。
+  - why: 共有の場所に書くと、他の利用者が置いたリンクで書き込み先をすり替えられる。A17 の開けないときと同じ扱いにする。
+  - decided_by: user (took the recommendation)
+- A24 --help と --version は、サブコマンドなしの起動の扱い（A2・A19）から除き、使い方と版を標準出力に出して終了コード 0 で終わる。
+  - why: 一般的な CLI の作法であり、明示して求めた情報を出す操作は誤りではない。
+  - decided_by: user (took the recommendation)
+- A25 --log-level で細かさを指定したときは、粗い指定でも診断ログのファイルをその細かさにする。
+  - why: 粗くするのも利用者の選択であり、指定を黙って無視しない。手引きの説明はこれに合わせる。
+  - decided_by: user (took the recommendation)
+
 ## Undecided
 
 - U7 Web（WebView 方式）を作るか、何を作るか。

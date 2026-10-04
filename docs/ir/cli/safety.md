@@ -27,10 +27,11 @@ merge と sync の dry-run は変更予定を報告し、書き込み先を変�
 
 ### REQ-cli-076: サブコマンドなしの起動は使い方を示して止まる
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-tui-disposition.md#A2, docs/decision/records/2026-10-04-tui-disposition.md#A19
+- source: docs/decision/records/2026-10-04-tui-disposition.md#A2, docs/decision/records/2026-10-04-tui-disposition.md#A19, docs/decision/records/2026-10-04-tui-disposition.md#A24
 - verification: unit
 
 サブコマンドを指定せずに起動したときは、グローバルなフラグだけを付けた場合も含め、比較も診断ログを含む書き込みもせずに標準エラーへ使い方を出し、終了コード 2 で終わる。
+--help と --version はこの扱いから除き、使い方と版を標準出力に出して終了コード 0 で終わる。
 
 ## Examples
 
