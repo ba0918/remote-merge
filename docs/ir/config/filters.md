@@ -53,12 +53,12 @@ include の値は先頭の "./" を取り除いて使い、空の値を無視し
 
 include と exclude を併せて指定したとき、include の対象のうち exclude に当たらないパスだけを対象にする。
 
-### REQ-config-026: 既定の sensitive のパターン
-- kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A6
+### REQ-config-030: sensitive の指定は使わずに警告する
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A4, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A9
 - verification: unit
 
-".env"・".env.*"・"*.pem"・"*.key"・"credentials.*"・"*secret*" を常に sensitive のパターンとし、設定の sensitive に書いたパターンをそれに足す。
+`グローバル設定` か `プロジェクト設定` の [filter] に sensitive の指定があるときは、標準エラーに "Warning: [filter] sensitive is no longer used and is ignored" を一回の実行につき一度だけ出し、その指定を使わずに続ける。
 
 ## Examples
 

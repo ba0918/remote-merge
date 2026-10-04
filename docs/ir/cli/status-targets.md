@@ -22,13 +22,6 @@ status は TBL-cli-004 に従って左右を決め、左右が同じとき、設
 --ref を指定した status は、各ファイルに参照先との違いを TBL-cli-005 の印で示し、JSON では "ref" に参照先の "label" と "root"、"summary" に "ref_differs"・"ref_only"・"ref_missing" を出す。
 テキストでは見出しに "(ref: 参照先の名前)" を添え、集計の後に "Ref: N differs, N ref-only, N ref-missing" の行を出す。
 
-### REQ-cli-036: 機密ファイルは参照先と中身を比べない
-- kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-status.md#A10
-- verification: unit
-
---ref を指定した status は機密ファイルの中身を参照先と比べず、参照先にそのパスがないときだけ "missing_in_ref" を付け、あるときは印を付けない。
-
 ### REQ-cli-037: 左右と同じ参照先では三者比較をしない
 - kind: state_driven
 - source: docs/decision/records/2026-09-27-adopt-status.md#A11

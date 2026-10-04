@@ -66,7 +66,6 @@ hunk マージは衝突の有無と書き込みの確認を経ずに書き込み
 | 番号が hunk の数以上 | "Hunk index N is out of range (total hunks: M)" |
 | 読み込み元か書き込み先が symlink | "Hunk merge is not supported for symlink files: 'パス'" |
 | 読み込み元か書き込み先がバイナリ | "Hunk merge is not supported for binary files: 'パス'" |
-| 機密ファイルで --force がない | "Sensitive file 'パス' requires --force for hunk merge" |
 
 ## Examples
 

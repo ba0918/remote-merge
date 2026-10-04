@@ -13,10 +13,10 @@ diff はパスを指定しないときと、指定したパスに "."・"./"・�
 
 ### REQ-cli-053: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5
 - verification: unit
 
-diff の JSON は files と summary を持ち、--max-files で打ち切ったときだけ truncated と changed_files_total を、比べられなかったパスがあるときだけ path と reason を持つ errors を持つ。files の各項目は path、label と root を持つ left と right、sensitive、truncated、index・left_start・right_start と type が "context"・"added"・"removed" の lines と content を持つ hunks を持ち、binary・left_hash・right_hash・note は該当するときだけ持つ。
+diff の JSON は files と summary を持ち、--max-files で打ち切ったときだけ truncated と changed_files_total を、比べられなかったパスがあるときだけ path と reason を持つ errors を持つ。files の各項目は path、label と root を持つ left と right、truncated、index・left_start・right_start と type が "context"・"added"・"removed" の lines と content を持つ hunks を持ち、binary・left_hash・right_hash・note は該当するときだけ持つ。
 
 ### REQ-cli-054: 変更の行数で打ち切る
 - kind: state_driven
@@ -52,13 +52,6 @@ diff は指定したパスが左右のどちらにもないとき、パスごと
 - verification: unit
 
 diff のテキストは、ファイルごとに "--- a/パス (左のラベル)" と "+++ b/パス (右のラベル)" の見出し、"@@" の行、文脈・削除・追加の行を " "・"-"・"+" の接頭辞で出し、最後に "変更のあるファイルの数 file(s) with changes out of 走査したファイルの数 total" を出す。変更の行の前後に 3 行ずつ文脈の行を出し、文脈の範囲が重なるか接する変更は一つの "@@" の塊にまとめ、最初のファイルの見出しから書き始める。
-
-### REQ-cli-059: 機密ファイルの差分の隠し方
-- kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A8
-- verification: unit
-
---force のない機密ファイルの diff は中身もハッシュも出さず、sensitive を true、hunks を空にして、note "Content hidden (sensitive file). Use --force to show." を出す。
 
 ### REQ-cli-060: 片側にだけあるファイル
 - kind: state_driven

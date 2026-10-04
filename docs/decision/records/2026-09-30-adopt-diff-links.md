@@ -22,6 +22,7 @@ CLI の FLAGS.md は limits.lines の 200 行を超えたままになるが、[�
 - A4 未決の FLAG として残す。[REQ-cli-020](../../ir/cli/symlink-diff.md#REQ-cli-020) はリンク文字列・種類・内容が全て同じなら差分なしとするが、機密ファイルを指す symlink は、--force なしで内容を隠すとき、左右のリンク文字列も参照先の内容も同じでも差分ありと数え、終了コード 1 を返す（diff の実行で確かめた）。
   - why: 既存要件と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A5 未決の FLAG として残す。[REQ-cli-020](../../ir/cli/symlink-diff.md#REQ-cli-020) と [REQ-cli-021](../../ir/cli/symlink-diff.md#REQ-cli-021) の文は経路を限らないが、その文書の導入は symlink を明示指定したときとし、パスを指定しない diff（root_dir 全体の走査）では、リンク文字列が同じ symlink を一覧に出さず参照先の内容も比べない（diff の実行で確かめた）。要件がパスを指定しない diff にも当たるかが読み分けられない。
   - why: 要件の読みが割れ、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）

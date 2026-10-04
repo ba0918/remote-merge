@@ -19,6 +19,7 @@
 - A3 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は rollback が機密ファイルを `--force` なしではスキップするとし、実装は機密パターンに一致するファイルを `--force` なしでは理由 "sensitive" でスキップし、`--force` 指定時は書き戻す。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A4 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は復元結果をテキストでは戻したファイル・スキップ・集計行で、JSON では target・session_id・restored・skipped・failed で示すとし、実装はテキストで戻したファイルを "✓"、スキップを "-" と理由、失敗を "✗" と理由で示し "Restored N file(s)" に続けてスキップ数・失敗数がある場合だけそれを並べた集計行を出し、JSON では target・session_id・restored（path と pre_rollback_backup）・skipped（path と reason）・failed（path と error）を出す。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）

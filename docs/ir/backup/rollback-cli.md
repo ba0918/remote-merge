@@ -18,13 +18,6 @@ rollback を実行すると、書き込み先の選んだセッションの各�
 
 --force と --dry-run のどちらもないとき、rollback は "Restore N file(s) from session S to T? [y/N]" と尋ね、"y" または "yes" と答えたときだけ書き戻す。それ以外の答えでは標準エラーに "Aborted." を出し、何も書き戻さずに終了コード 0 で終わる。
 
-### REQ-backup-036: 機密ファイルは強制指定なしでは戻さない
-- kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A3
-- verification: unit
-
---force がないとき、rollback は機密パターンに一致するファイルを書き戻さずスキップ理由 "sensitive" を報告し、--force があれば書き戻す。
-
 ### REQ-backup-037: 復元結果の出力形式
 - kind: ubiquitous
 - source: docs/decision/records/2026-09-27-adopt-backup.md#A4

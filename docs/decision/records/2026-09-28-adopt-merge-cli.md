@@ -51,6 +51,7 @@ merge は大きいため、指定・確認・出力（この記録）、書き�
 - A13 未決の FLAG として残す。[旧総合仕様のセンシティブファイル警告の節](../../archive/spec.md) は機密ファイルを検知したらマージの前に警告して続行するかを尋ねるとするが、CLI の merge は尋ねずに --force のない機密ファイルをスキップし、テキスト形式のときだけ（--dry-run でも）標準エラーに "N sensitive file(s) will be skipped. Use --force to include them." を出す。この N には書き込み先にだけあるファイルなど機密ファイル以外のスキップも数えるため、機密ファイルがなくても件数が出ることがある。
   - why: 旧資料と実装が食い違い、どちらに合わせるかは次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A14 未決の FLAG として残す。--ref があり --force も --dry-run もない merge で、実装は左・右・参照先のどれかで中身がそろわないファイルを書き込まずに failed に error "three-way comparison incomplete" で出すため、左にだけある新しいファイルは --ref 付きでは --force なしに書き込めない。旧資料に記述がなくテストもない。
   - why: 利用者に見える挙動に仕様とテストが欠けており、次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）

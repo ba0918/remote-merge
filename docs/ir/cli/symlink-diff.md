@@ -25,13 +25,6 @@ CLI diff はファイル・ディレクトリ、左右の種類や存在の組�
 
 symlink の参照先がないか読めないとき、片側の項目自体がない場合と区別し、リンク文字列と取得できた子の差分を表示する。範囲外の追跡が無効、循環・件数超過・読取失敗で比較できなかった入口側のパスと理由を示してエラー終了（終了コード2）にする。JSON では読めた差分を files に残し、失敗をトップレベルの errors の path と reason で示す。読めない参照先を空ファイルと同一扱いしない。
 
-### REQ-cli-023: symlink 経由の機密内容を隠す
-- kind: prohibition
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A5, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A10, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A22, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A6, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A9, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A10, docs/decision/records/2026-09-30-diff-sensitive-chain.md#A11
-- verification: unit
-
-入口名、入れ子になった各段階のリンク文字列、または最終参照先のパスが機密パターンに該当するファイルは、通常の CLI diff で内容をテキスト・JSON・バイナリハッシュに表示しない。入口名と最終参照先のパスは root_dir 内外を問わず見る。入れ子の段は、入口から先のリンク文字列を字面で結んで root_dir の中に辿れる範囲で見て、字面で辿れない段と読めない段は機密でないとみなす。入口のパスの途中の要素にあるディレクトリ symlink は段に含めない。明示的に --force を指定したときだけ内容差を表示する。
-
 ### REQ-cli-024: リンクの差を JSON とテキストに分けて示す
 - kind: state_driven
 - source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A9, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A15, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A27
@@ -41,10 +34,10 @@ CLI diff のテキストはリンク文字列と参照先の種類・内容差�
 
 ### REQ-cli-026: 範囲外の symlink 追跡を利用者が選ぶ
 - kind: state_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A32, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A33, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A34
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A32, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A33, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A34, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
 - verification: unit
 
-CLI diff は root_dir 内の symlink を通常どおり辿り、root_dir の外へ出る参照先と入れ子リンクは --follow-external-links の指定時だけ辿る。指定がない場合はリンク文字列と内容未検証の理由を示してエラー終了する。利用者が指定した入力パスの親ディレクトリへの遡りは禁止したまま、リンクの解決による移動だけを許す。--follow-external-links は status・merge・sync には適用せず、機密内容を表示する --force と独立させる。
+CLI diff は root_dir 内の symlink を通常どおり辿り、root_dir の外へ出る参照先と入れ子リンクは --follow-external-links の指定時だけ辿る。指定がない場合はリンク文字列と内容未検証の理由を示してエラー終了する。利用者が指定した入力パスの親ディレクトリへの遡りは禁止したまま、リンクの解決による移動だけを許す。--follow-external-links は status・merge・sync には適用しない。
 
 ## Examples
 
@@ -61,19 +54,19 @@ Given 左右の symlink は同じリンク文字列を持ち参照先の内容�
 When CLI diff でそのリンクを指定する
 Then 内容差が表示され差分ありと報告される
 
-@id=EX-cli-067 @about=REQ-cli-020,REQ-cli-023 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12
+@id=EX-cli-067 @about=REQ-cli-020 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12,docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
 Scenario: root_dir の実ディレクトリ名を通る相対のリンク
-Given 左右の symlink は "../<root_dir の実ディレクトリ名>/target.txt" の形のリンク文字列を持ち機密パターンに当たる名前を含まない
+Given 左右の symlink は "../<root_dir の実ディレクトリ名>/target.txt" の形のリンク文字列を持つ
 And 参照先は root_dir の中にあり内容が異なる
-When --force を指定せず CLI diff でそのリンクを指定する
-Then 参照先の内容差が表示され差分ありと報告される
+When CLI diff でそのリンクを指定する
+Then 参照先の内容差が表示される
 
-@id=EX-cli-068 @about=REQ-cli-020,REQ-cli-023 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12
+@id=EX-cli-068 @about=REQ-cli-020 @source=docs/decision/records/2026-09-30-diff-sensitive-chain.md#A7,docs/decision/records/2026-09-30-diff-sensitive-chain.md#A12,docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
 Scenario: root_dir の別名を通る絶対パスのリンク
-Given 左右の symlink は root_dir を指す別名の symlink を通る絶対パスのリンク文字列を持ち機密パターンに当たる名前を含まない
+Given 左右の symlink は root_dir を指す別名の symlink を通る絶対パスのリンク文字列を持つ
 And 参照先は root_dir の中にあり内容が異なる
-When --force を指定せず CLI diff でそのリンクを指定する
-Then 参照先の内容差が表示され差分ありと報告される
+When CLI diff でそのリンクを指定する
+Then 参照先の内容差が表示される
 
 @id=EX-cli-053 @about=REQ-cli-020 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29
 Scenario: リンク文字列も参照先内容も同じ
@@ -111,17 +104,17 @@ Given 配下の symlink が既に辿った祖先を指す
 When CLI diff でディレクトリリンクを指定する
 Then 読めた範囲の差分と循環の理由が報告され不完全な比較は成功にならない
 
-@id=EX-cli-045 @about=REQ-cli-021 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18
+@id=EX-cli-045 @about=REQ-cli-021 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18
 Scenario: 入れ子のリンクを合わせると件数上限を超える
 Given 各リンクの配下は上限内だが指定した比較全体の件数は上限を超える
 When CLI diff でディレクトリリンクを指定する
 Then 読めた範囲の差分と件数超過が報告され不完全な比較は成功にならない
 
-@id=EX-cli-055 @about=REQ-cli-021,REQ-cli-023,REQ-cli-026 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A22,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A32
-Scenario: 外部ディレクトリの中からさらに外部の機密ファイルを指す
-Given 普通のディレクトリリンクの先に別のリンクがあり最終参照先が機密ファイルである
-When --follow-external-links を付けて --force なしで CLI diff を実行する
-Then 入れ子のリンクも解決され最終参照先の内容とハッシュは表示されない
+@id=EX-cli-055 @about=REQ-cli-021,REQ-cli-026 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A22,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A32,docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
+Scenario: 外部ディレクトリの中からさらに外部のファイルを指す
+Given 普通のディレクトリリンクの先に別のリンクがあり最終参照先は root_dir の外のファイルである
+When --follow-external-links を付けて CLI diff を実行する
+Then 入れ子のリンクも解決され最終参照先の内容差が表示される
 
 @id=EX-cli-046 @about=REQ-cli-020,REQ-cli-021 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31
 Scenario: ディレクトリ symlink と通常ディレクトリが異なる
@@ -158,18 +151,6 @@ Scenario: ファイルリンクの参照先が存在しない
 Given symlink の参照先が存在しない
 When CLI diff でそのリンクを指定する
 Then リンク文字列と内容取得失敗が報告され空ファイルとみなされずエラー終了する
-
-@id=EX-cli-049 @about=REQ-cli-023 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A10
-Scenario: 入口は普通の名前でも参照先が機密ファイルである
-Given 通常名の symlink が機密パターンに一致する参照先を指す
-When --force を指定せず CLI diff でそのリンクを指定する
-Then 参照先の内容はテキストにも JSON にも含まれない
-
-@id=EX-cli-050 @about=REQ-cli-023 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A5
-Scenario: 機密参照先への表示を明示する
-Given symlink の参照先が機密パターンに一致する
-When --force を指定して CLI diff でそのリンクを指定する
-Then 参照先の内容差が表示される
 
 @id=EX-cli-058 @about=REQ-cli-022,REQ-cli-026 @source=docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A32,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A33
 Scenario: 外部リンクの追跡を指定しない

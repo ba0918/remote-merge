@@ -1,6 +1,6 @@
 # 診断ログとイベントの閲覧
 
-障害調査のために記録を取得し、機密内容が記録に混入しないようにする規則。
+障害調査のために記録を取得し、ファイルの中身が記録に混入しないようにする規則。
 
 ## Requirements
 
@@ -33,9 +33,9 @@ Given TUI 操作によってイベントが記録されている
 When CLI events を実行する
 Then 記録された操作イベントを閲覧できる
 
-@id=EX-cli-029 @about=REQ-cli-015 @source=docs/decision/records/2026-09-25-spec-migration.md#A34
+@id=EX-cli-029 @about=REQ-cli-015 @source=docs/decision/records/2026-09-25-spec-migration.md#A34,docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A13
 Scenario: ファイルの内容を扱う操作を記録する
-Given マージ対象のファイルに機密の内容がある
+Given マージ対象のファイルに中身がある
 When 操作の診断ログを確認する
 Then 診断ログにそのファイルの内容は含まれない
 

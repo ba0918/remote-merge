@@ -1,6 +1,6 @@
 # 差分のコピーとレポート出力
 
-対話画面で差分を外へ持ち出す操作と、機密ファイルの内容を含める際の確認。
+対話画面で差分を外へ持ち出す操作。
 
 ## Requirements
 
@@ -17,13 +17,6 @@ TUI で選択中のファイルの差分をクリップボードへコピーで�
 - verification: unit
 
 TUI の差分と集計をレポートとして出力できる。
-
-### REQ-tui-009: 機密の持ち出しを事前に確認する
-- kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A50, docs/decision/records/2026-09-25-spec-migration.md#A52
-- verification: unit
-
-機密ファイルの本文をコピーまたはレポート出力する前に対象と出力先を利用者に示して確認し、確認されなければ本文を出力しない。
 
 ## Examples
 
@@ -45,16 +38,4 @@ Scenario: 差分がない
 Given 出力対象の差分がない
 When TUI からレポートを出力する
 Then 差分を含むレポートは作られない
-
-@id=EX-tui-017 @about=REQ-tui-009 @source=docs/decision/records/2026-09-25-spec-migration.md#A52
-Scenario: 機密ファイルのコピーを拒否する
-Given 選択した差分に機密ファイルの内容がある
-When コピー先を示す確認を拒否する
-Then 機密ファイルの本文はクリップボードにコピーされない
-
-@id=EX-tui-018 @about=REQ-tui-009 @source=docs/decision/records/2026-09-25-spec-migration.md#A52
-Scenario: 機密を含むレポートを承認する
-Given レポートの対象に機密ファイルの差分がある
-When 対象と出力先を確認して本文の出力を承認する
-Then 承認した機密ファイルの本文がレポートに含まれる
 ```

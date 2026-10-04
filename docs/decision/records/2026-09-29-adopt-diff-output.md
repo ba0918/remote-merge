@@ -35,6 +35,7 @@ CLI の FLAGS.md はこの回の FLAG で limits.lines の 200 行を超える�
 - A8 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧総合仕様と手引きは --force のない機密ファイルの diff で hunks を空にし note "Content hidden (sensitive file). Use --force to show." を出すとし、旧総合仕様はバイナリの機密ファイルのハッシュも隠すとする。実装は --force のない機密ファイルの中身もハッシュも出さず、sensitive を true、hunks を空にして同じ note を出す。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A9 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧総合仕様と手引きはバイナリを SHA-256 のハッシュで比べ、JSON に binary と left_hash・right_hash を出すとする。実装は先頭 8,192 バイトに NUL か不正な UTF-8 を含むファイルをバイナリとし、テキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出し、ない側や読めない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。バイナリの判定の条件と "missing" は旧資料に記述がなく、実装とテストから追認する。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
@@ -71,6 +72,7 @@ CLI の FLAGS.md はこの回の FLAG で limits.lines の 200 行を超える�
 - A20 未決の FLAG として残す。ディレクトリのパスを指定した diff は、配下の変更のない機密ファイルも中身を隠した形で出し、変更のあるファイルに数えて終了コード 1 を返す。これは実装を読んで分かったことで未実行。
   - why: 利用者に見える挙動に仕様とテストが欠けており、次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A21 未決の FLAG として残す。片側にだけある中身のない（0 バイトの）ファイルの diff は、両側を空として差分なしと扱い、見出しだけを出して終了コード 0 を返す（実行で確かめた）。ディレクトリを展開したときは項目を出さず、ない側について標準エラーに "treating as empty" の警告を出すと実装からは読める。旧資料に記述がない。
   - why: 利用者に見える挙動に仕様とテストが欠けており、次にこの機能を扱うときに決める。
   - decided_by: 利用者（現状追認の一覧を承認）

@@ -13,10 +13,10 @@
 
 ### REQ-config-002: 両階層のフィルターを適用する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A14
+- source: docs/decision/records/2026-09-25-spec-migration.md#A14, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
 - verification: unit
 
-除外・機密・対象フィルターをグローバル設定とプロジェクト設定の両方に指定したとき、両方の指定を結合して適用する。
+除外と対象のフィルターをグローバル設定とプロジェクト設定の両方に指定したとき、両方の指定を結合して適用する。
 
 ### REQ-config-011: ssh・backup・agent はセクションごと置き換える
 - kind: state_driven
@@ -59,10 +59,4 @@ Scenario: 異なる除外パターンがある
 Given 両方の設定に異なる除外パターンがある
 When ファイル一覧を取得する
 Then どちらのパターンに一致するファイルも除外される
-
-@id=EX-config-004 @about=REQ-config-002 @source=docs/decision/records/2026-09-25-spec-migration.md#A14,docs/decision/records/2026-09-25-spec-migration.md#A19
-Scenario: グローバルだけに機密パターンがある
-Given グローバルにだけ機密パターンがある
-When プロジェクト設定と組み合わせて差分を表示する
-Then グローバルで指定された機密パターンが適用される
 ```

@@ -40,12 +40,14 @@ status の IR は旧仕様の移行時に 3 要件（[REQ-cli-006](../../ir/cli/
 - A10 現行実装をレビューなしで仕様とする。実装は --ref を指定した status で機密ファイルの中身を参照先と比べず、参照先にそのパスがないときだけ "missing_in_ref" を付け、あるときは印を付けない。
   - why: 旧資料に記述はないが利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A11 現行実装をレビューなしで仕様とする。実装は --ref の参照先が左と同じとき "Warning: --ref server is the same as left side; ref comparison skipped."、右と同じとき "Warning: --ref server is the same as right side; ref comparison skipped." を標準エラーに出し、三者比較をせずに比較を続ける。
   - why: 旧資料に記述はないが利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
 - A12 旧資料と現行実装が一致するため、レビューなしで用語とする。機密ファイル: 設定の sensitive パターン（グローバル設定とプロジェクト設定の和）にファイル名かパスが一致するファイル。
   - why: 旧資料の設定例と説明が実装の判定と一致することを確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A13 現行実装をレビューなしで用語とする。参照先: --ref で指定し、左右との比較にだけ使うサーバまたは local。
   - why: 旧資料に定義はないが要件の文で使い、実装の使い方から定義した。利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）

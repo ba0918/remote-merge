@@ -21,11 +21,10 @@ merge は failed が空なら終了コード 0、failed が一件でもあれば
 
 ### REQ-cli-048: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A6
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
 - verification: unit
 
 --format json の merge は merged（path・status・backup・ref_badge）、skipped（path・reason）、deleted、failed（path・error）を出し、deleted は空でも出し、ref（label と root）は参照先を使うときだけ出す。merged の status はファイル全体を書き込んだとき "ok"、--dry-run では "would merge" とする。
---force のない merge が書き込みの対象から外した機密ファイルの skipped の reason は "sensitive file" とする。
 
 ### REQ-cli-049: テキスト出力の行
 - kind: ubiquitous
@@ -58,11 +57,11 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 ### REQ-cli-074: 確認のプロンプトを出さず --force で対象と確認を変える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A6
 - verification: unit
 
 CLI の merge は書き込む前に確認のプロンプトを出さない。
---force を指定した merge は、機密ファイルを書き込みと削除の対象に含め、リモート間の merge を止めず、REQ-cli-051 の参照先に対する確認をしない。
+--force を指定した merge は、リモート間の merge を止めず、REQ-cli-051 の参照先に対する確認をしない。
 
 ## Decision tables
 

@@ -20,6 +20,7 @@ merge を 4 回に分けて取り込むうちの 3 回目で、書き込み先�
 - A3 現行実装をレビューなしで仕様とする。実装は --delete の merge と sync で、書き込み先にだけある機密ファイルを --force がなければ削除せず、skipped に reason "sensitive file (use --force to include)" で出す。
   - why: 旧資料に記述はないが利用者に見える挙動をテストが確かめており、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A4 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は merge の JSON の deleted に path・status・backup を出し status を "ok" とするとし、実装は削除したファイルを deleted に path、status "ok"、バックアップが有効なときだけ backup（"セッションID/パス"）で出す。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）

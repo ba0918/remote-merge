@@ -25,13 +25,6 @@ merge と sync は書き込み先だけにある通常ファイルを既定で�
 
 --delete のない merge と sync は、書き込み先にだけあるファイルを変更せず、skipped に reason "right-only file (use --delete to remove)" で出す。
 
-### REQ-merge-025: 機密ファイルは強制指定なしに削除しない
-- kind: prohibition
-- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A3
-- verification: unit
-
---delete の merge と sync は、書き込み先にだけある機密ファイルを --force がなければ削除せず、skipped に reason "sensitive file (use --force to include)" で出す。
-
 ### REQ-merge-026: 削除の結果を JSON に出す
 - kind: ubiquitous
 - source: docs/decision/records/2026-09-28-adopt-merge-links.md#A4

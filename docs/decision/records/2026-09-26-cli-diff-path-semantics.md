@@ -29,6 +29,7 @@ CLI diff はリンク文字列と、リンクを辿って得られる種類・�
 - A5 symlink の参照先が機密ファイルに当たる場合、通常の diff は参照先内容を隠し、明示的な --force のときだけ表示する。
   - why: symlink 経由で通常の機密ファイルの表示制限を回避させないため。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A6 通常の cargo test --all-features で並列実行時にだけ診断ログが捕捉されない問題は、原因を切り分けて検知力を維持した最小修正を同じブランチで行う。
   - why: 通常テストの成功が実行順に依存する状態を残さないため。
   - decided_by: user (took the recommendation)
@@ -45,6 +46,7 @@ CLI diff はリンク文字列と、リンクを辿って得られる種類・�
 - A10 symlink の入口名か参照先パスのどちらかが機密パターンに該当する場合、root_dir 内外を問わず通常の diff では参照先内容を隠し、明示的な --force のときだけ表示する。
   - why: symlink を経由して機密ファイルの内容が表示される抜け道を作らないため。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A11 ディレクトリ symlink の再帰走査で循環や既存の最大件数の上限に達した場合は、不完全な差分を成功扱いにせず理由を示してエラー終了にする。root_dir 外でも同じ上限を適用する。
   - why: 一部しか走査していない結果を完全な比較として誤解させないため。
   - decided_by: user (took the recommendation)
@@ -83,6 +85,7 @@ CLI diff はリンク文字列と、リンクを辿って得られる種類・�
 - A22 ディレクトリ symlink 配下の入れ子リンクを含め、入口・各段階のリンク文字列・最終参照先のいずれかが機密パターンに該当したら、--force なしでは内容をテキスト・JSON・バイナリハッシュに表示しない。
   - why: 途中の通常名のリンクを経由して機密ファイルの内容が漏れるのを防ぐため。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A23 利用者が CLI に指定した入力パスの親ディレクトリへの遡りは従来どおり拒否するが、明示指定された symlink の解決で生じる root_dir 外への移動とその先の入れ子リンクは、循環・走査件数上限・各段階の機密判定を適用して追跡する。
   - why: 不正な入力パスを許すことなく、利用者が比較に指定したリンクの参照先を一貫して辿るため。
   - decided_by: user (took the recommendation)

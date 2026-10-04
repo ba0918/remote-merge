@@ -86,13 +86,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
 
-### FLAG-cli-022: 機密ファイルの警告と件数
-- kind: contradiction
-- related: REQ-cli-003
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A13
-
-旧総合仕様のセンシティブファイル警告の節は機密ファイルを検知したらマージの前に警告して続行するかを尋ねるとするが、CLI の merge は尋ねずに --force のない機密ファイルをスキップし、テキスト形式のときだけ（--dry-run でも）標準エラーに "N sensitive file(s) will be skipped. Use --force to include them." を出す。この N には書き込み先にだけあるファイルなど機密ファイル以外のスキップも数えるため、機密ファイルがなくても件数が出ることがある。
-
 ### FLAG-cli-023: 三者の中身がそろわないファイル
 - kind: gap
 - related: REQ-cli-017, REQ-cli-051
@@ -112,7 +105,7 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - related: REQ-backup-018, REQ-cli-051
 - source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
-バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed にその確認の error（"three-way conflict" か "destination changed since reference"）を出し、全てのファイルが機密ファイルなどのスキップで外れ REQ-cli-051 の確認で外れたファイルもない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
+バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed にその確認の error（"three-way conflict" か "destination changed since reference"）を出し、全てのファイルがスキップで外れ REQ-cli-051 の確認で外れたファイルもない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
 
 ### FLAG-cli-027: 参照先を使う merge での symlink
 - kind: ambiguity
@@ -154,7 +147,7 @@ include の外のディレクトリを指定した diff は、ローカルと SS
 - related: REQ-cli-053
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A17
 
-利用者向けの手引きは summary の files_with_changes を hunk を一つ以上持つファイルの数とするが、実装はハッシュの違うバイナリ、リンク先の違う symlink、中身を隠した機密ファイルも数える。
+利用者向けの手引きは summary の files_with_changes を hunk を一つ以上持つファイルの数とするが、実装はハッシュの違うバイナリとリンク先の違う symlink も数える。
 
 ### FLAG-cli-035: 中身の同じバイナリの diff
 - kind: contradiction
@@ -162,13 +155,6 @@ include の外のディレクトリを指定した diff は、ローカルと SS
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A18
 
 REQ-cli-009 はバイナリの一致または不一致を示すとするが、中身の同じバイナリのパスを指定した diff は同じハッシュのまま "Binary files differ" と出し、終了コード 0 を返す。
-
-### FLAG-cli-037: ディレクトリの配下の変更のない機密ファイル
-- kind: gap
-- related: REQ-cli-059, REQ-cli-056
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A20
-
-ディレクトリのパスを指定した diff は、配下の変更のない機密ファイルも中身を隠した形で出し、変更のあるファイルに数えて終了コード 1 を返す（実装を読んで分かったことで未実行）。
 
 ### FLAG-cli-038: 片側にだけある中身のないファイル
 - kind: gap
@@ -211,13 +197,6 @@ REQ-cli-022 は symlink の参照先がないか読めないとき空ファイ�
 - source: docs/decision/records/2026-09-30-adopt-diff-links.md#A3
 
 REQ-cli-021 と EX-cli-061 はディレクトリ symlink と通常ファイルの組でも配下を入口からの子パスで示すとするが、ローカルの側が通常ファイルで SSH の側がディレクトリ symlink のとき、diff はリンクの配下の子ファイルを出さない（逆の向きは出す）。
-
-### FLAG-cli-046: 機密ファイルを指す同じ symlink
-- kind: contradiction
-- related: REQ-cli-020
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A4
-
-REQ-cli-020 はリンク文字列・種類・内容が全て同じなら差分なしとするが、機密ファイルを指す symlink は、--force なしで内容を隠すとき、左右のリンク文字列も参照先の内容も同じでも差分ありと数え、終了コード 1 を返す。
 
 ### FLAG-cli-047: パスを指定しない diff の symlink
 - kind: ambiguity
@@ -294,7 +273,7 @@ diff は参照先のファイルを読むのに失敗したとき、ないとき
 - related: REQ-cli-063
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A11
 
-diff は symlink の項目、--force なしで内容を隠す機密ファイルの項目、root_dir の外に解決される項目、--max-files の枠を超えて読まないファイルには、--ref があっても "ref" を付けず参照先と比べない。旧資料に記述がなくテストもない。
+diff は symlink の項目、root_dir の外に解決される項目、--max-files の枠を超えて読まないファイルには、--ref があっても "ref" を付けず参照先と比べない。旧資料に記述がなくテストもない。
 
 ### FLAG-cli-064: バイナリのファイルの参照先との差
 - kind: gap
@@ -310,12 +289,12 @@ diff は左右がバイナリのファイルに "ref_hunks" を出さず、参�
 
 diff は片側にないファイルを、ない側を空の内容として参照先と比べて競合を調べるため、片側にないことが参照先からの全行の削除として扱われ競合が示されうる。これが REQ-cli-016 の競合に当たるかが決まらない（実装を読んで分かったことで未実行）。
 
-### FLAG-cli-070: 参照先の機密と root_dir の外の判定
+### FLAG-cli-070: 参照先の root_dir の外の判定
 - kind: gap
-- related: REQ-cli-023, REQ-cli-026, REQ-cli-063
+- related: REQ-cli-026, REQ-cli-063
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18
 
-diff の機密ファイルの判定と root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの項目が機密ファイルや root_dir の外を指す symlink のとき、--force や --follow-external-links なしでもその内容が "ref_hunks" に出うる（実装を読んで分かったことで未実行）。
+diff の root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの項目が root_dir の外を指す symlink のとき、--follow-external-links なしでもその内容が "ref_hunks" に出うる（実装を読んで分かったことで未実行）。
 
 ### FLAG-cli-071: 行を足すだけの変更の競合
 - kind: ambiguity

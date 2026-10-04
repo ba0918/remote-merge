@@ -64,12 +64,14 @@
 - A17 書き込み CLI の merge・sync は書き込み元と先を明示させ、リモート間または機密ファイルの書き込みには追加確認または明示的な強制指定を求める。dry-run は変更予定を報告し書き込まない。
   - why: 書き込み先の取り違えと意図しない更新を防ぐ。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A18 merge・sync で書き込み先にだけある通常ファイルは既定では残し、--delete を明示した時だけ削除する。末尾の symlink は [A3（種類違いの保護）](./2026-09-25-spec-migration.md#A3) に従って残す。
   - why: 既定の操作で書き込み先固有のファイルを失わないため。
   - decided_by: user (took the recommendation)
 - A19 diff で機密ファイルの中身を既定で隠し、利用者が --force を指定した場合だけ内容を表示する。
   - why: 差分出力やエージェント連携への機密内容の意図しない露出を防ぐ。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A20 未知の SSH ホスト鍵は利用者に確認できない実行で無言のまま信頼せず、接続を止める。確認可能な場合でも利用者が拒否したら接続を止める。
   - why: 知らない接続先を黙って信頼してファイルを読み書きしない。
   - decided_by: user (took the recommendation)
@@ -163,12 +165,14 @@
 - A50 TUI で選択中の差分をクリップボードへコピーし、確認した差分と集計をレポートへ出力できるようにする。機密ファイルの内容は既定で含めず、利用者が明示したときだけ含める。
   - why: 外部へ差分を持ち出す際にも機密ファイルの表示方針を維持する。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A51 merge・sync の内容比較で片側の読み取りが失敗したファイルは、同一や空の内容と扱わず、そのファイルの失敗として報告し、書き込みをしない。他のファイルは処理を続ける。
   - why: 読み取り不能を誤判定してデータを消さず、他のファイルの処理は続けられるようにする。
   - decided_by: user (took the recommendation)
 - A52 機密ファイルを TUI のクリップボードまたはレポートへ含める場合は出力直前に対象と出力先を示して確認し、拒否されたら本文を出力しない。TUI の凍結にはこの確認操作の例外を設ける。
   - why: 持ち出し先を見せた上で利用者が内容の出力を選べるようにする。
   - decided_by: user (took the recommendation)
+  - superseded_by: [A2（機密ファイルの特別扱いをやめる）](./2026-10-04-drop-sensitive-file-handling.md#A2)
 - A53 左右と書き込み先を明示し、対象の読み取りと必要な確認・バックアップが成功し、競合や外部更新がない通常ファイルの merge は、指定した先だけを元の内容に更新する。
   - why: 安全条件だけでなく、条件を満たした通常のマージの結果を明文化する。
   - decided_by: user (took the recommendation)
