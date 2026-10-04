@@ -15,10 +15,10 @@ entries:
         after: sha256:739238a5128dcd04591a3af9d8444f449841b6fa7982b50880c3a0708127e9a2
       - path: crates/remote-merge/tests/contract/tui_diff_write_kinds.rs
         before: null
-        after: sha256:c2ac5db0dd0c2cb5a824532b513f51b10d5b7523c87235b72a999285af8d485a
+        after: sha256:6510e8c89d822a590fca4a36035ec753eb73b3a0ccb83bc8492a9ba4d14bd97a
       - path: crates/remote-merge/tests/contract/tui_merge_kinds.rs
         before: sha256:5e4e553c22902adf5501bee1ddd3cd3c7d4533bae2b735aa9f5855491ccd2602
-        after: sha256:8ae6cccdeb3b9700b153e461a6f3f2dc050503abef16a9eff92d4764824c9ddf
+        after: sha256:a1fa6128eb49e590038735297a843c745f484d3b90145a83e22a994421aed2a5
     ir:
       - path: docs/ir/merge/symlink.md
         sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
@@ -33,7 +33,8 @@ entries:
       mtimeを見るため、確認のyで先にmtime警告が開き理由が出ない場合があった。単一マージ・hunkマージ・
       変更の書き込みの確認でmtime検査より前に同じ種類判定を行い、理由付きのスキップにする。
       リンク先をリンクより古くした実際に近い準備で、確認ダイアログとw経由の契約テストが修正前は
-      上書きまたは理由なしで失敗し、修正後に成功することを確認した。要求・IR・決定は変えない。
+      上書きまたはmtime警告で失敗し、修正後に成功することを確認した。理由の文言は仕様で未決のため
+      テストでは固定せず、ダイアログを挟まずスキップされたことを確かめる。要求・IR・決定は変えない。
     requirements:
       - REQ-merge-001
     decisions: []
