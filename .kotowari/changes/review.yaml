@@ -1,0 +1,290 @@
+version: 1
+entries:
+- id: flag-resolution-without-judgment-review
+  base: 63cc9aaef24bd50c6cd0dfc8177ebf4cdda79cea
+  role: reviewer
+  files:
+  - path: crates/remote-merge-agent/src/agent/dispatch.rs
+    before: sha256:78a8ba0283a7e71d97023af7c2e7c2a9812b20055599b07d5162345b428897f9
+    after: sha256:acb7abe04eca006424e2a45257b1243d5a53e5f4dcde456234c7f536e94b01ea
+  - path: crates/remote-merge-agent/src/agent/tree_scan.rs
+    before: sha256:07fba0acf9678201622aff780ffc3d541537a2f6c7a30d274956cd2630116b37
+    after: sha256:6100b625516ecd955fe76850cd6f32e07d675ae8b6a123693597b78b8d2e4dad
+  - path: crates/remote-merge-engine/src/service/diff.rs
+    before: sha256:2b8fac20bfead188dadb9e0e048ca10af0842018de26de168ba92c0b433e9676
+    after: sha256:1835bf1d517131631bafd90f6fb7e44ff9b370322659f8ded10efba0e35a488d
+  - path: crates/remote-merge-engine/src/service/merge.rs
+    before: sha256:5ccfb0c83cb8912632b057bcf389733d869b317ac9e10382e51a6d0a6ef9ecec
+    after: sha256:28611f3ec435c0799b109910c8e1b85383b8f297155bd7cd59b6644fd6b2cbbf
+  - path: crates/remote-merge-engine/src/service/types.rs
+    before: sha256:948c958481dc25987223fd7740a8fb0921a8b93a3de430c988489e819ea42922
+    after: sha256:7139cce50480f3903fca2928b92aa28a3e5b6eafa723abaf9169e5e1a7ef29c0
+  - path: crates/remote-merge/src/cli/diff.rs
+    before: sha256:2f7cf32a76af8e6ec97e6519b868bb1dbe8575ae5da1d871d13d14c704b495ab
+    after: sha256:301508f2eb94e398f95ce83514f3a431087c4b2d774310db617bdf12123f2c10
+  - path: crates/remote-merge/src/cli/merge.rs
+    before: sha256:4a1b64fc7286470b942eca20485320f08720a77938a72a2aab02f0424af371a2
+    after: sha256:93ec7877e09edbf3f4643542b297130e58571eef85b069aa906c7837feb46305
+  - path: crates/remote-merge/src/cli/status.rs
+    before: sha256:f0d1445d3b702788af01c6fac17d77c1d0200e9157c43696263df6d7b8227584
+    after: sha256:f01bac2f98183f72a02284631557921d469ab8550c28c27076447713e87889b0
+  - path: crates/remote-merge/src/cli/sync.rs
+    before: sha256:eedcc0e14ef3705484101e92fc0357faf75f96965bf1f0844314b2bf602fa509
+    after: sha256:cafc2eb6bfcaccd7011d717a0ad9cce9b9f44db2e214b7a13a2686569f035453
+  - path: crates/remote-merge/src/main.rs
+    before: sha256:673b8fc4b2643c82420c426db01be4ba1157cda53ed99439c8af5b719a291fe9
+    after: sha256:c03d8393f08524a04af9a4617e806b80a3c26938a5655ebff354aeb2aa3e35be
+  - path: crates/remote-merge/src/service/merge_flow.rs
+    before: sha256:fb724792080277be7558a75c82031d9ee255c4e3243089d5ffe789f46ab7b2cc
+    after: sha256:6c43e1d0b114a77c4dc0d609b266d9524f1efa406ab186dd7d7554bb528e7b0e
+  - path: crates/remote-merge/src/service/output.rs
+    before: sha256:0de2c9550cd497f04e0bd5ee5b36b825b2950c8b038120a16cc8cc5e82fd49f4
+    after: sha256:c6f6fae10eef4950416f06e3fe08062245482bfd80a81278758de7c8276d31b8
+  - path: crates/remote-merge/tests/cli_diff.rs
+    before: sha256:631aaa565105ec6b07034a93cd64e7b6f60094469e7a2100857c132d48f3a2dc
+    after: sha256:6675d876ec047d0f459a5c612031615db0f73cc2cbc33ca0b99b244537f2077d
+  - path: crates/remote-merge/tests/common/mod.rs
+    before: sha256:e544fdc114e26cca3282935c70fd87565132b580370757ca11c3139ac97ac90b
+    after: sha256:1c62136f511c738f06328994d728bba1cbe21598b83b9bca6d5bde704e5df4f2
+  - path: crates/remote-merge/tests/contract.rs
+    before: sha256:739238a5128dcd04591a3af9d8444f449841b6fa7982b50880c3a0708127e9a2
+    after: sha256:b0b796679fae9f9c815ce8f26c6bffdecdba5e3ed19969cafab3e293de79d256
+  - path: crates/remote-merge/tests/contract/backup_rollback_cli_e2e.rs
+    before: sha256:e8baa2f0c60c27b6679a360218b2f58f38e22ded95eb3f0512e27413755642a1
+    after: sha256:755da874e7c482d6b1c0f3843586c415c7f97ff8d278a78c9ccb8b02eb4452c9
+  - path: crates/remote-merge/tests/contract/backup_rollback_path.rs
+    before: sha256:79a5682cb50edd75ef7646321d5a5c0239041d3b1b587ecb25b5cc4bf48e8b3e
+    after: sha256:51d5d3a7bbbe334d817db7fd4d26e9948f1fd111829cb3c3a50dd1914d28a237
+  - path: crates/remote-merge/tests/contract/config_loading_cli.rs
+    before: sha256:71767ed06fc1b748b7b943ebe215c763b74987bd29ae268b1d4d9d721e59aa2a
+    after: sha256:f6376a602805793cb36b01cb8c7a0d57c47d8926027e99c9735998a1f2ce5487
+  - path: crates/remote-merge/tests/contract/config_merging.rs
+    before: sha256:da4908820e86135571de8c47202b179001d3b95572b60e21694233cfb04a0b82
+    after: sha256:ac365f1fa6daa2c8e62b747e197674e9450170d518e6ac4d6db0c03c0a7e055d
+  - path: crates/remote-merge/tests/contract/config_values_cli.rs
+    before: sha256:4ed8d102954fec8535e5275cf426357a15e744c89db8e174baa745091405107a
+    after: sha256:b9659ee8c150118b5a63fd60662017f32e45f2763da48b32ecf57f1b7b396a1b
+  - path: crates/remote-merge/tests/contract/diff_ref_cli.rs
+    before: sha256:d05957fedcd14581ddd178a3fd71a00ed55e4b80957a16983ce1f49ec5a4e869
+    after: sha256:e9abe3f7e5e903a4b468175e665ecf170856ffc343078c7a89895346a39bbb86
+  - path: crates/remote-merge/tests/contract/diff_ref_scope_cli.rs
+    before: null
+    after: sha256:5d5b2abea8c6326f1edf3a98c1fd821a43973b068248927202dbffb877056a10
+  - path: crates/remote-merge/tests/contract/merge_cli.rs
+    before: sha256:9895cb779b617618c98015b19e2bfd6281523926b1312464fd9c572791a65560
+    after: sha256:5138ff0d5c43a0aa27d442888d33347e93d9b657b3c4ef373344ecd8909a2d32
+  - path: crates/remote-merge/tests/contract/merge_cli_ssh.rs
+    before: sha256:46f738bc487b7257116f97bebd61b535e59787fced0e1b493a7da9e7728eabac
+    after: sha256:615619f29a9a558bd229927f8a69dadf0b3c2451fb3daf90c4647dc8f30cf340
+  - path: crates/remote-merge/tests/contract/merge_force_cli.rs
+    before: null
+    after: sha256:62b245cfca4ab5aa142c0160cee2f0411f8c4baf59829810b64dfe9df9af973a
+  - path: crates/remote-merge/tests/contract/merge_paths.rs
+    before: sha256:3d3efee114ec097f6bb324a49b5c61227e0b86ccb1c0f41b4f9c3b752d02f009
+    after: sha256:8baad6eec3fc605eec758ed9c0246b61a7065040f143354be9be707a99136f2d
+  - path: crates/remote-merge/tests/contract/merge_results.rs
+    before: sha256:106cc7ddb20c6a9a5a212a08ef6b54b8bf85c11be9f6524cb8fc16a0115a291c
+    after: sha256:1ed3d997992eca86a90e6776763613fa9de036bcc2acf7bb5a7cc51be2d5a101
+  - path: crates/remote-merge/tests/contract/merge_write.rs
+    before: sha256:ce825cac7badb417581e9fc638b9c4945494d4794438534646816dcedd736673
+    after: sha256:76ec726dfc1cc45e67cdde1a292d7f137c744d8b748b86075acec28601a89329
+  - path: crates/remote-merge/tests/contract/scan_limits.rs
+    before: sha256:d07d509e1f550a9a8bee50a6b3145f139900e908969533d56bad82cce317cf4a
+    after: sha256:759c8e3e0bb3478ded610ef8dbea1b629426b1db5704b749dee71762a3fbecff
+  - path: crates/remote-merge/tests/contract/scan_limits_cli.rs
+    before: sha256:4c6e99558974a27d6cf5b93be02b2685cdae0df6296def048c665e2a86c68944
+    after: sha256:c0860c75170ae32be941e9f7160a520be536fdf635159f8385907a4d1847b270
+  - path: crates/remote-merge/tests/contract/scan_listing_cli.rs
+    before: sha256:c7364632296c87b0ebbfb8deeb46a24028ff759b645d25bb1dbddf42694b34cd
+    after: sha256:a414f17c5c27374f9bc86ca4738fb44216c72e5053d12b5b59eab438c749b7f7
+  - path: crates/remote-merge/tests/contract/ssh_server.rs
+    before: sha256:5cf1c0b75586580f532b136fb309967023e5e756d90f0b4a471ff15702a88cc6
+    after: sha256:f41c17d626acf546dcc54878dff65d3d0475d92b478e793dfacb5b3d108bc29b
+  - path: crates/remote-merge/tests/contract/status_agent_cli.rs
+    before: null
+    after: sha256:832bae547f4d78bab5324fe17d1b1cc4164aa6a389bf315a1d9a6d8f30e5f4dd
+  - path: crates/remote-merge/tests/contract/status_targets.rs
+    before: sha256:33c41b9545ed6b5dc13b90752cb121357f0887e99b6d7e14a76302b352031eb2
+    after: sha256:5b4e2e694cb12fdf4f06129f85ca85a4404b487872bbe2d41d99be69167ae4a9
+  - path: crates/remote-merge/tests/contract/sync_cli.rs
+    before: sha256:429925a3f9a528c81ebe6cb592918c4f2fe685cdfdd03eef9d60b1014b9363bd
+    after: sha256:d5ac153bc681b011275cad7499dbab7bd265eb0f05a56798340087d56f2c3768
+  - path: crates/remote-merge/tests/contract/sync_results.rs
+    before: sha256:150139609a19344197de147273fe6852c2d530fac823efc17c6fba36cacc6dab
+    after: sha256:2da0e310eca227a93ab1221c2bb7053858caeab5bac66a59c85b71acd9e4a771
+  - path: crates/remote-merge/tests/contract/sync_support.rs
+    before: sha256:f81f9f8ea71b0cab4439e9ec8055e7c2b1e6ba1ee2cd98f20cc4a64a16bf7f75
+    after: sha256:b7084a205f40ca5e17921d1cbd65e005361f34e70f07ec2ac384a9d4af2a762f
+  - path: crates/remote-merge/tests/contract/sync_targets.rs
+    before: sha256:09670f16f248d9492b35b04d0461900b5c4c07c21ed275d0261b94fe390841f3
+    after: sha256:f4e309873c79fb68fa2cdd3b1b04a1d53166829a8356f9cf647ecf34bd7ed7f3
+  - path: crates/remote-merge/tests/contract/sync_text.rs
+    before: null
+    after: sha256:f10b415d29eb05173394b7fefa325690afa87bbef7ae5ee7de655f98b1414b1e
+  - path: skills/remote-merge/SKILL.md
+    before: sha256:d794b4198c9eff140836c6365cf309062c07375a7ded10595239cb6e76ff38c1
+    after: sha256:a96002bed818db211c80385c31153b540543126ad18177683bd49c9f0c8610df
+  - path: skills/remote-merge/references/json-schemas.md
+    before: sha256:d7b7ccb41fb680811d48fab1b353c769ea5e52fabb42eff05d3f9f05e50ee3a6
+    after: sha256:0c3ae691555abc8f413fce0568bdf6eb56dce392e1f5257ff8e48c650d7dd945
+  ir:
+  - path: docs/ir/backup/failure.md
+    sha256: sha256:f2c67252f4cc974644c95719e500224ec30d290b9b9753fe765ea600ac6ad98c
+  - path: docs/ir/backup/rollback-cli.md
+    sha256: sha256:126f913d7716e709b37fc103a4d7799d0bf25a1ac4552cba94a429cd7fb58ca6
+  - path: docs/ir/backup/rollback-path.md
+    sha256: sha256:3442ac68d3562ac00cf0f31fe95b9e083c3b150892fef3e7d6f8516fdba4bb17
+  - path: docs/ir/cli/binary.md
+    sha256: sha256:58c049db382028678c564c01aebfbdbf3bf25bb5dcbd21d5e2cc482d28ca7e2a
+  - path: docs/ir/cli/conflicts.md
+    sha256: sha256:2201b390ba90a6dad36ec0550486745296a620e2d3bfa3448a18c72ff5938042
+  - path: docs/ir/cli/diff-output.md
+    sha256: sha256:7654bf358f9229835ed13ac85bf4e9c5c3fdd681ed05153f2a91c792adc4c327
+  - path: docs/ir/cli/merge.md
+    sha256: sha256:4399588d53d1dcb5f948df8162db07d9960b7238dc5ab1e40c224e6e835e71b1
+  - path: docs/ir/cli/reference.md
+    sha256: sha256:8908181560eb21b0e7dcfaecef818b631b5d4495f55b758cbcb9a4553e9c4f20
+  - path: docs/ir/cli/safety.md
+    sha256: sha256:993c418bb27c5b414b9f30803217edd73eea956d691123f867c8d41131e27536
+  - path: docs/ir/cli/status-output.md
+    sha256: sha256:e533477bce8e93e09d968bcc893c9d437147038999c175e6a445939d751f74cc
+  - path: docs/ir/cli/status-targets.md
+    sha256: sha256:8170851fd16232c8f405207a0fe3b2a33ce0781bdced5eb2ec74c151116a06e7
+  - path: docs/ir/cli/status.md
+    sha256: sha256:f35d8b851831c25c45bfb2f2febb6c5f7ed55aa8bbd2db355f5824c1294572b6
+  - path: docs/ir/cli/symlink-diff.md
+    sha256: sha256:96f08ae8fc117498eb535d717c2d63ed5f284fe14f26b3e80b65567efcaa0e60
+  - path: docs/ir/cli/sync.md
+    sha256: sha256:d252ac7af7bb15faa18a95799ca83cb93427bceb19ed73bb354c566fab95a046
+  - path: docs/ir/config/defaults.md
+    sha256: sha256:fed84bda6517fc20300de25ae1f18ae0f9cbff5a8f6654c08bc83b27f784f71a
+  - path: docs/ir/config/filters.md
+    sha256: sha256:705fa2e1c9690490cfc497959ffa83f25a8e2fa5123ae0f61eac0bf35f487781
+  - path: docs/ir/config/loading.md
+    sha256: sha256:69d8b3412d6ea224cf1862d0389ecdab23b3ed3ac4e668cccb3b64bcd79f82a3
+  - path: docs/ir/config/precedence.md
+    sha256: sha256:2254980d4afd724aaae52acf551a03330ce8586bb90b062ea70702f81588d5f5
+  - path: docs/ir/config/values.md
+    sha256: sha256:e62729da4fed262a3e933d1a3783dc1c023d06b5c0214811532962e2aa8d0995
+  - path: docs/ir/merge/comparison.md
+    sha256: sha256:d8cf9e1097d27b05119d906198380008bd1756d618e6efad49ed00270c6dc253
+  - path: docs/ir/merge/concurrency.md
+    sha256: sha256:afd53bc6c8c270ea7f90d243db4580bc590ec098004a6808b927fe1556771a88
+  - path: docs/ir/merge/deletion.md
+    sha256: sha256:31c2ffe9ae0ea0e6d52bc9bd5376036184cf7aa1aa8c506cc686ba13a4e6183c
+  - path: docs/ir/merge/hunks.md
+    sha256: sha256:f221338c8d92a65cb23db75a0dac0e97f65cd1fcf3f81b3d7aeb9bb34dfc5eec
+  - path: docs/ir/merge/multi-target.md
+    sha256: sha256:106d6246a8fcd764db697f4f078c3e3d4f8a68a1732aa6c4f010331e4780962b
+  - path: docs/ir/merge/read-failure.md
+    sha256: sha256:dd9debd1e232ac7f42c1abad4f0e1c8402cd0910e814f4b46f12372b36d12714
+  - path: docs/ir/merge/symlink.md
+    sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
+  - path: docs/ir/scan/limits.md
+    sha256: sha256:36215be528b8231fd3bb7a439827b292c6c56f370b304f01fe84534b857f4d93
+  - path: docs/ir/scan/listing.md
+    sha256: sha256:bd4fe1cfce62885cf9268de2a6f73ac7122b3430cbf81363e27da9045b7828cc
+  conclusion: new
+  reason: 2026-10-04 の利用者の指示（判断がいらない FLAG は全て対処）による変更を、比較元 63cc9aa から 98e1617 まで照合した。468f487 から 98e1617 の差分は決定記録の文だけで、コードと IR の各ファイルは前回の全体照合（コードの欠陥なし）と同じバイトであることをハッシュで確かめた。指摘 1 は、REQ-cli-072 の値と条件（見出し、書き込み先ごとの行、ok・plan・skip・FAILED の行と理由の括弧、Summary の行と deleted・failed の追加、No files to sync. の条件、D の行を定めない範囲）と REQ-cli-070 の値と条件（Ref の行の後、-v がないときと右がローカルのときは出さない）が引用先の A5 と A1 にすべて書かれ、cli/sync.rs と service/output.rs の実装とも食い違わないことを確かめて解消とした。sync_text と status_agent_cli の契約テストは通った。scan の決定記録 A1 から A3 は閉じる FLAG の ID を書くようになった。指摘 2（FLAG-merge-006 と FLAG-backup-002 が判断なしで決められたか）は利用者の判断待ちで、この記録はその判断を先取りしない。
+  requirements:
+  - REQ-backup-003
+  - REQ-backup-017
+  - REQ-backup-035
+  - REQ-backup-036
+  - REQ-backup-038
+  - REQ-cli-003
+  - REQ-cli-004
+  - REQ-cli-009
+  - REQ-cli-024
+  - REQ-cli-032
+  - REQ-cli-036
+  - REQ-cli-040
+  - REQ-cli-041
+  - REQ-cli-042
+  - REQ-cli-044
+  - REQ-cli-045
+  - REQ-cli-047
+  - REQ-cli-048
+  - REQ-cli-049
+  - REQ-cli-051
+  - REQ-cli-053
+  - REQ-cli-054
+  - REQ-cli-056
+  - REQ-cli-059
+  - REQ-cli-061
+  - REQ-cli-062
+  - REQ-cli-063
+  - REQ-cli-064
+  - REQ-cli-065
+  - REQ-cli-067
+  - REQ-cli-068
+  - REQ-cli-069
+  - REQ-cli-070
+  - REQ-cli-071
+  - REQ-cli-072
+  - REQ-cli-073
+  - REQ-cli-074
+  - REQ-config-006
+  - REQ-config-007
+  - REQ-config-014
+  - REQ-config-015
+  - REQ-config-020
+  - REQ-config-026
+  - REQ-config-027
+  - REQ-config-028
+  - REQ-config-029
+  - REQ-merge-001
+  - REQ-merge-002
+  - REQ-merge-005
+  - REQ-merge-008
+  - REQ-merge-011
+  - REQ-merge-015
+  - REQ-merge-016
+  - REQ-merge-017
+  - REQ-merge-019
+  - REQ-merge-028
+  - REQ-merge-033
+  - REQ-merge-034
+  - REQ-scan-003
+  - REQ-scan-007
+  decisions:
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A1
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A2
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A3
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A4
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A5
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A6
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A7
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A8
+  - docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A1
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A2
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A3
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A4
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A5
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A6
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A7
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A8
+  - docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A9
+  - docs/decision/records/2026-10-04-config-flag-resolution.md#A1
+  - docs/decision/records/2026-10-04-config-flag-resolution.md#A2
+  - docs/decision/records/2026-10-04-config-flag-resolution.md#A3
+  - docs/decision/records/2026-10-04-config-flag-resolution.md#A4
+  - docs/decision/records/2026-10-04-config-flag-resolution.md#A5
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A1
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A2
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A3
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A4
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A5
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A6
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A7
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A8
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A10
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A11
+  - docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A12
+  - docs/decision/records/2026-10-04-scan-flag-resolution.md#A1
+  - docs/decision/records/2026-10-04-scan-flag-resolution.md#A2
+  - docs/decision/records/2026-10-04-scan-flag-resolution.md#A3
+  handoff: null
+  gaps: []
