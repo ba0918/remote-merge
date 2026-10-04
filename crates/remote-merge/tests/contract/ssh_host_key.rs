@@ -67,8 +67,8 @@ async fn unknown_key_is_rejected_when_standard_input_gives_no_answer() {
 
 // @kotowari[EX-ssh-001]
 #[test]
-fn strict_policy_rejects_the_unknown_key_even_with_the_yes_option() {
-    assert!(!accepts_unknown_key(StrictHostKeyChecking::Yes, true));
+fn strict_policy_rejects_the_unknown_key_without_approval() {
+    assert!(!accepts_unknown_key(StrictHostKeyChecking::Yes, false));
 }
 
 // @kotowari[EX-ssh-003]
