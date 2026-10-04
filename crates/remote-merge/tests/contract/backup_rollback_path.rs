@@ -423,3 +423,44 @@ fn rollback_skips_a_recorded_symlink_changed_by_a_third_party() {
     assert_single_skip(&output, "symlink changed after merge");
     assert_eq!(read(&develop, "link.txt"), "third party\n");
 }
+
+// @kotowari[REQ-backup-003]
+#[test]
+fn an_unresolvable_path_blocks_every_file_in_the_rollback_session() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    for name in ["first.txt", "second.txt"] {
+        fs::write(local.path().join(name), "merged\n").unwrap();
+        fs::write(develop.path().join(name), "original\n").unwrap();
+    }
+    let mut args = merge_args("first.txt");
+    args.paths.push("second.txt".into());
+    merge_files(
+        args,
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+    // 自分自身を指す symlink に置き換え、second.txt だけリンク先を辿れなくする
+    fs::remove_file(develop.path().join("second.txt")).unwrap();
+    symlink("second.txt", develop.path().join("second.txt")).unwrap();
+
+    let (output, _) = restore(
+        rollback_args("develop", None),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+
+    assert!(output.restored.is_empty(), "{output:?}");
+    let mut failed: Vec<&str> = output.failed.iter().map(|f| f.path.as_str()).collect();
+    failed.sort_unstable();
+    assert_eq!(failed, ["first.txt", "second.txt"], "{output:?}");
+    for failure in &output.failed {
+        let cause = failure
+            .error
+            .strip_prefix("cannot resolve path: ")
+            .unwrap_or_else(|| panic!("{failure:?}"));
+        assert!(!cause.is_empty(), "{failure:?}");
+    }
+    assert_eq!(read(&develop, "first.txt"), "merged\n");
+}

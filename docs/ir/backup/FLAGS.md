@@ -9,13 +9,6 @@
 
 旧個別仕様 3.8 は root_dir の末尾の "/" を除いて書き込み先を区別するとするが、実装は保存先のキーを root_dir の表示文字列から作るため "/srv/app/" と "/srv/app" が別の書き込み先になる。コード読解と PathBuf の最小再現で確認し、本体を通した実行は未確認。単体テスト trailing_slash_does_not_change_remote_target_identity は構造体の等価だけを見ており、保存先のキーを検査していない。
 
-### FLAG-backup-002: 辿れないパスがあるときの他ファイルの扱い
-- kind: ambiguity
-- related: REQ-backup-003
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A35
-
-旧個別仕様 3.12 は辿り直せなかったファイルを "cannot resolve path: <原因>" で failed にするとするが、実装は一件でも辿れないとセッション内の全ファイルを failed にする。他のファイルを戻すべきかは旧資料からも spec-migration の A11 からも決まらない。
-
 ### FLAG-backup-005: セッション ID の連番のあふれで panic する
 - kind: gap
 - related: REQ-backup-022, REQ-backup-023

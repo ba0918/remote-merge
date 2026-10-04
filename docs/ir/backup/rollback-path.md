@@ -6,10 +6,10 @@ rollback の書き戻し方と、バックアップ時と異なる場所への�
 
 ### REQ-backup-003: リンク先が変わったセッションは書き戻さない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A11
+- source: docs/decision/records/2026-09-25-spec-migration.md#A11, docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A8
 - verification: unit
 
-rollback はセッション内の書き戻し対象すべてのリンク先を事前に確認し、一件でもバックアップ時と別の場所を指すなら、そのセッションのファイルは一件も書き戻さず理由を報告する。
+rollback はセッション内の書き戻し対象すべてのリンク先を事前に確認し、一件でもバックアップ時と別の場所を指すなら、そのセッションのファイルは一件も書き戻さず理由を報告する。書き戻し対象のどれか一件でもリンク先を辿れないときも、そのセッションのファイルは一件も書き戻さず、すべてを failed に error "cannot resolve path: " に続く原因で報告する。
 
 ### REQ-backup-008: 復元プレビューでは書き換えない
 - kind: prohibition
