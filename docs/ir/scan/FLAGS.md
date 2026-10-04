@@ -51,13 +51,6 @@ include にディレクトリを指す symlink を書いたとき、ローカル
 
 REQ-config-003 と REQ-config-004 は exclude と include が merge と sync の走査にも効くとし、REQ-config-022 は "/" を含むパターンを root_dir からの相対パスに当てるとするが、ディレクトリのパスを指定した merge と sync は include を当てず、"/" を含む exclude のパターンを指定したディレクトリからの相対パスに当てるため、include の外のファイルやパスのパターンで除外したファイルも書き込みの対象になる。同じ指定の diff はそれらを除く。
 
-### FLAG-scan-008: root_dir の symlink と include を併せたエージェントの経路
-- kind: contradiction
-- related: REQ-scan-007
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A11
-
-旧個別仕様 symlink-merge の 3.6 はエージェントの経路が include の指定の有無にかかわらず root_dir の symlink を辿って配下を列挙するとし、REQ-scan-007 は root_dir 自体がディレクトリへの symlink のとき配下を列挙するとするが、root_dir がディレクトリへの symlink で include を書いたとき、エージェントの経路の走査は一覧に何も載せない（status の実行で確認。ローカルの経路は載せる）。
-
 ### FLAG-scan-009: 名前に改行を含むファイルの SSH の経路の走査
 - kind: gap
 - related: REQ-scan-006
@@ -72,13 +65,6 @@ SSH の経路の走査は find の出力を行ごとに読むため、名前に�
 
 REQ-scan-003 はファイル件数の上限とするが、ローカルと SSH の走査はディレクトリも一件として数え（ファイル 2 件とディレクトリ 1 件で上限 2 のとき打ち切る）、エージェントの走査はファイルと symlink だけを数えるため、同じツリーでも経路によって打ち切られる件数が違う。
 
-### FLAG-scan-011: エージェントの経路のちょうど上限の件数
-- kind: contradiction
-- related: REQ-scan-004, EX-scan-009
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A4
-
-EX-scan-009 は上限以下のファイル数なら件数の上限を理由に打ち切らないとするが、エージェントの走査は数えた件数が上限とちょうど同じときも、それ以上の項目がなくても打ち切ったと報告する（実装を読んで分かったことで未実行）。
-
 ### FLAG-scan-012: find のタイムアウト
 - kind: contradiction
 - related: REQ-scan-004
@@ -92,10 +78,3 @@ EX-scan-009 は上限以下のファイル数なら件数の上限を理由に�
 - source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A6
 
 走査の途中に読めないディレクトリがあるとき、ローカルは "Directory scan incomplete:"、SSH は "SSH command execution failed:" で始まるエラーで止まり status は終了コード 2 を返すが、エージェントはそのディレクトリを飛ばし、欠けた一覧を完全な一覧として返す。REQ-scan-005 は件数の上限とリンクの循環だけを挙げ、読めないディレクトリについて述べない。
-
-### FLAG-scan-014: 同じ最上位のディレクトリの下を複数指定した sync
-- kind: gap
-- related: REQ-scan-009, REQ-cli-045
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A7
-
-sync に同じ最上位のディレクトリの下のディレクトリを二つ以上指定すると（例 "a/x/" と "a/y/"）、後のディレクトリの配下が一覧から落ち、そのディレクトリのパスが "IO error: Is a directory" の失敗になって書き込み先の status は "partial"、終了コードは 2 になり、--dry-run ではそのパスを merged に status "would merge" で出す。同じ指定の merge と diff は両方の配下を扱う。旧資料に記述がなくテストもない。
