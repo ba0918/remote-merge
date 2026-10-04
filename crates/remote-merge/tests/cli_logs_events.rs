@@ -75,6 +75,7 @@ fn test_logs_reads_existing_log_file() {
 
     let output = remote_merge_cmd()
         .env("HOME", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path().join(".cache"))
         .arg("logs")
         .output()
         .expect("failed to execute");
@@ -108,6 +109,7 @@ fn test_events_reads_existing_events_file() {
 
     let output = remote_merge_cmd()
         .env("HOME", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path().join(".cache"))
         .arg("events")
         .output()
         .expect("failed to execute");

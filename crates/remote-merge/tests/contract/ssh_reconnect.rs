@@ -27,6 +27,7 @@ async fn a_single_interrupted_read_reconnects_and_returns_the_remote_contents() 
     let config_path = config_file(&home, server.port());
     let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
         .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
         .env("XDG_CONFIG_HOME", home.path().join("config"))
         .arg("diff")
         .arg("example.txt")
@@ -73,6 +74,7 @@ async fn a_second_read_disconnect_is_reported_without_a_third_attempt() {
     let config_path = config_file(&home, server.port());
     let output = Command::new(std::env::current_exe().unwrap())
         .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
         .env("XDG_CONFIG_HOME", home.path().join("config"))
         .env("REMOTE_MERGE_READ_CHILD_CONFIG", &config_path)
         .args([

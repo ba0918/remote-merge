@@ -5,7 +5,9 @@ use std::process::{Command, Stdio};
 use tempfile::TempDir;
 
 fn run_init(dir: &TempDir, input: &[u8]) -> std::process::Output {
+    let cache = TempDir::new().unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .env("XDG_CACHE_HOME", cache.path())
         .arg("init")
         .current_dir(dir.path())
         .stdin(Stdio::piped())

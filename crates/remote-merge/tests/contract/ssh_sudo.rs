@@ -21,6 +21,7 @@ async fn a_server_without_sudo_performs_its_remote_scan_without_elevation() {
     )).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
         .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
         .env("XDG_CONFIG_HOME", home.path().join("config"))
         .arg("status")
         .arg("--config")
@@ -51,6 +52,7 @@ async fn rejected_noninteractive_sudo_stops_before_any_unprivileged_file_operati
     )).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
         .env("HOME", home.path())
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
         .env("XDG_CONFIG_HOME", home.path().join("config"))
         .arg("status")
         .arg("--config")

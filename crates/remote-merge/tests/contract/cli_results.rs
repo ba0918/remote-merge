@@ -673,6 +673,7 @@ fn json_diff_returns_a_parseable_error_when_configuration_is_invalid() {
     let invalid_config = dir.path().join("invalid.toml");
     fs::write(&invalid_config, "[local\n").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .arg("--config")
         .arg(&invalid_config)
         .args(["diff", "example.txt", "--format", "json"])

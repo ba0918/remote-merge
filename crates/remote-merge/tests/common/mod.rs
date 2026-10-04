@@ -540,6 +540,7 @@ impl CliEnv {
             cmd.env("PATH", path);
         }
         cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
+        cmd.env("XDG_CACHE_HOME", self._dirs.temp.path().join("xdg-cache"));
         cmd.arg("--config").arg(&self.config_path);
         cmd
     }
@@ -581,6 +582,11 @@ pub fn remote_merge_cmd() -> Command {
         .expect("Failed to create isolated data home")
         .keep();
     cmd.env("XDG_DATA_HOME", data_home);
+    // 診断ログを開発者のキャッシュに書かない
+    let cache_home = TempDir::new()
+        .expect("Failed to create isolated cache home")
+        .keep();
+    cmd.env("XDG_CACHE_HOME", cache_home);
     cmd
 }
 
