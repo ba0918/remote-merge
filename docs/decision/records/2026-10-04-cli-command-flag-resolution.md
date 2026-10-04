@@ -24,3 +24,6 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 - A5 FLAG-cli-012 を閉じ、[REQ-cli-102](../../ir/cli/sync.md#REQ-cli-102) を足す。sync のテキスト出力は今の形（"Sync: 元 → 先" の見出し、書き込み先ごとの "[先] 状態" の行、"ok"・"plan"・"skip"・"FAILED" で始まるファイルの行、最後の "Summary:" の行、書き込む予定も失敗もないときの "No files to sync."）とし、旧資料の記号付きの行と "Total:" の行は採らない。--dry-run で削除する予定の行の形は未決の FLAG-cli-013 に残し、この要件では定めない。スキップと失敗の理由の文言も定めない。
   - why: 今の sync はそのとおりに出力する。承認済みの [REQ-cli-041](../../ir/cli/sync.md#REQ-cli-041) の状態と [REQ-cli-042](../../ir/cli/sync.md#REQ-cli-042) の集計をそのまま行にした形で、テキストの形を定める承認済みの要件はほかになく、食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A6 FLAG-cli-018 を閉じ、[REQ-cli-048](../../ir/cli/merge.md#REQ-cli-048) の末尾に、--force のない merge が書き込みの対象から外した機密ファイルの skipped の reason は "sensitive file" とするという文を足す。旧資料の "sensitive" は採らない。--delete で削除の対象から外した機密ファイルの reason は別の文言で、この文では定めない。
+  - why: 今の merge はこの場合の reason を "sensitive file" とし、利用者向けの手引きの JSON の説明も同じ値を示している。REQ-cli-048 は skipped に reason を出すことだけを定めて値を定めておらず、足す文はそれと矛盾しない。食い違うのは旧資料だけである。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

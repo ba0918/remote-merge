@@ -86,13 +86,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
 
-### FLAG-cli-018: 機密ファイルのスキップ理由の文言
-- kind: contradiction
-- related: REQ-cli-048, REQ-cli-003
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A9
-
-旧総合仕様の JSON 出力スキーマは merge の JSON で機密ファイルのスキップの reason を "sensitive" とするが、実装は "sensitive file" とする。
-
 ### FLAG-cli-019: merge のスキップの行の形
 - kind: contradiction
 - related: REQ-cli-049

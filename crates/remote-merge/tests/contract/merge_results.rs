@@ -108,12 +108,13 @@ fn json_has_skipped_files_with_path_and_reason() {
     fixture.write("local", ".env", "SECRET=local\n");
     fixture.write("develop", ".env", "SECRET=develop\n");
 
-    // 終了コードとスキップの理由の値は確かめない
+    // 終了コードは確かめない
     let (json, _) = fixture.merge_json(args(&[".env"]));
 
     let skipped = &json["skipped"][0];
     assert_eq!(skipped["path"], ".env", "{json}");
-    assert!(skipped["reason"].is_string(), "{json}");
+    assert_eq!(skipped["reason"], "sensitive file", "{json}");
+    assert_eq!(fixture.read("develop", ".env"), "SECRET=develop\n");
 }
 
 // @kotowari[REQ-cli-048]
