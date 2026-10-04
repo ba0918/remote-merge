@@ -1436,6 +1436,86 @@ fn external_edit_with_restored_size_and_timestamp_is_not_overwritten() {
     assert_eq!(fs::read_to_string(target).unwrap(), "evil change\n");
 }
 
+// @kotowari[REQ-merge-033]
+#[test]
+fn only_the_files_whose_destination_changed_since_comparison_are_stopped() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    for name in ["changed.txt", "appeared.txt", "ok.txt"] {
+        fs::write(local.path().join(name), format!("new {name}\n")).unwrap();
+    }
+    for name in ["changed.txt", "ok.txt"] {
+        fs::write(destination.path().join(name), format!("old {name}\n")).unwrap();
+    }
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let mut core = CoreRuntime::with_targets(config, targets);
+    let left = Side::Local;
+    let right = Side::Remote("develop".into());
+    let left_tree = core.fetch_tree_recursive(&left, 100, true).unwrap();
+    let right_tree = core.fetch_tree_recursive(&right, 100, true).unwrap();
+    let expected: HashMap<String, Vec<u8>> = ["changed.txt", "ok.txt"]
+        .into_iter()
+        .map(|name| {
+            (
+                name.into(),
+                fs::read(destination.path().join(name)).unwrap(),
+            )
+        })
+        .collect();
+    // 比べた後で、一件の中身を変え、比べたときになかった書き込み先を一件作る
+    fs::write(destination.path().join("changed.txt"), "third party\n").unwrap();
+    fs::write(destination.path().join("appeared.txt"), "third party\n").unwrap();
+    let statuses: Vec<_> = [
+        ("changed.txt", FileStatusKind::Modified),
+        ("appeared.txt", FileStatusKind::LeftOnly),
+        ("ok.txt", FileStatusKind::Modified),
+    ]
+    .into_iter()
+    .map(|(name, status)| FileStatus {
+        path: name.into(),
+        status,
+        sensitive: false,
+        hunks: None,
+        ref_badge: None,
+    })
+    .collect();
+    let mut ctx = MergeContext {
+        left: &left,
+        right: &right,
+        left_tree: &left_tree,
+        right_tree: &right_tree,
+        direction: MergeDirection::LeftToRight,
+        core: &mut core,
+        with_permissions: false,
+        force: false,
+        statuses: &statuses,
+        session_id: "unused",
+        expected_target_contents: &expected,
+    };
+
+    for name in ["changed.txt", "appeared.txt"] {
+        assert!(
+            execute_single_merge(&mut ctx, name).is_err(),
+            "{name} must not be written"
+        );
+    }
+    let result = execute_single_merge(&mut ctx, "ok.txt").unwrap();
+
+    assert!(matches!(result, SingleMergeResult::Merged(_)));
+    for name in ["changed.txt", "appeared.txt"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(name)).unwrap(),
+            "third party\n"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(destination.path().join("ok.txt")).unwrap(),
+        "new ok.txt\n"
+    );
+}
+
 // @kotowari[EX-merge-022]
 #[test]
 fn unchanged_destination_is_updated_after_content_recheck() {

@@ -23,13 +23,6 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 
 --with-permissions で書き込み先の権限を変えることに失敗したとき、実装はログに警告を残すだけで、そのファイルの結果を status "ok" のまま出す。旧資料に記述がなくテストもない。
 
-### FLAG-merge-006: 更新の検知と中断の範囲
-- kind: ambiguity
-- related: REQ-merge-011
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A10
-
-旧総合仕様の楽観的ロックの節は差分を取得した時点から書き込み先が変更されていたらマージを中断するとするが、CLI の実装はそのファイルだけを書かずに failed に "destination content changed since comparison: パス"（比較したときになかった書き込み先が現れたときは "destination appeared since comparison: パス"）で出し、他のファイルは続ける。中断が merge 全体を止める意味かが読み分けられない。
-
 ### FLAG-merge-007: 読み込み元の権限が 0 のときの複製
 - kind: gap
 - related: REQ-merge-014

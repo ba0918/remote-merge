@@ -11,6 +11,13 @@
 
 差分確認からマージまでに書き込み先の中身が変わったとき、サイズと更新時刻が元と同じでも、古い状態を前提としたマージは書き込みを止め、変更を報告する。
 
+### REQ-merge-033: 更新を検知したファイルだけを止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9
+- verification: unit
+
+merge と sync は、比べたときから書き込み先の中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに failed に出し、他のファイルの処理は続ける。
+
 ## Examples
 
 ```gherkin
