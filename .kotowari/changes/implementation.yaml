@@ -7,6 +7,9 @@ entries:
       - path: "Cargo.lock"
         before: "sha256:4160f7ce4368acd22d3e0a5997e74d08d0bb6fa50cc6386fe09a51f6afc395f1"
         after: "sha256:6e179efa25573b84ffced69d0cbf8dd4549a6178defdf3a510e90099646ef91e"
+      - path: "crates/remote-merge-agent/src/agent/ssh_transport.rs"
+        before: "sha256:eb9fa3a74b2dbf3f867d01c9ee8ff377e58a9c7388f36c85a32f3867ccbef396"
+        after: "sha256:ad1972129cf4512470c6990038622c87078350e04896b9b74b314b20b6391eaa"
       - path: "crates/remote-merge-config/src/lib.rs"
         before: "sha256:003a8ec4aa2fde70d5c202c6ac4d0424ea24dd4328272e148d9e918e30912ed1"
         after: "sha256:1483279da985bd9f63e43ecd91de86c10d6cb0c94858ad0753222679a28c7913"
@@ -123,7 +126,7 @@ entries:
         after: null
       - path: "crates/remote-merge/src/cli/logs.rs"
         before: "sha256:d13b009062bef26eeb232e4f39f3b81c603b51cdc5fb4d2ca3f5cbd06d7e3c6c"
-        after: "sha256:5ced14c7a9a677ebc3626a0a586e0da1b18a963478887f72c2ebba47bce7b1ea"
+        after: "sha256:63ccce9ff459b8371633a1f869b79cbb228ada1c53fe4d2ba1bd62d2880b6114"
       - path: "crates/remote-merge/src/cli/merge.rs"
         before: "sha256:d1ad7516096c7474ff27d73690cb035f93ee734090e2bc3fc7ebeda1386a1544"
         after: "sha256:bf1a8f4860055bfe1893a0b8bdba5ffd112c69c6933e318e5b35e65600a2cc77"
@@ -225,7 +228,7 @@ entries:
         after: null
       - path: "crates/remote-merge/src/main.rs"
         before: "sha256:ad034fce77b992019692d2a957e2dbf1e3dd9d0b808b8962f8dd61dcc9ec8b70"
-        after: "sha256:f2c88e7b4e80a6dbeed1188ca6faba0c09a9ef0f86e5325e59f1b37ef569fb2a"
+        after: "sha256:ea0ce9eb53868532f54a206fee506c192e56c3bc666ecb14dd55256598d22ee0"
       - path: "crates/remote-merge/src/merge/mod.rs"
         before: "sha256:811aee7f5c852ca80bb3b62fa1bd7b421c745ee2026734b7e6dab4f279a5b618"
         after: "sha256:44c54f56d6fc455a0b47fed0cc67c115af83730b069bf9e1c14d40fde8e32cf1"
@@ -301,12 +304,15 @@ entries:
       - path: "crates/remote-merge/src/telemetry/event_types.rs"
         before: "sha256:ed21b311a4eab6914035fb87b608fb370c3dbdf4632225ac4c8fced3086224e7"
         after: null
+      - path: "crates/remote-merge/src/telemetry/file_filter.rs"
+        before: null
+        after: "sha256:783c33e883ba603457f62073065a54b9369d53e5420f097797ecb0220fa4b155"
       - path: "crates/remote-merge/src/telemetry/log_dir.rs"
         before: null
-        after: "sha256:a9c48a7527fe182fb44fc1a2bd29b98e9c85a7bb0dd70a87453fcee1fc014c09"
+        after: "sha256:7ec88789eea81b5437129ec68e657ad10fff7890d75a2841770b8ee1c2da6ad3"
       - path: "crates/remote-merge/src/telemetry/mod.rs"
         before: "sha256:cb1ef6aa207ed21ffb4e0498d4a08ee1eb3666d0db2ef5da1137620e1a349f21"
-        after: "sha256:ba5890f54f67cfd5a0babc357dc7aafc201e9d28dfa1074d7a566a675f9812ba"
+        after: "sha256:0089b6c513654748aa69bc027af75c9aa4d064823088b111f8852a33d1345eef"
       - path: "crates/remote-merge/src/telemetry/state_dumper.rs"
         before: "sha256:e5dedc44eda06e47ad928db5b9b1e371c3c0565d8b57632aaac66c4759a288aa"
         after: null
@@ -402,7 +408,7 @@ entries:
         after: null
       - path: "crates/remote-merge/tests/contract.rs"
         before: "sha256:b0b796679fae9f9c815ce8f26c6bffdecdba5e3ed19969cafab3e293de79d256"
-        after: "sha256:b616717f2f89d3f9c063c4d12d6dcf6da2e4c28b856d7051f84482c4812df578"
+        after: "sha256:8e3b6cffe6b9b6c235daf2ee13e013ad3a7b6d274143efa6bd979f8075b4d3ab"
       - path: "crates/remote-merge/tests/contract/backup_cleanup.rs"
         before: "sha256:6cf0ffa9ca1a8b0461ac0b498ef0be7cd617fb08635817787dd789b6c6ce313c"
         after: "sha256:7f82d922e206b12d1a35fbe20ea7761a4732b06f3c949f4808279ec8058f0dd7"
@@ -423,7 +429,7 @@ entries:
         after: "sha256:829f84c9b6b59fbb64cfabfc9a63f205e33d9404544a2833931a4c7fd6370b7a"
       - path: "crates/remote-merge/tests/contract/cli_usage.rs"
         before: null
-        after: "sha256:9b17c3039a5ea56923d3d2d4259c969d7351a90f0608e070c5a4107f20d2da24"
+        after: "sha256:4e58583a286b9d7b37a92d3a5d71b4c7c52c78d98493334ac24314e1b332fe11"
       - path: "crates/remote-merge/tests/contract/config_loading_cli.rs"
         before: "sha256:3306f6aee3ebc86a295defd03165d96b31780aa25881c5f4624503b2961267ca"
         after: "sha256:ea1d6b89fcc3d5e8bafe808e06b0118a528df41f3d8692b10e2cd4c2b5a62f6a"
@@ -436,6 +442,9 @@ entries:
       - path: "crates/remote-merge/tests/contract/diagnostics.rs"
         before: "sha256:033525602cfa8ee154e956e57b3ac12ac304873c29fa47473bf08e74fb87c26c"
         after: "sha256:2fe713fbf61f0e33a771d5a8a3ac4670cb3baaa9fd7c070e9a168f812b970f20"
+      - path: "crates/remote-merge/tests/contract/diagnostics_sent_data.rs"
+        before: null
+        after: "sha256:60934c5bbae4ba0b4ba5f1437c21ea28b3d754366646e19217752d8216740e75"
       - path: "crates/remote-merge/tests/contract/init.rs"
         before: "sha256:53197c5ebac494d52ac8ee5797dac020b6895c8da422fc0749b777cf4bdae8ab"
         after: "sha256:9c2ae9c214cb97b80becfa2e7aab0d95f89c0e6d9284744a11d7e1d0c59ee90a"
@@ -513,7 +522,7 @@ entries:
         after: "sha256:84025f5431f5ecb3f9fd3e4e6c9398a72115033f29e4193969f9689baa7732e4"
       - path: "skills/remote-merge/SKILL.md"
         before: "sha256:1c5ba596ba957b41b17340d3d2922992d6178ad83f0f413158ccffcca488f9c3"
-        after: "sha256:e724c43067e48a341c4203d15b16011fc678e3883beb84ac76d4435899c5eca6"
+        after: "sha256:7e715c3460c5fa814449be1f4520823dd943a6b1171e653463725de1d41188a6"
       - path: "skills/remote-merge/references/json-schemas.md"
         before: "sha256:4138343ff9e5bc61e7ab0aadd17fbd07e1345ceba9dd37e58f49ce3f121f03c6"
         after: "sha256:2d438310ed157e1522c87ac094f96251a038f578e7c5cef1788e02ba82f773bd"
@@ -523,9 +532,9 @@ entries:
       - path: "docs/ir/backup/sessions.md"
         sha256: "sha256:96c06b0ebcca8cc2fd05f0941bec9070259c666c1eeb7f25f9ecfbd47dc6b939"
       - path: "docs/ir/cli/diagnostics.md"
-        sha256: "sha256:038b8d1faa2b8d3690f218cd91209fc9a492ca93b1018f60154557bacc71efa1"
+        sha256: "sha256:0f56261800ed4eb2052b0eb696999047c42d8ef09a03d89bd5906e2a282df477"
       - path: "docs/ir/cli/safety.md"
-        sha256: "sha256:beb3821fccd53a932d22a984c9a378a323b908d579573c0ceca04831d9b39871"
+        sha256: "sha256:ab7232316f3cf8ca2dece83ab5c48f149ec8b2ae53f14945c884e23ea81a712b"
       - path: "docs/ir/config/defaults.md"
         sha256: "sha256:90de7d3c57efe15fb13bc0f70fa6102a2f2d5b57a6fbe944f256e3788fb30b30"
       - path: "docs/ir/config/filters.md"
@@ -545,7 +554,7 @@ entries:
       - path: "docs/ir/testing/environments.md"
         sha256: "sha256:adcc5176a42920ba94b3eb2718f3df18d889f121e5d56dcd04083ae6a0198add"
     conclusion: new
-    reason: "TUI を完全に取り除く決定（A1・A3・A4・A12）に従い、TUI のコード・テスト・テストの道具・events と操作イベントの記録、TUI だけが使っていた依存と下位 crate の項目を除いた。引数なしの起動はサブコマンドを必須にして使い方を出し終了コード 2 で終わり何も書き込まない（A2・A19、REQ-cli-076）。CLI の実行は agent を除き情報レベル以上の診断ログを保存し、開けなければ黙って続け、10MB を超えれば実行の始めに切り詰める（A14・A16〜A18、REQ-cli-075・014・015）。確認手段のない接続の拒否は is_tui をなくし標準入力の確認で担う（A20、REQ-ssh-001・002）。badge_scan_max_files は値を検査せずに一度だけ警告して使わない（A5・A13・A21、REQ-config-031・013・017・027）。期限切れの整理は merge・sync の開始時だけになり（A7、REQ-backup-025）、hunk マージの確認と REQ-backup-020 のテストを除いた（A7・A15）。--config を無視するサブコマンドのテストは logs に絞った（A4、REQ-config-028）。文書と CLI の説明を CLI 専用に書き直した（A11）。"
+    reason: "TUI を完全に取り除く決定（A1・A3・A4・A12）に従い、TUI のコード・テスト・テストの道具・events と操作イベントの記録、TUI だけが使っていた依存と下位 crate の項目を除いた。引数なしの起動はサブコマンドを必須にして使い方を出し終了コード 2 で終わり何も書き込まず、--help と --version は例外として標準出力に出し終了コード 0 で終わる（A2・A19・A24、REQ-cli-076）。CLI の実行は agent を除き情報レベル以上の診断ログを保存し、開けなければ黙って続け、10MB を超えれば実行の始めに切り詰める（A14・A16〜A18、REQ-cli-075・014・015）。ファイルには target が remote_merge で始まる自身の記録だけを通し、外部の crate の記録とリモートの標準エラーの中継は細かさの指定にかかわらず残さない（A22）。キャッシュの場所が決まらなければ /tmp に逃がさず保存をあきらめ、logs は何も出さない（A23）。--log-level は粗い指定でもファイルをその細かさにし、手引きの説明をこれに合わせた（A25）。確認手段のない接続の拒否は is_tui をなくし標準入力の確認で担う（A20、REQ-ssh-001・002）。badge_scan_max_files は値を検査せずに一度だけ警告して使わない（A5・A13・A21、REQ-config-031・013・017・027）。期限切れの整理は merge・sync の開始時だけになり（A7、REQ-backup-025）、hunk マージの確認と REQ-backup-020 のテストを除いた（A7・A15）。--config を無視するサブコマンドのテストは logs に絞った（A4、REQ-config-028）。文書と CLI の説明を CLI 専用に書き直した（A11）。"
     requirements:
       - REQ-cli-076
       - REQ-cli-075
@@ -577,5 +586,9 @@ entries:
       - "docs/decision/records/2026-10-04-tui-disposition.md#A19"
       - "docs/decision/records/2026-10-04-tui-disposition.md#A20"
       - "docs/decision/records/2026-10-04-tui-disposition.md#A21"
+      - "docs/decision/records/2026-10-04-tui-disposition.md#A22"
+      - "docs/decision/records/2026-10-04-tui-disposition.md#A23"
+      - "docs/decision/records/2026-10-04-tui-disposition.md#A24"
+      - "docs/decision/records/2026-10-04-tui-disposition.md#A25"
     handoff: null
     gaps: []
