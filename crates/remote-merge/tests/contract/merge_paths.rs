@@ -1353,6 +1353,60 @@ fn delete_rechecks_a_link_that_appears_after_the_listing() {
     );
 }
 
+// @kotowari[REQ-merge-034]
+#[test]
+fn deletions_that_cannot_inspect_or_remove_the_destination_fail_without_stopping_the_rest() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    for dir in ["hidden", "locked"] {
+        fs::create_dir(destination.path().join(dir)).unwrap();
+        fs::write(destination.path().join(dir).join("a.txt"), "keep\n").unwrap();
+    }
+    fs::write(destination.path().join("free.txt"), "remove\n").unwrap();
+    let hidden = destination.path().join("hidden");
+    let locked = destination.path().join("locked");
+    // hidden は中を調べられず、locked は中のファイルを消せない
+    fs::set_permissions(&hidden, fs::Permissions::from_mode(0o000)).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    // root で実行すると権限を落としても調べられ消せてしまうため、前提の崩れを知らせる
+    let preconditions_hold = fs::symlink_metadata(hidden.join("a.txt")).is_err()
+        && fs::write(locked.join("probe.txt"), "").is_err();
+    let (mut config, targets) = setup(&local, &destination, &backup);
+    config.backup.enabled = false;
+    let mut core = CoreRuntime::with_targets(config, targets);
+
+    let (deleted, skipped, failures) = execute_deletions(
+        &mut core,
+        &Side::Remote("develop".into()),
+        &[
+            "hidden/a.txt".into(),
+            "locked/a.txt".into(),
+            "free.txt".into(),
+        ],
+        "unused",
+    );
+
+    fs::set_permissions(&hidden, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        preconditions_hold,
+        "test needs an uninspectable and an unremovable destination"
+    );
+    let failed: Vec<&str> = failures.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(failed, ["hidden/a.txt", "locked/a.txt"], "{failures:?}");
+    assert!(skipped.is_empty(), "{skipped:?}");
+    let deleted: Vec<&str> = deleted.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(deleted, ["free.txt"]);
+    assert!(!destination.path().join("free.txt").exists());
+    for dir in ["hidden", "locked"] {
+        assert_eq!(
+            fs::read_to_string(destination.path().join(dir).join("a.txt")).unwrap(),
+            "keep\n"
+        );
+    }
+}
+
 // @kotowari[EX-merge-006]
 #[test]
 fn matching_symlinks_are_not_rewritten() {

@@ -36,3 +36,6 @@ merge とバックアップの話題には、取り込みのときに未決と�
 - A9 FLAG-merge-006 を閉じ、[REQ-merge-011](../../ir/merge/concurrency.md#REQ-merge-011) の後に [REQ-merge-033](../../ir/merge/concurrency.md#REQ-merge-033) を足す。merge と sync は、比べたときから書き込み先の中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに failed に出し、他のファイルの処理は続ける。failed の error の文言は定めない。
   - why: CLI の merge と sync は、書き込み直前の確認で検知した変更をそのファイルの失敗として failed に入れ、次のファイルへ進む。REQ-merge-011 が求めるのは古い状態を前提とした書き込みを止めて変更を報告することで、止める範囲をそのファイルに限るこの挙動はそれを満たし、読めないファイルをそのファイルだけ失敗にする [REQ-merge-017](../../ir/merge/read-failure.md#REQ-merge-017) とも揃う。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A10 FLAG-merge-014 を閉じ、[REQ-merge-034](../../ir/merge/deletion.md#REQ-merge-034) を足す。--delete の merge と sync は、削除の直前に書き込み先の種類を調べられなかったファイルと、削除に失敗したファイルを failed に出し、他のファイルの処理は続ける。failed の error の文言は定めず、旧資料の skipped の reason "cannot resolve path: <原因>" は採らない。
+  - why: 今の削除の処理はこの二つの場合をそのファイルの失敗として failed に入れ、次の対象へ進む。[REQ-merge-008](../../ir/merge/deletion.md#REQ-merge-008) と [REQ-merge-016](../../ir/merge/deletion.md#REQ-merge-016) はこの場合を定めておらず、削除しなかったものを失敗として知らせるこの挙動は、バックアップに失敗した対象を削除せずに failed に出す REQ-merge-016 と [REQ-backup-017](../../ir/backup/failure.md#REQ-backup-017) の扱いと揃う。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

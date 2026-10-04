@@ -58,13 +58,6 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 
 --dry-run の merge --delete で書き込む予定がなく削除予定だけがあるとき、実装はテキストで削除予定を削除済みの形 "Deleted: パス" で出し、JSON でも deleted の status を実際に削除したときと同じ "ok" にするため、予定と実行済みを区別できない。旧資料に記述がなくテストもない。
 
-### FLAG-merge-014: 削除の直前に調べられないときと削除の失敗
-- kind: contradiction
-- related: REQ-merge-008, REQ-merge-016
-- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A12
-
-旧個別仕様 symlink-merge の 3.3 は種類を判定するためにパスを辿れなかった対象を skipped の reason "cannot resolve path: <原因>" で出すとするが、実装の --delete は削除の直前に書き込み先を調べられなかったファイルを failed の error "cannot inspect destination: 原因" で出す。削除そのものに失敗したときの failed の error "Delete failed: 原因" は記述もテストもない。
-
 ### FLAG-merge-016: CLI の --hunks の確認と衝突
 - kind: contradiction
 - related: REQ-merge-010, REQ-merge-031
