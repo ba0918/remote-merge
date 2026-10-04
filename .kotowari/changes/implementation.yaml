@@ -1,36 +1,32 @@
 version: 1
 entries:
-  - id: engine-rollback-preflight-ownership
-    base: 07c08bec370b9cd9b3b45bb6dece2610650639fd
+  - id: tui-single-merge-kind-mismatch
+    base: 4b21c3de5769e5a5fcc07147ebe593e4aca38b54
     role: implementer
     files:
-      - path: crates/remote-merge-engine/src/backup_store.rs
-        before: sha256:904cf4da6b59babfc81a8aa984f327c58e6732c2f9da598da5d585312ee3aaf9
-        after: sha256:999380c9e01dcebb494459c832259a069bea8655befa5f5aeb1d6c0324f249b3
-      - path: crates/remote-merge-engine/src/service/rollback.rs
-        before: sha256:322652b5e67f683daa40eb0fc2b763ad20ea4eddf59169e7836be78231229bc7
-        after: sha256:aef98444dfe24f33728ccdcd099c8e9bc1a22be91a0d18c1894e43ddc66a1873
-      - path: crates/remote-merge/src/runtime/side_io.rs
-        before: sha256:55d288ad2ace9a2ae383a258670f58022cae498d3a823738124048f292900706
-        after: sha256:c6a57591343935488b2da572c4932ef96f67e1c105d00875b4f692e8bc2d0a0d
-    ir: []
-    conclusion: new
+      - path: crates/remote-merge/src/handler/merge_exec.rs
+        before: sha256:cd3f9a7878bc225675d5ee5e9de6500caed363897166f6e33ee2f0f8232343ce
+        after: sha256:1d0ed1bc98f0448baf796d59f69137f7d691c21a2132ed75d779b2134c990c94
+      - path: crates/remote-merge/tests/contract.rs
+        before: sha256:ed47b4567b3adbdb312cdb854575e2d5fb1770c218a6fdeb7617e250904ba007
+        after: sha256:3c6322b2eb114d5097a1825bcce7cefd3a8f2b40021ac2a14830ae6e4e144340
+      - path: crates/remote-merge/tests/contract/tui_merge_kinds.rs
+        before: null
+        after: sha256:5e4e553c22902adf5501bee1ddd3cd3c7d4533bae2b735aa9f5855491ccd2602
+    ir:
+      - path: docs/ir/merge/symlink.md
+        sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
+    conclusion: existing
     reason: >-
-      承認された三sourceの所属変更だけを固定base全体で照合する。
-      要求全体のfailureと二理由のskip展開、および保存レコードの変換matchを維持し、
-      Option結果の外側と既存型のpath、検査エラーのDisplay文字列化だけを境界に合わせる。
-      第一passの逐次readとplain Symlinkの検査省略、即時return、第二passのreadと全I/O順序を保つ。
-      全sourceの再構成比較、全3111件のidentityとmetadataの一致、retryなしの実測pass、
-      公開型と旧signatureのcompile probe、依存metadataと配布経路の検査で確認した。
-      既存116 SideIOテストを含む全テスト本文・期待値・mark、依存・feature・版・IRを変えない。
-      既存SkipDifferentKindのcaller不具合を修正せず、製品全体の適合や独立承認を宣言しない。
-    requirements: []
-    decisions:
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#A1
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#D1
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#D2
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#D3
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#D4
-      - docs/decision/records/2026-10-04-engine-rollback-preflight-extraction.md#D5
+      REQ-merge-001は種類の違う既存の書き込み先を変更せずスキップすると定め、EX-merge-001は
+      通常ファイルから末尾symlinkへのマージでリンクとリンク先が変わらないことを求める。
+      TUIのexecute_mergeはSkipDifferentKindでメッセージだけ設定して書き込みへ進んでいたため、
+      その分岐で戻るようにした。要求・IR・決定は変えず、既存要求の範囲に収まる。
+      確認ダイアログのyからmtime検査を経てexecute_mergeに至る実ハンドラを両方向で呼ぶ
+      EX-merge-001の契約テストを追加し、修正前は両方向でリンク先が上書きされて失敗、
+      修正後に成功することを確認した。hunkマージと変更書き込みの経路は対象外。
+    requirements:
+      - REQ-merge-001
+    decisions: []
     handoff: null
     gaps: []
