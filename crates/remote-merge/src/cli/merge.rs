@@ -565,7 +565,7 @@ fn fetch_trees_and_statuses_for_merge(
         }
     };
 
-    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+    let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
     let paths_to_compare = needs_merge_content_compare(

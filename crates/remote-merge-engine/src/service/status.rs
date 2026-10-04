@@ -154,14 +154,6 @@ fn collect_all_file_paths(left: &TreeIndex<'_>, right: &TreeIndex<'_>) -> Vec<St
     paths
 }
 
-/// 指定パスがセンシティブファイルかどうかを判定する。
-pub fn is_sensitive(path: &str, patterns: &[String]) -> bool {
-    let filename = path.rsplit('/').next().unwrap_or(path);
-    patterns
-        .iter()
-        .any(|p| glob_match::glob_match(p, filename) || glob_match::glob_match(p, path))
-}
-
 /// ツリー構造からファイルの差分ステータスを計算する（純粋関数）。
 ///
 /// 存在チェック + メタデータ比較（size, mtime）で判定。
@@ -172,11 +164,7 @@ pub fn is_sensitive(path: &str, patterns: &[String]) -> bool {
 ///
 /// コンテンツ比較で正確な判定が必要なファイルは `needs_content_compare` で抽出し、
 /// `refine_status_with_content` で最終判定する。
-pub fn compute_status_from_trees(
-    left: &FileTree,
-    right: &FileTree,
-    _sensitive_patterns: &[String],
-) -> Vec<FileStatus> {
+pub fn compute_status_from_trees(left: &FileTree, right: &FileTree) -> Vec<FileStatus> {
     let left_index = TreeIndex::build(left);
     let right_index = TreeIndex::build(right);
     let all_paths = collect_all_file_paths(&left_index, &right_index);
@@ -566,38 +554,13 @@ mod tests {
         }
     }
 
-    // ── is_sensitive ──
-
-    #[test]
-    fn test_sensitive_env_file() {
-        let patterns = vec![".env".into(), ".env.*".into()];
-        assert!(is_sensitive(".env", &patterns));
-        assert!(is_sensitive(".env.production", &patterns));
-        assert!(!is_sensitive("README.md", &patterns));
-    }
-
-    #[test]
-    fn test_sensitive_nested_path() {
-        let patterns = vec!["*.pem".into()];
-        assert!(is_sensitive("certs/server.pem", &patterns));
-        assert!(!is_sensitive("certs/server.crt", &patterns));
-    }
-
-    #[test]
-    fn test_sensitive_wildcard() {
-        let patterns = vec!["*secret*".into()];
-        assert!(is_sensitive("config/secret.yml", &patterns));
-        assert!(is_sensitive("my-secret-key.txt", &patterns));
-        assert!(!is_sensitive("public.yml", &patterns));
-    }
-
     // ── compute_status_from_trees ──
 
     #[test]
     fn test_status_left_only() {
         let left = make_tree(vec![FileNode::new_file("only_local.rs")]);
         let right = make_tree(vec![]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::LeftOnly);
     }
@@ -606,7 +569,7 @@ mod tests {
     fn test_status_right_only() {
         let left = make_tree(vec![]);
         let right = make_tree(vec![FileNode::new_file("only_remote.rs")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::RightOnly);
     }
@@ -615,7 +578,7 @@ mod tests {
     fn test_status_both_exist() {
         let left = make_tree(vec![FileNode::new_file("common.rs")]);
         let right = make_tree(vec![FileNode::new_file("common.rs")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         // コンテンツ未比較なので Modified
         assert_eq!(files[0].status, FileStatusKind::Modified);
@@ -631,7 +594,7 @@ mod tests {
             "src",
             vec![FileNode::new_file("b.rs"), FileNode::new_file("c.rs")],
         )]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 3);
 
         let a = files.iter().find(|f| f.path == "src/a.rs").unwrap();
@@ -652,7 +615,7 @@ mod tests {
             vec![FileNode::new_file("main.rs")],
         )]);
 
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "src/main.rs");
@@ -667,7 +630,7 @@ mod tests {
         )]);
         let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
 
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
 
         let root_conflict = files.iter().find(|f| f.path == "src").unwrap();
         let nested = files.iter().find(|f| f.path == "src/main.rs").unwrap();
@@ -829,7 +792,7 @@ mod tests {
         let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
         let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
         let right = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::Equal);
     }
@@ -840,7 +803,7 @@ mod tests {
         let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
         let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts))]);
         let right = make_tree(vec![make_file_with_meta("a.rs", 200, Some(ts))]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::Modified);
     }
@@ -852,7 +815,7 @@ mod tests {
         let ts2 = chrono::Utc.timestamp_opt(1700000001, 0).unwrap();
         let left = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts1))]);
         let right = make_tree(vec![make_file_with_meta("a.rs", 100, Some(ts2))]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         // size一致 + mtime異なる → Modified（コンテンツ比較候補）
         assert_eq!(files[0].status, FileStatusKind::Modified);
@@ -863,7 +826,7 @@ mod tests {
         // size/mtime が None → Modified（安全側）
         let left = make_tree(vec![FileNode::new_file("a.rs")]);
         let right = make_tree(vec![FileNode::new_file("a.rs")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files[0].status, FileStatusKind::Modified);
     }
 
@@ -884,7 +847,7 @@ mod tests {
             make_file_with_meta("a.rs", 999, Some(ts)),
             make_file_with_meta("b.rs", 200, Some(ts2)),
         ]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         let need_compare = needs_content_compare(&files, &left, &right);
 
         // a.rs は size 違うのでコンテンツ比較不要
@@ -900,7 +863,7 @@ mod tests {
             vec![FileNode::new_file("main.rs")],
         )]);
         let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
 
         let need_compare = needs_content_compare(&files, &left, &right);
 
@@ -922,7 +885,7 @@ mod tests {
             make_file_with_meta("a.rs", 100, Some(ts)), // Equal by metadata
             make_file_with_meta("b.rs", 999, Some(ts)), // Modified by size
         ]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
 
         // needs_content_compare_all は Equal + Modified の両方を返す
         let all = needs_content_compare_all(&files);
@@ -934,7 +897,7 @@ mod tests {
     fn test_needs_content_compare_all_excludes_left_right_only() {
         let left = make_tree(vec![FileNode::new_file("only_left.rs")]);
         let right = make_tree(vec![FileNode::new_file("only_right.rs")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         let all = needs_content_compare_all(&files);
         assert!(all.is_empty());
     }
@@ -1269,7 +1232,7 @@ mod tests {
     fn test_status_symlink_same_target_is_equal() {
         let left = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
         let right = make_tree(vec![FileNode::new_symlink("link", "/opt/target")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::Equal);
     }
@@ -1278,7 +1241,7 @@ mod tests {
     fn test_status_symlink_different_target_is_modified() {
         let left = make_tree(vec![FileNode::new_symlink("link", "/opt/old")]);
         let right = make_tree(vec![FileNode::new_symlink("link", "/opt/new")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::Modified);
     }
@@ -1287,7 +1250,7 @@ mod tests {
     fn test_status_symlink_vs_file_is_modified() {
         let left = make_tree(vec![FileNode::new_symlink("item", "/opt/target")]);
         let right = make_tree(vec![FileNode::new_file("item")]);
-        let files = compute_status_from_trees(&left, &right, &[]);
+        let files = compute_status_from_trees(&left, &right);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].status, FileStatusKind::Modified);
     }

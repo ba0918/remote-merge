@@ -140,7 +140,7 @@ fn unknown_size_or_timestamp_is_decided_by_the_content() {
         (b"bravo\n", FileStatusKind::Equal),
         (b"other\n", FileStatusKind::Modified),
     ] {
-        let mut files = compute_status_from_trees(&left, &right, &[]);
+        let mut files = compute_status_from_trees(&left, &right);
         let paths = needs_content_compare(&files, &left, &right);
         assert_eq!(paths.len(), 2, "{paths:?}");
         let contents: HashMap<String, (Vec<u8>, Vec<u8>)> = paths

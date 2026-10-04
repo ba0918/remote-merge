@@ -87,7 +87,7 @@ pub fn execute_status(
     let right_info = build_source_info(&pair.right, &core)?;
 
     // ステータス計算（メタデータ比較）
-    let mut files = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+    let mut files = compute_status_from_trees(&left_tree, &right_tree);
 
     // コンテンツ比較が必要なファイルを抽出
     // --checksum: 全ファイルを比較（メタデータ quick check をバイパス）

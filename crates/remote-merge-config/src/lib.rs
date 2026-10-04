@@ -44,7 +44,6 @@ pub struct LocalConfig {
 #[derive(Debug, Clone, Default)]
 pub struct FilterConfig {
     pub exclude: Vec<String>,
-    pub sensitive: Vec<String>,
     /// include フィルター: 指定時はこれらのパス配下のみをスキャン対象にする
     pub include: Vec<String>,
 }

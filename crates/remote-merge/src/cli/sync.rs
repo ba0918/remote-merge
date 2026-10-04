@@ -164,8 +164,7 @@ pub fn execute_sync(
             };
 
         // ステータス計算
-        let mut statuses =
-            compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+        let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
         // メタデータだけでは判定できないファイルのコンテンツ比較
         let paths_to_compare = needs_merge_content_compare(

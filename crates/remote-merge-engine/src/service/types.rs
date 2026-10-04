@@ -530,8 +530,8 @@ mod tests {
                 hunk_info: None,
             }],
             skipped: vec![MergeSkipped {
-                path: ".env".into(),
-                reason: "sensitive file".into(),
+                path: "kind.txt".into(),
+                reason: "source and destination have different file types".into(),
             }],
             deleted: vec![],
             failed: vec![],
@@ -540,7 +540,7 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"merged\""));
         assert!(json.contains("\"skipped\""));
-        assert!(json.contains("\"sensitive file\""));
+        assert!(json.contains("\"source and destination have different file types\""));
         // deleted は空でも常に含まれる
         assert!(
             json.contains("\"deleted\""),

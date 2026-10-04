@@ -125,7 +125,7 @@ fn run_scan(
     // 1. ツリー構造に変換してメタデータ比較
     let left_tree = build_temp_tree(&left_root, &left_nodes);
     let right_tree = build_temp_tree(&right_root, &right_nodes);
-    let mut files = compute_status_from_trees(&left_tree, &right_tree, &[]);
+    let mut files = compute_status_from_trees(&left_tree, &right_tree);
 
     // 2. コンテンツ比較が必要なファイルを抽出
     let paths_to_compare = needs_content_compare(&files, &left_tree, &right_tree);

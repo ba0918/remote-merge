@@ -140,14 +140,9 @@ pub fn execute_diff(
                 &config,
                 max_entries,
             )?,
-            ScanStrategy::FullScan => run_diff_full_scan(
-                &args.paths,
-                &pair.left,
-                &pair.right,
-                &mut core,
-                &config,
-                max_entries,
-            )?,
+            ScanStrategy::FullScan => {
+                run_diff_full_scan(&args.paths, &pair.left, &pair.right, &mut core, max_entries)?
+            }
         };
 
     // Ref server handling
@@ -751,15 +746,7 @@ fn run_diff_partial_scan(
     right_tree.nodes.dedup_by_key(|n| n.name.clone());
 
     // 以降は FullScan と同じフロー
-    compute_statuses_and_resolve(
-        original_paths,
-        left,
-        right,
-        core,
-        config,
-        left_tree,
-        right_tree,
-    )
+    compute_statuses_and_resolve(original_paths, left, right, core, left_tree, right_tree)
 }
 
 /// FullScan: 従来通り全ツリーを取得する。
@@ -768,12 +755,11 @@ fn run_diff_full_scan(
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
-    config: &AppConfig,
     max_entries: usize,
 ) -> anyhow::Result<DiffScanResult> {
     let left_tree = core.fetch_tree_recursive(left, max_entries, true)?;
     let right_tree = core.fetch_tree_recursive(right, max_entries, true)?;
-    compute_statuses_and_resolve(paths, left, right, core, config, left_tree, right_tree)
+    compute_statuses_and_resolve(paths, left, right, core, left_tree, right_tree)
 }
 
 /// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（PartialScan / FullScan 共通）
@@ -782,11 +768,10 @@ fn compute_statuses_and_resolve(
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
-    config: &AppConfig,
     left_tree: FileTree,
     right_tree: FileTree,
 ) -> anyhow::Result<DiffScanResult> {
-    let mut statuses = compute_status_from_trees(&left_tree, &right_tree, &config.filter.sensitive);
+    let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
