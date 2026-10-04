@@ -9,7 +9,7 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 
 ## Agreements
 
-- A1 FLAG-cli-001 を閉じ、[REQ-cli-070](../../ir/cli/status-output.md#REQ-cli-070) を足す。-v を指定し右がリモートの status は、JSON の "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。-v がないときと右がローカルのときは出さない。旧資料の {"status": "connected"} の形は採らない。
+- A1 FLAG-cli-001 を閉じ、[REQ-cli-070](../../ir/cli/status-output.md#REQ-cli-070) を足す。-v を指定し右がリモートの status は、JSON の "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行（--ref があれば "Ref:" の行）の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。-v がないときと右がローカルのときは出さない。旧資料の {"status": "connected"} の形は採らない。
   - why: 今の status はそのとおりに動き、利用者向けの手引きの JSON の説明も同じ文字列の形を示している。承認済みの [REQ-cli-032](../../ir/cli/status-output.md#REQ-cli-032) は "agent" を定めておらず、この挙動と矛盾する承認済みの要件はない。食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
 - A2 FLAG-cli-005 を閉じ、--ref を指定した status でも、サイズが同じで更新時刻が違う機密ファイルの左右の中身を読み比べ、同じなら "equal" とするようにコードを直す。参照先とは今までどおり中身を比べない。
@@ -21,7 +21,7 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 - A4 FLAG-cli-009 を閉じ、[REQ-cli-071](../../ir/cli/sync.md#REQ-cli-071) を足す。読み込み元への接続かツリーの取得に失敗した sync は、書き込み先ごとの結果を出さずにエラーで止まり、どの書き込み先も変更しない。
   - why: 今の sync は読み込み元の接続とツリーの取得を書き込み先のどれにも接続する前に行い、失敗すれば全体をエラーで止める。承認済みの [REQ-merge-015](../../ir/merge/multi-target.md#REQ-merge-015) が他を処理し続けると定めるのは一つの書き込み先が失敗した場合で、読み込み元はすべての書き込み先に共通するため、それを読めなければ処理を続けられる書き込み先がない。エラーで止まったときの終了コード 2 は承認済みの [REQ-cli-044](../../ir/cli/sync.md#REQ-cli-044) が定めている。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
-- A5 FLAG-cli-012 を閉じ、[REQ-cli-072](../../ir/cli/sync.md#REQ-cli-072) を足す。sync のテキスト出力は今の形（"Sync: 元 → 先" の見出し、書き込み先ごとの "[先] 状態" の行、"ok"・"plan"・"skip"・"FAILED" で始まるファイルの行、最後の "Summary:" の行、書き込む予定も失敗もないときの "No files to sync."）とし、旧資料の記号付きの行と "Total:" の行は採らない。--dry-run で削除する予定の行の形は未決の FLAG-cli-013 に残し、この要件では定めない。スキップと失敗の理由の文言も定めない。
+- A5 FLAG-cli-012 を閉じ、[REQ-cli-072](../../ir/cli/sync.md#REQ-cli-072) を足す。sync のテキスト出力は今の形とする。"Sync: 元 → 先1, 先2" の見出しに続けて、書き込み先ごとに "[先] 状態" の行と、書き込んだファイルを "ok"、--dry-run で書き込む予定のファイルを "plan"、スキップしたファイルを "skip"、失敗したファイルを "FAILED" で始めてパスを続けた行を出し、スキップと失敗の行にはパスの後に括弧で囲んだ理由を添える。最後に "Summary: 成功した書き込み先の数/書き込み先の数 servers successful, N files merged" の行を出し、削除したファイルがあれば ", N files deleted"、失敗したファイルがあれば ", N files failed" を続ける。どの書き込み先にも書き込む予定も削除する予定も失敗もないときは、見出しの前に "No files to sync." の行を出す。旧資料の記号付きの行と "Total:" の行は採らない。削除したファイルの行（"D" で始まる行）の形と、--dry-run で削除する予定の行の形は未決の FLAG-cli-013 に残し、この要件では定めない。スキップと失敗の理由の文言も定めない。
   - why: 今の sync はそのとおりに出力する。承認済みの [REQ-cli-041](../../ir/cli/sync.md#REQ-cli-041) の状態と [REQ-cli-042](../../ir/cli/sync.md#REQ-cli-042) の集計をそのまま行にした形で、テキストの形を定める承認済みの要件はほかになく、食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
 - A6 FLAG-cli-018 を閉じ、[REQ-cli-048](../../ir/cli/merge.md#REQ-cli-048) の末尾に、--force のない merge が書き込みの対象から外した機密ファイルの skipped の reason は "sensitive file" とするという文を足す。旧資料の "sensitive" は採らない。--delete で削除の対象から外した機密ファイルの reason は別の文言で、この文では定めない。
