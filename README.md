@@ -1,12 +1,12 @@
 # remote-merge
 
-SSH 経由でローカルとリモートサーバー間のファイル差分を表示・マージする TUI/CLI ツール。
+SSH 経由でローカルとリモートサーバー間のファイル差分を表示・マージする CLI ツール。
 
 ## Features
 
 - 複数サーバー（develop, staging, release など）とのファイルツリー比較
-- TUI モード: 2ペインの差分ビューア + hunk 単位マージ
-- CLI モード: `status` / `diff` / `merge` / `sync` / `rollback` サブコマンド
+- `status` / `diff` / `merge` / `sync` / `rollback` サブコマンド（`--format json` で機械可読な出力）
+- hunk 単位マージ（`merge --hunks`）
 - 3-way 比較（`--ref` で参照サーバーを指定）
 - マージ時の楽観的ロック（mtime チェック）
 - Agent モードによる高速リモート操作
@@ -47,17 +47,22 @@ remote-merge init
 
 # .remote-merge.toml を編集してサーバー情報を設定
 
-# TUI を起動
-remote-merge
+# 差分のあるファイルを一覧する
+remote-merge status --left local --right develop
 
-# サーバーを指定して起動
-remote-merge --left local --right develop
+# 差分を表示する
+remote-merge diff path/to/file --left local --right develop
+
+# マージする
+remote-merge merge path/to/file --left local --right develop
 ```
+
+サブコマンドを付けずに起動すると、使い方を標準エラーに出して終了コード 2 で終わる。
 
 ## Usage
 
 ```
-Usage: remote-merge [OPTIONS] [COMMAND]
+Usage: remote-merge [OPTIONS] <COMMAND>
 
 Commands:
   init      Initialize project config file
@@ -67,20 +72,17 @@ Commands:
   sync      Sync files to multiple servers (1:N synchronization)
   rollback  Restore files from a backup session
   logs      Show debug logs
-  events    Show TUI events
+  agent     Start agent server (used internally via SSH)
   help      Print this message or the help of the given subcommand(s)
 
 Options:
-      --config <CONFIG>  Path to project config file
-      --left <LEFT>      Left side of comparison [default: local]
-      --right <RIGHT>    Right side of comparison
-      --ref <REF>        Reference server for 3-way comparison
-  -y, --yes              Auto-accept prompts
-      --debug              Shorthand for --log-level debug
-      --log-level <LEVEL>  Set log level (error, warn, info, debug, trace)
-  -v, --verbose...       Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
-  -h, --help             Print help
-  -V, --version          Print version
+      --config <CONFIG>        Path to project config file [overrides .remote-merge.toml in CWD]
+  -y, --yes                    Auto-accept prompts (e.g., unknown host key verification)
+  -v, --verbose...             Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
+      --debug                  Shorthand for --log-level debug
+      --log-level <LOG_LEVEL>  Set log level explicitly (error, warn, info, debug, trace)
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 
 ## Configuration

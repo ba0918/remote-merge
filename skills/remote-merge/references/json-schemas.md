@@ -245,38 +245,6 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 - `skipped`: files skipped. Omitted when empty. Symlink-safe rollback may report `"symlink restore not supported"`, `"path now resolves to a different location"`, or `"parent directory no longer exists"`; these skips make the command exit with code 2 even with `--force`.
 - `failed`: files that failed to restore. Omitted when empty. A path that cannot be resolved is reported as `"cannot resolve path: <cause>"`.
 
-## state.json (TUI dump)
-
-```json
-{
-  "focus": "file_tree",
-  "left_source": "local",
-  "right_source": "develop",
-  "is_connected": true,
-  "status_message": "local <-> develop | Tab: switch focus | q: quit",
-  "has_dialog": false,
-  "dialog_kind": null,
-  "selected_path": "src/config.ts",
-  "tree_cursor": 3,
-  "diff_scroll": 0,
-  "diff_cursor": 0,
-  "hunk_cursor": 0,
-  "diff_mode": "unified",
-  "scan_state": "idle",
-  "merge_scan_state": "idle",
-  "diff_filter_mode": false,
-  "tree_files": [
-    { "path": "src/config.ts", "name": "config.ts", "is_dir": false, "badge": "[M]" }
-  ],
-  "file_counts": {
-    "modified": 5, "equal": 20, "left_only": 1, "right_only": 2,
-    "unchecked": 0, "error": 0
-  }
-}
-```
-
-Badges: `[M]` modified, `[=]` equal, `[L]` left only, `[R]` right only, `[?]` unchecked, `[!]` error.
-
 ## debug.log (JSONL)
 
 Each line is one JSON object (structured tracing log):
@@ -287,14 +255,3 @@ Each line is one JSON object (structured tracing log):
 ```
 
 Fields: `timestamp` (ISO 8601), `level` (TRACE/DEBUG/INFO/WARN/ERROR), `target` (module path), `message`, `fields` (extra key-value data).
-
-## events.jsonl
-
-Each line is one JSON object:
-
-```json
-{"ts":"2026-03-07T15:30:01.123Z","event":"key_press","key":"Char('j')","result":"FileTree"}
-{"ts":"2026-03-07T15:30:01.500Z","event":"render_slow","frame":142,"duration_ms":150}
-{"ts":"2026-03-07T15:30:02.500Z","event":"error","kind":"connection_lost","target":"ssh","message":"timeout"}
-{"ts":"2026-03-07T15:30:05.000Z","event":"dialog","action":"open","dialog_kind":"confirm"}
-```

@@ -3,14 +3,15 @@ name: remote-merge
 description: >
   Operate the remote-merge CLI to compare and merge files between local and remote servers via SSH.
   Use when the user asks to: check file differences with a remote server, merge local changes to remote,
-  inspect diffs between servers, monitor a running remote-merge TUI session, or diagnose SSH/merge issues.
+  inspect diffs between servers, or diagnose SSH/merge issues from the saved diagnostic logs.
   Triggers: "remote-merge", "compare with server", "push to remote", "sync files",
-  "check remote diff", "merge to server", "monitor TUI", "deploy changes".
+  "check remote diff", "merge to server", "deploy changes".
 ---
 
 # remote-merge
 
-CLI/TUI tool for comparing and merging files between local and remote servers via SSH.
+CLI tool for comparing and merging files between local and remote servers via SSH.
+Every operation needs a subcommand: running `remote-merge` without one prints usage to stderr and exits with code 2.
 
 ## Autonomous Workflow
 
@@ -186,38 +187,19 @@ when multiple operations start in the same second.
 remote-merge status --format json
 ```
 
-## TUI Monitoring
+## Diagnostic Logs
 
-### CLI commands (preferred)
+Every CLI run except `agent` appends information-level (and more severe) entries to `~/.cache/remote-merge/debug.log` (JSONL), even without `-v`. `-v`, `--debug` or `--log-level` make both the file and stderr more detailed. The logs never contain file contents or credentials.
 
 ```bash
-# Logs — debug.log is JSONL; text output is the default, use --format json for machine parsing
+# text output is the default, use --format json for machine parsing
 remote-merge logs --format json                  # all logs (JSONL)
 remote-merge logs --format json --level error    # errors only
 remote-merge logs --format json --since 5m       # last 5 minutes
 remote-merge logs --format json --tail 50        # last 50 entries
-
-# Events — always JSONL output
-remote-merge events                              # all events
-remote-merge events --type error                 # error events only
-remote-merge events --type key_press --since 5m  # recent key presses
-remote-merge events --tail 100                   # last 100 events
 ```
 
 Duration shorthand for `--since`: `30s`, `5m`, `1h`, `2d`.
-
-### Dump files (alternative)
-
-Read directly at `~/.cache/remote-merge/`:
-
-| File | Content | Command |
-|------|---------|---------|
-| `state.json` | App state snapshot | `cat ~/.cache/remote-merge/state.json` |
-| `screen.txt` | Plain text screen | `cat ~/.cache/remote-merge/screen.txt` |
-| `events.jsonl` | Event stream (JSONL) | `remote-merge events --type error` |
-| `debug.log` | Application logs (JSONL) | `remote-merge logs --format json --level error` |
-
-Event types: `key_press`, `render_slow`, `error`, `dialog`, `state_change`.
 
 ## Configuration
 
@@ -248,7 +230,6 @@ include = ["src/", "config/"]  # Whitelist: scan only these dirs (empty = scan a
 ```toml
 # ── Scan ── (top-level keys: write them before any [section])
 max_scan_entries = 50000                # Max files per scan (default: 50000)
-badge_scan_max_files = 500              # Max files for quick badge scan (default: 500)
 
 # ── Local ──
 [local]
@@ -308,19 +289,18 @@ timeout_secs = 30                       # Agent ping timeout (default: 30)
 - **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
 - **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
 
-remote-merge does not protect confidential files. diff, status, merge, sync, rollback and the TUI handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`. A leftover `sensitive` key under `[filter]` is ignored with a warning.
+remote-merge does not protect confidential files. diff, status, merge, sync and rollback handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`. A leftover `sensitive` key under `[filter]` is ignored with a warning.
+
+A leftover top-level `badge_scan_max_files` key is also ignored with a warning, whatever its value.
 
 ## Global CLI Options
 
-These options apply to all subcommands and TUI mode:
+These options apply to all subcommands:
 
 ```bash
-remote-merge [OPTIONS] [COMMAND]
+remote-merge [OPTIONS] <COMMAND>
 
 --config <PATH>        # Project config file (overrides .remote-merge.toml in CWD)
---left <SIDE>          # Left side of comparison (default: local)
---right <SIDE>         # Right side of comparison (default: first server in config)
---ref <SERVER>         # Reference server for 3-way comparison
 -y, --yes              # Auto-accept prompts (host key verification, etc.)
 -v, --verbose          # Increase log verbosity (-v: info, -vv: debug, -vvv: trace)
 --debug                # Shorthand for --log-level debug
@@ -346,7 +326,7 @@ These environment variables are useful for non-interactive CI/CD pipelines and a
 
 - **SSH connection failed** -> check `.remote-merge.toml`
 - **Optimistic lock failed** -> retry (file changed during merge)
-- **TUI unresponsive** -> check `state.json` for `is_connected`, inspect `debug.log`
+- **Unexpected failure** -> inspect `remote-merge logs --format json --level error`
 
 ## JSON Schemas
 

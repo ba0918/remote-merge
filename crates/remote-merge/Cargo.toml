@@ -2,7 +2,7 @@
 name = "remote-merge"
 version = "0.2.13"
 edition = "2021"
-description = "TUI tool for comparing and merging files between local and remote servers via SSH"
+description = "CLI tool for comparing and merging files between local and remote servers via SSH"
 
 [dependencies]
 remote-merge-engine = { path = "../remote-merge-engine" }

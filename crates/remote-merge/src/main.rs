@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use remote_merge::config;
 use remote_merge::telemetry;
 
-/// TUI tool for graphically displaying and merging file diffs between local and remote servers
+/// CLI tool for comparing and merging files between local and remote servers via SSH
 #[derive(Parser, Debug)]
 #[command(
     name = "remote-merge",
