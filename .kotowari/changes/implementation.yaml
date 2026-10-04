@@ -453,7 +453,7 @@ entries:
         after: "sha256:2f2d6f6cf118d8825e1e52f1c50d39da2c7f1af3a124d27c7b2d4b27f1e4b79e"
       - path: "crates/remote-merge/tests/contract/ssh_host_key.rs"
         before: "sha256:5abf595f66a02fa72a40f1ddb374d7f2f78dd5319e99e8cc302c2e948b270454"
-        after: "sha256:a5eefa3846a78b75f05eb842f0609f7e0be211daec30e68aa3363b5645b98294"
+        after: "sha256:bfd6ddcda48639ddd30f79d76cd753478d387dba4a79440e5a8ebde6549d8e01"
       - path: "crates/remote-merge/tests/contract/ssh_reconnect.rs"
         before: "sha256:0d660792ea3470008e8b71eee3919685e3f00b2f4d709a1ca3ff00db160c4a5f"
         after: "sha256:cd883b7175af95d1ea1b6b5c96c60f57009f848be1ed5dccad116b45815dfa3c"
