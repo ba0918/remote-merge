@@ -51,6 +51,10 @@
   - why: A3 で規則を残し、A8 で用語を除くため、言葉だけを合わせる。
   - decided_by: user (took the recommendation)
 
+- A14 diff の --force は受け付けたまま効果を持たないものとし、ヘルプを効果がなく互換のために残していると書き換える。
+  - why: diff の --force の役目は機密ファイルの表示だけだった。付けて呼んでいるスクリプトやエージェントを壊さないため、オプションは消さない。
+  - decided_by: user (took the recommendation)
+
 ## Revisions
 
 - 2026-10-04: 当初の未決 U1〜U5 を、利用者が推奨を採って A2〜A7 で決めた。境目の細部は A8〜A13 で決めた。
