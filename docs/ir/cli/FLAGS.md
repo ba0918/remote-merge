@@ -51,13 +51,6 @@ status が中身を読み比べる対象のファイルを読めなかったと�
 
 実装は書き込み先の status の判定に削除の成否を数えないため、書き込んだファイルがなく削除だけがある書き込み先で一部の削除に失敗すると、削除できたファイルがあっても "partial" ではなく "failed" になる。旧資料に記述がなくテストもない。
 
-### FLAG-cli-012: sync のテキスト出力の形
-- kind: contradiction
-- related: REQ-cli-041, REQ-cli-042
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A15
-
-旧総合仕様のマルチサーバ同期の節は dry-run の出力を書き込み先ごとの "[server1] 3 files to merge (2 modified, 1 added)" と "M"・"+" の記号付きのファイルの行、最後の "Total: 7 merge operations across 3 servers" で示す。実装のテキスト出力は "Sync: 元 → 先1, 先2" の見出し、書き込み先ごとの "[先] success" の行、"plan"・"ok"・"D"・"skip"・"FAILED" を付けたファイルの行、最後の "Summary: N/M servers successful, N files merged" の行を出し、書き込む予定がなく失敗もないときは先頭に "No files to sync." を出す。
-
 ### FLAG-cli-013: dry-run の削除予定の表示
 - kind: gap
 - related: REQ-cli-045, REQ-cli-004

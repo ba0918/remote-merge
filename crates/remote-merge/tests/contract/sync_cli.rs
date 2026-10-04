@@ -245,3 +245,28 @@ fn a_sync_without_a_path_stops_before_writing() {
     assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
     assert_eq!(read(env.remote_dir.join("extra.txt")), "develop extra\n");
 }
+
+// @kotowari[REQ-cli-102]
+#[test]
+fn nothing_to_write_and_no_failure_puts_no_files_to_sync_first() {
+    let env = CliEnv::new_3way(
+        &[("file.txt", "incoming\n")],
+        &[("file.txt", "incoming\n")],
+        &[("file.txt", "incoming\n")],
+    );
+
+    let output = sync(&env, &[], None);
+
+    assert_exit_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.lines().next(), Some("No files to sync."), "{stdout}");
+
+    let env = one_merge_and_one_deletion_on_each_target();
+    let output = sync(&env, &["--force"], None);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("Sync: local \u{2192} develop, staging"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("No files to sync."), "{stdout}");
+}

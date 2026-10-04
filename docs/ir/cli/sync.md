@@ -69,6 +69,15 @@ sync はすべての書き込み先の status が "success" なら終了コー�
 
 読み込み元への接続かツリーの取得に失敗した sync は、書き込み先ごとの結果を出さずにエラーで止まり、どの書き込み先も変更しない。
 
+### REQ-cli-102: テキスト出力の形
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A5
+- verification: unit
+
+sync のテキスト出力は "Sync: 元 → 先1, 先2" の見出しに続けて、書き込み先ごとに "[先] 状態" の行と、書き込んだファイルを "ok"、--dry-run で書き込む予定のファイルを "plan"、スキップしたファイルを "skip"、失敗したファイルを "FAILED" で始めてパスを続けた行を出し、スキップと失敗の行にはパスの後に括弧で囲んだ理由を添える。
+最後に "Summary: 成功した書き込み先の数/書き込み先の数 servers successful, N files merged" の行を出し、削除したファイルがあれば ", N files deleted"、失敗したファイルがあれば ", N files failed" を続ける。
+どの書き込み先にも書き込む予定も削除する予定も失敗もないときは、見出しの前に "No files to sync." の行を出す。
+
 ## Decision tables
 
 ### TBL-cli-006: sync の指定のエラー
