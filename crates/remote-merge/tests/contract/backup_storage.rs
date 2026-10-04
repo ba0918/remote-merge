@@ -155,7 +155,6 @@ fn overwrite_backs_up_the_destination_content_read_immediately_before_writing() 
     let statuses = vec![FileStatus {
         path: "file.txt".into(),
         status: FileStatusKind::Modified,
-        sensitive: false,
         hunks: None,
         ref_badge: None,
     }];

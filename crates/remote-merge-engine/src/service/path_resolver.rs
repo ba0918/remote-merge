@@ -403,21 +403,18 @@ mod tests {
             FileStatus {
                 path: "a.txt".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "b.txt".into(),
                 status: FileStatusKind::Equal,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "c.txt".into(),
                 status: FileStatusKind::LeftOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
@@ -440,7 +437,6 @@ mod tests {
         FileStatus {
             path: path.to_string(),
             status: kind,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }

@@ -1466,7 +1466,6 @@ fn external_edit_with_restored_size_and_timestamp_is_not_overwritten() {
     let statuses = [FileStatus {
         path: "file.txt".into(),
         status: FileStatusKind::Modified,
-        sensitive: false,
         hunks: None,
         ref_badge: None,
     }];
@@ -1530,7 +1529,6 @@ fn only_the_files_whose_destination_changed_since_comparison_are_stopped() {
     .map(|(name, status)| FileStatus {
         path: name.into(),
         status,
-        sensitive: false,
         hunks: None,
         ref_badge: None,
     })
@@ -1590,7 +1588,6 @@ fn unchanged_destination_is_updated_after_content_recheck() {
     let statuses = [FileStatus {
         path: "file.txt".into(),
         status: FileStatusKind::Modified,
-        sensitive: false,
         hunks: None,
         ref_badge: None,
     }];
@@ -1634,7 +1631,6 @@ fn a_file_created_after_comparison_is_not_overwritten() {
     let statuses = [FileStatus {
         path: "file.txt".into(),
         status: FileStatusKind::LeftOnly,
-        sensitive: false,
         hunks: None,
         ref_badge: None,
     }];
@@ -1736,7 +1732,6 @@ fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
         .map(|name| FileStatus {
             path: name.into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         })

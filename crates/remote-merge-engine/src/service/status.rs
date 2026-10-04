@@ -175,7 +175,7 @@ pub fn is_sensitive(path: &str, patterns: &[String]) -> bool {
 pub fn compute_status_from_trees(
     left: &FileTree,
     right: &FileTree,
-    sensitive_patterns: &[String],
+    _sensitive_patterns: &[String],
 ) -> Vec<FileStatus> {
     let left_index = TreeIndex::build(left);
     let right_index = TreeIndex::build(right);
@@ -198,7 +198,6 @@ pub fn compute_status_from_trees(
         results.push(FileStatus {
             path: path.clone(),
             status,
-            sensitive: is_sensitive(path, sensitive_patterns),
             hunks: None,
             ref_badge: None,
         });
@@ -376,7 +375,6 @@ pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
 /// 3-way バッジを全ファイルに対して計算する。
 ///
 /// `three_way::compute_file_comparison()` を内部で呼び出す。
-/// sensitive ファイルはコンテンツ比較を行わず、ref に存在しない場合のみ "missing_in_ref" を返す。
 pub fn compute_ref_badges(
     files: &[FileStatus],
     left_tree: &FileTree,
@@ -388,15 +386,6 @@ pub fn compute_ref_badges(
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for file in files {
-        if file.sensitive {
-            // コンテンツ比較不要: 存在チェックのみ
-            let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
-            if !ref_exists {
-                map.insert(file.path.clone(), "missing_in_ref".to_string());
-            }
-            // ref に存在する場合はコンテンツ比較できないため badge なし（unknown 状態）
-            continue;
-        }
         let left_exists = left_tree.find_node(Path::new(&file.path)).is_some();
         let right_exists = right_tree.find_node(Path::new(&file.path)).is_some();
         let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
@@ -633,15 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn test_status_sensitive_flag() {
-        let left = make_tree(vec![FileNode::new_file(".env")]);
-        let right = make_tree(vec![FileNode::new_file(".env")]);
-        let patterns = vec![".env".into()];
-        let files = compute_status_from_trees(&left, &right, &patterns);
-        assert!(files[0].sensitive);
-    }
-
-    #[test]
     fn test_status_nested_files() {
         let left = make_tree(vec![FileNode::new_dir_with_children(
             "src",
@@ -703,28 +683,24 @@ mod tests {
             FileStatus {
                 path: "a".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "b".into(),
                 status: FileStatusKind::LeftOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "c".into(),
                 status: FileStatusKind::RightOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "d".into(),
                 status: FileStatusKind::Equal,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
@@ -743,7 +719,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -770,7 +745,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -973,7 +947,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Equal,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -991,7 +964,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1009,7 +981,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1027,7 +998,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::LeftOnly,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1044,7 +1014,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "image.png".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1061,7 +1030,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "image.png".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1080,14 +1048,12 @@ mod tests {
             FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "b.rs".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
@@ -1113,7 +1079,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1137,7 +1102,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1161,7 +1125,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1179,31 +1142,6 @@ mod tests {
             &HashMap::new(),
         );
         assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
-    }
-
-    #[test]
-    fn test_compute_ref_badges_sensitive_skipped() {
-        let files = vec![FileStatus {
-            path: ".env".into(),
-            status: FileStatusKind::Modified,
-            sensitive: true,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file(".env")]);
-        let right = make_tree(vec![FileNode::new_file(".env")]);
-        let ref_tree = make_tree(vec![FileNode::new_file(".env")]);
-
-        let badges = compute_ref_badges(
-            &files,
-            &left,
-            &right,
-            &ref_tree,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        assert!(!badges.contains_key(".env"));
     }
 
     #[test]
@@ -1227,14 +1165,12 @@ mod tests {
             FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
             FileStatus {
                 path: "b.rs".into(),
                 status: FileStatusKind::LeftOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             },
@@ -1361,7 +1297,6 @@ mod tests {
         let files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1387,104 +1322,6 @@ mod tests {
         }
     }
 
-    // ── compute_ref_badges: sensitive ファイルの存在チェック ──
-
-    #[test]
-    fn test_compute_ref_badges_sensitive_missing_in_ref() {
-        // sensitive ファイルが ref ツリーに存在しない → "missing_in_ref" バッジを付与
-        let files = vec![FileStatus {
-            path: ".env".into(),
-            status: FileStatusKind::Modified,
-            sensitive: true,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file(".env")]);
-        let right = make_tree(vec![FileNode::new_file(".env")]);
-        let ref_tree = make_tree(vec![]); // .env が存在しない
-
-        let badges = compute_ref_badges(
-            &files,
-            &left,
-            &right,
-            &ref_tree,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        assert_eq!(badges.get(".env").unwrap(), "missing_in_ref");
-    }
-
-    #[test]
-    fn test_compute_ref_badges_sensitive_exists_in_ref() {
-        // sensitive ファイルが ref ツリーに存在する → badge なし（コンテンツ比較しないため unknown）
-        let files = vec![FileStatus {
-            path: ".env".into(),
-            status: FileStatusKind::Modified,
-            sensitive: true,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file(".env")]);
-        let right = make_tree(vec![FileNode::new_file(".env")]);
-        let ref_tree = make_tree(vec![FileNode::new_file(".env")]); // .env が存在する
-
-        let badges = compute_ref_badges(
-            &files,
-            &left,
-            &right,
-            &ref_tree,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
-        );
-        // ref に存在する場合は badge なし
-        assert!(!badges.contains_key(".env"));
-    }
-
-    #[test]
-    fn test_compute_ref_badges_sensitive_no_content_leak() {
-        // sensitive ファイルのコンテンツが contents マップにあっても比較されないことを確認
-        // （存在チェックのみで badge が決まる）
-        let files = vec![FileStatus {
-            path: "secret.pem".into(),
-            status: FileStatusKind::Modified,
-            sensitive: true,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file("secret.pem")]);
-        let right = make_tree(vec![FileNode::new_file("secret.pem")]);
-        // ref には存在しない
-        let ref_tree = make_tree(vec![]);
-        // コンテンツは全て異なる値を入れる（コンテンツ比較されたら badge が変わるはず）
-        let mut left_c = HashMap::new();
-        left_c.insert("secret.pem".into(), b"left_secret".to_vec());
-        let mut right_c = HashMap::new();
-        right_c.insert("secret.pem".into(), b"right_secret".to_vec());
-        let mut ref_c = HashMap::new();
-        ref_c.insert("secret.pem".into(), b"ref_secret".to_vec());
-
-        let badges =
-            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
-        // ref に存在しないので missing_in_ref（コンテンツ内容ではなく存在有無で決まる）
-        assert_eq!(badges.get("secret.pem").unwrap(), "missing_in_ref");
-
-        // ref に存在するケース: コンテンツ比較されても badge は付かないはず
-        let ref_tree_with_file = make_tree(vec![FileNode::new_file("secret.pem")]);
-        let badges2 = compute_ref_badges(
-            &files,
-            &left,
-            &right,
-            &ref_tree_with_file,
-            &left_c,
-            &right_c,
-            &ref_c,
-        );
-        // コンテンツ比較なし → badge なし
-        assert!(!badges2.contains_key("secret.pem"));
-    }
-
     // ── refine_status_with_hashes ──
 
     #[test]
@@ -1492,7 +1329,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1509,7 +1345,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1526,7 +1361,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::LeftOnly,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1543,7 +1377,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1560,7 +1393,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "link".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];
@@ -1578,7 +1410,6 @@ mod tests {
         let mut files = vec![FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Equal,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }];

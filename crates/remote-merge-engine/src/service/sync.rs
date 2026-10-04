@@ -128,7 +128,6 @@ mod tests {
         FileStatus {
             path: path.into(),
             status: kind,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }

@@ -180,9 +180,17 @@ fn json_has_both_sides_every_file_and_the_summary() {
         "{json}"
     );
 
-    let mut files: Vec<(String, String)> = json["files"]
-        .as_array()
-        .expect("files missing")
+    let entries = json["files"].as_array().expect("files missing");
+    for file in entries {
+        let keys: Vec<&str> = file
+            .as_object()
+            .expect("file entry is not an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys, ["path", "status"], "{json}");
+    }
+    let mut files: Vec<(String, String)> = entries
         .iter()
         .map(|file| {
             (

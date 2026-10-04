@@ -20,7 +20,7 @@ use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
-    compute_ref_badges, compute_status_from_trees, is_sensitive, needs_merge_content_compare,
+    compute_ref_badges, compute_status_from_trees, needs_merge_content_compare,
     refine_status_with_content, verified_content_pairs,
 };
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
@@ -268,7 +268,6 @@ pub fn execute_merge(
             .map(|p| FileStatus {
                 path: p.clone(),
                 status: FileStatusKind::Modified,
-                sensitive: is_sensitive(p, &config.filter.sensitive),
                 hunks: None,
                 ref_badge: None,
             })

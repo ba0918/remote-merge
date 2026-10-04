@@ -74,7 +74,6 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
                     FileStatusKind::RightOnly => "R ",
                     FileStatusKind::Equal => "= ",
                 };
-                let sensitive_mark = if file.sensitive { " [SENSITIVE]" } else { "" };
                 let hunk_info = file
                     .hunks
                     .map(|n| format!(" ({} hunks)", n))
@@ -85,8 +84,8 @@ pub fn format_status_text(output: &StatusOutput, summary_only: bool) -> String {
                     .map(|b| ref_badge_display(b))
                     .unwrap_or("");
                 lines.push(format!(
-                    "{}{}{}{}{}",
-                    prefix, file.path, sensitive_mark, hunk_info, ref_badge_str
+                    "{}{}{}{}",
+                    prefix, file.path, hunk_info, ref_badge_str
                 ));
             }
             lines.push(String::new());
@@ -646,21 +645,18 @@ mod tests {
                 FileStatus {
                     path: "src/config.ts".into(),
                     status: FileStatusKind::Modified,
-                    sensitive: false,
                     hunks: None,
                     ref_badge: None,
                 },
                 FileStatus {
                     path: "src/new.ts".into(),
                     status: FileStatusKind::LeftOnly,
-                    sensitive: false,
                     hunks: None,
                     ref_badge: None,
                 },
                 FileStatus {
                     path: ".env".into(),
                     status: FileStatusKind::Modified,
-                    sensitive: true,
                     hunks: None,
                     ref_badge: None,
                 },
@@ -682,7 +678,7 @@ mod tests {
         let text = format_status_text(&sample_status(), false);
         assert!(text.contains("M src/config.ts"));
         assert!(text.contains("L src/new.ts"));
-        assert!(text.contains("M .env [SENSITIVE]"));
+        assert!(text.lines().any(|line| line == "M .env"), "{text}");
         assert!(text.contains("Summary: 2 modified, 1 left only"));
     }
 
@@ -873,21 +869,18 @@ mod tests {
                 FileStatus {
                     path: "a.rs".into(),
                     status: FileStatusKind::Modified,
-                    sensitive: false,
                     hunks: Some(2),
                     ref_badge: Some("differs".into()),
                 },
                 FileStatus {
                     path: "b.rs".into(),
                     status: FileStatusKind::Equal,
-                    sensitive: false,
                     hunks: None,
                     ref_badge: Some("missing_in_ref".into()),
                 },
                 FileStatus {
                     path: "c.rs".into(),
                     status: FileStatusKind::Modified,
-                    sensitive: false,
                     hunks: None,
                     ref_badge: Some("all_equal".into()),
                 },
@@ -926,7 +919,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "a.rs".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             }]),
@@ -2430,7 +2422,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "only_left.rs".into(),
                 status: FileStatusKind::LeftOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             }]),
@@ -2471,7 +2462,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "only_right.rs".into(),
                 status: FileStatusKind::RightOnly,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             }]),

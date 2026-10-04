@@ -116,17 +116,11 @@ pub fn execute_status(
         false
     };
 
-    // ref 指定時は全非 sensitive ファイルのコンテンツが必要（badge 計算用）。
-    // 左右の判定のため paths_to_compare の sensitive ファイルも読む。badge の計算は
-    // sensitive ファイルの中身を使わないため、参照先との比較には漏れない。
+    // ref 指定時は全ファイルのコンテンツが必要（badge 計算用）。
     // ref 未指定時でハッシュ比較が失敗した場合は paths_to_compare のコンテンツが必要。
     // ハッシュ比較が成功した場合はコンテンツ取得をスキップする。
     let content_paths = if ref_side.is_some() {
-        files
-            .iter()
-            .filter(|f| !f.sensitive || paths_to_compare.contains(&f.path))
-            .map(|f| f.path.clone())
-            .collect::<Vec<_>>()
+        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
     } else if hash_resolved {
         vec![] // ハッシュ比較で解決済み — コンテンツ不要
     } else {
@@ -166,12 +160,8 @@ pub fn execute_status(
         let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
         ref_info = Some(build_source_info(ref_s, &core)?);
 
-        // Fetch ref contents for non-sensitive files
-        let ref_paths: Vec<String> = files
-            .iter()
-            .filter(|f| !f.sensitive)
-            .map(|f| f.path.clone())
-            .collect();
+        // Fetch ref contents for every file
+        let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
         let ref_contents = fetch_contents_tolerant(ref_s, &ref_paths, &mut core);
 
         // Compute ref badges — left/right contents は既に取得済みのものを再利用
@@ -262,7 +252,6 @@ mod tests {
         FileStatus {
             path: path.to_string(),
             status,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }

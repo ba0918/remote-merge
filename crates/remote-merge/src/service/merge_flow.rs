@@ -415,7 +415,6 @@ mod tests {
         FileStatus {
             path: path.to_string(),
             status: kind,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         }
@@ -532,16 +531,6 @@ mod tests {
             "expected 'right (source)' in: {}",
             msg
         );
-    }
-
-    #[test]
-    fn test_check_source_exists_sensitive_file_ok() {
-        // sensitive フラグは check_source_exists には影響しない
-        let mut status = make_status(".env", FileStatusKind::Modified);
-        status.sensitive = true;
-        let statuses = vec![status];
-        assert!(check_source_exists(".env", MergeDirection::LeftToRight, &statuses).is_ok());
-        assert!(check_source_exists(".env", MergeDirection::RightToLeft, &statuses).is_ok());
     }
 
     #[test]

@@ -42,7 +42,6 @@ pub struct SourceInfo {
 pub struct FileStatus {
     pub path: String,
     pub status: FileStatusKind,
-    pub sensitive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hunks: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -419,7 +418,6 @@ mod tests {
             files: Some(vec![FileStatus {
                 path: "src/config.ts".into(),
                 status: FileStatusKind::Modified,
-                sensitive: false,
                 hunks: None,
                 ref_badge: None,
             }]),
@@ -739,7 +737,6 @@ mod tests {
         let file = FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: Some(2),
             ref_badge: Some("differs".into()),
         };
@@ -752,7 +749,6 @@ mod tests {
         let file = FileStatus {
             path: "a.rs".into(),
             status: FileStatusKind::Modified,
-            sensitive: false,
             hunks: None,
             ref_badge: None,
         };

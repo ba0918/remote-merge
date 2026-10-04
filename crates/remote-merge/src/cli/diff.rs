@@ -681,7 +681,6 @@ fn run_diff_fast_path(
             statuses.push(FileStatus {
                 path: path.clone(),
                 status: FileStatusKind::Modified,
-                sensitive: is_sensitive(path, &config.filter.sensitive),
                 hunks: None,
                 ref_badge: None,
             });
@@ -694,7 +693,6 @@ fn run_diff_fast_path(
             statuses.push(FileStatus {
                 path: path.clone(),
                 status: FileStatusKind::Modified,
-                sensitive: is_sensitive(path, &config.filter.sensitive),
                 hunks: None,
                 ref_badge: None,
             });
@@ -733,7 +731,6 @@ fn run_diff_fast_path(
                 statuses.push(FileStatus {
                     path: path.clone(),
                     status: kind,
-                    sensitive: is_sensitive(path, &config.filter.sensitive),
                     hunks: None,
                     ref_badge: None,
                 });
