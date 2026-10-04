@@ -94,7 +94,7 @@ fn targets_are_processed_and_reported_in_the_order_given() {
     }
 }
 
-// @kotowari[REQ-cli-101]
+// @kotowari[REQ-cli-071]
 #[test]
 fn a_source_that_cannot_be_connected_stops_the_sync_and_changes_no_target() {
     let fixture = file_on_every_side();

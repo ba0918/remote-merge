@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! CLI の merge に確認のプロンプトがないことと --force の働き（docs/ir/cli/merge.md の REQ-cli-104）の契約テスト。
+//! CLI の merge に確認のプロンプトがないことと --force の働き（docs/ir/cli/merge.md の REQ-cli-074）の契約テスト。
 //!
 //! 隔離された SSH fixture に対して標準入力を閉じた実行ファイルを起動する。
 //! 確認のプロンプトがあれば答えを読めずに書き込まないため、書き込み先が更新されることを
@@ -23,7 +23,7 @@ fn read(path: impl AsRef<Path>) -> String {
     fs::read_to_string(path).unwrap()
 }
 
-// @kotowari[REQ-cli-104]
+// @kotowari[REQ-cli-074]
 #[test]
 fn merge_writes_without_a_prompt_and_force_includes_sensitive_files() {
     let files = |env: &CliEnv| {
@@ -45,7 +45,7 @@ fn merge_writes_without_a_prompt_and_force_includes_sensitive_files() {
     assert_eq!(files(&env), ("incoming\n".into(), "A=1\n".into()));
 }
 
-// @kotowari[REQ-cli-104]
+// @kotowari[REQ-cli-074]
 #[test]
 fn force_includes_sensitive_files_in_deletion() {
     let local = [("file.txt", "incoming\n")];
@@ -62,7 +62,7 @@ fn force_includes_sensitive_files_in_deletion() {
     assert_eq!(read(env.remote_dir.join("file.txt")), "incoming\n");
 }
 
-// @kotowari[REQ-cli-104]
+// @kotowari[REQ-cli-074]
 #[test]
 fn force_lets_a_remote_to_remote_merge_write() {
     let env = CliEnv::new_3way(
@@ -85,7 +85,7 @@ fn force_lets_a_remote_to_remote_merge_write() {
     );
 }
 
-// @kotowari[REQ-cli-104]
+// @kotowari[REQ-cli-074]
 #[test]
 fn force_skips_the_check_against_the_reference() {
     let env = CliEnv::new_3way(

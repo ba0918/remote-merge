@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! status の Agent の接続状態の出力（docs/ir/cli/status-output.md の REQ-cli-100）の契約テスト。
+//! status の Agent の接続状態の出力（docs/ir/cli/status-output.md の REQ-cli-070）の契約テスト。
 //!
 //! 右のリモートの経路を通すため、隔離された SSH fixture に対して実行ファイルを起動する。
 //! エージェントを無効にした fixture では "fallback"、有効にした fixture では "connected" になる。
@@ -26,7 +26,7 @@ fn json(output: &Output) -> serde_json::Value {
         .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"))
 }
 
-// @kotowari[REQ-cli-100]
+// @kotowari[REQ-cli-070]
 #[test]
 fn verbose_json_reports_fallback_for_a_remote_right_side_without_the_agent() {
     let env = one_modified_file();
@@ -41,7 +41,7 @@ fn verbose_json_reports_fallback_for_a_remote_right_side_without_the_agent() {
     assert_eq!(json(&output)["agent"], "fallback", "{output:?}");
 }
 
-// @kotowari[REQ-cli-100]
+// @kotowari[REQ-cli-070]
 #[test]
 fn verbose_text_adds_the_agent_line_after_the_summary() {
     let env = one_modified_file();
@@ -57,7 +57,7 @@ fn verbose_text_adds_the_agent_line_after_the_summary() {
     assert!(summary.is_some() && agent > summary, "{stdout}");
 }
 
-// @kotowari[REQ-cli-100]
+// @kotowari[REQ-cli-070]
 #[test]
 fn without_verbose_the_agent_is_not_reported() {
     let env = one_modified_file();
@@ -74,7 +74,7 @@ fn without_verbose_the_agent_is_not_reported() {
     assert!(!stdout.contains("Agent:"), "{stdout}");
 }
 
-// @kotowari[REQ-cli-100]
+// @kotowari[REQ-cli-070]
 #[test]
 fn a_local_right_side_has_no_agent_even_with_verbose() {
     let env = one_modified_file();
@@ -93,7 +93,7 @@ fn a_local_right_side_has_no_agent_even_with_verbose() {
     assert!(!stdout.contains("Agent:"), "{stdout}");
 }
 
-// @kotowari[REQ-cli-100]
+// @kotowari[REQ-cli-070]
 #[tokio::test(flavor = "multi_thread")]
 async fn verbose_json_reports_connected_when_the_agent_serves_the_right_side() {
     let fixture = AgentFixture::new().await;

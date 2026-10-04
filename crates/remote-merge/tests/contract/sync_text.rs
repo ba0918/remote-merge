@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! sync のテキスト出力の形（docs/ir/cli/sync.md の REQ-cli-102）の契約テスト。
+//! sync のテキスト出力の形（docs/ir/cli/sync.md の REQ-cli-072）の契約テスト。
 //!
 //! 関数呼び出しで sync し、--format text と同じ `format_sync_text` で整形した行を確かめる。
 //! スキップと失敗の理由の文言は確かめない。
@@ -25,7 +25,7 @@ fn has_line_with_reason(text: &str, badge: &str, path: &str) -> bool {
     })
 }
 
-// @kotowari[REQ-cli-102]
+// @kotowari[REQ-cli-072]
 #[test]
 fn text_has_the_heading_a_line_per_target_the_files_and_the_summary() {
     let fixture = fixture();
@@ -52,7 +52,7 @@ fn text_has_the_heading_a_line_per_target_the_files_and_the_summary() {
     );
 }
 
-// @kotowari[REQ-cli-102]
+// @kotowari[REQ-cli-072]
 #[test]
 fn dry_run_text_shows_planned_files_and_skipped_files_with_a_reason() {
     let fixture = fixture();
@@ -76,7 +76,7 @@ fn dry_run_text_shows_planned_files_and_skipped_files_with_a_reason() {
     assert_eq!(fixture.read("develop", "a.txt"), "develop old\n");
 }
 
-// @kotowari[REQ-cli-102]
+// @kotowari[REQ-cli-072]
 #[test]
 fn the_summary_adds_the_deleted_count_when_files_were_deleted() {
     let fixture = fixture();

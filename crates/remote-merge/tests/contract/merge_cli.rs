@@ -1,5 +1,5 @@
 //! merge の指定の誤りとエラーの出力（docs/ir/cli/merge.md の TBL-cli-008、docs/ir/cli/results.md）と、
-//! リモート間の merge の停止（docs/ir/cli/merge.md の REQ-cli-103）の契約テスト。
+//! リモート間の merge の停止（docs/ir/cli/merge.md の REQ-cli-073）の契約テスト。
 //!
 //! どの指定も接続より前に止まるため、SSH の fixture を使わずに実行ファイルを起動する。
 
@@ -122,7 +122,7 @@ fn a_json_merge_stopped_by_an_error_prints_the_error_as_json() {
     );
 }
 
-// @kotowari[REQ-cli-103]
+// @kotowari[REQ-cli-073]
 #[test]
 fn a_remote_to_remote_merge_without_force_or_dry_run_stops_with_a_warning() {
     let fixture = one_file_to_merge();
@@ -142,7 +142,7 @@ fn a_remote_to_remote_merge_without_force_or_dry_run_stops_with_a_warning() {
     );
 }
 
-// @kotowari[REQ-cli-103]
+// @kotowari[REQ-cli-073]
 #[test]
 fn a_json_remote_to_remote_merge_without_force_or_dry_run_has_one_failed_entry() {
     let fixture = one_file_to_merge();

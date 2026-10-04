@@ -246,7 +246,7 @@ fn a_sync_without_a_path_stops_before_writing() {
     assert_eq!(read(env.remote_dir.join("extra.txt")), "develop extra\n");
 }
 
-// @kotowari[REQ-cli-102]
+// @kotowari[REQ-cli-072]
 #[test]
 fn nothing_to_write_and_no_failure_puts_no_files_to_sync_first() {
     let env = CliEnv::new_3way(

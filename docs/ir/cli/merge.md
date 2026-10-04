@@ -49,14 +49,14 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 --ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先の三つとも中身を読めた通常ファイル（バイナリを含む）のうち読み込み元と書き込み先の中身が違うものについて、中身をバイト列で比べて書き込み先が参照先から変わっていれば書き込まずに failed に出し、左右の両方が参照先から変わっていれば error を "three-way conflict"、書き込み先だけが変わっていれば "destination changed since reference" とし、読み込み元だけが参照先から変わったファイルは書き込む。--force があればこの確認をせずに書き込む。
 
-### REQ-cli-103: 強制指定のないリモート間の merge を止める
+### REQ-cli-073: 強制指定のないリモート間の merge を止める
 - kind: state_driven
 - source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A8
 - verification: unit
 
 --force も --dry-run もないリモート間の merge は、確認を出さずに書き込まずに止まり、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." の行を出し、JSON では failed に一件を出し、終了コード 2 を返す。
 
-### REQ-cli-104: 確認のプロンプトを出さず --force で対象と確認を変える
+### REQ-cli-074: 確認のプロンプトを出さず --force で対象と確認を変える
 - kind: ubiquitous
 - source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9
 - verification: unit

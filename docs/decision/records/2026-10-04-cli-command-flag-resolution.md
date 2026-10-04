@@ -9,7 +9,7 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 
 ## Agreements
 
-- A1 FLAG-cli-001 を閉じ、[REQ-cli-100](../../ir/cli/status-output.md#REQ-cli-100) を足す。-v を指定し右がリモートの status は、JSON の "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。-v がないときと右がローカルのときは出さない。旧資料の {"status": "connected"} の形は採らない。
+- A1 FLAG-cli-001 を閉じ、[REQ-cli-070](../../ir/cli/status-output.md#REQ-cli-070) を足す。-v を指定し右がリモートの status は、JSON の "agent" に右の Agent の接続状態を "connected" か "fallback" の文字列で出し、テキストでは集計の行の後に "Agent: connected" か "Agent: fallback (SSH exec)" の行を出す。-v がないときと右がローカルのときは出さない。旧資料の {"status": "connected"} の形は採らない。
   - why: 今の status はそのとおりに動き、利用者向けの手引きの JSON の説明も同じ文字列の形を示している。承認済みの [REQ-cli-032](../../ir/cli/status-output.md#REQ-cli-032) は "agent" を定めておらず、この挙動と矛盾する承認済みの要件はない。食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
 - A2 FLAG-cli-005 を閉じ、--ref を指定した status でも、サイズが同じで更新時刻が違う機密ファイルの左右の中身を読み比べ、同じなら "equal" とするようにコードを直す。参照先とは今までどおり中身を比べない。
@@ -18,10 +18,10 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 - A3 FLAG-cli-006 を閉じ、[TBL-cli-006](../../ir/cli/sync.md#TBL-cli-006) に、パスを指定しない sync は引数の解析エラーで止まるという行を足す。全体を同期するときは "." を指定する。旧資料のパスを省いた例は採らない。
   - why: 今の sync は引数の解析でパスを一つ以上必須としており、パスがなければ何も書かずに終了コード 2 で止まる。同じ旧資料の使い方の例 "sync . --left local --right server1 server2" とも、merge のパスがない指定を引数の解析エラーとする承認済みの [TBL-cli-008](../../ir/cli/merge.md#TBL-cli-008) とも揃う。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
-- A4 FLAG-cli-009 を閉じ、[REQ-cli-101](../../ir/cli/sync.md#REQ-cli-101) を足す。読み込み元への接続かツリーの取得に失敗した sync は、書き込み先ごとの結果を出さずにエラーで止まり、どの書き込み先も変更しない。
+- A4 FLAG-cli-009 を閉じ、[REQ-cli-071](../../ir/cli/sync.md#REQ-cli-071) を足す。読み込み元への接続かツリーの取得に失敗した sync は、書き込み先ごとの結果を出さずにエラーで止まり、どの書き込み先も変更しない。
   - why: 今の sync は読み込み元の接続とツリーの取得を書き込み先のどれにも接続する前に行い、失敗すれば全体をエラーで止める。承認済みの [REQ-merge-015](../../ir/merge/multi-target.md#REQ-merge-015) が他を処理し続けると定めるのは一つの書き込み先が失敗した場合で、読み込み元はすべての書き込み先に共通するため、それを読めなければ処理を続けられる書き込み先がない。エラーで止まったときの終了コード 2 は承認済みの [REQ-cli-044](../../ir/cli/sync.md#REQ-cli-044) が定めている。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
-- A5 FLAG-cli-012 を閉じ、[REQ-cli-102](../../ir/cli/sync.md#REQ-cli-102) を足す。sync のテキスト出力は今の形（"Sync: 元 → 先" の見出し、書き込み先ごとの "[先] 状態" の行、"ok"・"plan"・"skip"・"FAILED" で始まるファイルの行、最後の "Summary:" の行、書き込む予定も失敗もないときの "No files to sync."）とし、旧資料の記号付きの行と "Total:" の行は採らない。--dry-run で削除する予定の行の形は未決の FLAG-cli-013 に残し、この要件では定めない。スキップと失敗の理由の文言も定めない。
+- A5 FLAG-cli-012 を閉じ、[REQ-cli-072](../../ir/cli/sync.md#REQ-cli-072) を足す。sync のテキスト出力は今の形（"Sync: 元 → 先" の見出し、書き込み先ごとの "[先] 状態" の行、"ok"・"plan"・"skip"・"FAILED" で始まるファイルの行、最後の "Summary:" の行、書き込む予定も失敗もないときの "No files to sync."）とし、旧資料の記号付きの行と "Total:" の行は採らない。--dry-run で削除する予定の行の形は未決の FLAG-cli-013 に残し、この要件では定めない。スキップと失敗の理由の文言も定めない。
   - why: 今の sync はそのとおりに出力する。承認済みの [REQ-cli-041](../../ir/cli/sync.md#REQ-cli-041) の状態と [REQ-cli-042](../../ir/cli/sync.md#REQ-cli-042) の集計をそのまま行にした形で、テキストの形を定める承認済みの要件はほかになく、食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
 - A6 FLAG-cli-018 を閉じ、[REQ-cli-048](../../ir/cli/merge.md#REQ-cli-048) の末尾に、--force のない merge が書き込みの対象から外した機密ファイルの skipped の reason は "sensitive file" とするという文を足す。旧資料の "sensitive" は採らない。--delete で削除の対象から外した機密ファイルの reason は別の文言で、この文では定めない。
@@ -30,9 +30,9 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 - A7 FLAG-cli-019 を閉じ、[REQ-cli-049](../../ir/cli/merge.md#REQ-cli-049) の末尾に、スキップしたファイルは失敗したファイルの行より前に "Skipped: パス (理由)" の行で出すという文を足す。旧資料の "  - パス (skipped: 理由)" の形は採らない。
   - why: 今の merge のテキスト出力はスキップをこの形で、失敗の行より前に出す。REQ-cli-049 はスキップの行の形を定めておらず、足す文はそれと矛盾しない。食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
-- A8 FLAG-cli-020 を閉じ、[REQ-cli-103](../../ir/cli/merge.md#REQ-cli-103) を足す。--force も --dry-run もないリモート間の merge は、確認を出さずに書き込まずに止まり、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." を出し、JSON では failed に一件を出し、終了コード 2 を返す。旧資料のサーバ名を入力させる確認は採らない。failed の一件の path と error の値は定めない。
+- A8 FLAG-cli-020 を閉じ、[REQ-cli-073](../../ir/cli/merge.md#REQ-cli-073) を足す。--force も --dry-run もないリモート間の merge は、確認を出さずに書き込まずに止まり、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." を出し、JSON では failed に一件を出し、終了コード 2 を返す。旧資料のサーバ名を入力させる確認は採らない。failed の一件の path と error の値は定めない。
   - why: 今の CLI の merge はそのとおりに動く。承認済みの [REQ-cli-003](../../ir/cli/safety.md#REQ-cli-003) は追加確認か明示的な強制指定がなければ書き込まないと定め、[EX-cli-005](../../ir/cli/safety.md#EX-cli-005) は強制指定のない非対話の CLI merge で書き込み先が変わらないとしており、確認を出さずに止めるこの挙動はそれらを満たす。止めたときの終了コード 2 は、failed が一件でもあれば 2 とする承認済みの [REQ-cli-047](../../ir/cli/merge.md#REQ-cli-047) とも揃う。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
-- A9 FLAG-cli-021 を閉じ、[REQ-cli-104](../../ir/cli/merge.md#REQ-cli-104) を足す。CLI の merge は書き込む前に確認のプロンプトを出さない。--force を指定した merge は、機密ファイルを書き込みと削除の対象に含め、リモート間の merge を止めず、[REQ-cli-051](../../ir/cli/merge.md#REQ-cli-051) の参照先に対する確認をしない。旧資料の確認のプロンプトとそれを --force で省く扱いは採らない。--force がバックアップと読み取りの大きさの上限に効くかはこの要件では定めない。
+- A9 FLAG-cli-021 を閉じ、[REQ-cli-074](../../ir/cli/merge.md#REQ-cli-074) を足す。CLI の merge は書き込む前に確認のプロンプトを出さない。--force を指定した merge は、機密ファイルを書き込みと削除の対象に含め、リモート間の merge を止めず、[REQ-cli-051](../../ir/cli/merge.md#REQ-cli-051) の参照先に対する確認をしない。旧資料の確認のプロンプトとそれを --force で省く扱いは採らない。--force がバックアップと読み取りの大きさの上限に効くかはこの要件では定めない。
   - why: 今の CLI の merge は標準入力から答えを読まず、--force は挙げた四つに効く。承認済みの [EX-cli-004](../../ir/cli/safety.md#EX-cli-004) と [EX-cli-008](../../ir/cli/safety.md#EX-cli-008) は確認なしに明示した書き込み先が更新されるとし、[EX-cli-006](../../ir/cli/safety.md#EX-cli-006) と [EX-cli-066](../../ir/cli/merge.md#EX-cli-066) は強制指定でリモート間の merge と参照先から変わったファイルが書かれるとしている。食い違うのは旧資料だけである。読み取りの大きさの上限は、--force を受け取るのが一件ずつ読む経路だけで、先に通る中身をまとめて読む経路には渡らず、上限を超えるファイルを使う契約テストで効き目の範囲を確かめられなかったため、要件から外した。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

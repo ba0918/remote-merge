@@ -42,7 +42,7 @@ status は --format に "text" と "json" を受け付けて "diff" を "text" �
 
 --summary を指定した status は、テキストではファイルの行を出さずに見出しと集計だけを出し、JSON では "files" を出さない。
 
-### REQ-cli-100: -v で右の Agent の接続状態を示す
+### REQ-cli-070: -v で右の Agent の接続状態を示す
 - kind: state_driven
 - source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A1
 - verification: unit
