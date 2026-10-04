@@ -6,7 +6,6 @@
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
-use super::status::is_sensitive;
 use super::types::{
     BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
 };
@@ -16,7 +15,6 @@ use super::types::{
 pub struct RestorePlan {
     pub session_id: String,
     pub files: Vec<String>,
-    pub skipped: Vec<RollbackSkipped>,
     pub warnings: Vec<String>,
 }
 
@@ -179,12 +177,10 @@ pub fn mark_expired(sessions: &mut [BackupSession], retention_days: u32, now: Da
 /// 復元計画を立てる（純粋関数）。
 ///
 /// - `session_id` 省略時: 最新の non-expired セッションを自動選択
-/// - sensitive ファイルは skip（`force` で上書き可）
 /// - expired セッションは拒否（`force` で上書き可）
 pub fn plan_restore(
     sessions: &[BackupSession],
     session_id: Option<&str>,
-    sensitive_patterns: &[String],
     force: bool,
 ) -> Result<RestorePlan, RestoreError> {
     if sessions.is_empty() {
@@ -212,8 +208,6 @@ pub fn plan_restore(
         return Err(RestoreError::AllExpired);
     }
 
-    let mut files = Vec::new();
-    let mut skipped = Vec::new();
     let mut warnings = Vec::new();
 
     if target.expired {
@@ -223,21 +217,15 @@ pub fn plan_restore(
         ));
     }
 
-    for entry in &target.files {
-        if !force && is_sensitive(&entry.path, sensitive_patterns) {
-            skipped.push(RollbackSkipped {
-                path: entry.path.clone(),
-                reason: "sensitive".into(),
-            });
-            continue;
-        }
-        files.push(entry.path.clone());
-    }
+    let files = target
+        .files
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect();
 
     Ok(RestorePlan {
         session_id: target.session_id.clone(),
         files,
-        skipped,
         warnings,
     })
 }
@@ -414,7 +402,7 @@ mod tests {
             make_session("20240119-100000", &["a.rs"]),
             make_session("20240118-100000", &["b.rs"]),
         ];
-        let plan = plan_restore(&sessions, None, &[], false).unwrap();
+        let plan = plan_restore(&sessions, None, false).unwrap();
         assert_eq!(plan.session_id, "20240119-100000");
         assert_eq!(plan.files, vec!["a.rs"]);
     }
@@ -425,7 +413,7 @@ mod tests {
             make_session("20240119-100000", &["a.rs"]),
             make_session("20240118-100000", &["b.rs"]),
         ];
-        let plan = plan_restore(&sessions, Some("20240118-100000"), &[], false).unwrap();
+        let plan = plan_restore(&sessions, Some("20240118-100000"), false).unwrap();
         assert_eq!(plan.session_id, "20240118-100000");
         assert_eq!(plan.files, vec!["b.rs"]);
     }
@@ -436,7 +424,7 @@ mod tests {
             expired: true,
             ..make_session("20240110-100000", &["a.rs"])
         }];
-        let err = plan_restore(&sessions, None, &[], false).unwrap_err();
+        let err = plan_restore(&sessions, None, false).unwrap_err();
         assert_eq!(err, RestoreError::AllExpired);
     }
 
@@ -446,51 +434,30 @@ mod tests {
             expired: true,
             ..make_session("20240110-100000", &["a.rs"])
         }];
-        let plan = plan_restore(&sessions, None, &[], true).unwrap();
+        let plan = plan_restore(&sessions, None, true).unwrap();
         assert_eq!(plan.session_id, "20240110-100000");
         assert_eq!(plan.files, vec!["a.rs"]);
         assert!(!plan.warnings.is_empty());
     }
 
     #[test]
-    fn plan_restore_sensitive_skipped() {
-        let sessions = vec![make_session("20240119-100000", &["src/app.rs", ".env"])];
-        let patterns = vec![".env".into()];
-        let plan = plan_restore(&sessions, None, &patterns, false).unwrap();
-        assert_eq!(plan.files, vec!["src/app.rs"]);
-        assert_eq!(plan.skipped.len(), 1);
-        assert_eq!(plan.skipped[0].path, ".env");
-        assert_eq!(plan.skipped[0].reason, "sensitive");
-    }
-
-    #[test]
-    fn plan_restore_sensitive_force() {
-        let sessions = vec![make_session("20240119-100000", &[".env"])];
-        let patterns = vec![".env".into()];
-        let plan = plan_restore(&sessions, None, &patterns, true).unwrap();
-        assert_eq!(plan.files, vec![".env"]);
-        assert!(plan.skipped.is_empty());
-    }
-
-    #[test]
     fn plan_restore_no_sessions_error() {
-        let err = plan_restore(&[], None, &[], false).unwrap_err();
+        let err = plan_restore(&[], None, false).unwrap_err();
         assert_eq!(err, RestoreError::NoSessions);
     }
 
     #[test]
     fn plan_restore_session_not_found() {
         let sessions = vec![make_session("20240119-100000", &["a.rs"])];
-        let err = plan_restore(&sessions, Some("99999999-999999"), &[], false).unwrap_err();
+        let err = plan_restore(&sessions, Some("99999999-999999"), false).unwrap_err();
         assert_eq!(err, RestoreError::SessionNotFound("99999999-999999".into()));
     }
 
     #[test]
     fn plan_restore_empty_session() {
         let sessions = vec![make_session("20240119-100000", &[])];
-        let plan = plan_restore(&sessions, None, &[], false).unwrap();
+        let plan = plan_restore(&sessions, None, false).unwrap();
         assert!(plan.files.is_empty());
-        assert!(plan.skipped.is_empty());
     }
 
     // ── rollback_exit_code ──

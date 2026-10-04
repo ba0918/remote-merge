@@ -1768,14 +1768,14 @@ mod tests {
             ],
             skipped: vec![RollbackSkipped {
                 path: "src/app.ts".into(),
-                reason: "sensitive".into(),
+                reason: "symlink restore not supported".into(),
             }],
             failed: vec![],
         };
         let text = format_rollback_text(&output);
         assert!(text.contains("Rollback session 20240115-140000 for develop:"));
         assert!(text.contains("\u{2713} src/config.ts (pre-rollback backup: 20240116-090000)"));
-        assert!(text.contains("- src/app.ts (skipped: sensitive)"));
+        assert!(text.contains("- src/app.ts (skipped: symlink restore not supported)"));
         assert!(text.contains("Restored 2 file(s), skipped 1."));
     }
 

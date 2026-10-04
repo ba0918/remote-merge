@@ -34,9 +34,15 @@ fn newest_session_id(env: &CliEnv) -> String {
 
 /// --force も --dry-run もなしに rollback を起動し、確認に answer を答える。
 fn rollback_answering(env: &CliEnv, answer: &str) -> Output {
+    rollback_answering_with(env, answer, &[])
+}
+
+/// `rollback_answering` に `extra` の引数を足して起動する
+fn rollback_answering_with(env: &CliEnv, answer: &str, extra: &[&str]) -> Output {
     let mut child = env
         .cmd_with("rollback")
         .args(["--target", "develop"])
+        .args(extra)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -125,6 +131,45 @@ fn rollback_restores_every_file_of_the_newest_session() {
     assert_eq!(
         fs::read_to_string(env.remote_dir.join("b.txt")).unwrap(),
         "b-original\n"
+    );
+}
+
+// @kotowari[REQ-backup-034]
+#[test]
+fn rollback_without_force_restores_a_dotenv_file_after_yes() {
+    let env = CliEnv::new(
+        &[("file.txt", "merged\n"), (".env", "A=merged\n")],
+        &[("file.txt", "original\n"), (".env", "A=original\n")],
+    );
+    merge(&env, &["file.txt", ".env"]);
+    let session_id = newest_session_id(&env);
+
+    let output = rollback_answering_with(&env, "y\n", &["--format", "json"]);
+
+    assert_exit_success(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "Restore 2 file(s) from session {session_id} to develop? [y/N]"
+        )),
+        "{stderr}"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut restored: Vec<&str> = json["restored"]
+        .as_array()
+        .unwrap_or_else(|| panic!("restored missing: {json}"))
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect();
+    restored.sort_unstable();
+    assert_eq!(restored, [".env", "file.txt"], "{json}");
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join(".env")).unwrap(),
+        "A=original\n"
+    );
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join("file.txt")).unwrap(),
+        "original\n"
     );
 }
 

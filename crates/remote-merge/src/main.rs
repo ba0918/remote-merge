@@ -232,7 +232,7 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
 
-        /// Skip confirmation prompt and force restore of expired/sensitive files
+        /// Skip confirmation prompt and allow restoring an expired session
         #[arg(long)]
         force: bool,
 

@@ -81,13 +81,8 @@ pub fn execute_rollback(
     core.connect_if_remote(&side)?;
 
     // 復元計画
-    let plan = plan_restore(
-        &sessions,
-        args.session.as_deref(),
-        &config.filter.sensitive,
-        args.force,
-    )
-    .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let plan = plan_restore(&sessions, args.session.as_deref(), args.force)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // 確認プロンプト（--force なし）
     if !args.force && !args.dry_run {
@@ -109,7 +104,7 @@ pub fn execute_rollback(
 
     // 復元実行
     let mut restored = Vec::new();
-    let mut skipped: Vec<RollbackSkipped> = plan.skipped;
+    let mut skipped: Vec<RollbackSkipped> = Vec::new();
     let mut failed: Vec<RollbackFailure> = Vec::new();
 
     match core.restore_backup(&side, &plan.session_id, &plan.files, args.dry_run) {
