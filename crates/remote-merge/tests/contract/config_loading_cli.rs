@@ -474,3 +474,110 @@ fn sensitive_in_both_configs_warns_only_once() {
 
     assert_sensitive_warnings(&output, 1, &["server.key"]);
 }
+
+// ─── 使われなくなった badge_scan_max_files の警告（REQ-config-031） ─────────────────
+
+const BADGE_SCAN_IGNORED_WARNING: &str =
+    "Warning: badge_scan_max_files is no longer used and is ignored";
+
+impl Workspace {
+    /// `write_config` と同じ設定のトップレベルに badge_scan_max_files の指定を足して書く
+    fn write_config_with_badge_scan_max_files(
+        &mut self,
+        path: &Path,
+        local_root: &Path,
+        value: &str,
+    ) {
+        let base = gen_config(
+            local_root,
+            &self.dirs.remote_dir,
+            None,
+            self.dirs.server_port(),
+        );
+        let content = format!("badge_scan_max_files = {value}\n{base}");
+        self.write(path, local_root, &content);
+    }
+}
+
+/// 警告の行の数を数え、指定が使われずに status が最後まで続いたこと（読み込んだ設定の root_dir の一覧が出ること）を確かめる
+fn assert_badge_scan_warnings(output: &Output, expected_warnings: usize, expected_paths: &[&str]) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches(BADGE_SCAN_IGNORED_WARNING).count(),
+        expected_warnings,
+        "{output:?}"
+    );
+    // ローカルの側にだけファイルを置くため "left_only" があり、終了コードは 1 になる
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"));
+    assert_eq!(listed_paths(&json), expected_paths);
+}
+
+// @kotowari[REQ-config-031]
+#[test]
+fn badge_scan_max_files_in_the_project_config_warns_once_for_any_value() {
+    for value in ["500", "0", "20000", "-1", "\"many\""] {
+        let mut workspace = Workspace::new();
+        let cwd = workspace.dir("work");
+        let local = workspace.local_root_with("project-local", "file.txt");
+        workspace.write_config_with_badge_scan_max_files(
+            &cwd.join(".remote-merge.toml"),
+            &local,
+            value,
+        );
+
+        let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+        assert_badge_scan_warnings(&output, 1, &["file.txt"]);
+    }
+}
+
+// @kotowari[REQ-config-031]
+#[cfg(target_os = "linux")]
+#[test]
+fn badge_scan_max_files_in_the_global_config_warns_once() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("global-local", "file.txt");
+    let global_path = workspace.global_config_path();
+    workspace.write_config_with_badge_scan_max_files(&global_path, &local, "0");
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_badge_scan_warnings(&output, 1, &["file.txt"]);
+}
+
+// @kotowari[REQ-config-031]
+#[cfg(target_os = "linux")]
+#[test]
+fn badge_scan_max_files_in_both_configs_warns_only_once() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let global_local = workspace.local_root_with("global-local", "from-global.txt");
+    let global_path = workspace.global_config_path();
+    workspace.write_config_with_badge_scan_max_files(&global_path, &global_local, "10");
+    let local = workspace.local_root_with("project-local", "file.txt");
+    workspace.write_config_with_badge_scan_max_files(
+        &cwd.join(".remote-merge.toml"),
+        &local,
+        "\"many\"",
+    );
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_badge_scan_warnings(&output, 1, &["file.txt"]);
+}
+
+// @kotowari[REQ-config-031]
+#[test]
+fn config_without_badge_scan_max_files_does_not_warn() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("project-local", "file.txt");
+    workspace.write_config(&cwd.join(".remote-merge.toml"), &local);
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_badge_scan_warnings(&output, 0, &["file.txt"]);
+}

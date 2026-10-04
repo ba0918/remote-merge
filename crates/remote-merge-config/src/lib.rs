@@ -30,8 +30,6 @@ pub struct AppConfig {
     pub defaults: DefaultsConfig,
     /// ツリースキャンの最大エントリ数（デフォルト: 50,000）
     pub max_scan_entries: usize,
-    /// バッジスキャンのファイル数上限（デフォルト: 500）
-    pub badge_scan_max_files: usize,
 }
 
 /// ローカルパス設定
@@ -73,20 +71,6 @@ pub const DEFAULT_MAX_SCAN_ENTRIES: usize = 50_000;
 
 /// ディレクトリ取得のデフォルト最大エントリ数（ローカル・リモート共通）
 pub const DEFAULT_MAX_DIR_ENTRIES: usize = 10_000;
-
-/// バッジスキャンのデフォルトファイル数上限
-pub const DEFAULT_BADGE_SCAN_MAX_FILES: usize = 500;
-
-/// badge_scan_max_files の有効範囲: 1 以上 10,000 以下
-pub fn validate_badge_scan_max_files(n: usize) -> Result<(), String> {
-    if n == 0 || n > 10_000 {
-        return Err(format!(
-            "badge_scan_max_files must be between 1 and 10,000, got {}",
-            n
-        ));
-    }
-    Ok(())
-}
 
 /// max_scan_entries の有効範囲: 1 以上 1,000,000 以下
 pub fn validate_max_scan_entries(n: usize) -> Result<(), String> {
@@ -243,7 +227,8 @@ struct RawConfig {
     agent: Option<RawAgentConfig>,
     defaults: Option<RawDefaultsConfig>,
     max_scan_entries: Option<usize>,
-    badge_scan_max_files: Option<usize>,
+    /// 使わないキー。どんな型の値でも読み込みを止めずに受け付ける
+    badge_scan_max_files: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -327,6 +312,7 @@ pub fn project_config_path() -> PathBuf {
 /// - `[local]`: プロジェクト設定で上書き
 /// - `[filter].exclude`: 和集合
 /// - `[filter].sensitive`: 使わない（指定があれば一度だけ警告する）
+/// - `badge_scan_max_files`: 使わない（指定があれば値を検査せずに一度だけ警告する）
 /// - `[ssh]`: プロジェクト設定で上書き
 /// - `[backup]`: プロジェクト設定で上書き
 pub fn load_config() -> crate::error::Result<AppConfig> {
@@ -401,6 +387,11 @@ pub fn load_config_from_paths(
     if specifies_sensitive(global_raw.as_ref()) || specifies_sensitive(project_raw.as_ref()) {
         eprintln!("Warning: {SENSITIVE_IGNORED_WARNING}");
     }
+    if specifies_badge_scan_max_files(global_raw.as_ref())
+        || specifies_badge_scan_max_files(project_raw.as_ref())
+    {
+        eprintln!("Warning: {BADGE_SCAN_IGNORED_WARNING}");
+    }
 
     merge_configs(global_raw, project_raw)
 }
@@ -412,6 +403,14 @@ const SENSITIVE_IGNORED_WARNING: &str = "[filter] sensitive is no longer used an
 fn specifies_sensitive(raw: Option<&RawConfig>) -> bool {
     raw.and_then(|r| r.filter.as_ref())
         .is_some_and(|f| f.sensitive.is_some())
+}
+
+/// `badge_scan_max_files` の指定が残った設定への警告文（"Warning: " の接頭辞は出力時に付ける）
+const BADGE_SCAN_IGNORED_WARNING: &str = "badge_scan_max_files is no longer used and is ignored";
+
+/// 設定ファイルに `badge_scan_max_files` の指定があるか。指定は値を検査せずに受け付け、使わない
+fn specifies_badge_scan_max_files(raw: Option<&RawConfig>) -> bool {
+    raw.is_some_and(|r| r.badge_scan_max_files.is_some())
 }
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
@@ -596,22 +595,6 @@ fn merge_configs(
         raw_val
     };
 
-    // badge_scan_max_files: プロジェクトで上書き、バリデーション付き
-    let badge_scan_max_files = {
-        let raw_val = project
-            .as_ref()
-            .and_then(|p| p.badge_scan_max_files)
-            .or(global.badge_scan_max_files)
-            .unwrap_or(DEFAULT_BADGE_SCAN_MAX_FILES);
-        if let Err(msg) = validate_badge_scan_max_files(raw_val) {
-            bail!(AppError::ConfigValidation {
-                field: "badge_scan_max_files".into(),
-                message: msg,
-            });
-        }
-        raw_val
-    };
-
     Ok(AppConfig {
         servers,
         local,
@@ -621,7 +604,6 @@ fn merge_configs(
         agent,
         defaults,
         max_scan_entries,
-        badge_scan_max_files,
     })
 }
 
@@ -2200,92 +2182,6 @@ include = ["src/lib", "ja/Back"]
         assert_eq!(config.filter.include.len(), 2);
     }
 
-    // ── badge_scan_max_files テスト ──
-
-    #[test]
-    fn test_default_badge_scan_max_files_is_500() {
-        assert_eq!(DEFAULT_BADGE_SCAN_MAX_FILES, 500);
-    }
-
-    #[test]
-    fn test_validate_badge_scan_max_files_zero_is_err() {
-        assert!(validate_badge_scan_max_files(0).is_err());
-    }
-
-    #[test]
-    fn test_validate_badge_scan_max_files_one_is_ok() {
-        assert!(validate_badge_scan_max_files(1).is_ok());
-    }
-
-    #[test]
-    fn test_validate_badge_scan_max_files_500_is_ok() {
-        assert!(validate_badge_scan_max_files(500).is_ok());
-    }
-
-    #[test]
-    fn test_validate_badge_scan_max_files_10000_is_ok() {
-        assert!(validate_badge_scan_max_files(10_000).is_ok());
-    }
-
-    #[test]
-    fn test_validate_badge_scan_max_files_over_max_is_err() {
-        assert!(validate_badge_scan_max_files(10_001).is_err());
-    }
-
-    #[test]
-    fn test_badge_scan_max_files_toml_default() {
-        let content = r#"
-[servers.develop]
-host = "dev.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[local]
-root_dir = "/home/user/app"
-"#;
-        let f = write_temp_config(content);
-        let config = load_config_from_paths(Some(f.path()), None).unwrap();
-        assert_eq!(config.badge_scan_max_files, DEFAULT_BADGE_SCAN_MAX_FILES);
-    }
-
-    #[test]
-    fn test_badge_scan_max_files_toml_custom() {
-        let content = r#"
-badge_scan_max_files = 1000
-
-[servers.develop]
-host = "dev.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[local]
-root_dir = "/home/user/app"
-"#;
-        let f = write_temp_config(content);
-        let config = load_config_from_paths(Some(f.path()), None).unwrap();
-        assert_eq!(config.badge_scan_max_files, 1000);
-    }
-
-    #[test]
-    fn test_badge_scan_max_files_toml_invalid_zero_is_err() {
-        let content = r#"
-badge_scan_max_files = 0
-
-[servers.develop]
-host = "dev.example.com"
-user = "deploy"
-root_dir = "/var/www/app"
-
-[local]
-root_dir = "/home/user/app"
-"#;
-        let f = write_temp_config(content);
-        let result = load_config_from_paths(Some(f.path()), None);
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("badge_scan_max_files"), "got: {msg}");
-    }
-
     /// テスト用の最小限の AppConfig を生成するヘルパー
     fn make_minimal_app_config() -> AppConfig {
         AppConfig {
@@ -2297,7 +2193,6 @@ root_dir = "/home/user/app"
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
-            badge_scan_max_files: DEFAULT_BADGE_SCAN_MAX_FILES,
         }
     }
 

@@ -388,29 +388,6 @@ fn config_max_scan_entries_accepts_its_range_and_stops_outside_it() {
     }
 }
 
-// @kotowari[REQ-config-017]
-#[test]
-fn config_badge_scan_max_files_accepts_its_range_and_stops_outside_it() {
-    for value in [1, 10_000] {
-        let config = load_ok(&format!(
-            "badge_scan_max_files = {value}\n{}",
-            plain_server("")
-        ));
-        assert_eq!(config.badge_scan_max_files, value);
-    }
-    for value in ["0", "10001"] {
-        assert_eq!(
-            load_error(&format!(
-                "badge_scan_max_files = {value}\n{}",
-                plain_server("")
-            )),
-            format!(
-                "Invalid config value: badge_scan_max_files - badge_scan_max_files must be between 1 and 10,000, got {value}"
-            )
-        );
-    }
-}
-
 /// --max-entries の範囲の外の値と、そのときのエラーの全体の文言（値はカンマなしで出る）
 const MAX_ENTRIES_OUTSIDE: [(usize, &str); 2] = [
     (0, "max_scan_entries must be between 1 and 1,000,000, got 0"),

@@ -270,7 +270,6 @@ mod tests {
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
-            badge_scan_max_files: DEFAULT_BADGE_SCAN_MAX_FILES,
         }
     }
 
@@ -400,7 +399,6 @@ mod tests {
             agent: AgentConfig::default(),
             defaults: DefaultsConfig::default(),
             max_scan_entries: DEFAULT_MAX_SCAN_ENTRIES,
-            badge_scan_max_files: DEFAULT_BADGE_SCAN_MAX_FILES,
         };
         let args = SourceArgs::default();
         let result = resolve_source_pair(&args, &config);
