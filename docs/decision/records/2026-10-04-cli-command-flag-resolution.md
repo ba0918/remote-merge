@@ -30,3 +30,6 @@ CLI の status・sync・merge には、取り込みのときに未決として�
 - A7 FLAG-cli-019 を閉じ、[REQ-cli-049](../../ir/cli/merge.md#REQ-cli-049) の末尾に、スキップしたファイルは失敗したファイルの行より前に "Skipped: パス (理由)" の行で出すという文を足す。旧資料の "  - パス (skipped: 理由)" の形は採らない。
   - why: 今の merge のテキスト出力はスキップをこの形で、失敗の行より前に出す。REQ-cli-049 はスキップの行の形を定めておらず、足す文はそれと矛盾しない。食い違うのは旧資料だけである。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A8 FLAG-cli-020 を閉じ、[REQ-cli-103](../../ir/cli/merge.md#REQ-cli-103) を足す。--force も --dry-run もないリモート間の merge は、確認を出さずに書き込まずに止まり、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." を出し、JSON では failed に一件を出し、終了コード 2 を返す。旧資料のサーバ名を入力させる確認は採らない。failed の一件の path と error の値は定めない。
+  - why: 今の CLI の merge はそのとおりに動く。承認済みの [REQ-cli-003](../../ir/cli/safety.md#REQ-cli-003) は追加確認か明示的な強制指定がなければ書き込まないと定め、[EX-cli-005](../../ir/cli/safety.md#EX-cli-005) は強制指定のない非対話の CLI merge で書き込み先が変わらないとしており、確認を出さずに止めるこの挙動はそれらを満たす。止めたときの終了コード 2 は、failed が一件でもあれば 2 とする承認済みの [REQ-cli-047](../../ir/cli/merge.md#REQ-cli-047) とも揃う。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

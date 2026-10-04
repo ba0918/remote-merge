@@ -1,4 +1,5 @@
-//! merge の指定の誤りとエラーの出力（docs/ir/cli/merge.md の TBL-cli-008、docs/ir/cli/results.md）の契約テスト。
+//! merge の指定の誤りとエラーの出力（docs/ir/cli/merge.md の TBL-cli-008、docs/ir/cli/results.md）と、
+//! リモート間の merge の停止（docs/ir/cli/merge.md の REQ-cli-103）の契約テスト。
 //!
 //! どの指定も接続より前に止まるため、SSH の fixture を使わずに実行ファイルを起動する。
 
@@ -119,4 +120,40 @@ fn a_json_merge_stopped_by_an_error_prints_the_error_as_json() {
             .is_some_and(|error| error.contains("--left and --right are required")),
         "{json}"
     );
+}
+
+// @kotowari[REQ-cli-103]
+#[test]
+fn a_remote_to_remote_merge_without_force_or_dry_run_stops_with_a_warning() {
+    let fixture = one_file_to_merge();
+
+    let output = fixture.run_cli(&["file.txt", "--left", "develop", "--right", "staging"]);
+
+    assert_stopped_without_writing(&fixture, &output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "Warning: merging between two remote servers (develop \u{2192} staging)",
+            "Use --force to proceed, or --dry-run to preview changes.",
+        ],
+        "{output:?}"
+    );
+}
+
+// @kotowari[REQ-cli-103]
+#[test]
+fn a_json_remote_to_remote_merge_without_force_or_dry_run_has_one_failed_entry() {
+    let fixture = one_file_to_merge();
+
+    let output = fixture.run_cli(&[
+        "file.txt", "--left", "develop", "--right", "staging", "--format", "json",
+    ]);
+
+    assert_stopped_without_writing(&fixture, &output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {output:?}"));
+    assert_eq!(json["failed"].as_array().map(Vec::len), Some(1), "{json}");
+    assert_eq!(json["merged"], serde_json::json!([]), "{json}");
 }

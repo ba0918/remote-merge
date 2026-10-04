@@ -86,13 +86,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
 
-### FLAG-cli-020: リモート間の merge の確認
-- kind: contradiction
-- related: REQ-cli-003, REQ-cli-047
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A11
-
-旧総合仕様のサーバ間比較の節はリモート間の merge でサーバ名を入力させる確認を出し、--force で確認を省略できるとするが、CLI の実装は確認を出さずに --force も --dry-run もないリモート間の merge を止め、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." を出し、JSON では failed に path が "" の一件を出し、終了コード 2 を返す。
-
 ### FLAG-cli-021: merge の確認のプロンプトと --force の働き
 - kind: contradiction
 - related: REQ-cli-003
