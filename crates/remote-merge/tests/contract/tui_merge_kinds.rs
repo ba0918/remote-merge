@@ -118,8 +118,9 @@ impl KindMismatch {
             fs::read_to_string(destination.join("referent.txt")).unwrap(),
             REFERENT_TEXT
         );
+        // 理由の文言は仕様で未決のため固定せず、mtime 警告などを挟まずにスキップされたことを見る
         assert!(
-            self.state.status_message.contains("different file types"),
+            matches!(self.state.dialog, DialogState::None),
             "{}",
             self.state.status_message
         );
