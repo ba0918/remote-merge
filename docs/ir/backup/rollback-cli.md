@@ -13,10 +13,10 @@ rollback を実行すると、書き込み先の選んだセッションの各�
 
 ### REQ-backup-035: 強制指定なしでは確認してから戻す
 - kind: event_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A2
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A2, docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A7
 - verification: unit
 
---force と --dry-run のどちらもないとき、rollback は "Restore N file(s) from session S to T? [y/N]" と尋ね、"y" または "yes" と答えたときだけ書き戻す。
+--force と --dry-run のどちらもないとき、rollback は "Restore N file(s) from session S to T? [y/N]" と尋ね、"y" または "yes" と答えたときだけ書き戻す。それ以外の答えでは標準エラーに "Aborted." を出し、何も書き戻さずに終了コード 0 で終わる。
 
 ### REQ-backup-036: 機密ファイルは強制指定なしでは戻さない
 - kind: state_driven

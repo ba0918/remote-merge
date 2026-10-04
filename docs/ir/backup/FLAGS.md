@@ -16,13 +16,6 @@
 
 旧個別仕様 3.12 は辿り直せなかったファイルを "cannot resolve path: <原因>" で failed にするとするが、実装は一件でも辿れないとセッション内の全ファイルを failed にする。他のファイルを戻すべきかは旧資料からも spec-migration の A11 からも決まらない。
 
-### FLAG-backup-004: 確認を断ったときの終了コード
-- kind: gap
-- related: REQ-backup-035
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A37
-
-rollback の確認に "y" または "yes" 以外で答えると "Aborted." を出して何も書き戻さず終了コード 0 で終わる。旧資料に記述がなく、テストもない。
-
 ### FLAG-backup-005: セッション ID の連番のあふれで panic する
 - kind: gap
 - related: REQ-backup-022, REQ-backup-023

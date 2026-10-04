@@ -68,6 +68,12 @@ fn rollback_asks_before_restoring_and_restores_only_after_y_or_yes() {
             )),
             "{answer:?}: {stderr}"
         );
+        assert_exit_success(&output);
+        assert_eq!(
+            stderr.contains("Aborted."),
+            answer != "y\n",
+            "{answer:?}: {stderr}"
+        );
         let expected = if answer == "y\n" {
             "original\n"
         } else {
