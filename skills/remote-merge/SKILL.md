@@ -246,6 +246,10 @@ include = ["src/", "config/"]  # Whitelist: scan only these dirs (empty = scan a
 ### Full reference
 
 ```toml
+# ── Scan ── (top-level keys: write them before any [section])
+max_scan_entries = 50000                # Max files per scan (default: 50000)
+badge_scan_max_files = 500              # Max files for quick badge scan (default: 500)
+
 # ── Local ──
 [local]
 root_dir = "."                          # Local project root (default: ".")
@@ -298,10 +302,6 @@ dir_permissions = "0775"                # Default dir perms (default: 0775)
 enabled = true                          # Use Agent for fast scanning (default: true)
 deploy_dir = "/var/tmp"                 # Agent binary location (default: /var/tmp)
 timeout_secs = 30                       # Agent ping timeout (default: 30)
-
-# ── Scan ──
-max_scan_entries = 50000                # Max files per scan (default: 50000)
-badge_scan_max_files = 500              # Max files for quick badge scan (default: 500)
 ```
 
 ### Filter semantics

@@ -290,3 +290,56 @@ fn sections_with_every_key_omitted_use_the_default_values() {
         assert_section_defaults(&config, case);
     }
 }
+
+// ─── 走査の上限のキーごとの選び方と既定値（REQ-config-027、TBL-config-001） ─────
+
+/// トップレベルのキーを [local] より前に書いて読み込む（[local] の後に書くと [local] の中のキーになる）
+fn load_top_level(global: Option<&str>, project: Option<&str>) -> AppConfig {
+    let dir = tempfile::tempdir().unwrap();
+    let write = |name: &str, top: &str| {
+        let path = dir.path().join(name);
+        fs::write(&path, format!("{top}{LOCAL}")).unwrap();
+        path
+    };
+    let global_path = global.map(|top| write("global.toml", top));
+    let project_path = project.map(|top| write("project.toml", top));
+    load_config_from_paths(global_path.as_deref(), project_path.as_deref()).unwrap()
+}
+
+fn scan_limits(config: &AppConfig) -> (usize, usize) {
+    (config.max_scan_entries, config.badge_scan_max_files)
+}
+
+// @kotowari[REQ-config-027]
+#[test]
+fn scan_limit_keys_are_chosen_per_key_from_the_project_then_the_global_config() {
+    // それぞれのキーを片方にだけ書く: どちらも反映される
+    let config = load_top_level(
+        Some("max_scan_entries = 1234\n"),
+        Some("badge_scan_max_files = 77\n"),
+    );
+    assert_eq!(scan_limits(&config), (1234, 77));
+
+    // 両方に書く: プロジェクト側を使う
+    let both = "max_scan_entries = 1234\nbadge_scan_max_files = 77\n";
+    let project = "max_scan_entries = 4321\nbadge_scan_max_files = 88\n";
+    let config = load_top_level(Some(both), Some(project));
+    assert_eq!(scan_limits(&config), (4321, 88));
+
+    // どちらにも書かない: 既定値を使う
+    let config = load_top_level(Some(""), Some(""));
+    assert_eq!(scan_limits(&config), (50_000, 500));
+}
+
+// @kotowari[REQ-config-013]
+#[test]
+fn omitted_scan_limit_keys_use_the_default_values() {
+    for (case, global, project) in [
+        ("global config only", Some(""), None),
+        ("project config only", None, Some("")),
+        ("both configs", Some(""), Some("")),
+    ] {
+        let config = load_top_level(global, project);
+        assert_eq!(scan_limits(&config), (50_000, 500), "{case}");
+    }
+}

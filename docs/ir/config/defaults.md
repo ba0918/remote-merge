@@ -15,7 +15,7 @@
 ## Decision tables
 
 ### TBL-config-001: 省いたキーの既定値
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A8, docs/decision/records/2026-10-04-config-flag-resolution.md#A3
 
 | セクション | キー | 既定値 |
 |---|---|---|
@@ -33,3 +33,5 @@
 | [agent] | max_file_chunk_bytes | 4194304 |
 | [defaults] | file_permissions | 0o664 |
 | [defaults] | dir_permissions | 0o775 |
+| (トップレベル) | max_scan_entries | 50000 |
+| (トップレベル) | badge_scan_max_files | 500 |

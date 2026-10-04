@@ -16,13 +16,6 @@
 
 利用者向けの手引きは [local] の root_dir の既定値を "." とするが、実装は [local] がグローバル設定にもプロジェクト設定にもないとき "Invalid config value: local - [local] section is required" のエラーで止め、root_dir のない [local] は TOML の読み込みエラーにする（後者は実装を読んで分かったことで未実行）。
 
-### FLAG-config-003: 走査の上限のキーの置き場所と既定値
-- kind: contradiction
-- related: REQ-config-013, REQ-scan-003
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A14
-
-旧総合仕様は [scan] セクションの max_scan_entries（既定 100,000）と badge_scan_max_files（既定 5,000）とするが、利用者向けの手引きと実装はトップレベルのキーで既定 50,000 と 500 とし、実装はプロジェクト設定・グローバル設定・既定値の順にキーごとに選び、[scan] セクションに書いた値は知らせずに無視する（無視は実装を読んで分かったことで未実行）。
-
 ### FLAG-config-004: 相対パスの root_dir の起点
 - kind: gap
 - related: REQ-config-006, REQ-config-010
