@@ -58,13 +58,6 @@
 
 実装は init・logs・events に --config を指定すると "Warning: --config is ignored for the 'サブコマンド名' subcommand" を出して設定を読まずに続ける。旧資料に記述がなくテストもない。
 
-### FLAG-config-009: 3 桁でないパーミッションの書き方
-- kind: ambiguity
-- related: REQ-config-015
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A8
-
-旧総合仕様のパーミッション文字列のフォーマットは 3 桁の形（"0o664"・"0664"・"664"）だけを挙げるが、実装は "64" や "7" のような短い数字の並びも 8 進数として受け付けて、0o777 以下なら権限として使う。3 桁でない形を拒むべきかが旧資料から読み取れない。
-
 ### FLAG-config-010: auth が key のサーバの password の警告
 - kind: gap
 - related: REQ-config-014
@@ -92,13 +85,6 @@
 - source: docs/decision/records/2026-09-29-adopt-config-filters.md#A7
 
 旧総合仕様の設定ファイルの例は include を指定したとき一致するパスだけを走査するとするが、実装は include の値が全て無効（絶対パス、".." を含む、glob 文字を含む）なとき警告を出して include を空として扱うため、全てのパスが走査の対象になる（実装を読んで分かったことで未実行）。
-
-### FLAG-config-014: 既定の sensitive を外せない
-- kind: contradiction
-- related: REQ-config-026
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A8
-
-旧総合仕様のセンシティブファイル警告の節は既定の sensitive のパターンを設定で追加・上書きできるとするが、実装は設定のパターンを既定のパターンに足すだけで、既定のパターンを外す方法がない。
 
 ### FLAG-config-015: "../" を含む exclude のパターンの警告
 - kind: gap
