@@ -25,6 +25,13 @@ merge と sync は書き込み元と書き込み先の明示的な指定がな�
 
 merge と sync の dry-run は変更予定を報告し、書き込み先を変更しない。
 
+### REQ-cli-076: サブコマンドなしの起動は使い方を示して止まる
+- kind: event_driven
+- source: docs/decision/records/2026-10-04-tui-disposition.md#A2, docs/decision/records/2026-10-04-tui-disposition.md#A19
+- verification: unit
+
+サブコマンドを指定せずに起動したときは、グローバルなフラグだけを付けた場合も含め、比較も診断ログを含む書き込みもせずに標準エラーへ使い方を出し、終了コード 2 で終わる。
+
 ## Examples
 
 ```gherkin

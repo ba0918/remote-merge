@@ -57,6 +57,25 @@ TUI は WebView 方式への移行を想定して凍結中だが、製品 crate 
   - why: これらを確かめていたのは TUI だけで、CLI の merge は確認を出さない非対話の設計で揃っている。
   - decided_by: user (took the recommendation)
 
+- A16 CLI の診断ログのファイルには、ログの細かさを指定しなくても情報レベル以上を残す。標準エラーは今までどおり警告以上とし、-v や --debug はファイルと標準エラーの両方を細かくする。
+  - why: 既定の警告以上だけでは成功した実行が何も残らず、A14 の後から原因を追う目的を満たさない。標準エラーの出力は変えない。
+  - decided_by: user (took the recommendation)
+- A17 診断ログのファイルを開けないときは保存をあきらめ、何も出さずにコマンドを続ける。
+  - why: 診断ログは補助であり、置き場所に書き込めないだけで本来の操作を止めない。
+  - decided_by: user (took the recommendation)
+- A18 診断ログのファイルは 10MB を上限とし、実行の始めに上限を超えていれば古い分を切り詰める。同時に動く CLI の追記が崩れることは許し、排他はしない。上限は利用者の契約にしない。
+  - why: これまでの TUI の上限を引き継ぐ。厳密な排他は診断ログの用途に見合わない。
+  - decided_by: user (took the recommendation)
+- A19 サブコマンドを指定しない起動（グローバルなフラグだけを付けた起動を含む）は、診断ログのファイルも作らず、何も書き込まない。
+  - why: 使い方を示すだけの起動で利用者の環境にファイルを残さない。
+  - decided_by: user (took the recommendation)
+- A20 未知のホスト鍵の確認は今の CLI の挙動を保ち、標準入力から "yes" か "y" を読めたときだけ受け入れ、それ以外の答えや入力の終わりでは拒否する。TUI のための区別（is_tui）はなくし、確認手段のない接続の拒否はこの挙動で担う。
+  - why: パイプで "yes" を渡す既存の使い方を変えずに、確認できない接続を止められる。
+  - decided_by: user (took the recommendation)
+- A21 badge_scan_max_files にはどんな値が書いてあっても設定の読み込みを止めず、警告だけを出す。
+  - why: A13 の「値を検査しない」を、型の違う値にも及ぼす。
+  - decided_by: user (took the recommendation)
+
 ## Undecided
 
 - U7 Web（WebView 方式）を作るか、何を作るか。
