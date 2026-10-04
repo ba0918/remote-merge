@@ -110,12 +110,11 @@ impl Dispatcher {
         for chunk_result in tree_scan::scan_tree(&options) {
             match chunk_result {
                 Ok(chunk) => {
-                    let truncated = chunk.is_last && chunk.total_scanned >= max_entries;
                     responses.push(AgentResponse::TreeChunk {
                         nodes: chunk.entries,
                         is_last: chunk.is_last,
                         total_scanned: chunk.total_scanned,
-                        truncated,
+                        truncated: chunk.truncated,
                     });
                 }
                 Err(e) => {

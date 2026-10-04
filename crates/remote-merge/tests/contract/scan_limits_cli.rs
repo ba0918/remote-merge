@@ -109,3 +109,26 @@ async fn status_lists_every_remote_file_within_the_scan_limit_via_the_agent() {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), every_few_file_equal());
 }
+
+// @kotowari[EX-scan-009]
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_every_remote_file_when_the_count_equals_the_scan_limit_via_the_agent() {
+    // ディレクトリを含めないため、ディレクトリを数えるかどうかで結果は変わらない
+    const EXACT_FILES: [(&str, &str); 3] = [
+        ("a.txt", "same\n"),
+        ("b.txt", "same\n"),
+        ("c.txt", "same\n"),
+    ];
+    let fixture = AgentFixture::new().await;
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    place_files(&local_root, &EXACT_FILES);
+    place_files(&remote_root, &EXACT_FILES);
+    let limit = EXACT_FILES.len().to_string();
+    let output = fixture.status_via_agent(&local_root, &remote_root, &["--max-entries", &limit]);
+    assert!(output.status.success(), "{output:?}");
+    let expected: BTreeMap<String, String> = EXACT_FILES
+        .iter()
+        .map(|(path, _)| (path.to_string(), "equal".to_string()))
+        .collect();
+    assert_eq!(statuses_by_path(&output), expected);
+}

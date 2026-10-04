@@ -44,6 +44,8 @@ pub struct ScanChunk {
     pub entries: Vec<AgentFileEntry>,
     pub is_last: bool,
     pub total_scanned: usize,
+    /// 上限に達した後にまだ載せる項目があり、一覧を打ち切ったか（最後のチャンクだけ true になりうる）
+    pub truncated: bool,
 }
 
 /// ディレクトリツリーを再帰走査し、チャンク単位で結果を返すイテレータ
@@ -211,13 +213,25 @@ impl<'a> ScanIterator<'a> {
     }
 
     /// バッファの中身をソートしてチャンクとして切り出す
-    fn flush_chunk(&mut self, is_last: bool) -> ScanChunk {
+    fn flush_chunk(&mut self, is_last: bool, truncated: bool) -> ScanChunk {
         self.buffer.sort_by(|a, b| a.path.cmp(&b.path));
         ScanChunk {
             entries: std::mem::take(&mut self.buffer),
             is_last,
             total_scanned: self.total_scanned,
+            truncated,
         }
+    }
+
+    /// 上限に達した後、載せる項目がもう一件あるかを確かめる。
+    /// あればその項目は載せずに取り消し、打ち切りとして true を返す。
+    fn probe_beyond_limit(&mut self) -> bool {
+        if self.advance_one().is_none() {
+            return false;
+        }
+        self.buffer.pop();
+        self.total_scanned -= 1;
+        true
     }
 }
 
@@ -230,22 +244,23 @@ impl Iterator for ScanIterator<'_> {
         }
 
         loop {
-            // max_entries に達したら終了
+            // max_entries に達したら終了。次の項目があるときだけ打ち切りとする
             if self.total_scanned >= self.options.max_entries {
                 self.finished = true;
-                return Some(Ok(self.flush_chunk(true)));
+                let truncated = self.probe_beyond_limit();
+                return Some(Ok(self.flush_chunk(true, truncated)));
             }
 
             // 次のエントリを取得
             if self.advance_one().is_none() {
                 // 走査終了
                 self.finished = true;
-                return Some(Ok(self.flush_chunk(true)));
+                return Some(Ok(self.flush_chunk(true, false)));
             }
 
             // チャンクサイズに達したら中間チャンクを返す
             if self.buffer.len() >= self.options.chunk_size {
-                return Some(Ok(self.flush_chunk(false)));
+                return Some(Ok(self.flush_chunk(false, false)));
             }
         }
     }
@@ -916,6 +931,40 @@ mod tests {
 
         let all_paths: Vec<&str> = chunks[0].entries.iter().map(|e| e.path.as_str()).collect();
         assert_eq!(all_paths, vec!["keep.txt"]);
+    }
+
+    /// `count` 件のファイルを置き、上限 `max_entries` で走査した最後のチャンクと全件数を返す
+    fn scan_flat_files(count: usize, max_entries: usize) -> (ScanChunk, usize) {
+        let dir = TempDir::new().unwrap();
+        for index in 0..count {
+            fs::write(dir.path().join(format!("f{index}.txt")), "x").unwrap();
+        }
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            max_entries,
+            chunk_size: 1000,
+            ..Default::default()
+        };
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let listed = chunks.iter().map(|c| c.entries.len()).sum();
+        (chunks.into_iter().last().unwrap(), listed)
+    }
+
+    #[test]
+    fn exactly_max_entries_files_are_not_truncated() {
+        let (last, listed) = scan_flat_files(3, 3);
+        assert!(last.is_last);
+        assert!(!last.truncated);
+        assert_eq!(listed, 3);
+    }
+
+    #[test]
+    fn one_file_over_max_entries_is_truncated_without_listing_it() {
+        let (last, listed) = scan_flat_files(4, 3);
+        assert!(last.is_last);
+        assert!(last.truncated);
+        assert_eq!(listed, 3);
+        assert_eq!(last.total_scanned, 3);
     }
 
     /// max_entries 到達時の truncated フラグがディレクトリを除外した正しいカウントで判定されること
