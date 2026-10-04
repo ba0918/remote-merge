@@ -93,3 +93,17 @@ fn targets_are_processed_and_reported_in_the_order_given() {
         assert_eq!(fixture.read("staging", "file.txt"), "incoming\n");
     }
 }
+
+// @kotowari[REQ-cli-101]
+#[test]
+fn a_source_that_cannot_be_connected_stops_the_sync_and_changes_no_target() {
+    let fixture = file_on_every_side();
+    let mut args = args(&["file.txt"], &["develop", "staging"]);
+    args.left = Some("offline".into());
+
+    let result = fixture.run(args);
+
+    assert!(result.is_err(), "sync went on without its source");
+    assert_eq!(fixture.read("develop", "file.txt"), "develop old\n");
+    assert_eq!(fixture.read("staging", "file.txt"), "staging old\n");
+}

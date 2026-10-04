@@ -37,13 +37,6 @@ status が中身を読み比べる対象のファイルを読めなかったと�
 
 接続またはツリーの取得に失敗した書き込み先を、実装は --right の指定順によらず結果の末尾に並べる。旧資料に記述がなくテストもない。
 
-### FLAG-cli-009: 読み込み元に接続できない sync
-- kind: gap
-- related: REQ-merge-015
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A12
-
-読み込み元への接続またはツリーの取得に失敗したとき、実装は書き込み先ごとの結果を出さずに sync 全体をエラーで止める。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-010: 種類の違いによるスキップと書き込み先の状態
 - kind: contradiction
 - related: REQ-cli-041, REQ-cli-044, REQ-merge-001

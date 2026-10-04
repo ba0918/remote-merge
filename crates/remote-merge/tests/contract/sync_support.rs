@@ -2,6 +2,7 @@
 //!
 //! 書き込み先 "develop"・"staging"・"production" はリモートの設定を持つが、実体は一時ディレクトリに差し替える。
 //! 書き込む予定があるときに確認のプロンプトがテストのプロセスの標準入力を読まないよう、既定で force を指定する。
+//! サーバ "offline" は一時ディレクトリに差し替えず、閉じたローカルのポートを指すため接続に失敗する。
 
 use std::fs;
 use std::path::Path;
@@ -39,10 +40,14 @@ pub fn fixture() -> Fixture {
             )
         })
         .collect();
+    let offline = format!(
+        "[servers.offline]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"unused\"\nroot_dir = \"/unused\"\n",
+        closed_port()
+    );
     fs::write(
         &config_path,
         format!(
-            "[local]\nroot_dir = {:?}\n{servers}[backup]\nenabled = false\n",
+            "[local]\nroot_dir = {:?}\n{servers}{offline}[backup]\nenabled = false\n",
             local.path().display().to_string(),
         ),
     )
@@ -55,6 +60,12 @@ pub fn fixture() -> Fixture {
         config_dir,
         config,
     }
+}
+
+/// 待ち受けを閉じたローカルのポート。接続は拒否される
+fn closed_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
 }
 
 impl Fixture {

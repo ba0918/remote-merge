@@ -62,6 +62,13 @@ sync はすべての書き込み先の status が "success" なら終了コー�
 
 --dry-run の sync は書き込む予定のファイルを書き込み先ごとの merged に status "would merge" で並べ、書き込み先を変更しない。
 
+### REQ-cli-101: 読み込み元を読めなければ全体を止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A4
+- verification: unit
+
+読み込み元への接続かツリーの取得に失敗した sync は、書き込み先ごとの結果を出さずにエラーで止まり、どの書き込み先も変更しない。
+
 ## Decision tables
 
 ### TBL-cli-006: sync の指定のエラー
