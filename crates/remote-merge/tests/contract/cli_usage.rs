@@ -39,3 +39,33 @@ fn starting_without_a_subcommand_shows_usage_and_writes_nothing() {
         );
     }
 }
+
+// @kotowari[REQ-cli-076]
+#[test]
+fn help_and_version_are_exempt_and_answer_on_stdout_with_success() {
+    for flag in ["--help", "--version"] {
+        let home = TempDir::new().unwrap();
+
+        let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+            .env_clear()
+            .env("HOME", home.path().join("home"))
+            .env("XDG_CACHE_HOME", home.path().join("cache"))
+            .current_dir(home.path())
+            .arg(flag)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(0), "{flag}: {output:?}");
+        assert!(output.stderr.is_empty(), "{flag}: {output:?}");
+        assert!(!output.stdout.is_empty(), "{flag}: nothing was shown");
+    }
+    let version = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")),
+        "{version:?}"
+    );
+}
