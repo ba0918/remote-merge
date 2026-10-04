@@ -124,6 +124,25 @@ fn a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref(
     assert_eq!(file("file.txt").ref_badge.as_deref(), Some("differs"));
 }
 
+// @kotowari[REQ-cli-027, REQ-cli-036]
+#[test]
+fn over_ssh_a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
+    let env = CliEnv::new_3way(&[], &[], &[]);
+    let staging = env.temp_root().join("staging");
+    write_at(&env.local_dir, ".env", b"A=1\n", 1_700_000_000);
+    write_at(&env.remote_dir, ".env", b"A=1\n", 1_700_000_100);
+    write_at(&staging, ".env", b"A=1\n", 1_700_000_200);
+
+    let output = three_way_status(&env, &["--format", "json"]);
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let files = json["files"].as_array().expect("files missing");
+    let env_file = files.iter().find(|file| file["path"] == ".env");
+    let env_file = env_file.unwrap_or_else(|| panic!(".env missing: {json}"));
+    assert_eq!(env_file["status"], "equal", "{json}");
+    assert!(env_file["ref_badge"].is_null(), "{json}");
+}
+
 /// 左 develop・右 staging・参照先 local の三者比較の構成
 fn three_way() -> CliEnv {
     CliEnv::new_3way(
