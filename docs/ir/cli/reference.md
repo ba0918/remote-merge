@@ -34,6 +34,21 @@ diff の --ref に設定のサーバ名か "local" を指定すると、diff は
 
 --ref を指定した diff のテキストは、参照先との差が空でないファイルについて、左右の差の後に "--- ref:<参照先>:<パス> (reference diff vs left)" の見出しと、左から参照先への差の hunk を出す。
 
+### REQ-cli-067: 参照先との差は左右に差のあるファイルにだけ出す
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A5
+- verification: unit
+
+--ref を指定した diff は、左右に差があり出力に含めるファイルについてだけ参照先との差を出す。
+左右に差のないファイルは、参照先だけが違っても --ref によって出力に加えない。
+
+### REQ-cli-068: 参照先にだけあるファイルを diff の出力に含めない
+- kind: prohibition
+- source: docs/decision/records/2026-10-04-cli-diff-flag-resolution.md#A6
+- verification: unit
+
+diff は参照先を比べる相手として加えるだけで、参照先にだけあるファイルを files にも summary の数にも含めない。
+
 ### REQ-cli-066: 左右と同じ参照先では diff の三者比較をしない
 - kind: state_driven
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A5

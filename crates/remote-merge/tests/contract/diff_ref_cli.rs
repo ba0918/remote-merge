@@ -17,7 +17,7 @@ use super::common::CliEnv;
 ///
 /// 実行ファイルは作業ディレクトリの ".remote-merge.toml" で設定を上書きするため、
 /// リポジトリの中で起動しない。
-fn diff(env: &CliEnv, args: &[&str]) -> Output {
+pub(super) fn diff(env: &CliEnv, args: &[&str]) -> Output {
     let home = env.temp_root().join("home");
     fs::create_dir_all(&home).unwrap();
     env.cmd_with("diff")
@@ -35,7 +35,7 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-fn json(output: &Output) -> Value {
+pub(super) fn json(output: &Output) -> Value {
     serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"))
 }

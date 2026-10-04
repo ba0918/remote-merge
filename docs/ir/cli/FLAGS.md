@@ -373,20 +373,6 @@ diff は symlink の項目、--force なしで内容を隠す機密ファイル�
 
 diff は左右がバイナリのファイルに "ref_hunks" を出さず、参照先のファイルだけがバイナリのときは "ref_hunks" を空の配列にするため、参照先が左と同じ場合と見分けられない。旧資料に記述がなくテストもない。
 
-### FLAG-cli-065: 左右が同じファイルの参照先との差
-- kind: gap
-- related: REQ-cli-063, REQ-cli-064
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A13
-
-diff は左右に差のないファイルを出力に含めないため、参照先だけが違うファイルの参照先との差は --ref を付けても示さない。旧資料に記述がなくテストもない。
-
-### FLAG-cli-066: 参照先にだけあるファイル
-- kind: gap
-- related: REQ-cli-062
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A14
-
-diff は参照先にだけあるファイルを出力に含めない。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-067: 片側にないファイルの競合
 - kind: ambiguity
 - related: REQ-cli-016
