@@ -9,13 +9,6 @@ pub enum FileComparison {
     MissingInRef,
 }
 
-/// 三つの比較対象の行単位の関係。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LineComparison {
-    AllEqual,
-    Differs,
-}
-
 /// ファイルの存在と内容の同一性から三者の関係を求める。
 ///
 /// - `left_exists`: leftにファイルが存在するか。
@@ -59,18 +52,4 @@ pub fn compute_file_comparison(
 
     // どれかが違う → 3way で差分あり
     FileComparison::Differs
-}
-
-/// 行内容が三者とも同じならAllEqual、それ以外はDiffersを返す。
-/// `None`は該当行が存在しないことを表す。
-pub fn compute_line_comparison(
-    left: Option<&str>,
-    right: Option<&str>,
-    ref_line: Option<&str>,
-) -> LineComparison {
-    match (left, right, ref_line) {
-        (Some(l), Some(r), Some(rf)) if l == r && l == rf => LineComparison::AllEqual,
-        (None, None, None) => LineComparison::AllEqual,
-        _ => LineComparison::Differs,
-    }
 }

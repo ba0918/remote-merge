@@ -242,7 +242,7 @@ pub struct MergeFailure {
     pub error: String,
 }
 
-/// merge サービスの実行結果。CLI/TUI 共通。
+/// merge サービスの実行結果。
 #[derive(Debug, Clone)]
 pub enum MergeOutcome {
     /// マージ成功（0件以上のファイルがマージされた）

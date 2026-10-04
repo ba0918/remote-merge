@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 
 /// メタデータ比較の結果。
 ///
-/// CLI status / TUI badge 共通で使う差分判定の基盤。
+/// CLI status で使う差分判定の基盤。
 /// `Undetermined` はコンテンツ比較が必要であることを示す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetadataCmp {

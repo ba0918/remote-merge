@@ -856,27 +856,6 @@ impl CoreRuntime {
         Ok(tree)
     }
 
-    /// tokio Runtime の pending タスク（keepalive 等）を駆動する。
-    pub fn drive_runtime(&self) {
-        self.rt.block_on(async {
-            for _ in 0..3 {
-                tokio::task::yield_now().await;
-            }
-        });
-    }
-
-    /// 指定サーバの SSH 接続が生きているか確認する
-    pub fn check_connection(&mut self, server_name: &str) -> bool {
-        let alive = match self.ssh_clients.get_mut(server_name) {
-            Some(client) => self.rt.block_on(client.is_alive()),
-            None => false,
-        };
-        if !alive {
-            tracing::warn!("SSH connection check failed: server={}", server_name);
-        }
-        alive
-    }
-
     /// SSH 接続のみを再確立する（ツリー・キャッシュはそのまま）
     pub fn try_reconnect(&mut self, server_name: &str) -> anyhow::Result<()> {
         tracing::info!("Auto-reconnecting SSH: server={}", server_name);
@@ -1278,12 +1257,6 @@ mod tests {
         let result = rt.fetch_remote_tree_recursive("develop", 10000, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not connected"));
-    }
-
-    #[test]
-    fn test_check_connection_unknown_server() {
-        let mut rt = CoreRuntime::new_for_test();
-        assert!(!rt.check_connection("unknown"));
     }
 
     #[test]

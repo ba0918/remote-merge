@@ -4,7 +4,6 @@ pub mod cli;
 pub mod config;
 pub use remote_merge_core::{diff, error, filter, tree};
 pub mod init;
-pub mod local;
 pub mod merge;
 pub mod runtime;
 pub mod service;
