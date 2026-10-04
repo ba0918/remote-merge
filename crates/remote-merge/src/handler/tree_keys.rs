@@ -287,24 +287,7 @@ pub fn copy_diff_with(
     state: &mut AppState,
     write: impl FnOnce(&str) -> crate::app::clipboard_write::ClipboardResult,
 ) {
-    copy_diff_inner(state, false, write);
-}
-
-pub fn copy_sensitive_diff_after_approval(state: &mut AppState, approved_path: &str) {
-    if state.selected_path.as_deref() != Some(approved_path) {
-        state.status_message = "Selected file changed; sensitive copy cancelled".into();
-        return;
-    }
-    copy_diff_inner(state, true, crate::app::clipboard_write::write_to_clipboard);
-}
-
-fn copy_diff_inner(
-    state: &mut AppState,
-    approved: bool,
-    write: impl FnOnce(&str) -> crate::app::clipboard_write::ClipboardResult,
-) {
     use crate::app::clipboard::{format_diff_for_clipboard, ClipboardContext};
-    use crate::service::status::is_sensitive;
 
     let path = match &state.selected_path {
         Some(p) => p.clone(),
@@ -313,12 +296,6 @@ fn copy_diff_inner(
             return;
         }
     };
-
-    // センシティブファイルチェック
-    if !approved && is_sensitive(&path, &state.sensitive_patterns) {
-        state.dialog = crate::ui::dialog::DialogState::SensitiveCopy(path);
-        return;
-    }
 
     let diff = match &state.current_diff {
         Some(d) => d,
@@ -361,22 +338,6 @@ fn handle_export_report(state: &mut AppState) {
 }
 
 pub fn export_report_to(state: &mut AppState, path: &std::path::Path) {
-    export_report_inner(state, path, None);
-}
-
-pub fn export_report_after_approval(
-    state: &mut AppState,
-    path: &std::path::Path,
-    approved_paths: &[String],
-) {
-    export_report_inner(state, path, Some(approved_paths));
-}
-
-fn export_report_inner(
-    state: &mut AppState,
-    path: &std::path::Path,
-    approved_paths: Option<&[String]>,
-) {
     use crate::app::report::{generate_report, ReportFileEntry, ReportInput};
     use crate::diff::engine::compute_diff;
     use std::collections::BTreeSet;
@@ -416,23 +377,6 @@ fn export_report_inner(
     }
 
     let exclude = state.active_exclude_patterns();
-    let sensitive_paths: Vec<String> = keys
-        .iter()
-        .enumerate()
-        .filter(|(index, name)| {
-            !diffs[*index].is_equal()
-                && !crate::filter::is_path_excluded(name, &exclude)
-                && crate::service::status::is_sensitive(name, &state.sensitive_patterns)
-        })
-        .map(|(_, name)| name.clone())
-        .collect();
-    if !sensitive_paths.is_empty() && approved_paths != Some(sensitive_paths.as_slice()) {
-        state.dialog = crate::ui::dialog::DialogState::SensitiveReport {
-            paths: sensitive_paths,
-            destination: path.to_path_buf(),
-        };
-        return;
-    }
 
     // ReportFileEntry は diff への参照を持つので、diffs を先に作ってからイテレート
     for (i, path) in keys.iter().enumerate() {
@@ -454,11 +398,6 @@ fn export_report_inner(
         right_label,
         left_root: &left_root,
         right_root: &right_root,
-        sensitive_patterns: if approved_paths.is_some() {
-            &[]
-        } else {
-            &state.sensitive_patterns
-        },
         exclude_patterns: &exclude,
         files: entries,
     };
@@ -820,17 +759,6 @@ mod tests {
         state.selected_path = None;
         handle_clipboard_copy(&mut state);
         assert_eq!(state.status_message, "No file selected");
-    }
-
-    #[test]
-    fn test_clipboard_copy_sensitive_file() {
-        let mut state = make_test_state();
-        state.selected_path = Some(".env".to_string());
-        state.sensitive_patterns = vec![".env".to_string()];
-        handle_clipboard_copy(&mut state);
-        assert!(
-            matches!(state.dialog, crate::ui::dialog::DialogState::SensitiveCopy(ref path) if path == ".env")
-        );
     }
 
     #[test]

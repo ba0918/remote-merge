@@ -1,12 +1,8 @@
 use std::fs;
 
-use crossterm::event::KeyCode;
 use remote_merge::app::clipboard_write::ClipboardResult;
 use remote_merge::app::{AppState, Side};
-use remote_merge::config::load_config_from_paths;
-use remote_merge::handler::dialog_keys::handle_dialog_key;
 use remote_merge::handler::tree_keys::{copy_diff_with, export_report_to};
-use remote_merge::runtime::{RuntimeTargets, TuiRuntime};
 use remote_merge::tree::{FileNode, FileTree};
 use remote_merge::ui::dialog::DialogState;
 use tempfile::TempDir;
@@ -108,94 +104,61 @@ fn copying_the_selected_diff_sends_its_lines_to_the_clipboard() {
     );
 }
 
-// @kotowari[EX-tui-017]
+/// ".env" と通常のファイルの左右に違う中身を置いた状態
+fn state_with_dotenv() -> AppState {
+    let tree = FileTree {
+        root: "/test".into(),
+        nodes: vec![FileNode::new_file(".env"), FileNode::new_file("two.txt")],
+    };
+    let mut state = AppState::new(
+        tree.clone(),
+        tree,
+        Side::Local,
+        Side::Remote("develop".into()),
+        "default",
+    );
+    for (name, left, right) in [
+        (".env", "KEY=old\n", "KEY=new\n"),
+        ("two.txt", "old two\n", "new two\n"),
+    ] {
+        state.left_cache.insert(name.into(), left.into());
+        state.right_cache.insert(name.into(), right.into());
+    }
+    state
+}
+
+// @kotowari[REQ-tui-007]
 #[test]
-fn declining_a_sensitive_copy_keeps_its_body_off_the_clipboard() {
-    let mut state = state(true);
-    state.sensitive_patterns = vec!["one.txt".into()];
+fn copying_a_dotenv_diff_sends_its_lines_to_the_clipboard_without_confirmation() {
+    let mut state = state_with_dotenv();
     state.tree_cursor = state
         .flat_nodes
         .iter()
-        .position(|node| node.path == "one.txt")
+        .position(|node| node.path == ".env")
         .unwrap();
     state.select_file();
-    copy_diff_with(&mut state, |_| panic!("copy must wait for approval"));
-    assert!(matches!(&state.dialog, DialogState::SensitiveCopy(path) if path == "one.txt"));
-    let directory = TempDir::new().unwrap();
-    let config_file = directory.path().join("config.toml");
-    fs::write(
-        &config_file,
-        format!(
-            "[local]\nroot_dir = {:?}\n",
-            directory.path().display().to_string()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_file), None).unwrap();
-    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
-    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('n'));
+    let mut copied = String::new();
+    copy_diff_with(&mut state, |text| {
+        copied.push_str(text);
+        ClipboardResult::Ok
+    });
+    assert!(copied.contains("-KEY=old"), "{copied}");
+    assert!(copied.contains("+KEY=new"), "{copied}");
     assert!(matches!(state.dialog, DialogState::None));
-    assert!(
-        state.status_message.contains("cancelled"),
-        "{}",
-        state.status_message
-    );
 }
 
-// @kotowari[EX-tui-018]
+// @kotowari[REQ-tui-008]
 #[test]
-fn approving_a_sensitive_report_writes_the_named_file_only_after_confirmation() {
+fn exporting_a_report_with_a_dotenv_diff_includes_its_body_without_confirmation() {
     let directory = TempDir::new().unwrap();
-    let path = directory.path().join("approved-report.md");
-    let mut state = state(true);
-    state.sensitive_patterns = vec!["one.txt".into()];
+    let path = directory.path().join("report.md");
+    let mut state = state_with_dotenv();
     export_report_to(&mut state, &path);
-    assert!(!path.exists(), "sensitive body must not be exported yet");
+    let report = fs::read_to_string(&path).unwrap();
     assert!(
-        matches!(&state.dialog, DialogState::SensitiveReport { paths, destination }
-        if paths == &["one.txt"] && destination == &path)
-    );
-    let config_file = directory.path().join("config.toml");
-    fs::write(
-        &config_file,
-        format!(
-            "[local]\nroot_dir = {:?}\n",
-            directory.path().display().to_string()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_file), None).unwrap();
-    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
-    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('y'));
-    let report = fs::read_to_string(path).unwrap();
-    assert!(
-        report.contains("-old one") && report.contains("+new one"),
+        report.contains("## .env") && report.contains("-KEY=old") && report.contains("+KEY=new"),
         "{report}"
     );
     assert!(report.contains("+new two"), "{report}");
-}
-
-// @kotowari[REQ-tui-009]
-#[test]
-fn declining_a_sensitive_report_leaves_the_destination_absent() {
-    let directory = TempDir::new().unwrap();
-    let path = directory.path().join("private-report.md");
-    let mut state = state(true);
-    state.sensitive_patterns = vec!["one.txt".into()];
-    export_report_to(&mut state, &path);
-    assert!(matches!(state.dialog, DialogState::SensitiveReport { .. }));
-    let config_file = directory.path().join("config.toml");
-    fs::write(
-        &config_file,
-        format!(
-            "[local]\nroot_dir = {:?}\n",
-            directory.path().display().to_string()
-        ),
-    )
-    .unwrap();
-    let config = load_config_from_paths(Some(&config_file), None).unwrap();
-    let mut runtime = TuiRuntime::with_targets(config, RuntimeTargets::production());
-    handle_dialog_key(&mut state, &mut runtime, KeyCode::Char('n'));
-    assert!(!path.exists());
     assert!(matches!(state.dialog, DialogState::None));
 }

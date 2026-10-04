@@ -2,7 +2,7 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
@@ -32,11 +32,6 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                 1
             } else {
                 0
-            }
-            + if !self.dialog.sensitive_files.is_empty() {
-                1
-            } else {
-                0
             };
         let visible_files = file_count.min(15);
         let height = (visible_files as u16) + (warning_lines as u16) + 6;
@@ -56,9 +51,6 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
         constraints.push(Constraint::Length(1)); // メッセージ行
         constraints.push(Constraint::Length(1)); // mtime未チェック警告
         if self.dialog.unchecked_count > 0 {
-            constraints.push(Constraint::Length(1));
-        }
-        if !self.dialog.sensitive_files.is_empty() {
             constraints.push(Constraint::Length(1));
         }
         constraints.push(Constraint::Length(1)); // 空行
@@ -125,24 +117,6 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
             row += 1;
         }
 
-        // センシティブ警告
-        if !self.dialog.sensitive_files.is_empty() {
-            let warn = Paragraph::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    format!(
-                        "⚠ {} sensitive file(s) included",
-                        self.dialog.sensitive_files.len()
-                    ),
-                    Style::default()
-                        .fg(self.palette.negative)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]));
-            warn.render(chunks[row], buf);
-            row += 1;
-        }
-
         row += 1; // 空行
 
         // ファイル一覧（スクロール対応）
@@ -156,15 +130,11 @@ impl<'a> Widget for BatchConfirmDialogWidget<'a> {
                     Badge::RightOnly => Style::default().fg(self.palette.badge_right_only),
                     _ => Style::default().fg(self.palette.fg),
                 };
-                let is_sensitive = self.dialog.sensitive_files.contains(path);
-                let sensitive_mark = if is_sensitive { " ⚠" } else { "" };
-
                 let line = Paragraph::new(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(badge.label(), badge_style),
                     Span::raw(" "),
                     Span::styled(path.as_str(), Style::default().fg(self.palette.fg)),
-                    Span::styled(sensitive_mark, Style::default().fg(self.palette.negative)),
                 ]));
                 line.render(chunks[row], buf);
             }

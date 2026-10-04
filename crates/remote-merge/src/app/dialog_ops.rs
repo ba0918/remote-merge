@@ -110,9 +110,8 @@ impl AppState {
                 return;
             }
 
-            let mut batch =
+            let batch =
                 BatchConfirmDialog::new(diff_files, direction, source, target, unchecked_count);
-            batch.check_sensitive(&self.sensitive_patterns);
             self.dialog = DialogState::BatchConfirm(batch);
         } else {
             // 差分がなければ Info ダイアログ

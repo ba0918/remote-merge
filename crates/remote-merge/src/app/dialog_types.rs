@@ -35,11 +35,6 @@ pub enum DialogState {
     Help(HelpOverlay),
     /// 情報ダイアログ（メッセージ表示のみ、Esc/Enter で閉じる）
     Info(String),
-    SensitiveCopy(String),
-    SensitiveReport {
-        paths: Vec<String>,
-        destination: std::path::PathBuf,
-    },
     /// プログレスダイアログ（走査・マージ進捗表示）
     Progress(ProgressDialog),
     /// 書き込み確認ダイアログ（w キー）
@@ -128,8 +123,6 @@ pub struct BatchConfirmDialog {
     pub scroll: usize,
     /// 未比較(Unchecked)ディレクトリ数（警告用）
     pub unchecked_count: usize,
-    /// センシティブファイル一覧
-    pub sensitive_files: Vec<String>,
 }
 
 impl BatchConfirmDialog {
@@ -147,23 +140,7 @@ impl BatchConfirmDialog {
             target_name,
             scroll: 0,
             unchecked_count,
-            sensitive_files: Vec::new(),
         }
-    }
-
-    /// センシティブファイルパターンでチェックを行い、マッチするファイルを記録する
-    pub fn check_sensitive(&mut self, patterns: &[String]) {
-        self.sensitive_files = self
-            .files
-            .iter()
-            .filter(|(path, _)| {
-                let filename = path.rsplit('/').next().unwrap_or(path);
-                patterns
-                    .iter()
-                    .any(|p| glob_match::glob_match(p, filename) || glob_match::glob_match(p, path))
-            })
-            .map(|(path, _)| path.clone())
-            .collect();
     }
 
     /// 大量ファイル（21件以上）かどうか

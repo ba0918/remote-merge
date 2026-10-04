@@ -122,8 +122,6 @@ pub struct AppState {
     /// service/status.rs の compute_status_from_trees で計算された結果。
     /// CLI と TUI で共通のロジックを使用する。
     pub scan_statuses: Option<HashMap<String, FileStatusKind>>,
-    /// センシティブファイルパターン
-    pub sensitive_patterns: Vec<String>,
     /// マージ走査の状態
     pub merge_scan_state: MergeScanState,
     /// TUI カラーパレット（テーマから導出）
@@ -214,7 +212,6 @@ impl AppState {
             scan_left_tree: None,
             scan_right_tree: None,
             scan_statuses: None,
-            sensitive_patterns: Vec::new(),
             merge_scan_state: MergeScanState::default(),
             palette,
             highlight_cache_left: HighlightCache::new(),

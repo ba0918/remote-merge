@@ -145,12 +145,12 @@ fn test_merge_on_equal_file_ignored() {
     eprintln!("SUCCESS: merge on equal file is ignored");
 }
 
-/// .env ファイルは明示的な確認なしにマージされない
+/// .env ファイルも他のファイルと同じ確認だけでマージを止められる
 #[test]
-fn test_sensitive_file_merge_requires_confirmation() {
+fn test_dotenv_file_merge_uses_the_ordinary_confirmation() {
     let env = E2eEnv::new(
-        &[(".env", "SECRET_KEY=local123\n")],
-        &[(".env", "SECRET_KEY=remote456\n")],
+        &[(".env", "KEY=local123\n")],
+        &[(".env", "KEY=remote456\n")],
     );
 
     let mut session = tui_session::DrainingSession::spawn(env.tui_command(&[]));
@@ -160,14 +160,14 @@ fn test_sensitive_file_merge_requires_confirmation() {
     wait_for_confirmation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
-        "SECRET_KEY=remote456\n"
+        "KEY=remote456\n"
     );
 
     session.send("n");
     wait_for_cancellation(&env);
     assert_eq!(
         fs::read_to_string(env.temp_root().join("remote/.env")).unwrap(),
-        "SECRET_KEY=remote456\n"
+        "KEY=remote456\n"
     );
 
     session.send("q");

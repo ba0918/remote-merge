@@ -186,7 +186,7 @@ mod tests {
             r#"{"timestamp":"2026-03-07T10:00:00.000Z","level":"INFO","target":"ssh::client","message":"connected","fields":{}}"#,
             r#"{"timestamp":"2026-03-07T10:00:01.000Z","level":"ERROR","target":"ssh::client","message":"timeout","fields":{}}"#,
             r#"{"timestamp":"2026-03-07T10:00:02.000Z","level":"INFO","target":"app","message":"scan complete","fields":{}}"#,
-            r#"{"timestamp":"2026-03-07T10:00:03.000Z","level":"WARN","target":"merge","message":"sensitive file","fields":{}}"#,
+            r#"{"timestamp":"2026-03-07T10:00:03.000Z","level":"WARN","target":"merge","message":"merge skipped","fields":{}}"#,
             r#"{"timestamp":"2026-03-07T10:00:04.000Z","level":"ERROR","target":"ssh::client","message":"reconnect failed","fields":{}}"#,
         ];
         lines.join("\n") + "\n"
@@ -237,7 +237,7 @@ mod tests {
         };
         let entries = read_logs(&path, &filter).unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].message, "sensitive file");
+        assert_eq!(entries[0].message, "merge skipped");
         assert_eq!(entries[1].message, "reconnect failed");
     }
 

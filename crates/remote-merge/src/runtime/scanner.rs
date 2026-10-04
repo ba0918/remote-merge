@@ -73,7 +73,6 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
     let left_source = state.left_source.clone();
     let right_source = state.right_source.clone();
     let exclude = state.active_exclude_patterns();
-    let sensitive_patterns = state.sensitive_patterns.clone();
     let config = runtime.core.config.clone();
     let pp = runtime.core.passphrase_provider.clone();
 
@@ -82,7 +81,6 @@ pub fn handle_diff_filter_toggle(state: &mut AppState, runtime: &mut TuiRuntime)
             &left_source,
             &right_source,
             &exclude,
-            &sensitive_patterns,
             &config,
             pp.as_deref(),
         );
@@ -98,7 +96,6 @@ fn run_scan(
     left_source: &Side,
     right_source: &Side,
     exclude: &[String],
-    sensitive_patterns: &[String],
     config: &AppConfig,
     passphrase_provider: Option<&dyn PassphraseProvider>,
 ) -> Result<ScanOutput, String> {
@@ -128,7 +125,7 @@ fn run_scan(
     // 1. ツリー構造に変換してメタデータ比較
     let left_tree = build_temp_tree(&left_root, &left_nodes);
     let right_tree = build_temp_tree(&right_root, &right_nodes);
-    let mut files = compute_status_from_trees(&left_tree, &right_tree, sensitive_patterns);
+    let mut files = compute_status_from_trees(&left_tree, &right_tree, &[]);
 
     // 2. コンテンツ比較が必要なファイルを抽出
     let paths_to_compare = needs_content_compare(&files, &left_tree, &right_tree);

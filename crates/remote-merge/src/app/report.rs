@@ -5,7 +5,6 @@
 
 use crate::diff::engine::{DiffLine, DiffResult, DiffTag};
 use crate::filter;
-use crate::service::status::is_sensitive;
 
 /// レポート生成に必要な入力
 pub struct ReportInput<'a> {
@@ -13,7 +12,6 @@ pub struct ReportInput<'a> {
     pub right_label: &'a str,
     pub left_root: &'a str,
     pub right_root: &'a str,
-    pub sensitive_patterns: &'a [String],
     pub exclude_patterns: &'a [String],
     pub files: Vec<ReportFileEntry<'a>>,
 }
@@ -80,14 +78,7 @@ pub fn generate_report(input: &ReportInput) -> String {
             continue;
         }
 
-        let sensitive = is_sensitive(entry.path, input.sensitive_patterns);
-
         out.push_str(&format!("## {}\n\n", entry.path));
-
-        if sensitive {
-            out.push_str("⚠ **Sensitive file** — content excluded from report.\n\n");
-            continue;
-        }
 
         // サイズチェック
         let too_large = entry
@@ -198,7 +189,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home/user/project",
             right_root: "/var/www/project",
-            sensitive_patterns: &[],
             exclude_patterns: &[],
             files: vec![],
         };
@@ -214,7 +204,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
-            sensitive_patterns: &[],
             exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "src/main.rs",
@@ -255,7 +244,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
-            sensitive_patterns: &[],
             exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "config.toml",
@@ -268,34 +256,6 @@ mod tests {
         assert!(report.contains("```diff"));
         assert!(report.contains("-old line"));
         assert!(report.contains("+new line"));
-    }
-
-    #[test]
-    fn test_generate_report_sensitive_file_excluded() {
-        // sensitive + modified なファイル → ⚠ 表示
-        let diff = make_modified_diff(vec![DiffLine {
-            tag: DiffTag::Delete,
-            value: "SECRET=xxx".to_string(),
-            old_index: Some(0),
-            new_index: None,
-        }]);
-        let input = ReportInput {
-            left_label: "local",
-            right_label: "develop",
-            left_root: "/home",
-            right_root: "/var",
-            sensitive_patterns: &[".env*".to_string()],
-            exclude_patterns: &[],
-            files: vec![ReportFileEntry {
-                path: ".env.production",
-                left_content: Some("SECRET=xxx"),
-                right_content: Some("SECRET=yyy"),
-                diff: Some(&diff),
-            }],
-        };
-        let report = generate_report(&input);
-        assert!(report.contains("Sensitive file"));
-        assert!(!report.contains("SECRET"));
     }
 
     #[test]
@@ -312,7 +272,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
-            sensitive_patterns: &[],
             exclude_patterns: &[],
             files: vec![ReportFileEntry {
                 path: "big.bin",
@@ -338,7 +297,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
-            sensitive_patterns: &[],
             exclude_patterns: &[
                 ".remote-merge-backup".to_string(),
                 "node_modules".to_string(),
@@ -373,7 +331,6 @@ mod tests {
             right_label: "develop",
             left_root: "/home",
             right_root: "/var",
-            sensitive_patterns: &[],
             exclude_patterns: &["*.log".to_string()],
             files: vec![ReportFileEntry {
                 path: "logs/app.log",

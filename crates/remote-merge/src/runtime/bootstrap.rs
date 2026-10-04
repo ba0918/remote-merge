@@ -72,7 +72,6 @@ pub fn bootstrap_tui_with_targets(
     app_state.is_connected = is_connected;
     app_state.exclude_patterns = config.filter.exclude.clone();
     app_state.include_patterns = config.filter.include.clone();
-    app_state.sensitive_patterns = config.filter.sensitive.clone();
 
     // Agent 接続状態を同期
     app_state.sync_agent_status(runtime.core.agent_clients.keys());
