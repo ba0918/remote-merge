@@ -86,13 +86,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
 
-### FLAG-cli-019: merge のスキップの行の形
-- kind: contradiction
-- related: REQ-cli-049
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A10
-
-旧個別仕様 symlink-merge の 3.3 はスキップのテキスト出力を "  - パス (skipped: 理由)" の行とするが、実装の merge は "Skipped: パス (理由)" の行で出す。
-
 ### FLAG-cli-020: リモート間の merge の確認
 - kind: contradiction
 - related: REQ-cli-003, REQ-cli-047

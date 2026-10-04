@@ -29,10 +29,11 @@ merge は failed が空なら終了コード 0、failed が一件でもあれば
 
 ### REQ-cli-049: テキスト出力の行
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A4
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A4, docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A7
 - verification: unit
 
 merge のテキスト出力は、書き込んだファイルを "Merged: パス"（バックアップがあれば続けて " (backup: バックアップ)"）、--dry-run で書き込む予定のファイルを "Would merge: パス"、失敗したファイルを "Failed: パス (理由)" の行で出し、書き込む対象もスキップも失敗もないときは "no files to merge in the specified path(s)" を出す。
+スキップしたファイルは、失敗したファイルの行より前に "Skipped: パス (理由)" の行で出す。
 
 ### REQ-cli-050: 左右と同じ参照先は使わない
 - kind: state_driven

@@ -109,6 +109,36 @@ fn a_failed_file_is_reported_with_its_reason() {
 
 // @kotowari[REQ-cli-049]
 #[test]
+fn a_skipped_file_is_reported_with_its_reason_before_the_failed_files() {
+    let env = CliEnv::new_3way(
+        &[(".env", "A=1\n"), ("file.txt", "left change\n")],
+        &[(".env", "A=22\n"), ("file.txt", "right change\n")],
+        &[("file.txt", "base\n")],
+    );
+
+    let output = env
+        .cmd_with("merge")
+        .args([".env", "file.txt", "--left", "local", "--right", "develop"])
+        .args(["--ref", "staging"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    let lines = stdout_lines(&output);
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines[0].starts_with("Skipped: .env (") && lines[0].ends_with(')'),
+        "{lines:?}"
+    );
+    assert_eq!(lines[1], "Failed: file.txt (three-way conflict)");
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join(".env")).unwrap(),
+        "A=22\n"
+    );
+}
+
+// @kotowari[REQ-cli-049]
+#[test]
 fn nothing_to_merge_is_reported_as_no_files_to_merge() {
     let env = CliEnv::new_3way(&[("file.txt", "same\n")], &[("file.txt", "same\n")], &[]);
 
