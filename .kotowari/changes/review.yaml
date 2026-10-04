@@ -1,0 +1,33 @@
+version: 1
+entries:
+  - id: tui-single-merge-kind-mismatch-review
+    base: 4b21c3de5769e5a5fcc07147ebe593e4aca38b54
+    role: reviewer
+    files:
+      - path: crates/remote-merge/src/handler/merge_exec.rs
+        before: sha256:cd3f9a7878bc225675d5ee5e9de6500caed363897166f6e33ee2f0f8232343ce
+        after: sha256:1d0ed1bc98f0448baf796d59f69137f7d691c21a2132ed75d779b2134c990c94
+      - path: crates/remote-merge/tests/contract.rs
+        before: sha256:ed47b4567b3adbdb312cdb854575e2d5fb1770c218a6fdeb7617e250904ba007
+        after: sha256:3c6322b2eb114d5097a1825bcce7cefd3a8f2b40021ac2a14830ae6e4e144340
+      - path: crates/remote-merge/tests/contract/tui_merge_kinds.rs
+        before: null
+        after: sha256:5e4e553c22902adf5501bee1ddd3cd3c7d4533bae2b735aa9f5855491ccd2602
+    ir:
+      - path: docs/ir/merge/symlink.md
+        sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
+    conclusion: existing
+    reason: >-
+      REQ-merge-001は種類の違う既存の書き込み先を変更せず理由付きでスキップすることを求め、
+      EX-merge-001はリンクとリンク先が変わらないことを求める。execute_mergeの計画分岐で
+      SkipDifferentKindだけが戻らずにテキスト書き込みへ進んでいた。追加のreturnで、
+      確認ダイアログのyとmtime警告からの強制マージの両呼び出し元とも、バックアップ予約と
+      書き込みの前に止まる。他の計画分岐と通常テキストマージの処理は変わらない。
+      追加テストを修正前のコードに当てると両方向でリンク先が元の中身に上書きされて失敗し、
+      修正後は成功することを別作業ツリーで実測した。要求・IR・決定は変えず既存要求の範囲に収まる。
+      hunkマージと変更書き込みの経路は今回の対象外で未確認。
+    requirements:
+      - REQ-merge-001
+    decisions: []
+    handoff: null
+    gaps: []
