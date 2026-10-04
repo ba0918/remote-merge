@@ -230,7 +230,7 @@ fn assert_section_defaults(config: &AppConfig, case: &str) {
 /// キーを一つも書かない [ssh]・[backup]・[agent]・[defaults]
 const EMPTY_SECTIONS: &str = "[ssh]\n[backup]\n[agent]\n[defaults]\n";
 
-// @kotowari[REQ-config-013]
+// @kotowari[REQ-config-013, TBL-config-001]
 #[test]
 fn omitted_server_keys_use_the_default_port_auth_and_sudo() {
     let server = "[servers.develop]\nhost = \"dev.example.invalid\"\nuser = \"deploy\"\nroot_dir = \"/srv/app\"\n";
@@ -247,7 +247,7 @@ fn omitted_server_keys_use_the_default_port_auth_and_sudo() {
     }
 }
 
-// @kotowari[REQ-config-013]
+// @kotowari[REQ-config-013, TBL-config-001]
 #[test]
 fn absent_sections_use_the_default_values() {
     for layout in [Layout::GlobalOnly, Layout::ProjectOnly, Layout::Both] {
@@ -256,7 +256,7 @@ fn absent_sections_use_the_default_values() {
     }
 }
 
-// @kotowari[REQ-config-013]
+// @kotowari[REQ-config-013, TBL-config-001]
 #[test]
 fn sections_with_every_key_omitted_use_the_default_values() {
     for (case, layout, global, project) in [
@@ -325,7 +325,7 @@ fn max_scan_entries_is_chosen_from_the_project_then_the_global_config() {
     assert_eq!(config.max_scan_entries, 50_000);
 }
 
-// @kotowari[REQ-config-013]
+// @kotowari[REQ-config-013, TBL-config-001]
 #[test]
 fn omitted_max_scan_entries_uses_the_default_value() {
     for (case, global, project) in [

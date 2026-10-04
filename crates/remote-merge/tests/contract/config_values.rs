@@ -371,7 +371,7 @@ fn sync_creates_a_new_directory_with_the_server_then_defaults_then_default_mode(
 
 // ─── 走査の上限（REQ-config-017、TBL-config-003） ─────────────────
 
-// @kotowari[REQ-config-017]
+// @kotowari[REQ-config-017, TBL-config-003]
 #[test]
 fn config_max_scan_entries_accepts_its_range_and_stops_outside_it() {
     for value in [1, 1_000_000] {
@@ -397,7 +397,7 @@ const MAX_ENTRIES_OUTSIDE: [(usize, &str); 2] = [
     ),
 ];
 
-// @kotowari[REQ-config-017]
+// @kotowari[REQ-config-017, TBL-config-003]
 #[test]
 fn status_max_entries_outside_its_range_stops() {
     let fixture = status_support::fixture();
@@ -411,7 +411,7 @@ fn status_max_entries_outside_its_range_stops() {
     }
 }
 
-// @kotowari[REQ-config-017]
+// @kotowari[REQ-config-017, TBL-config-003]
 #[test]
 fn diff_max_entries_outside_its_range_stops() {
     let fixture = status_support::fixture();
@@ -435,7 +435,7 @@ fn diff_max_entries_outside_its_range_stops() {
     }
 }
 
-// @kotowari[REQ-config-017]
+// @kotowari[REQ-config-017, TBL-config-003]
 #[test]
 fn merge_max_entries_outside_its_range_stops() {
     let fixture = merge_support::fixture();
@@ -448,7 +448,7 @@ fn merge_max_entries_outside_its_range_stops() {
     }
 }
 
-// @kotowari[REQ-config-017]
+// @kotowari[REQ-config-017, TBL-config-003]
 #[test]
 fn sync_max_entries_outside_its_range_stops() {
     let fixture = sync_support::fixture();
