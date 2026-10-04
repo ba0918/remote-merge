@@ -186,44 +186,6 @@ fn test_merge_records_backup_only_in_aggregate_store() {
     );
 }
 
-/// 機密ファイル (.env) は --force なしだとスキップされる
-#[test]
-fn test_merge_sensitive_file_requires_force() {
-    let env = CliEnv::new(
-        &[(".env", "SECRET=local\n")],
-        &[(".env", "SECRET=remote\n")],
-    );
-
-    let output = env
-        .cmd_with("merge")
-        .args([".env", "--left", "local", "--right", "develop"])
-        .output()
-        .expect("failed to execute");
-
-    // sensitive ファイルのみの場合、"no files to merge" で exit 0 だがファイルは変更されない
-    let remote_content = fs::read_to_string(env.remote_dir.join(".env")).unwrap();
-    assert_eq!(
-        remote_content, "SECRET=remote\n",
-        ".env should NOT be merged without --force"
-    );
-
-    // 実際の出力:
-    //   stderr: "1 sensitive file(s) will be skipped. Use --force to include them."
-    //   stdout: "Skipped: .env (sensitive file)"
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("sensitive file(s) will be skipped"),
-        "Expected sensitive skip warning in stderr, got: {}",
-        stderr
-    );
-    assert!(
-        stdout.contains("Skipped: .env (sensitive file)"),
-        "Expected 'Skipped: .env (sensitive file)' in stdout, got: {}",
-        stdout
-    );
-}
-
 /// 機密ファイルに --force を付けると merge が成功する
 #[test]
 fn test_merge_sensitive_file_with_force() {

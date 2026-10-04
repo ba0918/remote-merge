@@ -105,16 +105,18 @@ fn json_with_a_reference_has_ref_and_the_ref_badge() {
 #[test]
 fn json_has_skipped_files_with_path_and_reason() {
     let fixture = fixture();
-    fixture.write("local", ".env", "SECRET=local\n");
-    fixture.write("develop", ".env", "SECRET=develop\n");
+    // 読み込み元は symlink、書き込み先は通常のファイルで、種類が違うため書き込まない
+    fixture.write("local", "target.txt", "linked\n");
+    fixture.symlink("local", "kind.txt", "target.txt");
+    fixture.write("develop", "kind.txt", "develop\n");
 
     // 終了コードは確かめない
-    let (json, _) = fixture.merge_json(args(&[".env"]));
+    let (json, _) = fixture.merge_json(args(&["kind.txt"]));
 
     let skipped = &json["skipped"][0];
-    assert_eq!(skipped["path"], ".env", "{json}");
-    assert_eq!(skipped["reason"], "sensitive file", "{json}");
-    assert_eq!(fixture.read("develop", ".env"), "SECRET=develop\n");
+    assert_eq!(skipped["path"], "kind.txt", "{json}");
+    assert!(is_non_empty_string(&skipped["reason"]), "{json}");
+    assert_eq!(fixture.read("develop", "kind.txt"), "develop\n");
 }
 
 // @kotowari[REQ-cli-048]

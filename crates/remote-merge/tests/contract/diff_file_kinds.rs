@@ -1,57 +1,11 @@
-//! 機密ファイル・片側にだけあるファイル・バイナリの diff（docs/ir/cli/diff-output.md の
-//! REQ-cli-059・060、docs/ir/cli/binary.md の REQ-cli-061）の契約テスト。組み方は diff_support にある。
+//! 片側にだけあるファイル・バイナリの diff（docs/ir/cli/diff-output.md の REQ-cli-060、
+//! docs/ir/cli/binary.md の REQ-cli-061）の契約テスト。組み方は diff_support にある。
 
 use std::fs;
 
-use remote_merge::service::output::{format_json, format_multi_diff_text};
+use remote_merge::service::output::format_multi_diff_text;
 
 use super::diff_support::*;
-
-// ── REQ-cli-059: 機密ファイルの差分の隠し方 ──
-
-// @kotowari[REQ-cli-059]
-#[test]
-fn req_cli_059_sensitive_text_is_hidden_without_force() {
-    let fixture = DiffFixture::new(
-        &[(".env", b"SECRET=left-value\n")],
-        &[(".env", b"SECRET=right-value\n")],
-    );
-
-    let (output, _) = fixture.diff(&[".env"]);
-    let json = json(&output);
-    let file = entry(&json, ".env");
-
-    assert_eq!(file["sensitive"], true);
-    assert_eq!(file["hunks"], serde_json::json!([]));
-    assert_eq!(file["note"], SENSITIVE_NOTE);
-    let text = format_multi_diff_text(&output);
-    assert!(text.contains(SENSITIVE_NOTE), "{text}");
-    assert!(!text.contains("value"), "{text}");
-    assert!(!format_json(&output).unwrap().contains("value"));
-}
-
-// @kotowari[REQ-cli-059]
-#[test]
-fn req_cli_059_sensitive_binary_hides_its_hashes_without_force() {
-    let (left, right): (&[u8], &[u8]) = (b"left\0secret", b"right\0secret");
-    let fixture = DiffFixture::new(&[(".env.local", left)], &[(".env.local", right)]);
-
-    let (output, _) = fixture.diff(&[".env.local"]);
-    let json = json(&output);
-    let file = entry(&json, ".env.local");
-
-    assert_eq!(file["sensitive"], true);
-    assert_eq!(file["hunks"], serde_json::json!([]));
-    assert_eq!(file["note"], SENSITIVE_NOTE);
-    assert!(file.get("left_hash").is_none(), "{json}");
-    assert!(file.get("right_hash").is_none(), "{json}");
-    let text = format_multi_diff_text(&output);
-    for hash in [sha256(left), sha256(right)] {
-        assert!(!text.contains(&hash), "{text}");
-        assert!(!json.to_string().contains(&hash), "{json}");
-    }
-    assert!(!text.contains("sha256"), "{text}");
-}
 
 // ── REQ-cli-060: 片側にだけあるファイル ──
 

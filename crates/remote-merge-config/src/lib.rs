@@ -41,7 +41,7 @@ pub struct LocalConfig {
 }
 
 /// フィルター設定
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FilterConfig {
     pub exclude: Vec<String>,
     pub sensitive: Vec<String>,
@@ -205,23 +205,6 @@ impl Default for LocalConfig {
     }
 }
 
-impl Default for FilterConfig {
-    fn default() -> Self {
-        Self {
-            exclude: Vec::new(),
-            sensitive: vec![
-                ".env".into(),
-                ".env.*".into(),
-                "*.pem".into(),
-                "*.key".into(),
-                "credentials.*".into(),
-                "*secret*".into(),
-            ],
-            include: Vec::new(),
-        }
-    }
-}
-
 impl Default for BackupConfig {
     fn default() -> Self {
         Self {
@@ -344,7 +327,7 @@ pub fn project_config_path() -> PathBuf {
 /// - `[servers.*]`: プロジェクト設定で上書き
 /// - `[local]`: プロジェクト設定で上書き
 /// - `[filter].exclude`: 和集合
-/// - `[filter].sensitive`: 和集合
+/// - `[filter].sensitive`: 使わない（指定があれば一度だけ警告する）
 /// - `[ssh]`: プロジェクト設定で上書き
 /// - `[backup]`: プロジェクト設定で上書き
 pub fn load_config() -> crate::error::Result<AppConfig> {
@@ -416,7 +399,20 @@ pub fn load_config_from_paths(
         });
     }
 
+    if specifies_sensitive(global_raw.as_ref()) || specifies_sensitive(project_raw.as_ref()) {
+        eprintln!("Warning: {SENSITIVE_IGNORED_WARNING}");
+    }
+
     merge_configs(global_raw, project_raw)
+}
+
+/// `[filter] sensitive` の指定が残った設定への警告文（"Warning: " の接頭辞は出力時に付ける）
+const SENSITIVE_IGNORED_WARNING: &str = "[filter] sensitive is no longer used and is ignored";
+
+/// 設定ファイルに `[filter] sensitive` の指定があるか。指定は読み込みを止めずに受け付け、使わない
+fn specifies_sensitive(raw: Option<&RawConfig>) -> bool {
+    raw.and_then(|r| r.filter.as_ref())
+        .is_some_and(|f| f.sensitive.is_some())
 }
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
@@ -478,14 +474,6 @@ fn merge_configs(
         if let Some(exc) = gf.exclude {
             filter.exclude.extend(exc);
         }
-        if let Some(sens) = gf.sensitive {
-            // デフォルトsensitiveにグローバルを追加
-            for s in sens {
-                if !filter.sensitive.contains(&s) {
-                    filter.sensitive.push(s);
-                }
-            }
-        }
         if let Some(inc) = gf.include {
             for i in inc {
                 if !filter.include.contains(&i) {
@@ -500,13 +488,6 @@ fn merge_configs(
                 for e in exc {
                     if !filter.exclude.contains(&e) {
                         filter.exclude.push(e);
-                    }
-                }
-            }
-            if let Some(sens) = pf.sensitive {
-                for s in sens {
-                    if !filter.sensitive.contains(&s) {
-                        filter.sensitive.push(s);
                     }
                 }
             }

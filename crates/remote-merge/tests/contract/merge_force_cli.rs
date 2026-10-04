@@ -25,41 +25,20 @@ fn read(path: impl AsRef<Path>) -> String {
 
 // @kotowari[REQ-cli-074]
 #[test]
-fn merge_writes_without_a_prompt_and_force_includes_sensitive_files() {
-    let files = |env: &CliEnv| {
-        (
-            read(env.remote_dir.join("file.txt")),
-            read(env.remote_dir.join(".env")),
-        )
-    };
-    let local = [("file.txt", "incoming\n"), (".env", "A=1\n")];
-    let remote = [("file.txt", "develop old\n"), (".env", "A=22\n")];
-    let paths = ["file.txt", ".env", "--left", "local", "--right", "develop"];
+fn merge_writes_without_a_prompt() {
+    let env = CliEnv::new(
+        &[("file.txt", "incoming\n"), (".env", "A=1\n")],
+        &[("file.txt", "develop old\n"), (".env", "A=22\n")],
+    );
 
-    let env = CliEnv::new(&local, &remote);
-    assert_exit_success(&merge(&env, &paths));
-    assert_eq!(files(&env), ("incoming\n".into(), "A=22\n".into()));
+    let output = merge(
+        &env,
+        &["file.txt", ".env", "--left", "local", "--right", "develop"],
+    );
 
-    let env = CliEnv::new(&local, &remote);
-    assert_exit_success(&merge(&env, &[&paths[..], &["--force"]].concat()));
-    assert_eq!(files(&env), ("incoming\n".into(), "A=1\n".into()));
-}
-
-// @kotowari[REQ-cli-074]
-#[test]
-fn force_includes_sensitive_files_in_deletion() {
-    let local = [("file.txt", "incoming\n")];
-    let remote = [("file.txt", "develop old\n"), (".env", "A=22\n")];
-    let args = [".", "--delete", "--left", "local", "--right", "develop"];
-
-    let env = CliEnv::new(&local, &remote);
-    merge(&env, &args);
-    assert!(env.remote_dir.join(".env").exists());
-
-    let env = CliEnv::new(&local, &remote);
-    assert_exit_success(&merge(&env, &[&args[..], &["--force"]].concat()));
-    assert!(!env.remote_dir.join(".env").exists());
+    assert_exit_success(&output);
     assert_eq!(read(env.remote_dir.join("file.txt")), "incoming\n");
+    assert_eq!(read(env.remote_dir.join(".env")), "A=1\n");
 }
 
 // @kotowari[REQ-cli-074]

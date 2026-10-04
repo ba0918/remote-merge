@@ -1,10 +1,9 @@
-//! exclude・include・sensitive のパターンがどのパスに当たるか（docs/ir/config/filters.md）の契約テスト。
+//! exclude・include のパターンがどのパスに当たるか（docs/ir/config/filters.md）の契約テスト。
 //!
 //! 設定を `load_config_from_paths` で読み（合成と include の整え方を通す）、サーバ develop を
-//! ローカルのディレクトリに差し替えて status を全件表示で実行し、JSON の "files" の "path" と
-//! "sensitive" で観測する。
+//! ローカルのディレクトリに差し替えて status を全件表示で実行し、JSON の "files" の "path" で観測する。
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
@@ -45,40 +44,19 @@ impl Workspace {
         self.local.path()
     }
 
-    /// どちらの設定にも書く [local]（[local] がないときの挙動は FLAG-config-002 の範囲のため避ける）
-    fn local_section(&self) -> String {
-        format!(
-            "[local]\nroot_dir = {:?}\n",
-            self.local.path().display().to_string()
-        )
-    }
-
-    /// グローバル設定に `global_filter` を、プロジェクト設定があれば `project_filter` を
-    /// [filter] の中身として書いて読み、status を全件表示で実行した JSON の "files" を返す
-    fn files(&self, global_filter: &str, project_filter: Option<&str>) -> Vec<serde_json::Value> {
-        let global_path = self.config_dir.path().join("global.toml");
+    /// 設定の [filter] の中身に `filter` を書いて読み、status を全件表示で実行した JSON の "files" を返す
+    fn files(&self, filter: &str) -> Vec<serde_json::Value> {
+        let config_path = self.config_dir.path().join("config.toml");
         fs::write(
-            &global_path,
+            &config_path,
             format!(
-                "{}[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = false\n[filter]\n{global_filter}\n",
-                self.local_section(),
+                "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = false\n[filter]\n{filter}\n",
+                self.local.path().display().to_string(),
                 self.develop.path().display().to_string(),
             ),
         )
         .unwrap();
-        let project_path = self.config_dir.path().join("project.toml");
-        if let Some(filter) = project_filter {
-            fs::write(
-                &project_path,
-                format!("{}[filter]\n{filter}\n", self.local_section()),
-            )
-            .unwrap();
-        }
-        let config = load_config_from_paths(
-            Some(&global_path),
-            project_filter.map(|_| project_path.as_path()),
-        )
-        .unwrap();
+        let config = load_config_from_paths(Some(&config_path), None).unwrap();
         let targets = RuntimeTargets::production()
             .with_local("develop", self.develop.path())
             .with_startup_directory(self.config_dir.path().to_path_buf());
@@ -93,26 +71,9 @@ impl Workspace {
 
     /// 一覧に出たパスの集合
     fn listed(&self, filter: &str) -> BTreeSet<String> {
-        self.files(filter, None)
+        self.files(filter)
             .iter()
             .map(|file| file["path"].as_str().unwrap().to_string())
-            .collect()
-    }
-
-    /// 一覧に出たパスごとの "sensitive"
-    fn sensitivity(
-        &self,
-        global_filter: &str,
-        project_filter: Option<&str>,
-    ) -> BTreeMap<String, bool> {
-        self.files(global_filter, project_filter)
-            .iter()
-            .map(|file| {
-                (
-                    file["path"].as_str().unwrap().to_string(),
-                    file["sensitive"].as_bool().unwrap(),
-                )
-            })
             .collect()
     }
 }
@@ -279,74 +240,5 @@ fn exclude_removes_matching_paths_from_the_include_target() {
     assert_eq!(
         workspace.listed("include = [\"src\"]\nexclude = [\"*.log\"]"),
         set(&["src/a.txt"])
-    );
-}
-
-// ─── 既定の sensitive のパターン（REQ-config-026） ─────────────────
-
-/// 既定の六つのパターンのそれぞれに名前が当たるファイル（サブディレクトリに置いたものを含む）
-const DEFAULT_SENSITIVE: &[&str] = &[
-    ".env",
-    "app/.env",
-    ".env.production",
-    "certs/server.pem",
-    "server.key",
-    "credentials.json",
-    "config/credentials.yml",
-    "my-secret-notes.txt",
-];
-
-/// 既定のどのパターンにも名前が当たらないファイル
-const NOT_SENSITIVE: &[&str] = &["README.md", "env.txt", "certs/server.crt", "keys.txt"];
-
-/// 既定のパターンにも "*secret*" にも当たらず、設定に書く "*.confidential" にだけ当たるファイル
-const CONFIGURED_SENSITIVE: &[&str] = &["token.confidential", "data/token.confidential"];
-
-fn expected_sensitivity(
-    sensitive: &[&[&str]],
-    not_sensitive: &[&[&str]],
-) -> BTreeMap<String, bool> {
-    let marked = sensitive
-        .iter()
-        .flat_map(|paths| paths.iter())
-        .map(|path| (path.to_string(), true));
-    let unmarked = not_sensitive
-        .iter()
-        .flat_map(|paths| paths.iter())
-        .map(|path| (path.to_string(), false));
-    marked.chain(unmarked).collect()
-}
-
-fn all_files() -> Vec<&'static str> {
-    [DEFAULT_SENSITIVE, NOT_SENSITIVE, CONFIGURED_SENSITIVE].concat()
-}
-
-// @kotowari[REQ-config-026]
-#[test]
-fn default_sensitive_patterns_apply_without_a_sensitive_setting() {
-    let workspace = Workspace::new(&all_files());
-    assert_eq!(
-        workspace.sensitivity("", None),
-        expected_sensitivity(&[DEFAULT_SENSITIVE], &[NOT_SENSITIVE, CONFIGURED_SENSITIVE])
-    );
-}
-
-// @kotowari[REQ-config-026]
-#[test]
-fn sensitive_pattern_in_the_global_config_is_added_to_the_defaults() {
-    let workspace = Workspace::new(&all_files());
-    assert_eq!(
-        workspace.sensitivity("sensitive = [\"*.confidential\"]", None),
-        expected_sensitivity(&[DEFAULT_SENSITIVE, CONFIGURED_SENSITIVE], &[NOT_SENSITIVE])
-    );
-}
-
-// @kotowari[REQ-config-026]
-#[test]
-fn sensitive_pattern_in_the_project_config_is_added_to_the_defaults() {
-    let workspace = Workspace::new(&all_files());
-    assert_eq!(
-        workspace.sensitivity("", Some("sensitive = [\"*.confidential\"]")),
-        expected_sensitivity(&[DEFAULT_SENSITIVE, CONFIGURED_SENSITIVE], &[NOT_SENSITIVE])
     );
 }

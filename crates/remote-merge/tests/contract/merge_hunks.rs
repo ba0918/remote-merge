@@ -10,12 +10,9 @@ use remote_merge::cli::merge::MergeArgs;
 
 use serde_json::json;
 
-use super::merge_support::{args, fixture, fixture_with_backup, fixture_with_sensitive, Fixture};
+use super::merge_support::{args, fixture, fixture_with_backup, Fixture};
 
 const PATH: &str = "file.txt";
-/// 設定で機密ファイルのパターンにする。既定の機密ファイルのパターンには一致しない
-const SENSITIVE_PATTERN: &str = "*.vault";
-const SENSITIVE_FILE: &str = "deploy.vault";
 
 /// `path` の変更のまとまり `hunks` を local から develop へ書き込む引数（--force あり）
 fn hunk_args(path: &str, hunks: &[usize]) -> MergeArgs {
@@ -190,24 +187,6 @@ fn hunks_on_a_destination_that_is_not_utf8_stops_without_writing() {
 
     assert_eq!(error.to_string(), BINARY_ERROR);
     assert_eq!(read_bytes(&fixture, "develop", PATH), destination);
-}
-
-// @kotowari[REQ-merge-028]
-#[test]
-fn hunks_on_a_configured_sensitive_file_without_force_stops_without_writing() {
-    let fixture = fixture_with_sensitive(&[SENSITIVE_PATTERN]);
-    let original = two_separate_changes(&fixture, SENSITIVE_FILE);
-
-    let error = fixture.merge_error(MergeArgs {
-        force: false,
-        ..hunk_args(SENSITIVE_FILE, &[0])
-    });
-
-    assert_eq!(
-        error.to_string(),
-        "Sensitive file 'deploy.vault' requires --force for hunk merge"
-    );
-    assert_eq!(fixture.read("develop", SENSITIVE_FILE), original);
 }
 
 /// 参照先 staging に対して左右が同じ行を別々に変えた競合を作る

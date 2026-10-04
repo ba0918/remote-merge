@@ -395,3 +395,100 @@ fn logs_and_events_warn_that_config_is_ignored_and_run_without_reading_it() {
         assert_eq!(first[field], value, "{subcommand}");
     }
 }
+
+// ─── 使われなくなった [filter] の sensitive の警告（REQ-config-030） ─────────────────
+
+const SENSITIVE_IGNORED_WARNING: &str =
+    "Warning: [filter] sensitive is no longer used and is ignored";
+
+impl Workspace {
+    /// `write_config` と同じ設定の [filter] に sensitive の指定を足して書く
+    fn write_config_with_sensitive(&mut self, path: &Path, local_root: &Path) {
+        let base = gen_config(
+            local_root,
+            &self.dirs.remote_dir,
+            None,
+            self.dirs.server_port(),
+        );
+        let exclude_line = "exclude = [\".git\", \"target\"]";
+        let content = base.replace(
+            exclude_line,
+            &format!("{exclude_line}\nsensitive = [\"*.key\"]"),
+        );
+        assert_ne!(content, base, "fixture filter exclude line missing");
+        self.write(path, local_root, &content);
+    }
+}
+
+/// 警告の行の数を数え、指定が使われずに status が最後まで続いたこと（読み込んだ設定の root_dir の一覧が出ること）を確かめる
+fn assert_sensitive_warnings(output: &Output, expected_warnings: usize, expected_paths: &[&str]) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        stderr.matches(SENSITIVE_IGNORED_WARNING).count(),
+        expected_warnings,
+        "{output:?}"
+    );
+    // ローカルの側にだけファイルを置くため "left_only" があり、終了コードは 1 になる
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"));
+    assert_eq!(listed_paths(&json), expected_paths);
+}
+
+// @kotowari[REQ-config-030]
+#[test]
+fn sensitive_in_the_project_config_warns_once_and_is_not_used() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("project-local", "server.key");
+    workspace.write_config_with_sensitive(&cwd.join(".remote-merge.toml"), &local);
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_sensitive_warnings(&output, 1, &["server.key"]);
+}
+
+// @kotowari[REQ-config-030]
+#[test]
+fn config_without_sensitive_does_not_warn() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("project-local", "server.key");
+    workspace.write_config(&cwd.join(".remote-merge.toml"), &local);
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_sensitive_warnings(&output, 0, &["server.key"]);
+}
+
+// @kotowari[REQ-config-030]
+#[cfg(target_os = "linux")]
+#[test]
+fn sensitive_in_the_global_config_warns_once_and_is_not_used() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("global-local", "server.key");
+    let global_path = workspace.global_config_path();
+    workspace.write_config_with_sensitive(&global_path, &local);
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_sensitive_warnings(&output, 1, &["server.key"]);
+}
+
+// @kotowari[REQ-config-030]
+#[cfg(target_os = "linux")]
+#[test]
+fn sensitive_in_both_configs_warns_only_once() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let global_local = workspace.local_root_with("global-local", "from-global.txt");
+    let global_path = workspace.global_config_path();
+    workspace.write_config_with_sensitive(&global_path, &global_local);
+    let local = workspace.local_root_with("project-local", "server.key");
+    workspace.write_config_with_sensitive(&cwd.join(".remote-merge.toml"), &local);
+
+    let output = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_sensitive_warnings(&output, 1, &["server.key"]);
+}

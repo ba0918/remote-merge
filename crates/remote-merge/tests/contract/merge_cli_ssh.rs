@@ -7,7 +7,7 @@
 use std::fs;
 use std::process::{Output, Stdio};
 
-use super::common::{assert_exit_success, CliEnv};
+use super::common::{assert_exit_success, place_symlink, CliEnv};
 
 /// local の file.txt を develop に書き込める構成
 fn one_file_to_merge() -> CliEnv {
@@ -111,14 +111,18 @@ fn a_failed_file_is_reported_with_its_reason() {
 #[test]
 fn a_skipped_file_is_reported_with_its_reason_before_the_failed_files() {
     let env = CliEnv::new_3way(
-        &[(".env", "A=1\n"), ("file.txt", "left change\n")],
-        &[(".env", "A=22\n"), ("file.txt", "right change\n")],
-        &[("file.txt", "base\n")],
+        &[("file.txt", "left change\n")],
+        &[("kind.txt", "develop\n"), ("file.txt", "right change\n")],
+        &[("kind.txt", "develop\n"), ("file.txt", "base\n")],
     );
+    // 読み込み元は symlink、書き込み先は通常のファイルで、種類が違うためスキップする
+    place_symlink(&env.local_dir, "kind.txt", "file.txt");
 
     let output = env
         .cmd_with("merge")
-        .args([".env", "file.txt", "--left", "local", "--right", "develop"])
+        .args([
+            "kind.txt", "file.txt", "--left", "local", "--right", "develop",
+        ])
         .args(["--ref", "staging"])
         .stdin(Stdio::null())
         .output()
@@ -127,13 +131,13 @@ fn a_skipped_file_is_reported_with_its_reason_before_the_failed_files() {
     let lines = stdout_lines(&output);
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert!(
-        lines[0].starts_with("Skipped: .env (") && lines[0].ends_with(')'),
+        lines[0].starts_with("Skipped: kind.txt (") && lines[0].ends_with(')'),
         "{lines:?}"
     );
     assert_eq!(lines[1], "Failed: file.txt (three-way conflict)");
     assert_eq!(
-        fs::read_to_string(env.remote_dir.join(".env")).unwrap(),
-        "A=22\n"
+        fs::read_to_string(env.remote_dir.join("kind.txt")).unwrap(),
+        "develop\n"
     );
 }
 

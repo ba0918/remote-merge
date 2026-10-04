@@ -58,8 +58,9 @@ fn dry_run_text_shows_planned_files_and_skipped_files_with_a_reason() {
     let fixture = fixture();
     fixture.write("local", "a.txt", "incoming\n");
     fixture.write("develop", "a.txt", "develop old\n");
-    fixture.write("local", ".env", "A=local\n");
-    fixture.write("develop", ".env", "A=develop\n");
+    // 読み込み元は symlink、書き込み先は通常のファイルで、種類が違うためスキップする
+    std::os::unix::fs::symlink("a.txt", fixture.root("local").join("kind.txt")).unwrap();
+    fixture.write("develop", "kind.txt", "develop\n");
     let mut args = args(&["."], &["develop"]);
     args.dry_run = true;
     args.force = false;
@@ -72,7 +73,7 @@ fn dry_run_text_shows_planned_files_and_skipped_files_with_a_reason() {
         "{text}"
     );
     assert!(has_line(&text, "plan", "a.txt"), "{text}");
-    assert!(has_line_with_reason(&text, "skip", ".env"), "{text}");
+    assert!(has_line_with_reason(&text, "skip", "kind.txt"), "{text}");
     assert_eq!(fixture.read("develop", "a.txt"), "develop old\n");
 }
 

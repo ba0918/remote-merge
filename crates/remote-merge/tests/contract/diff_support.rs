@@ -18,8 +18,6 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
-pub(super) const SENSITIVE_NOTE: &str = "Content hidden (sensitive file). Use --force to show.";
-
 pub(super) struct DiffFixture {
     _config_dir: TempDir,
     pub(super) left: TempDir,
@@ -30,8 +28,7 @@ pub(super) struct DiffFixture {
 }
 
 impl DiffFixture {
-    /// 左右の root_dir に `left_files`・`right_files` を置く。設定に [filter] を書かないため、
-    /// 機密ファイルのパターンは既定値（".env" など）になる
+    /// 左右の root_dir に `left_files`・`right_files` を置く。設定に [filter] は書かない
     pub(super) fn new(left_files: &[(&str, &[u8])], right_files: &[(&str, &[u8])]) -> Self {
         let config_dir = TempDir::new().unwrap();
         let left = TempDir::new().unwrap();

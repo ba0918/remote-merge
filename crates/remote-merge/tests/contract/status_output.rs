@@ -13,7 +13,7 @@ const T0: u64 = 1_700_000_000;
 /// CliEnv に置くファイル（パスと中身）
 type Files<'a> = &'a [(&'a str, &'a str)];
 
-/// "modified"・"left_only"・"right_only"・"equal" と、機密ファイルの "modified" が一つずつある構成
+/// "modified"・"left_only"・"right_only"・"equal" と、".env" の "modified" が一つずつある構成
 fn one_of_each() -> CliEnv {
     CliEnv::new(
         &[
@@ -136,7 +136,7 @@ fn text_lists_a_header_one_symbol_line_per_file_and_a_final_summary() {
         "L left.txt",
         "R right.txt",
         "= equal.txt",
-        "M .env [SENSITIVE]",
+        "M .env",
     ];
     expected.sort_unstable();
     assert_eq!(file_lines, expected, "{lines:?}");
@@ -180,7 +180,7 @@ fn json_has_both_sides_every_file_and_the_summary() {
         "{json}"
     );
 
-    let mut files: Vec<(String, String, bool)> = json["files"]
+    let mut files: Vec<(String, String)> = json["files"]
         .as_array()
         .expect("files missing")
         .iter()
@@ -188,19 +188,18 @@ fn json_has_both_sides_every_file_and_the_summary() {
             (
                 file["path"].as_str().unwrap().to_owned(),
                 file["status"].as_str().unwrap().to_owned(),
-                file["sensitive"].as_bool().unwrap(),
             )
         })
         .collect();
     files.sort();
     let expected = [
-        (".env", "modified", true),
-        ("equal.txt", "equal", false),
-        ("left.txt", "left_only", false),
-        ("modified.txt", "modified", false),
-        ("right.txt", "right_only", false),
+        (".env", "modified"),
+        ("equal.txt", "equal"),
+        ("left.txt", "left_only"),
+        ("modified.txt", "modified"),
+        ("right.txt", "right_only"),
     ]
-    .map(|(path, status, sensitive)| (path.to_owned(), status.to_owned(), sensitive));
+    .map(|(path, status)| (path.to_owned(), status.to_owned()));
     assert_eq!(files, expected, "{json}");
 
     let summary = &json["summary"];

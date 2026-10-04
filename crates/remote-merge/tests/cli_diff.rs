@@ -187,31 +187,6 @@ fn json_diff_keeps_link_targets_and_reports_unexamined_external_content() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains("external private content"));
 }
 
-// @kotowari[EX-cli-049]
-#[test]
-fn sensitive_target_contents_remain_hidden_through_an_ordinary_link_name() {
-    let env = CliEnv::new(
-        &[(".env", "TEST_SECRET=left-example\n")],
-        &[(".env", "TEST_SECRET=right-example\n")],
-    );
-    place_symlink(&env.local_dir, "link.txt", ".env");
-    place_symlink(&env.remote_dir, "link.txt", ".env");
-
-    for format in ["text", "json"] {
-        let output = env
-            .cmd_with("diff")
-            .args(["link.txt", "--format", format])
-            .output()
-            .unwrap();
-        let body = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            !body.contains("left-example") && !body.contains("right-example"),
-            "{output:?}"
-        );
-        assert!(body.contains(".env"), "{output:?}");
-    }
-}
-
 /// リンク文字列の違う左右の symlink を指定した diff の JSON の hunks と、テキストの差分の行を確かめる。
 ///
 /// リンク文字列は link_targets だけで示し、内容差の hunks とテキストの "-"・"+" の行には入れない。
@@ -228,7 +203,13 @@ fn assert_link_strings_stay_out_of_content_diff(
     let link = json_item(&result, "link.txt");
     assert_eq!(link["link_targets"]["left"], left_target, "{result}");
     assert_eq!(link["link_targets"]["right"], right_target, "{result}");
-    assert_eq!(link["hunks"], serde_json::json!([]), "{result}");
+    for hunk in link["hunks"].as_array().unwrap() {
+        for line in hunk["lines"].as_array().unwrap() {
+            let content = line["content"].as_str().unwrap();
+            assert_ne!(content, left_target, "{result}");
+            assert_ne!(content, right_target, "{result}");
+        }
+    }
 
     let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
     let text = String::from_utf8_lossy(&output.stdout);
@@ -238,12 +219,12 @@ fn assert_link_strings_stay_out_of_content_diff(
     }
 }
 
-// @kotowari[REQ-cli-024, REQ-cli-059]
+// @kotowari[REQ-cli-024]
 #[test]
-fn req_cli_024_hidden_sensitive_link_keeps_link_strings_out_of_hunks() {
+fn req_cli_024_compared_link_keeps_link_strings_out_of_hunks() {
     let env = CliEnv::new(
-        &[(".env", "TEST_SECRET=left-example\n")],
-        &[(".env.prod", "TEST_SECRET=right-example\n")],
+        &[(".env", "KEY=left-example\n")],
+        &[(".env.prod", "KEY=right-example\n")],
     );
     place_symlink(&env.local_dir, "link.txt", ".env");
     place_symlink(&env.remote_dir, "link.txt", ".env.prod");
@@ -486,32 +467,6 @@ fn binary_link_text_shows_both_link_names_and_binary_hashes() {
         "{output:?}"
     );
     assert!(body.contains("sha256="), "{output:?}");
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn nested_link_to_sensitive_file_does_not_show_resolved_contents() {
-    let env = CliEnv::new(
-        &[(".env", "TEST_SECRET=left-example\n")],
-        &[(".env", "TEST_SECRET=right-example\n")],
-    );
-    place_symlink(&env.local_dir, "inner.txt", ".env");
-    place_symlink(&env.remote_dir, "inner.txt", ".env");
-    place_symlink(&env.local_dir, "link.txt", "inner.txt");
-    place_symlink(&env.remote_dir, "link.txt", "inner.txt");
-
-    for format in ["text", "json"] {
-        let output = env
-            .cmd_with("diff")
-            .args(["link.txt", "--format", format])
-            .output()
-            .unwrap();
-        let body = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            !body.contains("left-example") && !body.contains("right-example"),
-            "{output:?}"
-        );
-    }
 }
 
 // @kotowari[EX-cli-043]
@@ -853,48 +808,53 @@ fn unreadable_child_of_directory_link_keeps_other_child_diffs() {
     assert_eq!(result["errors"][0]["path"], "shared/broken.txt", "{result}");
 }
 
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_intermediate_link_name_masks_even_when_final_name_is_public() {
-    let env = CliEnv::new(
-        &[("public.txt", "left private body\n")],
-        &[("public.txt", "right private body\n")],
-    );
-    for root in [&env.local_dir, &env.remote_dir] {
-        place_symlink(root, ".env", "public.txt");
-        place_symlink(root, "inner.txt", ".env");
-        place_symlink(root, "outer.txt", "inner.txt");
-    }
-    let output = env
-        .cmd_with("diff")
-        .args(["outer.txt", "--format", "json"])
-        .output()
-        .unwrap();
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !body.contains("left private body") && !body.contains("right private body"),
-        "{output:?}"
-    );
-}
-
 // @kotowari[EX-cli-055]
 #[test]
-fn external_directory_nested_secret_stays_hidden_without_force() {
+fn nested_link_from_an_external_directory_shows_the_final_target_text_diff_with_follow_flag() {
     let env = CliEnv::new(&[], &[]);
-    let outside = env.local_dir.parent().unwrap().join("outside-dir");
-    std::fs::create_dir_all(&outside).unwrap();
-    std::fs::write(outside.join(".env"), "TEST_SECRET=outside-example\n").unwrap();
-    place_symlink(&outside, "nested.txt", ".env");
-    place_symlink(&env.local_dir, "shared", outside.to_str().unwrap());
-    place_symlink(&env.remote_dir, "shared", outside.to_str().unwrap());
+    let base = env.local_dir.parent().unwrap().to_path_buf();
+    for (root, outside_name, body) in [
+        (&env.local_dir, "left-outside", "left external body\n"),
+        (&env.remote_dir, "right-outside", "right external body\n"),
+    ] {
+        let outside = base.join(outside_name);
+        place_files(&outside, &[("data/target.txt", body)]);
+        place_symlink(&outside, "shared-dir/nested", "../data/target.txt");
+        place_symlink(root, "shared", outside.join("shared-dir").to_str().unwrap());
+    }
+
     let output = env
         .cmd_with("diff")
         .args(["shared", "--follow-external-links", "--format", "json"])
         .output()
         .unwrap();
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(!body.contains("outside-example"), "{output:?}");
-    assert!(body.contains("shared/nested.txt"), "{output:?}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let nested = json_item(&result, "shared/nested");
+    assert_eq!(
+        nested["link_targets"]["left"], "../data/target.txt",
+        "{result}"
+    );
+    let lines: Vec<(&str, &str)> = nested["hunks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|hunk| hunk["lines"].as_array().unwrap())
+        .map(|line| {
+            (
+                line["type"].as_str().unwrap(),
+                line["content"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert!(
+        lines.contains(&("removed", "left external body")),
+        "{result}"
+    );
+    assert!(
+        lines.contains(&("added", "right external body")),
+        "{result}"
+    );
 }
 
 // @kotowari[EX-cli-039]
@@ -1162,52 +1122,20 @@ fn unreadable_child_of_directory_link_is_reported_with_a_reason() {
     assert_reason_given(json_error(&result, "shared/broken.txt"), &result);
 }
 
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_link_name_hides_the_target_contents_without_force() {
-    let env = CliEnv::new(
-        &[("settings.txt", "left private body\n")],
-        &[("settings.txt", "right private body\n")],
-    );
-    place_symlink(&env.local_dir, ".env", "settings.txt");
-    place_symlink(&env.remote_dir, ".env", "settings.txt");
-
-    for format in ["text", "json"] {
-        let output = env
-            .cmd_with("diff")
-            .args([".env", "--format", format])
-            .output()
-            .unwrap();
-        let body = String::from_utf8_lossy(&output.stdout);
-        assert!(body.contains(".env"), "{output:?}");
-        assert!(
-            !body.contains("left private body") && !body.contains("right private body"),
-            "{output:?}"
-        );
-    }
-}
-
 // @kotowari[EX-cli-055]
 #[test]
-fn nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hashes() {
+fn nested_link_from_an_external_directory_shows_the_final_target_hashes_with_follow_flag() {
     let env = CliEnv::new(&[], &[]);
     let base = env.local_dir.parent().unwrap().to_path_buf();
-    let sides: [(&std::path::Path, &str, &[u8]); 2] = [
-        (
-            &env.local_dir,
-            "left-outside",
-            b"TEST_SECRET=left-example\0\n",
-        ),
-        (
-            &env.remote_dir,
-            "right-outside",
-            b"TEST_SECRET=right-example\0\n",
-        ),
-    ];
-    for (root, outside_name, secret) in sides {
+    let left_bytes: &[u8] = b"left external\0\n";
+    let right_bytes: &[u8] = b"right external\0\n";
+    for (root, outside_name, bytes) in [
+        (&env.local_dir, "left-outside", left_bytes),
+        (&env.remote_dir, "right-outside", right_bytes),
+    ] {
         let outside = base.join(outside_name);
-        place_binary_file(&outside, "secret/.env", secret);
-        place_symlink(&outside, "shared-dir/nested", "../secret/.env");
+        place_binary_file(&outside, "data/target.bin", bytes);
+        place_symlink(&outside, "shared-dir/nested", "../data/target.bin");
         place_symlink(root, "shared", outside.join("shared-dir").to_str().unwrap());
     }
 
@@ -1216,20 +1144,26 @@ fn nested_link_from_external_directory_to_secret_shows_neither_contents_nor_hash
         .args(["shared", "--follow-external-links", "--format", "json"])
         .output()
         .unwrap();
-    let body = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !body.contains("left-example") && !body.contains("right-example"),
-        "{output:?}"
-    );
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let nested = json_item(&result, "shared/nested");
-    assert_eq!(nested["link_targets"]["left"], "../secret/.env", "{result}");
     assert_eq!(
-        nested["link_targets"]["right"], "../secret/.env",
+        nested["link_targets"]["left"], "../data/target.bin",
         "{result}"
     );
-    assert!(nested["left_hash"].is_null(), "{result}");
-    assert!(nested["right_hash"].is_null(), "{result}");
+    assert_eq!(
+        nested["link_targets"]["right"], "../data/target.bin",
+        "{result}"
+    );
+    assert_eq!(
+        nested["left_hash"],
+        remote_merge::diff::binary::compute_sha256(left_bytes),
+        "{result}"
+    );
+    assert_eq!(
+        nested["right_hash"],
+        remote_merge::diff::binary::compute_sha256(right_bytes),
+        "{result}"
+    );
 }
 
 // @kotowari[REQ-cli-026]
@@ -1462,35 +1396,6 @@ fn entries_up_to_the_limit_under_a_directory_link_are_compared_completely() {
     }
 }
 
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_link_chain_on_one_side_hides_its_contents() {
-    let env = CliEnv::new(
-        &[(".env", "TEST_SECRET=left-example\n")],
-        &[("public.txt", "right public body\n")],
-    );
-    place_symlink(&env.local_dir, "inner.txt", ".env");
-    place_symlink(&env.remote_dir, "inner.txt", "public.txt");
-    place_symlink(&env.local_dir, "link.txt", "inner.txt");
-    place_symlink(&env.remote_dir, "link.txt", "inner.txt");
-
-    for format in ["text", "json"] {
-        let output = env
-            .cmd_with("diff")
-            .args(["link.txt", "--format", format])
-            .output()
-            .unwrap();
-        let body = String::from_utf8_lossy(&output.stdout);
-        assert!(!body.contains("left-example"), "{output:?}");
-        if format == "json" {
-            let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-            json_item(&result, "link.txt");
-        } else {
-            assert!(body.contains("link.txt"), "{output:?}");
-        }
-    }
-}
-
 // @kotowari[REQ-cli-020]
 #[test]
 fn directory_link_against_binary_file_reports_the_file_hash() {
@@ -1588,37 +1493,6 @@ fn returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle() {
     );
 }
 
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_intermediate_link_reached_through_dot_components_hides_contents() {
-    let env = CliEnv::new(
-        &[("public.txt", "left private body\n")],
-        &[("public.txt", "right private body\n")],
-    );
-    for root in [&env.local_dir, &env.remote_dir] {
-        std::fs::create_dir_all(root.join("sub")).unwrap();
-        place_symlink(root, ".env", "public.txt");
-        place_symlink(root, "inner.txt", ".env");
-        place_symlink(root, "dot.txt", "./inner.txt");
-        place_symlink(root, "parent.txt", "sub/../inner.txt");
-    }
-
-    for path in ["dot.txt", "parent.txt"] {
-        let output = env
-            .cmd_with("diff")
-            .args([path, "--format", "json"])
-            .output()
-            .unwrap();
-        let body = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            !body.contains("left private body") && !body.contains("right private body"),
-            "{path}: {output:?}"
-        );
-        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        json_item(&result, path);
-    }
-}
-
 // @kotowari[REQ-cli-058]
 #[test]
 fn text_total_counts_the_children_compared_under_a_directory_link() {
@@ -1640,36 +1514,6 @@ fn text_total_counts_the_children_compared_under_a_directory_link() {
         .and_then(|number| number.parse().ok())
         .unwrap_or_else(|| panic!("no total in the last line: {body}"));
     assert!(total >= 2, "{body}");
-}
-
-/// 機密ファイル (.env) の diff で内容が隠され、--force の案内が表示される
-// @kotowari[REQ-cli-005]
-#[test]
-fn test_diff_sensitive_file_warning() {
-    let env = CliEnv::new(
-        &[(".env", "SECRET_KEY=abc123\n")],
-        &[(".env", "SECRET_KEY=xyz789\n")],
-    );
-
-    let output = env
-        .cmd_with("diff")
-        .arg(".env")
-        .output()
-        .expect("failed to execute");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // 実際の出力: "Content hidden (sensitive file). Use --force to show."
-    assert!(
-        stdout.contains("Content hidden (sensitive file). Use --force to show."),
-        "Expected 'Content hidden (sensitive file). Use --force to show.' in output, got: {}",
-        stdout
-    );
-    // 機密内容は表示されないことを確認
-    assert!(
-        !stdout.contains("abc123") && !stdout.contains("xyz789"),
-        "Sensitive content should not be shown without --force, got: {}",
-        stdout
-    );
 }
 
 /// 機密ファイルに --force を付けると内容が表示される
@@ -1864,49 +1708,6 @@ fn link_inside_a_root_dir_through_a_symlink_is_followed_without_follow_flag() {
     for linked in [LinkedRoot::Local, LinkedRoot::Remote] {
         let (output, result) = diff_with_linked_root(linked, "link.txt");
         assert_compared_inside_root(&output, &result, "link.txt");
-    }
-}
-
-/// symlink にした側だけに、絶対パスのリンク文字列で始まり、途中の段の名前が機密パターンに当たる
-/// 連鎖（a.txt → <root_dir>/mid → secret.pem → plain.txt）を置き、もう一方の側の a.txt は
-/// 通常のファイルにして、--force なしで diff する
-///
-/// `configured_form` が true なら a.txt のリンク文字列を設定に書いた root_dir（symlink）の形に、
-/// false なら実パスの形にする。
-fn diff_sensitive_chain_through_absolute_link(linked: LinkedRoot, configured_form: bool) {
-    let (output, result) =
-        diff_with_linked_root_placing(linked, "a.txt", |real, configured, other| {
-            let root = if configured_form { configured } else { real };
-            place_files(real, &[("plain.txt", "chain-secret-marker\n")]);
-            place_symlink(real, "secret.pem", "plain.txt");
-            place_symlink(real, "mid", "secret.pem");
-            place_symlink(real, "a.txt", root.join("mid").to_str().unwrap());
-            place_files(other, &[("a.txt", "other body\n")]);
-        });
-    assert!(
-        !String::from_utf8_lossy(&output.stdout).contains("chain-secret-marker"),
-        "{output:?}"
-    );
-    json_item(&result, "a.txt");
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_chain_link_under_a_local_root_dir_through_a_symlink_hides_contents() {
-    diff_sensitive_chain_through_absolute_link(LinkedRoot::Local, false);
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_chain_link_under_a_remote_root_dir_through_a_symlink_hides_contents() {
-    diff_sensitive_chain_through_absolute_link(LinkedRoot::Remote, false);
-}
-
-// @kotowari[REQ-cli-023]
-#[test]
-fn sensitive_chain_link_written_through_the_configured_root_dir_hides_contents() {
-    for linked in [LinkedRoot::Local, LinkedRoot::Remote] {
-        diff_sensitive_chain_through_absolute_link(linked, true);
     }
 }
 

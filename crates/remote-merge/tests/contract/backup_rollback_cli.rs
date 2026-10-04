@@ -338,52 +338,6 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
         .is_symlink());
 }
 
-// @kotowari[REQ-backup-036]
-#[test]
-fn sensitive_files_are_skipped_without_force_and_restored_with_it() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join(".env"), "SECRET=new\n").unwrap();
-    fs::write(develop.path().join(".env"), "SECRET=original\n").unwrap();
-    let config = config(&local, &develop, true);
-    assert!(config
-        .filter
-        .sensitive
-        .iter()
-        .any(|pattern| pattern == ".env"));
-    let mut merge = merge_args(".env");
-    merge.force = true;
-    merge_files(merge, config.clone(), targets(&develop, &store));
-
-    let mut preview = rollback_args("develop", None);
-    preview.force = false;
-    preview.dry_run = true;
-    let RollbackCommandOutput::DryRun { output, .. } =
-        execute_rollback(preview, config.clone(), targets(&develop, &store))
-            .unwrap()
-            .output
-    else {
-        panic!("expected dry-run output")
-    };
-    assert!(output.restored.is_empty(), "{output:?}");
-    assert_eq!(output.skipped.len(), 1, "{output:?}");
-    assert_eq!(output.skipped[0].path, ".env");
-    assert_eq!(output.skipped[0].reason, "sensitive");
-
-    let (forced, _) = restore(
-        rollback_args("develop", None),
-        config,
-        targets(&develop, &store),
-    );
-    assert_eq!(forced.restored.len(), 1, "{forced:?}");
-    assert!(forced.skipped.is_empty(), "{forced:?}");
-    assert_eq!(
-        fs::read_to_string(develop.path().join(".env")).unwrap(),
-        "SECRET=original\n"
-    );
-}
-
 // @kotowari[REQ-backup-039]
 #[test]
 fn target_is_required_except_for_list_which_defaults_to_local() {

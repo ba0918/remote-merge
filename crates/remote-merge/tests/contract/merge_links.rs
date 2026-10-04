@@ -7,17 +7,10 @@ use std::fs;
 use std::path::Path;
 
 use remote_merge::cli::merge::MergeArgs;
-use remote_merge::cli::sync::SyncArgs;
 
-use super::merge_support::{
-    args, fixture, fixture_with_backup, fixture_with_sensitive, sync_args, Fixture,
-};
+use super::merge_support::{args, fixture, fixture_with_backup, sync_args, Fixture};
 
 const RIGHT_ONLY_REASON: &str = "right-only file (use --delete to remove)";
-const SENSITIVE_REASON: &str = "sensitive file (use --force to include)";
-/// 設定で機密ファイルのパターンにする。既定の機密ファイルのパターンには一致しない
-const SENSITIVE_PATTERN: &str = "*.vault";
-const SENSITIVE_FILE: &str = "deploy.vault";
 
 /// 読み込み元に、root の中の target.txt を指す link.txt を作る
 fn source_link(fixture: &Fixture) {
@@ -114,50 +107,6 @@ fn sync_without_delete_skips_a_destination_only_file() {
     assert_eq!(
         reasons_of(&json["targets"][0]["skipped"], "only-here.txt"),
         [RIGHT_ONLY_REASON],
-        "{json}"
-    );
-}
-
-// @kotowari[REQ-merge-025]
-#[test]
-fn merge_delete_without_force_keeps_a_destination_only_sensitive_file() {
-    let fixture = fixture_with_sensitive(&[SENSITIVE_PATTERN]);
-    fixture.write("develop", SENSITIVE_FILE, "SECRET=kept\n");
-
-    let (json, _) = fixture.merge_json(delete_args(&["."]));
-
-    assert_eq!(fixture.read("develop", SENSITIVE_FILE), "SECRET=kept\n");
-    assert_eq!(
-        reasons_of(&json["skipped"], SENSITIVE_FILE),
-        [SENSITIVE_REASON],
-        "{json}"
-    );
-    assert_eq!(json["deleted"], serde_json::json!([]), "{json}");
-}
-
-// @kotowari[REQ-merge-025]
-#[test]
-fn sync_delete_without_force_keeps_a_destination_only_sensitive_file() {
-    let fixture = fixture_with_sensitive(&[SENSITIVE_PATTERN]);
-    fixture.write("develop", SENSITIVE_FILE, "SECRET=kept\n");
-
-    // 書き込むものも削除するものもないため、確認のプロンプトの前に戻り標準入力を読まない
-    let (json, _) = fixture.sync_json(SyncArgs {
-        delete: true,
-        force: false,
-        dry_run: false,
-        ..sync_args(&["."])
-    });
-
-    assert_eq!(fixture.read("develop", SENSITIVE_FILE), "SECRET=kept\n");
-    assert_eq!(
-        reasons_of(&json["targets"][0]["skipped"], SENSITIVE_FILE),
-        [SENSITIVE_REASON],
-        "{json}"
-    );
-    assert_eq!(
-        json["targets"][0]["deleted"],
-        serde_json::json!([]),
         "{json}"
     );
 }

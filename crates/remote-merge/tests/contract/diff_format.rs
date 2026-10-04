@@ -69,25 +69,27 @@ fn req_cli_053_binary_hashes_and_note_appear_only_on_the_files_they_apply_to() {
         &[
             ("f.txt", b"old\n"),
             ("b.bin", b"left\0"),
-            (".env", b"KEY=left\n"),
+            ("real/x.txt", b"same\n"),
         ],
         &[
             ("f.txt", b"new\n"),
             ("b.bin", b"right\0"),
-            (".env", b"KEY=right\n"),
+            ("d/x.txt", b"same\n"),
         ],
     );
+    // 左の d はディレクトリを指す symlink、右の d は普通のディレクトリで、種類の違いを note で示す
+    std::os::unix::fs::symlink("real", fixture.left.path().join("d")).unwrap();
 
-    let (output, _) = fixture.diff(&["f.txt", "b.bin", ".env"]);
+    let (output, _) = fixture.diff(&["f.txt", "b.bin", "d"]);
     let json = json(&output);
 
     let has = |path: &str, key: &str| entry(&json, path).get(key).is_some();
     for key in ["binary", "left_hash", "right_hash"] {
         assert!(has("b.bin", key), "{key}: {json}");
         assert!(!has("f.txt", key), "{key}: {json}");
-        assert!(!has(".env", key), "{key}: {json}");
+        assert!(!has("d", key), "{key}: {json}");
     }
-    assert!(has(".env", "note"), "{json}");
+    assert!(has("d", "note"), "{json}");
     assert!(!has("f.txt", "note"), "{json}");
     assert!(!has("b.bin", "note"), "{json}");
     assert!(json.get("errors").is_none(), "{json}");

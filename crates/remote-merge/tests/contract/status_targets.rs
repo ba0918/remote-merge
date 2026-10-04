@@ -94,15 +94,15 @@ fn a_needed_default_server_without_any_server_configured_is_an_error() {
     }
 }
 
-// @kotowari[REQ-cli-027, REQ-cli-036]
+// @kotowari[REQ-cli-027]
 #[test]
-fn a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
+fn a_dotenv_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
     let fixture = fixture();
     // .env は中身もサイズも同じで更新時刻だけが違う。三つの側のどれにもある
     write_at(fixture.local.path(), ".env", b"A=1\n", 1_700_000_000);
     write_at(fixture.develop.path(), ".env", b"A=1\n", 1_700_000_100);
     write_at(fixture.staging.path(), ".env", b"A=1\n", 1_700_000_200);
-    // 機密でないファイルの参照先との印が変わらないことも同じ実行で見る
+    // 参照先と中身が違うファイルの印も同じ実行で見る
     write_at(fixture.local.path(), "file.txt", b"same\n", 1_700_000_000);
     write_at(fixture.develop.path(), "file.txt", b"same\n", 1_700_000_100);
     write_at(fixture.staging.path(), "file.txt", b"base\n", 1_700_000_000);
@@ -119,14 +119,13 @@ fn a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref(
             .unwrap_or_else(|| panic!("{path} missing: {files:?}"))
     };
     assert_eq!(file(".env").status, FileStatusKind::Equal, "{files:?}");
-    assert_eq!(file(".env").ref_badge, None, "{files:?}");
     assert_eq!(file("file.txt").status, FileStatusKind::Equal, "{files:?}");
     assert_eq!(file("file.txt").ref_badge.as_deref(), Some("differs"));
 }
 
-// @kotowari[REQ-cli-027, REQ-cli-036]
+// @kotowari[REQ-cli-027]
 #[test]
-fn over_ssh_a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
+fn over_ssh_a_dotenv_file_with_the_same_content_and_another_mtime_is_equal_with_a_ref() {
     let env = CliEnv::new_3way(&[], &[], &[]);
     let staging = env.temp_root().join("staging");
     write_at(&env.local_dir, ".env", b"A=1\n", 1_700_000_000);
@@ -140,7 +139,6 @@ fn over_ssh_a_sensitive_file_with_the_same_content_and_another_mtime_is_equal_wi
     let env_file = files.iter().find(|file| file["path"] == ".env");
     let env_file = env_file.unwrap_or_else(|| panic!(".env missing: {json}"));
     assert_eq!(env_file["status"], "equal", "{json}");
-    assert!(env_file["ref_badge"].is_null(), "{json}");
 }
 
 /// 左 develop・右 staging・参照先 local の三者比較の構成
@@ -185,7 +183,7 @@ fn three_way_status(env: &CliEnv, extra: &[&str]) -> Output {
         .expect("failed to execute status")
 }
 
-// @kotowari[REQ-cli-035, REQ-cli-036]
+// @kotowari[REQ-cli-035]
 #[test]
 fn json_marks_each_file_against_the_ref_and_counts_the_marks() {
     let env = three_way();
@@ -208,13 +206,13 @@ fn json_marks_each_file_against_the_ref_and_counts_the_marks() {
     assert_eq!(badge("right_and_ref.txt"), "differs");
     assert_eq!(badge("all_differ.txt"), "differs");
     assert_eq!(badge("ref_differs.txt"), "differs");
-    // 機密ファイルは中身を比べず、参照先にないときだけ印を付ける
+    // ".env" で始まる名前のファイルも他と同じく参照先と比べる
     assert_eq!(badge(".env"), "missing_in_ref");
-    assert!(badge(".env.production").is_null(), "{json}");
+    assert_eq!(badge(".env.production"), "differs");
 
     let summary = &json["summary"];
     // 三つとも同じ中身の all_same.txt は違いに数えない
-    assert_eq!(summary["ref_differs"], 4, "{json}");
+    assert_eq!(summary["ref_differs"], 5, "{json}");
     assert!(summary["ref_only"].is_u64(), "{json}");
     assert_eq!(summary["ref_missing"], 2, "{json}");
 }
@@ -250,7 +248,7 @@ fn text_names_the_ref_in_the_header_marks_files_and_adds_a_ref_line_after_the_su
     let summary = lines.iter().position(|line| line.starts_with("Summary: "));
     let ref_line = lines.iter().position(|line| {
         let line = line.trim();
-        line.starts_with("Ref: 4 differs, ") && line.ends_with(" ref-only, 2 ref-missing")
+        line.starts_with("Ref: 5 differs, ") && line.ends_with(" ref-only, 2 ref-missing")
     });
     assert!(summary.is_some() && ref_line > summary, "{stdout}");
 }

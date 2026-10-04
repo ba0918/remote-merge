@@ -31,20 +31,15 @@ pub struct Fixture {
 
 /// バックアップを無効にした構成
 pub fn fixture() -> Fixture {
-    build(false, &[])
+    build(false)
 }
 
 /// バックアップを有効にし、集約先を一時ディレクトリに差し替えた構成
 pub fn fixture_with_backup() -> Fixture {
-    build(true, &[])
+    build(true)
 }
 
-/// バックアップを無効にし、設定の `[filter]` の `sensitive` に `patterns` を書いた構成
-pub fn fixture_with_sensitive(patterns: &[&str]) -> Fixture {
-    build(false, patterns)
-}
-
-fn build(backup_enabled: bool, sensitive: &[&str]) -> Fixture {
+fn build(backup_enabled: bool) -> Fixture {
     let home = TempDir::new().unwrap();
     let local = TempDir::new().unwrap();
     let servers: Vec<(&'static str, TempDir)> = SERVERS
@@ -62,9 +57,6 @@ fn build(backup_enabled: bool, sensitive: &[&str]) -> Fixture {
         ));
     }
     text.push_str(&format!("[backup]\nenabled = {backup_enabled}\n"));
-    if !sensitive.is_empty() {
-        text.push_str(&format!("[filter]\nsensitive = {sensitive:?}\n"));
-    }
     let config_path = home.path().join("config.toml");
     fs::write(&config_path, text).unwrap();
     Fixture {
