@@ -21,3 +21,6 @@
 - A4 FLAG-config-008 を閉じ、[REQ-config-028](../../ir/config/loading.md#REQ-config-028) を足す。init・logs・events に --config を指定したときは "Warning: --config is ignored for the 'サブコマンド名' subcommand" を標準エラーに出し、設定を読まずに続ける。
   - why: 今の実装は三つのサブコマンドでこの警告を出し、設定を読む処理を呼ばずに続ける。三つはどれも設定を使わないため、指定先がなくても [REQ-config-007](../../ir/config/loading.md#REQ-config-007) のエラーで止めずに続けるのは、--config が設定の読み込み先を指定するものだと定める [REQ-config-006](../../ir/config/loading.md#REQ-config-006) と矛盾しない。旧資料には記述がなく、決め直す材料もない。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A5 FLAG-config-010 を閉じ、[REQ-config-029](../../ir/config/values.md#REQ-config-029) を足す。auth が "key" のサーバに password が書かれているときは "servers.サーバ名: password is set but auth is 'key' — password will be ignored" の警告を出し、その password を認証に使わない。
+  - why: 今の実装は設定を読むときにこの警告を出し、鍵による認証の経路は password を読まない。CLI では警告が標準エラーに出る。auth の値を "key" か "password" に限る [REQ-config-014](../../ir/config/values.md#REQ-config-014) と、auth が "key" のサーバの鍵のパスを定める [REQ-config-020](../../ir/config/values.md#REQ-config-020) に沿った挙動で、旧資料には記述がなく、決め直す材料もない。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

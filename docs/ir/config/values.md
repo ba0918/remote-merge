@@ -57,6 +57,13 @@ auth が "key" のサーバで key を省くと "~/.ssh/id_rsa" を使い、key 
 
 鍵ファイルを読めないときは "Failed to load SSH private key: パス" のエラーで止まり、パスには key を省いたときは "~/.ssh/id_rsa" を、key を書いたときは置き換えた後のパスを示す。
 
+### REQ-config-029: auth が key のサーバの password を使わない
+- kind: state_driven
+- source: docs/decision/records/2026-10-04-config-flag-resolution.md#A5
+- verification: unit
+
+auth が "key" のサーバに password が書かれているときは "servers.サーバ名: password is set but auth is 'key' — password will be ignored" の警告を出し、その password を認証に使わない。
+
 ## Decision tables
 
 ### TBL-config-002: 止めるサーバの値

@@ -254,3 +254,49 @@ fn key_starting_with_tilde_is_expanded_under_home_and_named_when_it_cannot_be_re
         "{output:?}"
     );
 }
+
+// ─── auth が key のサーバの password（REQ-config-029） ─────────────────
+
+/// develop を auth = "key" にし、password の行は残した設定
+fn with_key_auth_keeping_password(config: &str) -> String {
+    let replaced = config.replace(
+        "auth = \"password\"\n        password = \"fixture-password\"",
+        "auth = \"key\"\n        password = \"fixture-password\"",
+    );
+    assert_ne!(replaced, config, "fixture auth lines missing");
+    replaced
+}
+
+const KEY_AUTH_PASSWORD_WARNING: &str =
+    "servers.develop: password is set but auth is 'key' — password will be ignored";
+
+// @kotowari[REQ-config-029]
+#[test]
+fn password_on_a_key_auth_server_warns_and_is_not_used_for_authentication() {
+    let workspace = Workspace::new();
+    assert!(!workspace.home().join(".ssh/id_rsa").exists());
+    let config = with_key_auth_keeping_password(&workspace.base_config());
+    let output = workspace.status(&config, true, &[], &[]);
+    assert!(
+        combined(&output).contains(KEY_AUTH_PASSWORD_WARNING),
+        "{output:?}"
+    );
+    // 試験サーバが受け付ける正しい password が書かれていても、鍵による認証を選んで鍵を読めずに止まる
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        combined(&output).contains("Failed to load SSH private key: ~/.ssh/id_rsa"),
+        "{output:?}"
+    );
+
+    // password の行だけを除くと警告は出ない: 警告が password によるものであることを示す
+    let output = workspace.status(
+        &with_key_auth(&workspace.base_config(), None),
+        true,
+        &[],
+        &[],
+    );
+    assert!(
+        !combined(&output).contains("password is set but auth is 'key'"),
+        "{output:?}"
+    );
+}

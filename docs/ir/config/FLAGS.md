@@ -44,13 +44,6 @@
 
 実装は設定ファイルの知らないキーやセクションを知らせずに無視するため、キー名の書き間違いに利用者が気づけない。旧資料に記述がなくテストもない。
 
-### FLAG-config-010: auth が key のサーバの password の警告
-- kind: gap
-- related: REQ-config-014
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A9
-
-実装は auth が "key" のサーバに password が書かれているとき "servers.サーバ名: password is set but auth is 'key' — password will be ignored" の警告を出し、その password を認証に使わない。旧資料に記述がなく、警告を確かめるテストもない。
-
 ### FLAG-config-011: 設定ファイルの平文のパスワード
 - kind: contradiction
 - related: REQ-config-019
