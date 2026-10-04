@@ -184,20 +184,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 --ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。
 
-### FLAG-cli-028: 旧総合仕様の diff の JSON の例
-- kind: contradiction
-- related: REQ-cli-053
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A11
-
-旧総合仕様の diff の JSON の例は一つのファイルのオブジェクト（left・right に updated_at、conflict_count など）だが、実装は常に files の配列を持つ形で、left・right は label と root を持つ。
-
-### FLAG-cli-029: リモートのバイナリのハッシュを計算する場所
-- kind: contradiction
-- related: REQ-cli-061
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A12
-
-旧総合仕様はリモートのファイルのハッシュをリモート側で計算し、ダウンロードしてからの計算を禁じるが、実装の diff はファイルの中身を全て読んでからローカルでハッシュを計算する（実装を読んで分かったことで未実行）。
-
 ### FLAG-cli-030: 片側で読めないファイルの diff
 - kind: gap
 - related: REQ-cli-056
