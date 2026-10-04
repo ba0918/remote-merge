@@ -804,13 +804,33 @@ fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
                 .with(telemetry::JsonLogLayer::new(file))
                 .init();
         }
-        TracingMode::Agent | TracingMode::Cli => {
-            // Agent: ANSI 無効（SSH ExtendedData 経由で転送されるため）
-            let with_ansi = !matches!(mode, TracingMode::Agent);
+        TracingMode::Agent => {
+            // ANSI 無効（SSH ExtendedData 経由で転送されるため）。リモートで動くので診断ログは残さない
             tracing_subscriber::fmt()
                 .with_writer(std::io::stderr)
-                .with_ansi(with_ansi)
+                .with_ansi(false)
                 .with_env_filter(env_filter)
+                .init();
+        }
+        TracingMode::Cli => {
+            use tracing_subscriber::Layer;
+
+            let stderr_layer = tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(env_filter);
+            // 標準エラーの既定（警告以上）とは別に、ファイルには指定がなくても情報レベル以上を残す
+            let file_layer = telemetry::diagnostic_log::open_diagnostic_log(
+                &telemetry::log_dir::default_log_dir(),
+                telemetry::diagnostic_log::MAX_DIAGNOSTIC_LOG_BYTES,
+            )
+            .map(|file| {
+                telemetry::JsonLogLayer::new(file).with_filter(tracing_subscriber::EnvFilter::new(
+                    cli_level.unwrap_or("info"),
+                ))
+            });
+            tracing_subscriber::registry()
+                .with(stderr_layer)
+                .with(file_layer)
                 .init();
         }
     }

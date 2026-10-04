@@ -3,6 +3,7 @@
 //! LLMエージェントがTUI状態を外部から監視するための部品群。
 //! 各モジュールは純粋関数として実装し、将来のUnix socket通信にも再利用可能。
 
+pub mod diagnostic_log;
 pub mod event_recorder;
 pub mod event_types;
 pub mod log_dir;

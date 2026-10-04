@@ -4,6 +4,7 @@
 //! SSH 接続不要。
 
 use crate::service::output::OutputFormat;
+use crate::telemetry::diagnostic_log::DIAGNOSTIC_LOG_FILE;
 use crate::telemetry::log_dir::default_log_dir;
 use crate::telemetry::log_reader::{self, format_log_text, LogFilter};
 
@@ -37,7 +38,7 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
         tail: args.tail,
     };
 
-    let log_path = default_log_dir().join("debug.log");
+    let log_path = default_log_dir().join(DIAGNOSTIC_LOG_FILE);
     let entries = log_reader::read_logs(&log_path, &filter)?;
 
     match format {
