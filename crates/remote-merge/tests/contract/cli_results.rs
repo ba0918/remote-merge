@@ -806,7 +806,7 @@ fn a_connection_failure_on_one_target_does_not_prevent_the_other_sync() {
     );
 }
 
-// @kotowari[EX-cli-005]
+// @kotowari[REQ-cli-003, EX-cli-005]
 #[test]
 fn remote_to_remote_merge_requires_an_explicit_override() {
     let fixture = sync_fixture();
@@ -840,7 +840,7 @@ fn remote_to_remote_merge_requires_an_explicit_override() {
     );
 }
 
-// @kotowari[EX-cli-006]
+// @kotowari[REQ-cli-003, EX-cli-006]
 #[test]
 fn explicit_override_allows_only_the_selected_remote_destination_to_change() {
     let fixture = sync_fixture();
