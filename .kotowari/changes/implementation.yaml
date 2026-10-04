@@ -4,9 +4,12 @@ entries:
     base: cc4793606c07d29ef859930a4a174978f8455a43
     role: implementer
     files:
+      - path: crates/remote-merge/src/handler/dialog_keys.rs
+        before: sha256:04f36c28e6db4fec3110524b271e02644c572740c98428dcbcfbfe65f1d8def7
+        after: sha256:184a0f9bae20d5f375e3b24bc29a4820b1808e753d12078b6fd2f39028c6fc2b
       - path: crates/remote-merge/src/handler/merge_exec.rs
         before: sha256:1d0ed1bc98f0448baf796d59f69137f7d691c21a2132ed75d779b2134c990c94
-        after: sha256:95f1d2ad52205a8b813405c819bb51cc27d32b8a231a5c67dfa7aff9512670da
+        after: sha256:fd61f38cdeac382e9fdf1ab02d068f192c98713025308547f3397a9e295abd5f
       - path: crates/remote-merge/tests/contract.rs
         before: sha256:3c6322b2eb114d5097a1825bcce7cefd3a8f2b40021ac2a14830ae6e4e144340
         after: sha256:739238a5128dcd04591a3af9d8444f449841b6fa7982b50880c3a0708127e9a2
@@ -15,7 +18,7 @@ entries:
         after: sha256:c2ac5db0dd0c2cb5a824532b513f51b10d5b7523c87235b72a999285af8d485a
       - path: crates/remote-merge/tests/contract/tui_merge_kinds.rs
         before: sha256:5e4e553c22902adf5501bee1ddd3cd3c7d4533bae2b735aa9f5855491ccd2602
-        after: sha256:a928a27c6200e594ea8eff13ed281210e338d44b3977491355b1aaa1373a6fd8
+        after: sha256:8ae6cccdeb3b9700b153e461a6f3f2dc050503abef16a9eff92d4764824c9ddf
     ir:
       - path: docs/ir/merge/symlink.md
         sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
@@ -26,10 +29,11 @@ entries:
       右が末尾symlinkのとき右のリンク先の中身と比較され、execute_hunk_mergeとexecute_write_changesが
       種類を確かめずにリンク先へ書き込んでいた。両関数で左右ツリーにdetermine_merge_actionを当て、
       SkipDifferentKindならhunkの適用前、変更の書き込みでは両側とも書く前に止めて単一マージと同じ
-      理由を表示する。片側だけ書く状態を残さない。実際の読み込みで作ったdiffビューから確認ダイアログと
-      w経由で両経路を呼ぶEX-merge-001の契約テストを追加し、修正前はリンク先が左の中身に上書きされて
-      失敗し、修正後に成功することを確認した。既存の種類違いテストはリンク先のmtimeをリンクに揃え、
-      秒の境目でmtime警告に止まる不安定さを除いた。要求・IR・決定は変えない。
+      理由を表示し、片側だけ書く状態を残さない。またツリーはリンク自体、書き込み前の検査はリンク先の
+      mtimeを見るため、確認のyで先にmtime警告が開き理由が出ない場合があった。単一マージ・hunkマージ・
+      変更の書き込みの確認でmtime検査より前に同じ種類判定を行い、理由付きのスキップにする。
+      リンク先をリンクより古くした実際に近い準備で、確認ダイアログとw経由の契約テストが修正前は
+      上書きまたは理由なしで失敗し、修正後に成功することを確認した。要求・IR・決定は変えない。
     requirements:
       - REQ-merge-001
     decisions: []
