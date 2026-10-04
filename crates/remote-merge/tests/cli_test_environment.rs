@@ -1,6 +1,6 @@
 mod common;
 
-use common::{remote_merge_cmd, CliEnv, E2eEnv};
+use common::{remote_merge_cmd, CliEnv};
 
 fn xdg_data_home(command: &std::process::Command) -> Option<std::path::PathBuf> {
     command
@@ -20,11 +20,4 @@ fn cli_commands_use_isolated_data_home() {
 #[test]
 fn command_without_config_uses_isolated_data_home() {
     assert!(xdg_data_home(&remote_merge_cmd()).is_some());
-}
-
-#[test]
-fn tui_command_uses_isolated_data_home() {
-    let env = E2eEnv::new(&[], &[]);
-    let command = env.tui_command(&[]);
-    assert!(xdg_data_home(&command).is_some_and(|path| path.starts_with(env.temp_root())));
 }

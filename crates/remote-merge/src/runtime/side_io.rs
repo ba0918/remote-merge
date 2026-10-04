@@ -13,7 +13,6 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
-use super::TuiRuntime;
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, wrap_nodes_in_subpath,
@@ -1043,61 +1042,6 @@ fn transform_stat_results(
         })
         .collect();
     Some(Ok(results))
-}
-
-// ── TuiRuntime デリゲートマクロ ──
-//
-// TuiRuntime から CoreRuntime への 1:1 フォワードを宣言的に生成する。
-// 各メソッドのシグネチャを一箇所で管理し、同期漏れを防ぐ。
-
-/// `TuiRuntime` → `self.core` への委譲メソッドを一括生成するマクロ。
-///
-/// `&mut self` / `&self` の両方に対応し、任意の引数・戻り値型を受け取れる。
-macro_rules! delegate_to_core {
-    // &mut self バリアント
-    (mut fn $name:ident(&mut self $(, $arg:ident: $ty:ty)*) -> $ret:ty) => {
-        pub fn $name(&mut self $(, $arg: $ty)*) -> $ret {
-            self.core.$name($($arg),*)
-        }
-    };
-    // &self バリアント
-    (ref fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $ret:ty) => {
-        pub fn $name(&self $(, $arg: $ty)*) -> $ret {
-            self.core.$name($($arg),*)
-        }
-    };
-    // &mut self + 戻り値なし (void) バリアント
-    (mut fn $name:ident(&mut self $(, $arg:ident: $ty:ty)*)) => {
-        pub fn $name(&mut self $(, $arg: $ty)*) {
-            self.core.$name($($arg),*);
-        }
-    };
-    // 複数定義を連続して受け付ける
-    ($($kind:ident fn $name:ident($($rest:tt)*) $(-> $ret:ty)?;)*) => {
-        $(delegate_to_core!($kind fn $name($($rest)*) $(-> $ret)?);)*
-    };
-}
-
-impl TuiRuntime {
-    delegate_to_core! {
-        mut fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String>;
-        mut fn read_files_batch(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<HashMap<String, String>>;
-        mut fn read_files_bytes_batch(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<HashMap<String, Vec<u8>>>;
-        mut fn read_file_bytes(&mut self, side: &Side, rel_path: &str, force: bool) -> anyhow::Result<Vec<u8>>;
-        mut fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()>;
-        mut fn write_file_bytes(&mut self, side: &Side, rel_path: &str, content: &[u8]) -> anyhow::Result<()>;
-        mut fn stat_files(&mut self, side: &Side, rel_paths: &[String]) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>;
-        mut fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()>;
-        mut fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()>;
-        mut fn create_symlink(&mut self, side: &Side, rel_path: &str, target: &str) -> anyhow::Result<()>;
-        mut fn fetch_tree(&mut self, side: &Side) -> anyhow::Result<FileTree>;
-        mut fn fetch_tree_recursive(&mut self, side: &Side, max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<FileTree>;
-        mut fn fetch_tree_for_subpath(&mut self, side: &Side, subpath: &str, max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<FileTree>;
-        mut fn fetch_children(&mut self, side: &Side, dir_rel_path: &str) -> anyhow::Result<Vec<FileNode>>;
-        mut fn connect_if_remote(&mut self, side: &Side) -> anyhow::Result<()>;
-        mut fn disconnect_if_remote(&mut self, side: &Side);
-        ref fn is_side_available(&self, side: &Side) -> bool;
-    }
 }
 
 #[cfg(test)]

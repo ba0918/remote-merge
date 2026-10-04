@@ -1,7 +1,6 @@
 //! 共通テストヘルパーモジュール
 //!
-//! TUI E2E テストと CLI E2E テストで共有するヘルパー関数・構造体を集約する。
-//! `tests/tui_e2e.rs` と `tests/cli_exit_code.rs` から抽出したもの + 新規ヘルパー。
+//! CLI E2E テストで共有するヘルパー関数・構造体を集約する。
 
 #![allow(dead_code)]
 
@@ -10,20 +9,10 @@ use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use expectrl::process::unix::UnixProcess;
-use expectrl::stream::log::LogStream;
 use tempfile::TempDir;
 
 #[path = "../contract/ssh_server.rs"]
 pub(crate) mod ssh_server;
-
-pub mod tui_session;
-
-// ─── 型エイリアス ────────────────────────────────────────
-
-/// TUI E2E テスト用の Session 型エイリアス
-pub type TuiSession =
-    expectrl::Session<UnixProcess, LogStream<expectrl::process::unix::PtyStream, std::io::Stderr>>;
 
 // ─── ファイル配置ヘルパー ────────────────────────────────
 
@@ -393,92 +382,6 @@ impl TestDirs {
             _server: server,
             _runtime: runtime,
         }
-    }
-}
-
-// ─── E2eEnv（TUI E2E テスト用） ─────────────────────────
-
-/// TUI E2E テスト用の環境を構築する。
-/// local/remote/staging ディレクトリにファイルを配置し、テスト用 config を生成する。
-pub struct E2eEnv {
-    _dirs: TestDirs,
-    pub config_path: String,
-}
-
-impl E2eEnv {
-    /// 2サーバー構成: local <-> develop(remote)
-    pub fn new(local_files: &[(&str, &str)], remote_files: &[(&str, &str)]) -> Self {
-        let dirs = TestDirs::new_2way(local_files, remote_files);
-        let config_path = dirs.config_path.clone();
-        Self {
-            _dirs: dirs,
-            config_path,
-        }
-    }
-
-    /// 3サーバー構成: develop(left) <-> staging(right) + local(ref)
-    ///
-    /// スクショの再現: `develop <-> staging` で local が reference。
-    pub fn new_3way(
-        local_files: &[(&str, &str)],
-        develop_files: &[(&str, &str)],
-        staging_files: &[(&str, &str)],
-    ) -> Self {
-        let dirs = TestDirs::new_3way(local_files, develop_files, staging_files);
-        let config_path = dirs.config_path.clone();
-        Self {
-            _dirs: dirs,
-            config_path,
-        }
-    }
-
-    /// TUI を起動して expectrl Session を返す。
-    /// 追加の CLI 引数を指定可能。
-    /// PTY サイズを 200x50 にリサイズして 3way バッジが描画されるようにする。
-    pub fn spawn_tui_with_args(&self, extra_args: &[&str]) -> TuiSession {
-        let cmd = self.tui_command(extra_args);
-
-        let mut session = expectrl::Session::spawn(cmd).expect("Failed to spawn TUI process");
-
-        // PTY のウィンドウサイズを ioctl (TIOCSWINSZ) で設定
-        // 環境変数 COLUMNS/LINES は PTY サイズに影響しないため ioctl が必要
-        session
-            .get_process_mut()
-            .set_window_size(200, 50)
-            .expect("Failed to set PTY window size");
-
-        expectrl::session::log(session, std::io::stderr()).expect("Failed to set up logging")
-    }
-
-    pub fn tui_command(&self, extra_args: &[&str]) -> Command {
-        self._dirs.assert_isolated_config();
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
-        cmd.env("HOME", self._dirs.temp.path().join("home"));
-        cmd.env("XDG_CONFIG_HOME", self._dirs.temp.path().join("xdg-config"));
-        cmd.env("XDG_DATA_HOME", self._dirs.temp.path().join("xdg-data"));
-        cmd.env("XDG_CACHE_HOME", self._dirs.temp.path().join("xdg-cache"));
-        cmd.arg("--config").arg(&self.config_path);
-        cmd.arg("--log-level").arg("debug");
-        cmd.args(extra_args);
-        cmd
-    }
-
-    pub fn temp_root(&self) -> &Path {
-        self._dirs.temp.path()
-    }
-
-    pub fn tui_state_path(&self) -> PathBuf {
-        let cache_dir = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            self._dirs.temp.path().join("home/Library/Caches")
-        } else {
-            self._dirs.temp.path().join("xdg-cache")
-        };
-        cache_dir.join("remote-merge/state.json")
-    }
-
-    /// TUI をデフォルト引数で起動する。
-    pub fn spawn_tui(&self) -> TuiSession {
-        self.spawn_tui_with_args(&[])
     }
 }
 

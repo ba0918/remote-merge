@@ -221,7 +221,7 @@ pub fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut Cor
         }
         Side::Remote(_) => {
             // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。
-            // 現時点では未サポート（TUI 側では FileNode.permissions を使用）。
+            // 現時点では未サポート。
             None
         }
     };

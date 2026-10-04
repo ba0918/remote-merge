@@ -1,4 +1,4 @@
-//! CoreRuntime: TUI/CLI 共通の非同期操作基盤。
+//! CoreRuntime: CLI の非同期操作基盤。
 //!
 //! SSH接続管理、ファイルI/O、ツリー取得など、
 //! インターフェースに依存しない共通機能を提供する。
@@ -38,10 +38,9 @@ pub enum AgentUnavailableReason {
     OperationFailed,
 }
 
-/// TUI/CLI 共通のランタイム基盤。
+/// CLI のランタイム基盤。
 ///
 /// SSH接続管理、ファイルI/O、ツリー取得を担当する。
-/// TuiRuntime は CoreRuntime を内包し、TUI固有のチャネル管理を追加する。
 pub struct CoreRuntime {
     pub rt: tokio::runtime::Runtime,
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
@@ -56,7 +55,6 @@ pub struct CoreRuntime {
     /// try_start_agent の再試行抑制と SSH フォールバック禁止に使用する。
     pub(crate) agent_unavailable: HashMap<String, AgentUnavailableReason>,
     /// パスフレーズ付き SSH 鍵のパスフレーズ取得プロバイダ。
-    /// TUI/CLI モードに応じて適切なプロバイダが注入される。
     /// Arc で保持し、バックグラウンドスレッドにも共有可能にする。
     pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
     pub(crate) targets: super::RuntimeTargets,
@@ -747,7 +745,7 @@ impl CoreRuntime {
     /// リモートツリーを再帰的に全走査する（CLI status 用）。
     ///
     /// `list_tree_recursive` で全ファイルのメタデータ（size, mtime）を含むツリーを取得する。
-    /// TUI のフラット走査（`scan_left_tree`）と異なり、階層構造を持つ FileTree を返す。
+    /// 階層構造を持つ FileTree を返す。
     pub fn fetch_remote_tree_recursive(
         &mut self,
         server_name: &str,

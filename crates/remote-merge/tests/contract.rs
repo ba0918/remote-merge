@@ -19,6 +19,8 @@ mod backup_storage;
 mod backup_support;
 #[path = "contract/cli_results.rs"]
 mod cli_results;
+#[path = "contract/cli_usage.rs"]
+mod cli_usage;
 #[path = "contract/config_filters.rs"]
 mod config_filters;
 #[cfg(feature = "test-utils")]
@@ -146,20 +148,6 @@ mod sync_support;
 mod sync_targets;
 #[path = "contract/sync_text.rs"]
 mod sync_text;
-#[path = "contract/tui_confirm.rs"]
-mod tui_confirm;
-#[path = "contract/tui_diff_write_kinds.rs"]
-mod tui_diff_write_kinds;
-#[path = "contract/tui_directory_links.rs"]
-mod tui_directory_links;
-#[path = "contract/tui_export.rs"]
-mod tui_export;
-#[path = "contract/tui_merge_kinds.rs"]
-mod tui_merge_kinds;
-#[path = "contract/tui_navigation.rs"]
-mod tui_navigation;
-#[path = "contract/tui_reference.rs"]
-mod tui_reference;
 
 // @kotowari[REQ-testing-002]
 #[cfg(feature = "test-utils")]

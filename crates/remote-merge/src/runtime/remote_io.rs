@@ -494,9 +494,6 @@ fn validate_file_size(bytes: &[u8], rel_path: &str, force: bool) -> anyhow::Resu
     Ok(())
 }
 
-// NOTE: 旧 remote-only TuiRuntime デリゲート（read_remote_file, write_remote_file 等）は
-// Phase F で削除済み。Side ベースの統一 API（side_io.rs）を使用すること。
-
 // ── バックアップパース純粋関数 ──
 
 #[cfg(test)]

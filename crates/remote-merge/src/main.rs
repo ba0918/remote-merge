@@ -1,33 +1,8 @@
 use clap::{ArgAction, Parser, Subcommand};
-use crossterm::event::{self, Event, KeyEventKind};
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::prelude::*;
-use std::io;
 use std::path::PathBuf;
 
-use remote_merge::app::{AppState, Focus, MergeScanState, ScanState};
 use remote_merge::config;
-use remote_merge::handler::{dialog_keys, diff_keys, tree_keys};
-use remote_merge::runtime::bootstrap::{self, TuiBootstrapParams};
-use remote_merge::runtime::TuiRuntime;
-use remote_merge::runtime::{badge_scan, merge_scan, scanner};
 use remote_merge::telemetry;
-use remote_merge::ui::render::draw_ui;
-
-/// デバッグログファイルの最大サイズ (10 MB)
-const MAX_DEBUG_LOG_BYTES: u64 = 10 * 1024 * 1024;
-
-/// イベントログの最大行数
-const MAX_EVENT_LOG_LINES: usize = 10_000;
-
-/// スキャン中のイベントポーリングタイムアウト (ミリ秒)
-const SCANNING_POLL_TIMEOUT_MS: u64 = 100;
-
-/// アイドル時のイベントポーリングタイムアウト (秒)
-const IDLE_POLL_TIMEOUT_SECS: u64 = 60;
 
 /// TUI tool for graphically displaying and merging file diffs between local and remote servers
 #[derive(Parser, Debug)]
@@ -40,18 +15,6 @@ struct Cli {
     /// Path to project config file [overrides .remote-merge.toml in CWD]
     #[arg(long, global = true)]
     config: Option<PathBuf>,
-
-    /// Left side of comparison [default: local]
-    #[arg(long)]
-    left: Option<String>,
-
-    /// Right side of comparison [default: first server in config, alphabetical]
-    #[arg(long)]
-    right: Option<String>,
-
-    /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
-    #[arg(long, alias = "reference")]
-    r#ref: Option<String>,
 
     /// Auto-accept prompts (e.g., unknown host key verification)
     #[arg(short = 'y', long = "yes", global = true)]
@@ -69,8 +32,9 @@ struct Cli {
     #[arg(long, global = true)]
     log_level: Option<String>,
 
+    // 必須にして、サブコマンドなしの起動は解析の段階で使い方を出して終わらせる（何も書き込まない）
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[derive(Subcommand, Debug)]
@@ -321,9 +285,7 @@ fn handle_with_format(format: &str, result: anyhow::Result<i32>) -> i32 {
 fn try_main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let log_level = resolve_log_level(cli.log_level.as_deref(), cli.debug, cli.verbose);
-    let tracing_mode = if cli.command.is_none() {
-        TracingMode::Tui
-    } else if matches!(cli.command, Some(Commands::Agent { .. })) {
+    let tracing_mode = if matches!(cli.command, Commands::Agent { .. }) {
         TracingMode::Agent
     } else {
         TracingMode::Cli
@@ -331,13 +293,13 @@ fn try_main() -> anyhow::Result<()> {
     init_tracing(tracing_mode, log_level.as_deref());
 
     match cli.command {
-        Some(Commands::Init) => {
+        Commands::Init => {
             if cli.config.is_some() {
                 eprintln!("Warning: --config is ignored for the 'init' subcommand");
             }
             remote_merge::init::run_init()?;
         }
-        Some(Commands::Status {
+        Commands::Status {
             left,
             right,
             r#ref,
@@ -346,7 +308,7 @@ fn try_main() -> anyhow::Result<()> {
             all,
             checksum,
             max_entries,
-        }) => {
+        } => {
             let format_str = format.clone();
             let cfg =
                 config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
@@ -374,7 +336,7 @@ fn try_main() -> anyhow::Result<()> {
             );
             std::process::exit(code);
         }
-        Some(Commands::Diff {
+        Commands::Diff {
             paths,
             left,
             right,
@@ -385,7 +347,7 @@ fn try_main() -> anyhow::Result<()> {
             force,
             follow_external_links,
             max_entries,
-        }) => {
+        } => {
             let format_str = format.clone();
             let cfg =
                 config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
@@ -414,7 +376,7 @@ fn try_main() -> anyhow::Result<()> {
             );
             std::process::exit(code);
         }
-        Some(Commands::Merge {
+        Commands::Merge {
             paths,
             left,
             right,
@@ -427,7 +389,7 @@ fn try_main() -> anyhow::Result<()> {
             format,
             max_entries,
             hunks,
-        }) => {
+        } => {
             let format_str = format.clone();
             let cfg =
                 config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
@@ -458,7 +420,7 @@ fn try_main() -> anyhow::Result<()> {
             );
             std::process::exit(code);
         }
-        Some(Commands::Sync {
+        Commands::Sync {
             paths,
             left,
             right,
@@ -469,7 +431,7 @@ fn try_main() -> anyhow::Result<()> {
             checksum,
             format,
             max_entries,
-        }) => {
+        } => {
             let format_str = format.clone();
             let cfg =
                 config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
@@ -496,14 +458,14 @@ fn try_main() -> anyhow::Result<()> {
             );
             std::process::exit(code);
         }
-        Some(Commands::Rollback {
+        Commands::Rollback {
             target,
             list,
             session,
             dry_run,
             force,
             format,
-        }) => {
+        } => {
             let format_str = format.clone();
             let cfg =
                 config::load_config_with_project_override(cli.config.as_deref()).map(|mut c| {
@@ -528,12 +490,12 @@ fn try_main() -> anyhow::Result<()> {
             );
             std::process::exit(code);
         }
-        Some(Commands::Logs {
+        Commands::Logs {
             level,
             since,
             tail,
             format,
-        }) => {
+        } => {
             if cli.config.is_some() {
                 eprintln!("Warning: --config is ignored for the 'logs' subcommand");
             }
@@ -548,13 +510,13 @@ fn try_main() -> anyhow::Result<()> {
             });
             std::process::exit(code);
         }
-        Some(Commands::Agent {
+        Commands::Agent {
             root,
             default_uid,
             default_gid,
             file_permissions,
             dir_permissions,
-        }) => {
+        } => {
             #[cfg(unix)]
             {
                 let metadata_config = remote_merge::agent::server::MetadataConfig {
@@ -577,11 +539,11 @@ fn try_main() -> anyhow::Result<()> {
                 anyhow::bail!("The agent subcommand is only supported on Unix platforms");
             }
         }
-        Some(Commands::Events {
+        Commands::Events {
             event_type,
             since,
             tail,
-        }) => {
+        } => {
             if cli.config.is_some() {
                 eprintln!("Warning: --config is ignored for the 'events' subcommand");
             }
@@ -592,151 +554,6 @@ fn try_main() -> anyhow::Result<()> {
                     tail,
                 })?;
             std::process::exit(code);
-        }
-        None => {
-            let mut config = config::load_config_with_project_override(cli.config.as_deref())?;
-            config.ssh.auto_yes = cli.yes;
-            let right_server = cli.right.map(Ok).unwrap_or_else(|| {
-                config.servers.keys().next().cloned().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "No server specified and no servers found in config. \
-                             Use --right, or add servers to config."
-                    )
-                })
-            })?;
-            let params = TuiBootstrapParams {
-                right_server,
-                left_server: cli.left,
-                ref_server: cli.r#ref,
-            };
-            let (app_state, runtime) = bootstrap::bootstrap_tui(params, config)?;
-            run_tui(app_state, runtime)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// TUI イベントループを実行する
-fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
-    // テレメトリ: ダンプディレクトリ準備 + 起動時トランケーション
-    let dump_dir = telemetry::log_dir::default_log_dir();
-    let _ = std::fs::create_dir_all(&dump_dir);
-    let _ = telemetry::truncate_file_lines(&dump_dir.join("events.jsonl"), MAX_EVENT_LOG_LINES);
-    let _ =
-        telemetry::truncate::truncate_file_bytes(&dump_dir.join("debug.log"), MAX_DEBUG_LOG_BYTES);
-
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let result = run_event_loop(&mut terminal, &mut state, &mut runtime, &dump_dir);
-
-    runtime.disconnect_all();
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    result
-}
-
-/// 描画遅延の閾値（ミリ秒）。これを超えたフレームのみイベント記録する。
-const RENDER_SLOW_THRESHOLD_MS: u64 = 100;
-
-/// イベントループ本体
-fn run_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    state: &mut AppState,
-    runtime: &mut TuiRuntime,
-    dump_dir: &std::path::Path,
-) -> anyhow::Result<()> {
-    let state_path = dump_dir.join("state.json");
-    let screen_path = dump_dir.join("screen.txt");
-    let mut event_recorder = telemetry::EventRecorder::new(&dump_dir.join("events.jsonl"));
-    let mut frame_count: u64 = 0;
-
-    // 起動直後にルートディレクトリのバッジスキャンを自動起動
-    badge_scan::start_badge_scan(state, runtime, "");
-
-    loop {
-        // tokio Runtime を駆動して SSH keepalive 等の pending タスクを処理
-        runtime.drive_runtime();
-
-        scanner::poll_scan_result(state, runtime);
-        merge_scan::poll_merge_scan_result(state, runtime);
-        badge_scan::poll::poll_badge_scan_results(state, runtime);
-
-        // ビューポートサイズを描画前に計算（draw_ui は &AppState のみ受け取る）
-        let terminal_size = terminal.size()?;
-        let terminal_area = Rect::new(0, 0, terminal_size.width, terminal_size.height);
-        let (tree_h, diff_h) = remote_merge::ui::layout::compute_viewport_heights(terminal_area);
-        state.tree_visible_height = tree_h;
-        state.diff_visible_height = diff_h;
-
-        // 描画 + 描画時間計測
-        let render_start = std::time::Instant::now();
-        terminal.draw(|frame| {
-            draw_ui(frame, state);
-        })?;
-        let render_duration = render_start.elapsed();
-        frame_count += 1;
-
-        // テレメトリ: 描画遅延イベント（閾値超えのみ）
-        let render_ms = render_duration.as_millis() as u64;
-        if render_ms > RENDER_SLOW_THRESHOLD_MS {
-            event_recorder.record_render_slow(frame_count, render_ms);
-        }
-
-        // テレメトリ: 画面テキストをダンプ
-        let screen_text = telemetry::state_dumper::buffer_to_text(terminal.current_buffer_mut());
-        let _ = telemetry::state_dumper::dump_screen_to_file(&screen_text, &screen_path);
-
-        // テレメトリ: AppState スナップショットをダンプ
-        let _ = telemetry::state_dumper::dump_state_to_file(state, &state_path);
-
-        let is_scanning = matches!(state.scan_state, ScanState::Scanning)
-            || !matches!(state.merge_scan_state, MergeScanState::Idle)
-            || !runtime.badge_scans.is_empty();
-        let timeout = if is_scanning {
-            std::time::Duration::from_millis(SCANNING_POLL_TIMEOUT_MS)
-        } else {
-            std::time::Duration::from_secs(IDLE_POLL_TIMEOUT_SECS)
-        };
-
-        if !event::poll(timeout)? {
-            continue;
-        }
-
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                continue;
-            }
-
-            // テレメトリ: キー入力イベント記録
-            let key_str = format!("{:?}", key.code);
-            let focus_str = format!("{:?}", state.focus);
-
-            if state.has_dialog() {
-                dialog_keys::handle_dialog_key(state, runtime, key.code);
-            } else {
-                match state.focus {
-                    Focus::FileTree => {
-                        tree_keys::handle_tree_key(state, runtime, key.code, key.modifiers);
-                    }
-                    Focus::DiffView => {
-                        diff_keys::handle_diff_key(state, runtime, key.code);
-                    }
-                }
-            }
-
-            event_recorder.record_key_press(&key_str, &focus_str);
-
-            if state.should_quit {
-                break;
-            }
         }
     }
 
@@ -763,10 +580,8 @@ fn resolve_log_level(log_level: Option<&str>, debug: bool, verbose: u8) -> Optio
 
 /// tracing の出力先モード。
 ///
-/// `Tui` / `Agent` / `Cli` は排他的 — 同時に複数のモードは成立しない。
+/// `Agent` / `Cli` は排他的 — 同時に複数のモードは成立しない。
 enum TracingMode {
-    /// TUI: debug.log に JSONL 形式で出力
-    Tui,
     /// Agent: stderr 専用、ANSI 無効（stdout はバイナリフレームプロトコルが占有）
     Agent,
     /// CLI サブコマンド: stderr にテキスト出力
@@ -786,23 +601,6 @@ fn init_tracing(mode: TracingMode, cli_level: Option<&str>) {
     };
 
     match mode {
-        TracingMode::Tui => {
-            let log_dir = dirs::cache_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-                .join("remote-merge");
-            let _ = std::fs::create_dir_all(&log_dir);
-            let log_path = log_dir.join("debug.log");
-            let file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&log_path)
-                .expect("Failed to open log file");
-
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(telemetry::JsonLogLayer::new(file))
-                .init();
-        }
         TracingMode::Agent => {
             // ANSI 無効（SSH ExtendedData 経由で転送されるため）。リモートで動くので診断ログは残さない
             tracing_subscriber::fmt()
@@ -854,7 +652,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             merge.command,
-            Some(Commands::Merge { checksum: true, .. })
+            Commands::Merge { checksum: true, .. }
         ));
         let sync = Cli::try_parse_from([
             "remote-merge",
@@ -869,7 +667,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             sync.command,
-            Some(Commands::Sync { checksum: true, .. })
+            Commands::Sync { checksum: true, .. }
         ));
     }
 
@@ -929,19 +727,19 @@ mod tests {
     #[test]
     fn test_cli_parse_verbose_count() {
         // clap の ArgAction::Count が正しく動くか確認
-        let cli = Cli::try_parse_from(["remote-merge", "-vvv"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "-vvv", "status"]).unwrap();
         assert_eq!(cli.verbose, 3);
     }
 
     #[test]
     fn test_cli_parse_debug_flag() {
-        let cli = Cli::try_parse_from(["remote-merge", "--debug"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "--debug", "status"]).unwrap();
         assert!(cli.debug);
     }
 
     #[test]
     fn test_cli_parse_log_level() {
-        let cli = Cli::try_parse_from(["remote-merge", "--log-level", "trace"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "--log-level", "trace", "status"]).unwrap();
         assert_eq!(cli.log_level, Some("trace".to_string()));
     }
 
@@ -949,7 +747,7 @@ mod tests {
     fn test_cli_parse_verbose_with_subcommand() {
         let cli = Cli::try_parse_from(["remote-merge", "-vv", "status"]).unwrap();
         assert_eq!(cli.verbose, 2);
-        assert!(cli.command.is_some());
+        assert!(matches!(cli.command, Commands::Status { .. }));
     }
 
     #[test]
@@ -999,7 +797,7 @@ mod tests {
         ])
         .unwrap();
 
-        match cli.command.unwrap() {
+        match cli.command {
             Commands::Agent {
                 root,
                 default_uid,
@@ -1021,7 +819,7 @@ mod tests {
     fn test_agent_parse_no_optional_args() {
         let cli = Cli::try_parse_from(["remote-merge", "agent", "--root", "/app"]).unwrap();
 
-        match cli.command.unwrap() {
+        match cli.command {
             Commands::Agent {
                 default_uid,
                 default_gid,
@@ -1052,7 +850,7 @@ mod tests {
         ])
         .unwrap();
 
-        match cli.command.unwrap() {
+        match cli.command {
             Commands::Agent {
                 default_uid,
                 default_gid,
@@ -1073,13 +871,13 @@ mod tests {
 
     #[test]
     fn test_cli_parse_yes_flag() {
-        let cli = Cli::try_parse_from(["remote-merge", "--yes"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "--yes", "status"]).unwrap();
         assert!(cli.yes);
     }
 
     #[test]
     fn test_cli_parse_yes_short_flag() {
-        let cli = Cli::try_parse_from(["remote-merge", "-y"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "-y", "status"]).unwrap();
         assert!(cli.yes);
     }
 
@@ -1087,12 +885,12 @@ mod tests {
     fn test_cli_parse_yes_flag_with_subcommand() {
         let cli = Cli::try_parse_from(["remote-merge", "-y", "status"]).unwrap();
         assert!(cli.yes);
-        assert!(cli.command.is_some());
+        assert!(matches!(cli.command, Commands::Status { .. }));
     }
 
     #[test]
     fn test_cli_parse_yes_default_false() {
-        let cli = Cli::try_parse_from(["remote-merge"]).unwrap();
+        let cli = Cli::try_parse_from(["remote-merge", "status"]).unwrap();
         assert!(!cli.yes);
     }
 }

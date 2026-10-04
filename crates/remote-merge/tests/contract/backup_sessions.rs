@@ -12,7 +12,6 @@ use remote_merge::cli::merge::execute_merge;
 use remote_merge::cli::rollback::execute_rollback;
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::AppConfig;
-use remote_merge::runtime::bootstrap::{bootstrap_tui_with_targets, TuiBootstrapParams};
 use remote_merge::runtime::RuntimeTargets;
 use remote_merge::service::output::{format_backup_list_text, format_json};
 use tempfile::TempDir;
@@ -810,29 +809,6 @@ fn disabled_backup_merge_still_removes_expired_sessions() {
     );
 
     assert!(listed_ids(disabled, &develop, &store).is_empty());
-}
-
-// @kotowari[REQ-backup-025]
-#[test]
-fn tui_start_removes_expired_sessions() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    let config = expired_session_fixture(&local, &develop, &store);
-
-    let (_, runtime) = bootstrap_tui_with_targets(
-        TuiBootstrapParams {
-            right_server: "develop".into(),
-            left_server: None,
-            ref_server: None,
-        },
-        config.clone(),
-        targets_at(&develop, &store, at(2020, 1, 8)),
-    )
-    .unwrap();
-    drop(runtime);
-
-    assert!(listed_ids(config, &develop, &store).is_empty());
 }
 
 // @kotowari[REQ-backup-026]
