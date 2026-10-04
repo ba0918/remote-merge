@@ -92,7 +92,7 @@ pub struct DiffOutput {
     /// バイナリファイルの場合 true（hunks は空になる）
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub binary: bool,
-    /// シンボリックリンクの場合 true（hunks は空になる）
+    /// シンボリックリンクの場合 true（リンク文字列は link_targets、hunks は参照先の内容差だけを持つ）
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub symlink: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

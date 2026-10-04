@@ -212,6 +212,64 @@ fn sensitive_target_contents_remain_hidden_through_an_ordinary_link_name() {
     }
 }
 
+/// リンク文字列の違う左右の symlink を指定した diff の JSON の hunks と、テキストの差分の行を確かめる。
+///
+/// リンク文字列は link_targets だけで示し、内容差の hunks とテキストの "-"・"+" の行には入れない。
+fn assert_link_strings_stay_out_of_content_diff(
+    env: &CliEnv,
+    (left_target, right_target): (&str, &str),
+) {
+    let output = env
+        .cmd_with("diff")
+        .args(["link.txt", "--format", "json"])
+        .output()
+        .unwrap();
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let link = json_item(&result, "link.txt");
+    assert_eq!(link["link_targets"]["left"], left_target, "{result}");
+    assert_eq!(link["link_targets"]["right"], right_target, "{result}");
+    assert_eq!(link["hunks"], serde_json::json!([]), "{result}");
+
+    let output = env.cmd_with("diff").arg("link.txt").output().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        assert_ne!(line, format!("-{left_target}"), "{text}");
+        assert_ne!(line, format!("+{right_target}"), "{text}");
+    }
+}
+
+// @kotowari[REQ-cli-024, REQ-cli-059]
+#[test]
+fn req_cli_024_hidden_sensitive_link_keeps_link_strings_out_of_hunks() {
+    let env = CliEnv::new(
+        &[(".env", "TEST_SECRET=left-example\n")],
+        &[(".env.prod", "TEST_SECRET=right-example\n")],
+    );
+    place_symlink(&env.local_dir, "link.txt", ".env");
+    place_symlink(&env.remote_dir, "link.txt", ".env.prod");
+    assert_link_strings_stay_out_of_content_diff(&env, (".env", ".env.prod"));
+}
+
+// @kotowari[REQ-cli-024]
+#[test]
+fn req_cli_024_uncompared_external_link_keeps_link_strings_out_of_hunks() {
+    let env = CliEnv::new(&[], &[]);
+    let parent = env.local_dir.parent().unwrap();
+    let left_outside = parent.join("left-outside.txt");
+    let right_outside = parent.join("right-outside.txt");
+    std::fs::write(&left_outside, "left external\n").unwrap();
+    std::fs::write(&right_outside, "right external\n").unwrap();
+    place_symlink(&env.local_dir, "link.txt", left_outside.to_str().unwrap());
+    place_symlink(&env.remote_dir, "link.txt", right_outside.to_str().unwrap());
+    assert_link_strings_stay_out_of_content_diff(
+        &env,
+        (
+            left_outside.to_str().unwrap(),
+            right_outside.to_str().unwrap(),
+        ),
+    );
+}
+
 // @kotowari[EX-cli-050]
 #[test]
 fn force_explicitly_shows_sensitive_link_target_changes() {

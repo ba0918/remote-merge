@@ -391,7 +391,6 @@ pub fn execute_diff(
                     );
                     scanned_files += 1;
                 }
-                link_diff.hunks.clear();
                 let left_bytes = left_content.ok().flatten();
                 let right_bytes = right_content.ok().flatten();
                 if left_bytes.as_ref().is_some_and(|bytes| is_binary(bytes))
@@ -423,7 +422,6 @@ pub fn execute_diff(
             }
             if left_content.is_err() || right_content.is_err() {
                 let reason = "symlink target unreadable; resolved content not compared";
-                link_diff.hunks.clear();
                 link_diff.note = Some(reason.into());
                 errors.push(DiffError {
                     path: path.clone(),
@@ -440,7 +438,6 @@ pub fn execute_diff(
                 link_diff.binary = true;
                 link_diff.left_hash = left_content.as_ref().map(|bytes| compute_sha256(bytes));
                 link_diff.right_hash = right_content.as_ref().map(|bytes| compute_sha256(bytes));
-                link_diff.hunks.clear();
                 file_diffs.push(link_diff);
                 continue;
             }

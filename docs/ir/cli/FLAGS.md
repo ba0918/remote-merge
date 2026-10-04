@@ -310,13 +310,6 @@ REQ-cli-021 は件数超過を不完全な比較としてエラーで報告す�
 
 REQ-cli-022 は比較できなかったパスと理由を示すとするが、通常のディレクトリの展開で循環や件数超過が起きたとき、テキスト出力には理由が出ない（JSON では errors に出る。実装を読んで分かったことで未実行）。
 
-### FLAG-cli-052: 比べなかったときの hunks のリンク文字列
-- kind: contradiction
-- related: REQ-cli-024
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A10
-
-REQ-cli-024 はリンク文字列と参照先の内容差を区別して示すとするが、機密として隠したとき、root_dir の外で内容を比べなかったとき、参照先のディレクトリが読めないとき、循環したときにも hunks にリンク文字列の削除と追加の行が残り、テキストではその前に "Resolved content differs" と出る（実装を読んで分かったことで未実行）。
-
 ### FLAG-cli-053: symlink の参照先の内容の --max-lines
 - kind: contradiction
 - related: REQ-cli-054

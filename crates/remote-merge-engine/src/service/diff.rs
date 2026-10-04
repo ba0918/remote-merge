@@ -162,7 +162,7 @@ pub fn diff_exit_code(output: &DiffOutput) -> i32 {
     }
 }
 
-/// symlink 用の DiffOutput を構築（ターゲットパスの差分）
+/// symlink 用の DiffOutput を構築（リンク文字列は link_targets に置き、hunks は空で返す）
 ///
 /// 前提: `left_target` と `right_target` の少なくとも一方は `Some`。
 /// 呼び出し側で `find_symlink_target` の結果を OR チェックしてからこの関数を呼ぶ。
@@ -180,27 +180,6 @@ pub fn build_symlink_diff_output(
         (None, None) => None,
     };
 
-    let hunks = match (left_target, right_target) {
-        (Some(lt), Some(rt)) if lt != rt => {
-            vec![DiffHunk {
-                index: 0,
-                left_start: 1,
-                right_start: 1,
-                lines: vec![
-                    DiffLine {
-                        line_type: DiffLineType::Removed,
-                        content: lt.to_string(),
-                    },
-                    DiffLine {
-                        line_type: DiffLineType::Added,
-                        content: rt.to_string(),
-                    },
-                ],
-            }]
-        }
-        _ => vec![],
-    };
-
     DiffOutput {
         path: path.to_string(),
         left: left_info,
@@ -214,7 +193,8 @@ pub fn build_symlink_diff_output(
             right: right_target.map(str::to_string),
         }),
         truncated: false,
-        hunks,
+        // リンク文字列の差は link_targets で示し、hunks は参照先の内容差だけに使う
+        hunks: vec![],
         ref_hunks: None,
         left_hash: None,
         right_hash: None,
@@ -737,15 +717,12 @@ mod tests {
         assert!(output.symlink);
         assert!(!output.binary);
         assert!(output.note.is_none());
-        assert_eq!(output.hunks.len(), 1);
-        assert!(output.hunks[0]
-            .lines
-            .iter()
-            .any(|l| l.content == "/old/target"));
-        assert!(output.hunks[0]
-            .lines
-            .iter()
-            .any(|l| l.content == "/new/target"));
+        let targets = output.link_targets.as_ref().unwrap();
+        assert_eq!(targets.left.as_deref(), Some("/old/target"));
+        assert_eq!(targets.right.as_deref(), Some("/new/target"));
+        // リンク文字列の差は hunks に入れない（hunks は参照先の内容差だけを持つ）
+        assert!(output.hunks.is_empty());
+        assert!(output.has_changes());
     }
 
     #[test]
@@ -790,8 +767,11 @@ mod tests {
             false,
         );
         assert!(output.symlink);
-        // 空文字列でも差分として表示される
-        assert_eq!(output.hunks.len(), 1);
+        // 空文字列のリンク文字列も link_targets の差として残り、hunks には入らない
+        let targets = output.link_targets.as_ref().unwrap();
+        assert_eq!(targets.left.as_deref(), Some(""));
+        assert!(output.hunks.is_empty());
+        assert!(output.has_changes());
     }
 
     // ── build_masked_diff_output tests ──
