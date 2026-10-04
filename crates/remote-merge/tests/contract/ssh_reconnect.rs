@@ -48,9 +48,9 @@ async fn a_single_interrupted_read_reconnects_and_returns_the_remote_contents() 
 async fn a_second_read_disconnect_is_reported_without_a_third_attempt() {
     if let Ok(path) = std::env::var("REMOTE_MERGE_READ_CHILD_CONFIG") {
         std::thread::spawn(move || {
-            use remote_merge::app::Side;
             use remote_merge::config::load_config_from_paths;
             use remote_merge::runtime::CoreRuntime;
+            use remote_merge::side::Side;
 
             let config = load_config_from_paths(Some(std::path::Path::new(&path)), None).unwrap();
             let mut runtime = CoreRuntime::new(config);

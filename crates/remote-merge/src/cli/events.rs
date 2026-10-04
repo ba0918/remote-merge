@@ -4,8 +4,8 @@
 //! SSH 接続不要。出力は JSONL 固定（LLMメイン）。
 
 use crate::telemetry::event_recorder;
+use crate::telemetry::log_dir::default_log_dir;
 use crate::telemetry::log_reader;
-use crate::telemetry::state_dumper::default_dump_dir;
 
 /// events サブコマンドの引数
 pub struct EventsArgs {
@@ -27,7 +27,7 @@ pub fn run_events(args: EventsArgs) -> anyhow::Result<i32> {
         None => None,
     };
 
-    let events_path = default_dump_dir().join("events.jsonl");
+    let events_path = default_log_dir().join("events.jsonl");
     let lines =
         event_recorder::read_events(&events_path, args.event_type.as_deref(), since, args.tail)?;
 

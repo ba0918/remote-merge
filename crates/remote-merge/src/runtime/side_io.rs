@@ -9,7 +9,7 @@ use std::io;
 use chrono::{DateTime, Utc};
 
 use crate::agent::protocol::{AgentPathInspection, FileReadResult};
-use crate::app::Side;
+use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};

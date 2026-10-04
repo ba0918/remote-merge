@@ -5,6 +5,7 @@
 
 pub mod event_recorder;
 pub mod event_types;
+pub mod log_dir;
 pub mod log_reader;
 pub mod state_dumper;
 pub mod structured_log;

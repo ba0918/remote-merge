@@ -3,10 +3,10 @@
 //! CLI 引数 (`--left`, `--right`) から
 //! 比較対象の左右ソースを決定する。
 
-use crate::app::Side;
 use crate::config::AppConfig;
 use crate::runtime::CoreRuntime;
 use crate::service::types::SourceInfo;
+use crate::side::Side;
 
 /// 解決済みの比較ペア
 #[derive(Debug, Clone)]

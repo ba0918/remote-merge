@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use remote_merge::app::Side;
 use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::merge::executor::MergeDirection;
 use remote_merge::runtime::CoreRuntime;
 use remote_merge::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use remote_merge::service::types::{FileStatus, FileStatusKind};
+use remote_merge::side::Side;
 use tempfile::TempDir;
 
 use super::backup_support::{

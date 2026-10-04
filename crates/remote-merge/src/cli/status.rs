@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 
-use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
@@ -26,6 +25,7 @@ use crate::service::status::{
 };
 use crate::service::types::FileStatusKind;
 use crate::service::types::StatusOutput;
+use crate::side::Side;
 
 /// status サブコマンドの引数
 pub struct StatusArgs {
@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_determine_agent_status_remote_no_agent() {
         let core = crate::runtime::CoreRuntime::new_for_test();
-        let side = crate::app::Side::Remote("develop".to_string());
+        let side = crate::side::Side::Remote("develop".to_string());
         let result = super::determine_agent_status(&side, &core);
         assert_eq!(result, Some(crate::service::types::AgentStatus::Fallback));
     }
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn test_determine_agent_status_local() {
         let core = crate::runtime::CoreRuntime::new_for_test();
-        let side = crate::app::Side::Local;
+        let side = crate::side::Side::Local;
         let result = super::determine_agent_status(&side, &core);
         assert_eq!(result, None);
     }

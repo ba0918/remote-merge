@@ -1,6 +1,5 @@
 //! diff サブコマンドの実装。
 
-use crate::app::Side;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
@@ -30,6 +29,7 @@ use crate::service::types::{
     MultiDiffSummary,
 };
 use crate::service::{resolve_scan_strategy, ScanStrategy};
+use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};

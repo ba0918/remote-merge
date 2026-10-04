@@ -2,8 +2,8 @@
 //!
 //! --ref で指定されたサーバが left/right と同一の場合に警告して None を返す。
 
-use crate::app::side::Side;
 use crate::service::source_pair::SourcePair;
+use crate::side::Side;
 
 /// If ref_side duplicates left or right, return None and print warning to stderr.
 /// Otherwise return Some(ref_side).

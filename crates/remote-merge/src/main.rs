@@ -621,7 +621,7 @@ fn try_main() -> anyhow::Result<()> {
 /// TUI イベントループを実行する
 fn run_tui(mut state: AppState, mut runtime: TuiRuntime) -> anyhow::Result<()> {
     // テレメトリ: ダンプディレクトリ準備 + 起動時トランケーション
-    let dump_dir = telemetry::state_dumper::default_dump_dir();
+    let dump_dir = telemetry::log_dir::default_log_dir();
     let _ = std::fs::create_dir_all(&dump_dir);
     let _ = telemetry::truncate_file_lines(&dump_dir.join("events.jsonl"), MAX_EVENT_LOG_LINES);
     let _ =

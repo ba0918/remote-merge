@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-use crate::app::Side;
 use crate::cli::merge::merge_partial_nodes;
 use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
@@ -27,6 +26,7 @@ use crate::service::types::*;
 use crate::service::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
 };
+use crate::side::Side;
 use crate::tree::FileTree;
 
 /// sync サブコマンドの引数
@@ -635,8 +635,8 @@ mod tests {
         use std::path::PathBuf;
 
         let pair = SourcePair {
-            left: crate::app::Side::Local,
-            right: crate::app::Side::Remote("develop".into()),
+            left: crate::side::Side::Local,
+            right: crate::side::Side::Remote("develop".into()),
         };
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
@@ -687,8 +687,8 @@ mod tests {
         use std::path::PathBuf;
 
         let pair = SourcePair {
-            left: crate::app::Side::Local,
-            right: crate::app::Side::Remote("develop".into()),
+            left: crate::side::Side::Local,
+            right: crate::side::Side::Remote("develop".into()),
         };
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),

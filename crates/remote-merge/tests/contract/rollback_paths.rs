@@ -4,12 +4,12 @@ use std::fs;
 use std::os::unix::fs::symlink;
 
 use chrono::{TimeZone, Utc};
-use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
+use remote_merge::side::Side;
 use tempfile::TempDir;
 
 // @kotowari[EX-backup-005, EX-backup-016]

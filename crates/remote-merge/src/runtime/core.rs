@@ -109,7 +109,7 @@ impl CoreRuntime {
 
     pub fn save_backup(
         &mut self,
-        target: &crate::app::Side,
+        target: &crate::side::Side,
         path: &str,
         session_id: &str,
         force: bool,
@@ -120,7 +120,7 @@ impl CoreRuntime {
 
     pub fn save_backup_if_exists(
         &mut self,
-        target: &crate::app::Side,
+        target: &crate::side::Side,
         path: &str,
         session_id: &str,
         force: bool,
@@ -152,7 +152,7 @@ impl CoreRuntime {
 
     pub fn save_symlink_update(
         &mut self,
-        target: &crate::app::Side,
+        target: &crate::side::Side,
         path: &str,
         session_id: &str,
         expected_target: &str,

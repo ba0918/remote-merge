@@ -4,9 +4,9 @@
 use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
 
-use remote_merge::app::Side;
 use remote_merge::cli::rollback::{execute_rollback, RollbackCommandOutput};
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
+use remote_merge::side::Side;
 use tempfile::TempDir;
 
 use super::backup_support::{

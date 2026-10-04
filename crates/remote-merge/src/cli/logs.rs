@@ -4,8 +4,8 @@
 //! SSH 接続不要。
 
 use crate::service::output::OutputFormat;
+use crate::telemetry::log_dir::default_log_dir;
 use crate::telemetry::log_reader::{self, format_log_text, LogFilter};
-use crate::telemetry::state_dumper::default_dump_dir;
 
 /// logs サブコマンドの引数
 pub struct LogsArgs {
@@ -37,7 +37,7 @@ pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
         tail: args.tail,
     };
 
-    let log_path = default_dump_dir().join("debug.log");
+    let log_path = default_log_dir().join("debug.log");
     let entries = log_reader::read_logs(&log_path, &filter)?;
 
     match format {

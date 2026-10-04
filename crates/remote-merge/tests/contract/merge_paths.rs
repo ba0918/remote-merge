@@ -8,7 +8,6 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use remote_merge::app::Side;
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput};
 use remote_merge::cli::rollback::{execute_rollback, RollbackArgs, RollbackCommandOutput};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
@@ -19,6 +18,7 @@ use remote_merge::service::merge_flow::{
     execute_deletions, execute_single_merge, MergeContext, SingleMergeResult,
 };
 use remote_merge::service::types::{FileStatus, FileStatusKind};
+use remote_merge::side::Side;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tracing_subscriber::prelude::*;

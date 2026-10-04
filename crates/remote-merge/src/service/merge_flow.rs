@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::app::Side;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction, DIFFERENT_KIND_REASON};
 use crate::service::types::*;
+use crate::side::Side;
 use crate::tree::FileTree;
 use remote_merge_engine::service::merge_flow::{prepare_hunk_merge, HunkMergePreparation};
 

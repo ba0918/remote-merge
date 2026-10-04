@@ -3,7 +3,6 @@
 //! CoreRuntime でバックアップセッションを取得し、Service 層で
 //! 期限判定・復元計画を立案、フォーマッターで出力する。
 
-use crate::app::Side;
 use crate::config::AppConfig;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{
@@ -14,6 +13,7 @@ use crate::service::source_pair::build_source_info;
 use crate::service::types::{
     BackupListOutput, RollbackFailure, RollbackOutput, RollbackSkipped, SourceInfo,
 };
+use crate::side::Side;
 
 /// rollback サブコマンドの引数
 pub struct RollbackArgs {

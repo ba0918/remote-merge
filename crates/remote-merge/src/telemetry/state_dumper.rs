@@ -262,13 +262,6 @@ fn format_dialog_kind(dialog: &crate::ui::dialog::DialogState) -> Option<String>
     }
 }
 
-/// state.json / screen.txt を保存するデフォルトディレクトリ
-pub fn default_dump_dir() -> std::path::PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("remote-merge")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,11 +519,5 @@ mod tests {
         // left_source は "local" だが kind は "remote" — これで区別できる
         assert!(json2.contains("\"left_source\":\"local\""));
         assert!(json2.contains("\"left_source_kind\":\"remote\""));
-    }
-
-    #[test]
-    fn test_default_dump_dir() {
-        let dir = default_dump_dir();
-        assert!(dir.to_string_lossy().contains("remote-merge"));
     }
 }

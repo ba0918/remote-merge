@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
-use crate::app::Side;
+use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;

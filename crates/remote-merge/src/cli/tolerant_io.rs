@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 
-use crate::app::Side;
 use crate::runtime::CoreRuntime;
 use crate::service::status::RequiredContents;
+use crate::side::Side;
 
 pub fn fetch_contents_required(
     side: &Side,
