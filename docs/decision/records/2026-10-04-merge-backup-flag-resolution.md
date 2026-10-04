@@ -42,3 +42,6 @@ merge とバックアップの話題には、取り込みのときに未決と�
 - A11 FLAG-merge-018 を閉じ、--hunks の merge も --max-entries で指定した件数の上限で走査するようにコードを直す。IR は変えない。
   - why: 承認済みの [REQ-scan-003](../../ir/scan/limits.md#REQ-scan-003) は利用者が走査の件数の上限を変更できると定め、merge の --max-entries のヘルプも設定の上限を上書きするとしているが、--hunks の merge だけが指定を受け取りながら使わず、設定の上限で走査していた。要件が一意に読め、直すのは指定を走査に渡す一か所である。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A12 FLAG-merge-010 を閉じ、--dry-run の merge と sync も、種類の違う対象を書き込むときと同じ判定と理由で skipped に出し、merged から外すようにコードを直す。IR は変えない。
+  - why: 承認済みの [REQ-merge-001](../../ir/merge/symlink.md#REQ-merge-001) は merge と sync について --dry-run を分けずに種類の違う対象を理由付きでスキップすると定め、承認済みの [REQ-cli-004](../../ir/cli/safety.md#REQ-cli-004) は --dry-run が変更の予定を報告すると定めている。種類の判定が書き込むときにしかなかったため、--dry-run では書かれない対象を "would merge" と報告していた。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

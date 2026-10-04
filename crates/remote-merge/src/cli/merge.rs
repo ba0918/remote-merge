@@ -335,6 +335,10 @@ pub fn execute_merge(
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
+        // 種類の違う対象は書き込むときと同じ判定でスキップとして出す
+        let (planned, kind_skipped) =
+            crate::service::merge::split_different_kinds(&plan.files, &left_tree, &right_tree);
+        all_skipped.extend(kind_skipped);
         // dry-run: 削除対象を "would delete" として表示
         let dry_deleted: Vec<DeleteFileResult> = delete_targets
             .iter()
@@ -345,7 +349,7 @@ pub fn execute_merge(
             })
             .collect();
         let output = build_merge_output(
-            plan.files
+            planned
                 .iter()
                 .map(|p| MergeFileResult {
                     path: p.clone(),

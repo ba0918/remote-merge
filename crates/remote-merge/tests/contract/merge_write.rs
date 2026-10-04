@@ -324,3 +324,48 @@ fn checksum_directory_sync_skips_a_file_against_a_directory_without_failing() {
     assert!(fixture.metadata("develop", "folder/kind").is_dir());
     assert_eq!(fixture.read("develop", "folder/kind/inner.txt"), "inner\n");
 }
+
+// @kotowari[REQ-merge-001]
+#[test]
+fn dry_run_merge_reports_a_file_against_a_directory_as_skipped() {
+    let fixture = fixture();
+    file_against_directory_folder(&fixture);
+    let mut args = args(&["folder"]);
+    args.checksum = true;
+    args.dry_run = true;
+
+    let (json, _) = fixture.merge_json(args);
+
+    assert!(
+        listed_paths(&json["skipped"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(
+        !listed_paths(&json["merged"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(fixture.metadata("develop", "folder/kind").is_dir());
+}
+
+// @kotowari[REQ-merge-001]
+#[test]
+fn dry_run_sync_reports_a_file_against_a_directory_as_skipped() {
+    let fixture = fixture();
+    file_against_directory_folder(&fixture);
+    let mut args = sync_args(&["folder"]);
+    args.checksum = true;
+    args.dry_run = true;
+
+    let (json, _) = fixture.sync_json(args);
+
+    let target = &json["targets"][0];
+    assert!(
+        listed_paths(&target["skipped"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(
+        !listed_paths(&target["merged"]).contains(&"folder/kind"),
+        "{json}"
+    );
+    assert!(fixture.metadata("develop", "folder/kind").is_dir());
+}

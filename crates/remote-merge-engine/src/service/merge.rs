@@ -167,6 +167,32 @@ pub fn determine_merge_action(
     MergeAction::Normal
 }
 
+/// 種類の違いで書き込まない対象のスキップ理由
+pub const DIFFERENT_KIND_REASON: &str = "source and destination have different file types";
+
+/// 書き込む予定のファイルを、種類の違いで書き込まないものとそれ以外に分ける純粋関数。
+/// dry-run でも書き込むときと同じ判定でスキップを報告するために使う。
+pub fn split_different_kinds(
+    files: &[String],
+    source_tree: &FileTree,
+    target_tree: &FileTree,
+) -> (Vec<String>, Vec<MergeSkipped>) {
+    let mut kept = Vec::new();
+    let mut skipped = Vec::new();
+    for path in files {
+        if determine_merge_action(source_tree, target_tree, path) == MergeAction::SkipDifferentKind
+        {
+            skipped.push(MergeSkipped {
+                path: path.clone(),
+                reason: DIFFERENT_KIND_REASON.into(),
+            });
+        } else {
+            kept.push(path.clone());
+        }
+    }
+    (kept, skipped)
+}
+
 /// remote-to-remote merge のガード判定。
 /// ブロックされた場合は MergeOutcome::R2rBlocked を返す。
 pub fn check_r2r_guard(
@@ -396,6 +422,29 @@ mod tests {
         let tree = make_tree_with_nodes(vec![FileNode::new_file("exists.txt")]);
         let result = find_symlink_target(&tree, "nonexistent.txt");
         assert_eq!(result, None);
+    }
+
+    // ── split_different_kinds tests ──
+
+    #[test]
+    fn split_different_kinds_moves_only_kind_mismatches_to_skipped() {
+        let source_tree = make_tree_with_nodes(vec![
+            FileNode::new_file("kind"),
+            FileNode::new_file("same.txt"),
+            FileNode::new_file("new.txt"),
+        ]);
+        let target_tree = make_tree_with_nodes(vec![
+            FileNode::new_dir("kind"),
+            FileNode::new_file("same.txt"),
+        ]);
+        let files = vec!["kind".to_string(), "same.txt".into(), "new.txt".into()];
+
+        let (kept, skipped) = split_different_kinds(&files, &source_tree, &target_tree);
+
+        assert_eq!(kept, ["same.txt", "new.txt"]);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].path, "kind");
+        assert_eq!(skipped[0].reason, DIFFERENT_KIND_REASON);
     }
 
     // ── determine_merge_action tests ──

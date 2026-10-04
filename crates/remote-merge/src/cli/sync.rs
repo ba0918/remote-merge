@@ -254,7 +254,7 @@ pub fn execute_sync(
         .any(|sp| !sp.plan.files.is_empty() || !sp.delete_targets.is_empty());
 
     if !has_work {
-        let targets = build_dry_run_targets(&server_plans, &connection_failures);
+        let targets = build_dry_run_targets(&left_tree, &server_plans, &connection_failures);
         let summary = compute_sync_summary(&targets);
         let output = SyncOutput {
             left: left_info,
@@ -273,7 +273,7 @@ pub fn execute_sync(
 
     // dry-run: 計画を出力して終了
     if args.dry_run {
-        let targets = build_dry_run_targets(&server_plans, &connection_failures);
+        let targets = build_dry_run_targets(&left_tree, &server_plans, &connection_failures);
         let summary = compute_sync_summary(&targets);
         let output = SyncOutput {
             left: left_info,
@@ -430,15 +430,20 @@ fn print_sync_result(result: &SyncCommandResult, format: OutputFormat) -> anyhow
 
 /// dry-run 用の SyncTargetResult リストを構築する
 fn build_dry_run_targets(
+    left_tree: &FileTree,
     server_plans: &[ServerPlan],
     connection_failures: &[(SourceInfo, String)],
 ) -> Vec<SyncTargetResult> {
     let mut targets: Vec<SyncTargetResult> = server_plans
         .iter()
         .map(|sp| {
-            let merged: Vec<MergeFileResult> = sp
-                .plan
-                .files
+            // 種類の違う対象は書き込むときと同じ判定でスキップとして出す
+            let (planned, kind_skipped) = crate::service::merge::split_different_kinds(
+                &sp.plan.files,
+                left_tree,
+                &sp.right_tree,
+            );
+            let merged: Vec<MergeFileResult> = planned
                 .iter()
                 .map(|p| MergeFileResult {
                     path: p.clone(),
@@ -462,6 +467,7 @@ fn build_dry_run_targets(
             let mut skipped = sp.plan.skipped.clone();
             skipped.extend(sp.right_only_skipped.clone());
             skipped.extend(sp.delete_skipped.clone());
+            skipped.extend(kind_skipped);
 
             SyncTargetResult {
                 target: sp.target_info.clone(),
@@ -571,6 +577,13 @@ fn print_sync_plan(left_info: &SourceInfo, server_plans: &[ServerPlan]) {
 mod tests {
     use super::*;
 
+    fn empty_tree() -> FileTree {
+        FileTree {
+            root: std::path::PathBuf::from("/local"),
+            nodes: vec![],
+        }
+    }
+
     fn make_args() -> SyncArgs {
         SyncArgs {
             paths: vec![".".into()],
@@ -653,7 +666,7 @@ mod tests {
             expected_target_contents: HashMap::new(),
         }];
 
-        let targets = build_dry_run_targets(&server_plans, &[]);
+        let targets = build_dry_run_targets(&empty_tree(), &server_plans, &[]);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].merged.len(), 1);
         assert_eq!(targets[0].merged[0].status, "would merge");
@@ -669,7 +682,7 @@ mod tests {
         };
         let failures = vec![(info, "connection refused".into())];
 
-        let targets = build_dry_run_targets(&[], &failures);
+        let targets = build_dry_run_targets(&empty_tree(), &[], &failures);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].status, SyncTargetStatus::Failed);
         assert_eq!(targets[0].failed.len(), 1);
@@ -711,7 +724,7 @@ mod tests {
             expected_target_contents: HashMap::new(),
         }];
 
-        let targets = build_dry_run_targets(&server_plans, &[]);
+        let targets = build_dry_run_targets(&empty_tree(), &server_plans, &[]);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].deleted.len(), 1);
         assert_eq!(targets[0].deleted[0].path, "old_file.rs");

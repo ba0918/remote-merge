@@ -30,13 +30,6 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 
 --with-permissions の merge で読み込み元がローカルのとき、実装は読み込み元の権限の値が 0（mode 000）なら書き込み先の権限を変えずに残す。REQ-merge-014 は読み込み元のファイル権限を書き込み先に反映するとし、字のとおり読むと 0 も反映することになるが、IR はこの場合を決めていない。読み込み元は中身を読んだ後に権限を読むため、この違いは読み込みと権限の読み取りの間に読み込み元の権限が 0 に変わったときにだけ起きる。
 
-### FLAG-merge-010: dry-run での種類の違い
-- kind: contradiction
-- related: REQ-merge-001, REQ-cli-004
-- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A8
-
-旧個別仕様 symlink-merge の 3.3 は --dry-run でも種類の違いによるスキップを同じ理由で出すとするが、実装は種類の違いを書き込むときにだけ判定するため、--dry-run の merge と sync はそのファイルを merged に status "would merge" で出す。
-
 ### FLAG-merge-011: パス脱出の拒否の範囲と文言
 - kind: contradiction
 - related: REQ-merge-007

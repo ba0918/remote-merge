@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::app::Side;
 use crate::merge::executor::MergeDirection;
 use crate::runtime::CoreRuntime;
-use crate::service::merge::{determine_merge_action, MergeAction};
+use crate::service::merge::{determine_merge_action, MergeAction, DIFFERENT_KIND_REASON};
 use crate::service::types::*;
 use crate::tree::FileTree;
 use remote_merge_engine::service::merge_flow::{prepare_hunk_merge, HunkMergePreparation};
@@ -64,7 +64,7 @@ pub fn execute_single_merge(
         MergeAction::SkipDifferentKind => {
             return Ok(SingleMergeResult::Skipped(MergeSkipped {
                 path: path.to_string(),
-                reason: "source and destination have different file types".into(),
+                reason: DIFFERENT_KIND_REASON.into(),
             }));
         }
         MergeAction::CreateSymlink {
