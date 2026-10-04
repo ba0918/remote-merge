@@ -1,0 +1,43 @@
+version: 1
+entries:
+  - id: tui-diff-write-kind-mismatch-review
+    base: cc4793606c07d29ef859930a4a174978f8455a43
+    role: reviewer
+    files:
+      - path: crates/remote-merge/src/handler/dialog_keys.rs
+        before: sha256:04f36c28e6db4fec3110524b271e02644c572740c98428dcbcfbfe65f1d8def7
+        after: sha256:184a0f9bae20d5f375e3b24bc29a4820b1808e753d12078b6fd2f39028c6fc2b
+      - path: crates/remote-merge/src/handler/merge_exec.rs
+        before: sha256:1d0ed1bc98f0448baf796d59f69137f7d691c21a2132ed75d779b2134c990c94
+        after: sha256:fd61f38cdeac382e9fdf1ab02d068f192c98713025308547f3397a9e295abd5f
+      - path: crates/remote-merge/tests/contract.rs
+        before: sha256:3c6322b2eb114d5097a1825bcce7cefd3a8f2b40021ac2a14830ae6e4e144340
+        after: sha256:739238a5128dcd04591a3af9d8444f449841b6fa7982b50880c3a0708127e9a2
+      - path: crates/remote-merge/tests/contract/tui_diff_write_kinds.rs
+        before: null
+        after: sha256:c2ac5db0dd0c2cb5a824532b513f51b10d5b7523c87235b72a999285af8d485a
+      - path: crates/remote-merge/tests/contract/tui_merge_kinds.rs
+        before: sha256:5e4e553c22902adf5501bee1ddd3cd3c7d4533bae2b735aa9f5855491ccd2602
+        after: sha256:8ae6cccdeb3b9700b153e461a6f3f2dc050503abef16a9eff92d4764824c9ddf
+    ir:
+      - path: docs/ir/merge/symlink.md
+        sha256: sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1
+    conclusion: existing
+    reason: >-
+      cc47936から20ef1a0までの比較全体を読んだ。追加されたのはmerge_exec.rsのrefuse_different_kindと
+      refuse_selected_different_kind、それをexecute_hunk_mergeのhunk適用前とexecute_write_changesの
+      バックアップと両側書き込みの前に置く早期終了、dialog_keys.rsで単一マージ確認・HunkMergePreview・
+      WriteConfirmationのyでmtime検査より前に同じ判定を行う変更、契約テストと共通の準備関数だけである。
+      判定は既存のdetermine_merge_actionのSkipDifferentKindをそのまま使い、左右の順に依らない対称な判定なので
+      書き込みの向きを問わず、種類の違う既存の書き込み先を変更せず理由付きでスキップするというREQ-merge-001と、
+      リンクとリンク先が変わらないというEX-merge-001に収まる。種類が同じ組では従来どおりmtime検査と書き込みへ
+      進み、EX-merge-002の通常マージは変わらない。IRに定めのない新しい振る舞いや要求の変更はない。
+      別の作業ツリーでdialog_keys.rsだけを4fa5ea3の版に戻すと、リンク先をリンクより古くした4つの契約テストが
+      理由の表示を欠いて失敗し、20ef1a0では34件のTUI契約テストが成功することを実測した。
+      HunkMergePreviewを開く本番コードがないことと、理由の文言がFLAG-merge-008の未決事項であることは人の判断に
+      残っている。
+    requirements:
+      - REQ-merge-001
+    decisions: []
+    handoff: null
+    gaps: []
