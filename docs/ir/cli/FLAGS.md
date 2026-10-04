@@ -86,13 +86,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
 
-### FLAG-cli-021: merge の確認のプロンプトと --force の働き
-- kind: contradiction
-- related: REQ-cli-003
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A12, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
-
-旧総合仕様の使い方の例とマージ前確認の節は merge が確認のプロンプトを出し、--force で省略するとするが、CLI の merge は確認のプロンプトを出さず（TUI には確認がある）、--force は機密ファイルを対象に含めること、リモート間の merge を止めないこと、REQ-cli-051 の参照先に対する確認をしないことに効く。
-
 ### FLAG-cli-022: 機密ファイルの警告と件数
 - kind: contradiction
 - related: REQ-cli-003

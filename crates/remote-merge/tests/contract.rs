@@ -69,6 +69,9 @@ mod merge_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_cli_ssh.rs"]
 mod merge_cli_ssh;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_force_cli.rs"]
+mod merge_force_cli;
 #[path = "contract/merge_hunks.rs"]
 mod merge_hunks;
 #[path = "contract/merge_links.rs"]

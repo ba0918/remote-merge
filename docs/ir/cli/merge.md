@@ -56,6 +56,14 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 --force も --dry-run もないリモート間の merge は、確認を出さずに書き込まずに止まり、テキストでは "Warning: merging between two remote servers (左 → 右)" と "Use --force to proceed, or --dry-run to preview changes." の行を出し、JSON では failed に一件を出し、終了コード 2 を返す。
 
+### REQ-cli-104: 確認のプロンプトを出さず --force で対象と確認を変える
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9
+- verification: unit
+
+CLI の merge は書き込む前に確認のプロンプトを出さない。
+--force を指定した merge は、機密ファイルを書き込みと削除の対象に含め、リモート間の merge を止めず、REQ-cli-051 の参照先に対する確認をしない。
+
 ## Decision tables
 
 ### TBL-cli-008: merge の指定のエラー
