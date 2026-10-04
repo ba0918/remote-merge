@@ -33,3 +33,6 @@ CLI diff の取り込みで FLAG として残した未決事項のうち、承�
 - A8 FLAG-cli-055 を閉じる。利用者向けの手引き "skills/remote-merge/references/json-schemas.md" の Symlink の例を、リンク文字列を link_targets の left と right で出す形に直し、symlink の項目の hunks は参照先の内容差だけを持つと書き添える。IR は変えない。
   - why: 承認済みの [REQ-cli-024](../../ir/cli/symlink-diff.md#REQ-cli-024) と実装はリンク文字列を link_targets の left と right で出し、手引きの "left_symlink_target" と "right_symlink_target" はどちらにもない欄名だった。手引きを要件と実装に合わせるだけで、決め直す点がない。hunks の書き添えは [A3](#A3) の修正後の挙動に合わせる。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A9 FLAG-cli-069 を閉じる。diff の --ref のヘルプを、バッジ（"[ref≠]"）を示すという説明から、左から参照先への差と競合を示すという説明（"Reference server for 3-way comparison (shows ref vs left diff and conflicts)"）に直す。ヘルプの文言は契約にしないため、文言を固定するテストは足さない。
+  - why: diff の --ref の出力は [REQ-cli-063](../../ir/cli/reference.md#REQ-cli-063)、[REQ-cli-064](../../ir/cli/reference.md#REQ-cli-064) と [REQ-cli-065](../../ir/cli/conflicts.md#REQ-cli-065) で既に決まっており、diff はバッジを出さない。ヘルプを実際の出力に合わせるだけで、決め直す点がない。ヘルプの文言は IR が契約として定めていないため、テストで固定すると未決の文言に依存する検査になる。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

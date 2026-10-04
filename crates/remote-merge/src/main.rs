@@ -117,7 +117,7 @@ enum Commands {
         /// Right side of comparison [default: first server in config, alphabetical]
         #[arg(long)]
         right: Option<String>,
-        /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
+        /// Reference server for 3-way comparison (shows ref vs left diff and conflicts)
         #[arg(long, alias = "reference")]
         r#ref: Option<String>,
         /// Output format (text, json)

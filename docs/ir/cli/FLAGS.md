@@ -373,13 +373,6 @@ diff は左右がバイナリのファイルに "ref_hunks" を出さず、参�
 
 diff は片側にないファイルを、ない側を空の内容として参照先と比べて競合を調べるため、片側にないことが参照先からの全行の削除として扱われ競合が示されうる。これが REQ-cli-016 の競合に当たるかが決まらない（実装を読んで分かったことで未実行）。
 
-### FLAG-cli-069: ヘルプの --ref の説明
-- kind: contradiction
-- related: REQ-cli-062
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A17
-
-CLI のヘルプは --ref を参照先のバッジ（"[ref≠]"）を示すものと説明するが、diff はバッジを出さず、参照先との差と競合を示す。
-
 ### FLAG-cli-070: 参照先の機密と root_dir の外の判定
 - kind: gap
 - related: REQ-cli-023, REQ-cli-026, REQ-cli-063
