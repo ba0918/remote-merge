@@ -137,6 +137,8 @@ mod sync_support;
 mod sync_targets;
 #[path = "contract/tui_confirm.rs"]
 mod tui_confirm;
+#[path = "contract/tui_diff_write_kinds.rs"]
+mod tui_diff_write_kinds;
 #[path = "contract/tui_directory_links.rs"]
 mod tui_directory_links;
 #[path = "contract/tui_export.rs"]
