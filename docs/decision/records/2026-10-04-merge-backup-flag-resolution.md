@@ -39,3 +39,6 @@ merge とバックアップの話題には、取り込みのときに未決と�
 - A10 FLAG-merge-014 を閉じ、[REQ-merge-034](../../ir/merge/deletion.md#REQ-merge-034) を足す。--delete の merge と sync は、削除の直前に書き込み先の種類を調べられなかったファイルと、削除に失敗したファイルを failed に出し、他のファイルの処理は続ける。failed の error の文言は定めず、旧資料の skipped の reason "cannot resolve path: <原因>" は採らない。
   - why: 今の削除の処理はこの二つの場合をそのファイルの失敗として failed に入れ、次の対象へ進む。[REQ-merge-008](../../ir/merge/deletion.md#REQ-merge-008) と [REQ-merge-016](../../ir/merge/deletion.md#REQ-merge-016) はこの場合を定めておらず、削除しなかったものを失敗として知らせるこの挙動は、バックアップに失敗した対象を削除せずに failed に出す REQ-merge-016 と [REQ-backup-017](../../ir/backup/failure.md#REQ-backup-017) の扱いと揃う。
   - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）
+- A11 FLAG-merge-018 を閉じ、--hunks の merge も --max-entries で指定した件数の上限で走査するようにコードを直す。IR は変えない。
+  - why: 承認済みの [REQ-scan-003](../../ir/scan/limits.md#REQ-scan-003) は利用者が走査の件数の上限を変更できると定め、merge の --max-entries のヘルプも設定の上限を上書きするとしているが、--hunks の merge だけが指定を受け取りながら使わず、設定の上限で走査していた。要件が一意に読め、直すのは指定を走査に渡す一か所である。
+  - decided_by: AI（2026-10-04 の利用者の指示「判断がいらないものは全て対処」による委任。仕分けの推奨を採用）

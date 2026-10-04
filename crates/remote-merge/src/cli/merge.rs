@@ -144,6 +144,7 @@ pub fn execute_merge(
             args.dry_run,
             args.force,
             ref_side.as_ref(),
+            max_entries,
             core,
         );
     }
@@ -459,6 +460,7 @@ fn run_hunk_merge(
     dry_run: bool,
     force: bool,
     ref_side: Option<&Side>,
+    max_entries: usize,
     mut core: CoreRuntime,
 ) -> anyhow::Result<MergeCommandResult> {
     use crate::service::merge::build_merge_output;
@@ -477,7 +479,6 @@ fn run_hunk_merge(
 
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
     let config = core.config.clone();
-    let max_entries = resolve_max_entries(None, &config)?;
     let paths = vec![path.to_string()];
     let strategy = resolve_scan_strategy(&paths, false);
     let (left_tree, right_tree, _statuses, _compare_failures) = fetch_trees_and_statuses_for_merge(

@@ -2,6 +2,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
+use remote_merge::cli::merge::{execute_merge, MergeArgs};
 use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::cli::sync::{execute_sync, SyncArgs, SyncCommandOutput};
 use remote_merge::config::load_config_from_paths;
@@ -106,6 +107,38 @@ fn status_without_a_limit_option_uses_the_configured_scan_limit() {
     assert!(error.to_string().contains("Tree scan truncated"), "{error}");
     let result = execute_status(status_args(Some(10)), fixture.config, fixture.targets).unwrap();
     assert_eq!(result.output.files.unwrap().len(), 3);
+}
+
+// @kotowari[REQ-scan-003]
+#[test]
+fn hunk_merge_scans_with_the_explicit_limit_instead_of_the_configured_one() {
+    let fixture = scan_fixture();
+    let result = execute_merge(
+        MergeArgs {
+            paths: vec!["folder/first.txt".into()],
+            left: Some("local".into()),
+            right: Some("develop".into()),
+            ref_server: None,
+            dry_run: false,
+            force: false,
+            delete: false,
+            with_permissions: false,
+            checksum: false,
+            format: "json".into(),
+            max_entries: Some(1),
+            hunks: Some(vec![0]),
+        },
+        fixture.config,
+        fixture.targets,
+    );
+    let error = result
+        .err()
+        .expect("the explicit limit must apply to the hunk merge scan");
+    assert!(error.to_string().contains("Tree scan truncated"), "{error}");
+    assert_eq!(
+        fs::read_to_string(fixture.destination.path().join("folder/first.txt")).unwrap(),
+        "old\n"
+    );
 }
 
 // @kotowari[EX-scan-010, REQ-scan-005]

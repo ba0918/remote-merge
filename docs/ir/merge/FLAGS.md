@@ -72,13 +72,6 @@ REQ-merge-010 は hunk マージが衝突の有無と書き込みの確認を経
 
 利用者向けの手引き "skills/remote-merge/SKILL.md" は書き込む前に更新日時で楽観的ロックを確かめるとし、REQ-merge-011 は差分確認からマージまでに書き込み先が変わったら書き込みを止めるとするが、実装の --hunks の merge は書き込む直前の確認をせず、実行時に読んだ書き込み先との差分に番号を当てて書き込む。
 
-### FLAG-merge-018: --hunks と --max-entries
-- kind: contradiction
-- related: REQ-scan-003
-- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A8
-
-merge の --max-entries のヘルプは設定の上限を上書きするとし、REQ-scan-003 は利用者が件数の上限を変更できるとするが、実装の --hunks の merge は --max-entries を使わず設定の上限で走査する。
-
 ### FLAG-merge-019: 差分のないファイルの --hunks のテキスト
 - kind: gap
 - related: REQ-merge-030
