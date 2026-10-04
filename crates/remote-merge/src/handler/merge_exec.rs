@@ -42,7 +42,7 @@ fn backup_allows_write(
 }
 
 /// 左右の既存対象の種類が違うパスなら、理由を表示して true を返す。
-fn refuse_different_kind(state: &mut AppState, path: &str) -> bool {
+pub(super) fn refuse_different_kind(state: &mut AppState, path: &str) -> bool {
     use crate::service::merge::{determine_merge_action, MergeAction};
 
     if determine_merge_action(&state.left_tree, &state.right_tree, path)
@@ -52,6 +52,14 @@ fn refuse_different_kind(state: &mut AppState, path: &str) -> bool {
     }
     state.status_message = format!("{path}: source and destination have different file types");
     true
+}
+
+/// diff ビューで選択中のパスに `refuse_different_kind` を当てる。
+pub(super) fn refuse_selected_different_kind(state: &mut AppState) -> bool {
+    match state.selected_path.clone() {
+        Some(path) => refuse_different_kind(state, &path),
+        None => false,
+    }
 }
 
 // ── 後方互換の re-export ──
@@ -220,10 +228,8 @@ pub fn execute_hunk_merge(
     runtime: &mut TuiRuntime,
     direction: HunkDirection,
 ) {
-    if let Some(path) = state.selected_path.clone() {
-        if refuse_different_kind(state, &path) {
-            return;
-        }
+    if refuse_selected_different_kind(state) {
+        return;
     }
     if let Some(path) = state.apply_hunk_merge(direction) {
         let target = match direction {

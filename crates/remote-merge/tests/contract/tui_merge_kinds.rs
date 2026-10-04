@@ -6,6 +6,7 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
+use std::time::Duration;
 
 use crossterm::event::KeyCode;
 use remote_merge::app::{AppState, Side};
@@ -22,8 +23,8 @@ const SOURCE_TEXT: &str = "regular source\n";
 const REFERENT_TEXT: &str = "referent stays\n";
 
 /// dir に file.txt -> referent.txt の symlink と、中身 referent_text のリンク先を作る。
-/// ツリーはリンク自体の mtime、書き込み前の検査はリンク先の mtime を見るため、
-/// 秒の境目をまたいでも mtime 警告で止まらないようリンク先の mtime をリンクに揃える。
+/// ツリーはリンク自体の mtime、書き込み前の検査はリンク先の mtime を見る。実際の環境と同じく
+/// 両者が食い違う状態にするため、リンク先の mtime をリンクより 1 時間古くする。
 pub(super) fn link_to_referent(dir: &Path, referent_text: &str) {
     let referent = dir.join("referent.txt");
     fs::write(&referent, referent_text).unwrap();
@@ -36,7 +37,7 @@ pub(super) fn link_to_referent(dir: &Path, referent_text: &str) {
         .write(true)
         .open(&referent)
         .unwrap()
-        .set_modified(link_mtime)
+        .set_modified(link_mtime - Duration::from_secs(3600))
         .unwrap();
 }
 

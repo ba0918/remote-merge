@@ -8,7 +8,7 @@ use crate::ui::dialog::DialogState;
 
 use super::merge_exec::{
     check_mtime_conflict_single, check_mtime_for_write, execute_batch_merge, execute_hunk_merge,
-    execute_merge, execute_write_changes,
+    execute_merge, execute_write_changes, refuse_different_kind, refuse_selected_different_kind,
 };
 use super::reconnect::execute_server_switch;
 
@@ -23,6 +23,10 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                     return;
                 };
                 state.close_dialog();
+                // 種類違いは mtime 警告より先に理由を出して止める
+                if refuse_different_kind(state, &confirm.file_path) {
+                    return;
+                }
                 // 楽観的ロック: mtime チェック
                 if check_mtime_conflict_single(
                     state,
@@ -213,6 +217,9 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
                 let direction = preview.direction;
                 state.pending_hunk_merge = None;
                 state.close_dialog();
+                if refuse_selected_different_kind(state) {
+                    return;
+                }
                 // 楽観的ロック: mtime チェック（書き込み先）
                 if check_mtime_for_write(state, runtime, Some(direction)) {
                     return; // MtimeWarningDialog が表示される
@@ -229,6 +236,9 @@ pub fn handle_dialog_key(state: &mut AppState, runtime: &mut TuiRuntime, key: Ke
         DialogState::WriteConfirmation => match key {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 state.close_dialog();
+                if refuse_selected_different_kind(state) {
+                    return;
+                }
                 // 楽観的ロック: mtime チェック（両側書き込み）
                 if check_mtime_for_write(state, runtime, None) {
                     return; // MtimeWarningDialog が表示される
