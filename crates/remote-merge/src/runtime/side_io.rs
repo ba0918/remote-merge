@@ -232,40 +232,21 @@ impl CoreRuntime {
                 backup_record,
                 crate::service::rollback::BackupPathRecord::Symlink
             ) {
-                let current = match self.inspect_recorded_path(side, path, &backup_record) {
-                    Ok(current) => current,
-                    Err(error) => {
-                        return Ok((
-                            vec![],
-                            vec![],
-                            files
-                                .iter()
-                                .map(|path| crate::service::types::RollbackFailure {
-                                    path: path.clone(),
-                                    error: format!("cannot resolve path: {error}"),
-                                })
-                                .collect(),
-                        ));
-                    }
+                let inspected = self.inspect_recorded_path(side, path, &backup_record);
+                let refusal = match inspected {
+                    Ok(current) => remote_merge_engine::service::rollback::restore_request_refusal(
+                        files,
+                        &backup_record,
+                        Ok(&current),
+                    ),
+                    Err(error) => remote_merge_engine::service::rollback::restore_request_refusal(
+                        files,
+                        &backup_record,
+                        Err(&error.to_string()),
+                    ),
                 };
-                let decision =
-                    crate::service::rollback::decide_restore_path(&backup_record, &current);
-                if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
-                    if reason == "path now resolves to a different location"
-                        || reason == "symlink changed after merge"
-                    {
-                        return Ok((
-                            vec![],
-                            files
-                                .iter()
-                                .map(|path| crate::service::types::RollbackSkipped {
-                                    path: path.clone(),
-                                    reason: reason.into(),
-                                })
-                                .collect(),
-                            vec![],
-                        ));
-                    }
+                if let Some(refusal) = refusal {
+                    return Ok(refusal);
                 }
             }
         }
@@ -377,21 +358,7 @@ impl CoreRuntime {
     fn restore_path_record(
         record: &super::backup_store::BackupRecord,
     ) -> crate::service::rollback::BackupPathRecord {
-        use crate::service::rollback::BackupPathRecord;
-        match record {
-            super::backup_store::BackupRecord::File { real_path, .. } => BackupPathRecord::File {
-                real_path: real_path.clone(),
-            },
-            super::backup_store::BackupRecord::Symlink {
-                expected_target: Some(expected_target),
-                real_parent: Some(real_parent),
-                ..
-            } => BackupPathRecord::SymlinkUpdate {
-                expected_target: expected_target.clone(),
-                real_parent: real_parent.clone(),
-            },
-            super::backup_store::BackupRecord::Symlink { .. } => BackupPathRecord::Symlink,
-        }
+        crate::service::rollback::BackupPathRecord::from(record)
     }
 
     fn inspect_recorded_path(

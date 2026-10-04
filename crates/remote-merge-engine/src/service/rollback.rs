@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
 use super::status::is_sensitive;
-use super::types::{BackupSession, RollbackOutput, RollbackSkipped};
+use super::types::{
+    BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
+};
 
 /// 復元計画
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +101,52 @@ pub fn decide_restore_path(
         }
         CurrentRestorePath::Missing { .. } => RestorePathDecision::Restore,
     }
+}
+
+pub fn restore_request_refusal(
+    files: &[String],
+    record: &BackupPathRecord,
+    inspected: Result<&CurrentRestorePath, &str>,
+) -> Option<(
+    Vec<RollbackFileResult>,
+    Vec<RollbackSkipped>,
+    Vec<RollbackFailure>,
+)> {
+    let current = match inspected {
+        Ok(current) => current,
+        Err(error) => {
+            return Some((
+                vec![],
+                vec![],
+                files
+                    .iter()
+                    .map(|path| RollbackFailure {
+                        path: path.clone(),
+                        error: format!("cannot resolve path: {error}"),
+                    })
+                    .collect(),
+            ));
+        }
+    };
+    let decision = decide_restore_path(record, current);
+    if let RestorePathDecision::Skip(reason) = decision {
+        if reason == "path now resolves to a different location"
+            || reason == "symlink changed after merge"
+        {
+            return Some((
+                vec![],
+                files
+                    .iter()
+                    .map(|path| RollbackSkipped {
+                        path: path.clone(),
+                        reason: reason.into(),
+                    })
+                    .collect(),
+                vec![],
+            ));
+        }
+    }
+    None
 }
 
 impl std::fmt::Display for RestoreError {

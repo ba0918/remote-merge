@@ -68,6 +68,26 @@ pub enum BackupRecord {
     },
 }
 
+impl From<&BackupRecord> for crate::service::rollback::BackupPathRecord {
+    fn from(record: &BackupRecord) -> Self {
+        use crate::service::rollback::BackupPathRecord;
+        match record {
+            BackupRecord::File { real_path, .. } => BackupPathRecord::File {
+                real_path: real_path.clone(),
+            },
+            BackupRecord::Symlink {
+                expected_target: Some(expected_target),
+                real_parent: Some(real_parent),
+                ..
+            } => BackupPathRecord::SymlinkUpdate {
+                expected_target: expected_target.clone(),
+                real_parent: real_parent.clone(),
+            },
+            BackupRecord::Symlink { .. } => BackupPathRecord::Symlink,
+        }
+    }
+}
+
 pub struct SymlinkBackup<'a> {
     pub link_target: &'a Path,
     pub expected: Option<(&'a Path, &'a Path)>,
