@@ -239,16 +239,19 @@ pub fn build_write_text_command(remote_path: &str) -> String {
 ///
 /// - POSIX の sh には pipefail がないので、`writer` の終了ステータスは fd 3 からコマンド置換で
 ///   取り出し、パイプの終了ステータス（dd のもの）と合わせて確かめる
-/// - dd が `oflag=nofollow` か `status=none` を受け付けないときだけ、直前に symlink でないことを
-///   確かめてからリダイレクトで書く。確かめた後に symlink に替えられる競合はこの場合だけ残る
+/// - dd が `oflag=nofollow` を受け付けないときだけ、直前に symlink でないことを確かめてから
+///   リダイレクトで書く。確かめた後に symlink に替えられる競合はこの場合だけ残る
+/// - 転送量の表示を消す `status=none` は、受け付けない古い dd（coreutils 8.20 より前）には
+///   付けない。そのときの表示は誰も読まない標準エラーに出る
 /// - 失敗で終わるときも標準入力を読み切るのは、送り手のデータ送信を途中で切らず、終了コードで
 ///   失敗を返すため
 fn write_in_place(remote_path: &str, writer: &str) -> String {
     let q = shell_escape(remote_path);
     format!(
         "p={q}; fail() {{ cat >/dev/null; exit 1; }}; \
-         if dd if=/dev/null of=/dev/null oflag=nofollow status=none 2>/dev/null; then \
-         s=$( {{ {{ {writer} 3>&-; echo $? >&3; }} | dd of=\"$p\" bs=65536 oflag=nofollow status=none 3>&-; }} 3>&1 ) || fail; \
+         if dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then \
+         q=; if dd if=/dev/null of=/dev/null status=none 2>/dev/null; then q=status=none; fi; \
+         s=$( {{ {{ {writer} 3>&-; echo $? >&3; }} | dd of=\"$p\" bs=65536 oflag=nofollow $q 3>&-; }} 3>&1 ) || fail; \
          [ \"$s\" = 0 ] || fail; \
          else \
          if [ -L \"$p\" ]; then fail; fi; \
@@ -1113,6 +1116,73 @@ mod tests {
             assert!(written, "{shell}");
             assert_eq!(std::fs::read(&dest).unwrap(), b"new", "{shell}");
             assert_eq!(std::fs::metadata(&dest).unwrap().nlink(), 2, "{shell}");
+        }
+    }
+
+    /// `status=none` を受け付けない古い dd（CentOS 5 の coreutils 5.97 など）の代わりに、それを
+    /// 拒み、他は実際の dd に渡して引数を `dd.log` に残す `dd` を置いたディレクトリ
+    #[cfg(unix)]
+    fn bin_with_dd_lacking_status_none() -> tempfile::TempDir {
+        use std::os::unix::fs::PermissionsExt;
+        let real_dd = std::process::Command::new("sh")
+            .args(["-c", "command -v dd"])
+            .output()
+            .unwrap();
+        let real_dd = String::from_utf8(real_dd.stdout).unwrap();
+        let bin = tempfile::TempDir::new().unwrap();
+        let dd = bin.path().join("dd");
+        let log = bin.path().join("dd.log");
+        std::fs::write(
+            &dd,
+            format!(
+                "#!/bin/sh\nfor a do case $a in status=*) exit 1;; esac; done\n\
+                 printf '%s\\n' \"$*\" >>'{}'\nexec {} \"$@\"\n",
+                log.display(),
+                real_dd.trim()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&dd, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dd_without_status_none_still_opens_the_destination_without_following_a_link() {
+        let bin = bin_with_dd_lacking_status_none();
+        for shell in installed_login_shells() {
+            let dir = dir_with_link_to_real_file();
+            let link = dir.path().join("link.txt");
+            let dest = dir.path().join("dest.txt");
+            std::fs::write(&dest, "much longer old content").unwrap();
+            let _ = std::fs::remove_file(bin.path().join("dd.log"));
+
+            let refused = !write_under(
+                shell,
+                &build_write_text_command(link.to_str().unwrap()),
+                b"new",
+                Some(bin.path()),
+            );
+            let written = write_under(
+                shell,
+                &build_write_text_command(dest.to_str().unwrap()),
+                b"new",
+                Some(bin.path()),
+            );
+
+            assert!(refused, "{shell}");
+            assert_link_and_target_unchanged(&dir);
+            assert!(written, "{shell}");
+            assert_eq!(std::fs::read(&dest).unwrap(), b"new", "{shell}");
+            let log = std::fs::read_to_string(bin.path().join("dd.log")).unwrap_or_default();
+            let opened_with_nofollow = |path: &Path| {
+                log.lines().any(|line| {
+                    line.contains(&format!("of={}", path.display()))
+                        && line.contains("oflag=nofollow")
+                })
+            };
+            assert!(opened_with_nofollow(&link), "{shell}: {log}");
+            assert!(opened_with_nofollow(&dest), "{shell}: {log}");
         }
     }
 }
