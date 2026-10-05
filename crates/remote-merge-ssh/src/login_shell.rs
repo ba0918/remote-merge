@@ -7,7 +7,7 @@
 /// バックスラッシュだけは引用符を閉じてから前にバックスラッシュを置く。fish は単一引用符の中でも
 /// `\'` と `\\` を解釈するので、POSIX の `'\''` の書き方だけでは引用符の中にバックスラッシュが残る。
 pub(crate) fn wrap_for_login_shell(script: &str) -> String {
-    let mut command = String::with_capacity(script.len() + 8);
+    let mut command = String::with_capacity(WRAP_OVERHEAD + wrapped_script_len(script));
     command.push_str("sh -c '");
     for ch in script.chars() {
         if ch == '\'' || ch == '\\' {
@@ -21,6 +21,21 @@ pub(crate) fn wrap_for_login_shell(script: &str) -> String {
     }
     command.push('\'');
     command
+}
+
+/// [`wrap_for_login_shell`] がスクリプトの前後に足す `sh -c '` と `'` の長さ（バイト）。
+pub(crate) const WRAP_OVERHEAD: usize = "sh -c ''".len();
+
+/// [`wrap_for_login_shell`] で包んだときにスクリプトの部分が占める長さ（バイト）。
+///
+/// 単一引用符とバックスラッシュは、引用符を閉じて前にバックスラッシュを置き開き直す4バイトになり、他の文字はそのまま残る。包んだ長さは
+/// スクリプトを分けて数えた長さの和に [`WRAP_OVERHEAD`] を足したものになる。
+pub(crate) fn wrapped_script_len(script: &str) -> usize {
+    let escaped = script
+        .bytes()
+        .filter(|b| matches!(b, b'\'' | b'\\'))
+        .count();
+    script.len() + 3 * escaped
 }
 
 /// テストでリモートのログインシェルの代わりに使うシェル。

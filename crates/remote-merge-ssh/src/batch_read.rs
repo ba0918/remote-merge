@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 
 use super::tree_parser::shell_escape;
+use crate::login_shell::{wrapped_script_len, WRAP_OVERHEAD};
 
 /// SSH バッチ読み込みのコマンド長上限（バイト）。
 ///
@@ -58,14 +59,14 @@ pub fn build_batch_cat_command(paths: &[String]) -> Option<String> {
     Some(parts.join(COMMAND_SEPARATOR))
 }
 
-/// 1パスがコマンドに足す長さ（バイト単位）。区切りを含む。
+/// 1パスが、ログインシェル向けに包んで送るコマンドに足す長さ（バイト単位）。区切りを含む。
 fn estimate_command_len_for_path(path: &str, index: usize) -> usize {
-    file_command(index, path).len() + COMMAND_SEPARATOR.len()
+    wrapped_script_len(&file_command(index, path)) + wrapped_script_len(COMMAND_SEPARATOR)
 }
 
-/// 終端マーカーのコマンド長。
+/// 終端マーカーと、ログインシェル向けの包みの前後が足す長さ。
 fn estimate_end_marker_len(path_count: usize) -> usize {
-    end_command(path_count).len()
+    wrapped_script_len(&end_command(path_count)) + WRAP_OVERHEAD
 }
 
 /// パスをコマンド長上限に収まるチャンクに分割する。
@@ -172,6 +173,7 @@ fn split_line(bytes: &[u8]) -> anyhow::Result<(&[u8], &[u8])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::login_shell::wrap_for_login_shell;
 
     /// 生成したコマンドを実際の sh で実行し、その stdout を返す
     fn run_batch(paths: &[String]) -> Vec<u8> {
@@ -368,7 +370,8 @@ mod tests {
         let result = chunk_paths(&paths, limit);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].len(), 2);
-        assert_eq!(build_batch_cat_command(&paths).unwrap().len(), limit);
+        let command = build_batch_cat_command(&paths).unwrap();
+        assert_eq!(wrap_for_login_shell(&command).len(), limit);
     }
 
     /// チャンク分割後の各チャンクのコマンドがコマンド長上限を超えないこと
@@ -386,6 +389,8 @@ mod tests {
         // 各チャンクのコマンドが上限以内であること
         for chunk in &chunks {
             if let Some(cmd) = build_batch_cat_command(chunk) {
+                // 送るのはログインシェル向けに包んだコマンド
+                let cmd = wrap_for_login_shell(&cmd);
                 // 1パスだけのチャンクは上限超えが許容される（パニック回避のため）
                 if chunk.len() > 1 {
                     assert!(
