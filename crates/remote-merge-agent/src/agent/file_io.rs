@@ -136,14 +136,16 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
                 message: error.to_string(),
             },
         },
-        Err(error) if is_missing_path_error(&error) => match resolved_missing_parent(&path) {
-            Ok(real_parent) => AgentPathInspection::Missing {
-                real_parent: real_parent.to_string_lossy().into_owned(),
-            },
-            Err(error) => AgentPathInspection::Error {
-                message: error.to_string(),
-            },
-        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match resolved_missing_parent(&path) {
+                Ok(real_parent) => AgentPathInspection::Missing {
+                    real_parent: real_parent.to_string_lossy().into_owned(),
+                },
+                Err(error) => AgentPathInspection::Error {
+                    message: error.to_string(),
+                },
+            }
+        }
         Err(error) => AgentPathInspection::Error {
             message: error.to_string(),
         },
@@ -178,19 +180,14 @@ fn resolved_missing_parent(path: &Path) -> Result<PathBuf> {
     let mut missing = Vec::new();
     loop {
         match fs::symlink_metadata(current) {
-            Ok(metadata) => {
-                // 参照先のない symlink の祖先は canonicalize できないので、SSH の経路と同じく参照先へ辿る
-                let mut resolved = if metadata.file_type().is_symlink() {
-                    resolved_symlink(current, &fs::read_link(current)?)?
-                } else {
-                    fs::canonicalize(current)?
-                };
+            Ok(_) => {
+                let mut resolved = fs::canonicalize(current)?;
                 for component in missing.iter().rev() {
                     resolved.push(component);
                 }
                 return Ok(resolved);
             }
-            Err(error) if is_missing_path_error(&error) => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 missing.push(
                     current
                         .file_name()
@@ -542,14 +539,6 @@ pub fn create_symlink_with_metadata(
 // Tests
 // ---------------------------------------------------------------------------
 
-/// パスがないことを示すエラーか。途中が通常ファイルのパスも、SSH の経路と同じくないものとする。
-fn is_missing_path_error(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,31 +547,6 @@ mod tests {
 
     fn setup() -> TempDir {
         tempfile::tempdir().unwrap()
-    }
-
-    #[test]
-    fn a_path_below_a_regular_file_is_missing() {
-        let tmp = setup();
-        fs::write(tmp.path().join("shared"), "body").unwrap();
-        for rel_path in ["shared/child.txt", "shared/sub/child.txt"] {
-            let inspected = inspect_path(tmp.path(), rel_path);
-            assert!(
-                matches!(inspected, AgentPathInspection::Missing { .. }),
-                "{rel_path}: {inspected:?}"
-            );
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_path_below_a_dangling_link_is_missing() {
-        let tmp = setup();
-        std::os::unix::fs::symlink("missing-dir", tmp.path().join("shared")).unwrap();
-        let inspected = inspect_path(tmp.path(), "shared/child.txt");
-        assert!(
-            matches!(inspected, AgentPathInspection::Missing { .. }),
-            "{inspected:?}"
-        );
     }
 
     // ── validate_path ──

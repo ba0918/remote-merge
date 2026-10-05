@@ -243,7 +243,7 @@ pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<TargetP
         Ok(_) => Ok(TargetPath::File {
             real_path: std::fs::canonicalize(path)?,
         }),
-        Err(error) if is_missing_path_error(&error) => Ok(TargetPath::Missing {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(TargetPath::Missing {
             real_parent: resolved_missing_parent(&path)?,
         }),
         Err(error) => Err(error.into()),
@@ -390,19 +390,14 @@ fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {
     let mut missing = Vec::new();
     loop {
         match std::fs::symlink_metadata(current) {
-            Ok(metadata) => {
-                // 参照先のない symlink の祖先は canonicalize できないので、SSH の経路と同じく参照先へ辿る
-                let mut resolved = if metadata.file_type().is_symlink() {
-                    resolved_symlink(current, &std::fs::read_link(current)?)?
-                } else {
-                    std::fs::canonicalize(current)?
-                };
+            Ok(_) => {
+                let mut resolved = std::fs::canonicalize(current)?;
                 for component in missing.iter().rev() {
                     resolved.push(component);
                 }
                 return Ok(resolved);
             }
-            Err(error) if is_missing_path_error(&error) => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 missing.push(
                     current
                         .file_name()
@@ -441,43 +436,5 @@ fn resolved_symlink(
             Ok(parent)
         }
         Err(error) => Err(error.into()),
-    }
-}
-
-/// パスがないことを示すエラーか。途中が通常ファイルのパスも、SSH の経路と同じくないものとする。
-fn is_missing_path_error(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_below_a_regular_file_is_missing() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::write(root.path().join("shared"), "body").unwrap();
-        for rel_path in ["shared/child.txt", "shared/sub/child.txt"] {
-            let inspected = inspect_local_path(root.path(), rel_path).unwrap();
-            assert!(
-                matches!(inspected, TargetPath::Missing { .. }),
-                "{rel_path}: {inspected:?}"
-            );
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_path_below_a_dangling_link_is_missing() {
-        let root = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink("missing-dir", root.path().join("shared")).unwrap();
-        let inspected = inspect_local_path(root.path(), "shared/child.txt").unwrap();
-        assert!(
-            matches!(inspected, TargetPath::Missing { .. }),
-            "{inspected:?}"
-        );
     }
 }

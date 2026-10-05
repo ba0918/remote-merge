@@ -164,6 +164,8 @@ pub fn execute_diff(
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
     let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
+    // 展開した子パスごとに、子の一覧が取れなかった（ディレクトリでない）側か。その側にはその子がない
+    let mut absent_sides: HashMap<String, (bool, bool)> = HashMap::new();
     // 中身を読まなくても変更のあるファイルと分かるもの
     let known_changed_files: HashSet<&str> = plain_file_sizes
         .iter()
@@ -173,6 +175,7 @@ pub fn execute_diff(
     let mut budget = ChangedFileBudget::new(args.max_files);
     while let Some(owned_path) = pending.pop_front() {
         let path = &owned_path;
+        let (left_absent, right_absent) = absent_sides.get(path).copied().unwrap_or_default();
         if known_changed_files.contains(path.as_str())
             && !expanded_children.contains(path)
             && budget.skip_unread(&file_diffs)
@@ -180,14 +183,16 @@ pub fn execute_diff(
             continue;
         }
         if !args.follow_external_links
-            && (path_escapes_root(&mut core, &pair.left, &left_root, path)?
-                || path_escapes_root(&mut core, &pair.right, &right_root, path)?)
+            && ((!left_absent && path_escapes_root(&mut core, &pair.left, &left_root, path)?)
+                || (!right_absent && path_escapes_root(&mut core, &pair.right, &right_root, path)?))
         {
             let reason = "content not compared (outside root_dir; use --follow-external-links)";
             let mut output =
                 build_uncompared_diff_output(path, left_info.clone(), right_info.clone(), reason);
-            let left_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
-            let right_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
+            let left_target =
+                link_target_unless_absent(&mut core, &pair.left, &left_tree, path, left_absent)?;
+            let right_target =
+                link_target_unless_absent(&mut core, &pair.right, &right_tree, path, right_absent)?;
             if left_target.is_some() || right_target.is_some() {
                 output.symlink = true;
                 output.link_targets = Some(LinkTargets {
@@ -208,22 +213,26 @@ pub fn execute_diff(
         let (left_quiet, right_quiet) = quiet_flags_for_status(status);
 
         // symlink 判定（ツリー情報から）
-        let left_symlink_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
-        let right_symlink_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
+        let left_symlink_target =
+            link_target_unless_absent(&mut core, &pair.left, &left_tree, path, left_absent)?;
+        let right_symlink_target =
+            link_target_unless_absent(&mut core, &pair.right, &right_tree, path, right_absent)?;
         if left_symlink_target.is_none() && right_symlink_target.is_none() {
-            let left_children = core.fetch_children(&pair.left, path);
-            let right_children = core.fetch_children(&pair.right, path);
+            let left_children = listed_children(&mut core, &pair.left, path, left_absent);
+            let right_children = listed_children(&mut core, &pair.right, path, right_absent);
             if are_empty_directories(&left_children, &right_children) {
                 scanned_files = scanned_files.saturating_sub(1);
                 continue;
             }
-            let left_children = left_children.unwrap_or_default();
-            let right_children = right_children.unwrap_or_default();
-            if !left_children.is_empty() || !right_children.is_empty() {
+            let has_children = |children: &Option<Vec<FileNode>>| {
+                children.as_ref().is_some_and(|nodes| !nodes.is_empty())
+            };
+            if has_children(&left_children) || has_children(&right_children) {
                 let (mut left_ancestors, mut right_ancestors) =
                     active_directories.remove(path).unwrap_or_default();
-                let left_real = inspected_real_path(core.inspect_path(&pair.left, path)?);
-                let right_real = inspected_real_path(core.inspect_path(&pair.right, path)?);
+                let left_real = real_path_unless_absent(&mut core, &pair.left, path, left_absent)?;
+                let right_real =
+                    real_path_unless_absent(&mut core, &pair.right, path, right_absent)?;
                 if left_real
                     .as_ref()
                     .is_some_and(|real| left_ancestors.contains(real))
@@ -244,7 +253,8 @@ pub fn execute_diff(
                 scanned_files = scanned_files.saturating_sub(1);
                 let children: BTreeSet<_> = left_children
                     .iter()
-                    .chain(&right_children)
+                    .flatten()
+                    .chain(right_children.iter().flatten())
                     .map(|node| node.name.as_str())
                     .collect();
                 for child in children {
@@ -261,6 +271,10 @@ pub fn execute_diff(
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
                     pending.push_back(child_path.clone());
+                    absent_sides.insert(
+                        child_path.clone(),
+                        (left_children.is_none(), right_children.is_none()),
+                    );
                     active_directories.insert(
                         child_path,
                         (left_ancestors.clone(), right_ancestors.clone()),
@@ -280,7 +294,9 @@ pub fn execute_diff(
             );
             let external = [(&pair.left, &left_root), (&pair.right, &right_root)]
                 .into_iter()
-                .any(|(side, root)| match core.inspect_path(side, path) {
+                .zip([left_absent, right_absent])
+                .filter(|(_, absent)| !absent)
+                .any(|((side, root), _)| match core.inspect_path(side, path) {
                     Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),
                     _ => false,
                 });
@@ -295,8 +311,16 @@ pub fn execute_diff(
                 file_diffs.push(link_diff);
                 continue;
             }
-            let left_content = read_existing_diff_file(&mut core, &pair.left, path);
-            let right_content = read_existing_diff_file(&mut core, &pair.right, path);
+            let left_content = if left_absent {
+                Ok(None)
+            } else {
+                read_existing_diff_file(&mut core, &pair.left, path)
+            };
+            let right_content = if right_absent {
+                Ok(None)
+            } else {
+                read_existing_diff_file(&mut core, &pair.right, path)
+            };
             let left_children = left_content
                 .as_ref()
                 .err()
@@ -323,8 +347,9 @@ pub fn execute_diff(
                 }
                 let (mut left_ancestors, mut right_ancestors) =
                     active_directories.remove(path).unwrap_or_default();
-                let left_real = inspected_real_path(core.inspect_path(&pair.left, path)?);
-                let right_real = inspected_real_path(core.inspect_path(&pair.right, path)?);
+                let left_real = real_path_unless_absent(&mut core, &pair.left, path, left_absent)?;
+                let right_real =
+                    real_path_unless_absent(&mut core, &pair.right, path, right_absent)?;
                 if left_real
                     .as_ref()
                     .is_some_and(|real| left_ancestors.contains(real))
@@ -364,7 +389,11 @@ pub fn execute_diff(
                     }
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
-                    pending.push_back(child_path);
+                    pending.push_back(child_path.clone());
+                    absent_sides.insert(
+                        child_path,
+                        (left_children.is_none(), right_children.is_none()),
+                    );
                     active_directories.insert(
                         format!("{path}/{child}"),
                         (left_ancestors.clone(), right_ancestors.clone()),
@@ -440,10 +469,16 @@ pub fn execute_diff(
         }
 
         // バイト列で読み込み、事前にバイナリ判定を行う
-        let (left_bytes, left_ok) =
-            read_file_bytes_tolerant(&mut core, &pair.left, path, left_quiet);
-        let (right_bytes, right_ok) =
-            read_file_bytes_tolerant(&mut core, &pair.right, path, right_quiet);
+        let (left_bytes, left_ok) = if left_absent {
+            (Vec::new(), false)
+        } else {
+            read_file_bytes_tolerant(&mut core, &pair.left, path, left_quiet)
+        };
+        let (right_bytes, right_ok) = if right_absent {
+            (Vec::new(), false)
+        } else {
+            read_file_bytes_tolerant(&mut core, &pair.right, path, right_quiet)
+        };
         // 両方読めなかったファイルはエラーとして記録
         if !left_ok && !right_ok {
             has_read_error = true;
@@ -546,11 +581,48 @@ pub fn execute_diff(
 /// 左右とも子の一覧が取れて（ディレクトリで）どちらにも子がないか。
 ///
 /// 子の一覧は include で絞った後のため、include の外のディレクトリもここに当たる。
-fn are_empty_directories(
-    left: &anyhow::Result<Vec<FileNode>>,
-    right: &anyhow::Result<Vec<FileNode>>,
-) -> bool {
-    matches!((left, right), (Ok(left), Ok(right)) if left.is_empty() && right.is_empty())
+fn are_empty_directories(left: &Option<Vec<FileNode>>, right: &Option<Vec<FileNode>>) -> bool {
+    matches!((left, right), (Some(left), Some(right)) if left.is_empty() && right.is_empty())
+}
+
+/// 子の一覧。取れない（ディレクトリでない）側と、子を持てない側の下に展開したパスは None。
+fn listed_children(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    absent: bool,
+) -> Option<Vec<FileNode>> {
+    if absent {
+        return None;
+    }
+    core.fetch_children(side, path).ok()
+}
+
+/// 子を持てない側の下に展開したパスは、その側を調べずにないものとする。
+fn link_target_unless_absent(
+    core: &mut CoreRuntime,
+    side: &Side,
+    tree: &FileTree,
+    path: &str,
+    absent: bool,
+) -> anyhow::Result<Option<String>> {
+    if absent {
+        return Ok(None);
+    }
+    link_target_for_diff(core, side, tree, path)
+}
+
+/// 子を持てない側の下に展開したパスは、その側を調べずに実パスなしとする。
+fn real_path_unless_absent(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    absent: bool,
+) -> anyhow::Result<Option<PathBuf>> {
+    if absent {
+        return Ok(None);
+    }
+    Ok(inspected_real_path(core.inspect_path(side, path)?))
 }
 
 /// 指定したパスのうち、比べるファイルを一つも解決せず、左右ともディレクトリで
@@ -576,8 +648,8 @@ fn directories_without_files(
         {
             continue;
         }
-        let left_children = core.fetch_children(left, normalized);
-        let right_children = core.fetch_children(right, normalized);
+        let left_children = core.fetch_children(left, normalized).ok();
+        let right_children = core.fetch_children(right, normalized).ok();
         if are_empty_directories(&left_children, &right_children) {
             directories.insert(path.clone());
         }
@@ -632,11 +704,15 @@ fn run_diff_fast_path(
             existing.push(path.clone());
             continue;
         }
-        let left_children = core.fetch_children(left, path);
-        let right_children = core.fetch_children(right, path);
+        let left_children = core.fetch_children(left, path).ok();
+        let right_children = core.fetch_children(right, path).ok();
         if are_empty_directories(&left_children, &right_children)
-            || left_children.as_ref().is_ok_and(|nodes| !nodes.is_empty())
-            || right_children.as_ref().is_ok_and(|nodes| !nodes.is_empty())
+            || left_children
+                .as_ref()
+                .is_some_and(|nodes| !nodes.is_empty())
+            || right_children
+                .as_ref()
+                .is_some_and(|nodes| !nodes.is_empty())
         {
             statuses.push(FileStatus {
                 path: path.clone(),
