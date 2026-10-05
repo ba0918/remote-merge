@@ -11,18 +11,19 @@ fn docker(container: &str, command: &str) -> Output {
         .unwrap()
 }
 
-fn config(home: &Path, port: &str, sudo: bool) -> std::path::PathBuf {
+fn config(home: &Path, port: &str, sudo: bool, deploy_dir: &str) -> std::path::PathBuf {
     let local = home.join("local");
     fs::create_dir_all(&local).unwrap();
     let path = home.join("config.toml");
     fs::write(
         &path,
         format!(
-            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"key\"\nkey = {:?}\nroot_dir = \"/data\"\nsudo = {}\n[agent]\nenabled = true\ndeploy_dir = \"/tmp/agent\"\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
+            "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"key\"\nkey = {:?}\nroot_dir = \"/data\"\nsudo = {}\n[agent]\nenabled = true\ndeploy_dir = {:?}\n[backup]\nenabled = true\n[ssh]\ntimeout_sec = 10\nstrict_host_key_checking = \"no\"\n",
             local,
             port,
             std::env::var("REMOTE_MERGE_KEY").unwrap(),
-            sudo
+            sudo,
+            deploy_dir
         ),
     )
     .unwrap();
@@ -30,9 +31,13 @@ fn config(home: &Path, port: &str, sudo: bool) -> std::path::PathBuf {
 }
 
 fn merge(home: &TempDir, port: &str) -> Output {
+    merge_with(home, port, true, "/tmp/agent")
+}
+
+fn merge_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str) -> Output {
     let binary = std::env::var("REMOTE_MERGE_BINARY").unwrap();
     let agent = std::env::var("REMOTE_MERGE_AGENT_BINARY").unwrap();
-    let config = config(home.path(), port, true);
+    let config = config(home.path(), port, sudo, deploy_dir);
     Command::new("timeout")
         .arg("45s")
         .arg(binary)
@@ -141,5 +146,85 @@ fn a_missing_deploy_directory_is_created_by_root_and_the_agent_runs_from_it_unde
     assert_eq!(
         String::from_utf8(state.stdout).unwrap(),
         "root 700\nfresh deploy\n"
+    );
+}
+
+/// sudo を使えないコンテナで、`deploy_dir` の下の利用者の配置先に、実行されると
+/// `marker` を作るスクリプトを置き、書き込み先の /data/example.txt を利用者の持ち物で用意する
+fn plant_for_testuser(container: &str, deploy_dir: &str, marker: &str) {
+    let leaf = format!("{deploy_dir}/remote-merge-testuser");
+    let setup = docker(
+        container,
+        &format!(
+            "rm -rf {deploy_dir} {marker} && mkdir -p {leaf} && printf '#!/bin/sh\\ntouch {marker}\\n' > {leaf}/remote-merge && chmod 755 {leaf}/remote-merge && chown -R testuser:testuser {leaf} && mkdir -p /data && printf 'old\\n' > /data/example.txt && chown -R testuser:testuser /data"
+        ),
+    );
+    assert!(setup.status.success(), "{setup:?}");
+}
+
+fn local_file(home: &TempDir, content: &str) {
+    fs::create_dir_all(home.path().join("local")).unwrap();
+    fs::write(home.path().join("local/example.txt"), content).unwrap();
+}
+
+// @kotowari[REQ-ssh-018, EX-ssh-028]
+#[test]
+fn an_own_deploy_directory_writable_by_the_group_is_made_owner_only_and_the_agent_is_placed_again()
+{
+    let container = std::env::var("REMOTE_MERGE_E2E_REJECT_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_REJECT_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    local_file(&home, "repaired deploy\n");
+    plant_for_testuser(&container, "/tmp/agent-repair", "/tmp/repair-planted-ran");
+    let chmod = docker(
+        &container,
+        "chmod 775 /tmp/agent-repair/remote-merge-testuser",
+    );
+    assert!(chmod.status.success(), "{chmod:?}");
+
+    let output = merge_with(&home, &port, false, "/tmp/agent-repair");
+
+    assert!(output.status.success(), "{output:?}");
+    let local_agent = Command::new("sha256sum")
+        .arg(std::env::var("REMOTE_MERGE_AGENT_BINARY").unwrap())
+        .output()
+        .unwrap();
+    let local_hash = String::from_utf8(local_agent.stdout).unwrap();
+    let local_hash = local_hash.split_whitespace().next().unwrap();
+    let state = docker(
+        &container,
+        "stat -c '%U %a' /tmp/agent-repair/remote-merge-testuser; sha256sum < /tmp/agent-repair/remote-merge-testuser/remote-merge | cut -d' ' -f1; test -e /tmp/repair-planted-ran && echo planted-ran; cat /data/example.txt",
+    );
+    assert_eq!(
+        String::from_utf8(state.stdout).unwrap(),
+        format!("testuser 700\n{local_hash}\nrepaired deploy\n")
+    );
+}
+
+// @kotowari[REQ-ssh-017, EX-ssh-031]
+#[test]
+fn nothing_in_a_deploy_directory_under_a_parent_owned_by_another_user_is_run() {
+    let container = std::env::var("REMOTE_MERGE_E2E_REJECT_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_REJECT_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    local_file(&home, "beside a foreign parent\n");
+    plant_for_testuser(&container, "/tmp/agent-foreign", "/tmp/foreign-planted-ran");
+    // 親は root でも利用者でもない nobody（uid 65534）の持ち物で、モードでは誰も書き込めない
+    let chown = docker(
+        &container,
+        "chmod 700 /tmp/agent-foreign/remote-merge-testuser && chown 65534 /tmp/agent-foreign && chmod 755 /tmp/agent-foreign",
+    );
+    assert!(chown.status.success(), "{chown:?}");
+
+    let output = merge_with(&home, &port, false, "/tmp/agent-foreign");
+
+    assert!(output.status.success(), "{output:?}");
+    let state = docker(
+        &container,
+        "test -e /tmp/foreign-planted-ran && echo planted-ran; cat /data/example.txt",
+    );
+    assert_eq!(
+        String::from_utf8(state.stdout).unwrap(),
+        "beside a foreign parent\n"
     );
 }
