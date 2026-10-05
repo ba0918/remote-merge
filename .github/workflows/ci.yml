@@ -46,7 +46,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install fish for the login shell tests
+        run: sudo apt-get update && sudo apt-get install -y fish
+
       - name: Run tests
+        env:
+          REMOTE_MERGE_TEST_REQUIRE_FISH: "1"
         run: |
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           test_home=$(mktemp -d)

@@ -23,6 +23,25 @@ pub(crate) fn wrap_for_login_shell(script: &str) -> String {
     command
 }
 
+/// テストでリモートのログインシェルの代わりに使うシェル。
+#[cfg(test)]
+pub(crate) const LOGIN_SHELLS: [&str; 4] = ["sh", "bash", "dash", "fish"];
+
+/// テストで `shell` が入っていないことを知らせ、そのシェルでの確認を飛ばす。
+///
+/// `REMOTE_MERGE_TEST_REQUIRE_FISH` が空でなければ、fish がないことを失敗にする（CI は fish を
+/// 入れてこの変数を置き、fish での確認が黙って抜けないようにする）。
+#[cfg(test)]
+pub(crate) fn skip_missing_shell(shell: &str) {
+    let fish_required =
+        std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_FISH").is_some_and(|value| !value.is_empty());
+    assert!(
+        !(shell == "fish" && fish_required),
+        "fish is required by REMOTE_MERGE_TEST_REQUIRE_FISH but is not installed"
+    );
+    eprintln!("note: {shell} is not installed; skipped running under it");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,9 +61,9 @@ mod tests {
         let expected = run_with("sh", script, dir).expect("sh is required");
         assert!(expected.status.success(), "{script}: {expected:?}");
         let wrapped = wrap_for_login_shell(script);
-        for shell in ["sh", "bash", "dash", "fish"] {
+        for shell in LOGIN_SHELLS {
             let Some(output) = run_with(shell, &wrapped, dir) else {
-                eprintln!("note: {shell} is not installed; skipped running under it");
+                skip_missing_shell(shell);
                 continue;
             };
             assert_eq!(

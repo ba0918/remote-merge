@@ -15,10 +15,19 @@ fn fish_is_installed() -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// `REMOTE_MERGE_TEST_REQUIRE_FISH` が空でなければ、fish がないときに飛ばさず失敗にする（CI が置く）。
+fn fish_is_required() -> bool {
+    std::env::var_os("REMOTE_MERGE_TEST_REQUIRE_FISH").is_some_and(|value| !value.is_empty())
+}
+
 // @kotowari[REQ-ssh-020, EX-ssh-033]
 #[test]
 fn a_merge_with_writes_links_and_deletions_works_when_the_remote_login_shell_is_fish() {
     if !fish_is_installed() {
+        assert!(
+            !fish_is_required(),
+            "fish is required by REMOTE_MERGE_TEST_REQUIRE_FISH but is not installed"
+        );
         eprintln!("note: fish is not installed; skipped the fish login shell contract test");
         return;
     }
