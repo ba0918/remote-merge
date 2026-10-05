@@ -25,3 +25,9 @@ SSH の一件ずつの読み込みは `openssl base64 -in` を使うが、openss
 - A5 子がすべて exclude に当たるディレクトリを指定した diff（exclude = ["target"] での `diff target`）がどの経路の組でも差分なし・終了コード 0 になることは、ここでは決めない。exclude に当たるファイルのパスを直接指定した diff が差分を出すことを記録した [FLAG-cli-031](../../ir/cli/FLAGS.md#FLAG-cli-031) に観察として加え、両方を合わせて後で決める。
   - why: 利用者は、どちらも exclude と指定したパスの関係で仕様が定めていない点が同じため、両方を合わせて決めるとした。
   - decided_by: 利用者（2026-10-05）
+  - superseded_by: [quality-cli の A4](./2026-10-05-quality-cli.md#A4)
+
+## Revisions
+
+- 2026-10-05: A1 が FLAG-cli-073 に残した片側にだけあるディレクトリの diff は、[quality-cli の A10](./2026-10-05-quality-cli.md#A10) が差分なし・終了コード 0 と決め、[REQ-cli-087](../../ir/cli/directory-paths.md#REQ-cli-087) になった。FLAG-cli-073 はもうない。A1 の両側にあるときの決定は変えない。
+- 2026-10-05: [quality-cli の A4](./2026-10-05-quality-cli.md#A4) で A5 を置き換え、子がすべて exclude に当たるディレクトリを指定した diff を差分なし・終了コード 0 と決めた（[REQ-cli-082](../../ir/cli/diff-strategy.md#REQ-cli-082)）。A5 が観察を加えた FLAG-cli-031 は閉じられた。
