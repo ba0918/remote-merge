@@ -778,6 +778,41 @@ fn empty_subdirectory_on_both_sides_has_no_diff() {
     );
 }
 
+// @kotowari[REQ-cli-077]
+#[test]
+fn directory_outside_include_has_no_diff_on_local_and_ssh_routes() {
+    let env = CliEnv::new_3way(
+        &[("src/app.rs", "same\n"), ("vendor/lib.txt", "local\n")],
+        &[("src/app.rs", "same\n"), ("vendor/lib.txt", "develop\n")],
+        &[("src/app.rs", "same\n"), ("vendor/lib.txt", "staging\n")],
+    );
+    let config = std::fs::read_to_string(&env.config_path).unwrap();
+    let with_include = config.replace("exclude = [\".git\", \"target\"]", "include = [\"src\"]");
+    assert_ne!(
+        with_include, config,
+        "fixture has no exclude line to replace"
+    );
+    std::fs::write(&env.config_path, with_include).unwrap();
+    for (left, right) in [("local", "develop"), ("develop", "staging")] {
+        for path in ["vendor", "vendor/"] {
+            let output = env
+                .cmd_with("diff")
+                .args([path, "--left", left, "--right", right])
+                .output()
+                .unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "{left}-{right} {path}: {output:?}"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("0 file(s) with changes"),
+                "{left}-{right} {path}: {output:?}"
+            );
+        }
+    }
+}
+
 // @kotowari[EX-cli-060]
 #[test]
 fn directory_link_spelling_keeps_link_and_child_changes() {

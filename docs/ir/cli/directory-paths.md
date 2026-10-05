@@ -1,6 +1,6 @@
 # ディレクトリを指定する CLI diff
 
-末尾スラッシュの有無によらず、既存ディレクトリ配下の差分を表示する。
+末尾スラッシュの有無によらず、既存ディレクトリ配下の差分を表示する。include の外のディレクトリを指定したときの扱いも定める。
 
 ## Requirements
 
@@ -10,6 +10,13 @@
 - verification: unit
 
 既存ディレクトリまたはディレクトリへの symlink を CLI diff に指定したとき、末尾にスラッシュがあってもなくても同じリンク文字列と子ファイルを比較し、差分・終了状態を変えない。
+
+### REQ-cli-077: include の外のディレクトリは差分なしとする
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1
+- verification: unit
+
+include 指定があり、include に一致しない既存ディレクトリを CLI diff に指定したとき、比べる経路の組によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
 
 ## Examples
 
