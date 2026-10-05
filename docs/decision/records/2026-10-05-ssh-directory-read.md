@@ -9,9 +9,9 @@ SSH の一件ずつの読み込みは `openssl base64 -in` を使うが、openss
 
 ## Agreements
 
-- A1 include の外の既存ディレクトリを指定した diff は、配下を include で絞った結果に比べるファイルがないものとして、差分なし（"0 file(s) with changes"）・終了コード 0 にする。ローカル・SSH・エージェントのどの経路の組でも同じにする。[REQ-cli-077](../../ir/cli/directory-paths.md#REQ-cli-077) として書く。
+- A1 include の外のディレクトリが左右の両方にあり、それを指定した diff は、配下を include で絞った結果に比べるファイルがないものとして、差分なし（"0 file(s) with changes"）・終了コード 0 にする。ローカル・SSH・エージェントのどの経路の組でも、指定したパスの数によらず同じにする。片側にだけあるディレクトリはこの決定の対象にしない（[FLAG-cli-073](../../ir/cli/FLAGS.md#FLAG-cli-073) に残す）。[REQ-cli-077](../../ir/cli/directory-paths.md#REQ-cli-077) として書く。
   - why: 利用者の決定の理由は記録されていない。AI が確かめたところ、この答えは include を比べる対象を一致するパスに限る設定とする [REQ-config-004](../../ir/config/filters.md#REQ-config-004) と、中身の空なディレクトリを差分なしとする [REQ-cli-025](../../ir/cli/directory-paths.md#REQ-cli-025) の既存のテストと矛盾しない。
-  - decided_by: 利用者（2026-10-05）
+  - decided_by: 利用者（2026-10-05）。左右の両方にある場合に限る絞り込みも利用者が 2026-10-05 に決めた
 - A2 FLAG-cli-045 を閉じる。左がローカルの通常ファイル、右が SSH のディレクトリ symlink の組でも、diff は右の配下を入口からの子パスで示す。IR は変えない。
   - why: コードが両方の向きで [REQ-cli-021](../../ir/cli/symlink-diff.md#REQ-cli-021) を満たすようになった。この向きでは右の子のパスを左で調べるとき、ローカルのパスの検査が途中が通常ファイルのパスを "Not a directory" のエラーにして比較全体が止まっていた。ローカルとエージェントのパスの検査を、SSH の経路と同じくそのパスをないものとして返すように揃え、逆向きの組を確かめるテストを足した。
   - decided_by: AI（2026-10-05 の利用者の指示「FLAGS を 0 にする」による委任）

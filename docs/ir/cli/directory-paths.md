@@ -16,7 +16,7 @@
 - source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1
 - verification: unit
 
-include 指定があり、include に一致しない既存ディレクトリを CLI diff に指定したとき、比べる経路の組によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
+include 指定があり、include に一致しないディレクトリが左右の両方にあって、そのディレクトリを CLI diff に指定したとき、比べる経路の組と指定したパスの数によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
 
 ## Examples
 

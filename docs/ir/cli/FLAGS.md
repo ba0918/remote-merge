@@ -288,3 +288,10 @@ diff の root_dir の外の判定は左右の項目だけを見るため、参�
 - source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A2, docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A3
 
 diff は一方の一つの変更が他方の複数の変更と重なるとき（例 参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変える）、重なる組を一つにまとめて "conflict_count" を 1 とするが、REQ-cli-065 の競合の数がこの場合に 1 か 2 かは定めていない。接するが別々の二つの競合（例 参照先 "1\n2\n3\n4\n5\n"、左 "A\nB\n3\nC\nD\n"、右 "1\nX\nY\n4\nZ\n" で、参照先の 0..3 と 3..5）は、diff は二つとして "conflict_count" を 2 とするが、一つと数えるか二つと数えるかも定めていない。
+
+### FLAG-cli-073: 片側にだけある配下の空なディレクトリの diff
+- kind: gap
+- related: REQ-cli-077, REQ-cli-025
+- source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1
+
+片側にだけあり、配下を include で絞ると比べるファイルがないディレクトリ（片側にだけある中身の空なディレクトリ、片側にだけある include の外のディレクトリ）を指定した diff の扱いは定めていない。REQ-cli-077 は左右の両方にある場合に限り、REQ-cli-025 は末尾のスラッシュによらず同じにすることだけを定める。diff は今、末尾のスラッシュの有無と、ディレクトリがローカルと SSH のどちらの側にあるかによらず、標準エラーに "Warning: '<path>' not found on either side" と "Error: specified path(s) not found on either side" を出して終了コード 2 を返す（2026-10-05 にローカルと SSH の組で確かめた）。
