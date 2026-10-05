@@ -18,7 +18,9 @@ use super::batch_read;
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::{append_known_hosts_entry, SshHandler};
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
-use super::tree_parser::{build_find_command, build_tree_from_flat, parse_find_line, shell_escape};
+use super::tree_parser::{
+    build_find_command, build_mkdir_command, build_tree_from_flat, parse_find_line, shell_escape,
+};
 use zeroize::Zeroizing;
 
 /// リモートコマンドの実行結果
@@ -1152,18 +1154,6 @@ fn is_passphrase_error(e: &russh::keys::Error) -> bool {
     matches!(e, russh::keys::Error::KeyIsEncrypted)
 }
 
-/// リモートパスの親ディレクトリを作成する `mkdir -p` コマンドを構築する。
-///
-/// 親ディレクトリがない（ルート直下のファイル等）場合は `None` を返す。
-fn build_mkdir_command(remote_path: &str) -> Option<String> {
-    let parent = Path::new(remote_path).parent()?;
-    let parent_str = parent.to_string_lossy();
-    if parent_str.is_empty() {
-        return None;
-    }
-    Some(format!("mkdir -p {}", shell_escape(&parent_str)))
-}
-
 /// パスワード認証のソース
 #[derive(Debug, Clone, PartialEq)]
 enum PasswordSource {
@@ -1309,38 +1299,6 @@ mod tests {
         let ssh_config = SshConfig::default();
         let duration = Duration::from_secs(ssh_config.timeout_sec);
         assert_eq!(duration.as_secs(), 300);
-    }
-
-    #[test]
-    fn test_build_mkdir_command_nested_path() {
-        let cmd = build_mkdir_command("/var/www/app/src/handler/mod.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app/src/handler'");
-    }
-
-    #[test]
-    fn test_build_mkdir_command_single_depth() {
-        let cmd = build_mkdir_command("/var/www/app/main.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app'");
-    }
-
-    #[test]
-    fn test_build_mkdir_command_root_file() {
-        // ルート直下のファイルは mkdir 不要
-        let cmd = build_mkdir_command("/main.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/'");
-    }
-
-    #[test]
-    fn test_build_mkdir_command_no_parent() {
-        // 親がないパスは None
-        let cmd = build_mkdir_command("file.rs");
-        assert!(cmd.is_none());
-    }
-
-    #[test]
-    fn test_build_mkdir_command_special_chars() {
-        let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
     }
 
     #[test]

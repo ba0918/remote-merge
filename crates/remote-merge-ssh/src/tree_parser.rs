@@ -1,4 +1,6 @@
-//! find コマンド出力のパース・ツリー構築。
+//! find コマンド出力のパース・ツリー構築と、リモートのファイル操作のシェルコマンドの組み立て。
+
+use std::path::Path;
 
 use chrono::{DateTime, TimeZone, Utc};
 
@@ -173,6 +175,43 @@ pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
 /// シェル引数をエスケープする
 pub fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// リモートパスの親ディレクトリを作成する `mkdir -p` コマンドを構築する。
+///
+/// 親ディレクトリがない（ルート直下のファイル等）場合は `None` を返す。
+pub fn build_mkdir_command(remote_path: &str) -> Option<String> {
+    let parent = Path::new(remote_path).parent()?;
+    let parent_str = parent.to_string_lossy();
+    if parent_str.is_empty() {
+        return None;
+    }
+    Some(format!("mkdir -p {}", shell_escape(&parent_str)))
+}
+
+/// ファイルか symlink を消し、ないパスでは 0 以外で終わるコマンドを構築する。
+///
+/// `test -e` はリンク先のない symlink を偽にするので `-L` でも確かめる。`-f` なしの `rm` は
+/// 書き込めないファイルで端末に確認を求めうるため、存在を確かめてから `rm -f` で消す。
+pub fn build_remove_command(remote_path: &str) -> String {
+    let q = shell_escape(remote_path);
+    format!("{{ [ -e {q} ] || [ -L {q} ]; }} && rm -f {q}")
+}
+
+/// 親ディレクトリを作ってから symlink を作成・更新するコマンドを構築する。
+///
+/// 作成先が symlink でない既存のディレクトリなら、`ln -sfn` がその中にリンクを作ってしまうので
+/// 何もせずに 0 以外で終わる。既存の symlink は `-n` によりリンクそのものを置き換える。
+pub fn build_create_symlink_command(target: &str, remote_path: &str) -> String {
+    let q = shell_escape(remote_path);
+    let create = format!(
+        "{{ [ -L {q} ] || [ ! -d {q} ]; }} && ln -sfn {} {q}",
+        shell_escape(target)
+    );
+    match build_mkdir_command(remote_path) {
+        Some(mkdir) => format!("{mkdir} && {create}"),
+        None => create,
+    }
 }
 
 /// `find` コマンド文字列を生成する（再帰スキャン用）
@@ -580,5 +619,134 @@ mod tests {
         assert!(cmd.contains("'/var/www/src'"));
         // "/var/www//src" にならないことを確認
         assert!(!cmd.contains("//"));
+    }
+
+    /// 生成したコマンドを実際の sh で実行し、成功したかを返す
+    fn sh_succeeds(command: &str) -> bool {
+        std::process::Command::new("sh")
+            .args(["-c", command])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap()
+            .status
+            .success()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removing_deletes_a_file_or_a_dangling_link_and_fails_on_a_missing_path() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("file.txt");
+        std::fs::write(&file, "x").unwrap();
+        let dangling = dir.path().join("dangling");
+        symlink(dir.path().join("nowhere"), &dangling).unwrap();
+        let target = dir.path().join("target.txt");
+        std::fs::write(&target, "kept").unwrap();
+        let link = dir.path().join("link");
+        symlink(&target, &link).unwrap();
+        let missing = dir.path().join("missing.txt");
+
+        assert!(sh_succeeds(&build_remove_command(file.to_str().unwrap())));
+        assert!(sh_succeeds(&build_remove_command(
+            dangling.to_str().unwrap()
+        )));
+        assert!(sh_succeeds(&build_remove_command(link.to_str().unwrap())));
+        assert!(!sh_succeeds(&build_remove_command(
+            missing.to_str().unwrap()
+        )));
+
+        assert!(file.symlink_metadata().is_err());
+        assert!(dangling.symlink_metadata().is_err());
+        assert!(link.symlink_metadata().is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "kept");
+        assert!(missing.symlink_metadata().is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creating_a_link_makes_its_missing_parent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("new/dir/link");
+
+        assert!(sh_succeeds(&build_create_symlink_command(
+            "x",
+            link.to_str().unwrap()
+        )));
+
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("x"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creating_a_link_over_a_link_retargets_only_the_link() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::TempDir::new().unwrap();
+        let old_target = dir.path().join("old.txt");
+        std::fs::write(&old_target, "old").unwrap();
+        let link = dir.path().join("link");
+        symlink(&old_target, &link).unwrap();
+
+        assert!(sh_succeeds(&build_create_symlink_command(
+            "new.txt",
+            link.to_str().unwrap()
+        )));
+
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("new.txt"));
+        assert_eq!(std::fs::read_to_string(&old_target).unwrap(), "old");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creating_a_link_where_a_directory_or_a_file_parent_is_fails_without_change() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let existing_dir = dir.path().join("existing");
+        std::fs::create_dir(&existing_dir).unwrap();
+        let file_parent = dir.path().join("file.txt");
+        std::fs::write(&file_parent, "x").unwrap();
+
+        assert!(!sh_succeeds(&build_create_symlink_command(
+            "x",
+            existing_dir.to_str().unwrap()
+        )));
+        assert!(!sh_succeeds(&build_create_symlink_command(
+            "x",
+            file_parent.join("link").to_str().unwrap()
+        )));
+
+        assert_eq!(std::fs::read_dir(&existing_dir).unwrap().count(), 0);
+        assert_eq!(std::fs::read_to_string(&file_parent).unwrap(), "x");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_nested_path() {
+        let cmd = build_mkdir_command("/var/www/app/src/handler/mod.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app/src/handler'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_single_depth() {
+        let cmd = build_mkdir_command("/var/www/app/main.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_root_file() {
+        // ルート直下のファイルは mkdir 不要
+        let cmd = build_mkdir_command("/main.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/'");
+    }
+
+    #[test]
+    fn test_build_mkdir_command_no_parent() {
+        // 親がないパスは None
+        let cmd = build_mkdir_command("file.rs");
+        assert!(cmd.is_none());
+    }
+
+    #[test]
+    fn test_build_mkdir_command_special_chars() {
+        let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
+        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
     }
 }

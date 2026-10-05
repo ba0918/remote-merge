@@ -307,10 +307,9 @@ impl CoreRuntime {
         Ok(results)
     }
 
-    /// リモートでファイルまたはシンボリックリンクを削除する（rm -f）。
+    /// リモートでファイルまたはシンボリックリンクを削除する。symlink はリンク先ではなくリンクを消す。
     ///
-    /// `rm -f` を使用する理由: ファイルが存在しない場合にもエラーにならず、
-    /// かつ symlink 自体を（参照先ではなく）削除できるため。
+    /// 比べた後に消えていたパスは、削除の失敗として Err を返す。
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `remove_file(side, path)` を使うこと。
     pub(crate) fn remove_remote_file(
@@ -319,19 +318,16 @@ impl CoreRuntime {
         rel_path: &str,
     ) -> anyhow::Result<()> {
         let full_path = self.resolve_remote_path(server_name, rel_path)?;
-        let cmd = format!(
-            "rm -f {}",
-            crate::ssh::tree_parser::shell_escape(&full_path)
-        );
+        let cmd = crate::ssh::tree_parser::build_remove_command(&full_path);
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.exec(&cmd))?;
+        self.rt.block_on(crate::ssh::exec_strict(client, &cmd))?;
         Ok(())
     }
 
-    /// リモートでシンボリックリンクを作成/更新する（ln -sfn）。
+    /// リモートでシンボリックリンクを作成/更新する。親ディレクトリがなければ作る。
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_symlink(side, path, target)` を使うこと。
     pub(crate) fn create_remote_symlink(
@@ -341,19 +337,12 @@ impl CoreRuntime {
         target: &str,
     ) -> anyhow::Result<()> {
         let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
-
-        let cmd = format!(
-            "ln -sfn {} {}",
-            crate::ssh::tree_parser::shell_escape(target),
-            crate::ssh::tree_parser::shell_escape(&full_path),
-        );
-
+        let cmd = crate::ssh::tree_parser::build_create_symlink_command(target, &full_path);
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        self.rt.block_on(client.exec(&cmd))?;
+        self.rt.block_on(crate::ssh::exec_strict(client, &cmd))?;
         Ok(())
     }
 

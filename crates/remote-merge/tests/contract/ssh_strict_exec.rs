@@ -50,3 +50,44 @@ fn an_unreadable_remote_file_fails_the_merge_instead_of_reading_as_empty() {
     assert!(error.starts_with("read failed: right: "), "{json}");
     assert_eq!(fs::read_to_string(&remote_file).unwrap(), "remote\n");
 }
+
+// @kotowari[REQ-merge-023]
+#[test]
+fn a_symlink_under_a_missing_remote_directory_is_created_with_its_parent() {
+    let env = CliEnv::new(&[], &[]);
+    super::common::place_symlink(&env.local_dir, "newdir/link", "x");
+
+    let (code, json) = merge_without_backup(&env, &["newdir/link"]);
+
+    assert_eq!(code, Some(0), "{json}");
+    assert_eq!(
+        fs::read_link(env.remote_dir.join("newdir/link")).unwrap(),
+        Path::new("x"),
+        "{json}"
+    );
+}
+
+// @kotowari[REQ-merge-034]
+#[test]
+fn a_remote_file_that_cannot_be_deleted_fails_without_stopping_the_rest() {
+    let env = CliEnv::new(&[], &[("locked/a.txt", "keep\n"), ("free.txt", "remove\n")]);
+    let locked = env.remote_dir.join("locked");
+    set_mode(&locked, 0o555);
+    // root で実行すると権限を落としても消せてしまうため、前提の崩れを知らせる
+    let precondition_holds = fs::write(locked.join("probe.txt"), "").is_err();
+
+    let (code, json) = merge_without_backup(&env, &[".", "--delete"]);
+
+    set_mode(&locked, 0o755);
+    assert!(precondition_holds, "test needs an unremovable remote file");
+    assert_eq!(code, Some(2), "{json}");
+    let failed: Vec<&str> = json["failed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(failed, ["locked/a.txt"], "{json}");
+    assert_eq!(fs::read_to_string(locked.join("a.txt")).unwrap(), "keep\n");
+    assert!(!env.remote_dir.join("free.txt").exists(), "{json}");
+}
