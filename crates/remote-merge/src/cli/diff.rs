@@ -211,8 +211,14 @@ pub fn execute_diff(
         let left_symlink_target = link_target_for_diff(&mut core, &pair.left, &left_tree, path)?;
         let right_symlink_target = link_target_for_diff(&mut core, &pair.right, &right_tree, path)?;
         if left_symlink_target.is_none() && right_symlink_target.is_none() {
-            let left_children = core.fetch_children(&pair.left, path).unwrap_or_default();
-            let right_children = core.fetch_children(&pair.right, path).unwrap_or_default();
+            let left_children = core.fetch_children(&pair.left, path);
+            let right_children = core.fetch_children(&pair.right, path);
+            if are_empty_directories(&left_children, &right_children) {
+                scanned_files = scanned_files.saturating_sub(1);
+                continue;
+            }
+            let left_children = left_children.unwrap_or_default();
+            let right_children = right_children.unwrap_or_default();
             if !left_children.is_empty() || !right_children.is_empty() {
                 let (mut left_ancestors, mut right_ancestors) =
                     active_directories.remove(path).unwrap_or_default();
@@ -538,6 +544,16 @@ pub fn execute_diff(
     Ok((multi_output, code))
 }
 
+/// 左右とも子の一覧が取れて（ディレクトリで）どちらにも子がないか。
+///
+/// 子の一覧は include で絞った後のため、include の外のディレクトリもここに当たる。
+fn are_empty_directories(
+    left: &anyhow::Result<Vec<FileNode>>,
+    right: &anyhow::Result<Vec<FileNode>>,
+) -> bool {
+    matches!((left, right), (Ok(left), Ok(right)) if left.is_empty() && right.is_empty())
+}
+
 fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
     match path {
         TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => Some(real_path),
@@ -585,9 +601,12 @@ fn run_diff_fast_path(
             existing.push(path.clone());
             continue;
         }
-        let left_children = core.fetch_children(left, path).unwrap_or_default();
-        let right_children = core.fetch_children(right, path).unwrap_or_default();
-        if !left_children.is_empty() || !right_children.is_empty() {
+        let left_children = core.fetch_children(left, path);
+        let right_children = core.fetch_children(right, path);
+        if are_empty_directories(&left_children, &right_children)
+            || left_children.as_ref().is_ok_and(|nodes| !nodes.is_empty())
+            || right_children.as_ref().is_ok_and(|nodes| !nodes.is_empty())
+        {
             statuses.push(FileStatus {
                 path: path.clone(),
                 status: FileStatusKind::Modified,

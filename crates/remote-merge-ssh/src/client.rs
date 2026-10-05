@@ -580,33 +580,44 @@ impl SshClient {
                 timeout_sec: timeout_secs,
             })??;
 
-        let mut nodes = Vec::new();
-        let mut truncated = false;
+        Ok(parse_listing(
+            &output,
+            remote_path,
+            exclude,
+            parent_rel_path,
+            max_entries,
+        ))
+    }
 
-        for line in output.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if nodes.len() >= max_entries {
-                truncated = true;
-                tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
-                break;
-            }
-            if let Some(node) = parse_find_line(line, remote_path, exclude) {
-                // maxdepth 1 で得たノード名は1セグメントのみ。
-                // パスパターン（例: config/*.toml）にマッチさせるため、
-                // parent_rel_path を付けてフルパスで再フィルタする。
-                if !parent_rel_path.is_empty() {
-                    let full_rel = format!("{}/{}", parent_rel_path, node.name);
-                    if crate::filter::is_path_excluded(&full_rel, exclude) {
-                        continue;
-                    }
-                }
-                nodes.push(node);
-            }
-        }
-
-        Ok((nodes, truncated))
+    /// リモートディレクトリの直下エントリを取得し、ディレクトリでなければエラーにする
+    ///
+    /// `list_dir` は `find` の終了コードを見ないため、通常ファイル・存在しないパス・
+    /// 参照先のない symlink でも空の一覧を返す。こちらは一覧の成否でディレクトリかを
+    /// 判定する呼び出し元向け。
+    pub async fn list_dir_strict(
+        &mut self,
+        remote_path: &str,
+        exclude: &[String],
+        parent_rel_path: &str,
+    ) -> crate::error::Result<Vec<FileNode>> {
+        let command = list_dir_command(remote_path);
+        let output = tokio::time::timeout(
+            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
+            self.exec_strict(&command),
+        )
+        .await
+        .map_err(|_| AppError::SshTimeout {
+            host: self.server_name.clone(),
+            timeout_sec: Self::DIR_TIMEOUT_SECS,
+        })??;
+        let (nodes, _) = parse_listing(
+            &output,
+            remote_path,
+            exclude,
+            parent_rel_path,
+            Self::MAX_DIR_ENTRIES,
+        );
+        Ok(nodes)
     }
 
     /// リモートディレクトリを再帰的に全走査する（変更ファイルフィルター用）
@@ -907,9 +918,7 @@ impl SshClient {
     /// `openssl base64` でエンコードされたデータを取得し、デコードして返す。
     /// UTF-8 変換を行わないため、バイナリファイルでもデータが破壊されない。
     pub async fn read_file_bytes(&mut self, remote_path: &str) -> crate::error::Result<Vec<u8>> {
-        let escaped = shell_escape(remote_path);
-        let cmd = format!("openssl base64 -in {}", escaped);
-        let base64_output = self.exec_strict(&cmd).await?;
+        let base64_output = self.exec_strict(&read_file_command(remote_path)).await?;
         decode_base64_output(&base64_output)
     }
 
@@ -1214,6 +1223,51 @@ fn resolve_password(
     config_password.map(|p| (Zeroizing::new(p.to_string()), PasswordSource::Config))
 }
 
+/// openssl はディレクトリを読むと "Is a directory" を出すのに終了コード 0 で空を返すため、
+/// 読んだ後にディレクトリでないことを確かめて失敗させる。openssl を先に置くのは、
+/// 存在しないパスなどで openssl 自身のエラーをそのまま返すため。
+fn read_file_command(remote_path: &str) -> String {
+    let escaped = shell_escape(remote_path);
+    format!("openssl base64 -in {escaped} && test ! -d {escaped}")
+}
+
+/// `list_dir_command` の出力を直下のノードに直す。返り値の bool は件数の上限で打ち切ったか。
+fn parse_listing(
+    output: &str,
+    remote_path: &str,
+    exclude: &[String],
+    parent_rel_path: &str,
+    max_entries: usize,
+) -> (Vec<FileNode>, bool) {
+    let mut nodes = Vec::new();
+    let mut truncated = false;
+
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if nodes.len() >= max_entries {
+            truncated = true;
+            tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
+            break;
+        }
+        if let Some(node) = parse_find_line(line, remote_path, exclude) {
+            // maxdepth 1 で得たノード名は1セグメントのみ。
+            // パスパターン（例: config/*.toml）にマッチさせるため、
+            // parent_rel_path を付けてフルパスで再フィルタする。
+            if !parent_rel_path.is_empty() {
+                let full_rel = format!("{}/{}", parent_rel_path, node.name);
+                if crate::filter::is_path_excluded(&full_rel, exclude) {
+                    continue;
+                }
+            }
+            nodes.push(node);
+        }
+    }
+
+    (nodes, truncated)
+}
+
 fn list_dir_command(remote_path: &str) -> String {
     format!(
         "find {}/ -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\t%Y\\n'",
@@ -1247,6 +1301,34 @@ mod tests {
         assert!(output.status.success(), "{output:?}");
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(text.contains("child.txt"), "{text:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reading_a_directory_fails() {
+        let root = tempfile::TempDir::new().unwrap();
+        let dir = root.path().join("some dir");
+        std::fs::create_dir(&dir).unwrap();
+        let output = std::process::Command::new("sh")
+            .args(["-c", &read_file_command(dir.to_str().unwrap())])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{output:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reading_a_regular_file_returns_its_content() {
+        let root = tempfile::TempDir::new().unwrap();
+        let file = root.path().join("some file.txt");
+        std::fs::write(&file, "file body\n").unwrap();
+        let output = std::process::Command::new("sh")
+            .args(["-c", &read_file_command(file.to_str().unwrap())])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let encoded = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(decode_base64_output(&encoded).unwrap(), b"file body\n");
     }
 
     #[test]

@@ -376,7 +376,7 @@ impl CoreRuntime {
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        let nodes = self.rt.block_on(client.list_dir(
+        let nodes = self.rt.block_on(client.list_dir_strict(
             &sub_dir,
             &self.config.filter.exclude,
             dir_rel_path,

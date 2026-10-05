@@ -735,6 +735,20 @@ fn empty_directory_has_same_no_diff_result_with_or_without_slash() {
     }
 }
 
+// @kotowari[REQ-cli-052]
+#[test]
+fn empty_subdirectory_on_both_sides_has_no_diff() {
+    let env = CliEnv::new(&[("src/app.rs", "same\n")], &[("src/app.rs", "same\n")]);
+    std::fs::create_dir(env.local_dir.join("src/empty")).unwrap();
+    std::fs::create_dir(env.remote_dir.join("src/empty")).unwrap();
+    let output = env.cmd_with("diff").arg("src").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("0 file(s) with changes"),
+        "{output:?}"
+    );
+}
+
 // @kotowari[EX-cli-060]
 #[test]
 fn directory_link_spelling_keeps_link_and_child_changes() {
@@ -1442,6 +1456,22 @@ fn broken_link_on_the_local_side_is_an_error_even_when_the_other_side_reads() {
         good_hunks.contains("left") && good_hunks.contains("right"),
         "{result}"
     );
+}
+
+// @kotowari[REQ-cli-022]
+#[test]
+fn broken_link_on_the_ssh_side_is_an_error_against_a_local_regular_file() {
+    let env = CliEnv::new(&[("link.txt", "left body\n")], &[]);
+    place_symlink(&env.remote_dir, "link.txt", "missing.txt");
+
+    let output = env
+        .cmd_with("diff")
+        .args(["link.txt", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_reason_given(json_error(&result, "link.txt"), &result);
 }
 
 // @kotowari[EX-cli-044]
