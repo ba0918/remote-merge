@@ -73,7 +73,7 @@ entries:
   files:
   - path: crates/remote-merge-agent/src/agent/deploy/deploy_dir.rs
     before: null
-    after: sha256:0b304b0afdfe863cdb43ace10591ef1a86f3ea3f1f7ea5cf488d07c2fb8b24a3
+    after: sha256:fda479b038df6d2c2e2b24644ff0a40df07131aefbb82c8e75493b507c9353e4
   - path: crates/remote-merge-agent/src/agent/deploy/mod.rs
     before: sha256:5c9f3e43991e19728c24568ed5a896e4dcec65ce6bd9ca9f14007701e13a8a05
     after: sha256:db380e1110013fe3f27add2650f087f3addc036be2bc506f064b6e4a9c69194e
@@ -91,7 +91,7 @@ entries:
     after: sha256:0a351c82e70c965bf2ff4e5cd087bfb4b0d292eb65a871846774b169d68b53a7
   - path: crates/remote-merge/src/runtime/core.rs
     before: sha256:d29b3296ac4d604d93633c63019fd44ba67d3531f029002d1b88562f5c139e36
-    after: sha256:266153d4694bdc7e622350c762cb7980426a2f3a867bad212e8d4140c3157d2a
+    after: sha256:87019b0c26c09f193f928d30350e3eea4e01cef433831cc3c522a10bb03c70ff
   - path: crates/remote-merge/tests/contract.rs
     before: sha256:8e3b6cffe6b9b6c235daf2ee13e013ad3a7b6d274143efa6bd979f8075b4d3ab
     after: sha256:9c857d7bf1119f766d97a3e289d738a7a00947d23b4ecfdad081ca01f799e423
@@ -118,7 +118,7 @@ entries:
   - path: docs/ir/ssh/sudo.md
     sha256: sha256:5073bd1d4e25e54099bae6c32490a0639ab5db0909f8c19beb4cbcf3c077e986
   conclusion: new
-  reason: 版の確認より前に配置先のディレクトリを一つの POSIX sh のコマンドで検査する（sudo=true では検査全体を sudo で実行する）。なければ途中の親も含めて umask 077 で作り（A11・A10、REQ-ssh-015）、symlink であるとき、所有者が SSH のセッションの id -u（sudo=true では 0）でないときは中のものを何も実行せず、Agent を起動できない既存の経路に乗せる（A11、REQ-ssh-014。sudo=false では SSH の経路で続け REQ-ssh-005、sudo=true では止まる REQ-ssh-009 を変えない）。配置先へ辿るディレクトリは、書かれたパスの各段を根まで辿り、symlink に当たれば -f なしの readlink で読んだリンク先を同じく辿り（40 段で打ち切る）、解決した実際のパスも辿る。そのどれかがグループかその他が書き込めて sticky bit のないものか、所有者が root でも期待する uid でもないものなら、同じく何も実行しない（A9 を置き換えた A13、REQ-ssh-017。例 EX-ssh-027・EX-ssh-032 は試験用 SSH サーバ、別の利用者の持ち物の親の EX-ssh-031 は権限なしでは作れないので Docker の OpenSSH で確かめる）。sudo=false でこれらに当たって Agent を使わずに続けるときは、配置先のパスを示す警告を標準エラーに出す（A14、REQ-ssh-019。文言は契約にしない。sudo=true のエラーの文言は変えていない）。所有者が一致してグループかその他が書き込める配置先は、辿るディレクトリが安全ならモード 700 に直し、中の Agent と書き込み途中のファイルを除き、版の確認をせずに置き直して、配置先のパスを示す警告を出す（A11、REQ-ssh-018。試験用 SSH サーバは配置の前の確認に偽の失敗を返して置き直しを完了しないので、置き直されて中身が手元の Agent と同じになることは Docker の OpenSSH で確かめる）。版が一致したときもローカルの Agent のバイナリを解決できれば SHA-256 を照合し、不一致なら置き直す。リモートでハッシュを計算できないとき（__UNSUPPORTED__）と、ローカルのバイナリを解決できないときは照合せずに実行し、前者は警告する（A8、REQ-ssh-016）。sudo=true では版の確認・ハッシュ・symlink の確認・書き込み後の照合も sudo で行い、配置先のないサーバへの初めての配置が成功することを Docker の OpenSSH と sudo の試験で確かめる（A12、EX-ssh-029）。安全の制約を IR に書く範囲は A7 で決めた。新しい終了コードは契約にしていない。umask によってグループが書き込めるモードになる既存の試験の一時ディレクトリと配置先は所有者だけのモードを明示し、仕様にない Agent の起動コマンドの形を固定する検査は除いた。
+  reason: 版の確認より前に配置先のディレクトリを一つの POSIX sh のコマンドで検査する（sudo=true では検査全体を sudo で実行する）。なければ途中の親も含めて umask 077 で作り（A11・A10、REQ-ssh-015）、symlink であるとき、所有者が SSH のセッションの id -u（sudo=true では 0）でないときは中のものを何も実行せず、Agent を起動できない既存の経路に乗せる（A11、REQ-ssh-014。sudo=false では SSH の経路で続け REQ-ssh-005、sudo=true では止まる REQ-ssh-009 を変えない）。配置先へ辿るディレクトリは、書かれたパスの各段を根まで辿り、symlink に当たれば -f なしの readlink で読んだリンク先を同じく辿り（40 段で打ち切る）、解決した実際のパスも辿る。そのどれかがグループかその他が書き込めて sticky bit のないものか、所有者が root でも期待する uid でもないものなら、同じく何も実行しない（A9 を置き換えた A13、REQ-ssh-017。例 EX-ssh-027・EX-ssh-032 は試験用 SSH サーバ、別の利用者の持ち物の親の EX-ssh-031 は権限なしでは作れないので Docker の OpenSSH で確かめる）。sudo=false でこれらに当たって Agent を使わずに続けるときは、配置先のパスを示す警告を標準エラーに出す（A14、REQ-ssh-019。文言は契約にしない）。検査のスクリプトは安全でないときも検査を終えられなかったときも印を出さず両者を区別できないので、sudo=false の警告と sudo=true のエラーは配置先を「安全と確かめられない」と述べ、エラーは A11 の配置先そのものの条件（symlink でなく、ログインユーザー〔sudo=true では root〕の所有）と A13 の辿るディレクトリの条件（途中の symlink を置いたディレクトリを含め、所有者が root かログインユーザーで、sticky bit なしにグループかその他が書き込めない）と、サーバで検査を終えられなかった場合もあることを示す。どちらでも Agent を使わない結果は同じなので、判定の型は分けていない。所有者が一致してグループかその他が書き込める配置先は、辿るディレクトリが安全ならモード 700 に直し、中の Agent と書き込み途中のファイルを除き、版の確認をせずに置き直して、配置先のパスを示す警告を出す（A11、REQ-ssh-018。試験用 SSH サーバは配置の前の確認に偽の失敗を返して置き直しを完了しないので、置き直されて中身が手元の Agent と同じになることは Docker の OpenSSH で確かめる）。版が一致したときもローカルの Agent のバイナリを解決できれば SHA-256 を照合し、不一致なら置き直す。リモートでハッシュを計算できないとき（__UNSUPPORTED__）と、ローカルのバイナリを解決できないときは照合せずに実行し、前者は警告する（A8、REQ-ssh-016）。sudo=true では版の確認・ハッシュ・symlink の確認・書き込み後の照合も sudo で行い、配置先のないサーバへの初めての配置が成功することを Docker の OpenSSH と sudo の試験で確かめる（A12、EX-ssh-029）。安全の制約を IR に書く範囲は A7 で決めた。新しい終了コードは契約にしていない。umask によってグループが書き込めるモードになる既存の試験の一時ディレクトリと配置先は所有者だけのモードを明示し、仕様にない Agent の起動コマンドの形を固定する検査は除いた。
   requirements:
   - REQ-ssh-005
   - REQ-ssh-009
