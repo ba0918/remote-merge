@@ -110,7 +110,7 @@ pub fn write_local_file_bytes(
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(&normalized, content)?;
+    write_without_following_link(&normalized, content)?;
     tracing::info!(target: "remote_merge::merge::executor", "Local file written (bytes): {}", normalized.display());
     Ok(())
 }
@@ -133,9 +133,32 @@ pub fn write_local_file(
         std::fs::create_dir_all(parent)?;
     }
 
-    std::fs::write(&normalized, content)?;
+    write_without_following_link(&normalized, content.as_bytes())?;
     tracing::info!(target: "remote_merge::merge::executor", "Local file written: {}", normalized.display());
     Ok(())
+}
+
+/// `std::fs::write` と同じく作成・切り詰めて書くが、最後の要素が symlink なら辿らずに失敗する。
+///
+/// `std::fs::write` はリンク先を書き換えるため、確かめてから書く間の差し替えも含めて
+/// O_NOFOLLOW で開く。途中の要素の symlink は O_NOFOLLOW の対象外なので今までどおり辿る。
+#[cfg(unix)]
+fn write_without_following_link(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?
+        .write_all(content)
+}
+
+/// O_NOFOLLOW のない環境では今までどおり書く
+#[cfg(not(unix))]
+fn write_without_following_link(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, content)
 }
 
 /// ローカルファイルの内容を読み込む
@@ -440,5 +463,48 @@ mod tests {
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("Path escapes root_dir"));
+    }
+
+    /// `real.txt` を指す symlink `link.txt` を置いた一時ディレクトリ
+    #[cfg(unix)]
+    fn root_with_link_to_real_file() -> TempDir {
+        let root = TempDir::new().unwrap();
+        std::fs::write(root.path().join("real.txt"), "original").unwrap();
+        std::os::unix::fs::symlink("real.txt", root.path().join("link.txt")).unwrap();
+        root
+    }
+
+    #[cfg(unix)]
+    fn assert_link_and_target_unchanged(root: &TempDir) {
+        assert_eq!(
+            std::fs::read_link(root.path().join("link.txt")).unwrap(),
+            Path::new("real.txt")
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("real.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binary_write_refuses_a_symlink_destination() {
+        let root = root_with_link_to_real_file();
+
+        let result = write_local_file_bytes(root.path(), "link.txt", b"new");
+
+        assert!(result.is_err());
+        assert_link_and_target_unchanged(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn text_write_refuses_a_symlink_destination() {
+        let root = root_with_link_to_real_file();
+
+        let result = write_local_file(root.path(), "link.txt", "new");
+
+        assert!(result.is_err());
+        assert_link_and_target_unchanged(&root);
     }
 }

@@ -1958,6 +1958,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "glob-match",
+ "libc",
  "remote-merge-config",
  "remote-merge-core",
  "remote-merge-protocol",
