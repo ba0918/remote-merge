@@ -1538,6 +1538,39 @@ fn broken_link_on_the_ssh_side_is_an_error_against_a_local_regular_file() {
     assert_reason_given(json_error(&result, "link.txt"), &result);
 }
 
+// @kotowari[REQ-cli-022]
+#[test]
+fn broken_link_against_a_directory_keeps_the_readable_child_diff_on_either_side() {
+    for broken_on_ssh in [true, false] {
+        let env = CliEnv::new(&[], &[]);
+        let (dir_root, link_root) = if broken_on_ssh {
+            (&env.local_dir, &env.remote_dir)
+        } else {
+            (&env.remote_dir, &env.local_dir)
+        };
+        place_files(dir_root, &[("shared/child.txt", "readable body\n")]);
+        place_symlink(link_root, "shared", "missing-dir");
+
+        let output = env
+            .cmd_with("diff")
+            .args(["shared", "--format", "json"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "ssh={broken_on_ssh}: {output:?}"
+        );
+        let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_reason_given(json_error(&result, "shared"), &result);
+        let child_hunks = json_item(&result, "shared/child.txt")["hunks"].to_string();
+        assert!(
+            child_hunks.contains("readable body"),
+            "ssh={broken_on_ssh}: {result}"
+        );
+    }
+}
+
 // @kotowari[EX-cli-044]
 #[test]
 fn returning_to_a_traversed_directory_on_one_side_is_reported_as_a_cycle() {

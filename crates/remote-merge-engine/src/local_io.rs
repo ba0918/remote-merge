@@ -389,8 +389,13 @@ fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {
     let mut missing = Vec::new();
     loop {
         match std::fs::symlink_metadata(current) {
-            Ok(_) => {
-                let mut resolved = std::fs::canonicalize(current)?;
+            Ok(metadata) => {
+                // 参照先のない symlink の祖先は canonicalize できないので、SSH の経路と同じく参照先へ辿る
+                let mut resolved = if metadata.file_type().is_symlink() {
+                    resolved_symlink(current, &std::fs::read_link(current)?)?
+                } else {
+                    std::fs::canonicalize(current)?
+                };
                 for component in missing.iter().rev() {
                     resolved.push(component);
                 }
@@ -461,5 +466,17 @@ mod tests {
                 "{rel_path}: {inspected:?}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_below_a_dangling_link_is_missing() {
+        let root = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("missing-dir", root.path().join("shared")).unwrap();
+        let inspected = inspect_local_path(root.path(), "shared/child.txt").unwrap();
+        assert!(
+            matches!(inspected, TargetPath::Missing { .. }),
+            "{inspected:?}"
+        );
     }
 }

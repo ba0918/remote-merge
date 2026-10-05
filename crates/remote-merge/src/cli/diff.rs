@@ -312,6 +312,7 @@ pub fn execute_diff(
                 if (left_content.is_err() && left_children.is_none())
                     || (right_content.is_err() && right_children.is_none())
                 {
+                    // 読めない側があっても、もう一方の側の子の差分は示す
                     let reason = "symlink target unreadable; resolved content not compared";
                     link_diff.note = Some(reason.into());
                     errors.push(DiffError {
@@ -319,8 +320,6 @@ pub fn execute_diff(
                         reason: reason.into(),
                     });
                     has_read_error = true;
-                    file_diffs.push(link_diff);
-                    continue;
                 }
                 let (mut left_ancestors, mut right_ancestors) =
                     active_directories.remove(path).unwrap_or_default();
