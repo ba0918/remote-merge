@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{symlink, DirBuilderExt, PermissionsExt};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -83,7 +83,11 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
         .join()
         .unwrap();
     for agent_available in [false, true] {
-        let home = TempDir::new().unwrap();
+        // 配置先とその祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
+        let home = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let local = home.path().join("local");
         let remote = home.path().join("remote");
         let shared = home.path().join("shared");
@@ -97,8 +101,11 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
 
         let agent_dir = home.path().join("agent");
         let binary = agent_dir.join("remote-merge-testuser/remote-merge");
-        fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        fs::set_permissions(binary.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(binary.parent().unwrap())
+            .unwrap();
         let agent_binary = if agent_available {
             symlink(env!("CARGO_BIN_EXE_remote-merge"), &binary).unwrap();
             binary.clone()

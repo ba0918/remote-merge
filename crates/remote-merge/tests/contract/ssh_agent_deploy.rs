@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -17,7 +17,11 @@ struct DeployFixture {
 
 impl DeployFixture {
     async fn new() -> Self {
-        let home = TempDir::new().unwrap();
+        // 配置先の祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
+        let home = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         fs::create_dir_all(home.path().join("remote")).unwrap();
         fs::create_dir_all(home.path().join("local")).unwrap();
         fs::write(home.path().join("local/example.txt"), "local updated\n").unwrap();
@@ -42,7 +46,11 @@ impl DeployFixture {
     /// 配置先に、正しい版を答え、`run_marker_on` の引数で呼ばれると目印を作るスクリプトを置く
     fn plant_binary(&self, dir_mode: u32, run_marker_on: Option<&str>) {
         let dir = self.deploy_target_dir();
-        fs::create_dir_all(&dir).unwrap();
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)
+            .unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(dir_mode)).unwrap();
         let marker = self.marker();
         let touch = match run_marker_on {
@@ -116,6 +124,24 @@ async fn nothing_in_a_deploy_directory_writable_by_everyone_is_run() {
     assert!(
         !fixture.marker().exists(),
         "a binary in an unsafe deploy directory was run"
+    );
+}
+
+// @kotowari[REQ-ssh-017, EX-ssh-027]
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_in_a_deploy_directory_under_a_parent_writable_by_everyone_is_run() {
+    let fixture = DeployFixture::new().await;
+    fixture.plant_binary(0o700, None);
+    let parent = fixture.deploy_target_dir().parent().unwrap().to_path_buf();
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o777)).unwrap();
+
+    let merge = fixture.merge(None);
+
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
+    assert!(
+        !fixture.marker().exists(),
+        "a binary under a parent writable by everyone was run"
     );
 }
 

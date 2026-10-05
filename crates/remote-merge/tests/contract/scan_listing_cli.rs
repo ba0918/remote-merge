@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{symlink, DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -228,16 +228,18 @@ pub(super) struct AgentFixture {
 
 impl AgentFixture {
     pub(super) async fn new() -> Self {
-        let temp = TempDir::new().unwrap();
+        // 配置先とその祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
+        let temp = tempfile::Builder::new()
+            .permissions(fs::Permissions::from_mode(0o700))
+            .tempdir()
+            .unwrap();
         let deploy_dir = temp.path().join("agent");
         let deployed = deploy_dir.join(format!("remote-merge-{AGENT_USER}/remote-merge"));
-        fs::create_dir_all(deployed.parent().unwrap()).unwrap();
-        // 配置先はグループやその他が書き込めると実行されないため、umask によらずモードを決める
-        fs::set_permissions(
-            deployed.parent().unwrap(),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(deployed.parent().unwrap())
+            .unwrap();
         symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
         let server = TestServer::filesystem_with_agent(temp.path()).await;
         Self {

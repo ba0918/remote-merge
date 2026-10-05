@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::process::Command;
 
 use tempfile::TempDir;
@@ -58,7 +58,11 @@ async fn an_unavailable_remote_agent_falls_back_to_ssh_for_comparison_and_merge(
 // @kotowari[EX-ssh-010]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_available_remote_agent_completes_comparison_and_merge() {
-    let home = TempDir::new().unwrap();
+    // 配置先とその祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
+    let home = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
     let remote = home.path().join("remote");
     let local = home.path().join("local");
     fs::create_dir_all(&remote).unwrap();
@@ -68,12 +72,11 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     fs::write(&target, "old remote\n").unwrap();
     let agent_dir = home.path().join("agent");
     let deployed = agent_dir.join("remote-merge-testuser/remote-merge");
-    fs::create_dir_all(deployed.parent().unwrap()).unwrap();
-    fs::set_permissions(
-        deployed.parent().unwrap(),
-        fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(deployed.parent().unwrap())
+        .unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
     let server = TestServer::filesystem_with_agent(home.path()).await;
     let config_path = home.path().join("config.toml");
