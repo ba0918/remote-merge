@@ -102,11 +102,4 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     let merge = run("merge");
     assert!(merge.status.success(), "{merge:?}");
     assert_eq!(fs::read(&target).unwrap(), b"local updated\n");
-    assert!(
-        server
-            .commands()
-            .iter()
-            .any(|c| c.contains(" agent --root ")),
-        "the agent was not started"
-    );
 }

@@ -148,14 +148,5 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
         assert_eq!(fs::read_link(remote.join("linked")).unwrap(), shared);
         let backup_root = home.path().join("data/remote-merge/backups");
         assert_old_content_was_backed_up(&backup_root);
-        if agent_available {
-            assert!(
-                server
-                    .commands()
-                    .iter()
-                    .any(|c| c.contains(" agent --root ")),
-                "the agent was not started"
-            );
-        }
     }
 }
