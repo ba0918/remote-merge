@@ -150,8 +150,8 @@ cargo nextest run --all-features
 
 ### S6: 安全でない配置先の中のものを実行しない
 
-- Purpose: Agent の配置先のディレクトリをモード 700 で作り、symlink・ログインユーザー（sudo=true では root）以外の所有・グループかその他の書き込みのどれかに当たるときは、版の確認を含めて中のものを何も実行しない
-- Specification: `docs/decision/records/2026-10-05-harden-security.md#A3`, `docs/ir/ssh/fallback.md#REQ-ssh-005`
+- Purpose: Agent の配置先のディレクトリをモード 700 で作り、配置先が symlink かログインユーザー（sudo=true では root）以外の所有であるとき、または配置先へ辿るディレクトリ（途中の symlink を置いたディレクトリを含む）に、所有者が root でもログインユーザー（sudo=true では root）でもないもの、またはグループかその他が書き込めて sticky bit のないものがあるときは、版の確認を含めて中のものを何も実行しない。自分の配置先をグループかその他が書き込めるだけのときは、モード 700 に直し、中の Agent を実行せずに置き直して警告する
+- Specification: `docs/decision/records/2026-10-05-harden-security.md#A11`, `docs/decision/records/2026-10-05-harden-security.md#A13`, `docs/ir/ssh/fallback.md#REQ-ssh-005`
 - Prerequisites: S1
 - May change: `crates/remote-merge-agent/src/agent/deploy/`, `crates/remote-merge/src/agent/deploy/`, `crates/remote-merge/src/runtime/core.rs`, `crates/remote-merge-ssh/src/client.rs`, `crates/remote-merge/tests/contract/ssh_fallback.rs`, `crates/remote-merge/tests/contract/ssh_external_link.rs`, `crates/remote-merge/tests/contract/scan_listing_cli.rs`, `crates/remote-merge/tests/contract/ssh_server.rs`, `crates/remote-merge/tests/contract.rs`, `crates/remote-merge/tests/contract/` の新しい契約テストのファイル, `tests/container-e2e/tests/sudo.rs`
 - Done when: 検査は `check_version_command` より前に行われる。テスト用 SSH サーバ（`TestServer::filesystem_with_agent`）で、配置先 `<deploy_dir>/remote-merge-testuser` をモード 0777 で先に作り、その中に正しい版を出力し呼ばれると目印のファイルを作るスクリプトを置くと、merge は SSH の経路で成功して書き込み先が更新され、目印のファイルが作られない。配置先がないときの最初の配置でディレクトリのモードが 0700 になる。生成した検査のシェルを実際の `sh` で一時ディレクトリに対して走らせると、0700 で自分の所有なら通り、0777 のもの、symlink のもの、期待する uid と所有者が違うもの（期待する uid を自分以外にしたもの）は拒否される。sudo=true では期待する uid が 0 になる。`ssh_fallback.rs` と `ssh_external_link.rs` の Agent を使う既存のテストは、準備したディレクトリのモードを明示し、Agent が実際に起動したこと（`server.commands()` に ` agent --root ` を含むコマンドがある）を確かめる一行を足したうえで通る
