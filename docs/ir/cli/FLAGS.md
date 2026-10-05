@@ -126,7 +126,7 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - related: REQ-config-003, REQ-cli-052
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A14
 
-旧総合仕様の除外フィルターの節は exclude のパターンを比較の対象から除外するとするが、20 個以下のパスを指定した diff は exclude に当たるファイルのパスでも差分を出す（パスなしの diff は除外する）。
+旧総合仕様の除外フィルターの節は exclude のパターンを比較の対象から除外するとするが、20 個以下のパスを指定した diff は exclude に当たるファイルのパスでも差分を出す（パスなしの diff は除外する）。一方、子がすべて exclude に当たるディレクトリを指定した diff（exclude = ["target"] での `diff target` や `diff target/`）は、配下に差分があっても差分を出さず "0 file(s) with changes"・終了コード 0 になる。ローカルと SSH・SSH 同士・ローカルとエージェントのどの経路の組でも同じで、同じ配下のファイルのパスを直接指定すると差分を出す。この扱いを定める要件はなく、ファイルのパスの扱いと合わせて決める。
 
 ### FLAG-cli-032: 0 始まりの行番号
 - kind: gap
