@@ -4,27 +4,24 @@ entries:
     base: a7fd6df6f029e4df3ca1dcb898b4a4ad88785d45
     role: implementer
     files:
-      - path: "crates/remote-merge-agent/src/agent/file_io.rs"
-        before: "sha256:a38e42e1627003538a0dc40ccf4c6438f645172cefddb6e18001bbe2497d04ed"
-        after: "sha256:b380c9946ae8ea64fd30fda8b4f06959c2209e0ba66528ae4ba0ec19c05e5bbe"
       - path: "crates/remote-merge-engine/src/local_io.rs"
         before: "sha256:07a46d197a5adcb5750150bf48a97d5467d68b8b67b2dc314d7399c6ffdb41e6"
-        after: "sha256:6b0d7fbade7289afe3cf3d8f63a02ad5101ee178338bdab940fbf0925b4e6e0e"
+        after: "sha256:5d47d6ce2d83d26ab8207ff4e8dbc5e25967b7c83896c7b86dc1e4f8b70f7400"
       - path: "crates/remote-merge-ssh/src/client.rs"
         before: "sha256:08839e30418b7955f55401f00f09bf109f62d4da6bee68f1d6669d2f0fafd764"
         after: "sha256:2f2a9e59070bec32ff9db6c831a3d6171cfca3d41945bb954a8cb73dfd25b00a"
       - path: "crates/remote-merge/src/cli/diff.rs"
         before: "sha256:5cc28b01b80901b489b95e802a7d6463a76e748f177f846b2daddbc008ed51b9"
-        after: "sha256:3cea4f3425f332cc490b9accf8d9c621b7313d489e4a800d589e10843a898d7a"
+        after: "sha256:6ab5f86c6f1502072372aa2f54eca6f1a05c69bef60fd298ae2e4e0851d44223"
       - path: "crates/remote-merge/src/runtime/remote_io.rs"
         before: "sha256:cb4f0af7700dc3f81a4e1b37d772752810ad7b13af300bbe6a25a99075897198"
         after: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
       - path: "crates/remote-merge/tests/cli_diff.rs"
         before: "sha256:b360e47d453fcc54d6629320f48be0a0906adb65d2081f235d7e6ac37e7e8793"
-        after: "sha256:9acdeebbb71540457dfb64b5c60d2be96130eacaba7e09775bfcd5ef98414cbe"
+        after: "sha256:fc6d3687fc2e9e7bbd383b449575f607845b99ddf9930a793d95d9a60708a673"
     ir:
       - path: "docs/ir/cli/FLAGS.md"
-        sha256: "sha256:57ac20db478848dd09a0d0169265e0a4fae4abb33f68810d7d31ea53f501ef5b"
+        sha256: "sha256:d53cab2967fc8ad0ae1b6b6b9469c6cfc9b21a2b7789defca45f4af34628b01b"
       - path: "docs/ir/cli/diff-output.md"
         sha256: "sha256:1c6da4588177e93aa388dcbc2edc5336b02d425d690cf484f515d4a7e5272f43"
       - path: "docs/ir/cli/directory-paths.md"
@@ -34,7 +31,7 @@ entries:
       - path: "docs/ir/config/filters.md"
         sha256: "sha256:4203fabe2a06d4d94e359117aad87c15e38d6fe0d6a9acb342a54db257a46178"
     conclusion: new
-    reason: "SSH の一件ずつの読み込みを、openssl で読んだ後にディレクトリでないことを確かめる形にし、ディレクトリをローカルとエージェントと同じくエラーにした。diff はディレクトリを子の一覧の取得の成否で判定し、左右とも子のないディレクトリ（中身の空なもの、include の外のもの）を差分なしとする（REQ-cli-025・REQ-cli-052、include の外は利用者の決定 A1 による新しい REQ-cli-077）。この判定のため diff が使う SSH の子の一覧の取得を find の終了コードを見る形にし（ルートの一覧は変えない）、SSH の側だけ参照先がない symlink もエラー終了にした（REQ-cli-022、A3）。ローカルとエージェントのパスの検査は途中が通常ファイルのパスを SSH と同じくないものとして返し、通常ファイルと SSH のディレクトリ symlink の組でも配下を子パスで示す（REQ-cli-021、A2）。片側が参照先のない symlink、もう片側がディレクトリの組では、読めない側をエラーにしたうえで読めた側の子の差分も示し、そのためにローカルとエージェントのパスの検査が参照先のない symlink の下のパスを SSH と同じく参照先へ辿ってないものとして返すようにした（REQ-cli-022）。指定したパスが多くツリーから解決する場合も、ファイルを一つも解決しなかったパスを子の一覧の取得で確かめ、左右ともディレクトリで配下に比べるファイルがなければ差分なしとする（REQ-cli-025・REQ-cli-077）。ルートの指定（「.」と「./」）はこの確かめから外し、ツリーから解決した結果だけで決める従来の振る舞いを保った。この確かめで利用者の入力した絶対パスがローカルの root_dir の外のディレクトリを一覧しないよう、ローカルの子の一覧はほかのローカルの操作と同じ root_dir の内側の検査を通してから読む。外を指すパスは一覧できず、これまでどおり見つからないパスとして扱う（入力パスで root_dir の外へ出ない REQ-cli-026）。FLAG-cli-033 の答えは A1・A4 で記録し、A1 は利用者の決定で左右の両方にある場合に絞った。片側にだけあって配下に比べるファイルのないディレクトリは決まっておらず、FLAG-cli-073 に残した（振る舞いは選んでいない）。"
+    reason: "SSH の一件ずつの読み込みを、openssl で読んだ後にディレクトリでないことを確かめる形にし、ディレクトリをローカルとエージェントと同じくエラーにした。diff はディレクトリを子の一覧の取得の成否で判定し、左右とも子のないディレクトリ（中身の空なもの、include の外のもの）を差分なしとする（REQ-cli-025・REQ-cli-052、include の外は利用者の決定 A1 による新しい REQ-cli-077）。この判定のため diff が使う SSH の子の一覧の取得を find の終了コードを見る形にし（ルートの一覧は変えない）、SSH の側だけ参照先がない symlink もエラー終了にした（REQ-cli-022、A3）。diff がディレクトリを子のパスに展開するとき、子の一覧が取れなかった側（通常ファイル・参照先のない symlink・読めない参照先）にはその子がないものとし、その側の子のパスを調べも読みもしない。これにより通常ファイルと SSH のディレクトリ symlink の組でも配下を子パスで示し（REQ-cli-021、A2）、片側が参照先のない symlink、もう片側がディレクトリの組では、読めない側をエラーにしたうえで読めた側の子の差分も示す（REQ-cli-022）。rollback・バックアップ・書き込みも使うローカルとエージェントの共有のパスの検査は比較元のまま変えていない。指定したパスが多くツリーから解決する場合も、ファイルを一つも解決しなかったパスを子の一覧の取得で確かめ、左右ともディレクトリで配下に比べるファイルがなければ差分なしとする（REQ-cli-025・REQ-cli-077）。ルートの指定（「.」と「./」）はこの確かめから外し、ツリーから解決した結果だけで決める従来の振る舞いを保った。この確かめで利用者の入力したパスがローカルの root_dir の外のディレクトリを一覧しないよう、ローカルの子の一覧はほかのローカルの操作と同じ root_dir の内側の検査を通してから読む（入力パスの親ディレクトリへの遡りを禁じる REQ-cli-026）。FLAG-cli-033 の答えは A1・A4 で記録し、A1 は利用者の決定で左右の両方にある場合に絞った。片側にだけあって配下に比べるファイルのないディレクトリは決まっておらず、FLAG-cli-073 に残した（振る舞いは選んでいない）。子がすべて exclude に当たるディレクトリを指定した diff がどの経路でも差分なしになることは、利用者の決定 A5 で決めずに FLAG-cli-031 に観察として加えた。"
     requirements:
       - REQ-cli-021
       - REQ-cli-022
@@ -48,6 +45,7 @@ entries:
       - "docs/decision/records/2026-10-05-ssh-directory-read.md#A2"
       - "docs/decision/records/2026-10-05-ssh-directory-read.md#A3"
       - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
     handoff: null
     gaps:
       - category: spec_conflict
@@ -63,3 +61,7 @@ entries:
         refs:
           - "docs/decision/records/2026-10-05-ssh-directory-read.md#A1"
           - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
+      - category: missing_spec
+        disposition: recorded
+        refs:
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
