@@ -70,4 +70,10 @@ Scenario: 失効とされた鍵が提示される
 Given 提示される鍵が known_hosts で "@revoked" とされ同じ鍵の通常の行もある
 When --yes を明示して接続する
 Then 接続は停止しリモートのコマンドは実行されず known_hosts は変わらない
+
+@id=EX-ssh-026 @about=REQ-ssh-001 @source=docs/decision/records/2026-10-05-harden-security.md#A5
+Scenario: 別の鍵種別でだけ登録されたホストの鍵が提示される
+Given known_hosts にそのホストが提示される鍵と別の鍵種別でだけ登録されている
+When strict_host_key_checking=yes で接続する
+Then 接続は停止し提示された鍵は受け入れられず known_hosts は変わらない
 ```

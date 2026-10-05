@@ -100,7 +100,7 @@ async fn unknown_key_is_rejected_when_standard_input_gives_no_answer() {
     assert!(operated, "an approved connection did not continue");
 }
 
-// @kotowari[REQ-ssh-001]
+// @kotowari[REQ-ssh-001, EX-ssh-026]
 #[cfg(all(unix, feature = "test-utils"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_of_a_type_not_registered_for_the_host_is_rejected_under_strict_checking() {
