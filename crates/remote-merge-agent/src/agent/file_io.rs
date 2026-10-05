@@ -1,6 +1,6 @@
 //! エージェントのファイル I/O 操作（リモートサーバー上で実行）。
 //!
-//! 全操作は `validate_path` を経由し、パストラバーサルを防止する。
+//! 全操作は `validate_path`（書き込みと symlink の作成は最後の要素を辿らない `validate_entry_path`）を経由し、パストラバーサルを防止する。
 
 use std::ffi::CString;
 use std::fs;
@@ -50,17 +50,7 @@ impl SavedMetadata {
 /// 現在のユースケース（単一ユーザー操作）ではリスクは低いが、マルチテナント環境
 /// では追加の対策が必要。
 pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
-    // 絶対パスを拒否 — root_dir 外のファイルアクセスを防止
-    if Path::new(rel_path).is_absolute() {
-        bail!("absolute path not allowed: {rel_path}");
-    }
-
-    // コンポーネントレベルで .. を拒否
-    for component in Path::new(rel_path).components() {
-        if matches!(component, Component::ParentDir) {
-            bail!("path traversal detected: {rel_path}");
-        }
-    }
+    reject_escaping_rel_path(rel_path)?;
 
     let joined = root_dir.join(rel_path);
 
@@ -83,6 +73,26 @@ pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
     }
 
     // 新規ファイル: 親ディレクトリで検証
+    ensure_existing_parent_under_root(root_dir, &joined)?;
+    Ok(joined)
+}
+
+/// 絶対パスと `..` を含む相対パスを拒否する（root_dir 外のファイルアクセスを防止）。
+fn reject_escaping_rel_path(rel_path: &str) -> Result<()> {
+    if Path::new(rel_path).is_absolute() {
+        bail!("absolute path not allowed: {rel_path}");
+    }
+    for component in Path::new(rel_path).components() {
+        if matches!(component, Component::ParentDir) {
+            bail!("path traversal detected: {rel_path}");
+        }
+    }
+    Ok(())
+}
+
+/// 親ディレクトリが存在すれば、実パスが root_dir 配下にあることを検証する。
+/// 親も存在しない場合は検査しない（書き込み側が mkdir_all する）。
+fn ensure_existing_parent_under_root(root_dir: &Path, joined: &Path) -> Result<()> {
     let parent = joined
         .parent()
         .ok_or_else(|| anyhow::anyhow!("no parent directory for: {}", joined.display()))?;
@@ -97,7 +107,20 @@ pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
             );
         }
     }
-    // 親も存在しない場合は join 結果をそのまま返す（write_file が mkdir_all する）
+    Ok(())
+}
+
+/// 書き込み・symlink の作成先として、最後の要素を辿らずに root_dir 配下のパスを解決する。
+///
+/// 親ディレクトリが root_dir の中にあるかは `validate_path` の新規ファイルと同じに検査するが、
+/// 最後の要素が既存の symlink でもリンク先には化けさせず、リンクそのもののパスを返す。
+pub fn validate_entry_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
+    reject_escaping_rel_path(rel_path)?;
+    let joined = root_dir.join(rel_path);
+    if joined.file_name().is_none() {
+        bail!("no file name in path: {rel_path}");
+    }
+    ensure_existing_parent_under_root(root_dir, &joined)?;
     Ok(joined)
 }
 
@@ -341,23 +364,40 @@ pub fn write_file(
     content: &[u8],
     is_first_chunk: bool,
 ) -> Result<()> {
-    let path = validate_path(root_dir, rel_path)?;
+    let path = validate_entry_path(root_dir, rel_path)?;
 
     if is_first_chunk {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create dirs: {}", parent.display()))?;
         }
-        fs::write(&path, content)
-            .with_context(|| format!("failed to write: {}", path.display()))?;
-    } else {
-        use std::io::Write;
-        let mut f = fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .with_context(|| format!("failed to open for append: {}", path.display()))?;
-        f.write_all(content)?;
     }
+    write_chunk_without_following_link(&path, content, is_first_chunk)
+}
+
+/// 最後の要素が symlink なら辿らずにエラーにして、通常ファイルへチャンクを書き込む。
+///
+/// `fs::write` や追記モードの open は symlink を辿ってリンク先を書き換えるため、
+/// 検査と書き込みの間の差し替えも含めて O_NOFOLLOW で開く。
+fn write_chunk_without_following_link(
+    path: &Path,
+    content: &[u8],
+    is_first_chunk: bool,
+) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = fs::OpenOptions::new();
+    if is_first_chunk {
+        options.write(true).create(true).truncate(true);
+    } else {
+        options.append(true);
+    }
+    let mut file = options
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("failed to open for write: {}", path.display()))?;
+    file.write_all(content)
+        .with_context(|| format!("failed to write: {}", path.display()))?;
     Ok(())
 }
 
@@ -378,7 +418,7 @@ pub fn write_file_with_metadata(
     saved_metadata: Option<&SavedMetadata>,
     config: &MetadataConfig,
 ) -> Result<Option<SavedMetadata>> {
-    let path = validate_path(root_dir, rel_path)?;
+    let path = validate_entry_path(root_dir, rel_path)?;
 
     let mut captured_metadata = None;
 
@@ -401,16 +441,8 @@ pub fn write_file_with_metadata(
                 apply_dir_permissions_recursive(&new_dirs, config.dir_permissions)?;
             }
         }
-        fs::write(&path, content)
-            .with_context(|| format!("failed to write: {}", path.display()))?;
-    } else {
-        use std::io::Write;
-        let mut f = fs::OpenOptions::new()
-            .append(true)
-            .open(&path)
-            .with_context(|| format!("failed to open for append: {}", path.display()))?;
-        f.write_all(content)?;
     }
+    write_chunk_without_following_link(&path, content, is_first_chunk)?;
 
     // 最終チャンクでメタデータを適用
     if is_last_chunk {
@@ -496,7 +528,7 @@ pub fn create_symlink_with_metadata(
     gid: Option<u32>,
     dir_permissions: Option<u32>,
 ) -> Result<()> {
-    let link_path = validate_path(root_dir, rel_path)?;
+    let link_path = validate_entry_path(root_dir, rel_path)?;
 
     // ターゲットの安全性検証: root_dir からの相対として解決
     for component in Path::new(target).components() {
@@ -1137,5 +1169,73 @@ mod tests {
         // symlink が正しく作成されていること
         let link = tmp.path().join("newparent/nested/link.txt");
         assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    // ── 最後の要素が既存の symlink のパス ──
+
+    /// root の下に rw/real.txt と ro/link -> ../rw/real.txt を置く。
+    fn root_with_link_to_real_file() -> TempDir {
+        let tmp = setup();
+        fs::create_dir_all(tmp.path().join("rw")).unwrap();
+        fs::create_dir_all(tmp.path().join("ro")).unwrap();
+        fs::write(tmp.path().join("rw/real.txt"), "original").unwrap();
+        symlink("../rw/real.txt", tmp.path().join("ro/link")).unwrap();
+        tmp
+    }
+
+    fn assert_link_and_target_unchanged(tmp: &TempDir) {
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("rw/real.txt")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            fs::read_link(tmp.path().join("ro/link")).unwrap(),
+            Path::new("../rw/real.txt")
+        );
+    }
+
+    #[test]
+    fn recreating_an_existing_symlink_replaces_the_link_and_keeps_its_old_target() {
+        let tmp = root_with_link_to_real_file();
+
+        create_symlink(tmp.path(), "ro/link", "other").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("rw/real.txt")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            fs::read_link(tmp.path().join("ro/link")).unwrap(),
+            Path::new("other")
+        );
+    }
+
+    #[test]
+    fn writing_a_file_over_an_existing_symlink_fails_and_changes_neither_link_nor_target() {
+        let tmp = root_with_link_to_real_file();
+
+        let result = write_file(tmp.path(), "ro/link", b"replaced", true);
+
+        assert!(result.is_err(), "{result:?}");
+        assert_link_and_target_unchanged(&tmp);
+    }
+
+    #[test]
+    fn writing_a_file_with_metadata_over_an_existing_symlink_fails_and_changes_neither_link_nor_target(
+    ) {
+        let tmp = root_with_link_to_real_file();
+
+        let result = write_file_with_metadata(
+            tmp.path(),
+            "ro/link",
+            b"replaced",
+            true,
+            true,
+            None,
+            &MetadataConfig::default(),
+        );
+
+        assert!(result.is_err(), "{result:?}");
+        assert_link_and_target_unchanged(&tmp);
     }
 }
