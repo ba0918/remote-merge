@@ -469,7 +469,7 @@ impl server::Handler for LocalHandler {
             let path = quoted.trim_matches('\'');
             session.data(
                 channel,
-                CryptoVec::from(format!("file\n{path}\n").as_bytes()),
+                CryptoVec::from(format!("file\0{path}\0").as_bytes()),
             )?;
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;

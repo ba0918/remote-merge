@@ -7,11 +7,14 @@ use super::target_io::TargetPath;
 /// lstat が ENOENT で失敗したパスだけを missing にし、それ以外の失敗は終了コード 1 にする。
 ///
 /// - `resolve_existing_prefix PATH`: PATH の祖先のうち lstat できる最も近いものを辿った実パスに、
-///   その下の存在しない要素（PATH の末尾の要素は除く）を足して出す。その祖先が辿った先で検索できる
-///   ディレクトリでなければ、PATH の lstat は ENOENT ではないので失敗する
+///   その下の存在しない要素（PATH の末尾の要素は除く）を足して `r` に入れる。その祖先が辿った先で
+///   検索できるディレクトリでなければ、PATH の lstat は ENOENT ではないので失敗する
 /// - `canonical_is_missing PATH`: PATH の実パスへの解決が ENOENT で失敗するときだけ成功する。
 ///   symlink を辿る回数はカーネルと同じ 40 回までで、超えれば ELOOP として失敗する
 /// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）
+/// - `link_of`・`real_of`: `readlink` と `readlink -f` の答え（`t`・`r`）。`$(...)` は末尾の改行を
+///   すべて削るので、番兵の `x` を足してから外し、`readlink` が足した改行を一つだけ削る。
+///   改行で終わる名前やリンク先も、ローカルと同じパスとして読む
 ///
 /// 試験 SSH サーバは先頭の `resolve_existing_prefix()` と、後に続く `; p=<パス>; if [` で
 /// この検査を見分けるため、その並びを崩さない。
@@ -23,8 +26,14 @@ const INSPECT_PATH_FUNCTIONS: &str = r#"resolve_existing_prefix() {
     base_of "$q"; suffix=/$b$suffix;
   done;
   [ -d "$q" ] && [ -x "$q" ] || return 1;
-  r=$(readlink -f -- "$q") || return 1;
-  case $r in /) printf '%s\n' "${suffix:-/}" ;; *) printf '%s%s\n' "$r" "$suffix" ;; esac;
+  real_of "$q" || return 1;
+  case $r in /) r=${suffix:-/} ;; *) r=$r$suffix ;; esac;
+};
+link_of() {
+  t=$(readlink -- "$1" && echo x) || return 1; t=${t%x}; t=${t%?};
+};
+real_of() {
+  r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
 };
 parent_of() {
   s=$1;
@@ -43,7 +52,7 @@ canonical_is_missing() {
     while ! { [ -e "$y" ] || [ -L "$y" ]; }; do parent_of "$y"; [ "$s" != "$y" ] || return 1; y=$s; done;
     if [ "$y" != "$x" ] && [ -d "$y" ] && [ -x "$y" ]; then return 0; fi;
     [ -L "$y" ] && ! [ -e "$y" ] || return 1;
-    t=$(readlink -- "$y") || return 1;
+    link_of "$y" || return 1;
     case $t in /*) ;; *) parent_of "$y"; t=$s/$t ;; esac;
     x=$t${x#"$y"};
   done;
@@ -51,20 +60,21 @@ canonical_is_missing() {
 }"#;
 
 /// 本体。`p` の lstat の結果で分け、symlink はローカルの `resolved_symlink` と同じくリンク先を
-/// 解決し、解決が ENOENT で失敗したときだけ存在する祖先からの形にする。
+/// 解決し、解決が ENOENT で失敗したときだけ存在する祖先からの形にする。答えは種類とパスを
+/// それぞれ NUL で終えて出す。パスには改行を含められるが NUL は含められないため
 const INSPECT_PATH_BODY: &str = r#"if [ -L "$p" ]; then
-  target=$(readlink -- "$p") || exit 1;
+  link_of "$p" || exit 1; target=$t;
   case $target in /*) c=$target ;; *) parent_of "$p"; c=$s/$target ;; esac;
-  if [ -e "$c" ]; then resolved=$(readlink -f -- "$c") || exit 1;
+  if [ -e "$c" ]; then real_of "$c" || exit 1; resolved=$r;
   else
     canonical_is_missing "$c" || exit 1;
-    base_of "$c"; case $b in ''|..) exit 1 ;; esac;
-    prefix=$(resolve_existing_prefix "$c") || exit 1;
-    case $prefix in /) resolved=/$b ;; *) resolved=$prefix/$b ;; esac;
+    base_of "$c"; case $b in ''|..) exit 1 ;; esac; name=$b;
+    resolve_existing_prefix "$c" || exit 1;
+    case $r in /) resolved=/$name ;; *) resolved=$r/$name ;; esac;
   fi;
-  printf 'symlink\n%s\n%s\n' "$target" "$resolved";
-elif [ -e "$p" ]; then printf 'file\n'; readlink -f -- "$p";
-else resolved=$(resolve_existing_prefix "$p") || exit 1; printf 'missing\n%s\n' "$resolved";
+  printf 'symlink\000%s\000%s\000' "$target" "$resolved";
+elif [ -e "$p" ]; then real_of "$p" || exit 1; printf 'file\000%s\000' "$r";
+else resolve_existing_prefix "$p" || exit 1; printf 'missing\000%s\000' "$r";
 fi"#;
 
 /// 一行のスクリプトにする。各行は `;` かキーワードで終わるので、改行を空白に置き換えてよい
@@ -120,31 +130,29 @@ impl CoreRuntime {
     }
 }
 
+/// 検査の答えを読む。答えは種類と一つか二つのパスで、どれも NUL で終わる
 pub(crate) fn parse_inspect_path_output(output: &str) -> anyhow::Result<TargetPath> {
-    let (kind, value) = output
-        .split_once('\n')
-        .ok_or_else(|| anyhow::anyhow!("invalid path inspection output"))?;
-    let value = value.trim_end_matches(['\r', '\n']);
-    if value.is_empty() {
+    let fields = output
+        .strip_suffix('\0')
+        .ok_or_else(|| anyhow::anyhow!("invalid path inspection output"))?
+        .split('\0')
+        .collect::<Vec<_>>();
+    if fields[1..].iter().any(|field| field.is_empty()) {
         anyhow::bail!("path inspection returned an empty path");
     }
-    match kind.trim_end_matches('\r') {
-        "file" => Ok(TargetPath::File {
-            real_path: PathBuf::from(value),
+    match fields.as_slice() {
+        ["file", real_path] => Ok(TargetPath::File {
+            real_path: PathBuf::from(real_path),
         }),
-        "symlink" => {
-            let (link_target, real_path) = value
-                .split_once('\n')
-                .ok_or_else(|| anyhow::anyhow!("symlink inspection omitted resolved path"))?;
-            Ok(TargetPath::Symlink {
-                link_target: PathBuf::from(link_target),
-                real_path: PathBuf::from(real_path),
-            })
-        }
-        "missing" => Ok(TargetPath::Missing {
-            real_parent: PathBuf::from(value),
+        ["symlink", link_target, real_path] => Ok(TargetPath::Symlink {
+            link_target: PathBuf::from(link_target),
+            real_path: PathBuf::from(real_path),
         }),
-        other => anyhow::bail!("unknown path inspection kind: {other}"),
+        ["missing", real_parent] => Ok(TargetPath::Missing {
+            real_parent: PathBuf::from(real_parent),
+        }),
+        [kind, ..] => anyhow::bail!("unknown path inspection output: {kind}"),
+        [] => anyhow::bail!("invalid path inspection output"),
     }
 }
 
@@ -167,7 +175,7 @@ mod tests {
     #[test]
     fn parser_returns_a_file_real_path() {
         assert_eq!(
-            parse_inspect_path_output("file\n/mnt/shared/file.txt\n").unwrap(),
+            parse_inspect_path_output("file\0/mnt/shared/file.txt\0").unwrap(),
             TargetPath::File {
                 real_path: PathBuf::from("/mnt/shared/file.txt")
             }
@@ -177,7 +185,7 @@ mod tests {
     #[test]
     fn parser_returns_a_symlink_target_and_its_resolved_path() {
         assert_eq!(
-            parse_inspect_path_output("symlink\n../shared/file.txt\n/mnt/shared/file.txt\n")
+            parse_inspect_path_output("symlink\0../shared/file.txt\0/mnt/shared/file.txt\0")
                 .unwrap(),
             TargetPath::Symlink {
                 link_target: PathBuf::from("../shared/file.txt"),
@@ -217,6 +225,15 @@ mod tests {
         symlink("loop", root.join("loop")).unwrap();
         symlink("dir", root.join("linkdir")).unwrap();
         symlink("file.txt", root.join("linkfile")).unwrap();
+        // リンク先の末尾や途中の改行は、リンク先の名前の一部として読む
+        std::fs::write(root.join("newline\n"), "newline\n").unwrap();
+        symlink("file.txt\n", root.join("trailing_newline")).unwrap();
+        symlink("newline\n", root.join("existing_newline")).unwrap();
+        symlink("dir\n\n", root.join("two_newlines")).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_root = std::fs::canonicalize(outside.path()).unwrap();
+        let escape = format!("{}/x\n{}/file.txt", outside_root.display(), root.display());
+        symlink(&escape, root.join("escape")).unwrap();
         std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
         // 権限を無視できる実効ユーザーでは検索権限のない状態を作れない
@@ -235,6 +252,12 @@ mod tests {
             "loop/below.txt",
             "linkdir/missing.txt",
             "linkfile",
+            "trailing_newline",
+            "existing_newline",
+            "two_newlines",
+            "escape",
+            "newline\n",
+            "missing\n/below.txt",
         ];
         if can_lock {
             cases.push("locked/inner.txt");
@@ -254,6 +277,14 @@ mod tests {
         std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o700))
             .unwrap();
         assert!(mismatches.is_empty(), "{mismatches:#?}");
+        // 改行を含むリンク先が root の外なら、SSH の検査でも root の外のまま
+        match inspect_with_script(&root.join("escape")).unwrap() {
+            TargetPath::Symlink { real_path, .. } => assert!(
+                real_path.starts_with(&outside_root) && !real_path.starts_with(root),
+                "{real_path:?}"
+            ),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[cfg(unix)]
