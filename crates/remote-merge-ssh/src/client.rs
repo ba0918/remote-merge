@@ -852,7 +852,7 @@ impl SshClient {
         self.send_and_finish_channel(
             &mut channel,
             content.as_bytes(),
-            &format!("cat > {}", remote_path),
+            &format!("write {}", remote_path),
         )
         .await?;
 
@@ -928,7 +928,7 @@ impl SshClient {
         self.send_and_finish_channel(
             &mut channel,
             &encoded_with_newline,
-            &format!("openssl base64 -d > {}", remote_path),
+            &format!("write (bytes) {}", remote_path),
         )
         .await?;
 
