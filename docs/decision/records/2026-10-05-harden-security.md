@@ -23,7 +23,6 @@ IR は未知のホスト鍵の扱い（[REQ-ssh-001](../../ir/ssh/host-key.md#RE
   - decided_by: 利用者（2026-10-05、計画の承認による）
 - A5 同じホストが known_hosts に別の鍵種別でだけ登録されているとき、提示された鍵は known_hosts で確かめられていないので、未知の鍵として扱う。strict_host_key_checking=yes や確認の手段がないときは止まり、--yes や strict_host_key_checking=no では承認できる。
   - why: [REQ-ssh-001](../../ir/ssh/host-key.md#REQ-ssh-001) は確かめられていない鍵を無確認で信頼することを禁じ、[REQ-ssh-002](../../ir/ssh/host-key.md#REQ-ssh-002) は明示した自動承認を認める。別の種別の登録は提示された鍵を確かめる材料にならないので、未知の鍵の扱いがそのまま当てはまる。拒否にすると、正しく鍵を追加したい利用者が承認する道もなくなる。
-  - rejected: 別の種別でだけ登録されたホストの鍵を常に拒否する案は、既存の要件にない拒否を足すため採らない。
   - decided_by: 利用者（2026-10-05、計画の承認による）
 - A6 Agent は、最後の要素が既存の symlink であるパスへ通常ファイルを書かずエラーにし、リンクもリンク先も変えない。symlink の作り直しはリンクそのものを消して作り、リンク先を消さない。そのエラーで製品側が Agent を使えないものとして扱い、sudo=false では SSH の経路へ移り、sudo=true では止まる既存の扱いを受け入れる。
   - why: リンクを通常ファイルに置き換えるのは [REQ-merge-001](../../ir/merge/symlink.md#REQ-merge-001) が禁じる種類の変更で、リンク先へ書くのは書き込み先の外を変える。残る選択はエラーだけである。symlink の作り直しは [REQ-merge-003](../../ir/merge/symlink.md#REQ-merge-003) のとおりリンクそのものに行う。SSH の経路の書き込みが symlink を辿る問題は別に扱う。
