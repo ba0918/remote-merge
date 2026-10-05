@@ -55,10 +55,10 @@ rollback が既存ファイルに書き戻すとき、そのファイルの所�
 
 ### REQ-backup-031: 消えた親ディレクトリは作らない
 - kind: prohibition
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A25, docs/decision/records/2026-10-05-quality-backup.md#A2
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A25, docs/decision/records/2026-10-05-quality-backup.md#A2, docs/decision/records/2026-10-05-path-validation.md#A2
 - verification: unit
 
-戻す先にファイルがなく、親ディレクトリがないか親のパスが通常ファイルに変わっているとき、rollback はそのファイルを書き戻さずスキップ理由 "parent directory no longer exists" を報告し、ディレクトリを作らない。
+戻す先にファイルがなく、親ディレクトリがないか、戻す先より上の祖先のどれかが通常ファイルか通常ファイルを指す symlink に変わっているとき、rollback はそのファイルを書き戻さずスキップ理由 "parent directory no longer exists" を報告し、ディレクトリを作らない。
 
 ### REQ-backup-032: 置き換えた symlink は復元しない
 - kind: prohibition
@@ -124,4 +124,16 @@ Scenario: 親のディレクトリが通常ファイルに置き換わった
 Given --delete で "dir/a.txt" を削除したセッションがあり、その後 "dir" が通常ファイルに置き換わった
 When そのセッションを復元する
 Then "dir/a.txt" は書き戻されずスキップ理由 "parent directory no longer exists" が報告される
+
+@id=EX-backup-029 @about=REQ-backup-031 @source=docs/decision/records/2026-10-05-path-validation.md#A2
+Scenario: 祖父のディレクトリが通常ファイルに置き換わった
+Given --delete で "dir/sub/a.txt" を削除したセッションがあり、その後 "dir" が通常ファイルに置き換わった
+When そのセッションを復元する
+Then "dir/sub/a.txt" は書き戻されずスキップ理由 "parent directory no longer exists" が報告される
+
+@id=EX-backup-030 @about=REQ-backup-031 @source=docs/decision/records/2026-10-05-path-validation.md#A2
+Scenario: 親のディレクトリが通常ファイルを指す symlink に置き換わった
+Given --delete で "dir/a.txt" を削除したセッションがあり、その後 "dir" が通常ファイル "file.txt" を指す symlink に置き換わった
+When そのセッションを復元する
+Then "dir/a.txt" は書き戻されずスキップ理由 "parent directory no longer exists" が報告され、"file.txt" は変わらない
 ```
