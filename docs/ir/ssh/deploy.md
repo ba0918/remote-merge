@@ -27,10 +27,10 @@ Agent の配置先のディレクトリがないとき、所有者だけが読�
 
 ### REQ-ssh-017: 他人が差し替えられる場所の配置先の中のものを実行しない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-harden-security.md#A9, docs/decision/records/2026-10-05-harden-security.md#A7
+- source: docs/decision/records/2026-10-05-harden-security.md#A13, docs/decision/records/2026-10-05-harden-security.md#A7
 - verification: unit
 
-Agent の配置先のディレクトリの祖先に、書かれたパスか symlink を解決した実際のパスで、グループかその他が書き込めて sticky bit のないディレクトリがあるとき、版の確認を含めて配置先の中のものを何も実行せず、Agent を利用できないものとして扱う。
+Agent の配置先へ辿るディレクトリ（配置先の親から根までの書かれたパスの各段、symlink を解決した実際のパスの各段、途中の各 symlink のリンク先とその各段）に、グループかその他が書き込めて sticky bit のないディレクトリ、または所有者が root でも SSH のセッションの uid（sudo=true では root）でもないディレクトリがあるとき、版の確認を含めて配置先の中のものを何も実行せず、Agent を利用できないものとして扱う。
 
 ### REQ-ssh-018: 他人が書き込めた自分の配置先は直して置き直す
 - kind: state_driven
@@ -38,6 +38,13 @@ Agent の配置先のディレクトリの祖先に、書かれたパスか syml
 - verification: unit
 
 Agent の配置先のディレクトリの所有者が SSH のセッションの uid（sudo=true では root）で、グループかその他が書き込め、祖先が REQ-ssh-017 に当たらないとき、配置先をモード 700 に直し、中にある Agent のバイナリと書き込み途中のファイルを実行せずに除いて Agent を置き直し、直した配置先のパスを示す警告を表示する。
+
+### REQ-ssh-019: 安全でない配置先を使わないときは警告する
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-harden-security.md#A14, docs/decision/records/2026-10-05-harden-security.md#A7
+- verification: unit
+
+sudo=false のサーバで、REQ-ssh-014 か REQ-ssh-017 に当たって Agent を利用せずに続けるとき、安全でないと判定した配置先のパスを示す警告を表示する。
 
 ## Examples
 
@@ -47,6 +54,12 @@ Scenario: symlink の配置先
 Given Agent の配置先のディレクトリが、版の確認に正しく答えるプログラムを含むディレクトリへの symlink である
 When sudo=false のサーバへマージする
 Then 配置先の中のものは実行されず SSH 経路で書き込み先が更新される
+
+@id=EX-ssh-030 @about=REQ-ssh-019 @source=docs/decision/records/2026-10-05-harden-security.md#A14
+Scenario: 安全でない配置先を使わずに続ける
+Given Agent の配置先のディレクトリが symlink である
+When sudo=false のサーバへマージする
+Then 配置先のパスを示す警告が表示され、SSH 経路で書き込み先が更新される
 
 @id=EX-ssh-024 @about=REQ-ssh-015 @source=docs/decision/records/2026-10-05-harden-security.md#A11
 Scenario: 配置先を初めて作る
@@ -60,9 +73,21 @@ Given 安全な配置先に版の確認に正しく答えるがローカルの A
 When sudo=false のサーバへマージする
 Then 置かれたバイナリは Agent として実行されず SSH 経路で書き込み先が更新される
 
-@id=EX-ssh-027 @about=REQ-ssh-017 @source=docs/decision/records/2026-10-05-harden-security.md#A9
+@id=EX-ssh-027 @about=REQ-ssh-017 @source=docs/decision/records/2026-10-05-harden-security.md#A13
 Scenario: 誰でも書き込める親の下の配置先
 Given Agent の配置先のディレクトリはモード 700 で版の確認に正しく答えるプログラムを含み、その親がモード 777 で sticky bit がない
+When sudo=false のサーバへマージする
+Then 配置先の中のものは実行されず SSH 経路で書き込み先が更新される
+
+@id=EX-ssh-031 @about=REQ-ssh-017 @source=docs/decision/records/2026-10-05-harden-security.md#A13
+Scenario: 別の利用者の持ち物の親の下の配置先
+Given Agent の配置先のディレクトリは利用者の所有のモード 700 で版の確認に正しく答えるプログラムを含み、その親は root でも利用者でもない別の利用者の所有のモード 755 である
+When sudo=false のサーバへマージする
+Then 配置先の中のものは実行されず SSH 経路で書き込み先が更新される
+
+@id=EX-ssh-032 @about=REQ-ssh-017 @source=docs/decision/records/2026-10-05-harden-security.md#A13
+Scenario: symlink の連なりの途中が誰でも書き込める場所にある
+Given Agent の配置先の親が、安全なディレクトリの中の symlink から、誰でも書き込めて sticky bit のないディレクトリの中の symlink を経て、安全なディレクトリに解決され、配置先は版の確認に正しく答えるプログラムを含む
 When sudo=false のサーバへマージする
 Then 配置先の中のものは実行されず SSH 経路で書き込み先が更新される
 
