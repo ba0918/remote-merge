@@ -164,7 +164,8 @@ pub fn execute_diff(
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
     let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
-    // 展開した子パスごとに、子の一覧が取れなかった（ディレクトリでない）側か。その側にはその子がない
+    // 展開した子パスごとに、親がディレクトリでないと分かっている側か。その側にはその子がない。
+    // 一覧に失敗しただけの側（読む権限がない、接続の失敗）は当てず、その側でも子を読む
     let mut absent_sides: HashMap<String, (bool, bool)> = HashMap::new();
     // 中身を読まなくても変更のあるファイルと分かるもの
     let known_changed_files: HashSet<&str> = plain_file_sizes
@@ -251,6 +252,10 @@ pub fn execute_diff(
                 left_ancestors.extend(left_real);
                 right_ancestors.extend(right_real);
                 scanned_files = scanned_files.saturating_sub(1);
+                let left_below_absent = left_absent
+                    || left_children.is_none() && reads_as_file(&mut core, &pair.left, path);
+                let right_below_absent = right_absent
+                    || right_children.is_none() && reads_as_file(&mut core, &pair.right, path);
                 let children: BTreeSet<_> = left_children
                     .iter()
                     .flatten()
@@ -271,10 +276,8 @@ pub fn execute_diff(
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
                     pending.push_back(child_path.clone());
-                    absent_sides.insert(
-                        child_path.clone(),
-                        (left_children.is_none(), right_children.is_none()),
-                    );
+                    absent_sides
+                        .insert(child_path.clone(), (left_below_absent, right_below_absent));
                     active_directories.insert(
                         child_path,
                         (left_ancestors.clone(), right_ancestors.clone()),
@@ -369,6 +372,18 @@ pub fn execute_diff(
                 }
                 left_ancestors.extend(left_real);
                 right_ancestors.extend(right_real);
+                // 既にないものとした側、ファイルとして読めた側、
+                // 参照先を読めないリンクとして誤りを記録した側だけに子がない
+                let left_below_absent = left_absent
+                    || matches!(left_content, Ok(Some(_)))
+                    || left_symlink_target.is_some()
+                        && left_content.is_err()
+                        && left_children.is_none();
+                let right_below_absent = right_absent
+                    || matches!(right_content, Ok(Some(_)))
+                    || right_symlink_target.is_some()
+                        && right_content.is_err()
+                        && right_children.is_none();
                 let children: BTreeSet<_> = left_children
                     .iter()
                     .flatten()
@@ -390,10 +405,7 @@ pub fn execute_diff(
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
                     pending.push_back(child_path.clone());
-                    absent_sides.insert(
-                        child_path,
-                        (left_children.is_none(), right_children.is_none()),
-                    );
+                    absent_sides.insert(child_path, (left_below_absent, right_below_absent));
                     active_directories.insert(
                         format!("{path}/{child}"),
                         (left_ancestors.clone(), right_ancestors.clone()),
@@ -585,7 +597,7 @@ fn are_empty_directories(left: &Option<Vec<FileNode>>, right: &Option<Vec<FileNo
     matches!((left, right), (Some(left), Some(right)) if left.is_empty() && right.is_empty())
 }
 
-/// 子の一覧。取れない（ディレクトリでない）側と、子を持てない側の下に展開したパスは None。
+/// 子の一覧。取れない側と、子を持てない側の下に展開したパスは None。
 fn listed_children(
     core: &mut CoreRuntime,
     side: &Side,
@@ -596,6 +608,11 @@ fn listed_children(
         return None;
     }
     core.fetch_children(side, path).ok()
+}
+
+/// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
+fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str) -> bool {
+    core.read_file_bytes(side, path, false).is_ok()
 }
 
 /// 子を持てない側の下に展開したパスは、その側を調べずにないものとする。
