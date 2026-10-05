@@ -20,37 +20,40 @@ merge と sync は、比べたときから書き込み先の中身が変わっ�
 
 ### REQ-merge-038: 最後の要素が symlink のパスへ通常ファイルを書かない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A1, docs/decision/records/2026-10-05-ssh-strict-exec.md#A3, docs/decision/records/2026-10-05-harden-security.md#A6
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A1, docs/decision/records/2026-10-05-ssh-strict-exec.md#A3, docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14, docs/decision/records/2026-10-05-harden-security.md#A6
 - verification: review
-- how_to_verify: ローカルは "crates/remote-merge-engine/src/merge/executor.rs"、SSH は "crates/remote-merge-ssh/src/tree_parser.rs"（生成したコマンドを sh で実行する）、エージェントは "crates/remote-merge-agent/src/agent/file_io.rs" の単体テストを読み、最後の要素が symlink の書き込み先への書き込みが失敗しリンクとリンク先が変わらないこと、途中の symlink の先へは書けることを人が確かめる。比べた後に書き込み先が symlink に替わる競合でだけ起きるため、契約テストでは作らない。
+- how_to_verify: ローカルは "crates/remote-merge-engine/src/merge/executor.rs" の binary_write_refuses_a_symlink_destination と text_write_refuses_a_symlink_destination、SSH は "crates/remote-merge-ssh/src/tree_parser.rs" の binary_write_refuses_a_symlink_destination・text_write_refuses_a_symlink_destination・a_write_onto_a_dangling_link_fails_without_creating_its_target・without_dd_nofollow_a_link_destination_is_refused_and_a_file_is_written（生成したコマンドを各ログインシェルから sh で実行する）、エージェントは "crates/remote-merge-agent/src/agent/file_io.rs" の writing_a_file_over_an_existing_symlink_fails_and_changes_neither_link_nor_target と writing_a_file_with_metadata_over_an_existing_symlink_fails_and_changes_neither_link_nor_target を読み、最後の要素が symlink の書き込み先への書き込みが失敗しリンクとリンク先が変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。比べた後に書き込み先が symlink に替わる競合でだけ起きるため、契約テストでは作らない。
 
 ローカル・SSH・エージェントのどの経路でも、通常ファイルの中身の書き込みは、書き込み先のパスの最後の要素が既存の symlink ならそのパスへ書かずに失敗し、リンクもリンク先も変えない。
 書き込み先の途中の symlink は REQ-merge-004 のとおり辿る。
+SSH の経路でリモートの dd が "oflag=nofollow" を受け付けないときだけ、書き込みの直前に symlink でないことを確かめてから書くので、その確認と書き込みの間に書き込み先が symlink に替わるとリンク先へ書く競合が残る。
 
-### REQ-merge-039: SSH の書き込みは一時ファイルを書き込み先の名前に付け替える
+### REQ-merge-039: SSH の書き込みは書き込み先をその場で書き換える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A8
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
 - verification: review
-- how_to_verify: "crates/remote-merge-ssh/src/tree_parser.rs" の単体テストを読み、生成した書き込みのコマンドを sh で実行して、書き込みの途中で書き込み先を symlink に替えてもリンク先が変わらないこと、既存の書き込み先のモードが残ること、失敗したときに一時ファイルが残らないことを人が確かめる。
+- how_to_verify: "crates/remote-merge-ssh/src/tree_parser.rs" の a_write_keeps_owner_mode_and_hard_links_and_truncates_old_content・writes_create_a_missing_file_and_leave_no_other_entry・a_link_swapped_in_during_a_write_keeps_its_target_unchanged・a_write_onto_a_directory_fails_without_change・without_dd_nofollow_a_link_destination_is_refused_and_a_file_is_written を読み、生成した書き込みのコマンドを各ログインシェルから sh で実行して、書き込み先と同じディレクトリに他の項目が現れないこと、既存の書き込み先の権限とハードリンクが残り古い中身が切り詰められること、書き込みの途中で書き込み先を symlink に替えてもリンク先が変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。
 
-SSH の経路の通常ファイルの書き込みは、書き込み先と同じディレクトリに既存のものを上書きせずに作った一時ファイルに中身を書き、書き込み先の名前に付け替えて置き換え、既存の書き込み先のモードを引き継ぐ。
-書き込みの途中で書き込み先が symlink に替わっても、リンク先は変えない。
-書き込み先が symlink でない既存のディレクトリなら書かずに失敗し、失敗したときは一時ファイルを残さない。
+SSH の経路の通常ファイルの書き込みは、一時ファイルを作らず、書き込み先のファイルをその場で開いて古い中身を切り詰めてから書く。
+書き込み先のファイルそのものに書くので、REQ-merge-013 と REQ-backup-029 のとおり所有者と権限を変えず、ハードリンクも保つ。
+書き込みを始めた後で書き込み先が symlink に替わっても、リンク先は変えない。
+書き込み先が symlink でない既存のディレクトリなら書かずに失敗する。
+書き込みの途中で失敗したときは、途中までの中身が書き込み先に残る。
 
 ### REQ-merge-040: symlink の作成先にある項目を置き換えない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A7, docs/decision/records/2026-10-05-ssh-strict-exec.md#A10
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A7, docs/decision/records/2026-10-05-ssh-strict-exec.md#A10, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
 - verification: review
-- how_to_verify: ローカルは "crates/remote-merge-engine/src/local_io.rs"、SSH は "crates/remote-merge-ssh/src/tree_parser.rs"（生成したコマンドを sh で実行する）、エージェントは "crates/remote-merge-agent/src/agent/file_io.rs" の単体テストを読み、作成先に通常ファイル・ディレクトリ・symlink があると作成が失敗しそれらが変わらないことを人が確かめる。比べた後に作成先に項目が現れる競合でだけ起きるため、契約テストでは作らない。
+- how_to_verify: ローカルは "crates/remote-merge/src/runtime/side_io.rs" の creating_a_local_symlink_where_a_link_a_file_or_a_directory_exists_fails_without_change、SSH は "crates/remote-merge-ssh/src/tree_parser.rs" の creating_a_link_where_a_link_or_a_file_exists_fails_without_change と creating_a_link_where_a_directory_or_a_file_parent_is_fails_without_change（生成したコマンドを sh で実行する）、エージェントは "crates/remote-merge-agent/src/agent/file_io.rs" の creating_a_symlink_where_a_link_a_file_or_a_directory_exists_fails_without_change を読み、作成先に通常ファイル・ディレクトリ・symlink があると作成が失敗しそれらが変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。比べた後に作成先に項目が現れる競合でだけ起きるため、契約テストでは作らない。
 
 ローカル・SSH・エージェントのどの経路でも、symlink の作成は、作成先に通常ファイル・ディレクトリ・symlink のどれかが既にあれば置き換えずに失敗し、何も変えない。
 merge・sync・rollback の symlink の更新は、比べたときにあった書き込み先を消してから作るので、REQ-merge-003 のとおりリンク先を更新する。
 
 ### REQ-merge-041: 比べた後に消えた削除の対象は失敗にする
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A4, docs/decision/records/2026-10-05-ssh-strict-exec.md#A9
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A4, docs/decision/records/2026-10-05-ssh-strict-exec.md#A9, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
 - verification: review
-- how_to_verify: "crates/remote-merge-ssh/src/tree_parser.rs" の単体テストを読み、生成した削除のコマンドがないパスで失敗することと、ローカルの削除がないパスで失敗することを人が確かめる。比べた後に書き込み先が消える競合でだけ起きるため、契約テストでは作らない。
+- how_to_verify: SSH は "crates/remote-merge-ssh/src/tree_parser.rs" の removing_deletes_a_file_or_a_dangling_link_and_fails_on_a_missing_path（生成した削除のコマンドを sh で実行する）、ローカルは "crates/remote-merge/src/runtime/side_io.rs" の test_remove_local_file_nonexistent を読み、ないパスの削除が失敗することを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。比べた後に書き込み先が消える競合でだけ起きるため、契約テストでは作らない。
 
 --delete の merge と sync は、消そうとした書き込み先が比べた後に消えていたとき、どの経路でもそのファイルを failed に出し、他のファイルの処理は続ける。
 リモートの削除を使う symlink の更新でも、消えていた書き込み先は failed に出す。
@@ -82,11 +85,17 @@ Given 比べたときに通常ファイルだった書き込み先が、書き�
 When そのパスをマージする
 Then そのファイルは失敗し、リンクとリンク先のファイルは変わらない
 
-@id=EX-merge-046 @about=REQ-merge-039 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A8
+@id=EX-merge-046 @about=REQ-merge-039 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A11
 Scenario: SSH の書き込みの途中で書き込み先が symlink に替わる
 Given SSH の経路で書き込み先への中身の送信の途中に、書き込み先が別のファイルを指す symlink に替わった
 When 送信が終わり書き込みが完了する
 Then リンク先のファイルは変わらない
+
+@id=EX-merge-050 @about=REQ-merge-039 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A11
+Scenario: SSH の書き込みが既存のファイルの権限とハードリンクを保つ
+Given SSH の経路の書き込み先が、既定と違う権限を持ち、別の名前のハードリンクもある既存のファイルである
+When 元より短い中身でそのファイルをマージする
+Then 書き込み先の権限は変わらず、ハードリンクの別の名前からも新しい中身だけが読め、書き込み先のディレクトリに他の項目は現れない
 
 @id=EX-merge-047 @about=REQ-merge-040 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A7
 Scenario: 比べた後に symlink の作成先にファイルが現れる
