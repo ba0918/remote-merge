@@ -813,6 +813,36 @@ fn directory_outside_include_has_no_diff_on_local_and_ssh_routes() {
     }
 }
 
+// @kotowari[REQ-cli-077]
+#[test]
+fn many_directories_outside_include_have_no_diff() {
+    let names: Vec<String> = (0..21).map(|index| format!("vendor{index:02}")).collect();
+    let files: Vec<(String, &str)> = names
+        .iter()
+        .map(|name| (format!("{name}/lib.txt"), "body\n"))
+        .chain([("src/app.rs".to_string(), "same\n")])
+        .collect();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, body)| (path.as_str(), *body))
+        .collect();
+    let env = CliEnv::new(&files, &files);
+    let config = std::fs::read_to_string(&env.config_path).unwrap();
+    let with_include = config.replace("exclude = [\".git\", \"target\"]", "include = [\"src\"]");
+    assert_ne!(
+        with_include, config,
+        "fixture has no exclude line to replace"
+    );
+    std::fs::write(&env.config_path, with_include).unwrap();
+
+    let output = env.cmd_with("diff").args(&names).output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("0 file(s) with changes"),
+        "{output:?}"
+    );
+}
+
 // @kotowari[EX-cli-060]
 #[test]
 fn directory_link_spelling_keeps_link_and_child_changes() {

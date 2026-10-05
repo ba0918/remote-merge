@@ -553,6 +553,36 @@ fn are_empty_directories(
     matches!((left, right), (Ok(left), Ok(right)) if left.is_empty() && right.is_empty())
 }
 
+/// 指定したパスのうち、比べるファイルを一つも解決せず、左右ともディレクトリで
+/// 配下を include で絞った一覧が空のもの。ツリーに現れない include の外のディレクトリも含む。
+fn directories_without_files(
+    paths: &[String],
+    existing_files: &[String],
+    left: &Side,
+    right: &Side,
+    core: &mut CoreRuntime,
+) -> HashSet<String> {
+    let mut directories = HashSet::new();
+    for path in paths {
+        let normalized = path.trim_end_matches('/');
+        let prefix = format!("{normalized}/");
+        if normalized.is_empty()
+            || normalized.contains(['*', '?', '['])
+            || existing_files
+                .iter()
+                .any(|file| file == normalized || file.starts_with(&prefix))
+        {
+            continue;
+        }
+        let left_children = core.fetch_children(left, normalized);
+        let right_children = core.fetch_children(right, normalized);
+        if are_empty_directories(&left_children, &right_children) {
+            directories.insert(path.clone());
+        }
+    }
+    directories
+}
+
 fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
     match path {
         TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => Some(real_path),
@@ -809,11 +839,15 @@ fn compute_statuses_and_resolve(
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    for path in &missing_files {
+    let empty_directories = directories_without_files(paths, &existing_files, left, right, core);
+    for path in missing_files
+        .iter()
+        .filter(|path| !empty_directories.contains(*path))
+    {
         eprintln!("Warning: '{}' not found on either side", path);
     }
 
-    if existing_files.is_empty() && !paths.is_empty() {
+    if existing_files.is_empty() && empty_directories.is_empty() && !paths.is_empty() {
         anyhow::bail!("specified path(s) not found on either side");
     }
 
