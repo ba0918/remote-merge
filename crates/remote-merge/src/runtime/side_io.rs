@@ -1520,37 +1520,28 @@ mod tests {
     // ── create_local_symlink テスト ──
 
     #[test]
-    fn test_create_local_symlink_replaces_existing_symlink() {
+    fn creating_a_local_symlink_where_a_link_a_file_or_a_directory_exists_fails_without_change() {
         let tmp = TempDir::new().unwrap();
         let link_path = tmp.path().join("link.txt");
-
-        // 最初のシンボリックリンクを作成
         std::os::unix::fs::symlink("target1.txt", &link_path).unwrap();
+        let file_path = tmp.path().join("file.txt");
+        std::fs::write(&file_path, "regular content").unwrap();
+        let dir_path = tmp.path().join("dir");
+        std::fs::create_dir(&dir_path).unwrap();
+
+        assert!(create_local_symlink(&link_path, "target2.txt").is_err());
+        assert!(create_local_symlink(&file_path, "new_target").is_err());
+        assert!(create_local_symlink(&dir_path, "new_target").is_err());
+
         assert_eq!(
             std::fs::read_link(&link_path).unwrap().to_string_lossy(),
             "target1.txt"
         );
-
-        // 別のターゲットで上書き
-        create_local_symlink(&link_path, "target2.txt").unwrap();
         assert_eq!(
-            std::fs::read_link(&link_path).unwrap().to_string_lossy(),
-            "target2.txt"
+            std::fs::read_to_string(&file_path).unwrap(),
+            "regular content"
         );
-    }
-
-    #[test]
-    fn test_create_local_symlink_replaces_regular_file() {
-        let tmp = TempDir::new().unwrap();
-        let file_path = tmp.path().join("file.txt");
-        std::fs::write(&file_path, "regular content").unwrap();
-
-        create_local_symlink(&file_path, "new_target").unwrap();
-        assert!(file_path.symlink_metadata().unwrap().is_symlink());
-        assert_eq!(
-            std::fs::read_link(&file_path).unwrap().to_string_lossy(),
-            "new_target"
-        );
+        assert_eq!(std::fs::read_dir(&dir_path).unwrap().count(), 0);
     }
 
     #[test]

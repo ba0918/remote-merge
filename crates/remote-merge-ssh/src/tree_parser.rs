@@ -198,20 +198,22 @@ pub fn build_remove_command(remote_path: &str) -> String {
     format!("rm -- {}", shell_escape(remote_path))
 }
 
-/// 親ディレクトリを作ってから symlink を作成・更新するコマンドを構築する。
+/// 親ディレクトリを作ってから symlink を作るコマンドを構築する。
 ///
-/// 作成先が symlink でない既存のディレクトリなら、`ln -sfn` がその中にリンクを作ってしまうので
-/// 何もせずに 0 以外で終わる。既存の symlink は `-n` によりリンクそのものを置き換える。
-/// リンク先は読み込み元の symlink の文字列なので、`-` で始まってもオプションとして読ませないよう
-/// 前に `--` を置く。
+/// 作成先に何か（通常ファイル・ディレクトリ・symlink）があれば置き換えずに 0 以外で終わる。
+/// 作成先がディレクトリでもその中にリンクを作らない GNU の `ln -T` で作り、それが使えないとき
+/// だけ作成先に何もないことを確かめてから `ln` で作る。リンク先は読み込み元の symlink の文字列
+/// なので、`-` で始まってもオプションとして読ませないよう前に `--` を置く。
 pub fn build_create_symlink_command(target: &str, remote_path: &str) -> String {
-    let q = shell_escape(remote_path);
+    let t = shell_escape(target);
     let create = format!(
-        "{{ [ -L {q} ] || [ ! -d {q} ]; }} && ln -sfn -- {} {q}",
-        shell_escape(target)
+        "p={q}; if ! e=$(ln -s -T -- {t} \"$p\" 2>&1); then \
+         if [ -e \"$p\" ] || [ -L \"$p\" ]; then printf '%s\\n' \"$e\" >&2; exit 1; fi; \
+         ln -s -- {t} \"$p\"; fi",
+        q = shell_escape(remote_path)
     );
     match build_mkdir_command(remote_path) {
-        Some(mkdir) => format!("{mkdir} && {create}"),
+        Some(mkdir) => format!("{mkdir} || exit 1; {create}"),
         None => create,
     }
 }
@@ -750,21 +752,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn creating_a_link_over_a_link_retargets_only_the_link() {
+    fn creating_a_link_where_a_link_or_a_file_exists_fails_without_change() {
         use std::os::unix::fs::symlink;
         let dir = tempfile::TempDir::new().unwrap();
         let old_target = dir.path().join("old.txt");
         std::fs::write(&old_target, "old").unwrap();
         let link = dir.path().join("link");
         symlink(&old_target, &link).unwrap();
+        let file = dir.path().join("file.txt");
+        std::fs::write(&file, "x").unwrap();
 
-        assert!(sh_succeeds(&build_create_symlink_command(
+        assert!(!sh_succeeds(&build_create_symlink_command(
             "new.txt",
             link.to_str().unwrap()
         )));
+        assert!(!sh_succeeds(&build_create_symlink_command(
+            "new.txt",
+            file.to_str().unwrap()
+        )));
 
-        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("new.txt"));
+        assert_eq!(std::fs::read_link(&link).unwrap(), old_target);
         assert_eq!(std::fs::read_to_string(&old_target).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "x");
     }
 
     #[cfg(unix)]

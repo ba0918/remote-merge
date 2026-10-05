@@ -189,13 +189,11 @@ pub fn remove_local_file(full_path: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("Failed to remove file: {}", full_path.display()))
 }
 
-/// ローカルにシンボリックリンクを作成する（既存リンクは削除してから作成）
+/// ローカルにシンボリックリンクを作成する。
+///
+/// 作成先に何か（通常ファイル・ディレクトリ・symlink）があれば置き換えずに失敗する。比べたときに
+/// あった書き込み先は呼び出し元が先に消すので、ここで見つかるのは比べた後に現れたものである。
 pub fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()> {
-    // 既存のファイル/リンクがあれば削除
-    if full_path.exists() || full_path.symlink_metadata().is_ok() {
-        std::fs::remove_file(full_path)?;
-    }
-
     // 親ディレクトリを作成
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent)?;

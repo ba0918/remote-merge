@@ -546,11 +546,7 @@ pub fn create_symlink_with_metadata(
         }
     }
 
-    // 既存のリンクがあれば削除
-    if link_path.symlink_metadata().is_ok() {
-        fs::remove_file(&link_path)?;
-    }
-
+    // 作成先に何かあれば置き換えずに失敗する（比べたときにあった書き込み先は呼び出し元が先に消す）
     std::os::unix::fs::symlink(target, &link_path)
         .with_context(|| format!("failed to create symlink: {}", link_path.display()))?;
 
@@ -1240,19 +1236,20 @@ mod tests {
     }
 
     #[test]
-    fn recreating_an_existing_symlink_replaces_the_link_and_keeps_its_old_target() {
+    fn creating_a_symlink_where_a_link_a_file_or_a_directory_exists_fails_without_change() {
         let tmp = root_with_link_to_real_file();
+        fs::write(tmp.path().join("rw/file.txt"), "kept").unwrap();
 
-        create_symlink(tmp.path(), "ro/link", "other").unwrap();
+        assert!(create_symlink(tmp.path(), "ro/link", "other").is_err());
+        assert!(create_symlink(tmp.path(), "rw/file.txt", "other").is_err());
+        assert!(create_symlink(tmp.path(), "rw", "other").is_err());
 
+        assert_link_and_target_unchanged(&tmp);
         assert_eq!(
-            fs::read_to_string(tmp.path().join("rw/real.txt")).unwrap(),
-            "original"
+            fs::read_to_string(tmp.path().join("rw/file.txt")).unwrap(),
+            "kept"
         );
-        assert_eq!(
-            fs::read_link(tmp.path().join("ro/link")).unwrap(),
-            Path::new("other")
-        );
+        assert!(tmp.path().join("rw/other").symlink_metadata().is_err());
     }
 
     #[test]
