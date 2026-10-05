@@ -14,7 +14,9 @@ use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
 };
-use crate::service::path_resolver::{filter_merge_candidates, resolve_target_files_from_statuses};
+use crate::service::path_resolver::{
+    check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
+};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
@@ -71,6 +73,7 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
             "--left and --right are required for merge command (e.g. --left local --right staging)"
         );
     }
+    check_path_arguments(&args.paths)?;
     // --hunks 固有のバリデーション
     if let Some(ref hunks) = args.hunks {
         if args.paths.len() != 1 {

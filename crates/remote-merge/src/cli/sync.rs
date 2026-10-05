@@ -13,7 +13,9 @@ use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
-use crate::service::path_resolver::{filter_merge_candidates, resolve_target_files_from_statuses};
+use crate::service::path_resolver::{
+    check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
+};
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
     compute_status_from_trees, needs_merge_content_compare, refine_status_with_content,
@@ -66,6 +68,7 @@ fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<()> {
     if args.paths.is_empty() {
         anyhow::bail!("at least one path is required for sync");
     }
+    check_path_arguments(&args.paths)?;
     Ok(())
 }
 

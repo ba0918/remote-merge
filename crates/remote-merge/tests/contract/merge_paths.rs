@@ -1655,37 +1655,97 @@ fn a_file_created_after_comparison_is_not_overwritten() {
     assert_eq!(fs::read_to_string(target).unwrap(), "other writer\n");
 }
 
-// @kotowari[EX-merge-013]
-#[test]
-fn merge_rejects_parent_traversal_before_writing() {
+/// `dir` の下にあるファイルとディレクトリを、root からの相対パスと中身（ディレクトリは None）で返す
+fn tree_contents(dir: &Path) -> std::collections::BTreeMap<String, Option<String>> {
+    let mut contents = std::collections::BTreeMap::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        for entry in fs::read_dir(&current).unwrap() {
+            let path = entry.unwrap().path();
+            let relative = path.strip_prefix(dir).unwrap().display().to_string();
+            if path.is_dir() {
+                contents.insert(relative, None);
+                pending.push(path);
+            } else {
+                contents.insert(relative, Some(fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+    contents
+}
+
+/// merge が `message` のエラーで止まり、書き込み先の root_dir の中身が変わらないことを確かめる
+fn assert_merge_rejected_without_writing(args: MergeArgs, message: &str) {
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    fs::write(local.path().join("safe.txt"), "source\n").unwrap();
-    fs::write(destination.path().join("safe.txt"), "before\n").unwrap();
+    for name in ["a.txt", "safe.txt"] {
+        fs::write(local.path().join(name), "source\n").unwrap();
+        fs::write(destination.path().join(name), "before\n").unwrap();
+    }
+    let before = tree_contents(destination.path());
     let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_merge(merge_args("../safe.txt"), config, targets);
-    let error = result.err().expect("a parent traversal must be rejected");
-    assert!(error.to_string().contains("traversal"), "{error}");
-    assert_eq!(
-        fs::read_to_string(destination.path().join("safe.txt")).unwrap(),
-        "before\n"
+
+    let error = execute_merge(args, config, targets)
+        .err()
+        .expect("the path argument must be rejected");
+
+    assert_eq!(error.to_string(), message);
+    assert_eq!(tree_contents(destination.path()), before);
+}
+
+fn merge_args_with(paths: &[&str], delete: bool) -> MergeArgs {
+    MergeArgs {
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        delete,
+        ..merge_args(paths[0])
+    }
+}
+
+// @kotowari[EX-merge-013]
+#[test]
+fn merge_rejects_parent_traversal_before_writing() {
+    assert_merge_rejected_without_writing(
+        merge_args("../safe.txt"),
+        "path traversal not allowed: ../safe.txt",
     );
 }
 
 // @kotowari[EX-merge-014]
 #[test]
 fn merge_rejects_absolute_paths_before_writing() {
-    let local = TempDir::new().unwrap();
-    let destination = TempDir::new().unwrap();
-    let backup = TempDir::new().unwrap();
-    let target = destination.path().join("safe.txt");
-    fs::write(&target, "before\n").unwrap();
-    let (config, targets) = setup(&local, &destination, &backup);
-    let result = execute_merge(merge_args(target.to_str().unwrap()), config, targets);
-    let error = result.err().expect("an absolute path must be rejected");
-    assert!(error.to_string().contains("absolute"), "{error}");
-    assert_eq!(fs::read_to_string(&target).unwrap(), "before\n");
+    let outside = TempDir::new().unwrap();
+    let absolute = outside.path().join("safe.txt");
+    fs::write(&absolute, "outside\n").unwrap();
+    let absolute = absolute.to_str().unwrap();
+    assert_merge_rejected_without_writing(
+        merge_args(absolute),
+        &format!("absolute subpath not allowed: {absolute}"),
+    );
+}
+
+// @kotowari[REQ-merge-007]
+#[test]
+fn merge_with_delete_rejects_an_absolute_path_before_writing() {
+    let outside = TempDir::new().unwrap();
+    let absolute = outside.path().join("safe.txt");
+    fs::write(&absolute, "outside\n").unwrap();
+    let absolute = absolute.to_str().unwrap();
+    let mut args = merge_args_with(&["a.txt", absolute], true);
+    args.force = true;
+    assert_merge_rejected_without_writing(
+        args,
+        &format!("absolute subpath not allowed: {absolute}"),
+    );
+}
+
+// @kotowari[EX-merge-040]
+#[test]
+fn merge_rejects_a_parent_traversal_beside_a_valid_path_without_writing_either() {
+    assert_merge_rejected_without_writing(
+        merge_args_with(&["a.txt", "../b.txt"], false),
+        "path traversal not allowed: ../b.txt",
+    );
 }
 
 // @kotowari[EX-backup-003]

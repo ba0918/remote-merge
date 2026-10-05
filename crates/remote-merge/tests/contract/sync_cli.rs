@@ -228,6 +228,43 @@ fn a_sync_stopped_by_an_error_exits_with_two() {
     assert_eq!(read(env.remote_dir.join("file.txt")), "develop old\n");
 }
 
+fn entry_names(dir: PathBuf) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+// @kotowari[REQ-merge-007]
+#[test]
+fn a_sync_with_an_absolute_path_stops_before_writing_to_any_target() {
+    let env = one_merge_and_one_deletion_on_each_target();
+    let outside = env.temp_root().join("outside.txt");
+    fs::write(&outside, "outside\n").unwrap();
+    let outside = outside.to_str().unwrap();
+
+    let output = env
+        .cmd_with("sync")
+        .args(["file.txt", outside, "--force", "--left", "local", "--right"])
+        .args(["develop", "staging"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert_exit_error(&output, 2);
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains(&format!("absolute subpath not allowed: {outside}")),
+        "{output:?}"
+    );
+    for target in [env.remote_dir.clone(), staging_dir(&env)] {
+        assert_eq!(entry_names(target.clone()), ["extra.txt", "file.txt"]);
+        assert!(read(target.join("file.txt")).ends_with(" old\n"));
+    }
+}
+
 // @kotowari[REQ-cli-038]
 #[test]
 fn a_sync_without_a_path_stops_before_writing() {

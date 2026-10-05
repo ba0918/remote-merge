@@ -30,3 +30,41 @@ async fn an_absolute_path_stops_diff_before_any_command_reaches_the_agent_server
     );
     assert!(commands.is_empty(), "{commands:?}");
 }
+
+// @kotowari[REQ-merge-007]
+#[test]
+fn an_absolute_path_stops_a_merge_into_an_ssh_target_before_writing() {
+    let env = super::common::CliEnv::new_3way(
+        &[("file.txt", "incoming\n")],
+        &[("file.txt", "develop old\n"), ("extra.txt", "extra\n")],
+        &[],
+    );
+    let outside = env.temp_root().join("outside.txt");
+    fs::write(&outside, "outside\n").unwrap();
+    let outside = outside.to_str().unwrap();
+
+    let output = env
+        .cmd_with("merge")
+        .args(["file.txt", outside, "--delete", "--force"])
+        .args(["--left", "local", "--right", "develop"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains(&format!("absolute subpath not allowed: {outside}")),
+        "{output:?}"
+    );
+    let mut entries: Vec<String> = fs::read_dir(&env.remote_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, ["extra.txt", "file.txt"]);
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join("file.txt")).unwrap(),
+        "develop old\n"
+    );
+}
