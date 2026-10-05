@@ -48,7 +48,7 @@ entries:
     after: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
   ir:
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
+    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
   - path: docs/ir/merge/deletion.md
     sha256: "sha256:3aa4d40db18310b5943389d3355307b18c9c2e01424fd5dd902e635e3260234c"
   - path: docs/ir/merge/read-failure.md
@@ -66,7 +66,7 @@ entries:
   - path: docs/ir/ssh/remote-shell.md
     sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
   conclusion: new
-  reason: "終了ステータスなしで終わったバイト列の実行を接続エラーにし、途中で切れた一括読み込みを REQ-ssh-003 の再接続と再試行の対象にする。走査の起点の確認は終了コード 1 だけを REQ-scan-015 の \"Remote root_dir not found\" にする。リモートの削除と symlink の作成は終了コードを検査する実行に替え、REQ-merge-034 の削除の失敗と REQ-merge-023 の symlink の作成（親ディレクトリを先に作る）を報告する。要件の文が直接決めていなかった扱いは判断の記録に残し、REQ-merge-038〜041 と REQ-ssh-020 として IR に書いた（A6）: 最後の要素が symlink のパスへ書かない（A1、REQ-merge-038）、symlink の作成先に何かあれば置き換えず、リンク先の前に -- を置く（A7・A10、REQ-merge-040、EX-merge-049）、削除は -f のない rm でないパスを失敗にする（A4・A9、REQ-merge-041）。A2 は A7 に置き換えた。SSH の書き込みは、A8 の一時ファイルの付け替えを A11 で置き換え、dd の oflag=nofollow で書き込み先をその場で開いて切り詰めて書く（REQ-merge-039、EX-merge-046・EX-merge-050）。書き込み先のファイルそのものに書くので REQ-merge-013 と REQ-backup-029 の所有者と権限の維持に合い、ハードリンクも保つ。書き込み先を開く前に cat / openssl があることを確かめ、ないときは書き込み先を切り詰めずに失敗する（main の openssl の -out と同じく、デコーダーが起動できなければ書き込み先は変わらない）。pipefail のない sh で cat / openssl と dd の両方の終了ステータスを確かめ（書き込み元の失敗を書き込みの失敗にすることは A11 のとおり REQ-merge-039 に書いた）、dd が oflag=nofollow を受け付けないときだけ symlink でないことを確かめてから書き（残る競合は REQ-merge-038 に書いた）、status=none は受け付けるときだけ付ける。sudo の書き込み（エージェントの配置）は変えていない。単体テストは生成したコマンドを sh -c に包んで sh・bash・dash・fish から実行し、symlink・ぶら下がった symlink・ディレクトリの書き込み先の失敗、権限・所有者・ハードリンクの維持と古い中身の切り詰め、他の項目が現れないこと、書き込み中の symlink への差し替え、nofollow のない dd と status=none のない dd、openssl のない PATH で書き込み先が変わらないこと（dd の nofollow の有無の両方）、少し書いてから失敗するデコーダーで書き込みが失敗することを確かめる。REQ-merge-038〜041 の確かめ方は実在する単体テストの場所と名前を指すように直した。単体テストはソースのファイルの中にあり、検査するテストファイルに足すと印のない既存のテスト 212 件が検査の失敗になるので verification は review のままにした（A14）。クライアントはすべてのコマンドを sh -c で送り（A5、REQ-ssh-020）、テスト用 SSH サーバは引用を外したスクリプトで振る舞いを決め、受け取ったコマンドを指定したログインシェルで実行する。決められていないコマンドの文字列を固定していたテストは除いた。書き込みの失敗の説明は、今は実行しないコマンドの形を示さない書き込みの説明に改めた（文言は決められていない）。"
+  reason: "終了ステータスなしで終わったバイト列の実行を接続エラーにし、途中で切れた一括読み込みを REQ-ssh-003 の再接続と再試行の対象にする。走査の起点の確認は終了コード 1 だけを REQ-scan-015 の \"Remote root_dir not found\" にする。リモートの削除と symlink の作成は終了コードを検査する実行に替え、REQ-merge-034 の削除の失敗と REQ-merge-023 の symlink の作成（親ディレクトリを先に作る）を報告する。要件の文が直接決めていなかった扱いは判断の記録に残し、REQ-merge-038〜041 と REQ-ssh-020 として IR に書いた（A6）: 最後の要素が symlink のパスへ書かない（A1、REQ-merge-038）、symlink の作成先に何かあれば置き換えず、リンク先の前に -- を置く（A7・A10、REQ-merge-040、EX-merge-049）、削除は -f のない rm でないパスを失敗にする（A4・A9、REQ-merge-041）。A2 は A7 に置き換えた。SSH の書き込みは、A8 の一時ファイルの付け替えを A11 で置き換え、dd の oflag=nofollow で書き込み先をその場で開いて切り詰めて書く（REQ-merge-039、EX-merge-046・EX-merge-050）。書き込み先のファイルそのものに書くので REQ-merge-013 と REQ-backup-029 の所有者と権限の維持に合い、ハードリンクも保つ。書き込み先を開く前に cat / openssl があることを確かめ、見つからないときは書き込み先を開かずに失敗し書き込み先を変えない（main の openssl の -out と同じく、デコーダーがなければ書き込み先は変わらない）。この扱いは A11 を補う改訂として決定記録に残し、A6 のとおり REQ-merge-039 に書いて確かめ方にそのテストを足した。見つかったコマンドがオプションを受け付けずに失敗するときは切り詰めた後の失敗なので、REQ-merge-039 の途中までの中身が残る扱いに当たる。pipefail のない sh で cat / openssl と dd の両方の終了ステータスを確かめ（書き込み元の失敗を書き込みの失敗にすることは A11 のとおり REQ-merge-039 に書いた）、dd が oflag=nofollow を受け付けないときだけ symlink でないことを確かめてから書き（残る競合は REQ-merge-038 に書いた）、status=none は受け付けるときだけ付ける。sudo の書き込み（エージェントの配置）は変えていない。単体テストは生成したコマンドを sh -c に包んで sh・bash・dash・fish から実行し、symlink・ぶら下がった symlink・ディレクトリの書き込み先の失敗、権限・所有者・ハードリンクの維持と古い中身の切り詰め、他の項目が現れないこと、書き込み中の symlink への差し替え、nofollow のない dd と status=none のない dd、openssl のない PATH で書き込み先が変わらないこと（dd の nofollow の有無の両方）、少し書いてから失敗するデコーダーで書き込みが失敗することを確かめる。REQ-merge-038〜041 の確かめ方は実在する単体テストの場所と名前を指すように直した。単体テストはソースのファイルの中にあり、検査するテストファイルに足すと印のない既存のテスト 212 件が検査の失敗になるので verification は review のままにした（A14）。クライアントはすべてのコマンドを sh -c で送り（A5、REQ-ssh-020）、テスト用 SSH サーバは引用を外したスクリプトで振る舞いを決め、受け取ったコマンドを指定したログインシェルで実行する。決められていないコマンドの文字列を固定していたテストは除いた。書き込みの失敗の説明は、今は実行しないコマンドの形を示さない書き込みの説明に改めた（文言は決められていない）。"
   requirements:
   - REQ-ssh-003
   - REQ-scan-015
@@ -193,7 +193,7 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
+    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
   conclusion: new
   reason: "ローカルの書き込みを O_NOFOLLOW で開き、最後の要素が既存の symlink ならリンクもリンク先も変えずに失敗する（A3、REQ-merge-038、REQ-merge-001）。途中の symlink は O_NOFOLLOW の対象外なので REQ-merge-004 のとおり辿る。そのために engine に Agent と同じ版の libc を unix 向けの依存として足し、Cargo.lock は engine の依存の一覧に libc が加わるだけである。unix 以外では今までどおり書く。"
   requirements:
@@ -226,7 +226,7 @@ entries:
     after: "sha256:a419d3aef3c4f296ec49a40e6b05258632a6887ee17c700fc44e8383cde67b6f"
   ir:
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
+    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: new
