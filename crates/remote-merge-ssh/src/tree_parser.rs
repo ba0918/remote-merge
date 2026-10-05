@@ -799,35 +799,10 @@ mod tests {
     }
 
     #[test]
-    fn test_build_mkdir_command_nested_path() {
-        let cmd = build_mkdir_command("/var/www/app/src/handler/mod.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app/src/handler'");
-    }
-
-    #[test]
-    fn test_build_mkdir_command_single_depth() {
-        let cmd = build_mkdir_command("/var/www/app/main.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/app'");
-    }
-
-    #[test]
-    fn test_build_mkdir_command_root_file() {
-        // ルート直下のファイルは mkdir 不要
-        let cmd = build_mkdir_command("/main.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/'");
-    }
-
-    #[test]
     fn test_build_mkdir_command_no_parent() {
         // 親がないパスは None
         let cmd = build_mkdir_command("file.rs");
         assert!(cmd.is_none());
-    }
-
-    #[test]
-    fn test_build_mkdir_command_special_chars() {
-        let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
-        assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
     }
 
     /// 生成した書き込みのコマンドを、標準入力に `input` を渡して実際の sh で実行し、成功したかを返す

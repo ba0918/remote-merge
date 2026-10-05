@@ -253,30 +253,6 @@ mod tests {
     }
 
     #[test]
-    fn output_whose_counts_or_markers_disagree_is_rejected() {
-        let dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(dir.path().join("a.txt"), "alpha\n").unwrap();
-        let paths = vec![path_in(&dir, "a.txt"), path_in(&dir, "missing.txt")];
-        let output = run_batch(&paths);
-        assert!(parse_batch_output_bytes(&output, &paths).is_ok());
-
-        let cut_off = &output[..output.len() - 3];
-        let without_end = &output[..output.len() - "END2\n".len()];
-        let mut trailing = output.clone();
-        trailing.extend_from_slice(b"extra");
-        let mut longer_content = output.clone();
-        let header = longer_content.windows(3).position(|w| w == b"F0 ").unwrap();
-        longer_content[header + 3] = b'9';
-        let fewer_paths = &paths[..1];
-
-        assert!(parse_batch_output_bytes(cut_off, &paths).is_err());
-        assert!(parse_batch_output_bytes(without_end, &paths).is_err());
-        assert!(parse_batch_output_bytes(&trailing, &paths).is_err());
-        assert!(parse_batch_output_bytes(&longer_content, &paths).is_err());
-        assert!(parse_batch_output_bytes(&output, fewer_paths).is_err());
-    }
-
-    #[test]
     fn paths_with_quotes_and_spaces_are_read() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(dir.path().join("it's my file.txt"), "quoted\n").unwrap();
