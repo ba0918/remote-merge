@@ -135,13 +135,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 diff のテキストの "@@" の行と JSON の left_start・right_start は 0 始まりの行番号で、先頭の行の変更が "@@ -0,1 +0,1 @@" になる。旧資料に記述がなく、行番号を確かめるテストもない。
 
-### FLAG-cli-033: include の外のディレクトリを指定した diff
-- kind: gap
-- related: REQ-config-004, REQ-cli-052
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A16
-
-include の外のディレクトリを指定した diff は、ローカルと SSH の比較ではそのディレクトリを中身のない項目として出して終了コード 0 を返し、ほかの経路では見つからないパスのエラーになると実装からは読める。旧資料に記述がない。
-
 ### FLAG-cli-034: files_with_changes が数えるもの
 - kind: contradiction
 - related: REQ-cli-053
@@ -183,20 +176,6 @@ REQ-cli-009 はバイナリの一致または不一致を示すとするが、�
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A25
 
 正しい UTF-8 のテキストでも、先頭の 8,192 バイトの境目で多バイトの文字が切れるとバイナリと判定される。REQ-cli-061 の「先頭 8,192 バイトに不正な UTF-8 を含む」に境目で切れた文字が当たるかは読み分けられない。
-
-### FLAG-cli-044: SSH の側だけ参照先がない symlink
-- kind: contradiction
-- related: REQ-cli-022
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A2
-
-REQ-cli-022 は symlink の参照先がないか読めないとき空ファイルと同一扱いせずエラー終了するとするが、SSH の経路の側だけ参照先がない symlink は、エラーにならずその側を空として比べ、終了コード 1 を返す（ローカルの側ならエラーになる）。
-
-### FLAG-cli-045: SSH の側のディレクトリ symlink と通常ファイル
-- kind: contradiction
-- related: REQ-cli-021, EX-cli-061
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A3
-
-REQ-cli-021 と EX-cli-061 はディレクトリ symlink と通常ファイルの組でも配下を入口からの子パスで示すとするが、ローカルの側が通常ファイルで SSH の側がディレクトリ symlink のとき、diff はリンクの配下の子ファイルを出さない（逆の向きは出す）。
 
 ### FLAG-cli-047: パスを指定しない diff の symlink
 - kind: ambiguity
