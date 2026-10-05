@@ -566,7 +566,9 @@ fn directories_without_files(
     for path in paths {
         let normalized = path.trim_end_matches('/');
         let prefix = format!("{normalized}/");
+        // ルートの指定は一覧で確かめず、ツリーから解決した結果だけで決める
         if normalized.is_empty()
+            || normalized == "."
             || normalized.contains(['*', '?', '['])
             || existing_files
                 .iter()
