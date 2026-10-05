@@ -1,245 +1,113 @@
 version: 1
 entries:
-- id: ssh-batch-read-format
-  base: 668161dd20f9a29f547c4829ec4becc78fa521c5
+- id: path-arguments-before-scan
+  base: 213a8def195d5026eef2f07e6930eafd6a104693
   role: implementer
   files:
-  - path: crates/remote-merge-ssh/src/batch_read.rs
-    before: "sha256:b0703a22ae6d716c8b8ca7810ca29c6797aa046403baa49b30817812a9c07b5c"
-    after: "sha256:f8a8e025c491115716961447035360c324d6352faf2515ad8908cdf29323584c"
+  - path: crates/remote-merge-engine/src/rel_path.rs
+    before: null
+    after: "sha256:997ba81bf5f501f86b46c5b74f72eb3c05e188a57c255dc36a9805a5770070a8"
+  - path: crates/remote-merge-engine/src/lib.rs
+    before: "sha256:a91e01ac3ec7e0808a07d28e7ec54c0e2b3fc0c580b8055e9080cb566d69546c"
+    after: "sha256:8fe42687be6d2983f69f85fab89024b911cfa3a66d25448da9d351ce485be9b8"
+  - path: crates/remote-merge-engine/src/service/path_resolver.rs
+    before: "sha256:6b86f5e9f5978e54a1193d25f591b82c8db89f06b53b25598a4bc0d914b70fb5"
+    after: "sha256:8a9d061591e028b702d1c3083856c00f7b64cf03a71502a6ea85f270cb8e8521"
+  - path: crates/remote-merge-engine/src/merge/executor.rs
+    before: "sha256:ce16ca7c7330d6ff78620ff2458c384bb62899d8508722946cf74f06678005c7"
+    after: "sha256:d768e8ae8676c906cdba6804257c78cade76b8bfb5079d46bbed9c7326c547e5"
+  - path: crates/remote-merge/src/cli/diff.rs
+    before: "sha256:3b814a51ac3c40c7a955a444a2841e51cf4b41f2c69046a2d8ed92d61d753058"
+    after: "sha256:dbac376f6a86ec0660ac6af9abf246e139913b08d0834a69bdc2ee0589250295"
+  - path: crates/remote-merge/src/cli/merge.rs
+    before: "sha256:bf1a8f4860055bfe1893a0b8bdba5ffd112c69c6933e318e5b35e65600a2cc77"
+    after: "sha256:4385be115f866ad754f3fe7f341cf1192ca0eed85284f23b63efe0f01b8ab23c"
+  - path: crates/remote-merge/src/cli/sync.rs
+    before: "sha256:47602762c56d142adae3ea9b1295a8ec5d40f7ac1a4ec9415f2eee83b4557361"
+    after: "sha256:296c3349018b25dfd909c01decf80e1ed4b32880dc6314bb8ca68d1c3ae0ef2a"
+  - path: crates/remote-merge/tests/cli_diff.rs
+    before: "sha256:fc6d3687fc2e9e7bbd383b449575f607845b99ddf9930a793d95d9a60708a673"
+    after: "sha256:0f99bf6d41d80acc3282daf59949df8f903eb249b873197d700d63a1ab3dc36b"
+  - path: crates/remote-merge/tests/contract/merge_paths.rs
+    before: "sha256:cd3347ef090e332b6c8393f071391b5f234ee62783bacfcd83014cf7278f637a"
+    after: "sha256:b98995a899ae288bc8170caaefd0be8e7f2186707bdc154111cd04cfeaff5dbf"
+  - path: crates/remote-merge/tests/contract/sync_cli.rs
+    before: "sha256:d5ac153bc681b011275cad7499dbab7bd265eb0f05a56798340087d56f2c3768"
+    after: "sha256:dca16980c838c4ef694bf7cf64308991062f29d40cdfaf78b0ae2d30e7af8c0a"
+  - path: crates/remote-merge/tests/contract/path_arguments_cli.rs
+    before: null
+    after: "sha256:d33ca389b1bff3a6569e2f126e7d13e06271df5ffa29a4e568643842f304c1d1"
   ir:
-  - path: docs/ir/merge/read-failure.md
-    sha256: "sha256:dd9debd1e232ac7f42c1abad4f0e1c8402cd0910e814f4b46f12372b36d12714"
-  - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
+  - path: docs/ir/cli/diff-output.md
+    sha256: "sha256:7d383f368ff9e877cd598f0caa81c35f18696188200983a0c245a188a4ad8793"
+  - path: docs/ir/merge/symlink.md
+    sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "SSH の一括読み込みの形式を、各ファイルの読めたかどうかとバイト数を出す形式に替え、通常ファイルでないか読めなかったパスを結果から外す。結果にないパスは呼び出し元が一件ずつの厳密な読み込みでやり直し、merge と sync は REQ-merge-017 のとおり空の中身とみなさずに失敗を報告し、REQ-merge-019 の \"read failed: right: 原因\" を出す。件数・バイト数・印が合わない出力は呼び出し全体を失敗にする。出力の区切りの形を固定していた単体テストは、仕様が契約にしていない形なので除いた。REQ-ssh-020 のとおり一括読み込みのコマンドも sh -c に包んで送るので、分割の見積もりを包んだ後の長さで行い、引用符の多いパスでもコマンド長の上限を守る（既存の分割のテストを包んだ後の長さで確かめる形に改めた）。新しい文言は決めていない。"
+  reason: "REQ-cli-078 と REQ-merge-007 のとおり、diff・merge（--hunks を含む）・sync のパスの引数に絶対パスか \"..\" の要素があれば、サーバの解決・バックアップの整理・接続・走査の前に、入力されたままの値で \"absolute subpath not allowed: パス\" か \"path traversal not allowed: パス\" のエラーで止め、終了コード 2 を返して何も書かない。検査は engine の rel_path::check_rel_path 一つにまとめ、引数用の check_path_arguments が REQ-cli-052 の root_dir 全体を指す値（\"/\"・\".\"・\"./\"・空）を飛ばしてから呼ぶ。SSH の経路のパスの組み立て（validate_remote_path）は先頭の \"/\" を削る読み替えをやめて同じ関数で拒否し、root_dir 全体は空の値で指す（多層の防御で、引数の検査の後に利用者の入力は届かない）。EX-merge-013・EX-merge-014 の既存テストは承認済みの要件の改訂に合わせ、文言の全体と書き込み先の中身が変わらないことを確かめる形に直した。新しい文言は IR が決めたもの以外にない。"
   requirements:
-  - REQ-merge-017
-  - REQ-merge-019
-  - REQ-ssh-020
-  decisions: []
+  - REQ-cli-078
+  - REQ-cli-052
+  - REQ-merge-007
+  decisions:
+  - docs/decision/records/2026-10-05-quality-cli.md#A1
+  - docs/decision/records/2026-10-05-quality-merge.md#A1
+  - docs/decision/records/2026-10-05-path-validation.md#A4
   handoff: null
   gaps: []
-- id: ssh-strict-exec
-  base: 668161dd20f9a29f547c4829ec4becc78fa521c5
+- id: rollback-path-inspection-across-routes
+  base: 213a8def195d5026eef2f07e6930eafd6a104693
   role: implementer
   files:
-  - path: crates/remote-merge-ssh/src/client.rs
-    before: "sha256:6561d464a227c513572211c7bc3e63142e2334dd8529dd9ea7e97d7aede10555"
-    after: "sha256:94a85ec4e5b61b45ed5554bae8e78e619153f1460c0d114faedafc25b6758195"
-  - path: crates/remote-merge-ssh/src/tree_parser.rs
-    before: "sha256:4c9408d16b9f3323ad70133df741edeecefb0d1878cccd07025b594e3a566a0e"
-    after: "sha256:42e58ea5ef0d24bb344bb67c11b1cdb4314a7dcf135b86bdc2f8e6ef48739608"
-  - path: crates/remote-merge/src/runtime/remote_io.rs
-    before: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
-    after: "sha256:210b7e56490dc4c2dcc833fb2fb97d3cc6da0e1ee45a23b18df3475dcba9f12b"
-  - path: crates/remote-merge/tests/ssh_integration.rs
-    before: "sha256:cedd30ff5dc5ed4cf4362889fdad1ee1c19c659113d9401cf591d012cd22d70b"
-    after: "sha256:f555a0655812f6c111aee5e53e5ee0f2f61d55af977f70cf5b9194549f107042"
-  - path: crates/remote-merge/tests/contract/ssh_server.rs
-    before: "sha256:2ec7324fa81655620511888b8787a1ed905401a1bfe4fb0bbc01477805fa0f95"
-    after: "sha256:7343559410163b905d007bf76ecbc11513f3322d7bc8959ffd5f61cbfc39b796"
-  - path: crates/remote-merge/tests/contract/ssh_strict_exec.rs
+  - path: crates/remote-merge/src/runtime/remote_path.rs
+    before: "sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6"
+    after: "sha256:f7bcf1b3ac57a8f76736d5644dab45f3a851e176dbf88f33ceaba2db945c622c"
+  - path: crates/remote-merge-engine/src/local_io.rs
+    before: "sha256:9d309d7aaaf81210d3db0260b2e882c0bdb9e4179cda47ce57b7f19ba276f193"
+    after: "sha256:ad3863383b3fa60d9462cb0fcd7ee35a878a3eedea06bad7a2f5df57879bd9aa"
+  - path: crates/remote-merge-engine/src/service/rollback.rs
+    before: "sha256:cff662d9030bf84006eb3ec514598f7d58dd6be92a5fa8ea6a4f6f5e11af94c7"
+    after: "sha256:d8eb93bf5e0a31742d99d930d91dcf7e3a19a8a1fdfa3d88e1f0d93dae6700d7"
+  - path: crates/remote-merge/src/runtime/target_io.rs
+    before: "sha256:d1db7978e22daa56fd18e214b47da581d83e46e941005289ef239c0361a8c534"
+    after: "sha256:c2f0cf2c2e333613c55bf0c150210e142ac6dc8c60fa05b1c64b55b47782e950"
+  - path: crates/remote-merge/src/runtime/side_io.rs
+    before: "sha256:9ed2eb8a78a96f61fe7228ac300ef6ada0b7f435af2b7c5a17732032021749e0"
+    after: "sha256:75e0d53edea49f46169520f49a714a1af220e2e34ed5e2aca83d1025c75d02fc"
+  - path: crates/remote-merge/tests/contract/backup_rollback_path.rs
+    before: "sha256:7e05df7e2bd4b0f8b9accd75f1ec8895c194f0aae81436d7b675b571ade63b59"
+    after: "sha256:1aac02a43937de5aac6a98b39956cea96e57a7141fef58f3861970ad160aa160"
+  - path: crates/remote-merge/tests/contract/rollback_path_ssh.rs
     before: null
-    after: "sha256:2588a481c131f41284c10520452ffcff167631851c8bf479e5dce77702539b75"
+    after: "sha256:8279a9d01e0e1412851f8c0a4cb9fa0e9fbfb4efd42d20cb2cb567edc7c1c3c4"
+  - path: crates/remote-merge/tests/contract/rollback_path_agent.rs
+    before: null
+    after: "sha256:6624983deb3562a3772e689ca9759be827a7e3d7aba398343cf842a7be2204e9"
+  - path: crates/remote-merge/tests/contract/scan_listing_cli.rs
+    before: "sha256:4c51e60c6d25a604dfc02e42d14af6aca7de1cc5292215013d644950c188e57c"
+    after: "sha256:2cc93d6e4f125a80c1ed752c9eae25f7bc16b88c0e6f8cc71cec679dbc8184dc"
   - path: crates/remote-merge/tests/contract.rs
-    before: "sha256:9c857d7bf1119f766d97a3e289d738a7a00947d23b4ecfdad081ca01f799e423"
-    after: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
+    before: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
+    after: "sha256:d35af94ca4c6c299f8fe3c2d4f78efddbfc92a315a12fa6ba4687463b563b0be"
   ir:
-  - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
-  - path: docs/ir/merge/deletion.md
-    sha256: "sha256:3aa4d40db18310b5943389d3355307b18c9c2e01424fd5dd902e635e3260234c"
-  - path: docs/ir/merge/read-failure.md
-    sha256: "sha256:dd9debd1e232ac7f42c1abad4f0e1c8402cd0910e814f4b46f12372b36d12714"
-  - path: docs/ir/merge/symlink.md
-    sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
-  - path: docs/ir/merge/permissions.md
-    sha256: "sha256:e8bf57f8d6cb9c840693de5ee0ea1ebe3b422503a5fa79456b7201b643f9a2f2"
   - path: docs/ir/backup/rollback-path.md
     sha256: "sha256:e4cc5fd725182d8728b4ac3bea1fb0e18f4d1a7ad1b1cb344ceada7188c5517b"
-  - path: docs/ir/scan/listing.md
-    sha256: "sha256:3eadfba7e1e6ffddba38c51dec5968eb4605a3bf94ff0e844116323a53024cd6"
-  - path: docs/ir/ssh/reconnect.md
-    sha256: "sha256:2bcf678d215bb85166a7c72826f5e211c25a4eb2c4686047ba6687ef831671a4"
-  - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
-  conclusion: new
-  reason: "終了ステータスなしで終わったバイト列の実行を接続エラーにし、途中で切れた一括読み込みを REQ-ssh-003 の再接続と再試行の対象にする。走査の起点の確認は終了コード 1 だけを REQ-scan-015 の \"Remote root_dir not found\" にする。リモートの削除と symlink の作成は終了コードを検査する実行に替え、REQ-merge-034 の削除の失敗と REQ-merge-023 の symlink の作成（親ディレクトリを先に作る）を報告する。要件の文が直接決めていなかった扱いは判断の記録に残し、REQ-merge-038〜041 と REQ-ssh-020 として IR に書いた（A6）: 最後の要素が symlink のパスへ書かない（A1、REQ-merge-038）、symlink の作成先に何かあれば置き換えず、リンク先の前に -- を置く（A7・A10、REQ-merge-040、EX-merge-049）、削除は -f のない rm でないパスを失敗にする（A4・A9、REQ-merge-041）。A2 は A7 に置き換えた。SSH の書き込みは、A8 の一時ファイルの付け替えを A11 で置き換え、dd の oflag=nofollow で書き込み先をその場で開いて切り詰めて書く（REQ-merge-039、EX-merge-046・EX-merge-050）。書き込み先のファイルそのものに書くので REQ-merge-013 と REQ-backup-029 の所有者と権限の維持に合い、ハードリンクも保つ。書き込み先を開く前に cat / openssl があることを確かめ、見つからないときは書き込み先を開かずに失敗し書き込み先を変えない（main の openssl の -out と同じく、デコーダーがなければ書き込み先は変わらない）。この扱いは A11 を補う改訂として決定記録に残し、A6 のとおり REQ-merge-039 に書いて確かめ方にそのテストを足した。見つかったコマンドがオプションを受け付けずに失敗するときは切り詰めた後の失敗なので、REQ-merge-039 の途中までの中身が残る扱いに当たる。pipefail のない sh で cat / openssl と dd の両方の終了ステータスを確かめ（書き込み元の失敗を書き込みの失敗にすることは A11 のとおり REQ-merge-039 に書いた）、dd が oflag=nofollow を受け付けないときだけ symlink でないことを確かめてから書き（残る競合は REQ-merge-038 に書いた）、status=none は受け付けるときだけ付ける。sudo の書き込み（エージェントの配置）は変えていない。単体テストは生成したコマンドを sh -c に包んで sh・bash・dash・fish から実行し、symlink・ぶら下がった symlink・ディレクトリの書き込み先の失敗、権限・所有者・ハードリンクの維持と古い中身の切り詰め、他の項目が現れないこと、書き込み中の symlink への差し替え、nofollow のない dd と status=none のない dd、openssl のない PATH で書き込み先が変わらないこと（dd の nofollow の有無の両方）、少し書いてから失敗するデコーダーで書き込みが失敗することを確かめる。REQ-merge-038〜041 の確かめ方は実在する単体テストの場所と名前を指すように直した。単体テストはソースのファイルの中にあり、検査するテストファイルに足すと印のない既存のテスト 212 件が検査の失敗になるので verification は review のままにした（A14）。クライアントはすべてのコマンドを sh -c で送り（A5、REQ-ssh-020）、テスト用 SSH サーバは引用を外したスクリプトで振る舞いを決め、受け取ったコマンドを指定したログインシェルで実行する。決められていないコマンドの文字列を固定していたテストは除いた。書き込みの失敗の説明は、今は実行しないコマンドの形を示さない書き込みの説明に改めた（文言は決められていない）。"
-  requirements:
-  - REQ-ssh-003
-  - REQ-scan-015
-  - REQ-merge-017
-  - REQ-merge-019
-  - REQ-merge-001
-  - REQ-merge-003
-  - REQ-merge-004
-  - REQ-merge-013
-  - REQ-merge-023
-  - REQ-merge-033
-  - REQ-merge-034
-  - REQ-merge-038
-  - REQ-merge-039
-  - REQ-merge-040
-  - REQ-merge-041
-  - REQ-backup-029
-  - REQ-ssh-020
-  decisions:
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A1"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A4"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A5"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A6"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A7"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A9"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A10"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A11"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A14"
-  handoff: null
-  gaps:
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A1"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A4"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A7"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A9"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A10"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A11"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A14"
-- id: ssh-login-shell
-  base: 668161dd20f9a29f547c4829ec4becc78fa521c5
-  role: implementer
-  files:
-  - path: crates/remote-merge-ssh/src/login_shell.rs
-    before: null
-    after: "sha256:08661d255ad80ef72066681a62d4968368936a27739b8ddd7ced05fc5497a098"
-  - path: crates/remote-merge-ssh/src/lib.rs
-    before: "sha256:1c3b6997238eeedcef95056fc097ef55bafbaff9adbc2e5eef23135faa902088"
-    after: "sha256:32e9ab9c9143672a0ff3fd2789c2edbce5c9de3d0533ef35392741b1629adc17"
-  - path: crates/remote-merge/tests/common/login_shell.rs
-    before: null
-    after: "sha256:364217002b63c1cafff18dde0f98211a6041e9023ff81e50d71ce535bf4e1b9b"
-  - path: crates/remote-merge/tests/common/mod.rs
-    before: "sha256:afbf1957d2639bc65e8cc57d0820558a4db39a0d403c31f1c3d291171e26b58b"
-    after: "sha256:33787015cc0b206827c5cad8e893c50e422be607c3625e3ecf79e446dcb4d9c5"
-  - path: crates/remote-merge/tests/agent_ssh_deploy.rs
-    before: "sha256:bfb60ed1b2303b7f3e487531f056c470ddca91cf1857b106a832d81365d78a61"
-    after: "sha256:97779c396d92ea115ed58e836de9279f334b6b47bf56d1c46a39e78fa53d1de0"
-  - path: crates/remote-merge/tests/contract/ssh_login_shell.rs
-    before: null
-    after: "sha256:bd38aea2431822cd8d579cc0ac3306d6fb8ecc3833332b63296e0ce076ac87cb"
-  - path: .github/workflows/ci.yml
-    before: "sha256:d8b9cb00e152a238b3efd0653aaada63ce4defc402ffa851d20b7fa78a48ec20"
-    after: "sha256:6f4b806e1e27501066b901b24881ade796181c1b574677c3bd7fab0a15e65a04"
-  ir:
-  - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
-  conclusion: new
-  reason: "リモートのログインシェルが fish のサーバで Bourne の構文のコマンドが失敗していたので、すべてのコマンドをスクリプトを一つの引数にした sh -c で送る（A5、REQ-ssh-020）。fish は単一引用符の中でも \\' と \\\\ を解釈するので、単一引用符とバックスラッシュは引用符の外でエスケープする。保証するログインシェルは確かめた Bourne 系と fish に絞り、単一引用符の中の改行を受け付けない csh と tcsh は保証しない（A13）。包み方の説明と remote-shell の導入の文もこの範囲に合わせた。包んだ後の長さを数える関数を置き、一括読み込みの分割の見積もりに使う。単体テストは包んだコマンドを sh・bash・dash・fish で実行して包む前と同じ出力を確かめ、契約テストはログインシェルを fish にした試験サーバで書き込み・symlink の作成・削除を含む merge が成功することを確かめる。fish がない環境では飛ばすが、CI はテストのジョブに fish を入れて REMOTE_MERGE_TEST_REQUIRE_FISH を置き、そのときは fish がないことを失敗にする（A12）。テスト用 SSH サーバの引用を外す関数はテスト側に置いた。"
-  requirements:
-  - REQ-ssh-020
-  decisions:
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A5"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A6"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A12"
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A13"
-  handoff: null
-  gaps:
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A5"
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A12"
-  - category: spec_conflict
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A13"
-- id: local-write-no-follow
-  base: 668161dd20f9a29f547c4829ec4becc78fa521c5
-  role: implementer
-  files:
-  - path: crates/remote-merge-engine/src/merge/executor.rs
-    before: "sha256:cd6b993aac9435439a40f1c802be7799c557feccf2a58baa9ad2bc98bba30b43"
-    after: "sha256:ce16ca7c7330d6ff78620ff2458c384bb62899d8508722946cf74f06678005c7"
-  - path: crates/remote-merge-engine/Cargo.toml
-    before: "sha256:062181385cf15730b35d984b307d19b804e495bd3547b7beb58951b4652664d5"
-    after: "sha256:ec0fe0f9855817bc4f4671583ee4690336396d72086807ee7fd1f5d1971348bc"
-  - path: Cargo.lock
-    before: "sha256:6e179efa25573b84ffced69d0cbf8dd4549a6178defdf3a510e90099646ef91e"
-    after: "sha256:94dda950bb052d6fe013615aff3bd75165627cc8af8297a7eab28c94af8bad7d"
-  ir:
+  - path: docs/ir/cli/diff-output.md
+    sha256: "sha256:7d383f368ff9e877cd598f0caa81c35f18696188200983a0c245a188a4ad8793"
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
-  - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
-  conclusion: new
-  reason: "ローカルの書き込みを O_NOFOLLOW で開き、最後の要素が既存の symlink ならリンクもリンク先も変えずに失敗する（A3、REQ-merge-038、REQ-merge-001）。途中の symlink は O_NOFOLLOW の対象外なので REQ-merge-004 のとおり辿る。そのために engine に Agent と同じ版の libc を unix 向けの依存として足し、Cargo.lock は engine の依存の一覧に libc が加わるだけである。unix 以外では今までどおり書く。"
+  conclusion: existing
+  reason: "SSH の経路のパスの検査スクリプトをローカル（とエージェント）の検査と同じ規則に書き直し、lstat が ENOENT で失敗したときだけ missing（実パスは末尾の要素を含めない）にし、通常ファイルの下・検索権限のないディレクトリの中・自分を指す symlink・リンク切れやループする祖先の symlink の下はエラーにする。これで REQ-backup-003 のとおり、辿れないパスを含むセッションの rollback が SSH でも一件も書き戻さず全件を \"cannot resolve path: \" で報告し、REQ-backup-033 のリンク切れの末尾の symlink は今までどおり辿った先の場所で比べる。祖先のリンク切れの symlink を辿れないパスと読むことは決定記録 A1 に残した。REQ-backup-031 と EX-backup-027 のとおり、戻す先の検査が失敗し、すぐ上の親が symlink でない通常ファイルと分かったときだけ \"parent directory no longer exists\" でスキップする判定を engine の純粋関数に置き、親の種類をローカル・SSH・エージェントで調べる操作を TargetIo に足した（A2・A3）。エージェントの crate と通信の型は変えていない。target_io.rs の SSH の子の一覧の検査、side_io.rs のその単体テスト、scan_listing_cli.rs の AgentFixture の起動関数、contract.rs の mod 行は、REQ-cli-078 と REQ-merge-007 の変更と共有するファイルなのでこの組に含めた。"
   requirements:
-  - REQ-merge-001
-  - REQ-merge-004
-  - REQ-merge-038
+  - REQ-backup-003
+  - REQ-backup-031
+  - REQ-backup-033
+  - REQ-cli-078
+  - REQ-merge-007
   decisions:
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A3"
+  - docs/decision/records/2026-10-05-quality-backup.md#A2
+  - docs/decision/records/2026-10-05-path-validation.md#A1
+  - docs/decision/records/2026-10-05-path-validation.md#A2
+  - docs/decision/records/2026-10-05-path-validation.md#A3
+  - docs/decision/records/2026-10-05-path-validation.md#A4
   handoff: null
-  gaps:
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A3"
-- id: symlink-no-overwrite
-  base: 668161dd20f9a29f547c4829ec4becc78fa521c5
-  role: implementer
-  files:
-  - path: crates/remote-merge-engine/src/local_io.rs
-    before: "sha256:5d47d6ce2d83d26ab8207ff4e8dbc5e25967b7c83896c7b86dc1e4f8b70f7400"
-    after: "sha256:9d309d7aaaf81210d3db0260b2e882c0bdb9e4179cda47ce57b7f19ba276f193"
-  - path: crates/remote-merge-agent/src/agent/file_io.rs
-    before: "sha256:83ea5d92aba47117fd28e42521aa86e19c4983eafa7804e098ac84f95868f1a8"
-    after: "sha256:e91ed9ccb62575cc31768a2afe349b7c23fc06b496314f74605a2a0d4d78992d"
-  - path: crates/remote-merge/src/runtime/side_io.rs
-    before: "sha256:9994481d1566a3e5f1de6afb89ed5ac8ea9347b48dbca2793dc4857129457f38"
-    after: "sha256:9ed2eb8a78a96f61fe7228ac300ef6ada0b7f435af2b7c5a17732032021749e0"
-  - path: crates/remote-merge-engine/src/service/merge.rs
-    before: "sha256:aeb28a5b990c4b6b8e0d81d4fdb7b22af5b4a30854b9e4434330ccf9e0a44c3a"
-    after: "sha256:a419d3aef3c4f296ec49a40e6b05258632a6887ee17c700fc44e8383cde67b6f"
-  ir:
-  - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:6060a3aeff2708d4dffd16a378024fe760c5065d8b564d18d57f80e6d187f1c1"
-  - path: docs/ir/merge/symlink.md
-    sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
-  conclusion: new
-  reason: "ローカルと Agent の symlink の作成は作成先の既存の項目を消してから作っていたが、作成先に何かあれば置き換えずに失敗する（A7、REQ-merge-040）。merge と rollback の symlink の更新は比べたときにあった書き込み先を先に消すので、REQ-merge-003 の更新は変わらない（既存の契約テストが通る）。置き換えを固定していた単体テストを、失敗して何も変えないことを確かめるテストに改めた。harden-security の A6 の作り直しの文は A7 に置き換えた。merge の判定のコメントも、作成が上書きするので安全という説明から、呼び出し側が先に消すという説明に改めた。"
-  requirements:
-  - REQ-merge-040
-  - REQ-merge-003
-  decisions:
-  - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A7"
-  - "docs/decision/records/2026-10-05-harden-security.md#A6"
-  handoff: null
-  gaps:
-  - category: missing_spec
-    disposition: recorded
-    refs:
-    - "docs/decision/records/2026-10-05-ssh-strict-exec.md#A7"
+  gaps: []
