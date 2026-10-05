@@ -60,11 +60,11 @@ fn deploy_dir_check_script(remote_path: &Path, expected_uid: &str) -> String {
     // `ls -ldn` の 1 列目の 6 文字目がグループ、9 文字目がその他の書き込み権。
     // 自分の配置先を他人が書き込めたときは、祖先が安全なら直して中の Agent を除く
     format!(
-        "d={dir}; \
+        "u={expected_uid}; d={dir}; \
 if [ ! -e \"$d\" ] && [ ! -h \"$d\" ]; then (umask 077 && mkdir -p \"$d\") || exit 1; fi; \
 [ -h \"$d\" ] && exit 1; [ -d \"$d\" ] || exit 1; \
 set -- $(ls -ldn \"$d\"); \
-[ \"$3\" = \"{expected_uid}\" ] || exit 1; m=$1; \
+[ \"$3\" = \"$u\" ] || exit 1; m=$1; \
 {ANCESTORS_CHECK} \
 case \"$m\" in ?????w*|????????w*) \
 chmod 700 \"$d\" && rm -f {binary} {tmp} || exit 1; echo {REPAIRED_MARKER}; exit 0;; esac; \
@@ -73,16 +73,19 @@ echo {SAFE_MARKER}"
 }
 
 /// 配置先の祖先を、書かれたパスと symlink を解決した実際のパスの両方で根まで辿り、
-/// グループかその他が書き込めて sticky bit のないものがあれば失敗する。
+/// グループかその他が書き込めて sticky bit のないもの、または所有者が root でも
+/// 期待する uid（`$u`）でもないものがあれば失敗する。
 ///
-/// そうした祖先の中では他人が配置先を名前ごと差し替えられ、検査の後の別々の実行の間に
-/// 別のものを実行させられる。祖先の symlink 自体のモードは意味がないので見ず、その親と
-/// 解決した先を見る。配置先そのものはその前の検査で見るので、配置先の親から始める。
+/// そうした祖先の中では他人が（所有者ならモードを変えてから）配置先を名前ごと差し替えられ、
+/// 検査の後の別々の実行の間に別のものを実行させられる。祖先の symlink 自体のモードと所有者は
+/// 意味がないので見ず、その親と解決した先を見る。配置先そのものはその前の検査で見るので、
+/// 配置先の親から始める。
 const ANCESTORS_CHECK: &str = "\
 p=$(dirname \"$d\"); \
 l=$(CDPATH= cd \"$p\" && pwd) || exit 1; r=$(CDPATH= cd -P \"$p\" && pwd -P) || exit 1; \
 for a in \"$l\" \"$r\"; do while :; do \
 if [ ! -h \"$a\" ]; then set -- $(ls -ldn \"$a\"); [ -n \"$1\" ] || exit 1; \
+case \"$3\" in 0|\"$u\") ;; *) exit 1;; esac; \
 case \"$1\" in ?????????[tT]*) ;; ?????w*|????????w*) exit 1;; esac; fi; \
 [ \"$a\" = / ] && break; a=${a%/*}; [ -n \"$a\" ] || a=/; \
 done; done;";
@@ -326,6 +329,32 @@ mod tests {
             let mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o700, "{}", created.display());
         }
+    }
+
+    /// 祖先の検査だけを、期待する uid を `uid` として走らせる。
+    /// 配置先そのものの所有者の検査を通さずに、自分の持ち物の祖先を「別の利用者の持ち物」として試すため
+    fn run_ancestors_check(dir: &Path, uid: u32) -> String {
+        let dir = shell_escape(&dir.to_string_lossy());
+        run(&format!(
+            "u={uid}; d={dir}; {ANCESTORS_CHECK} echo {SAFE_MARKER}"
+        ))
+    }
+
+    #[test]
+    fn an_ancestor_owned_by_neither_root_nor_the_session_user_fails_the_ancestor_check() {
+        let tmp = private_tmp();
+        let dir = owner_only_dir_under_parent_with_mode(&tmp, 0o755);
+        let own = own_uid(&tmp);
+
+        let as_owner = run_ancestors_check(&dir, own);
+        let as_another_user = run_ancestors_check(&dir, own + 1);
+
+        assert_eq!(judge_deploy_dir(&as_owner), DeployDir::Safe, "{as_owner}");
+        assert_eq!(
+            judge_deploy_dir(&as_another_user),
+            DeployDir::Unsafe,
+            "{as_another_user}"
+        );
     }
 
     #[test]
