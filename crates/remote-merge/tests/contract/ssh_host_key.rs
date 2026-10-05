@@ -10,20 +10,43 @@ fn accepts_unknown_key(policy: StrictHostKeyChecking, auto_yes: bool) -> bool {
     )
 }
 
-/// 未知のホスト鍵を提示する試験サーバーへ、既定の確認（ask）で status を実行する
+/// 試験サーバーへ status を実行した結果
 #[cfg(all(unix, feature = "test-utils"))]
-async fn status_against_an_unknown_host(answer: Option<&str>) -> (std::process::Output, bool) {
+struct StatusRun {
+    output: std::process::Output,
+    /// サーバがコマンドを一つでも受け取ったか
+    operated: bool,
+    /// 実行後の HOME の known_hosts のバイト列（ないときは None）
+    known_hosts_after: Option<Vec<u8>>,
+}
+
+/// 試験サーバーへ status を実行する。
+///
+/// `known_hosts` を与えると HOME の `.ssh/known_hosts` に置き、`ssh_settings` は
+/// 設定の `[ssh]` に足す行、`extra_args` は status に足す引数、`answer` は標準入力。
+#[cfg(all(unix, feature = "test-utils"))]
+async fn status_against(
+    server: &super::ssh_server::TestServer,
+    known_hosts: Option<&[u8]>,
+    ssh_settings: &str,
+    extra_args: &[&str],
+    answer: Option<&str>,
+) -> StatusRun {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let server = super::ssh_server::TestServer::modern().await;
     let home = tempfile::TempDir::new().unwrap();
     let root = home.path().join("files");
     std::fs::create_dir_all(&root).unwrap();
+    let known_hosts_path = home.path().join(".ssh/known_hosts");
+    if let Some(content) = known_hosts {
+        std::fs::create_dir_all(known_hosts_path.parent().unwrap()).unwrap();
+        std::fs::write(&known_hosts_path, content).unwrap();
+    }
     let config_path = home.path().join("config.toml");
     std::fs::write(&config_path, format!(
-        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = false\n[ssh]\ntimeout_sec = 3\n",
-        root.to_str().unwrap(), server.port(), root.to_str().unwrap(),
+        "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = false\n[ssh]\ntimeout_sec = 3\n{}",
+        root.to_str().unwrap(), server.port(), root.to_str().unwrap(), ssh_settings,
     )).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
         .env_clear()
@@ -37,6 +60,7 @@ async fn status_against_an_unknown_host(answer: Option<&str>) -> (std::process::
         .args([
             "status", "--left", "local", "--right", "fixture", "--format", "json",
         ])
+        .args(extra_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -48,8 +72,19 @@ async fn status_against_an_unknown_host(answer: Option<&str>) -> (std::process::
     }
     drop(stdin);
     let output = child.wait_with_output().unwrap();
-    let operated = !server.commands().is_empty();
-    (output, operated)
+    StatusRun {
+        output,
+        operated: !server.commands().is_empty(),
+        known_hosts_after: std::fs::read(&known_hosts_path).ok(),
+    }
+}
+
+/// 未知のホスト鍵を提示する試験サーバーへ、既定の確認（ask）で status を実行する
+#[cfg(all(unix, feature = "test-utils"))]
+async fn status_against_an_unknown_host(answer: Option<&str>) -> (std::process::Output, bool) {
+    let server = super::ssh_server::TestServer::modern().await;
+    let run = status_against(&server, None, "", &[], answer).await;
+    (run.output, run.operated)
 }
 
 // @kotowari[EX-ssh-001, EX-ssh-004]
@@ -63,6 +98,36 @@ async fn unknown_key_is_rejected_when_standard_input_gives_no_answer() {
     let (approved, operated) = status_against_an_unknown_host(Some("yes\n")).await;
     assert_ne!(approved.status.code(), Some(2), "{approved:?}");
     assert!(operated, "an approved connection did not continue");
+}
+
+// @kotowari[REQ-ssh-001]
+#[cfg(all(unix, feature = "test-utils"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_of_a_type_not_registered_for_the_host_is_rejected_under_strict_checking() {
+    let server = super::ssh_server::TestServer::modern().await;
+    let other_type_only = format!(
+        "[127.0.0.1]:{} ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7\n",
+        server.port()
+    );
+
+    let run = status_against(
+        &server,
+        Some(other_type_only.as_bytes()),
+        "strict_host_key_checking = \"yes\"\n",
+        &[],
+        None,
+    )
+    .await;
+
+    assert_eq!(run.output.status.code(), Some(2), "{:?}", run.output);
+    assert!(
+        !run.operated,
+        "the connection continued with an unverified key"
+    );
+    assert_eq!(
+        run.known_hosts_after.as_deref(),
+        Some(other_type_only.as_bytes())
+    );
 }
 
 // @kotowari[EX-ssh-001]

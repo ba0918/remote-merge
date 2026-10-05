@@ -81,55 +81,76 @@ impl client::Handler for SshHandler {
             }
         };
 
-        let known_hosts = parse_known_hosts(&known_hosts_content);
-        let host_entry = format_host_entry(&self.host, self.port);
-
-        let mut found_host = false;
-        for kh in &known_hosts {
-            if !host_matches(&kh.hostname_pattern, &host_entry, &self.host, self.port) {
-                continue;
+        match judge_host_key(
+            &known_hosts_content,
+            &self.host,
+            self.port,
+            server_key_type,
+            server_key_base64,
+        ) {
+            HostKeyJudgement::Trusted => {
+                tracing::debug!(target: "remote_merge::ssh::known_hosts", "known_hosts: host key matched: {}", self.host);
+                Ok(true)
             }
-            found_host = true;
-
-            if kh.key_type == server_key_type {
-                if kh.key_base64 == server_key_base64 {
-                    tracing::debug!(target: "remote_merge::ssh::known_hosts", "known_hosts: host key matched: {}", self.host);
-                    return Ok(true);
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "\n\
-                        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
-                        @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
-                        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
-                        IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n\
-                        Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n\
-                        It is also possible that a host key has just been changed.\n\
-                        The {key_type} host key for {host} has changed (line {line} in ~/.ssh/known_hosts).\n\
-                        To fix this, run:\n\
-                        \n  ssh-keygen -R {host_entry}\n",
-                        key_type = server_key_type,
-                        host = self.host,
-                        line = kh.line_number,
-                        host_entry = host_entry,
-                    ));
-                }
+            HostKeyJudgement::Changed { line } => {
+                let host_entry = format_host_entry(&self.host, self.port);
+                Err(anyhow::anyhow!(
+                    "\n\
+                    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                    @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n\
+                    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\
+                    IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\n\
+                    Someone could be eavesdropping on you right now (man-in-the-middle attack)!\n\
+                    It is also possible that a host key has just been changed.\n\
+                    The {key_type} host key for {host} has changed (line {line} in ~/.ssh/known_hosts).\n\
+                    To fix this, run:\n\
+                    \n  ssh-keygen -R {host_entry}\n",
+                    key_type = server_key_type,
+                    host = self.host,
+                    line = line,
+                    host_entry = host_entry,
+                ))
+            }
+            // 別の鍵種別でだけ登録されたホストも、提示された鍵は確かめられていないので未知として扱う
+            HostKeyJudgement::Unknown => {
+                self.handle_unknown_host(server_key_type, server_key_base64, server_public_key)
             }
         }
-
-        if found_host {
-            // ホスト名は一致するが異なるキータイプ → 新しいキータイプを追加
-            known_hosts_io::append_known_hosts_entry(
-                &self.host,
-                self.port,
-                server_key_type,
-                server_key_base64,
-            );
-            return Ok(true);
-        }
-
-        // 完全に未知のホスト
-        self.handle_unknown_host(server_key_type, server_key_base64, server_public_key)
     }
+}
+
+/// known_hosts の内容に照らした、提示されたホスト鍵の判定
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HostKeyJudgement {
+    /// 同じ種別・同じ鍵が登録されている
+    Trusted,
+    /// 同じ種別で別の鍵が登録されている（`line` はその行番号）
+    Changed { line: usize },
+    /// 提示された鍵を確かめる登録がない
+    Unknown,
+}
+
+/// known_hosts の内容と提示された鍵から、その鍵を信頼できるかを判定する。
+pub(crate) fn judge_host_key(
+    known_hosts_content: &str,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    key_base64: &str,
+) -> HostKeyJudgement {
+    let host_entry = format_host_entry(host, port);
+    for kh in parse_known_hosts(known_hosts_content) {
+        if !host_matches(&kh.hostname_pattern, &host_entry, host, port) || kh.key_type != key_type {
+            continue;
+        }
+        if kh.key_base64 == key_base64 {
+            return HostKeyJudgement::Trusted;
+        }
+        return HostKeyJudgement::Changed {
+            line: kh.line_number,
+        };
+    }
+    HostKeyJudgement::Unknown
 }
 
 impl SshHandler {
@@ -521,5 +542,18 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
 ";
         let entries = parse_known_hosts(content);
         assert_eq!(entries.len(), 1);
+    }
+
+    // ── judge_host_key ──
+
+    const ED25519_KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIKxx";
+
+    #[test]
+    fn a_host_registered_only_with_another_key_type_presents_an_unknown_key() {
+        let content = "example.com ssh-rsa AAAAB3NzaC1yc2EAAA\n";
+
+        let judgement = judge_host_key(content, "example.com", 22, "ssh-ed25519", ED25519_KEY);
+
+        assert_eq!(judgement, HostKeyJudgement::Unknown);
     }
 }
