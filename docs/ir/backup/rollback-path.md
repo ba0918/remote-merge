@@ -58,7 +58,7 @@ rollback が既存ファイルに書き戻すとき、そのファイルの所�
 - source: docs/decision/records/2026-09-27-adopt-backup.md#A25, docs/decision/records/2026-10-05-quality-backup.md#A2, docs/decision/records/2026-10-05-path-validation.md#A2
 - verification: unit
 
-戻す先にファイルがなく、親ディレクトリがないか、戻す先より上の祖先のどれかが通常ファイルか通常ファイルを指す symlink に変わっているとき、rollback はそのファイルを書き戻さずスキップ理由 "parent directory no longer exists" を報告し、ディレクトリを作らない。
+戻す先にファイルがなく、親ディレクトリがないか、戻す先より上の祖先（root_dir は除く）のどれかが通常ファイルか通常ファイルを指す symlink に変わっているとき、rollback はそのファイルを書き戻さずスキップ理由 "parent directory no longer exists" を報告し、ディレクトリを作らない。
 
 ### REQ-backup-032: 置き換えた symlink は復元しない
 - kind: prohibition
