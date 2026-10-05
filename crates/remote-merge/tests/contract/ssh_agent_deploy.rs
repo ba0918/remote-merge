@@ -150,6 +150,32 @@ async fn nothing_in_a_deploy_directory_under_a_parent_writable_by_everyone_is_ru
     );
 }
 
+// @kotowari[REQ-ssh-017, EX-ssh-032]
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_in_a_deploy_directory_reached_through_a_link_placed_where_everyone_can_write_is_run(
+) {
+    let fixture = DeployFixture::new().await;
+    let home = fixture.home.path();
+    // agent -> between/link2 -> ../good と辿り、途中のリンクだけが誰でも書き込める場所にある
+    let between = home.join("between");
+    fs::create_dir(&between).unwrap();
+    fs::set_permissions(&between, fs::Permissions::from_mode(0o777)).unwrap();
+    fs::create_dir(home.join("good")).unwrap();
+    fs::set_permissions(home.join("good"), fs::Permissions::from_mode(0o755)).unwrap();
+    std::os::unix::fs::symlink("../good", between.join("link2")).unwrap();
+    std::os::unix::fs::symlink("between/link2", home.join("agent")).unwrap();
+    fixture.plant_binary(0o700, None);
+
+    let merge = fixture.merge(None);
+
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
+    assert!(
+        !fixture.marker().exists(),
+        "a binary reached through a link in a directory writable by everyone was run"
+    );
+}
+
 // @kotowari[REQ-ssh-018, EX-ssh-028]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_own_deploy_directory_writable_by_the_group_is_repaired_with_a_warning() {

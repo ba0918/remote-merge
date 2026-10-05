@@ -72,23 +72,28 @@ echo {SAFE_MARKER}"
     )
 }
 
-/// 配置先の祖先を、書かれたパスと symlink を解決した実際のパスの両方で根まで辿り、
-/// グループかその他が書き込めて sticky bit のないもの、または所有者が root でも
-/// 期待する uid（`$u`）でもないものがあれば失敗する。
+/// 配置先へ辿るディレクトリを根まで確かめ、グループかその他が書き込めて sticky bit のないもの、
+/// または所有者が root でも期待する uid（`$u`）でもないものがあれば失敗する。
 ///
-/// そうした祖先の中では他人が（所有者ならモードを変えてから）配置先を名前ごと差し替えられ、
-/// 検査の後の別々の実行の間に別のものを実行させられる。祖先の symlink 自体のモードと所有者は
-/// 意味がないので見ず、その親と解決した先を見る。配置先そのものはその前の検査で見るので、
-/// 配置先の親から始める。
+/// そうした場所では他人が（所有者ならモードを変えてから）配置先やその途中を名前ごと差し替えられ、
+/// 検査の後の別々の実行の間に別のものを実行させられる。`chk` は書かれたパスの各段を辿り、
+/// symlink に当たればそのリンク先を同じく辿る。そのため symlink の連なりの途中のリンクを置いた
+/// ディレクトリも確かめる。symlink 自体のモードと所有者は意味がないので見ず、それを置いた
+/// ディレクトリとリンク先を見る。念のため解決した実際のパスも辿る。リンクの数は 40 段で打ち切る。
+/// 配置先そのものはその前の検査で見るので、配置先の親から始める。
+/// `readlink` は古い POSIX にないが、`-f` を使わない形は古い Linux の coreutils や BusyBox にもある。
 const ANCESTORS_CHECK: &str = "\
-p=$(dirname \"$d\"); \
-l=$(CDPATH= cd \"$p\" && pwd) || exit 1; r=$(CDPATH= cd -P \"$p\" && pwd -P) || exit 1; \
-for a in \"$l\" \"$r\"; do while :; do \
-if [ ! -h \"$a\" ]; then set -- $(ls -ldn \"$a\"); [ -n \"$1\" ] || exit 1; \
+chk() ( a=$1; n=$2; [ \"$n\" -lt 40 ] || exit 1; while :; do \
+if [ -h \"$a\" ]; then t=$(readlink \"$a\") && [ -n \"$t\" ] || exit 1; \
+case \"$t\" in /*) ;; *) t=${a%/*}/$t;; esac; chk \"$t\" $((n + 1)) || exit 1; \
+else set -- $(ls -ldn \"$a\"); [ -n \"$1\" ] || exit 1; \
 case \"$3\" in 0|\"$u\") ;; *) exit 1;; esac; \
 case \"$1\" in ?????????[tT]*) ;; ?????w*|????????w*) exit 1;; esac; fi; \
 [ \"$a\" = / ] && break; a=${a%/*}; [ -n \"$a\" ] || a=/; \
-done; done;";
+done ); \
+p=$(dirname \"$d\"); case \"$p\" in /*) ;; *) p=$(pwd -P)/$p;; esac; \
+r=$(CDPATH= cd -P \"$p\" && pwd -P) || exit 1; \
+chk \"$p\" 0 && chk \"$r\" 0 || exit 1;";
 
 #[cfg(test)]
 mod tests {
@@ -313,6 +318,42 @@ mod tests {
             &binary_in(&alias.join("remote-merge-user")),
             false,
         ));
+
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
+    }
+
+    /// `safe/link -> ../between/link2 -> ../good` と辿って `good` の中の配置先に届くパスを作る。
+    /// `between` だけがモード `between_mode` で、ほかの途中のディレクトリはモード 755
+    fn deploy_dir_through_a_chain_of_links(tmp: &TempDir, between_mode: u32) -> PathBuf {
+        for (name, mode) in [("safe", 0o755), ("between", between_mode), ("good", 0o755)] {
+            let dir = tmp.path().join(name);
+            fs::create_dir(&dir).unwrap();
+            fs::set_permissions(&dir, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        symlink("../between/link2", tmp.path().join("safe/link")).unwrap();
+        symlink("../good", tmp.path().join("between/link2")).unwrap();
+        let real = tmp.path().join("good/remote-merge-user");
+        fs::create_dir(&real).unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o700)).unwrap();
+        tmp.path().join("safe/link/remote-merge-user")
+    }
+
+    #[test]
+    fn a_link_in_the_middle_of_a_chain_placed_in_a_directory_writable_by_others_is_unsafe() {
+        let tmp = private_tmp();
+        let dir = deploy_dir_through_a_chain_of_links(&tmp, 0o777);
+
+        let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
+
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
+    }
+
+    #[test]
+    fn a_chain_of_links_through_safe_directories_is_safe() {
+        let tmp = private_tmp();
+        let dir = deploy_dir_through_a_chain_of_links(&tmp, 0o755);
+
+        let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
         assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
     }
