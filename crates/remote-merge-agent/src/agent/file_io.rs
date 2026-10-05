@@ -244,47 +244,34 @@ fn path_to_cstring(path: &Path) -> Option<CString> {
     CString::new(path.as_os_str().as_bytes()).ok()
 }
 
-/// ファイルの owner/group/permissions を設定する。
+/// 書き込みに使った開いたままのファイルに owner/group/permissions を設定する。
 ///
-/// - `canonical_path`: `validate_path` 経由で検証済みのパス
+/// パスで chmod/chown すると、書き込みの後でパスが symlink に差し替えられたときに
+/// リンク先を変えてしまうため、開いたファイルそのもの（fchmod/fchown）に適用する。
+/// `path` はログにだけ使う。
 /// - euid == 0 の場合のみ chown を実行
 /// - chmod/chown 失敗はセキュリティ上重要なので warn レベルでログ出力し、エラーにはしない
 pub fn apply_metadata(
-    canonical_path: &Path,
+    file: &fs::File,
+    path: &Path,
     uid: Option<u32>,
     gid: Option<u32>,
     mode: Option<u32>,
-) -> std::io::Result<()> {
+) {
     // chmod
     if let Some(m) = mode {
         // mode の下位12ビットのみ使用（permission bits）
         let perms = fs::Permissions::from_mode(m & 0o7777);
-        if let Err(e) = fs::set_permissions(canonical_path, perms) {
-            tracing::warn!(target: "remote_merge::agent::file_io", "chmod failed for {}: {e}", canonical_path.display());
+        if let Err(e) = file.set_permissions(perms) {
+            tracing::warn!(target: "remote_merge::agent::file_io", "chmod failed for {}: {e}", path.display());
         }
     }
 
     // chown（root のみ）
     if is_root() && (uid.is_some() || gid.is_some()) {
-        apply_chown(canonical_path, uid, gid);
-    }
-
-    Ok(())
-}
-
-/// chown を実行する。失敗時は warn レベルでログ出力のみ。
-fn apply_chown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
-    let Some(c_path) = path_to_cstring(path) else {
-        tracing::warn!(target: "remote_merge::agent::file_io", "chown skipped: path contains NUL byte: {}", path.display());
-        return;
-    };
-    let uid_val = uid.map(|u| u as libc::uid_t).unwrap_or(u32::MAX);
-    let gid_val = gid.map(|g| g as libc::gid_t).unwrap_or(u32::MAX);
-    // SAFETY: c_path は path_to_cstring で NUL 終端保証済み。chown は POSIX 関数。
-    let ret = unsafe { libc::chown(c_path.as_ptr(), uid_val, gid_val) };
-    if ret != 0 {
-        let err = std::io::Error::last_os_error();
-        tracing::warn!(target: "remote_merge::agent::file_io", "chown failed for {}: {err}", path.display());
+        if let Err(e) = std::os::unix::fs::fchown(file, uid, gid) {
+            tracing::warn!(target: "remote_merge::agent::file_io", "chown failed for {}: {e}", path.display());
+        }
     }
 }
 
@@ -372,7 +359,8 @@ pub fn write_file(
                 .with_context(|| format!("failed to create dirs: {}", parent.display()))?;
         }
     }
-    write_chunk_without_following_link(&path, content, is_first_chunk)
+    write_chunk_without_following_link(&path, content, is_first_chunk)?;
+    Ok(())
 }
 
 /// 最後の要素が symlink なら辿らずにエラーにして、通常ファイルへチャンクを書き込む。
@@ -383,7 +371,7 @@ fn write_chunk_without_following_link(
     path: &Path,
     content: &[u8],
     is_first_chunk: bool,
-) -> Result<()> {
+) -> Result<fs::File> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut options = fs::OpenOptions::new();
@@ -398,7 +386,7 @@ fn write_chunk_without_following_link(
         .with_context(|| format!("failed to open for write: {}", path.display()))?;
     file.write_all(content)
         .with_context(|| format!("failed to write: {}", path.display()))?;
-    Ok(())
+    Ok(file)
 }
 
 /// メタデータ復元付きファイル書き込み。チャンク転送に対応。
@@ -442,19 +430,26 @@ pub fn write_file_with_metadata(
             }
         }
     }
-    write_chunk_without_following_link(&path, content, is_first_chunk)?;
+    let file = write_chunk_without_following_link(&path, content, is_first_chunk)?;
 
-    // 最終チャンクでメタデータを適用
+    // 最終チャンクでメタデータを、書き込んだのと同じ開いたファイルに適用する
     if is_last_chunk {
         let effective_saved = saved_metadata.or(captured_metadata.as_ref());
         match effective_saved {
             Some(meta) => {
                 // 既存ファイルだった: 保存したメタデータで復元
-                let _ = apply_metadata(&path, Some(meta.uid), Some(meta.gid), Some(meta.mode));
+                apply_metadata(
+                    &file,
+                    &path,
+                    Some(meta.uid),
+                    Some(meta.gid),
+                    Some(meta.mode),
+                );
             }
             None => {
                 // 新規ファイルだった: config のデフォルト値で設定
-                let _ = apply_metadata(
+                apply_metadata(
+                    &file,
                     &path,
                     config.default_uid,
                     config.default_gid,
@@ -784,12 +779,39 @@ mod tests {
     // ── apply_metadata ──
 
     #[test]
+    fn metadata_is_applied_to_the_opened_file_even_if_its_path_is_swapped_for_a_symlink() {
+        let tmp = setup();
+        let path = tmp.path().join("written.txt");
+        let outside = tmp.path().join("outside.txt");
+        fs::write(&path, "data").unwrap();
+        fs::write(&outside, "outside").unwrap();
+        fs::set_permissions(&outside, fs::Permissions::from_mode(0o644)).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let moved = tmp.path().join("written.moved");
+        fs::rename(&path, &moved).unwrap();
+        symlink(&outside, &path).unwrap();
+
+        apply_metadata(&file, &path, None, None, Some(0o600));
+
+        let outside_mode = fs::metadata(&outside).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(outside_mode, 0o644);
+        let written_mode = fs::metadata(&moved).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(written_mode, 0o600);
+    }
+
+    #[test]
     fn apply_metadata_sets_permissions() {
         let tmp = setup();
         let path = tmp.path().join("perm.txt");
         fs::write(&path, "data").unwrap();
 
-        apply_metadata(&path, None, None, Some(0o644)).unwrap();
+        apply_metadata(
+            &fs::File::open(&path).unwrap(),
+            &path,
+            None,
+            None,
+            Some(0o644),
+        );
 
         let meta = fs::metadata(&path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o7777, 0o644);
@@ -801,7 +823,13 @@ mod tests {
         let path = tmp.path().join("secret.txt");
         fs::write(&path, "secret").unwrap();
 
-        apply_metadata(&path, None, None, Some(0o600)).unwrap();
+        apply_metadata(
+            &fs::File::open(&path).unwrap(),
+            &path,
+            None,
+            None,
+            Some(0o600),
+        );
 
         let meta = fs::metadata(&path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o7777, 0o600);
@@ -818,7 +846,13 @@ mod tests {
         let gid_before = meta_before.gid();
 
         // uid/gid = None で呼び出し — chown は実行されない
-        apply_metadata(&path, None, None, Some(0o644)).unwrap();
+        apply_metadata(
+            &fs::File::open(&path).unwrap(),
+            &path,
+            None,
+            None,
+            Some(0o644),
+        );
 
         let meta_after = fs::metadata(&path).unwrap();
         assert_eq!(meta_after.uid(), uid_before);
@@ -832,7 +866,7 @@ mod tests {
         fs::write(&path, "data").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
 
-        apply_metadata(&path, None, None, None).unwrap();
+        apply_metadata(&fs::File::open(&path).unwrap(), &path, None, None, None);
 
         let meta = fs::metadata(&path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
@@ -846,8 +880,13 @@ mod tests {
         fs::write(&path, "data").unwrap();
 
         // root でない場合、uid=0 への chown は失敗するはずだが、エラーにはならない
-        let result = apply_metadata(&path, Some(0), Some(0), Some(0o644));
-        assert!(result.is_ok());
+        apply_metadata(
+            &fs::File::open(&path).unwrap(),
+            &path,
+            Some(0),
+            Some(0),
+            Some(0o644),
+        );
     }
 
     #[test]
@@ -866,7 +905,13 @@ mod tests {
         let meta_before = fs::metadata(&path).unwrap();
 
         // uid/gid を指定しても、非 root なので chown は実行されない
-        apply_metadata(&path, Some(0), Some(0), None).unwrap();
+        apply_metadata(
+            &fs::File::open(&path).unwrap(),
+            &path,
+            Some(0),
+            Some(0),
+            None,
+        );
 
         let meta_after = fs::metadata(&path).unwrap();
         assert_eq!(meta_after.uid(), meta_before.uid());
