@@ -9,7 +9,7 @@ entries:
         after: "sha256:b380c9946ae8ea64fd30fda8b4f06959c2209e0ba66528ae4ba0ec19c05e5bbe"
       - path: "crates/remote-merge-engine/src/local_io.rs"
         before: "sha256:07a46d197a5adcb5750150bf48a97d5467d68b8b67b2dc314d7399c6ffdb41e6"
-        after: "sha256:bf49ed1017bf90c9127096de6cce26fdf2cc1eac6e3b1f8b6f5bb9a095afb937"
+        after: "sha256:6b0d7fbade7289afe3cf3d8f63a02ad5101ee178338bdab940fbf0925b4e6e0e"
       - path: "crates/remote-merge-ssh/src/client.rs"
         before: "sha256:08839e30418b7955f55401f00f09bf109f62d4da6bee68f1d6669d2f0fafd764"
         after: "sha256:2f2a9e59070bec32ff9db6c831a3d6171cfca3d41945bb954a8cb73dfd25b00a"
@@ -21,7 +21,7 @@ entries:
         after: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
       - path: "crates/remote-merge/tests/cli_diff.rs"
         before: "sha256:b360e47d453fcc54d6629320f48be0a0906adb65d2081f235d7e6ac37e7e8793"
-        after: "sha256:fc6d3687fc2e9e7bbd383b449575f607845b99ddf9930a793d95d9a60708a673"
+        after: "sha256:9acdeebbb71540457dfb64b5c60d2be96130eacaba7e09775bfcd5ef98414cbe"
     ir:
       - path: "docs/ir/cli/FLAGS.md"
         sha256: "sha256:57ac20db478848dd09a0d0169265e0a4fae4abb33f68810d7d31ea53f501ef5b"
@@ -34,11 +34,12 @@ entries:
       - path: "docs/ir/config/filters.md"
         sha256: "sha256:4203fabe2a06d4d94e359117aad87c15e38d6fe0d6a9acb342a54db257a46178"
     conclusion: new
-    reason: "SSH の一件ずつの読み込みを、openssl で読んだ後にディレクトリでないことを確かめる形にし、ディレクトリをローカルとエージェントと同じくエラーにした。diff はディレクトリを子の一覧の取得の成否で判定し、左右とも子のないディレクトリ（中身の空なもの、include の外のもの）を差分なしとする（REQ-cli-025・REQ-cli-052、include の外は利用者の決定 A1 による新しい REQ-cli-077）。この判定のため diff が使う SSH の子の一覧の取得を find の終了コードを見る形にし（ルートの一覧は変えない）、SSH の側だけ参照先がない symlink もエラー終了にした（REQ-cli-022、A3）。ローカルとエージェントのパスの検査は途中が通常ファイルのパスを SSH と同じくないものとして返し、通常ファイルと SSH のディレクトリ symlink の組でも配下を子パスで示す（REQ-cli-021、A2）。片側が参照先のない symlink、もう片側がディレクトリの組では、読めない側をエラーにしたうえで読めた側の子の差分も示し、そのためにローカルとエージェントのパスの検査が参照先のない symlink の下のパスを SSH と同じく参照先へ辿ってないものとして返すようにした（REQ-cli-022）。指定したパスが多くツリーから解決する場合も、ファイルを一つも解決しなかったパスを子の一覧の取得で確かめ、左右ともディレクトリで配下に比べるファイルがなければ差分なしとする（REQ-cli-025・REQ-cli-077）。ルートの指定（「.」と「./」）はこの確かめから外し、ツリーから解決した結果だけで決める従来の振る舞いを保った。FLAG-cli-033 の答えは A1・A4 で記録し、A1 は利用者の決定で左右の両方にある場合に絞った。片側にだけあって配下に比べるファイルのないディレクトリは決まっておらず、FLAG-cli-073 に残した（振る舞いは選んでいない）。"
+    reason: "SSH の一件ずつの読み込みを、openssl で読んだ後にディレクトリでないことを確かめる形にし、ディレクトリをローカルとエージェントと同じくエラーにした。diff はディレクトリを子の一覧の取得の成否で判定し、左右とも子のないディレクトリ（中身の空なもの、include の外のもの）を差分なしとする（REQ-cli-025・REQ-cli-052、include の外は利用者の決定 A1 による新しい REQ-cli-077）。この判定のため diff が使う SSH の子の一覧の取得を find の終了コードを見る形にし（ルートの一覧は変えない）、SSH の側だけ参照先がない symlink もエラー終了にした（REQ-cli-022、A3）。ローカルとエージェントのパスの検査は途中が通常ファイルのパスを SSH と同じくないものとして返し、通常ファイルと SSH のディレクトリ symlink の組でも配下を子パスで示す（REQ-cli-021、A2）。片側が参照先のない symlink、もう片側がディレクトリの組では、読めない側をエラーにしたうえで読めた側の子の差分も示し、そのためにローカルとエージェントのパスの検査が参照先のない symlink の下のパスを SSH と同じく参照先へ辿ってないものとして返すようにした（REQ-cli-022）。指定したパスが多くツリーから解決する場合も、ファイルを一つも解決しなかったパスを子の一覧の取得で確かめ、左右ともディレクトリで配下に比べるファイルがなければ差分なしとする（REQ-cli-025・REQ-cli-077）。ルートの指定（「.」と「./」）はこの確かめから外し、ツリーから解決した結果だけで決める従来の振る舞いを保った。この確かめで利用者の入力した絶対パスがローカルの root_dir の外のディレクトリを一覧しないよう、ローカルの子の一覧はほかのローカルの操作と同じ root_dir の内側の検査を通してから読む。外を指すパスは一覧できず、これまでどおり見つからないパスとして扱う（入力パスで root_dir の外へ出ない REQ-cli-026）。FLAG-cli-033 の答えは A1・A4 で記録し、A1 は利用者の決定で左右の両方にある場合に絞った。片側にだけあって配下に比べるファイルのないディレクトリは決まっておらず、FLAG-cli-073 に残した（振る舞いは選んでいない）。"
     requirements:
       - REQ-cli-021
       - REQ-cli-022
       - REQ-cli-025
+      - REQ-cli-026
       - REQ-cli-052
       - REQ-cli-077
       - REQ-config-004
