@@ -408,6 +408,7 @@ impl TargetIo for RemoteTargetIo {
         rt: &mut CoreRuntime,
         path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
+        remote_merge_engine::rel_path::check_rel_path(path)?;
         let nodes = rt.fetch_remote_children(&self.name, path)?;
         Ok(crate::filter::filter_children_by_include(
             nodes,

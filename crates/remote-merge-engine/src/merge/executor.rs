@@ -225,26 +225,16 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     components.iter().collect()
 }
 
-/// リモートパスのサニタイズ（`..` 等の危険なコンポーネントを検出）
+/// root_dir からの相対パスを remote_root の下のパスにする。
+///
+/// 絶対パス（"/" を含む）と ".." の要素を含むパスは拒否する。root_dir 全体は空の値で指す。
 pub fn validate_remote_path(remote_root: &str, rel_path: &str) -> crate::error::Result<String> {
-    // rel_path に `..` が含まれていないことを確認
-    let path = Path::new(rel_path);
-    for component in path.components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            anyhow::bail!(crate::error::AppError::ConfigValidation {
-                field: "remote_path".to_string(),
-                message: format!("Remote path must not contain '..': {}", rel_path),
-            });
-        }
-    }
-
-    // remote_root + rel_path を結合
-    let full_path = format!(
+    crate::rel_path::check_rel_path(rel_path)?;
+    Ok(format!(
         "{}/{}",
         remote_root.trim_end_matches('/'),
-        rel_path.trim_start_matches('/')
-    );
-    Ok(full_path)
+        rel_path
+    ))
 }
 
 #[cfg(test)]
@@ -351,6 +341,19 @@ mod tests {
 
         let result = validate_remote_path("/var/www/app", "../../../etc/passwd");
         assert!(result.is_err());
+
+        assert_eq!(
+            validate_remote_path("/var/www/app", "").unwrap(),
+            "/var/www/app/"
+        );
+        for absolute in ["/etc/passwd", "/"] {
+            assert_eq!(
+                validate_remote_path("/var/www/app", absolute)
+                    .unwrap_err()
+                    .to_string(),
+                format!("absolute subpath not allowed: {absolute}")
+            );
+        }
     }
 
     #[test]

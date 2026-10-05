@@ -1868,6 +1868,15 @@ mod tests {
     }
 
     #[test]
+    fn remote_children_of_an_absolute_path_are_rejected_before_any_connection() {
+        let mut rt = CoreRuntime::new_for_test();
+        let error = rt
+            .fetch_children(&Side::Remote("nonexistent".to_string()), "/etc")
+            .unwrap_err();
+        assert_eq!(error.to_string(), "absolute subpath not allowed: /etc");
+    }
+
+    #[test]
     fn test_fetch_tree_for_subpath_local_truncation_fail() {
         let tmp = TempDir::new().unwrap();
         let sub = tmp.path().join("dir");
