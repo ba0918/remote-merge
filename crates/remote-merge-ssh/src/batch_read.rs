@@ -2,13 +2,17 @@
 //!
 //! チャネル枯渇防止: N個のファイルを1チャネルで読む。
 //! コマンド生成・結果パースは純粋関数としてテスト可能。
+//!
+//! 出力の形式（ファイル i ごとに一つ、最後に終わりの印）:
+//! - 読めたファイル: `F<i> <バイト数>\n` + 中身 + `\nS<i> <cat の終了コード>\n`
+//! - 通常ファイルでないか読めないファイル: `E<i>\n`
+//! - 終わりの印: `END<件数>\n`
+//!
+//! 中身はバイト数で切り出すので、中身に区切りに似た行があっても衝突しない。
 
 use std::collections::HashMap;
 
 use super::tree_parser::shell_escape;
-
-/// バッチ読み込みに使う区切り文字のプレフィックス
-const DELIMITER_PREFIX: &str = "___BATCH_DELIM___";
 
 /// SSH バッチ読み込みのコマンド長上限（バイト）。
 ///
@@ -21,76 +25,53 @@ pub const SSH_BATCH_MAX_COMMAND_LEN: usize = 65536;
 /// プロトコルのシリアライズ負荷を考慮した値。
 pub const AGENT_BATCH_MAX_PATHS: usize = 2000;
 
-/// バッチ cat コマンドの区切り文字を生成する
+/// ファイルごとのコマンドをつなぐ区切り
+const COMMAND_SEPARATOR: &str = "; ";
+
+/// ファイル i を読むコマンド。
 ///
-/// ファイルインデックスを含めることで、各区切りがユニークになる。
-fn make_delimiter(index: usize) -> String {
-    format!("{}{}", DELIMITER_PREFIX, index)
+/// バイト数を中身より先に出すため `wc -c` で数えてから `cat` する。その間にファイルが
+/// 変わると数が合わず、解析が呼び出し全体を失敗にする（部分的な結果を正しい結果にしない）。
+fn file_command(index: usize, path: &str) -> String {
+    let q = shell_escape(path);
+    format!(
+        "if [ -f {q} ] && [ -r {q} ] && n=$(wc -c < {q}); then printf 'F{index} %s\\n' \"$n\"; cat {q} 2>/dev/null; printf '\\nS{index} %s\\n' \"$?\"; else printf 'E{index}\\n'; fi"
+    )
 }
 
-/// 複数ファイルを cat するシェルコマンドを組み立てる。
-///
-/// 各ファイルの前に `echo '___BATCH_DELIM___N'` を出力し、
-/// 最後に終端マーカーを付ける。
-///
-/// ファイルが存在しない場合は `cat` が失敗して区切り文字だけが出力される。
-/// 空のスライスが渡された場合は `None` を返す。
+/// 終わりの印を出すコマンド
+fn end_command(path_count: usize) -> String {
+    format!("printf 'END{path_count}\\n'")
+}
+
+/// 複数ファイルを読むシェルコマンドを組み立てる。空のスライスなら `None` を返す。
 pub fn build_batch_cat_command(paths: &[String]) -> Option<String> {
     if paths.is_empty() {
         return None;
     }
-
-    let mut parts = Vec::with_capacity(paths.len() * 2 + 1);
-
-    for (i, path) in paths.iter().enumerate() {
-        let delim = make_delimiter(i);
-        parts.push(format!("echo '{}'", delim));
-        // cat の後に `echo ''` で改行を保証する。
-        // 末尾改行なしファイルの cat 出力直後に次の echo (区切り文字) が
-        // 連結されて行頭一致で検出できなくなる問題を防ぐ。
-        // パーサー側で追加された改行1つを除去して元の内容を復元する。
-        parts.push(format!("cat {} 2>/dev/null ; echo ''", shell_escape(path)));
-    }
-
-    // 終端マーカー: パース時に最後のファイル内容の終わりを検出するため
-    let end_delim = make_delimiter(paths.len());
-    parts.push(format!("echo '{}'", end_delim));
-
-    Some(parts.join(" ; "))
+    let mut parts: Vec<String> = paths
+        .iter()
+        .enumerate()
+        .map(|(i, path)| file_command(i, path))
+        .collect();
+    parts.push(end_command(paths.len()));
+    Some(parts.join(COMMAND_SEPARATOR))
 }
 
-/// 1パスあたりのコマンド長を推定する（バイト単位）。
-///
-/// `build_batch_cat_command()` のロジックに基づいて、
-/// 各パスが追加するコマンド長を計算する。
-///
-/// 各パスのコマンド部分:
-///   `echo '___BATCH_DELIM___N' ; cat <escaped_path> 2>/dev/null ; echo '' ; `
+/// 1パスがコマンドに足す長さ（バイト単位）。区切りを含む。
 fn estimate_command_len_for_path(path: &str, index: usize) -> usize {
-    let delim = make_delimiter(index);
-    // "echo '<delim>'" の長さ
-    let echo_delim_len = "echo '".len() + delim.len() + "'".len();
-    // "cat <escaped> 2>/dev/null ; echo ''" の長さ
-    let escaped = shell_escape(path);
-    let cat_len = "cat ".len() + escaped.len() + " 2>/dev/null ; echo ''".len();
-    // セパレータ " ; " × 2（echo_delim ; cat_echo ; ）
-    echo_delim_len + " ; ".len() + cat_len + " ; ".len()
+    file_command(index, path).len() + COMMAND_SEPARATOR.len()
 }
 
-/// 終端マーカーのコマンド長を推定する。
+/// 終端マーカーのコマンド長。
 fn estimate_end_marker_len(path_count: usize) -> usize {
-    let delim = make_delimiter(path_count);
-    "echo '".len() + delim.len() + "'".len()
+    end_command(path_count).len()
 }
 
 /// パスをコマンド長上限に収まるチャンクに分割する。
 ///
 /// 各チャンクの合計コマンド長が `max_command_len` バイト以下になるように分割する。
 /// 1パスだけで上限を超える場合は、そのパスだけで1チャンクにする（パニックしない）。
-///
-/// # 引数
-/// - `paths`: 分割対象のパスリスト
-/// - `max_command_len`: チャンクあたりの最大コマンド長（バイト）
 pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>> {
     if paths.is_empty() {
         return Vec::new();
@@ -102,9 +83,7 @@ pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>>
     let mut current_len: usize = 0;
 
     for path in paths.iter() {
-        // チャンク内インデックスで推定する。
-        // `build_batch_cat_command()` はチャンク内 0-origin のインデックスを使うため、
-        // それと一致させる。
+        // `build_batch_cat_command()` はチャンク内 0-origin のインデックスを使うため、それと一致させる
         let chunk_local_index = current_chunk.len();
         let path_len = estimate_command_len_for_path(path, chunk_local_index);
         let end_marker_len = estimate_end_marker_len(current_chunk.len() + 1);
@@ -114,7 +93,6 @@ pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>>
             current_chunk.push(path.clone());
             current_len = path_len;
         } else if current_len + path_len + end_marker_len > max_command_len {
-            // 上限を超えるので新しいチャンクを開始
             chunks.push(current_chunk);
             current_chunk = vec![path.clone()];
             // 新チャンクの先頭なのでインデックス 0 で再推定
@@ -132,356 +110,187 @@ pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>>
     chunks
 }
 
-/// バッチ cat コマンドの出力をパースして、パス→内容の HashMap に変換する。
+/// バッチコマンドの出力を、読めたファイルのパス→バイト列に直す。
 ///
-/// 区切り文字で分割し、各ファイルの内容を抽出する。
-/// ファイルが存在しなかった場合は空文字列になるが、結果には含まれない
-/// （空文字列のファイルは「読み取り失敗」と区別できないため）。
-///
-/// # 引数
-/// - `output`: バッチ cat コマンドの stdout
-/// - `paths`: ファイルパス（`build_batch_cat_command` に渡したものと同じ順序）
-pub fn parse_batch_output(output: &str, paths: &[String]) -> HashMap<String, String> {
+/// 読めなかったパスは結果に入れない。件数・バイト数・印が形式と合わない出力は Err にする。
+pub fn parse_batch_output_bytes(
+    output: &[u8],
+    paths: &[String],
+) -> anyhow::Result<HashMap<String, Vec<u8>>> {
     let mut results = HashMap::new();
-
-    // 区切り文字行のバイトオフセットを収集する。
-    // `str::lines()` は末尾改行を消すため使わない。
-    // 代わりに行頭のバイト位置を走査して区切り文字を検出し、
-    // 区切り文字間の内容をバイトスライスで取り出す。
-    let mut delim_ranges: Vec<(usize, usize)> = Vec::new(); // (line_start, line_end_incl_newline)
-
-    let bytes = output.as_bytes();
-    let mut pos = 0;
-    while pos < bytes.len() {
-        let line_start = pos;
-        // 行末を探す
-        let line_end = memchr_newline(bytes, pos);
-        let line = &output[line_start..line_end];
-        // 改行を含む行末位置（次の行の開始位置）
-        let next_pos = if line_end < bytes.len() {
-            line_end + 1
-        } else {
-            line_end
-        };
-
-        if line.starts_with(DELIMITER_PREFIX) {
-            delim_ranges.push((line_start, next_pos));
+    let mut rest = output;
+    for (index, path) in paths.iter().enumerate() {
+        let (line, after_line) = split_line(rest)?;
+        if line == format!("E{index}").as_bytes() {
+            rest = after_line;
+            continue;
         }
-        pos = next_pos;
+        let size = parse_size_header(line, index)?;
+        if after_line.len() < size {
+            anyhow::bail!("Malformed batch read output: content of entry {index} is cut off");
+        }
+        let (content, after_content) = after_line.split_at(size);
+        let status_line = after_content
+            .strip_prefix(b"\n")
+            .ok_or_else(|| malformed(index))?;
+        let (status, after_status) = split_line(status_line)?;
+        let status = status
+            .strip_prefix(format!("S{index} ").as_bytes())
+            .ok_or_else(|| malformed(index))?;
+        if status == b"0" {
+            results.insert(path.clone(), content.to_vec());
+        }
+        rest = after_status;
     }
-
-    // N個のファイル → N+1個の区切り文字が必要
-    if delim_ranges.len() != paths.len() + 1 {
-        tracing::warn!(
-            target: "remote_merge::ssh::batch_read",
-            "Batch read: delimiter count mismatch: expected {}, found {}",
-            paths.len() + 1,
-            delim_ranges.len(),
-        );
-        return results;
+    if rest != format!("END{}\n", paths.len()).as_bytes() {
+        anyhow::bail!("Malformed batch read output: end marker mismatch");
     }
-
-    // 各ファイルの内容を区切り文字の間からバイトスライスで取り出す。
-    // `echo ''` で追加された末尾改行を1つ除去して元のファイル内容を復元する。
-    for i in 0..paths.len() {
-        let content_start = delim_ranges[i].1; // 区切り行の直後
-        let content_end = delim_ranges[i + 1].0; // 次の区切り行の直前
-
-        let content = &output[content_start..content_end];
-        // echo '' が追加した末尾の \n を除去
-        let content = content.strip_suffix('\n').unwrap_or(content);
-        results.insert(paths[i].clone(), content.to_string());
-    }
-
-    results
+    Ok(results)
 }
 
-/// バッチ cat コマンドのバイト列出力をパースして、パス→バイト列の HashMap に変換する。
-///
-/// `parse_batch_output` のバイト列版。バイナリファイルの内容をそのまま保持する。
-/// 区切り文字（ASCII のみ）をバイト列走査で検出し、区切り間の内容を `Vec<u8>` で返す。
-///
-/// # 引数
-/// - `output`: バッチ cat コマンドの stdout（生バイト列）
-/// - `paths`: ファイルパス（`build_batch_cat_command` に渡したものと同じ順序）
-pub fn parse_batch_output_bytes(output: &[u8], paths: &[String]) -> HashMap<String, Vec<u8>> {
-    let mut results = HashMap::new();
-
-    let delim_prefix_bytes = DELIMITER_PREFIX.as_bytes();
-
-    // 区切り文字行のバイトオフセットを収集する
-    let mut delim_ranges: Vec<(usize, usize)> = Vec::new(); // (line_start, line_end_incl_newline)
-
-    let mut pos = 0;
-    while pos < output.len() {
-        let line_start = pos;
-        let line_end = memchr_newline(output, pos);
-        let line = &output[line_start..line_end];
-        let next_pos = if line_end < output.len() {
-            line_end + 1
-        } else {
-            line_end
-        };
-
-        if line.starts_with(delim_prefix_bytes) {
-            delim_ranges.push((line_start, next_pos));
-        }
-        pos = next_pos;
-    }
-
-    // N個のファイル → N+1個の区切り文字が必要
-    if delim_ranges.len() != paths.len() + 1 {
-        tracing::warn!(
-            target: "remote_merge::ssh::batch_read",
-            "Batch read (bytes): delimiter count mismatch: expected {}, found {}",
-            paths.len() + 1,
-            delim_ranges.len(),
-        );
-        return results;
-    }
-
-    // 各ファイルの内容を区切り文字の間からバイトスライスで取り出す
-    for i in 0..paths.len() {
-        let content_start = delim_ranges[i].1;
-        let content_end = delim_ranges[i + 1].0;
-
-        let content = &output[content_start..content_end];
-        // echo '' が追加した末尾の \n を除去
-        let content = content.strip_suffix(b"\n").unwrap_or(content);
-        results.insert(paths[i].clone(), content.to_vec());
-    }
-
-    results
+fn malformed(index: usize) -> anyhow::Error {
+    anyhow::anyhow!("Malformed batch read output: unexpected marker for entry {index}")
 }
 
-/// バイト列内で `pos` から次の `\n` の位置を返す（`\n` 自体は含まない）。
-fn memchr_newline(bytes: &[u8], pos: usize) -> usize {
-    bytes[pos..]
+/// `F<i> <バイト数>` の行からバイト数を取り出す。`wc -c` が前に空白を付ける環境もある
+fn parse_size_header(line: &[u8], index: usize) -> anyhow::Result<usize> {
+    line.strip_prefix(format!("F{index} ").as_bytes())
+        .and_then(|size| std::str::from_utf8(size).ok())
+        .and_then(|size| size.trim().parse().ok())
+        .ok_or_else(|| malformed(index))
+}
+
+/// 最初の改行までの行と、その後ろを返す。改行がなければ Err
+fn split_line(bytes: &[u8]) -> anyhow::Result<(&[u8], &[u8])> {
+    let end = bytes
         .iter()
         .position(|&b| b == b'\n')
-        .map_or(bytes.len(), |offset| pos + offset)
+        .ok_or_else(|| anyhow::anyhow!("Malformed batch read output: missing line end"))?;
+    Ok((&bytes[..end], &bytes[end + 1..]))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ── build_batch_cat_command テスト ──
+    /// 生成したコマンドを実際の sh で実行し、その stdout を返す
+    fn run_batch(paths: &[String]) -> Vec<u8> {
+        let command = build_batch_cat_command(paths).unwrap();
+        let output = std::process::Command::new("sh")
+            .args(["-c", &command])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        output.stdout
+    }
+
+    fn path_in(dir: &tempfile::TempDir, name: &str) -> String {
+        dir.path().join(name).to_str().unwrap().to_string()
+    }
+
+    // ── 生成したコマンドの実行と解析 ──
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_paths_are_left_out_and_an_empty_file_reads_as_empty() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("locked.txt"), "secret\n").unwrap();
+        std::fs::set_permissions(
+            dir.path().join("locked.txt"),
+            std::fs::Permissions::from_mode(0o000),
+        )
+        .unwrap();
+        // root で実行すると権限を落としても読めてしまうため、前提の崩れを知らせる
+        let locked_is_unreadable = std::fs::read(dir.path().join("locked.txt")).is_err();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("empty.txt"), "").unwrap();
+        std::fs::write(dir.path().join("kept.txt"), "kept\n").unwrap();
+        let paths: Vec<String> = ["missing.txt", "locked.txt", "sub", "empty.txt", "kept.txt"]
+            .iter()
+            .map(|name| path_in(&dir, name))
+            .collect();
+
+        let output = run_batch(&paths);
+        let result = parse_batch_output_bytes(&output, &paths).unwrap();
+
+        std::fs::set_permissions(
+            dir.path().join("locked.txt"),
+            std::fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert!(locked_is_unreadable, "test needs an unreadable file");
+        let mut read: Vec<&str> = result.keys().map(String::as_str).collect();
+        read.sort();
+        assert_eq!(read, [paths[3].as_str(), paths[4].as_str()]);
+        assert_eq!(result[&paths[3]], b"");
+        assert_eq!(result[&paths[4]], b"kept\n");
+    }
+
+    #[test]
+    fn file_contents_come_back_byte_for_byte() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let contents: [(&str, &[u8]); 4] = [
+            ("delimiter.txt", b"___BATCH_DELIM___0\nE1\nF1 3\nEND2\n"),
+            ("no-newline.txt", b"last line"),
+            ("binary.bin", &[0x00, 0xff, 0xfe, b'\n', 0x00, 0xc3]),
+            ("trailing-newlines.txt", b"\n\n"),
+        ];
+        let mut paths = Vec::new();
+        for (name, content) in contents {
+            std::fs::write(dir.path().join(name), content).unwrap();
+            paths.push(path_in(&dir, name));
+        }
+
+        let output = run_batch(&paths);
+        let result = parse_batch_output_bytes(&output, &paths).unwrap();
+
+        assert_eq!(result.len(), contents.len());
+        for (path, (_, content)) in paths.iter().zip(contents) {
+            assert_eq!(result[path], content, "{path}");
+        }
+    }
+
+    #[test]
+    fn output_whose_counts_or_markers_disagree_is_rejected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "alpha\n").unwrap();
+        let paths = vec![path_in(&dir, "a.txt"), path_in(&dir, "missing.txt")];
+        let output = run_batch(&paths);
+        assert!(parse_batch_output_bytes(&output, &paths).is_ok());
+
+        let cut_off = &output[..output.len() - 3];
+        let without_end = &output[..output.len() - "END2\n".len()];
+        let mut trailing = output.clone();
+        trailing.extend_from_slice(b"extra");
+        let mut longer_content = output.clone();
+        let header = longer_content.windows(3).position(|w| w == b"F0 ").unwrap();
+        longer_content[header + 3] = b'9';
+        let fewer_paths = &paths[..1];
+
+        assert!(parse_batch_output_bytes(cut_off, &paths).is_err());
+        assert!(parse_batch_output_bytes(without_end, &paths).is_err());
+        assert!(parse_batch_output_bytes(&trailing, &paths).is_err());
+        assert!(parse_batch_output_bytes(&longer_content, &paths).is_err());
+        assert!(parse_batch_output_bytes(&output, fewer_paths).is_err());
+    }
+
+    #[test]
+    fn paths_with_quotes_and_spaces_are_read() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("it's my file.txt"), "quoted\n").unwrap();
+        let paths = vec![path_in(&dir, "it's my file.txt")];
+
+        let output = run_batch(&paths);
+        let result = parse_batch_output_bytes(&output, &paths).unwrap();
+
+        assert_eq!(result[&paths[0]], b"quoted\n");
+    }
 
     #[test]
     fn test_empty_paths_returns_none() {
         assert!(build_batch_cat_command(&[]).is_none());
-    }
-
-    #[test]
-    fn test_single_file_command() {
-        let paths = vec!["/var/www/app/main.rs".to_string()];
-        let cmd = build_batch_cat_command(&paths).unwrap();
-
-        assert!(cmd.contains("echo '___BATCH_DELIM___0'"));
-        assert!(cmd.contains("cat '/var/www/app/main.rs'"));
-        assert!(cmd.contains("echo '___BATCH_DELIM___1'"));
-    }
-
-    #[test]
-    fn test_multiple_files_command() {
-        let paths = vec![
-            "/var/www/file1.txt".to_string(),
-            "/var/www/file2.txt".to_string(),
-            "/var/www/file3.txt".to_string(),
-        ];
-        let cmd = build_batch_cat_command(&paths).unwrap();
-
-        // 各ファイルの区切り文字がある
-        assert!(cmd.contains("echo '___BATCH_DELIM___0'"));
-        assert!(cmd.contains("echo '___BATCH_DELIM___1'"));
-        assert!(cmd.contains("echo '___BATCH_DELIM___2'"));
-        // 終端マーカー
-        assert!(cmd.contains("echo '___BATCH_DELIM___3'"));
-        // 各 cat がある
-        assert!(cmd.contains("cat '/var/www/file1.txt'"));
-        assert!(cmd.contains("cat '/var/www/file2.txt'"));
-        assert!(cmd.contains("cat '/var/www/file3.txt'"));
-    }
-
-    #[test]
-    fn test_special_chars_in_path() {
-        let paths = vec!["/var/www/my app/it's file.rs".to_string()];
-        let cmd = build_batch_cat_command(&paths).unwrap();
-
-        // shell_escape がシングルクォートをエスケープする
-        assert!(cmd.contains("cat '/var/www/my app/it'\\''s file.rs'"));
-    }
-
-    #[test]
-    fn test_stderr_redirect() {
-        let paths = vec!["/some/file.txt".to_string()];
-        let cmd = build_batch_cat_command(&paths).unwrap();
-
-        // 存在しないファイルの stderr を抑制
-        assert!(cmd.contains("2>/dev/null"));
-    }
-
-    // ── parse_batch_output テスト ──
-
-    // テスト注: 実際のSSH出力では `echo DELIM` が末尾改行を付け、
-    // `cat file` がファイル内容をそのまま出力する。
-    // パーサーは区切り文字行の直後〜次の区切り文字行の直前をそのまま返す。
-    // ファイルが末尾改行を持つ場合、content にも末尾改行が含まれる。
-
-    #[test]
-    fn test_parse_single_file() {
-        let paths = vec!["src/main.rs".to_string()];
-        // ファイル内容: "fn main() {\n    println!(\"hello\");\n}\n"
-        // cat 出力 + echo '' の追加改行で末尾が \n\n になる
-        let output =
-            "___BATCH_DELIM___0\nfn main() {\n    println!(\"hello\");\n}\n\n___BATCH_DELIM___1";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(result.len(), 1);
-        // strip_suffix で echo '' の改行が除去され、元の内容が復元される
-        assert_eq!(
-            result.get("src/main.rs").unwrap(),
-            "fn main() {\n    println!(\"hello\");\n}\n"
-        );
-    }
-
-    #[test]
-    fn test_parse_multiple_files() {
-        let paths = vec![
-            "file1.txt".to_string(),
-            "file2.txt".to_string(),
-            "file3.txt".to_string(),
-        ];
-        // 各ファイルの cat 出力後に echo '' の改行が入る
-        let output = "\
-___BATCH_DELIM___0
-content of file 1
-
-___BATCH_DELIM___1
-line1 of file2
-line2 of file2
-
-___BATCH_DELIM___2
-file3 content
-
-___BATCH_DELIM___3";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.get("file1.txt").unwrap(), "content of file 1\n");
-        assert_eq!(
-            result.get("file2.txt").unwrap(),
-            "line1 of file2\nline2 of file2\n"
-        );
-        assert_eq!(result.get("file3.txt").unwrap(), "file3 content\n");
-    }
-
-    #[test]
-    fn test_parse_missing_file_gives_empty() {
-        let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
-        // exists.txt: cat 出力 + echo '' の改行
-        // missing.txt: cat 失敗(出力なし) + echo '' の改行のみ
-        let output = "\
-___BATCH_DELIM___0
-real content here
-
-___BATCH_DELIM___1
-
-___BATCH_DELIM___2";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result.get("exists.txt").unwrap(), "real content here\n");
-        // missing: echo '' の \n だけ → strip_suffix で空文字列
-        assert_eq!(result.get("missing.txt").unwrap(), "");
-    }
-
-    #[test]
-    fn test_parse_all_missing() {
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        // 各ファイル: cat 失敗 + echo '' の改行のみ
-        let output = "\
-___BATCH_DELIM___0
-
-___BATCH_DELIM___1
-
-___BATCH_DELIM___2";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result.get("a.txt").unwrap(), "");
-        assert_eq!(result.get("b.txt").unwrap(), "");
-    }
-
-    #[test]
-    fn test_parse_delimiter_count_mismatch() {
-        let paths = vec!["file.txt".to_string()];
-        // 区切り文字が足りない
-        let output = "___BATCH_DELIM___0\nsome content";
-
-        let result = parse_batch_output(output, &paths);
-        // パース失敗で空の HashMap
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_empty_output_with_no_paths() {
-        let paths: Vec<String> = vec![];
-        let result = parse_batch_output("", &paths);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_file_containing_delimiter_like_string() {
-        let paths = vec!["tricky.txt".to_string()];
-        // echo '' の改行が入る
-        let output = "\
-___BATCH_DELIM___0
-normal line
-another line
-
-___BATCH_DELIM___1";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(
-            result.get("tricky.txt").unwrap(),
-            "normal line\nanother line\n"
-        );
-    }
-
-    /// 末尾改行なしのファイルでも正しくパースされること。
-    /// `cat file ; echo ''` により、末尾改行なしファイルでも
-    /// 必ず改行が付加される。strip_suffix でその改行を除去し、
-    /// 元の内容を復元する。
-    #[test]
-    fn test_parse_file_without_trailing_newline() {
-        let paths = vec!["no_newline.txt".to_string()];
-        // ファイル内容: "hello"（末尾改行なし）
-        // cat 出力: "hello" + echo '' 出力: "\n" → "hello\n"
-        // strip_suffix('\n') → "hello"
-        let output = "___BATCH_DELIM___0\nhello\n___BATCH_DELIM___1";
-
-        let result = parse_batch_output(output, &paths);
-        assert_eq!(result.get("no_newline.txt").unwrap(), "hello");
-    }
-
-    /// 単一ファイル読み込み (read_file) との整合性テスト。
-    /// read_file は exec_strict (cat) の stdout をそのまま返す。
-    /// バッチ読み込みも同じ内容を返すべき。
-    #[test]
-    fn test_batch_matches_single_read_behavior() {
-        let paths = vec!["test.rs".to_string()];
-        // exec が返す stdout: "hello\nworld\n"
-        // → read_file の結果: "hello\nworld\n"
-        //
-        // バッチの場合の出力（echo DELIM + cat + echo '' + echo DELIM）:
-        // cat 出力 "hello\nworld\n" + echo '' "\n" → "hello\nworld\n\n"
-        let output = "___BATCH_DELIM___0\nhello\nworld\n\n___BATCH_DELIM___1";
-
-        let result = parse_batch_output(output, &paths);
-        let single_read_result = "hello\nworld\n";
-        assert_eq!(result.get("test.rs").unwrap(), single_read_result);
     }
 
     // ── chunk_paths テスト ──
@@ -583,76 +392,17 @@ ___BATCH_DELIM___1";
         let result = chunk_paths(&paths, limit);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].len(), 2);
+        assert_eq!(build_batch_cat_command(&paths).unwrap().len(), limit);
     }
 
-    // ── parse_batch_output_bytes テスト ──
-
-    #[test]
-    fn test_parse_bytes_basic() {
-        let paths = vec!["file.txt".to_string()];
-        let output = b"___BATCH_DELIM___0\nhello world\n\n___BATCH_DELIM___1";
-        let result = parse_batch_output_bytes(output, &paths);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result.get("file.txt").unwrap(), b"hello world\n");
-    }
-
-    #[test]
-    fn test_parse_bytes_binary_content() {
-        let paths = vec!["binary.bin".to_string()];
-        // バイナリコンテンツ（改行以外のバイト列）
-        let mut output = Vec::new();
-        output.extend_from_slice(b"___BATCH_DELIM___0\n");
-        output.extend_from_slice(&[0x00, 0x01, 0xFF, 0xFE, 0x0A]); // 0x0A = \n
-        output.extend_from_slice(b"\n___BATCH_DELIM___1");
-
-        let result = parse_batch_output_bytes(&output, &paths);
-        assert_eq!(result.len(), 1);
-        // echo '' の \n が strip されて、元のバイナリ内容が復元される
-        assert_eq!(
-            result.get("binary.bin").unwrap(),
-            &[0x00, 0x01, 0xFF, 0xFE, 0x0A]
-        );
-    }
-
-    #[test]
-    fn test_parse_bytes_multiple_files() {
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let output =
-            b"___BATCH_DELIM___0\ncontent_a\n\n___BATCH_DELIM___1\ncontent_b\n\n___BATCH_DELIM___2";
-        let result = parse_batch_output_bytes(output, &paths);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result.get("a.txt").unwrap(), b"content_a\n");
-        assert_eq!(result.get("b.txt").unwrap(), b"content_b\n");
-    }
-
-    #[test]
-    fn test_parse_bytes_delimiter_mismatch() {
-        let paths = vec!["file.txt".to_string()];
-        let output = b"___BATCH_DELIM___0\ncontent";
-        let result = parse_batch_output_bytes(output, &paths);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_bytes_empty() {
-        let paths: Vec<String> = vec![];
-        let result = parse_batch_output_bytes(b"", &paths);
-        assert!(result.is_empty());
-    }
-
-    // ── chunk_paths インデックス整合性テスト ──
-
-    /// チャンク分割後の各チャンクで `build_batch_cat_command()` が
-    /// 正しいコマンドを生成できることを検証する。
-    /// `chunk_paths()` がチャンク内 0-origin インデックスで推定しているため、
-    /// 生成されたコマンドがコマンド長上限を超えないことを確認する。
+    /// チャンク分割後の各チャンクのコマンドがコマンド長上限を超えないこと
     #[test]
     fn test_chunk_paths_command_len_within_limit() {
         // 多数のパスを用意し、小さい上限でチャンク分割を強制
         let paths: Vec<String> = (0..50)
             .map(|i| format!("app/controllers/file_{}.php", i))
             .collect();
-        let max_len = 500;
+        let max_len = 1500;
         let chunks = chunk_paths(&paths, max_len);
 
         assert!(chunks.len() > 1, "テストには複数チャンクが必要");

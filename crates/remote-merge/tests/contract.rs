@@ -126,6 +126,9 @@ mod ssh_reconnect;
 #[cfg(feature = "test-utils")]
 use common::ssh_server;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_strict_exec.rs"]
+mod ssh_strict_exec;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_sudo.rs"]
 mod ssh_sudo;
 #[cfg(feature = "test-utils")]

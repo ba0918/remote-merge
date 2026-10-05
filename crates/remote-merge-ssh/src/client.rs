@@ -485,25 +485,6 @@ impl SshClient {
         Ok(result.stdout)
     }
 
-    /// リモートでコマンドを実行し、stdout をバイト列で返す
-    ///
-    /// `exec()` のバイト列版。バイナリデータを UTF-8 変換せずに保持する。
-    /// 非ゼロ終了コードはログに記録するがエラーにはしない。
-    pub async fn exec_bytes(&mut self, command: &str) -> crate::error::Result<Vec<u8>> {
-        let result = self.run_command_bytes(command).await?;
-
-        if result.exit_code != 0 {
-            tracing::debug!(
-                target: "remote_merge::ssh::client",
-                "Remote command (bytes) exited with non-zero: cmd='{}', code={}",
-                command,
-                result.exit_code
-            );
-        }
-
-        Ok(result.stdout)
-    }
-
     /// Agent プロセス起動用の exec チャネルを開く。
     ///
     /// コマンドを実行し、チャネルを返す。チャネルの stdout/stdin は
@@ -697,74 +678,60 @@ impl SshClient {
         self.exec_strict(&command).await
     }
 
-    /// 複数のリモートファイルを1つのSSHチャネルでバッチ読み込みする。
-    ///
-    /// チャネル枯渇防止: N個のファイルを個別チャネルで読む代わりに、
-    /// 区切り文字付き `cat` コマンドで1チャネルにまとめる。
-    ///
-    /// 読み込めなかったファイルは空文字列として返される。
     /// 複数ファイルをテキストとしてバッチ読み込みする（チャンク分割対応）。
     ///
-    /// パスを `chunk_paths()` でコマンド長上限に収まるチャンクに分割し、
-    /// 各チャンクの結果をマージして返す。
-    ///
-    /// チャンク途中で SSH エラーが発生した場合は全体エラーとして返す（部分結果を返さない）。
+    /// `read_files_batch_bytes()` で読んでからファイルごとに文字列に直す。バイト数で区切る
+    /// 形式なので、UTF-8 として不正なバイトを置き換える前の出力を解析する必要がある。
     pub async fn read_files_batch(
         &mut self,
         paths: &[String],
     ) -> crate::error::Result<HashMap<String, String>> {
-        if paths.is_empty() {
-            return Ok(HashMap::new());
-        }
+        let contents = self.read_files_batch_bytes(paths).await?;
+        Ok(contents
+            .into_iter()
+            .map(|(path, bytes)| (path, bytes_to_string(bytes)))
+            .collect())
+    }
 
-        let chunks = batch_read::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN);
+    /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。
+    ///
+    /// チャネル枯渇防止のため、N個のファイルを1チャネルで読む。パスを `chunk_paths()` で
+    /// コマンド長上限に収まるチャンクに分割し、各チャンクの結果をマージして返す。
+    /// 通常ファイルでないか読めなかったパスは結果に入れない。
+    ///
+    /// チャンクのどれかでコマンドが失敗するか出力の形式が合わない場合は全体エラーとして返す
+    /// （部分結果を返さない）。
+    pub async fn read_files_batch_bytes(
+        &mut self,
+        paths: &[String],
+    ) -> crate::error::Result<HashMap<String, Vec<u8>>> {
         let mut merged = HashMap::with_capacity(paths.len());
 
-        for chunk in &chunks {
-            let command = match batch_read::build_batch_cat_command(chunk) {
-                Some(cmd) => cmd,
-                None => continue,
+        for chunk in batch_read::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN) {
+            let Some(command) = batch_read::build_batch_cat_command(&chunk) else {
+                continue;
             };
-
-            // exec を使う（非ゼロ終了は許容：一部ファイル不在でも結果を返す）
-            let output = self.exec(&command).await?;
-            let chunk_result = batch_read::parse_batch_output(&output, chunk);
-            merged.extend(chunk_result);
+            let output = self.exec_strict_bytes(&command).await?;
+            merged.extend(batch_read::parse_batch_output_bytes(&output, &chunk)?);
         }
 
         Ok(merged)
     }
 
-    /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。
-    ///
-    /// `read_files_batch()` のバイト列版。バイナリファイルを UTF-8 変換せずに読む。
-    /// パスを `chunk_paths()` でコマンド長上限に収まるチャンクに分割し、
-    /// 各チャンクの結果をマージして返す。
-    ///
-    /// チャンク途中で SSH エラーが発生した場合は全体エラーとして返す（部分結果を返さない）。
-    pub async fn read_files_batch_bytes(
-        &mut self,
-        paths: &[String],
-    ) -> crate::error::Result<HashMap<String, Vec<u8>>> {
-        if paths.is_empty() {
-            return Ok(HashMap::new());
+    /// `exec_strict()` のバイト列版。stdout を UTF-8 変換せずに返す。
+    async fn exec_strict_bytes(&mut self, command: &str) -> crate::error::Result<Vec<u8>> {
+        let result = self.run_command_bytes(command).await?;
+        if result.exit_code != 0 {
+            anyhow::bail!(AppError::SshExec {
+                command: format!(
+                    "{}: exit={}, stderr={}",
+                    command,
+                    result.exit_code,
+                    String::from_utf8_lossy(&result.stderr)
+                ),
+            });
         }
-
-        let chunks = batch_read::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN);
-        let mut merged = HashMap::with_capacity(paths.len());
-
-        for chunk in &chunks {
-            let command = match batch_read::build_batch_cat_command(chunk) {
-                Some(cmd) => cmd,
-                None => continue,
-            };
-
-            let output = self.exec_bytes(&command).await?;
-            let chunk_result = batch_read::parse_batch_output_bytes(&output, chunk);
-            merged.extend(chunk_result);
-        }
-
-        Ok(merged)
+        Ok(result.stdout)
     }
 
     /// リモートでコマンドを実行し、非ゼロ終了コードをエラーとして返す

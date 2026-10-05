@@ -864,3 +864,20 @@ async fn only_a_failed_root_check_means_the_scan_root_is_missing() {
         "{cut_off:?}"
     );
 }
+
+#[tokio::test]
+async fn batch_read_whose_command_fails_returns_no_partial_result() {
+    let handle = start_test_server().await;
+    // 形式としては正しい出力でも、コマンド全体が 0 以外で終われば結果にしない
+    handle
+        .registry
+        .register("/var/www/app/failed.txt", "E0\nEND1\n", 2);
+    let (mut client, _key) = connect_client(&handle).await;
+    let paths = ["/var/www/app/failed.txt".to_string()];
+
+    let bytes = client.read_files_batch_bytes(&paths).await;
+    let text = client.read_files_batch(&paths).await;
+
+    assert!(bytes.is_err(), "{bytes:?}");
+    assert!(text.is_err(), "{text:?}");
+}
