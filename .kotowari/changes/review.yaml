@@ -1,0 +1,74 @@
+version: 1
+entries:
+  - id: review-ssh-directory-read
+    base: a7fd6df6f029e4df3ca1dcb898b4a4ad88785d45
+    role: reviewer
+    files:
+      - path: "crates/remote-merge-engine/src/local_io.rs"
+        before: "sha256:07a46d197a5adcb5750150bf48a97d5467d68b8b67b2dc314d7399c6ffdb41e6"
+        after: "sha256:5d47d6ce2d83d26ab8207ff4e8dbc5e25967b7c83896c7b86dc1e4f8b70f7400"
+      - path: "crates/remote-merge-ssh/src/client.rs"
+        before: "sha256:08839e30418b7955f55401f00f09bf109f62d4da6bee68f1d6669d2f0fafd764"
+        after: "sha256:2f2a9e59070bec32ff9db6c831a3d6171cfca3d41945bb954a8cb73dfd25b00a"
+      - path: "crates/remote-merge/src/cli/diff.rs"
+        before: "sha256:5cc28b01b80901b489b95e802a7d6463a76e748f177f846b2daddbc008ed51b9"
+        after: "sha256:3b814a51ac3c40c7a955a444a2841e51cf4b41f2c69046a2d8ed92d61d753058"
+      - path: "crates/remote-merge/src/runtime/remote_io.rs"
+        before: "sha256:cb4f0af7700dc3f81a4e1b37d772752810ad7b13af300bbe6a25a99075897198"
+        after: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
+      - path: "crates/remote-merge/tests/cli_diff.rs"
+        before: "sha256:b360e47d453fcc54d6629320f48be0a0906adb65d2081f235d7e6ac37e7e8793"
+        after: "sha256:fc6d3687fc2e9e7bbd383b449575f607845b99ddf9930a793d95d9a60708a673"
+    ir:
+      - path: "docs/ir/cli/FLAGS.md"
+        sha256: "sha256:d53cab2967fc8ad0ae1b6b6b9469c6cfc9b21a2b7789defca45f4af34628b01b"
+      - path: "docs/ir/cli/diff-output.md"
+        sha256: "sha256:1c6da4588177e93aa388dcbc2edc5336b02d425d690cf484f515d4a7e5272f43"
+      - path: "docs/ir/cli/directory-paths.md"
+        sha256: "sha256:56d8c8522765a0671b3fe96797ad7922cd5423ef00271b30c873246c9e292360"
+      - path: "docs/ir/cli/symlink-diff.md"
+        sha256: "sha256:acb01f6df84b5ff52837a8be5a0a855d05a053fb01832803c5a4bdd01268fda6"
+      - path: "docs/ir/config/filters.md"
+        sha256: "sha256:4203fabe2a06d4d94e359117aad87c15e38d6fe0d6a9acb342a54db257a46178"
+    conclusion: new
+    reason: |
+      実装と別のレビューとして、比較元 a7fd6df から f79f5f1 までの差分全体を判断の記録 2026-10-05-ssh-directory-read と IR に照らして確かめた。
+      SSH の一件ずつの読み込みに "test ! -d" を足してディレクトリを失敗させる変更は、記録の Context が述べる不具合（openssl がディレクトリを終了コード 0 で空として返す）の修正で、ローカルとエージェントの振る舞いにそろえるものである。この読み込みは diff 以外（merge・sync など）の SSH の読み込みにも効くが、ディレクトリを空のファイルとして読まないという方向にだけ変わる。
+      diff が使う SSH の子の一覧を find の終了コードを見る list_dir_strict に変えた点は、fetch_children の呼び出し元が製品コードでは diff だけであること、エージェントの経路も子の一覧は同じ SSH の find を通ることを確かめた。
+      ローカルの子の一覧を root_dir の内側の検査（字句上の検査で symlink は解決しない）に通す変更は、入力パスの親ディレクトリへの遡りを禁じる REQ-cli-026 の範囲にとどまる。
+      左右とも子の一覧が取れて空のディレクトリを差分なしとする判定は REQ-cli-025・REQ-cli-052 と、利用者の決定 A1 による REQ-cli-077（左右の両方にある場合に限る）に沿い、片側だけの場合は FLAG-cli-073 に残して振る舞いを選んでいない。ルートの指定と glob をこの判定から外している点も REQ-cli-052 と矛盾しない。
+      ディレクトリでないと分かっている側にだけ子をないものとする展開は A2（REQ-cli-021、FLAG-cli-045 を閉じる）、参照先のない symlink の側をエラーにしつつ読めた側の子の差分を残す変更は A3 と REQ-cli-022（FLAG-cli-044 を閉じる）に沿う。A4 は FLAG-cli-033 を A1 で閉じ、A5 は子がすべて exclude に当たるディレクトリの観察を利用者の決定で未決の FLAG-cli-031 に加えた。
+      要件 ID の付いた追加テスト 6 件の期待値を各要件と突き合わせ、矛盾はなかった。新しいテストと client.rs の単体テストを実行し通ることを確かめた。
+    requirements:
+      - REQ-cli-021
+      - REQ-cli-022
+      - REQ-cli-025
+      - REQ-cli-026
+      - REQ-cli-052
+      - REQ-cli-077
+      - REQ-config-004
+    decisions:
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A1"
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A2"
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A3"
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
+      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
+    handoff: null
+    gaps:
+      - category: spec_conflict
+        disposition: fixed
+        refs:
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A2"
+      - category: spec_conflict
+        disposition: fixed
+        refs:
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A3"
+      - category: missing_spec
+        disposition: recorded
+        refs:
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A1"
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
+      - category: missing_spec
+        disposition: recorded
+        refs:
+          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
