@@ -48,10 +48,20 @@ pub(crate) fn known_hosts_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ssh").join("known_hosts"))
 }
 
-/// known_hosts ファイルの内容を読み込む
-pub(crate) fn read_known_hosts() -> Option<String> {
-    let path = known_hosts_path()?;
-    std::fs::read_to_string(&path).ok()
+/// known_hosts ファイルの内容を読み込む。
+///
+/// ファイル（またはホームディレクトリ）がないときは `Ok(None)`。
+/// それ以外の読み込みの失敗を「ファイルなし」と同じにすると、鍵が変わったホストが
+/// 未知のホストとして承認され得るため、エラーとして返す。
+pub(crate) fn read_known_hosts() -> std::io::Result<Option<String>> {
+    let Some(path) = known_hosts_path() else {
+        return Ok(None);
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// known_hosts ファイルにエントリを追加する

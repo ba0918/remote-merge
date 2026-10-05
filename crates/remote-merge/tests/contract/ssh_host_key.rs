@@ -130,6 +130,41 @@ async fn a_key_of_a_type_not_registered_for_the_host_is_rejected_under_strict_ch
     );
 }
 
+// @kotowari[REQ-ssh-010, EX-ssh-019]
+#[cfg(all(unix, feature = "test-utils"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_known_hosts_stops_the_connection_even_with_yes() {
+    let server = super::ssh_server::TestServer::modern().await;
+    let not_utf8: &[u8] = b"\xff\xfe not a known_hosts file\n";
+
+    let run = status_against(&server, Some(not_utf8), "", &["--yes"], None).await;
+
+    assert!(!run.output.status.success(), "{:?}", run.output);
+    assert!(
+        !run.operated,
+        "the connection continued without known_hosts"
+    );
+    assert_eq!(run.known_hosts_after.as_deref(), Some(not_utf8));
+}
+
+// @kotowari[REQ-ssh-011, EX-ssh-020]
+#[cfg(all(unix, feature = "test-utils"))]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoked_host_key_is_rejected_even_with_yes() {
+    let server = super::ssh_server::TestServer::modern().await;
+    let host = format!("[127.0.0.1]:{}", server.port());
+    let revoked = format!(
+        "@revoked {host} {key}\n{host} {key}\n",
+        key = server.host_key()
+    );
+
+    let run = status_against(&server, Some(revoked.as_bytes()), "", &["--yes"], None).await;
+
+    assert!(!run.output.status.success(), "{:?}", run.output);
+    assert!(!run.operated, "the connection continued with a revoked key");
+    assert_eq!(run.known_hosts_after.as_deref(), Some(revoked.as_bytes()));
+}
+
 // @kotowari[EX-ssh-001]
 #[test]
 fn strict_policy_rejects_the_unknown_key_without_approval() {

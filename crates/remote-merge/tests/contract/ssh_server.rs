@@ -25,6 +25,7 @@ pub struct TestServer {
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
     login_limit: Arc<AtomicUsize>,
+    host_key: String,
 }
 
 impl TestServer {
@@ -94,6 +95,11 @@ impl TestServer {
         self.port
     }
 
+    /// サーバが提示するホスト鍵の公開鍵を known_hosts の書き方（種別と base64）で返す
+    pub fn host_key(&self) -> &str {
+        &self.host_key
+    }
+
     /// 正しいパスワードでのログインを `accepted` 回だけ受け入れ、それ以降は認証を拒む。
     ///
     /// 同じポートの設定のまま、後から接続するサーバだけを接続できなくするのに使う。
@@ -137,9 +143,9 @@ impl TestServer {
         if legacy {
             config.preferred.kex = Cow::Owned(vec![russh::kex::DH_G14_SHA1]);
         }
-        config
-            .keys
-            .push(PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
+        let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+        let host_key = key.public_key().to_openssh().unwrap();
+        config.keys.push(key);
         let config = Arc::new(config);
         let write_attempts = Arc::new(AtomicUsize::new(0));
         let attempts = Arc::clone(&write_attempts);
@@ -175,6 +181,7 @@ impl TestServer {
             commands,
             read_attempts,
             login_limit,
+            host_key,
         }
     }
 }

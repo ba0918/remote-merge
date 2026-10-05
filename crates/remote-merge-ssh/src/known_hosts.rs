@@ -70,8 +70,14 @@ impl client::Handler for SshHandler {
         let server_key_base64 = parts[1];
 
         let known_hosts_content = match known_hosts_io::read_known_hosts() {
-            Some(content) => content,
-            None => {
+            Ok(Some(content)) => content,
+            Err(error) => {
+                return Err(anyhow::anyhow!(
+                    "Failed to read ~/.ssh/known_hosts: {error}. Refusing to verify the host key for {}.",
+                    self.host
+                ));
+            }
+            Ok(None) => {
                 // known_hosts ファイルが無い → 未知ホスト
                 return self.handle_unknown_host(
                     server_key_type,
@@ -111,6 +117,11 @@ impl client::Handler for SshHandler {
                     host_entry = host_entry,
                 ))
             }
+            HostKeyJudgement::Revoked { line } => Err(anyhow::anyhow!(
+                "The {key_type} host key for {host} is marked as revoked (line {line} in ~/.ssh/known_hosts). Refusing to connect.",
+                key_type = server_key_type,
+                host = self.host,
+            )),
             // 別の鍵種別でだけ登録されたホストも、提示された鍵は確かめられていないので未知として扱う
             HostKeyJudgement::Unknown => {
                 self.handle_unknown_host(server_key_type, server_key_base64, server_public_key)
@@ -128,6 +139,8 @@ pub(crate) enum HostKeyJudgement {
     Changed { line: usize },
     /// 提示された鍵を確かめる登録がない
     Unknown,
+    /// 提示された鍵が "@revoked" で失効とされている（`line` はその行番号）
+    Revoked { line: usize },
 }
 
 /// known_hosts の内容と提示された鍵から、その鍵を信頼できるかを判定する。
@@ -139,6 +152,19 @@ pub(crate) fn judge_host_key(
     key_base64: &str,
 ) -> HostKeyJudgement {
     let host_entry = format_host_entry(host, port);
+    // 同じ鍵の通常の行があっても失効を優先する
+    let revoked = parse_revoked_keys(known_hosts_content)
+        .into_iter()
+        .find(|kh| {
+            host_matches(&kh.hostname_pattern, &host_entry, host, port)
+                && kh.key_type == key_type
+                && kh.key_base64 == key_base64
+        });
+    if let Some(kh) = revoked {
+        return HostKeyJudgement::Revoked {
+            line: kh.line_number,
+        };
+    }
     for kh in parse_known_hosts(known_hosts_content) {
         if !host_matches(&kh.hostname_pattern, &host_entry, host, port) || kh.key_type != key_type {
             continue;
@@ -200,41 +226,52 @@ impl SshHandler {
 /// 後方互換: client.rs から使われる re-export
 pub(crate) use known_hosts_io::append_known_hosts_entry;
 
-/// known_hosts のテキスト内容をパースする
+/// known_hosts のテキスト内容をパースする（"@" で始まる印付きの行は除く）
 pub(crate) fn parse_known_hosts(content: &str) -> Vec<KnownHost> {
-    let mut entries = Vec::new();
+    entry_lines(content)
+        .filter(|(_, line)| !line.starts_with('@'))
+        .filter_map(|(line_number, line)| parse_entry(line, line_number))
+        .collect()
+}
 
-    for (line_idx, line) in content.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('@') {
-            continue;
-        }
+/// "@revoked" の印が付いた行だけをパースする
+pub(crate) fn parse_revoked_keys(content: &str) -> Vec<KnownHost> {
+    entry_lines(content)
+        .filter_map(|(line_number, line)| {
+            let rest = line.strip_prefix("@revoked")?;
+            if !rest.starts_with([' ', '\t']) {
+                return None;
+            }
+            parse_entry(rest.trim_start(), line_number)
+        })
+        .collect()
+}
 
-        let parts: Vec<&str> = line.splitn(3, ' ').collect();
-        if parts.len() < 3 {
-            continue;
-        }
+/// 空行とコメントを除いた行を、1始まりの行番号と前後の空白を除いた内容で返す
+fn entry_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
+    content
+        .lines()
+        .enumerate()
+        .map(|(line_idx, line)| (line_idx + 1, line.trim()))
+        .filter(|(_, line)| !line.is_empty() && !line.starts_with('#'))
+}
 
-        let hostname_pattern = parts[0].to_string();
-        let key_type = parts[1].to_string();
-        let key_base64 = parts[2].split_whitespace().next().unwrap_or("").to_string();
-
-        if key_base64.is_empty() {
-            continue;
-        }
-
-        entries.push(KnownHost {
-            hostname_pattern,
-            key_type,
-            key_base64,
-            line_number: line_idx + 1,
-        });
+/// "ホスト 種別 鍵 [コメント]" の一行をパースする
+fn parse_entry(line: &str, line_number: usize) -> Option<KnownHost> {
+    let parts: Vec<&str> = line.splitn(3, ' ').collect();
+    if parts.len() < 3 {
+        return None;
     }
-
-    entries
+    let key_base64 = parts[2].split_whitespace().next().unwrap_or("");
+    if key_base64.is_empty() {
+        return None;
+    }
+    Some(KnownHost {
+        hostname_pattern: parts[0].to_string(),
+        key_type: parts[1].to_string(),
+        key_base64: key_base64.to_string(),
+        line_number,
+    })
 }
 
 /// ホスト名がknown_hostsのパターンに一致するか判定する
