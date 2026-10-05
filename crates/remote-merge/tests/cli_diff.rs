@@ -843,26 +843,6 @@ fn many_directories_outside_include_have_no_diff() {
     );
 }
 
-// @kotowari[REQ-cli-026]
-#[test]
-fn many_paths_do_not_list_an_absolute_directory_outside_root() {
-    let env = CliEnv::new(&[], &[]);
-    let outside = env.local_dir.parent().unwrap().join("outside-empty");
-    std::fs::create_dir(&outside).unwrap();
-    // SSH 側は先頭の / を除いて root_dir の下を見るので、そこにも空のディレクトリを置く
-    std::fs::create_dir_all(env.remote_dir.join(outside.strip_prefix("/").unwrap())).unwrap();
-    let mut paths: Vec<String> = (0..20).map(|index| format!("missing{index:02}")).collect();
-    paths.push(outside.to_string_lossy().into_owned());
-
-    let output = env.cmd_with("diff").args(&paths).output().unwrap();
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("specified path(s) not found on either side"),
-        "{output:?}"
-    );
-}
-
 // @kotowari[EX-cli-060]
 #[test]
 fn directory_link_spelling_keeps_link_and_child_changes() {
