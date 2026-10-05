@@ -132,6 +132,23 @@ async fn nothing_in_a_symlinked_deploy_directory_is_run() {
     );
 }
 
+// @kotowari[REQ-ssh-019, EX-ssh-030]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unsafe_deploy_directory_left_unused_is_named_in_a_warning() {
+    let fixture = DeployFixture::new().await;
+    fixture.plant_binary(0o700, None);
+    let target = fixture.deploy_target_dir();
+    fs::rename(&target, target.with_file_name("planted-dir")).unwrap();
+    std::os::unix::fs::symlink("planted-dir", &target).unwrap();
+
+    let merge = fixture.merge(None);
+
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
+    let stderr = String::from_utf8_lossy(&merge.stderr);
+    assert!(stderr.contains(target.to_str().unwrap()), "{stderr}");
+}
+
 // @kotowari[REQ-ssh-017, EX-ssh-027]
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_in_a_deploy_directory_under_a_parent_writable_by_everyone_is_run() {
