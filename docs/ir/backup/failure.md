@@ -1,6 +1,6 @@
 # バックアップできないときの扱い
 
-バックアップの失敗の報告と、集約先の場所が決まらないときの書き込みと rollback の扱い。
+バックアップの失敗の報告と、集約先の場所が決まらないときや集約先の準備に失敗したときの書き込みと rollback の扱い。
 
 ## Requirements
 
@@ -24,3 +24,20 @@ merge・--delete・sync でファイルのバックアップに失敗したと�
 - verification: unit
 
 集約先の場所が決まらないとき、rollback は --list と --dry-run を含むどのモードでも、バックアップの有効・無効に関係なくエラーで終わり、何も書き込まない。
+
+### REQ-backup-045: 集約先の準備に失敗したら書き込みを始めない
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-quality-backup.md#A4
+- verification: unit
+
+バックアップが有効な merge・sync・rollback で、セッション ID の予約、集約先や書き込み先ごとの領域や一時的な保存場所の作成、予約の読み取りが入出力エラーで失敗したときは、どの段階の失敗でも、どのファイルも書き込む前にコマンド全体をエラーで止める。書き換え前の内容を保存できないファイルの扱いは REQ-backup-002 による。
+
+## Examples
+
+```gherkin
+@id=EX-backup-026 @about=REQ-backup-045 @source=docs/decision/records/2026-10-05-quality-backup.md#A4
+Scenario: 集約先に領域を作れない
+Given バックアップが有効で集約先のディレクトリに書き込む権限がない
+When 二つのファイルをマージする
+Then どのファイルも書き込まれずにエラーで止まり、ファイルごとの "backup failed" にはならない
+```

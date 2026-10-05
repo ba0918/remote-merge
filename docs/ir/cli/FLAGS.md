@@ -9,20 +9,6 @@
 
 旧総合仕様は ref_badge の値を "differs"・"exists_only_in_ref"・"missing_in_ref" とするが、実装は三つすべてで中身が同じファイルと、片方だけにあって参照先にもないファイルに "all_equal" を付ける（テキストでは表示しない）。一覧が左右の和集合のため "exists_only_in_ref" は status では出ず、ref_only は常に 0 になる。
 
-### FLAG-cli-003: --checksum での symlink の比べ方
-- kind: ambiguity
-- related: REQ-cli-008, REQ-cli-028
-- source: docs/decision/records/2026-09-27-adopt-status.md#A17
-
-旧個別仕様 symlink-merge の 3.8 は --checksum でも片方でも symlink のペアは中身を読み比べないとするが、実装は --checksum で symlink のペアも比較対象に含める。右がリモートで --ref がないときはハッシュの経路、それ以外は中身を読む経路で比べるため、経路によって symlink の組の判定が旧資料どおりになるかがコードから確かめきれない。
-
-### FLAG-cli-004: 中身を読めなかったファイルの判定
-- kind: gap
-- related: REQ-cli-027
-- source: docs/decision/records/2026-09-27-adopt-status.md#A18
-
-status が中身を読み比べる対象のファイルを読めなかったとき（読み取りの失敗やサイズ上限の超過）、実装は理由を示さずにメタデータでの判定（"modified"）のまま一覧に出す。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-007: 確認を断ったときの JSON
 - kind: ambiguity
 - related: REQ-cli-018, REQ-cli-040
@@ -58,13 +44,6 @@ status が中身を読み比べる対象のファイルを読めなかったと�
 
 --dry-run の sync で書き込む予定がなく削除予定だけがある書き込み先を、実装はテキストで "(deleted)" と削除済みの形で出し、JSON でも deleted の status を実際に削除したときと同じ "ok" にするため、予定と実行済みを区別できない。旧資料に記述がなくテストもない。
 
-### FLAG-cli-014: dry-run の終了コード
-- kind: contradiction
-- related: REQ-cli-044, REQ-cli-004
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A17
-
-旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の sync でも中身を読み比べるファイルを読めなかった書き込み先を "failed" にし、終了コード 2 を返す。
-
 ### FLAG-cli-015: 確認の行で件数が 0 の部分を省くか
 - kind: ambiguity
 - related: REQ-cli-040
@@ -78,20 +57,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 - source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A7
 
 旧個別仕様 symlink-merge の 3.3 は種類の違い・symlink の削除・パスを辿れないことによるスキップが一件でもある merge の終了コードを 2 にするとするが、実装は merge の終了コードの判定に skipped を数えないため、そのスキップだけの merge は終了コード 0 になる。
-
-### FLAG-cli-017: merge の dry-run の終了コード
-- kind: contradiction
-- related: REQ-cli-047, REQ-cli-004, FLAG-cli-014
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A8
-
-旧個別仕様 symlink-merge の 3.3 は --dry-run の終了コードを 0 とするが、実装は --dry-run の merge でも中身を読み比べるファイルを読めなかったとき failed に出し、終了コード 2 を返す。
-
-### FLAG-cli-023: 三者の中身がそろわないファイル
-- kind: gap
-- related: REQ-cli-017, REQ-cli-051
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A14
-
---ref があり --force も --dry-run もない merge で、実装は左・右・参照先のどれかで中身がそろわないファイルを書き込まずに failed に error "three-way comparison incomplete" で出すため、左にだけある新しいファイルは --ref 付きでは --force なしに書き込めない。旧資料に記述がなくテストもない。
 
 ### FLAG-cli-024: dry-run で参照先に対する確認をしない
 - kind: gap
@@ -114,20 +79,6 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 --ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。
 
-### FLAG-cli-030: 片側で読めないファイルの diff
-- kind: gap
-- related: REQ-cli-056
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A13
-
-左右にあるファイルが片側で読めないとき、diff はその側を空として全ての行を削除または追加として出し、終了コード 1 を返してエラーにしない。旧資料に記述がなくテストもない。
-
-### FLAG-cli-031: パスを指定した diff と exclude
-- kind: contradiction
-- related: REQ-config-003, REQ-cli-052
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A14
-
-旧総合仕様の除外フィルターの節は exclude のパターンを比較の対象から除外するとするが、20 個以下のパスを指定した diff は exclude に当たるファイルのパスでも差分を出す（パスなしの diff は除外する）。一方、子がすべて exclude に当たるディレクトリを指定した diff（exclude = ["target"] での `diff target` や `diff target/`）は、配下に差分があっても差分を出さず "0 file(s) with changes"・終了コード 0 になる。ローカルと SSH・SSH 同士・ローカルとエージェントのどの経路の組でも同じで、同じ配下のファイルのパスを直接指定すると差分を出す。この扱いを定める要件はなく、ファイルのパスの扱いと合わせて決める。
-
 ### FLAG-cli-032: 0 始まりの行番号
 - kind: gap
 - related: REQ-cli-058, REQ-cli-053
@@ -141,48 +92,6 @@ diff のテキストの "@@" の行と JSON の left_start・right_start は 0 �
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A17
 
 利用者向けの手引きは summary の files_with_changes を hunk を一つ以上持つファイルの数とするが、実装はハッシュの違うバイナリとリンク先の違う symlink も数える。
-
-### FLAG-cli-035: 中身の同じバイナリの diff
-- kind: contradiction
-- related: REQ-cli-009, REQ-cli-061
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A18
-
-REQ-cli-009 はバイナリの一致または不一致を示すとするが、中身の同じバイナリのパスを指定した diff は同じハッシュのまま "Binary files differ" と出し、終了コード 0 を返す。
-
-### FLAG-cli-038: 片側にだけある中身のないファイル
-- kind: gap
-- related: REQ-cli-060
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A21
-
-片側にだけある 0 バイトのファイルの diff は、両側を空として差分なしと扱い、見出しだけを出して終了コード 0 を返す。ディレクトリを展開したときは項目を出さず、ない側について標準エラーに "treating as empty" の警告を出すと実装からは読める。
-
-### FLAG-cli-039: 100MB を超えるファイルの diff
-- kind: gap
-- related: REQ-cli-061
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A22
-
-100MB を超えるファイルの diff は、ローカルと SSH の経路では読み取りに失敗してその側を空か "missing" として扱うが、エージェントの経路では大きさの制限なく読むと実装からは読める（未実行）。旧資料に記述がない。
-
-### FLAG-cli-041: 読まずに数えたファイルが読むと同じになる場合
-- kind: contradiction
-- related: REQ-cli-055
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A24
-
-先頭の 8,192 バイトより後にだけ不正な UTF-8 を含み、読むと左右が同じテキストになるファイルがあると、--max-files が 1 のときだけそのファイルを読まずに変更のあるファイルと数え、truncated を true、changed_files_total を実際より多く出す。REQ-cli-055 は変更のあるファイルを数えるとする。
-
-### FLAG-cli-042: 境目で切れた多バイトの文字
-- kind: ambiguity
-- related: REQ-cli-061
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A25
-
-正しい UTF-8 のテキストでも、先頭の 8,192 バイトの境目で多バイトの文字が切れるとバイナリと判定される。REQ-cli-061 の「先頭 8,192 バイトに不正な UTF-8 を含む」に境目で切れた文字が当たるかは読み分けられない。
-
-### FLAG-cli-047: パスを指定しない diff の symlink
-- kind: ambiguity
-- related: REQ-cli-020, REQ-cli-021
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A5
-
-REQ-cli-020 と REQ-cli-021 の文は経路を限らないが、その文書の導入は symlink を明示指定したときとし、パスを指定しない diff では、リンク文字列が同じ symlink を一覧に出さず参照先の内容も比べない。要件がパスを指定しない diff にも当たるかが読み分けられない。
 
 ### FLAG-cli-048: 種類の違いの note の文言
 - kind: contradiction
@@ -204,13 +113,6 @@ REQ-cli-021 は件数超過を不完全な比較としてエラーで報告す�
 - source: docs/decision/records/2026-09-30-adopt-diff-links.md#A8
 
 REQ-cli-022 は比較できなかったパスと理由を示すとするが、通常のディレクトリの展開で循環や件数超過が起きたとき、テキスト出力には理由が出ない（JSON では errors に出る。実装を読んで分かったことで未実行）。
-
-### FLAG-cli-054: symlink の diff の仕様のない挙動
-- kind: gap
-- related: REQ-cli-020
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A12
-
-diff は、リンク文字列も参照先の内容も同じ symlink を差分のない項目として files に残してテキストにも "Link target:" を出し、100MB を超える参照先を --force を付けても読めないエラーにし、絶対パスの指定を拒否しない（実装を読んで分かったことで未実行）。旧資料に記述がなくテストもない。
 
 ### FLAG-cli-058: conflict_regions の要素の形
 - kind: contradiction
@@ -239,13 +141,6 @@ diff は参照先にファイルがないとき、または参照先のファイ
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A9
 
 REQ-cli-054 は --max-lines で打ち切ったファイルの truncated を true にするとするが、diff は --max-lines を "ref_hunks" にも別に当てて打ち切り、参照先との差を打ち切ってもそのファイルの "truncated" を変えない。参照先との差の打ち切りに要件が及ぶかが決まらない。
-
-### FLAG-cli-062: 参照先を読めない理由
-- kind: gap
-- related: REQ-cli-063
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A10
-
-diff は参照先のファイルを読むのに失敗したとき、ないとき以外の理由でも、ないときと同じく "ref_hunks" を出さず、エラーも警告も出さない。旧資料に記述がなくテストもない。
 
 ### FLAG-cli-063: 参照先と比べない項目
 - kind: gap
@@ -288,10 +183,3 @@ diff の root_dir の外の判定は左右の項目だけを見るため、参�
 - source: docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A2, docs/decision/records/2026-09-30-diff-ref-mutant-flags.md#A3
 
 diff は一方の一つの変更が他方の複数の変更と重なるとき（例 参照先 "a\nb\nc" に対して左が三行を全て変え、右が 1 行目と 3 行目を別々に変える）、重なる組を一つにまとめて "conflict_count" を 1 とするが、REQ-cli-065 の競合の数がこの場合に 1 か 2 かは定めていない。接するが別々の二つの競合（例 参照先 "1\n2\n3\n4\n5\n"、左 "A\nB\n3\nC\nD\n"、右 "1\nX\nY\n4\nZ\n" で、参照先の 0..3 と 3..5）は、diff は二つとして "conflict_count" を 2 とするが、一つと数えるか二つと数えるかも定めていない。
-
-### FLAG-cli-073: 片側にだけある配下の空なディレクトリの diff
-- kind: gap
-- related: REQ-cli-077, REQ-cli-025
-- source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1
-
-片側にだけあり、配下を include で絞ると比べるファイルがないディレクトリ（片側にだけある中身の空なディレクトリ、片側にだけある include の外のディレクトリ）を指定した diff の扱いは定めていない。REQ-cli-077 は左右の両方にある場合に限り、REQ-cli-025 は末尾のスラッシュによらず同じにすることだけを定める。diff は今、末尾のスラッシュの有無と、ディレクトリがローカルと SSH のどちらの側にあるかによらず、標準エラーに "Warning: '<path>' not found on either side" と "Error: specified path(s) not found on either side" を出して終了コード 2 を返す（2026-10-05 にローカルと SSH の組で確かめた）。

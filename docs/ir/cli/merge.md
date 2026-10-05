@@ -57,11 +57,20 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 ### REQ-cli-074: 確認のプロンプトを出さず --force で対象と確認を変える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A6
+- source: docs/decision/records/2026-10-04-cli-command-flag-resolution.md#A9, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A6, docs/decision/records/2026-10-05-quality-cli.md#A2
 - verification: unit
 
 CLI の merge は書き込む前に確認のプロンプトを出さない。
---force を指定した merge は、リモート間の merge を止めず、REQ-cli-051 の参照先に対する確認をしない。
+--force を指定した merge は、リモート間の merge を止めず、REQ-cli-051 の参照先に対する確認をせず、REQ-cli-079 のファイルの大きさの上限を当てない。
+
+### REQ-cli-092: 三者の存在の組み合わせで書くかを決める
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16
+- verification: unit
+- definition: TBL-cli-009
+
+--ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先にファイルがないことと読み込みに失敗したことを区別し、TBL-cli-009 に従って書くかどうかを決め、ないと分かっている側の中身は読みに行かない。
+TBL-cli-009 が文言を決めていない failed の error は実装者が決め、テストはその文言を固定しない。
 
 ## Decision tables
 
@@ -75,6 +84,17 @@ CLI の merge は書き込む前に確認のプロンプトを出さない。
 | --left と --right が同じ | "--left and --right must be different (both resolved to '名前')" |
 | 設定にないサーバ名を指定する | "Server '名前' not found in config" |
 | --format に text・json・diff 以外を指定する | "Unknown format: '値' (expected text, json, or diff)" |
+
+### TBL-cli-009: 参照先を使う merge の三者の存在
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16
+
+| 読み込み元 | 書き込み先 | 参照先 | 扱い |
+|---|---|---|---|
+| ある | ない | ない | --force なしで書き込む |
+| ある | ない | ある | 書かずに failed に error "destination changed since reference" で出す |
+| ある | ある | ある | REQ-cli-051 に従う |
+| ある | ある | ない | 書き込み先が変わっていないことを確かめられないので、書かずに failed に出す（error の文言は実装者が決める） |
+| 三つのどれかの読み込みに失敗した | - | - | 書かずに failed に error "three-way comparison incomplete" で出す |
 
 ## Examples
 
@@ -102,4 +122,21 @@ Scenario: 強制して書く
 Given 参照先に対して読み込み元と書き込み先が別々の行を変えたテキストのファイルがある
 When --ref と --force を指定して merge する
 Then 書き込み先は読み込み元の中身に更新される
+@id=EX-cli-084 @about=REQ-cli-092 @source=docs/decision/records/2026-10-05-quality-cli.md#A9
+Scenario: 左にだけある新しいファイルを参照先付きで書く
+Given "new.txt" は左にだけあり、右にも参照先にもない
+When --ref を指定し --force なしで左から右へ "new.txt" を merge する
+Then 右に "new.txt" が作られる
+
+@id=EX-cli-085 @about=REQ-cli-092 @source=docs/decision/records/2026-10-05-quality-cli.md#A9
+Scenario: 参照先にあり書き込み先から消えたファイル
+Given "a.txt" は左と参照先にあり右にない
+When --ref を指定し --force なしで左から右へ "a.txt" を merge する
+Then 右は変わらず failed に error "destination changed since reference" が出る
+
+@id=EX-cli-094 @about=REQ-cli-092 @source=docs/decision/records/2026-10-05-quality-cli.md#A13,docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+Scenario: 左右にあり参照先にないファイル
+Given "b.txt" は左と右にあり中身が違い、参照先にない
+When --ref を指定し --force なしで左から右へ "b.txt" を merge する
+Then 右の "b.txt" は変わらず、"b.txt" は failed に出る
 ```

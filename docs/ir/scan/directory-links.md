@@ -11,6 +11,13 @@
 
 CLI status はディレクトリを指す symlink の配下も走査件数の上限内で再帰列挙し、循環または件数超過が起きた場合は不完全な一覧であることを報告する。
 
+### REQ-scan-011: エージェントの経路もディレクトリ symlink を辿る
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-scan.md#A2
+- verification: unit
+
+エージェントの経路の走査も、ディレクトリを指す symlink の配下をローカルと SSH の経路と同じく列挙し、循環をデバイス番号と inode 番号で検出して不完全な一覧であることを報告する。
+
 ## Examples
 
 ```gherkin

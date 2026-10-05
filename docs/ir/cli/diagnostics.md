@@ -1,6 +1,6 @@
 # 診断ログの閲覧
 
-障害調査のために記録を取得し、ファイルの中身が記録に混入しないようにする規則。
+障害調査のために記録を取得し水準で絞り、ファイルの中身が記録に混入しないようにする規則。
 
 ## Requirements
 
@@ -27,6 +27,14 @@ agent を除く CLI のサブコマンドの実行は、ログの細かさを指
 診断ログには remote-merge 自身の記録だけを残し、外部の crate の記録は残さない。
 利用者のキャッシュの場所が決まらないときや診断ログを保存できないときは、保存をあきらめてコマンドを続ける。
 
+### REQ-cli-093: logs は指定した水準以上を出す
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-cli.md#A11, docs/decision/records/2026-10-05-quality-cli.md#A16
+- verification: unit
+
+logs の --level は、指定した水準とそれより重い水準の記録を出し（重い順に error・warn・info・debug・trace で、"warn" なら WARN と ERROR）、この五つの名前以外の値はエラーで止める。
+五つの名前以外の値のエラーの文言と、名前の大文字と小文字の扱いは IR で決めず、実装者が決める。大文字と小文字を区別せずに名前を受け付けてもよい。テストはその文言と大文字と小文字の扱いを固定しない。
+
 ## Examples
 
 ```gherkin
@@ -47,4 +55,9 @@ Scenario: SSH 認証を行う
 Given 接続に認証情報を用いる
 When 診断ログを確認する
 Then 認証情報の値は含まれない
+@id=EX-cli-092 @about=REQ-cli-093 @source=docs/decision/records/2026-10-05-quality-cli.md#A11
+Scenario: warn 以上の記録を見る
+Given 診断ログに INFO・WARN・ERROR の記録がある
+When logs --level warn を実行する
+Then WARN と ERROR の記録が出て INFO の記録は出ない
 ```

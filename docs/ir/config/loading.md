@@ -1,6 +1,6 @@
 # 設定ファイルの場所と読み込み
 
-どの設定ファイルを読むか、--config による指定、読み込めないときの止まり方、ローカルの root_dir の展開。
+どの設定ファイルを読むか、--config による指定、読み込めないときと知らないキーがあるときの止まり方、ローカルの root_dir の展開と基準。
 
 ## Requirements
 
@@ -52,3 +52,41 @@
 - verification: unit
 
 init・logs に --config を指定したときは "Warning: --config is ignored for the 'サブコマンド名' subcommand" を標準エラーに出し、設定を読まずに続ける。
+
+### REQ-config-039: 知らないキーとセクションで止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-quality-config.md#A3, docs/decision/records/2026-10-05-quality-config.md#A10
+- verification: unit
+
+`グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。[filter] の sensitive と badge_scan_max_files はこのエラーにせず、REQ-config-030 と REQ-config-031 の警告を出して続ける。
+このエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
+
+### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-config.md#A5
+- verification: unit
+
+[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。
+
+### REQ-config-041: 空のローカルの root_dir で止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-quality-config.md#A5
+- verification: unit
+
+[local] の root_dir が空の文字列のときは、理由 "root_dir must not be empty" を示すエラーで止まる。
+
+## Examples
+
+```gherkin
+@id=EX-config-015 @about=REQ-config-039 @source=docs/decision/records/2026-10-05-quality-config.md#A3
+Scenario: キー名を書き間違える
+Given `プロジェクト設定` の [filter] に include の書き間違い "inclde" がある
+When status を実行する
+Then 比較を始めずにエラーで止まり終了コード 2 を返す
+
+@id=EX-config-016 @about=REQ-config-040 @source=docs/decision/records/2026-10-05-quality-config.md#A5
+Scenario: 別のディレクトリの設定を --config で指定する
+Given "proj/.remote-merge.toml" の [local] の root_dir が "." である
+When "proj" の外のディレクトリから --config "proj/.remote-merge.toml" を指定して status を実行する
+Then ローカルの root_dir は "proj" のディレクトリになる
+```

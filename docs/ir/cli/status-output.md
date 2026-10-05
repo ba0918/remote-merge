@@ -30,10 +30,12 @@ status は --format に "text" と "json" を受け付けて "diff" を "text" �
 
 ### REQ-cli-032: JSON で比較対象・ファイル・集計を返す
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-status.md#A7, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5
+- source: docs/decision/records/2026-09-27-adopt-status.md#A7, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16
 - verification: unit
 
 --format に "json" を指定した status は "left" と "right"（"label" と "root"）、"files"（"path"・"status"）、"summary" を出し、"status" の値を "modified"・"left_only"・"right_only"・"equal" とする。
+中身を読み比べるファイルを読めなかったときは、REQ-cli-088 のとおりトップレベルの "errors"（"path"・"reason"）も出し、"summary" にその件数を出す。
+"summary" の件数のキー名は IR で決めず、実装者が決める。テストは "errors" の項目と終了コードを確かめ、件数のキー名を固定しない。
 
 ### REQ-cli-033: 集計だけを表示できる
 - kind: state_driven
@@ -53,12 +55,13 @@ status は --format に "text" と "json" を受け付けて "diff" を "text" �
 ## Decision tables
 
 ### TBL-cli-002: status の終了コード
-- source: docs/decision/records/2026-09-27-adopt-status.md#A5
+- source: docs/decision/records/2026-09-27-adopt-status.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A5
 
 | 結果 | 終了コード |
 |---|---|
-| "modified"・"left_only"・"right_only" が一件もない | 0 |
-| "modified"・"left_only"・"right_only" が一件以上ある | 1 |
+| 中身を読み比べるファイルを読めなかったものがある | 2 |
+| 読めなかったファイルがなく "modified"・"left_only"・"right_only" が一件もない | 0 |
+| 読めなかったファイルがなく "modified"・"left_only"・"right_only" が一件以上ある | 1 |
 | エラーで止まった | 2 |
 
 ### TBL-cli-003: テキストの記号

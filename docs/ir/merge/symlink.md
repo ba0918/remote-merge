@@ -34,10 +34,10 @@ merge と sync の削除指定で書き込み先だけに末尾の symlink が�
 
 ### REQ-merge-007: 引数によるパス脱出を拒否する
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A6
+- source: docs/decision/records/2026-09-25-spec-migration.md#A6, docs/decision/records/2026-10-05-quality-merge.md#A1
 - verification: unit
 
-merge と sync は引数が絶対パスまたは ".." を含む相対パスなら、そのパスの書き込みを拒否する。
+merge と sync は、パスの引数に絶対パスか ".." の要素を含むパスがあるとき、ローカル・SSH・エージェントのどの経路でも、走査と書き込みの前にコマンド全体を絶対パスなら "absolute subpath not allowed: パス"、".." なら "path traversal not allowed: パス" のエラーで止め、終了コード 2 を返し、どのファイルも書き込まない。root_dir 全体を指す "/" の引数は従来どおり受け付ける。
 
 ### REQ-merge-023: 書き込み先にない symlink はそのまま作る
 - kind: state_driven
@@ -97,15 +97,21 @@ Given 書き込み先の親ディレクトリが root_dir の中を指す symlin
 When その配下のファイルをマージする
 Then root_dir 内のファイルは更新される
 
-@id=EX-merge-013 @about=REQ-merge-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A6
+@id=EX-merge-013 @about=REQ-merge-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A6,docs/decision/records/2026-10-05-quality-merge.md#A1
 Scenario: 親ディレクトリを遡る引数
 Given マージ対象の引数に親ディレクトリを指す ".." が含まれる
 When そのパスをマージする
 Then 対象の書き込みは拒否される
 
-@id=EX-merge-014 @about=REQ-merge-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A6
+@id=EX-merge-014 @about=REQ-merge-007 @source=docs/decision/records/2026-09-25-spec-migration.md#A6,docs/decision/records/2026-10-05-quality-merge.md#A1
 Scenario: 絶対パスの引数
 Given マージ対象に絶対パスが渡される
 When そのパスをマージする
 Then 対象の書き込みは拒否される
+
+@id=EX-merge-040 @about=REQ-merge-007 @source=docs/decision/records/2026-10-05-quality-merge.md#A1
+Scenario: 正しいパスと ".." を含むパスを一緒に渡す
+Given 引数に正しいパス "a.txt" と "../b.txt" がある
+When その二つをマージする
+Then "path traversal not allowed: ../b.txt" のエラーで止まり "a.txt" も書き込まれず終了コード 2 を返す
 ```

@@ -36,10 +36,11 @@
 
 ### REQ-config-018: ホスト鍵の確認の値を読む
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-config-values.md#A5
+- source: docs/decision/records/2026-09-28-adopt-config-values.md#A5, docs/decision/records/2026-10-05-quality-config.md#A2, docs/decision/records/2026-10-05-quality-config.md#A10
 - verification: unit
 
-strict_host_key_checking は大文字と小文字を区別せずに "ask" を ask、"yes" と "true" を yes、"no" と "false" を no として読み、それ以外の値は "Unknown strict_host_key_checking value: '値', falling back to 'ask'" の警告を出して ask として扱う。
+strict_host_key_checking は大文字と小文字を区別せずに "ask" を ask、"yes" と "true" を yes、"no" と "false" を no として読み、それ以外の値は ask として扱わずに設定のエラーで止まり、終了コード 2 を返す。
+このエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
 ### REQ-config-019: 環境変数のパスワードを優先する
 - kind: state_driven

@@ -9,33 +9,12 @@
 
 REQ-merge-014 は --with-permissions を指定したとき読み込み元のファイル権限を書き込み先に反映するとするが、実装は読み込み元がローカルのときだけ権限を写し、読み込み元がリモートのときは何も知らせずに写さず、新しく作るファイルには設定された権限も付けない。
 
-### FLAG-merge-003: 新規ファイルと権限の複製の優先
-- kind: ambiguity
-- related: REQ-merge-012, REQ-merge-014
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A7
-
---with-permissions を指定して新しいファイルを作るとき、実装は書き込み先に設定された権限ではなく読み込み元の権限を付ける。新規作成は設定された権限にするという REQ-merge-012 と、読み込み元の権限を反映するという REQ-merge-014 のどちらを優先するかを IR は決めていない。
-
-### FLAG-merge-004: 権限の複製の失敗
-- kind: gap
-- related: REQ-merge-014
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A8
-
---with-permissions で書き込み先の権限を変えることに失敗したとき、実装はログに警告を残すだけで、そのファイルの結果を status "ok" のまま出す。旧資料に記述がなくテストもない。
-
 ### FLAG-merge-007: 読み込み元の権限が 0 のときの複製
 - kind: gap
 - related: REQ-merge-014
 - source: docs/decision/records/2026-09-28-merge-write-mutant-flags.md#A1
 
 --with-permissions の merge で読み込み元がローカルのとき、実装は読み込み元の権限の値が 0（mode 000）なら書き込み先の権限を変えずに残す。REQ-merge-014 は読み込み元のファイル権限を書き込み先に反映するとし、字のとおり読むと 0 も反映することになるが、IR はこの場合を決めていない。読み込み元は中身を読んだ後に権限を読むため、この違いは読み込みと権限の読み取りの間に読み込み元の権限が 0 に変わったときにだけ起きる。
-
-### FLAG-merge-011: パス脱出の拒否の範囲と文言
-- kind: contradiction
-- related: REQ-merge-007
-- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A9
-
-旧個別仕様 symlink-merge の 3.5 は ".." の成分を含むか絶対パスの対象をそのファイルだけ failed の error "path traversal detected: <相対パス>" で出して他のファイルの処理を続けるとするが、実装の merge は ".." を含む引数でコマンド全体を "path traversal not allowed: パス"、絶対パスの引数で "absolute subpath not allowed: パス" のエラーで止める。
 
 ### FLAG-merge-012: エージェントの経路の拒否と切り替え
 - kind: contradiction

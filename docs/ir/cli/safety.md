@@ -25,6 +25,14 @@ merge と sync は書き込み元と書き込み先の明示的な指定がな�
 
 merge と sync の dry-run は変更予定を報告し、書き込み先を変更しない。
 
+### REQ-cli-091: プレビューでも失敗は実行時と同じ終了コードにする
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-cli.md#A7
+- verification: unit
+
+merge と sync の --dry-run は、failed があれば実行時と同じく終了コード 2 を返す。
+--dry-run の sync は、書き込む予定のファイルを書き込めたファイルとして TBL-cli-007 で書き込み先の status を決める（書き込む予定と失敗があれば "partial"）。
+
 ### REQ-cli-076: サブコマンドなしの起動は使い方を示して止まる
 - kind: event_driven
 - source: docs/decision/records/2026-10-04-tui-disposition.md#A2, docs/decision/records/2026-10-04-tui-disposition.md#A19, docs/decision/records/2026-10-04-tui-disposition.md#A24
@@ -71,4 +79,9 @@ Scenario: 試算せずに実行する
 Given ローカルとリモートの通常ファイルの内容が異なり読み取り・確認・バックアップが成功し競合や外部更新はない
 When 書き込み元と先を明示し dry-run なしで CLI merge を実行する
 Then 書き込み先の内容は更新される
+@id=EX-cli-091 @about=REQ-cli-091 @source=docs/decision/records/2026-10-05-quality-cli.md#A7
+Scenario: dry-run の sync で予定と失敗がある
+Given 書き込み先に、書き込む予定のファイルと、中身を読めず比べられないファイルがある
+When --dry-run で sync を実行する
+Then その書き込み先の status は "partial" になり終了コード 2 を返す
 ```

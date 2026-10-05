@@ -6,10 +6,10 @@ SSH 接続が途中で切れた場合に、読み取りを再開する範囲と�
 
 ### REQ-ssh-003: 読み取りだけ一度再試行する
 - kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3
 - verification: unit
 
-SSH の読み取り中に接続が切れたとき、再接続してその読み取りを一度だけ試し、再び失敗したら失敗を報告する。
+SSH の読み取りだけのリモート操作（ファイルの読み込み、ツリーの走査、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で接続が切れたとき、再接続してその操作を一度だけ試し、再び失敗したら失敗を報告する。
 
 ### REQ-ssh-004: 結果不明の書き込みを自動反復しない
 - kind: prohibition
@@ -44,4 +44,10 @@ Scenario: 読み取り中だけの切断
 Given SSH の読み取り中に接続が切れる
 When ファイルを読み直す
 Then 読み取りだけが再試行される
+
+@id=EX-ssh-019 @about=REQ-ssh-003 @source=docs/decision/records/2026-10-05-quality-ssh.md#A3
+Scenario: 走査の途中で一度だけ切れる
+Given SSH のツリーの走査の途中で一度だけ接続が切れる
+When status を実行する
+Then 再接続して走査を一度やり直し、やり直した走査の一覧で比べる
 ```

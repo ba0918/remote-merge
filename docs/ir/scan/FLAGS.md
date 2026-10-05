@@ -2,47 +2,12 @@
 
 ## Flags
 
-### FLAG-scan-001: エージェントの経路のディレクトリ symlink
-- kind: contradiction
-- related: REQ-scan-002
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A3
-
-REQ-scan-002 は CLI status がディレクトリを指す symlink の配下も再帰列挙するとし、ローカルと SSH の走査はそのとおり配下を列挙するが、エージェントの走査はディレクトリを指す symlink を辿らず、リンク自体だけを一覧に載せる（走査関数の呼び出しで確認。エージェントを有効にした status は未実行）。
-
 ### FLAG-scan-002: merge と sync で途中のディレクトリ symlink を辿る
 - kind: contradiction
 - related: REQ-scan-002
 - source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A4
 
 旧総合仕様のシンボリックリンクの扱いの節はリンク先を辿らないとし、旧個別仕様 symlink-merge の 3.7 は途中のディレクトリ symlink の配下をツリーの取得で列挙しないとするが、merge と sync のツリーの取得は status と同じ走査を使うため、ローカルと SSH の経路では途中のディレクトリ symlink を辿って配下を列挙する（実装を読んで分かったことで未実行）。
-
-### FLAG-scan-003: パスのパターンに当たったディレクトリの配下
-- kind: ambiguity
-- related: REQ-config-021, REQ-config-022
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A5
-
-"/" を含む exclude のパターンがディレクトリに当たったとき、ローカルとエージェントの走査は配下も一覧から除くが、SSH の走査は配下を一覧に残す（"a/b" と "a/*" で確認）。名前のパターンは REQ-config-021 がディレクトリに当たれば配下も除くとするが、REQ-config-022 はパス全体に当たるときそのパスを除くとだけ述べ、配下を除くかが読み分けられない。
-
-### FLAG-scan-004: include に書いたファイル
-- kind: contradiction
-- related: REQ-config-023
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A6
-
-REQ-config-023 は include に書いた相対パスそのものを対象にするとするが、include にファイルのパスを書くと、どの経路の走査もそのファイルを一覧に載せない。
-
-### FLAG-scan-005: 存在しない include
-- kind: gap
-- related: REQ-config-004
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A7
-
-存在しないパスを include に書いたとき、ローカルとエージェントの走査は "Include path does not exist, skipping: 値" で始まる警告を出してそのパスを飛ばし、残りを走査するが、SSH の走査は "SSH command execution failed:" に find のコマンドが続くエラーで走査全体が失敗し、status は終了コード 2 を返す。旧資料に記述がなく、SSH の失敗を確かめるテストはない。
-
-### FLAG-scan-006: include に書いたディレクトリ symlink
-- kind: gap
-- related: REQ-config-023
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A8
-
-include にディレクトリを指す symlink を書いたとき、ローカルとエージェントの走査はリンク先の実パスを走査し、root_dir の中なら実パスの名前で配下を載せ、root_dir の外なら警告を出して飛ばす（ローカルは "Include path escapes root directory: 値 -> 実パス"）。SSH の走査はリンクの名前の下に配下を載せ、リンク先が root_dir の外でも辿る。旧資料に記述がない。
 
 ### FLAG-scan-007: ディレクトリを指定した merge と sync の絞り込み
 - kind: contradiction
@@ -57,24 +22,3 @@ REQ-config-003 と REQ-config-004 は exclude と include が merge と sync の
 - source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A12
 
 SSH の経路の走査は find の出力を行ごとに読むため、名前に改行を含むファイルがあると、改行の前までを名前とするファイルを一覧に載せると実装からは読める（未実行）。旧資料に記述がなく、確かめるテストもない。
-
-### FLAG-scan-010: 件数の上限の数え方
-- kind: contradiction
-- related: REQ-scan-003
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A3
-
-REQ-scan-003 はファイル件数の上限とするが、ローカルと SSH の走査はディレクトリも一件として数え（ファイル 2 件とディレクトリ 1 件で上限 2 のとき打ち切る）、エージェントの走査はファイルと symlink だけを数えるため、同じツリーでも経路によって打ち切られる件数が違う。
-
-### FLAG-scan-012: find のタイムアウト
-- kind: contradiction
-- related: REQ-scan-004
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A5
-
-旧総合仕様は find の実行時間の上限を 30 秒とするが、実装の SSH の経路の走査は 120 秒で固定し、設定では変えられず、超えたときは接続のタイムアウトと読める "SSH connection timed out (120s): サーバ名" のエラーを出す（実装を読んで分かったことで未実行）。
-
-### FLAG-scan-013: 読めないディレクトリ
-- kind: gap
-- related: REQ-scan-005
-- source: docs/decision/records/2026-09-29-adopt-scan-limits.md#A6
-
-走査の途中に読めないディレクトリがあるとき、ローカルは "Directory scan incomplete:"、SSH は "SSH command execution failed:" で始まるエラーで止まり status は終了コード 2 を返すが、エージェントはそのディレクトリを飛ばし、欠けた一覧を完全な一覧として返す。REQ-scan-005 は件数の上限とリンクの循環だけを挙げ、読めないディレクトリについて述べない。

@@ -27,10 +27,18 @@
 
 ### REQ-backup-021: 書き込み先ごとにセッションを区別する
 - kind: invariant
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A20
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A20, docs/decision/records/2026-10-05-quality-backup.md#A1
 - verification: unit
 
-バックアップセッションは書き込み先ごとに区別して保存し一覧する。リモートの書き込み先はホスト名・ポート・root_dir で決まりログインユーザー名を含めずホストの別名は別の書き込み先とし、ローカルは設定読み込み時のカレントディレクトリ基準の root_dir の絶対パスで symlink を辿らずに決まる。rollback --target は今の設定でその名前が指す書き込み先のセッションだけを扱う。
+バックアップセッションは書き込み先ごとに区別して保存し一覧する。リモートの書き込み先はホスト名・ポート・root_dir で決まりログインユーザー名を含めずホストの別名は別の書き込み先とし、ローカルは root_dir の絶対パスで決まり、相対パスの root_dir は config/loading.md の REQ-config-040 のとおりその root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。リモートとローカルのどちらの root_dir も、symlink を辿らずに字面で "." の要素と末尾の "/" を除き、続いた "/" を一つにまとめたものを書き込み先の識別に使う（"/srv/app/" と "/srv/app" は同じ書き込み先）。rollback --target は今の設定でその名前が指す書き込み先のセッションだけを扱う。
+
+### REQ-backup-043: 以前の識別で保存したセッションも探す
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-backup.md#A1, docs/decision/records/2026-10-05-quality-backup.md#A5
+- verification: unit
+
+今の書き込み先のセッションを一覧し rollback で扱うとき、REQ-backup-021 で決めた書き込み先に加えて、正規化する前の root_dir の字面で決まる書き込み先と、ローカルなら設定読み込み時のカレントディレクトリを基準にした root_dir の絶対パスで決まる書き込み先に保存されたセッションも探し、今の書き込み先のセッションに含める。
+以前の識別で探す処理には期限を設けない。以前の識別で保存したセッションも今の書き込み先のセッションとして REQ-backup-009 の期限切れの自動整理の対象にする。
 
 ### REQ-backup-022: セッション ID の形式と順序
 - kind: invariant
@@ -111,4 +119,22 @@ Scenario: 現在の設定にあるサーバの履歴
 Given 集約先に現在設定されているサーバの期限切れ履歴がある
 When 期限切れバックアップを自動整理する
 Then そのサーバの期限切れ履歴が整理対象になる
+
+@id=EX-backup-023 @about=REQ-backup-021,REQ-backup-043 @source=docs/decision/records/2026-10-05-quality-backup.md#A1
+Scenario: root_dir の末尾の "/" を書き換えた後に一覧する
+Given root_dir を "/srv/app/" としていた設定で merge したセッションがある
+When 設定の root_dir を "/srv/app" に書き換えて rollback --list を実行する
+Then そのセッションが今の書き込み先のセッションとして一覧に出る
+
+@id=EX-backup-024 @about=REQ-backup-043 @source=docs/decision/records/2026-10-05-quality-backup.md#A1
+Scenario: 相対の root_dir の基準が変わる前のセッション
+Given 相対パスのローカルの root_dir を、設定読み込み時のカレントディレクトリを基準にしていた版で merge したセッションがある
+When 同じ設定で同じカレントディレクトリから rollback --list を実行する
+Then そのセッションが一覧に出る
+
+@id=EX-backup-028 @about=REQ-backup-043 @source=docs/decision/records/2026-10-05-quality-backup.md#A5,docs/decision/records/2026-10-05-quality-backup.md#A1
+Scenario: 以前の識別で保存した期限切れのセッションを整理する
+Given 今の設定の書き込み先について、root_dir を "/srv/app/" としていたときに保存した期限切れのセッションがあり、今の設定の root_dir は "/srv/app" である
+When 期限切れバックアップを自動整理する
+Then そのセッションは整理の対象になる
 ```

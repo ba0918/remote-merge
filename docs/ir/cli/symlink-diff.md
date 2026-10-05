@@ -1,19 +1,19 @@
 # symlink のリンク文字列と参照先内容の差分
 
-CLI diff に symlink を明示指定したとき、リンク自体とその参照先を区別して比較する。
+CLI diff が symlink を比べるとき、明示指定したときもディレクトリの展開やパスを指定しない diff で比べるときも、リンク自体とその参照先を区別して比較する。
 
 ## Requirements
 
 ### REQ-cli-020: symlink のパスと参照先を一貫して比較する
 - kind: state_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A1, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A16, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A17, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A28, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A1, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A16, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A17, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A28, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4
 - verification: unit
 
 CLI diff はファイル・ディレクトリ、左右の種類や存在の組み合わせによらず、symlink 自体のリンク文字列を示して参照先を辿り、解決後の種類と内容の差を示す。リンク文字列・種類・内容のいずれかが異なれば差分あり、すべて同じなら差分なしとする。片側だけに項目がある場合も読める内容を片側の差として示し、参照先がバイナリなら通常のバイナリ diff と同じ SHA-256 ハッシュを用いる。
 
 ### REQ-cli-021: ディレクトリ symlink の配下を比較する
 - kind: state_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A7, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A7, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4
 - verification: unit
 
 ディレクトリへの symlink を含む比較は左右の種類や存在の組み合わせによらず、読めるディレクトリの配下を入口からの子パスで表示する。入れ子の symlink も同じ規則で扱い、指定した比較全体で循環を検出して既存の最大走査件数を一回だけ適用する。循環または上限超過でも読めた差分は残し、不完全な比較をエラーとして報告する。

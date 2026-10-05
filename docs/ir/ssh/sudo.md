@@ -18,6 +18,21 @@
 
 sudo=true を指定したサーバで非対話の sudo が使えないときは接続・書き込みを止め、通常権限の SSH 経路には切り替えない。
 
+### REQ-ssh-010: sudo の削除・権限の変更・子の一覧をエージェントで行う
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-ssh.md#A1
+- verification: unit
+- deferred: docs/decision/records/2026-10-05-quality-ssh.md#A2
+
+sudo=true を指定したサーバへの削除・権限の変更・子の一覧は、エージェントの通信の操作 Remove・Chmod・ListDir で行う。
+
+### REQ-ssh-011: sudo のサーバで SSH 側に落ちる操作をエラーにする
+- kind: prohibition
+- source: docs/decision/records/2026-10-05-quality-ssh.md#A2
+- verification: unit
+
+sudo=true を指定したサーバで、エージェントに操作がなく SSH 側の実装で行うことになる削除・権限の変更・子の一覧は、通常権限の SSH 経路で行わず、明示的なエラーにする。
+
 ## Examples
 
 ```gherkin
@@ -44,4 +59,10 @@ Scenario: 非対話の権限昇格が利用できる
 Given サーバに sudo=true を指定し非対話の sudo が使える
 When そのサーバへマージする
 Then 指定された権限で書き込みが行われる
+
+@id=EX-ssh-020 @about=REQ-ssh-011 @source=docs/decision/records/2026-10-05-quality-ssh.md#A2
+Scenario: sudo のサーバで書き込み先だけのファイルを削除する
+Given サーバに sudo=true を指定し、エージェントに削除の操作がない
+When --delete で同期する
+Then 通常権限の SSH で削除せず、削除できないことがエラーとして報告される
 ```

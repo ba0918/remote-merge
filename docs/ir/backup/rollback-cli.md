@@ -48,10 +48,17 @@ rollback --list はセッションを新しい順に並べ、テキストでは�
 
 ### REQ-backup-041: 記録が欠けたセッションは無いものとして扱う
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A8
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A8, docs/decision/records/2026-10-05-quality-backup.md#A3
 - verification: unit
 
-集約先の中身が一部消されて記録が欠けたセッションは一覧に出さず一覧のコマンドはエラーにせず、そのセッションを指定した rollback は何も書き込まずセッションなしのエラーにする。
+集約先の中身が一部消されて記録が見つからないセッションは一覧に出さず一覧のコマンドはエラーにせず、そのセッションを指定した rollback は何も書き込まずセッションなしのエラーにする。
+
+### REQ-backup-044: 読めない集約先の中身はエラーで知らせる
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-quality-backup.md#A3
+- verification: unit
+
+rollback は --list を含めて、集約先の中身が見つからない以外の理由で読み込めないか解析できないとき、そのセッションを飛ばして続けずに、読めなかったパスと理由を示すエラーで止まる。
 
 ### REQ-backup-042: 利用者向け文書を挙動と一致させる
 - kind: invariant
@@ -60,3 +67,13 @@ rollback --list はセッションを新しい順に並べ、テキストでは�
 - how_to_verify: "skills/remote-merge/SKILL.md" と "skills/remote-merge/references/json-schemas.md" のバックアップと rollback の説明を読み、集約先の場所、backup の形式、rollback の一覧と結果の項目がこの文書と同じ directory の要件に一致することを人が確かめる。
 
 利用者向けスキル文書のバックアップ構造・backup・rollback の説明は、集約先の場所とバックアップ・rollback の挙動に一致する。
+
+## Examples
+
+```gherkin
+@id=EX-backup-025 @about=REQ-backup-044 @source=docs/decision/records/2026-10-05-quality-backup.md#A3
+Scenario: セッションの記録が壊れている
+Given 集約先の一つのセッションの記録が解析できない中身に書き換えられている
+When rollback --list を実行する
+Then そのセッションを黙って除いた一覧は出ず、記録のパスと理由を示すエラーで止まる
+```

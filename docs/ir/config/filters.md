@@ -27,10 +27,17 @@ include 指定があるとき、ツリー・status・merge・sync は一致す�
 
 ### REQ-config-022: パスのパターンはパス全体に当てる
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A2
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A2, docs/decision/records/2026-10-05-quality-config.md#A7
 - verification: unit
 
-"/" を含む exclude のパターンは、root_dir からの相対パス全体に glob で当たるときそのパスを除外する。
+"/" を含む exclude のパターンは、root_dir からの相対パス全体に glob で当たるときそのパスを除外し、当たったパスがディレクトリならその下のパスも全て除外する。ローカル・SSH・エージェントのどの経路の走査も同じに除外する。
+
+### REQ-config-038: "../" を含む exclude のパターンは読み込み時に捨てる
+- kind: event_driven
+- source: docs/decision/records/2026-10-05-quality-config.md#A8
+- verification: unit
+
+"../" を含む exclude のパターンは、設定の読み込み時に "Skipping suspicious exclude pattern containing '../': パターン" の警告をパターンごとに一度だけ標準エラーに出して捨て、走査のときには当てず警告も出さない。
 
 ### REQ-config-023: include は区切りの単位の前方一致
 - kind: state_driven
@@ -93,4 +100,10 @@ Scenario: include を指定しない
 Given include に指定がない
 When ファイル一覧を取得する
 Then include による絞り込みは行われない
+
+@id=EX-config-009 @about=REQ-config-022 @source=docs/decision/records/2026-10-05-quality-config.md#A7
+Scenario: パスのパターンがディレクトリに当たる
+Given exclude に "a/b" があり、ディレクトリ "a/b" の下に "a/b/c.txt" がある
+When SSH の側を含む status を実行する
+Then "a/b/c.txt" はどの経路でも一覧に含まれない
 ```

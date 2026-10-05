@@ -1,6 +1,6 @@
 # ディレクトリを指定する CLI diff
 
-末尾スラッシュの有無によらず、既存ディレクトリ配下の差分を表示する。include の外のディレクトリを指定したときの扱いも定める。
+末尾スラッシュの有無によらず、既存ディレクトリ配下の差分を表示する。include の外のディレクトリと、片側にだけあり比べるファイルのないディレクトリを指定したときの扱いも定める。
 
 ## Requirements
 
@@ -17,6 +17,14 @@
 - verification: unit
 
 include 指定があり、include に一致しないディレクトリが左右の両方にあって、そのディレクトリを CLI diff に指定したとき、比べる経路の組と指定したパスの数によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
+
+### REQ-cli-087: 片側にだけあり比べるファイルのないディレクトリは差分なしとする
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-cli.md#A10, docs/decision/records/2026-09-29-adopt-diff-output.md#A7
+- verification: unit
+
+片側にだけあり、配下を include と exclude で絞ると比べるファイルがないディレクトリを CLI diff に指定したとき、"not found on either side" の警告もエラーも出さず、比べるファイル 0 件・差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
+片側にだけあるディレクトリを展開した子について、ない側を空とみなす警告は走査方式によらず出さない。
 
 ## Examples
 
@@ -38,4 +46,9 @@ Scenario: ディレクトリへの symlink を二通りに指定する
 Given shared は左右で異なるリンク文字列を持つディレクトリ symlink である
 When CLI diff で shared と shared/ をそれぞれ指定する
 Then 両方で同じリンク文字列の差と配下の差分が示される
+@id=EX-cli-071 @about=REQ-cli-087 @source=docs/decision/records/2026-10-05-quality-cli.md#A10
+Scenario: 片側にだけある中身の空なディレクトリを指定する
+Given 左にだけ中身の空なディレクトリ "empty" がある
+When CLI diff で "empty" と "empty/" をそれぞれ指定する
+Then どちらも "not found on either side" を出さず差分なしで終了コード 0 を返す
 ```

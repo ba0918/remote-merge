@@ -11,6 +11,13 @@ CLI diff がどのファイルを比べ、差分をテキストと JSON でど�
 
 diff はパスを指定しないときと、指定したパスに "."・"./"・空の値・"/" のどれかがあるときは root_dir 全体、ファイルのパスを複数指定したときはそれぞれのファイル、ディレクトリのパスを指定したときは末尾の "/" の有無によらずその配下を比べる。
 
+### REQ-cli-078: 絶対パスと ".." の引数でコマンド全体を止める
+- kind: prohibition
+- source: docs/decision/records/2026-10-05-quality-cli.md#A1
+- verification: unit
+
+diff は、パスの引数に絶対パスか ".." の要素を含むパスがあるとき、ローカル・SSH・エージェントのどの経路でも、走査と読み込みの前にコマンド全体を絶対パスなら "absolute subpath not allowed: パス"、".." なら "path traversal not allowed: パス" のエラーで止め、終了コード 2 を返す。REQ-cli-052 が root_dir 全体の指定とする "/" はこのエラーにしない。
+
 ### REQ-cli-053: JSON の形
 - kind: ubiquitous
 - source: docs/decision/records/2026-09-29-adopt-diff-output.md#A2, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A5
@@ -59,3 +66,26 @@ diff のテキストは、ファイルごとに "--- a/パス (左のラベル)"
 - verification: unit
 
 片側にだけある中身のあるテキストファイルの diff は、ない側を空として全ての行を削除または追加として出す。
+
+### REQ-cli-086: 片側にだけある 0 バイトのファイルは差分ありとする
+- kind: state_driven
+- source: docs/decision/records/2026-10-05-quality-cli.md#A10
+- verification: unit
+
+片側にだけある 0 バイトのファイルの diff は、両側を空として差分なしとせず、片側だけの項目として出して差分ありと数え、終了コード 1 を返す。
+
+## Examples
+
+```gherkin
+@id=EX-cli-069 @about=REQ-cli-078 @source=docs/decision/records/2026-10-05-quality-cli.md#A1
+Scenario: 絶対パスを含む引数で diff する
+Given diff の引数に "a.txt" と "/etc/passwd" がある
+When diff を実行する
+Then 比較の結果を出さずに "absolute subpath not allowed: /etc/passwd" のエラーで止まり終了コード 2 を返す
+
+@id=EX-cli-070 @about=REQ-cli-086 @source=docs/decision/records/2026-10-05-quality-cli.md#A10
+Scenario: 左にだけ空のファイルがある
+Given 左にだけ 0 バイトのファイル "empty.txt" がある
+When "empty.txt" を指定して diff を実行する
+Then 片側だけの項目が出て差分ありとされ終了コード 1 を返す
+```
