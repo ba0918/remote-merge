@@ -11,6 +11,9 @@ use super::target_io::TargetPath;
 ///   検索できるディレクトリでなければ、PATH の lstat は ENOENT ではないので失敗する
 /// - `canonical_is_missing PATH`: PATH の実パスへの解決が ENOENT で失敗するときだけ成功する。
 ///   symlink を辿る回数はカーネルと同じ 40 回までで、超えれば ELOOP として失敗する
+/// - `drop_trailing_dots PATH`: PATH の末尾の "/" と "/." を除いた形（`d`）。存在しない部分の "." は
+///   ローカルの解決と同じく答えのパスに残さないため、末尾の "." はここで、途中の "." は
+///   `resolve_existing_prefix` が存在しない部分を集めるときに除く。存在するかの判定には元のパスを使う
 /// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）
 /// - `name_fits DIR NAME`: DIR の下で NAME が NAME_MAX に収まるか。カーネルは存在するディレクトリの
 ///   すぐ下の要素が長すぎると ENOENT ではなく ENAMETOOLONG で失敗するので、その要素だけを測る。
@@ -27,11 +30,11 @@ use super::target_io::TargetPath;
 /// 試験 SSH サーバは先頭の `resolve_existing_prefix()` と、後に続く `; p=<パス>; if [` で
 /// この検査を見分けるため、その並びを崩さない。
 const INSPECT_PATH_FUNCTIONS: &str = r#"resolve_existing_prefix() {
-  q=$1; suffix=; base_of "$q"; first=$b; parent_of "$q"; path_fits "$s" || return 1;
+  drop_trailing_dots "$1"; q=$d; suffix=; base_of "$q"; first=$b; parent_of "$q"; path_fits "$s" || return 1;
   while :; do
     parent_of "$q"; [ "$s" != "$q" ] || return 1; q=$s;
     if [ -e "$q" ] || [ -L "$q" ]; then break; fi;
-    base_of "$q"; [ "$b" != .. ] || return 1; suffix=/$b$suffix; first=$b;
+    base_of "$q"; [ "$b" != .. ] || return 1; [ "$b" = . ] || suffix=/$b$suffix; first=$b;
   done;
   [ -d "$q" ] && [ -x "$q" ] && name_fits "$q" "$first" || return 1;
   real_of "$q" || return 1;
@@ -42,6 +45,10 @@ link_of() {
 };
 real_of() {
   r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
+};
+drop_trailing_dots() {
+  d=$1;
+  while :; do case $d in ?*/.) d=${d%/.} ;; ?*/) d=${d%/} ;; *) break ;; esac; done;
 };
 path_fits() {
   LC_ALL=C; m=$(getconf PATH_MAX / 2>/dev/null) || m=4096;
@@ -86,7 +93,7 @@ const INSPECT_PATH_BODY: &str = r#"if [ -L "$p" ]; then
   if [ -e "$c" ]; then real_of "$c" || exit 1; resolved=$r;
   else
     canonical_is_missing "$c" || exit 1;
-    base_of "$c"; case $b in ''|..) exit 1 ;; esac; name=$b;
+    drop_trailing_dots "$c"; c=$d; base_of "$c"; case $b in ''|..) exit 1 ;; esac; name=$b;
     resolve_existing_prefix "$c" || exit 1;
     case $r in /) resolved=/$name ;; *) resolved=$r/$name ;; esac;
   fi;
@@ -240,6 +247,34 @@ mod tests {
         rel
     }
 
+    /// 二つの答えが同じ種類で、どのパスもバイト列まで同じか。`PathBuf` の `==` は要素ごとに
+    /// 比べて "." の要素を無視するので、パスの文字列の違いを見逃さないよう使わない
+    fn same_bytes(left: &TargetPath, right: &TargetPath) -> bool {
+        match (left, right) {
+            (TargetPath::File { real_path: left }, TargetPath::File { real_path: right }) => {
+                left.as_os_str() == right.as_os_str()
+            }
+            (
+                TargetPath::Symlink {
+                    link_target: left_target,
+                    real_path: left,
+                },
+                TargetPath::Symlink {
+                    link_target: right_target,
+                    real_path: right,
+                },
+            ) => {
+                left_target.as_os_str() == right_target.as_os_str()
+                    && left.as_os_str() == right.as_os_str()
+            }
+            (
+                TargetPath::Missing { real_parent: left },
+                TargetPath::Missing { real_parent: right },
+            ) => left.as_os_str() == right.as_os_str(),
+            _ => false,
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn script_and_local_inspection_agree_on_every_path_state() {
@@ -275,6 +310,7 @@ mod tests {
         symlink("missing/../file.txt", root.join("dotdot_missing")).unwrap();
         symlink("dir/../missing", root.join("dotdot_existing")).unwrap();
         symlink("file.txt/.", root.join("dot_under_file")).unwrap();
+        symlink("missing/././sub/./.", root.join("dot_inside_twice")).unwrap();
         symlink(&long, root.join("long_link")).unwrap();
         symlink("long_link", root.join("long_chain")).unwrap();
         symlink(format!("missing/{long}"), root.join("long_below_missing")).unwrap();
@@ -308,6 +344,10 @@ mod tests {
             "dotdot_missing",
             "dotdot_existing",
             "dot_under_file",
+            "dot_inside_twice",
+            "nodir/./sub/missing.txt",
+            "nodir/.",
+            "dir/./missing.txt",
             "long_link",
             "long_chain",
             "long_below_missing",
@@ -338,7 +378,7 @@ mod tests {
                 let local = remote_merge_engine::local_io::inspect_local_path(root, rel);
                 let script = inspect_with_script(&root.join(rel));
                 match (&local, &script) {
-                    (Ok(local), Ok(script)) if local == script => None,
+                    (Ok(local), Ok(script)) if same_bytes(local, script) => None,
                     (Err(_), Err(_)) => None,
                     _ => Some(format!("{rel}: local {local:?}, script {script:?}")),
                 }
