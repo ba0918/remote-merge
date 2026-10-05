@@ -293,7 +293,7 @@ impl CoreRuntime {
 
     /// SSH exec 経由で Agent プロセスを起動し、AgentClient を返す。
     ///
-    /// 1. バージョンチェック → 不一致または未配置なら自動デプロイ
+    /// 1. 配置先のディレクトリの検査 → バージョンチェック → 不一致または未配置なら自動デプロイ
     /// 2. SSH exec チャネルで Agent プロセスを起動
     /// 3. SshAgentTransport でブリッジスレッドを起動し、UnixStream ペアを取得
     /// 4. AgentClient::connect でハンドシェイク
@@ -322,6 +322,18 @@ impl CoreRuntime {
             server_name,
             remote_path.display()
         );
+
+        // 配置先の中のもの（版の確認を含む）を実行する前に、他人が差し替えられない場所かを確かめる
+        let dir_check = deploy::build_deploy_dir_check_command(&remote_path, sudo);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let dir_check_output = self.rt.block_on(ssh_client.exec(&dir_check))?;
+        if !deploy::is_deploy_dir_safe(&dir_check_output) {
+            anyhow::bail!(
+                "Agent deploy directory is unsafe on {}: {} must be a directory owned by the login user (root with sudo) and not writable by group or others",
+                server_name,
+                remote_path.parent().unwrap_or(&remote_path).display()
+            );
+        }
 
         // uname + version check を1回の SSH exec で実行
         let uname_cmd = deploy::detect_remote_target_command();

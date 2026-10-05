@@ -69,6 +69,11 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     let agent_dir = home.path().join("agent");
     let deployed = agent_dir.join("remote-merge-testuser/remote-merge");
     fs::create_dir_all(deployed.parent().unwrap()).unwrap();
+    fs::set_permissions(
+        deployed.parent().unwrap(),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
     let server = TestServer::filesystem_with_agent(home.path()).await;
     let config_path = home.path().join("config.toml");
@@ -97,4 +102,11 @@ async fn an_available_remote_agent_completes_comparison_and_merge() {
     let merge = run("merge");
     assert!(merge.status.success(), "{merge:?}");
     assert_eq!(fs::read(&target).unwrap(), b"local updated\n");
+    assert!(
+        server
+            .commands()
+            .iter()
+            .any(|c| c.contains(" agent --root ")),
+        "the agent was not started"
+    );
 }

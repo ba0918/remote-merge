@@ -1,3 +1,4 @@
+mod deploy_dir;
 pub mod remote_target;
 mod resolve;
 mod sudo;
@@ -72,6 +73,7 @@ pub struct DeployCommands {
 
 // --- re-exports ---
 
+pub use deploy_dir::{build_deploy_dir_check_command, is_deploy_dir_safe};
 pub use remote_target::{
     current_target, detect_remote_target_command, parse_remote_target, parse_uname_and_version,
     TARGET_DARWIN_AARCH64, TARGET_DARWIN_X86_64, TARGET_LINUX_AARCH64_MUSL,

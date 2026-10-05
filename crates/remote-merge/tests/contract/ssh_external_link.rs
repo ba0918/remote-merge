@@ -98,6 +98,7 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
         let agent_dir = home.path().join("agent");
         let binary = agent_dir.join("remote-merge-testuser/remote-merge");
         fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::set_permissions(binary.parent().unwrap(), fs::Permissions::from_mode(0o700)).unwrap();
         let agent_binary = if agent_available {
             symlink(env!("CARGO_BIN_EXE_remote-merge"), &binary).unwrap();
             binary.clone()
@@ -147,5 +148,14 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
         assert_eq!(fs::read_link(remote.join("linked")).unwrap(), shared);
         let backup_root = home.path().join("data/remote-merge/backups");
         assert_old_content_was_backed_up(&backup_root);
+        if agent_available {
+            assert!(
+                server
+                    .commands()
+                    .iter()
+                    .any(|c| c.contains(" agent --root ")),
+                "the agent was not started"
+            );
+        }
     }
 }
