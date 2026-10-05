@@ -27,6 +27,15 @@ pub fn check_version_command(remote_path: &Path) -> String {
     format!("{escaped} --version 2>/dev/null || echo __NOT_FOUND__")
 }
 
+/// 配置済みのバイナリの SHA-256 を取るコマンドを生成する。
+/// 計算できない場合は `__UNSUPPORTED__` を返す。
+pub fn installed_checksum_command(remote_path: &Path) -> String {
+    let escaped = shell_escape(&remote_path.to_string_lossy());
+    format!(
+        "sha256sum {escaped} 2>/dev/null || shasum -a 256 {escaped} 2>/dev/null || echo __UNSUPPORTED__"
+    )
+}
+
 /// デプロイに必要なコマンド群を生成する。
 /// 各コマンドは個別に SSH exec で実行されることを想定。
 /// chmod / verify / checksum は `.tmp` パスに対して実行し、

@@ -133,3 +133,22 @@ async fn a_missing_deploy_directory_is_created_owner_only() {
         .mode();
     assert_eq!(mode & 0o777, 0o700);
 }
+
+// @kotowari[REQ-ssh-014, EX-ssh-023]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_planted_binary_that_only_matches_the_version_is_not_run_as_the_agent() {
+    let fixture = DeployFixture::new().await;
+    fixture.plant_binary(0o700, Some("agent"));
+    let local_agent = fixture.home.path().join("local-agent");
+    fs::write(&local_agent, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&local_agent, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let merge = fixture.merge(Some(&local_agent));
+
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
+    assert!(
+        !fixture.marker().exists(),
+        "a binary differing from the local agent was run as the agent"
+    );
+}

@@ -70,3 +70,69 @@ pub fn sha256_of_bytes(data: &[u8]) -> String {
 pub fn is_debug_binary(size_bytes: u64) -> bool {
     size_bytes > 50 * 1024 * 1024
 }
+
+/// 版が一致した配置済みのバイナリをどう扱うか
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstalledBinary {
+    /// そのまま Agent として実行する
+    Run,
+    /// 実行せず、版が違うときと同じ配置の経路で置き直す
+    Redeploy,
+}
+
+/// 配置済みのバイナリのハッシュの応答を、ローカルの Agent のバイナリのハッシュと照合する。
+///
+/// 版の出力は偽装できるため、ローカルのバイナリを解決できたときは中身の一致まで求める。
+/// リモートでハッシュを計算できない（`__UNSUPPORTED__` など）ときも一致とはみなさない。
+/// ローカルのバイナリを解決できない（`local_hash` が None）ときは照合できないので実行する。
+pub fn judge_installed_binary(
+    local_hash: Option<&str>,
+    remote_checksum_output: &str,
+) -> InstalledBinary {
+    let Some(local_hash) = local_hash else {
+        return InstalledBinary::Run;
+    };
+    match parse_checksum_output(remote_checksum_output) {
+        Some(remote_hash) if verify_checksum(local_hash, &remote_hash) => InstalledBinary::Run,
+        _ => InstalledBinary::Redeploy,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LOCAL: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const OTHER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    #[test]
+    fn an_installed_binary_with_the_local_hash_is_run() {
+        let output = format!("{LOCAL}  /var/tmp/remote-merge-user/remote-merge\n");
+        assert_eq!(
+            judge_installed_binary(Some(LOCAL), &output),
+            InstalledBinary::Run
+        );
+    }
+
+    #[test]
+    fn an_installed_binary_with_another_hash_is_redeployed() {
+        let output = format!("{OTHER}  /var/tmp/remote-merge-user/remote-merge\n");
+        assert_eq!(
+            judge_installed_binary(Some(LOCAL), &output),
+            InstalledBinary::Redeploy
+        );
+    }
+
+    #[test]
+    fn an_installed_binary_whose_hash_cannot_be_computed_is_redeployed() {
+        assert_eq!(
+            judge_installed_binary(Some(LOCAL), "__UNSUPPORTED__\n"),
+            InstalledBinary::Redeploy
+        );
+    }
+
+    #[test]
+    fn without_a_local_binary_the_installed_binary_is_run_unchecked() {
+        assert_eq!(judge_installed_binary(None, ""), InstalledBinary::Run);
+    }
+}

@@ -391,8 +391,15 @@ impl CoreRuntime {
             }
         }
 
-        // デプロイが必要な場合
-        if version_check != VersionCheck::Match {
+        // 版が一致しても、ローカルのバイナリと中身が違えば実行せずに置き直す
+        let needs_deploy = match version_check {
+            VersionCheck::Match => {
+                self.installed_binary_check(server_name, &remote_path, remote_target)?
+                    == deploy::InstalledBinary::Redeploy
+            }
+            VersionCheck::Mismatch { .. } | VersionCheck::NotFound => true,
+        };
+        if needs_deploy {
             self.deploy_agent_binary(server_name, &remote_path, sudo, remote_target)?;
         }
 
@@ -433,6 +440,41 @@ impl CoreRuntime {
         self.transport_guards.insert(server_name.to_string(), guard);
 
         Ok(client)
+    }
+
+    /// 版が一致した配置済みのバイナリを、ローカルの Agent のバイナリと SHA-256 で照合する。
+    ///
+    /// ローカルのバイナリを解決できないときは照合できないので、配置先の検査を通ったことだけを
+    /// 根拠に実行する（利用者が手で置いた Agent を使えるようにするため）。
+    #[cfg(unix)]
+    fn installed_binary_check(
+        &mut self,
+        server_name: &str,
+        remote_path: &std::path::Path,
+        remote_target: &str,
+    ) -> anyhow::Result<deploy::InstalledBinary> {
+        let local_hash = deploy::resolve_agent_binary(remote_target)
+            .ok()
+            .and_then(|resolved| std::fs::read(resolved.path).ok())
+            .map(|bytes| deploy::sha256_of_bytes(&bytes));
+        let Some(local_hash) = local_hash else {
+            tracing::info!(
+                "Local agent binary unavailable; running the installed agent unchecked: server={}",
+                server_name
+            );
+            return Ok(deploy::judge_installed_binary(None, ""));
+        };
+        let checksum_cmd = deploy::installed_checksum_command(remote_path);
+        let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
+        let output = self.rt.block_on(ssh_client.exec(&checksum_cmd))?;
+        let judgement = deploy::judge_installed_binary(Some(&local_hash), &output);
+        if judgement == deploy::InstalledBinary::Redeploy {
+            tracing::info!(
+                "Installed agent binary differs from the local one: server={}",
+                server_name
+            );
+        }
+        Ok(judgement)
     }
 
     /// sudo=true 時の pre-flight チェック。
