@@ -15,6 +15,10 @@ use super::target_io::TargetPath;
 /// - `name_fits DIR NAME`: DIR の下で NAME が NAME_MAX に収まるか。カーネルは存在するディレクトリの
 ///   すぐ下の要素が長すぎると ENOENT ではなく ENAMETOOLONG で失敗するので、その要素だけを測る。
 ///   長さはバイトで数えるため `LC_ALL=C` にし、`getconf` が答えなければ 255 とする
+/// - `path_fits PATH`: PATH 全体が PATH_MAX に収まるか。カーネルは終端の NUL を含めて PATH_MAX を
+///   超えるパスを ENOENT ではなく ENAMETOOLONG で拒むので、バイトで数えて PATH_MAX 未満かを見る。
+///   ローカルの検査が最初に lstat するパスと同じものを測る。存在しないパスはそのパス、
+///   ぶら下がったリンク先は `resolve_existing_prefix` が最初に辿る親。`getconf` が答えなければ 4096
 /// - 存在しない部分の ".." は、ローカルと同じく辿る先が決まらないものとして失敗にする
 /// - `link_of`・`real_of`: `readlink` と `readlink -f` の答え（`t`・`r`）。`$(...)` は末尾の改行を
 ///   すべて削るので、番兵の `x` を足してから外し、`readlink` が足した改行を一つだけ削る。
@@ -23,7 +27,7 @@ use super::target_io::TargetPath;
 /// 試験 SSH サーバは先頭の `resolve_existing_prefix()` と、後に続く `; p=<パス>; if [` で
 /// この検査を見分けるため、その並びを崩さない。
 const INSPECT_PATH_FUNCTIONS: &str = r#"resolve_existing_prefix() {
-  q=$1; suffix=; base_of "$q"; first=$b;
+  q=$1; suffix=; base_of "$q"; first=$b; parent_of "$q"; path_fits "$s" || return 1;
   while :; do
     parent_of "$q"; [ "$s" != "$q" ] || return 1; q=$s;
     if [ -e "$q" ] || [ -L "$q" ]; then break; fi;
@@ -38,6 +42,11 @@ link_of() {
 };
 real_of() {
   r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
+};
+path_fits() {
+  LC_ALL=C; m=$(getconf PATH_MAX / 2>/dev/null) || m=4096;
+  case $m in ''|*[!0-9]*) m=4096 ;; esac;
+  [ "${#1}" -lt "$m" ];
 };
 name_fits() {
   LC_ALL=C; m=$(getconf NAME_MAX "$1" 2>/dev/null) || m=255;
@@ -83,7 +92,7 @@ const INSPECT_PATH_BODY: &str = r#"if [ -L "$p" ]; then
   fi;
   printf 'symlink\000%s\000%s\000' "$target" "$resolved";
 elif [ -e "$p" ]; then real_of "$p" || exit 1; printf 'file\000%s\000' "$r";
-else resolve_existing_prefix "$p" || exit 1; printf 'missing\000%s\000' "$r";
+else path_fits "$p" && resolve_existing_prefix "$p" || exit 1; printf 'missing\000%s\000' "$r";
 fi"#;
 
 /// 一行のスクリプトにする。各行は `;` かキーワードで終わるので、改行を空白に置き換えてよい
@@ -216,6 +225,21 @@ mod tests {
         parse_inspect_path_output(&String::from_utf8(output.stdout)?)
     }
 
+    /// root につなげたパス全体が `total` バイトになる、存在しない要素だけの相対パス。
+    /// 各要素は NAME_MAX に収まる
+    #[cfg(unix)]
+    fn missing_rel_path_of_length(root: &std::path::Path, total: usize) -> String {
+        let mut remaining = total - root.as_os_str().len() - 1;
+        let mut rel = String::new();
+        while remaining > 201 {
+            rel.push_str(&"d".repeat(200));
+            rel.push('/');
+            remaining -= 201;
+        }
+        rel.push_str(&"f".repeat(remaining));
+        rel
+    }
+
     #[cfg(unix)]
     #[test]
     fn script_and_local_inspection_agree_on_every_path_state() {
@@ -294,6 +318,17 @@ mod tests {
             format!("nodir/{long}"),
         ];
         cases.extend(long_paths.iter().map(String::as_str));
+        // パス全体の長さはカーネルが NUL を含めて PATH_MAX（4096 バイト）まで受け付ける。
+        // 検査するパス全体と、ぶら下がったリンク先の親の長さを、その境界の両側で比べる
+        let mut path_max_paths = Vec::new();
+        for total in [4095, 4096] {
+            path_max_paths.push(missing_rel_path_of_length(root, total));
+            let name = format!("long_target_{total}");
+            let target = format!("{}/file.txt", missing_rel_path_of_length(root, total));
+            symlink(&target, root.join(&name)).unwrap();
+            path_max_paths.push(name);
+        }
+        cases.extend(path_max_paths.iter().map(String::as_str));
         if can_lock {
             cases.push("locked/inner.txt");
         }
