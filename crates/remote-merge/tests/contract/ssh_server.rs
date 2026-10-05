@@ -371,7 +371,7 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()) || detects_target_only,
                 "unexpected remote command: {command}"
             );
-            if command.contains("openssl base64 -d -A -out ") || command.contains("cat > ") {
+            if command.contains("openssl base64 -d") || command.contains("cat >") {
                 self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
             }

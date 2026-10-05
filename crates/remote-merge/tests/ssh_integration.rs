@@ -155,7 +155,7 @@ impl server::Handler for TestHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // write 系コマンド（cat > ... や openssl base64 -d ...）の場合、
+        // write 系コマンド（cat >... や openssl base64 -d ...）の場合、
         // EOF 受信で書き込み完了として exit_status 0 + close を返す
         let is_write_cmd = self
             .exec_commands
@@ -210,9 +210,9 @@ impl server::Handler for TestHandler {
     }
 }
 
-/// 標準入力の中身を書き込むコマンド（`cat > P` か `openssl base64 -d ... -out P` を含む）か
+/// 標準入力の中身を書き込むコマンド（`cat >` か `openssl base64 -d` を含む）か
 fn is_write_command(command: &str) -> bool {
-    command.contains("cat > ") || command.contains("openssl base64 -d")
+    command.contains("cat >") || command.contains("openssl base64 -d")
 }
 
 /// 指定ホスト:ポートの known_hosts エントリを削除する。

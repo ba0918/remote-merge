@@ -214,32 +214,45 @@ pub fn build_create_symlink_command(target: &str, remote_path: &str) -> String {
     }
 }
 
-/// 標準入力の base64 をデコードして書き込むコマンドを構築する。
+/// 標準入力の base64 をデコードして書き込むコマンドを構築する（[`replace_by_rename`]）。
 ///
 /// `-A` は改行なしの1行 base64 を受け付けるモード（Rust の base64::STANDARD.encode は改行を
 /// 挿入しないため必須。`-A` なしだと内部バッファ 80 文字で切り捨てられる）。
-///
-/// 書き込み先が既存の symlink なら何も書かずに 0 以外で終わる（[`refuse_symlink_then`]）。
 pub fn build_write_bytes_command(remote_path: &str) -> String {
-    let q = shell_escape(remote_path);
-    refuse_symlink_then(&q, &format!("openssl base64 -d -A -out {q}"))
+    replace_by_rename(remote_path, "openssl base64 -d -A")
 }
 
-/// 標準入力をそのまま書き込むコマンドを構築する。
-///
-/// 書き込み先が既存の symlink なら何も書かずに 0 以外で終わる（[`refuse_symlink_then`]）。
+/// 標準入力をそのまま書き込むコマンドを構築する（[`replace_by_rename`]）。
 pub fn build_write_text_command(remote_path: &str) -> String {
-    let q = shell_escape(remote_path);
-    refuse_symlink_then(&q, &format!("cat > {q}"))
+    replace_by_rename(remote_path, "cat")
 }
 
-/// 最後の要素が symlink なら `write` を実行せずに 0 以外で終わるコマンドにする。
+/// 標準入力を `writer` で同じディレクトリの一時ファイルに書き、書き込み先の名前に付け替えるコマンド。
 ///
-/// `cat >` も `openssl -out` もリンク先へ書くが、シェルには O_NOFOLLOW がないので、同じコマンドの
-/// 中で書き込みの直前に確かめる。拒否するときも標準入力を読み切るのは、送り手のデータ送信を
-/// 途中で切らず、終了コードで失敗を返すため。
-fn refuse_symlink_then(quoted_path: &str, write: &str) -> String {
-    format!("if [ -L {quoted_path} ]; then cat >/dev/null; exit 1; fi; {write}")
+/// シェルには O_NOFOLLOW がないので、書き込み先が symlink かの確認と書き込みの間に symlink に
+/// 替えられてもリンク先へ書かないよう、書き込み先は開かずに名前ごと置き換える。書き込み先が
+/// symlink か symlink でないディレクトリなら何も書かずに 0 以外で終わる。
+///
+/// - 一時ファイルは noclobber で作り、既存のファイルや仕掛けられた symlink を開かない。作れた後に
+///   だけ、失敗したときに消す trap を置く（他人のファイルを消さない）
+/// - `cp -p` で既存の書き込み先のモードを一時ファイルに写す（POSIX の範囲でモードを読む手段）
+/// - 付け替えは書き込み先がディレクトリでもその中に入れない GNU の `mv -T` で行い、使えないときだけ
+///   ディレクトリでないことを確かめてから `mv` で行う
+/// - 失敗で終わるときも標準入力を読み切るのは、送り手のデータ送信を途中で切らず、終了コードで
+///   失敗を返すため
+fn replace_by_rename(remote_path: &str, writer: &str) -> String {
+    let q = shell_escape(remote_path);
+    format!(
+        "p={q}; t=\"$p.remote-merge-tmp.$$\"; \
+         fail() {{ cat >/dev/null; exit 1; }}; \
+         if [ -L \"$p\" ] || [ -d \"$p\" ]; then fail; fi; \
+         (set -C; : >\"$t\") 2>/dev/null || fail; \
+         trap 'rm -f -- \"$t\"' EXIT; \
+         if [ -e \"$p\" ]; then cp -p -- \"$p\" \"$t\" || fail; fi; \
+         {writer} >\"$t\" || fail; \
+         mv -f -T -- \"$t\" \"$p\" 2>/dev/null || {{ [ ! -d \"$p\" ] && mv -f -- \"$t\" \"$p\"; }} || exit 1; \
+         trap - EXIT"
+    )
 }
 
 /// `find` コマンド文字列を生成する（再帰スキャン用）
@@ -859,5 +872,150 @@ mod tests {
 
         assert_eq!(std::fs::read(&existing).unwrap(), b"new text");
         assert_eq!(std::fs::read(&missing).unwrap(), [0x00, 0xff, b'\n']);
+    }
+
+    /// 書き込みのコマンドを `sh` で実行し、`first` を送って一時ファイルが現れるのを待ってから
+    /// `swap` で書き込み先を差し替え、`rest` を送り終えて、成功したかを返す。
+    #[cfg(unix)]
+    fn write_with_swap_midway(
+        command: &str,
+        dir: &Path,
+        first: &[u8],
+        swap: impl FnOnce(),
+        rest: &[u8],
+    ) -> bool {
+        use std::io::Write;
+        let before: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", command])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(first).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let temporary_appeared = loop {
+            let appeared = std::fs::read_dir(dir)
+                .unwrap()
+                .any(|e| !before.contains(&e.unwrap().path()));
+            if appeared || std::time::Instant::now() > deadline {
+                break appeared;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        if !temporary_appeared {
+            drop(stdin);
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("no temporary file appeared next to the destination");
+        }
+        swap();
+        stdin.write_all(rest).unwrap();
+        drop(stdin);
+        child.wait().unwrap().success()
+    }
+
+    /// 書き込み先 `dest.txt` を置いたディレクトリと、その外の `outside.txt` を置いたディレクトリ
+    #[cfg(unix)]
+    fn dest_and_outside() -> (tempfile::TempDir, tempfile::TempDir) {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("dest.txt"), "old").unwrap();
+        let outside = tempfile::TempDir::new().unwrap();
+        std::fs::write(outside.path().join("outside.txt"), "outside").unwrap();
+        (dir, outside)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_swapped_in_during_a_write_keeps_its_target_unchanged() {
+        type BuildWrite = fn(&str) -> String;
+        let cases: [(BuildWrite, &[u8], &[u8]); 2] = [
+            (build_write_bytes_command, b"bmV3", b"\n"),
+            (build_write_text_command, b"ne", b"w"),
+        ];
+        for (build, first, rest) in cases {
+            let (dir, outside) = dest_and_outside();
+            let dest = dir.path().join("dest.txt");
+            let outside_file = outside.path().join("outside.txt");
+
+            write_with_swap_midway(
+                &build(dest.to_str().unwrap()),
+                dir.path(),
+                first,
+                || {
+                    std::fs::remove_file(&dest).unwrap();
+                    std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+                },
+                rest,
+            );
+
+            assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "outside");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_leaves_no_temporary_file() {
+        let (dir, _outside) = dest_and_outside();
+        let dest = dir.path().join("dest.txt");
+
+        let written = write_with_swap_midway(
+            &build_write_text_command(dest.to_str().unwrap()),
+            dir.path(),
+            b"new",
+            || {
+                std::fs::remove_file(&dest).unwrap();
+                std::fs::create_dir(&dest).unwrap();
+            },
+            b"",
+        );
+
+        assert!(!written);
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["dest.txt"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_keeps_the_mode_of_the_existing_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let dest = dir.path().join("run.sh");
+        std::fs::write(&dest, "old").unwrap();
+        std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o751)).unwrap();
+
+        assert!(sh_with_input_succeeds(
+            &build_write_text_command(dest.to_str().unwrap()),
+            b"new"
+        ));
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new");
+        let mode = std::fs::metadata(&dest).unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o751);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_onto_a_directory_fails_without_change() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dest = dir.path().join("folder");
+        std::fs::create_dir(&dest).unwrap();
+
+        assert!(!sh_with_input_succeeds(
+            &build_write_text_command(dest.to_str().unwrap()),
+            b"new"
+        ));
+
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }
