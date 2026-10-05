@@ -137,8 +137,8 @@ pub fn determine_merge_action(
     }
     if let Some(link_target) = find_symlink_target(source_tree, path) {
         // ターゲット側にファイル/symlink が存在するか（ディレクトリは remove_file で削除できないため除外）
-        // create_symlink は内部で ln -sfn（リモート）/ remove_file + symlink（ローカル）を行うため、
-        // ファイル/symlink の上書きは安全に処理される
+        // symlink の作成は作成先に既存の項目があると置き換えずに失敗するので、比べたときにあった
+        // ファイル/symlink は呼び出し側の merge_flow が target_exists を見て先に消す
         let target_exists = target_tree
             .find_node(path)
             .is_some_and(|node| !matches!(node.kind, NodeKind::Directory));
