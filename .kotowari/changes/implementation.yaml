@@ -43,7 +43,7 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "REQ-cli-078 と REQ-merge-007 のとおり、diff・merge（--hunks を含む）・sync のパスの引数に絶対パスか \"..\" の要素があれば、サーバの解決・バックアップの整理・接続・走査の前に、入力されたままの値で \"absolute subpath not allowed: パス\" か \"path traversal not allowed: パス\" のエラーで止め、終了コード 2 を返して何も書かない。検査は engine の rel_path::check_rel_path 一つにまとめ、引数用の check_path_arguments が REQ-cli-052 の root_dir 全体を指す値（\"/\"・\".\"・\"./\"・空）を飛ばしてから呼ぶ。SSH の経路のパスの組み立て（validate_remote_path）は先頭の \"/\" を削る読み替えをやめて同じ関数で拒否し、root_dir 全体は空の値で指す（多層の防御で、引数の検査の後に利用者の入力は届かない）。EX-merge-013・EX-merge-014 の既存テストは承認済みの要件の改訂に合わせ、文言の全体と書き込み先の中身が変わらないことを確かめる形に直した。新しい文言は IR が決めたもの以外にない。"
+  reason: "REQ-cli-078 と REQ-merge-007 のとおり、diff・merge（--hunks を含む）・sync のパスの引数に絶対パスか \"..\" の要素があれば、サーバの解決・バックアップの整理・接続・走査の前に、入力されたままの値で \"absolute subpath not allowed: パス\" か \"path traversal not allowed: パス\" のエラーで止め、終了コード 2 を返して何も書かない。検査は engine の rel_path::check_rel_path 一つにまとめ、引数用の check_path_arguments が REQ-cli-052 の root_dir 全体を指す値（\"/\"・\".\"・\"./\"・空）を飛ばしてから呼ぶ。SSH の経路のパスの組み立て（validate_remote_path）は、これまで \"..\" を AppError::ConfigValidation の \"Remote path must not contain '..': パス\" で拒否し、先頭の \"/\" を削って絶対パスを受け付けていた。これを check_rel_path に置き換えたので、\"..\" の拒否の文言は \"path traversal not allowed: パス\" に変わり、絶対パスも \"absolute subpath not allowed: パス\" で拒否する。どちらも AppError の型を持たない anyhow のエラーになるが、このエラーの型で分岐する呼び出し元はない。root_dir 全体は空の値で指す（多層の防御で、引数の検査の後に利用者の入力は届かない）。エージェントの経路の拒否の文言は変えていない。EX-merge-013・EX-merge-014 の既存テストは承認済みの要件の改訂に合わせ、文言の全体と書き込み先の中身が変わらないことを確かめる形に直した。"
   requirements:
   - REQ-cli-078
   - REQ-cli-052
@@ -60,47 +60,53 @@ entries:
   files:
   - path: crates/remote-merge/src/runtime/remote_path.rs
     before: "sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6"
-    after: "sha256:f7bcf1b3ac57a8f76736d5644dab45f3a851e176dbf88f33ceaba2db945c622c"
+    after: "sha256:cfc5feb5b0777ba2175b409827bb89ed3e97c96a08d2c58bfb4dbf726e844160"
   - path: crates/remote-merge-engine/src/local_io.rs
     before: "sha256:9d309d7aaaf81210d3db0260b2e882c0bdb9e4179cda47ce57b7f19ba276f193"
     after: "sha256:ad3863383b3fa60d9462cb0fcd7ee35a878a3eedea06bad7a2f5df57879bd9aa"
   - path: crates/remote-merge-engine/src/service/rollback.rs
     before: "sha256:cff662d9030bf84006eb3ec514598f7d58dd6be92a5fa8ea6a4f6f5e11af94c7"
-    after: "sha256:d8eb93bf5e0a31742d99d930d91dcf7e3a19a8a1fdfa3d88e1f0d93dae6700d7"
+    after: "sha256:189d5fc24e7584fb9504e97b8b57f67a1067394c14cc5386e21d16dea67ca903"
   - path: crates/remote-merge/src/runtime/target_io.rs
     before: "sha256:d1db7978e22daa56fd18e214b47da581d83e46e941005289ef239c0361a8c534"
     after: "sha256:c2f0cf2c2e333613c55bf0c150210e142ac6dc8c60fa05b1c64b55b47782e950"
   - path: crates/remote-merge/src/runtime/side_io.rs
     before: "sha256:9ed2eb8a78a96f61fe7228ac300ef6ada0b7f435af2b7c5a17732032021749e0"
-    after: "sha256:75e0d53edea49f46169520f49a714a1af220e2e34ed5e2aca83d1025c75d02fc"
+    after: "sha256:19b67b0127f7590aa4459fdff2db7475102c314ee2ed443825e579d12232c35d"
   - path: crates/remote-merge/tests/contract/backup_rollback_path.rs
     before: "sha256:7e05df7e2bd4b0f8b9accd75f1ec8895c194f0aae81436d7b675b571ade63b59"
-    after: "sha256:1aac02a43937de5aac6a98b39956cea96e57a7141fef58f3861970ad160aa160"
+    after: "sha256:2583ffe2a32b6743e28b832d264590bc27515250868f27a36c82474528b1c582"
   - path: crates/remote-merge/tests/contract/rollback_path_ssh.rs
     before: null
-    after: "sha256:8279a9d01e0e1412851f8c0a4cb9fa0e9fbfb4efd42d20cb2cb567edc7c1c3c4"
+    after: "sha256:e2cf974b9b9218a98ced825676021f6bb6e60a2f07f4644daec192c88e9c7231"
   - path: crates/remote-merge/tests/contract/rollback_path_agent.rs
     before: null
-    after: "sha256:6624983deb3562a3772e689ca9759be827a7e3d7aba398343cf842a7be2204e9"
+    after: "sha256:e5dea90c3fe94f08be64eb51dc0fe38421460e31215b109cdc3cf16016496201"
   - path: crates/remote-merge/tests/contract/scan_listing_cli.rs
     before: "sha256:4c51e60c6d25a604dfc02e42d14af6aca7de1cc5292215013d644950c188e57c"
     after: "sha256:2cc93d6e4f125a80c1ed752c9eae25f7bc16b88c0e6f8cc71cec679dbc8184dc"
+  - path: crates/remote-merge/tests/contract/ssh_server.rs
+    before: "sha256:7343559410163b905d007bf76ecbc11513f3322d7bc8959ffd5f61cbfc39b796"
+    after: "sha256:d0c663bfd5702716a68e71ffa569e9db00be9f2737438893ed9b01c8e0674de1"
   - path: crates/remote-merge/tests/contract.rs
     before: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
     after: "sha256:d35af94ca4c6c299f8fe3c2d4f78efddbfc92a315a12fa6ba4687463b563b0be"
   ir:
   - path: docs/ir/backup/rollback-path.md
-    sha256: "sha256:e4cc5fd725182d8728b4ac3bea1fb0e18f4d1a7ad1b1cb344ceada7188c5517b"
+    sha256: "sha256:0d666b0a38cb4ebd833b17e3dd60b2ff3a1e815bc5ec035093968c8754c07f57"
+  - path: docs/ir/cli/symlink-diff.md
+    sha256: "sha256:9a4ae2b2851bf56b95b381d1476f00791b4449b8e6c725cf32688eb2f2813272"
   - path: docs/ir/cli/diff-output.md
     sha256: "sha256:7d383f368ff9e877cd598f0caa81c35f18696188200983a0c245a188a4ad8793"
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "SSH の経路のパスの検査スクリプトをローカル（とエージェント）の検査と同じ規則に書き直し、lstat が ENOENT で失敗したときだけ missing（実パスは末尾の要素を含めない）にし、通常ファイルの下・検索権限のないディレクトリの中・自分を指す symlink・リンク切れやループする祖先の symlink の下はエラーにする。これで REQ-backup-003 のとおり、辿れないパスを含むセッションの rollback が SSH でも一件も書き戻さず全件を \"cannot resolve path: \" で報告し、REQ-backup-033 のリンク切れの末尾の symlink は今までどおり辿った先の場所で比べる。祖先のリンク切れの symlink を辿れないパスと読むことは決定記録 A1 に残した。REQ-backup-031 と EX-backup-027 のとおり、戻す先の検査が失敗し、すぐ上の親が symlink でない通常ファイルと分かったときだけ \"parent directory no longer exists\" でスキップする判定を engine の純粋関数に置き、親の種類をローカル・SSH・エージェントで調べる操作を TargetIo に足した（A2・A3）。エージェントの crate と通信の型は変えていない。target_io.rs の SSH の子の一覧の検査、side_io.rs のその単体テスト、scan_listing_cli.rs の AgentFixture の起動関数、contract.rs の mod 行は、REQ-cli-078 と REQ-merge-007 の変更と共有するファイルなのでこの組に含めた。"
+  reason: "SSH の経路のパスの検査スクリプトをローカル（とエージェント）の検査と同じ規則に書き直し、lstat が ENOENT で失敗したときだけ missing（実パスは末尾の要素を含めない）にし、通常ファイルの下・検索権限のないディレクトリの中・自分を指す symlink・リンク切れやループする祖先の symlink の下・存在するディレクトリのすぐ下の NAME_MAX を超える名前・リンク先の存在しない部分の \"..\" はエラーにする。readlink の答えは番兵を足して受け取り、改行で終わる名前やリンク先も削らずに読む。答えは種類とパスを NUL で終えて返し、試験 SSH サーバの模擬の応答（ssh_server.rs）も同じ形にした。これで途中に改行を含むリンク先が読み違えられて root_dir の内側に見えることがなくなり、REQ-cli-026 の root_dir の外の判定が SSH の経路でもローカルと同じ実パスで行われる。REQ-backup-003 のとおり、辿れないパスを含むセッションの rollback は SSH でも一件も書き戻さず全件を \"cannot resolve path: \" で報告し、REQ-backup-033 のリンク切れの末尾の symlink は今までどおり辿った先の場所で比べる。祖先のリンク切れの symlink を辿れないパスと読むことは決定記録 A1 に残した。REQ-backup-031 と EX-backup-027・EX-backup-029・EX-backup-030 のとおり、戻す先の検査が失敗し、戻す先より上の祖先（root_dir は除く）のどれかが辿った先で通常ファイルと分かったとき \"parent directory no longer exists\" でスキップする判定を engine の純粋関数に置き、祖先の種類をローカル・SSH・エージェントで調べる操作を TargetIo に足した。範囲をすぐ上の親から祖先と通常ファイルを指す symlink に広げたことは利用者の判断（A2）で、REQ-backup-031 の文と例も同じ範囲に改めた。エージェントの crate と通信の型は変えていない。StatFiles が root_dir の外へ辿る祖先を拒否するため、その場合だけエージェントの経路はスキップせず \"cannot resolve path: \" で止まる既知の違いを A3 に記した。target_io.rs の SSH の子の一覧の検査、side_io.rs のその単体テスト、scan_listing_cli.rs の AgentFixture の起動関数、contract.rs の mod 行は、REQ-cli-078 と REQ-merge-007 の変更と共有するファイルなのでこの組に含めた。"
   requirements:
   - REQ-backup-003
   - REQ-backup-031
   - REQ-backup-033
+  - REQ-cli-026
   - REQ-cli-078
   - REQ-merge-007
   decisions:
