@@ -130,7 +130,7 @@ async fn a_key_of_a_type_not_registered_for_the_host_is_rejected_under_strict_ch
     );
 }
 
-// @kotowari[REQ-ssh-010, EX-ssh-019]
+// @kotowari[REQ-ssh-012, EX-ssh-021]
 #[cfg(all(unix, feature = "test-utils"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_known_hosts_stops_the_connection_even_with_yes() {
@@ -147,7 +147,7 @@ async fn an_unreadable_known_hosts_stops_the_connection_even_with_yes() {
     assert_eq!(run.known_hosts_after.as_deref(), Some(not_utf8));
 }
 
-// @kotowari[REQ-ssh-011, EX-ssh-020]
+// @kotowari[REQ-ssh-013, EX-ssh-022]
 #[cfg(all(unix, feature = "test-utils"))]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revoked_host_key_is_rejected_even_with_yes() {

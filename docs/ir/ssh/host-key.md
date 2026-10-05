@@ -18,14 +18,14 @@
 
 利用者が --yes または strict_host_key_checking=no を明示したとき、未知の SSH ホスト鍵を自動承認して接続を続けられる。
 
-### REQ-ssh-010: 読めない known_hosts で接続しない
+### REQ-ssh-012: 読めない known_hosts で接続しない
 - kind: prohibition
 - source: docs/decision/records/2026-10-05-harden-security.md#A1
 - verification: unit
 
 known_hosts がないこと以外の理由で known_hosts を読めないとき、--yes や strict_host_key_checking=no を明示していても、接続を止めてリモートのコマンドを実行せず、known_hosts を変更しない。
 
-### REQ-ssh-011: 失効した鍵を受け入れない
+### REQ-ssh-013: 失効した鍵を受け入れない
 - kind: prohibition
 - source: docs/decision/records/2026-10-05-harden-security.md#A2
 - verification: unit
@@ -59,13 +59,13 @@ Given 未知の SSH ホスト鍵が提示される
 When 利用者に確認できないまま接続する
 Then 接続は停止する
 
-@id=EX-ssh-019 @about=REQ-ssh-010 @source=docs/decision/records/2026-10-05-harden-security.md#A1
+@id=EX-ssh-021 @about=REQ-ssh-012 @source=docs/decision/records/2026-10-05-harden-security.md#A1
 Scenario: known_hosts を読めない
 Given known_hosts の内容が UTF-8 として不正である
 When --yes を明示して接続する
 Then 接続は停止しリモートのコマンドは実行されず known_hosts は変わらない
 
-@id=EX-ssh-020 @about=REQ-ssh-011 @source=docs/decision/records/2026-10-05-harden-security.md#A2
+@id=EX-ssh-022 @about=REQ-ssh-013 @source=docs/decision/records/2026-10-05-harden-security.md#A2
 Scenario: 失効とされた鍵が提示される
 Given 提示される鍵が known_hosts で "@revoked" とされ同じ鍵の通常の行もある
 When --yes を明示して接続する

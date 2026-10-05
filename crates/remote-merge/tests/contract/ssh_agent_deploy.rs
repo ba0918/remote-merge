@@ -103,7 +103,7 @@ fn product_version_line() -> String {
         .to_string()
 }
 
-// @kotowari[REQ-ssh-012, EX-ssh-021]
+// @kotowari[REQ-ssh-014, EX-ssh-023]
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_in_a_deploy_directory_writable_by_everyone_is_run() {
     let fixture = DeployFixture::new().await;
@@ -119,7 +119,7 @@ async fn nothing_in_a_deploy_directory_writable_by_everyone_is_run() {
     );
 }
 
-// @kotowari[REQ-ssh-013, EX-ssh-022]
+// @kotowari[REQ-ssh-015, EX-ssh-024]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_missing_deploy_directory_is_created_owner_only() {
     let fixture = DeployFixture::new().await;
@@ -134,7 +134,7 @@ async fn a_missing_deploy_directory_is_created_owner_only() {
     assert_eq!(mode & 0o777, 0o700);
 }
 
-// @kotowari[REQ-ssh-014, EX-ssh-023]
+// @kotowari[REQ-ssh-016, EX-ssh-025]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_planted_binary_that_only_matches_the_version_is_not_run_as_the_agent() {
     let fixture = DeployFixture::new().await;
