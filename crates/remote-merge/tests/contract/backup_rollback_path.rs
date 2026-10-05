@@ -246,6 +246,67 @@ fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file() {
     assert_eq!(read(&develop, "dir"), "now a file\n");
 }
 
+/// `deleted` と "other.txt" を --delete で消したセッションを作り、`replace` で祖先を置き換えてから
+/// rollback する。`deleted` だけが親ディレクトリのないファイルとしてスキップされることを確かめ、
+/// 書き戻し先の root を返す
+fn assert_skipped_after_an_ancestor_is_replaced(
+    deleted: &str,
+    replace: impl FnOnce(&std::path::Path),
+) -> TempDir {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let file = develop.path().join(deleted);
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(&file, "deleted\n").unwrap();
+    fs::write(develop.path().join("other.txt"), "deleted other\n").unwrap();
+    let config = config(&local, &develop, true);
+    let mut args = merge_args(deleted);
+    args.paths.push("other.txt".into());
+    args.delete = true;
+    args.force = true;
+    merge_files(args, config.clone(), targets(&develop, &store));
+    replace(develop.path());
+
+    let (output, _) = restore(
+        rollback_args("develop", None),
+        config,
+        targets(&develop, &store),
+    );
+
+    assert_eq!(output.failed.len(), 0, "{output:?}");
+    assert_eq!(output.skipped.len(), 1, "{output:?}");
+    assert_eq!(output.skipped[0].path, deleted);
+    assert_eq!(
+        output.skipped[0].reason,
+        "parent directory no longer exists"
+    );
+    let restored: Vec<&str> = output.restored.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(restored, ["other.txt"], "{output:?}");
+    develop
+}
+
+// @kotowari[EX-backup-029]
+#[test]
+fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file() {
+    let develop = assert_skipped_after_an_ancestor_is_replaced("dir/sub/a.txt", |develop| {
+        fs::remove_dir_all(develop.join("dir")).unwrap();
+        fs::write(develop.join("dir"), "now a file\n").unwrap();
+    });
+    assert_eq!(read(&develop, "dir"), "now a file\n");
+}
+
+// @kotowari[EX-backup-030]
+#[test]
+fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file() {
+    let develop = assert_skipped_after_an_ancestor_is_replaced("dir/a.txt", |develop| {
+        fs::remove_dir_all(develop.join("dir")).unwrap();
+        fs::write(develop.join("file.txt"), "kept\n").unwrap();
+        symlink("file.txt", develop.join("dir")).unwrap();
+    });
+    assert_eq!(read(&develop, "file.txt"), "kept\n");
+}
+
 // @kotowari[REQ-backup-032]
 #[test]
 fn a_recorded_symlink_is_not_restored_with_or_without_force() {

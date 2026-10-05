@@ -100,3 +100,50 @@ fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file_over_ssh() {
     assert_eq!(develop_file(&env, "other.txt"), "deleted other\n");
     assert_eq!(develop_file(&env, "dir"), "now a file\n");
 }
+
+/// `deleted` と "other.txt" を --delete で消してから `replace` で祖先を置き換えて rollback し、
+/// `deleted` だけが親ディレクトリのないファイルとしてスキップされることを確かめる
+fn assert_skipped_after_an_ancestor_is_replaced_over_ssh(
+    deleted: &str,
+    replace: impl FnOnce(&std::path::Path),
+) -> CliEnv {
+    let env = CliEnv::new(
+        &[],
+        &[(deleted, "deleted\n"), ("other.txt", "deleted other\n")],
+    );
+    merge(&env, &[deleted, "other.txt", "--delete"]);
+    assert!(!env.remote_dir.join("other.txt").exists());
+    replace(&env.remote_dir);
+
+    let (_, json) = rollback(&env);
+
+    assert_eq!(
+        json["skipped"],
+        serde_json::json!([{"path": deleted, "reason": "parent directory no longer exists"}]),
+        "{json}"
+    );
+    assert_eq!(json["restored"][0]["path"], "other.txt", "{json}");
+    assert_eq!(json["restored"].as_array().map(Vec::len), Some(1), "{json}");
+    env
+}
+
+// @kotowari[EX-backup-029]
+#[test]
+fn ex_backup_029_rollback_skips_a_deleted_file_whose_grandparent_became_a_regular_file_over_ssh() {
+    let env = assert_skipped_after_an_ancestor_is_replaced_over_ssh("dir/sub/a.txt", |develop| {
+        fs::remove_dir_all(develop.join("dir")).unwrap();
+        fs::write(develop.join("dir"), "now a file\n").unwrap();
+    });
+    assert_eq!(develop_file(&env, "dir"), "now a file\n");
+}
+
+// @kotowari[EX-backup-030]
+#[test]
+fn ex_backup_030_rollback_skips_a_deleted_file_whose_parent_became_a_symlink_to_a_file_over_ssh() {
+    let env = assert_skipped_after_an_ancestor_is_replaced_over_ssh("dir/a.txt", |develop| {
+        fs::remove_dir_all(develop.join("dir")).unwrap();
+        fs::write(develop.join("file.txt"), "kept\n").unwrap();
+        symlink("file.txt", develop.join("dir")).unwrap();
+    });
+    assert_eq!(develop_file(&env, "file.txt"), "kept\n");
+}

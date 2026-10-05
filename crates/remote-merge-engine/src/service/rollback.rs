@@ -4,9 +4,7 @@
 //! I/O は一切含まない。
 
 use chrono::{DateTime, Utc};
-use std::path::PathBuf;
-
-use crate::local_io::TargetPath;
+use std::path::{Path, PathBuf};
 
 use super::types::{
     BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
@@ -105,19 +103,22 @@ pub fn decide_restore_path(
 
 /// 書き戻し先の検査が失敗したときの、今の状態の読み方。
 ///
-/// すぐ上の親の検査が symlink でない `File` を返し、`parent_is_regular_file` が辿った先で通常
-/// ファイルと答えたときだけ、親ディレクトリのないファイルとして扱う。それ以外は `None` を返し、
-/// 検査の失敗のまま "cannot resolve path: " にする。親の種類は親が `File` のときだけ問い合わせる。
+/// 戻す先 `path` より上の祖先（root_dir は除く）を近いものから順に `ancestor_is_regular_file` で
+/// 問い、どれかが辿った先で通常ファイルと答えたときだけ、親ディレクトリのないファイルとして扱う。
+/// それ以外は `None` を返し、検査の失敗のまま "cannot resolve path: " にする。調べられない祖先
+/// （`None`）や通常ファイルでない祖先（`Some(false)`）があっても、その上の祖先を問い続ける。
+/// 祖先が存在しないときに通常ファイルでないと答える経路もあるので、`Some(false)` で打ち切らない
 pub fn restore_path_after_failed_inspection(
-    parent: Option<&TargetPath>,
-    parent_is_regular_file: impl FnOnce() -> Option<bool>,
+    path: &str,
+    mut ancestor_is_regular_file: impl FnMut(&str) -> Option<bool>,
 ) -> Option<CurrentRestorePath> {
-    match parent {
-        Some(TargetPath::File { .. }) if parent_is_regular_file() == Some(true) => {
-            Some(CurrentRestorePath::Missing { real_parent: None })
-        }
-        _ => None,
-    }
+    Path::new(path)
+        .ancestors()
+        .skip(1)
+        .filter_map(Path::to_str)
+        .filter(|ancestor| !ancestor.is_empty())
+        .any(|ancestor| ancestor_is_regular_file(ancestor) == Some(true))
+        .then_some(CurrentRestorePath::Missing { real_parent: None })
 }
 
 pub fn restore_request_refusal(
@@ -312,53 +313,60 @@ mod tests {
         assert_eq!(decision, RestorePathDecision::Restore);
     }
 
-    fn file_parent() -> TargetPath {
-        TargetPath::File {
-            real_path: PathBuf::from("/root/dir"),
-        }
+    /// `regular` に挙げた祖先だけを通常ファイルと答え、問われた祖先を順に記録する
+    fn ask_ancestors(path: &str, regular: &[&str]) -> (Option<CurrentRestorePath>, Vec<String>) {
+        let mut asked = Vec::new();
+        let decision = restore_path_after_failed_inspection(path, |ancestor| {
+            asked.push(ancestor.to_string());
+            regular.contains(&ancestor).then_some(true)
+        });
+        (decision, asked)
     }
 
     #[test]
     fn a_failed_inspection_under_a_regular_file_parent_becomes_a_missing_parent() {
         assert_eq!(
-            restore_path_after_failed_inspection(Some(&file_parent()), || Some(true)),
+            ask_ancestors("dir/a.txt", &["dir"]),
+            (
+                Some(CurrentRestorePath::Missing { real_parent: None }),
+                vec!["dir".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_failed_inspection_under_a_regular_file_grandparent_becomes_a_missing_parent() {
+        assert_eq!(
+            ask_ancestors("dir/sub/a.txt", &["dir"]),
+            (
+                Some(CurrentRestorePath::Missing { real_parent: None }),
+                vec!["dir/sub".to_string(), "dir".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn a_failed_inspection_without_a_regular_file_ancestor_stays_a_failure() {
+        assert_eq!(
+            ask_ancestors("dir/sub/a.txt", &[]),
+            (None, vec!["dir/sub".to_string(), "dir".to_string()])
+        );
+    }
+
+    #[test]
+    fn ancestors_that_are_not_regular_files_do_not_stop_the_search() {
+        let decision = restore_path_after_failed_inspection("dir/sub/a.txt", |ancestor| {
+            (ancestor == "dir").then_some(true).or(Some(false))
+        });
+        assert_eq!(
+            decision,
             Some(CurrentRestorePath::Missing { real_parent: None })
         );
     }
 
     #[test]
-    fn a_failed_inspection_under_a_directory_parent_stays_a_failure() {
-        assert_eq!(
-            restore_path_after_failed_inspection(Some(&file_parent()), || Some(false)),
-            None
-        );
-    }
-
-    #[test]
-    fn a_failed_inspection_under_a_parent_of_unknown_kind_stays_a_failure() {
-        assert_eq!(
-            restore_path_after_failed_inspection(Some(&file_parent()), || None),
-            None
-        );
-    }
-
-    #[test]
-    fn a_failed_inspection_under_a_symlink_or_missing_or_failed_parent_stays_a_failure() {
-        let symlink = TargetPath::Symlink {
-            link_target: PathBuf::from("file.txt"),
-            real_path: PathBuf::from("/root/file.txt"),
-        };
-        let missing = TargetPath::Missing {
-            real_parent: PathBuf::from("/root"),
-        };
-        for parent in [Some(&symlink), Some(&missing), None] {
-            assert_eq!(
-                restore_path_after_failed_inspection(parent, || -> Option<bool> {
-                    panic!("the kind of a parent that is not a plain file is not asked")
-                }),
-                None
-            );
-        }
+    fn a_failed_inspection_directly_under_the_root_asks_nothing() {
+        assert_eq!(ask_ancestors("a.txt", &[""]), (None, vec![]));
     }
 
     #[test]

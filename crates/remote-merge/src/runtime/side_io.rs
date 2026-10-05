@@ -403,18 +403,12 @@ impl CoreRuntime {
         path: &str,
     ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
         use crate::service::rollback::CurrentRestorePath;
-        let parent = std::path::Path::new(path)
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new(""))
-            .to_string_lossy()
-            .into_owned();
         let inspected = match self.inspect_path(side, path) {
             Ok(inspected) => inspected,
             Err(error) => {
-                let parent_inspected = self.inspect_path(side, &parent).ok();
                 return remote_merge_engine::service::rollback::restore_path_after_failed_inspection(
-                    parent_inspected.as_ref(),
-                    || self.is_regular_file(side, &parent).ok(),
+                    path,
+                    |ancestor| self.is_regular_file(side, ancestor).ok(),
                 )
                 .ok_or(error);
             }
@@ -425,6 +419,10 @@ impl CoreRuntime {
                 Ok(CurrentRestorePath::Present { real_path })
             }
             super::target_io::TargetPath::Missing { .. } => {
+                let parent = std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(""))
+                    .to_string_lossy();
                 let real_parent = match self.inspect_path(side, &parent)? {
                     super::target_io::TargetPath::Missing { .. } => None,
                     super::target_io::TargetPath::File { real_path }
