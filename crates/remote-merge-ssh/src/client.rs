@@ -19,7 +19,8 @@ use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::{append_known_hosts_entry, SshHandler};
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
-    build_find_command, build_mkdir_command, build_tree_from_flat, parse_find_line, shell_escape,
+    build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
+    build_write_text_command, parse_find_line, shell_escape,
 };
 use zeroize::Zeroizing;
 
@@ -834,7 +835,7 @@ impl SshClient {
             let _ = self.exec(&cmd).await;
         }
 
-        let command = format!("cat > {}", shell_escape(remote_path));
+        let command = build_write_text_command(remote_path);
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
@@ -877,7 +878,8 @@ impl SshClient {
         if let Some(cmd) = build_mkdir_command(remote_path) {
             let _ = self.exec(&cmd).await;
         }
-        self.decode_bytes_into(remote_path, content, "").await
+        let command = build_write_bytes_command(remote_path);
+        self.decode_bytes_into(remote_path, content, &command).await
     }
 
     /// root だけが書き込めるディレクトリのリモートファイルに、sudo でバイト列を書き込む。
@@ -888,31 +890,31 @@ impl SshClient {
         remote_path: &str,
         content: &[u8],
     ) -> crate::error::Result<()> {
-        self.decode_bytes_into(remote_path, content, "sudo ").await
+        // -A の理由は build_write_bytes_command と同じ
+        let command = format!(
+            "sudo openssl base64 -d -A -out {}",
+            shell_escape(remote_path)
+        );
+        self.decode_bytes_into(remote_path, content, &command).await
     }
 
-    /// バイト列を base64 で送り、リモートの `openssl base64 -d` で `remote_path` に書き込む。
+    /// バイト列を base64 にして、標準入力をデコードして書き込む `command` に送る。
     async fn decode_bytes_into(
         &mut self,
         remote_path: &str,
         content: &[u8],
-        command_prefix: &str,
+        command: &str,
     ) -> crate::error::Result<()> {
-        let escaped = shell_escape(remote_path);
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(content);
 
-        // base64 文字列を stdin 経由で渡して openssl base64 -d で書き込む
-        // -A: 改行なしの1行 base64 を受け付けるモード（Rust の base64::STANDARD.encode は
-        //      改行を挿入しないため必須。-A なしだと内部バッファ 80 文字で切り捨てられる）
-        let command = format!("{command_prefix}openssl base64 -d -A -out {}", escaped);
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
-            .exec(true, command.as_str())
+            .exec(true, command)
             .await
             .map_err(|_e| AppError::SshExec {
-                command: command.clone(),
+                command: command.to_string(),
             })?;
 
         // openssl base64 -d は入力末尾に改行が必要（改行がないとデコードしない）

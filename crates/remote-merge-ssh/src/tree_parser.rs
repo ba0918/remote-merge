@@ -214,6 +214,34 @@ pub fn build_create_symlink_command(target: &str, remote_path: &str) -> String {
     }
 }
 
+/// 標準入力の base64 をデコードして書き込むコマンドを構築する。
+///
+/// `-A` は改行なしの1行 base64 を受け付けるモード（Rust の base64::STANDARD.encode は改行を
+/// 挿入しないため必須。`-A` なしだと内部バッファ 80 文字で切り捨てられる）。
+///
+/// 書き込み先が既存の symlink なら何も書かずに 0 以外で終わる（[`refuse_symlink_then`]）。
+pub fn build_write_bytes_command(remote_path: &str) -> String {
+    let q = shell_escape(remote_path);
+    refuse_symlink_then(&q, &format!("openssl base64 -d -A -out {q}"))
+}
+
+/// 標準入力をそのまま書き込むコマンドを構築する。
+///
+/// 書き込み先が既存の symlink なら何も書かずに 0 以外で終わる（[`refuse_symlink_then`]）。
+pub fn build_write_text_command(remote_path: &str) -> String {
+    let q = shell_escape(remote_path);
+    refuse_symlink_then(&q, &format!("cat > {q}"))
+}
+
+/// 最後の要素が symlink なら `write` を実行せずに 0 以外で終わるコマンドにする。
+///
+/// `cat >` も `openssl -out` もリンク先へ書くが、シェルには O_NOFOLLOW がないので、同じコマンドの
+/// 中で書き込みの直前に確かめる。拒否するときも標準入力を読み切るのは、送り手のデータ送信を
+/// 途中で切らず、終了コードで失敗を返すため。
+fn refuse_symlink_then(quoted_path: &str, write: &str) -> String {
+    format!("if [ -L {quoted_path} ]; then cat >/dev/null; exit 1; fi; {write}")
+}
+
 /// `find` コマンド文字列を生成する（再帰スキャン用）
 ///
 /// - `include` が空の場合: `root_dir` 単体を走査対象にする
@@ -748,5 +776,88 @@ mod tests {
     fn test_build_mkdir_command_special_chars() {
         let cmd = build_mkdir_command("/var/www/my app/src/file.rs");
         assert_eq!(cmd.unwrap(), "mkdir -p '/var/www/my app/src'");
+    }
+
+    /// 生成した書き込みのコマンドを、標準入力に `input` を渡して実際の sh で実行し、成功したかを返す
+    fn sh_with_input_succeeds(command: &str, input: &[u8]) -> bool {
+        use std::io::Write;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", command])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        child.wait().unwrap().success()
+    }
+
+    /// `real.txt` を指す symlink `link.txt` を置いた一時ディレクトリ
+    #[cfg(unix)]
+    fn dir_with_link_to_real_file() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("real.txt"), "original").unwrap();
+        std::os::unix::fs::symlink("real.txt", dir.path().join("link.txt")).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    fn assert_link_and_target_unchanged(dir: &tempfile::TempDir) {
+        assert_eq!(
+            std::fs::read_link(dir.path().join("link.txt")).unwrap(),
+            Path::new("real.txt")
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("real.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binary_write_refuses_a_symlink_destination() {
+        let dir = dir_with_link_to_real_file();
+        let link = dir.path().join("link.txt");
+
+        let written = sh_with_input_succeeds(
+            &build_write_bytes_command(link.to_str().unwrap()),
+            b"bmV3\n",
+        );
+
+        assert!(!written);
+        assert_link_and_target_unchanged(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn text_write_refuses_a_symlink_destination() {
+        let dir = dir_with_link_to_real_file();
+        let link = dir.path().join("link.txt");
+
+        let written =
+            sh_with_input_succeeds(&build_write_text_command(link.to_str().unwrap()), b"new");
+
+        assert!(!written);
+        assert_link_and_target_unchanged(&dir);
+    }
+
+    #[test]
+    fn writes_replace_a_regular_file_and_create_a_missing_one() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let existing = dir.path().join("existing.txt");
+        std::fs::write(&existing, "old").unwrap();
+        let missing = dir.path().join("missing.bin");
+
+        assert!(sh_with_input_succeeds(
+            &build_write_text_command(existing.to_str().unwrap()),
+            b"new text"
+        ));
+        assert!(sh_with_input_succeeds(
+            &build_write_bytes_command(missing.to_str().unwrap()),
+            b"AP8K\n"
+        ));
+
+        assert_eq!(std::fs::read(&existing).unwrap(), b"new text");
+        assert_eq!(std::fs::read(&missing).unwrap(), [0x00, 0xff, b'\n']);
     }
 }

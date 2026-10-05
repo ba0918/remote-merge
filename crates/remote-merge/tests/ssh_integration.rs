@@ -159,7 +159,7 @@ impl server::Handler for TestHandler {
             .lock()
             .unwrap()
             .get(&channel)
-            .map(|cmd| cmd.starts_with("cat >") || cmd.contains("openssl base64 -d"))
+            .map(|cmd| is_write_command(cmd))
             .unwrap_or(false);
 
         if is_write_cmd {
@@ -179,7 +179,7 @@ impl server::Handler for TestHandler {
         let command = String::from_utf8_lossy(data).to_string();
 
         // write 系コマンドは exec_commands に記録し、stdin データ待ちにする
-        let is_write_cmd = command.starts_with("cat >") || command.contains("openssl base64 -d");
+        let is_write_cmd = is_write_command(&command);
         if is_write_cmd {
             self.exec_commands.lock().unwrap().insert(channel, command);
             // stdin データを待つため、ここでは close しない
@@ -205,6 +205,11 @@ impl server::Handler for TestHandler {
 
         Ok(())
     }
+}
+
+/// 標準入力の中身を書き込むコマンド（`cat > P` か `openssl base64 -d ... -out P` を含む）か
+fn is_write_command(command: &str) -> bool {
+    command.contains("cat > ") || command.contains("openssl base64 -d")
 }
 
 /// 指定ホスト:ポートの known_hosts エントリを削除する。

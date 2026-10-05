@@ -351,7 +351,7 @@ impl server::Handler for LocalHandler {
                 command.contains(home.to_str().unwrap()) || detects_target_only,
                 "unexpected remote command: {command}"
             );
-            if command.starts_with("openssl base64 -d -A -out ") || command.starts_with("cat > ") {
+            if command.contains("openssl base64 -d -A -out ") || command.contains("cat > ") {
                 self.write_channels
                     .insert(channel, (command.into_owned(), Vec::new()));
                 return Ok(());
@@ -430,7 +430,8 @@ impl server::Handler for LocalHandler {
             session.close(channel)?;
             return Ok(());
         }
-        if command.starts_with(b"openssl base64 -d") && self.incomplete_writes {
+        if String::from_utf8_lossy(command).contains("openssl base64 -d") && self.incomplete_writes
+        {
             self.write_attempts.fetch_add(1, Ordering::SeqCst);
             session.disconnect(
                 Disconnect::ByApplication,
