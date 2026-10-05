@@ -25,14 +25,14 @@ use zeroize::Zeroizing;
 struct CommandOutput {
     stdout: String,
     stderr: String,
-    exit_code: Option<u32>,
+    exit_code: u32,
 }
 
 /// リモートコマンドの実行結果（バイト列版）
 struct CommandOutputBytes {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
-    exit_code: Option<u32>,
+    exit_code: u32,
 }
 
 /// SSH接続を管理するクライアント
@@ -473,15 +473,13 @@ impl SshClient {
     pub async fn exec(&mut self, command: &str) -> crate::error::Result<String> {
         let result = self.run_command(command).await?;
 
-        if let Some(code) = result.exit_code {
-            if code != 0 {
-                tracing::debug!(
-                    target: "remote_merge::ssh::client",
-                    "Remote command exited with non-zero: cmd='{}', code={}",
-                    command,
-                    code
-                );
-            }
+        if result.exit_code != 0 {
+            tracing::debug!(
+                target: "remote_merge::ssh::client",
+                "Remote command exited with non-zero: cmd='{}', code={}",
+                command,
+                result.exit_code
+            );
         }
 
         Ok(result.stdout)
@@ -494,15 +492,13 @@ impl SshClient {
     pub async fn exec_bytes(&mut self, command: &str) -> crate::error::Result<Vec<u8>> {
         let result = self.run_command_bytes(command).await?;
 
-        if let Some(code) = result.exit_code {
-            if code != 0 {
-                tracing::debug!(
-                    target: "remote_merge::ssh::client",
-                    "Remote command (bytes) exited with non-zero: cmd='{}', code={}",
-                    command,
-                    code
-                );
-            }
+        if result.exit_code != 0 {
+            tracing::debug!(
+                target: "remote_merge::ssh::client",
+                "Remote command (bytes) exited with non-zero: cmd='{}', code={}",
+                command,
+                result.exit_code
+            );
         }
 
         Ok(result.stdout)
@@ -631,14 +627,21 @@ impl SshClient {
         max_entries: usize,
         timeout_secs: u64,
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
-        // root_dir の存在チェック
+        // root_dir の存在チェック。接続エラーなどを「ない」にしないよう、終了コード 1 だけを見る
         let check_cmd = format!("test -d {}", shell_escape(remote_path));
-        if self.exec_strict(&check_cmd).await.is_err() {
-            return Err(AppError::RemoteRootNotFound {
-                host: self.server_name.clone(),
-                path: remote_path.to_string(),
+        let check = self.run_command(&check_cmd).await?;
+        match check.exit_code {
+            0 => {}
+            1 => {
+                return Err(AppError::RemoteRootNotFound {
+                    host: self.server_name.clone(),
+                    path: remote_path.to_string(),
+                }
+                .into());
             }
-            .into());
+            code => anyhow::bail!(AppError::SshExec {
+                command: format!("{}: exit={}, stderr={}", check_cmd, code, check.stderr),
+            }),
         }
 
         let command = build_find_command(remote_path, include);
@@ -770,12 +773,13 @@ impl SshClient {
     pub(crate) async fn exec_strict(&mut self, command: &str) -> crate::error::Result<String> {
         let result = self.run_command(command).await?;
 
-        if let Some(code) = result.exit_code {
-            if code != 0 {
-                anyhow::bail!(AppError::SshExec {
-                    command: format!("{}: exit={}, stderr={}", command, code, result.stderr),
-                });
-            }
+        if result.exit_code != 0 {
+            anyhow::bail!(AppError::SshExec {
+                command: format!(
+                    "{}: exit={}, stderr={}",
+                    command, result.exit_code, result.stderr
+                ),
+            });
         }
 
         Ok(result.stdout)
@@ -834,12 +838,12 @@ impl SshClient {
 
         let _ = channel.close().await;
 
-        if exit_code.is_none() {
+        let Some(exit_code) = exit_code else {
             anyhow::bail!(AppError::SshConnection {
                 host: self.server_name.clone(),
                 message: "Remote command ended without an exit status".into(),
             });
-        }
+        };
 
         Ok(CommandOutputBytes {
             stdout,

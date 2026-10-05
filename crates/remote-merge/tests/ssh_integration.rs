@@ -829,3 +829,38 @@ async fn test_verifier_called_at_most_once_per_connection() {
     let client = result.unwrap();
     client.disconnect().await.expect("切断に失敗");
 }
+
+#[tokio::test]
+async fn only_a_failed_root_check_means_the_scan_root_is_missing() {
+    let handle = start_test_server().await;
+    handle.registry.register("/var/www/app/gone", "", 1);
+    handle
+        .registry
+        .register_without_exit_status("/var/www/app/cut", "");
+    let (mut client, _key) = connect_client(&handle).await;
+
+    let missing = client
+        .list_tree_recursive("/var/www/app/gone", &[], &[], 100, 5)
+        .await
+        .expect_err("a missing root must fail the scan");
+    let cut_off = client
+        .list_tree_recursive("/var/www/app/cut", &[], &[], 100, 5)
+        .await
+        .expect_err("a cut-off root check must fail the scan");
+
+    assert!(
+        matches!(
+            missing.downcast_ref::<remote_merge::error::AppError>(),
+            Some(remote_merge::error::AppError::RemoteRootNotFound { .. })
+        ),
+        "{missing:?}"
+    );
+    assert_eq!(
+        missing.to_string(),
+        "Remote root_dir not found: test:/var/www/app/gone"
+    );
+    assert!(
+        remote_merge::error::is_connection_error(&cut_off),
+        "{cut_off:?}"
+    );
+}
