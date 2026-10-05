@@ -191,11 +191,11 @@ pub fn build_mkdir_command(remote_path: &str) -> Option<String> {
 
 /// ファイルか symlink を消し、ないパスでは 0 以外で終わるコマンドを構築する。
 ///
-/// `test -e` はリンク先のない symlink を偽にするので `-L` でも確かめる。`-f` なしの `rm` は
-/// 書き込めないファイルで端末に確認を求めうるため、存在を確かめてから `rm -f` で消す。
+/// 存在を確かめてから `rm -f` で消すと、その間に消えた対象を消したと報告するので、確かめずに
+/// `-f` のない `rm` で消してないパスを rm の失敗にする。`-f` のない `rm` は書き込めないファイルで
+/// 確認を求めるのは標準入力が端末のときだけで、SSH の exec には端末がない。
 pub fn build_remove_command(remote_path: &str) -> String {
-    let q = shell_escape(remote_path);
-    format!("{{ [ -e {q} ] || [ -L {q} ]; }} && rm -f {q}")
+    format!("rm -- {}", shell_escape(remote_path))
 }
 
 /// 親ディレクトリを作ってから symlink を作成・更新するコマンドを構築する。
@@ -687,8 +687,17 @@ mod tests {
         let link = dir.path().join("link");
         symlink(&target, &link).unwrap();
         let missing = dir.path().join("missing.txt");
+        let read_only = dir.path().join("read-only.txt");
+        std::fs::write(&read_only, "x").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o444)).unwrap();
+        }
 
         assert!(sh_succeeds(&build_remove_command(file.to_str().unwrap())));
+        assert!(sh_succeeds(&build_remove_command(
+            read_only.to_str().unwrap()
+        )));
         assert!(sh_succeeds(&build_remove_command(
             dangling.to_str().unwrap()
         )));
@@ -698,6 +707,7 @@ mod tests {
         )));
 
         assert!(file.symlink_metadata().is_err());
+        assert!(read_only.symlink_metadata().is_err());
         assert!(dangling.symlink_metadata().is_err());
         assert!(link.symlink_metadata().is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "kept");
