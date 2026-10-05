@@ -114,4 +114,10 @@ Scenario: 正しいパスと ".." を含むパスを一緒に渡す
 Given 引数に正しいパス "a.txt" と "../b.txt" がある
 When その二つをマージする
 Then "path traversal not allowed: ../b.txt" のエラーで止まり "a.txt" も書き込まれず終了コード 2 を返す
+
+@id=EX-merge-049 @about=REQ-merge-023 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A10
+Scenario: リンク先が "-" で始まる symlink を作る
+Given 読み込み元の symlink のリンク先が "--target-directory=sub" で、書き込み先にそのパスがなく "sub" ディレクトリがある
+When そのパスをマージする
+Then 書き込み先のそのパスにリンク先が "--target-directory=sub" の symlink ができ、"sub" の中には何も作られない
 ```
