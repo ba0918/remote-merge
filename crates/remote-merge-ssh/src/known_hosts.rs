@@ -278,18 +278,14 @@ fn entry_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 }
 
 /// "ホスト 種別 鍵 [コメント]" の一行をパースする
+///
+/// OpenSSH と同じく、フィールドはタブや連続した空白で区切られていてもよい。
 fn parse_entry(line: &str, line_number: usize) -> Option<KnownHost> {
-    let parts: Vec<&str> = line.splitn(3, ' ').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-    let key_base64 = parts[2].split_whitespace().next().unwrap_or("");
-    if key_base64.is_empty() {
-        return None;
-    }
+    let mut fields = line.split_whitespace();
+    let (hostname_pattern, key_type, key_base64) = (fields.next()?, fields.next()?, fields.next()?);
     Some(KnownHost {
-        hostname_pattern: parts[0].to_string(),
-        key_type: parts[1].to_string(),
+        hostname_pattern: hostname_pattern.to_string(),
+        key_type: key_type.to_string(),
         key_base64: key_base64.to_string(),
         line_number,
     })
@@ -613,6 +609,41 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         let judgement = judge_host_key(content, "example.com", 22, "ssh-ed25519", ED25519_KEY);
 
         assert_eq!(judgement, HostKeyJudgement::Unknown);
+    }
+
+    /// OpenSSH と同じく、フィールドの区切りはタブや連続した空白でもよい
+    const REVOKED_LINES_WITH_OTHER_SEPARATORS: [&str; 3] = [
+        "@revoked\texample.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx\n",
+        "@revoked example.com  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx\n",
+        "@revoked example.com\tssh-ed25519\tAAAAC3NzaC1lZDI1NTE5AAAAIKxx\n",
+    ];
+
+    #[test]
+    fn a_revoked_line_separated_by_tabs_or_repeated_spaces_revokes_the_key() {
+        for revoked in REVOKED_LINES_WITH_OTHER_SEPARATORS {
+            let judgement = judge_host_key(revoked, "example.com", 22, "ssh-ed25519", ED25519_KEY);
+
+            assert_eq!(
+                judgement,
+                HostKeyJudgement::Revoked { line: 1 },
+                "{revoked:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_revoked_line_with_other_separators_wins_over_a_normal_line_for_the_same_key() {
+        for revoked in REVOKED_LINES_WITH_OTHER_SEPARATORS {
+            let content = format!("example.com ssh-ed25519 {ED25519_KEY}\n{revoked}");
+
+            let judgement = judge_host_key(&content, "example.com", 22, "ssh-ed25519", ED25519_KEY);
+
+            assert_eq!(
+                judgement,
+                HostKeyJudgement::Revoked { line: 2 },
+                "{content:?}"
+            );
+        }
     }
 
     // ── 承認した鍵での再接続 ──
