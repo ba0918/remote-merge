@@ -71,4 +71,10 @@ Scenario: グループが書き込める自分の配置先
 Given 利用者の所有する Agent の配置先のディレクトリがモード 775 で、版の確認に正しく答えるプログラムを含む
 When sudo=false のサーバへマージする
 Then 配置先はモード 700 になり、置かれていたプログラムは実行されずに除かれ、配置先のパスを示す警告が表示され、書き込み先が更新される
+
+@id=EX-ssh-029 @about=REQ-ssh-015 @source=docs/decision/records/2026-10-05-harden-security.md#A11,docs/decision/records/2026-10-05-harden-security.md#A12
+Scenario: sudo のサーバで配置先を初めて作る
+Given sudo=true のサーバに Agent の配置先のディレクトリがない
+When そのサーバの root だけが読み書きできるファイルへマージする
+Then 配置先のディレクトリは root の所有のモード 700 で作られ、その中に置いた Agent で書き込み先が更新される
 ```

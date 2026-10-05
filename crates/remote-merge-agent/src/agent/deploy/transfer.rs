@@ -20,19 +20,34 @@ pub fn expected_version_line(cli_version: &str) -> String {
     format!("remote-merge {}", cli_version)
 }
 
+/// `sudo` が true なら付ける前置き（sudo=true の配置先は root だけが入れる）
+fn sudo_prefix(sudo: bool) -> &'static str {
+    if sudo {
+        "sudo "
+    } else {
+        ""
+    }
+}
+
 /// リモートのバージョンチェック用 SSH コマンドを生成する。
 /// バイナリが存在しない場合は `__NOT_FOUND__` を返す。
-pub fn check_version_command(remote_path: &Path) -> String {
+///
+/// `sudo` が true の場合、root だけが入れる配置先のバイナリを sudo で実行する。
+pub fn check_version_command(remote_path: &Path, sudo: bool) -> String {
     let escaped = shell_escape(&remote_path.to_string_lossy());
-    format!("{escaped} --version 2>/dev/null || echo __NOT_FOUND__")
+    let pfx = sudo_prefix(sudo);
+    format!("{pfx}{escaped} --version 2>/dev/null || echo __NOT_FOUND__")
 }
 
 /// 配置済みのバイナリの SHA-256 を取るコマンドを生成する。
 /// 計算できない場合は `__UNSUPPORTED__` を返す。
-pub fn installed_checksum_command(remote_path: &Path) -> String {
+///
+/// `sudo` が true の場合、root だけが入れる配置先のバイナリを sudo で読む。
+pub fn installed_checksum_command(remote_path: &Path, sudo: bool) -> String {
     let escaped = shell_escape(&remote_path.to_string_lossy());
+    let pfx = sudo_prefix(sudo);
     format!(
-        "sha256sum {escaped} 2>/dev/null || shasum -a 256 {escaped} 2>/dev/null || echo __UNSUPPORTED__"
+        "{pfx}sha256sum {escaped} 2>/dev/null || {pfx}shasum -a 256 {escaped} 2>/dev/null || echo __UNSUPPORTED__"
     )
 }
 
@@ -50,7 +65,7 @@ pub fn build_deploy_commands(remote_path: &Path, sudo: bool) -> DeployCommands {
     let tmp_path = format!("{}.tmp", remote_path.display());
     let escaped_tmp = shell_escape(&tmp_path);
 
-    let pfx = if sudo { "sudo " } else { "" };
+    let pfx = sudo_prefix(sudo);
 
     DeployCommands {
         mkdir_cmd: format!("{pfx}mkdir -p {escaped_parent}"),
@@ -71,13 +86,16 @@ pub fn build_deploy_commands(remote_path: &Path, sudo: bool) -> DeployCommands {
 /// mkdir -p と symlink チェックを1コマンドに結合する。
 /// symlink が検出された場合は `SYMLINK`、問題なければ `OK` を出力する。
 ///
-/// `sudo` が true の場合、mkdir に `sudo` prefix を付与する。
+/// `sudo` が true の場合、mkdir と symlink チェックに `sudo` prefix を付与する
+/// （root だけが入れる配置先の中は sudo でなければ確かめられない）。
 pub fn build_pre_write_command(remote_path: &Path, sudo: bool) -> String {
     let parent = remote_path.parent().unwrap_or(Path::new("/"));
     let escaped_parent = shell_escape(&parent.to_string_lossy());
     let escaped = shell_escape(&remote_path.to_string_lossy());
-    let pfx = if sudo { "sudo " } else { "" };
-    format!("{pfx}mkdir -p {escaped_parent} && {{ test -L {escaped} && echo SYMLINK || echo OK; }}")
+    let pfx = sudo_prefix(sudo);
+    format!(
+        "{pfx}mkdir -p {escaped_parent} && {{ {pfx}test -L {escaped} && echo SYMLINK || echo OK; }}"
+    )
 }
 
 /// `.tmp` 書き込み後に実行する1つの複合スクリプトを生成する。
@@ -86,7 +104,8 @@ pub fn build_pre_write_command(remote_path: &Path, sudo: bool) -> String {
 /// - sha256sum 不在時は graceful degradation（checksum スキップ）
 /// - 失敗時は .tmp を削除して非ゼロ exit
 ///
-/// `sudo` が true の場合、chmod/rm/mv に `sudo` prefix を付与する。
+/// `sudo` が true の場合、chmod/rm/mv と、root だけが入れる配置先の中のファイルを読む
+/// checksum・実行する version 検証に `sudo` prefix を付与する。
 pub fn build_post_write_script(
     remote_path: &Path,
     tmp_path: &str,
@@ -105,14 +124,14 @@ pub fn build_post_write_script(
     let escaped = shell_escape(&remote_path.to_string_lossy());
     let escaped_tmp = shell_escape(tmp_path);
     let expected_version = expected_version_line(cli_version);
-    let pfx = if sudo { "sudo " } else { "" };
+    let pfx = sudo_prefix(sudo);
 
     // sha256sum / shasum -a 256 / __UNSUPPORTED__ のフォールバックチェーン
     // チェックサムが取得できれば検証し、__UNSUPPORTED__ なら graceful degradation（スキップ）
     Ok(format!(
         r#"set -e
 {pfx}chmod 700 {escaped_tmp}
-_cksum=$(sha256sum {escaped_tmp} 2>/dev/null || shasum -a 256 {escaped_tmp} 2>/dev/null || echo __UNSUPPORTED__)
+_cksum=$({pfx}sha256sum {escaped_tmp} 2>/dev/null || {pfx}shasum -a 256 {escaped_tmp} 2>/dev/null || echo __UNSUPPORTED__)
 if [ "$_cksum" != "__UNSUPPORTED__" ]; then
   _hash=$(echo "$_cksum" | cut -c1-64)
   if [ "$_hash" != "{local_hash}" ]; then
@@ -121,7 +140,7 @@ if [ "$_cksum" != "__UNSUPPORTED__" ]; then
     exit 1
   fi
 fi
-_ver=$({escaped_tmp} --version 2>/dev/null || echo __NOT_FOUND__)
+_ver=$({pfx}{escaped_tmp} --version 2>/dev/null || echo __NOT_FOUND__)
 if [ "$_ver" != "{expected_version}" ]; then
   {pfx}rm -f {escaped_tmp} || true
   echo "version mismatch: expected {expected_version}, got $_ver" >&2

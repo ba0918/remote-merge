@@ -350,7 +350,7 @@ impl CoreRuntime {
         let combined = if repaired {
             format!("{{ {uname_cmd}; }} 2>/dev/null")
         } else {
-            let version_cmd = deploy::check_version_command(&remote_path);
+            let version_cmd = deploy::check_version_command(&remote_path, sudo);
             format!("{{ {uname_cmd}; }} 2>/dev/null; {version_cmd}")
         };
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
@@ -414,7 +414,7 @@ impl CoreRuntime {
         // 版が一致しても、ローカルのバイナリと中身が違えば実行せずに置き直す
         let needs_deploy = match version_check {
             VersionCheck::Match => {
-                self.installed_binary_check(server_name, &remote_path, remote_target)?
+                self.installed_binary_check(server_name, &remote_path, remote_target, sudo)?
                     == deploy::InstalledBinary::Redeploy
             }
             VersionCheck::Mismatch { .. } | VersionCheck::NotFound => true,
@@ -472,6 +472,7 @@ impl CoreRuntime {
         server_name: &str,
         remote_path: &std::path::Path,
         remote_target: &str,
+        sudo: bool,
     ) -> anyhow::Result<deploy::InstalledBinary> {
         let local_hash = deploy::resolve_agent_binary(remote_target)
             .ok()
@@ -484,7 +485,7 @@ impl CoreRuntime {
             );
             return Ok(deploy::judge_installed_binary(None, ""));
         };
-        let checksum_cmd = deploy::installed_checksum_command(remote_path);
+        let checksum_cmd = deploy::installed_checksum_command(remote_path, sudo);
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let output = self.rt.block_on(ssh_client.exec(&checksum_cmd))?;
         let judgement = deploy::judge_installed_binary(Some(&local_hash), &output);
@@ -619,8 +620,13 @@ impl CoreRuntime {
 
         // Step 2: .tmp パスに書き込み
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        self.rt
-            .block_on(ssh_client.write_file_bytes(&tmp_path, &binary_bytes))?;
+        if sudo {
+            self.rt
+                .block_on(ssh_client.write_file_bytes_with_sudo(&tmp_path, &binary_bytes))?;
+        } else {
+            self.rt
+                .block_on(ssh_client.write_file_bytes(&tmp_path, &binary_bytes))?;
+        }
 
         // Step 3: chmod + checksum + version + mv（1 exec）
         let post_script =

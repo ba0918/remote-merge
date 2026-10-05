@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn check_version_command_basic() {
         let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
-        let cmd = check_version_command(&path);
+        let cmd = check_version_command(&path, false);
         assert_eq!(
             cmd,
             "'/var/tmp/remote-merge-user/remote-merge' --version 2>/dev/null || echo __NOT_FOUND__"
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn check_version_command_escapes_special_chars() {
         let path = PathBuf::from("/opt/my dir/remote-merge");
-        let cmd = check_version_command(&path);
+        let cmd = check_version_command(&path, false);
         assert!(cmd.starts_with("'/opt/my dir/remote-merge'"));
         assert!(cmd.contains("__NOT_FOUND__"));
     }

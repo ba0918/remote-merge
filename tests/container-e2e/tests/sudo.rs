@@ -119,3 +119,27 @@ fn denied_sudo_never_falls_back_to_an_unprivileged_write() {
     let file = docker(&container, "cat /data/example.txt");
     assert_eq!(file.stdout, b"original\n");
 }
+
+// @kotowari[REQ-ssh-015, EX-ssh-029]
+#[test]
+fn a_missing_deploy_directory_is_created_by_root_and_the_agent_runs_from_it_under_sudo() {
+    let container = std::env::var("REMOTE_MERGE_E2E_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    fs::create_dir_all(home.path().join("local")).unwrap();
+    fs::write(home.path().join("local/example.txt"), "fresh deploy\n").unwrap();
+    let setup = docker(&container, "rm -rf /tmp/agent/remote-merge-testuser && mkdir -p /data && printf 'old\\n' > /data/example.txt && chown root:root /data/example.txt && chmod 600 /data/example.txt");
+    assert!(setup.status.success(), "{setup:?}");
+
+    let output = merge(&home, &port);
+
+    assert!(output.status.success(), "{output:?}");
+    let state = docker(
+        &container,
+        "stat -c '%U %a' /tmp/agent/remote-merge-testuser; cat /data/example.txt",
+    );
+    assert_eq!(
+        String::from_utf8(state.stdout).unwrap(),
+        "root 700\nfresh deploy\n"
+    );
+}
