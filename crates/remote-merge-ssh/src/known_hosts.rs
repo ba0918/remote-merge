@@ -30,6 +30,8 @@ pub(crate) struct SshHandler {
     pub skip_host_key_check: bool,
     /// 未知ホスト検出時にフィンガープリント情報を送信するチャネル
     pub unknown_host_sender: Option<tokio::sync::oneshot::Sender<UnknownHostInfo>>,
+    /// 利用者が承認した鍵（種別と base64）。あるときはこの鍵と完全に一致する鍵だけを受け入れる
+    approved_key: Option<(String, String)>,
 }
 
 impl SshHandler {
@@ -39,6 +41,17 @@ impl SshHandler {
             port,
             skip_host_key_check: false,
             unknown_host_sender: None,
+            approved_key: None,
+        }
+    }
+
+    /// 利用者が承認した鍵での再接続用のハンドラ。
+    ///
+    /// known_hosts を読み直すと別プロセスの変更と食い違い得るため、承認した鍵そのものと比べる。
+    pub fn for_approved_key(host: String, port: u16, key_type: &str, key_base64: &str) -> Self {
+        Self {
+            approved_key: Some((key_type.to_string(), key_base64.to_string())),
+            ..Self::new(host, port)
         }
     }
 }
@@ -68,6 +81,14 @@ impl client::Handler for SshHandler {
         }
         let server_key_type = parts[0];
         let server_key_base64 = parts[1];
+
+        if let Some((approved_type, approved_base64)) = &self.approved_key {
+            let matches = approved_type == server_key_type && approved_base64 == server_key_base64;
+            if !matches {
+                tracing::warn!(target: "remote_merge::ssh::known_hosts", "Reconnection presented a host key different from the approved one: {}", self.host);
+            }
+            return Ok(matches);
+        }
 
         let known_hosts_content = match known_hosts_io::read_known_hosts() {
             Ok(Some(content)) => content,
@@ -592,5 +613,49 @@ example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKxx
         let judgement = judge_host_key(content, "example.com", 22, "ssh-ed25519", ED25519_KEY);
 
         assert_eq!(judgement, HostKeyJudgement::Unknown);
+    }
+
+    // ── 承認した鍵での再接続 ──
+
+    fn random_ed25519_key() -> russh::keys::PublicKey {
+        use russh::keys::ssh_key::rand_core::OsRng;
+        use russh::keys::{Algorithm, PrivateKey};
+        PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
+            .unwrap()
+            .public_key()
+            .clone()
+    }
+
+    fn approved_handler(key: &russh::keys::PublicKey) -> SshHandler {
+        let openssh = key.to_openssh().unwrap();
+        let (key_type, key_base64) = openssh.split_once(' ').unwrap();
+        SshHandler::for_approved_key("example.invalid".into(), 22, key_type, key_base64)
+    }
+
+    #[tokio::test]
+    async fn reconnecting_after_approval_accepts_the_approved_key() {
+        use russh::client::Handler;
+        let approved = random_ed25519_key();
+
+        let accepted = approved_handler(&approved)
+            .check_server_key(&approved)
+            .await
+            .unwrap();
+
+        assert!(accepted);
+    }
+
+    #[tokio::test]
+    async fn reconnecting_after_approval_rejects_a_different_key() {
+        use russh::client::Handler;
+        let approved = random_ed25519_key();
+        let presented = random_ed25519_key();
+
+        let accepted = approved_handler(&approved)
+            .check_server_key(&presented)
+            .await
+            .unwrap_or(false);
+
+        assert!(!accepted);
     }
 }

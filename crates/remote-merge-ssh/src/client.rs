@@ -249,12 +249,13 @@ impl SshClient {
         // 承認 → known_hosts に追加してリトライ
         append_known_hosts_entry(&info.host, info.port, &info.key_type, &info.key_base64);
 
-        // リトライ時は skip_host_key_check = true にする。
-        // 直前に known_hosts に追加済みなので再チェックは不要。
-        // TOCTOU 回避: 再チェック時に別プロセスが known_hosts を変更した場合の
-        // 不整合を防ぐため、ここではスキップが安全。
-        let mut retry_handler = SshHandler::new(server_config.host.clone(), server_config.port);
-        retry_handler.skip_host_key_check = true;
+        // リトライでは利用者が承認した鍵と完全に一致する鍵だけを受け入れる。
+        let retry_handler = SshHandler::for_approved_key(
+            server_config.host.clone(),
+            server_config.port,
+            &info.key_type,
+            &info.key_base64,
+        );
 
         let mut session = tokio::time::timeout(
             Duration::from_secs(ssh_config.timeout_sec),
