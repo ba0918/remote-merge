@@ -1,67 +1,128 @@
 version: 1
 entries:
-  - id: ssh-directory-read
-    base: a7fd6df6f029e4df3ca1dcb898b4a4ad88785d45
+  - id: agent-final-symlink
+    base: c90cc541f7b0f017dabb8d2fb2aad927626f1b81
     role: implementer
     files:
-      - path: "crates/remote-merge-engine/src/local_io.rs"
-        before: "sha256:07a46d197a5adcb5750150bf48a97d5467d68b8b67b2dc314d7399c6ffdb41e6"
-        after: "sha256:5d47d6ce2d83d26ab8207ff4e8dbc5e25967b7c83896c7b86dc1e4f8b70f7400"
-      - path: "crates/remote-merge-ssh/src/client.rs"
-        before: "sha256:08839e30418b7955f55401f00f09bf109f62d4da6bee68f1d6669d2f0fafd764"
-        after: "sha256:2f2a9e59070bec32ff9db6c831a3d6171cfca3d41945bb954a8cb73dfd25b00a"
-      - path: "crates/remote-merge/src/cli/diff.rs"
-        before: "sha256:5cc28b01b80901b489b95e802a7d6463a76e748f177f846b2daddbc008ed51b9"
-        after: "sha256:3b814a51ac3c40c7a955a444a2841e51cf4b41f2c69046a2d8ed92d61d753058"
-      - path: "crates/remote-merge/src/runtime/remote_io.rs"
-        before: "sha256:cb4f0af7700dc3f81a4e1b37d772752810ad7b13af300bbe6a25a99075897198"
-        after: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
-      - path: "crates/remote-merge/tests/cli_diff.rs"
-        before: "sha256:b360e47d453fcc54d6629320f48be0a0906adb65d2081f235d7e6ac37e7e8793"
-        after: "sha256:fc6d3687fc2e9e7bbd383b449575f607845b99ddf9930a793d95d9a60708a673"
+      - path: "crates/remote-merge-agent/src/agent/file_io.rs"
+        before: "sha256:a38e42e1627003538a0dc40ccf4c6438f645172cefddb6e18001bbe2497d04ed"
+        after: "sha256:50de57bfd77f34401a6e0df18e74f3b605ff9efa290e6086d663890956ee3928"
     ir:
-      - path: "docs/ir/cli/FLAGS.md"
-        sha256: "sha256:d53cab2967fc8ad0ae1b6b6b9469c6cfc9b21a2b7789defca45f4af34628b01b"
-      - path: "docs/ir/cli/diff-output.md"
-        sha256: "sha256:1c6da4588177e93aa388dcbc2edc5336b02d425d690cf484f515d4a7e5272f43"
-      - path: "docs/ir/cli/directory-paths.md"
-        sha256: "sha256:56d8c8522765a0671b3fe96797ad7922cd5423ef00271b30c873246c9e292360"
-      - path: "docs/ir/cli/symlink-diff.md"
-        sha256: "sha256:acb01f6df84b5ff52837a8be5a0a855d05a053fb01832803c5a4bdd01268fda6"
-      - path: "docs/ir/config/filters.md"
-        sha256: "sha256:4203fabe2a06d4d94e359117aad87c15e38d6fe0d6a9acb342a54db257a46178"
-    conclusion: new
-    reason: "SSH の一件ずつの読み込みを、openssl で読んだ後にディレクトリでないことを確かめる形にし、ディレクトリをローカルとエージェントと同じくエラーにした。diff はディレクトリを子の一覧の取得の成否で判定し、左右とも子のないディレクトリ（中身の空なもの、include の外のもの）を差分なしとする（REQ-cli-025・REQ-cli-052、include の外は利用者の決定 A1 による新しい REQ-cli-077）。この判定のため diff が使う SSH の子の一覧の取得を find の終了コードを見る形にし（ルートの一覧は変えない）、SSH の側だけ参照先がない symlink もエラー終了にした（REQ-cli-022、A3）。diff がディレクトリを子のパスに展開するとき、ディレクトリでないと分かっている側（子の一覧が取れず中身を通常ファイルとして読めた側、参照先を読めない symlink でそのパスの誤りを記録した側、既にないものとした側の下）にだけその子がないものとし、その側の子のパスを調べも読みもしない。子の一覧の取得に失敗しただけの側（読む権限のないディレクトリ、SSH の一覧の取得の失敗）はないものとせず、比較元と同じくその側でも子を調べて読む。これにより通常ファイルと SSH のディレクトリ symlink の組でも配下を子パスで示し（REQ-cli-021、A2）、片側が参照先のない symlink、もう片側がディレクトリの組では、読めない側をエラーにしたうえで読めた側の子の差分も示す（REQ-cli-022）。rollback・バックアップ・書き込みも使うローカルとエージェントの共有のパスの検査は比較元のまま変えていない。指定したパスが多くツリーから解決する場合も、ファイルを一つも解決しなかったパスを子の一覧の取得で確かめ、左右ともディレクトリで配下に比べるファイルがなければ差分なしとする（REQ-cli-025・REQ-cli-077）。ルートの指定（「.」と「./」）はこの確かめから外し、ツリーから解決した結果だけで決める従来の振る舞いを保った。この確かめで利用者の入力したパスがローカルの root_dir の外のディレクトリを一覧しないよう、ローカルの子の一覧はほかのローカルの操作と同じ root_dir の内側の検査を通してから読む（入力パスの親ディレクトリへの遡りを禁じる REQ-cli-026）。FLAG-cli-033 の答えは A1・A4 で記録し、A1 は利用者の決定で左右の両方にある場合に絞った。片側にだけあって配下に比べるファイルのないディレクトリは決まっておらず、FLAG-cli-073 に残した（振る舞いは選んでいない）。子がすべて exclude に当たるディレクトリを指定した diff がどの経路でも差分なしになることは、利用者の決定 A5 で決めずに FLAG-cli-031 に観察として加えた。"
+      - path: "docs/ir/merge/symlink.md"
+        sha256: "sha256:374a23e7e9863821c0becbac5a9b8bcbc9cecdff29380177c608e46f82c17ae1"
+    conclusion: existing
+    reason: "Agent \u306e\u66f8\u304d\u8fbc\u307f\u3068 symlink \u306e\u4f5c\u6210\u3060\u3051\u3001\u89aa\u30c7\u30a3\u30ec\u30af\u30c8\u30ea\u307e\u3067\u3092\u4eca\u306e\u691c\u67fb\u3068\u540c\u3058\u306b root_dir \u306e\u5185\u5074\u304b\u78ba\u304b\u3081\u3001\u6700\u5f8c\u306e\u8981\u7d20\u3092\u8fbf\u3089\u306a\u3044\u30d1\u30b9\u3092\u4f7f\u3046\u3002symlink \u306e\u4f5c\u308a\u76f4\u3057\u306f\u30ea\u30f3\u30af\u305d\u306e\u3082\u306e\u3092\u6d88\u3057\u3066\u4f5c\u308a\u3001\u30ea\u30f3\u30af\u5148\u3092\u6d88\u3055\u306a\u3044\uff08REQ-merge-003\uff09\u3002\u901a\u5e38\u30d5\u30a1\u30a4\u30eb\u306e\u66f8\u304d\u8fbc\u307f\u306f O_NOFOLLOW \u3067\u958b\u304d\u3001\u6700\u5f8c\u306e\u8981\u7d20\u304c\u65e2\u5b58\u306e symlink \u306a\u3089\u30ea\u30f3\u30af\u3082\u30ea\u30f3\u30af\u5148\u3082\u5909\u3048\u305a\u306b\u30a8\u30e9\u30fc\u306b\u3059\u308b\u3002\u30ea\u30f3\u30af\u3092\u901a\u5e38\u30d5\u30a1\u30a4\u30eb\u306b\u7f6e\u304d\u63db\u3048\u308b\u306e\u306f REQ-merge-001 \u304c\u7981\u3058\u308b\u7a2e\u985e\u306e\u5909\u66f4\u3067\u3001\u30ea\u30f3\u30af\u5148\u3078\u66f8\u304f\u306e\u306f\u66f8\u304d\u8fbc\u307f\u5148\u306e\u5916\u3092\u5909\u3048\u308b\u305f\u3081\u3001\u8981\u4ef6\u306e\u7bc4\u56f2\u3067\u6b8b\u308b\u9078\u629e\u306f\u30a8\u30e9\u30fc\u3060\u3051\u3067\u3042\u308b\uff08\u5224\u65ad\u306e\u8a18\u9332 A6 \u306b\u3001\u88fd\u54c1\u5074\u304c\u3053\u306e\u30a8\u30e9\u30fc\u3067 Agent \u3092\u4f7f\u3048\u306a\u3044\u3082\u306e\u3068\u3059\u308b\u65e2\u5b58\u306e\u6271\u3044\u306e\u53d7\u3051\u5165\u308c\u3068\u3042\u308f\u305b\u3066\u6b8b\u3057\u305f\uff09\u3002\u8aad\u307f\u8fbc\u307f\u30fbstat\u30fb\u30cf\u30c3\u30b7\u30e5\u304c\u4f7f\u3046 validate_path \u3068\u9014\u4e2d\u306e symlink \u306e\u6271\u3044\u306f\u5909\u3048\u3066\u3044\u306a\u3044\u3002"
     requirements:
-      - REQ-cli-021
-      - REQ-cli-022
-      - REQ-cli-025
-      - REQ-cli-026
-      - REQ-cli-052
-      - REQ-cli-077
-      - REQ-config-004
+      - REQ-merge-001
+      - REQ-merge-003
+    decisions: []
+    handoff: null
+    gaps: []
+  - id: ssh-host-key-trust
+    base: c90cc541f7b0f017dabb8d2fb2aad927626f1b81
+    role: implementer
+    files:
+      - path: "crates/remote-merge-ssh/src/client.rs"
+        before: "sha256:2f2a9e59070bec32ff9db6c831a3d6171cfca3d41945bb954a8cb73dfd25b00a"
+        after: "sha256:3b14eb021d77e6759241fc6405554910ac4fa0fabbd3bfee4927a2f3f98aeed1"
+      - path: "crates/remote-merge-ssh/src/known_hosts.rs"
+        before: "sha256:5950d6853a332af43974a319a8e6cb57feeefae328eff2b9fedef94fb058c4e8"
+        after: "sha256:c6891d83603cb0feae8c86d847e05360294c4ded014d375654c84eca88d7298b"
+      - path: "crates/remote-merge-ssh/src/known_hosts_io.rs"
+        before: "sha256:93a85fda4b0bd235440375cffc57ed37ce6bcb1a7f5d8b791da51a6966b89c4e"
+        after: "sha256:cb730736c775a79897a4291c7def234051e945b17d3a8e1811a2f49d51c7fafa"
+      - path: "crates/remote-merge/tests/contract/ssh_host_key.rs"
+        before: "sha256:bfd6ddcda48639ddd30f79d76cd753478d387dba4a79440e5a8ebde6549d8e01"
+        after: "sha256:d73c2298e616bea36ac148794753705180eabab96284cd1ec21163926c913525"
+      - path: "crates/remote-merge/tests/contract/ssh_server.rs"
+        before: "sha256:f41c17d626acf546dcc54878dff65d3d0475d92b478e793dfacb5b3d108bc29b"
+        after: "sha256:9c1db8659d3fd84575d488682a86fbf9fcb18006fa32e304911788d11d6f5d0d"
+    ir:
+      - path: "docs/ir/ssh/host-key.md"
+        sha256: "sha256:55e25331e763ea7f3568c6b2b0f73df58669cadb1e8a41e79617580ee15d9d6b"
+    conclusion: new
+    reason: "\u30db\u30b9\u30c8\u9375\u306e\u5224\u5b9a\u3092 known_hosts \u306e\u5185\u5bb9\u3068\u63d0\u793a\u3055\u308c\u305f\u9375\u3060\u3051\u3092\u53d7\u3051\u53d6\u308b\u95a2\u6570\u306b\u5207\u308a\u51fa\u3057\u305f\u3002\u540c\u3058\u30db\u30b9\u30c8\u304c\u5225\u306e\u9375\u7a2e\u5225\u3067\u3060\u3051\u767b\u9332\u3055\u308c\u3066\u3044\u308b\u3068\u304d\u306f\u3001\u63d0\u793a\u3055\u308c\u305f\u9375\u3092\u78ba\u304b\u3081\u308b\u767b\u9332\u304c\u306a\u3044\u306e\u3067\u672a\u77e5\u306e\u9375\u3068\u3057\u3066\u78ba\u8a8d\u306b\u56de\u3059\uff08REQ-ssh-001\u30fbREQ-ssh-002 \u304b\u3089\u5c0e\u3044\u305f A5\u3002strict=yes \u3084\u78ba\u8a8d\u624b\u6bb5\u304c\u306a\u3051\u308c\u3070\u6b62\u307e\u308a\u3001--yes \u3084 strict=no \u3067\u306f\u627f\u8a8d\u3067\u304d\u308b\uff09\u3002\u672a\u77e5\u306e\u9375\u3092\u627f\u8a8d\u3057\u305f\u76f4\u5f8c\u306e\u518d\u63a5\u7d9a\u306f\u691c\u67fb\u3092\u98db\u3070\u3055\u305a\u3001\u627f\u8a8d\u3057\u305f\u9375\u306e\u7a2e\u5225\u3068 base64 \u306b\u5b8c\u5168\u306b\u4e00\u81f4\u3059\u308b\u9375\u3060\u3051\u3092\u53d7\u3051\u5165\u308c\u308b\uff08REQ-ssh-001\uff09\u3002\u30d5\u30a1\u30a4\u30eb\u304c\u306a\u3044\u3053\u3068\u4ee5\u5916\u306e known_hosts \u306e\u8aad\u307f\u8fbc\u307f\u306e\u5931\u6557\u3067\u306f\u63a5\u7d9a\u3092\u6b62\u3081\uff08A1\u3001REQ-ssh-012\uff09\u3001\u4eca\u306e\u7167\u5408\u304c\u4e00\u81f4\u3068\u5224\u5b9a\u3059\u308b\u30db\u30b9\u30c8\u306e\u66f8\u304d\u65b9\u3067 \"@revoked\" \u3068\u3055\u308c\u305f\u9375\u306f\u540c\u3058\u9375\u306e\u901a\u5e38\u306e\u884c\u304c\u3042\u3063\u3066\u3082 --yes \u3067\u3082\u53d7\u3051\u5165\u308c\u306a\u3044\uff08A2\u3001REQ-ssh-013\u3002\u30ef\u30a4\u30eb\u30c9\u30ab\u30fc\u30c9\u306f\u6271\u308f\u306a\u3044\uff09\u3002\u9375\u304c\u5909\u308f\u3063\u305f\u30db\u30b9\u30c8\u306e\u62d2\u5426\u306f\u5909\u3048\u3066\u3044\u306a\u3044\u3002\u8a66\u9a13\u30b5\u30fc\u30d0\u306b\u306f\u30db\u30b9\u30c8\u9375\u306e\u516c\u958b\u9375\u3092\u8fd4\u3059\u30a2\u30af\u30bb\u30b5\u3060\u3051\u3092\u8db3\u3057\u305f\u3002"
+    requirements:
+      - REQ-ssh-001
+      - REQ-ssh-002
+      - REQ-ssh-012
+      - REQ-ssh-013
     decisions:
-      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A1"
-      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A2"
-      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A3"
-      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
-      - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
+      - "docs/decision/records/2026-10-05-harden-security.md#A1"
+      - "docs/decision/records/2026-10-05-harden-security.md#A2"
+      - "docs/decision/records/2026-10-05-harden-security.md#A5"
     handoff: null
     gaps:
-      - category: spec_conflict
-        disposition: fixed
-        refs:
-          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A2"
-      - category: spec_conflict
-        disposition: fixed
-        refs:
-          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A3"
       - category: missing_spec
         disposition: recorded
         refs:
-          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A1"
-          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A4"
+          - "docs/decision/records/2026-10-05-harden-security.md#A1"
       - category: missing_spec
         disposition: recorded
         refs:
-          - "docs/decision/records/2026-10-05-ssh-directory-read.md#A5"
+          - "docs/decision/records/2026-10-05-harden-security.md#A2"
+  - id: agent-deploy-safety
+    base: c90cc541f7b0f017dabb8d2fb2aad927626f1b81
+    role: implementer
+    files:
+      - path: "crates/remote-merge-agent/src/agent/deploy/deploy_dir.rs"
+        before: null
+        after: "sha256:29662a1df7a2cbad0afbe32d5918bc33381b3f684257a588e5a2e325f3672656"
+      - path: "crates/remote-merge-agent/src/agent/deploy/mod.rs"
+        before: "sha256:5c9f3e43991e19728c24568ed5a896e4dcec65ce6bd9ca9f14007701e13a8a05"
+        after: "sha256:316aadee9317690916784802d6dfc9513eeb77af83027ed56f5c9dc7a1c1ce70"
+      - path: "crates/remote-merge-agent/src/agent/deploy/transfer.rs"
+        before: "sha256:5de435270cedab67165e0f7145b58ad472e90ce329e17cd1551a94e6e412d9ae"
+        after: "sha256:b307e2bd9196f8e97fe824fadef6059b584af1e1023db6e232dbba0928fa48b6"
+      - path: "crates/remote-merge-agent/src/agent/deploy/verify.rs"
+        before: "sha256:83851075ad578400d0272d8c7cf844d27614bbcf0a985a0b74988db519580958"
+        after: "sha256:381b747c7d5d6b554fe178084518cc2628fc5f2d2849d3963b9e00b40eb247a1"
+      - path: "crates/remote-merge/src/agent/deploy/mod.rs"
+        before: "sha256:87ec8f79788aa2f2935b677518c44f1b5c276cc67ba240083d17ae237bc8fe53"
+        after: "sha256:cb4610c8acb538d445bc394577b732d93e5ed1af2d3b459950519d66451c7fb8"
+      - path: "crates/remote-merge/src/runtime/core.rs"
+        before: "sha256:d29b3296ac4d604d93633c63019fd44ba67d3531f029002d1b88562f5c139e36"
+        after: "sha256:2b63ad9d2937c4ecd4abdcc7619d329719227f9bb0a0fc795fb4b8e7bfd32dde"
+      - path: "crates/remote-merge/tests/contract.rs"
+        before: "sha256:8e3b6cffe6b9b6c235daf2ee13e013ad3a7b6d274143efa6bd979f8075b4d3ab"
+        after: "sha256:9c857d7bf1119f766d97a3e289d738a7a00947d23b4ecfdad081ca01f799e423"
+      - path: "crates/remote-merge/tests/contract/scan_listing_cli.rs"
+        before: "sha256:a414f17c5c27374f9bc86ca4738fb44216c72e5053d12b5b59eab438c749b7f7"
+        after: "sha256:f8fd9c57911fd145d8cbbdd844ba4e988d0c39cda77fc52078df6a64621bbf88"
+      - path: "crates/remote-merge/tests/contract/ssh_agent_deploy.rs"
+        before: null
+        after: "sha256:6a8d7aad758342ec4edfd2bc82787a441537ab3b023f8051c39f02c1a6b858f2"
+      - path: "crates/remote-merge/tests/contract/ssh_external_link.rs"
+        before: "sha256:f248687b885254d83cd1a12ede4f056c00a829338532b31d29747cfa1689a617"
+        after: "sha256:cb1ef59b0113e1606988de564746beb01ee609c6b338f2a56eedcf85bb7dbc71"
+      - path: "crates/remote-merge/tests/contract/ssh_fallback.rs"
+        before: "sha256:2f2d6f6cf118d8825e1e52f1c50d39da2c7f1af3a124d27c7b2d4b27f1e4b79e"
+        after: "sha256:9e0eeab501a1a3d7a0dc9d763884dd41f7ab666140f2e97dbc9e749826f12196"
+    ir:
+      - path: "docs/ir/ssh/deploy.md"
+        sha256: "sha256:4f1e6be0ef8ee40a9a5471a31ac16dba826c1aff9b7e3cc2c9ed7c23bdaca753"
+      - path: "docs/ir/ssh/fallback.md"
+        sha256: "sha256:8e904c682d2217b6d4a0f68cb8ca447806aae03f3186c1753c4c30ec768d3b52"
+      - path: "docs/ir/ssh/sudo.md"
+        sha256: "sha256:fff7515a23429bb7bb3fc7d3ecbc6b0cb14a865cdf3fb310566d181d3bca1c73"
+    conclusion: new
+    reason: "\u7248\u306e\u78ba\u8a8d\u3088\u308a\u524d\u306b\u914d\u7f6e\u5148\u306e\u30c7\u30a3\u30ec\u30af\u30c8\u30ea\u3092\u4e00\u3064\u306e POSIX sh \u306e\u30b3\u30de\u30f3\u30c9\u3067\u691c\u67fb\u3059\u308b\u3002\u306a\u3051\u308c\u3070 mkdir -m 700 \u3067\u4f5c\u308a\uff08sudo=true \u3067\u306f sudo \u3067\u4f5c\u308b\uff09\u3001symlink \u3067\u3042\u308b\u3068\u304d\u3001\u6240\u6709\u8005\u304c SSH \u306e\u30bb\u30c3\u30b7\u30e7\u30f3\u306e id -u\uff08sudo=true \u3067\u306f 0\uff09\u3067\u306a\u3044\u3068\u304d\u3001ls -ldn \u306e\u6a29\u9650\u306e\u5217\u3067\u30b0\u30eb\u30fc\u30d7\u304b\u305d\u306e\u4ed6\u304c\u66f8\u304d\u8fbc\u3081\u308b\u3068\u304d\u306f\u4e2d\u306e\u3082\u306e\u3092\u4f55\u3082\u5b9f\u884c\u305b\u305a\u3001Agent \u3092\u8d77\u52d5\u3067\u304d\u306a\u3044\u65e2\u5b58\u306e\u7d4c\u8def\u306b\u4e57\u305b\u308b\uff08A3\u3001REQ-ssh-014\u30fbREQ-ssh-015\u3002sudo=false \u3067\u306f SSH \u306e\u7d4c\u8def\u3067\u7d9a\u3051 REQ-ssh-005\u3001sudo=true \u3067\u306f\u6b62\u307e\u308b REQ-ssh-009 \u3092\u5909\u3048\u306a\u3044\uff09\u3002\u7248\u304c\u4e00\u81f4\u3057\u305f\u3068\u304d\u3082\u30ed\u30fc\u30ab\u30eb\u306e Agent \u306e\u30d0\u30a4\u30ca\u30ea\u3092\u89e3\u6c7a\u3067\u304d\u308c\u3070 SHA-256 \u3092\u7167\u5408\u3057\u3001\u4e0d\u4e00\u81f4\u304b __UNSUPPORTED__ \u306a\u3089\u7248\u304c\u9055\u3046\u3068\u304d\u3068\u540c\u3058\u914d\u7f6e\u306e\u7d4c\u8def\u3067\u7f6e\u304d\u76f4\u3057\u3001\u89e3\u6c7a\u3067\u304d\u306a\u3051\u308c\u3070\u7167\u5408\u305b\u305a\u306b\u5b9f\u884c\u3059\u308b\uff08A4\u3001REQ-ssh-016\uff09\u3002\u65b0\u3057\u3044\u6587\u8a00\u3084\u7d42\u4e86\u30b3\u30fc\u30c9\u306f\u5951\u7d04\u306b\u3057\u3066\u3044\u306a\u3044\u3002umask \u306b\u3088\u3063\u3066\u30b0\u30eb\u30fc\u30d7\u304c\u66f8\u304d\u8fbc\u3081\u308b\u30e2\u30fc\u30c9\u306b\u306a\u308b\u65e2\u5b58\u306e\u8a66\u9a13\u306e\u914d\u7f6e\u5148\u306f\u30e2\u30fc\u30c9\u3092\u660e\u793a\u3057\u3001Agent \u3092\u4f7f\u3046\u65e2\u5b58\u306e\u8a66\u9a13\u306f Agent \u304c\u5b9f\u969b\u306b\u8d77\u52d5\u3057\u305f\u3053\u3068\u3082\u78ba\u304b\u3081\u308b\u3002"
+    requirements:
+      - REQ-ssh-005
+      - REQ-ssh-009
+      - REQ-ssh-014
+      - REQ-ssh-015
+      - REQ-ssh-016
+    decisions:
+      - "docs/decision/records/2026-10-05-harden-security.md#A3"
+      - "docs/decision/records/2026-10-05-harden-security.md#A4"
+    handoff: null
+    gaps:
+      - category: missing_spec
+        disposition: recorded
+        refs:
+          - "docs/decision/records/2026-10-05-harden-security.md#A3"
+      - category: missing_spec
+        disposition: recorded
+        refs:
+          - "docs/decision/records/2026-10-05-harden-security.md#A4"
