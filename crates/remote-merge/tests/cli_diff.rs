@@ -1883,3 +1883,65 @@ fn link_text_with_a_dot_component_still_shows_changed_contents() {
         "{output:?}"
     );
 }
+
+/// diff を起動し、比較の結果を出さずに `message` のエラーで終了コード 2 になったことを確かめる
+fn assert_diff_stops_before_comparing(env: &CliEnv, args: &[&str], message: &str) {
+    let output = env.cmd_with("diff").args(args).output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(message),
+        "{output:?}"
+    );
+    assert!(output.stdout.is_empty(), "{output:?}");
+}
+
+// @kotowari[EX-cli-069]
+#[test]
+fn an_absolute_path_beside_a_valid_path_stops_diff_without_comparing() {
+    let env = CliEnv::new(&[("a.txt", "left\n")], &[("a.txt", "right\n")]);
+    assert_diff_stops_before_comparing(
+        &env,
+        &["a.txt", "/etc/passwd"],
+        "absolute subpath not allowed: /etc/passwd",
+    );
+}
+
+// @kotowari[REQ-cli-078]
+#[test]
+fn an_absolute_path_stops_diff_even_when_a_glob_scans_the_whole_root_dir() {
+    let env = CliEnv::new(&[("a.txt", "left\n")], &[("a.txt", "right\n")]);
+    assert_diff_stops_before_comparing(
+        &env,
+        &["*.txt", "/etc/passwd"],
+        "absolute subpath not allowed: /etc/passwd",
+    );
+}
+
+// @kotowari[REQ-cli-078]
+#[test]
+fn an_absolute_path_stops_diff_even_when_many_paths_scan_the_whole_root_dir() {
+    let env = CliEnv::new(&[("a.txt", "left\n")], &[("a.txt", "right\n")]);
+    let mut args: Vec<String> = (0..21).map(|index| format!("f{index}.txt")).collect();
+    args.push("/etc/passwd".into());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    assert_diff_stops_before_comparing(&env, &args, "absolute subpath not allowed: /etc/passwd");
+}
+
+// @kotowari[REQ-cli-078]
+#[test]
+fn an_absolute_directory_path_is_reported_as_it_was_typed() {
+    let env = CliEnv::new(&[("a.txt", "left\n")], &[("a.txt", "right\n")]);
+    assert_diff_stops_before_comparing(&env, &["/etc/"], "absolute subpath not allowed: /etc/");
+}
+
+// @kotowari[REQ-cli-078]
+#[test]
+fn a_parent_component_stops_diff_before_connecting_to_the_server() {
+    let env = CliEnv::new(&[("b.txt", "left\n")], &[("b.txt", "right\n")]);
+    env.reject_logins_after(0);
+    assert_diff_stops_before_comparing(
+        &env,
+        &["a/../b.txt"],
+        "path traversal not allowed: a/../b.txt",
+    );
+}

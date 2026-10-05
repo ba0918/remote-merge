@@ -12,10 +12,23 @@ use crate::tree::{FileNode, FileTree};
 ///
 /// ルートマーカーが含まれている場合、全ファイルを対象にする。
 fn has_root_marker(paths: &[String]) -> bool {
-    paths.iter().any(|p| {
-        let n = p.trim_end_matches('/');
-        n == "." || n.is_empty()
-    })
+    paths.iter().any(|p| is_root_marker(p))
+}
+
+/// コマンドのパスの引数が、root_dir の外を指しうる値を含まないか検証する。
+///
+/// root_dir 全体を指す値（`has_root_marker` と同じく、末尾の "/" を除くと空か "." になる値）は
+/// 受け付ける。それ以外は入力されたままの値を `check_rel_path` で検査し、エラーにもその値を出す。
+pub fn check_path_arguments(paths: &[String]) -> anyhow::Result<()> {
+    paths
+        .iter()
+        .filter(|path| !is_root_marker(path))
+        .try_for_each(|path| crate::rel_path::check_rel_path(path))
+}
+
+fn is_root_marker(path: &str) -> bool {
+    let n = path.trim_end_matches('/');
+    n == "." || n.is_empty()
 }
 
 /// パスにトラバーサルコンポーネント（`..`）が含まれていないか検証する。
@@ -247,6 +260,46 @@ mod tests {
     use super::*;
     use crate::tree::FileNode;
     use std::path::PathBuf;
+
+    #[test]
+    fn path_arguments_naming_the_root_dir_are_accepted() {
+        for path in ["/", "//", ".", "./", ""] {
+            assert!(
+                check_path_arguments(&[path.to_string()]).is_ok(),
+                "{path:?} was rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn path_arguments_inside_the_root_dir_are_accepted() {
+        for path in ["a.txt", "dir/", "dir/a.txt", "a..b.txt", "./a.txt"] {
+            assert!(
+                check_path_arguments(&[path.to_string()]).is_ok(),
+                "{path:?} was rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn absolute_path_arguments_are_rejected_as_typed() {
+        for path in ["/etc/passwd", "/etc/", "/."] {
+            let error = check_path_arguments(&["a.txt".to_string(), path.to_string()])
+                .expect_err(path)
+                .to_string();
+            assert_eq!(error, format!("absolute subpath not allowed: {path}"));
+        }
+    }
+
+    #[test]
+    fn path_arguments_with_a_parent_component_are_rejected_as_typed() {
+        for path in ["..", "../b.txt", "a/../b.txt", "a/..", "a/../"] {
+            let error = check_path_arguments(&[path.to_string()])
+                .expect_err(path)
+                .to_string();
+            assert_eq!(error, format!("path traversal not allowed: {path}"));
+        }
+    }
 
     /// テスト用ツリーを構築する。
     ///

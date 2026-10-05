@@ -91,6 +91,9 @@ mod merge_results;
 mod merge_support;
 #[path = "contract/merge_write.rs"]
 mod merge_write;
+#[cfg(feature = "test-utils")]
+#[path = "contract/path_arguments_cli.rs"]
+mod path_arguments_cli;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[path = "contract/scan_limit_scope.rs"]

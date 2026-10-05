@@ -14,7 +14,7 @@ use crate::service::max_files::{changes_without_reading, limit_changed_files, Ch
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
-    check_path_traversal, filter_changed_files, partition_existing_files,
+    check_path_arguments, filter_changed_files, partition_existing_files,
     resolve_target_files_from_statuses,
 };
 use crate::service::source_pair::{
@@ -92,6 +92,7 @@ pub fn execute_diff(
 ) -> anyhow::Result<(MultiDiffOutput, i32)> {
     OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
+    check_path_arguments(&args.paths)?;
     for path in &mut args.paths {
         if !path.trim_end_matches('/').is_empty() {
             *path = path.trim_end_matches('/').to_string();
@@ -120,17 +121,14 @@ pub fn execute_diff(
 
     let (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes) =
         match strategy {
-            ScanStrategy::FastPath(ref target_paths) => {
-                check_path_traversal(target_paths)?;
-                run_diff_fast_path(
-                    target_paths,
-                    (&pair.left, &left_root),
-                    (&pair.right, &right_root),
-                    &mut core,
-                    &config,
-                    args.follow_external_links,
-                )?
-            }
+            ScanStrategy::FastPath(ref target_paths) => run_diff_fast_path(
+                target_paths,
+                (&pair.left, &left_root),
+                (&pair.right, &right_root),
+                &mut core,
+                &config,
+                args.follow_external_links,
+            )?,
             ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
                 dir_paths,
                 &args.paths,

@@ -386,6 +386,21 @@ impl AgentFixture {
         output
     }
 
+    /// 隔離を確かめてから、エージェントを有効にした設定で `diff --left local --right develop <args>`
+    /// を起動し、出力と試験サーバが受けたコマンドを返す。エージェントが起動したかは確かめない
+    pub(super) fn diff_with_agent_enabled(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        args: &[&str],
+    ) -> (Output, Vec<String>) {
+        let config_path = self.temp.path().join("diff-agent-config.toml");
+        fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
+        self.assert_isolated_agent_config(&config_path);
+        let output = super::diff_output_cli::launch_diff(self.temp.path(), &config_path, args);
+        (output, self.server.commands())
+    }
+
     /// 試験サーバがエージェントの起動を受けたことを確かめ、受けたコマンドを返す
     fn assert_agent_started(&self) -> Vec<String> {
         let commands = self.server.commands();
