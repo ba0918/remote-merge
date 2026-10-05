@@ -248,6 +248,12 @@ pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<TargetP
     }
 }
 
+/// `rel_path` が辿った先で通常ファイルかを返す。調べられなければエラー
+pub fn is_regular_file(root: &Path, rel_path: &str) -> anyhow::Result<bool> {
+    executor::validate_remote_path(&root.to_string_lossy(), rel_path)?;
+    Ok(std::fs::metadata(root.join(rel_path))?.is_file())
+}
+
 pub fn read_file(root: &Path, rel_path: &str) -> anyhow::Result<String> {
     executor::read_local_file(root, rel_path)
         .with_context(|| format!("read local file: {rel_path}"))

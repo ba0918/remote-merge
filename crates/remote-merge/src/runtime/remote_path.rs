@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use super::core::CoreRuntime;
 use super::target_io::TargetPath;
 
 /// 検査のスクリプトが使う関数。ローカルの検査（`inspect_local_path`）と同じ規則で、
@@ -78,6 +79,45 @@ pub(crate) fn build_inspect_path_command(path: &str) -> String {
         one_line(INSPECT_PATH_FUNCTIONS),
         one_line(INSPECT_PATH_BODY)
     )
+}
+
+/// 辿った先が通常ファイルかを問うコマンド。失敗を終了コードにしないよう、答えを出力で返す
+pub(crate) fn build_is_regular_file_command(path: &str) -> String {
+    let path = crate::ssh::tree_parser::shell_escape(path);
+    format!("if [ -f {path} ]; then echo regular; else echo other; fi")
+}
+
+pub(crate) fn parse_is_regular_file_output(output: &str) -> anyhow::Result<bool> {
+    match output.trim_end_matches(['\r', '\n']) {
+        "regular" => Ok(true),
+        "other" => Ok(false),
+        other => anyhow::bail!("unknown file kind output: {other}"),
+    }
+}
+
+impl CoreRuntime {
+    /// SSH の経路で、root_dir からの `rel_path` が辿った先で通常ファイルかを問う
+    pub(crate) fn remote_is_regular_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<bool> {
+        let root = self
+            .get_server_config(server_name)?
+            .root_dir
+            .to_string_lossy()
+            .to_string();
+        let full_path = crate::merge::executor::validate_remote_path(&root, rel_path)?;
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
+        let output = self.rt.block_on(crate::ssh::exec_strict(
+            client,
+            &build_is_regular_file_command(&full_path),
+        ))?;
+        parse_is_regular_file_output(&output)
+    }
 }
 
 pub(crate) fn parse_inspect_path_output(output: &str) -> anyhow::Result<TargetPath> {

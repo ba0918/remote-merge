@@ -6,6 +6,8 @@
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
+use crate::local_io::TargetPath;
+
 use super::types::{
     BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
 };
@@ -98,6 +100,23 @@ pub fn decide_restore_path(
             RestorePathDecision::Skip("path now resolves to a different location")
         }
         CurrentRestorePath::Missing { .. } => RestorePathDecision::Restore,
+    }
+}
+
+/// 書き戻し先の検査が失敗したときの、今の状態の読み方。
+///
+/// すぐ上の親の検査が symlink でない `File` を返し、`parent_is_regular_file` が辿った先で通常
+/// ファイルと答えたときだけ、親ディレクトリのないファイルとして扱う。それ以外は `None` を返し、
+/// 検査の失敗のまま "cannot resolve path: " にする。親の種類は親が `File` のときだけ問い合わせる。
+pub fn restore_path_after_failed_inspection(
+    parent: Option<&TargetPath>,
+    parent_is_regular_file: impl FnOnce() -> Option<bool>,
+) -> Option<CurrentRestorePath> {
+    match parent {
+        Some(TargetPath::File { .. }) if parent_is_regular_file() == Some(true) => {
+            Some(CurrentRestorePath::Missing { real_parent: None })
+        }
+        _ => None,
     }
 }
 
@@ -291,6 +310,55 @@ mod tests {
         );
 
         assert_eq!(decision, RestorePathDecision::Restore);
+    }
+
+    fn file_parent() -> TargetPath {
+        TargetPath::File {
+            real_path: PathBuf::from("/root/dir"),
+        }
+    }
+
+    #[test]
+    fn a_failed_inspection_under_a_regular_file_parent_becomes_a_missing_parent() {
+        assert_eq!(
+            restore_path_after_failed_inspection(Some(&file_parent()), || Some(true)),
+            Some(CurrentRestorePath::Missing { real_parent: None })
+        );
+    }
+
+    #[test]
+    fn a_failed_inspection_under_a_directory_parent_stays_a_failure() {
+        assert_eq!(
+            restore_path_after_failed_inspection(Some(&file_parent()), || Some(false)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_failed_inspection_under_a_parent_of_unknown_kind_stays_a_failure() {
+        assert_eq!(
+            restore_path_after_failed_inspection(Some(&file_parent()), || None),
+            None
+        );
+    }
+
+    #[test]
+    fn a_failed_inspection_under_a_symlink_or_missing_or_failed_parent_stays_a_failure() {
+        let symlink = TargetPath::Symlink {
+            link_target: PathBuf::from("file.txt"),
+            real_path: PathBuf::from("/root/file.txt"),
+        };
+        let missing = TargetPath::Missing {
+            real_parent: PathBuf::from("/root"),
+        };
+        for parent in [Some(&symlink), Some(&missing), None] {
+            assert_eq!(
+                restore_path_after_failed_inspection(parent, || -> Option<bool> {
+                    panic!("the kind of a parent that is not a plain file is not asked")
+                }),
+                None
+            );
+        }
     }
 
     #[test]

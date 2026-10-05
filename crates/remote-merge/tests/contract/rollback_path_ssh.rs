@@ -72,3 +72,31 @@ fn an_unresolvable_path_blocks_every_file_in_the_rollback_session_over_ssh() {
     }
     assert_eq!(develop_file(&env, "first.txt"), "merged\n");
 }
+
+// @kotowari[EX-backup-027]
+#[test]
+fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file_over_ssh() {
+    let env = CliEnv::new(
+        &[],
+        &[
+            ("dir/a.txt", "deleted a\n"),
+            ("other.txt", "deleted other\n"),
+        ],
+    );
+    merge(&env, &["dir/a.txt", "other.txt", "--delete"]);
+    assert!(!env.remote_dir.join("other.txt").exists());
+    fs::remove_dir_all(env.remote_dir.join("dir")).unwrap();
+    fs::write(env.remote_dir.join("dir"), "now a file\n").unwrap();
+
+    let (_, json) = rollback(&env);
+
+    assert_eq!(
+        json["skipped"],
+        serde_json::json!([{"path": "dir/a.txt", "reason": "parent directory no longer exists"}]),
+        "{json}"
+    );
+    assert_eq!(json["restored"][0]["path"], "other.txt", "{json}");
+    assert_eq!(json["restored"].as_array().map(Vec::len), Some(1), "{json}");
+    assert_eq!(develop_file(&env, "other.txt"), "deleted other\n");
+    assert_eq!(develop_file(&env, "dir"), "now a file\n");
+}

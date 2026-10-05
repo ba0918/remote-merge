@@ -401,6 +401,51 @@ impl AgentFixture {
         (output, self.server.commands())
     }
 
+    /// 隔離を確かめてから、エージェントを有効にした設定で実行ファイルを `args` で起動する。
+    /// この起動で試験サーバがエージェントの起動を受け、パスの確認が SSH の経路を通らなかったことを
+    /// 確かめて出力を返す。merge と rollback の起動に使う
+    pub(super) fn run_with_agent(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        args: &[&str],
+    ) -> Output {
+        let config_path = self.temp.path().join("command-agent-config.toml");
+        fs::write(&config_path, self.config(local_root, remote_root)).unwrap();
+        self.assert_isolated_agent_config(&config_path);
+        let home = self.temp.path().join("home");
+        fs::create_dir_all(&home).unwrap();
+        let received_before = self.server.commands().len();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        cmd.env_clear();
+        cmd.env("HOME", &home);
+        cmd.env("XDG_CONFIG_HOME", home.join(".config"));
+        cmd.env("XDG_DATA_HOME", self.temp.path().join("xdg-data"));
+        if let Ok(path) = std::env::var("PATH") {
+            cmd.env("PATH", path);
+        }
+        cmd.current_dir(&home);
+        cmd.arg("--config").arg(&config_path);
+        cmd.args(args);
+        cmd.stdin(Stdio::null());
+        let output = cmd.output().expect("failed to execute remote-merge");
+        // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
+        let commands = self.server.commands().split_off(received_before);
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.contains(" agent --root ")),
+            "the agent was not started: {commands:?}"
+        );
+        assert!(
+            !commands
+                .iter()
+                .any(|command| command.contains("resolve_existing_prefix")),
+            "a path was inspected over plain SSH: {commands:?}"
+        );
+        output
+    }
+
     /// 試験サーバがエージェントの起動を受けたことを確かめ、受けたコマンドを返す
     fn assert_agent_started(&self) -> Vec<String> {
         let commands = self.server.commands();

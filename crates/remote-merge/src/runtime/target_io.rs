@@ -17,6 +17,12 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         rel_path: &str,
     ) -> anyhow::Result<TargetPath>;
+    /// `rel_path` が辿った先で通常ファイルか。調べられなければエラー
+    fn is_regular_file(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        rel_path: &str,
+    ) -> anyhow::Result<bool>;
     fn read_file(&mut self, runtime: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String>;
     fn read_files_batch(
         &mut self,
@@ -120,6 +126,10 @@ impl LocalTargetIo {
 impl TargetIo for LocalTargetIo {
     fn inspect_path(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<TargetPath> {
         remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
+    }
+
+    fn is_regular_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<bool> {
+        remote_merge_engine::local_io::is_regular_file(&self.root, rel_path)
     }
 
     fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {
@@ -273,6 +283,13 @@ impl TargetIo for RemoteTargetIo {
         }
         rt.check_sudo_fallback(&self.name)?;
         rt.inspect_remote_path(&self.name, path)
+    }
+    fn is_regular_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<bool> {
+        if let Some(value) = rt.try_agent_is_regular_file(&self.name, path) {
+            return value;
+        }
+        rt.check_sudo_fallback(&self.name)?;
+        rt.remote_is_regular_file(&self.name, path)
     }
     fn read_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<String> {
         if let Some(v) = rt.try_agent_read_file(&self.name, path) {

@@ -82,6 +82,12 @@ impl CoreRuntime {
         io.inspect_path(self, rel_path)
     }
 
+    /// Side に基づいて、`rel_path` が辿った先で通常ファイルかを問う
+    pub fn is_regular_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<bool> {
+        let mut io = super::target_io::for_side(side, self);
+        io.is_regular_file(self, rel_path)
+    }
+
     pub fn missing_parent_directories(
         &mut self,
         side: &Side,
@@ -397,16 +403,28 @@ impl CoreRuntime {
         path: &str,
     ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
         use crate::service::rollback::CurrentRestorePath;
-        match self.inspect_path(side, path)? {
+        let parent = std::path::Path::new(path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""))
+            .to_string_lossy()
+            .into_owned();
+        let inspected = match self.inspect_path(side, path) {
+            Ok(inspected) => inspected,
+            Err(error) => {
+                let parent_inspected = self.inspect_path(side, &parent).ok();
+                return remote_merge_engine::service::rollback::restore_path_after_failed_inspection(
+                    parent_inspected.as_ref(),
+                    || self.is_regular_file(side, &parent).ok(),
+                )
+                .ok_or(error);
+            }
+        };
+        match inspected {
             super::target_io::TargetPath::File { real_path }
             | super::target_io::TargetPath::Symlink { real_path, .. } => {
                 Ok(CurrentRestorePath::Present { real_path })
             }
             super::target_io::TargetPath::Missing { .. } => {
-                let parent = std::path::Path::new(path)
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new(""))
-                    .to_string_lossy();
                 let real_parent = match self.inspect_path(side, &parent)? {
                     super::target_io::TargetPath::Missing { .. } => None,
                     super::target_io::TargetPath::File { real_path }
@@ -662,6 +680,24 @@ impl CoreRuntime {
             Some(Err(e)) => Some(Err(e)),
             None => None,
         }
+    }
+
+    /// Agent 経由で、`rel_path` が通常ファイルかを StatFiles の種類のビットで問う。
+    /// エージェントは調べられなかったエントリを返さないので、エントリがなければエラーにする
+    pub(crate) fn try_agent_is_regular_file(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> Option<anyhow::Result<bool>> {
+        let paths = [rel_path.to_string()];
+        let stats = self.with_agent(server_name, "stat_files", |agent| agent.stat_files(&paths))?;
+        Some(stats.and_then(|stats| {
+            stats
+                .iter()
+                .find(|stat| stat.path == rel_path)
+                .map(|stat| stat.permissions & 0o170000 == 0o100000)
+                .ok_or_else(|| anyhow::anyhow!("cannot stat: {rel_path}"))
+        }))
     }
 
     /// Agent 経由でシンボリックリンクを作成する

@@ -210,6 +210,42 @@ fn rollback_skips_deleted_file_when_its_parent_no_longer_exists() {
     assert!(!develop.path().join("nested").exists());
 }
 
+// @kotowari[EX-backup-027]
+#[test]
+fn rollback_skips_a_deleted_file_whose_parent_became_a_regular_file() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(develop.path().join("dir")).unwrap();
+    fs::write(develop.path().join("dir/a.txt"), "deleted a\n").unwrap();
+    fs::write(develop.path().join("other.txt"), "deleted other\n").unwrap();
+    let config = config(&local, &develop, true);
+    let mut args = merge_args("dir/a.txt");
+    args.paths.push("other.txt".into());
+    args.delete = true;
+    args.force = true;
+    merge_files(args, config.clone(), targets(&develop, &store));
+    fs::remove_dir(develop.path().join("dir")).unwrap();
+    fs::write(develop.path().join("dir"), "now a file\n").unwrap();
+
+    let (output, _) = restore(
+        rollback_args("develop", None),
+        config,
+        targets(&develop, &store),
+    );
+
+    assert_eq!(output.skipped.len(), 1, "{output:?}");
+    assert_eq!(output.skipped[0].path, "dir/a.txt");
+    assert_eq!(
+        output.skipped[0].reason,
+        "parent directory no longer exists"
+    );
+    let restored: Vec<&str> = output.restored.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(restored, ["other.txt"], "{output:?}");
+    assert_eq!(read(&develop, "other.txt"), "deleted other\n");
+    assert_eq!(read(&develop, "dir"), "now a file\n");
+}
+
 // @kotowari[REQ-backup-032]
 #[test]
 fn a_recorded_symlink_is_not_restored_with_or_without_force() {
