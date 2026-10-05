@@ -12,6 +12,10 @@ use super::target_io::TargetPath;
 /// - `canonical_is_missing PATH`: PATH の実パスへの解決が ENOENT で失敗するときだけ成功する。
 ///   symlink を辿る回数はカーネルと同じ 40 回までで、超えれば ELOOP として失敗する
 /// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）
+/// - `name_fits DIR NAME`: DIR の下で NAME が NAME_MAX に収まるか。カーネルは存在するディレクトリの
+///   すぐ下の要素が長すぎると ENOENT ではなく ENAMETOOLONG で失敗するので、その要素だけを測る。
+///   長さはバイトで数えるため `LC_ALL=C` にし、`getconf` が答えなければ 255 とする
+/// - 存在しない部分の ".." は、ローカルと同じく辿る先が決まらないものとして失敗にする
 /// - `link_of`・`real_of`: `readlink` と `readlink -f` の答え（`t`・`r`）。`$(...)` は末尾の改行を
 ///   すべて削るので、番兵の `x` を足してから外し、`readlink` が足した改行を一つだけ削る。
 ///   改行で終わる名前やリンク先も、ローカルと同じパスとして読む
@@ -19,13 +23,13 @@ use super::target_io::TargetPath;
 /// 試験 SSH サーバは先頭の `resolve_existing_prefix()` と、後に続く `; p=<パス>; if [` で
 /// この検査を見分けるため、その並びを崩さない。
 const INSPECT_PATH_FUNCTIONS: &str = r#"resolve_existing_prefix() {
-  q=$1; suffix=;
+  q=$1; suffix=; base_of "$q"; first=$b;
   while :; do
     parent_of "$q"; [ "$s" != "$q" ] || return 1; q=$s;
     if [ -e "$q" ] || [ -L "$q" ]; then break; fi;
-    base_of "$q"; suffix=/$b$suffix;
+    base_of "$q"; [ "$b" != .. ] || return 1; suffix=/$b$suffix; first=$b;
   done;
-  [ -d "$q" ] && [ -x "$q" ] || return 1;
+  [ -d "$q" ] && [ -x "$q" ] && name_fits "$q" "$first" || return 1;
   real_of "$q" || return 1;
   case $r in /) r=${suffix:-/} ;; *) r=$r$suffix ;; esac;
 };
@@ -34,6 +38,11 @@ link_of() {
 };
 real_of() {
   r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
+};
+name_fits() {
+  LC_ALL=C; m=$(getconf NAME_MAX "$1" 2>/dev/null) || m=255;
+  case $m in ''|*[!0-9]*) m=255 ;; esac;
+  [ "${#2}" -le "$m" ];
 };
 parent_of() {
   s=$1;
@@ -49,8 +58,8 @@ canonical_is_missing() {
   x=$1; n=0;
   while [ "$n" -lt 40 ]; do
     n=$((n + 1)); y=$x;
-    while ! { [ -e "$y" ] || [ -L "$y" ]; }; do parent_of "$y"; [ "$s" != "$y" ] || return 1; y=$s; done;
-    if [ "$y" != "$x" ] && [ -d "$y" ] && [ -x "$y" ]; then return 0; fi;
+    while ! { [ -e "$y" ] || [ -L "$y" ]; }; do base_of "$y"; first=$b; parent_of "$y"; [ "$s" != "$y" ] || return 1; y=$s; done;
+    if [ "$y" != "$x" ] && [ -d "$y" ] && [ -x "$y" ]; then name_fits "$y" "$first"; return; fi;
     [ -L "$y" ] && ! [ -e "$y" ] || return 1;
     link_of "$y" || return 1;
     case $t in /*) ;; *) parent_of "$y"; t=$s/$t ;; esac;
@@ -234,6 +243,17 @@ mod tests {
         let outside_root = std::fs::canonicalize(outside.path()).unwrap();
         let escape = format!("{}/x\n{}/file.txt", outside_root.display(), root.display());
         symlink(&escape, root.join("escape")).unwrap();
+        // 存在しない部分の "." と ".."、NAME_MAX を超える名前は、ローカルの解決と同じに扱う
+        let long = "n".repeat(256);
+        symlink("missing/./file.txt", root.join("dot_inside")).unwrap();
+        symlink("missing/.", root.join("dot_end")).unwrap();
+        symlink("./missing", root.join("dot_start")).unwrap();
+        symlink("missing/../file.txt", root.join("dotdot_missing")).unwrap();
+        symlink("dir/../missing", root.join("dotdot_existing")).unwrap();
+        symlink("file.txt/.", root.join("dot_under_file")).unwrap();
+        symlink(&long, root.join("long_link")).unwrap();
+        symlink("long_link", root.join("long_chain")).unwrap();
+        symlink(format!("missing/{long}"), root.join("long_below_missing")).unwrap();
         std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o600))
             .unwrap();
         // 権限を無視できる実効ユーザーでは検索権限のない状態を作れない
@@ -258,7 +278,22 @@ mod tests {
             "escape",
             "newline\n",
             "missing\n/below.txt",
+            "dot_inside",
+            "dot_end",
+            "dot_start",
+            "dotdot_missing",
+            "dotdot_existing",
+            "dot_under_file",
+            "long_link",
+            "long_chain",
+            "long_below_missing",
         ];
+        let long_paths = [
+            long.clone(),
+            format!("{long}/below.txt"),
+            format!("nodir/{long}"),
+        ];
+        cases.extend(long_paths.iter().map(String::as_str));
         if can_lock {
             cases.push("locked/inner.txt");
         }
