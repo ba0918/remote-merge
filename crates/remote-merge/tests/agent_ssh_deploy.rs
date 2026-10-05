@@ -31,6 +31,9 @@
 //! - `cargo test --features test-utils` でのみ実行可能
 //! - `env!("CARGO_BIN_EXE_remote-merge")` でバイナリパスを取得
 
+#[path = "common/login_shell.rs"]
+mod login_shell;
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -124,7 +127,7 @@ impl server::Handler for ProcessAgentHandler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let command = String::from_utf8_lossy(data).to_string();
+        let command = login_shell::script_of(data);
 
         if command.starts_with("remote-merge agent") {
             // コマンドから --root 引数を取り出す

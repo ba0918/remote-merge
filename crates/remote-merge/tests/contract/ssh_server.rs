@@ -25,6 +25,7 @@ pub struct TestServer {
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
     login_limit: Arc<AtomicUsize>,
+    login_shell: Arc<Mutex<&'static str>>,
     host_key: String,
 }
 
@@ -107,6 +108,11 @@ impl TestServer {
         self.login_limit.store(accepted, Ordering::SeqCst);
     }
 
+    /// サンドボックスのコマンドを、既定の sh の代わりに `shell -c` で実行する（リモートのログインシェル）
+    pub fn use_login_shell(&self, shell: &'static str) {
+        *self.login_shell.lock().unwrap() = shell;
+    }
+
     async fn start(
         legacy: bool,
         incomplete_writes: bool,
@@ -155,6 +161,8 @@ impl TestServer {
         let attempts_on_read = Arc::clone(&read_attempts);
         let login_limit = Arc::new(AtomicUsize::new(usize::MAX));
         let limit_on_login = Arc::clone(&login_limit);
+        let login_shell = Arc::new(Mutex::new("sh"));
+        let shell_on_exec = Arc::clone(&login_shell);
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -171,6 +179,7 @@ impl TestServer {
                 agent_available,
                 login_limit: limit_on_login,
                 accepted_logins: Arc::new(AtomicUsize::new(0)),
+                login_shell: shell_on_exec,
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -181,6 +190,7 @@ impl TestServer {
             commands,
             read_attempts,
             login_limit,
+            login_shell,
             host_key,
         }
     }
@@ -204,6 +214,7 @@ struct LocalServer {
     agent_available: bool,
     login_limit: Arc<AtomicUsize>,
     accepted_logins: Arc<AtomicUsize>,
+    login_shell: Arc<Mutex<&'static str>>,
 }
 
 impl server::Server for LocalServer {
@@ -222,6 +233,7 @@ impl server::Server for LocalServer {
             agent_available: self.agent_available,
             login_limit: Arc::clone(&self.login_limit),
             accepted_logins: Arc::clone(&self.accepted_logins),
+            login_shell: Arc::clone(&self.login_shell),
             write_channels: HashMap::new(),
             agent_stdin: HashMap::new(),
         }
@@ -240,8 +252,15 @@ struct LocalHandler {
     agent_available: bool,
     login_limit: Arc<AtomicUsize>,
     accepted_logins: Arc<AtomicUsize>,
+    login_shell: Arc<Mutex<&'static str>>,
     write_channels: HashMap<ChannelId, (String, Vec<u8>)>,
     agent_stdin: HashMap<ChannelId, ChildStdin>,
+}
+
+impl LocalHandler {
+    fn current_login_shell(&self) -> &'static str {
+        *self.login_shell.lock().unwrap()
+    }
 }
 
 impl server::Handler for LocalHandler {
@@ -270,7 +289,7 @@ impl server::Handler for LocalHandler {
         self.agent_stdin.remove(&channel);
         if let Some((command, encoded)) = self.write_channels.remove(&channel) {
             let home = self.sandbox_home.as_ref().unwrap();
-            let mut child = std::process::Command::new("sh")
+            let mut child = std::process::Command::new(self.current_login_shell())
                 .arg("-c")
                 .arg(&command)
                 .env("HOME", home)
@@ -312,13 +331,14 @@ impl server::Handler for LocalHandler {
     async fn exec_request(
         &mut self,
         channel: ChannelId,
-        command: &[u8],
+        received: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        self.commands
-            .lock()
-            .unwrap()
-            .push(String::from_utf8_lossy(command).into_owned());
+        // 振る舞いはログインシェルと同じく引用を外したスクリプトで決め、実行は受け取ったまま行う
+        let script = super::login_shell::script_of(received);
+        let received = String::from_utf8_lossy(received).into_owned();
+        self.commands.lock().unwrap().push(script.clone());
+        let command = script.as_bytes();
         if command == b"sudo -n true" && self.reject_sudo {
             session.exit_status_request(channel, 1)?;
             session.eof(channel)?;
@@ -352,14 +372,13 @@ impl server::Handler for LocalHandler {
                 "unexpected remote command: {command}"
             );
             if command.contains("openssl base64 -d -A -out ") || command.contains("cat > ") {
-                self.write_channels
-                    .insert(channel, (command.into_owned(), Vec::new()));
+                self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
             }
             if self.agent_available && command.contains(" agent --root ") {
-                let mut child = tokio::process::Command::new("sh")
+                let mut child = tokio::process::Command::new(self.current_login_shell())
                     .arg("-c")
-                    .arg(command.as_ref())
+                    .arg(&received)
                     .env("HOME", home)
                     .current_dir(home)
                     .stdin(std::process::Stdio::piped())
@@ -402,9 +421,9 @@ impl server::Handler for LocalHandler {
                 session.close(channel)?;
                 return Ok(());
             }
-            let result = std::process::Command::new("sh")
+            let result = std::process::Command::new(self.current_login_shell())
                 .arg("-c")
-                .arg(command.as_ref())
+                .arg(&received)
                 .env("HOME", home)
                 .current_dir(home)
                 .output()?;

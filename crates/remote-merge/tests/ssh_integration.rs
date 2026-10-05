@@ -4,6 +4,9 @@
 //! russh::server でテスト用 SSH サーバーを起動し、
 //! SshClient で接続・コマンド実行・ツリー取得を検証する。
 
+#[path = "common/login_shell.rs"]
+mod login_shell;
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -176,7 +179,7 @@ impl server::Handler for TestHandler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let command = String::from_utf8_lossy(data).to_string();
+        let command = login_shell::script_of(data);
 
         // write 系コマンドは exec_commands に記録し、stdin データ待ちにする
         let is_write_cmd = is_write_command(&command);

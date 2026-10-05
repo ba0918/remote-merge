@@ -14,6 +14,8 @@ use tempfile::TempDir;
 #[path = "../contract/ssh_server.rs"]
 pub(crate) mod ssh_server;
 
+pub(crate) mod login_shell;
+
 // ─── ファイル配置ヘルパー ────────────────────────────────
 
 /// テキストファイルを配置する。親ディレクトリがなければ再帰的に作成する。
@@ -455,6 +457,11 @@ impl CliEnv {
     /// 試験 SSH サーバへのログインを `accepted` 回だけ受け入れ、以降の接続を認証で失敗させる
     pub fn reject_logins_after(&self, accepted: usize) {
         self._dirs._server.reject_logins_after(accepted);
+    }
+
+    /// 試験 SSH サーバが受け取ったコマンドを、リモートのログインシェル `shell` の `-c` で実行させる
+    pub fn use_remote_login_shell(&self, shell: &'static str) {
+        self._dirs._server.use_login_shell(shell);
     }
 
     /// CLI コマンドをサブコマンド付きで生成

@@ -7,6 +7,7 @@ pub mod tree_parser;
 
 pub(crate) mod known_hosts;
 pub(crate) mod known_hosts_io;
+pub(crate) mod login_shell;
 pub(crate) mod preferred;
 
 pub(crate) use remote_merge_core::{error, filter, tree};

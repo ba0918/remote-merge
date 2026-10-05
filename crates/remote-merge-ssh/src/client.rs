@@ -12,6 +12,7 @@ use russh::{client, ChannelMsg, Disconnect};
 
 use crate::config::{AuthMethod, ServerConfig, SshConfig};
 use crate::error::AppError;
+use crate::login_shell::wrap_for_login_shell;
 use crate::tree::FileNode;
 
 use super::batch_read;
@@ -414,7 +415,7 @@ impl SshClient {
     pub async fn is_alive(&mut self) -> bool {
         match self.session.channel_open_session().await {
             Ok(mut channel) => {
-                let _ = channel.exec(true, "echo ok").await;
+                let _ = channel.exec(true, wrap_for_login_shell("echo ok")).await;
                 while let Some(_msg) = channel.wait().await {}
                 let _ = channel.close().await;
                 true
@@ -500,17 +501,20 @@ impl SshClient {
     ) -> crate::error::Result<russh::Channel<russh::client::Msg>> {
         let channel = self.open_channel_with_retry().await?;
 
-        channel.exec(true, command).await.map_err(|e| {
-            tracing::debug!(
-                target: "remote_merge::ssh::client",
-                "SSH exec failed for agent channel: cmd={}, error={}",
-                command,
-                e
-            );
-            AppError::SshExec {
-                command: command.to_string(),
-            }
-        })?;
+        channel
+            .exec(true, wrap_for_login_shell(command))
+            .await
+            .map_err(|e| {
+                tracing::debug!(
+                    target: "remote_merge::ssh::client",
+                    "SSH exec failed for agent channel: cmd={}, error={}",
+                    command,
+                    e
+                );
+                AppError::SshExec {
+                    command: command.to_string(),
+                }
+            })?;
 
         Ok(channel)
     }
@@ -776,7 +780,7 @@ impl SshClient {
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
-            .exec(true, command)
+            .exec(true, wrap_for_login_shell(command))
             .await
             .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),
@@ -839,7 +843,7 @@ impl SshClient {
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
-            .exec(true, command.as_str())
+            .exec(true, wrap_for_login_shell(&command))
             .await
             .map_err(|_e| AppError::SshExec {
                 command: command.clone(),
@@ -911,7 +915,7 @@ impl SshClient {
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
-            .exec(true, command)
+            .exec(true, wrap_for_login_shell(command))
             .await
             .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),

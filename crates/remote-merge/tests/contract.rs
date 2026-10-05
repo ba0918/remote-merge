@@ -121,6 +121,9 @@ mod ssh_fallback;
 #[path = "contract/ssh_host_key.rs"]
 mod ssh_host_key;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_login_shell.rs"]
+mod ssh_login_shell;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_reconnect.rs"]
 mod ssh_reconnect;
 #[cfg(feature = "test-utils")]
