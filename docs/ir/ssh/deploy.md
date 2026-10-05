@@ -20,10 +20,10 @@ Agent の配置先のディレクトリがないとき、所有者だけが読�
 
 ### REQ-ssh-016: 手元と違う配置済みのバイナリを実行しない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-harden-security.md#A4, docs/decision/records/2026-10-05-harden-security.md#A7
+- source: docs/decision/records/2026-10-05-harden-security.md#A8, docs/decision/records/2026-10-05-harden-security.md#A7
 - verification: unit
 
-ローカルの Agent のバイナリを解決できるとき、配置先のバイナリの版が一致しても SHA-256 がローカルのバイナリと一致しないかリモートで計算できないなら、配置先のバイナリを Agent として実行せず、版が違うときと同じく置き直す。
+ローカルの Agent のバイナリを解決でき、リモートで SHA-256 を計算できるとき、配置先のバイナリの版が一致しても SHA-256 がローカルのバイナリと一致しないなら、配置先のバイナリを Agent として実行せず、版が違うときと同じく置き直す。リモートで計算できないときは照合せずに実行し、そのことを利用者に警告する。
 
 ## Examples
 
@@ -40,7 +40,7 @@ Given Agent の配置先のディレクトリがない
 When Agent を使うサーバへ接続する
 Then 配置先のディレクトリはモード 700 で作られる
 
-@id=EX-ssh-025 @about=REQ-ssh-016 @source=docs/decision/records/2026-10-05-harden-security.md#A4
+@id=EX-ssh-025 @about=REQ-ssh-016 @source=docs/decision/records/2026-10-05-harden-security.md#A8
 Scenario: 版だけが一致するバイナリが置かれている
 Given 安全な配置先に版の確認に正しく答えるがローカルの Agent と中身の違うバイナリがある
 When sudo=false のサーバへマージする

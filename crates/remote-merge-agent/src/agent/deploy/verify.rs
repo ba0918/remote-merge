@@ -78,12 +78,20 @@ pub enum InstalledBinary {
     Run,
     /// 実行せず、版が違うときと同じ配置の経路で置き直す
     Redeploy,
+    /// リモートでハッシュを計算できないので照合せず、配置先の検査だけを根拠に実行する
+    /// （利用者へ警告する）
+    RunUnverified,
 }
+
+/// リモートでハッシュを計算できないときの応答（`installed_checksum_command` が出力する）
+const CHECKSUM_UNSUPPORTED: &str = "__UNSUPPORTED__";
 
 /// 配置済みのバイナリのハッシュの応答を、ローカルの Agent のバイナリのハッシュと照合する。
 ///
 /// 版の出力は偽装できるため、ローカルのバイナリを解決できたときは中身の一致まで求める。
-/// リモートでハッシュを計算できない（`__UNSUPPORTED__` など）ときも一致とはみなさない。
+/// リモートでハッシュを計算できない（`__UNSUPPORTED__`）ときは、ローカルのバイナリを
+/// 解決できないときと同じく照合できないので、警告付きで実行する。それ以外の読めない応答は
+/// 一致とはみなさない。
 /// ローカルのバイナリを解決できない（`local_hash` が None）ときは照合できないので実行する。
 pub fn judge_installed_binary(
     local_hash: Option<&str>,
@@ -94,6 +102,9 @@ pub fn judge_installed_binary(
     };
     match parse_checksum_output(remote_checksum_output) {
         Some(remote_hash) if verify_checksum(local_hash, &remote_hash) => InstalledBinary::Run,
+        None if remote_checksum_output.trim() == CHECKSUM_UNSUPPORTED => {
+            InstalledBinary::RunUnverified
+        }
         _ => InstalledBinary::Redeploy,
     }
 }
@@ -124,10 +135,10 @@ mod tests {
     }
 
     #[test]
-    fn an_installed_binary_whose_hash_cannot_be_computed_is_redeployed() {
+    fn an_installed_binary_whose_hash_cannot_be_computed_is_run_unverified() {
         assert_eq!(
             judge_installed_binary(Some(LOCAL), "__UNSUPPORTED__\n"),
-            InstalledBinary::Redeploy
+            InstalledBinary::RunUnverified
         );
     }
 

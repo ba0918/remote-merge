@@ -468,11 +468,17 @@ impl CoreRuntime {
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let output = self.rt.block_on(ssh_client.exec(&checksum_cmd))?;
         let judgement = deploy::judge_installed_binary(Some(&local_hash), &output);
-        if judgement == deploy::InstalledBinary::Redeploy {
-            tracing::info!(
+        match judgement {
+            deploy::InstalledBinary::Redeploy => tracing::info!(
                 "Installed agent binary differs from the local one: server={}",
                 server_name
-            );
+            ),
+            deploy::InstalledBinary::RunUnverified => tracing::warn!(
+                "Cannot compute SHA-256 on {}: running the installed agent {} without comparing it with the local binary",
+                server_name,
+                remote_path.display()
+            ),
+            deploy::InstalledBinary::Run => {}
         }
         Ok(judgement)
     }
