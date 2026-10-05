@@ -368,7 +368,8 @@ pub fn fetch_children(
     include: &[String],
     path: &str,
 ) -> anyhow::Result<Vec<FileNode>> {
-    let nodes = local::scan_dir(&root.join(path), exclude, path)?;
+    // 利用者の入力した絶対パスや .. で root_dir の外を一覧しない
+    let nodes = local::scan_dir(&validated_path(root, path)?, exclude, path)?;
     Ok(crate::filter::filter_children_by_include(
         nodes, path, include,
     ))
