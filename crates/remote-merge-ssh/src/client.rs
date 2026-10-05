@@ -31,6 +31,7 @@ struct CommandOutput {
 /// リモートコマンドの実行結果（バイト列版）
 struct CommandOutputBytes {
     stdout: Vec<u8>,
+    stderr: Vec<u8>,
     exit_code: Option<u32>,
 }
 
@@ -780,8 +781,24 @@ impl SshClient {
         Ok(result.stdout)
     }
 
-    /// コマンドを実行してチャネルの開閉を管理する共通関数
+    /// コマンドを実行し、stdout と stderr を文字列にして返す
     async fn run_command(&mut self, command: &str) -> crate::error::Result<CommandOutput> {
+        let output = self.run_command_bytes(command).await?;
+        Ok(CommandOutput {
+            stdout: bytes_to_string(output.stdout),
+            stderr: bytes_to_string(output.stderr),
+            exit_code: output.exit_code,
+        })
+    }
+
+    /// コマンドを実行してチャネルの開閉を管理する共通関数。stdout はバイト列のまま返す。
+    ///
+    /// 終了ステータスを受け取らずにチャネルが終わったときは、出力が途中で切れたかもしれないので
+    /// 接続エラーにする。
+    async fn run_command_bytes(
+        &mut self,
+        command: &str,
+    ) -> crate::error::Result<CommandOutputBytes> {
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
@@ -824,60 +841,11 @@ impl SshClient {
             });
         }
 
-        // valid UTF-8 時はゼロコピー（大多数のケース）、invalid UTF-8 時のみ lossy 変換
-        let stdout_str = match String::from_utf8(stdout) {
-            Ok(s) => s,
-            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
-        };
-        let stderr_str = match String::from_utf8(stderr) {
-            Ok(s) => s,
-            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
-        };
-        Ok(CommandOutput {
-            stdout: stdout_str,
-            stderr: stderr_str,
+        Ok(CommandOutputBytes {
+            stdout,
+            stderr,
             exit_code,
         })
-    }
-
-    /// コマンドを実行してバイト列の stdout を返す共通関数。
-    ///
-    /// `run_command()` と同じだが、stdout を UTF-8 変換せずバイト列のまま保持する。
-    /// バイナリファイルのバッチ読み込みに使用する。
-    async fn run_command_bytes(
-        &mut self,
-        command: &str,
-    ) -> crate::error::Result<CommandOutputBytes> {
-        let mut channel = self.open_channel_with_retry().await?;
-
-        channel
-            .exec(true, command)
-            .await
-            .map_err(|_e| AppError::SshExec {
-                command: command.to_string(),
-            })?;
-
-        let mut stdout = Vec::new();
-        let mut exit_code = None;
-
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-            match msg {
-                ChannelMsg::Data { ref data } => {
-                    stdout.extend_from_slice(data);
-                }
-                ChannelMsg::ExitStatus { exit_status } => {
-                    exit_code = Some(exit_status);
-                }
-                _ => {}
-            }
-        }
-
-        let _ = channel.close().await;
-
-        Ok(CommandOutputBytes { stdout, exit_code })
     }
 
     /// リモートファイルに内容を書き込む（stdin 経由の cat >）
@@ -1087,6 +1055,14 @@ impl SshClient {
             .await
             .context("Failed to disconnect SSH")?;
         Ok(())
+    }
+}
+
+/// valid UTF-8 ならゼロコピーで、invalid なときだけ lossy 変換する
+fn bytes_to_string(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
     }
 }
 

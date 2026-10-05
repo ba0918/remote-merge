@@ -20,11 +20,14 @@ use tokio::net::TcpListener;
 
 // ── テスト用 SSH サーバー ──
 
+/// 登録したコマンドへの応答: stdout と終了コード。終了コードが None なら終了ステータスを送らない
+type CommandResponse = (String, Option<u32>);
+
 /// テスト用のコマンドレスポンスを保持するレジストリ
 #[derive(Clone, Default)]
 struct CommandRegistry {
-    /// コマンドパターン → (stdout, exit_code) のマッピング
-    responses: Arc<Mutex<HashMap<String, (String, u32)>>>,
+    /// コマンドパターン → 応答のマッピング
+    responses: Arc<Mutex<HashMap<String, CommandResponse>>>,
 }
 
 impl CommandRegistry {
@@ -32,10 +35,18 @@ impl CommandRegistry {
         self.responses
             .lock()
             .unwrap()
-            .insert(pattern.to_string(), (stdout.to_string(), exit_code));
+            .insert(pattern.to_string(), (stdout.to_string(), Some(exit_code)));
     }
 
-    fn lookup(&self, command: &str) -> (String, u32) {
+    /// 出力を送った後、終了ステータスを送らずにチャネルを閉じる応答を登録する
+    fn register_without_exit_status(&self, pattern: &str, stdout: &str) {
+        self.responses
+            .lock()
+            .unwrap()
+            .insert(pattern.to_string(), (stdout.to_string(), None));
+    }
+
+    fn lookup(&self, command: &str) -> CommandResponse {
         let responses = self.responses.lock().unwrap();
         // 完全一致を探す
         if let Some(resp) = responses.get(command) {
@@ -48,7 +59,7 @@ impl CommandRegistry {
             }
         }
         // デフォルト: 空のレスポンス
-        (String::new(), 0)
+        (String::new(), Some(0))
     }
 }
 
@@ -184,7 +195,9 @@ impl server::Handler for TestHandler {
         }
 
         // 終了ステータスを送信
-        session.exit_status_request(channel, exit_code)?;
+        if let Some(exit_code) = exit_code {
+            session.exit_status_request(channel, exit_code)?;
+        }
 
         // EOF + close
         session.eof(channel)?;
@@ -500,6 +513,39 @@ async fn test_ssh_empty_directory() {
     assert!(nodes.is_empty());
 
     client.disconnect().await.expect("切断に失敗");
+}
+
+async fn connect_client(handle: &TestServerHandle) -> (SshClient, NamedTempFile) {
+    let key_file = generate_test_key();
+    let server_config = make_server_config(
+        handle.port,
+        AuthMethod::Key,
+        Some(key_file.path().to_path_buf()),
+    );
+    let client = SshClient::connect_insecure("test", &server_config, &make_ssh_config())
+        .await
+        .expect("SSH接続に失敗");
+    (client, key_file)
+}
+
+#[tokio::test]
+async fn batch_read_cut_off_without_exit_status_is_a_connection_error() {
+    let handle = start_test_server().await;
+    // 一括読み込みの形式によらず当たるよう、パスだけで登録する
+    handle
+        .registry
+        .register_without_exit_status("/var/www/app/cut.txt", "partial");
+    let (mut client, _key) = connect_client(&handle).await;
+
+    let error = client
+        .read_files_batch_bytes(&["/var/www/app/cut.txt".to_string()])
+        .await
+        .expect_err("a batch read without an exit status must not succeed");
+
+    assert!(
+        remote_merge::error::is_connection_error(&error),
+        "{error:?}"
+    );
 }
 
 // ── write_file テストケース ──
