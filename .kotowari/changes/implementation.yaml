@@ -11,7 +11,7 @@ entries:
   - path: docs/ir/merge/read-failure.md
     sha256: "sha256:dd9debd1e232ac7f42c1abad4f0e1c8402cd0910e814f4b46f12372b36d12714"
   - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:0eb2fa619597fac001c5875ad41e32cff8a14542177325b8806bbc9b2624c2fd"
+    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
   conclusion: existing
   reason: "SSH の一括読み込みの形式を、各ファイルの読めたかどうかとバイト数を出す形式に替え、通常ファイルでないか読めなかったパスを結果から外す。結果にないパスは呼び出し元が一件ずつの厳密な読み込みでやり直し、merge と sync は REQ-merge-017 のとおり空の中身とみなさずに失敗を報告し、REQ-merge-019 の \"read failed: right: 原因\" を出す。件数・バイト数・印が合わない出力は呼び出し全体を失敗にする。出力の区切りの形を固定していた単体テストは、仕様が契約にしていない形なので除いた。REQ-ssh-020 のとおり一括読み込みのコマンドも sh -c に包んで送るので、分割の見積もりを包んだ後の長さで行い、引用符の多いパスでもコマンド長の上限を守る（既存の分割のテストを包んだ後の長さで確かめる形に改めた）。新しい文言は決めていない。"
   requirements:
@@ -27,10 +27,10 @@ entries:
   files:
   - path: crates/remote-merge-ssh/src/client.rs
     before: "sha256:6561d464a227c513572211c7bc3e63142e2334dd8529dd9ea7e97d7aede10555"
-    after: "sha256:4f14217d2bfaaea7a09ac3a98c391cd858a1d46203925fd0c24347bf351fc18a"
+    after: "sha256:94a85ec4e5b61b45ed5554bae8e78e619153f1460c0d114faedafc25b6758195"
   - path: crates/remote-merge-ssh/src/tree_parser.rs
     before: "sha256:4c9408d16b9f3323ad70133df741edeecefb0d1878cccd07025b594e3a566a0e"
-    after: "sha256:40c44db0dca57eb0b7573b7d8f2cee624261f5f409f61cf25647672290c7372f"
+    after: "sha256:42e58ea5ef0d24bb344bb67c11b1cdb4314a7dcf135b86bdc2f8e6ef48739608"
   - path: crates/remote-merge/src/runtime/remote_io.rs
     before: "sha256:af0049c24facc8cada4f1da59f6365c3fbaf6ce5f64fe03f2bde7c6d03339161"
     after: "sha256:210b7e56490dc4c2dcc833fb2fb97d3cc6da0e1ee45a23b18df3475dcba9f12b"
@@ -48,7 +48,7 @@ entries:
     after: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
   ir:
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:9514356a5ac218dec7913cc6173b3cbe15ccb81c64e1b3c15ba53deb3a58420a"
+    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
   - path: docs/ir/merge/deletion.md
     sha256: "sha256:3aa4d40db18310b5943389d3355307b18c9c2e01424fd5dd902e635e3260234c"
   - path: docs/ir/merge/read-failure.md
@@ -64,9 +64,9 @@ entries:
   - path: docs/ir/ssh/reconnect.md
     sha256: "sha256:2bcf678d215bb85166a7c72826f5e211c25a4eb2c4686047ba6687ef831671a4"
   - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:0eb2fa619597fac001c5875ad41e32cff8a14542177325b8806bbc9b2624c2fd"
+    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
   conclusion: new
-  reason: "終了ステータスなしで終わったバイト列の実行を接続エラーにし、途中で切れた一括読み込みを REQ-ssh-003 の再接続と再試行の対象にする。走査の起点の確認は終了コード 1 だけを REQ-scan-015 の \"Remote root_dir not found\" にする。リモートの削除と symlink の作成は終了コードを検査する実行に替え、REQ-merge-034 の削除の失敗と REQ-merge-023 の symlink の作成（親ディレクトリを先に作る）を報告する。要件の文が直接決めていなかった扱いは判断の記録に残し、REQ-merge-038〜041 と REQ-ssh-020 として IR に書いた（A6）: 最後の要素が symlink のパスへ書かない（A1、REQ-merge-038）、symlink の作成先に何かあれば置き換えず、リンク先の前に -- を置く（A7・A10、REQ-merge-040、EX-merge-049）、削除は -f のない rm でないパスを失敗にする（A4・A9、REQ-merge-041）。A2 は A7 に置き換えた。SSH の書き込みは、A8 の一時ファイルの付け替えを A11 で置き換え、dd の oflag=nofollow で書き込み先をその場で開いて切り詰めて書く（REQ-merge-039、EX-merge-046・EX-merge-050）。書き込み先のファイルそのものに書くので REQ-merge-013 と REQ-backup-029 の所有者と権限の維持に合い、ハードリンクも保つ。pipefail のない sh で cat / openssl と dd の両方の終了ステータスを確かめ、dd が oflag=nofollow を受け付けないときだけ symlink でないことを確かめてから書き（残る競合は REQ-merge-038 に書いた）、status=none は受け付けるときだけ付ける。sudo の書き込み（エージェントの配置）は変えていない。単体テストは生成したコマンドを sh -c に包んで sh・bash・dash・fish から実行し、symlink・ぶら下がった symlink・ディレクトリの書き込み先の失敗、権限・所有者・ハードリンクの維持と古い中身の切り詰め、他の項目が現れないこと、書き込み中の symlink への差し替え、nofollow のない dd と status=none のない dd を確かめる。REQ-merge-038〜041 の確かめ方は実在する単体テストの場所と名前を指すように直した。単体テストはソースのファイルの中にあり、検査するテストファイルに足すと印のない既存のテスト 212 件が検査の失敗になるので verification は review のままにした（A14）。クライアントはすべてのコマンドを sh -c で送り（A5、REQ-ssh-020）、テスト用 SSH サーバは引用を外したスクリプトで振る舞いを決め、受け取ったコマンドを指定したログインシェルで実行する。決められていないコマンドの文字列を固定していたテストは除いた。"
+  reason: "終了ステータスなしで終わったバイト列の実行を接続エラーにし、途中で切れた一括読み込みを REQ-ssh-003 の再接続と再試行の対象にする。走査の起点の確認は終了コード 1 だけを REQ-scan-015 の \"Remote root_dir not found\" にする。リモートの削除と symlink の作成は終了コードを検査する実行に替え、REQ-merge-034 の削除の失敗と REQ-merge-023 の symlink の作成（親ディレクトリを先に作る）を報告する。要件の文が直接決めていなかった扱いは判断の記録に残し、REQ-merge-038〜041 と REQ-ssh-020 として IR に書いた（A6）: 最後の要素が symlink のパスへ書かない（A1、REQ-merge-038）、symlink の作成先に何かあれば置き換えず、リンク先の前に -- を置く（A7・A10、REQ-merge-040、EX-merge-049）、削除は -f のない rm でないパスを失敗にする（A4・A9、REQ-merge-041）。A2 は A7 に置き換えた。SSH の書き込みは、A8 の一時ファイルの付け替えを A11 で置き換え、dd の oflag=nofollow で書き込み先をその場で開いて切り詰めて書く（REQ-merge-039、EX-merge-046・EX-merge-050）。書き込み先のファイルそのものに書くので REQ-merge-013 と REQ-backup-029 の所有者と権限の維持に合い、ハードリンクも保つ。書き込み先を開く前に cat / openssl があることを確かめ、ないときは書き込み先を切り詰めずに失敗する（main の openssl の -out と同じく、デコーダーが起動できなければ書き込み先は変わらない）。pipefail のない sh で cat / openssl と dd の両方の終了ステータスを確かめ（書き込み元の失敗を書き込みの失敗にすることは A11 のとおり REQ-merge-039 に書いた）、dd が oflag=nofollow を受け付けないときだけ symlink でないことを確かめてから書き（残る競合は REQ-merge-038 に書いた）、status=none は受け付けるときだけ付ける。sudo の書き込み（エージェントの配置）は変えていない。単体テストは生成したコマンドを sh -c に包んで sh・bash・dash・fish から実行し、symlink・ぶら下がった symlink・ディレクトリの書き込み先の失敗、権限・所有者・ハードリンクの維持と古い中身の切り詰め、他の項目が現れないこと、書き込み中の symlink への差し替え、nofollow のない dd と status=none のない dd、openssl のない PATH で書き込み先が変わらないこと（dd の nofollow の有無の両方）、少し書いてから失敗するデコーダーで書き込みが失敗することを確かめる。REQ-merge-038〜041 の確かめ方は実在する単体テストの場所と名前を指すように直した。単体テストはソースのファイルの中にあり、検査するテストファイルに足すと印のない既存のテスト 212 件が検査の失敗になるので verification は review のままにした（A14）。クライアントはすべてのコマンドを sh -c で送り（A5、REQ-ssh-020）、テスト用 SSH サーバは引用を外したスクリプトで振る舞いを決め、受け取ったコマンドを指定したログインシェルで実行する。決められていないコマンドの文字列を固定していたテストは除いた。書き込みの失敗の説明は、今は実行しないコマンドの形を示さない書き込みの説明に改めた（文言は決められていない）。"
   requirements:
   - REQ-ssh-003
   - REQ-scan-015
@@ -131,7 +131,7 @@ entries:
   files:
   - path: crates/remote-merge-ssh/src/login_shell.rs
     before: null
-    after: "sha256:a66f10dc807fad511950a7aa1e87f35aa1c21e3280f504dfc2b5aea3ca0607c3"
+    after: "sha256:08661d255ad80ef72066681a62d4968368936a27739b8ddd7ced05fc5497a098"
   - path: crates/remote-merge-ssh/src/lib.rs
     before: "sha256:1c3b6997238eeedcef95056fc097ef55bafbaff9adbc2e5eef23135faa902088"
     after: "sha256:32e9ab9c9143672a0ff3fd2789c2edbce5c9de3d0533ef35392741b1629adc17"
@@ -152,9 +152,9 @@ entries:
     after: "sha256:6f4b806e1e27501066b901b24881ade796181c1b574677c3bd7fab0a15e65a04"
   ir:
   - path: docs/ir/ssh/remote-shell.md
-    sha256: "sha256:0eb2fa619597fac001c5875ad41e32cff8a14542177325b8806bbc9b2624c2fd"
+    sha256: "sha256:06fb2b3b5e8170182119eb8411934214e6b0513e55687ca58e8d427718cf0f61"
   conclusion: new
-  reason: "リモートのログインシェルが fish のサーバで Bourne の構文のコマンドが失敗していたので、すべてのコマンドをスクリプトを一つの引数にした sh -c で送る（A5、REQ-ssh-020）。fish は単一引用符の中でも \\' と \\\\ を解釈するので、単一引用符とバックスラッシュは引用符の外でエスケープする。保証するログインシェルは確かめた Bourne 系と fish に絞り、単一引用符の中の改行を受け付けない csh と tcsh は保証しない（A13）。包んだ後の長さを数える関数を置き、一括読み込みの分割の見積もりに使う。単体テストは包んだコマンドを sh・bash・dash・fish で実行して包む前と同じ出力を確かめ、契約テストはログインシェルを fish にした試験サーバで書き込み・symlink の作成・削除を含む merge が成功することを確かめる。fish がない環境では飛ばすが、CI はテストのジョブに fish を入れて REMOTE_MERGE_TEST_REQUIRE_FISH を置き、そのときは fish がないことを失敗にする（A12）。テスト用 SSH サーバの引用を外す関数はテスト側に置いた。"
+  reason: "リモートのログインシェルが fish のサーバで Bourne の構文のコマンドが失敗していたので、すべてのコマンドをスクリプトを一つの引数にした sh -c で送る（A5、REQ-ssh-020）。fish は単一引用符の中でも \\' と \\\\ を解釈するので、単一引用符とバックスラッシュは引用符の外でエスケープする。保証するログインシェルは確かめた Bourne 系と fish に絞り、単一引用符の中の改行を受け付けない csh と tcsh は保証しない（A13）。包み方の説明と remote-shell の導入の文もこの範囲に合わせた。包んだ後の長さを数える関数を置き、一括読み込みの分割の見積もりに使う。単体テストは包んだコマンドを sh・bash・dash・fish で実行して包む前と同じ出力を確かめ、契約テストはログインシェルを fish にした試験サーバで書き込み・symlink の作成・削除を含む merge が成功することを確かめる。fish がない環境では飛ばすが、CI はテストのジョブに fish を入れて REMOTE_MERGE_TEST_REQUIRE_FISH を置き、そのときは fish がないことを失敗にする（A12）。テスト用 SSH サーバの引用を外す関数はテスト側に置いた。"
   requirements:
   - REQ-ssh-020
   decisions:
@@ -193,7 +193,7 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:9514356a5ac218dec7913cc6173b3cbe15ccb81c64e1b3c15ba53deb3a58420a"
+    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
   conclusion: new
   reason: "ローカルの書き込みを O_NOFOLLOW で開き、最後の要素が既存の symlink ならリンクもリンク先も変えずに失敗する（A3、REQ-merge-038、REQ-merge-001）。途中の symlink は O_NOFOLLOW の対象外なので REQ-merge-004 のとおり辿る。そのために engine に Agent と同じ版の libc を unix 向けの依存として足し、Cargo.lock は engine の依存の一覧に libc が加わるだけである。unix 以外では今までどおり書く。"
   requirements:
@@ -226,7 +226,7 @@ entries:
     after: "sha256:a419d3aef3c4f296ec49a40e6b05258632a6887ee17c700fc44e8383cde67b6f"
   ir:
   - path: docs/ir/merge/concurrency.md
-    sha256: "sha256:9514356a5ac218dec7913cc6173b3cbe15ccb81c64e1b3c15ba53deb3a58420a"
+    sha256: "sha256:b85a6df0d489f93cc36ce4b6f98b1390b1ba106e8242706926a204ccb3a79c4e"
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: new
