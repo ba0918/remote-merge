@@ -136,16 +136,14 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
                 message: error.to_string(),
             },
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match resolved_missing_parent(&path) {
-                Ok(real_parent) => AgentPathInspection::Missing {
-                    real_parent: real_parent.to_string_lossy().into_owned(),
-                },
-                Err(error) => AgentPathInspection::Error {
-                    message: error.to_string(),
-                },
-            }
-        }
+        Err(error) if is_missing_path_error(&error) => match resolved_missing_parent(&path) {
+            Ok(real_parent) => AgentPathInspection::Missing {
+                real_parent: real_parent.to_string_lossy().into_owned(),
+            },
+            Err(error) => AgentPathInspection::Error {
+                message: error.to_string(),
+            },
+        },
         Err(error) => AgentPathInspection::Error {
             message: error.to_string(),
         },
@@ -187,7 +185,7 @@ fn resolved_missing_parent(path: &Path) -> Result<PathBuf> {
                 }
                 return Ok(resolved);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if is_missing_path_error(&error) => {
                 missing.push(
                     current
                         .file_name()
@@ -539,6 +537,14 @@ pub fn create_symlink_with_metadata(
 // Tests
 // ---------------------------------------------------------------------------
 
+/// パスがないことを示すエラーか。途中が通常ファイルのパスも、SSH の経路と同じくないものとする。
+fn is_missing_path_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,6 +553,19 @@ mod tests {
 
     fn setup() -> TempDir {
         tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn a_path_below_a_regular_file_is_missing() {
+        let tmp = setup();
+        fs::write(tmp.path().join("shared"), "body").unwrap();
+        for rel_path in ["shared/child.txt", "shared/sub/child.txt"] {
+            let inspected = inspect_path(tmp.path(), rel_path);
+            assert!(
+                matches!(inspected, AgentPathInspection::Missing { .. }),
+                "{rel_path}: {inspected:?}"
+            );
+        }
     }
 
     // ── validate_path ──

@@ -613,6 +613,35 @@ fn directory_link_against_regular_file_shows_both_kinds_of_content() {
     );
 }
 
+// @kotowari[REQ-cli-021]
+#[test]
+fn regular_file_against_directory_link_shows_both_kinds_of_content() {
+    let env = CliEnv::new(
+        &[("shared", "left body\n")],
+        &[("actual/child.txt", "right child\n")],
+    );
+    place_symlink(&env.remote_dir, "shared", "actual");
+    let output = env
+        .cmd_with("diff")
+        .args(["shared", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        result["files"].to_string().contains("left body"),
+        "{result}"
+    );
+    assert!(
+        result["files"].to_string().contains("right child"),
+        "{result}"
+    );
+    assert!(
+        result["files"].to_string().contains("shared/child.txt"),
+        "{result}"
+    );
+}
+
 // @kotowari[EX-cli-046]
 #[test]
 fn directory_link_against_plain_directory_keeps_link_and_child_results() {
