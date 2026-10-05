@@ -91,3 +91,21 @@ fn a_remote_file_that_cannot_be_deleted_fails_without_stopping_the_rest() {
     assert_eq!(fs::read_to_string(locked.join("a.txt")).unwrap(), "keep\n");
     assert!(!env.remote_dir.join("free.txt").exists(), "{json}");
 }
+
+// @kotowari[REQ-merge-023, EX-merge-049]
+#[test]
+fn a_link_whose_target_starts_with_a_dash_is_created_with_that_literal_target() {
+    let env = CliEnv::new(&[], &[]);
+    super::common::place_symlink(&env.local_dir, "link", "--target-directory=sub");
+    fs::create_dir(env.remote_dir.join("sub")).unwrap();
+
+    let (code, json) = merge_without_backup(&env, &["link"]);
+
+    assert_eq!(code, Some(0), "{json}");
+    assert_eq!(
+        fs::read_link(env.remote_dir.join("link")).unwrap(),
+        Path::new("--target-directory=sub"),
+        "{json}"
+    );
+    assert_eq!(fs::read_dir(env.remote_dir.join("sub")).unwrap().count(), 0);
+}

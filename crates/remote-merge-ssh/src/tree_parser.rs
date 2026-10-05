@@ -202,10 +202,12 @@ pub fn build_remove_command(remote_path: &str) -> String {
 ///
 /// 作成先が symlink でない既存のディレクトリなら、`ln -sfn` がその中にリンクを作ってしまうので
 /// 何もせずに 0 以外で終わる。既存の symlink は `-n` によりリンクそのものを置き換える。
+/// リンク先は読み込み元の symlink の文字列なので、`-` で始まってもオプションとして読ませないよう
+/// 前に `--` を置く。
 pub fn build_create_symlink_command(target: &str, remote_path: &str) -> String {
     let q = shell_escape(remote_path);
     let create = format!(
-        "{{ [ -L {q} ] || [ ! -d {q} ]; }} && ln -sfn {} {q}",
+        "{{ [ -L {q} ] || [ ! -d {q} ]; }} && ln -sfn -- {} {q}",
         shell_escape(target)
     );
     match build_mkdir_command(remote_path) {
@@ -726,6 +728,24 @@ mod tests {
         )));
 
         assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("x"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn creating_a_link_whose_target_starts_with_a_dash_uses_it_as_the_target() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let link = dir.path().join("link");
+        let target = format!("--target-directory={}", sub.display());
+
+        assert!(sh_succeeds(&build_create_symlink_command(
+            &target,
+            link.to_str().unwrap()
+        )));
+
+        assert_eq!(std::fs::read_link(&link).unwrap(), Path::new(&target));
+        assert_eq!(std::fs::read_dir(&sub).unwrap().count(), 0);
     }
 
     #[cfg(unix)]
