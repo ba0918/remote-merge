@@ -237,6 +237,7 @@ pub fn build_write_text_command(remote_path: &str) -> String {
 /// 最後の要素が symlink なら開かずに失敗する。一時ファイルを作って名前を付け替えると、所有者と
 /// ハードリンクが変わり、予測できる一時ファイルの名前を他のユーザーに差し替えられる。
 ///
+/// - `writer` のコマンドがリモートにないときは、書き込み先を開く（切り詰める）前に失敗する
 /// - POSIX の sh には pipefail がないので、`writer` の終了ステータスは fd 3 からコマンド置換で
 ///   取り出し、パイプの終了ステータス（dd のもの）と合わせて確かめる
 /// - dd が `oflag=nofollow` を受け付けないときだけ、直前に symlink でないことを確かめてから
@@ -247,8 +248,10 @@ pub fn build_write_text_command(remote_path: &str) -> String {
 ///   失敗を返すため
 fn write_in_place(remote_path: &str, writer: &str) -> String {
     let q = shell_escape(remote_path);
+    let program = writer.split(' ').next().unwrap_or(writer);
     format!(
         "p={q}; fail() {{ cat >/dev/null; exit 1; }}; \
+         command -v {program} >/dev/null 2>&1 || fail; \
          if dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then \
          q=; if dd if=/dev/null of=/dev/null status=none 2>/dev/null; then q=status=none; fi; \
          s=$( {{ {{ {writer} 3>&-; echo $? >&3; }} | dd of=\"$p\" bs=65536 oflag=nofollow $q 3>&-; }} 3>&1 ) || fail; \
@@ -822,15 +825,21 @@ mod tests {
             .collect()
     }
 
-    /// 書き込みのコマンドを、リモートと同じく `sh -c` に包んでログインシェル `shell` から実行する。
-    /// `fake_bin` があれば PATH の先頭に置く。
-    fn spawn_write(shell: &str, command: &str, fake_bin: Option<&Path>) -> std::process::Child {
+    /// 書き込みのコマンドを、リモートと同じく `sh -c` に包んでログインシェル `shell` から実行する
+    /// プロセス
+    fn write_process(shell: &str, command: &str) -> std::process::Command {
         let mut process = std::process::Command::new(shell);
         process
             .args(["-c", &crate::login_shell::wrap_for_login_shell(command)])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        process
+    }
+
+    /// 書き込みのコマンドを `shell` から実行する。`fake_bin` があれば PATH の先頭に置く。
+    fn spawn_write(shell: &str, command: &str, fake_bin: Option<&Path>) -> std::process::Child {
+        let mut process = write_process(shell, command);
         if let Some(bin) = fake_bin {
             let path = std::env::var_os("PATH").unwrap_or_default();
             let paths = std::iter::once(bin.to_path_buf()).chain(std::env::split_paths(&path));
@@ -839,23 +848,75 @@ mod tests {
         process.spawn().unwrap()
     }
 
-    /// 書き込みのコマンドを `shell` から実行し、標準入力に `input` を渡して、成功したかを返す
-    fn write_under(shell: &str, command: &str, input: &[u8], fake_bin: Option<&Path>) -> bool {
+    /// 起動した書き込みの標準入力に `input` を渡して、成功したかを返す
+    fn finish_write(mut child: std::process::Child, input: &[u8]) -> bool {
         use std::io::Write;
-        let mut child = spawn_write(shell, command, fake_bin);
         // 失敗するコマンドが先に終わると書き込みが EPIPE になるが、確かめるのは終了ステータス
         let _ = child.stdin.take().unwrap().write_all(input);
         child.wait().unwrap().success()
     }
 
+    /// 書き込みのコマンドを `shell` から実行し、標準入力に `input` を渡して、成功したかを返す
+    fn write_under(shell: &str, command: &str, input: &[u8], fake_bin: Option<&Path>) -> bool {
+        finish_write(spawn_write(shell, command, fake_bin), input)
+    }
+
+    /// [`write_under`] と同じだが、PATH を `bin` だけにする。fish が利用者の設定で PATH に
+    /// ディレクトリを足さないよう、設定の場所も `bin` の中の空のディレクトリにする。
+    fn write_with_only(shell: &str, command: &str, input: &[u8], bin: &Path) -> bool {
+        let mut process = write_process(shell, command);
+        process
+            .env("PATH", bin)
+            .env("XDG_CONFIG_HOME", bin.join("config"));
+        finish_write(process.spawn().unwrap(), input)
+    }
+
+    /// 今の PATH で `name` のコマンドが見つかる場所
+    fn resolve_command(name: &str) -> Option<String> {
+        let output = std::process::Command::new("sh")
+            .args(["-c", "command -v \"$1\"", "_", name])
+            .output()
+            .unwrap();
+        let found = String::from_utf8(output.stdout).unwrap();
+        (output.status.success() && !found.trim().is_empty()).then(|| found.trim().to_string())
+    }
+
+    /// `dir` に `body` を中身とする実行できるスクリプト `name` を置く
+    #[cfg(unix)]
+    fn put_script(dir: &Path, name: &str, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     /// `oflag=nofollow` を受け付けない dd の代わりに、いつも失敗する `dd` を置いたディレクトリ
     #[cfg(unix)]
     fn bin_without_dd_nofollow() -> tempfile::TempDir {
-        use std::os::unix::fs::PermissionsExt;
         let bin = tempfile::TempDir::new().unwrap();
-        let dd = bin.path().join("dd");
-        std::fs::write(&dd, "#!/bin/sh\nexit 1\n").unwrap();
-        std::fs::set_permissions(&dd, std::fs::Permissions::from_mode(0o755)).unwrap();
+        put_script(bin.path(), "dd", "#!/bin/sh\nexit 1\n");
+        bin
+    }
+
+    /// openssl のないリモートの代わりに、sh・cat・ログインシェルと dd だけを置いたディレクトリ。
+    /// `dd_nofollow` が false なら dd は `oflag=nofollow` を受け付けないいつも失敗するものにする。
+    #[cfg(unix)]
+    fn bin_without_openssl(dd_nofollow: bool) -> tempfile::TempDir {
+        let bin = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(bin.path().join("config")).unwrap();
+        let mut names = vec!["sh", "cat"];
+        names.extend(crate::login_shell::LOGIN_SHELLS);
+        if dd_nofollow {
+            names.push("dd");
+        } else {
+            put_script(bin.path(), "dd", "#!/bin/sh\nexit 1\n");
+        }
+        for name in names {
+            let link = bin.path().join(name);
+            if let (Some(real), false) = (resolve_command(name), link.exists()) {
+                std::os::unix::fs::symlink(real, link).unwrap();
+            }
+        }
         bin
     }
 
@@ -1119,30 +1180,57 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_binary_write_without_openssl_fails_and_keeps_the_destination() {
+        for dd_nofollow in [true, false] {
+            let bin = bin_without_openssl(dd_nofollow);
+            for shell in installed_login_shells() {
+                let dir = tempfile::TempDir::new().unwrap();
+                let dest = dir.path().join("dest.bin");
+                let text = dir.path().join("text.txt");
+                std::fs::write(&dest, "original").unwrap();
+
+                let written = write_with_only(
+                    shell,
+                    &build_write_bytes_command(dest.to_str().unwrap()),
+                    b"bmV3\n",
+                    bin.path(),
+                );
+                // 同じ PATH でテキストは書けるので、失敗の原因は openssl がないこと
+                let text_written = write_with_only(
+                    shell,
+                    &build_write_text_command(text.to_str().unwrap()),
+                    b"new",
+                    bin.path(),
+                );
+
+                let case = format!("{shell}, dd_nofollow={dd_nofollow}");
+                assert!(!written, "{case}");
+                assert_eq!(std::fs::read(&dest).unwrap(), b"original", "{case}");
+                assert!(text_written, "{case}");
+                assert_eq!(std::fs::read(&text).unwrap(), b"new", "{case}");
+            }
+        }
+    }
+
     /// `status=none` を受け付けない古い dd（CentOS 5 の coreutils 5.97 など）の代わりに、それを
     /// 拒み、他は実際の dd に渡して引数を `dd.log` に残す `dd` を置いたディレクトリ
     #[cfg(unix)]
     fn bin_with_dd_lacking_status_none() -> tempfile::TempDir {
-        use std::os::unix::fs::PermissionsExt;
-        let real_dd = std::process::Command::new("sh")
-            .args(["-c", "command -v dd"])
-            .output()
-            .unwrap();
-        let real_dd = String::from_utf8(real_dd.stdout).unwrap();
+        let real_dd = resolve_command("dd").unwrap();
         let bin = tempfile::TempDir::new().unwrap();
-        let dd = bin.path().join("dd");
         let log = bin.path().join("dd.log");
-        std::fs::write(
-            &dd,
-            format!(
+        put_script(
+            bin.path(),
+            "dd",
+            &format!(
                 "#!/bin/sh\nfor a do case $a in status=*) exit 1;; esac; done\n\
                  printf '%s\\n' \"$*\" >>'{}'\nexec {} \"$@\"\n",
                 log.display(),
-                real_dd.trim()
+                real_dd
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&dd, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         bin
     }
 
