@@ -94,6 +94,9 @@ mod merge_write;
 #[cfg(feature = "test-utils")]
 #[path = "contract/path_arguments_cli.rs"]
 mod path_arguments_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/rollback_path_ssh.rs"]
+mod rollback_path_ssh;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[path = "contract/scan_limit_scope.rs"]
