@@ -22,3 +22,6 @@ SSH の一件ずつの読み込みは `openssl base64 -in` を使うが、openss
 - A4 FLAG-cli-033 を閉じる。include の外のディレクトリを指定した diff の扱いは [A1](#A1) と [REQ-cli-077](../../ir/cli/directory-paths.md#REQ-cli-077) で決まった。
   - why: FLAG-cli-033 は include の外のディレクトリの diff に仕様がないことを記録したもので、利用者がその答えを [A1](#A1) で決め、要件とテストにした。
   - decided_by: 利用者（2026-10-05）
+- A5 子がすべて exclude に当たるディレクトリを指定した diff（exclude = ["target"] での `diff target`）がどの経路の組でも差分なし・終了コード 0 になることは、ここでは決めない。exclude に当たるファイルのパスを直接指定した diff が差分を出すことを記録した [FLAG-cli-031](../../ir/cli/FLAGS.md#FLAG-cli-031) に観察として加え、両方を合わせて後で決める。
+  - why: 利用者は、どちらも exclude と指定したパスの関係で仕様が定めていない点が同じため、両方を合わせて決めるとした。
+  - decided_by: 利用者（2026-10-05）
