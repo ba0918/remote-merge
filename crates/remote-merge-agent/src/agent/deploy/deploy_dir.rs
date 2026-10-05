@@ -39,7 +39,7 @@ pub fn build_deploy_dir_check_command(remote_path: &Path, sudo: bool) -> String 
     }
 }
 
-/// 検査コマンドの出力から結果を読む（印がなければ安全でない）。
+/// 検査コマンドの出力から結果を読む（印がなければ、検査に当たったか検査を終えられなかったかを区別できないので安全と確かめられない）。
 pub fn judge_deploy_dir(output: &str) -> DeployDir {
     let has = |marker: &str| output.lines().any(|line| line.trim() == marker);
     if has(SAFE_MARKER) {

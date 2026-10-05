@@ -335,13 +335,13 @@ impl CoreRuntime {
                 // sudo=true ではこのエラーで止まり、理由はエラーとして示される
                 if !sudo {
                     tracing::warn!(
-                        "Agent deploy directory {} on {} is unsafe: not using the agent and continuing over SSH",
+                        "Agent deploy directory {} on {} could not be confirmed safe: not using the agent and continuing over SSH",
                         deploy_dir_display,
                         server_name
                     );
                 }
                 anyhow::bail!(
-                    "Agent deploy directory is unsafe on {}: {} must be a directory owned by the login user (root with sudo), not writable by group or others, and not inside a directory others can write to without the sticky bit",
+                    "Agent deploy directory could not be confirmed safe on {}: {} must be a directory, not a symlink, owned by the login user (root with sudo), and every directory on the path to it, including directories holding intermediate symlinks, must be owned by root or the login user (root with sudo) and not writable by group or others unless it has the sticky bit; the check may also have failed to complete on the server",
                     server_name,
                     deploy_dir_display
                 )
