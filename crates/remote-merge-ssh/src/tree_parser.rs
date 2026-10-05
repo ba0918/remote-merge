@@ -1182,6 +1182,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_decoder_that_fails_after_writing_part_fails_the_write() {
+        // デコードの途中で失敗する openssl の代わりに、少し書いてから失敗する `openssl`
+        let bin = tempfile::TempDir::new().unwrap();
+        put_script(
+            bin.path(),
+            "openssl",
+            "#!/bin/sh\ncat >/dev/null\nprintf partial\nexit 1\n",
+        );
+        for shell in installed_login_shells() {
+            let dir = tempfile::TempDir::new().unwrap();
+            let dest = dir.path().join("dest.bin");
+            std::fs::write(&dest, "original").unwrap();
+
+            let written = write_under(
+                shell,
+                &build_write_bytes_command(dest.to_str().unwrap()),
+                b"bmV3\n",
+                Some(bin.path()),
+            );
+
+            assert!(!written, "{shell}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_binary_write_without_openssl_fails_and_keeps_the_destination() {
         for dd_nofollow in [true, false] {
             let bin = bin_without_openssl(dd_nofollow);
