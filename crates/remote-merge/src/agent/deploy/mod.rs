@@ -4,10 +4,10 @@ mod verify;
 
 pub use remote_merge_agent::agent::deploy::{
     agent_dir_candidates, build_deploy_dir_check_command, build_id_command,
-    build_sudo_check_command, installed_checksum_command, is_deploy_dir_safe,
-    judge_installed_binary, local_binary_path, parse_id_output, resolve_agent_binary,
-    resolve_binary_path, validate_agent_binary, DeployCommands, DeployConfig, DeployResult,
-    InstalledBinary, ResolutionSource, ResolvedBinary, VersionCheck, DEFAULT_DEPLOY_DIR,
+    build_sudo_check_command, installed_checksum_command, judge_deploy_dir, judge_installed_binary,
+    local_binary_path, parse_id_output, resolve_agent_binary, resolve_binary_path,
+    validate_agent_binary, DeployCommands, DeployConfig, DeployDir, DeployResult, InstalledBinary,
+    ResolutionSource, ResolvedBinary, VersionCheck, DEFAULT_DEPLOY_DIR,
 };
 pub use remote_target::{
     current_target, detect_remote_target_command, parse_remote_target, parse_uname_and_version,

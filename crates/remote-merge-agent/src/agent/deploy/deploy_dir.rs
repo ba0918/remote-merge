@@ -10,6 +10,20 @@ use crate::ssh::tree_parser::shell_escape;
 
 /// 検査を通ったときだけ出力する印
 const SAFE_MARKER: &str = "DEPLOY_DIR_SAFE";
+/// 他人が書き込めた自分の配置先を所有者だけのモードに直し、中の Agent を除いたときに出力する印
+const REPAIRED_MARKER: &str = "DEPLOY_DIR_REPAIRED";
+
+/// 配置先のディレクトリの検査の結果
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeployDir {
+    /// 中のものを実行してよい
+    Safe,
+    /// グループかその他が書き込めたのでモード 700 に直し、中の Agent と書き込み途中の
+    /// ファイルを除いた。中身は信用できないので、版の確認をせずに置き直す
+    Repaired,
+    /// 中のものを何も実行しない
+    Unsafe,
+}
 
 /// 配置先のディレクトリがなければモード 700 で作り、安全かを検査するコマンドを生成する。
 ///
@@ -25,24 +39,35 @@ pub fn build_deploy_dir_check_command(remote_path: &Path, sudo: bool) -> String 
     }
 }
 
-/// 検査コマンドの出力から、配置先が安全と判定されたかを返す（印がなければ安全でない）。
-pub fn is_deploy_dir_safe(output: &str) -> bool {
-    output.lines().any(|line| line.trim() == SAFE_MARKER)
+/// 検査コマンドの出力から結果を読む（印がなければ安全でない）。
+pub fn judge_deploy_dir(output: &str) -> DeployDir {
+    let has = |marker: &str| output.lines().any(|line| line.trim() == marker);
+    if has(SAFE_MARKER) {
+        DeployDir::Safe
+    } else if has(REPAIRED_MARKER) {
+        DeployDir::Repaired
+    } else {
+        DeployDir::Unsafe
+    }
 }
 
 fn deploy_dir_check_script(remote_path: &Path, expected_uid: &str) -> String {
     let dir = remote_path.parent().unwrap_or(Path::new("/"));
     let dir = shell_escape(&dir.to_string_lossy());
+    let binary = shell_escape(&remote_path.to_string_lossy());
+    let tmp = shell_escape(&format!("{}.tmp", remote_path.display()));
     // 途中の親も作るときは、他人が書き込める祖先を作らないよう所有者だけのモードにする。
-    // `ls -ldn` の 1 列目の 6 文字目がグループ、9 文字目がその他の書き込み権
+    // `ls -ldn` の 1 列目の 6 文字目がグループ、9 文字目がその他の書き込み権。
+    // 自分の配置先を他人が書き込めたときは、祖先が安全なら直して中の Agent を除く
     format!(
         "d={dir}; \
 if [ ! -e \"$d\" ] && [ ! -h \"$d\" ]; then (umask 077 && mkdir -p \"$d\") || exit 1; fi; \
 [ -h \"$d\" ] && exit 1; [ -d \"$d\" ] || exit 1; \
 set -- $(ls -ldn \"$d\"); \
-[ \"$3\" = \"{expected_uid}\" ] || exit 1; \
-case \"$1\" in ?????w*|????????w*) exit 1;; esac; \
+[ \"$3\" = \"{expected_uid}\" ] || exit 1; m=$1; \
 {ANCESTORS_CHECK} \
+case \"$m\" in ?????w*|????????w*) \
+chmod 700 \"$d\" && rm -f {binary} {tmp} || exit 1; echo {REPAIRED_MARKER}; exit 0;; esac; \
 echo {SAFE_MARKER}"
     )
 }
@@ -105,27 +130,67 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        fs::symlink_metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    /// 配置先に置かれたバイナリと書き込み途中のファイル（どちらも信用できない中身）
+    fn plant_contents(dir: &Path) -> [PathBuf; 2] {
+        let planted = [binary_in(dir), dir.join("remote-merge.tmp")];
+        for path in &planted {
+            fs::write(path, "planted").unwrap();
+        }
+        planted
     }
 
     #[test]
-    fn a_directory_writable_by_others_is_unsafe() {
-        let tmp = private_tmp();
-        let dir = own_dir_with_mode(&tmp, 0o777);
+    fn an_own_directory_writable_by_others_is_made_owner_only_and_emptied_of_the_agent() {
+        for mode in [0o777, 0o775, 0o770] {
+            let tmp = private_tmp();
+            let dir = own_dir_with_mode(&tmp, mode);
+            let planted = plant_contents(&dir);
 
-        let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
+            let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+            assert_eq!(
+                judge_deploy_dir(&output),
+                DeployDir::Repaired,
+                "{mode:o}: {output}"
+            );
+            assert_eq!(mode_of(&dir), 0o700, "{mode:o}");
+            for path in planted {
+                assert!(!path.exists(), "{mode:o}: {} was kept", path.display());
+            }
+        }
     }
 
     #[test]
-    fn a_directory_writable_by_the_group_is_unsafe() {
+    fn a_writable_directory_under_an_unsafe_parent_is_left_as_it_is() {
         let tmp = private_tmp();
-        let dir = own_dir_with_mode(&tmp, 0o770);
+        let dir = owner_only_dir_under_parent_with_mode(&tmp, 0o777);
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o775)).unwrap();
+        let planted = plant_contents(&dir);
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
+        assert_eq!(mode_of(&dir), 0o775);
+        assert!(planted.iter().all(|path| path.exists()));
+    }
+
+    #[test]
+    fn a_writable_directory_owned_by_another_uid_is_left_as_it_is() {
+        let tmp = private_tmp();
+        let dir = own_dir_with_mode(&tmp, 0o775);
+        let other_uid = (own_uid(&tmp) + 1).to_string();
+
+        let output = run(&deploy_dir_check_script(&binary_in(&dir), &other_uid));
+
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
+        assert_eq!(mode_of(&dir), 0o775);
     }
 
     #[test]
@@ -137,7 +202,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&link), false));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -148,7 +213,7 @@ mod tests {
 
         let output = run(&deploy_dir_check_script(&binary_in(&dir), &other_uid));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -158,7 +223,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
         let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700);
     }
@@ -181,7 +246,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -191,7 +256,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -201,7 +266,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
     }
 
     #[test]
@@ -216,7 +281,7 @@ mod tests {
             false,
         ));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -231,7 +296,7 @@ mod tests {
             false,
         ));
 
-        assert!(!is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Unsafe, "{output}");
     }
 
     #[test]
@@ -246,7 +311,7 @@ mod tests {
             false,
         ));
 
-        assert!(is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
     }
 
     #[test]
@@ -256,7 +321,7 @@ mod tests {
 
         let output = run(&build_deploy_dir_check_command(&binary_in(&dir), false));
 
-        assert!(is_deploy_dir_safe(&output), "{output}");
+        assert_eq!(judge_deploy_dir(&output), DeployDir::Safe, "{output}");
         for created in [tmp.path().join("new"), tmp.path().join("new/deeper"), dir] {
             let mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o700, "{}", created.display());
@@ -264,8 +329,8 @@ mod tests {
     }
 
     #[test]
-    fn output_without_the_safe_marker_is_unsafe() {
-        assert!(!is_deploy_dir_safe(""));
-        assert!(!is_deploy_dir_safe("ready\n"));
+    fn output_without_a_marker_is_unsafe() {
+        assert_eq!(judge_deploy_dir(""), DeployDir::Unsafe);
+        assert_eq!(judge_deploy_dir("ready\n"), DeployDir::Unsafe);
     }
 }

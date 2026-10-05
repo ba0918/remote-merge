@@ -341,8 +341,14 @@ impl server::Handler for LocalHandler {
         }
         if let Some(home) = &self.sandbox_home {
             let command = String::from_utf8_lossy(command);
+            // リモートのターゲットを調べるだけのコマンドはパスを含まない
+            let detects_target_only = command
+                == format!(
+                    "{{ {}; }} 2>/dev/null",
+                    remote_merge::agent::deploy::detect_remote_target_command()
+                );
             assert!(
-                command.contains(home.to_str().unwrap()),
+                command.contains(home.to_str().unwrap()) || detects_target_only,
                 "unexpected remote command: {command}"
             );
             if command.starts_with("openssl base64 -d -A -out ") || command.starts_with("cat > ") {

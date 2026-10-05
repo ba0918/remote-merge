@@ -327,21 +327,41 @@ impl CoreRuntime {
         let dir_check = deploy::build_deploy_dir_check_command(&remote_path, sudo);
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let dir_check_output = self.rt.block_on(ssh_client.exec(&dir_check))?;
-        if !deploy::is_deploy_dir_safe(&dir_check_output) {
-            anyhow::bail!(
-                "Agent deploy directory is unsafe on {}: {} must be a directory owned by the login user (root with sudo) and not writable by group or others",
+        let deploy_dir_state = deploy::judge_deploy_dir(&dir_check_output);
+        let deploy_dir_display = remote_path.parent().unwrap_or(&remote_path).display();
+        match deploy_dir_state {
+            deploy::DeployDir::Unsafe => anyhow::bail!(
+                "Agent deploy directory is unsafe on {}: {} must be a directory owned by the login user (root with sudo), not writable by group or others, and not inside a directory others can write to without the sticky bit",
                 server_name,
-                remote_path.parent().unwrap_or(&remote_path).display()
-            );
+                deploy_dir_display
+            ),
+            deploy::DeployDir::Repaired => tracing::warn!(
+                "Agent deploy directory {} on {} was writable by group or others: changed its mode to 700 and placing the agent again",
+                deploy_dir_display,
+                server_name
+            ),
+            deploy::DeployDir::Safe => {}
         }
+        // 直した配置先の中身は信用できないので、版の確認でも実行せずに置き直す
+        let repaired = deploy_dir_state == deploy::DeployDir::Repaired;
 
         // uname + version check を1回の SSH exec で実行
         let uname_cmd = deploy::detect_remote_target_command();
-        let version_cmd = deploy::check_version_command(&remote_path);
-        let combined = format!("{{ {uname_cmd}; }} 2>/dev/null; {version_cmd}");
+        let combined = if repaired {
+            format!("{{ {uname_cmd}; }} 2>/dev/null")
+        } else {
+            let version_cmd = deploy::check_version_command(&remote_path);
+            format!("{{ {uname_cmd}; }} 2>/dev/null; {version_cmd}")
+        };
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
         let combined_output = self.rt.block_on(ssh_client.exec(&combined))?;
-        let (uname_result, version_check) = deploy::parse_uname_and_version(&combined_output);
+        let (uname_result, parsed_version_check) =
+            deploy::parse_uname_and_version(&combined_output);
+        let version_check = if repaired {
+            VersionCheck::NotFound
+        } else {
+            parsed_version_check
+        };
 
         // リモートターゲットの解決
         let remote_target = match uname_result {

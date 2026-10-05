@@ -75,6 +75,7 @@ impl DeployFixture {
         )).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
         command
+            .env_remove("RUST_LOG")
             .env("HOME", home)
             .env("XDG_CACHE_HOME", home.join("cache"))
             .env("XDG_CONFIG_HOME", home.join("config"))
@@ -113,9 +114,13 @@ fn product_version_line() -> String {
 
 // @kotowari[REQ-ssh-014, EX-ssh-023]
 #[tokio::test(flavor = "multi_thread")]
-async fn nothing_in_a_deploy_directory_writable_by_everyone_is_run() {
+async fn nothing_in_a_symlinked_deploy_directory_is_run() {
     let fixture = DeployFixture::new().await;
-    fixture.plant_binary(0o777, None);
+    fixture.plant_binary(0o700, None);
+    let target = fixture.deploy_target_dir();
+    let real = target.with_file_name("planted-dir");
+    fs::rename(&target, &real).unwrap();
+    std::os::unix::fs::symlink(&real, &target).unwrap();
 
     let merge = fixture.merge(None);
 
@@ -123,7 +128,7 @@ async fn nothing_in_a_deploy_directory_writable_by_everyone_is_run() {
     assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
     assert!(
         !fixture.marker().exists(),
-        "a binary in an unsafe deploy directory was run"
+        "a binary in a symlinked deploy directory was run"
     );
 }
 
@@ -142,6 +147,39 @@ async fn nothing_in_a_deploy_directory_under_a_parent_writable_by_everyone_is_ru
     assert!(
         !fixture.marker().exists(),
         "a binary under a parent writable by everyone was run"
+    );
+}
+
+// @kotowari[REQ-ssh-018, EX-ssh-028]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_own_deploy_directory_writable_by_the_group_is_repaired_with_a_warning() {
+    let fixture = DeployFixture::new().await;
+    fixture.plant_binary(0o775, None);
+    let binary = fixture.deploy_target_dir().join("remote-merge");
+    let planted = fs::read(&binary).unwrap();
+
+    let merge = fixture.merge(None);
+
+    assert!(merge.status.success(), "{merge:?}");
+    assert_eq!(fs::read(fixture.target()).unwrap(), b"local updated\n");
+    assert!(
+        !fixture.marker().exists(),
+        "a binary in a writable deploy directory was run"
+    );
+    let mode = fs::metadata(fixture.deploy_target_dir())
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert_ne!(
+        fs::read(&binary).ok(),
+        Some(planted),
+        "the planted binary was kept"
+    );
+    let stderr = String::from_utf8_lossy(&merge.stderr);
+    assert!(
+        stderr.contains(fixture.deploy_target_dir().to_str().unwrap()),
+        "{stderr}"
     );
 }
 
