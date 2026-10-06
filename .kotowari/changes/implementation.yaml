@@ -117,13 +117,13 @@ entries:
     after: null
   - path: crates/remote-merge/src/runtime/remote_path/mod.rs
     before: null
-    after: "sha256:93306aeb0e4985fef4e67cd9bdfe369803f326227e0394d5cb6dcb3bbe4a60b0"
+    after: "sha256:bc950a3345129f1b1ba6b07a4b0ac4f9cac05743707a22a66142698b01a22796"
   - path: crates/remote-merge/src/runtime/remote_path/output.rs
     before: null
     after: "sha256:19fbb554a17d7f1b2879d718a9cbec2ef2a5abbce893d8732da76d3649fbbacc"
   - path: crates/remote-merge/src/runtime/remote_path/script.rs
     before: null
-    after: "sha256:3f7508d23908f10619de94c02b92a7607d305faf58ca693f908ec527b5b4e7d2"
+    after: "sha256:8f8c3a05f282728ff945cc5fd4f20dd2c9011f9b85a388e0f2dcda27453c1f94"
   - path: crates/remote-merge/src/runtime/side_io.rs
     before: "sha256:9ed2eb8a78a96f61fe7228ac300ef6ada0b7f435af2b7c5a17732032021749e0"
     after: "sha256:54764c108e3e3b33679675c94120ff29d171ee2578fcd46a12b37fb0697d7b1c"
@@ -153,7 +153,7 @@ entries:
     after: "sha256:e2b7b01bd56b3d22fb23d3057a45c602a4da9b734b7d4e4b45bea4fbb2d08dc6"
   - path: crates/remote-merge/tests/contract/path_routes_agree.rs
     before: null
-    after: "sha256:b051896878725cb7c45fa8e745a81dc23a68edd295dbcdfc47a49272b843827a"
+    after: "sha256:65fbccf74e04c93045d712fda4c15c7f659b4371c76d17de6d04f48648431e9b"
   - path: crates/remote-merge/tests/contract/rollback_path_agent.rs
     before: null
     after: "sha256:e5dea90c3fe94f08be64eb51dc0fe38421460e31215b109cdc3cf16016496201"
@@ -165,12 +165,12 @@ entries:
     after: "sha256:63477f0a43d7bdbbdf9982fa0c408cbd1dfe1b2690c98bfc6af36ab6d6f0977f"
   - path: crates/remote-merge/tests/contract/ssh_server.rs
     before: "sha256:7343559410163b905d007bf76ecbc11513f3322d7bc8959ffd5f61cbfc39b796"
-    after: "sha256:af936b4f4d4468b73e18bd6acca700a82a56f07d074a33197ab34a0faacafd9e"
+    after: "sha256:eb469724fee7872abaf863beafbbd5a0549420f67a02736e33cb67d20fe966f1"
   ir:
   - path: docs/ir/CONTEXT.md
     sha256: "sha256:4fc6e61a02bc45b3219e3b55c6fb20842df1faa4f7c68711746a1cb5d270d50a"
   - path: docs/ir/paths/resolution.md
-    sha256: "sha256:ebe555b7b286763d79271c91f3019cb924a2ec5473bf4e56f27956908cd0917e"
+    sha256: "sha256:56e8f032be4d7a67a960748949175997051d280537ec1dc6fe7e38984e0a3a9a"
   - path: docs/ir/paths/routes.md
     sha256: "sha256:8912449d06a8786072c12a318d1922504da39ff6ca029a8394df8b0059d12b2e"
   - path: docs/ir/backup/rollback-path.md
@@ -182,7 +182,7 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "rollback・diff・merge・sync が使うパスの確認を、ローカル・SSH・エージェントのどの経路でも同じ手順で \"/\" から要素ごとに辿る形に作り直した（REQ-paths-001〜011）。手順は core の path_resolution に一つの関数として置き、lstat の種類・readlink・検索権限の基本操作を外から受け取る。ローカルとエージェントは同じ基本操作を使う。Unix では標準ライブラリと libc（検索権限は faccessat の AT_EACCESS）、Unix 以外では標準ライブラリだけを使い、検索権限のビットがないので OS が権限のエラーを返したときだけ \"permission denied\" にする（A54、Windows 向けのターゲットで cargo check が通ることを確かめた）。共有する入口は絶対パスの root_dir だけを受け取る。ローカルの相対の root_dir は設定を読む段階で絶対パスになり（A53、REQ-config-040 の組）、届いた相対パスは基準を推し量らずにエラーにする。リモートの相対の root_dir はログインした利用者の作業ディレクトリを基準にし（REQ-paths-012）、エージェントはプロセスの作業ディレクトリ（getcwd）に、SSH はスクリプトの先頭で組み込みの pwd -P の結果につなぐ。結果は存在しない（親が存在するかの印つき）・存在する・末尾の symlink・途中の祖先がディレクトリでないの四つで、辿れないときは閉じた一覧の原因の文言で \"cannot resolve path: \" のエラーにする。長さ 4096・255 バイトと symlink 40 回の上限、末尾の \"/\"、リンク切れ、存在しない部分の \"..\"、UTF-8 でないリンク文字列は、要素ごとに決まった順で確かめる。エージェントの通信の型をこの四つの種類と原因の文言に変えて通信の版を 5 に上げ、版が 5 未満なら確認だけ SSH で行い、sudo を使うサーバでは置き直しを求めるエラーにする（経路を選ぶ純粋関数 path_route）。SSH の確認スクリプトは同じ状態と順の POSIX sh に書き直し、root_dir と相対パスを分けて渡す。pwd と readlink の出力は x を続けてから取り除き、名前の末尾の改行を保つ。つないだ root_dir は root の欄で出し、製品がリンク文字列と同じくバイト列で読んで UTF-8 でなければ \"non-UTF-8 path\" で止める（ローカルとエージェントと同じ箇所）。まだ辿っていない要素はリンク先ごとの残りを位置パラメータと番号付きの変数に積み、途中のリンク先の一覧は末尾から除くので、要素を取り出すたびに残り全体を写さない（A55。4090 バイトほどのリンク先が 40 個連なる状態で dash 2.4 秒→0.7 秒、bash 6.3 秒→1.7 秒）。SSH の cd が権限以外の理由で失敗したときも \"permission denied\" になることは既知の例外とした（A52）。検索権限は cd の成否で判定し（A48）、先頭で LC_ALL=C を代入し（A49）、読んだリンク文字列を出力に含めて製品がバイト列のまま読む（A50、そのため ssh の crate のバイト列の実行関数を公開した）。読み取りは一覧にない文言（UTF-8 でない原因の文言を含む）・知らない種類・欠けた欄・余った欄をエラーにする。エージェントの接続のロックが壊れていて通信の版が分からないときは、経路を選ばずにエラーにする（sudo を使うサーバを SSH に回さない、A45）。試験 SSH サーバの模擬の応答（ssh_server.rs）も新しい形にし、パスの確認のコマンドを見分ける判定を、エージェントの経路を使う試験の前提の確認（scan_listing_cli.rs）と共有した。rollback は確認の結果を純粋な関数で読み、途中の祖先が通常ファイル（か通常ファイルを指す symlink）ならスキップ、それ以外のディレクトリでない祖先は REQ-backup-003 のエラーにし、祖先が通常ファイルかを経路ごとに問い合わせていた処理は消した（EX-backup-027・029・030 の三つの経路のテストは変えずに通る）。確認の原因の文言には接頭辞を二重に足さない。rollback 以外（diff・merge・sync・バックアップの作成）は途中の祖先がディレクトリでないことを \"cannot resolve path: not a directory\" のエラーとして受け取り（CoreRuntime の確認の入口の一か所で読み替える）、diff の root の外のリンクの判定は確認のエラーをパスごとのエラーとして示す。普通のパスでは新しい実パスが canonicalize の結果とバイト列で同じことを確かめた（A13）。三つの経路の一致は、例の状態の表と生成した状態の proptest で、ローカル・このマシンの sh で動かしたスクリプト・通信の形式で往復させたエージェントの答えを比べて確かめ、相対の root_dir は名前が改行で終わる作業ディレクトリと UTF-8 でない作業ディレクトリで、起動したエージェントのプロセスを含めて比べる。EX-paths-025 は SSH とエージェントで確かめる。契約でない内部の形（コマンドの先頭の並び全体、出力の欄の読み戻し）を固定していた単体テストは除いた。このブランチの前半で入れた REQ-backup-031 の祖先の範囲（A2）と、その三つの経路の契約テスト（rollback_path_ssh.rs・rollback_path_agent.rs、scan_listing_cli.rs の AgentFixture の起動関数）もこの組に含める。target_io.rs・side_io.rs・contract.rs・diff.rs・merge_paths.rs は REQ-cli-078 と REQ-merge-007 の変更と共有する。 local_io.rs・os.rs・file_io.rs の相対の root_dir の扱いは、REQ-config-040 の組と合わせて A53 を満たす。"
+  reason: "rollback・diff・merge・sync が使うパスの確認を、ローカル・SSH・エージェントのどの経路でも同じ手順で \"/\" から要素ごとに辿る形に作り直した（REQ-paths-001〜011）。手順は core の path_resolution に一つの関数として置き、lstat の種類・readlink・検索権限の基本操作を外から受け取る。ローカルとエージェントは同じ基本操作を使う。Unix では標準ライブラリと libc（検索権限は faccessat の AT_EACCESS）、Unix 以外では標準ライブラリだけを使い、検索権限のビットがないので OS が権限のエラーを返したときだけ \"permission denied\" にする（A54、Windows 向けのターゲットで cargo check が通ることを確かめた）。共有する入口は絶対パスの root_dir だけを受け取る。ローカルの相対の root_dir は設定を読む段階で絶対パスになり（A53、REQ-config-040 の組）、届いた相対パスは基準を推し量らずにエラーにする。リモートの相対の root_dir はログインした利用者の作業ディレクトリを基準にし（REQ-paths-012）、エージェントはプロセスの作業ディレクトリ（getcwd）に、SSH はスクリプトの先頭で組み込みの pwd -P の結果につなぐ。結果は存在しない（親が存在するかの印つき）・存在する・末尾の symlink・途中の祖先がディレクトリでないの四つで、辿れないときは閉じた一覧の原因の文言で \"cannot resolve path: \" のエラーにする。長さ 4096・255 バイトと symlink 40 回の上限、末尾の \"/\"、リンク切れ、存在しない部分の \"..\"、UTF-8 でないリンク文字列は、要素ごとに決まった順で確かめる。エージェントの通信の型をこの四つの種類と原因の文言に変えて通信の版を 5 に上げ、版が 5 未満なら確認だけ SSH で行い、sudo を使うサーバでは置き直しを求めるエラーにする（経路を選ぶ純粋関数 path_route）。SSH の確認スクリプトは同じ状態と順の POSIX sh に書き直し、root_dir と相対パスを分けて渡す。pwd と readlink の出力は x を続けてから取り除き、名前の末尾の改行を保つ。dash と BusyBox ash の pwd -P は作業ディレクトリが消えていると空の行を出して 0 で終わるので、\"/\" で始まらない結果は \"cannot read\" にする（エージェントの getcwd の失敗と同じ答え）。つないだ root_dir は root の欄で出し、製品がリンク文字列と同じくバイト列で読んで UTF-8 でなければ \"non-UTF-8 path\" で止める（ローカルとエージェントと同じ箇所）。まだ辿っていない要素はリンク先ごとの残りを位置パラメータと番号付きの変数に積み、途中のリンク先の一覧は末尾から除くので、要素を取り出すたびに残り全体を写さない（A55。4090 バイトほどのリンク先が 40 個連なる状態で dash 2.4 秒→0.7 秒、bash 6.3 秒→1.7 秒）。SSH の cd が権限以外の理由で失敗したときも \"permission denied\" になることは既知の例外とした（A52）。検索権限は cd の成否で判定し（A48）、先頭で LC_ALL=C を代入し（A49）、読んだリンク文字列を出力に含めて製品がバイト列のまま読む（A50、そのため ssh の crate のバイト列の実行関数を公開した）。読み取りは一覧にない文言（UTF-8 でない原因の文言を含む）・知らない種類・欠けた欄・余った欄をエラーにする。エージェントの接続のロックが壊れていて通信の版が分からないときは、経路を選ばずにエラーにする（sudo を使うサーバを SSH に回さない、A45）。試験 SSH サーバの模擬の応答（ssh_server.rs）も新しい形にし、パスの確認のコマンドを見分ける判定を、エージェントの経路を使う試験の前提の確認（scan_listing_cli.rs）と共有し、その判定は test-utils の機能で公開した製品のコマンドの先頭の並び（remote_path の INSPECT_PATH_PREFIX）を読む。rollback は確認の結果を純粋な関数で読み、途中の祖先が通常ファイル（か通常ファイルを指す symlink）ならスキップ、それ以外のディレクトリでない祖先は REQ-backup-003 のエラーにし、祖先が通常ファイルかを経路ごとに問い合わせていた処理は消した（EX-backup-027・029・030 の三つの経路のテストは変えずに通る）。確認の原因の文言には接頭辞を二重に足さない。rollback 以外（diff・merge・sync・バックアップの作成）は途中の祖先がディレクトリでないことを \"cannot resolve path: not a directory\" のエラーとして受け取り（CoreRuntime の確認の入口の一か所で読み替える）、diff の root の外のリンクの判定は確認のエラーをパスごとのエラーとして示す。普通のパスでは新しい実パスが canonicalize の結果とバイト列で同じことを確かめた（A13）。三つの経路の一致は、例の状態の表と生成した状態の proptest で、ローカル・このマシンの sh で動かしたスクリプト・通信の形式で往復させたエージェントの答えを比べて確かめ、相対の root_dir は名前が改行で終わる作業ディレクトリと UTF-8 でない作業ディレクトリで、起動したエージェントのプロセスを含めて比べる。消えた作業ディレクトリでは、ローカルには作業ディレクトリに当たるものがないので、SSH とエージェントがどちらも \"cannot read\" で止まることを確かめる。EX-paths-025 は SSH とエージェントで確かめる。契約でない内部の形（コマンドの先頭の並び全体、出力の欄の読み戻し）を固定していた単体テストは除いた。このブランチの前半で入れた REQ-backup-031 の祖先の範囲（A2）と、その三つの経路の契約テスト（rollback_path_ssh.rs・rollback_path_agent.rs、scan_listing_cli.rs の AgentFixture の起動関数）もこの組に含める。target_io.rs・side_io.rs・contract.rs・diff.rs・merge_paths.rs は REQ-cli-078 と REQ-merge-007 の変更と共有する。 local_io.rs・os.rs・file_io.rs の相対の root_dir の扱いは、REQ-config-040 の組と合わせて A53 を満たす。"
   requirements:
   - REQ-paths-001
   - REQ-paths-002
@@ -265,26 +265,38 @@ entries:
   files:
   - path: crates/remote-merge-config/src/lib.rs
     before: "sha256:1483279da985bd9f63e43ecd91de86c10d6cb0c94858ad0753222679a28c7913"
-    after: "sha256:4eb83941656faee405254cc95ccfa6be263da5a7ba1bc3559ae337812ae26e35"
+    after: "sha256:9100724fb2fa07cbe47d05a4e85e23377f4c75c85d96eed2a3d2922d2e3327f0"
   - path: crates/remote-merge/tests/contract/config_loading_cli.rs
     before: "sha256:ea1d6b89fcc3d5e8bafe808e06b0118a528df41f3d8692b10e2cd4c2b5a62f6a"
-    after: "sha256:250850c270c71e65445d86ad16ede1c58b38aa1f99e064e6924fa0c007c85a4f"
+    after: "sha256:781758205d08e978723a4bd43076005e74193878245a43e0d139d7045752e1a5"
   - path: crates/remote-merge/tests/contract/backup_sessions.rs
     before: "sha256:d0479518e82a24469456d7477aa0a48acd95490083ca0394a2ef7548bb5f7e1b"
-    after: "sha256:1abb1cedaab7bd7612012001864c6a4a9a2081d573cc699eee0d659d856044f3"
+    after: "sha256:5cf27fba10a128da11757c9abde8977b6def4a97efff6c6b1863ccf3ba38d962"
+  - path: crates/remote-merge-engine/src/backup/mod.rs
+    before: "sha256:7227c6e8ba00bfce9303f2ba6f8157f7bfb5bc41f6d4e627141d8fcd898a2862"
+    after: "sha256:8cd502bf8ef6f009befabc3b3e190c0c649b68d69140136dbb0ba277dec45e65"
+  - path: crates/remote-merge-engine/src/backup_store.rs
+    before: "sha256:999380c9e01dcebb494459c832259a069bea8655befa5f5aeb1d6c0324f249b3"
+    after: "sha256:d78ac9446eab008f406229de5100d8fcb0fd870cda34884d0e942d2a4508247a"
   ir:
   - path: docs/ir/config/loading.md
-    sha256: "sha256:0767f8184b3dc4bf5e16b4012ea0f378e39a4aee7ea7e3f29a280c4166d31139"
+    sha256: "sha256:808755adb0db1b15b16fd25b2da8ca56b027e9c274bddff441c9f153b3181618"
   - path: docs/ir/backup/sessions.md
     sha256: "sha256:297d6b1510048f2664b43cfd31c4f56ba46dfeb4086f088f0446c1dabd01c430"
   conclusion: existing
-  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、そのファイルのある絶対のディレクトリを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対ならそのディレクトリにつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。テストは EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。"
+  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、そのファイルのある絶対のディレクトリを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対ならそのディレクトリにつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す）。設定ファイルのディレクトリは、設定ファイルの絶対パスを symlink を辿らずに字面で正規化（\".\" を除き \"..\" を一つ上の名前と打ち消す）したものの親にする（A56）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。空の root_dir は基準につなぐ前に REQ-config-041 の \"root_dir must not be empty\" で止める（サーバの root_dir と同じ AppError::ConfigValidation、終了コード 2）。テストは REQ-config-041、隣のディレクトリを通る --config の書き方でも同じ root_dir とバックアップの一覧になること（A56）、EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。 REQ-backup-043（A57）のとおり、識別が変わる前に保存したセッションも一覧・書き戻し・期限切れの整理で探す。設定に書いた root_dir（\"~/\" の展開後、基準につなぐ前）を LocalConfig の root_dir_as_written に残し、以前の版と同じ規則（相対なら設定読み込み時のカレントディレクトリにつなぎ、正規化しない。既定の \".\" なら \"<カレントディレクトリ>/.\"）で求めた識別のキーを、今の識別のキーの後に重複なく並べる。セッションごとに最初に記録があるキーを、一覧と書き戻しで同じ規則で選ぶ。整理の対象のキーにも加える。リモートは REQ-backup-021 の字面の正規化がまだ実装されておらず、書いたままの root_dir が今の識別と同じなので、加えるキーはない。テストは EX-backup-024（以前の版の識別で保存したセッションが同じ設定・同じカレントディレクトリで一覧に出て書き戻せる）と、以前の識別の期限切れのセッションが整理されることを確かめる。"
   requirements:
   - REQ-config-040
+  - REQ-config-041
   - REQ-config-010
   - REQ-backup-021
+  - REQ-backup-043
   decisions:
   - "docs/decision/records/2026-10-05-quality-config.md#A5"
   - "docs/decision/records/2026-10-06-path-resolution.md#A53"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A56"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A57"
+  - "docs/decision/records/2026-10-05-quality-backup.md#A1"
+  - "docs/decision/records/2026-10-05-quality-backup.md#A5"
   handoff: null
   gaps: []
