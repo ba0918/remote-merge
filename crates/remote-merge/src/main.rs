@@ -121,7 +121,7 @@ enum Commands {
         /// Preview merge without writing files
         #[arg(long)]
         dry_run: bool,
-        /// Skip safety confirmations (remote-to-remote)
+        /// Skip safety confirmations (remote-to-remote) and read files larger than 104,857,600 bytes, including for backups
         #[arg(long)]
         force: bool,
         /// Delete files that exist only on target (rsync --delete equivalent)
@@ -158,7 +158,7 @@ enum Commands {
         /// Preview sync without writing files
         #[arg(long)]
         dry_run: bool,
-        /// Skip safety confirmations (remote-to-remote)
+        /// Skip safety confirmations (remote-to-remote) and read files larger than 104,857,600 bytes, including for backups
         #[arg(long)]
         force: bool,
         /// Delete files that exist only on target (rsync --delete equivalent)
@@ -196,7 +196,7 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
 
-        /// Skip confirmation prompt and allow restoring an expired session
+        /// Skip confirmation prompt, allow restoring an expired session, and back up files larger than 104,857,600 bytes before restoring
         #[arg(long)]
         force: bool,
 
