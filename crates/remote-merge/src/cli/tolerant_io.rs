@@ -5,9 +5,40 @@
 
 use std::collections::HashMap;
 
+use crate::runtime::target_io::TargetPath;
 use crate::runtime::CoreRuntime;
 use crate::service::status::RequiredContents;
 use crate::side::Side;
+
+/// 中身を読む。読めず、パスの確認でその側にないと分かったときだけ None を返し、
+/// それ以外の読めなかったことは誤りのまま返す（エラーの文で「ない」を見分けない）
+pub fn read_unless_missing(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    match core.read_file_bytes(side, path, false) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) => match core.inspect_path(side, path) {
+            Ok(TargetPath::Missing { .. }) => Ok(None),
+            _ => Err(error),
+        },
+    }
+}
+
+/// 読めなかった側ごとに "側: 理由" を並べた、読めなかったファイルの理由
+pub fn read_failure_reason(
+    left: (&Side, Option<&anyhow::Error>),
+    right: (&Side, Option<&anyhow::Error>),
+) -> String {
+    [left, right]
+        .into_iter()
+        .filter_map(|(side, error)| {
+            error.map(|error| format!("{}: {error:#}", side.display_name()))
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
 
 pub fn fetch_contents_required(
     side: &Side,
@@ -64,5 +95,25 @@ pub fn fetch_contents_tolerant(
             }
             contents
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_reason_names_each_side_that_could_not_be_read() {
+        let error = anyhow::anyhow!("permission denied");
+        let remote = Side::Remote("develop".into());
+
+        assert_eq!(
+            read_failure_reason((&Side::Local, None), (&remote, Some(&error))),
+            "develop: permission denied"
+        );
+        assert_eq!(
+            read_failure_reason((&Side::Local, Some(&error)), (&remote, Some(&error))),
+            "local: permission denied; develop: permission denied"
+        );
     }
 }

@@ -1945,3 +1945,152 @@ fn a_parent_component_stops_diff_before_connecting_to_the_server() {
         "path traversal not allowed: a/../b.txt",
     );
 }
+
+// ── REQ-cli-089: 読めないファイルを空とみなさない ──
+
+/// `path` を読めなくする。読めなくしても読める（root で動く）ときは false を返す
+fn make_unreadable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(path).is_ok() {
+        eprintln!("skipped: the file is readable without permission (running as root)");
+        return false;
+    }
+    true
+}
+
+/// `diff <args> --left local --right develop --format json` の出力と JSON
+fn diff_json(env: &CliEnv, args: &[&str]) -> (std::process::Output, serde_json::Value) {
+    let output = env
+        .cmd_with("diff")
+        .args(args)
+        .args(["--left", "local", "--right", "develop", "--format", "json"])
+        .output()
+        .unwrap();
+    let json = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("diff output is not JSON ({error}): {output:?}"));
+    (output, json)
+}
+
+fn listed_paths(json: &serde_json::Value, key: &str) -> Vec<String> {
+    json[key]
+        .as_array()
+        .unwrap_or_else(|| panic!("{key} missing: {json}"))
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// 左右に中身の違う "a.txt" と "b.txt" を置き、右の "a.txt" を読めなくする。読めなくできなければ None
+fn env_with_unreadable_remote_a() -> Option<CliEnv> {
+    let env = CliEnv::new(
+        &[("a.txt", "left a\n"), ("b.txt", "left b\n")],
+        &[("a.txt", "right a\n"), ("b.txt", "right b\n")],
+    );
+    make_unreadable(&env.remote_dir.join("a.txt")).then_some(env)
+}
+
+// @kotowari[REQ-cli-089, EX-cli-087]
+#[test]
+fn req_cli_089_a_named_file_unreadable_on_one_side_is_an_error_and_not_a_difference() {
+    let Some(env) = env_with_unreadable_remote_a() else {
+        return;
+    };
+
+    let (output, json) = diff_json(&env, &["a.txt", "b.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(listed_paths(&json, "errors"), vec!["a.txt"], "{json}");
+    assert!(
+        !json["errors"][0]["reason"].as_str().unwrap().is_empty(),
+        "{json}"
+    );
+    assert_eq!(listed_paths(&json, "files"), vec!["b.txt"], "{json}");
+    assert_eq!(json["summary"]["files_with_changes"], 1, "{json}");
+    assert!(
+        json["files"][0]["hunks"].to_string().contains("right b"),
+        "{json}"
+    );
+}
+
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_a_scanned_file_unreadable_on_one_side_is_an_error_and_not_a_difference() {
+    let Some(env) = env_with_unreadable_remote_a() else {
+        return;
+    };
+
+    let (output, json) = diff_json(&env, &[]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(listed_paths(&json, "errors"), vec!["a.txt"], "{json}");
+    assert_eq!(listed_paths(&json, "files"), vec!["b.txt"], "{json}");
+    assert_eq!(json["summary"]["files_with_changes"], 1, "{json}");
+}
+
+// 大きさが同じで更新時刻の違うファイルは、走査の後に中身を読み比べて判定する
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_same_sized_files_unreadable_on_both_sides_are_not_equal_after_a_scan() {
+    let env = CliEnv::new(&[("a.txt", "same\n")], &[("a.txt", "same\n")]);
+    let local = env.local_dir.join("a.txt");
+    std::fs::File::options()
+        .write(true)
+        .open(&local)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
+        .unwrap();
+    if !make_unreadable(&local) || !make_unreadable(&env.remote_dir.join("a.txt")) {
+        return;
+    }
+
+    let (output, json) = diff_json(&env, &[]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(listed_paths(&json, "errors"), vec!["a.txt"], "{json}");
+    assert!(listed_paths(&json, "files").is_empty(), "{json}");
+}
+
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_a_named_file_unreadable_on_both_sides_is_an_error_and_not_missing() {
+    let env = CliEnv::new(&[("a.txt", "left a\n")], &[("a.txt", "right a\n")]);
+    if !make_unreadable(&env.local_dir.join("a.txt"))
+        || !make_unreadable(&env.remote_dir.join("a.txt"))
+    {
+        return;
+    }
+
+    let (output, json) = diff_json(&env, &["a.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(listed_paths(&json, "errors"), vec!["a.txt"], "{json}");
+    assert!(listed_paths(&json, "files").is_empty(), "{json}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("not found on either side"), "{output:?}");
+}
+
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_the_text_output_reports_the_unreadable_file_on_standard_error() {
+    let Some(env) = env_with_unreadable_remote_a() else {
+        return;
+    };
+
+    let output = env
+        .cmd_with("diff")
+        .args(["a.txt", "b.txt", "--left", "local", "--right", "develop"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.lines().any(|line| line.contains("a.txt")),
+        "{output:?}"
+    );
+    assert!(!stderr.contains("treating as empty"), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("left a"), "{output:?}");
+    assert!(stdout.contains("+right b"), "{output:?}");
+}

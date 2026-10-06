@@ -117,11 +117,12 @@ fn req_cli_061_the_side_without_the_binary_is_missing() {
     assert!(text.lines().any(|line| line == expected), "{text}");
 }
 
+// 読めない側は "missing" とせず、REQ-cli-089 のとおり files に載せずに errors に出す。
 // 読めなくしても読めてしまう（root で動く）ときは確かめられないため飛ばす
 // @kotowari[REQ-cli-061]
 #[cfg(unix)]
 #[test]
-fn req_cli_061_the_unreadable_side_of_a_binary_is_missing() {
+fn req_cli_061_the_unreadable_side_of_a_binary_is_an_error_and_not_missing() {
     use std::os::unix::fs::PermissionsExt;
 
     let content: &[u8] = b"right\0bytes";
@@ -135,19 +136,13 @@ fn req_cli_061_the_unreadable_side_of_a_binary_is_missing() {
 
     let result = fixture.diff(&["f"]);
     fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o644)).unwrap();
-    let (output, _) = result;
+    let (output, code) = result;
     let json = json(&output);
-    let file = entry(&json, "f");
 
-    assert_eq!(file["binary"], true, "{json}");
-    assert!(file.get("left_hash").is_none(), "{json}");
-    assert_eq!(file["right_hash"], sha256(content), "{json}");
-    let text = format_multi_diff_text(&output);
-    let expected = format!(
-        "Binary files differ (left: missing, right: sha256={})",
-        sha256(content)
-    );
-    assert!(text.lines().any(|line| line == expected), "{text}");
+    assert_eq!(code, 2, "{json}");
+    assert!(paths_of(&output).is_empty(), "{json}");
+    assert_eq!(json["errors"][0]["path"], "f", "{json}");
+    assert!(!format_multi_diff_text(&output).contains("missing"));
 }
 
 // 中身のない側もあるファイルとして SHA-256 を出し、"missing" にしない

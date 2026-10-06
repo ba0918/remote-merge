@@ -1,7 +1,7 @@
 //! diff サブコマンドの実装。
 
 use crate::cli::ref_guard;
-use crate::cli::tolerant_io::fetch_contents_tolerant;
+use crate::cli::tolerant_io::{fetch_contents_required, read_failure_reason, read_unless_missing};
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
@@ -22,7 +22,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     compute_status_from_trees, needs_content_compare, refine_status_with_content,
-    status_from_read_results,
+    status_from_read_results, verified_content_pairs,
 };
 use crate::service::types::{
     exit_code, DiffError, DiffOutput, FileStatus, FileStatusKind, LinkTargets, MultiDiffOutput,
@@ -35,9 +35,10 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
-/// plain_file_sizes）。plain_file_sizes は diff_files のうち、中身を読む前に通常のファイルと
-/// 分かっているパスの左右の大きさ（ない側は None）。--max-files の枠が埋まった後に読まずに
-/// 数えてよいかの判定に使う。
+/// plain_file_sizes, read_errors）。plain_file_sizes は diff_files のうち、中身を読む前に通常の
+/// ファイルと分かっているパスの左右の大きさ（ない側は None）。--max-files の枠が埋まった後に
+/// 読まずに数えてよいかの判定に使う。read_errors は状態を決めるために中身を読めなかったパスで、
+/// diff_files には入れない。
 type DiffScanResult = (
     FileTree,
     FileTree,
@@ -45,6 +46,7 @@ type DiffScanResult = (
     Vec<String>,
     Vec<String>,
     PlainFileSizes,
+    Vec<DiffError>,
 );
 
 /// パスごとの、通常のファイルとしてある側の大きさ（左, 右）
@@ -78,7 +80,12 @@ pub fn run_diff_with_targets(
     let format = OutputFormat::parse(&args.format)?;
     let (multi_output, code) = execute_diff(args, config, targets)?;
     let text = match format {
-        OutputFormat::Text => format_multi_diff_text(&multi_output),
+        OutputFormat::Text => {
+            for error in &multi_output.errors {
+                eprintln!("Error: {}: {}", error.path, error.reason);
+            }
+            format_multi_diff_text(&multi_output)
+        }
         OutputFormat::Json => format_json(&multi_output)?,
     };
     println!("{}", text);
@@ -119,7 +126,7 @@ pub fn execute_diff(
     // ScanStrategy で分岐: FastPath / PartialScan / FullScan
     let strategy = resolve_scan_strategy(&args.paths, false);
 
-    let (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes) =
+    let (left_tree, right_tree, _, existing_files, diff_files, plain_file_sizes, scan_errors) =
         match strategy {
             ScanStrategy::FastPath(ref target_paths) => run_diff_fast_path(
                 target_paths,
@@ -155,8 +162,8 @@ pub fn execute_diff(
 
     // Build diff for each file
     let mut file_diffs = Vec::new();
-    let mut errors = Vec::new();
-    let mut has_read_error = false;
+    let mut has_read_error = !scan_errors.is_empty();
+    let mut errors = scan_errors;
     let mut pending: VecDeque<String> = diff_files.iter().cloned().collect();
     let mut scanned_files = existing_files.len();
     let mut visited_entries = 0;
@@ -207,10 +214,6 @@ pub fn execute_diff(
             file_diffs.push(output);
             continue;
         }
-        // LeftOnly/RightOnly の場合、存在しない側の読み込み失敗は予想通りなので Warning を抑制
-        let status = statuses.iter().find(|s| s.path == *path).map(|s| s.status);
-        let (left_quiet, right_quiet) = quiet_flags_for_status(status);
-
         // symlink 判定（ツリー情報から）
         let left_symlink_target =
             link_target_unless_absent(&mut core, &pair.left, &left_tree, path, left_absent)?;
@@ -492,21 +495,42 @@ pub fn execute_diff(
             continue;
         }
 
-        // バイト列で読み込み、事前にバイナリ判定を行う
-        let (left_bytes, left_ok) = if left_absent {
-            (Vec::new(), false)
+        // バイト列で読み込み、事前にバイナリ判定を行う。読めない側は空とみなさず誤りにする
+        let left_read = if left_absent {
+            Ok(None)
         } else {
-            read_file_bytes_tolerant(&mut core, &pair.left, path, left_quiet)
+            read_unless_missing(&mut core, &pair.left, path)
         };
-        let (right_bytes, right_ok) = if right_absent {
-            (Vec::new(), false)
+        let right_read = if right_absent {
+            Ok(None)
         } else {
-            read_file_bytes_tolerant(&mut core, &pair.right, path, right_quiet)
+            read_unless_missing(&mut core, &pair.right, path)
         };
-        // 両方読めなかったファイルはエラーとして記録
-        if !left_ok && !right_ok {
-            has_read_error = true;
-        }
+        let (left_read, right_read) = match (left_read, right_read) {
+            (Ok(None), Ok(None)) => {
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason: "not found on either side".into(),
+                });
+                has_read_error = true;
+                continue;
+            }
+            (Ok(left_read), Ok(right_read)) => (left_read, right_read),
+            (left_read, right_read) => {
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason: read_failure_reason(
+                        (&pair.left, left_read.as_ref().err()),
+                        (&pair.right, right_read.as_ref().err()),
+                    ),
+                });
+                has_read_error = true;
+                continue;
+            }
+        };
+        let (left_ok, right_ok) = (left_read.is_some(), right_read.is_some());
+        let left_bytes = left_read.unwrap_or_default();
+        let right_bytes = right_read.unwrap_or_default();
 
         let output = if is_binary(&left_bytes) || is_binary(&right_bytes) {
             // バイナリファイル: SHA-256 ハッシュを計算して直接 DiffOutput を構築
@@ -695,8 +719,8 @@ fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
 
 /// FastPath: 指定ファイルだけ直接読んでステータスを判定する（ツリースキャンなし）。
 ///
-/// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes)
-/// ツリーは空（FastPath ではツリーを使わないため）。plain_file_sizes は読んだ大きさから作る。
+/// 返り値: (left_tree, right_tree, statuses, existing_files, diff_files, plain_file_sizes,
+/// read_errors)。ツリーは空（FastPath ではツリーを使わないため）。plain_file_sizes は読んだ大きさから作る。
 ///
 /// `left`・`right` は比べる側と、その root_dir を実パスに直したもの。
 fn run_diff_fast_path(
@@ -714,6 +738,7 @@ fn run_diff_fast_path(
     let mut existing = Vec::new();
     let mut equal_binary_paths = Vec::new();
     let mut plain_file_sizes = PlainFileSizes::new();
+    let mut read_errors = Vec::new();
 
     for path in target_paths {
         let left_path = core.inspect_path(left, path)?;
@@ -752,33 +777,39 @@ fn run_diff_fast_path(
             existing.push(path.clone());
             continue;
         }
-        let (left_bytes, left_ok) = read_file_bytes_tolerant(core, left, path, true);
-        let (right_bytes, right_ok) = read_file_bytes_tolerant(core, right, path, true);
-
-        let left_exists = left_ok;
-        let right_exists = right_ok;
-
-        let left_content = if left_ok {
-            Some(left_bytes.as_slice())
-        } else {
-            None
+        // 「ない」はパスの確認の結果で決め、読めない側は「ない」ともせず誤りにする
+        let left_read = read_inspected(core, left, path, &left_path);
+        let right_read = read_inspected(core, right, path, &right_path);
+        let (left_content, right_content) = match (left_read, right_read) {
+            (Ok(left_content), Ok(right_content)) => (left_content, right_content),
+            (left_read, right_read) => {
+                read_errors.push(DiffError {
+                    path: path.clone(),
+                    reason: read_failure_reason(
+                        (left, left_read.as_ref().err()),
+                        (right, right_read.as_ref().err()),
+                    ),
+                });
+                continue;
+            }
         };
-        let right_content = if right_ok {
-            Some(right_bytes.as_slice())
-        } else {
-            None
-        };
 
-        match status_from_read_results(left_exists, right_exists, left_content, right_content) {
+        match status_from_read_results(
+            left_content.is_some(),
+            right_content.is_some(),
+            left_content.as_deref(),
+            right_content.as_deref(),
+        ) {
             Ok(kind) => {
                 if kind == FileStatusKind::Equal
-                    && (is_binary(&left_bytes) || is_binary(&right_bytes))
+                    && (left_content.as_deref().is_some_and(is_binary)
+                        || right_content.as_deref().is_some_and(is_binary))
                 {
                     equal_binary_paths.push(path.clone());
                 }
                 if kind != FileStatusKind::Equal {
-                    let left_size = left_ok.then_some(left_bytes.len() as u64);
-                    let right_size = right_ok.then_some(right_bytes.len() as u64);
+                    let left_size = left_content.as_ref().map(|bytes| bytes.len() as u64);
+                    let right_size = right_content.as_ref().map(|bytes| bytes.len() as u64);
                     plain_file_sizes.insert(path.clone(), (left_size, right_size));
                 }
                 statuses.push(FileStatus {
@@ -796,7 +827,7 @@ fn run_diff_fast_path(
         }
     }
 
-    if existing.is_empty() && !target_paths.is_empty() {
+    if existing.is_empty() && read_errors.is_empty() && !target_paths.is_empty() {
         anyhow::bail!("specified path(s) not found on either side");
     }
 
@@ -809,6 +840,7 @@ fn run_diff_fast_path(
         existing,
         diff_files,
         plain_file_sizes,
+        read_errors,
     ))
 }
 
@@ -852,12 +884,8 @@ fn read_existing_diff_file(
     side: &Side,
     path: &str,
 ) -> anyhow::Result<Option<Vec<u8>>> {
-    match core.inspect_path(side, path)? {
-        TargetPath::Missing { .. } => Ok(None),
-        TargetPath::File { .. } | TargetPath::Symlink { .. } => {
-            core.read_file_bytes(side, path, false).map(Some)
-        }
-    }
+    let inspected = core.inspect_path(side, path)?;
+    read_inspected(core, side, path, &inspected)
 }
 
 fn link_target_for_diff(
@@ -929,17 +957,23 @@ fn compute_statuses_and_resolve(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
+    // 読めなかったパスは状態を変えずに残し（名前で指定したパスを「ない」にしない）、
+    // diff_files からだけ外して誤りにする
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
+    let mut read_errors = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_tolerant(left, &paths_to_compare, core);
-        let right_batch = fetch_contents_tolerant(right, &paths_to_compare, core);
-        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-        for path in &paths_to_compare {
-            let left_bytes = left_batch.get(path).cloned().unwrap_or_default();
-            let right_bytes = right_batch.get(path).cloned().unwrap_or_default();
-            compare_pairs.insert(path.clone(), (left_bytes, right_bytes));
-        }
-        refine_status_with_content(&mut statuses, &compare_pairs);
+        let left_batch = fetch_contents_required(left, &paths_to_compare, core, false);
+        let right_batch = fetch_contents_required(right, &paths_to_compare, core, false);
+        let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
+        refine_status_with_content(&mut statuses, &verified.pairs);
+        read_errors = verified
+            .failures
+            .into_iter()
+            .map(|failure| DiffError {
+                path: failure.path,
+                reason: failure.error,
+            })
+            .collect();
     }
 
     let target_files =
@@ -958,7 +992,14 @@ fn compute_statuses_and_resolve(
         anyhow::bail!("specified path(s) not found on either side");
     }
 
-    let diff_files = filter_changed_files(&existing_files, &statuses);
+    let unreadable: HashSet<&str> = read_errors
+        .iter()
+        .map(|error| error.path.as_str())
+        .collect();
+    let diff_files: Vec<String> = filter_changed_files(&existing_files, &statuses)
+        .into_iter()
+        .filter(|path| !unreadable.contains(path.as_str()))
+        .collect();
     let plain_file_sizes = diff_files
         .iter()
         .filter_map(|path| {
@@ -972,6 +1013,7 @@ fn compute_statuses_and_resolve(
         existing_files,
         diff_files,
         plain_file_sizes,
+        read_errors,
     ))
 }
 
@@ -994,52 +1036,23 @@ fn plain_file_sizes(
     (left.is_some() || right.is_some()).then_some((left, right))
 }
 
-/// LeftOnly/RightOnly に基づき、存在しない側の quiet フラグを決定する。
-///
-/// 返り値: (left_quiet, right_quiet)
-fn quiet_flags_for_status(status: Option<FileStatusKind>) -> (bool, bool) {
-    let left_quiet = status == Some(FileStatusKind::RightOnly);
-    let right_quiet = status == Some(FileStatusKind::LeftOnly);
-    (left_quiet, right_quiet)
-}
-
-/// バイト列でファイル読み込みを試み、失敗時は空バイト列を返す。
-///
-/// 全エラー（PathNotFound, SSH切断, パーミッション拒否等）を空バイト列にフォールバックする。
-/// diff は読み取り専用操作であり、片側が読めなくても全行追加/削除として表示できるため、
-/// エラー種別による分岐は行わない。
-///
-/// バイト列で返すことで、バイナリファイルの NUL バイトが lossy 変換で消えることを防ぐ。
-/// `is_binary()` 判定が正しく動作し、テキストファイルは呼び出し側で String に変換する。
-///
-/// `quiet` が false の場合、失敗時に stderr に Warning を出力する。
-///
-/// 返り値: (バイト列, 読み込み成功したか)
-fn read_file_bytes_tolerant(
+/// パスの確認の結果 `inspected` がない側は読まずに None、ある側は中身を読む
+fn read_inspected(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
-    quiet: bool,
-) -> (Vec<u8>, bool) {
-    match core.read_file_bytes(side, path, false) {
-        Ok(content) => (content, true),
-        Err(e) => {
-            if !quiet {
-                eprintln!(
-                    "Warning: {}: {}: {:#} (treating as empty)",
-                    side.display_name(),
-                    path,
-                    e
-                );
-            }
-            (Vec::new(), false)
+    inspected: &TargetPath,
+) -> anyhow::Result<Option<Vec<u8>>> {
+    match inspected {
+        TargetPath::Missing { .. } => Ok(None),
+        TargetPath::File { .. } | TargetPath::Symlink { .. } => {
+            core.read_file_bytes(side, path, false).map(Some)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::service::types::FileStatusKind;
     use crate::tree::{FileNode, FileTree};
 
     fn tree(nodes: Vec<FileNode>) -> FileTree {
@@ -1082,47 +1095,5 @@ mod tests {
         assert_eq!(super::plain_file_sizes("link", &left, &right), None);
         assert_eq!(super::plain_file_sizes("mixed", &left, &right), None);
         assert_eq!(super::plain_file_sizes("missing", &left, &right), None);
-    }
-
-    // ── quiet flags for status ──
-
-    use super::quiet_flags_for_status;
-
-    #[test]
-    fn test_quiet_flags_left_only_suppresses_right_warning() {
-        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::LeftOnly));
-        assert!(!left_quiet, "left side should not be quiet for LeftOnly");
-        assert!(right_quiet, "right side should be quiet for LeftOnly");
-    }
-
-    #[test]
-    fn test_quiet_flags_right_only_suppresses_left_warning() {
-        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::RightOnly));
-        assert!(left_quiet, "left side should be quiet for RightOnly");
-        assert!(!right_quiet, "right side should not be quiet for RightOnly");
-    }
-
-    #[test]
-    fn test_quiet_flags_modified_no_suppression() {
-        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::Modified));
-        assert!(!left_quiet);
-        assert!(!right_quiet);
-    }
-
-    #[test]
-    fn test_quiet_flags_none_no_suppression() {
-        let (left_quiet, right_quiet) = quiet_flags_for_status(None);
-        assert!(!left_quiet);
-        assert!(!right_quiet);
-    }
-
-    // ── additional quiet_flags tests ──
-
-    #[test]
-    fn test_quiet_flags_equal_no_suppression() {
-        // Equal ステータスでは両方 quiet=false
-        let (left_quiet, right_quiet) = quiet_flags_for_status(Some(FileStatusKind::Equal));
-        assert!(!left_quiet, "left should not be quiet for Equal");
-        assert!(!right_quiet, "right should not be quiet for Equal");
     }
 }
