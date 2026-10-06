@@ -4,5 +4,5 @@
 oversized-reads = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(/^size_limit::(req_cli_074_force_lets_merge_write_a_file_over_the_limit|req_cli_094_status_compares_the_contents_of_files_over_the_limit)$/)'
+filter = 'test(/^size_limit::(req_cli_074_force_lets_merge_write_a_file_over_the_limit|req_cli_094_status_compares_the_contents_of_files_over_the_limit|ex_cli_082_force_lets_diff_compare_files_over_the_limit)$/)'
 test-group = 'oversized-reads'

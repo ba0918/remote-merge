@@ -335,3 +335,30 @@ fn req_cli_094_status_compares_the_contents_of_files_over_the_limit() {
         .clone();
     assert_eq!(status, "equal", "{output:?}");
 }
+
+// ── EX-cli-082: --force で diff の上限を外す ──
+
+// 100MB を超える中身を実際に読むので、一つずつ走らせる組に入れる
+// @kotowari[EX-cli-082]
+#[test]
+fn ex_cli_082_force_lets_diff_compare_files_over_the_limit() {
+    let env = CliEnv::new(&[], &[]);
+    place_two_oversized_files(&env.local_dir, &env.remote_dir);
+
+    let output = diff_over_ssh(&env, &["big.bin", "--force"]);
+
+    let json = json_of(&output);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    // 誤りがなければ errors は出力されない
+    assert!(
+        json.get("errors")
+            .is_none_or(|errors| errors == &serde_json::json!([])),
+        "{json}"
+    );
+    let entry = &json["files"][0];
+    assert_eq!(entry["path"], "big.bin", "{json}");
+    assert_eq!(entry["binary"], true, "{json}");
+    assert!(entry["left_hash"].is_string(), "{json}");
+    assert!(entry["right_hash"].is_string(), "{json}");
+    assert_ne!(entry["left_hash"], entry["right_hash"], "{json}");
+}

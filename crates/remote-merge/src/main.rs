@@ -93,7 +93,7 @@ enum Commands {
         /// Maximum number of files to process (0 for unlimited)
         #[arg(long, default_value = "100")]
         max_files: usize,
-        /// No effect; accepted for compatibility with existing scripts
+        /// Compare files larger than 104,857,600 bytes instead of reporting them as unreadable
         #[arg(long)]
         force: bool,
         /// Allow diff to read symlink targets outside the configured root

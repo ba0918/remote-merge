@@ -253,11 +253,10 @@ pub fn execute_merge(
         let ref_info = build_source_info(ref_s, &core)?;
 
         let paths = &plan.files;
-        let left_contents =
-            fetch_contents_tolerant(&pair.left, paths, &mut core, SizeLimit::Enforced);
-        let right_contents =
-            fetch_contents_tolerant(&pair.right, paths, &mut core, SizeLimit::Enforced);
-        let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core, SizeLimit::Enforced);
+        let limit = SizeLimit::from_force(args.force);
+        let left_contents = fetch_contents_tolerant(&pair.left, paths, &mut core, limit);
+        let right_contents = fetch_contents_tolerant(&pair.right, paths, &mut core, limit);
+        let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core, limit);
 
         let file_statuses: Vec<FileStatus> = plan
             .files

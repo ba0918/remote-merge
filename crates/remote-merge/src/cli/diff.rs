@@ -126,6 +126,7 @@ pub fn execute_diff(
 
     // ScanStrategy で分岐: FastPath / PartialScan / FullScan
     let strategy = resolve_scan_strategy(&args.paths, false);
+    let limit = SizeLimit::from_force(args.force);
 
     let (left_tree, right_tree, _, existing_files, diff_files, plain_file_sizes, scan_errors) =
         match strategy {
@@ -136,6 +137,7 @@ pub fn execute_diff(
                 &mut core,
                 &config,
                 args.follow_external_links,
+                limit,
             )?,
             ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
                 dir_paths,
@@ -145,10 +147,16 @@ pub fn execute_diff(
                 &mut core,
                 &config,
                 max_entries,
+                limit,
             )?,
-            ScanStrategy::FullScan => {
-                run_diff_full_scan(&args.paths, &pair.left, &pair.right, &mut core, max_entries)?
-            }
+            ScanStrategy::FullScan => run_diff_full_scan(
+                &args.paths,
+                &pair.left,
+                &pair.right,
+                &mut core,
+                max_entries,
+                limit,
+            )?,
         };
 
     // Ref server handling
@@ -333,12 +341,12 @@ pub fn execute_diff(
             let left_content = if left_absent {
                 Ok(None)
             } else {
-                read_existing_diff_file(&mut core, &pair.left, path)
+                read_existing_diff_file(&mut core, &pair.left, path, limit)
             };
             let right_content = if right_absent {
                 Ok(None)
             } else {
-                read_existing_diff_file(&mut core, &pair.right, path)
+                read_existing_diff_file(&mut core, &pair.right, path, limit)
             };
             let left_children = left_content
                 .as_ref()
@@ -500,12 +508,12 @@ pub fn execute_diff(
         let left_read = if left_absent {
             Ok(None)
         } else {
-            read_unless_missing(&mut core, &pair.left, path)
+            read_unless_missing(&mut core, &pair.left, path, limit)
         };
         let right_read = if right_absent {
             Ok(None)
         } else {
-            read_unless_missing(&mut core, &pair.right, path)
+            read_unless_missing(&mut core, &pair.right, path, limit)
         };
         let (left_read, right_read) = match (left_read, right_read) {
             (Ok(None), Ok(None)) => {
@@ -576,7 +584,7 @@ pub fn execute_diff(
             let right_content = String::from_utf8_lossy(&right_bytes).into_owned();
 
             let ref_content = if let Some(ref_s) = &ref_side {
-                core.read_file(ref_s, path, SizeLimit::Enforced).ok()
+                core.read_file(ref_s, path, limit).ok()
             } else {
                 None
             };
@@ -648,7 +656,8 @@ fn listed_children(
 }
 
 /// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
-/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない
+/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない。
+/// 種類を確かめるだけで中身は比べないので、--force でも上限を当てて大きなファイルを読まない
 fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str) -> bool {
     match core.read_file_bytes(side, path, false) {
         Ok(_) => true,
@@ -735,6 +744,7 @@ fn run_diff_fast_path(
     core: &mut CoreRuntime,
     config: &AppConfig,
     follow_external_links: bool,
+    limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
     let left_tree = FileTree::new(&config.local.root_dir);
     let right_tree = FileTree::new(&config.local.root_dir);
@@ -783,8 +793,8 @@ fn run_diff_fast_path(
             continue;
         }
         // 「ない」はパスの確認の結果で決め、読めない側は「ない」ともせず誤りにする
-        let left_read = read_inspected(core, left, path, &left_path);
-        let right_read = read_inspected(core, right, path, &right_path);
+        let left_read = read_inspected(core, left, path, &left_path, limit);
+        let right_read = read_inspected(core, right, path, &right_path, limit);
         let (left_content, right_content) = match (left_read, right_read) {
             (Ok(left_content), Ok(right_content)) => (left_content, right_content),
             (left_read, right_read) => {
@@ -888,9 +898,10 @@ fn read_existing_diff_file(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
+    limit: SizeLimit,
 ) -> anyhow::Result<Option<Vec<u8>>> {
     let inspected = core.inspect_path(side, path)?;
-    read_inspected(core, side, path, &inspected)
+    read_inspected(core, side, path, &inspected, limit)
 }
 
 fn link_target_for_diff(
@@ -909,6 +920,7 @@ fn link_target_for_diff(
 }
 
 /// PartialScan: 指定ディレクトリ配下のみツリー取得して既存フローに接続する。
+#[allow(clippy::too_many_arguments)]
 fn run_diff_partial_scan(
     dir_paths: &[String],
     original_paths: &[String],
@@ -917,6 +929,7 @@ fn run_diff_partial_scan(
     core: &mut CoreRuntime,
     config: &AppConfig,
     max_entries: usize,
+    limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
     // 各ディレクトリのサブツリーを取得して結合
     let mut left_tree = FileTree::new(&config.local.root_dir);
@@ -934,7 +947,14 @@ fn run_diff_partial_scan(
     right_tree.nodes.dedup_by_key(|n| n.name.clone());
 
     // 以降は FullScan と同じフロー
-    compute_statuses_and_resolve(original_paths, left, right, core, left_tree, right_tree)
+    compute_statuses_and_resolve(
+        original_paths,
+        (left, right),
+        core,
+        left_tree,
+        right_tree,
+        limit,
+    )
 }
 
 /// FullScan: 従来通り全ツリーを取得する。
@@ -944,20 +964,21 @@ fn run_diff_full_scan(
     right: &Side,
     core: &mut CoreRuntime,
     max_entries: usize,
+    limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
     let left_tree = core.fetch_tree_recursive(left, max_entries, true)?;
     let right_tree = core.fetch_tree_recursive(right, max_entries, true)?;
-    compute_statuses_and_resolve(paths, left, right, core, left_tree, right_tree)
+    compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)
 }
 
 /// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（PartialScan / FullScan 共通）
 fn compute_statuses_and_resolve(
     paths: &[String],
-    left: &Side,
-    right: &Side,
+    (left, right): (&Side, &Side),
     core: &mut CoreRuntime,
     left_tree: FileTree,
     right_tree: FileTree,
+    limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
@@ -967,10 +988,8 @@ fn compute_statuses_and_resolve(
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     let mut read_errors = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch =
-            fetch_contents_required(left, &paths_to_compare, core, SizeLimit::Enforced);
-        let right_batch =
-            fetch_contents_required(right, &paths_to_compare, core, SizeLimit::Enforced);
+        let left_batch = fetch_contents_required(left, &paths_to_compare, core, limit);
+        let right_batch = fetch_contents_required(right, &paths_to_compare, core, limit);
         let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
         refine_status_with_content(&mut statuses, &verified.pairs);
         read_errors = verified
@@ -1049,12 +1068,13 @@ fn read_inspected(
     side: &Side,
     path: &str,
     inspected: &TargetPath,
+    limit: SizeLimit,
 ) -> anyhow::Result<Option<Vec<u8>>> {
     match inspected {
         TargetPath::Missing { .. } => Ok(None),
-        TargetPath::File { .. } | TargetPath::Symlink { .. } => {
-            core.read_file_bytes(side, path, false).map(Some)
-        }
+        TargetPath::File { .. } | TargetPath::Symlink { .. } => core
+            .read_file_bytes(side, path, limit == SizeLimit::Lifted)
+            .map(Some),
     }
 }
 

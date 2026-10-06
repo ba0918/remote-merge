@@ -17,8 +17,9 @@ pub fn read_unless_missing(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
+    limit: SizeLimit,
 ) -> anyhow::Result<Option<Vec<u8>>> {
-    match core.read_file_bytes(side, path, false) {
+    match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
         Ok(content) => Ok(Some(content)),
         Err(error) => match core.inspect_path(side, path) {
             Ok(TargetPath::Missing { .. }) => Ok(None),
