@@ -12,7 +12,9 @@
 //! 答えは欄ごとに NUL で終え、読んだリンク文字列を `link` の欄で順に出してから、結果か
 //! `error` と原因の文言を出す。辿れなかったことも終了コード 0 で返し、0 以外はスクリプトの失敗にする。
 //! 検索権限は `[ -x ]` ではなく cd の成否で判定する。`[ -x ]` は BusyBox ash が root のモード 000 の
-//! ディレクトリを検索できないと答え、実効 uid の access と食い違う
+//! ディレクトリを検索できないと答え、実効 uid の access と食い違う。
+//! コマンド置換は出力の末尾の改行をすべて落とすので、pwd と readlink の出力には x を続けてから
+//! x とコマンドが足した改行を一つずつ取り除き、名前の末尾の改行を残す
 
 /// コマンドの先頭の並び。試験 SSH サーバは同じ並びを別に持ち、これでパスの確認を見分けて `r=` と `p=` を読む
 const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
@@ -33,7 +35,7 @@ push() {
     n=$((n + nc));
   fi;
 };
-case $r in /*) ;; *) d=$(pwd -P) || fail "cannot read"; r=$d/$r ;; esac;
+case $r in /*) ;; *) d=$(pwd -P && printf x) || fail "cannot read"; d=${d%x}; d=${d%?}; r=$d/$r ;; esac;
 normalize "$r"; q=$nq; n=$nc;
 normalize "$p"; nrel=$nc;
 if [ "$nc" -gt 0 ]; then if [ -n "$q" ]; then q=${q%/}/$nq; else q=$nq; fi; n=$((n + nc)); fi;

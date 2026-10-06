@@ -4,15 +4,17 @@
 //! 同じ一時ディレクトリに状態を作り、三つの経路で同じパスを確かめる。
 //! - ローカル: 製品のローカルの確認
 //! - SSH: 製品が組み立てるスクリプトをこのマシンの sh で動かし、製品の読み取りを通したもの
-//! - エージェント: Dispatcher に InspectPath を送り、応答を通信の形式で往復させて製品の変換を通したもの
+//! - エージェント: Dispatcher に InspectPath を送り、応答を通信の形式で往復させて製品の変換を通したもの。
+//!   作業ディレクトリを選ぶ相対の root_dir では、エージェントのプロセスを起動して尋ねる
 
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
+use remote_merge::agent::client::AgentClient;
 use remote_merge::agent::dispatch::Dispatcher;
 use remote_merge::agent::protocol::{
     deserialize_response, serialize_response, AgentRequest, AgentResponse,
@@ -31,12 +33,20 @@ fn local(root: &Path, rel: &str) -> Outcome {
 
 /// SSH のスクリプトを、PATH を `path_env` にした sh で動かす
 fn ssh_with_path(root: &Path, rel: &str, path_env: &OsStr) -> Outcome {
-    let output = Command::new("/bin/sh")
+    run_script(root.to_str().unwrap(), rel, path_env, None)
+}
+
+/// SSH のスクリプトを sh で動かす。`cwd` があれば、その作業ディレクトリで動かす
+fn run_script(root: &str, rel: &str, path_env: &OsStr, cwd: Option<&Path>) -> Outcome {
+    let mut command = Command::new("/bin/sh");
+    command
         .arg("-c")
-        .arg(build_inspect_path_command(root.to_str().unwrap(), rel))
-        .env("PATH", path_env)
-        .output()
-        .unwrap();
+        .arg(build_inspect_path_command(root, rel))
+        .env("PATH", path_env);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command.output().unwrap();
     assert!(
         output.status.success(),
         "{rel}: {}",
@@ -66,11 +76,45 @@ fn agent(root: &Path, rel: &str) -> Outcome {
     }
 }
 
+/// 作業ディレクトリ `cwd` で、root_dir を `root` として起動したエージェントのプロセスに尋ねる
+fn agent_process(cwd: &Path, root: &str, rel: &str) -> Outcome {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .arg("agent")
+        .arg("--root")
+        .arg(root)
+        .current_dir(cwd)
+        .env("RUST_LOG", "off")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client =
+        AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap()).unwrap();
+    let inspection = client.inspect_path(rel).unwrap();
+    drop(client);
+    let _ = child.kill();
+    let _ = child.wait();
+    resolved_from_agent(inspection).map_err(|error| error.to_string())
+}
+
 /// 三つの経路の答え。食い違えば説明を返す
 fn disagreement(root: &Path, rel: &str) -> Option<String> {
     let (local, ssh, agent) = (local(root, rel), ssh(root, rel), agent(root, rel));
     (local != ssh || local != agent)
         .then(|| format!("{rel:?}: local {local:?}, ssh {ssh:?}, agent {agent:?}"))
+}
+
+/// 相対の root_dir `root` を作業ディレクトリ `cwd` で確かめた三つの経路の答え。食い違えば説明を返す。
+/// ローカルの root_dir は設定を読む段階で絶対パスになる（REQ-config-040）ので、ローカルには
+/// `cwd` につないだ絶対パスを渡す
+fn relative_root_disagreement(cwd: &Path, root: &str, rel: &str) -> Option<String> {
+    let local = local(&cwd.join(root), rel);
+    let path_env = std::env::var_os("PATH").unwrap_or_default();
+    let ssh = run_script(root, rel, &path_env, Some(cwd));
+    let agent = agent_process(cwd, root, rel);
+    (local != ssh || local != agent)
+        .then(|| format!("{cwd:?} {rel:?}: local {local:?}, ssh {ssh:?}, agent {agent:?}"))
 }
 
 struct Base {
@@ -244,6 +288,25 @@ fn ex_paths_019_every_example_state_gives_the_same_answer_on_all_three_routes() 
         local(&root, "loop"),
         Err("cannot resolve path: too many levels of symbolic links".into())
     );
+}
+
+// @kotowari[REQ-paths-008]
+#[test]
+fn relative_root_dirs_give_the_same_answer_on_all_three_routes() {
+    let base = Base::new();
+    let mut disagreements = Vec::new();
+    // 名前が改行で終わる作業ディレクトリ
+    for cwd_name in [OsStr::new("work\n")] {
+        let cwd = base.path.join(cwd_name);
+        fs::create_dir_all(cwd.join("app")).unwrap();
+        fs::write(cwd.join("app/a.txt"), "content\n").unwrap();
+        symlink("loop", cwd.join("app/loop")).unwrap();
+        for rel in ["a.txt", "loop"] {
+            disagreements.extend(relative_root_disagreement(&cwd, "app", rel));
+        }
+    }
+
+    assert!(disagreements.is_empty(), "{disagreements:#?}");
 }
 
 // @kotowari[REQ-paths-009, EX-paths-020]
