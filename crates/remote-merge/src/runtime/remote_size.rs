@@ -105,6 +105,14 @@ where
     AgentSizes::Answered { known, omitted }
 }
 
+/// エージェントが正しい形のエラー応答を返したか（通信は壊れていない）。エージェントのクライアントは
+/// 応答の Error を "agent error: " で始まる型のないエラーにするので、その形で見分ける
+pub(crate) fn is_error_response(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.to_string().starts_with("agent error: "))
+}
+
 /// エージェントとの接続が切れたことを示すエラーか。エージェントが返した応答の誤りとは分ける
 fn is_connection_lost(error: &anyhow::Error) -> bool {
     error

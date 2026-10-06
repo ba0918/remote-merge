@@ -14,7 +14,7 @@ use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
-use super::remote_size::{ask_agent_sizes, AgentSizes};
+use super::remote_size::{ask_agent_sizes, is_error_response, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
 
 pub(crate) use remote_merge_engine::local_io::{
@@ -203,7 +203,9 @@ impl CoreRuntime {
             return Ok(());
         }
         let mut io = super::target_io::for_side(side, self);
-        let sizes = io.file_sizes(self, &[rel_path.to_string()])?;
+        let sizes = io
+            .file_sizes(self, &[rel_path.to_string()])
+            .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
         match size_limit::refusal(rel_path, sizes.get(rel_path)) {
             Some(refusal) => Err(refusal),
             None => Ok(()),
@@ -221,7 +223,9 @@ impl CoreRuntime {
             return Ok(rel_paths.to_vec());
         }
         let mut io = super::target_io::for_side(side, self);
-        let sizes = io.file_sizes(self, rel_paths)?;
+        let sizes = io
+            .file_sizes(self, rel_paths)
+            .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
         Ok(size_limit::readable_paths(rel_paths, &sizes))
     }
 
@@ -749,9 +753,9 @@ impl CoreRuntime {
     ///
     /// エージェントがなければ None。`with_agent` は通さない: エージェントが返したエラーを SSH への
     /// 切り替えにすると、その経路だけ上限が黙って外れうる。そこで、接続が切れたときだけ
-    /// エージェントを無効にして None（SSH への切り替え）にし、エージェントが返したエラーは
-    /// 尋ねたパスすべての失敗にする。そのとき、続きの応答を信用できない種類のエラーなら、
-    /// 既存の読み込みと同じくエージェントを無効にする
+    /// エージェントを無効にして None（SSH への切り替え）にし、それ以外の失敗は尋ねたパスすべての
+    /// 失敗にする。正しい形のエラー応答ではエージェントを使い続け、通信が壊れたとき（フレームの
+    /// 破損、想定外の応答、フレームの上限超え）だけ無効にする
     #[allow(clippy::type_complexity)]
     fn try_agent_file_sizes(
         &mut self,
@@ -776,7 +780,7 @@ impl CoreRuntime {
                 None
             }
             AgentSizes::Failed(error) => {
-                if should_invalidate_agent_error(&error) {
+                if !is_error_response(&error) {
                     self.invalidate_agent(server_name);
                 }
                 Some(Err(error.context("agent could not report file sizes")))
@@ -1723,6 +1727,33 @@ mod tests {
             !format!("{error:#}").contains("SSH not connected"),
             "{error:#}"
         );
+        assert!(rt.agent_clients.contains_key("develop"));
+    }
+
+    // 一括の呼び出し元が大きさを尋ねる操作の失敗をパスごとに読み直すと、次の問い合わせの結果で
+    // 失敗が消えうる。試験用のエージェントは一つしか答えないので、読み直せば接続が切れて SSH に回る
+    #[cfg(unix)]
+    #[test]
+    fn a_batch_caller_reports_a_failed_size_query_as_each_paths_failure_without_reading_again() {
+        let mut rt =
+            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Error {
+                message: "stat failed".into(),
+            }));
+
+        let result = crate::cli::tolerant_io::fetch_contents_required(
+            &Side::Remote("develop".into()),
+            &asked(),
+            &mut rt,
+            SizeLimit::Enforced,
+        );
+
+        assert!(result.contents.is_empty());
+        let error = &result.errors["a.bin"];
+        assert!(
+            error.contains("agent could not report file sizes"),
+            "{error}"
+        );
+        assert!(rt.agent_clients.contains_key("develop"));
     }
 
     #[cfg(unix)]

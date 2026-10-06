@@ -48,6 +48,12 @@ pub struct FileTooLarge {
     pub size: u64,
 }
 
+/// 大きさを尋ねる操作そのものの失敗。一括読み込みの呼び出し元は、パスごとに読み直さずに
+/// 尋ねたパスすべての失敗にする（読み直すと次の問い合わせの結果で失敗が消えうる）
+#[derive(Debug, thiserror::Error)]
+#[error("{0:#}")]
+pub struct SizeQueryFailed(pub anyhow::Error);
+
 /// `path` を読まない理由。読んでよければ None。大きさの答えがないパスは読む
 pub(crate) fn refusal(path: &str, size: Option<&FileSize>) -> Option<anyhow::Error> {
     match size? {

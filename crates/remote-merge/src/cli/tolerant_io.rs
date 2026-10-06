@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::runtime::size_limit::SizeLimit;
+use crate::runtime::size_limit::{SizeLimit, SizeQueryFailed};
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::CoreRuntime;
 use crate::service::status::RequiredContents;
@@ -49,8 +49,16 @@ pub fn fetch_contents_required(
     limit: SizeLimit,
 ) -> RequiredContents {
     let mut result = RequiredContents::default();
-    if let Ok(contents) = core.read_files_bytes_batch(side, paths, limit) {
-        result.contents = contents;
+    match core.read_files_bytes_batch(side, paths, limit) {
+        Ok(contents) => result.contents = contents,
+        Err(error) if error.is::<SizeQueryFailed>() => {
+            result.errors = paths
+                .iter()
+                .map(|path| (path.clone(), error.to_string()))
+                .collect();
+            return result;
+        }
+        Err(_) => {}
     }
     for path in paths {
         if result.contents.contains_key(path) {
@@ -82,6 +90,10 @@ pub fn fetch_contents_tolerant(
     // バッチバイト列読み込みを試行
     match core.read_files_bytes_batch(side, paths, limit) {
         Ok(batch) => batch,
+        Err(e) if e.is::<SizeQueryFailed>() => {
+            tracing::debug!("File size query failed, not reading: {}", e);
+            HashMap::new()
+        }
         Err(e) => {
             tracing::debug!("Batch read failed, falling back to individual reads: {}", e);
             // フォールバック: 1ファイルずつ（既存ロジック）
