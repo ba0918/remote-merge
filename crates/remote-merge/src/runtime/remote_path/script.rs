@@ -1,13 +1,18 @@
 //! リモートで "/" から要素ごとに辿るスクリプト。手順は core の `resolve_path` と同じで、
 //! 基本操作は `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -f ]`、組み込みの cd・pwd・printf・command -v と
-//! オプションなしの readlink だけを使う。
+//! オプションなしの readlink だけを使う。要素を分けて積むのには、シェルの言語の機能（`set -f`・
+//! `set --`・shift・eval・IFS の代入と unset）を使う（決定記録の A55）。
 //!
-//! 状態は core の手順と同じものを文字列で持つ。
-//! - `q`: まだ辿っていない要素を "/" でつないだもの。空の要素と "." は入れる前に除き、最後の要素の
-//!   後に "/" があったときだけ末尾に "/" を残す。`n` はその要素の数
+//! 状態は core の手順と同じものを持つ。まだ辿っていない要素は、差し込んだリンク先ごとの残りを
+//! 積んだものとして持ち、要素を一つ取り出すたびに写すのはいちばん上の残りだけにする。
+//! - 位置パラメータ: いちばん上の残りを "/" で分けた欄。空の欄と "." は取り出すときに読み飛ばす。
+//!   `tsl` は、その最後の要素の後に "/" があるか
+//! - `s1`〜`sK` と `t1`〜`tK`: その下に積んだ残りを "/" でつないだものと、その `tsl`。`k` は積んだ数
+//! - `n`: 読み飛ばすものを除いた、まだ辿っていない要素の数
 //! - `ex`: 辿っている途中のリンク先。差し込んだときに後ろに残っていた要素の数と、差し込んだ
-//!   symlink が確認する相対パスの要素だったか（1 か 0）を ":" でつないだものを空白で並べる
-//! - `nrel`: `q` の後ろにある確認する相対パスの要素の数
+//!   symlink が確認する相対パスの要素だったか（1 か 0）を ":" でつないだものを空白で並べる。
+//!   残っていた要素の数は差し込んだ順に小さくならないので、辿り終えたものは末尾から除く
+//! - `nrel`: まだ辿っていない要素のうち、後ろにある確認する相対パスの要素の数
 //!
 //! 答えは欄ごとに NUL で終え、辿り始める絶対パスの root_dir を `root` の欄で、読んだリンク文字列を
 //! `link` の欄で順に出してから、結果か `error` と原因の文言を出す。辿れなかったことも終了コード 0 で返し、0 以外はスクリプトの失敗にする。
@@ -21,30 +26,28 @@ const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
 
 const SCRIPT: &str = r#"emit() { printf '%s\000' "$@"; };
 fail() { emit error "$1"; exit 0; };
-normalize() {
-  s=$1; nq=; nc=0; last_after=;
-  while [ -n "$s" ]; do
-    case $s in */*) part=${s%%/*}; s=${s#*/}; after=1 ;; *) part=$s; s=; after= ;; esac;
-    case $part in ''|.) ;; *) nq=${nq:+$nq/}$part; nc=$((nc + 1)); last_after=$after ;; esac;
-  done;
-  if [ -n "$last_after" ]; then nq=$nq/; fi;
-};
-push() {
-  if [ "$nc" -gt 0 ]; then
-    if [ -n "$q" ]; then q=${nq%/}/$q; elif [ -n "$sl" ]; then q=${nq%/}/; else q=$nq; fi;
-    n=$((n + nc));
-  fi;
-};
+count() { nc=0; for f in "$@"; do case $f in ''|.) ;; *) nc=$((nc + 1)) ;; esac; done; };
+set -f;
 case $r in /*) ;; *) d=$(pwd -P && printf x) || fail "cannot read"; d=${d%x}; d=${d%?}; r=$d/$r ;; esac;
 emit root "$r";
-normalize "$r"; q=$nq; n=$nc;
-normalize "$p"; nrel=$nc;
-if [ "$nc" -gt 0 ]; then if [ -n "$q" ]; then q=${q%/}/$nq; else q=$nq; fi; n=$((n + nc)); fi;
+k=0;
+IFS=/; set -- $p; unset IFS; count "$@"; nrel=$nc;
+if [ "$nrel" -gt 0 ]; then k=1; IFS=/; s1="$*"; unset IFS; case $p in */) t1=1 ;; *) t1= ;; esac; fi;
+IFS=/; set -- $r; unset IFS; count "$@"; n=$((nc + nrel));
+case $r in */) tsl=1 ;; *) tsl= ;; esac; if [ "$nrel" -gt 0 ]; then tsl=1; fi;
 real=/; ex=; tl=; tlset=; mp=; nl=0;
 while [ "$n" -gt 0 ]; do
-  case $q in */*) c=${q%%/*}; q=${q#*/}; sl=1 ;; *) c=$q; q=; sl= ;; esac;
+  while :; do
+    while [ "$#" -eq 0 ]; do
+      if [ "$k" -eq 0 ]; then exit 1; fi;
+      IFS=/; eval "set -- \$s$k"; unset IFS; eval "tsl=\$t$k"; k=$((k - 1));
+    done;
+    c=$1; shift;
+    case $c in ''|.) ;; *) break ;; esac;
+  done;
+  if [ "$#" -gt 0 ] || [ -n "$tsl" ]; then sl=1; else sl=; fi;
   n=$((n - 1)); rest=$n;
-  kept=; for e in $ex; do if [ "${e%:*}" -le "$rest" ]; then kept="$kept $e"; fi; done; ex=$kept;
+  while [ -n "$ex" ]; do e=${ex##* }; if [ "${e%:*}" -le "$rest" ]; then break; fi; ex=${ex% *}; done;
   if [ -z "$ex" ] && [ "$rest" -lt "$nrel" ]; then fr=1; nrel=$rest; else fr=0; fi;
   if [ "$c" = .. ]; then
     if [ -n "$mp" ]; then fail "parent reference in missing part"; fi;
@@ -65,13 +68,19 @@ while [ "$n" -gt 0 ]; do
     if [ "$fr" = 1 ] && [ "$rest" -eq 0 ]; then tl=$t; tlset=1; fi;
     case $t in /*) real=/ ;; esac;
     ex="$ex $rest:$fr";
-    normalize "$t"; push;
+    case $t in */) ttr=1 ;; *) ttr= ;; esac; if [ "$n" -gt 0 ] || [ -n "$sl" ]; then ttr=1; fi;
+    if [ "$#" -gt 0 ]; then k=$((k + 1)); IFS=/; eval "s$k=\"\$*\""; unset IFS; eval "t$k=\$tsl"; fi;
+    IFS=/; set -- $t; unset IFS; count "$@"; n=$((n + nc)); tsl=$ttr;
   elif [ -d "$next" ]; then real=$next;
   elif [ -e "$next" ]; then
     if [ -f "$next" ]; then kind=regular; else kind=other; fi;
     if [ "$rest" -gt 0 ]; then
-      for e in $ex; do if [ "${e%:*}" -lt "$rest" ]; then fail "not a directory"; fi; done;
-      origin=$fr; if [ -n "$ex" ]; then f=${ex# }; f=${f%% *}; origin=${f#*:}; fi;
+      origin=$fr;
+      if [ -n "$ex" ]; then
+        f=${ex# }; f=${f%% *};
+        if [ "${f%:*}" -lt "$rest" ]; then fail "not a directory"; fi;
+        origin=${f#*:};
+      fi;
       if [ "$origin" != 1 ]; then fail "not a directory"; fi;
       emit notdir "$next" "$kind"; exit 0;
     fi;
