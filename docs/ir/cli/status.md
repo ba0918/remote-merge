@@ -20,10 +20,10 @@ status に --all を指定したときは、等しいファイルも一覧に含
 
 ### REQ-cli-008: 内容で再比較できる
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A21
+- source: docs/decision/records/2026-09-25-spec-migration.md#A21, docs/decision/records/2026-10-05-size-limit.md#A31
 - verification: unit
 
-status に --checksum を指定したときは、左右にあるファイルの内容を読み比べ、メタデータが等しくても中身が違えば変更として報告する。
+status に --checksum を指定したときは、左右にあるファイルの内容を読み比べ、メタデータが等しくても中身が違えば変更として報告する。左右で通常ファイルとディレクトリのように種類の違うパスは、中身を読まずに変更として報告する。
 
 ### REQ-cli-027: メタデータと中身で差分を判定する
 - kind: ubiquitous

@@ -21,11 +21,11 @@ merge は failed が空なら終了コード 0、failed が一件でもあれば
 
 ### REQ-cli-048: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2, docs/decision/records/2026-10-05-size-limit.md#A29
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2, docs/decision/records/2026-10-05-size-limit.md#A29, docs/decision/records/2026-10-05-size-limit.md#A30
 - verification: unit
 
 --format json の merge は merged（path・status・backup・ref_badge）、skipped（path・reason）、deleted、failed（path・error）を出し、deleted は空でも出し、ref（label と root）は参照先を使うときだけ出す。merged の status はファイル全体を書き込んだとき "ok"、--dry-run では "would merge" とする。
-左右と参照先の三つともにあり、どれかの中身を読めなかったファイルには、--force の有無によらず ref_badge を出さない。
+merged の ref_badge は、--force の有無によらず TBL-cli-005 に従う（三つとも同じ種類であり、どれかの中身を読めなかったファイルには出さない）。
 
 ### REQ-cli-049: テキスト出力の行
 - kind: ubiquitous
@@ -66,12 +66,13 @@ CLI の merge は書き込む前に確認のプロンプトを出さない。
 
 ### REQ-cli-092: 三者の存在の組み合わせで書くかを決める
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A24
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A24, docs/decision/records/2026-10-05-size-limit.md#A30
 - verification: unit
 - definition: TBL-cli-009
 
 --ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先にファイルがないことと読み込みに失敗したことを区別し、TBL-cli-009 に従って書くかどうかを決め、ないと分かっている側の中身は読みに行かない。
 --force がなく --dry-run がある同じ merge でも、三つのどれかの読み込みに失敗したファイルは、ほかのファイルと混在していても TBL-cli-009 の読み込みに失敗した行に従う。
+読み込み元と書き込み先の種類が違うファイルは、TBL-cli-009 によらず REQ-merge-001 に従う。
 TBL-cli-009 が文言を決めていない failed の error は実装者が決め、テストはその文言を固定しない。
 
 ## Decision tables
@@ -88,13 +89,14 @@ TBL-cli-009 が文言を決めていない failed の error は実装者が決�
 | --format に text・json・diff 以外を指定する | "Unknown format: '値' (expected text, json, or diff)" |
 
 ### TBL-cli-009: 参照先を使う merge の三者の存在
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A23
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A23, docs/decision/records/2026-10-05-size-limit.md#A30
 
 | 読み込み元 | 書き込み先 | 参照先 | 扱い |
 |---|---|---|---|
 | ある | ない | ない | --force なしで書き込む |
 | ある | ない | ある | 書かずに failed に error "destination changed since reference" で出す |
 | ある | ある | ある | REQ-cli-051 に従う |
+| ある | ある（読み込み元と同じ種類） | ある（読み込み元と種類が違う） | 中身を読まずに、書かずに failed に error "three-way conflict" で出す |
 | ある | ある | ない | 書き込み先が変わっていないことを確かめられないので、書かずに failed に出す（error の文言は実装者が決める） |
 | 三つのどれかの読み込みに失敗した | - | - | 書かずに failed に error "three-way comparison incomplete" で出す。--dry-run でも同じく failed に出し、参照先との関係のバッジを出さない |
 
