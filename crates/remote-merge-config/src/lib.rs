@@ -432,7 +432,7 @@ fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
 }
 
 /// 設定ファイル `path` のあるディレクトリの絶対パス。相対の `path` はカレントディレクトリを基準にし、
-/// 書き方によらず同じ値になるよう、symlink を辿らずに字面で正規化してから親を取る
+/// [`config_file_location`] で正規化してから親を取る
 fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
     let absolute = std::path::absolute(path).with_context(|| {
         format!(
@@ -440,31 +440,35 @@ fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
             path.display()
         )
     })?;
-    let normalized = lexically_normalized(&absolute);
+    let normalized = config_file_location(&absolute).with_context(|| {
+        format!(
+            "Failed to resolve the directory of config file: {}",
+            path.display()
+        )
+    })?;
     Ok(normalized
         .parent()
         .map_or_else(|| normalized.clone(), Path::to_path_buf))
 }
 
-/// "." の要素を除き、".." の要素を一つ上の名前と打ち消す。ルートより上には上がらない
-fn lexically_normalized(path: &Path) -> PathBuf {
+/// 絶対パス `path` から "." の要素を除き、".." は OS と同じく物理的に解決する（直前までの部分を
+/// 実パスに直してから一つ上へ移る）。".." に関わらない symlink は辿らずに字面のまま残す。
+/// 設定ファイルは読めているので直前までの部分は存在するはずで、実パスにできなければ基準を
+/// 推し量らずにエラーにする
+fn config_file_location(path: &Path) -> std::io::Result<PathBuf> {
     use std::path::Component;
-    let mut normalized = PathBuf::new();
+    let mut location = PathBuf::new();
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                if matches!(
-                    normalized.components().next_back(),
-                    Some(Component::Normal(_))
-                ) {
-                    normalized.pop();
-                }
+                location = std::fs::canonicalize(&location)?;
+                location.pop();
             }
-            other => normalized.push(other),
+            other => location.push(other),
         }
     }
-    normalized
+    Ok(location)
 }
 
 /// [local] の root_dir を解決する。"~/" はホームに展開し（REQ-config-010）、それでも相対のパスは

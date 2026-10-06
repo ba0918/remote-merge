@@ -435,6 +435,32 @@ fn sessions_of_the_working_directory_itself_are_not_taken_for_another_config_dir
     );
 }
 
+// @kotowari[REQ-config-040]
+#[test]
+fn a_parent_reference_after_a_symlink_in_the_config_path_is_resolved_like_the_os() {
+    let base = TempDir::new().unwrap();
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    let deep = base_path.join("elsewhere/deep");
+    let project = base_path.join("elsewhere/proj");
+    fs::create_dir_all(&deep).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    fs::create_dir(base_path.join("dir")).unwrap();
+    symlink(&deep, base_path.join("dir/link")).unwrap();
+    fs::write(
+        project.join(".remote-merge.toml"),
+        "[local]\nroot_dir = \".\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"/srv/unused\"\n",
+    )
+    .unwrap();
+
+    let config = remote_merge::config::load_config_from_paths(
+        Some(&base_path.join("dir/link/../proj/.remote-merge.toml")),
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(config.local.root_dir, project);
+}
+
 // @kotowari[REQ-backup-021]
 #[test]
 fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
