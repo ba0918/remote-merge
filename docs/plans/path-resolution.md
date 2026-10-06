@@ -12,7 +12,7 @@ IR は `docs/ir/`。この計画が扱う要件と例:
 - `docs/ir/paths/routes.md#REQ-paths-008` から `#REQ-paths-011`、例 EX-paths-019 から EX-paths-022 と EX-paths-024
 - 振る舞いを保つ既存の要件: `docs/ir/backup/rollback-path.md#REQ-backup-003`、`#REQ-backup-031`、`#REQ-backup-033`（例 EX-backup-027、EX-backup-029、EX-backup-030 とその三つの経路のテスト）、`docs/ir/cli/symlink-diff.md#REQ-cli-026`
 
-判断の根拠は `docs/decision/records/2026-10-06-path-resolution.md` の A1〜A50（A15・A34・A35 は A43・A46・A44 に、A43 は A48 に置き換わっている。A48〜A50 は実装の前の確かめで決めた）。A40・A41 はこの計画で決めた（置き場所とテストの置き方）。
+判断の根拠は `docs/decision/records/2026-10-06-path-resolution.md` の A1〜A51（A15・A34・A35 は A43・A46・A44 に、A43 は A48 に置き換わっている。A48〜A51 は実装の前の確かめで決めた）。A40・A41 はこの計画で決めた（置き場所とテストの置き方）。
 
 背景: このブランチ（path-validation）では、SSH の確認スクリプトにカーネル・realpath・`Path::parent()` の振る舞いを真似させる修正を三回重ねたが、そのたびに新しい経路差か退行が見つかった。findings ファイル `.agents/artifacts/reviews/path-validation.json`（作業ツリーの外の記録で、実装者は読まなくてよい）の 15〜17 がその残りで、次の形をしている。この計画の例がそれぞれを押さえる。
 
@@ -44,7 +44,7 @@ IR は `docs/ir/`。この計画が扱う要件と例:
 
 方針:
 
-- 辿る手順を remote-merge-core の新しいモジュールに、一つの関数として置く（A22・A40）。root_dir と相対パスを別々に受け取り、root_dir の要素と相対パスの要素を区別する（REQ-paths-002 の root_dir 自身より上の扱いと、REQ-paths-004 の root_dir のリンクの数え方に要る）。
+- 辿る手順を remote-merge-core の新しいモジュールに、一つの関数として置く（A22・A40）。root_dir（絶対パス）と相対パスを別々に受け取り、root_dir の要素と相対パスの要素を区別する。root_dir が相対パスなら、ローカルとエージェントは呼ぶ前に `std::env::current_dir()` につないで絶対パスにする（A51）（REQ-paths-002 の root_dir 自身より上の扱いと、REQ-paths-004 の root_dir のリンクの数え方に要る）。
   - 基本操作（lstat の種類、readlink、access(X_OK)）を外から渡せる形にする。
   - 標準ライブラリと libc で実装した基本操作も core に置き、ローカルとエージェントはどちらもその組み合わせを呼ぶ。こうするとローカルとエージェントは同じコードになり、経路差の余地は SSH のスクリプトだけに残る。
   - 結果の型も core に置き、REQ-paths-002 の四つの種類と原因の文言の一覧を型で表す。存在しないには親が存在するかの印、途中の祖先がディレクトリでないには実パスと通常ファイルかそれ以外かを持たせる。
@@ -55,9 +55,9 @@ IR は `docs/ir/`。この計画が扱う要件と例:
   - 上限（4096 バイト、255 バイト、40 回）は固定の定数とし、OS に届く前に自前で止める（REQ-paths-003・REQ-paths-004）。
   - 辿っている実パスは常に "/" から始まる symlink を含まない文字列として持ち、".." はその文字列の親に移る。
 - SSH のスクリプトは同じ手順を POSIX sh で書き直す（A15）。
-  - 使ってよいのは `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -f ]`、組み込みの cd・printf・command -v、オプションなしの readlink だけ（A48）で、`[ -x ]`・readlink -f・getconf・今の kernel_form や rust_parent は使わない。
+  - 使ってよいのは `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -f ]`、組み込みの cd・pwd・printf・command -v、オプションなしの readlink だけ（A48・A51）で、`[ -x ]`・readlink -f・getconf・今の kernel_form や rust_parent は使わない。
   - 検索権限は `cd -- 実ディレクトリ` が成功するかで判定する（A48）。BusyBox ash の `[ -x ]` は root でモード 000 のディレクトリについて実効 uid の access と食い違うと確かめてある。
-  - root_dir と相対パスを別々の引数で渡す。
+  - root_dir と相対パスを別々の引数で渡す。root_dir が相対パスなら、スクリプトの先頭で cd を使う前に `pwd -P` の結果につないで絶対パスにする（A51）。
   - 長さは `${#var}` によりバイトで数える。スクリプトの先頭で `LC_ALL=C` を代入する（A49。BusyBox ash と dash で効くと確かめてある）。
   - 出力は今と同じく NUL 区切りとし、四つの種類とエラーの原因の文言を返す。製品側の読み取りは SSH の出力を信頼しない入力として扱い、一覧にない原因の文言、欠けた欄、0 でない終了コードはどれもエラーにする（握りつぶさない）。
   - スクリプトは読んだリンク文字列を出力に含め、製品は出力を文字列に変えずにバイト列のまま読み、UTF-8 でない部分があれば "non-UTF-8 path" で止める（A50）。そのため `crates/remote-merge-ssh/src/client.rs` の非公開の `exec_strict_bytes` を、`lib.rs` の `exec_strict` と同じ形で製品から呼べるようにする。
@@ -140,7 +140,7 @@ S1 が手順と結果の型を作り、S2（エージェント）と S3（SSH）
 ## Stop conditions
 
 - 確認するパスとして、root_dir と組み合わせて "/" から辿れない値（絶対パスや ".." を含む値）が S1 の関数に届く経路が見つかった
-- root_dir が絶対パスでない値のまま S1 の関数か SSH のスクリプトに届く経路が見つかった
+- root_dir を A51 のとおり絶対パスにしても、今の振る舞い（ローカルはプロセスの作業ディレクトリ、SSH はログインした利用者のホームを基準にした解決）と違う場所を指す経路が見つかった、または dash か BusyBox ash で `pwd -P` が物理パスを返さない
 - SSH の `cd` による検索権限の判定が、ローカルの実効 uid の access と食い違う状態（ACL のある場合を含む）が見つかった（A48）
 - 例の状態がその OS では作れないと分かった（例の書き直しは IR の変更なので戻す）
 - POSIX sh の基本操作では、REQ-paths-001 の順（とくに検索権限と存在の区別）を A35 の既知の例外以外でローカルと一致させられないと分かった
