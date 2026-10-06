@@ -14,7 +14,7 @@
 //! 検索権限は `[ -x ]` ではなく cd の成否で判定する。`[ -x ]` は BusyBox ash が root のモード 000 の
 //! ディレクトリを検索できないと答え、実効 uid の access と食い違う
 
-/// 試験 SSH サーバはコマンドの先頭のこの並びでパスの確認を見分け、後に続く `r=` と `p=` を読む
+/// コマンドの先頭の並び。試験 SSH サーバは同じ並びを別に持ち、これでパスの確認を見分けて `r=` と `p=` を読む
 const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
 
 const SCRIPT: &str = r#"emit() { printf '%s\000' "$@"; };
@@ -95,4 +95,39 @@ pub fn build_inspect_path_command(root: &str, rel: &str) -> String {
     let root = crate::ssh::tree_parser::shell_escape(root);
     let rel = crate::ssh::tree_parser::shell_escape(rel);
     format!("{INSPECT_PATH_PREFIX}{root}; p={rel}; {}", one_line(SCRIPT))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 試験 SSH サーバ（tests/contract/ssh_server.rs）は同じ並びを持ち、これでパスの確認を見分ける
+    #[test]
+    fn the_command_starts_with_the_locale_and_the_root_dir_assignment() {
+        assert!(build_inspect_path_command("/srv/app", "a.txt")
+            .starts_with("LC_ALL=C; r='/srv/app'; p='a.txt'; "));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_relative_root_dir_is_resolved_from_the_working_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(directory.path()).unwrap();
+        std::fs::create_dir(base.join("root")).unwrap();
+        std::fs::write(base.join("root/file.txt"), "x").unwrap();
+        let inspect = |root: &str| {
+            let output = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(build_inspect_path_command(root, "file.txt"))
+                .current_dir(&base)
+                .output()
+                .unwrap();
+            super::super::parse_inspect_path_output(&output.stdout).unwrap()
+        };
+
+        assert_eq!(
+            inspect("root"),
+            inspect(&format!("{}/root", base.display()))
+        );
+    }
 }

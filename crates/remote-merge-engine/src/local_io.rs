@@ -367,6 +367,26 @@ mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
 
+    /// 相対の root_dir は、これまでの canonicalize と同じくプロセスの作業ディレクトリを基準に辿る
+    #[test]
+    #[serial_test::serial]
+    fn a_relative_root_dir_is_resolved_from_the_working_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(directory.path()).unwrap();
+        std::fs::create_dir(base.join("root")).unwrap();
+        std::fs::write(base.join("root/file.txt"), "x").unwrap();
+        let original = std::env::current_dir().unwrap();
+
+        std::env::set_current_dir(&base).unwrap();
+        let relative = inspect_local_path(Path::new("root"), "file.txt");
+        std::env::set_current_dir(original).unwrap();
+
+        assert_eq!(
+            relative.unwrap(),
+            inspect_local_path(&base.join("root"), "file.txt").unwrap()
+        );
+    }
+
     /// 上限から遠く "/" で終わらないリンク先だけの普通の状態では、"/" から辿った実パスが
     /// これまで使っていた canonicalize の結果とバイト列で同じになる（既存のバックアップの
     /// 記録と比べ続けられる）
