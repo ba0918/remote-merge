@@ -20,16 +20,22 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         rel_path: &str,
-    ) -> anyhow::Result<super::target_io::TargetPath> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
-        let command = super::remote_path::build_inspect_path_command(&full_path);
+    ) -> anyhow::Result<remote_merge_core::path_resolution::ResolvedPath> {
+        // 確認するパスの検査（".." や絶対パスを拒む）だけを行い、root_dir とは分けて渡す
+        self.resolve_remote_path(server_name, rel_path)?;
+        let root = self
+            .get_server_config(server_name)?
+            .root_dir
+            .to_string_lossy()
+            .into_owned();
+        let command = super::remote_path::build_inspect_path_command(&root, rel_path);
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
         let output = self
             .rt
-            .block_on(crate::ssh::exec_strict(client, &command))?;
+            .block_on(crate::ssh::exec_strict_bytes(client, &command))?;
         super::remote_path::parse_inspect_path_output(&output)
     }
 

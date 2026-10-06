@@ -726,7 +726,10 @@ impl SshClient {
     }
 
     /// `exec_strict()` のバイト列版。stdout を UTF-8 変換せずに返す。
-    async fn exec_strict_bytes(&mut self, command: &str) -> crate::error::Result<Vec<u8>> {
+    pub(crate) async fn exec_strict_bytes(
+        &mut self,
+        command: &str,
+    ) -> crate::error::Result<Vec<u8>> {
         let result = self.run_command_bytes(command).await?;
         if result.exit_code != 0 {
             anyhow::bail!(AppError::SshExec {

@@ -25,3 +25,11 @@ pub async fn exec_strict(
 ) -> remote_merge_core::error::Result<String> {
     client.exec_strict(command).await
 }
+
+/// [`exec_strict`] と同じく実行し、標準出力を文字列に変えずにバイト列のまま返す
+pub async fn exec_strict_bytes(
+    client: &mut client::SshClient,
+    command: &str,
+) -> remote_merge_core::error::Result<Vec<u8>> {
+    client.exec_strict_bytes(command).await
+}

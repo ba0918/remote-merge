@@ -459,17 +459,25 @@ impl server::Handler for LocalHandler {
             )?;
             return Ok(());
         }
-        if command.starts_with(b"resolve_existing_prefix()") {
+        // 製品のパスの確認のコマンドはこの並びで始まり、root_dir と相対パスを r と p に代入する
+        const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
+        if command.starts_with(INSPECT_PATH_PREFIX.as_bytes()) {
+            // パスの確認には、root_dir の下の相対パスがそのまま存在するという答えを返す
             let command = String::from_utf8_lossy(command);
-            let quoted = command
-                .split("; p=")
-                .nth(1)
-                .and_then(|rest| rest.split("; if [").next())
-                .expect("path inspection includes a path");
-            let path = quoted.trim_matches('\'');
+            let (root, rel) = command
+                .strip_prefix(INSPECT_PATH_PREFIX)
+                .and_then(|rest| rest.split_once("; p="))
+                .and_then(|(root, rest)| Some((root, rest.split_once("; ")?.0)))
+                .expect("path inspection includes root_dir and a path");
+            let (root, rel) = (root.trim_matches('\''), rel.trim_matches('\''));
+            let real_path = if rel.is_empty() {
+                root.to_string()
+            } else {
+                format!("{root}/{rel}")
+            };
             session.data(
                 channel,
-                CryptoVec::from(format!("file\0{path}\0").as_bytes()),
+                CryptoVec::from(format!("exists\0{real_path}\0").as_bytes()),
             )?;
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;

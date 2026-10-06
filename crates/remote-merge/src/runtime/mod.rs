@@ -7,6 +7,9 @@ pub mod path_route;
 #[cfg(not(feature = "test-utils"))]
 mod path_route;
 pub mod remote_io;
+#[cfg(feature = "test-utils")]
+pub mod remote_path;
+#[cfg(not(feature = "test-utils"))]
 mod remote_path;
 pub mod side_io;
 pub(crate) mod target_io;

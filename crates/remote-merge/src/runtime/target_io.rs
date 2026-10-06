@@ -333,7 +333,7 @@ impl TargetIo for RemoteTargetIo {
             super::path_route::PathInspectionRoute::Ssh => {}
         }
         rt.check_sudo_fallback(&self.name)?;
-        rt.inspect_remote_path(&self.name, path)
+        target_path_outside_rollback(rt.inspect_remote_path(&self.name, path)?)
     }
     fn is_regular_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<bool> {
         if let Some(value) = rt.try_agent_is_regular_file(&self.name, path) {

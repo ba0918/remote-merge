@@ -100,6 +100,9 @@ mod path_resolution;
 #[path = "contract/path_routes.rs"]
 mod path_routes;
 #[cfg(feature = "test-utils")]
+#[path = "contract/path_routes_agree.rs"]
+mod path_routes_agree;
+#[cfg(feature = "test-utils")]
 #[path = "contract/rollback_path_agent.rs"]
 mod rollback_path_agent;
 #[cfg(feature = "test-utils")]
