@@ -391,6 +391,50 @@ fn an_expired_session_saved_under_the_previous_local_identity_is_cleaned_up() {
     assert!(!ids.contains(&"20200101-000000".to_string()), "{ids:?}");
 }
 
+// @kotowari[REQ-backup-043]
+#[test]
+fn sessions_of_the_working_directory_itself_are_not_taken_for_another_config_directory() {
+    let base = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let (project, config) = dot_root_project(&base, &develop);
+    let elsewhere = base.path().join("x");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(elsewhere.join("file.txt"), "old local\n").unwrap();
+    // x で root_dir が "." の設定を使っていた以前の版が、x 自身に保存した期限切れのセッション
+    merge_as_the_previous_version(
+        &config,
+        &elsewhere,
+        targets_at(&develop, &store, at(2020, 1, 1)),
+    );
+    let through_sibling = remote_merge::config::load_config_from_paths(
+        Some(&elsewhere.join("../proj/.remote-merge.toml")),
+        None,
+    )
+    .unwrap();
+    assert_eq!(through_sibling.local.root_dir, config.local.root_dir);
+    let from_elsewhere =
+        || targets_at(&develop, &store, at(2020, 1, 8)).with_startup_directory(elsewhere.clone());
+
+    assert!(listed_sessions("local", through_sibling.clone(), from_elsewhere()).is_empty());
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    merge_files(args, through_sibling, from_elsewhere());
+
+    let mut own = config.clone();
+    own.local.root_dir = elsewhere.join(".");
+    let ids: Vec<String> = listed_sessions("local", own, from_elsewhere())
+        .into_iter()
+        .map(|session| session.session_id)
+        .collect();
+    assert_eq!(ids, ["20200101-000000"]);
+    assert_eq!(
+        fs::read_to_string(project.join("file.txt")).unwrap(),
+        "new remote\n"
+    );
+}
+
 // @kotowari[REQ-backup-021]
 #[test]
 fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {

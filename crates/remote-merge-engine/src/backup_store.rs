@@ -417,8 +417,8 @@ fn configured_target_keys(
     Ok(keys)
 }
 
-/// 書き込み先のキー。先頭が今の識別のキーで、続いて以前の版の識別のキー（REQ-backup-043）を
-/// 重複なく並べる
+/// 書き込み先のキー。先頭が今の識別のキーで、続いて以前の版の識別のキー（REQ-backup-043）のうち
+/// 今の識別と字面で同じ書き込み先になるものを重複なく並べる
 fn target_keys(
     config: &AppConfig,
     target: &Side,
@@ -426,18 +426,27 @@ fn target_keys(
 ) -> anyhow::Result<Vec<String>> {
     let mut descriptions = vec![target_description(config, target, startup_directory)?];
     if let Side::Local = target {
-        let previous = previous_local_target_identity(&config.local, startup_directory)
-            .root_dir()
-            .display()
-            .to_string();
-        if !descriptions.contains(&previous) {
-            descriptions.push(previous);
+        let current = local_target_identity(&config.local, startup_directory);
+        let previous = previous_local_target_identity(&config.local, startup_directory);
+        // 字面で同じ書き込み先になる以前の識別だけを探す。作業ディレクトリを基準にした以前の識別は、
+        // 設定ファイルが別の場所にあると作業ディレクトリ自身の書き込み先と重なる
+        if lexically_normalized(previous.root_dir()) == lexically_normalized(current.root_dir()) {
+            let previous = previous.root_dir().display().to_string();
+            if !descriptions.contains(&previous) {
+                descriptions.push(previous);
+            }
         }
     }
     Ok(descriptions
         .iter()
         .map(|description| format!("{:x}", Sha256::digest(description.as_bytes())))
         .collect())
+}
+
+/// REQ-backup-021 の字面の正規化。symlink を辿らず、"." の要素と末尾の "/" を除き、続いた "/" を
+/// 一つにする（".." は残す）
+fn lexically_normalized(root_dir: &Path) -> PathBuf {
+    root_dir.components().collect()
 }
 
 /// セッションの中で、キーの並びのうち最初に記録がある書き込み先の記録のディレクトリ。
