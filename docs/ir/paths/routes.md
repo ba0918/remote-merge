@@ -6,10 +6,10 @@
 
 ### REQ-paths-008: どの経路も同じ結果を返す
 - kind: invariant
-- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35
+- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-06-path-resolution.md#A47
 - verification: property
 
-同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのパスの確認は、同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。ただし SSH の経路は "cannot read" に当たる OS の失敗を存在しないことと見分けない。
+同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのパスの確認は、同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。ただし SSH の経路は "cannot read" に当たる OS の失敗を存在しないことと見分けない。ローカルの経路が macOS のときは、1024 バイト以上 4096 バイト未満の実パスで OS が先に失敗し "cannot resolve path: cannot read" になる。
 
 ### REQ-paths-009: SSH で readlink がなければ止める
 - kind: state_driven
@@ -20,10 +20,10 @@ SSH の経路でパスの確認が symlink に出会い、リモートに readli
 
 ### REQ-paths-010: 古いエージェントでは SSH で確認する
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A17
+- source: docs/decision/records/2026-10-06-path-resolution.md#A17, docs/decision/records/2026-10-06-path-resolution.md#A45
 - verification: unit
 
-エージェントとの通信の版が 5 未満のとき、パスの確認はエージェントを使わず SSH の経路で行う。
+エージェントとの通信の版が 5 未満のとき、パスの確認はエージェントを使わず SSH の経路で行い、sudo を使うサーバではエージェントの置き直しが要ることを示すエラーで止める。
 
 ### REQ-paths-011: 祖先がディレクトリでなければ rollback 以外はエラーにする
 - kind: state_driven
@@ -58,4 +58,10 @@ Scenario: merge の書き込み先の祖先が通常ファイル
 Given 書き込み先の "dir" が通常ファイルになっている
 When "dir/a.txt" を merge する
 Then そのファイルは "cannot resolve path: not a directory" のエラーになる
+
+@id=EX-paths-024 @about=REQ-paths-010 @source=docs/decision/records/2026-10-06-path-resolution.md#A45
+Scenario: sudo のサーバの版 4 のエージェント
+Given sudo を使うサーバで、接続したエージェントとの通信の版が 4 である
+When パスを確認する
+Then 確認は SSH の経路で行われず、エージェントの置き直しが要ることを示すエラーになる
 ```

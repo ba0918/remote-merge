@@ -14,10 +14,10 @@ root_dir の下のパスを確認するときにパスを辿る規則、辿れ�
 
 ### REQ-paths-002: 確認の結果は四つの種類のどれかになる
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-06-path-resolution.md#A7, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A9, docs/decision/records/2026-10-06-path-resolution.md#A12, docs/decision/records/2026-10-06-path-resolution.md#A24, docs/decision/records/2026-10-06-path-resolution.md#A27, docs/decision/records/2026-10-06-path-resolution.md#A28, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A37
+- source: docs/decision/records/2026-10-06-path-resolution.md#A7, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A9, docs/decision/records/2026-10-06-path-resolution.md#A12, docs/decision/records/2026-10-06-path-resolution.md#A24, docs/decision/records/2026-10-06-path-resolution.md#A27, docs/decision/records/2026-10-06-path-resolution.md#A28, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A37, docs/decision/records/2026-10-06-path-resolution.md#A44
 - verification: unit
 
-パスの確認の結果は次の四つのどれかか、"cannot resolve path: " に "path too long"・"too many levels of symbolic links"・"not a directory"・"permission denied"・"readlink not available"・"dangling symbolic link"・"parent reference in missing part"・"cannot read" のどれかを続けたエラーである。
+パスの確認の結果は次の四つのどれかか、"cannot resolve path: " に "path too long"・"too many levels of symbolic links"・"not a directory"・"permission denied"・"readlink not available"・"dangling symbolic link"・"parent reference in missing part"・"non-UTF-8 path"・"cannot read" のどれかを続けたエラーである。実パスかリンク文字列に UTF-8 でない部分があれば "cannot resolve path: non-UTF-8 path" で止める。
 存在しないは、存在する最も近い祖先の実パスに存在しない途中の要素をつないだ親の実パス（末尾の要素を含めない）と、親が存在するかの印を持つ。
 存在するは、symlink でないもの（ディレクトリを含む）の実パスを持つ。
 末尾の symlink は、リンク文字列そのものと、リンク先を同じ規則で辿った実パスを持ち、リンク先が存在しなければ、リンク先の側の辿れた親の実パスにリンク先の最後の名前をつないだものを実パスとする。
@@ -46,10 +46,10 @@ root_dir の下のパスを確認するときにパスを辿る規則、辿れ�
 
 ### REQ-paths-006: 検索できないディレクトリの中は見ない
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A11, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35
+- source: docs/decision/records/2026-10-06-path-resolution.md#A11, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A46
 - verification: unit
 
-辿る途中のディレクトリに、実行する利用者が検索する権限を持たないとき、パスの確認はその中の名前を見ずに "cannot resolve path: permission denied" で止める。
+辿る途中のディレクトリに、実行する利用者が実効 uid で検索する権限を持たないとき、パスの確認はその中の名前を見ずに "cannot resolve path: permission denied" で止める。
 
 ### REQ-paths-007: 辿れないリンク先では止める
 - kind: state_driven
@@ -115,9 +115,9 @@ Given "link" のリンク先は "/" で終わり、その "/" を除いて辿っ
 When "link" を確認する
 Then 結果は末尾の symlink で、実パスはそのディレクトリになる
 
-@id=EX-paths-010 @about=REQ-paths-003 @source=docs/decision/records/2026-10-06-path-resolution.md#A32
+@id=EX-paths-010 @about=REQ-paths-003 @source=docs/decision/records/2026-10-06-path-resolution.md#A32,docs/decision/records/2026-10-06-path-resolution.md#A42,docs/decision/records/2026-10-06-path-resolution.md#A12,docs/decision/records/2026-10-06-path-resolution.md#A24
 Scenario: 入力の文字列が長くても実パスが短ければ辿る
-Given root_dir の下の "link" が "./" を 3000 回繰り返した後に "file.txt" を続けたものを指し、"file.txt" は通常ファイルである
+Given root_dir の下の "link" が "./" を 2040 回繰り返した後に "file.txt" を続けたものを指し、root_dir の実パスとつなぐと 4096 バイトを超え、"file.txt" は通常ファイルである
 When "link" を確認する
 Then 結果は末尾の symlink で、実パスは root_dir の実パスに "/file.txt" をつないだものになる
 
@@ -168,4 +168,10 @@ Scenario: 自分を指す末尾の symlink
 Given root_dir の下の "loop" が自分自身を指す
 When "loop" を確認する
 Then 確認は "cannot resolve path: too many levels of symbolic links" で止まる
+
+@id=EX-paths-023 @about=REQ-paths-002 @source=docs/decision/records/2026-10-06-path-resolution.md#A44
+Scenario: UTF-8 でない名前
+Given root_dir の下の "link" が UTF-8 でないバイトを含む名前を指す
+When "link" を確認する
+Then 確認は "cannot resolve path: non-UTF-8 path" で止まる
 ```

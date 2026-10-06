@@ -6,7 +6,7 @@ rollback の書き戻す前のパスの確認は、ローカルは `std::fs::can
 SSH のスクリプトをローカルに合わせる修正を三回重ねたが、そのたびに PATH_MAX の付近や連なった symlink で新しい経路差か退行が見つかった（path-validation の findings 15〜17）。
 カーネルと realpath と `Path::parent()` の振る舞いをシェルで再現する方式は収束しないと判断し、利用者は 2026-10-06 に、どの経路も同じ明示した手順（要素ごとの lstat・readlink・ディレクトリかの判定）でパスを辿り、長さの上限・辿る回数の上限・ファイルに付いた末尾の "/" の扱いを IR に書く形に作り直すと決めた（このブランチで行い、ローカルとエージェントの振る舞いも変わってよい）。
 
-Position: 照合が三回目で通った。承認を待っている。
+Position: A42〜A47 の仕様の変更と計画 "docs/plans/path-resolution.md" の承認を待っている。
 
 ## Agreements
 
@@ -56,6 +56,7 @@ Position: 照合が三回目で通った。承認を待っている。
 - A15 SSH の確認は、POSIX sh の `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -x ]` とオプションなしの readlink だけで書き、readlink -f と getconf は使わない。
   - why: readlink -f は実装ごとに辿り方が違い、経路差の元になっていた。オプションなしの readlink は CentOS 5 や BusyBox にもある。
   - decided_by: 利用者（推奨を採った）
+  - superseded_by: [A43](#A43)
 - A16 途中の祖先がディレクトリでないという結果を、rollback 以外の呼び出し元（diff・merge・sync・バックアップの作成）は、いまそのときに返るエラーと同じに扱い、エラーの文言は "cannot resolve path: not a directory" とする。
   - why: この作業の目的は確認の結果をそろえることで、diff や merge の振る舞いを広げることではない。新しい結果をスキップへ読み替える根拠が要件にあるのは rollback（[REQ-backup-031](../../ir/backup/rollback-path.md#REQ-backup-031)）だけである。各呼び出し元のエラーの文言は OS のエラー文からこの固定の文言に変わる。
   - decided_by: 利用者（推奨を採った）
@@ -110,9 +111,11 @@ Position: 照合が三回目で通った。承認を待っている。
 - A34 検索権限は、実行する利用者に対する access(X_OK) の答えで判定する。三つの経路が同じ結果を返す前提は、同じファイルシステムの状態を同じ利用者・同じ権限で確認することとし、権限のテストは root 以外で実行する。
   - why: root はモードに関係なく検索できるので、モードのビットを見る実装と access を見る実装で結論が割れる。
   - decided_by: 利用者（推奨を採った）
+  - superseded_by: [A46](#A46)
 - A35 "cannot resolve path: " に続く原因は、"path too long"、"too many levels of symbolic links"、"not a directory"、"permission denied"、"readlink not available"、"dangling symbolic link"、"parent reference in missing part" と、それ以外の OS の失敗の "cannot read" に限る。SSH の経路は "cannot read" に当たる失敗（EIO など）を存在しないことと見分けられないので、これを既知の例外とする。
   - why: 閉じた一覧でないと三つの経路が同じ文言を返すかを確かめられない。POSIX sh の `[ -e ]` は失敗の理由を返さない（見分ける手段がないことは推測で、確かめていない）。
   - decided_by: 利用者（推奨を採った）
+  - superseded_by: [A44](#A44)
 - A36 readlink がないことは、symlink に出会って readlink が要るときだけ判定する。
   - why: symlink を含まないパスでローカルと結果が食い違わない。
   - decided_by: 利用者（推奨を採った）
@@ -124,6 +127,32 @@ Position: 照合が三回目で通った。承認を待っている。
   - decided_by: 利用者（推奨を採った）
 - A39 三つの経路を比べるテストでは、SSH のスクリプトを同じマシンの sh で実行する。
   - why: SSH のサーバなしで、同じ一時ディレクトリに対して閉じた単体テストと性質テストにできる。
+  - decided_by: 利用者（推奨を採った）
+
+- A40 辿る手順と、ローカルとエージェントが使う標準ライブラリの基本操作（lstat・readlink・access(X_OK)）は、remote-merge-core の新しいモジュールに置く。core は Unix で libc に依存してよい。engine のローカルの確認とエージェントの確認はどちらもこの関数を呼び、確認の結果の型も core に置いて engine とエージェントの通信の型はそれに合わせる。
+  - why: エージェントの crate は engine に依存せず core と protocol に依存するので、両方から使える置き場所は core か protocol で、protocol は通信の型だけを持つ。access(X_OK) は標準ライブラリにないため libc が要る。A23 で計画に委ねた選択で、利用者から見える振る舞いは変えない。
+  - decided_by: 利用者（計画の承認）
+- A41 三つの経路を比べるテストと例のテストは、製品の crate の "tests/contract/" に置き、SSH のスクリプトの組み立てと読み取りの関数を test-utils の機能でテストから呼べるようにする。
+  - why: kotowari が印を数えるのは "crates/remote-merge/tests/contract/" の下だけで、いまの比べるテストはモジュールの中にあり印を付けられない。test-utils はインテグレーションテスト向けの既存の機能である。
+  - decided_by: 利用者（計画の承認）
+
+- A42 EX-paths-010 の状態は、"./" を 2040 回（4088 バイト）繰り返して "file.txt" を続けたリンク先とし、root_dir の実パスとつなぐと 4096 バイトを超えるものにする。
+  - why: Linux ではリンク文字列が 4096 バイト未満でないと symlink を作れず、3000 回の繰り返しでは例の状態を作れない（計画の敵対的レビューで確かめた）。確かめる規則（入力の長さでは止めない）は変わらない。
+  - decided_by: 利用者（推奨を採った）
+- A43 SSH の確認で使ってよいものは、POSIX sh の `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -x ]`・`[ -f ]`、組み込みの printf と command -v、オプションなしの readlink とする。
+  - why: A15 の一覧では通常ファイルとそれ以外を見分けられず、出力と readlink の有無の判定に使うものも書かれていなかった。
+  - decided_by: 利用者（推奨を採った）
+- A44 実パスかリンク文字列に UTF-8 でない部分があれば、どの経路でも "cannot resolve path: non-UTF-8 path" で止める。A35 の原因の一覧にこの文言を加える。
+  - why: エージェントの通信の型と SSH の出力の読み取りは文字列で、UTF-8 でない名前は経路ごとに違う変換を受け、同じバイト列を守れない。型をバイト列に変えるより範囲が小さく、書き戻さない側に倒れる。
+  - decided_by: 利用者（推奨を採った）
+- A45 sudo を使うサーバでエージェントとの通信の版が 5 未満のときは、パスの確認を SSH の経路で行わず、エージェントの置き直しが要ることを示すエラーにする。
+  - why: SSH の経路の確認はログインした利用者の権限で動き、読み書きをする root のエージェントと利用者が違うので、A34 の同じ利用者という前提が崩れる。
+  - decided_by: 利用者（推奨を採った）
+- A46 検索権限は、実行する利用者の実効 uid に対する access（ローカルとエージェントでは faccessat の AT_EACCESS）で判定する。SSH の `[ -x ]` がこれと一致するかを、E2E のコンテナ（BusyBox）と dash で root として確かめ、食い違えば実装を止めて利用者に返す。
+  - why: `[ -x ]` は実装によって実効 uid やモードのビットで判定し、access(2) は実 uid で判定するので、root でモード 000 のディレクトリを見ると経路で答えが割れうる（推測で、確かめていない）。
+  - decided_by: 利用者（推奨を採った）
+- A47 ローカルの経路が macOS のときは、OS の PATH_MAX が 1024 バイトなので、1024 バイト以上 4096 バイト未満の実パスで OS が先に失敗し "cannot read" になる。これを既知の例外とする。
+  - why: 辿る相手はリモートの Linux であることがほとんどで、どちらも書き戻さない側に倒れる。避けるにはディレクトリを開いて相対名で辿る実装が要り、SSH の側では同じことができず範囲が大きく広がる。
   - decided_by: 利用者（推奨を採った）
 
 ## Delegated
@@ -139,3 +168,4 @@ A13（既存の記録を移さない）、A15（SSH で使うコマンド）、A
 ## Revisions
 
 - 2026-10-06: A18 の置き場所を、辿る規則と結果の種類を "docs/ir/paths/resolution.md"、経路ごとの扱いと結果を使う側の扱いを "docs/ir/paths/routes.md" の二つの文書に分けた。敵対的レビューの後に要件が十を超え、責務が「辿る規則」と「経路と使う側」に分かれたため。A18 の決定の中身（新しいディレクトリに置く）は変えない。
+- 2026-10-06: 計画の敵対的レビューを受けて、A15 の使ってよいものに `[ -f ]`・printf・command -v を加えた A43、A35 の原因の一覧に "non-UTF-8 path" を加えた A44、A34 の検索権限を実効 uid の access に定めた A46 に置き換えた。A17 の SSH への切り替えは、sudo を使うサーバでは A45 のとおりエラーにする。EX-paths-010 の状態を A42 のとおり作れる形にした。
