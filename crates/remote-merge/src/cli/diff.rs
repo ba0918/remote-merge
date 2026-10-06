@@ -1006,6 +1006,9 @@ fn compute_statuses_and_resolve(
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
+    // 走査は指定の外のファイルも読み比べるので、誤りは指定したパスのものだけにする
+    let requested: HashSet<&str> = existing_files.iter().map(String::as_str).collect();
+    read_errors.retain(|error| requested.contains(error.path.as_str()));
     let empty_directories = directories_without_files(paths, &existing_files, left, right, core);
     for path in missing_files
         .iter()

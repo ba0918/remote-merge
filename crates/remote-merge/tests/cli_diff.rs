@@ -2094,3 +2094,38 @@ fn req_cli_089_the_text_output_reports_the_unreadable_file_on_standard_error() {
     assert!(!stdout.contains("left a"), "{output:?}");
     assert!(stdout.contains("+right b"), "{output:?}");
 }
+
+// 指定したパスの数によって比べ方（名前で読むか、走査して読むか）が変わっても、指定していない
+// 読めないファイルの誤りは出さない
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_an_unreadable_file_that_was_not_named_does_not_change_the_result() {
+    let names: Vec<String> = (0..21).map(|index| format!("f{index:02}.txt")).collect();
+    let left: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "l\n")).collect();
+    let right: Vec<(&str, &str)> = names
+        .iter()
+        .map(|name| (name.as_str(), "right\n"))
+        .collect();
+    let env = CliEnv::new(&left, &right);
+    place_files(&env.local_dir, &[("z.txt", "same\n")]);
+    place_files(&env.remote_dir, &[("z.txt", "same\n")]);
+    let local = env.local_dir.join("z.txt");
+    std::fs::File::options()
+        .write(true)
+        .open(&local)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
+        .unwrap();
+    if !make_unreadable(&local) || !make_unreadable(&env.remote_dir.join("z.txt")) {
+        return;
+    }
+
+    for count in [20, 21] {
+        let named: Vec<&str> = names[..count].iter().map(String::as_str).collect();
+        let (output, json) = diff_json(&env, &named);
+
+        assert_eq!(output.status.code(), Some(1), "{count}: {output:?}");
+        assert!(json.get("errors").is_none(), "{count}: {json}");
+        assert_eq!(listed_paths(&json, "files").len(), count, "{count}: {json}");
+    }
+}
