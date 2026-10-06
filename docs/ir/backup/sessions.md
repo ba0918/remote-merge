@@ -126,9 +126,9 @@ Given root_dir を "/srv/app/" としていた設定で merge したセッショ
 When 設定の root_dir を "/srv/app" に書き換えて rollback --list を実行する
 Then そのセッションが今の書き込み先のセッションとして一覧に出る
 
-@id=EX-backup-024 @about=REQ-backup-043 @source=docs/decision/records/2026-10-05-quality-backup.md#A1
+@id=EX-backup-024 @about=REQ-backup-043 @source=docs/decision/records/2026-10-05-quality-backup.md#A1,docs/decision/records/2026-10-06-path-resolution.md#A58
 Scenario: 相対の root_dir の基準が変わる前のセッション
-Given 相対パスのローカルの root_dir を、設定読み込み時のカレントディレクトリを基準にしていた版で merge したセッションがある
+Given 相対パスのローカルの root_dir を、設定読み込み時のカレントディレクトリを基準にしていた版で、その設定ファイルのあるディレクトリをカレントディレクトリにして merge したセッションがある
 When 同じ設定で同じカレントディレクトリから rollback --list を実行する
 Then そのセッションが一覧に出る
 
