@@ -312,7 +312,7 @@ pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
 /// 3-way バッジを計算する。
 ///
 /// `three_way::compute_file_comparison()` を内部で呼び出す。中身で決まるのは左右と参照先の
-/// 三つともにあるファイルだけで、そのとき三つのどれかを読めなければバッジを作らない（読めなかった
+/// 三つともに同じ種類であるファイルだけで、そのとき三つのどれかを読めなければバッジを作らない（読めなかった
 /// 中身どうしを同じとみなさない）。ほかのファイルは存在だけで決め、中身の読み込みに左右されない
 /// （docs/ir/cli/status-targets.md の TBL-cli-005）。
 pub fn compute_ref_badges(
@@ -330,7 +330,8 @@ pub fn compute_ref_badges(
         let left_exists = left_tree.find_node(Path::new(path)).is_some();
         let right_exists = right_tree.find_node(Path::new(path)).is_some();
         let ref_exists = ref_tree.find_node(Path::new(path)).is_some();
-        let (left_eq_right, left_eq_ref) = if left_exists && right_exists && ref_exists {
+        let trees = [left_tree, right_tree, ref_tree];
+        let (left_eq_right, left_eq_ref) = if three_kinds_agree(path, trees) == Some(true) {
             let (Some(left), Some(right), Some(base)) = (
                 left_contents.content(path),
                 right_contents.content(path),
@@ -340,7 +341,7 @@ pub fn compute_ref_badges(
             };
             (left == right, left == base)
         } else {
-            // 中身を使わない組み合わせ
+            // 中身を使わない組み合わせ。三つの種類がそろわなければ中身は同じでありえない
             (false, false)
         };
         let badge = three_way::compute_file_comparison(
@@ -361,7 +362,20 @@ pub fn compute_ref_badges(
     map
 }
 
-/// `files` のうち、バッジを決めるのに中身が要る、左右と参照先の三つともにあるファイルのパス
+/// 三つのツリーのすべてにあるパスについて、三つの種類（通常ファイル・ディレクトリ・末尾の symlink）が
+/// そろうかどうか。どれかにないときは None
+fn three_kinds_agree(path: &str, trees: [&FileTree; 3]) -> Option<bool> {
+    let [first, second, third] = trees.map(|tree| tree.find_node(Path::new(path)));
+    let kinds = [
+        first?.entry_kind(),
+        second?.entry_kind(),
+        third?.entry_kind(),
+    ];
+    Some(kinds[0] == kinds[1] && kinds[1] == kinds[2])
+}
+
+/// `files` のうち、バッジを決めるのに中身が要る、左右と参照先の三つともに同じ種類であるパス
+/// （docs/ir/cli/status-targets.md の TBL-cli-005）
 pub fn ref_badge_content_paths(
     files: &[FileStatus],
     left_tree: &FileTree,
@@ -371,11 +385,7 @@ pub fn ref_badge_content_paths(
     files
         .iter()
         .map(|file| file.path.as_str())
-        .filter(|path| {
-            [left_tree, right_tree, ref_tree]
-                .iter()
-                .all(|tree| tree.find_node(Path::new(path)).is_some())
-        })
+        .filter(|path| three_kinds_agree(path, [left_tree, right_tree, ref_tree]) == Some(true))
         .map(str::to_string)
         .collect()
 }
@@ -1244,6 +1254,49 @@ mod tests {
         assert_eq!(
             ref_badge_content_paths(&files, &left, &right, &ref_tree),
             vec!["all.rs"]
+        );
+    }
+
+    // 三つの種類がそろわないパスは中身を読まずに "differs" とする（TBL-cli-005）
+    #[test]
+    fn a_path_whose_three_kinds_differ_differs_without_its_contents() {
+        let files = vec![modified("dir_ref"), modified("dir_right"), modified("link")];
+        let left = make_tree(vec![
+            FileNode::new_file("dir_ref"),
+            FileNode::new_file("dir_right"),
+            FileNode::new_file("link"),
+        ]);
+        let right = make_tree(vec![
+            FileNode::new_file("dir_ref"),
+            FileNode::new_dir("dir_right"),
+            FileNode::new_file("link"),
+        ]);
+        let ref_tree = make_tree(vec![
+            FileNode::new_dir("dir_ref"),
+            FileNode::new_file("dir_right"),
+            FileNode::new_symlink("link", "target"),
+        ]);
+        let none = ContentReads::default();
+
+        assert!(ref_badge_content_paths(&files, &left, &right, &ref_tree).is_empty());
+        let badges = compute_ref_badges(&files, &left, &right, &ref_tree, &none, &none, &none);
+        for path in ["dir_ref", "dir_right", "link"] {
+            assert_eq!(
+                badges.get(path).map(String::as_str),
+                Some("differs"),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn three_symlinks_need_their_contents_for_a_badge() {
+        let files = vec![modified("link")];
+        let tree = make_tree(vec![FileNode::new_symlink("link", "target")]);
+
+        assert_eq!(
+            ref_badge_content_paths(&files, &tree, &tree, &tree),
+            vec!["link"]
         );
     }
 

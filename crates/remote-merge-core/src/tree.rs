@@ -70,6 +70,14 @@ pub enum NodeKind {
     Symlink { target: String },
 }
 
+/// リンク先を持たない種類。通常ファイル・ディレクトリ・末尾の symlink の区別だけを比べるのに使う
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    File,
+    Directory,
+    Symlink,
+}
+
 /// ファイルツリーの1ノード
 ///
 /// `children` が `None` の場合は未取得（遅延読み込み）を表す。
@@ -165,6 +173,15 @@ impl FileNode {
     /// シンボリックリンクかどうか
     pub fn is_symlink(&self) -> bool {
         matches!(self.kind, NodeKind::Symlink { .. })
+    }
+
+    /// リンク先を除いた種類
+    pub fn entry_kind(&self) -> EntryKind {
+        match self.kind {
+            NodeKind::File => EntryKind::File,
+            NodeKind::Directory => EntryKind::Directory,
+            NodeKind::Symlink { .. } => EntryKind::Symlink,
+        }
     }
 
     /// 子ノードが取得済みかどうか
@@ -469,6 +486,20 @@ fn find_node_in_btree<'a>(node: &'a FileNode, path: &[&str]) -> Option<&'a FileN
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_kind_of_a_node_ignores_the_link_target() {
+        assert_eq!(FileNode::new_file("a").entry_kind(), EntryKind::File);
+        assert_eq!(FileNode::new_dir("a").entry_kind(), EntryKind::Directory);
+        assert_eq!(
+            FileNode::new_symlink("a", "x").entry_kind(),
+            FileNode::new_symlink("a", "y").entry_kind()
+        );
+        assert_eq!(
+            FileNode::new_symlink("a", "x").entry_kind(),
+            EntryKind::Symlink
+        );
+    }
 
     #[test]
     fn test_file_node_creation() {

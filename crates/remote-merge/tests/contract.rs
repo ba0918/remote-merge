@@ -159,6 +159,8 @@ mod ssh_sudo;
 mod status_agent_cli;
 #[path = "contract/status_judgement.rs"]
 mod status_judgement;
+#[path = "contract/status_kinds.rs"]
+mod status_kinds;
 #[cfg(feature = "test-utils")]
 #[path = "contract/status_output.rs"]
 mod status_output;
