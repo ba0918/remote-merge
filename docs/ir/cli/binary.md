@@ -20,10 +20,10 @@
 
 ### REQ-cli-061: バイナリの判定と差分の出し方
 - kind: state_driven
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A8
+- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A8, docs/decision/records/2026-10-05-size-limit.md#A13
 - verification: unit
 
-先頭 8,192 バイトに NUL を含むか、ファイル全体が正しい UTF-8 でないファイルをバイナリとし（先頭 8,192 バイトの境目で切れた多バイトの文字は不正としない）、diff のテキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出してない側や読めない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。
+先頭 8,192 バイトに NUL を含むか、ファイル全体が正しい UTF-8 でないファイルをバイナリとし（先頭 8,192 バイトの境目で切れた多バイトの文字は不正としない）、diff のテキストでは "Binary files differ (left: sha256=ハッシュ, right: sha256=ハッシュ)" を出してない側を "missing" とし、JSON に binary と left_hash・right_hash を出す。読めない側があるときは unreadable.md の REQ-cli-089 のとおり扱う。
 
 ## Examples
 

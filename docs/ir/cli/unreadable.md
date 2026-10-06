@@ -15,10 +15,10 @@ summary の件数のキー名とテキストで示す文言は IR で決めず�
 
 ### REQ-cli-089: diff は読めない側を空とみなさない
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A2
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-05-size-limit.md#A15, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20
 - verification: unit
 
-diff は、比べるファイルを片側でも読めなかったとき（REQ-cli-079 の大きさの上限を超えたときを含む）、読めない側を空として全ての行を差分に出さず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のファイルの比較を続けて終了コード 2 を返す。
+diff は、比べるファイルを片側でも読めなかったとき（REQ-cli-079 の大きさの上限を超えたときを含む）、読めない側を空として全ての行を差分に出さず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のファイルの比較を続けて終了コード 2 を返す。読めなかったファイルは JSON の files に項目として載せず、summary の差分のあるファイルの数に入れない。
 
 ### REQ-cli-090: 参照先を読めない理由を参照先にないことと分ける
 - kind: event_driven
