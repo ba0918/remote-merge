@@ -18,6 +18,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::ChildStdin;
 
+/// 製品のパスの確認のコマンドはこの並びで始まり、root_dir と相対パスを r と p に代入する
+const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
+
+/// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か
+pub fn is_path_inspection(command: &str) -> bool {
+    command.starts_with(INSPECT_PATH_PREFIX)
+}
+
 pub struct TestServer {
     port: u16,
     task: tokio::task::JoinHandle<()>,
@@ -459,12 +467,9 @@ impl server::Handler for LocalHandler {
             )?;
             return Ok(());
         }
-        // 製品のパスの確認のコマンドはこの並びで始まり、root_dir と相対パスを r と p に代入する
-        const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
-        if command.starts_with(INSPECT_PATH_PREFIX.as_bytes()) {
+        if is_path_inspection(&script) {
             // パスの確認には、root_dir の下の相対パスがそのまま存在するという答えを返す
-            let command = String::from_utf8_lossy(command);
-            let (root, rel) = command
+            let (root, rel) = script
                 .strip_prefix(INSPECT_PATH_PREFIX)
                 .and_then(|rest| rest.split_once("; p="))
                 .and_then(|(root, rest)| Some((root, rest.split_once("; ")?.0)))

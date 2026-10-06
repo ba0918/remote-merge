@@ -380,7 +380,7 @@ impl AgentFixture {
         assert!(
             !commands
                 .iter()
-                .any(|command| command.contains("resolve_existing_prefix")),
+                .any(|command| super::ssh_server::is_path_inspection(command)),
             "a path was inspected over plain SSH: {commands:?}"
         );
         output
@@ -440,7 +440,7 @@ impl AgentFixture {
         assert!(
             !commands
                 .iter()
-                .any(|command| command.contains("resolve_existing_prefix")),
+                .any(|command| super::ssh_server::is_path_inspection(command)),
             "a path was inspected over plain SSH: {commands:?}"
         );
         output
