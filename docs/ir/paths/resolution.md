@@ -46,10 +46,10 @@ root_dir の下のパスを確認するときにパスを辿る規則、辿れ�
 
 ### REQ-paths-006: 検索できないディレクトリの中は見ない
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A11, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A46
+- source: docs/decision/records/2026-10-06-path-resolution.md#A11, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A46, docs/decision/records/2026-10-06-path-resolution.md#A48, docs/decision/records/2026-10-06-path-resolution.md#A54
 - verification: unit
 
-辿る途中のディレクトリに、実行する利用者が実効 uid で検索する権限を持たないとき、パスの確認はその中の名前を見ずに "cannot resolve path: permission denied" で止める。
+辿る途中のディレクトリに、実行する利用者が実効 uid で検索する権限を持たないとき、パスの確認はその中の名前を見ずに "cannot resolve path: permission denied" で止める。Unix 以外の環境では、OS が権限のエラーを返したときだけこの理由で止める。
 
 ### REQ-paths-007: 辿れないリンク先では止める
 - kind: state_driven
