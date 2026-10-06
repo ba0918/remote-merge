@@ -614,10 +614,22 @@ pub fn execute_diff(
             let left_content = String::from_utf8_lossy(&left_bytes).into_owned();
             let right_content = String::from_utf8_lossy(&right_bytes).into_owned();
 
-            let ref_content = if let Some(ref_s) = &ref_side {
-                core.read_file(ref_s, path, limit).ok()
-            } else {
-                None
+            // 参照先にないときは "ref" だけを出し、ほかの理由で読めないときは errors にも載せる
+            let ref_content = match &ref_side {
+                Some(ref_s) => match read_compared_side(&mut core, ref_s, path, limit) {
+                    Ok(content) => {
+                        content.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    }
+                    Err(reason) => {
+                        errors.push(DiffError {
+                            path: path.clone(),
+                            reason: read_failure_reason(&[(ref_s, Some(reason.as_str()))]),
+                        });
+                        has_read_error = true;
+                        None
+                    }
+                },
+                None => None,
             };
 
             build_diff_output(

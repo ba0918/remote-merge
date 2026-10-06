@@ -496,3 +496,54 @@ fn req_cli_066_a_ref_equal_to_either_side_warns_and_compares_without_the_ref() {
         );
     }
 }
+
+// 参照先にないこととは区別し、読めない参照先のファイルは "ref" だけを出して errors に載せる
+// @kotowari[EX-cli-088]
+#[test]
+fn ex_cli_088_a_ref_file_that_cannot_be_read_is_reported_in_errors_with_only_the_ref() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = reference_env();
+    let unreadable = env.temp_root().join("staging/differs.txt");
+    fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&unreadable).is_err(),
+        "test needs an unreadable staging/differs.txt"
+    );
+
+    let output = diff(
+        &env,
+        &[
+            "differs.txt",
+            "missing_in_ref.txt",
+            "--left",
+            "local",
+            "--right",
+            "develop",
+            "--ref",
+            "staging",
+            "--format",
+            "json",
+        ],
+    );
+
+    let json = json(&output);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let differs = file(&json, "differs.txt");
+    assert_eq!(differs["ref"]["label"], "staging", "{json}");
+    assert!(!has_key(differs, "ref_hunks"), "{json}");
+    let errors: Vec<&str> = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("errors missing: {json}"))
+        .iter()
+        .map(|error| error["path"].as_str().unwrap())
+        .collect();
+    // 参照先にないファイルは errors に載せない
+    assert_eq!(errors, ["differs.txt"], "{json}");
+    assert!(
+        json["errors"][0]["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()),
+        "{json}"
+    );
+}
