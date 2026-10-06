@@ -63,10 +63,10 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A56
+- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A56, docs/decision/records/2026-10-06-path-resolution.md#A59
 - verification: unit
 
-[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、設定ファイルの絶対パスを symlink を辿らずに字面で正規化（"." の要素を除き、".." の要素を一つ上の要素と打ち消す）したものの親とする。
+[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、設定ファイルの絶対パスから "." の要素を除き、".." の要素は OS と同じく物理的に解決し（その直前までの部分に symlink があれば実パスに直してから一つ上へ移る）、それ以外の symlink は辿らずに字面のまま残したものの親とする。
 
 ### REQ-config-041: 空のローカルの root_dir で止める
 - kind: event_driven

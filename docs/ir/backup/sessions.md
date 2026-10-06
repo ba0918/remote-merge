@@ -34,10 +34,10 @@
 
 ### REQ-backup-043: 以前の識別で保存したセッションも探す
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-backup.md#A1, docs/decision/records/2026-10-05-quality-backup.md#A5
+- source: docs/decision/records/2026-10-05-quality-backup.md#A1, docs/decision/records/2026-10-05-quality-backup.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A58
 - verification: unit
 
-今の書き込み先のセッションを一覧し rollback で扱うとき、REQ-backup-021 で決めた書き込み先に加えて、正規化する前の root_dir の字面で決まる書き込み先と、ローカルなら設定読み込み時のカレントディレクトリを基準にした root_dir の絶対パスで決まる書き込み先に保存されたセッションも探し、今の書き込み先のセッションに含める。
+今の書き込み先のセッションを一覧し rollback で扱うとき、REQ-backup-021 で決めた書き込み先に加えて、正規化する前の root_dir の字面で決まる書き込み先と、ローカルなら設定読み込み時のカレントディレクトリを基準にした root_dir の絶対パスで決まる書き込み先に保存されたセッションも探し、今の書き込み先のセッションに含める。ただし以前の識別は、symlink を辿らずに字面で正規化すると今の書き込み先の識別と同じになるものだけを探す。
 以前の識別で探す処理には期限を設けない。以前の識別で保存したセッションも今の書き込み先のセッションとして REQ-backup-009 の期限切れの自動整理の対象にする。
 
 ### REQ-backup-022: セッション ID の形式と順序
