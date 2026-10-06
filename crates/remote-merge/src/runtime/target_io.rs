@@ -311,7 +311,7 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
 impl TargetIo for RemoteTargetIo {
     fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ResolvedPath> {
         let route = super::path_route::path_inspection_route(
-            rt.agent_protocol_version(&self.name),
+            rt.agent_protocol_version(&self.name)?,
             rt.server_uses_sudo(&self.name),
         );
         match route {
