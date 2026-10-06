@@ -345,10 +345,10 @@ fn an_empty_local_root_stops_with_the_reason() {
 
 // @kotowari[REQ-config-040]
 #[test]
-fn a_relative_config_path_from_a_deep_working_directory_loads_although_its_absolute_form_is_too_long(
-) {
+fn a_relative_config_path_whose_real_path_cannot_be_resolved_stops_with_its_absolute_path() {
     // 名前の長い要素を辿ってから ".." で戻る相対の --config。OS は相対のまま読めるが、
-    // 作業ディレクトリにつないだ絶対パスは PATH_MAX（4096 バイト）を超える
+    // 実パスに直す途中の絶対パスが PATH_MAX（4096 バイト）を超えるので、基準のディレクトリを
+    // 求められない（REQ-config-040 の既知の例外）
     let elements: Vec<String> = (0..6)
         .map(|index| format!("e{index}{}", "x".repeat(208)))
         .collect();
@@ -382,15 +382,17 @@ fn a_relative_config_path_from_a_deep_working_directory_loads_although_its_absol
     assert!(created.success());
     let project = cwd.join("proj");
     fs::create_dir(&project).unwrap();
-    fs::write(project.join("in-project.txt"), "only on the local side\n").unwrap();
     workspace.write_config(&project.join(".remote-merge.toml"), Path::new("."));
     assert!(cwd.as_os_str().len() + 1 + relative.len() > 4096);
 
-    let json = workspace.status_json(&cwd, Some(&relative));
+    let output = workspace.status(&cwd, Some(&relative), &[]);
 
-    assert_eq!(
-        listed_paths(&json),
-        [".remote-merge.toml", "in-project.txt"]
+    assert_stops_with(
+        &output,
+        &format!(
+            "Failed to resolve the directory of config file: {}",
+            cwd.join(&relative).display()
+        ),
     );
 }
 

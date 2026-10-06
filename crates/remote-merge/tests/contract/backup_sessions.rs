@@ -396,6 +396,30 @@ fn an_expired_session_saved_under_the_previous_local_identity_is_cleaned_up() {
 
 // @kotowari[REQ-backup-043]
 #[test]
+fn a_previous_session_is_listed_when_the_config_path_is_written_through_a_symlink() {
+    let base = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    // proj は実パスの下に置き、同じディレクトリを指す symlink "sym" を別に作る
+    let (project, config) = dot_root_project(&base, &develop);
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    symlink(&base_path, base_path.join("sym")).unwrap();
+    // 以前の版は作業ディレクトリ（実パスの proj）を基準にした "proj/." で保存していた
+    merge_as_the_previous_version(&config, &project, targets(&develop, &store));
+    let through_link = remote_merge::config::load_config_from_paths(
+        Some(&base_path.join("sym/proj/.remote-merge.toml")),
+        None,
+    )
+    .unwrap();
+    let from_project = targets(&develop, &store).with_startup_directory(project.clone());
+
+    let listed = listed_sessions("local", through_link, from_project);
+
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
+// @kotowari[REQ-backup-043]
+#[test]
 fn sessions_of_the_working_directory_itself_are_not_taken_for_another_config_directory() {
     let base = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
@@ -466,7 +490,7 @@ fn a_parent_reference_after_a_symlink_in_the_config_path_is_resolved_like_the_os
 
 // @kotowari[REQ-config-040]
 #[test]
-fn a_symlink_before_an_unrelated_parent_reference_stays_literal_in_the_config_path() {
+fn every_spelling_of_the_config_path_through_a_symlink_gives_the_real_config_directory() {
     let base = TempDir::new().unwrap();
     let base_path = fs::canonicalize(base.path()).unwrap();
     let real = base_path.join("real");
@@ -488,7 +512,8 @@ fn a_symlink_before_an_unrelated_parent_reference_stays_literal_in_the_config_pa
     let through_sibling = load("sym/sib/../proj/.remote-merge.toml");
 
     assert_eq!(through_sibling, load("sym/proj/.remote-merge.toml"));
-    assert_eq!(through_sibling, base_path.join("sym/proj"));
+    assert_eq!(through_sibling, load("real/proj/.remote-merge.toml"));
+    assert_eq!(through_sibling, real.join("proj"));
 }
 
 // @kotowari[REQ-backup-021]

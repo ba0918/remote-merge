@@ -338,12 +338,8 @@ pub fn load_config_with_project_override(
     let project_path = match project_override {
         Some(p) => {
             // 文言には絶対パスを示すが、OS には書かれた形のまま渡す。作業ディレクトリにつないだ
-            // 絶対パスは、相対のパスで読めるときにも PATH_MAX を超えることがある（A63）
-            let abs = if p.is_relative() {
-                std::env::current_dir()?.join(p)
-            } else {
-                p.to_path_buf()
-            };
+            // 絶対パスは、相対のパスで読めるときにも PATH_MAX を超えることがある（A64）
+            let abs = path_for_messages(p)?;
             if !p.exists() {
                 anyhow::bail!("Config file not found: {}", abs.display());
             }
@@ -423,82 +419,39 @@ fn specifies_badge_scan_max_files(raw: Option<&RawConfig>) -> bool {
 }
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
+    let shown = path_for_messages(path)?;
     let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+        .with_context(|| format!("Failed to read config file: {}", shown.display()))?;
     let mut raw: RawConfig =
         toml::from_str(&content).map_err(|e| AppError::ConfigParse { source: e })?;
     if let Some(local) = raw.local.as_mut() {
-        local.config_dir = config_directory(path)?;
+        local.config_dir = config_directory(path, &shown)?;
     }
     Ok(raw)
 }
 
-/// 設定ファイル `path` のあるディレクトリの絶対パス。[`config_file_location`] で正規化してから親を取る
-fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
-    let normalized = config_file_location(path).with_context(|| {
-        format!(
-            "Failed to resolve the directory of config file: {}",
-            path.display()
-        )
-    })?;
-    Ok(normalized
-        .parent()
-        .map_or_else(|| normalized.clone(), Path::to_path_buf))
+/// エラーの文言に示す設定ファイルのパス。相対のパスはカレントディレクトリにつなぐ（A64）
+fn path_for_messages(path: &Path) -> crate::error::Result<PathBuf> {
+    Ok(if path.is_relative() {
+        std::env::current_dir()?.join(path)
+    } else {
+        path.to_path_buf()
+    })
 }
 
-/// 書かれた設定ファイルのパス `path` の絶対パスを、"." の要素を除き、".." は直前の要素だけを見て
-/// 解決して求める（REQ-config-040）。直前の要素が symlink でなければ字面で打ち消し（その親は字面の
-/// 一つ上と同じディレクトリ）、symlink ならそこまでを実パスに直してから一つ上へ移る。どの ".." にも
-/// 関わらない symlink は字面のまま残す。相対の `path` はカレントディレクトリにつなぐ。
-///
-/// 直前の要素を調べるときと実パスに直すときは、OS に渡す文字列が絶対パスにしたことだけで PATH_MAX を
-/// 超えないよう、書かれたパスの形（相対ならカレントディレクトリからの相対）でその要素を指す（A63）。
-/// カレントディレクトリの要素と実パスの要素は symlink でない。直前の要素を調べられないときや、
-/// symlink を実パスにできないとき（PATH_MAX を超えるときを含む）は、基準を推し量らずにエラーにする
-fn config_file_location(path: &Path) -> std::io::Result<PathBuf> {
-    use std::path::Component;
-    let mut location = PathBuf::new();
-    // location の名前の要素ごとに、それを書かれた形で指すパス。symlink でないと分かっている要素は None
-    let mut written_forms: Vec<Option<PathBuf>> = Vec::new();
-    if path.is_relative() {
-        for component in std::env::current_dir()?.components() {
-            if let Component::Normal(_) = component {
-                written_forms.push(None);
-            }
-            location.push(component);
-        }
-    }
-    let mut written = PathBuf::new();
-    for component in path.components() {
-        if component != Component::CurDir {
-            written.push(component);
-        }
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if let Some(Component::Normal(_)) = location.components().next_back() {
-                    if let Some(Some(form)) = written_forms.pop() {
-                        if std::fs::symlink_metadata(&form)?.file_type().is_symlink() {
-                            location = std::fs::canonicalize(&form)?;
-                            written_forms = location
-                                .components()
-                                .filter(|part| matches!(part, Component::Normal(_)))
-                                .map(|_| None)
-                                .collect();
-                            written_forms.pop();
-                        }
-                    }
-                    location.pop();
-                }
-            }
-            Component::Normal(_) => {
-                location.push(component);
-                written_forms.push(Some(written.clone()));
-            }
-            other => location.push(other),
-        }
-    }
-    Ok(location)
+/// 相対の [local] root_dir の基準にする、設定ファイルのあるディレクトリ。書かれた設定ファイルのパス
+/// `path` を OS に実パスへ直させたものの親とする（REQ-config-040、A65）。実パスに直せないときは、
+/// 文言に `shown` を示して設定の読み込みを止める
+fn config_directory(path: &Path, shown: &Path) -> crate::error::Result<PathBuf> {
+    let real = std::fs::canonicalize(path).with_context(|| {
+        format!(
+            "Failed to resolve the directory of config file: {}",
+            shown.display()
+        )
+    })?;
+    Ok(real
+        .parent()
+        .map_or_else(|| real.clone(), Path::to_path_buf))
 }
 
 /// [local] の root_dir を解決する。"~/" はホームに展開し（REQ-config-010）、それでも相対のパスは
