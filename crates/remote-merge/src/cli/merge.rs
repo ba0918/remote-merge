@@ -265,7 +265,8 @@ pub fn execute_merge(
             ref_badge_content_paths(&file_statuses, &left_tree, &right_tree, &ref_tree);
         let limit = SizeLimit::from_force(args.force);
         let mut read_needed = |side: &Side, tree: &FileTree| {
-            let paths = paths_to_read(&plan.files, tree, &badge_paths, args.force);
+            let trees = [&left_tree, &right_tree, &ref_tree];
+            let paths = paths_to_read(&plan.files, trees, tree, &badge_paths, args.force);
             read_contents(&mut core, side, &paths, limit)
         };
         let left_contents = read_needed(&pair.left, &left_tree);

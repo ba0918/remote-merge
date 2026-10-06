@@ -85,6 +85,8 @@ mod merge_links;
 mod merge_paths;
 #[path = "contract/merge_ref_hunks_fix.rs"]
 mod merge_ref_hunks_fix;
+#[path = "contract/merge_ref_kinds.rs"]
+mod merge_ref_kinds;
 #[path = "contract/merge_results.rs"]
 mod merge_results;
 #[path = "contract/merge_support.rs"]
