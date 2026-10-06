@@ -396,6 +396,47 @@ fn a_relative_config_path_whose_real_path_cannot_be_resolved_stops_with_its_abso
     );
 }
 
+// @kotowari[REQ-config-040]
+#[test]
+fn an_absolute_local_root_loads_from_a_working_directory_deeper_than_path_max() {
+    let temp = tempfile::tempdir().unwrap();
+    let local_root = temp.path().join("local");
+    fs::create_dir(&local_root).unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir(&home).unwrap();
+    // 絶対パスが 4096 バイトを超える作業ディレクトリは絶対パスでは作れも入れもしないので、
+    // sh で一段ずつ cd して作り、そこで設定を書いて実行ファイルを起動する
+    let level = "d".repeat(200);
+    let descend = vec![format!("mkdir {level} && cd -P {level}"); 22].join(" && ");
+    let config = format!(
+        "[local]\nroot_dir = {:?}\n",
+        local_root.display().to_string()
+    );
+    let script = format!(
+        r#"cd "$1" && {descend} && printf '%s' "$2" > .remote-merge.toml && exec "$3" rollback --list --target local --format json"#
+    );
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(script)
+        .arg("sh")
+        .arg(temp.path())
+        .arg(&config)
+        .arg(env!("CARGO_BIN_EXE_remote-merge"))
+        .env_clear()
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_DATA_HOME", temp.path().join("xdg-data"))
+        .output()
+        .unwrap();
+    if !Path::new(&temp.path().join(&level)).is_dir() {
+        eprintln!("skipped: could not nest a working directory deeper than 4096 bytes: {output:?}");
+        return;
+    }
+    assert!(temp.path().as_os_str().len() + 22 * 201 > 4096);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
 // @kotowari[REQ-config-040, EX-config-016]
 #[test]
 fn ex_config_016_a_relative_local_root_is_resolved_from_the_directory_of_the_given_config() {

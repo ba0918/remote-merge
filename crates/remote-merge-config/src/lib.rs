@@ -6,7 +6,7 @@ pub const BACKUP_DIR_NAME: &str = ".remote-merge-backup";
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use serde::Deserialize;
 
 pub use remote_merge_settings::{
@@ -267,9 +267,9 @@ struct RawSshOptions {
 #[derive(Debug, Deserialize)]
 struct RawLocalConfig {
     root_dir: String,
-    /// この root_dir を書いた設定ファイルのあるディレクトリ（絶対パス）。読み込んだ後に入れる
+    /// この root_dir を書いた設定ファイルの、書かれた形のパス。読み込んだ後に入れる
     #[serde(skip)]
-    config_dir: PathBuf,
+    config_path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -339,12 +339,14 @@ pub fn load_config_with_project_override(
         Some(p) => {
             // 文言には絶対パスを示すが、OS には書かれた形のまま渡す。作業ディレクトリにつないだ
             // 絶対パスは、相対のパスで読めるときにも PATH_MAX を超えることがある（A64）
-            let abs = path_for_messages(p)?;
             if !p.exists() {
-                anyhow::bail!("Config file not found: {}", abs.display());
+                anyhow::bail!("Config file not found: {}", path_for_messages(p)?.display());
             }
             if !p.is_file() {
-                anyhow::bail!("Config path is not a regular file: {}", abs.display());
+                anyhow::bail!(
+                    "Config path is not a regular file: {}",
+                    path_for_messages(p)?.display()
+                );
             }
             Some(p.to_path_buf())
         }
@@ -419,18 +421,24 @@ fn specifies_badge_scan_max_files(raw: Option<&RawConfig>) -> bool {
 }
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
-    let shown = path_for_messages(path)?;
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read config file: {}", shown.display()))?;
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) => {
+            let shown = path_for_messages(path)?;
+            return Err(anyhow::Error::new(error)
+                .context(format!("Failed to read config file: {}", shown.display())));
+        }
+    };
     let mut raw: RawConfig =
         toml::from_str(&content).map_err(|e| AppError::ConfigParse { source: e })?;
     if let Some(local) = raw.local.as_mut() {
-        local.config_dir = config_directory(path, &shown)?;
+        local.config_path = path.to_path_buf();
     }
     Ok(raw)
 }
 
-/// エラーの文言に示す設定ファイルのパス。相対のパスはカレントディレクトリにつなぐ（A64）
+/// エラーの文言に示す設定ファイルのパス。相対のパスはカレントディレクトリにつなぐ（A64）。
+/// 作業ディレクトリが深くても読み込みを止めないよう、エラーを示すときだけ求める
 fn path_for_messages(path: &Path) -> crate::error::Result<PathBuf> {
     Ok(if path.is_relative() {
         std::env::current_dir()?.join(path)
@@ -441,28 +449,36 @@ fn path_for_messages(path: &Path) -> crate::error::Result<PathBuf> {
 
 /// 相対の [local] root_dir の基準にする、設定ファイルのあるディレクトリ。書かれた設定ファイルのパス
 /// `path` を OS に実パスへ直させたものの親とする（REQ-config-040、A65）。実パスに直せないときは、
-/// 文言に `shown` を示して設定の読み込みを止める
-fn config_directory(path: &Path, shown: &Path) -> crate::error::Result<PathBuf> {
-    let real = std::fs::canonicalize(path).with_context(|| {
-        format!(
-            "Failed to resolve the directory of config file: {}",
-            shown.display()
-        )
-    })?;
+/// 絶対パスにした `path` を文言に示して設定の読み込みを止める
+fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
+    let real = match std::fs::canonicalize(path) {
+        Ok(real) => real,
+        Err(error) => {
+            let shown = path_for_messages(path)?;
+            return Err(anyhow::Error::new(error).context(format!(
+                "Failed to resolve the directory of config file: {}",
+                shown.display()
+            )));
+        }
+    };
     Ok(real
         .parent()
         .map_or_else(|| real.clone(), Path::to_path_buf))
 }
 
 /// [local] の root_dir を解決する。"~/" はホームに展開し（REQ-config-010）、それでも相対のパスは
-/// その root_dir を書いた設定ファイルのあるディレクトリ `config_dir` を基準にする（REQ-config-040）。
-/// "." の要素は除き、".." は辿るときに解決するので残す
-fn resolve_local_root(root_dir: &str, config_dir: &Path) -> PathBuf {
+/// その root_dir を書いた設定ファイル `config_path` のあるディレクトリを基準にする（REQ-config-040）。
+/// 設定ファイルのディレクトリは相対のときだけ求める（A66）。"." の要素は除き、".." は辿るときに
+/// 解決するので残す
+fn resolve_local_root(root_dir: &str, config_path: &Path) -> crate::error::Result<PathBuf> {
     let expanded = expand_tilde(root_dir);
     if expanded.is_absolute() {
-        return expanded;
+        return Ok(expanded);
     }
-    config_dir.join(expanded).components().collect()
+    Ok(config_directory(config_path)?
+        .join(expanded)
+        .components()
+        .collect())
 }
 
 fn merge_configs(
@@ -514,7 +530,7 @@ fn merge_configs(
         });
     }
     let local = LocalConfig {
-        root_dir: resolve_local_root(&local_raw.root_dir, &local_raw.config_dir),
+        root_dir: resolve_local_root(&local_raw.root_dir, &local_raw.config_path)?,
         root_dir_as_written: expand_tilde(&local_raw.root_dir),
     };
 
