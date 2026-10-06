@@ -6,10 +6,11 @@ status と diff が比べるべきファイルや参照先のファイルの中�
 
 ### REQ-cli-088: status は読めないファイルを判定せずに知らせる
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A26, docs/decision/records/2026-10-05-size-limit.md#A29
 - verification: unit
 
 status は、中身を読み比べるファイルを片側でも読めなかったとき、そのファイルを "modified" とも "equal" とも判定せず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のファイルの比較を続けて終了コード 2 を返す。
+--ref を指定した status で、左右と参照先の三つともにあるファイルの参照先との違いを決めるためだけに読んだ中身を読めなかったときは、そのファイルの判定を残し、TBL-cli-005 の印を出さず、そのパスと理由を同じく errors に出して終了コード 2 を返す。
 JSON の summary には errors に出したファイルの件数を出す。
 summary の件数のキー名とテキストで示す文言は IR で決めず、実装者が決める。テストはトップレベルの errors の項目と終了コードを確かめ、件数のキー名と文言を固定しない。
 

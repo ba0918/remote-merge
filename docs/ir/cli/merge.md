@@ -21,10 +21,11 @@ merge は failed が空なら終了コード 0、failed が一件でもあれば
 
 ### REQ-cli-048: JSON の形
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A3, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A2, docs/decision/records/2026-10-05-size-limit.md#A29
 - verification: unit
 
 --format json の merge は merged（path・status・backup・ref_badge）、skipped（path・reason）、deleted、failed（path・error）を出し、deleted は空でも出し、ref（label と root）は参照先を使うときだけ出す。merged の status はファイル全体を書き込んだとき "ok"、--dry-run では "would merge" とする。
+左右と参照先の三つともにあり、どれかの中身を読めなかったファイルには、--force の有無によらず ref_badge を出さない。
 
 ### REQ-cli-049: テキスト出力の行
 - kind: ubiquitous

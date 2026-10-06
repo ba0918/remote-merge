@@ -43,10 +43,11 @@ status は TBL-cli-004 に従って左右を決め、左右が同じとき、設
 | あり | あり | --left の指定元 | --right の指定先 |
 
 ### TBL-cli-005: 参照先との違いの印
-- source: docs/decision/records/2026-09-27-adopt-status.md#A9
+- source: docs/decision/records/2026-09-27-adopt-status.md#A9, docs/decision/records/2026-10-05-size-limit.md#A29
 
 | 左右 | 参照先 | 中身 | JSON の "ref_badge" | テキストの印 |
 |---|---|---|---|---|
 | 両方にある | ない | - | "missing_in_ref" | " [ref-]" |
 | 片方だけにある | ある | - | "differs" | " [ref≠]" |
 | 両方にある | ある | 三つのどれかが違う | "differs" | " [ref≠]" |
+| 両方にある | ある | 三つのどれかを読めない | 出さない | 出さない |
