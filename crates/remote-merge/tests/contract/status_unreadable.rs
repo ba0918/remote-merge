@@ -66,6 +66,7 @@ fn a_file_that_cannot_be_read_for_comparison_is_reported_as_an_error_without_a_j
 
 // テキストの出力では、読めなかったファイルのパスを標準エラーに出す（文言は固定しない）
 // @kotowari[REQ-cli-088]
+#[cfg(feature = "test-utils")]
 #[test]
 fn text_output_reports_an_unreadable_file_on_standard_error() {
     let env = super::common::CliEnv::new(&[("a.txt", "alpha\n")], &[("a.txt", "bravo\n")]);
