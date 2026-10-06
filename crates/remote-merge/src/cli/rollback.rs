@@ -107,7 +107,13 @@ pub fn execute_rollback(
     let mut skipped: Vec<RollbackSkipped> = Vec::new();
     let mut failed: Vec<RollbackFailure> = Vec::new();
 
-    match core.restore_backup(&side, &plan.session_id, &plan.files, args.dry_run) {
+    match core.restore_backup(
+        &side,
+        &plan.session_id,
+        &plan.files,
+        args.dry_run,
+        args.force,
+    ) {
         Ok((results, restore_skipped, failures)) => {
             restored.extend(results);
             skipped.extend(restore_skipped);

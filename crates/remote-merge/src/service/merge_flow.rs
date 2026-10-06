@@ -237,11 +237,13 @@ pub fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut Cor
 
 /// 削除操作の実行（--delete 用）。
 /// バックアップ失敗時は削除を中止して failed に記録する（安全設計）。
+/// `force` はコマンドの --force で、バックアップのための読み込みの大きさの上限を外す。
 pub fn execute_deletions(
     core: &mut CoreRuntime,
     target: &Side,
     right_only_files: &[String],
     session_id: &str,
+    force: bool,
 ) -> (Vec<DeleteFileResult>, Vec<MergeSkipped>, Vec<MergeFailure>) {
     let mut deleted = Vec::new();
     let mut skipped = Vec::new();
@@ -267,7 +269,7 @@ pub fn execute_deletions(
         }
         // バックアップ（有効な場合）
         if core.config.backup.enabled {
-            if let Err(e) = core.save_backup(target, path, session_id, false) {
+            if let Err(e) = core.save_backup(target, path, session_id, force) {
                 // バックアップ失敗 → 削除を中止（安全設計）
                 failed.push(MergeFailure {
                     path: path.clone(),

@@ -276,6 +276,7 @@ impl CoreRuntime {
 
     /// バックアップからファイルを復元する。
     /// 復元前に現在のファイルを自動バックアップ（pre-rollback backup）。
+    /// `force` はコマンドの --force で、その自動バックアップのための読み込みの大きさの上限を外す。
     /// 成功ファイルと失敗ファイルの両方を返す。
     pub fn restore_backup(
         &mut self,
@@ -283,6 +284,7 @@ impl CoreRuntime {
         session_id: &str,
         files: &[String],
         dry_run: bool,
+        force: bool,
     ) -> anyhow::Result<(
         Vec<crate::service::types::RollbackFileResult>,
         Vec<crate::service::types::RollbackSkipped>,
@@ -380,7 +382,7 @@ impl CoreRuntime {
             }
 
             let pre_rollback_backup = if let Some(pre_session_id) = &pre_session_id {
-                match self.save_backup_if_exists(side, path, pre_session_id, false) {
+                match self.save_backup_if_exists(side, path, pre_session_id, force) {
                     Ok(Some(_)) => Some(pre_session_id.clone()),
                     Ok(None) => None,
                     Err(error) => {

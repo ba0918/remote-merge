@@ -363,7 +363,13 @@ pub fn execute_sync(
 
         // 削除実行
         let (deleted, late_skipped, delete_failures) = if !sp.delete_targets.is_empty() {
-            execute_deletions(&mut core, &sp.pair.right, &sp.delete_targets, &session_id)
+            execute_deletions(
+                &mut core,
+                &sp.pair.right,
+                &sp.delete_targets,
+                &session_id,
+                args.force,
+            )
         } else {
             (vec![], vec![], vec![])
         };

@@ -362,3 +362,77 @@ fn ex_cli_082_force_lets_diff_compare_files_over_the_limit() {
     assert!(entry["right_hash"].is_string(), "{json}");
     assert_ne!(entry["left_hash"], entry["right_hash"], "{json}");
 }
+
+// ── EX-cli-083 と rollback: --force はバックアップのための読み込みにも届く ──
+
+/// `root` の下を辿り、大きさ `len` の通常ファイルがあるか
+fn has_regular_file_of_size(root: &Path, len: u64) -> bool {
+    let Ok(entries) = fs::read_dir(root) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => has_regular_file_of_size(&path, len),
+            Ok(metadata) => metadata.is_file() && metadata.len() == len,
+            Err(_) => false,
+        }
+    })
+}
+
+fn backups_of(env: &CliEnv) -> std::path::PathBuf {
+    env.temp_root().join("xdg-data/remote-merge/backups")
+}
+
+// 100MB を超える写しをバックアップの保存先に書くので、一つずつ走らせる組に入れる
+// @kotowari[EX-cli-083]
+#[test]
+fn ex_cli_083_force_backs_up_a_file_over_the_limit_before_deleting_it() {
+    let env = CliEnv::new(&[], &[]);
+    let remote = env.remote_dir.join("big.bin");
+    place_sparse(&remote, LIMIT + 1, b'r');
+
+    let output = env
+        .cmd_with("sync")
+        .args([
+            ".", "--left", "local", "--right", "develop", "--delete", "--force", "--format", "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(!remote.exists(), "{output:?}");
+    assert!(
+        has_regular_file_of_size(&backups_of(&env), LIMIT + 1),
+        "{output:?}"
+    );
+}
+
+// 100MB を超える写しをバックアップの保存先に書くので、一つずつ走らせる組に入れる
+// @kotowari[REQ-cli-079]
+#[test]
+fn req_cli_079_force_backs_up_a_file_over_the_limit_before_rollback_restores_it() {
+    let env = CliEnv::new(&[("a.txt", "new\n")], &[("a.txt", "old\n")]);
+    let merged = merge_over_ssh(&env, &["a.txt"]);
+    assert_eq!(merged.status.code(), Some(0), "{merged:?}");
+    let remote = env.remote_dir.join("a.txt");
+    fs::remove_file(&remote).unwrap();
+    place_sparse(&remote, LIMIT + 1, b'r');
+
+    let output = env
+        .cmd_with("rollback")
+        .args(["--target", "develop", "--force", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(fs::read_to_string(&remote).unwrap(), "old\n");
+    let json = json_of(&output);
+    let restored = json["restored"]
+        .as_array()
+        .unwrap_or_else(|| panic!("restored missing: {json}"))
+        .iter()
+        .find(|entry| entry["path"] == "a.txt")
+        .unwrap_or_else(|| panic!("a.txt not restored: {json}"));
+    assert!(restored["pre_rollback_backup"].is_string(), "{json}");
+}

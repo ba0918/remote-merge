@@ -410,8 +410,13 @@ pub fn execute_merge(
 
     // --delete: 削除実行
     let deleted = if !delete_targets.is_empty() {
-        let (deleted_results, delete_skipped, delete_failures) =
-            execute_deletions(&mut core, &pair.right, &delete_targets, &session_id);
+        let (deleted_results, delete_skipped, delete_failures) = execute_deletions(
+            &mut core,
+            &pair.right,
+            &delete_targets,
+            &session_id,
+            args.force,
+        );
         all_skipped.extend(delete_skipped);
         failed.extend(delete_failures);
         deleted_results

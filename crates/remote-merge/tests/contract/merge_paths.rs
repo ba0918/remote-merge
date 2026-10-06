@@ -1367,6 +1367,7 @@ fn delete_rechecks_a_link_that_appears_after_the_listing() {
         &Side::Remote("develop".into()),
         &["link.txt".into()],
         &session,
+        false,
     );
     assert!(deleted.is_empty());
     assert!(failures.is_empty());
@@ -1410,6 +1411,7 @@ fn deletions_that_cannot_inspect_or_remove_the_destination_fail_without_stopping
             "free.txt".into(),
         ],
         "unused",
+        false,
     );
 
     fs::set_permissions(&hidden, fs::Permissions::from_mode(0o755)).unwrap();

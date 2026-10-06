@@ -212,6 +212,7 @@ fn deletion_backs_up_the_destination_content_read_immediately_before_removing() 
         &Side::Remote("develop".into()),
         &["obsolete.txt".into()],
         &session_id,
+        false,
     );
     core.finish_backup_session(&session_id);
     drop(core);
