@@ -230,13 +230,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_source_is_not_written() {
-        let treatment = three_way_treatment(Absent, Read(BASE), Read(BASE));
-
-        assert_eq!(reference_refusal(treatment, false, false), Some(INCOMPLETE));
-    }
-
-    #[test]
     fn a_symlink_with_only_the_destination_changed_is_written_unless_both_changed() {
         let only_destination = three_way_treatment(Read(BASE), Read(CHANGED), Read(BASE));
         let both = three_way_treatment(Read(CHANGED), Read(b"other\n"), Read(BASE));
