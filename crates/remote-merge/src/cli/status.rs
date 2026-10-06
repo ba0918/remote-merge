@@ -129,12 +129,12 @@ pub fn execute_status(
     };
 
     let left_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.left, &content_paths, &mut core, SizeLimit::Enforced)
+        fetch_contents_tolerant(&pair.left, &content_paths, &mut core, SizeLimit::Lifted)
     } else {
         HashMap::new()
     };
     let right_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.right, &content_paths, &mut core, SizeLimit::Enforced)
+        fetch_contents_tolerant(&pair.right, &content_paths, &mut core, SizeLimit::Lifted)
     } else {
         HashMap::new()
     };
@@ -163,8 +163,7 @@ pub fn execute_status(
 
         // Fetch ref contents for every file
         let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-        let ref_contents =
-            fetch_contents_tolerant(ref_s, &ref_paths, &mut core, SizeLimit::Enforced);
+        let ref_contents = fetch_contents_tolerant(ref_s, &ref_paths, &mut core, SizeLimit::Lifted);
 
         // Compute ref badges — left/right contents は既に取得済みのものを再利用
         let badges = compute_ref_badges(

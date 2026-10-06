@@ -297,3 +297,41 @@ async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
     // 切られた一回目の後に尋ね直して読み込みまで進んだ（diff は同じファイルを二度読む）
     assert!(server.size_attempts() >= 2, "{output:?}");
 }
+
+// ── REQ-cli-094: status は上限を当てない ──
+
+// 中身が同じで更新時刻の違うファイルは、上限を当てると中身を比べられずメタデータのまま
+// "modified" に、当てなければ中身を比べて "equal" になる。100MB を超える中身を実際に読むので、
+// 一つずつ走らせる組に入れる
+// @kotowari[REQ-cli-094]
+#[test]
+fn req_cli_094_status_compares_the_contents_of_files_over_the_limit() {
+    let env = CliEnv::new(&[], &[]);
+    let local = env.local_dir.join("big.bin");
+    place_sparse(&local, LIMIT + 1, b's');
+    place_sparse(&env.remote_dir.join("big.bin"), LIMIT + 1, b's');
+    fs::File::options()
+        .write(true)
+        .open(&local)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
+        .unwrap();
+
+    let output = env
+        .cmd_with("status")
+        .args([
+            "--left", "local", "--right", "develop", "--all", "--format", "json",
+        ])
+        .output()
+        .unwrap();
+
+    let json = json_of(&output);
+    let status = json["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("files missing: {json}"))
+        .iter()
+        .find(|file| file["path"] == "big.bin")
+        .unwrap_or_else(|| panic!("big.bin missing: {json}"))["status"]
+        .clone();
+    assert_eq!(status, "equal", "{output:?}");
+}
