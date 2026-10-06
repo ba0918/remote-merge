@@ -63,17 +63,17 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A65
+- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A65, docs/decision/records/2026-10-06-path-resolution.md#A66
 - verification: unit
 
-[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、設定ファイルのパスを実パスに直したものの親とし、実パスに直せないときは設定の読み込みをエラーで止める。
+[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、利用者が書いた設定ファイルのパスを OS に解決させた絶対パス（symlink と ".." を OS が辿った結果）の親とし、OS が解決できないときは "Failed to resolve the directory of config file: 絶対パス" のエラーで止まり、終了コード 2 を返す。root_dir が絶対パスか "~/" で始まるときは、設定ファイルのディレクトリを求めない。
 
 ### REQ-config-041: 空のローカルの root_dir で止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A5
+- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A66
 - verification: unit
 
-[local] の root_dir が空の文字列のときは、理由 "root_dir must not be empty" を示すエラーで止まる。
+[local] の root_dir が空の文字列のときは、理由 "root_dir must not be empty" を示すエラーで止まり、終了コード 2 を返す。
 
 ## Examples
 
