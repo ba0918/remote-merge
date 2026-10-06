@@ -11,17 +11,21 @@ use super::target_io::TargetPath;
 ///   検索できるディレクトリでなければ、PATH の lstat は ENOENT ではないので失敗する
 /// - `canonical_is_missing PATH`: PATH の実パスへの解決が ENOENT で失敗するときだけ成功する。
 ///   symlink を辿る回数はカーネルと同じ 40 回までで、超えれば ELOOP として失敗する
+/// - `rust_parent PATH`: Rust の `Path::parent()` と同じ親（`s`）。末尾の "/" と "." の要素を除いてから
+///   末尾の要素を除き、残りの末尾の "/" と "." の要素も除く。途中の "." と続く "/" は残す。
+///   ローカルは解決が ENOENT で失敗すると、この形の文字列をそのまま lstat し、さらにその親へ上る
 /// - `drop_trailing_dots PATH`: PATH の末尾の "/" と "/." を除いた形（`d`）。存在しない部分の "." は
-///   ローカルの解決と同じく答えのパスに残さないため、末尾の "." はここで、途中の "." は
-///   `resolve_existing_prefix` が存在しない部分を集めるときに除く。存在するかの判定には元のパスを使う
-/// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）
+///   ローカルの解決と同じく答えのパスに残さない。末尾の "." はここで、途中の "." は `rust_parent` で除く。
+///   存在するかの判定には元のパスを使う
+/// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）。`parent_of` は "." も
+///   一つの要素として扱い、カーネルが一つずつ辿る順に親へ上る（`canonical_is_missing` が使う）
 /// - `name_fits DIR NAME`: DIR の下で NAME が NAME_MAX に収まるか。カーネルは存在するディレクトリの
 ///   すぐ下の要素が長すぎると ENOENT ではなく ENAMETOOLONG で失敗するので、その要素だけを測る。
 ///   長さはバイトで数えるため `LC_ALL=C` にし、`getconf` が答えなければ 255 とする
-/// - `path_fits PATH`: PATH 全体が PATH_MAX に収まるか。カーネルは終端の NUL を含めて PATH_MAX を
+/// - `path_fits PATH`: PATH の文字列が PATH_MAX に収まるか。カーネルは終端の NUL を含めて PATH_MAX を
 ///   超えるパスを ENOENT ではなく ENAMETOOLONG で拒むので、バイトで数えて PATH_MAX 未満かを見る。
-///   ローカルの検査が最初に lstat するパスと同じものを測る。存在しないパスはそのパス、
-///   ぶら下がったリンク先は `resolve_existing_prefix` が最初に辿る親。`getconf` が答えなければ 4096
+///   測るのはローカルの検査が lstat する文字列で、存在しないパスはそのパス、ぶら下がったリンク先は
+///   つないだリンク先の `rust_parent`。`getconf` が答えなければ 4096
 /// - 存在しない部分の ".." は、ローカルと同じく辿る先が決まらないものとして失敗にする
 /// - `link_of`・`real_of`: `readlink` と `readlink -f` の答え（`t`・`r`）。`$(...)` は末尾の改行を
 ///   すべて削るので、番兵の `x` を足してから外し、`readlink` が足した改行を一つだけ削る。
@@ -30,11 +34,11 @@ use super::target_io::TargetPath;
 /// 試験 SSH サーバは先頭の `resolve_existing_prefix()` と、後に続く `; p=<パス>; if [` で
 /// この検査を見分けるため、その並びを崩さない。
 const INSPECT_PATH_FUNCTIONS: &str = r#"resolve_existing_prefix() {
-  drop_trailing_dots "$1"; q=$d; suffix=; base_of "$q"; first=$b; parent_of "$q"; path_fits "$s" || return 1;
+  drop_trailing_dots "$1"; q=$d; suffix=; base_of "$q"; first=$b; rust_parent "$q"; path_fits "$s" || return 1;
   while :; do
-    parent_of "$q"; [ "$s" != "$q" ] || return 1; q=$s;
+    rust_parent "$q"; [ "$s" != "$q" ] || return 1; q=$s;
     if [ -e "$q" ] || [ -L "$q" ]; then break; fi;
-    base_of "$q"; [ "$b" != .. ] || return 1; [ "$b" = . ] || suffix=/$b$suffix; first=$b;
+    base_of "$q"; [ "$b" != .. ] || return 1; suffix=/$b$suffix; first=$b;
   done;
   [ -d "$q" ] && [ -x "$q" ] && name_fits "$q" "$first" || return 1;
   real_of "$q" || return 1;
@@ -45,6 +49,9 @@ link_of() {
 };
 real_of() {
   r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
+};
+rust_parent() {
+  drop_trailing_dots "$1"; parent_of "$d"; drop_trailing_dots "$s"; s=$d;
 };
 drop_trailing_dots() {
   d=$1;
@@ -247,6 +254,36 @@ mod tests {
         rel
     }
 
+    /// root につないだ長さが PATH_MAX の前後になるリンク先と、そのリンクの名前。root には
+    /// `dir` がある
+    #[cfg(unix)]
+    fn long_link_targets(root: &std::path::Path) -> Vec<(String, String)> {
+        let missing_4094 = missing_rel_path_of_length(root, 4094);
+        let missing_4095 = missing_rel_path_of_length(root, 4095);
+        [
+            // Path::parent() は 4094・4095 バイトで、PATH_MAX に収まる
+            ("dot_before_name", format!("{missing_4094}/./file.txt")),
+            ("slashes_before_name", format!("{missing_4095}//file.txt")),
+            // 途中の ".//" と "./" は Path::parent() に残り、lstat する親が PATH_MAX を超える
+            (
+                "slash_dot_run_inside",
+                format!("{}missing/x", ".//".repeat(1362)),
+            ),
+            (
+                "dot_run_after_dir",
+                format!("dir/{}missing/x", "./".repeat(2041)),
+            ),
+            // 末尾の ".//" の並びは Path::parent() が除く
+            (
+                "slash_dot_run_at_end",
+                format!("missing/{}x", ".//".repeat(1360)),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, target)| (name.to_string(), target))
+        .collect()
+    }
+
     /// 二つの答えが同じ種類で、どのパスもバイト列まで同じか。`PathBuf` の `==` は要素ごとに
     /// 比べて "." の要素を無視するので、パスの文字列の違いを見逃さないよう使わない
     fn same_bytes(left: &TargetPath, right: &TargetPath) -> bool {
@@ -369,6 +406,13 @@ mod tests {
             path_max_paths.push(name);
         }
         cases.extend(path_max_paths.iter().map(String::as_str));
+        // ぶら下がったリンク先では、ローカルは Path::parent()（末尾の "/" と "." だけを除いた親）を
+        // lstat する。リンク先の文字列の上限 4095 バイトに収まる長さで作る
+        let long_links = long_link_targets(root);
+        for (name, target) in &long_links {
+            symlink(target, root.join(name)).unwrap();
+        }
+        cases.extend(long_links.iter().map(|(name, _)| name.as_str()));
         if can_lock {
             cases.push("locked/inner.txt");
         }
