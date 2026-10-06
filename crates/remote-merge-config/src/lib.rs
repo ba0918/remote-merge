@@ -427,7 +427,8 @@ fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
     Ok(raw)
 }
 
-/// 設定ファイル `path` のあるディレクトリの絶対パス。相対の `path` はカレントディレクトリを基準にする
+/// 設定ファイル `path` のあるディレクトリの絶対パス。相対の `path` はカレントディレクトリを基準にし、
+/// 書き方によらず同じ値になるよう、symlink を辿らずに字面で正規化してから親を取る
 fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
     let absolute = std::path::absolute(path).with_context(|| {
         format!(
@@ -435,9 +436,31 @@ fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
             path.display()
         )
     })?;
-    Ok(absolute
+    let normalized = lexically_normalized(&absolute);
+    Ok(normalized
         .parent()
-        .map_or_else(|| absolute.clone(), Path::to_path_buf))
+        .map_or_else(|| normalized.clone(), Path::to_path_buf))
+}
+
+/// "." の要素を除き、".." の要素を一つ上の名前と打ち消す。ルートより上には上がらない
+fn lexically_normalized(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                }
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 /// [local] の root_dir を解決する。"~/" はホームに展開し（REQ-config-010）、それでも相対のパスは

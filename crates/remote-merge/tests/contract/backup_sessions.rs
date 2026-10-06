@@ -252,6 +252,50 @@ fn relative_local_root_is_identified_from_the_directory_of_its_config_file() {
     }
 }
 
+// @kotowari[REQ-config-040]
+#[test]
+fn a_config_path_through_a_sibling_directory_gives_the_same_local_write_target() {
+    let base = TempDir::new().unwrap();
+    let project = base.path().join("proj");
+    let sibling = base.path().join("sib");
+    for directory in [&project, &sibling] {
+        fs::create_dir(directory).unwrap();
+    }
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(project.join("file.txt"), "old local\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
+    fs::write(
+        project.join(".remote-merge.toml"),
+        format!(
+            "[local]\nroot_dir = \".\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+            develop.path().display().to_string()
+        ),
+    )
+    .unwrap();
+    let load = |path: &std::path::Path| {
+        remote_merge::config::load_config_from_paths(Some(path), None).unwrap()
+    };
+    let inside = load(&project.join(".remote-merge.toml"));
+    let through_sibling = load(&sibling.join("../proj/.remote-merge.toml"));
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    let output = merge_files(
+        args,
+        inside.clone(),
+        targets(&develop, &store).with_startup_directory(project.clone()),
+    );
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+
+    assert_eq!(through_sibling.local.root_dir, inside.local.root_dir);
+    let from_sibling = targets(&develop, &store).with_startup_directory(sibling);
+    assert_eq!(
+        listed_sessions("local", through_sibling, from_sibling).len(),
+        1
+    );
+}
+
 // @kotowari[REQ-backup-021]
 #[test]
 fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {
