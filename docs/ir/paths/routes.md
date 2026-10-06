@@ -6,10 +6,10 @@
 
 ### REQ-paths-008: どの経路も同じ結果を返す
 - kind: invariant
-- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-06-path-resolution.md#A47
+- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-06-path-resolution.md#A47, docs/decision/records/2026-10-06-path-resolution.md#A52
 - verification: property
 
-同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのパスの確認は、同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。ただし SSH の経路は "cannot read" に当たる OS の失敗を存在しないことと見分けない。ローカルの経路が macOS のときは、1024 バイト以上 4096 バイト未満の実パスで OS が先に失敗し "cannot resolve path: cannot read" になる。
+同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのパスの確認は、同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。ただし SSH の経路は "cannot read" に当たる OS の失敗を存在しないことと見分けない。ローカルの経路が macOS のときは、1024 バイト以上 4096 バイト未満の実パスで OS が先に失敗し "cannot resolve path: cannot read" になる。SSH の経路では、権限以外の理由で入れないディレクトリも "cannot resolve path: permission denied" になる。
 
 ### REQ-paths-009: SSH で readlink がなければ止める
 - kind: state_driven
@@ -31,6 +31,13 @@ SSH の経路でパスの確認が symlink に出会い、リモートに readli
 - verification: unit
 
 パスの確認の結果が途中の祖先がディレクトリでないとき、diff・merge・sync とバックアップの作成は、そのパスを "cannot resolve path: not a directory" のエラーとして扱う。
+
+### REQ-paths-012: リモートの相対の root_dir はログインした利用者の作業ディレクトリを基準にする
+- kind: state_driven
+- source: docs/decision/records/2026-10-06-path-resolution.md#A53
+- verification: unit
+
+SSH かエージェントの経路で root_dir が相対パスのとき、パスの確認はリモートでログインした利用者の作業ディレクトリの実パスを基準に root_dir を絶対パスにしてから辿る。
 
 ## Examples
 
@@ -64,4 +71,10 @@ Scenario: sudo のサーバの版 4 のエージェント
 Given sudo を使うサーバで、接続したエージェントとの通信の版が 4 である
 When パスを確認する
 Then 確認は SSH の経路で行われず、エージェントの置き直しが要ることを示すエラーになる
+
+@id=EX-paths-025 @about=REQ-paths-012 @source=docs/decision/records/2026-10-06-path-resolution.md#A53
+Scenario: リモートの相対の root_dir
+Given リモートでログインした利用者の作業ディレクトリが symlink を含まない実パス "/home/u" で、root_dir が "app" で、"/home/u/app/a.txt" が通常ファイルである
+When SSH とエージェントの経路で "a.txt" を確認する
+Then どちらも結果は存在するで、実パスは "/home/u/app/a.txt" になる
 ```
