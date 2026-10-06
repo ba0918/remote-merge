@@ -15,6 +15,8 @@ mod remote_path;
 pub mod remote_size;
 #[cfg(not(feature = "test-utils"))]
 mod remote_size;
+#[cfg(all(test, unix))]
+pub(crate) mod scripted_agent;
 pub mod side_io;
 pub mod size_limit;
 pub(crate) mod target_io;

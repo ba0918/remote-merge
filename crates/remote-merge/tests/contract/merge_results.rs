@@ -253,3 +253,74 @@ fn a_dry_run_reports_a_file_whose_reference_could_not_be_read_as_incomplete() {
     assert_eq!(json["merged"], serde_json::json!([]), "{json}");
     assert_eq!(fixture.read("develop", "file.txt"), "develop old\n");
 }
+
+/// 参照先の file.txt だけを読めなくし、other.txt は読み込み元だけが参照先から変わった構成
+fn unreadable_reference_beside_a_readable_file(fixture: &Fixture) {
+    for (side, file, other) in [
+        ("local", "incoming\n", "new\n"),
+        ("develop", "develop old\n", "base\n"),
+        ("staging", "base\n", "base\n"),
+    ] {
+        fixture.write(side, "file.txt", file);
+        fixture.write(side, "other.txt", other);
+    }
+    fixture.make_unreadable("staging", "file.txt");
+}
+
+fn merged_paths(json: &serde_json::Value) -> Vec<&str> {
+    json["merged"]
+        .as_array()
+        .unwrap_or_else(|| panic!("merged missing: {json}"))
+        .iter()
+        .map(|file| file["path"].as_str().unwrap())
+        .collect()
+}
+
+// 読めないファイルがほかのファイルと混在していても、--dry-run は書き込むときと同じく failed に出す
+// @kotowari[REQ-cli-092]
+#[test]
+fn a_dry_run_reports_an_unreadable_file_among_readable_files_as_incomplete() {
+    let fixture = fixture();
+    unreadable_reference_beside_a_readable_file(&fixture);
+    let mut args = args(&["file.txt", "other.txt"]);
+    args.ref_server = Some("staging".into());
+    args.dry_run = true;
+
+    let (json, code) = fixture.merge_json(args);
+
+    assert_eq!(
+        json["failed"],
+        serde_json::json!([{ "path": "file.txt", "error": "three-way comparison incomplete" }]),
+        "{json}"
+    );
+    assert_eq!(merged_paths(&json), ["other.txt"], "{json}");
+    assert_eq!(code, 2, "{json}");
+}
+
+// --force でも、三つの中身を読めなかったファイルには参照先との関係のバッジを作らない
+// （docs/decision/records/2026-10-05-size-limit.md の A24）
+// @kotowari[TBL-cli-009]
+#[test]
+fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not_be_read() {
+    let fixture = fixture();
+    unreadable_reference_beside_a_readable_file(&fixture);
+    let mut args = args(&["file.txt", "other.txt"]);
+    args.ref_server = Some("staging".into());
+    args.dry_run = true;
+    args.force = true;
+
+    let (json, _) = fixture.merge_json(args);
+
+    let badge_of = |path: &str| {
+        json["merged"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing: {json}"))
+            .get("ref_badge")
+            .cloned()
+    };
+    assert_eq!(badge_of("file.txt"), None, "{json}");
+    assert!(badge_of("other.txt").is_some(), "{json}");
+}

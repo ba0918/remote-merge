@@ -5,12 +5,13 @@
 
 use std::collections::HashMap;
 
+use crate::cli::content_reads::read_contents;
 use crate::cli::merge::merge_partial_nodes;
-use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
+use crate::service::content_reads::verified_content_pairs;
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
@@ -20,7 +21,6 @@ use crate::service::path_resolver::{
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
     compute_status_from_trees, needs_merge_content_compare, refine_status_with_content,
-    verified_content_pairs,
 };
 use crate::service::sync::{
     compute_sync_summary, compute_target_status, plan_deletions, sync_exit_code,
@@ -180,16 +180,16 @@ pub fn execute_sync(
         );
         let mut compare_failures = Vec::new();
         if !paths_to_compare.is_empty() {
-            let left_batch = fetch_contents_required(
+            let left_batch = read_contents(
+                &mut core,
                 left_side,
                 &paths_to_compare,
-                &mut core,
                 SizeLimit::from_force(args.force),
             );
-            let right_batch = fetch_contents_required(
+            let right_batch = read_contents(
+                &mut core,
                 right_side,
                 &paths_to_compare,
-                &mut core,
                 SizeLimit::from_force(args.force),
             );
             let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
@@ -218,19 +218,14 @@ pub fn execute_sync(
             })
             .cloned()
             .collect();
-        let expected = fetch_contents_required(
+        let (expected_target_contents, expected_failures) = read_contents(
+            &mut core,
             right_side,
             &destination_paths,
-            &mut core,
             SizeLimit::from_force(args.force),
-        );
-        let expected_target_contents = expected.contents;
-        compare_failures.extend(
-            expected
-                .errors
-                .into_iter()
-                .map(|(path, error)| MergeFailure { path, error }),
-        );
+        )
+        .into_parts();
+        compare_failures.extend(expected_failures);
         plan.files
             .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 

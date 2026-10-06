@@ -1,3 +1,4 @@
+pub mod content_reads;
 pub mod diff;
 pub mod fast_path;
 pub mod max_files;

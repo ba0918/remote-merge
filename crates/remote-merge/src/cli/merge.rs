@@ -1,11 +1,14 @@
 //! merge サブコマンドの実装。
 
+use crate::cli::content_reads::read_contents;
 use crate::cli::ref_guard;
-use crate::cli::tolerant_io::{fetch_contents_required, fetch_contents_tolerant};
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
+use crate::service::content_reads::{
+    not_absent_in, three_way_contents_read, verified_content_pairs,
+};
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
@@ -23,7 +26,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, needs_merge_content_compare,
-    refine_status_with_content, verified_content_pairs,
+    refine_status_with_content,
 };
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
@@ -195,20 +198,15 @@ pub fn execute_merge(
         })
         .cloned()
         .collect();
-    let expected = fetch_contents_required(
+    let (expected_target_contents, expected_failures) = read_contents(
+        &mut core,
         &pair.right,
         &destination_paths,
-        &mut core,
         SizeLimit::from_force(args.force),
-    );
-    let expected_target_contents = expected.contents;
+    )
+    .into_parts();
     let mut compare_failures = compare_failures;
-    compare_failures.extend(
-        expected
-            .errors
-            .into_iter()
-            .map(|(path, error)| MergeFailure { path, error }),
-    );
+    compare_failures.extend(expected_failures);
     plan.files
         .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
 
@@ -251,12 +249,16 @@ pub fn execute_merge(
     let (ref_source_info, ref_badge_map) = if let Some(ref_s) = &ref_side {
         core.connect_if_remote(ref_s)?;
         let ref_info = build_source_info(ref_s, &core)?;
+        let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
 
-        let paths = &plan.files;
+        // ないと分かっている側は読まない。読めば「ない」が読めなかったことになる
         let limit = SizeLimit::from_force(args.force);
-        let left_contents = fetch_contents_tolerant(&pair.left, paths, &mut core, limit);
-        let right_contents = fetch_contents_tolerant(&pair.right, paths, &mut core, limit);
-        let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core, limit);
+        let mut read_present = |side: &Side, tree: &FileTree| {
+            read_contents(&mut core, side, &not_absent_in(&plan.files, tree), limit)
+        };
+        let left_contents = read_present(&pair.left, &left_tree);
+        let right_contents = read_present(&pair.right, &right_tree);
+        let ref_contents = read_present(ref_s, &ref_tree);
 
         let file_statuses: Vec<FileStatus> = plan
             .files
@@ -269,8 +271,6 @@ pub fn execute_merge(
             })
             .collect();
 
-        let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
-
         let badges = compute_ref_badges(
             &file_statuses,
             &left_tree,
@@ -280,44 +280,41 @@ pub fn execute_merge(
             &right_contents,
             &ref_contents,
         );
-        if !args.force && args.dry_run {
-            // 書き込まない計画でも、読めなかった中身を比べたことにしてバッジを作らない
+        if !args.force {
             plan.files.retain(|path| {
-                let contents = [
-                    (&left_tree, &left_contents),
-                    (&right_tree, &right_contents),
-                    (&ref_tree, &ref_contents),
-                ];
-                if !three_way_read_failed(path, contents) {
-                    return true;
-                }
-                conflict_failures.push(MergeFailure {
-                    path: path.clone(),
-                    error: "three-way comparison incomplete".to_string(),
-                });
-                false
-            });
-        }
-        if !args.force && !args.dry_run {
-            plan.files.retain(|path| {
-                let reason = match (
-                    left_contents.get(path),
-                    right_contents.get(path),
-                    ref_contents.get(path),
-                ) {
-                    (Some(left), Some(right), Some(base)) => {
-                        let is_link = |tree: &FileTree| {
-                            tree.find_node(path).is_some_and(|node| node.is_symlink())
-                        };
-                        // symlink は参照先に対する新しい確認の対象外（FLAG-cli-027）のため今の判定のまま
-                        if is_link(&left_tree) || is_link(&right_tree) {
-                            crate::service::merge::has_three_way_conflict(base, left, right)
-                                .then_some("three-way conflict")
-                        } else {
-                            crate::service::merge::reference_check_failure(base, left, right)
+                let read = three_way_contents_read(
+                    path,
+                    [
+                        (&left_tree, &left_contents),
+                        (&right_tree, &right_contents),
+                        (&ref_tree, &ref_contents),
+                    ],
+                );
+                let reason = if !read {
+                    Some("three-way comparison incomplete")
+                } else if args.dry_run {
+                    // --dry-run で書かずに出すのは読み込みに失敗したファイルだけにする
+                    None
+                } else {
+                    match (
+                        left_contents.content(path),
+                        right_contents.content(path),
+                        ref_contents.content(path),
+                    ) {
+                        (Some(left), Some(right), Some(base)) => {
+                            let is_link = |tree: &FileTree| {
+                                tree.find_node(path).is_some_and(|node| node.is_symlink())
+                            };
+                            // symlink は参照先に対する新しい確認の対象外（FLAG-cli-027）のため今の判定のまま
+                            if is_link(&left_tree) || is_link(&right_tree) {
+                                crate::service::merge::has_three_way_conflict(base, left, right)
+                                    .then_some("three-way conflict")
+                            } else {
+                                crate::service::merge::reference_check_failure(base, left, right)
+                            }
                         }
+                        _ => Some("three-way comparison incomplete"),
                     }
-                    _ => Some("three-way comparison incomplete"),
                 };
                 if let Some(reason) = reason {
                     conflict_failures.push(MergeFailure {
@@ -335,9 +332,10 @@ pub fn execute_merge(
         (None, None)
     };
 
-    if plan.files.is_empty() && delete_targets.is_empty() && !conflict_failures.is_empty() {
-        let mut failed = compare_failures;
-        failed.extend(conflict_failures);
+    let has_conflict_failures = !conflict_failures.is_empty();
+    let mut failed = compare_failures;
+    failed.extend(conflict_failures);
+    if plan.files.is_empty() && delete_targets.is_empty() && has_conflict_failures {
         let output = build_merge_output(vec![], all_skipped, vec![], failed, ref_source_info);
         core.disconnect_all();
         return Ok(MergeCommandResult {
@@ -374,7 +372,7 @@ pub fn execute_merge(
                 .collect(),
             all_skipped,
             dry_deleted,
-            compare_failures,
+            failed,
             ref_source_info,
         );
         let exit_code = merge_exit_code(&output);
@@ -387,8 +385,6 @@ pub fn execute_merge(
 
     // マージ実行
     let mut merged = Vec::new();
-    let mut failed = compare_failures;
-    failed.extend(conflict_failures);
     let session_id = if core.config.backup.enabled {
         core.reserve_backup_session()?
     } else {
@@ -610,16 +606,16 @@ fn fetch_trees_and_statuses_for_merge(
     );
     let mut failures = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_required(
+        let left_batch = read_contents(
+            core,
             left,
             &paths_to_compare,
-            core,
             SizeLimit::from_force(comparison.force),
         );
-        let right_batch = fetch_contents_required(
+        let right_batch = read_contents(
+            core,
             right,
             &paths_to_compare,
-            core,
             SizeLimit::from_force(comparison.force),
         );
         let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
@@ -692,16 +688,6 @@ fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
         // (None, None): 両者とも子なし → 何もしない
         (Some(_), None) | (None, None) => {}
     }
-}
-
-/// 三者のどれかで、ツリーにあるのに中身を読めなかったか（ない側は読めなかったことにしない）
-fn three_way_read_failed(
-    path: &str,
-    sides: [(&FileTree, &std::collections::HashMap<String, Vec<u8>>); 3],
-) -> bool {
-    sides
-        .into_iter()
-        .any(|(tree, contents)| tree.find_node(path).is_some() && !contents.contains_key(path))
 }
 
 #[cfg(test)]

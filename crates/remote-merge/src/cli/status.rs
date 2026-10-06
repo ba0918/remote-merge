@@ -8,13 +8,12 @@
 //! 2. メタデータ比較（size, mtime） → Equal / Modified の事前判定
 //! 3. コンテンツ比較（メタデータで判定できないファイルのみ） → 最終判定
 
-use std::collections::HashMap;
-
+use crate::cli::content_reads::read_contents;
 use crate::cli::ref_guard;
-use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
+use crate::service::content_reads::{not_absent_in, verified_content_pairs};
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -128,26 +127,23 @@ pub fn execute_status(
         paths_to_compare.clone()
     };
 
-    let left_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.left, &content_paths, &mut core, SizeLimit::Lifted)
-    } else {
-        HashMap::new()
-    };
-    let right_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.right, &content_paths, &mut core, SizeLimit::Lifted)
-    } else {
-        HashMap::new()
-    };
+    let left_contents = read_contents(
+        &mut core,
+        &pair.left,
+        &not_absent_in(&content_paths, &left_tree),
+        SizeLimit::Lifted,
+    );
+    let right_contents = read_contents(
+        &mut core,
+        &pair.right,
+        &not_absent_in(&content_paths, &right_tree),
+        SizeLimit::Lifted,
+    );
 
     // コンテンツ比較で status を精緻化（ハッシュで未解決の場合のみ）
     if !hash_resolved && !paths_to_compare.is_empty() {
-        let mut compare_pairs: HashMap<String, (Vec<u8>, Vec<u8>)> = HashMap::new();
-        for path in &paths_to_compare {
-            if let (Some(l), Some(r)) = (left_contents.get(path), right_contents.get(path)) {
-                compare_pairs.insert(path.clone(), (l.clone(), r.clone()));
-            }
-        }
-        refine_status_with_content(&mut files, &compare_pairs);
+        let verified = verified_content_pairs(&paths_to_compare, &left_contents, &right_contents);
+        refine_status_with_content(&mut files, &verified.pairs);
     }
 
     let mut ref_info = None;
@@ -163,7 +159,12 @@ pub fn execute_status(
 
         // Fetch ref contents for every file
         let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-        let ref_contents = fetch_contents_tolerant(ref_s, &ref_paths, &mut core, SizeLimit::Lifted);
+        let ref_contents = read_contents(
+            &mut core,
+            ref_s,
+            &not_absent_in(&ref_paths, &ref_tree),
+            SizeLimit::Lifted,
+        );
 
         // Compute ref badges — left/right contents は既に取得済みのものを再利用
         let badges = compute_ref_badges(

@@ -9,61 +9,8 @@ use std::path::Path;
 use crate::three_way;
 use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
 
+use super::content_reads::{three_way_contents_read, ContentReads};
 use super::types::*;
-
-#[derive(Default)]
-pub struct RequiredContents {
-    pub contents: HashMap<String, Vec<u8>>,
-    pub errors: HashMap<String, String>,
-}
-
-pub struct VerifiedComparisons {
-    pub pairs: HashMap<String, (Vec<u8>, Vec<u8>)>,
-    pub failures: Vec<MergeFailure>,
-}
-
-pub fn verified_content_pairs(
-    paths: &[String],
-    left: &RequiredContents,
-    right: &RequiredContents,
-) -> VerifiedComparisons {
-    let mut pairs = HashMap::new();
-    let mut failures = Vec::new();
-    for path in paths {
-        match (left.contents.get(path), right.contents.get(path)) {
-            (Some(left_bytes), Some(right_bytes)) => {
-                pairs.insert(path.clone(), (left_bytes.clone(), right_bytes.clone()));
-            }
-            (left_content, right_content) => {
-                let mut reasons = Vec::new();
-                if left_content.is_none() {
-                    reasons.push(format!(
-                        "left: {}",
-                        left.errors
-                            .get(path)
-                            .map(String::as_str)
-                            .unwrap_or("no content returned")
-                    ));
-                }
-                if right_content.is_none() {
-                    reasons.push(format!(
-                        "right: {}",
-                        right
-                            .errors
-                            .get(path)
-                            .map(String::as_str)
-                            .unwrap_or("no content returned")
-                    ));
-                }
-                failures.push(MergeFailure {
-                    path: path.clone(),
-                    error: format!("read failed: {}", reasons.join("; ")),
-                });
-            }
-        }
-    }
-    VerifiedComparisons { pairs, failures }
-}
 
 /// ステータス判定用のツリーインデックス。
 ///
@@ -360,25 +307,37 @@ pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
     summary
 }
 
-/// 3-way バッジを全ファイルに対して計算する。
+/// 3-way バッジを計算する。
 ///
-/// `three_way::compute_file_comparison()` を内部で呼び出す。
+/// `three_way::compute_file_comparison()` を内部で呼び出す。ツリーにある側の中身を一つでも
+/// 読めなかったファイルにはバッジを作らない（読めなかった中身どうしを同じとみなさない）。
 pub fn compute_ref_badges(
     files: &[FileStatus],
     left_tree: &FileTree,
     right_tree: &FileTree,
     ref_tree: &FileTree,
-    left_contents: &HashMap<String, Vec<u8>>,
-    right_contents: &HashMap<String, Vec<u8>>,
-    ref_contents: &HashMap<String, Vec<u8>>,
+    left_contents: &ContentReads,
+    right_contents: &ContentReads,
+    ref_contents: &ContentReads,
 ) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for file in files {
-        let left_exists = left_tree.find_node(Path::new(&file.path)).is_some();
-        let right_exists = right_tree.find_node(Path::new(&file.path)).is_some();
-        let ref_exists = ref_tree.find_node(Path::new(&file.path)).is_some();
-        let left_eq_right = left_contents.get(&file.path) == right_contents.get(&file.path);
-        let left_eq_ref = left_contents.get(&file.path) == ref_contents.get(&file.path);
+        let path = file.path.as_str();
+        if !three_way_contents_read(
+            path,
+            [
+                (left_tree, left_contents),
+                (right_tree, right_contents),
+                (ref_tree, ref_contents),
+            ],
+        ) {
+            continue;
+        }
+        let left_exists = left_tree.find_node(Path::new(path)).is_some();
+        let right_exists = right_tree.find_node(Path::new(path)).is_some();
+        let ref_exists = ref_tree.find_node(Path::new(path)).is_some();
+        let left_eq_right = left_contents.content(path) == right_contents.content(path);
+        let left_eq_ref = left_contents.content(path) == ref_contents.content(path);
         let badge = three_way::compute_file_comparison(
             left_exists,
             right_exists,
@@ -1037,72 +996,65 @@ mod tests {
 
     // ── compute_ref_badges ──
 
-    #[test]
-    fn test_compute_ref_badges_all_equal() {
-        let files = vec![FileStatus {
-            path: "a.rs".into(),
+    fn modified(path: &str) -> FileStatus {
+        FileStatus {
+            path: path.into(),
             status: FileStatusKind::Modified,
             hunks: None,
             ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file("a.rs")]);
-        let right = make_tree(vec![FileNode::new_file("a.rs")]);
-        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
-        let mut left_c = HashMap::new();
-        left_c.insert("a.rs".into(), b"content".to_vec());
-        let mut right_c = HashMap::new();
-        right_c.insert("a.rs".into(), b"content".to_vec());
-        let mut ref_c = HashMap::new();
-        ref_c.insert("a.rs".into(), b"content".to_vec());
+        }
+    }
 
-        let badges =
-            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+    fn reads(entries: &[(&str, &[u8])]) -> ContentReads {
+        let mut reads = ContentReads::default();
+        for (path, content) in entries {
+            reads.record_read(*path, content.to_vec());
+        }
+        reads
+    }
+
+    #[test]
+    fn test_compute_ref_badges_all_equal() {
+        let files = vec![modified("a.rs")];
+        let tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let content = reads(&[("a.rs", b"content")]);
+
+        let badges = compute_ref_badges(&files, &tree, &tree, &tree, &content, &content, &content);
         assert_eq!(badges.get("a.rs").unwrap(), "all_equal");
     }
 
     #[test]
     fn test_compute_ref_badges_differs() {
-        let files = vec![FileStatus {
-            path: "a.rs".into(),
-            status: FileStatusKind::Modified,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file("a.rs")]);
-        let right = make_tree(vec![FileNode::new_file("a.rs")]);
-        let ref_tree = make_tree(vec![FileNode::new_file("a.rs")]);
-        let mut left_c = HashMap::new();
-        left_c.insert("a.rs".into(), b"left_content".to_vec());
-        let mut right_c = HashMap::new();
-        right_c.insert("a.rs".into(), b"right_content".to_vec());
-        let mut ref_c = HashMap::new();
-        ref_c.insert("a.rs".into(), b"ref_content".to_vec());
+        let files = vec![modified("a.rs")];
+        let tree = make_tree(vec![FileNode::new_file("a.rs")]);
 
-        let badges =
-            compute_ref_badges(&files, &left, &right, &ref_tree, &left_c, &right_c, &ref_c);
+        let badges = compute_ref_badges(
+            &files,
+            &tree,
+            &tree,
+            &tree,
+            &reads(&[("a.rs", b"left_content")]),
+            &reads(&[("a.rs", b"right_content")]),
+            &reads(&[("a.rs", b"ref_content")]),
+        );
         assert_eq!(badges.get("a.rs").unwrap(), "differs");
     }
 
     #[test]
     fn test_compute_ref_badges_missing_in_ref() {
-        let files = vec![FileStatus {
-            path: "a.rs".into(),
-            status: FileStatusKind::Modified,
-            hunks: None,
-            ref_badge: None,
-        }];
-        let left = make_tree(vec![FileNode::new_file("a.rs")]);
-        let right = make_tree(vec![FileNode::new_file("a.rs")]);
+        let files = vec![modified("a.rs")];
+        let tree = make_tree(vec![FileNode::new_file("a.rs")]);
         let ref_tree = make_tree(vec![]);
+        let content = reads(&[("a.rs", b"content")]);
 
         let badges = compute_ref_badges(
             &files,
-            &left,
-            &right,
+            &tree,
+            &tree,
             &ref_tree,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &content,
+            &content,
+            &ContentReads::default(),
         );
         assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
     }
@@ -1124,20 +1076,9 @@ mod tests {
 
     #[test]
     fn test_compute_ref_badges_empty_ref_tree() {
-        let files = vec![
-            FileStatus {
-                path: "a.rs".into(),
-                status: FileStatusKind::Modified,
-                hunks: None,
-                ref_badge: None,
-            },
-            FileStatus {
-                path: "b.rs".into(),
-                status: FileStatusKind::LeftOnly,
-                hunks: None,
-                ref_badge: None,
-            },
-        ];
+        let mut left_only = modified("b.rs");
+        left_only.status = FileStatusKind::LeftOnly;
+        let files = vec![modified("a.rs"), left_only];
         let left = make_tree(vec![FileNode::new_file("a.rs"), FileNode::new_file("b.rs")]);
         let right = make_tree(vec![FileNode::new_file("a.rs")]);
         let ref_tree = make_tree(vec![]);
@@ -1147,11 +1088,26 @@ mod tests {
             &left,
             &right,
             &ref_tree,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &reads(&[("a.rs", b"left"), ("b.rs", b"left")]),
+            &reads(&[("a.rs", b"right")]),
+            &ContentReads::default(),
         );
         assert_eq!(badges.get("a.rs").unwrap(), "missing_in_ref");
+    }
+
+    // 読めなかった中身どうしを同じとみなして all_equal にしない
+    #[test]
+    fn no_badge_is_made_for_a_file_whose_content_could_not_be_read_on_a_side_that_has_it() {
+        let files = vec![modified("a.rs")];
+        let tree = make_tree(vec![FileNode::new_file("a.rs")]);
+        let content = reads(&[("a.rs", b"content")]);
+        let mut failed = ContentReads::default();
+        failed.record_failure("a.rs", "denied");
+
+        let badges = compute_ref_badges(&files, &tree, &tree, &tree, &content, &content, &failed);
+        assert!(!badges.contains_key("a.rs"), "{badges:?}");
+        let badges = compute_ref_badges(&files, &tree, &tree, &tree, &failed, &failed, &failed);
+        assert!(badges.is_empty(), "{badges:?}");
     }
 
     // ── status_from_read_results ──

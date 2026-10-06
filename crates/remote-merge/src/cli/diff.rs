@@ -1,13 +1,14 @@
 //! diff サブコマンドの実装。
 
+use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
 use crate::cli::ref_guard;
-use crate::cli::tolerant_io::{fetch_contents_required, read_failure_reason, read_unless_missing};
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
 use crate::runtime::size_limit::{FileTooLarge, SizeLimit};
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
+use crate::service::content_reads::verified_content_pairs;
 use crate::service::diff::{
     build_diff_output, build_symlink_diff_output, build_uncompared_diff_output,
 };
@@ -23,7 +24,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     compute_status_from_trees, needs_content_compare, refine_status_with_content,
-    status_from_read_results, verified_content_pairs,
+    status_from_read_results,
 };
 use crate::service::types::{
     exit_code, DiffError, DiffOutput, FileStatus, FileStatusKind, LinkTargets, MultiDiffOutput,
@@ -367,22 +368,24 @@ pub fn execute_diff(
                     // 読めない側があっても、もう一方の側の子の差分は示す
                     let note = "symlink target unreadable; resolved content not compared";
                     link_diff.note = Some(note.into());
-                    let cause = read_failure_reason(
+                    let cause = read_failure_reason(&[
                         (
                             &pair.left,
                             left_content
                                 .as_ref()
                                 .err()
-                                .filter(|_| left_children.is_none()),
+                                .filter(|_| left_children.is_none())
+                                .map(String::as_str),
                         ),
                         (
                             &pair.right,
                             right_content
                                 .as_ref()
                                 .err()
-                                .filter(|_| right_children.is_none()),
+                                .filter(|_| right_children.is_none())
+                                .map(String::as_str),
                         ),
-                    );
+                    ]);
                     errors.push(DiffError {
                         path: path.clone(),
                         reason: format!("{note}: {cause}"),
@@ -485,10 +488,13 @@ pub fn execute_diff(
             if left_content.is_err() || right_content.is_err() {
                 let note = "symlink target unreadable; resolved content not compared";
                 link_diff.note = Some(note.into());
-                let cause = read_failure_reason(
-                    (&pair.left, left_content.as_ref().err()),
-                    (&pair.right, right_content.as_ref().err()),
-                );
+                let cause = read_failure_reason(&[
+                    (&pair.left, left_content.as_ref().err().map(String::as_str)),
+                    (
+                        &pair.right,
+                        right_content.as_ref().err().map(String::as_str),
+                    ),
+                ]);
                 errors.push(DiffError {
                     path: path.clone(),
                     reason: format!("{note}: {cause}"),
@@ -497,7 +503,11 @@ pub fn execute_diff(
                 file_diffs.push(link_diff);
                 continue;
             }
-            let (left_content, right_content) = (left_content?, right_content?);
+            // 読めなかった側は上で誤りにしたので、ここでは両側とも読めている
+            let (left_content, right_content) = (
+                left_content.unwrap_or_default(),
+                right_content.unwrap_or_default(),
+            );
             if left_content.as_ref().is_some_and(|bytes| is_binary(bytes))
                 || right_content.as_ref().is_some_and(|bytes| is_binary(bytes))
             {
@@ -529,12 +539,12 @@ pub fn execute_diff(
         let left_read = if left_absent {
             Ok(None)
         } else {
-            read_unless_missing(&mut core, &pair.left, path, limit)
+            read_compared_side(&mut core, &pair.left, path, limit)
         };
         let right_read = if right_absent {
             Ok(None)
         } else {
-            read_unless_missing(&mut core, &pair.right, path, limit)
+            read_compared_side(&mut core, &pair.right, path, limit)
         };
         let (left_read, right_read) = match (left_read, right_read) {
             (Ok(None), Ok(None)) => {
@@ -549,10 +559,10 @@ pub fn execute_diff(
             (left_read, right_read) => {
                 errors.push(DiffError {
                     path: path.clone(),
-                    reason: read_failure_reason(
-                        (&pair.left, left_read.as_ref().err()),
-                        (&pair.right, right_read.as_ref().err()),
-                    ),
+                    reason: read_failure_reason(&[
+                        (&pair.left, left_read.as_ref().err().map(String::as_str)),
+                        (&pair.right, right_read.as_ref().err().map(String::as_str)),
+                    ]),
                 });
                 has_read_error = true;
                 continue;
@@ -820,10 +830,10 @@ fn run_diff_fast_path(
             (left_read, right_read) => {
                 read_errors.push(DiffError {
                     path: path.clone(),
-                    reason: read_failure_reason(
-                        (left, left_read.as_ref().err()),
-                        (right, right_read.as_ref().err()),
-                    ),
+                    reason: read_failure_reason(&[
+                        (left, left_read.as_ref().err().map(String::as_str)),
+                        (right, right_read.as_ref().err().map(String::as_str)),
+                    ]),
                 });
                 continue;
             }
@@ -919,9 +929,28 @@ fn read_existing_diff_file(
     side: &Side,
     path: &str,
     limit: SizeLimit,
-) -> anyhow::Result<Option<Vec<u8>>> {
-    let inspected = core.inspect_path(side, path)?;
+) -> Result<Option<Vec<u8>>, String> {
+    let inspected = core
+        .inspect_path(side, path)
+        .map_err(|error| format!("{error:#}"))?;
     read_inspected(core, side, path, &inspected, limit)
+}
+
+/// 一件ずつの比較で片側の中身を読む。読めなかったとき、パスの確認でその側にないと分かれば
+/// None（「ない」はエラーの文でなくパスの確認の結果で決める）、それ以外は読めなかった理由
+fn read_compared_side(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    limit: SizeLimit,
+) -> Result<Option<Vec<u8>>, String> {
+    match read_one(core, side, path, limit) {
+        Ok(content) => Ok(Some(content)),
+        Err(reason) => match core.inspect_path(side, path) {
+            Ok(TargetPath::Missing { .. }) => Ok(None),
+            _ => Err(reason),
+        },
+    }
 }
 
 fn link_target_for_diff(
@@ -1003,15 +1032,13 @@ fn compute_statuses_and_resolve(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
-    // 読めなかったパスは状態を変えずに残す（名前で指定したパスを「ない」にしない）。変更のある
-    // ファイルとして一件ずつの比較に回り、そこで他の経路と同じ理由で誤りになる
+    // 読めなかったパスは状態を変えずに残し（名前で指定したパスを「ない」にしない）、指定した
+    // パスに当たるものだけを読めなかった理由とともに誤りにする。一件ずつの比較で読み直さない
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-    if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_required(left, &paths_to_compare, core, limit);
-        let right_batch = fetch_contents_required(right, &paths_to_compare, core, limit);
-        let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
-        refine_status_with_content(&mut statuses, &verified.pairs);
-    }
+    let left_reads = read_contents(core, left, &paths_to_compare, limit);
+    let right_reads = read_contents(core, right, &paths_to_compare, limit);
+    let verified = verified_content_pairs(&paths_to_compare, &left_reads, &right_reads);
+    refine_status_with_content(&mut statuses, &verified.pairs);
 
     let target_files =
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
@@ -1029,7 +1056,23 @@ fn compute_statuses_and_resolve(
         anyhow::bail!("specified path(s) not found on either side");
     }
 
-    let diff_files = filter_changed_files(&existing_files, &statuses);
+    // 走査は指定の外のファイルも読み比べるので、誤りは指定したパスに当たるものだけにする
+    let read_errors: Vec<DiffError> = verified
+        .failures
+        .iter()
+        .filter(|failure| existing_files.contains(&failure.path))
+        .map(|failure| DiffError {
+            path: failure.path.clone(),
+            reason: read_failure_reason(&[
+                (left, left_reads.failure(&failure.path)),
+                (right, right_reads.failure(&failure.path)),
+            ]),
+        })
+        .collect();
+    let diff_files: Vec<String> = filter_changed_files(&existing_files, &statuses)
+        .into_iter()
+        .filter(|path| !read_errors.iter().any(|error| error.path == *path))
+        .collect();
     let plain_file_sizes = diff_files
         .iter()
         .filter_map(|path| {
@@ -1043,7 +1086,7 @@ fn compute_statuses_and_resolve(
         existing_files,
         diff_files,
         plain_file_sizes,
-        Vec::new(),
+        read_errors,
     ))
 }
 
@@ -1073,12 +1116,12 @@ fn read_inspected(
     path: &str,
     inspected: &TargetPath,
     limit: SizeLimit,
-) -> anyhow::Result<Option<Vec<u8>>> {
+) -> Result<Option<Vec<u8>>, String> {
     match inspected {
         TargetPath::Missing { .. } => Ok(None),
-        TargetPath::File { .. } | TargetPath::Symlink { .. } => core
-            .read_file_bytes(side, path, limit == SizeLimit::Lifted)
-            .map(Some),
+        TargetPath::File { .. } | TargetPath::Symlink { .. } => {
+            read_one(core, side, path, limit).map(Some)
+        }
     }
 }
 
@@ -1112,6 +1155,65 @@ mod tests {
             super::plain_file_sizes("a/1.txt", &left, &right),
             Some((Some(3), None))
         );
+    }
+
+    // 走査の後に読み比べるファイルの大きさをエージェントがエラーで答えたら、その理由のまま
+    // 誤りにし、一件ずつの比較に回して読み直さない（読み直せばエージェントに二度目を尋ねる）
+    #[cfg(unix)]
+    #[test]
+    fn an_agent_error_in_the_scan_comparison_is_reported_without_reading_again() {
+        use crate::runtime::size_limit::SizeLimit;
+        use crate::side::Side;
+        use std::sync::atomic::Ordering;
+
+        let local = tempfile::TempDir::new().unwrap();
+        std::fs::write(local.path().join("a.txt"), "left\n").unwrap();
+        let mut core = crate::runtime::CoreRuntime::new_for_test();
+        core.config.local.root_dir = local.path().to_path_buf();
+        core.config.servers.insert(
+            "develop".into(),
+            crate::config::ServerConfig {
+                host: "10.0.0.1".into(),
+                port: 22,
+                user: "deploy".into(),
+                auth: crate::config::AuthMethod::Key,
+                password: None,
+                key: None,
+                root_dir: "/srv/app".into(),
+                ssh_options: None,
+                sudo: false,
+                file_permissions: None,
+                dir_permissions: None,
+            },
+        );
+        let received = crate::runtime::scripted_agent::connect(
+            &mut core,
+            "develop",
+            Some(crate::agent::protocol::AgentResponse::Error {
+                message: "stat failed".into(),
+            }),
+        );
+        // 大きさの分からない左右のファイルは中身を読み比べる
+        let both = || tree(vec![FileNode::new_file("a.txt")]);
+
+        let (_, _, _, _, diff_files, _, read_errors) = super::compute_statuses_and_resolve(
+            &["a.txt".to_string()],
+            (&Side::Local, &Side::Remote("develop".into())),
+            &mut core,
+            both(),
+            both(),
+            SizeLimit::Enforced,
+        )
+        .unwrap();
+
+        assert_eq!(read_errors.len(), 1, "{read_errors:?}");
+        assert_eq!(read_errors[0].path, "a.txt");
+        assert!(
+            read_errors[0].reason.contains("stat failed"),
+            "{read_errors:?}"
+        );
+        assert!(diff_files.is_empty(), "{diff_files:?}");
+        assert_eq!(received.load(Ordering::SeqCst), 1);
     }
 
     #[test]

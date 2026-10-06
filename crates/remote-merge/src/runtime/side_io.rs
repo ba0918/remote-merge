@@ -179,8 +179,8 @@ impl CoreRuntime {
     ///
     /// `read_files_batch` と同じ strict セマンティクス:
     /// ファイル単位の読み込みエラーは即座に `Err` として伝播する。上限を超えるパスは結果に
-    /// 入れないので、中身が要る呼び出し元は結果にないパスを一件ずつ読み直して理由を受け取る。
-    /// エラートレラントな読み込みが必要な場合は `cli::tolerant_io::fetch_contents_tolerant` を使うこと。
+    /// 入れないので、中身が要る呼び出し元は結果にないパスを一件ずつ読んで理由を受け取る。
+    /// CLI の中身の読み込みは、これを包む `cli::content_reads::read_contents` を使うこと。
     pub fn read_files_bytes_batch(
         &mut self,
         side: &Side,
@@ -1674,35 +1674,23 @@ mod tests {
 
     // ── エージェントへの大きさの問い合わせ ──
 
-    /// サーバ "develop" に、問い合わせを一つ受けて `response` を返す（None なら答えずに接続を
-    /// 切る）試験用のエージェントをつないだ runtime。SSH にはつながっていない
+    /// サーバ "develop" に、最初の問い合わせに `response` を返す（None なら答えずに接続を切る）
+    /// 試験用のエージェントをつないだ runtime と、エージェントが受けた問い合わせの数。
+    /// SSH にはつながっていない
     #[cfg(unix)]
     fn runtime_with_scripted_agent(
         response: Option<crate::agent::protocol::AgentResponse>,
-    ) -> CoreRuntime {
-        use crate::agent::{framing, protocol};
-        use std::io::Write;
-        use std::os::unix::net::UnixStream;
-
-        let (client, server) = UnixStream::pair().unwrap();
-        let mut server_reader = server.try_clone().unwrap();
-        let mut server_writer = server;
-        std::thread::spawn(move || {
-            writeln!(server_writer, "{}", protocol::format_handshake()).unwrap();
-            let _ = framing::read_frame(&mut server_reader);
-            if let Some(response) = response {
-                let data = protocol::serialize_response(&response).unwrap();
-                framing::write_frame(&mut server_writer, &data).unwrap();
-            }
-        });
-        let agent = crate::agent::client::AgentClient::connect(client.try_clone().unwrap(), client)
-            .unwrap();
+    ) -> (CoreRuntime, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
         let mut rt = runtime_with_server("develop", "/srv/app");
-        rt.agent_clients.insert(
-            "develop".to_string(),
-            std::sync::Arc::new(std::sync::Mutex::new(agent)),
-        );
-        rt
+        let received = crate::runtime::scripted_agent::connect(&mut rt, "develop", response);
+        (rt, received)
+    }
+
+    #[cfg(unix)]
+    fn agent_error(message: &str) -> Option<crate::agent::protocol::AgentResponse> {
+        Some(crate::agent::protocol::AgentResponse::Error {
+            message: message.into(),
+        })
     }
 
     fn asked() -> Vec<String> {
@@ -1710,56 +1698,48 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn requests(received: &std::sync::atomic::AtomicUsize) -> usize {
+        received.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    // エージェントのエラー応答は、尋ねたパスの失敗として返り、エージェントに一度だけ尋ね、
+    // エージェントを使い続ける（SSH に切り替えて尋ね直すなら、エージェントを無効にする）
+    #[cfg(unix)]
     #[test]
     fn an_error_returned_by_the_agent_fails_the_question_without_switching_to_ssh() {
-        let mut rt =
-            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Error {
-                message: "stat failed".into(),
-            }));
+        let (mut rt, received) = runtime_with_scripted_agent(agent_error("stat failed"));
 
         let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
 
-        assert!(
-            format!("{error:#}").contains("agent could not report file sizes"),
-            "{error:#}"
-        );
-        assert!(
-            !format!("{error:#}").contains("SSH not connected"),
-            "{error:#}"
-        );
+        assert!(format!("{error:#}").contains("stat failed"), "{error:#}");
+        assert_eq!(requests(&received), 1);
         assert!(rt.agent_clients.contains_key("develop"));
     }
 
     // 一括の呼び出し元が大きさを尋ねる操作の失敗をパスごとに読み直すと、次の問い合わせの結果で
-    // 失敗が消えうる。試験用のエージェントは一つしか答えないので、読み直せば接続が切れて SSH に回る
+    // 失敗が消えうる。読み直せば、エージェントは二つ目の問い合わせを受ける
     #[cfg(unix)]
     #[test]
     fn a_batch_caller_reports_a_failed_size_query_as_each_paths_failure_without_reading_again() {
-        let mut rt =
-            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Error {
-                message: "stat failed".into(),
-            }));
+        let (mut rt, received) = runtime_with_scripted_agent(agent_error("stat failed"));
 
-        let result = crate::cli::tolerant_io::fetch_contents_required(
+        let reads = crate::cli::content_reads::read_contents(
+            &mut rt,
             &Side::Remote("develop".into()),
             &asked(),
-            &mut rt,
             SizeLimit::Enforced,
         );
 
-        assert!(result.contents.is_empty());
-        let error = &result.errors["a.bin"];
-        assert!(
-            error.contains("agent could not report file sizes"),
-            "{error}"
-        );
+        let reason = reads.failure("a.bin").expect("a.bin must have failed");
+        assert!(reason.contains("stat failed"), "{reason}");
+        assert_eq!(requests(&received), 1);
         assert!(rt.agent_clients.contains_key("develop"));
     }
 
     #[cfg(unix)]
     #[test]
     fn a_lost_agent_connection_invalidates_the_agent_and_asks_over_ssh() {
-        let mut rt = runtime_with_scripted_agent(None);
+        let (mut rt, _) = runtime_with_scripted_agent(None);
 
         let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
 
@@ -1773,7 +1753,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_path_the_agent_leaves_out_is_asked_again_over_ssh() {
-        let mut rt =
+        let (mut rt, _) =
             runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
                 entries: vec![],
             }));
@@ -1790,7 +1770,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_path_the_agent_leaves_out_is_not_read_on_a_server_using_sudo() {
-        let mut rt =
+        let (mut rt, _) =
             runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
                 entries: vec![],
             }));
