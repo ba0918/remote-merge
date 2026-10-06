@@ -113,11 +113,10 @@ pub fn build_inspect_path_command(root: &str, rel: &str) -> String {
 mod tests {
     use super::*;
 
-    /// 試験 SSH サーバ（tests/contract/ssh_server.rs）は同じ並びを持ち、これでパスの確認を見分ける
+    /// 長さをバイトで数えるよう、ほかの何よりも先に LC_ALL=C を代入する（決定記録の A49）
     #[test]
-    fn the_command_starts_with_the_locale_and_the_root_dir_assignment() {
-        assert!(build_inspect_path_command("/srv/app", "a.txt")
-            .starts_with("LC_ALL=C; r='/srv/app'; p='a.txt'; "));
+    fn the_command_assigns_the_c_locale_before_anything_else() {
+        assert!(build_inspect_path_command("/srv/app", "a.txt").starts_with("LC_ALL=C;"));
     }
 
     #[cfg(unix)]

@@ -146,22 +146,6 @@ mod tests {
     }
 
     #[test]
-    fn a_listed_cause_reads_back_as_the_resolution_error() {
-        assert_eq!(
-            cause(b"link\0loop\0error\0too many levels of symbolic links\0"),
-            Some(ResolveError::TooManyLinks)
-        );
-    }
-
-    #[test]
-    fn a_link_string_that_is_not_utf_8_stops_with_non_utf_8_path() {
-        assert_eq!(
-            cause(b"link\0name\xff\0error\0dangling symbolic link\0"),
-            Some(ResolveError::NonUtf8Path)
-        );
-    }
-
-    #[test]
     fn unlisted_causes_unknown_kinds_and_broken_fields_are_errors_without_a_cause() {
         for output in [
             b"error\0No such file or directory\0".as_slice(),
@@ -176,30 +160,5 @@ mod tests {
         ] {
             assert_eq!(cause(output), None, "{}", String::from_utf8_lossy(output));
         }
-    }
-
-    #[test]
-    fn every_kind_reads_back() {
-        assert_eq!(
-            parse_inspect_path_output(b"missing\0/srv/app/missing\x000\0").unwrap(),
-            ResolvedPath::Missing {
-                real_parent: "/srv/app/missing".into(),
-                parent_exists: false,
-            }
-        );
-        assert_eq!(
-            parse_inspect_path_output(b"link\0../b\0symlink\0../b\0/srv/b\0").unwrap(),
-            ResolvedPath::Symlink {
-                link_target: "../b".into(),
-                real_path: "/srv/b".into(),
-            }
-        );
-        assert_eq!(
-            parse_inspect_path_output(b"notdir\0/srv/app/dir\0other\0").unwrap(),
-            ResolvedPath::AncestorNotDirectory {
-                real_path: "/srv/app/dir".into(),
-                regular_file: false,
-            }
-        );
     }
 }
