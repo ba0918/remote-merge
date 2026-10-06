@@ -136,9 +136,20 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
             message: format!("path traversal detected: {rel_path}"),
         };
     }
-    inspection_of(path_resolution::os::resolve_on_this_machine(
-        root_dir, rel_path,
-    ))
+    inspection_of(resolve_from_working_directory(root_dir, rel_path))
+}
+
+/// 相対の root_dir は、リモートでログインした利用者の作業ディレクトリ（エージェントのプロセスの
+/// 作業ディレクトリ）の実パスを基準に絶対パスにしてから辿る
+fn resolve_from_working_directory(
+    root_dir: &Path,
+    rel_path: &str,
+) -> Result<ResolvedPath, ResolveError> {
+    if root_dir.is_absolute() {
+        return path_resolution::os::resolve_on_this_machine(root_dir, rel_path);
+    }
+    let working_directory = std::env::current_dir().map_err(|_| ResolveError::CannotRead)?;
+    path_resolution::os::resolve_on_this_machine(&working_directory.join(root_dir), rel_path)
 }
 
 /// ローカルと同じ手順で辿った結果を通信の形にする

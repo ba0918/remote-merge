@@ -52,18 +52,9 @@ impl PathOps for OsPathOps {
     }
 }
 
-/// このマシンで、root_dir `root` の下の `rel` を辿る。相対の root はプロセスの作業ディレクトリを
-/// 基準に絶対パスにしてから辿る
+/// このマシンで、絶対パスの root_dir `root` の下の `rel` を辿る。相対の root_dir をどこを基準に
+/// 絶対パスにするかは経路ごとに違うので、呼ぶ側が決めてから渡す
 pub fn resolve_on_this_machine(root: &Path, rel: &str) -> Result<ResolvedPath, ResolveError> {
-    let absolute;
-    let root = if root.is_absolute() {
-        root
-    } else {
-        absolute = std::env::current_dir()
-            .map_err(|_| ResolveError::CannotRead)?
-            .join(root);
-        &absolute
-    };
     let root = root.to_str().ok_or(ResolveError::NonUtf8Path)?;
     resolve_path(root, rel, &OsPathOps)
 }

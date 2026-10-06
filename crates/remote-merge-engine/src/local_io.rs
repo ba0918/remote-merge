@@ -215,8 +215,13 @@ pub fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()
 }
 
 /// root_dir `root` の下の `rel_path` を "/" から要素ごとに辿って確かめる。
-/// 辿れないときのエラーは [`path_resolution::ResolveError`] で、表示は "cannot resolve path: " で始まる
+/// 辿れないときのエラーは [`path_resolution::ResolveError`] で、表示は "cannot resolve path: " で始まる。
+/// 相対の root_dir は設定を読む段階で設定ファイルの場所を基準に絶対パスにするので、ここには
+/// 絶対パスだけが届く。届いた相対パスの基準は推し量らずにエラーにする
 pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<ResolvedPath> {
+    if !root.is_absolute() {
+        anyhow::bail!("local root_dir is not an absolute path: {}", root.display());
+    }
     executor::validate_remote_path(&root.to_string_lossy(), rel_path)?;
     Ok(path_resolution::os::resolve_on_this_machine(
         root, rel_path,
@@ -360,26 +365,6 @@ fn validated_path(root: &Path, rel_path: &str) -> anyhow::Result<PathBuf> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
-
-    /// 相対の root_dir は、これまでの canonicalize と同じくプロセスの作業ディレクトリを基準に辿る
-    #[test]
-    #[serial_test::serial]
-    fn a_relative_root_dir_is_resolved_from_the_working_directory() {
-        let directory = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(directory.path()).unwrap();
-        std::fs::create_dir(base.join("root")).unwrap();
-        std::fs::write(base.join("root/file.txt"), "x").unwrap();
-        let original = std::env::current_dir().unwrap();
-
-        std::env::set_current_dir(&base).unwrap();
-        let relative = inspect_local_path(Path::new("root"), "file.txt");
-        std::env::set_current_dir(original).unwrap();
-
-        assert_eq!(
-            relative.unwrap(),
-            inspect_local_path(&base.join("root"), "file.txt").unwrap()
-        );
-    }
 
     /// 上限から遠く "/" で終わらないリンク先だけの普通の状態では、"/" から辿った実パスが
     /// これまで使っていた canonicalize の結果とバイト列で同じになる（既存のバックアップの

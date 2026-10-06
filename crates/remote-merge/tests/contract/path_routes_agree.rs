@@ -309,6 +309,22 @@ fn relative_root_dirs_give_the_same_answer_on_all_three_routes() {
     assert!(disagreements.is_empty(), "{disagreements:#?}");
 }
 
+// @kotowari[REQ-paths-012, EX-paths-025]
+#[test]
+fn ex_paths_025_a_relative_root_dir_is_resolved_from_the_remote_working_directory() {
+    let base = Base::new();
+    let home = base.path.join("home/u");
+    fs::create_dir_all(home.join("app")).unwrap();
+    fs::write(home.join("app/a.txt"), "content\n").unwrap();
+    let expected = Ok(ResolvedPath::Exists {
+        real_path: format!("{}/app/a.txt", home.display()),
+    });
+    let path_env = std::env::var_os("PATH").unwrap_or_default();
+
+    assert_eq!(run_script("app", "a.txt", &path_env, Some(&home)), expected);
+    assert_eq!(agent_process(&home, "app", "a.txt"), expected);
+}
+
 // @kotowari[REQ-paths-009, EX-paths-020]
 #[test]
 fn ex_paths_020_without_readlink_only_paths_that_meet_a_symlink_stop() {
