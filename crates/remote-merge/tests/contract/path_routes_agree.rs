@@ -160,7 +160,7 @@ fn example_states(base: &Base) -> Vec<(PathBuf, String)> {
         fs::write(at(file), "content\n").unwrap();
     }
     let links: Vec<(String, String)> = vec![
-        // EX-paths-001・EX-paths-002
+        // EX-paths-001
         ("link1".into(), "dir/./file.txt".into()),
         ("link2".into(), "dir//file.txt".into()),
         // EX-paths-004
