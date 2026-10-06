@@ -295,8 +295,8 @@ fn ex_paths_019_every_example_state_gives_the_same_answer_on_all_three_routes() 
 fn relative_root_dirs_give_the_same_answer_on_all_three_routes() {
     let base = Base::new();
     let mut disagreements = Vec::new();
-    // 名前が改行で終わる作業ディレクトリ
-    for cwd_name in [OsStr::new("work\n")] {
+    // 名前が改行で終わる作業ディレクトリと、名前が UTF-8 でない作業ディレクトリ
+    for cwd_name in [OsStr::new("work\n"), OsStr::from_bytes(b"work\xff")] {
         let cwd = base.path.join(cwd_name);
         fs::create_dir_all(cwd.join("app")).unwrap();
         fs::write(cwd.join("app/a.txt"), "content\n").unwrap();

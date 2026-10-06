@@ -51,6 +51,11 @@ pub fn parse_inspect_path_output(output: &[u8]) -> anyhow::Result<ResolvedPath> 
     let result = loop {
         let kind = fields.required()?;
         match kind {
+            // 辿り始める root_dir。相対の root_dir は作業ディレクトリにつないだもので、ローカルと
+            // エージェントは辿る前に UTF-8 でない root_dir で止まる
+            b"root" => {
+                fields.path()?;
+            }
             // 読んだリンク文字列。ローカルは UTF-8 でないリンク文字列を読んだところで止まる
             b"link" => {
                 fields.text()?;
