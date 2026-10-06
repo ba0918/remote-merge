@@ -265,10 +265,10 @@ entries:
   files:
   - path: crates/remote-merge-config/src/lib.rs
     before: "sha256:1483279da985bd9f63e43ecd91de86c10d6cb0c94858ad0753222679a28c7913"
-    after: "sha256:9cee21e5e8f16924ccb297664907f44ce0de3178d3a0542b740a208d9f37af4f"
+    after: "sha256:38c8765487f7a66562dacc4b218b0d6bea7880424e391de04c6cf4fd76aa1b3b"
   - path: crates/remote-merge/tests/contract/config_loading_cli.rs
     before: "sha256:ea1d6b89fcc3d5e8bafe808e06b0118a528df41f3d8692b10e2cd4c2b5a62f6a"
-    after: "sha256:5af07f1f86b5f71ee988de83bc29975c24c37b84624547d35bdd9b0dee34cf7c"
+    after: "sha256:844750b906d665c07cd3228204e1a78ae040b59c18824d5621e70e559f003a55"
   - path: crates/remote-merge/tests/contract/backup_sessions.rs
     before: "sha256:d0479518e82a24469456d7477aa0a48acd95490083ca0394a2ef7548bb5f7e1b"
     after: "sha256:39f671680452c220b867691aa6082ce8888728c02074fc1fac5f8bd3fdcae5d3"
@@ -280,15 +280,17 @@ entries:
     after: "sha256:6ab3674ed74d300c00d8eac43b546e0cbac406627311bc123a348a1a1555067a"
   ir:
   - path: docs/ir/config/loading.md
-    sha256: "sha256:79b369c36bcb0f4b8b12a60f7189f8732467f3d06b705079612d672f7281fc49"
+    sha256: "sha256:d14b539480528c53d76018c33478275fb70f7ecd6b09e730cc79fbc543424cd2"
   - path: docs/ir/backup/sessions.md
     sha256: "sha256:b0b70e516294602da6c068e1a27ae4ded44d78cb8f03a7909c6c430cb97d596b"
   conclusion: existing
-  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、そのファイルのある絶対のディレクトリを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対ならそのディレクトリにつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す）。設定ファイルのディレクトリは、書かれた設定ファイルのパスを OS に実パスへ直させた（canonicalize した）ものの親にする（A65）。symlink の書き方によらず識別が一つになり、以前の版の識別の基準（getcwd の実パス）とも合う。実パスに直せないとき（途中の絶対パスが PATH_MAX を超えるときを含む）は、基準を推し量らずに \"Failed to resolve the directory of config file: パス\" のエラーで設定の読み込みを止める（A65 の既知の例外）。--config のファイルがあるか・通常ファイルかの確かめと読み込みは書かれたパスの形で OS に渡し、相対の --config の読み込みのエラーはどれもカレントディレクトリにつないだ絶対パスを示す（A64）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。空の root_dir は基準につなぐ前に REQ-config-041 の \"root_dir must not be empty\" で止める（サーバの root_dir と同じ AppError::ConfigValidation、終了コード 2）。テストは REQ-config-041、隣のディレクトリを通る \"..\" の書き方でも中から読んだときと同じ root_dir とバックアップの一覧になること、symlink の直後の \"..\" ではリンク先の側の実パスの root_dir になること、symlink を通るどの書き方でも実パスの同じ root_dir になること（どれも実パスにした一時ディレクトリの下に置く）、深い作業ディレクトリから実パスに直せない相対の --config では絶対パスを示して読み込みが止まること（A65・A64）、EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。 REQ-backup-043（A57）のとおり、識別が変わる前に保存したセッションも一覧・書き戻し・期限切れの整理で探す。設定に書いた root_dir（\"~/\" の展開後、基準につなぐ前）を LocalConfig の root_dir_as_written に残し、以前の版と同じ規則（相対なら設定読み込み時のカレントディレクトリにつなぎ、正規化しない。既定の \".\" なら \"<カレントディレクトリ>/.\"）で求めた識別のうち、symlink を辿らずに字面で正規化すると今の識別と同じになるものだけ（A58）のキーを、今の識別のキーの後に重複なく並べる。別のディレクトリから --config で設定を指定したとき、作業ディレクトリ自身の書き込み先のセッションを取り違えない。セッションごとに最初に記録があるキーを、一覧と書き戻しで同じ規則で選ぶ。整理の対象のキーにも加える。リモートは REQ-backup-021 の字面の正規化がまだ実装されておらず、書いたままの root_dir が今の識別と同じなので、加えるキーはない。テストは EX-backup-024（以前の版が設定ファイルのあるディレクトリを作業ディレクトリにして保存したセッションが、同じ設定・同じ作業ディレクトリで一覧に出て書き戻せる）と、以前の識別の期限切れのセッションが整理されること、作業ディレクトリ自身で保存したセッションが別の場所の設定の一覧に出ず整理もされないこと（A58）、symlink を通る --config でも作業ディレクトリ（実パス）を基準に保存した以前のセッションが一覧に出ること（A65）を確かめる。"
+  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、その書かれた形のパスを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対のときだけ設定ファイルのディレクトリを求めてつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す。A66：絶対パスや \"~/\" の root_dir では求めないので、深い作業ディレクトリでも読み込みを止めない）。設定ファイルのディレクトリは、書かれた設定ファイルのパスを OS に実パスへ直させた（canonicalize した）ものの親にする（A65）。symlink の書き方によらず識別が一つになり、以前の版の識別の基準（getcwd の実パス）とも合う。実パスに直せないとき（途中の絶対パスが PATH_MAX を超えるときを含む）は、基準を推し量らずに \"Failed to resolve the directory of config file: パス\" のエラーで設定の読み込みを止める（A65 の既知の例外）。--config のファイルがあるか・通常ファイルかの確かめ（REQ-config-007）と読み込み（REQ-config-006）は書かれたパスの形で OS に渡し、相対の --config の読み込みのエラーはどれもカレントディレクトリにつないだ絶対パスを示す（A64。絶対パスはエラーを示すときだけ求める）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。空の root_dir は基準につなぐ前に REQ-config-041 の \"root_dir must not be empty\" で止める（サーバの root_dir と同じ AppError::ConfigValidation、終了コード 2）。テストは REQ-config-041、隣のディレクトリを通る \"..\" の書き方でも中から読んだときと同じ root_dir とバックアップの一覧になること、symlink の直後の \"..\" ではリンク先の側の実パスの root_dir になること、symlink を通るどの書き方でも実パスの同じ root_dir になること（どれも実パスにした一時ディレクトリの下に置く）、深い作業ディレクトリから実パスに直せない相対の --config では絶対パスを示して読み込みが止まること（A65・A64）、4096 バイトより深い作業ディレクトリでも絶対パスの root_dir の設定なら rollback --list が終了コード 0 で動くこと（A66）、EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。 REQ-backup-043（A57）のとおり、識別が変わる前に保存したセッションも一覧・書き戻し・期限切れの整理で探す。設定に書いた root_dir（\"~/\" の展開後、基準につなぐ前）を LocalConfig の root_dir_as_written に残し、以前の版と同じ規則（相対なら設定読み込み時のカレントディレクトリにつなぎ、正規化しない。既定の \".\" なら \"<カレントディレクトリ>/.\"）で求めた識別のうち、symlink を辿らずに字面で正規化すると今の識別と同じになるものだけ（A58）のキーを、今の識別のキーの後に重複なく並べる。別のディレクトリから --config で設定を指定したとき、作業ディレクトリ自身の書き込み先のセッションを取り違えない。セッションごとに最初に記録があるキーを、一覧と書き戻しで同じ規則で選ぶ。整理の対象のキーにも加える。リモートは REQ-backup-021 の字面の正規化がまだ実装されておらず、書いたままの root_dir が今の識別と同じなので、加えるキーはない。テストは EX-backup-024（以前の版が設定ファイルのあるディレクトリを作業ディレクトリにして保存したセッションが、同じ設定・同じ作業ディレクトリで一覧に出て書き戻せる）と、以前の識別の期限切れのセッションが整理されること、作業ディレクトリ自身で保存したセッションが別の場所の設定の一覧に出ず整理もされないこと（A58）、symlink を通る --config でも作業ディレクトリ（実パス）を基準に保存した以前のセッションが一覧に出ること（A65）を確かめる。"
   requirements:
   - REQ-config-040
   - REQ-config-041
   - REQ-config-010
+  - REQ-config-006
+  - REQ-config-007
   - REQ-backup-021
   - REQ-backup-043
   decisions:
@@ -300,5 +302,6 @@ entries:
   - "docs/decision/records/2026-10-06-path-resolution.md#A58"
   - "docs/decision/records/2026-10-06-path-resolution.md#A64"
   - "docs/decision/records/2026-10-06-path-resolution.md#A65"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A66"
   handoff: null
   gaps: []
