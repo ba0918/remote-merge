@@ -94,6 +94,8 @@ mod merge_write;
 #[cfg(feature = "test-utils")]
 #[path = "contract/path_arguments_cli.rs"]
 mod path_arguments_cli;
+#[path = "contract/path_resolution.rs"]
+mod path_resolution;
 #[cfg(feature = "test-utils")]
 #[path = "contract/rollback_path_agent.rs"]
 mod rollback_path_agent;

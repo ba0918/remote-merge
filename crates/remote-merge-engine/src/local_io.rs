@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
+use remote_merge_core::path_resolution::{self, ResolvedPath};
 use remote_merge_protocol::FileHashResult;
 
 use crate::local;
@@ -213,39 +214,13 @@ pub fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TargetPath {
-    Missing {
-        real_parent: PathBuf,
-    },
-    File {
-        real_path: PathBuf,
-    },
-    Symlink {
-        link_target: PathBuf,
-        real_path: PathBuf,
-    },
-}
-
-pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<TargetPath> {
-    let path = root.join(rel_path);
+/// root_dir `root` の下の `rel_path` を "/" から要素ごとに辿って確かめる。
+/// 辿れないときのエラーは [`path_resolution::ResolveError`] で、表示は "cannot resolve path: " で始まる
+pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<ResolvedPath> {
     executor::validate_remote_path(&root.to_string_lossy(), rel_path)?;
-    match std::fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let link_target = std::fs::read_link(&path)?;
-            Ok(TargetPath::Symlink {
-                real_path: resolved_symlink(&path, &link_target)?,
-                link_target,
-            })
-        }
-        Ok(_) => Ok(TargetPath::File {
-            real_path: std::fs::canonicalize(path)?,
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(TargetPath::Missing {
-            real_parent: resolved_missing_parent(&path)?,
-        }),
-        Err(error) => Err(error.into()),
-    }
+    Ok(path_resolution::os::resolve_on_this_machine(
+        root, rel_path,
+    )?)
 }
 
 /// `rel_path` が辿った先で通常ファイルかを返す。調べられなければエラー
@@ -387,58 +362,82 @@ fn validated_path(root: &Path, rel_path: &str) -> anyhow::Result<PathBuf> {
     executor::validate_path_within_root(root, &root.join(rel_path))
 }
 
-fn resolved_missing_parent(path: &std::path::Path) -> anyhow::Result<PathBuf> {
-    let mut current = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
-    let mut missing = Vec::new();
-    loop {
-        match std::fs::symlink_metadata(current) {
-            Ok(_) => {
-                let mut resolved = std::fs::canonicalize(current)?;
-                for component in missing.iter().rev() {
-                    resolved.push(component);
-                }
-                return Ok(resolved);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                missing.push(
-                    current
-                        .file_name()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                        })?
-                        .to_os_string(),
-                );
-                current = current.parent().ok_or_else(|| {
-                    anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                })?;
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
 
-fn resolved_symlink(
-    path: &std::path::Path,
-    link_target: &std::path::Path,
-) -> anyhow::Result<PathBuf> {
-    let target = if link_target.is_absolute() {
-        link_target.to_path_buf()
-    } else {
-        path.parent()
-            .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?
-            .join(link_target)
-    };
-    match std::fs::canonicalize(&target) {
-        Ok(path) => Ok(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let mut parent = resolved_missing_parent(&target)?;
-            parent.push(target.file_name().ok_or_else(|| {
-                anyhow::anyhow!("symlink target has no file name: {}", target.display())
-            })?);
-            Ok(parent)
+    /// 上限から遠く "/" で終わらないリンク先だけの普通の状態では、"/" から辿った実パスが
+    /// これまで使っていた canonicalize の結果とバイト列で同じになる（既存のバックアップの
+    /// 記録と比べ続けられる）
+    #[test]
+    fn ordinary_paths_resolve_to_the_same_bytes_as_canonicalize() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_root = std::fs::canonicalize(outside.path()).unwrap();
+        std::fs::create_dir_all(root.join("dir/sub")).unwrap();
+        std::fs::write(root.join("dir/sub/file.txt"), "x").unwrap();
+        std::fs::write(root.join("file.txt"), "x").unwrap();
+        std::fs::write(outside_root.join("shared.txt"), "x").unwrap();
+        symlink("dir", root.join("linkdir")).unwrap();
+        symlink("dir/sub/file.txt", root.join("linkfile")).unwrap();
+        symlink("linkdir/sub", root.join("chain")).unwrap();
+        symlink("dir/../file.txt", root.join("dotdot")).unwrap();
+        symlink("./dir//sub/./file.txt", root.join("dots")).unwrap();
+        symlink(outside_root.join("shared.txt"), root.join("absolute")).unwrap();
+        symlink("../sub/file.txt", root.join("dir/sub/up")).unwrap();
+        let root_link = tempfile::tempdir().unwrap();
+        let linked_root = root_link.path().join("root");
+        symlink(&root, &linked_root).unwrap();
+
+        let existing = [
+            (root.as_path(), ""),
+            (root.as_path(), "file.txt"),
+            (root.as_path(), "dir"),
+            (root.as_path(), "dir/sub/file.txt"),
+            (root.as_path(), "linkdir"),
+            (root.as_path(), "linkdir/sub/file.txt"),
+            (root.as_path(), "linkfile"),
+            (root.as_path(), "chain/file.txt"),
+            (root.as_path(), "chain"),
+            (root.as_path(), "dotdot"),
+            (root.as_path(), "dots"),
+            (root.as_path(), "absolute"),
+            (root.as_path(), "dir/sub/up"),
+            (linked_root.as_path(), ""),
+            (linked_root.as_path(), "linkdir/sub"),
+        ];
+        for (base, rel) in existing {
+            let expected = std::fs::canonicalize(base.join(rel)).unwrap();
+            let real_path = match inspect_local_path(base, rel).unwrap() {
+                ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+                    real_path
+                }
+                other => panic!("{rel}: {other:?}"),
+            };
+            assert_eq!(
+                real_path.as_bytes(),
+                expected.as_os_str().as_encoded_bytes(),
+                "{rel}"
+            );
         }
-        Err(error) => Err(error.into()),
+
+        let missing = [
+            ("missing.txt", "", true),
+            ("linkdir/new/a.txt", "dir/new", false),
+        ];
+        for (rel, parent, parent_exists) in missing {
+            let expected = std::fs::canonicalize(&root).unwrap().join(parent);
+            let expected = expected.to_str().unwrap().trim_end_matches('/');
+            assert_eq!(
+                inspect_local_path(&root, rel).unwrap(),
+                ResolvedPath::Missing {
+                    real_parent: expected.to_string(),
+                    parent_exists,
+                },
+                "{rel}"
+            );
+        }
     }
 }

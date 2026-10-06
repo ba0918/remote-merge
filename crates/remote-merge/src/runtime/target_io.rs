@@ -9,7 +9,44 @@ use crate::tree::{FileNode, FileTree};
 use super::core::CoreRuntime;
 use super::side_io::hash_results_to_map;
 
-pub(crate) use remote_merge_engine::local_io::TargetPath;
+use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+
+/// rollback 以外が使うパスの確認の結果。途中の祖先がディレクトリでないことはエラーにしてあるので、
+/// 使う側はこの三つだけを見る
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TargetPath {
+    Missing {
+        real_parent: PathBuf,
+    },
+    File {
+        real_path: PathBuf,
+    },
+    Symlink {
+        link_target: PathBuf,
+        real_path: PathBuf,
+    },
+}
+
+/// 確認の結果を rollback 以外の使い方に読む。途中の祖先がディレクトリでないときは
+/// "cannot resolve path: not a directory" のエラーにする
+pub(crate) fn target_path_outside_rollback(resolved: ResolvedPath) -> anyhow::Result<TargetPath> {
+    Ok(match resolved {
+        ResolvedPath::Missing { real_parent, .. } => TargetPath::Missing {
+            real_parent: real_parent.into(),
+        },
+        ResolvedPath::Exists { real_path } => TargetPath::File {
+            real_path: real_path.into(),
+        },
+        ResolvedPath::Symlink {
+            link_target,
+            real_path,
+        } => TargetPath::Symlink {
+            link_target: link_target.into(),
+            real_path: real_path.into(),
+        },
+        ResolvedPath::AncestorNotDirectory { .. } => return Err(ResolveError::NotADirectory.into()),
+    })
+}
 
 pub(crate) trait TargetIo {
     fn inspect_path(
@@ -125,7 +162,9 @@ impl LocalTargetIo {
 
 impl TargetIo for LocalTargetIo {
     fn inspect_path(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<TargetPath> {
-        remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
+        target_path_outside_rollback(remote_merge_engine::local_io::inspect_local_path(
+            &self.root, rel_path,
+        )?)
     }
 
     fn is_regular_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<bool> {
