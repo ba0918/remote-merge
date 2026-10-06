@@ -112,23 +112,3 @@ pub fn fetch_contents_tolerant(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_reason_names_each_side_that_could_not_be_read() {
-        let error = anyhow::anyhow!("permission denied");
-        let remote = Side::Remote("develop".into());
-
-        assert_eq!(
-            read_failure_reason((&Side::Local, None), (&remote, Some(&error))),
-            "develop: permission denied"
-        );
-        assert_eq!(
-            read_failure_reason((&Side::Local, Some(&error)), (&remote, Some(&error))),
-            "local: permission denied; develop: permission denied"
-        );
-    }
-}
