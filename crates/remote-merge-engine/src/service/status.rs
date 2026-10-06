@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::three_way;
 use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
 
-use super::content_reads::{three_way_contents_read, ContentReads};
+use super::content_reads::ContentReads;
 use super::types::*;
 
 /// ステータス判定用のツリーインデックス。
@@ -309,8 +309,10 @@ pub fn compute_summary(files: &[FileStatus]) -> StatusSummary {
 
 /// 3-way バッジを計算する。
 ///
-/// `three_way::compute_file_comparison()` を内部で呼び出す。ツリーにある側の中身を一つでも
-/// 読めなかったファイルにはバッジを作らない（読めなかった中身どうしを同じとみなさない）。
+/// `three_way::compute_file_comparison()` を内部で呼び出す。中身で決まるのは左右と参照先の
+/// 三つともにあるファイルだけで、そのとき三つのどれかを読めなければバッジを作らない（読めなかった
+/// 中身どうしを同じとみなさない）。ほかのファイルは存在だけで決め、中身の読み込みに左右されない
+/// （docs/ir/cli/status-targets.md の TBL-cli-005）。
 pub fn compute_ref_badges(
     files: &[FileStatus],
     left_tree: &FileTree,
@@ -323,21 +325,22 @@ pub fn compute_ref_badges(
     let mut map = HashMap::new();
     for file in files {
         let path = file.path.as_str();
-        if !three_way_contents_read(
-            path,
-            [
-                (left_tree, left_contents),
-                (right_tree, right_contents),
-                (ref_tree, ref_contents),
-            ],
-        ) {
-            continue;
-        }
         let left_exists = left_tree.find_node(Path::new(path)).is_some();
         let right_exists = right_tree.find_node(Path::new(path)).is_some();
         let ref_exists = ref_tree.find_node(Path::new(path)).is_some();
-        let left_eq_right = left_contents.content(path) == right_contents.content(path);
-        let left_eq_ref = left_contents.content(path) == ref_contents.content(path);
+        let (left_eq_right, left_eq_ref) = if left_exists && right_exists && ref_exists {
+            let (Some(left), Some(right), Some(base)) = (
+                left_contents.content(path),
+                right_contents.content(path),
+                ref_contents.content(path),
+            ) else {
+                continue;
+            };
+            (left == right, left == base)
+        } else {
+            // 中身を使わない組み合わせ
+            (false, false)
+        };
         let badge = three_way::compute_file_comparison(
             left_exists,
             right_exists,
@@ -354,6 +357,25 @@ pub fn compute_ref_badges(
         map.insert(file.path.clone(), badge_str.to_string());
     }
     map
+}
+
+/// `files` のうち、バッジを決めるのに中身が要る、左右と参照先の三つともにあるファイルのパス
+pub fn ref_badge_content_paths(
+    files: &[FileStatus],
+    left_tree: &FileTree,
+    right_tree: &FileTree,
+    ref_tree: &FileTree,
+) -> Vec<String> {
+    files
+        .iter()
+        .map(|file| file.path.as_str())
+        .filter(|path| {
+            [left_tree, right_tree, ref_tree]
+                .iter()
+                .all(|tree| tree.find_node(Path::new(path)).is_some())
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 /// ref バッジの集計を返す。
@@ -1159,6 +1181,59 @@ mod tests {
         assert!(!badges.contains_key("a.rs"), "{badges:?}");
         let badges = compute_ref_badges(&files, &tree, &tree, &tree, &failed, &failed, &failed);
         assert!(badges.is_empty(), "{badges:?}");
+    }
+
+    // 存在だけで決まるバッジは、中身の読み込みの失敗に左右されない
+    #[test]
+    fn a_badge_decided_by_existence_alone_ignores_a_failed_read() {
+        let mut left_only = modified("o.rs");
+        left_only.status = FileStatusKind::LeftOnly;
+        let files = vec![modified("m.rs"), left_only];
+        let left = make_tree(vec![FileNode::new_file("m.rs"), FileNode::new_file("o.rs")]);
+        let right = make_tree(vec![FileNode::new_file("m.rs")]);
+        let ref_tree = make_tree(vec![FileNode::new_file("o.rs")]);
+        let mut failed = ContentReads::default();
+        failed.record_failure("m.rs", "denied");
+        failed.record_failure("o.rs", "denied");
+
+        let badges = compute_ref_badges(
+            &files,
+            &left,
+            &right,
+            &ref_tree,
+            &failed,
+            &ContentReads::default(),
+            &ContentReads::default(),
+        );
+
+        assert_eq!(
+            badges.get("m.rs").map(String::as_str),
+            Some("missing_in_ref")
+        );
+        assert_eq!(badges.get("o.rs").map(String::as_str), Some("differs"));
+    }
+
+    #[test]
+    fn only_files_on_all_three_sides_need_their_contents_for_a_badge() {
+        let files = vec![modified("all.rs"), modified("two.rs"), modified("one.rs")];
+        let left = make_tree(vec![
+            FileNode::new_file("all.rs"),
+            FileNode::new_file("two.rs"),
+            FileNode::new_file("one.rs"),
+        ]);
+        let right = make_tree(vec![
+            FileNode::new_file("all.rs"),
+            FileNode::new_file("two.rs"),
+        ]);
+        let ref_tree = make_tree(vec![
+            FileNode::new_file("all.rs"),
+            FileNode::new_file("one.rs"),
+        ]);
+
+        assert_eq!(
+            ref_badge_content_paths(&files, &left, &right, &ref_tree),
+            vec!["all.rs"]
+        );
     }
 
     // ── status_from_read_results ──

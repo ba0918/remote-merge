@@ -20,8 +20,8 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
-    needs_content_compare_all, paths_without_hashes, refine_status_with_content,
-    refine_status_with_hashes, status_exit_code,
+    needs_content_compare_all, paths_without_hashes, ref_badge_content_paths,
+    refine_status_with_content, refine_status_with_hashes, status_exit_code,
 };
 use crate::service::status_unreadable::{take_unreadable_files, with_unreadable_files, SideReads};
 use crate::service::types::FileStatusKind;
@@ -118,12 +118,28 @@ pub fn execute_status(
         None => paths_to_compare.clone(),
     };
 
-    // ref 指定時は全ファイルのコンテンツが必要（badge 計算用）。
-    let content_paths = if ref_side.is_some() {
-        files.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
-    } else {
-        compare_paths.clone()
+    // 参照先のツリーを先に取り、バッジに中身の要るファイル（三つともにあるもの）を決める
+    let reference = match &ref_side {
+        Some(ref_s) => {
+            core.connect_if_remote(ref_s)?;
+            let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
+            let info = build_source_info(ref_s, &core)?;
+            Some((ref_s, ref_tree, info))
+        }
+        None => None,
     };
+    let badge_paths = reference
+        .as_ref()
+        .map(|(_, ref_tree, _)| ref_badge_content_paths(&files, &left_tree, &right_tree, ref_tree))
+        .unwrap_or_default();
+
+    let mut content_paths = compare_paths.clone();
+    content_paths.extend(
+        badge_paths
+            .iter()
+            .filter(|path| !compare_paths.contains(path))
+            .cloned(),
+    );
 
     let left_contents = read_contents(
         &mut core,
@@ -146,24 +162,9 @@ pub fn execute_status(
     let mut ref_badges = None;
     let mut ref_contents = None;
 
-    if let Some(ref_s) = &ref_side {
-        // Connect to ref server
-        core.connect_if_remote(ref_s)?;
-
-        // Fetch ref tree
-        let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
-        ref_info = Some(build_source_info(ref_s, &core)?);
-
-        // Fetch ref contents for every file
-        let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-        let reads = read_contents(
-            &mut core,
-            ref_s,
-            &not_absent_in(&ref_paths, &ref_tree),
-            SizeLimit::Lifted,
-        );
-
-        // Compute ref badges — left/right contents は既に取得済みのものを再利用
+    if let Some((ref_s, ref_tree, info)) = reference {
+        ref_info = Some(info);
+        let reads = read_contents(&mut core, ref_s, &badge_paths, SizeLimit::Lifted);
         let badges = compute_ref_badges(
             &files,
             &left_tree,

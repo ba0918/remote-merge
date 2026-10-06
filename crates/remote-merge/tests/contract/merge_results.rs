@@ -298,8 +298,7 @@ fn a_dry_run_reports_an_unreadable_file_among_readable_files_as_incomplete() {
 }
 
 // --force でも、三つの中身を読めなかったファイルには参照先との関係のバッジを作らない
-// （docs/decision/records/2026-10-05-size-limit.md の A24）
-// @kotowari[TBL-cli-009]
+// @kotowari[REQ-cli-048]
 #[test]
 fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not_be_read() {
     let fixture = fixture();
@@ -379,4 +378,24 @@ fn a_file_on_both_sides_but_not_in_the_reference_is_not_written() {
     assert!(is_non_empty_string(&failed[0]["error"]), "{json}");
     assert_eq!(code, 2, "{json}");
     assert_eq!(fixture.read("develop", "b.txt"), "right version\n");
+}
+
+// 存在だけで決まるバッジは、--force で中身の読み込みに失敗しても出す（docs/decision/records/
+// 2026-10-05-size-limit.md の A29）。file.txt は読み込み元と参照先にあり書き込み先になく、
+// 読み込み元を読めない
+// @kotowari[REQ-cli-048]
+#[test]
+fn a_forced_dry_run_gives_a_badge_decided_by_existence_alone_to_an_unreadable_file() {
+    let fixture = fixture();
+    fixture.write("local", "file.txt", "incoming\n");
+    fixture.write("staging", "file.txt", "base\n");
+    fixture.make_unreadable("local", "file.txt");
+    let mut args = with_reference(&["file.txt"]);
+    args.dry_run = true;
+    args.force = true;
+
+    let (json, _) = fixture.merge_json(args);
+
+    assert_eq!(merged_paths(&json), ["file.txt"], "{json}");
+    assert_eq!(json["merged"][0]["ref_badge"], "differs", "{json}");
 }

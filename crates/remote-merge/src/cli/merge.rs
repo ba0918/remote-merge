@@ -6,13 +6,13 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
-use crate::service::content_reads::{not_absent_in, verified_content_pairs};
+use crate::service::content_reads::verified_content_pairs;
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
     SingleMergeResult,
 };
-use crate::service::merge_reference::{reference_refusal_for, ThreeWaySides};
+use crate::service::merge_reference::{paths_to_read, reference_refusal_for, ThreeWaySides};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -25,7 +25,7 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     compute_ref_badges, compute_status_from_trees, needs_merge_content_compare,
-    refine_status_with_content,
+    ref_badge_content_paths, refine_status_with_content,
 };
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
@@ -250,15 +250,6 @@ pub fn execute_merge(
         let ref_info = build_source_info(ref_s, &core)?;
         let ref_tree = core.fetch_tree_recursive(ref_s, max_entries, true)?;
 
-        // ないと分かっている側は読まない。読めば「ない」が読めなかったことになる
-        let limit = SizeLimit::from_force(args.force);
-        let mut read_present = |side: &Side, tree: &FileTree| {
-            read_contents(&mut core, side, &not_absent_in(&plan.files, tree), limit)
-        };
-        let left_contents = read_present(&pair.left, &left_tree);
-        let right_contents = read_present(&pair.right, &right_tree);
-        let ref_contents = read_present(ref_s, &ref_tree);
-
         let file_statuses: Vec<FileStatus> = plan
             .files
             .iter()
@@ -269,6 +260,17 @@ pub fn execute_merge(
                 ref_badge: None,
             })
             .collect();
+
+        let badge_paths =
+            ref_badge_content_paths(&file_statuses, &left_tree, &right_tree, &ref_tree);
+        let limit = SizeLimit::from_force(args.force);
+        let mut read_needed = |side: &Side, tree: &FileTree| {
+            let paths = paths_to_read(&plan.files, tree, &badge_paths, args.force);
+            read_contents(&mut core, side, &paths, limit)
+        };
+        let left_contents = read_needed(&pair.left, &left_tree);
+        let right_contents = read_needed(&pair.right, &right_tree);
+        let ref_contents = read_needed(ref_s, &ref_tree);
 
         let badges = compute_ref_badges(
             &file_statuses,

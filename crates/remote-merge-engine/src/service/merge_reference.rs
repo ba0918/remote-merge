@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::tree::FileTree;
 
-use super::content_reads::{is_absent, ContentReads};
+use super::content_reads::{is_absent, not_absent_in, ContentReads};
 use super::merge::{has_three_way_conflict, reference_check_failure};
 
 /// 三つのどれかの中身を読めなかったときの理由（TBL-cli-009 の文言）
@@ -103,6 +103,22 @@ pub fn side_content<'a>(path: &str, tree: &FileTree, reads: &'a ContentReads) ->
         reads
             .content(path)
             .map_or(SideContent::Unread, SideContent::Read)
+    }
+}
+
+/// 一つの側で中身を読むパス。--force では中身はバッジにしか使わないので、三つともにあるファイル
+/// （`badge_paths`）だけを読む。--force なしでは TBL-cli-009 のために、ないと分かっていない
+/// ファイルを読む（ないと分かっている側は読まない）
+pub fn paths_to_read(
+    files: &[String],
+    tree: &FileTree,
+    badge_paths: &[String],
+    force: bool,
+) -> Vec<String> {
+    if force {
+        badge_paths.to_vec()
+    } else {
+        not_absent_in(files, tree)
     }
 }
 
@@ -229,6 +245,23 @@ mod tests {
         assert_eq!(
             reference_refusal(both, true, false),
             Some("three-way conflict")
+        );
+    }
+
+    #[test]
+    fn a_forced_merge_reads_only_the_files_needed_for_a_badge() {
+        let mut tree = FileTree::new("/root");
+        tree.nodes = vec![
+            crate::tree::FileNode::new_file("all"),
+            crate::tree::FileNode::new_file("here"),
+        ];
+        let files = vec!["all".to_string(), "here".to_string(), "missing".to_string()];
+        let badge_paths = vec!["all".to_string()];
+
+        assert_eq!(paths_to_read(&files, &tree, &badge_paths, true), ["all"]);
+        assert_eq!(
+            paths_to_read(&files, &tree, &badge_paths, false),
+            ["all", "here"]
         );
     }
 

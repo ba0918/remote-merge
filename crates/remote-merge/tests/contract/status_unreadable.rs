@@ -159,3 +159,59 @@ fn a_file_whose_reference_alone_cannot_be_read_keeps_its_judgement_without_a_bad
     assert!(file("a.txt").get("ref_badge").is_none(), "{json}");
     assert!(file("b.txt").get("ref_badge").is_none(), "{json}");
 }
+
+fn make_unreadable(root: &std::path::Path, path: &str) {
+    let file = root.join(path);
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&file).is_err(),
+        "test needs an unreadable {path}"
+    );
+}
+
+// 存在だけで決まる印は中身の読み込みに左右されず、三つともにあるファイルは三つのどれかを読めなければ
+// 印を出さない。m.txt（左右にあり参照先にない）と o.txt（左だけにあり参照先にある）は左を、
+// t.txt（三つともにある）は参照先を読めない
+// @kotowari[TBL-cli-005]
+#[test]
+fn only_a_badge_decided_by_contents_depends_on_reading_them() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "m.txt", b"short\n", T0);
+    write_at(fixture.develop.path(), "m.txt", b"much longer\n", T0);
+    write_at(fixture.local.path(), "o.txt", b"only\n", T0);
+    write_at(fixture.staging.path(), "o.txt", b"base\n", T0);
+    write_at(fixture.local.path(), "t.txt", b"alpha\n", T0);
+    write_at(fixture.develop.path(), "t.txt", b"bravo!\n", T0);
+    write_at(fixture.staging.path(), "t.txt", b"base\n", T0);
+    make_unreadable(fixture.local.path(), "m.txt");
+    make_unreadable(fixture.local.path(), "o.txt");
+    make_unreadable(fixture.staging.path(), "t.txt");
+    let mut args = args(Some("local"), Some("develop"));
+    args.all = true;
+    args.ref_server = Some("staging".into());
+
+    let result = fixture.run(args).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&format_json(&result.output).unwrap()).unwrap();
+
+    let badge = |path: &str| {
+        json["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing: {json}"))
+            .get("ref_badge")
+            .cloned()
+    };
+    assert_eq!(badge("m.txt"), Some("missing_in_ref".into()), "{json}");
+    assert_eq!(badge("o.txt"), Some("differs".into()), "{json}");
+    assert_eq!(badge("t.txt"), None, "{json}");
+    let error_paths: Vec<&str> = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("errors missing: {json}"))
+        .iter()
+        .map(|error| error["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(error_paths, ["t.txt"], "{json}");
+}

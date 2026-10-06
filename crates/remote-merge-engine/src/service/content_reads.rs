@@ -126,14 +126,6 @@ pub fn is_absent(tree: &FileTree, path: &str) -> bool {
     tree.find_node_or_unloaded(Path::new(path)) == NodePresence::NotFound
 }
 
-/// 三者のどれでも、ないと分かっていない側は中身を読めたか（ない側は読まないので読めたかを
-/// 問わない）。参照先との関係は、これが成り立つファイルにだけ決める
-pub fn three_way_contents_read(path: &str, sides: [(&FileTree, &ContentReads); 3]) -> bool {
-    sides
-        .into_iter()
-        .all(|(tree, reads)| is_absent(tree, path) || reads.content(path).is_some())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,35 +198,5 @@ mod tests {
         tree.nodes.push(FileNode::new_dir("dir"));
 
         assert_eq!(not_absent_in(&paths, &tree), vec!["a", "dir/x"]);
-    }
-
-    #[test]
-    fn a_side_without_the_file_does_not_need_to_be_read() {
-        let present = tree_with(&["a"]);
-        let absent = tree_with(&[]);
-        let read = reads(&[("a", Ok(b"x"))]);
-        let unread = ContentReads::default();
-
-        assert!(three_way_contents_read(
-            "a",
-            [(&present, &read), (&present, &read), (&absent, &unread)]
-        ));
-    }
-
-    #[test]
-    fn a_side_with_the_file_that_was_not_read_leaves_the_three_way_comparison_incomplete() {
-        let present = tree_with(&["a"]);
-        let read = reads(&[("a", Ok(b"x"))]);
-        let failed = reads(&[("a", Err("denied"))]);
-        let unasked = ContentReads::default();
-
-        assert!(!three_way_contents_read(
-            "a",
-            [(&present, &read), (&present, &read), (&present, &failed)]
-        ));
-        assert!(!three_way_contents_read(
-            "a",
-            [(&present, &unasked), (&present, &read), (&present, &read)]
-        ));
     }
 }
