@@ -75,14 +75,19 @@ impl CoreRuntime {
         side: &Side,
         rel_path: &str,
     ) -> anyhow::Result<super::target_io::TargetPath> {
-        let mut io = super::target_io::for_side(side, self);
-        io.inspect_path(self, rel_path)
+        super::target_io::target_path_outside_rollback(
+            self.inspect_path_for_rollback(side, rel_path)?,
+        )
     }
 
-    /// Side に基づいて、`rel_path` が辿った先で通常ファイルかを問う
-    pub fn is_regular_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<bool> {
+    /// 途中の祖先がディレクトリでないことをエラーにせずに返す確認。rollback だけが使う
+    pub(crate) fn inspect_path_for_rollback(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+    ) -> anyhow::Result<ResolvedPath> {
         let mut io = super::target_io::for_side(side, self);
-        io.is_regular_file(self, rel_path)
+        io.inspect_path(self, rel_path)
     }
 
     pub fn missing_parent_directories(
@@ -244,7 +249,7 @@ impl CoreRuntime {
                     Err(error) => remote_merge_engine::service::rollback::restore_request_refusal(
                         files,
                         &backup_record,
-                        Err(&error.to_string()),
+                        Err(&error),
                     ),
                 };
                 if let Some(refusal) = refusal {
@@ -287,7 +292,9 @@ impl CoreRuntime {
                     Err(error) => {
                         failed.push(crate::service::types::RollbackFailure {
                             path: path.clone(),
-                            error: format!("cannot resolve path: {error}"),
+                            error: remote_merge_engine::service::rollback::unresolved_path_message(
+                                &error,
+                            ),
                         });
                         continue;
                     }
@@ -370,14 +377,17 @@ impl CoreRuntime {
         record: &crate::service::rollback::BackupPathRecord,
     ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
         use crate::service::rollback::{BackupPathRecord, CurrentRestorePath};
+        use remote_merge_engine::service::rollback::{
+            current_restore_path, recorded_symlink_target,
+        };
+        let resolved = self.inspect_path_for_rollback(side, path)?;
         if !matches!(record, BackupPathRecord::SymlinkUpdate { .. }) {
-            return self.inspect_restore_path(side, path);
+            return Ok(current_restore_path(resolved)?);
         }
-        let super::target_io::TargetPath::Symlink { link_target, .. } =
-            self.inspect_path(side, path)?
-        else {
+        let Some(link_target) = recorded_symlink_target(resolved)? else {
             return Ok(CurrentRestorePath::Missing { real_parent: None });
         };
+        // 記録はリンク自身の親の実パスと比べるので、親をもう一度確かめる
         let parent = std::path::Path::new(path)
             .parent()
             .unwrap_or_else(|| std::path::Path::new(""));
@@ -392,42 +402,6 @@ impl CoreRuntime {
             link_target,
             real_parent,
         })
-    }
-
-    fn inspect_restore_path(
-        &mut self,
-        side: &Side,
-        path: &str,
-    ) -> anyhow::Result<crate::service::rollback::CurrentRestorePath> {
-        use crate::service::rollback::CurrentRestorePath;
-        let inspected = match self.inspect_path(side, path) {
-            Ok(inspected) => inspected,
-            Err(error) => {
-                return remote_merge_engine::service::rollback::restore_path_after_failed_inspection(
-                    path,
-                    |ancestor| self.is_regular_file(side, ancestor).ok(),
-                )
-                .ok_or(error);
-            }
-        };
-        match inspected {
-            super::target_io::TargetPath::File { real_path }
-            | super::target_io::TargetPath::Symlink { real_path, .. } => {
-                Ok(CurrentRestorePath::Present { real_path })
-            }
-            super::target_io::TargetPath::Missing { .. } => {
-                let parent = std::path::Path::new(path)
-                    .parent()
-                    .unwrap_or_else(|| std::path::Path::new(""))
-                    .to_string_lossy();
-                let real_parent = match self.inspect_path(side, &parent)? {
-                    super::target_io::TargetPath::Missing { .. } => None,
-                    super::target_io::TargetPath::File { real_path }
-                    | super::target_io::TargetPath::Symlink { real_path, .. } => Some(real_path),
-                };
-                Ok(CurrentRestorePath::Missing { real_parent })
-            }
-        }
     }
 
     // ── 削除 ──
@@ -675,24 +649,6 @@ impl CoreRuntime {
             Some(Err(e)) => Some(Err(e)),
             None => None,
         }
-    }
-
-    /// Agent 経由で、`rel_path` が通常ファイルかを StatFiles の種類のビットで問う。
-    /// エージェントは調べられなかったエントリを返さないので、エントリがなければエラーにする
-    pub(crate) fn try_agent_is_regular_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-    ) -> Option<anyhow::Result<bool>> {
-        let paths = [rel_path.to_string()];
-        let stats = self.with_agent(server_name, "stat_files", |agent| agent.stat_files(&paths))?;
-        Some(stats.and_then(|stats| {
-            stats
-                .iter()
-                .find(|stat| stat.path == rel_path)
-                .map(|stat| stat.permissions & 0o170000 == 0o100000)
-                .ok_or_else(|| anyhow::anyhow!("cannot stat: {rel_path}"))
-        }))
     }
 
     /// Agent 経由でシンボリックリンクを作成する

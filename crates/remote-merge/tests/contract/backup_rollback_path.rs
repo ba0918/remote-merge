@@ -435,6 +435,30 @@ fn rollback_keeps_a_symlink_that_replaced_the_recorded_regular_file() {
     assert_eq!(read(&develop, "other.txt"), "other\n");
 }
 
+// @kotowari[REQ-backup-003]
+#[test]
+fn an_unresolvable_destination_fails_with_the_cause_after_a_single_prefix() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    merged_file_fixture(&local, &develop, &store);
+    fs::remove_file(develop.path().join("file.txt")).unwrap();
+    symlink("file.txt", develop.path().join("file.txt")).unwrap();
+
+    let (output, _) = restore(
+        rollback_args("develop", None),
+        config(&local, &develop, true),
+        targets(&develop, &store),
+    );
+
+    assert!(output.restored.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(
+        output.failed[0].error,
+        "cannot resolve path: too many levels of symbolic links"
+    );
+}
+
 // @kotowari[REQ-backup-033]
 #[test]
 fn rollback_skips_a_dangling_symlink_as_a_changed_destination() {

@@ -49,17 +49,12 @@ pub(crate) fn target_path_outside_rollback(resolved: ResolvedPath) -> anyhow::Re
 }
 
 pub(crate) trait TargetIo {
+    /// "/" から要素ごとに辿った確認の結果。途中の祖先がディレクトリでないことも結果として返す
     fn inspect_path(
         &mut self,
         runtime: &mut CoreRuntime,
         rel_path: &str,
-    ) -> anyhow::Result<TargetPath>;
-    /// `rel_path` が辿った先で通常ファイルか。調べられなければエラー
-    fn is_regular_file(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_path: &str,
-    ) -> anyhow::Result<bool>;
+    ) -> anyhow::Result<ResolvedPath>;
     fn read_file(&mut self, runtime: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String>;
     fn read_files_batch(
         &mut self,
@@ -161,14 +156,12 @@ impl LocalTargetIo {
 }
 
 impl TargetIo for LocalTargetIo {
-    fn inspect_path(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<TargetPath> {
-        target_path_outside_rollback(remote_merge_engine::local_io::inspect_local_path(
-            &self.root, rel_path,
-        )?)
-    }
-
-    fn is_regular_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<bool> {
-        remote_merge_engine::local_io::is_regular_file(&self.root, rel_path)
+    fn inspect_path(
+        &mut self,
+        _: &mut CoreRuntime,
+        rel_path: &str,
+    ) -> anyhow::Result<ResolvedPath> {
+        remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
     }
 
     fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {
@@ -316,7 +309,7 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
 }
 
 impl TargetIo for RemoteTargetIo {
-    fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<TargetPath> {
+    fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ResolvedPath> {
         let route = super::path_route::path_inspection_route(
             rt.agent_protocol_version(&self.name),
             rt.server_uses_sudo(&self.name),
@@ -324,7 +317,7 @@ impl TargetIo for RemoteTargetIo {
         match route {
             super::path_route::PathInspectionRoute::Agent => {
                 if let Some(value) = rt.try_agent_inspect_path(&self.name, path) {
-                    return target_path_outside_rollback(value?);
+                    return value;
                 }
             }
             super::path_route::PathInspectionRoute::RedeployAgent(message) => {
@@ -333,14 +326,7 @@ impl TargetIo for RemoteTargetIo {
             super::path_route::PathInspectionRoute::Ssh => {}
         }
         rt.check_sudo_fallback(&self.name)?;
-        target_path_outside_rollback(rt.inspect_remote_path(&self.name, path)?)
-    }
-    fn is_regular_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<bool> {
-        if let Some(value) = rt.try_agent_is_regular_file(&self.name, path) {
-            return value;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.remote_is_regular_file(&self.name, path)
+        rt.inspect_remote_path(&self.name, path)
     }
     fn read_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<String> {
         if let Some(v) = rt.try_agent_read_file(&self.name, path) {

@@ -4,7 +4,9 @@
 //! I/O は一切含まない。
 
 use chrono::{DateTime, Utc};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
 
 use super::types::{
     BackupSession, RollbackFailure, RollbackFileResult, RollbackOutput, RollbackSkipped,
@@ -101,30 +103,61 @@ pub fn decide_restore_path(
     }
 }
 
-/// 書き戻し先の検査が失敗したときの、今の状態の読み方。
-///
-/// 戻す先 `path` より上の祖先（root_dir は除く）を近いものから順に `ancestor_is_regular_file` で
-/// 問い、どれかが辿った先で通常ファイルと答えたときだけ、親ディレクトリのないファイルとして扱う。
-/// それ以外は `None` を返し、検査の失敗のまま "cannot resolve path: " にする。調べられない祖先
-/// （`None`）や通常ファイルでない祖先（`Some(false)`）があっても、その上の祖先を問い続ける。
-/// 祖先が存在しないときに通常ファイルでないと答える経路もあるので、`Some(false)` で打ち切らない
-pub fn restore_path_after_failed_inspection(
-    path: &str,
-    mut ancestor_is_regular_file: impl FnMut(&str) -> Option<bool>,
-) -> Option<CurrentRestorePath> {
-    Path::new(path)
-        .ancestors()
-        .skip(1)
-        .filter_map(Path::to_str)
-        .filter(|ancestor| !ancestor.is_empty())
-        .any(|ancestor| ancestor_is_regular_file(ancestor) == Some(true))
-        .then_some(CurrentRestorePath::Missing { real_parent: None })
+/// 書き戻し先の確認の結果を、書き戻すかの判定に使う今の状態に読む。
+/// 途中の祖先が通常ファイル（か通常ファイルを指す symlink）なら親ディレクトリのないファイルとして
+/// スキップに回し、それ以外のディレクトリでない祖先は辿れないものとしてエラーにする
+pub fn current_restore_path(resolved: ResolvedPath) -> Result<CurrentRestorePath, ResolveError> {
+    Ok(match resolved {
+        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+            CurrentRestorePath::Present {
+                real_path: real_path.into(),
+            }
+        }
+        ResolvedPath::Missing {
+            real_parent,
+            parent_exists,
+        } => CurrentRestorePath::Missing {
+            real_parent: parent_exists.then(|| real_parent.into()),
+        },
+        ResolvedPath::AncestorNotDirectory {
+            regular_file: true, ..
+        } => CurrentRestorePath::Missing { real_parent: None },
+        ResolvedPath::AncestorNotDirectory {
+            regular_file: false,
+            ..
+        } => return Err(ResolveError::NotADirectory),
+    })
+}
+
+/// 末尾 symlink の更新の記録について、書き戻し先が今も symlink ならそのリンク文字列を返す。
+/// symlink でなくなっていれば `None`（第三者が変えた）とし、通常ファイルでもディレクトリでもない
+/// 祖先はエラーにする
+pub fn recorded_symlink_target(resolved: ResolvedPath) -> Result<Option<PathBuf>, ResolveError> {
+    match resolved {
+        ResolvedPath::Symlink { link_target, .. } => Ok(Some(link_target.into())),
+        ResolvedPath::AncestorNotDirectory {
+            regular_file: false,
+            ..
+        } => Err(ResolveError::NotADirectory),
+        ResolvedPath::Exists { .. }
+        | ResolvedPath::Missing { .. }
+        | ResolvedPath::AncestorNotDirectory { .. } => Ok(None),
+    }
+}
+
+/// 書き戻し先を確かめられなかったときの error の文言。確認の手順が止めた原因は既に
+/// "cannot resolve path: " で始まるので、接頭辞は確認の手順の外の失敗（接続の失敗など）にだけ足す
+pub fn unresolved_path_message(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<ResolveError>() {
+        Some(resolution) => resolution.to_string(),
+        None => format!("cannot resolve path: {error}"),
+    }
 }
 
 pub fn restore_request_refusal(
     files: &[String],
     record: &BackupPathRecord,
-    inspected: Result<&CurrentRestorePath, &str>,
+    inspected: Result<&CurrentRestorePath, &anyhow::Error>,
 ) -> Option<(
     Vec<RollbackFileResult>,
     Vec<RollbackSkipped>,
@@ -140,7 +173,7 @@ pub fn restore_request_refusal(
                     .iter()
                     .map(|path| RollbackFailure {
                         path: path.clone(),
-                        error: format!("cannot resolve path: {error}"),
+                        error: unresolved_path_message(error),
                     })
                     .collect(),
             ));
@@ -313,60 +346,90 @@ mod tests {
         assert_eq!(decision, RestorePathDecision::Restore);
     }
 
-    /// `regular` に挙げた祖先だけを通常ファイルと答え、問われた祖先を順に記録する
-    fn ask_ancestors(path: &str, regular: &[&str]) -> (Option<CurrentRestorePath>, Vec<String>) {
-        let mut asked = Vec::new();
-        let decision = restore_path_after_failed_inspection(path, |ancestor| {
-            asked.push(ancestor.to_string());
-            regular.contains(&ancestor).then_some(true)
-        });
-        (decision, asked)
-    }
-
     #[test]
-    fn a_failed_inspection_under_a_regular_file_parent_becomes_a_missing_parent() {
+    fn a_missing_destination_keeps_its_parent_only_when_the_parent_exists() {
         assert_eq!(
-            ask_ancestors("dir/a.txt", &["dir"]),
-            (
-                Some(CurrentRestorePath::Missing { real_parent: None }),
-                vec!["dir".to_string()]
-            )
+            current_restore_path(ResolvedPath::Missing {
+                real_parent: "/srv/app/dir".into(),
+                parent_exists: true,
+            }),
+            Ok(CurrentRestorePath::Missing {
+                real_parent: Some(PathBuf::from("/srv/app/dir"))
+            })
+        );
+        assert_eq!(
+            current_restore_path(ResolvedPath::Missing {
+                real_parent: "/srv/app/dir".into(),
+                parent_exists: false,
+            }),
+            Ok(CurrentRestorePath::Missing { real_parent: None })
         );
     }
 
     #[test]
-    fn a_failed_inspection_under_a_regular_file_grandparent_becomes_a_missing_parent() {
+    fn an_ancestor_that_is_a_regular_file_reads_as_a_missing_parent() {
         assert_eq!(
-            ask_ancestors("dir/sub/a.txt", &["dir"]),
-            (
-                Some(CurrentRestorePath::Missing { real_parent: None }),
-                vec!["dir/sub".to_string(), "dir".to_string()]
-            )
+            current_restore_path(ResolvedPath::AncestorNotDirectory {
+                real_path: "/srv/app/dir".into(),
+                regular_file: true,
+            }),
+            Ok(CurrentRestorePath::Missing { real_parent: None })
         );
     }
 
     #[test]
-    fn a_failed_inspection_without_a_regular_file_ancestor_stays_a_failure() {
+    fn an_ancestor_that_is_neither_a_directory_nor_a_regular_file_cannot_be_resolved() {
         assert_eq!(
-            ask_ancestors("dir/sub/a.txt", &[]),
-            (None, vec!["dir/sub".to_string(), "dir".to_string()])
+            current_restore_path(ResolvedPath::AncestorNotDirectory {
+                real_path: "/srv/app/fifo".into(),
+                regular_file: false,
+            }),
+            Err(ResolveError::NotADirectory)
         );
     }
 
     #[test]
-    fn ancestors_that_are_not_regular_files_do_not_stop_the_search() {
-        let decision = restore_path_after_failed_inspection("dir/sub/a.txt", |ancestor| {
-            (ancestor == "dir").then_some(true).or(Some(false))
-        });
+    fn a_recorded_symlink_update_proceeds_only_while_the_destination_is_still_a_symlink() {
         assert_eq!(
-            decision,
-            Some(CurrentRestorePath::Missing { real_parent: None })
+            recorded_symlink_target(ResolvedPath::Symlink {
+                link_target: "release".into(),
+                real_path: "/srv/release".into(),
+            }),
+            Ok(Some(PathBuf::from("release")))
+        );
+        for changed in [
+            ResolvedPath::Exists {
+                real_path: "/srv/app/link".into(),
+            },
+            ResolvedPath::AncestorNotDirectory {
+                real_path: "/srv/app/dir".into(),
+                regular_file: true,
+            },
+        ] {
+            assert_eq!(recorded_symlink_target(changed), Ok(None));
+        }
+        assert_eq!(
+            recorded_symlink_target(ResolvedPath::AncestorNotDirectory {
+                real_path: "/srv/app/fifo".into(),
+                regular_file: false,
+            }),
+            Err(ResolveError::NotADirectory)
         );
     }
 
     #[test]
-    fn a_failed_inspection_directly_under_the_root_asks_nothing() {
-        assert_eq!(ask_ancestors("a.txt", &[""]), (None, vec![]));
+    fn a_resolution_error_is_reported_without_adding_a_second_prefix() {
+        let resolution = anyhow::Error::from(ResolveError::DanglingSymlink);
+        let transport = anyhow::anyhow!("SSH not connected: develop");
+
+        assert_eq!(
+            unresolved_path_message(&resolution),
+            "cannot resolve path: dangling symbolic link"
+        );
+        assert_eq!(
+            unresolved_path_message(&transport),
+            "cannot resolve path: SSH not connected: develop"
+        );
     }
 
     #[test]
