@@ -69,10 +69,10 @@ rollback が既存ファイルに書き戻すとき、そのファイルの所�
 
 ### REQ-backup-033: 場所の変化をスキップ理由で示す
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A27
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A27, docs/decision/records/2026-10-06-path-resolution.md#A19
 - verification: unit
 
-rollback は本当のパスが記録と違うとき（リンク切れの symlink、通常ファイルから symlink への変化、削除済みファイルの親の付け替えを含む）スキップ理由 "path now resolves to a different location" を報告し、末尾 symlink の更新記録が第三者に変えられたときは "symlink changed after merge" を報告する。
+rollback は実パスが記録と違うとき（リンク切れの symlink、通常ファイルから symlink への変化、削除済みファイルの親の付け替えを含む）スキップ理由 "path now resolves to a different location" を報告し、末尾 symlink の更新記録が第三者に変えられたときは "symlink changed after merge" を報告する。
 
 ## Examples
 
