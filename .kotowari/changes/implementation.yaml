@@ -18,7 +18,7 @@ entries:
     after: "sha256:d768e8ae8676c906cdba6804257c78cade76b8bfb5079d46bbed9c7326c547e5"
   - path: crates/remote-merge/src/cli/diff.rs
     before: "sha256:3b814a51ac3c40c7a955a444a2841e51cf4b41f2c69046a2d8ed92d61d753058"
-    after: "sha256:dbac376f6a86ec0660ac6af9abf246e139913b08d0834a69bdc2ee0589250295"
+    after: "sha256:2c7f46834db043d2dbe0c39b88bf44ab1e80f44e67be553953899059b9f2b3a4"
   - path: crates/remote-merge/src/cli/merge.rs
     before: "sha256:bf1a8f4860055bfe1893a0b8bdba5ffd112c69c6933e318e5b35e65600a2cc77"
     after: "sha256:4385be115f866ad754f3fe7f341cf1192ca0eed85284f23b63efe0f01b8ab23c"
@@ -30,7 +30,7 @@ entries:
     after: "sha256:0f99bf6d41d80acc3282daf59949df8f903eb249b873197d700d63a1ab3dc36b"
   - path: crates/remote-merge/tests/contract/merge_paths.rs
     before: "sha256:cd3347ef090e332b6c8393f071391b5f234ee62783bacfcd83014cf7278f637a"
-    after: "sha256:b98995a899ae288bc8170caaefd0be8e7f2186707bdc154111cd04cfeaff5dbf"
+    after: "sha256:cf379091688b2c6388e6c95187c26493b39bae9759936c90c85e5262117c96db"
   - path: crates/remote-merge/tests/contract/sync_cli.rs
     before: "sha256:d5ac153bc681b011275cad7499dbab7bd265eb0f05a56798340087d56f2c3768"
     after: "sha256:dca16980c838c4ef694bf7cf64308991062f29d40cdfaf78b0ae2d30e7af8c0a"
@@ -43,7 +43,7 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "REQ-cli-078 と REQ-merge-007 のとおり、diff・merge（--hunks を含む）・sync のパスの引数に絶対パスか \"..\" の要素があれば、サーバの解決・バックアップの整理・接続・走査の前に、入力されたままの値で \"absolute subpath not allowed: パス\" か \"path traversal not allowed: パス\" のエラーで止め、終了コード 2 を返して何も書かない。検査は engine の rel_path::check_rel_path 一つにまとめ、引数用の check_path_arguments が REQ-cli-052 の root_dir 全体を指す値（\"/\"・\".\"・\"./\"・空）を飛ばしてから呼ぶ。SSH の経路のパスの組み立て（validate_remote_path）は、これまで \"..\" を AppError::ConfigValidation の \"Remote path must not contain '..': パス\" で拒否し、先頭の \"/\" を削って絶対パスを受け付けていた。これを check_rel_path に置き換えたので、\"..\" の拒否の文言は \"path traversal not allowed: パス\" に変わり、絶対パスも \"absolute subpath not allowed: パス\" で拒否する。どちらも AppError の型を持たない anyhow のエラーになるが、このエラーの型で分岐する呼び出し元はない。root_dir 全体は空の値で指す（多層の防御で、引数の検査の後に利用者の入力は届かない）。エージェントの経路の拒否の文言は変えていない。EX-merge-013・EX-merge-014 の既存テストは承認済みの要件の改訂に合わせ、文言の全体と書き込み先の中身が変わらないことを確かめる形に直した。"
+  reason: "REQ-cli-078 と REQ-merge-007 のとおり、diff・merge（--hunks を含む）・sync のパスの引数に絶対パスか \"..\" の要素があれば、サーバの解決・バックアップの整理・接続・走査の前に、入力されたままの値で \"absolute subpath not allowed: パス\" か \"path traversal not allowed: パス\" のエラーで止め、終了コード 2 を返して何も書かない。検査は engine の rel_path::check_rel_path 一つにまとめ、引数用の check_path_arguments が REQ-cli-052 の root_dir 全体を指す値（\"/\"・\".\"・\"./\"・空）を飛ばしてから呼ぶ。SSH の経路のパスの組み立て（validate_remote_path）は、これまで \"..\" を AppError::ConfigValidation の \"Remote path must not contain '..': パス\" で拒否し、先頭の \"/\" を削って絶対パスを受け付けていた。これを check_rel_path に置き換えたので、\"..\" の拒否の文言は \"path traversal not allowed: パス\" に変わり、絶対パスも \"absolute subpath not allowed: パス\" で拒否する。どちらも AppError の型を持たない anyhow のエラーになるが、このエラーの型で分岐する呼び出し元はない。root_dir 全体は空の値で指す（多層の防御で、引数の検査の後に利用者の入力は届かない）。エージェントの経路の拒否の文言は変えていない。EX-merge-013・EX-merge-014 の既存テストは承認済みの要件の改訂に合わせ、文言の全体と書き込み先の中身が変わらないことを確かめる形に直した。 diff.rs と merge_paths.rs は、パスを \"/\" から辿る確認（path-resolution-across-routes）の変更と共有するので、その組にも含めた。"
   requirements:
   - REQ-cli-078
   - REQ-cli-052
@@ -54,46 +54,127 @@ entries:
   - docs/decision/records/2026-10-05-path-validation.md#A4
   handoff: null
   gaps: []
-- id: rollback-path-inspection-across-routes
+- id: path-resolution-across-routes
   base: 213a8def195d5026eef2f07e6930eafd6a104693
   role: implementer
   files:
-  - path: crates/remote-merge/src/runtime/remote_path.rs
-    before: "sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6"
-    after: "sha256:6528549bab20fd59a10f3db3a6a44f295ca230278bd8cfb0085ab2713e1f1a43"
+  - path: Cargo.lock
+    before: "sha256:94dda950bb052d6fe013615aff3bd75165627cc8af8297a7eab28c94af8bad7d"
+    after: "sha256:95f5e139d5913663c78cc263a5a51efd736047cbfa109b119312f5edb968d358"
+  - path: crates/remote-merge-agent/src/agent/dispatch.rs
+    before: "sha256:acb7abe04eca006424e2a45257b1243d5a53e5f4dcde456234c7f536e94b01ea"
+    after: "sha256:ff041ca346d68b0bed185ea5371b3f15a6b1f2d007bc319a9ac03b321fe3f019"
+  - path: crates/remote-merge-agent/src/agent/file_io.rs
+    before: "sha256:e91ed9ccb62575cc31768a2afe349b7c23fc06b496314f74605a2a0d4d78992d"
+    after: "sha256:0b691230a3da2c81197644fa447364593d9bd1e1fa155a3d6017bea80cd8fb3b"
+  - path: crates/remote-merge-core/Cargo.toml
+    before: "sha256:86245e1fba6a08a96bf419a3a212d04f56c6ee05223ff59ec985e00eaa98e498"
+    after: "sha256:657f5df393eabab1a7a6a4ab89590eb9e9de35e422385777bcbfa1ed4bf7b4f7"
+  - path: crates/remote-merge-core/src/lib.rs
+    before: "sha256:a1a58826e3c45290107a3c283f95b77b3543bf4c82d99b3986089410e04910cb"
+    after: "sha256:c5781562ca085a905f12f9c61a75e8291c757dcdf2398901fc9a2638096feed0"
+  - path: crates/remote-merge-core/src/path_resolution/error.rs
+    before: null
+    after: "sha256:378bc5cbe141eebc3c59a16c59b9bed1b2ceb377fd0d05e385863297e9050865"
+  - path: crates/remote-merge-core/src/path_resolution/mod.rs
+    before: null
+    after: "sha256:87a8ff851addab0c0d4a2a51ab8458d22338f2354ef8633f11db6166447d02e4"
+  - path: crates/remote-merge-core/src/path_resolution/os.rs
+    before: null
+    after: "sha256:780c9b04d8ae0778f82c7d050221906204041f1ca6470040250c6f11cfdcce0d"
+  - path: crates/remote-merge-core/src/path_resolution/walk.rs
+    before: null
+    after: "sha256:4af16c35f587fc1b3757ced8130db99012bbcf4c710339325ce084b671233d24"
   - path: crates/remote-merge-engine/src/local_io.rs
     before: "sha256:9d309d7aaaf81210d3db0260b2e882c0bdb9e4179cda47ce57b7f19ba276f193"
-    after: "sha256:ad3863383b3fa60d9462cb0fcd7ee35a878a3eedea06bad7a2f5df57879bd9aa"
+    after: "sha256:13049f510d150e5820510151b362be2191187f128ebc737ef2823866b9fb9422"
   - path: crates/remote-merge-engine/src/service/rollback.rs
     before: "sha256:cff662d9030bf84006eb3ec514598f7d58dd6be92a5fa8ea6a4f6f5e11af94c7"
-    after: "sha256:189d5fc24e7584fb9504e97b8b57f67a1067394c14cc5386e21d16dea67ca903"
-  - path: crates/remote-merge/src/runtime/target_io.rs
-    before: "sha256:d1db7978e22daa56fd18e214b47da581d83e46e941005289ef239c0361a8c534"
-    after: "sha256:c2f0cf2c2e333613c55bf0c150210e142ac6dc8c60fa05b1c64b55b47782e950"
+    after: "sha256:0c55f3b9a1e54310d9e3b68d495d4ba5aab97f5f4a41f1539252d9564e6fd663"
+  - path: crates/remote-merge-protocol/src/lib.rs
+    before: "sha256:db9a51a6d52db46cec4e869873c8ad2e733ca007765bbb98b7704c885264f019"
+    after: "sha256:68103801bdb167f4ff22487e53e824ae21f53c278bcb42ab3700e1db0e50b984"
+  - path: crates/remote-merge-ssh/src/client.rs
+    before: "sha256:94a85ec4e5b61b45ed5554bae8e78e619153f1460c0d114faedafc25b6758195"
+    after: "sha256:3afcbf52d4acab4b0723ab76facb5a30c07e6531a7cc2ddaf810d003236e56ef"
+  - path: crates/remote-merge-ssh/src/lib.rs
+    before: "sha256:32e9ab9c9143672a0ff3fd2789c2edbce5c9de3d0533ef35392741b1629adc17"
+    after: "sha256:5f3c06e73d7fd4356ea29f89c5f015682df8e835b524706f5aad9a32fd4ad01f"
+  - path: crates/remote-merge/src/cli/diff.rs
+    before: "sha256:3b814a51ac3c40c7a955a444a2841e51cf4b41f2c69046a2d8ed92d61d753058"
+    after: "sha256:2c7f46834db043d2dbe0c39b88bf44ab1e80f44e67be553953899059b9f2b3a4"
+  - path: crates/remote-merge/src/runtime/mod.rs
+    before: "sha256:b636c255203335b29ac5ba341fe52376f337f8f629ae9d2d2c2601309f0320d2"
+    after: "sha256:8dd04fe4fbe3fb331692a9b3c80f0b529c1144b1ac1d9fb6d9c6b1d9ff1ed9b8"
+  - path: crates/remote-merge/src/runtime/path_route.rs
+    before: null
+    after: "sha256:72cdcbffcdbebe467482d0dad69858560178efd5b8aa81bfcf42a80b6b51b1d4"
+  - path: crates/remote-merge/src/runtime/remote_io.rs
+    before: "sha256:210b7e56490dc4c2dcc833fb2fb97d3cc6da0e1ee45a23b18df3475dcba9f12b"
+    after: "sha256:94eeb1cfc95d3549d079b569143763fc90dc8e72f18b8da734b6f164ce10d724"
+  - path: crates/remote-merge/src/runtime/remote_path.rs
+    before: "sha256:04218df98dd477e49f0e68942d39fd01e414ff48a91a3989264ff6aa14d9b5c6"
+    after: null
+  - path: crates/remote-merge/src/runtime/remote_path/mod.rs
+    before: null
+    after: "sha256:93306aeb0e4985fef4e67cd9bdfe369803f326227e0394d5cb6dcb3bbe4a60b0"
+  - path: crates/remote-merge/src/runtime/remote_path/output.rs
+    before: null
+    after: "sha256:16266ff7cf5b1494e16dab01138ef5d7f38b94435d403f452e4654215386e7d8"
+  - path: crates/remote-merge/src/runtime/remote_path/script.rs
+    before: null
+    after: "sha256:d990b867b8ff839ec27a5242505e51fa4d3fd53309d2a2c0e888a921f85aa77b"
   - path: crates/remote-merge/src/runtime/side_io.rs
     before: "sha256:9ed2eb8a78a96f61fe7228ac300ef6ada0b7f435af2b7c5a17732032021749e0"
-    after: "sha256:19b67b0127f7590aa4459fdff2db7475102c314ee2ed443825e579d12232c35d"
+    after: "sha256:b5ff40a48ac2deeb36f8c8c39fa658bd950896434a1b845e08a12e7a6a4ed695"
+  - path: crates/remote-merge/src/runtime/target_io.rs
+    before: "sha256:d1db7978e22daa56fd18e214b47da581d83e46e941005289ef239c0361a8c534"
+    after: "sha256:24fbd1ddc5e3ceb727a456352a372d149def428677ad8cffcb18a43b5c66c773"
+  - path: crates/remote-merge/src/ssh/mod.rs
+    before: "sha256:aa175a1f9dab90a298d095549d026b264bfe702ddd8bf0ab995955fa73ee3003"
+    after: "sha256:49a92f90ff187859b6de7b43b1ef36ae2ed6425926bee677f666c1b615a8228d"
+  - path: crates/remote-merge/tests/contract.rs
+    before: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
+    after: "sha256:61af65883eebd9a992e236fc3cbb4abdd18ca44bc497dbfe1a59b77d9847cef4"
   - path: crates/remote-merge/tests/contract/backup_rollback_path.rs
     before: "sha256:7e05df7e2bd4b0f8b9accd75f1ec8895c194f0aae81436d7b675b571ade63b59"
-    after: "sha256:2583ffe2a32b6743e28b832d264590bc27515250868f27a36c82474528b1c582"
-  - path: crates/remote-merge/tests/contract/rollback_path_ssh.rs
+    after: "sha256:5062db3c9fbe8b1fee12c50dab4bf0f7b92c707cc15f4a79511a4fa207ae81d8"
+  - path: crates/remote-merge/tests/contract/diff_file_kinds.rs
+    before: "sha256:1723bda0de36026db5dd3877b9e4bd7b29a5d1f85a4d03fcb6132e4b85dcd05f"
+    after: "sha256:85747926380bcfe9382bf8209c9deabb63609521682003aaf0730dfd786b7463"
+  - path: crates/remote-merge/tests/contract/merge_paths.rs
+    before: "sha256:cd3347ef090e332b6c8393f071391b5f234ee62783bacfcd83014cf7278f637a"
+    after: "sha256:cf379091688b2c6388e6c95187c26493b39bae9759936c90c85e5262117c96db"
+  - path: crates/remote-merge/tests/contract/path_resolution.rs
     before: null
-    after: "sha256:e2cf974b9b9218a98ced825676021f6bb6e60a2f07f4644daec192c88e9c7231"
+    after: "sha256:8ebc1b7eed562beef30b1897992c69d9be8bdf2c81c6729dcb2a161c6ea7fe9a"
+  - path: crates/remote-merge/tests/contract/path_routes.rs
+    before: null
+    after: "sha256:e2b7b01bd56b3d22fb23d3057a45c602a4da9b734b7d4e4b45bea4fbb2d08dc6"
+  - path: crates/remote-merge/tests/contract/path_routes_agree.rs
+    before: null
+    after: "sha256:2684ef574b32e41dcfb1c86d4856644163c1d61c8476cc74397356625433c793"
   - path: crates/remote-merge/tests/contract/rollback_path_agent.rs
     before: null
     after: "sha256:e5dea90c3fe94f08be64eb51dc0fe38421460e31215b109cdc3cf16016496201"
+  - path: crates/remote-merge/tests/contract/rollback_path_ssh.rs
+    before: null
+    after: "sha256:e2cf974b9b9218a98ced825676021f6bb6e60a2f07f4644daec192c88e9c7231"
   - path: crates/remote-merge/tests/contract/scan_listing_cli.rs
     before: "sha256:4c51e60c6d25a604dfc02e42d14af6aca7de1cc5292215013d644950c188e57c"
     after: "sha256:2cc93d6e4f125a80c1ed752c9eae25f7bc16b88c0e6f8cc71cec679dbc8184dc"
   - path: crates/remote-merge/tests/contract/ssh_server.rs
     before: "sha256:7343559410163b905d007bf76ecbc11513f3322d7bc8959ffd5f61cbfc39b796"
-    after: "sha256:d0c663bfd5702716a68e71ffa569e9db00be9f2737438893ed9b01c8e0674de1"
-  - path: crates/remote-merge/tests/contract.rs
-    before: "sha256:738bc33fbce93532fb3f9f859710a6d84ee128c4248f2f0b874d7c4256e04321"
-    after: "sha256:d35af94ca4c6c299f8fe3c2d4f78efddbfc92a315a12fa6ba4687463b563b0be"
+    after: "sha256:2525335a0edf1923963a841750fa1d0c8580fc89e83652de07531303855e571d"
   ir:
+  - path: docs/ir/CONTEXT.md
+    sha256: "sha256:4fc6e61a02bc45b3219e3b55c6fb20842df1faa4f7c68711746a1cb5d270d50a"
+  - path: docs/ir/paths/resolution.md
+    sha256: "sha256:ebe555b7b286763d79271c91f3019cb924a2ec5473bf4e56f27956908cd0917e"
+  - path: docs/ir/paths/routes.md
+    sha256: "sha256:ff1cce86c3cb6b00746a33c1a6256064a7fb08f1453ed4c86bc89232c08e4f64"
   - path: docs/ir/backup/rollback-path.md
-    sha256: "sha256:a2edb8feb3b1a6325b03b45fc9c5bb30485c496f91265cda66a2ac0cb35559a8"
+    sha256: "sha256:b5e98b330e9948868aa4ee262f53c74687d2c941a119a33e79aa19781eba82d3"
   - path: docs/ir/cli/symlink-diff.md
     sha256: "sha256:9a4ae2b2851bf56b95b381d1476f00791b4449b8e6c725cf32688eb2f2813272"
   - path: docs/ir/cli/diff-output.md
@@ -101,8 +182,19 @@ entries:
   - path: docs/ir/merge/symlink.md
     sha256: "sha256:cc07c227b58431e0be74a71e6cf68a776c7a4fa5dea8b67058c8d9d6b43f38ff"
   conclusion: existing
-  reason: "SSH の経路のパスの検査スクリプトをローカル（とエージェント）の検査と同じ規則に書き直し、lstat が ENOENT で失敗したときだけ missing（実パスは末尾の要素を含めない）にし、通常ファイルの下・検索権限のないディレクトリの中・自分を指す symlink・リンク切れやループする祖先の symlink の下・存在するディレクトリのすぐ下の NAME_MAX を超える名前・リンク先の存在しない部分の \"..\" はエラーにする。ローカルの検査が lstat する文字列（存在しないパスはそのパス、ぶら下がったリンク先はつないだリンク先の Path::parent() で、末尾の \"/\" と \".\" の要素だけを除き途中の \".\" と \"//\" は残した親）が終端の NUL を含めて PATH_MAX（getconf PATH_MAX /、Linux では 4096 バイト）を超えるときは、ローカルと同じくエラーにする。リンク先の存在の判定と解決は、ローカルの canonicalize（realpath）が要素ごとに辿るのと同じ結果になる形で行う。途中の \".\" と続く \"/\" を除き、末尾の \"/\" と \"/.\" はディレクトリを求める印としてそろえ、それでも PATH_MAX を超えれば収まる最も長いディレクトリの祖先を実パスに置き換える。\"..\" は symlink の先で意味が変わるので文字列では畳まない。リンク先や検査するパスの存在しない部分にある \".\" の要素は、ローカルと同じく答えのパスに残さない。readlink の答えは番兵を足して受け取り、改行で終わる名前やリンク先も削らずに読む。答えは種類とパスを NUL で終えて返し、試験 SSH サーバの模擬の応答（ssh_server.rs）も同じ形にした。これで途中に改行を含むリンク先が読み違えられて root_dir の内側に見えることがなくなり、REQ-cli-026 の root_dir の外の判定が SSH の経路でもローカルと同じ実パスで行われる。REQ-backup-003 のとおり、辿れないパスを含むセッションの rollback は SSH でも一件も書き戻さず全件を \"cannot resolve path: \" で報告し、REQ-backup-033 のリンク切れの末尾の symlink は今までどおり辿った先の場所で比べる。祖先のリンク切れの symlink を辿れないパスと読むことは決定記録 A1 に残した。REQ-backup-031 と EX-backup-027・EX-backup-029・EX-backup-030 のとおり、戻す先の検査が失敗し、戻す先より上の祖先（root_dir は除く）のどれかが辿った先で通常ファイルと分かったとき \"parent directory no longer exists\" でスキップする判定を engine の純粋関数に置き、祖先の種類をローカル・SSH・エージェントで調べる操作を TargetIo に足した。祖先が FIFO・デバイス・ソケットかそれらを指す symlink のときと、リンク切れの symlink のときはスキップせず \"cannot resolve path: \" で止める。範囲をすぐ上の親から祖先と通常ファイルを指す symlink に広げたことは利用者の判断（A2）で、REQ-backup-031 の文と例も同じ範囲に改めた。エージェントの crate と通信の型は変えていない。StatFiles が root_dir の外へ辿る祖先を拒否するため、その場合だけエージェントの経路はスキップせず \"cannot resolve path: \" で止まる既知の違いを A3 に記した。target_io.rs の SSH の子の一覧の検査、side_io.rs のその単体テスト、scan_listing_cli.rs の AgentFixture の起動関数、contract.rs の mod 行は、REQ-cli-078 と REQ-merge-007 の変更と共有するファイルなのでこの組に含めた。"
+  reason: "rollback・diff・merge・sync が使うパスの確認を、ローカル・SSH・エージェントのどの経路でも同じ手順で \"/\" から要素ごとに辿る形に作り直した（REQ-paths-001〜011）。手順は core の path_resolution に一つの関数として置き、lstat の種類・readlink・検索権限の基本操作を外から受け取る。ローカルとエージェントは標準ライブラリと libc の同じ基本操作（検索権限は faccessat の AT_EACCESS）を使い、相対の root_dir は作業ディレクトリにつないでから辿る（A51）。結果は存在しない（親が存在するかの印つき）・存在する・末尾の symlink・途中の祖先がディレクトリでないの四つで、辿れないときは閉じた一覧の原因の文言で \"cannot resolve path: \" のエラーにする。長さ 4096・255 バイトと symlink 40 回の上限、末尾の \"/\"、リンク切れ、存在しない部分の \"..\"、UTF-8 でないリンク文字列は、要素ごとに決まった順で確かめる。エージェントの通信の型をこの四つの種類と原因の文言に変えて通信の版を 5 に上げ、版が 5 未満なら確認だけ SSH で行い、sudo を使うサーバでは置き直しを求めるエラーにする（経路を選ぶ純粋関数 path_route）。SSH の確認スクリプトは同じ状態と順の POSIX sh に書き直し、root_dir と相対パスを分けて渡す。検索権限は cd の成否で判定し（A48）、先頭で LC_ALL=C を代入し（A49）、読んだリンク文字列を出力に含めて製品がバイト列のまま読む（A50、そのため ssh の crate のバイト列の実行関数を公開した）。読み取りは一覧にない文言・知らない種類・欠けた欄・余った欄をエラーにする。試験 SSH サーバの模擬の応答（ssh_server.rs）も新しい形にした。rollback は確認の結果を純粋な関数で読み、途中の祖先が通常ファイル（か通常ファイルを指す symlink）ならスキップ、それ以外のディレクトリでない祖先は REQ-backup-003 のエラーにし、祖先が通常ファイルかを経路ごとに問い合わせていた処理は消した（EX-backup-027・029・030 の三つの経路のテストは変えずに通る）。確認の原因の文言には接頭辞を二重に足さない。rollback 以外（diff・merge・sync・バックアップの作成）は途中の祖先がディレクトリでないことを \"cannot resolve path: not a directory\" のエラーとして受け取り（CoreRuntime の確認の入口の一か所で読み替える）、diff の root の外のリンクの判定は確認のエラーをパスごとのエラーとして示す。普通のパスでは新しい実パスが canonicalize の結果とバイト列で同じことを確かめた（A13）。三つの経路の一致は、例の状態の表と生成した状態の proptest で、ローカル・このマシンの sh で動かしたスクリプト・通信の形式で往復させたエージェントの答えを比べて確かめる。このブランチの前半で入れた REQ-backup-031 の祖先の範囲（A2）と、その三つの経路の契約テスト（rollback_path_ssh.rs・rollback_path_agent.rs、scan_listing_cli.rs の AgentFixture の起動関数）もこの組に含める。target_io.rs・side_io.rs・contract.rs・diff.rs・merge_paths.rs は REQ-cli-078 と REQ-merge-007 の変更と共有する。"
   requirements:
+  - REQ-paths-001
+  - REQ-paths-002
+  - REQ-paths-003
+  - REQ-paths-004
+  - REQ-paths-005
+  - REQ-paths-006
+  - REQ-paths-007
+  - REQ-paths-008
+  - REQ-paths-009
+  - REQ-paths-010
+  - REQ-paths-011
   - REQ-backup-003
   - REQ-backup-031
   - REQ-backup-033
@@ -110,6 +202,52 @@ entries:
   - REQ-cli-078
   - REQ-merge-007
   decisions:
+  - docs/decision/records/2026-10-06-path-resolution.md#A1
+  - docs/decision/records/2026-10-06-path-resolution.md#A2
+  - docs/decision/records/2026-10-06-path-resolution.md#A3
+  - docs/decision/records/2026-10-06-path-resolution.md#A4
+  - docs/decision/records/2026-10-06-path-resolution.md#A5
+  - docs/decision/records/2026-10-06-path-resolution.md#A6
+  - docs/decision/records/2026-10-06-path-resolution.md#A7
+  - docs/decision/records/2026-10-06-path-resolution.md#A8
+  - docs/decision/records/2026-10-06-path-resolution.md#A9
+  - docs/decision/records/2026-10-06-path-resolution.md#A10
+  - docs/decision/records/2026-10-06-path-resolution.md#A11
+  - docs/decision/records/2026-10-06-path-resolution.md#A12
+  - docs/decision/records/2026-10-06-path-resolution.md#A13
+  - docs/decision/records/2026-10-06-path-resolution.md#A14
+  - docs/decision/records/2026-10-06-path-resolution.md#A16
+  - docs/decision/records/2026-10-06-path-resolution.md#A17
+  - docs/decision/records/2026-10-06-path-resolution.md#A19
+  - docs/decision/records/2026-10-06-path-resolution.md#A20
+  - docs/decision/records/2026-10-06-path-resolution.md#A21
+  - docs/decision/records/2026-10-06-path-resolution.md#A22
+  - docs/decision/records/2026-10-06-path-resolution.md#A24
+  - docs/decision/records/2026-10-06-path-resolution.md#A25
+  - docs/decision/records/2026-10-06-path-resolution.md#A26
+  - docs/decision/records/2026-10-06-path-resolution.md#A27
+  - docs/decision/records/2026-10-06-path-resolution.md#A28
+  - docs/decision/records/2026-10-06-path-resolution.md#A29
+  - docs/decision/records/2026-10-06-path-resolution.md#A30
+  - docs/decision/records/2026-10-06-path-resolution.md#A31
+  - docs/decision/records/2026-10-06-path-resolution.md#A32
+  - docs/decision/records/2026-10-06-path-resolution.md#A33
+  - docs/decision/records/2026-10-06-path-resolution.md#A36
+  - docs/decision/records/2026-10-06-path-resolution.md#A37
+  - docs/decision/records/2026-10-06-path-resolution.md#A38
+  - docs/decision/records/2026-10-06-path-resolution.md#A39
+  - docs/decision/records/2026-10-06-path-resolution.md#A40
+  - docs/decision/records/2026-10-06-path-resolution.md#A41
+  - docs/decision/records/2026-10-06-path-resolution.md#A42
+  - docs/decision/records/2026-10-06-path-resolution.md#A43
+  - docs/decision/records/2026-10-06-path-resolution.md#A44
+  - docs/decision/records/2026-10-06-path-resolution.md#A45
+  - docs/decision/records/2026-10-06-path-resolution.md#A46
+  - docs/decision/records/2026-10-06-path-resolution.md#A47
+  - docs/decision/records/2026-10-06-path-resolution.md#A48
+  - docs/decision/records/2026-10-06-path-resolution.md#A49
+  - docs/decision/records/2026-10-06-path-resolution.md#A50
+  - docs/decision/records/2026-10-06-path-resolution.md#A51
   - docs/decision/records/2026-10-05-quality-backup.md#A2
   - docs/decision/records/2026-10-05-path-validation.md#A1
   - docs/decision/records/2026-10-05-path-validation.md#A2
