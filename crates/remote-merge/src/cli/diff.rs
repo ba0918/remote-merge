@@ -1045,7 +1045,8 @@ fn compute_statuses_and_resolve(
 
     // Refine statuses with content comparison for metadata-ambiguous files
     // 読めなかったパスは状態を変えずに残し（名前で指定したパスを「ない」にしない）、指定した
-    // パスに当たるものだけを読めなかった理由とともに誤りにする。一件ずつの比較で読み直さない
+    // パスに当たるものだけを読めなかった理由とともに誤りにする。読めなかったパスは一件ずつの
+    // 比較で読み直さない
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     let left_reads = read_contents(core, left, &paths_to_compare, limit);
     let right_reads = read_contents(core, right, &paths_to_compare, limit);

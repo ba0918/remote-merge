@@ -1,7 +1,8 @@
 //! CLI サブコマンド（diff, merge, sync, status）が共通して使う、中身の読み込み。
 //!
 //! 中身はすべて `read_contents` で読み、パスごとの結果（読めた中身か読めなかった理由）を
-//! `ContentReads` で受け取る。呼び出し元は失敗を捨てず、同じパスを読み直さない。
+//! `ContentReads` で受け取る。呼び出し元は失敗を捨てず、読めなかったパスを読み直してその失敗を
+//! 消さない（読めた中身を後の段でもう一度読むことは妨げない）。
 
 use crate::runtime::size_limit::{SizeLimit, SizeQueryFailed};
 use crate::runtime::CoreRuntime;
