@@ -296,6 +296,101 @@ fn a_config_path_through_a_sibling_directory_gives_the_same_local_write_target()
     );
 }
 
+/// root_dir が "." の設定を置いたディレクトリと、その設定。`develop` の側に新しい内容を置く
+fn dot_root_project(base: &TempDir, develop: &TempDir) -> (std::path::PathBuf, AppConfig) {
+    let project = base.path().join("proj");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("file.txt"), "old local\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
+    let path = project.join(".remote-merge.toml");
+    fs::write(
+        &path,
+        format!(
+            "[local]\nroot_dir = \".\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
+            develop.path().display().to_string()
+        ),
+    )
+    .unwrap();
+    let config = remote_merge::config::load_config_from_paths(Some(&path), None).unwrap();
+    (project, config)
+}
+
+/// 相対の root_dir を設定読み込み時のカレントディレクトリ `startup` につないで正規化せずに
+/// 書き込み先を決めていた版のように、"startup/." の root_dir で develop から local へ merge する
+fn merge_as_the_previous_version(
+    config: &AppConfig,
+    startup: &std::path::Path,
+    targets: RuntimeTargets,
+) {
+    let mut previous = config.clone();
+    previous.local.root_dir = startup.join(".");
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    let output = merge_files(
+        args,
+        previous,
+        targets.with_startup_directory(startup.into()),
+    );
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+}
+
+// @kotowari[REQ-backup-043, EX-backup-024]
+#[test]
+fn ex_backup_024_a_session_saved_before_the_relative_root_changed_its_base_is_listed_and_restored()
+{
+    let base = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let (project, config) = dot_root_project(&base, &develop);
+    merge_as_the_previous_version(&config, &project, targets(&develop, &store));
+    assert_eq!(
+        fs::read_to_string(project.join("file.txt")).unwrap(),
+        "new remote\n"
+    );
+    let from_project = || targets(&develop, &store).with_startup_directory(project.clone());
+
+    let listed = listed_sessions("local", config.clone(), from_project());
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    restore(rollback_args("local", None), config, from_project());
+
+    assert_eq!(
+        fs::read_to_string(project.join("file.txt")).unwrap(),
+        "old local\n"
+    );
+}
+
+// @kotowari[REQ-backup-043]
+#[test]
+fn an_expired_session_saved_under_the_previous_local_identity_is_cleaned_up() {
+    let base = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let (project, config) = dot_root_project(&base, &develop);
+    merge_as_the_previous_version(
+        &config,
+        &project,
+        targets_at(&develop, &store, at(2020, 1, 1)),
+    );
+    let later =
+        || targets_at(&develop, &store, at(2020, 1, 8)).with_startup_directory(project.clone());
+    let listed = listed_sessions("local", config.clone(), later());
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert!(listed[0].expired, "{listed:?}");
+
+    fs::write(develop.path().join("file.txt"), "newer remote\n").unwrap();
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    merge_files(args, config.clone(), later());
+
+    let ids: Vec<String> = listed_sessions("local", config, later())
+        .into_iter()
+        .map(|session| session.session_id)
+        .collect();
+    assert!(!ids.contains(&"20200101-000000".to_string()), "{ids:?}");
+}
+
 // @kotowari[REQ-backup-021]
 #[test]
 fn local_root_symlink_retargeting_keeps_existing_sessions_visible() {

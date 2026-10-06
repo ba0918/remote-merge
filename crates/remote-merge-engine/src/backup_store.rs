@@ -9,7 +9,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::backup::{local_target_identity, next_session_id, remote_target_identity};
+use crate::backup::{
+    local_target_identity, next_session_id, previous_local_target_identity, remote_target_identity,
+};
 use crate::side::Side;
 use remote_merge_config::AppConfig;
 
@@ -274,8 +276,7 @@ impl BackupStore {
             .root
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
-        let description = target_description(config, target, &self.startup_directory)?;
-        let target_key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let target_keys = target_keys(config, target, &self.startup_directory)?;
         let Ok(entries) = fs::read_dir(root.join("sessions")) else {
             return Ok(Vec::new());
         };
@@ -287,7 +288,10 @@ impl BackupStore {
             if crate::backup::parse_session_id(&session_id).is_none() {
                 continue;
             }
-            let Ok(records) = fs::read_dir(entry.path().join(&target_key).join("records")) else {
+            let Some(records) = session_records_dir(&entry.path(), &target_keys) else {
+                continue;
+            };
+            let Ok(records) = fs::read_dir(records) else {
                 continue;
             };
             let mut files = Vec::new();
@@ -348,15 +352,12 @@ impl BackupStore {
             .root
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
-        let description = target_description(config, target, &self.startup_directory)?;
-        let target_key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let target_keys = target_keys(config, target, &self.startup_directory)?;
+        let session_dir = root.join("sessions").join(session_id);
+        let records_dir = session_records_dir(&session_dir, &target_keys)
+            .unwrap_or_else(|| session_dir.join(&target_keys[0]).join("records"));
         let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
-        let record_dir = root
-            .join("sessions")
-            .join(session_id)
-            .join(target_key)
-            .join("records")
-            .join(entry_key);
+        let record_dir = records_dir.join(entry_key);
         let record: StoredBackupRecord =
             serde_json::from_slice(&fs::read(record_dir.join("record.json"))?)?;
         match record {
@@ -402,17 +403,50 @@ fn create_temporary_entry(parent: &Path) -> std::io::Result<PathBuf> {
     }
 }
 
+/// 設定にあるすべての書き込み先の、今と以前の識別のキー。期限切れの整理の対象になる
 fn configured_target_keys(
     config: &AppConfig,
     startup_directory: &Path,
 ) -> anyhow::Result<Vec<String>> {
-    std::iter::once(Side::Local)
-        .chain(config.servers.keys().cloned().map(Side::Remote))
-        .map(|target| {
-            let description = target_description(config, &target, startup_directory)?;
-            Ok(format!("{:x}", Sha256::digest(description.as_bytes())))
-        })
-        .collect()
+    let mut keys = Vec::new();
+    for target in
+        std::iter::once(Side::Local).chain(config.servers.keys().cloned().map(Side::Remote))
+    {
+        keys.extend(target_keys(config, &target, startup_directory)?);
+    }
+    Ok(keys)
+}
+
+/// 書き込み先のキー。先頭が今の識別のキーで、続いて以前の版の識別のキー（REQ-backup-043）を
+/// 重複なく並べる
+fn target_keys(
+    config: &AppConfig,
+    target: &Side,
+    startup_directory: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let mut descriptions = vec![target_description(config, target, startup_directory)?];
+    if let Side::Local = target {
+        let previous = previous_local_target_identity(&config.local, startup_directory)
+            .root_dir()
+            .display()
+            .to_string();
+        if !descriptions.contains(&previous) {
+            descriptions.push(previous);
+        }
+    }
+    Ok(descriptions
+        .iter()
+        .map(|description| format!("{:x}", Sha256::digest(description.as_bytes())))
+        .collect())
+}
+
+/// セッションの中で、キーの並びのうち最初に記録がある書き込み先の記録のディレクトリ。
+/// 一覧と書き戻しは同じ規則で選ぶ
+fn session_records_dir(session_dir: &Path, target_keys: &[String]) -> Option<PathBuf> {
+    target_keys
+        .iter()
+        .map(|key| session_dir.join(key).join("records"))
+        .find(|records| records.is_dir())
 }
 
 fn target_description(
