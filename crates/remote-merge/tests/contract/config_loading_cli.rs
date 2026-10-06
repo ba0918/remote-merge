@@ -330,6 +330,19 @@ fn local_root_starting_with_tilde_is_resolved_under_home() {
     assert_eq!(listed_paths(&json), ["under-home.txt"]);
 }
 
+// @kotowari[REQ-config-041]
+#[test]
+fn an_empty_local_root_stops_with_the_reason() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    fs::write(cwd.join("in-work.txt"), "only in the working directory\n").unwrap();
+    workspace.write_config(&cwd.join(".remote-merge.toml"), Path::new(""));
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_stops_with(&output, "root_dir must not be empty");
+}
+
 // @kotowari[REQ-config-040, EX-config-016]
 #[test]
 fn ex_config_016_a_relative_local_root_is_resolved_from_the_directory_of_the_given_config() {

@@ -492,6 +492,13 @@ fn merge_configs(
             field: "local".into(),
             message: "[local] section is required".into(),
         })?;
+    // 空の root_dir は基準のディレクトリにつなぐ前に止める（つなぐと設定ファイルの場所になる）
+    if local_raw.root_dir.is_empty() {
+        bail!(AppError::ConfigValidation {
+            field: "local.root_dir".into(),
+            message: "root_dir must not be empty".into(),
+        });
+    }
     let local = LocalConfig {
         root_dir: resolve_local_root(&local_raw.root_dir, &local_raw.config_dir),
     };
