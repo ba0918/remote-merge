@@ -20,7 +20,7 @@
 
 ### REQ-config-007: --config の指定先がなければ止める
 - kind: event_driven
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A3
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A3, docs/decision/records/2026-10-06-path-resolution.md#A64
 - verification: unit
 
 --config の指定先が存在しないときは "Config file not found: 絶対パス"、通常のファイルでないときは "Config path is not a regular file: 絶対パス" のエラーで止まり、終了コード 2 を返す。
@@ -63,10 +63,10 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A56, docs/decision/records/2026-10-06-path-resolution.md#A59, docs/decision/records/2026-10-06-path-resolution.md#A60, docs/decision/records/2026-10-06-path-resolution.md#A61, docs/decision/records/2026-10-06-path-resolution.md#A62, docs/decision/records/2026-10-06-path-resolution.md#A63
+- source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A65
 - verification: unit
 
-[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、設定ファイルの絶対パスから "." の要素を除き、".." の要素ごとに直前の要素を調べて、symlink でなければ字面で一つ上の要素と打ち消し、symlink ならそこまでの部分全体（それより前の symlink を含む）を実パスに直してから一つ上へ移ったものの親とする。どの ".." の解決にも関わらない symlink は辿らずに字面のまま残す。".." の直前の要素は利用者が書いた設定ファイルのパスの形（相対ならカレントディレクトリからの相対）で調べ、調べられないとき、またはそれが symlink で実パスに直せないとき（読んだ後に消されたか権限が変わったとき、実パスが PATH_MAX を超えるときを含む）は、設定の読み込みをエラーで止める。
+[local] の root_dir が相対パスのとき、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に解決する。設定ファイルのディレクトリは、設定ファイルのパスを実パスに直したものの親とし、実パスに直せないときは設定の読み込みをエラーで止める。
 
 ### REQ-config-041: 空のローカルの root_dir で止める
 - kind: event_driven
