@@ -210,14 +210,12 @@ fn sessions_for_two_write_targets_remain_separate() {
 
 // @kotowari[REQ-backup-021]
 #[test]
-fn relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in() {
-    // 相対の root_dir でローカルへ書き込むため、ビルド先の場所に左右されないよう
-    // 作業ディレクトリの直下に一時ディレクトリを作る
-    let startup = std::env::current_dir().unwrap();
-    let base = TempDir::new_in(&startup).unwrap();
-    let relative_root = std::path::Path::new(base.path().file_name().unwrap()).join("project");
+fn relative_local_root_is_identified_from_the_directory_of_its_config_file() {
+    let base = TempDir::new().unwrap();
     fs::create_dir(base.path().join("project")).unwrap();
+    let startup = base.path().join("startup");
     let other_startup = base.path().join("elsewhere");
+    fs::create_dir(&startup).unwrap();
     fs::create_dir(&other_startup).unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -227,8 +225,7 @@ fn relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in
     fs::write(
         &config_path,
         format!(
-            "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
-            relative_root.display().to_string(),
+            "[local]\nroot_dir = \"project\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[backup]\nenabled = true\n",
             develop.path().display().to_string()
         ),
     )
@@ -237,20 +234,22 @@ fn relative_local_root_is_identified_from_the_directory_the_config_was_loaded_in
     let mut args = merge_args("file.txt");
     args.left = Some("develop".into());
     args.right = Some("local".into());
-    let output = merge_files(args, config.clone(), targets(&develop, &store));
+    let output = merge_files(
+        args,
+        config.clone(),
+        targets(&develop, &store).with_startup_directory(startup.clone()),
+    );
     assert_eq!(output.merged.len(), 1, "{output:?}");
     assert_eq!(
         fs::read_to_string(base.path().join("project/file.txt")).unwrap(),
         "new remote\n"
     );
 
-    let from_startup = targets(&develop, &store).with_startup_directory(startup);
-    let from_elsewhere = targets(&develop, &store).with_startup_directory(other_startup);
-    assert_eq!(
-        listed_sessions("local", config.clone(), from_startup).len(),
-        1
-    );
-    assert!(listed_sessions("local", config, from_elsewhere).is_empty());
+    // 書き込み先は設定ファイルの場所で決まり、起動したディレクトリによらない
+    for directory in [startup, other_startup] {
+        let from = targets(&develop, &store).with_startup_directory(directory);
+        assert_eq!(listed_sessions("local", config.clone(), from).len(), 1);
+    }
 }
 
 // @kotowari[REQ-backup-021]

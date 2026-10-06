@@ -263,6 +263,9 @@ struct RawSshOptions {
 #[derive(Debug, Deserialize)]
 struct RawLocalConfig {
     root_dir: String,
+    /// この root_dir を書いた設定ファイルのあるディレクトリ（絶対パス）。読み込んだ後に入れる
+    #[serde(skip)]
+    config_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -416,9 +419,36 @@ fn specifies_badge_scan_max_files(raw: Option<&RawConfig>) -> bool {
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-    let raw: RawConfig =
+    let mut raw: RawConfig =
         toml::from_str(&content).map_err(|e| AppError::ConfigParse { source: e })?;
+    if let Some(local) = raw.local.as_mut() {
+        local.config_dir = config_directory(path)?;
+    }
     Ok(raw)
+}
+
+/// 設定ファイル `path` のあるディレクトリの絶対パス。相対の `path` はカレントディレクトリを基準にする
+fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
+    let absolute = std::path::absolute(path).with_context(|| {
+        format!(
+            "Failed to resolve the directory of config file: {}",
+            path.display()
+        )
+    })?;
+    Ok(absolute
+        .parent()
+        .map_or_else(|| absolute.clone(), Path::to_path_buf))
+}
+
+/// [local] の root_dir を解決する。"~/" はホームに展開し（REQ-config-010）、それでも相対のパスは
+/// その root_dir を書いた設定ファイルのあるディレクトリ `config_dir` を基準にする（REQ-config-040）。
+/// "." の要素は除き、".." は辿るときに解決するので残す
+fn resolve_local_root(root_dir: &str, config_dir: &Path) -> PathBuf {
+    let expanded = expand_tilde(root_dir);
+    if expanded.is_absolute() {
+        return expanded;
+    }
+    config_dir.join(expanded).components().collect()
 }
 
 fn merge_configs(
@@ -463,7 +493,7 @@ fn merge_configs(
             message: "[local] section is required".into(),
         })?;
     let local = LocalConfig {
-        root_dir: expand_tilde(&local_raw.root_dir),
+        root_dir: resolve_local_root(&local_raw.root_dir, &local_raw.config_dir),
     };
 
     // filter: 和集合でマージ

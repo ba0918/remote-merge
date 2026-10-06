@@ -330,6 +330,44 @@ fn local_root_starting_with_tilde_is_resolved_under_home() {
     assert_eq!(listed_paths(&json), ["under-home.txt"]);
 }
 
+// @kotowari[REQ-config-040, EX-config-016]
+#[test]
+fn ex_config_016_a_relative_local_root_is_resolved_from_the_directory_of_the_given_config() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let project = workspace.local_root_with("proj", "in-project.txt");
+    fs::write(cwd.join("in-work.txt"), "only in the working directory\n").unwrap();
+    workspace.write_config(&project.join(".remote-merge.toml"), Path::new("."));
+
+    let json = workspace.status_json(&cwd, Some("../proj/.remote-merge.toml"));
+
+    assert_eq!(
+        listed_paths(&json),
+        [".remote-merge.toml", "in-project.txt"]
+    );
+}
+
+// @kotowari[REQ-config-040]
+#[test]
+fn a_relative_local_root_in_the_global_config_is_resolved_from_its_directory() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    fs::write(cwd.join("in-work.txt"), "only in the working directory\n").unwrap();
+    let global = workspace.global_config_path();
+    let beside_global = global.parent().unwrap().join("local-root");
+    fs::create_dir_all(&beside_global).unwrap();
+    fs::write(
+        beside_global.join("beside-global.txt"),
+        "only on the local side\n",
+    )
+    .unwrap();
+    workspace.write_config(&global, Path::new("local-root"));
+
+    let json = workspace.status_json(&cwd, None);
+
+    assert_eq!(listed_paths(&json), ["beside-global.txt"]);
+}
+
 // ─── 設定を使わないサブコマンドの --config（REQ-config-028） ─────────────────
 
 // @kotowari[REQ-config-028]
