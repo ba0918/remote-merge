@@ -38,8 +38,8 @@ use std::path::{Path, PathBuf};
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
 /// plain_file_sizes, read_errors）。plain_file_sizes は diff_files のうち、中身を読む前に通常の
 /// ファイルと分かっているパスの左右の大きさ（ない側は None）。--max-files の枠が埋まった後に
-/// 読まずに数えてよいかの判定に使う。read_errors は状態を決めるために中身を読めなかったパスで、
-/// diff_files には入れない。
+/// 読まずに数えてよいかの判定に使う。read_errors は名前で指定したファイルの状態を決めるために
+/// 中身を読めなかったパスで、diff_files には入れない。
 type DiffScanResult = (
     FileTree,
     FileTree,
@@ -1003,32 +1003,20 @@ fn compute_statuses_and_resolve(
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
-    // 読めなかったパスは状態を変えずに残し（名前で指定したパスを「ない」にしない）、
-    // diff_files からだけ外して誤りにする
+    // 読めなかったパスは状態を変えずに残す（名前で指定したパスを「ない」にしない）。変更のある
+    // ファイルとして一件ずつの比較に回り、そこで他の経路と同じ理由で誤りになる
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
-    let mut read_errors = Vec::new();
     if !paths_to_compare.is_empty() {
         let left_batch = fetch_contents_required(left, &paths_to_compare, core, limit);
         let right_batch = fetch_contents_required(right, &paths_to_compare, core, limit);
         let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
         refine_status_with_content(&mut statuses, &verified.pairs);
-        read_errors = verified
-            .failures
-            .into_iter()
-            .map(|failure| DiffError {
-                path: failure.path,
-                reason: failure.error,
-            })
-            .collect();
     }
 
     let target_files =
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    // 走査は指定の外のファイルも読み比べるので、誤りは指定したパスのものだけにする
-    let requested: HashSet<&str> = existing_files.iter().map(String::as_str).collect();
-    read_errors.retain(|error| requested.contains(error.path.as_str()));
     let empty_directories = directories_without_files(paths, &existing_files, left, right, core);
     for path in missing_files
         .iter()
@@ -1041,14 +1029,7 @@ fn compute_statuses_and_resolve(
         anyhow::bail!("specified path(s) not found on either side");
     }
 
-    let unreadable: HashSet<&str> = read_errors
-        .iter()
-        .map(|error| error.path.as_str())
-        .collect();
-    let diff_files: Vec<String> = filter_changed_files(&existing_files, &statuses)
-        .into_iter()
-        .filter(|path| !unreadable.contains(path.as_str()))
-        .collect();
+    let diff_files = filter_changed_files(&existing_files, &statuses);
     let plain_file_sizes = diff_files
         .iter()
         .filter_map(|path| {
@@ -1062,7 +1043,7 @@ fn compute_statuses_and_resolve(
         existing_files,
         diff_files,
         plain_file_sizes,
-        read_errors,
+        Vec::new(),
     ))
 }
 

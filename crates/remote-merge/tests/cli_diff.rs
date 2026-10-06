@@ -2149,3 +2149,26 @@ fn req_cli_022_the_reason_for_an_unreadable_link_target_carries_the_read_failure
     let reason = json["errors"][0]["reason"].as_str().unwrap_or_default();
     assert!(reason.contains(&read_failure), "{read_failure}: {json}");
 }
+
+// 読めなかった理由は、名前で読むときも走査して読むときも同じ形で出す
+// @kotowari[REQ-cli-089]
+#[test]
+fn req_cli_089_the_reason_does_not_depend_on_how_the_file_was_compared() {
+    // 大きさを同じにし、走査でも中身を読み比べる組にする
+    let env = CliEnv::new(&[("a.txt", "left\n")], &[("a.txt", "rite\n")]);
+    std::fs::File::options()
+        .write(true)
+        .open(env.local_dir.join("a.txt"))
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
+        .unwrap();
+    if !make_unreadable(&env.remote_dir.join("a.txt")) {
+        return;
+    }
+
+    let (_, named) = diff_json(&env, &["a.txt"]);
+    let (_, scanned) = diff_json(&env, &[]);
+
+    assert_eq!(listed_paths(&named, "errors"), vec!["a.txt"], "{named}");
+    assert_eq!(named["errors"], scanned["errors"], "{named}\n{scanned}");
+}
