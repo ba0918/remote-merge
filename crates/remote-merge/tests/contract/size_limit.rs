@@ -3,8 +3,8 @@
 //! REQ-cli-074 の後半）の契約テスト。
 //!
 //! 104,857,600 バイトを超えるファイルは、ディスクを使わない疎なファイルにする。上限で読まない
-//! ことは中身を読まないので軽い。--force で実際に読むテストは重いので、`.config/nextest.toml` の
-//! 一つずつ走らせる組に入れる。
+//! ことは中身を読まないので軽い。上限を当てずに実際に読むテストは重いので、`.config/nextest.toml` の
+//! 一つずつ走らせる組に入れ、同じプロセスの中でも一つずつ走らせる。
 //!
 //! 読む前に大きさで決めたことは、上限を超える疎なファイルのモードを 000 にして示す。大きさは
 //! 調べられるが、読めば権限のエラーになる。中身を読まなかったことは、試験 SSH サーバが受けた
@@ -18,6 +18,17 @@ use std::process::Output;
 
 use super::common::CliEnv;
 use super::scan_listing_cli::AgentFixture;
+
+/// 100MB を超える中身を実際に読むテストを、同じプロセスの中で一つずつ走らせる。nextest は
+/// `.config/nextest.toml` の組で別のプロセスを一つずつにするが、cargo test はそれを読まない
+static OVERSIZED_READS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn one_oversized_read_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    // 前のテストが失敗して毒されても、一つずつ走らせることだけに使うので続ける
+    OVERSIZED_READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// 上限ちょうどの大きさ（これより大きいファイルは上限を超える）
 const LIMIT: u64 = 104_857_600;
@@ -229,6 +240,7 @@ async fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_i
 // @kotowari[REQ-cli-074, REQ-cli-079]
 #[test]
 fn req_cli_074_force_lets_merge_write_a_file_over_the_limit() {
+    let _serial = one_oversized_read_at_a_time();
     let env = CliEnv::new(&[], &[]);
     place_sparse(&env.local_dir.join("big.bin"), LIMIT + 1, b'x');
     let remote = env.remote_dir.join("big.bin");
@@ -334,6 +346,7 @@ async fn a_file_size_query_interrupted_twice_is_reported_without_a_third_attempt
 // @kotowari[REQ-cli-094]
 #[test]
 fn req_cli_094_status_compares_the_contents_of_files_over_the_limit() {
+    let _serial = one_oversized_read_at_a_time();
     let env = CliEnv::new(&[], &[]);
     let local = env.local_dir.join("big.bin");
     place_sparse(&local, LIMIT + 1, b's');
@@ -370,6 +383,7 @@ fn req_cli_094_status_compares_the_contents_of_files_over_the_limit() {
 // @kotowari[EX-cli-082]
 #[test]
 fn ex_cli_082_force_lets_diff_compare_files_over_the_limit() {
+    let _serial = one_oversized_read_at_a_time();
     let env = CliEnv::new(&[], &[]);
     place_two_oversized_files(&env.local_dir, &env.remote_dir);
 
@@ -416,6 +430,7 @@ fn backups_of(env: &CliEnv) -> std::path::PathBuf {
 // @kotowari[EX-cli-083]
 #[test]
 fn ex_cli_083_force_backs_up_a_file_over_the_limit_before_deleting_it() {
+    let _serial = one_oversized_read_at_a_time();
     let env = CliEnv::new(&[], &[]);
     let remote = env.remote_dir.join("big.bin");
     place_sparse(&remote, LIMIT + 1, b'r');
@@ -440,6 +455,7 @@ fn ex_cli_083_force_backs_up_a_file_over_the_limit_before_deleting_it() {
 // @kotowari[REQ-cli-079]
 #[test]
 fn req_cli_079_force_backs_up_a_file_over_the_limit_before_rollback_restores_it() {
+    let _serial = one_oversized_read_at_a_time();
     let env = CliEnv::new(&[("a.txt", "new\n")], &[("a.txt", "old\n")]);
     let merged = merge_over_ssh(&env, &["a.txt"]);
     assert_eq!(merged.status.code(), Some(0), "{merged:?}");
