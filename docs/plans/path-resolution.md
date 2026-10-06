@@ -12,7 +12,7 @@ IR は `docs/ir/`。この計画が扱う要件と例:
 - `docs/ir/paths/routes.md#REQ-paths-008` から `#REQ-paths-011`、例 EX-paths-019 から EX-paths-022 と EX-paths-024
 - 振る舞いを保つ既存の要件: `docs/ir/backup/rollback-path.md#REQ-backup-003`、`#REQ-backup-031`、`#REQ-backup-033`（例 EX-backup-027、EX-backup-029、EX-backup-030 とその三つの経路のテスト）、`docs/ir/cli/symlink-diff.md#REQ-cli-026`
 
-判断の根拠は `docs/decision/records/2026-10-06-path-resolution.md` の A1〜A47（A15・A34・A35 は A43・A46・A44 に置き換わっている）。A40・A41 はこの計画で決めた（置き場所とテストの置き方）。
+判断の根拠は `docs/decision/records/2026-10-06-path-resolution.md` の A1〜A50（A15・A34・A35 は A43・A46・A44 に、A43 は A48 に置き換わっている。A48〜A50 は実装の前の確かめで決めた）。A40・A41 はこの計画で決めた（置き場所とテストの置き方）。
 
 背景: このブランチ（path-validation）では、SSH の確認スクリプトにカーネル・realpath・`Path::parent()` の振る舞いを真似させる修正を三回重ねたが、そのたびに新しい経路差か退行が見つかった。findings ファイル `.agents/artifacts/reviews/path-validation.json`（作業ツリーの外の記録で、実装者は読まなくてよい）の 15〜17 がその残りで、次の形をしている。この計画の例がそれぞれを押さえる。
 
@@ -55,10 +55,12 @@ IR は `docs/ir/`。この計画が扱う要件と例:
   - 上限（4096 バイト、255 バイト、40 回）は固定の定数とし、OS に届く前に自前で止める（REQ-paths-003・REQ-paths-004）。
   - 辿っている実パスは常に "/" から始まる symlink を含まない文字列として持ち、".." はその文字列の親に移る。
 - SSH のスクリプトは同じ手順を POSIX sh で書き直す（A15）。
-  - 使ってよいのは `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -x ]`・`[ -f ]`、組み込みの printf と command -v、オプションなしの readlink だけ（A43）で、readlink -f・getconf・今の kernel_form や rust_parent は使わない。
+  - 使ってよいのは `[ -L ]`・`[ -d ]`・`[ -e ]`・`[ -f ]`、組み込みの cd・printf・command -v、オプションなしの readlink だけ（A48）で、`[ -x ]`・readlink -f・getconf・今の kernel_form や rust_parent は使わない。
+  - 検索権限は `cd -- 実ディレクトリ` が成功するかで判定する（A48）。BusyBox ash の `[ -x ]` は root でモード 000 のディレクトリについて実効 uid の access と食い違うと確かめてある。
   - root_dir と相対パスを別々の引数で渡す。
-  - 長さは `${#var}` によりバイトで数える。`LC_ALL=C` はスクリプトの中で代入せず、製品が `sh -c` を呼ぶときの環境として外から渡す（BusyBox ash で途中の代入が効くかは確かめていないため）。
+  - 長さは `${#var}` によりバイトで数える。スクリプトの先頭で `LC_ALL=C` を代入する（A49。BusyBox ash と dash で効くと確かめてある）。
   - 出力は今と同じく NUL 区切りとし、四つの種類とエラーの原因の文言を返す。製品側の読み取りは SSH の出力を信頼しない入力として扱い、一覧にない原因の文言、欠けた欄、0 でない終了コードはどれもエラーにする（握りつぶさない）。
+  - スクリプトは読んだリンク文字列を出力に含め、製品は出力を文字列に変えずにバイト列のまま読み、UTF-8 でない部分があれば "non-UTF-8 path" で止める（A50）。そのため `crates/remote-merge-ssh/src/client.rs` の非公開の `exec_strict_bytes` を、`lib.rs` の `exec_strict` と同じ形で製品から呼べるようにする。
 - エージェントの通信の型を REQ-paths-002 に合わせて変え、通信の版を 5 に上げる（A7）。版が 5 未満ならパスの確認だけ SSH で行い、sudo を使うサーバではエラーにする（REQ-paths-010）。この振り分けは「交渉した版と sudo の有無から確認の経路を選ぶ」純粋関数として製品に置き、契約テストから呼べるようにする（版 4 のエージェントを試験で配置できないため）。
 - 確認の結果を使う側を置き換える。
   - rollback は途中の祖先がディレクトリでない（通常ファイル）をスキップ（REQ-backup-031）、それ以外をエラー（REQ-backup-003）に読み、存在しないの親の印で親がないことを判定する。
@@ -93,6 +95,8 @@ IR は `docs/ir/`。この計画が扱う要件と例:
   - `AgentPathInspection`、通信の版、そのテスト
 - `crates/remote-merge-agent/src/agent/`
   - `file_io.rs` の `inspect_path` と書き写しの `resolved_*`、`dispatch.rs` の InspectPath の応答、`client.rs` の inspect_path、それらのテスト
+- `crates/remote-merge-ssh/src/`
+  - `client.rs` の `exec_strict_bytes` の公開と、`lib.rs` のそれを呼ぶ関数だけ
 - `crates/remote-merge/src/runtime/`
   - `remote_path.rs`（スクリプトと読み取りの書き直し、`[ -f ]` のコマンドの削除）
   - `remote_io.rs` の確認の呼び出し
@@ -137,7 +141,7 @@ S1 が手順と結果の型を作り、S2（エージェント）と S3（SSH）
 
 - 確認するパスとして、root_dir と組み合わせて "/" から辿れない値（絶対パスや ".." を含む値）が S1 の関数に届く経路が見つかった
 - root_dir が絶対パスでない値のまま S1 の関数か SSH のスクリプトに届く経路が見つかった
-- root でモード 000 のディレクトリを確認したとき、SSH の `[ -x ]`（dash か BusyBox ash）とローカルの実効 uid の access が食い違う（A46）
+- SSH の `cd` による検索権限の判定が、ローカルの実効 uid の access と食い違う状態（ACL のある場合を含む）が見つかった（A48）
 - 例の状態がその OS では作れないと分かった（例の書き直しは IR の変更なので戻す）
 - POSIX sh の基本操作では、REQ-paths-001 の順（とくに検索権限と存在の区別）を A35 の既知の例外以外でローカルと一致させられないと分かった
 - 通信の版を 5 に上げると、版 4 のエージェントとの交渉や配置の判定が壊れると分かった
@@ -189,11 +193,11 @@ systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-feature
 - Purpose: SSH の確認スクリプトを S1 と同じ手順の POSIX sh に書き直し、三つの経路が同じ結果を返すことを例の表と proptest で示す
 - Specification: `docs/ir/paths/routes.md#REQ-paths-008`, `docs/ir/paths/routes.md#REQ-paths-009`, `docs/ir/paths/resolution.md#REQ-paths-001`, `docs/ir/paths/resolution.md#REQ-paths-002`
 - Prerequisites: S2
-- May change: `crates/remote-merge/src/runtime/remote_path.rs`、`crates/remote-merge/src/runtime/remote_io.rs` の確認の呼び出し（root_dir と相対パスを分けて渡し、`LC_ALL=C` を外から渡す）、`crates/remote-merge/src/runtime/mod.rs` の `remote_path` の公開（test-utils のときだけ）、`crates/remote-merge/tests/contract/` の新しいファイルと `ssh_server.rs` の模擬の応答、`crates/remote-merge/tests/contract.rs` の mod 行、`proptest-regressions/`
+- May change: `crates/remote-merge/src/runtime/remote_path.rs`、`crates/remote-merge/src/runtime/remote_io.rs` の確認の呼び出し（root_dir と相対パスを分けて渡し、出力をバイト列で読む）、`crates/remote-merge-ssh/src/client.rs` と `crates/remote-merge-ssh/src/lib.rs` のバイト列の実行関数の公開、`crates/remote-merge/src/runtime/mod.rs` の `remote_path` の公開（test-utils のときだけ）、`crates/remote-merge/tests/contract/` の新しいファイルと `ssh_server.rs` の模擬の応答、`crates/remote-merge/tests/contract.rs` の mod 行、`proptest-regressions/`
 - Done when: EX-paths-001 から EX-paths-018 と EX-paths-023 の各状態と proptest の生成した状態で、ローカル・SSH のスクリプト（同じマシンの sh を通し製品の読み取りを通したもの）・エージェント（Dispatcher の応答を通信の形式で往復させ製品の変換を通したもの）の三つの結果が種類と実パスのバイト列とエラーの文言で一致し、readlink のない環境で EX-paths-020 のとおりになり、読み取りが一覧にない文言・欠けた欄・0 でない終了コードをエラーにする
 - Shown by: test — EX-paths-019 と `@kotowari[REQ-paths-008]` を proptest と例の表の比較に、EX-paths-020 と `@kotowari[REQ-paths-009]` を PATH から readlink だけを外した sh で動かすテストに付けて RED から GREEN にし、findings 15〜17 の形（EX-paths-008・EX-paths-009・EX-paths-013・EX-paths-018）が比較に含まれることを確かめる
-- Left to the implementer: スクリプトを BusyBox ash でも動かして確かめる方法（E2E のコンテナを使うか一度だけの確かめでよい。コミットに含めない確かめは報告にコマンドと結果を書く）
-- Stop and hand back if: `[ -x ]`・`[ -e ]`・`[ -L ]`・`[ -f ]` の組み合わせで、検索権限がないことと存在しないことを A35 の例外以外で見分けられない状態が見つかった、または BusyBox ash で `${#var}` がバイトで数えられない
+- Left to the implementer: スクリプトを BusyBox ash でも動かして確かめる方法と、ACL の場合の確かめ方（setfacl が使えなければ確かめられなかったと報告する）（E2E のコンテナを使うか一度だけの確かめでよい。コミットに含めない確かめは報告にコマンドと結果を書く）
+- Stop and hand back if: `cd`・`[ -e ]`・`[ -L ]`・`[ -f ]` の組み合わせで、検索権限がないことと存在しないことを A44 の例外以外で見分けられない状態が見つかった、ACL を付けたディレクトリで `cd` の判定と実効 uid の access が食い違う、またはスクリプトの中で LC_ALL=C を代入しても BusyBox ash の `${#var}` がバイトで数えない
 
 ### S4: 確認の結果を使う側を新しい結果に替える
 
