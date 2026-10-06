@@ -9,7 +9,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - Rust。主な依存は tokio、russh、clap、similar、serde。
 - ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`、`crates/remote-merge-settings/`、`crates/remote-merge-ssh/`、`crates/remote-merge-config/`、`crates/remote-merge-agent/`、`crates/remote-merge-engine/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
 - `crates/remote-merge-core/src/`: tree・diff・error・filter とその単体テスト。製品は同じ型を `remote_merge::{tree, diff, error, filter}` から再公開する。
-- `crates/remote-merge-core/src/path_resolution/`: パスを "/" から要素ごとに辿る手順（`resolve_path`）、確認の結果の四つの種類と原因の文言の一覧、標準ライブラリと libc の基本操作（`os`、Unix だけ）。ローカルとエージェントは同じ `os::resolve_on_this_machine` を呼ぶ。SSH は製品の `runtime/remote_path/`（スクリプトの `script` と出力の読み取りの `output`）で同じ手順を POSIX sh で辿る。`runtime::remote_path` と、確認の経路を選ぶ `runtime::path_route` は test-utils の機能のときだけ公開する。
+- `crates/remote-merge-core/src/path_resolution/`: パスを "/" から要素ごとに辿る手順（`resolve_path`）、確認の結果の四つの種類と原因の文言の一覧、このマシンの基本操作（`os`。Unix では標準ライブラリと libc、Unix 以外では標準ライブラリだけを使う）。ローカルとエージェントは同じ `os::resolve_on_this_machine` を呼ぶ。SSH は製品の `runtime/remote_path/`（スクリプトの `script` と出力の読み取りの `output`）で同じ手順を POSIX sh で辿る。`runtime::remote_path` と、確認の経路を選ぶ `runtime::path_route` は test-utils の機能のときだけ公開する。
 - `crates/remote-merge-protocol/src/lib.rs`: Agentの通信型・シリアライズ・ハンドシェイクとその単体テスト。製品は `remote_merge::agent::protocol` から同じ型・定数・関数を再公開する。
 - `crates/remote-merge-protocol/src/framing.rs`: 長さプレフィクス付きフレームの読み書きとその単体テスト。製品は既存の `remote_merge::agent::framing` から再公開する。
 - `crates/remote-merge-settings/src/lib.rs`: 標準ライブラリだけに依存する接続設定の5型と既存のDebug・Default実装。configと製品は同じ型を再公開する。
