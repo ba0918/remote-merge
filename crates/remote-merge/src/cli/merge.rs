@@ -280,6 +280,24 @@ pub fn execute_merge(
             &right_contents,
             &ref_contents,
         );
+        if !args.force && args.dry_run {
+            // 書き込まない計画でも、読めなかった中身を比べたことにしてバッジを作らない
+            plan.files.retain(|path| {
+                let contents = [
+                    (&left_tree, &left_contents),
+                    (&right_tree, &right_contents),
+                    (&ref_tree, &ref_contents),
+                ];
+                if !three_way_read_failed(path, contents) {
+                    return true;
+                }
+                conflict_failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: "three-way comparison incomplete".to_string(),
+                });
+                false
+            });
+        }
         if !args.force && !args.dry_run {
             plan.files.retain(|path| {
                 let reason = match (
@@ -674,6 +692,16 @@ fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
         // (None, None): 両者とも子なし → 何もしない
         (Some(_), None) | (None, None) => {}
     }
+}
+
+/// 三者のどれかで、ツリーにあるのに中身を読めなかったか（ない側は読めなかったことにしない）
+fn three_way_read_failed(
+    path: &str,
+    sides: [(&FileTree, &std::collections::HashMap<String, Vec<u8>>); 3],
+) -> bool {
+    sides
+        .into_iter()
+        .any(|(tree, contents)| tree.find_node(path).is_some() && !contents.contains_key(path))
 }
 
 #[cfg(test)]

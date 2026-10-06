@@ -227,3 +227,29 @@ fn a_binary_changed_only_on_the_source_is_written_and_one_changed_only_on_the_de
     assert_eq!(develop("a.bin"), b"\xffleft\n");
     assert_eq!(develop("b.bin"), b"\xffrght\n");
 }
+
+// 参照先を読めなかったファイルは、--dry-run でも書き込むときと同じく三者を比べられないものとして
+// failed に出し、参照先との関係のバッジを作らない
+// @kotowari[TBL-cli-009]
+#[test]
+fn a_dry_run_reports_a_file_whose_reference_could_not_be_read_as_incomplete() {
+    let fixture = fixture();
+    fixture.write("local", "file.txt", "incoming\n");
+    fixture.write("develop", "file.txt", "develop old\n");
+    fixture.write("staging", "file.txt", "base\n");
+    fixture.make_unreadable("staging", "file.txt");
+    let mut args = args(&["file.txt"]);
+    args.ref_server = Some("staging".into());
+    args.dry_run = true;
+
+    let (json, code) = fixture.merge_json(args);
+
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["failed"][0]["path"], "file.txt", "{json}");
+    assert_eq!(
+        json["failed"][0]["error"], "three-way comparison incomplete",
+        "{json}"
+    );
+    assert_eq!(json["merged"], serde_json::json!([]), "{json}");
+    assert_eq!(fixture.read("develop", "file.txt"), "develop old\n");
+}
