@@ -19,7 +19,9 @@
 //! 検索権限は `[ -x ]` ではなく cd の成否で判定する。`[ -x ]` は BusyBox ash が root のモード 000 の
 //! ディレクトリを検索できないと答え、実効 uid の access と食い違う。
 //! コマンド置換は出力の末尾の改行をすべて落とすので、pwd と readlink の出力には x を続けてから
-//! x とコマンドが足した改行を一つずつ取り除き、名前の末尾の改行を残す
+//! x とコマンドが足した改行を一つずつ取り除き、名前の末尾の改行を残す。
+//! dash と BusyBox ash の pwd -P は、作業ディレクトリが消えていると空の行を出して 0 で終わるので、
+//! "/" で始まらない結果は読めなかったことにする
 
 /// コマンドの先頭の並び。試験 SSH サーバは同じ並びを別に持ち、これでパスの確認を見分けて `r=` と `p=` を読む
 const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
@@ -28,7 +30,7 @@ const SCRIPT: &str = r#"emit() { printf '%s\000' "$@"; };
 fail() { emit error "$1"; exit 0; };
 count() { nc=0; for f in "$@"; do case $f in ''|.) ;; *) nc=$((nc + 1)) ;; esac; done; };
 set -f;
-case $r in /*) ;; *) d=$(pwd -P && printf x) || fail "cannot read"; d=${d%x}; d=${d%?}; r=$d/$r ;; esac;
+case $r in /*) ;; *) d=$(pwd -P && printf x) || fail "cannot read"; d=${d%x}; d=${d%?}; case $d in /*) ;; *) fail "cannot read" ;; esac; r=$d/$r ;; esac;
 emit root "$r";
 k=0;
 IFS=/; set -- $p; unset IFS; count "$@"; nrel=$nc;

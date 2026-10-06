@@ -309,6 +309,62 @@ fn relative_root_dirs_give_the_same_answer_on_all_three_routes() {
     assert!(disagreements.is_empty(), "{disagreements:#?}");
 }
 
+/// `cwd` に入ってからそれを消し、消えた作業ディレクトリで `program` と `args` を起動する
+fn command_in_removed_directory(cwd: &Path, program: &OsStr, args: &[&OsStr]) -> Command {
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(r#"cd "$1" && rmdir "$1" && shift && exec "$@""#)
+        .arg("sh")
+        .arg(cwd)
+        .arg(program)
+        .args(args);
+    command
+}
+
+// @kotowari[REQ-paths-008, REQ-paths-012]
+#[test]
+fn a_relative_root_dir_from_a_removed_working_directory_stops_with_cannot_read_on_both_remote_routes(
+) {
+    let base = Base::new();
+    let script = build_inspect_path_command("app", "a.txt");
+    let removed = base.path.join("ssh-cwd");
+    fs::create_dir(&removed).unwrap();
+    let output = command_in_removed_directory(
+        &removed,
+        OsStr::new("/bin/sh"),
+        &[OsStr::new("-c"), OsStr::new(&script)],
+    )
+    .output()
+    .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let ssh = parse_inspect_path_output(&output.stdout).map_err(|error| error.to_string());
+
+    let removed = base.path.join("agent-cwd");
+    fs::create_dir(&removed).unwrap();
+    let mut child = command_in_removed_directory(
+        &removed,
+        OsStr::new(env!("CARGO_BIN_EXE_remote-merge")),
+        &[OsStr::new("agent"), OsStr::new("--root"), OsStr::new("app")],
+    )
+    .env("RUST_LOG", "off")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .spawn()
+    .unwrap();
+    let mut client =
+        AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap()).unwrap();
+    let inspection = client.inspect_path("a.txt").unwrap();
+    drop(client);
+    let _ = child.kill();
+    let _ = child.wait();
+    let agent = resolved_from_agent(inspection).map_err(|error| error.to_string());
+
+    let expected = Err("cannot resolve path: cannot read".to_string());
+    assert_eq!((ssh, agent), (expected.clone(), expected));
+}
+
 // @kotowari[REQ-paths-012, EX-paths-025]
 #[test]
 fn ex_paths_025_a_relative_root_dir_is_resolved_from_the_remote_working_directory() {
