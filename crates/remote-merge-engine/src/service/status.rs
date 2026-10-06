@@ -180,7 +180,9 @@ pub fn needs_content_compare(
             let rn = right_index.find_node(&f.path);
             match (ln, rn) {
                 (Some(l), Some(r)) => {
-                    if l.is_symlink() || r.is_symlink() {
+                    // 種類の違うパス（ファイルとディレクトリ）は中身を読み比べない。読めば
+                    // ディレクトリの読み込みが失敗する
+                    if l.is_symlink() || r.is_symlink() || l.is_dir() != r.is_dir() {
                         return false;
                     }
                     // size が一致 → コンテンツ比較が必要
@@ -888,19 +890,28 @@ mod tests {
         assert!(need_compare.contains(&"b.rs".to_string()));
     }
 
+    // 種類の違うパスは中身を読み比べない（ディレクトリを読めば失敗し、走査だけが誤りになる）。
+    // 大きさの記録が同じでも、分からなくても同じ
     #[test]
-    fn test_needs_content_compare_handles_file_vs_directory_conflict() {
-        let left = make_tree(vec![FileNode::new_dir_with_children(
-            "src",
-            vec![FileNode::new_file("main.rs")],
-        )]);
-        let right = make_tree(vec![make_file_with_meta("src", 42, None)]);
+    fn a_file_and_a_directory_at_the_same_path_are_not_compared_by_content() {
+        use chrono::TimeZone;
+        let ts = chrono::Utc.timestamp_opt(1700000000, 0).unwrap();
+        let ts2 = chrono::Utc.timestamp_opt(1700000001, 0).unwrap();
+        let mut same_size = FileNode::new_dir_with_children("same", vec![FileNode::new_file("a")]);
+        same_size.size = Some(4096);
+        same_size.mtime = Some(ts);
+        let unknown_size =
+            FileNode::new_dir_with_children("unknown", vec![FileNode::new_file("b")]);
+        let left = make_tree(vec![same_size, unknown_size]);
+        let right = make_tree(vec![
+            make_file_with_meta("same", 4096, Some(ts2)),
+            make_file_with_meta("unknown", 42, None),
+        ]);
         let files = compute_status_from_trees(&left, &right);
 
         let need_compare = needs_content_compare(&files, &left, &right);
 
-        assert!(need_compare.contains(&"src".to_string()));
-        assert!(!need_compare.contains(&"src/main.rs".to_string()));
+        assert!(need_compare.is_empty(), "{need_compare:?}");
     }
 
     // ── needs_content_compare_all ──
