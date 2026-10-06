@@ -18,12 +18,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::ChildStdin;
 
-/// 製品のパスの確認のコマンドはこの並びで始まり、root_dir と相対パスを r と p に代入する
-const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
-
-/// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か
+/// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か。
+/// 製品のコマンドは製品の並びで始まり、root_dir と相対パスを r と p に代入する
+#[cfg(feature = "test-utils")]
 pub fn is_path_inspection(command: &str) -> bool {
-    command.starts_with(INSPECT_PATH_PREFIX)
+    command.starts_with(remote_merge::runtime::remote_path::INSPECT_PATH_PREFIX)
+}
+
+/// 製品の並びは test-utils の機能のときだけ読める。パスの確認を SSH で受ける試験は、どれも
+/// test-utils の機能のときだけ動く
+#[cfg(not(feature = "test-utils"))]
+pub fn is_path_inspection(_command: &str) -> bool {
+    false
 }
 
 pub struct TestServer {
@@ -470,8 +476,8 @@ impl server::Handler for LocalHandler {
         if is_path_inspection(&script) {
             // パスの確認には、root_dir の下の相対パスがそのまま存在するという答えを返す
             let (root, rel) = script
-                .strip_prefix(INSPECT_PATH_PREFIX)
-                .and_then(|rest| rest.split_once("; p="))
+                .split_once("r=")
+                .and_then(|(_, rest)| rest.split_once("; p="))
                 .and_then(|(root, rest)| Some((root, rest.split_once("; ")?.0)))
                 .expect("path inspection includes root_dir and a path");
             let (root, rel) = (root.trim_matches('\''), rel.trim_matches('\''));

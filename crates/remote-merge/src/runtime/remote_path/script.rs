@@ -23,8 +23,9 @@
 //! dash と BusyBox ash の pwd -P は、作業ディレクトリが消えていると空の行を出して 0 で終わるので、
 //! "/" で始まらない結果は読めなかったことにする
 
-/// コマンドの先頭の並び。試験 SSH サーバは同じ並びを別に持ち、これでパスの確認を見分けて `r=` と `p=` を読む
-const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
+/// コマンドの先頭の並び。試験 SSH サーバとエージェントの経路を確かめる試験は、test-utils の機能で
+/// これを読んでパスの確認を見分け、`r=` と `p=` を読む
+pub const INSPECT_PATH_PREFIX: &str = "LC_ALL=C; r=";
 
 const SCRIPT: &str = r#"emit() { printf '%s\000' "$@"; };
 fail() { emit error "$1"; exit 0; };

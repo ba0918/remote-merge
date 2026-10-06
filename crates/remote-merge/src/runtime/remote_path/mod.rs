@@ -6,3 +6,5 @@ mod script;
 
 pub use output::parse_inspect_path_output;
 pub use script::build_inspect_path_command;
+#[cfg(feature = "test-utils")]
+pub use script::INSPECT_PATH_PREFIX;
