@@ -178,14 +178,20 @@ pub fn execute_status(
     }
 
     // 読めなかったファイルは理由とともに errors に出し、読み比べるはずだったものは判定しない
-    let mut sides: Vec<SideReads<'_>> = vec![
+    let compared_sides: [SideReads<'_>; 2] = [
         (pair.left.display_name(), &left_contents),
         (pair.right.display_name(), &right_contents),
     ];
-    if let Some((name, reads)) = &ref_contents {
-        sides.push((name.as_str(), reads));
-    }
-    let unreadable = take_unreadable_files(&mut files, &compare_paths, &sides);
+    let reference_sides: Vec<SideReads<'_>> = ref_contents
+        .iter()
+        .map(|(name, reads)| (name.as_str(), reads))
+        .collect();
+    let unreadable = take_unreadable_files(
+        &mut files,
+        &compare_paths,
+        &compared_sides,
+        &reference_sides,
+    );
 
     let mut output = with_unreadable_files(
         build_status_output(

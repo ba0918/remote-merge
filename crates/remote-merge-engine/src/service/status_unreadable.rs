@@ -10,23 +10,33 @@ use super::types::{FileStatus, StatusOutput, UnreadableFile};
 pub type SideReads<'a> = (&'a str, &'a ContentReads);
 
 /// `files` のうち、どれかの側で中身を読めなかったファイルを、読めなかった側ごとの理由とともに
-/// 返す。中身を読み比べて判定するはずだったファイル（`compared`）は `files` から外す。参照先との
-/// 関係のためだけに読んだファイルは、中身を読まずに決めた判定を残す
+/// 返す。
+///
+/// `compared_sides` は左右、`reference_sides` は参照先。中身を読み比べて判定するはずだった
+/// ファイル（`compared`）のうち、左右のどちらかを読めなかったものだけを `files` から外す。
+/// 参照先との関係のためだけの読み込みに失敗したファイルは、判定を残す
 pub fn take_unreadable_files(
     files: &mut Vec<FileStatus>,
     compared: &[String],
-    sides: &[SideReads<'_>],
+    compared_sides: &[SideReads<'_>],
+    reference_sides: &[SideReads<'_>],
 ) -> Vec<UnreadableFile> {
-    let mut unreadable = Vec::new();
-    files.retain(|file| {
-        let reasons: Vec<String> = sides
+    let reasons_in = |sides: &[SideReads<'_>], path: &str| -> Vec<String> {
+        sides
             .iter()
             .filter_map(|(name, reads)| {
                 reads
-                    .failure(&file.path)
+                    .failure(path)
                     .map(|reason| format!("{name}: {reason}"))
             })
-            .collect();
+            .collect()
+    };
+    let mut unreadable = Vec::new();
+    files.retain(|file| {
+        let compared_reasons = reasons_in(compared_sides, &file.path);
+        let withholds_judgement = !compared_reasons.is_empty() && compared.contains(&file.path);
+        let mut reasons = compared_reasons;
+        reasons.extend(reasons_in(reference_sides, &file.path));
         if reasons.is_empty() {
             return true;
         }
@@ -34,7 +44,7 @@ pub fn take_unreadable_files(
             path: file.path.clone(),
             reason: reasons.join("; "),
         });
-        !compared.contains(&file.path)
+        !withholds_judgement
     });
     unreadable
 }
@@ -82,6 +92,7 @@ mod tests {
             &mut files,
             &["a.txt".to_string(), "b.txt".to_string()],
             &[("local", &left), ("develop", &right)],
+            &[],
         );
 
         assert_eq!(unreadable.len(), 1);
@@ -92,15 +103,22 @@ mod tests {
     }
 
     #[test]
-    fn a_file_read_only_for_the_reference_keeps_its_judgement_and_is_still_reported() {
-        let mut files = vec![file("a.txt", FileStatusKind::LeftOnly)];
+    fn a_compared_file_whose_reference_alone_could_not_be_read_keeps_its_judgement() {
+        let mut files = vec![file("a.txt", FileStatusKind::Equal)];
+        let read = ContentReads::default();
         let reference = failed("a.txt", "denied");
 
-        let unreadable = take_unreadable_files(&mut files, &[], &[("staging", &reference)]);
+        let unreadable = take_unreadable_files(
+            &mut files,
+            &["a.txt".to_string()],
+            &[("local", &read), ("develop", &read)],
+            &[("staging", &reference)],
+        );
 
         assert_eq!(unreadable.len(), 1);
+        assert!(unreadable[0].reason.contains("denied"));
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].status, FileStatusKind::LeftOnly);
+        assert_eq!(files[0].status, FileStatusKind::Equal);
     }
 
     #[test]

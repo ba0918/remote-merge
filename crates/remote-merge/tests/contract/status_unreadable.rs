@@ -99,3 +99,63 @@ fn text_output_reports_an_unreadable_file_on_standard_error() {
         "{output:?}"
     );
 }
+
+// 参照先との関係のためだけに読んだ中身を読めなかったファイルは、判定を残し、印を出さず、
+// errors に出して終了コード 2 を返す。a.txt は左右を読み比べて "equal"、b.txt は大きさの違いで
+// "modified" と決まり、どちらも参照先を読めない
+// @kotowari[REQ-cli-088]
+#[test]
+fn a_file_whose_reference_alone_cannot_be_read_keeps_its_judgement_without_a_badge() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "a.txt", b"alpha\n", T0);
+    write_at(fixture.develop.path(), "a.txt", b"alpha\n", T0 + 60);
+    write_at(fixture.local.path(), "b.txt", b"short\n", T0);
+    write_at(fixture.develop.path(), "b.txt", b"much longer\n", T0);
+    for path in ["a.txt", "b.txt"] {
+        let reference = fixture.staging.path().join(path);
+        write_at(fixture.staging.path(), path, b"base\n", T0);
+        fs::set_permissions(&reference, fs::Permissions::from_mode(0o200)).unwrap();
+        assert!(
+            fs::File::open(&reference).is_err(),
+            "test needs an unreadable staging/{path}"
+        );
+    }
+    let mut args = args(Some("local"), Some("develop"));
+    args.all = true;
+    args.ref_server = Some("staging".into());
+
+    let result = fixture.run(args).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&format_json(&result.output).unwrap()).unwrap();
+
+    assert_eq!(result.exit_code, 2, "{json}");
+    let mut error_paths: Vec<&str> = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("errors missing: {json}"))
+        .iter()
+        .map(|error| {
+            assert!(
+                error["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty()),
+                "{json}"
+            );
+            error["path"].as_str().unwrap()
+        })
+        .collect();
+    error_paths.sort();
+    assert_eq!(error_paths, ["a.txt", "b.txt"], "{json}");
+    let file = |path: &str| {
+        json["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing: {json}"))
+            .clone()
+    };
+    assert_eq!(file("a.txt")["status"], "equal", "{json}");
+    assert_eq!(file("b.txt")["status"], "modified", "{json}");
+    assert!(file("a.txt").get("ref_badge").is_none(), "{json}");
+    assert!(file("b.txt").get("ref_badge").is_none(), "{json}");
+}
