@@ -86,7 +86,7 @@ TBL-cli-009 が文言を決めていない failed の error は実装者が決�
 | --format に text・json・diff 以外を指定する | "Unknown format: '値' (expected text, json, or diff)" |
 
 ### TBL-cli-009: 参照先を使う merge の三者の存在
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A23
 
 | 読み込み元 | 書き込み先 | 参照先 | 扱い |
 |---|---|---|---|
@@ -94,7 +94,7 @@ TBL-cli-009 が文言を決めていない failed の error は実装者が決�
 | ある | ない | ある | 書かずに failed に error "destination changed since reference" で出す |
 | ある | ある | ある | REQ-cli-051 に従う |
 | ある | ある | ない | 書き込み先が変わっていないことを確かめられないので、書かずに failed に出す（error の文言は実装者が決める） |
-| 三つのどれかの読み込みに失敗した | - | - | 書かずに failed に error "three-way comparison incomplete" で出す |
+| 三つのどれかの読み込みに失敗した | - | - | 書かずに failed に error "three-way comparison incomplete" で出す。--dry-run でも同じく failed に出し、参照先との関係のバッジを出さない |
 
 ## Examples
 
