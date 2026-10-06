@@ -416,6 +416,7 @@ pub fn build_status_output(
             Some(files_with_badges)
         },
         summary: summary_out,
+        errors: Vec::new(),
     }
 }
 
@@ -491,9 +492,24 @@ pub fn refine_status_with_hashes(
     }
 }
 
-/// exit code を判定する。差分があれば 1、なければ 0。
+/// `paths` のうち、ハッシュの比較で左右どちらかのハッシュが得られなかったもの。中身を読んで比べる
+pub fn paths_without_hashes(
+    paths: &[String],
+    local_hashes: &HashMap<String, String>,
+    remote_hashes: &HashMap<String, String>,
+) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| !local_hashes.contains_key(*path) || !remote_hashes.contains_key(*path))
+        .cloned()
+        .collect()
+}
+
+/// exit code を判定する。読めなかったファイルがあれば 2、差分があれば 1、なければ 0。
 pub fn status_exit_code(summary: &StatusSummary) -> i32 {
-    if summary.modified > 0 || summary.left_only > 0 || summary.right_only > 0 {
+    if summary.unreadable > 0 {
+        exit_code::ERROR
+    } else if summary.modified > 0 || summary.left_only > 0 || summary.right_only > 0 {
         exit_code::DIFF_FOUND
     } else {
         exit_code::SUCCESS
@@ -700,6 +716,7 @@ mod tests {
             ref_differs: None,
             ref_only: None,
             ref_missing: None,
+            unreadable: 0,
         };
         assert_eq!(status_exit_code(&summary), exit_code::SUCCESS);
     }
@@ -714,8 +731,41 @@ mod tests {
             ref_differs: None,
             ref_only: None,
             ref_missing: None,
+            unreadable: 0,
         };
         assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
+    }
+
+    #[test]
+    fn a_path_without_a_hash_on_either_side_is_compared_by_its_content() {
+        let paths: Vec<String> = ["both", "left_missing", "right_missing"]
+            .map(String::from)
+            .to_vec();
+        let hashes = |names: &[&str]| -> HashMap<String, String> {
+            names
+                .iter()
+                .map(|name| (name.to_string(), "h".to_string()))
+                .collect()
+        };
+
+        assert_eq!(
+            paths_without_hashes(
+                &paths,
+                &hashes(&["both", "right_missing"]),
+                &hashes(&["both", "left_missing"])
+            ),
+            vec!["left_missing", "right_missing"]
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_makes_the_exit_code_an_error_even_with_differences() {
+        let summary = StatusSummary {
+            modified: 1,
+            unreadable: 1,
+            ..Default::default()
+        };
+        assert_eq!(status_exit_code(&summary), exit_code::ERROR);
     }
 
     #[test]
@@ -728,6 +778,7 @@ mod tests {
             ref_differs: None,
             ref_only: None,
             ref_missing: None,
+            unreadable: 0,
         };
         assert_eq!(status_exit_code(&summary), exit_code::DIFF_FOUND);
     }

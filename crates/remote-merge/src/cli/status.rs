@@ -20,9 +20,10 @@ use crate::service::source_pair::{
 };
 use crate::service::status::{
     build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
-    needs_content_compare_all, refine_status_with_content, refine_status_with_hashes,
-    status_exit_code,
+    needs_content_compare_all, paths_without_hashes, refine_status_with_content,
+    refine_status_with_hashes, status_exit_code,
 };
+use crate::service::status_unreadable::{take_unreadable_files, with_unreadable_files, SideReads};
 use crate::service::types::FileStatusKind;
 use crate::service::types::StatusOutput;
 use crate::side::Side;
@@ -102,29 +103,26 @@ pub fn execute_status(
     let ref_side = ref_guard::validate_ref_side(ref_side, &pair);
 
     // ハッシュ比較を試行（ref 未使用時のみ — ref 使用時はコンテンツも必要）
-    // ハッシュ比較が成功すれば全ファイルのコンテンツ転送を回避できる
-    let hash_resolved = if ref_side.is_none() && !paths_to_compare.is_empty() {
-        if let Some((local_hashes, remote_hashes)) =
-            core.try_hash_compare(&pair.left, &pair.right, &paths_to_compare)
-        {
-            refine_status_with_hashes(&mut files, &local_hashes, &remote_hashes);
-            true
-        } else {
-            false
-        }
+    // ハッシュ比較が成功すれば全ファイルのコンテンツ転送を回避できる。ハッシュの得られなかった
+    // パスは中身を読んで比べ、読めなければ読めなかったファイルとして出す
+    let hashes = if ref_side.is_none() && !paths_to_compare.is_empty() {
+        core.try_hash_compare(&pair.left, &pair.right, &paths_to_compare)
     } else {
-        false
+        None
+    };
+    let compare_paths = match &hashes {
+        Some((local_hashes, remote_hashes)) => {
+            refine_status_with_hashes(&mut files, local_hashes, remote_hashes);
+            paths_without_hashes(&paths_to_compare, local_hashes, remote_hashes)
+        }
+        None => paths_to_compare.clone(),
     };
 
     // ref 指定時は全ファイルのコンテンツが必要（badge 計算用）。
-    // ref 未指定時でハッシュ比較が失敗した場合は paths_to_compare のコンテンツが必要。
-    // ハッシュ比較が成功した場合はコンテンツ取得をスキップする。
     let content_paths = if ref_side.is_some() {
         files.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
-    } else if hash_resolved {
-        vec![] // ハッシュ比較で解決済み — コンテンツ不要
     } else {
-        paths_to_compare.clone()
+        compare_paths.clone()
     };
 
     let left_contents = read_contents(
@@ -140,14 +138,13 @@ pub fn execute_status(
         SizeLimit::Lifted,
     );
 
-    // コンテンツ比較で status を精緻化（ハッシュで未解決の場合のみ）
-    if !hash_resolved && !paths_to_compare.is_empty() {
-        let verified = verified_content_pairs(&paths_to_compare, &left_contents, &right_contents);
-        refine_status_with_content(&mut files, &verified.pairs);
-    }
+    // コンテンツ比較で status を精緻化（ハッシュで未解決のものだけ）
+    let verified = verified_content_pairs(&compare_paths, &left_contents, &right_contents);
+    refine_status_with_content(&mut files, &verified.pairs);
 
     let mut ref_info = None;
     let mut ref_badges = None;
+    let mut ref_contents = None;
 
     if let Some(ref_s) = &ref_side {
         // Connect to ref server
@@ -159,7 +156,7 @@ pub fn execute_status(
 
         // Fetch ref contents for every file
         let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-        let ref_contents = read_contents(
+        let reads = read_contents(
             &mut core,
             ref_s,
             &not_absent_in(&ref_paths, &ref_tree),
@@ -174,18 +171,32 @@ pub fn execute_status(
             &ref_tree,
             &left_contents,
             &right_contents,
-            &ref_contents,
+            &reads,
         );
         ref_badges = Some(badges);
+        ref_contents = Some((ref_s.display_name().to_string(), reads));
     }
 
-    let mut output = build_status_output(
-        left_info,
-        right_info,
-        files,
-        args.summary,
-        ref_info,
-        ref_badges.as_ref(),
+    // 読めなかったファイルは理由とともに errors に出し、読み比べるはずだったものは判定しない
+    let mut sides: Vec<SideReads<'_>> = vec![
+        (pair.left.display_name(), &left_contents),
+        (pair.right.display_name(), &right_contents),
+    ];
+    if let Some((name, reads)) = &ref_contents {
+        sides.push((name.as_str(), reads));
+    }
+    let unreadable = take_unreadable_files(&mut files, &compare_paths, &sides);
+
+    let mut output = with_unreadable_files(
+        build_status_output(
+            left_info,
+            right_info,
+            files,
+            args.summary,
+            ref_info,
+            ref_badges.as_ref(),
+        ),
+        unreadable,
     );
 
     // Agent 接続状態を設定（verbose 時のみ）
@@ -207,6 +218,11 @@ pub fn execute_status(
 }
 
 fn print_status_result(result: &StatusCommandResult, format: OutputFormat) -> anyhow::Result<()> {
+    if format == OutputFormat::Text {
+        for error in &result.output.errors {
+            eprintln!("Error: {}: {}", error.path, error.reason);
+        }
+    }
     let text = match format {
         OutputFormat::Text => format_status_text(&result.output, result.summary),
         OutputFormat::Json => format_json(&result.output)?,
@@ -274,6 +290,7 @@ mod tests {
             agent: None,
             files: Some(files),
             summary,
+            errors: Vec::new(),
         }
     }
 

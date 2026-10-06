@@ -662,7 +662,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         }
     }
 
@@ -886,7 +888,9 @@ mod tests {
                 ref_differs: Some(1),
                 ref_only: Some(0),
                 ref_missing: Some(1),
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
         assert!(text.contains("M a.rs (2 hunks) [ref≠]"));
@@ -923,7 +927,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
         assert!(!text.contains("Ref:"));
@@ -1311,6 +1317,7 @@ mod tests {
             agent: None,
             files: Some(vec![]),
             summary: StatusSummary::default(),
+            errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
         assert!(text.starts_with("Comparing: local \u{2194} staging (ref: develop)"));
@@ -2325,7 +2332,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
         assert!(
@@ -2365,7 +2374,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let text = format_status_text(&output, false);
         assert!(

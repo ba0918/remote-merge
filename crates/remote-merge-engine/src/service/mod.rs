@@ -7,5 +7,6 @@ pub mod merge_flow;
 pub mod path_resolver;
 pub mod rollback;
 pub mod status;
+pub mod status_unreadable;
 pub mod sync;
 pub mod types;

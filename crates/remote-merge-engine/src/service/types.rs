@@ -28,6 +28,16 @@ pub struct StatusOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<FileStatus>>,
     pub summary: StatusSummary,
+    /// 中身を読めなかったファイル（docs/ir/cli/unreadable.md の REQ-cli-088）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<UnreadableFile>,
+}
+
+/// 中身を読めなかったファイルと、その理由
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnreadableFile {
+    pub path: String,
+    pub reason: String,
 }
 
 /// ソース情報（左右のどちらか）
@@ -71,6 +81,9 @@ pub struct StatusSummary {
     pub ref_only: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_missing: Option<usize>,
+    /// errors に出した、中身を読めなかったファイルの数
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unreadable: usize,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -427,7 +440,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
 
         let json = serde_json::to_string(&output).unwrap();
@@ -459,7 +474,9 @@ mod tests {
                 ref_differs: None,
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let json = serde_json::to_string(&output).unwrap();
         // --summary 時は files が None → 出力されない
@@ -609,7 +626,9 @@ mod tests {
                 ref_differs: Some(1),
                 ref_only: None,
                 ref_missing: None,
+                unreadable: 0,
             },
+            errors: Vec::new(),
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -634,6 +653,7 @@ mod tests {
             agent: None,
             files: None,
             summary: StatusSummary::default(),
+            errors: Vec::new(),
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));

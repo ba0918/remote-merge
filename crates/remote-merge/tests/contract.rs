@@ -169,6 +169,8 @@ mod status_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/status_targets.rs"]
 mod status_targets;
+#[path = "contract/status_unreadable.rs"]
+mod status_unreadable;
 #[cfg(feature = "test-utils")]
 #[path = "contract/sync_cli.rs"]
 mod sync_cli;
