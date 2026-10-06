@@ -263,9 +263,10 @@ pub fn execute_diff(
                 right_ancestors.extend(right_real);
                 scanned_files = scanned_files.saturating_sub(1);
                 let left_below_absent = left_absent
-                    || left_children.is_none() && reads_as_file(&mut core, &pair.left, path);
+                    || left_children.is_none() && reads_as_file(&mut core, &pair.left, path, limit);
                 let right_below_absent = right_absent
-                    || right_children.is_none() && reads_as_file(&mut core, &pair.right, path);
+                    || right_children.is_none()
+                        && reads_as_file(&mut core, &pair.right, path, limit);
                 let children: BTreeSet<_> = left_children
                     .iter()
                     .flatten()
@@ -676,10 +677,9 @@ fn listed_children(
 }
 
 /// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
-/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない。
-/// 種類を確かめるだけで中身は比べないので、--force でも上限を当てて大きなファイルを読まない
-fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str) -> bool {
-    match core.read_file_bytes(side, path, false) {
+/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない
+fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str, limit: SizeLimit) -> bool {
+    match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
         Ok(_) => true,
         Err(error) => error.is::<FileTooLarge>(),
     }
