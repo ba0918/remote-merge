@@ -11,12 +11,16 @@ use super::target_io::TargetPath;
 ///   検索できるディレクトリでなければ、PATH の lstat は ENOENT ではないので失敗する
 /// - `canonical_is_missing PATH`: PATH の実パスへの解決が ENOENT で失敗するときだけ成功する。
 ///   symlink を辿る回数はカーネルと同じ 40 回までで、超えれば ELOOP として失敗する
+/// - `kernel_form PATH`: カーネルが辿ると PATH と同じ結果になる短い形（`k`）。途中の "." と続く "/" を除き、
+///   末尾の "/" と "/." はディレクトリを求める印として "/." にそろえる。それでも PATH_MAX に収まらなければ、
+///   収まる最も長い祖先がディレクトリのときだけ、その祖先を辿った実パスに置き換える。ローカルの
+///   `canonicalize`（realpath）は要素ごとに辿るので、つないだ文字列が PATH_MAX を超えても解決できる。
+///   存在するかの判定とその解決はこの形で行う。".." は symlink の先で意味が変わるので文字列では畳まない
 /// - `rust_parent PATH`: Rust の `Path::parent()` と同じ親（`s`）。末尾の "/" と "." の要素を除いてから
 ///   末尾の要素を除き、残りの末尾の "/" と "." の要素も除く。途中の "." と続く "/" は残す。
 ///   ローカルは解決が ENOENT で失敗すると、この形の文字列をそのまま lstat し、さらにその親へ上る
 /// - `drop_trailing_dots PATH`: PATH の末尾の "/" と "/." を除いた形（`d`）。存在しない部分の "." は
-///   ローカルの解決と同じく答えのパスに残さない。末尾の "." はここで、途中の "." は `rust_parent` で除く。
-///   存在するかの判定には元のパスを使う
+///   ローカルの解決と同じく答えのパスに残さない。末尾の "." はここで、途中の "." は `rust_parent` で除く
 /// - `parent_of`・`base_of`: 末尾の "/" を除いた親（`s`）と末尾の要素（`b`）。`parent_of` は "." も
 ///   一つの要素として扱い、カーネルが一つずつ辿る順に親へ上る（`canonical_is_missing` が使う）
 /// - `name_fits DIR NAME`: DIR の下で NAME が NAME_MAX に収まるか。カーネルは存在するディレクトリの
@@ -25,7 +29,7 @@ use super::target_io::TargetPath;
 /// - `path_fits PATH`: PATH の文字列が PATH_MAX に収まるか。カーネルは終端の NUL を含めて PATH_MAX を
 ///   超えるパスを ENOENT ではなく ENAMETOOLONG で拒むので、バイトで数えて PATH_MAX 未満かを見る。
 ///   測るのはローカルの検査が lstat する文字列で、存在しないパスはそのパス、ぶら下がったリンク先は
-///   つないだリンク先の `rust_parent`。`getconf` が答えなければ 4096
+///   つないだリンク先の `rust_parent`。`getconf` が答えなければ 4096 とし、一度求めた値を使い回す
 /// - 存在しない部分の ".." は、ローカルと同じく辿る先が決まらないものとして失敗にする
 /// - `link_of`・`real_of`: `readlink` と `readlink -f` の答え（`t`・`r`）。`$(...)` は末尾の改行を
 ///   すべて削るので、番兵の `x` を足してから外し、`readlink` が足した改行を一つだけ削る。
@@ -50,6 +54,22 @@ link_of() {
 real_of() {
   r=$(readlink -f -- "$1" && echo x) || return 1; r=${r%x}; r=${r%?};
 };
+kernel_form() {
+  rest=$1; k=; tail=;
+  case $rest in /*) k=/ ;; esac;
+  case $rest in */ | */. | .) tail=. ;; esac;
+  while [ -n "$rest" ]; do
+    case $rest in */*) part=${rest%%/*}; rest=${rest#*/} ;; *) part=$rest; rest= ;; esac;
+    case $part in ''|.) ;; *) case $k in ''|*/) k=$k$part ;; *) k=$k/$part ;; esac ;; esac;
+  done;
+  if [ -n "$tail" ]; then case $k in ''|*/) k=$k. ;; *) k=$k/. ;; esac; fi;
+  [ -n "$k" ] || k=.;
+  while ! path_fits "$k"; do
+    head=$k; while ! path_fits "$head"; do case $head in */*) head=${head%/*} ;; *) break ;; esac; done;
+    [ -n "$head" ] && [ -d "$head" ] && real_of "$head" && [ "${#r}" -lt "${#head}" ] || break;
+    case $r in /) k=${k#"$head"} ;; *) k=$r${k#"$head"} ;; esac;
+  done;
+};
 rust_parent() {
   drop_trailing_dots "$1"; parent_of "$d"; drop_trailing_dots "$s"; s=$d;
 };
@@ -58,9 +78,12 @@ drop_trailing_dots() {
   while :; do case $d in ?*/.) d=${d%/.} ;; ?*/) d=${d%/} ;; *) break ;; esac; done;
 };
 path_fits() {
-  LC_ALL=C; m=$(getconf PATH_MAX / 2>/dev/null) || m=4096;
-  case $m in ''|*[!0-9]*) m=4096 ;; esac;
-  [ "${#1}" -lt "$m" ];
+  LC_ALL=C;
+  if [ -z "$path_max" ]; then
+    path_max=$(getconf PATH_MAX / 2>/dev/null) || path_max=4096;
+    case $path_max in ''|*[!0-9]*) path_max=4096 ;; esac;
+  fi;
+  [ "${#1}" -lt "$path_max" ];
 };
 name_fits() {
   LC_ALL=C; m=$(getconf NAME_MAX "$1" 2>/dev/null) || m=255;
@@ -89,7 +112,8 @@ canonical_is_missing() {
     x=$t${x#"$y"};
   done;
   return 1;
-}"#;
+};
+path_max="#;
 
 /// 本体。`p` の lstat の結果で分け、symlink はローカルの `resolved_symlink` と同じくリンク先を
 /// 解決し、解決が ENOENT で失敗したときだけ存在する祖先からの形にする。答えは種類とパスを
@@ -97,9 +121,10 @@ canonical_is_missing() {
 const INSPECT_PATH_BODY: &str = r#"if [ -L "$p" ]; then
   link_of "$p" || exit 1; target=$t;
   case $target in /*) c=$target ;; *) parent_of "$p"; c=$s/$target ;; esac;
-  if [ -e "$c" ]; then real_of "$c" || exit 1; resolved=$r;
+  kernel_form "$c";
+  if [ -e "$k" ]; then real_of "$k" || exit 1; resolved=$r;
   else
-    canonical_is_missing "$c" || exit 1;
+    canonical_is_missing "$k" || exit 1;
     drop_trailing_dots "$c"; c=$d; base_of "$c"; case $b in ''|..) exit 1 ;; esac; name=$b;
     resolve_existing_prefix "$c" || exit 1;
     case $r in /) resolved=/$name ;; *) resolved=$r/$name ;; esac;
@@ -255,7 +280,7 @@ mod tests {
     }
 
     /// root につないだ長さが PATH_MAX の前後になるリンク先と、そのリンクの名前。root には
-    /// `dir` がある
+    /// `dir` と `file.txt` がある
     #[cfg(unix)]
     fn long_link_targets(root: &std::path::Path) -> Vec<(String, String)> {
         let missing_4094 = missing_rel_path_of_length(root, 4094);
@@ -264,6 +289,32 @@ mod tests {
             // Path::parent() は 4094・4095 バイトで、PATH_MAX に収まる
             ("dot_before_name", format!("{missing_4094}/./file.txt")),
             ("slashes_before_name", format!("{missing_4095}//file.txt")),
+            // "./" の並びは要素を足さない。辿れば root の下の名前になる
+            ("dot_run_to_file", format!("{}file.txt", "./".repeat(2043))),
+            ("dot_run_to_missing", format!("{}nofile", "./".repeat(2043))),
+            (
+                "dot_run_to_dot_under_file",
+                format!("{}file.txt/.", "./".repeat(2042)),
+            ),
+            // "dir/.." の並びは辿れば root だが、つないだ文字列は PATH_MAX を超えたまま
+            (
+                "dotdot_run_to_file",
+                format!("{}file.txt", "dir/../".repeat(583)),
+            ),
+            (
+                "dotdot_run_to_missing",
+                format!("{}nofile", "dir/../".repeat(583)),
+            ),
+            (
+                "dotdot_run_below_missing",
+                format!("{}missing/x", "dir/../".repeat(583)),
+            ),
+            (
+                "dotdot_run_to_dot_under_file",
+                format!("{}file.txt/.", "dir/../".repeat(582)),
+            ),
+            // 末尾の "/" は "/." と同じくディレクトリを求める
+            ("slash_after_file", "file.txt/".to_string()),
             // 途中の ".//" と "./" は Path::parent() に残り、lstat する親が PATH_MAX を超える
             (
                 "slash_dot_run_inside",
@@ -406,8 +457,9 @@ mod tests {
             path_max_paths.push(name);
         }
         cases.extend(path_max_paths.iter().map(String::as_str));
-        // ぶら下がったリンク先では、ローカルは Path::parent()（末尾の "/" と "." だけを除いた親）を
-        // lstat する。リンク先の文字列の上限 4095 バイトに収まる長さで作る
+        // リンク先の "."・"//"・".." の並びでつないだパスが PATH_MAX を超えても、ローカルは
+        // 実パスを要素ごとに辿って解決し、辿れなければ Path::parent()（末尾の "/" と "." だけを
+        // 除いた親）を lstat する。リンク先の文字列の上限 4095 バイトに収まる長さで作る
         let long_links = long_link_targets(root);
         for (name, target) in &long_links {
             symlink(target, root.join(name)).unwrap();
@@ -439,6 +491,72 @@ mod tests {
             ),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// リンク先を要素・"."・"//"・既存のディレクトリの ".." と、PATH_MAX の前後まで伸ばす
+    /// 並びから作る。並びの数は root につないだ長さが 4080〜4110 バイトになるように選び、
+    /// リンク先の文字列の上限 4095 バイトに収める。並びを使わない短いリンク先も作る
+    #[cfg(unix)]
+    fn generated_link_target(root_len: usize) -> impl proptest::strategy::Strategy<Value = String> {
+        use proptest::prelude::*;
+        let element =
+            prop::sample::select(vec!["a", "nofile", "file.txt", "dir", "dir/..", ".", ""]);
+        let elements = || prop::collection::vec(element.clone(), 0..4);
+        let run = prop::sample::select(vec!["./", ".//", "/./", "//", "dir/../", "missing/"]);
+        (
+            elements(),
+            run,
+            elements(),
+            prop::option::of(4080usize..=4110),
+        )
+            .prop_map(move |(head, run, tail, total)| {
+                let head = if head.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/", head.join("/"))
+                };
+                let tail = tail.join("/");
+                let fixed = root_len + 1 + head.len() + tail.len();
+                let count = total.map_or(0, |total| total.saturating_sub(fixed) / run.len());
+                let mut target = format!("{head}{}{tail}", run.repeat(count));
+                target.truncate(4095);
+                if target.is_empty() {
+                    target.push('a');
+                }
+                target
+            })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn script_and_local_inspection_agree_on_generated_link_targets() {
+        use proptest::test_runner::{Config, FileFailurePersistence};
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::create_dir(root.join("dir")).unwrap();
+        std::fs::write(root.join("file.txt"), "file\n").unwrap();
+        let config = Config {
+            cases: 64,
+            failure_persistence: Some(Box::new(FileFailurePersistence::Direct(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../proptest-regressions/src/runtime/remote_path.txt"
+            )))),
+            ..Config::default()
+        };
+        proptest::proptest!(config, |(target in generated_link_target(root.as_os_str().len()))| {
+            let link = root.join("link");
+            let _ = std::fs::remove_file(&link);
+            symlink(&target, &link).unwrap();
+            let local = remote_merge_engine::local_io::inspect_local_path(root, "link");
+            let script = inspect_with_script(&link);
+            let agree = match (&local, &script) {
+                (Ok(local), Ok(script)) => same_bytes(local, script),
+                (Err(_), Err(_)) => true,
+                _ => false,
+            };
+            proptest::prop_assert!(agree, "{target:?}: local {local:?}, script {script:?}");
+        });
     }
 
     #[cfg(unix)]
