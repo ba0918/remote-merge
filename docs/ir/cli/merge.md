@@ -65,11 +65,12 @@ CLI の merge は書き込む前に確認のプロンプトを出さない。
 
 ### REQ-cli-092: 三者の存在の組み合わせで書くかを決める
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A24
 - verification: unit
 - definition: TBL-cli-009
 
 --ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先にファイルがないことと読み込みに失敗したことを区別し、TBL-cli-009 に従って書くかどうかを決め、ないと分かっている側の中身は読みに行かない。
+--force がなく --dry-run がある同じ merge でも、三つのどれかの読み込みに失敗したファイルは、ほかのファイルと混在していても TBL-cli-009 の読み込みに失敗した行に従う。
 TBL-cli-009 が文言を決めていない failed の error は実装者が決め、テストはその文言を固定しない。
 
 ## Decision tables
