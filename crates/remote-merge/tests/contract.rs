@@ -97,6 +97,9 @@ mod path_arguments_cli;
 #[path = "contract/path_resolution.rs"]
 mod path_resolution;
 #[cfg(feature = "test-utils")]
+#[path = "contract/path_routes.rs"]
+mod path_routes;
+#[cfg(feature = "test-utils")]
 #[path = "contract/rollback_path_agent.rs"]
 mod rollback_path_agent;
 #[cfg(feature = "test-utils")]

@@ -833,12 +833,36 @@ mod tests {
         assert_eq!(
             response,
             AgentResponse::PathInspection {
-                result: crate::agent::protocol::AgentPathInspection::File {
-                    real_path: outside
-                        .path()
+                result: crate::agent::protocol::AgentPathInspection::Exists {
+                    real_path: fs::canonicalize(outside.path())
+                        .unwrap()
                         .join("file.txt")
                         .to_string_lossy()
                         .into_owned(),
+                },
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inspect_path_answers_with_the_cause_when_the_path_cannot_be_resolved() {
+        let (tmp, mut dispatcher) = setup();
+        symlink("loop", tmp.path().join("loop")).unwrap();
+
+        let response = single(
+            dispatcher
+                .dispatch(AgentRequest::InspectPath {
+                    path: "loop".into(),
+                })
+                .unwrap(),
+        );
+
+        assert_eq!(
+            response,
+            AgentResponse::PathInspection {
+                result: crate::agent::protocol::AgentPathInspection::Unresolved {
+                    cause: "too many levels of symbolic links".into(),
                 },
             }
         );

@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use crate::agent::protocol::{AgentPathInspection, FileReadResult};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
 
@@ -39,6 +40,41 @@ pub(crate) const AGENT_CHUNK_SIZE_LIMIT: usize = 4 * 1024 * 1024;
 /// 1リクエストで多数のファイルを送信し、往復回数を削減する。
 pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 
+/// エージェントの確認の応答を確認の結果に読む。原因の文言は一覧にあるものだけを受け取る
+fn resolved_from_agent(inspection: AgentPathInspection) -> anyhow::Result<ResolvedPath> {
+    Ok(match inspection {
+        AgentPathInspection::Missing {
+            real_parent,
+            parent_exists,
+        } => ResolvedPath::Missing {
+            real_parent,
+            parent_exists,
+        },
+        AgentPathInspection::Exists { real_path } => ResolvedPath::Exists { real_path },
+        AgentPathInspection::Symlink {
+            link_target,
+            real_path,
+        } => ResolvedPath::Symlink {
+            link_target,
+            real_path,
+        },
+        AgentPathInspection::AncestorNotDirectory {
+            real_path,
+            regular_file,
+        } => ResolvedPath::AncestorNotDirectory {
+            real_path,
+            regular_file,
+        },
+        AgentPathInspection::Unresolved { cause } => {
+            return Err(match ResolveError::from_cause(&cause) {
+                Some(error) => error.into(),
+                None => anyhow::anyhow!("unknown path inspection cause from agent: {cause}"),
+            })
+        }
+        AgentPathInspection::Error { message } => anyhow::bail!(message),
+    })
+}
+
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
 // Remote ブランチでは Agent を優先的に使用し、失敗時は SSH にフォールバックする。
@@ -49,28 +85,24 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         rel_path: &str,
-    ) -> Option<anyhow::Result<super::target_io::TargetPath>> {
+    ) -> Option<anyhow::Result<ResolvedPath>> {
         let result = self.with_agent(server_name, "inspect_path", |agent| {
             agent.inspect_path(rel_path)
         })?;
-        Some(result.and_then(|inspection| match inspection {
-            AgentPathInspection::Missing { real_parent } => {
-                Ok(super::target_io::TargetPath::Missing {
-                    real_parent: real_parent.into(),
-                })
-            }
-            AgentPathInspection::File { real_path } => Ok(super::target_io::TargetPath::File {
-                real_path: real_path.into(),
-            }),
-            AgentPathInspection::Symlink {
-                link_target,
-                real_path,
-            } => Ok(super::target_io::TargetPath::Symlink {
-                link_target: link_target.into(),
-                real_path: real_path.into(),
-            }),
-            AgentPathInspection::Error { message } => Err(anyhow::anyhow!(message)),
-        }))
+        Some(result.and_then(resolved_from_agent))
+    }
+
+    /// 接続中のエージェントと交渉した通信の版。エージェントがなければ `None`
+    pub(crate) fn agent_protocol_version(&self, server_name: &str) -> Option<u32> {
+        let agent = self.agent_clients.get(server_name)?.lock().ok()?;
+        Some(agent.protocol_version())
+    }
+
+    pub(crate) fn server_uses_sudo(&self, server_name: &str) -> bool {
+        self.config
+            .servers
+            .get(server_name)
+            .is_some_and(|server| server.sudo)
     }
 
     pub(crate) fn inspect_path(
@@ -1084,6 +1116,28 @@ mod tests {
     use crate::runtime::core::CoreRuntime;
     use crate::runtime::target_io::{LocalTargetIo, TargetIo};
     use tempfile::TempDir;
+
+    #[test]
+    fn an_agent_cause_outside_the_closed_list_is_an_error_not_a_resolution_result() {
+        let known = resolved_from_agent(AgentPathInspection::Unresolved {
+            cause: "dangling symbolic link".into(),
+        })
+        .unwrap_err();
+        assert_eq!(
+            known.downcast_ref::<ResolveError>(),
+            Some(&ResolveError::DanglingSymlink)
+        );
+
+        let unknown = resolved_from_agent(AgentPathInspection::Unresolved {
+            cause: "No such file or directory".into(),
+        })
+        .unwrap_err();
+        assert!(
+            unknown.downcast_ref::<ResolveError>().is_none(),
+            "{unknown}"
+        );
+        assert!(unknown.to_string().contains("No such file or directory"));
+    }
 
     /// テスト用の CoreRuntime を tempdir をルートにして作成する
     fn create_test_runtime(tmp: &TempDir) -> CoreRuntime {

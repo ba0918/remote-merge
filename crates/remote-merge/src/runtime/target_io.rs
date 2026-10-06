@@ -317,8 +317,20 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
 
 impl TargetIo for RemoteTargetIo {
     fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<TargetPath> {
-        if let Some(value) = rt.try_agent_inspect_path(&self.name, path) {
-            return value;
+        let route = super::path_route::path_inspection_route(
+            rt.agent_protocol_version(&self.name),
+            rt.server_uses_sudo(&self.name),
+        );
+        match route {
+            super::path_route::PathInspectionRoute::Agent => {
+                if let Some(value) = rt.try_agent_inspect_path(&self.name, path) {
+                    return target_path_outside_rollback(value?);
+                }
+            }
+            super::path_route::PathInspectionRoute::RedeployAgent(message) => {
+                anyhow::bail!(message)
+            }
+            super::path_route::PathInspectionRoute::Ssh => {}
         }
         rt.check_sudo_fallback(&self.name)?;
         rt.inspect_remote_path(&self.name, path)

@@ -7,6 +7,7 @@ macro_rules! define_protocol_version {
         ///
         /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
         /// v3 → v4: PathInspection の Symlink に real_path フィールド追加
+        /// v4 → v5: PathInspection を "/" から要素ごとに辿る確認の結果の種類に変更
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -24,7 +25,10 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(4);
+define_protocol_version!(5);
+
+/// パスの確認を "/" から要素ごとに辿る手順で行う最初の通信の版
+pub const PATH_RESOLUTION_PROTOCOL_VERSION: u32 = 5;
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -178,17 +182,27 @@ pub struct AgentFileStat {
     pub permissions: u32,
 }
 
+/// InspectPath の応答。"/" から要素ごとに辿った確認の結果の四つの種類か、辿れなかった原因の文言
+/// （`Unresolved`）か、確認の前に拒んだ理由（`Error`）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AgentPathInspection {
     Missing {
         real_parent: String,
+        parent_exists: bool,
     },
-    File {
+    Exists {
         real_path: String,
     },
     Symlink {
         link_target: String,
         real_path: String,
+    },
+    AncestorNotDirectory {
+        real_path: String,
+        regular_file: bool,
+    },
+    Unresolved {
+        cause: String,
     },
     Error {
         message: String,
@@ -390,11 +404,45 @@ mod tests {
         }
     }
 
+    // ---- Path inspection ----
+
+    #[test]
+    fn every_kind_of_path_inspection_survives_the_wire_format() {
+        let inspections = [
+            AgentPathInspection::Missing {
+                real_parent: "/srv/app/missing".into(),
+                parent_exists: false,
+            },
+            AgentPathInspection::Exists {
+                real_path: "/srv/app/file.txt".into(),
+            },
+            AgentPathInspection::Symlink {
+                link_target: "../shared/file.txt".into(),
+                real_path: "/srv/shared/file.txt".into(),
+            },
+            AgentPathInspection::AncestorNotDirectory {
+                real_path: "/srv/app/dir".into(),
+                regular_file: true,
+            },
+            AgentPathInspection::Unresolved {
+                cause: "too many levels of symbolic links".into(),
+            },
+            AgentPathInspection::Error {
+                message: "path traversal detected: ../x".into(),
+            },
+        ];
+        for result in inspections {
+            let response = AgentResponse::PathInspection { result };
+            let bytes = serialize_response(&response).unwrap();
+            assert_eq!(deserialize_response(&bytes).unwrap(), response);
+        }
+    }
+
     // ---- Protocol version ----
 
     #[test]
-    fn protocol_version_is_4() {
-        assert_eq!(PROTOCOL_VERSION, 4);
+    fn protocol_version_is_5() {
+        assert_eq!(PROTOCOL_VERSION, 5);
     }
 }
 

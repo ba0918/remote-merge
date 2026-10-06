@@ -11,6 +11,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::agent::protocol::{AgentFileStat, AgentPathInspection, FileReadResult};
 use crate::agent::server::MetadataConfig;
+use remote_merge_core::path_resolution::{self, ResolveError, ResolvedPath};
 
 // ---------------------------------------------------------------------------
 // Saved metadata (for write_file restore)
@@ -135,96 +136,39 @@ pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
             message: format!("path traversal detected: {rel_path}"),
         };
     }
-    let path = root_dir.join(relative);
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => match fs::read_link(&path) {
-            Ok(target) => match resolved_symlink(&path, &target) {
-                Ok(real_path) => AgentPathInspection::Symlink {
-                    link_target: target.to_string_lossy().into_owned(),
-                    real_path: real_path.to_string_lossy().into_owned(),
-                },
-                Err(error) => AgentPathInspection::Error {
-                    message: error.to_string(),
-                },
-            },
-            Err(error) => AgentPathInspection::Error {
-                message: error.to_string(),
-            },
-        },
-        Ok(_) => match fs::canonicalize(path) {
-            Ok(real_path) => AgentPathInspection::File {
-                real_path: real_path.to_string_lossy().into_owned(),
-            },
-            Err(error) => AgentPathInspection::Error {
-                message: error.to_string(),
-            },
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match resolved_missing_parent(&path) {
-                Ok(real_parent) => AgentPathInspection::Missing {
-                    real_parent: real_parent.to_string_lossy().into_owned(),
-                },
-                Err(error) => AgentPathInspection::Error {
-                    message: error.to_string(),
-                },
-            }
-        }
-        Err(error) => AgentPathInspection::Error {
-            message: error.to_string(),
-        },
-    }
+    inspection_of(path_resolution::os::resolve_on_this_machine(
+        root_dir, rel_path,
+    ))
 }
 
-fn resolved_symlink(path: &Path, link_target: &Path) -> Result<PathBuf> {
-    let target = if link_target.is_absolute() {
-        link_target.to_path_buf()
-    } else {
-        path.parent()
-            .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?
-            .join(link_target)
-    };
-    match fs::canonicalize(&target) {
-        Ok(path) => Ok(path),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let mut parent = resolved_missing_parent(&target)?;
-            parent.push(target.file_name().ok_or_else(|| {
-                anyhow::anyhow!("symlink target has no file name: {}", target.display())
-            })?);
-            Ok(parent)
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn resolved_missing_parent(path: &Path) -> Result<PathBuf> {
-    let mut current = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("path has no parent: {}", path.display()))?;
-    let mut missing = Vec::new();
-    loop {
-        match fs::symlink_metadata(current) {
-            Ok(_) => {
-                let mut resolved = fs::canonicalize(current)?;
-                for component in missing.iter().rev() {
-                    resolved.push(component);
-                }
-                return Ok(resolved);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                missing.push(
-                    current
-                        .file_name()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                        })?
-                        .to_os_string(),
-                );
-                current = current.parent().ok_or_else(|| {
-                    anyhow::anyhow!("path has no existing ancestor: {}", path.display())
-                })?;
-            }
-            Err(error) => return Err(error.into()),
-        }
+/// ローカルと同じ手順で辿った結果を通信の形にする
+fn inspection_of(resolved: Result<ResolvedPath, ResolveError>) -> AgentPathInspection {
+    match resolved {
+        Ok(ResolvedPath::Missing {
+            real_parent,
+            parent_exists,
+        }) => AgentPathInspection::Missing {
+            real_parent,
+            parent_exists,
+        },
+        Ok(ResolvedPath::Exists { real_path }) => AgentPathInspection::Exists { real_path },
+        Ok(ResolvedPath::Symlink {
+            link_target,
+            real_path,
+        }) => AgentPathInspection::Symlink {
+            link_target,
+            real_path,
+        },
+        Ok(ResolvedPath::AncestorNotDirectory {
+            real_path,
+            regular_file,
+        }) => AgentPathInspection::AncestorNotDirectory {
+            real_path,
+            regular_file,
+        },
+        Err(error) => AgentPathInspection::Unresolved {
+            cause: error.cause().into(),
+        },
     }
 }
 

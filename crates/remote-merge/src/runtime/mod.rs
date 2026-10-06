@@ -2,6 +2,10 @@
 
 mod backup_store;
 pub mod core;
+#[cfg(feature = "test-utils")]
+pub mod path_route;
+#[cfg(not(feature = "test-utils"))]
+mod path_route;
 pub mod remote_io;
 mod remote_path;
 pub mod side_io;
