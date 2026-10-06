@@ -63,3 +63,38 @@ fn a_file_that_cannot_be_read_for_comparison_is_reported_as_an_error_without_a_j
         );
     }
 }
+
+// テキストの出力では、読めなかったファイルのパスを標準エラーに出す（文言は固定しない）
+// @kotowari[REQ-cli-088]
+#[test]
+fn text_output_reports_an_unreadable_file_on_standard_error() {
+    let env = super::common::CliEnv::new(&[("a.txt", "alpha\n")], &[("a.txt", "bravo\n")]);
+    let remote = env.remote_dir.join("a.txt");
+    fs::File::options()
+        .write(true)
+        .open(&remote)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(T0))
+        .unwrap();
+    fs::set_permissions(&remote, fs::Permissions::from_mode(0o200)).unwrap();
+    assert!(
+        fs::File::open(&remote).is_err(),
+        "test needs an unreadable remote a.txt"
+    );
+
+    let output = env
+        .cmd_with("status")
+        .args(["--left", "local", "--right", "develop", "--all"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("a.txt"),
+        "{output:?}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("a.txt"),
+        "{output:?}"
+    );
+}
