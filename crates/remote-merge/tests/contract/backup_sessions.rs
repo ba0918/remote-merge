@@ -256,8 +256,9 @@ fn relative_local_root_is_identified_from_the_directory_of_its_config_file() {
 #[test]
 fn a_config_path_through_a_sibling_directory_gives_the_same_local_write_target() {
     let base = TempDir::new().unwrap();
-    let project = base.path().join("proj");
-    let sibling = base.path().join("sib");
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    let project = base_path.join("proj");
+    let sibling = base_path.join("sib");
     for directory in [&project, &sibling] {
         fs::create_dir(directory).unwrap();
     }
@@ -298,7 +299,9 @@ fn a_config_path_through_a_sibling_directory_gives_the_same_local_write_target()
 
 /// root_dir が "." の設定を置いたディレクトリと、その設定。`develop` の側に新しい内容を置く
 fn dot_root_project(base: &TempDir, develop: &TempDir) -> (std::path::PathBuf, AppConfig) {
-    let project = base.path().join("proj");
+    // 一時ディレクトリ自体が symlink の下にある環境（macOS の /var など）でも、設定ファイルの
+    // パスに symlink を含めない
+    let project = fs::canonicalize(base.path()).unwrap().join("proj");
     fs::create_dir(&project).unwrap();
     fs::write(project.join("file.txt"), "old local\n").unwrap();
     fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
@@ -398,7 +401,7 @@ fn sessions_of_the_working_directory_itself_are_not_taken_for_another_config_dir
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
     let (project, config) = dot_root_project(&base, &develop);
-    let elsewhere = base.path().join("x");
+    let elsewhere = fs::canonicalize(base.path()).unwrap().join("x");
     fs::create_dir(&elsewhere).unwrap();
     fs::write(elsewhere.join("file.txt"), "old local\n").unwrap();
     // x で root_dir が "." の設定を使っていた以前の版が、x 自身に保存した期限切れのセッション
@@ -459,6 +462,33 @@ fn a_parent_reference_after_a_symlink_in_the_config_path_is_resolved_like_the_os
     .unwrap();
 
     assert_eq!(config.local.root_dir, project);
+}
+
+// @kotowari[REQ-config-040]
+#[test]
+fn a_symlink_before_an_unrelated_parent_reference_stays_literal_in_the_config_path() {
+    let base = TempDir::new().unwrap();
+    let base_path = fs::canonicalize(base.path()).unwrap();
+    let real = base_path.join("real");
+    fs::create_dir_all(real.join("sib")).unwrap();
+    fs::create_dir_all(real.join("proj")).unwrap();
+    symlink(&real, base_path.join("sym")).unwrap();
+    fs::write(
+        real.join("proj/.remote-merge.toml"),
+        "[local]\nroot_dir = \".\"\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"/srv/unused\"\n",
+    )
+    .unwrap();
+    let load = |path: &str| {
+        remote_merge::config::load_config_from_paths(Some(&base_path.join(path)), None)
+            .unwrap()
+            .local
+            .root_dir
+    };
+
+    let through_sibling = load("sym/sib/../proj/.remote-merge.toml");
+
+    assert_eq!(through_sibling, load("sym/proj/.remote-merge.toml"));
+    assert_eq!(through_sibling, base_path.join("sym/proj"));
 }
 
 // @kotowari[REQ-backup-021]

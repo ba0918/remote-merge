@@ -451,10 +451,10 @@ fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
         .map_or_else(|| normalized.clone(), Path::to_path_buf))
 }
 
-/// 絶対パス `path` から "." の要素を除き、".." は OS と同じく物理的に解決する（直前までの部分を
-/// 実パスに直してから一つ上へ移る）。".." に関わらない symlink は辿らずに字面のまま残す。
-/// 設定ファイルは読めているので直前までの部分は存在するはずで、実パスにできなければ基準を
-/// 推し量らずにエラーにする
+/// 絶対パス `path` から "." の要素を除き、".." は直前の要素だけを見て解決する。直前の要素が symlink で
+/// なければ字面で打ち消し（その親は字面の一つ上と同じディレクトリ）、symlink ならそこまでを実パスに
+/// 直してから一つ上へ移る。それより前の symlink は字面のまま残す。直前の要素を調べられないときや
+/// 実パスにできないとき（PATH_MAX を超えるときを含む）は、基準を推し量らずにエラーにする
 fn config_file_location(path: &Path) -> std::io::Result<PathBuf> {
     use std::path::Component;
     let mut location = PathBuf::new();
@@ -462,8 +462,15 @@ fn config_file_location(path: &Path) -> std::io::Result<PathBuf> {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                location = std::fs::canonicalize(&location)?;
-                location.pop();
+                if let Some(Component::Normal(_)) = location.components().next_back() {
+                    if std::fs::symlink_metadata(&location)?
+                        .file_type()
+                        .is_symlink()
+                    {
+                        location = std::fs::canonicalize(&location)?;
+                    }
+                    location.pop();
+                }
             }
             other => location.push(other),
         }
