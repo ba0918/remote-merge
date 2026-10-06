@@ -121,7 +121,8 @@ pub fn not_absent_in(paths: &[String], tree: &FileTree) -> Vec<String> {
         .collect()
 }
 
-fn is_absent(tree: &FileTree, path: &str) -> bool {
+/// `tree` で `path` がないと分かっているか（未読み込みのディレクトリの下はないと分からない）
+pub fn is_absent(tree: &FileTree, path: &str) -> bool {
     tree.find_node_or_unloaded(Path::new(path)) == NodePresence::NotFound
 }
 

@@ -19,6 +19,7 @@ pub mod fast_path;
 pub mod max_files;
 pub mod merge;
 pub mod merge_flow;
+pub mod merge_reference;
 pub mod output;
 pub mod path_resolver;
 pub mod rollback;

@@ -6,14 +6,13 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
-use crate::service::content_reads::{
-    not_absent_in, three_way_contents_read, verified_content_pairs,
-};
+use crate::service::content_reads::{not_absent_in, verified_content_pairs};
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
     SingleMergeResult,
 };
+use crate::service::merge_reference::{reference_refusal_for, ThreeWaySides};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -281,50 +280,20 @@ pub fn execute_merge(
             &ref_contents,
         );
         if !args.force {
+            let sides = ThreeWaySides {
+                source: (&left_tree, &left_contents),
+                destination: (&right_tree, &right_contents),
+                reference: (&ref_tree, &ref_contents),
+            };
             plan.files.retain(|path| {
-                let read = three_way_contents_read(
-                    path,
-                    [
-                        (&left_tree, &left_contents),
-                        (&right_tree, &right_contents),
-                        (&ref_tree, &ref_contents),
-                    ],
-                );
-                let reason = if !read {
-                    Some("three-way comparison incomplete")
-                } else if args.dry_run {
-                    // --dry-run で書かずに出すのは読み込みに失敗したファイルだけにする
-                    None
-                } else {
-                    match (
-                        left_contents.content(path),
-                        right_contents.content(path),
-                        ref_contents.content(path),
-                    ) {
-                        (Some(left), Some(right), Some(base)) => {
-                            let is_link = |tree: &FileTree| {
-                                tree.find_node(path).is_some_and(|node| node.is_symlink())
-                            };
-                            // symlink は参照先に対する新しい確認の対象外（FLAG-cli-027）のため今の判定のまま
-                            if is_link(&left_tree) || is_link(&right_tree) {
-                                crate::service::merge::has_three_way_conflict(base, left, right)
-                                    .then_some("three-way conflict")
-                            } else {
-                                crate::service::merge::reference_check_failure(base, left, right)
-                            }
-                        }
-                        _ => Some("three-way comparison incomplete"),
-                    }
+                let Some(reason) = reference_refusal_for(path, &sides, args.dry_run) else {
+                    return true;
                 };
-                if let Some(reason) = reason {
-                    conflict_failures.push(MergeFailure {
-                        path: path.clone(),
-                        error: reason.to_string(),
-                    });
-                    false
-                } else {
-                    true
-                }
+                conflict_failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: reason.to_string(),
+                });
+                false
             });
         }
         (Some(ref_info), Some(badges))

@@ -324,3 +324,59 @@ fn a_forced_dry_run_gives_no_reference_badge_to_a_file_whose_reference_could_not
     assert_eq!(badge_of("file.txt"), None, "{json}");
     assert!(badge_of("other.txt").is_some(), "{json}");
 }
+
+fn with_reference(paths: &[&str]) -> remote_merge::cli::merge::MergeArgs {
+    let mut args = args(paths);
+    args.ref_server = Some("staging".into());
+    args
+}
+
+// @kotowari[EX-cli-084]
+#[test]
+fn a_new_file_only_on_the_source_is_written_with_a_reference() {
+    let fixture = fixture();
+    fixture.write("local", "new.txt", "new\n");
+
+    let (json, code) = fixture.merge_json(with_reference(&["new.txt"]));
+
+    assert_eq!(json["failed"], serde_json::json!([]), "{json}");
+    assert_eq!(merged_paths(&json), ["new.txt"], "{json}");
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(fixture.read("develop", "new.txt"), "new\n");
+}
+
+// @kotowari[EX-cli-085]
+#[test]
+fn a_file_removed_from_the_destination_since_the_reference_is_not_written() {
+    let fixture = fixture();
+    fixture.write("local", "a.txt", "changed\n");
+    fixture.write("staging", "a.txt", "base\n");
+
+    let (json, code) = fixture.merge_json(with_reference(&["a.txt"]));
+
+    assert_eq!(
+        json["failed"],
+        serde_json::json!([{ "path": "a.txt", "error": "destination changed since reference" }]),
+        "{json}"
+    );
+    assert_eq!(code, 2, "{json}");
+    assert!(!fixture.root("develop").join("a.txt").exists());
+}
+
+// 書き込み先が参照先から変わっていないことを確かめられないので書かない（error の文言は固定しない）
+// @kotowari[EX-cli-094]
+#[test]
+fn a_file_on_both_sides_but_not_in_the_reference_is_not_written() {
+    let fixture = fixture();
+    fixture.write("local", "b.txt", "left\n");
+    fixture.write("develop", "b.txt", "right version\n");
+
+    let (json, code) = fixture.merge_json(with_reference(&["b.txt"]));
+
+    let failed = json["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{json}");
+    assert_eq!(failed[0]["path"], "b.txt", "{json}");
+    assert!(is_non_empty_string(&failed[0]["error"]), "{json}");
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(fixture.read("develop", "b.txt"), "right version\n");
+}
