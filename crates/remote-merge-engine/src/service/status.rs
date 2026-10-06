@@ -201,11 +201,27 @@ pub fn needs_content_compare(
 /// 全ファイルのコンテンツ比較が必要なパスを抽出する（--checksum 用）。
 ///
 /// 両側に存在するファイル（Modified または Equal）をすべて返す。
-/// メタデータで Equal と判定されたファイルも含めて再比較する。
-pub fn needs_content_compare_all(files: &[FileStatus]) -> Vec<String> {
+/// メタデータで Equal と判定されたファイルも含めて再比較する。左右で種類（通常ファイルと
+/// ディレクトリなど）の違うパスは中身を読まずに Modified のままにする（REQ-cli-008）。
+pub fn needs_content_compare_all(
+    files: &[FileStatus],
+    left: &FileTree,
+    right: &FileTree,
+) -> Vec<String> {
+    let left_index = TreeIndex::build(left);
+    let right_index = TreeIndex::build(right);
     files
         .iter()
         .filter(|f| f.status == FileStatusKind::Modified || f.status == FileStatusKind::Equal)
+        .filter(|f| {
+            match (
+                left_index.find_node(&f.path),
+                right_index.find_node(&f.path),
+            ) {
+                (Some(l), Some(r)) => l.entry_kind() == r.entry_kind(),
+                _ => true,
+            }
+        })
         .map(|f| f.path.clone())
         .collect()
 }
@@ -941,9 +957,19 @@ mod tests {
         let files = compute_status_from_trees(&left, &right);
 
         // needs_content_compare_all は Equal + Modified の両方を返す
-        let all = needs_content_compare_all(&files);
+        let all = needs_content_compare_all(&files, &left, &right);
         assert!(all.contains(&"a.rs".to_string())); // Equal
         assert!(all.contains(&"b.rs".to_string())); // Modified
+    }
+
+    // 左右で種類の違うパスは中身を読まずに "modified" とする（REQ-cli-008）
+    #[test]
+    fn checksum_does_not_compare_a_file_against_a_directory_by_content() {
+        let left = make_tree(vec![FileNode::new_file("x"), FileNode::new_file("same")]);
+        let right = make_tree(vec![FileNode::new_dir("x"), FileNode::new_file("same")]);
+        let files = vec![modified("x"), modified("same")];
+
+        assert_eq!(needs_content_compare_all(&files, &left, &right), ["same"]);
     }
 
     #[test]
@@ -951,7 +977,7 @@ mod tests {
         let left = make_tree(vec![FileNode::new_file("only_left.rs")]);
         let right = make_tree(vec![FileNode::new_file("only_right.rs")]);
         let files = compute_status_from_trees(&left, &right);
-        let all = needs_content_compare_all(&files);
+        let all = needs_content_compare_all(&files, &left, &right);
         assert!(all.is_empty());
     }
 

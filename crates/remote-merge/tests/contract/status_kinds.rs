@@ -42,3 +42,30 @@ fn a_reference_of_another_kind_differs_without_reading_it() {
     assert_eq!(json.get("errors"), None, "{json}");
     assert_eq!(result.exit_code, 0, "{json}");
 }
+
+// 右がサーバで --ref がないときはハッシュの経路、右が local のときは中身を読む経路で比べる。
+// 左は通常ファイル、右は同じ名前のディレクトリ
+// @kotowari[REQ-cli-008]
+#[test]
+fn checksum_reports_a_file_against_a_directory_as_modified_without_reading_it() {
+    let fixture = fixture();
+    write_at(fixture.local.path(), "x", b"file\n", T0);
+    write_at(fixture.develop.path(), "x/inner.txt", b"file\n", T0);
+
+    for (left, right) in [("local", "develop"), ("develop", "local")] {
+        let mut args = args(Some(left), Some(right));
+        args.all = true;
+        args.checksum = true;
+
+        let result = fixture.run(args).unwrap();
+        let json = json_of(&result);
+
+        assert_eq!(
+            file(&json, "x")["status"],
+            "modified",
+            "{left} {right}: {json}"
+        );
+        assert_eq!(json.get("errors"), None, "{left} {right}: {json}");
+        assert_eq!(result.exit_code, 1, "{left} {right}: {json}");
+    }
+}

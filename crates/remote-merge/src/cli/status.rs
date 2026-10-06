@@ -93,7 +93,7 @@ pub fn execute_status(
     // コンテンツ比較が必要なファイルを抽出
     // --checksum: 全ファイルを比較（メタデータ quick check をバイパス）
     let paths_to_compare = if args.checksum {
-        needs_content_compare_all(&files)
+        needs_content_compare_all(&files, &left_tree, &right_tree)
     } else {
         needs_content_compare(&files, &left_tree, &right_tree)
     };
