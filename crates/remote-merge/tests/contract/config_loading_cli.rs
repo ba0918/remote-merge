@@ -343,6 +343,57 @@ fn an_empty_local_root_stops_with_the_reason() {
     assert_stops_with(&output, "root_dir must not be empty");
 }
 
+// @kotowari[REQ-config-040]
+#[test]
+fn a_relative_config_path_from_a_deep_working_directory_loads_although_its_absolute_form_is_too_long(
+) {
+    // 名前の長い要素を辿ってから ".." で戻る相対の --config。OS は相対のまま読めるが、
+    // 作業ディレクトリにつないだ絶対パスは PATH_MAX（4096 バイト）を超える
+    let elements: Vec<String> = (0..6)
+        .map(|index| format!("e{index}{}", "x".repeat(208)))
+        .collect();
+    let relative = format!(
+        "{}/{}/proj/.remote-merge.toml",
+        elements.join("/"),
+        vec![".."; elements.len()].join("/")
+    );
+    let mut workspace = Workspace::new();
+    let wanted_cwd = 4200 - relative.len() - 1;
+    let base_len = workspace.root().as_os_str().len();
+    if base_len + 300 > wanted_cwd {
+        eprintln!("skipped: the temporary directory ({base_len} bytes) is too deep to nest a working directory of {wanted_cwd} bytes");
+        return;
+    }
+    let mut cwd_relative = Vec::new();
+    let mut remaining = wanted_cwd - base_len;
+    while remaining > 0 {
+        let length = remaining.min(201) - 1;
+        cwd_relative.push("d".repeat(length.max(1)));
+        remaining = remaining.saturating_sub(length.max(1) + 1);
+    }
+    let cwd = workspace.dir(&cwd_relative.join("/"));
+    // 絶対パスでは長すぎて作れないので、作業ディレクトリからの相対で作る
+    let created = Command::new("mkdir")
+        .arg("-p")
+        .arg(elements.join("/"))
+        .current_dir(&cwd)
+        .status()
+        .unwrap();
+    assert!(created.success());
+    let project = cwd.join("proj");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("in-project.txt"), "only on the local side\n").unwrap();
+    workspace.write_config(&project.join(".remote-merge.toml"), Path::new("."));
+    assert!(cwd.as_os_str().len() + 1 + relative.len() > 4096);
+
+    let json = workspace.status_json(&cwd, Some(&relative));
+
+    assert_eq!(
+        listed_paths(&json),
+        [".remote-merge.toml", "in-project.txt"]
+    );
+}
+
 // @kotowari[REQ-config-040, EX-config-016]
 #[test]
 fn ex_config_016_a_relative_local_root_is_resolved_from_the_directory_of_the_given_config() {

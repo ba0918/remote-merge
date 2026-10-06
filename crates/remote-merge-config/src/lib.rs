@@ -337,18 +337,20 @@ pub fn load_config_with_project_override(
 
     let project_path = match project_override {
         Some(p) => {
+            // 文言には絶対パスを示すが、OS には書かれた形のまま渡す。作業ディレクトリにつないだ
+            // 絶対パスは、相対のパスで読めるときにも PATH_MAX を超えることがある（A63）
             let abs = if p.is_relative() {
                 std::env::current_dir()?.join(p)
             } else {
                 p.to_path_buf()
             };
-            if !abs.exists() {
+            if !p.exists() {
                 anyhow::bail!("Config file not found: {}", abs.display());
             }
-            if !abs.is_file() {
+            if !p.is_file() {
                 anyhow::bail!("Config path is not a regular file: {}", abs.display());
             }
-            Some(abs)
+            Some(p.to_path_buf())
         }
         None => {
             let default = project_config_path();
@@ -431,16 +433,9 @@ fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
     Ok(raw)
 }
 
-/// 設定ファイル `path` のあるディレクトリの絶対パス。相対の `path` はカレントディレクトリを基準にし、
-/// [`config_file_location`] で正規化してから親を取る
+/// 設定ファイル `path` のあるディレクトリの絶対パス。[`config_file_location`] で正規化してから親を取る
 fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
-    let absolute = std::path::absolute(path).with_context(|| {
-        format!(
-            "Failed to resolve the directory of config file: {}",
-            path.display()
-        )
-    })?;
-    let normalized = config_file_location(&absolute).with_context(|| {
+    let normalized = config_file_location(path).with_context(|| {
         format!(
             "Failed to resolve the directory of config file: {}",
             path.display()
@@ -451,26 +446,54 @@ fn config_directory(path: &Path) -> crate::error::Result<PathBuf> {
         .map_or_else(|| normalized.clone(), Path::to_path_buf))
 }
 
-/// 絶対パス `path` から "." の要素を除き、".." は直前の要素だけを見て解決する。直前の要素が symlink で
-/// なければ字面で打ち消し（その親は字面の一つ上と同じディレクトリ）、symlink ならそこまでを実パスに
-/// 直してから一つ上へ移る。それより前の symlink は字面のまま残す。直前の要素を調べられないときや
-/// 実パスにできないとき（PATH_MAX を超えるときを含む）は、基準を推し量らずにエラーにする
+/// 書かれた設定ファイルのパス `path` の絶対パスを、"." の要素を除き、".." は直前の要素だけを見て
+/// 解決して求める（REQ-config-040）。直前の要素が symlink でなければ字面で打ち消し（その親は字面の
+/// 一つ上と同じディレクトリ）、symlink ならそこまでを実パスに直してから一つ上へ移る。どの ".." にも
+/// 関わらない symlink は字面のまま残す。相対の `path` はカレントディレクトリにつなぐ。
+///
+/// 直前の要素を調べるときと実パスに直すときは、OS に渡す文字列が絶対パスにしたことだけで PATH_MAX を
+/// 超えないよう、書かれたパスの形（相対ならカレントディレクトリからの相対）でその要素を指す（A63）。
+/// カレントディレクトリの要素と実パスの要素は symlink でない。直前の要素を調べられないときや、
+/// symlink を実パスにできないとき（PATH_MAX を超えるときを含む）は、基準を推し量らずにエラーにする
 fn config_file_location(path: &Path) -> std::io::Result<PathBuf> {
     use std::path::Component;
     let mut location = PathBuf::new();
+    // location の名前の要素ごとに、それを書かれた形で指すパス。symlink でないと分かっている要素は None
+    let mut written_forms: Vec<Option<PathBuf>> = Vec::new();
+    if path.is_relative() {
+        for component in std::env::current_dir()?.components() {
+            if let Component::Normal(_) = component {
+                written_forms.push(None);
+            }
+            location.push(component);
+        }
+    }
+    let mut written = PathBuf::new();
     for component in path.components() {
+        if component != Component::CurDir {
+            written.push(component);
+        }
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
                 if let Some(Component::Normal(_)) = location.components().next_back() {
-                    if std::fs::symlink_metadata(&location)?
-                        .file_type()
-                        .is_symlink()
-                    {
-                        location = std::fs::canonicalize(&location)?;
+                    if let Some(Some(form)) = written_forms.pop() {
+                        if std::fs::symlink_metadata(&form)?.file_type().is_symlink() {
+                            location = std::fs::canonicalize(&form)?;
+                            written_forms = location
+                                .components()
+                                .filter(|part| matches!(part, Component::Normal(_)))
+                                .map(|_| None)
+                                .collect();
+                            written_forms.pop();
+                        }
                     }
                     location.pop();
                 }
+            }
+            Component::Normal(_) => {
+                location.push(component);
+                written_forms.push(Some(written.clone()));
             }
             other => location.push(other),
         }
