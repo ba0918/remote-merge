@@ -364,11 +364,27 @@ pub fn execute_diff(
                     || (right_content.is_err() && right_children.is_none())
                 {
                     // 読めない側があっても、もう一方の側の子の差分は示す
-                    let reason = "symlink target unreadable; resolved content not compared";
-                    link_diff.note = Some(reason.into());
+                    let note = "symlink target unreadable; resolved content not compared";
+                    link_diff.note = Some(note.into());
+                    let cause = read_failure_reason(
+                        (
+                            &pair.left,
+                            left_content
+                                .as_ref()
+                                .err()
+                                .filter(|_| left_children.is_none()),
+                        ),
+                        (
+                            &pair.right,
+                            right_content
+                                .as_ref()
+                                .err()
+                                .filter(|_| right_children.is_none()),
+                        ),
+                    );
                     errors.push(DiffError {
                         path: path.clone(),
-                        reason: reason.into(),
+                        reason: format!("{note}: {cause}"),
                     });
                     has_read_error = true;
                 }
@@ -466,11 +482,15 @@ pub fn execute_diff(
                 continue;
             }
             if left_content.is_err() || right_content.is_err() {
-                let reason = "symlink target unreadable; resolved content not compared";
-                link_diff.note = Some(reason.into());
+                let note = "symlink target unreadable; resolved content not compared";
+                link_diff.note = Some(note.into());
+                let cause = read_failure_reason(
+                    (&pair.left, left_content.as_ref().err()),
+                    (&pair.right, right_content.as_ref().err()),
+                );
                 errors.push(DiffError {
                     path: path.clone(),
-                    reason: reason.into(),
+                    reason: format!("{note}: {cause}"),
                 });
                 has_read_error = true;
                 file_diffs.push(link_diff);

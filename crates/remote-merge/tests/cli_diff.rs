@@ -2129,3 +2129,23 @@ fn req_cli_089_an_unreadable_file_that_was_not_named_does_not_change_the_result(
         assert_eq!(listed_paths(&json, "files").len(), count, "{count}: {json}");
     }
 }
+
+// 参照先を読めなかった理由は、読み込みの失敗そのものを含める
+// @kotowari[REQ-cli-022]
+#[test]
+fn req_cli_022_the_reason_for_an_unreadable_link_target_carries_the_read_failure() {
+    let env = CliEnv::new(&[("target.txt", "left\n")], &[("target.txt", "right\n")]);
+    place_symlink(&env.local_dir, "link.txt", "target.txt");
+    place_symlink(&env.remote_dir, "link.txt", "target.txt");
+    let target = env.local_dir.join("target.txt");
+    if !make_unreadable(&target) {
+        return;
+    }
+    let read_failure = std::fs::read(&target).unwrap_err().to_string();
+
+    let (output, json) = diff_json(&env, &["link.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let reason = json["errors"][0]["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains(&read_failure), "{read_failure}: {json}");
+}
