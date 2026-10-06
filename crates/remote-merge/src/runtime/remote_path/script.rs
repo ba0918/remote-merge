@@ -59,7 +59,7 @@ while [ "$n" -gt 0 ]; do
     if [ "$nl" -eq 40 ]; then fail "too many levels of symbolic links"; fi;
     nl=$((nl + 1));
     command -v readlink >/dev/null 2>&1 || fail "readlink not available";
-    t=$(readlink -- "$next" && echo x) || fail "cannot read";
+    t=$(readlink -- "$next" && printf x) || fail "cannot read";
     t=${t%x}; t=${t%?};
     emit link "$t";
     if [ "$fr" = 1 ] && [ "$rest" -eq 0 ]; then tl=$t; tlset=1; fi;
