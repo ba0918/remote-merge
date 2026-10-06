@@ -1235,6 +1235,13 @@ fn parse_listing(
     (nodes, truncated)
 }
 
+/// 子の一覧を取るコマンド。試験 SSH サーバを使う試験が、受けたコマンドのうち一覧を見分けるために
+/// test-utils の機能のときだけ公開する
+#[cfg(feature = "test-utils")]
+pub fn list_dir_command_for_tests(remote_path: &str) -> String {
+    list_dir_command(remote_path)
+}
+
 fn list_dir_command(remote_path: &str) -> String {
     format!(
         "find {}/ -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\t%Y\\n'",

@@ -8,7 +8,7 @@
 //!
 //! 読む前に大きさで決めたことは、上限を超える疎なファイルのモードを 000 にして示す。大きさは
 //! 調べられるが、読めば権限のエラーになる。中身を読まなかったことは、試験 SSH サーバが受けた
-//! コマンドにそのファイルの中身を読むものがないことで確かめる。
+//! コマンドのうちそのファイルに触れたものが、パスの確認と大きさの問い合わせだけであることで確かめる。
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -59,20 +59,29 @@ fn paths_in(json: &serde_json::Value, key: &str) -> Vec<String> {
         .collect()
 }
 
-/// 試験サーバが受けたコマンドのうち、SSH で `name` の中身を読んだもの
-fn ssh_content_reads(commands: &[String], name: &str) -> Vec<String> {
+/// 試験サーバが受けたコマンドのうち、`full_path` に触れたのに、パスの確認でも大きさの問い合わせでも
+/// 子の一覧でもないもの。どれも製品が test-utils で公開する並びか組み立てで見分けるので、中身を
+/// 読むコマンドの書き方が変わっても、中身を読んだことはここに残る
+fn ssh_commands_beyond_inspection(commands: &[String], full_path: &Path) -> Vec<String> {
+    let path = full_path.to_str().unwrap();
+    let listing = remote_merge::ssh::client::list_dir_command_for_tests(path);
     commands
         .iter()
-        .filter(|command| command.contains(name))
-        .filter(|command| command.contains("openssl base64 -in") || command.contains("wc -c <"))
+        .filter(|command| command.contains(path))
+        .filter(|command| !super::ssh_server::is_path_inspection(command))
+        .filter(|command| !super::ssh_server::is_file_size_query(command))
+        .filter(|command| **command != listing)
         .cloned()
         .collect()
 }
 
-/// エージェントの経路で、SSH で中身を読んだり大きさを尋ねたりしなかったことを確かめる
+/// エージェントの経路で、SSH で `full_path` の中身を読まず、大きさも尋ねなかったことを確かめる
 /// （エージェントが無効にされると、続きの読み込みは SSH に回る）
-fn assert_nothing_asked_over_ssh(commands: &[String], name: &str) {
-    assert!(ssh_content_reads(commands, name).is_empty(), "{commands:?}");
+fn assert_nothing_asked_over_ssh(commands: &[String], full_path: &Path) {
+    assert!(
+        ssh_commands_beyond_inspection(commands, full_path).is_empty(),
+        "{commands:?}"
+    );
     assert!(
         !commands
             .iter()
@@ -162,7 +171,7 @@ async fn req_cli_079_the_agent_does_not_read_a_remote_file_over_the_limit() {
         fixture.diff_via_agent(&local_root, &remote_root, &["big.bin", "--format", "json"]);
 
     assert_oversized_file_is_an_error(&output);
-    assert_nothing_asked_over_ssh(&fixture.received_commands(), "big.bin");
+    assert_nothing_asked_over_ssh(&fixture.received_commands(), &remote_root.join("big.bin"));
 }
 
 // @kotowari[REQ-cli-079]
@@ -180,7 +189,7 @@ fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_it_over
     assert_merge_refused_without_reading(&output);
     let commands = env.received_commands();
     assert!(
-        ssh_content_reads(&commands, "big.bin").is_empty(),
+        ssh_commands_beyond_inspection(&commands, &remote).is_empty(),
         "{commands:?}"
     );
     assert_eq!(fs::metadata(&remote).unwrap().len(), LIMIT + 1);
@@ -209,7 +218,7 @@ async fn req_cli_079_merge_refuses_a_remote_file_over_the_limit_before_reading_i
     set_mode(&remote, 0o644);
     assert!(precondition_holds, "test needs an unreadable remote file");
     assert_merge_refused_without_reading(&output);
-    assert_nothing_asked_over_ssh(&fixture.received_commands(), "big.bin");
+    assert_nothing_asked_over_ssh(&fixture.received_commands(), &remote_root.join("big.bin"));
     assert_eq!(mode, 0o000);
     assert_eq!(fs::metadata(&remote).unwrap().len(), LIMIT + 1);
 }
