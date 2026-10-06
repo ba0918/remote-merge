@@ -446,6 +446,11 @@ impl AgentFixture {
         output
     }
 
+    /// 試験サーバがこれまでに受けたコマンド
+    pub(super) fn received_commands(&self) -> Vec<String> {
+        self.server.commands()
+    }
+
     /// 試験サーバがエージェントの起動を受けたことを確かめ、受けたコマンドを返す
     fn assert_agent_started(&self) -> Vec<String> {
         let commands = self.server.commands();

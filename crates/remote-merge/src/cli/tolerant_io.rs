@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::CoreRuntime;
 use crate::service::status::RequiredContents;
@@ -44,17 +45,17 @@ pub fn fetch_contents_required(
     side: &Side,
     paths: &[String],
     core: &mut CoreRuntime,
-    force: bool,
+    limit: SizeLimit,
 ) -> RequiredContents {
     let mut result = RequiredContents::default();
-    if let Ok(contents) = core.read_files_bytes_batch(side, paths) {
+    if let Ok(contents) = core.read_files_bytes_batch(side, paths, limit) {
         result.contents = contents;
     }
     for path in paths {
         if result.contents.contains_key(path) {
             continue;
         }
-        match core.read_file_bytes(side, path, force) {
+        match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
             Ok(content) => {
                 result.contents.insert(path.clone(), content);
             }
@@ -75,16 +76,17 @@ pub fn fetch_contents_tolerant(
     side: &Side,
     paths: &[String],
     core: &mut CoreRuntime,
+    limit: SizeLimit,
 ) -> HashMap<String, Vec<u8>> {
     // バッチバイト列読み込みを試行
-    match core.read_files_bytes_batch(side, paths) {
+    match core.read_files_bytes_batch(side, paths, limit) {
         Ok(batch) => batch,
         Err(e) => {
             tracing::debug!("Batch read failed, falling back to individual reads: {}", e);
             // フォールバック: 1ファイルずつ（既存ロジック）
             let mut contents = HashMap::new();
             for path in paths {
-                match core.read_file_bytes(side, path, false) {
+                match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
                     Ok(content) => {
                         contents.insert(path.clone(), content);
                     }

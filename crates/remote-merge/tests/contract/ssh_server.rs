@@ -32,12 +32,25 @@ pub fn is_path_inspection(_command: &str) -> bool {
     false
 }
 
+/// 受けたコマンドが、製品の SSH の経路のファイルの大きさの問い合わせか
+#[cfg(feature = "test-utils")]
+pub fn is_file_size_query(command: &str) -> bool {
+    command.starts_with(remote_merge::runtime::remote_size::FILE_SIZE_PREFIX)
+}
+
+#[cfg(not(feature = "test-utils"))]
+pub fn is_file_size_query(_command: &str) -> bool {
+    false
+}
+
 pub struct TestServer {
     port: u16,
     task: tokio::task::JoinHandle<()>,
     write_attempts: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
+    size_attempts: Arc<AtomicUsize>,
+    size_interruptions: Arc<AtomicUsize>,
     login_limit: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
     host_key: String,
@@ -62,6 +75,13 @@ impl TestServer {
 
     pub async fn interrupt_all_reads() -> Self {
         Self::start(false, false, usize::MAX, false).await
+    }
+
+    /// 最初のファイルの大きさの問い合わせの途中で接続を切り、中身の読み込みには答える
+    pub async fn interrupt_first_size_query() -> Self {
+        let server = Self::start(false, false, 0, false).await;
+        server.size_interruptions.store(1, Ordering::SeqCst);
+        server
     }
 
     pub async fn reject_sudo() -> Self {
@@ -96,6 +116,11 @@ impl TestServer {
 
     pub fn read_attempts(&self) -> usize {
         self.read_attempts.load(Ordering::SeqCst)
+    }
+
+    /// サンドボックスなしで受けたファイルの大きさの問い合わせの数
+    pub fn size_attempts(&self) -> usize {
+        self.size_attempts.load(Ordering::SeqCst)
     }
 
     pub fn write_attempts(&self) -> usize {
@@ -173,6 +198,10 @@ impl TestServer {
         let received_commands = Arc::clone(&commands);
         let read_attempts = Arc::new(AtomicUsize::new(0));
         let attempts_on_read = Arc::clone(&read_attempts);
+        let size_attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_on_size = Arc::clone(&size_attempts);
+        let size_interruptions = Arc::new(AtomicUsize::new(0));
+        let interruptions_on_size = Arc::clone(&size_interruptions);
         let login_limit = Arc::new(AtomicUsize::new(usize::MAX));
         let limit_on_login = Arc::clone(&login_limit);
         let login_shell = Arc::new(Mutex::new("sh"));
@@ -186,6 +215,8 @@ impl TestServer {
                 write_attempts: attempts,
                 commands: received_commands,
                 read_attempts: attempts_on_read,
+                size_attempts: attempts_on_size,
+                size_interruptions: interruptions_on_size,
                 interrupt_reads,
                 reject_sudo,
                 target,
@@ -203,6 +234,8 @@ impl TestServer {
             write_attempts,
             commands,
             read_attempts,
+            size_attempts,
+            size_interruptions,
             login_limit,
             login_shell,
             host_key,
@@ -221,6 +254,8 @@ struct LocalServer {
     write_attempts: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
+    size_attempts: Arc<AtomicUsize>,
+    size_interruptions: Arc<AtomicUsize>,
     interrupt_reads: usize,
     reject_sudo: bool,
     target: Option<PathBuf>,
@@ -240,6 +275,8 @@ impl server::Server for LocalServer {
             write_attempts: Arc::clone(&self.write_attempts),
             commands: Arc::clone(&self.commands),
             read_attempts: Arc::clone(&self.read_attempts),
+            size_attempts: Arc::clone(&self.size_attempts),
+            size_interruptions: Arc::clone(&self.size_interruptions),
             interrupt_reads: self.interrupt_reads,
             reject_sudo: self.reject_sudo,
             target: self.target.clone(),
@@ -259,6 +296,8 @@ struct LocalHandler {
     write_attempts: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
     read_attempts: Arc<AtomicUsize>,
+    size_attempts: Arc<AtomicUsize>,
+    size_interruptions: Arc<AtomicUsize>,
     interrupt_reads: usize,
     reject_sudo: bool,
     target: Option<PathBuf>,
@@ -449,7 +488,26 @@ impl server::Handler for LocalHandler {
             session.close(channel)?;
             return Ok(());
         }
-        if command.starts_with(b"openssl base64 -in") && self.interrupt_reads > 0 {
+        if is_file_size_query(&script) {
+            // 大きさの問い合わせは stat で調べるだけなので、受けたまま実行して答える
+            let interruptions = self.size_interruptions.load(Ordering::SeqCst);
+            if self.size_attempts.fetch_add(1, Ordering::SeqCst) < interruptions {
+                session.disconnect(Disconnect::ByApplication, "connection lost during stat", "")?;
+                return Ok(());
+            }
+            let result = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .output()?;
+            session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+            session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
+        let answers_reads =
+            self.interrupt_reads > 0 || self.size_interruptions.load(Ordering::SeqCst) > 0;
+        if command.starts_with(b"openssl base64 -in") && answers_reads {
             if self.read_attempts.fetch_add(1, Ordering::SeqCst) < self.interrupt_reads {
                 session.disconnect(Disconnect::ByApplication, "connection lost during read", "")?;
                 return Ok(());

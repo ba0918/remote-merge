@@ -1,0 +1,8 @@
+# --force で 104,857,600 バイトを超える中身を実際に読むテストは、一つで数百 MB のメモリを使う。
+# この組のテストは同時に一つだけ走らせる。
+[test-groups]
+oversized-reads = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(/^size_limit::req_cli_074_force_lets_merge_write_a_file_over_the_limit$/)'
+test-group = 'oversized-reads'

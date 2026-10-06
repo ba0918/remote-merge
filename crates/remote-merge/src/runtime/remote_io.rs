@@ -10,6 +10,7 @@ use anyhow::Context as _;
 use crate::merge::executor;
 
 use super::core::CoreRuntime;
+use super::size_limit::FileSize;
 
 // ── CoreRuntime にリモートI/Oを実装 ──
 //
@@ -171,27 +172,51 @@ impl CoreRuntime {
         &mut self,
         server_name: &str,
         rel_path: &str,
-        force: bool,
     ) -> anyhow::Result<Vec<u8>> {
         let full_path = self.resolve_remote_path(server_name, rel_path)?;
 
         match self.read_file_bytes_inner(server_name, &full_path) {
-            Ok(bytes) => {
-                validate_file_size(&bytes, rel_path, force)?;
-                Ok(bytes)
-            }
+            Ok(bytes) => Ok(bytes),
             Err(e) if crate::error::is_connection_error(&e) => {
                 tracing::info!(
                     "Read bytes failed (connection error), auto-reconnecting: {}",
                     rel_path
                 );
                 self.try_reconnect(server_name)?;
-                let bytes = self.read_file_bytes_inner(server_name, &full_path)?;
-                validate_file_size(&bytes, rel_path, force)?;
-                Ok(bytes)
+                self.read_file_bytes_inner(server_name, &full_path)
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// リモートのファイルの大きさを SSH のコマンドで調べる（接続エラー時に1回自動再接続）。
+    ///
+    /// パスごとの失敗は `FileSize::Unknown`、コマンドの失敗と解析できない出力は Err にする。
+    /// side_io.rs の統一 API 経由でのみ使用する。
+    pub(crate) fn ssh_file_sizes(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, FileSize>> {
+        if rel_paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
+        let sizes = match self.file_sizes_inner(server_name, &full_paths) {
+            Ok(sizes) => sizes,
+            Err(e) if crate::error::is_connection_error(&e) => {
+                tracing::info!("File size query failed (connection error), auto-reconnecting");
+                self.try_reconnect(server_name)?;
+                self.file_sizes_inner(server_name, &full_paths)?
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(rel_paths
+            .iter()
+            .cloned()
+            .zip(sizes)
+            .map(|(path, size)| (path, size.map_or(FileSize::Unknown, FileSize::Known)))
+            .collect())
     }
 
     /// リモートファイルにバイト列を書き込む（バイナリファイル対応）
@@ -412,6 +437,29 @@ impl CoreRuntime {
         self.rt.block_on(client.read_file_bytes(full_path))
     }
 
+    /// `full_paths` の順番の大きさ。尋ねるパスは一括読み込みと同じ長さの上限でコマンドに分ける
+    fn file_sizes_inner(
+        &mut self,
+        server_name: &str,
+        full_paths: &[String],
+    ) -> anyhow::Result<Vec<Option<u64>>> {
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        let mut sizes = Vec::with_capacity(full_paths.len());
+        for (chunk, command) in super::remote_size::file_size_commands(full_paths) {
+            let output = self
+                .rt
+                .block_on(crate::ssh::exec_strict_bytes(client, &command))?;
+            sizes.extend(super::remote_size::parse_file_size_output(
+                &output,
+                chunk.len(),
+            )?);
+        }
+        Ok(sizes)
+    }
+
     fn read_file_inner(&mut self, server_name: &str, full_path: &str) -> anyhow::Result<String> {
         let client = self
             .ssh_clients
@@ -471,22 +519,6 @@ impl CoreRuntime {
         }
         result
     }
-}
-
-/// バイナリファイルのサイズ制限チェック（100MB）
-///
-/// `force` が true の場合はスキップする。
-fn validate_file_size(bytes: &[u8], rel_path: &str, force: bool) -> anyhow::Result<()> {
-    use crate::merge::executor::MAX_BINARY_FILE_SIZE;
-    if !force && bytes.len() > MAX_BINARY_FILE_SIZE {
-        anyhow::bail!(
-            "File too large ({} bytes > {} bytes limit): {}. Use --force to override.",
-            bytes.len(),
-            MAX_BINARY_FILE_SIZE,
-            rel_path
-        );
-    }
-    Ok(())
 }
 
 // ── バックアップパース純粋関数 ──

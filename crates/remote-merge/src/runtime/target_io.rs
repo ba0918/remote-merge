@@ -8,6 +8,7 @@ use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
 use super::side_io::hash_results_to_map;
+use super::size_limit::FileSize;
 
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
 
@@ -65,8 +66,13 @@ pub(crate) trait TargetIo {
         &mut self,
         runtime: &mut CoreRuntime,
         rel_path: &str,
-        force: bool,
     ) -> anyhow::Result<Vec<u8>>;
+    /// パスごとの、symlink を辿った先のファイルの大きさ。大きさを尋ねる操作そのものが失敗したら Err
+    fn file_sizes(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, FileSize>>;
     fn read_files_bytes_batch(
         &mut self,
         runtime: &mut CoreRuntime,
@@ -176,13 +182,19 @@ impl TargetIo for LocalTargetIo {
         remote_merge_engine::local_io::read_files_batch(&self.root, paths)
     }
 
-    fn read_file_bytes(
+    fn read_file_bytes(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
+        remote_merge_engine::local_io::read_file_bytes(&self.root, path)
+    }
+
+    fn file_sizes(
         &mut self,
         _: &mut CoreRuntime,
-        path: &str,
-        force: bool,
-    ) -> anyhow::Result<Vec<u8>> {
-        remote_merge_engine::local_io::read_file_bytes(&self.root, path, force)
+        paths: &[String],
+    ) -> anyhow::Result<HashMap<String, FileSize>> {
+        Ok(remote_merge_engine::local_io::file_sizes(&self.root, paths)
+            .into_iter()
+            .map(|(path, size)| (path, size.map_or(FileSize::Unknown, FileSize::Known)))
+            .collect())
     }
 
     fn read_files_bytes_batch(
@@ -346,17 +358,19 @@ impl TargetIo for RemoteTargetIo {
         rt.check_sudo_fallback(&self.name)?;
         rt.read_remote_files_batch(&self.name, paths)
     }
-    fn read_file_bytes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &str,
-        force: bool,
-    ) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
         if let Some(v) = rt.try_agent_read_file_bytes(&self.name, path) {
             return v;
         }
         rt.check_sudo_fallback(&self.name)?;
-        rt.read_remote_file_bytes(&self.name, path, force)
+        rt.read_remote_file_bytes(&self.name, path)
+    }
+    fn file_sizes(
+        &mut self,
+        rt: &mut CoreRuntime,
+        paths: &[String],
+    ) -> anyhow::Result<HashMap<String, FileSize>> {
+        rt.remote_file_sizes(&self.name, paths)
     }
     fn read_files_bytes_batch(
         &mut self,

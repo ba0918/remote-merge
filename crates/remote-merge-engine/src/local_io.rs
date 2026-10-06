@@ -240,8 +240,8 @@ pub fn read_files_batch(root: &Path, paths: &[String]) -> anyhow::Result<HashMap
         .collect()
 }
 
-pub fn read_file_bytes(root: &Path, path: &str, force: bool) -> anyhow::Result<Vec<u8>> {
-    executor::read_local_file_bytes(root, path, force)
+pub fn read_file_bytes(root: &Path, path: &str) -> anyhow::Result<Vec<u8>> {
+    executor::read_local_file_bytes(root, path)
 }
 
 pub fn read_files_bytes_batch(
@@ -250,11 +250,21 @@ pub fn read_files_bytes_batch(
 ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
     paths
         .iter()
+        .map(|path| Ok((path.clone(), executor::read_local_file_bytes(root, path)?)))
+        .collect()
+}
+
+/// パスごとの、symlink を辿った先のファイルの大きさ。調べられないパス（ない、権限がない、
+/// root_dir の外）は None
+pub fn file_sizes(root: &Path, paths: &[String]) -> HashMap<String, Option<u64>> {
+    paths
+        .iter()
         .map(|path| {
-            Ok((
-                path.clone(),
-                executor::read_local_file_bytes(root, path, false)?,
-            ))
+            let size = validated_path(root, path)
+                .ok()
+                .and_then(|full| std::fs::metadata(full).ok())
+                .map(|metadata| metadata.len());
+            (path.clone(), size)
         })
         .collect()
 }
@@ -438,5 +448,23 @@ mod tests {
                 "{rel}"
             );
         }
+    }
+
+    #[test]
+    fn file_sizes_follow_symlinks_and_leave_unknown_paths_out() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::write(root.join("file"), "12345").unwrap();
+        symlink("file", root.join("link")).unwrap();
+        let paths: Vec<String> = ["file", "link", "missing", "../outside"]
+            .map(String::from)
+            .to_vec();
+
+        let sizes = file_sizes(root, &paths);
+
+        assert_eq!(sizes["file"], Some(5));
+        assert_eq!(sizes["link"], Some(5));
+        assert_eq!(sizes["missing"], None);
+        assert_eq!(sizes["../outside"], None);
     }
 }

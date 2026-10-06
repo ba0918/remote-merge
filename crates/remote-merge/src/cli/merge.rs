@@ -4,6 +4,7 @@ use crate::cli::ref_guard;
 use crate::cli::tolerant_io::{fetch_contents_required, fetch_contents_tolerant};
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
@@ -194,7 +195,12 @@ pub fn execute_merge(
         })
         .cloned()
         .collect();
-    let expected = fetch_contents_required(&pair.right, &destination_paths, &mut core, args.force);
+    let expected = fetch_contents_required(
+        &pair.right,
+        &destination_paths,
+        &mut core,
+        SizeLimit::from_force(args.force),
+    );
     let expected_target_contents = expected.contents;
     let mut compare_failures = compare_failures;
     compare_failures.extend(
@@ -247,9 +253,11 @@ pub fn execute_merge(
         let ref_info = build_source_info(ref_s, &core)?;
 
         let paths = &plan.files;
-        let left_contents = fetch_contents_tolerant(&pair.left, paths, &mut core);
-        let right_contents = fetch_contents_tolerant(&pair.right, paths, &mut core);
-        let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core);
+        let left_contents =
+            fetch_contents_tolerant(&pair.left, paths, &mut core, SizeLimit::Enforced);
+        let right_contents =
+            fetch_contents_tolerant(&pair.right, paths, &mut core, SizeLimit::Enforced);
+        let ref_contents = fetch_contents_tolerant(ref_s, paths, &mut core, SizeLimit::Enforced);
 
         let file_statuses: Vec<FileStatus> = plan
             .files
@@ -580,8 +588,18 @@ fn fetch_trees_and_statuses_for_merge(
     );
     let mut failures = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_required(left, &paths_to_compare, core, comparison.force);
-        let right_batch = fetch_contents_required(right, &paths_to_compare, core, comparison.force);
+        let left_batch = fetch_contents_required(
+            left,
+            &paths_to_compare,
+            core,
+            SizeLimit::from_force(comparison.force),
+        );
+        let right_batch = fetch_contents_required(
+            right,
+            &paths_to_compare,
+            core,
+            SizeLimit::from_force(comparison.force),
+        );
         let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
         failures = verified.failures;
         refine_status_with_content(&mut statuses, &verified.pairs);

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use crate::cli::ref_guard;
 use crate::cli::tolerant_io::fetch_contents_tolerant;
 use crate::config::{resolve_max_entries, AppConfig};
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
@@ -128,12 +129,12 @@ pub fn execute_status(
     };
 
     let left_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.left, &content_paths, &mut core)
+        fetch_contents_tolerant(&pair.left, &content_paths, &mut core, SizeLimit::Enforced)
     } else {
         HashMap::new()
     };
     let right_contents = if !content_paths.is_empty() {
-        fetch_contents_tolerant(&pair.right, &content_paths, &mut core)
+        fetch_contents_tolerant(&pair.right, &content_paths, &mut core, SizeLimit::Enforced)
     } else {
         HashMap::new()
     };
@@ -162,7 +163,8 @@ pub fn execute_status(
 
         // Fetch ref contents for every file
         let ref_paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
-        let ref_contents = fetch_contents_tolerant(ref_s, &ref_paths, &mut core);
+        let ref_contents =
+            fetch_contents_tolerant(ref_s, &ref_paths, &mut core, SizeLimit::Enforced);
 
         // Compute ref badges — left/right contents は既に取得済みのものを再利用
         let badges = compute_ref_badges(

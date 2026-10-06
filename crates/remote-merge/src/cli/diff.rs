@@ -5,6 +5,7 @@ use crate::cli::tolerant_io::{fetch_contents_required, read_failure_reason, read
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
+use crate::runtime::size_limit::{FileTooLarge, SizeLimit};
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::diff::{
@@ -575,7 +576,7 @@ pub fn execute_diff(
             let right_content = String::from_utf8_lossy(&right_bytes).into_owned();
 
             let ref_content = if let Some(ref_s) = &ref_side {
-                core.read_file(ref_s, path).ok()
+                core.read_file(ref_s, path, SizeLimit::Enforced).ok()
             } else {
                 None
             };
@@ -647,8 +648,12 @@ fn listed_children(
 }
 
 /// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
+/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない
 fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str) -> bool {
-    core.read_file_bytes(side, path, false).is_ok()
+    match core.read_file_bytes(side, path, false) {
+        Ok(_) => true,
+        Err(error) => error.is::<FileTooLarge>(),
+    }
 }
 
 /// 子を持てない側の下に展開したパスは、その側を調べずにないものとする。
@@ -962,8 +967,10 @@ fn compute_statuses_and_resolve(
     let paths_to_compare = needs_content_compare(&statuses, &left_tree, &right_tree);
     let mut read_errors = Vec::new();
     if !paths_to_compare.is_empty() {
-        let left_batch = fetch_contents_required(left, &paths_to_compare, core, false);
-        let right_batch = fetch_contents_required(right, &paths_to_compare, core, false);
+        let left_batch =
+            fetch_contents_required(left, &paths_to_compare, core, SizeLimit::Enforced);
+        let right_batch =
+            fetch_contents_required(right, &paths_to_compare, core, SizeLimit::Enforced);
         let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
         refine_status_with_content(&mut statuses, &verified.pairs);
         read_errors = verified

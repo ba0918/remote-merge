@@ -459,6 +459,11 @@ impl CliEnv {
         self._dirs._server.reject_logins_after(accepted);
     }
 
+    /// 試験 SSH サーバがこれまでに受けたコマンド（ログインシェルの包みを外したもの）
+    pub fn received_commands(&self) -> Vec<String> {
+        self._dirs._server.commands()
+    }
+
     /// 試験 SSH サーバが受け取ったコマンドを、リモートのログインシェル `shell` の `-c` で実行させる
     pub fn use_remote_login_shell(&self, shell: &'static str) {
         self._dirs._server.use_login_shell(shell);

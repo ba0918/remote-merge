@@ -61,18 +61,14 @@ pub struct MergeOptions {
     pub with_permissions: bool,
 }
 
-/// バイナリファイルの最大サイズ（100MB）
+/// 中身を読むファイルの大きさの上限（docs/ir/cli/size-limit.md の REQ-cli-079）。判定は製品の
+/// 読み込みの入口が、読む前に大きさで行う
 pub const MAX_BINARY_FILE_SIZE: usize = 104_857_600;
 
 /// ローカルファイルのバイト列を読み込む（バイナリファイル対応）
 ///
 /// UTF-8 変換を行わず、生のバイト列をそのまま返す。
-/// 100MB 超のファイルは `force` が false の場合エラーを返す。
-pub fn read_local_file_bytes(
-    root_dir: &Path,
-    rel_path: &str,
-    force: bool,
-) -> crate::error::Result<Vec<u8>> {
+pub fn read_local_file_bytes(root_dir: &Path, rel_path: &str) -> crate::error::Result<Vec<u8>> {
     let full_path = root_dir.join(rel_path);
     let normalized = validate_path_within_root(root_dir, &full_path)?;
 
@@ -82,15 +78,6 @@ pub fn read_local_file_bytes(
         },
         _ => crate::error::AppError::Io(e),
     })?;
-
-    if !force && bytes.len() > MAX_BINARY_FILE_SIZE {
-        anyhow::bail!(
-            "File too large ({} bytes > {} bytes limit): {}. Use --force to override.",
-            bytes.len(),
-            MAX_BINARY_FILE_SIZE,
-            normalized.display()
-        );
-    }
 
     Ok(bytes)
 }
@@ -377,7 +364,7 @@ mod tests {
         let binary_data: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0xFD];
         std::fs::write(dir.path().join("binary.dat"), &binary_data).unwrap();
 
-        let result = read_local_file_bytes(dir.path(), "binary.dat", false).unwrap();
+        let result = read_local_file_bytes(dir.path(), "binary.dat").unwrap();
         assert_eq!(result, binary_data, "Binary data should be returned as-is");
     }
 
@@ -398,7 +385,7 @@ mod tests {
         let text = "Hello, world!\nThis is a text file.\n";
         std::fs::write(dir.path().join("text.txt"), text).unwrap();
 
-        let result = read_local_file_bytes(dir.path(), "text.txt", false).unwrap();
+        let result = read_local_file_bytes(dir.path(), "text.txt").unwrap();
         assert_eq!(
             result,
             text.as_bytes(),
@@ -418,30 +405,6 @@ mod tests {
     }
 
     #[test]
-    fn test_read_local_file_bytes_size_limit() {
-        let dir = TempDir::new().unwrap();
-        // 100MB + 1 バイトのデータを作成
-        let large_data = vec![0xABu8; MAX_BINARY_FILE_SIZE + 1];
-        std::fs::write(dir.path().join("huge.bin"), &large_data).unwrap();
-
-        // force=false: エラーになること
-        let result = read_local_file_bytes(dir.path(), "huge.bin", false);
-        assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(
-            err.contains("File too large"),
-            "Expected 'File too large' error, got: {}",
-            err
-        );
-        assert!(err.contains("--force"), "Error should mention --force");
-
-        // force=true: 成功すること
-        let result = read_local_file_bytes(dir.path(), "huge.bin", true);
-        assert!(result.is_ok(), "force=true should bypass size limit");
-        assert_eq!(result.unwrap().len(), MAX_BINARY_FILE_SIZE + 1);
-    }
-
-    #[test]
     fn test_write_local_file_bytes_creates_parent_dirs() {
         let dir = TempDir::new().unwrap();
         let data = vec![0x01, 0x02, 0x03];
@@ -455,14 +418,14 @@ mod tests {
     #[test]
     fn test_read_local_file_bytes_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = read_local_file_bytes(dir.path(), "nonexistent.bin", false);
+        let result = read_local_file_bytes(dir.path(), "nonexistent.bin");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_read_local_file_bytes_path_traversal() {
         let dir = TempDir::new().unwrap();
-        let result = read_local_file_bytes(dir.path(), "../../../etc/passwd", false);
+        let result = read_local_file_bytes(dir.path(), "../../../etc/passwd");
         assert!(result.is_err());
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("Path escapes root_dir"));

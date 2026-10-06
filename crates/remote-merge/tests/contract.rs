@@ -121,6 +121,9 @@ mod scan_limits_cli;
 #[path = "contract/scan_listing_cli.rs"]
 mod scan_listing_cli;
 #[cfg(feature = "test-utils")]
+#[path = "contract/size_limit.rs"]
+mod size_limit;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_agent_deploy.rs"]
 mod ssh_agent_deploy;
 #[cfg(feature = "test-utils")]

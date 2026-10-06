@@ -14,6 +14,8 @@ use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
 
 use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
+use super::remote_size::{ask_agent_sizes, AgentSizes};
+use super::size_limit::{self, FileSize, SizeLimit};
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, wrap_nodes_in_subpath,
@@ -130,48 +132,97 @@ impl CoreRuntime {
     }
 
     // ── 読み込み ──
+    //
+    // 製品の中身の読み込みはすべてこの四つの入口を通る。上限ありのときは経路に振り分ける前に
+    // 大きさだけを尋ね、上限を超えるパスを読まない（docs/ir/cli/size-limit.md の REQ-cli-079）。
 
-    /// Side に基づいてファイルを読み込む
-    pub fn read_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<String> {
+    /// Side に基づいてファイルを読み込む。上限を超えるファイルは読まずに `FileTooLarge` を返す
+    pub fn read_file(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        limit: SizeLimit,
+    ) -> anyhow::Result<String> {
+        self.refuse_over_limit(side, rel_path, limit)?;
         let mut io = super::target_io::for_side(side, self);
         io.read_file(self, rel_path)
     }
 
-    /// Side に基づいて複数ファイルをバッチ読み込みする
+    /// Side に基づいて複数ファイルをバッチ読み込みする。上限を超えるパスは結果に入れない
     pub fn read_files_batch(
         &mut self,
         side: &Side,
         rel_paths: &[String],
+        limit: SizeLimit,
     ) -> anyhow::Result<HashMap<String, String>> {
+        let readable = self.paths_within_limit(side, rel_paths, limit)?;
         let mut io = super::target_io::for_side(side, self);
-        io.read_files_batch(self, rel_paths)
+        io.read_files_batch(self, &readable)
     }
 
     // ── バイト列読み込み ──
 
-    /// Side に基づいてバイト列を読み込む（バイナリファイル対応）
+    /// Side に基づいてバイト列を読み込む（バイナリファイル対応）。`force` が false なら
+    /// 上限を超えるファイルは読まずに `FileTooLarge` を返す
     pub fn read_file_bytes(
         &mut self,
         side: &Side,
         rel_path: &str,
         force: bool,
     ) -> anyhow::Result<Vec<u8>> {
+        self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))?;
         let mut io = super::target_io::for_side(side, self);
-        io.read_file_bytes(self, rel_path, force)
+        io.read_file_bytes(self, rel_path)
     }
 
     /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
     ///
     /// `read_files_batch` と同じ strict セマンティクス:
-    /// ファイル単位の読み込みエラーは即座に `Err` として伝播する。
+    /// ファイル単位の読み込みエラーは即座に `Err` として伝播する。上限を超えるパスは結果に
+    /// 入れないので、中身が要る呼び出し元は結果にないパスを一件ずつ読み直して理由を受け取る。
     /// エラートレラントな読み込みが必要な場合は `cli::tolerant_io::fetch_contents_tolerant` を使うこと。
     pub fn read_files_bytes_batch(
         &mut self,
         side: &Side,
         rel_paths: &[String],
+        limit: SizeLimit,
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        let readable = self.paths_within_limit(side, rel_paths, limit)?;
         let mut io = super::target_io::for_side(side, self);
-        io.read_files_bytes_batch(self, rel_paths)
+        io.read_files_bytes_batch(self, &readable)
+    }
+
+    /// 上限ありのとき、`rel_path` を読まない理由があれば Err にする
+    fn refuse_over_limit(
+        &mut self,
+        side: &Side,
+        rel_path: &str,
+        limit: SizeLimit,
+    ) -> anyhow::Result<()> {
+        if limit == SizeLimit::Lifted {
+            return Ok(());
+        }
+        let mut io = super::target_io::for_side(side, self);
+        let sizes = io.file_sizes(self, &[rel_path.to_string()])?;
+        match size_limit::refusal(rel_path, sizes.get(rel_path)) {
+            Some(refusal) => Err(refusal),
+            None => Ok(()),
+        }
+    }
+
+    /// 経路に読ませるパス。上限なしのときは大きさを尋ねない
+    fn paths_within_limit(
+        &mut self,
+        side: &Side,
+        rel_paths: &[String],
+        limit: SizeLimit,
+    ) -> anyhow::Result<Vec<String>> {
+        if limit == SizeLimit::Lifted || rel_paths.is_empty() {
+            return Ok(rel_paths.to_vec());
+        }
+        let mut io = super::target_io::for_side(side, self);
+        let sizes = io.file_sizes(self, rel_paths)?;
+        Ok(size_limit::readable_paths(rel_paths, &sizes))
     }
 
     // ── 書き込み ──
@@ -658,6 +709,79 @@ impl CoreRuntime {
         }
     }
 
+    /// リモートのファイルの大きさ。エージェントがあればエージェントに尋ね、なければ SSH の
+    /// コマンドで調べる。エージェントが答えなかったパスは SSH で尋ね直し、sudo を使うサーバでは
+    /// SSH に切り替えずに尋ねられなかったことにする
+    pub(crate) fn remote_file_sizes(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<HashMap<String, FileSize>> {
+        let Some(answer) = self.try_agent_file_sizes(server_name, rel_paths) else {
+            self.check_sudo_fallback(server_name)?;
+            return self.ssh_file_sizes(server_name, rel_paths);
+        };
+        let (known, omitted) = answer?;
+        let mut sizes: HashMap<String, FileSize> = known
+            .into_iter()
+            .map(|(path, size)| (path, FileSize::Known(size)))
+            .collect();
+        if omitted.is_empty() {
+            return Ok(sizes);
+        }
+        if self.server_uses_sudo(server_name) {
+            let reason = "file size not reported by the agent (SSH is not used with sudo = true)";
+            sizes.extend(
+                omitted
+                    .into_iter()
+                    .map(|path| (path, FileSize::Unavailable(reason.into()))),
+            );
+            return Ok(sizes);
+        }
+        self.check_sudo_fallback(server_name)?;
+        sizes.extend(self.ssh_file_sizes(server_name, &omitted)?);
+        Ok(sizes)
+    }
+
+    /// エージェントの `StatFiles` で大きさを尋ね、答えたパスの大きさと答えなかったパスを返す。
+    ///
+    /// エージェントがなければ None。`with_agent` は通さない: エージェントが返したエラーを SSH への
+    /// 切り替えにすると、その経路だけ上限が黙って外れうる。そこで、接続が切れたときだけ
+    /// エージェントを無効にして None（SSH への切り替え）にし、エージェントが返したエラーは
+    /// 尋ねたパスすべての失敗にする。そのとき、続きの応答を信用できない種類のエラーなら、
+    /// 既存の読み込みと同じくエージェントを無効にする
+    #[allow(clippy::type_complexity)]
+    fn try_agent_file_sizes(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<String>)>> {
+        self.config.servers.get(server_name)?;
+        let agent_arc = self.agent_clients.get(server_name)?.clone();
+        let Ok(mut agent) = agent_arc.lock() else {
+            self.invalidate_agent(server_name);
+            return None;
+        };
+        let answer = ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
+            agent.stat_files(paths)
+        });
+        drop(agent);
+        match answer {
+            AgentSizes::Answered { known, omitted } => Some(Ok((known, omitted))),
+            AgentSizes::ConnectionLost(error) => {
+                tracing::warn!("Agent connection lost for {}: {}", server_name, error);
+                self.invalidate_agent(server_name);
+                None
+            }
+            AgentSizes::Failed(error) => {
+                if should_invalidate_agent_error(&error) {
+                    self.invalidate_agent(server_name);
+                }
+                Some(Err(error.context("agent could not report file sizes")))
+            }
+        }
+    }
+
     /// Agent 経由でシンボリックリンクを作成する
     pub(crate) fn try_agent_symlink(
         &mut self,
@@ -1042,6 +1166,7 @@ fn transform_stat_results(
 mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
+    use crate::runtime::size_limit::{FileTooLarge, SizeLimit, MAX_BINARY_FILE_SIZE};
     use crate::runtime::target_io::{LocalTargetIo, TargetIo};
     use tempfile::TempDir;
 
@@ -1126,8 +1251,91 @@ mod tests {
         std::fs::write(tmp.path().join("test.txt"), "hello local").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
-        let content = rt.read_file(&Side::Local, "test.txt").unwrap();
+        let content = rt
+            .read_file(&Side::Local, "test.txt", SizeLimit::Enforced)
+            .unwrap();
         assert_eq!(content, "hello local");
+    }
+
+    // ── 大きさの上限（ローカルの経路） ──
+
+    /// root の下に大きさ `len` の疎なファイルを置いて読めなくし、読めなくなったか（root で動くと
+    /// 読めてしまう）を返す
+    #[cfg(unix)]
+    fn place_unreadable_sparse(root: &std::path::Path, name: &str, len: u64) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        let path = root.join(name);
+        std::fs::File::create(&path).unwrap().set_len(len).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        std::fs::read(&path).is_err()
+    }
+
+    /// 上限を超えるファイルと上限ちょうどのファイルを読めなくして置いた runtime。前提が崩れたら知らせる
+    #[cfg(unix)]
+    fn runtime_with_unreadable_files_around_the_limit(tmp: &TempDir) -> CoreRuntime {
+        let limit = MAX_BINARY_FILE_SIZE as u64;
+        assert!(
+            place_unreadable_sparse(tmp.path(), "over", limit + 1)
+                && place_unreadable_sparse(tmp.path(), "at", limit),
+            "test needs unreadable files (running as root?)"
+        );
+        create_test_runtime(tmp)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_over_the_limit_is_refused_by_its_size_before_it_is_read() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
+
+        let bytes = rt.read_file_bytes(&Side::Local, "over", false).unwrap_err();
+        let text = rt
+            .read_file(&Side::Local, "over", SizeLimit::Enforced)
+            .unwrap_err();
+
+        assert!(bytes.is::<FileTooLarge>(), "{bytes:#}");
+        assert!(text.is::<FileTooLarge>(), "{text:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_of_exactly_the_limit_is_read_and_fails_on_its_permission() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
+
+        let error = rt.read_file_bytes(&Side::Local, "at", false).unwrap_err();
+
+        assert!(!error.is::<FileTooLarge>(), "{error:#}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_batch_leaves_out_a_file_over_the_limit_without_reading_it() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
+        std::fs::write(tmp.path().join("small"), "s").unwrap();
+        let paths = vec!["over".to_string(), "small".to_string()];
+
+        let bytes = rt
+            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
+        let text = rt
+            .read_files_batch(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
+
+        assert_eq!(bytes.keys().collect::<Vec<_>>(), vec!["small"]);
+        assert_eq!(text.keys().collect::<Vec<_>>(), vec!["small"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lifted_limit_reads_without_asking_the_size() {
+        let tmp = TempDir::new().unwrap();
+        let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
+
+        let error = rt.read_file_bytes(&Side::Local, "over", true).unwrap_err();
+
+        assert!(!error.is::<FileTooLarge>(), "{error:#}");
     }
 
     #[test]
@@ -1196,7 +1404,7 @@ mod tests {
         std::fs::write(tmp.path().join("safe.txt"), "ok").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
-        let result = rt.read_file(&Side::Local, "../../../etc/passwd");
+        let result = rt.read_file(&Side::Local, "../../../etc/passwd", SizeLimit::Enforced);
         assert!(result.is_err());
         // エラーチェーン全体（anyhow の chain）を検索
         let err = result.unwrap_err();
@@ -1234,7 +1442,11 @@ mod tests {
     #[test]
     fn test_read_file_remote_nonexistent_server() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.read_file(&Side::Remote("nonexistent".to_string()), "file.txt");
+        let result = rt.read_file(
+            &Side::Remote("nonexistent".to_string()),
+            "file.txt",
+            SizeLimit::Enforced,
+        );
         assert!(result.is_err());
     }
 
@@ -1263,7 +1475,9 @@ mod tests {
 
         let mut rt = create_test_runtime(&tmp);
         let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let batch = rt.read_files_batch(&Side::Local, &paths).unwrap();
+        let batch = rt
+            .read_files_batch(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
 
         assert_eq!(batch.len(), 2);
         assert_eq!(batch["a.txt"], "aaa");
@@ -1380,7 +1594,9 @@ mod tests {
 
         let mut rt = create_test_runtime(&tmp);
         let paths = vec!["a.bin".to_string(), "b.txt".to_string()];
-        let batch = rt.read_files_bytes_batch(&Side::Local, &paths).unwrap();
+        let batch = rt
+            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
 
         assert_eq!(batch.len(), 2);
         assert_eq!(batch["a.bin"], vec![0x00, 0x01, 0x02]);
@@ -1395,7 +1611,7 @@ mod tests {
 
         let mut rt = create_test_runtime(&tmp);
         let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
-        let result = rt.read_files_bytes_batch(&Side::Local, &paths);
+        let result = rt.read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced);
 
         assert!(result.is_err());
     }
@@ -1405,7 +1621,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut rt = create_test_runtime(&tmp);
         let paths: Vec<String> = vec![];
-        let batch = rt.read_files_bytes_batch(&Side::Local, &paths).unwrap();
+        let batch = rt
+            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
 
         assert!(batch.is_empty());
     }
@@ -1446,6 +1664,109 @@ mod tests {
             },
         );
         rt
+    }
+
+    // ── エージェントへの大きさの問い合わせ ──
+
+    /// サーバ "develop" に、問い合わせを一つ受けて `response` を返す（None なら答えずに接続を
+    /// 切る）試験用のエージェントをつないだ runtime。SSH にはつながっていない
+    #[cfg(unix)]
+    fn runtime_with_scripted_agent(
+        response: Option<crate::agent::protocol::AgentResponse>,
+    ) -> CoreRuntime {
+        use crate::agent::{framing, protocol};
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+
+        let (client, server) = UnixStream::pair().unwrap();
+        let mut server_reader = server.try_clone().unwrap();
+        let mut server_writer = server;
+        std::thread::spawn(move || {
+            writeln!(server_writer, "{}", protocol::format_handshake()).unwrap();
+            let _ = framing::read_frame(&mut server_reader);
+            if let Some(response) = response {
+                let data = protocol::serialize_response(&response).unwrap();
+                framing::write_frame(&mut server_writer, &data).unwrap();
+            }
+        });
+        let agent = crate::agent::client::AgentClient::connect(client.try_clone().unwrap(), client)
+            .unwrap();
+        let mut rt = runtime_with_server("develop", "/srv/app");
+        rt.agent_clients.insert(
+            "develop".to_string(),
+            std::sync::Arc::new(std::sync::Mutex::new(agent)),
+        );
+        rt
+    }
+
+    fn asked() -> Vec<String> {
+        vec!["a.bin".to_string()]
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_error_returned_by_the_agent_fails_the_question_without_switching_to_ssh() {
+        let mut rt =
+            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Error {
+                message: "stat failed".into(),
+            }));
+
+        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("agent could not report file sizes"),
+            "{error:#}"
+        );
+        assert!(
+            !format!("{error:#}").contains("SSH not connected"),
+            "{error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lost_agent_connection_invalidates_the_agent_and_asks_over_ssh() {
+        let mut rt = runtime_with_scripted_agent(None);
+
+        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+
+        assert!(!rt.agent_clients.contains_key("develop"));
+        assert!(
+            format!("{error:#}").contains("SSH not connected"),
+            "{error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_the_agent_leaves_out_is_asked_again_over_ssh() {
+        let mut rt =
+            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
+                entries: vec![],
+            }));
+
+        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+
+        assert!(rt.agent_clients.contains_key("develop"));
+        assert!(
+            format!("{error:#}").contains("SSH not connected"),
+            "{error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_the_agent_leaves_out_is_not_read_on_a_server_using_sudo() {
+        let mut rt =
+            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
+                entries: vec![],
+            }));
+        rt.config.servers.get_mut("develop").unwrap().sudo = true;
+
+        let sizes = rt.remote_file_sizes("develop", &asked()).unwrap();
+
+        let refusal = size_limit::refusal("a.bin", sizes.get("a.bin")).unwrap();
+        assert!(!refusal.is::<FileTooLarge>(), "{refusal:#}");
     }
 
     // ── stat_local_files テスト ──

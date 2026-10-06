@@ -9,6 +9,7 @@ use crate::cli::merge::merge_partial_nodes;
 use crate::cli::tolerant_io::fetch_contents_required;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
@@ -179,10 +180,18 @@ pub fn execute_sync(
         );
         let mut compare_failures = Vec::new();
         if !paths_to_compare.is_empty() {
-            let left_batch =
-                fetch_contents_required(left_side, &paths_to_compare, &mut core, args.force);
-            let right_batch =
-                fetch_contents_required(right_side, &paths_to_compare, &mut core, args.force);
+            let left_batch = fetch_contents_required(
+                left_side,
+                &paths_to_compare,
+                &mut core,
+                SizeLimit::from_force(args.force),
+            );
+            let right_batch = fetch_contents_required(
+                right_side,
+                &paths_to_compare,
+                &mut core,
+                SizeLimit::from_force(args.force),
+            );
             let verified = verified_content_pairs(&paths_to_compare, &left_batch, &right_batch);
             compare_failures = verified.failures;
             refine_status_with_content(&mut statuses, &verified.pairs);
@@ -209,8 +218,12 @@ pub fn execute_sync(
             })
             .cloned()
             .collect();
-        let expected =
-            fetch_contents_required(right_side, &destination_paths, &mut core, args.force);
+        let expected = fetch_contents_required(
+            right_side,
+            &destination_paths,
+            &mut core,
+            SizeLimit::from_force(args.force),
+        );
         let expected_target_contents = expected.contents;
         compare_failures.extend(
             expected
