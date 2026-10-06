@@ -182,3 +182,15 @@ fn req_cli_061_a_changed_binary_under_a_directory_is_reported() {
     assert_eq!(file["left_hash"], sha256(left), "{json}");
     assert_eq!(file["right_hash"], sha256(right), "{json}");
 }
+
+// ── REQ-paths-011: 祖先がディレクトリでないパス ──
+
+// @kotowari[REQ-paths-011]
+#[test]
+fn req_paths_011_a_path_whose_ancestor_is_a_regular_file_fails_as_not_a_directory() {
+    let fixture = DiffFixture::new(&[("dir/a.txt", b"left\n")], &[("dir", b"a regular file\n")]);
+
+    let error = fixture.try_run(args(&["dir/a.txt"])).unwrap_err();
+
+    assert_eq!(error.to_string(), "cannot resolve path: not a directory");
+}

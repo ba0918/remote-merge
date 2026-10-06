@@ -62,6 +62,31 @@ fn a_regular_file_does_not_replace_a_destination_symlink() {
     );
 }
 
+// @kotowari[REQ-paths-011, EX-paths-022]
+#[test]
+fn ex_paths_022_a_destination_whose_ancestor_is_a_regular_file_fails_as_not_a_directory() {
+    let local = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let backup = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("dir")).unwrap();
+    fs::write(local.path().join("dir/a.txt"), "incoming\n").unwrap();
+    fs::write(destination.path().join("dir"), "a regular file\n").unwrap();
+
+    let output = merge(&local, &destination, &backup, "dir/a.txt");
+
+    assert!(output.merged.is_empty(), "{output:?}");
+    assert_eq!(output.failed.len(), 1, "{output:?}");
+    assert_eq!(output.failed[0].path, "dir/a.txt");
+    assert_eq!(
+        output.failed[0].error,
+        "cannot resolve path: not a directory"
+    );
+    assert_eq!(
+        fs::read_to_string(destination.path().join("dir")).unwrap(),
+        "a regular file\n"
+    );
+}
+
 // @kotowari[REQ-merge-001]
 #[test]
 fn a_directory_does_not_replace_a_regular_file() {

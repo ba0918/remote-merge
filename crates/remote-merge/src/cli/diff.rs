@@ -293,14 +293,28 @@ pub fn execute_diff(
                 left_symlink_target.as_deref(),
                 right_symlink_target.as_deref(),
             );
+            let mut inspection_error = None;
             let external = [(&pair.left, &left_root), (&pair.right, &right_root)]
                 .into_iter()
                 .zip([left_absent, right_absent])
                 .filter(|(_, absent)| !absent)
                 .any(|((side, root), _)| match core.inspect_path(side, path) {
                     Ok(TargetPath::Symlink { real_path, .. }) => !real_path.starts_with(root),
-                    _ => false,
+                    Ok(_) => false,
+                    Err(error) => {
+                        inspection_error = Some(error.to_string());
+                        true
+                    }
                 });
+            if let Some(reason) = inspection_error {
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason,
+                });
+                has_read_error = true;
+                file_diffs.push(link_diff);
+                continue;
+            }
             if external && !args.follow_external_links {
                 let reason = "content not compared (outside root_dir; use --follow-external-links)";
                 link_diff.note = Some(reason.into());
