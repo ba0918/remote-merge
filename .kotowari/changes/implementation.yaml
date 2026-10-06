@@ -265,26 +265,26 @@ entries:
   files:
   - path: crates/remote-merge-config/src/lib.rs
     before: "sha256:1483279da985bd9f63e43ecd91de86c10d6cb0c94858ad0753222679a28c7913"
-    after: "sha256:9100724fb2fa07cbe47d05a4e85e23377f4c75c85d96eed2a3d2922d2e3327f0"
+    after: "sha256:e22251c31b5f99bf1310a605e927e2ffb239ca346868d38fec0508312b36e780"
   - path: crates/remote-merge/tests/contract/config_loading_cli.rs
     before: "sha256:ea1d6b89fcc3d5e8bafe808e06b0118a528df41f3d8692b10e2cd4c2b5a62f6a"
     after: "sha256:781758205d08e978723a4bd43076005e74193878245a43e0d139d7045752e1a5"
   - path: crates/remote-merge/tests/contract/backup_sessions.rs
     before: "sha256:d0479518e82a24469456d7477aa0a48acd95490083ca0394a2ef7548bb5f7e1b"
-    after: "sha256:5cf27fba10a128da11757c9abde8977b6def4a97efff6c6b1863ccf3ba38d962"
+    after: "sha256:1a53fb10d207269810881617603de7a7e027c0dafe5cae0f8ba2bcb8290ffd3c"
   - path: crates/remote-merge-engine/src/backup/mod.rs
     before: "sha256:7227c6e8ba00bfce9303f2ba6f8157f7bfb5bc41f6d4e627141d8fcd898a2862"
     after: "sha256:8cd502bf8ef6f009befabc3b3e190c0c649b68d69140136dbb0ba277dec45e65"
   - path: crates/remote-merge-engine/src/backup_store.rs
     before: "sha256:999380c9e01dcebb494459c832259a069bea8655befa5f5aeb1d6c0324f249b3"
-    after: "sha256:d78ac9446eab008f406229de5100d8fcb0fd870cda34884d0e942d2a4508247a"
+    after: "sha256:6ab3674ed74d300c00d8eac43b546e0cbac406627311bc123a348a1a1555067a"
   ir:
   - path: docs/ir/config/loading.md
-    sha256: "sha256:808755adb0db1b15b16fd25b2da8ca56b027e9c274bddff441c9f153b3181618"
+    sha256: "sha256:6c48025cac3e877285086dddef74e43f1c0ea066fca6dd5508fd3bce250a739b"
   - path: docs/ir/backup/sessions.md
-    sha256: "sha256:297d6b1510048f2664b43cfd31c4f56ba46dfeb4086f088f0446c1dabd01c430"
+    sha256: "sha256:731a4f14fe2443262743072441ab27ad279555ec616d59f60826fd74f4a1ee6d"
   conclusion: existing
-  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、そのファイルのある絶対のディレクトリを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対ならそのディレクトリにつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す）。設定ファイルのディレクトリは、設定ファイルの絶対パスを symlink を辿らずに字面で正規化（\".\" を除き \"..\" を一つ上の名前と打ち消す）したものの親にする（A56）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。空の root_dir は基準につなぐ前に REQ-config-041 の \"root_dir must not be empty\" で止める（サーバの root_dir と同じ AppError::ConfigValidation、終了コード 2）。テストは REQ-config-041、隣のディレクトリを通る --config の書き方でも同じ root_dir とバックアップの一覧になること（A56）、EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。 REQ-backup-043（A57）のとおり、識別が変わる前に保存したセッションも一覧・書き戻し・期限切れの整理で探す。設定に書いた root_dir（\"~/\" の展開後、基準につなぐ前）を LocalConfig の root_dir_as_written に残し、以前の版と同じ規則（相対なら設定読み込み時のカレントディレクトリにつなぎ、正規化しない。既定の \".\" なら \"<カレントディレクトリ>/.\"）で求めた識別のキーを、今の識別のキーの後に重複なく並べる。セッションごとに最初に記録があるキーを、一覧と書き戻しで同じ規則で選ぶ。整理の対象のキーにも加える。リモートは REQ-backup-021 の字面の正規化がまだ実装されておらず、書いたままの root_dir が今の識別と同じなので、加えるキーはない。テストは EX-backup-024（以前の版の識別で保存したセッションが同じ設定・同じカレントディレクトリで一覧に出て書き戻せる）と、以前の識別の期限切れのセッションが整理されることを確かめる。"
+  reason: "REQ-config-040 のとおり、[local] の root_dir が相対パスのときは、カレントディレクトリではなく、その root_dir を書いた設定ファイルのあるディレクトリを基準に絶対パスにする。これまで設定の読み込みは相対のまま渡し、使う側がカレントディレクトリを基準に解決していた（REQ-config-040 は実装されていなかった）。設定ファイルを読んだときに、そのファイルのある絶対のディレクトリを [local] の中間の値に覚え、マージで選んだ [local] の root_dir を REQ-config-010 のとおり \"~/\" をホームに展開してから、なお相対ならそのディレクトリにつなぎ、\".\" の要素を除く（\"..\" は辿るときに解決するので残す）。設定ファイルのディレクトリは、設定ファイルの絶対パスから \".\" を除き、\"..\" は OS と同じく直前までの部分を実パスに直してから一つ上へ移り、それ以外の symlink は字面のまま残したものの親にする（A59。A56 の字面だけの正規化を置き換えた）。直前までの部分を実パスにできないときは基準を推し量らずにエラーにする（A60）。グローバルとプロジェクトの設定はそれぞれ自分のディレクトリを使う。空の root_dir は基準につなぐ前に REQ-config-041 の \"root_dir must not be empty\" で止める（サーバの root_dir と同じ AppError::ConfigValidation、終了コード 2）。テストは REQ-config-041、隣のディレクトリを通る --config の書き方でも同じ root_dir とバックアップの一覧になること（A56）、EX-config-016（別のディレクトリから --config で指定したプロジェクトの設定の \".\"）とグローバルの設定の相対の root_dir を実行ファイルで確かめる。REQ-backup-021 はローカルの書き込み先を同じ絶対パスで決めると定めており、起動したディレクトリを基準にしていた backup_sessions.rs のテストを、起動したディレクトリによらず同じ書き込み先になる形に改めた。確認の側で相対のローカルの root_dir の作業ディレクトリへのつなぎを除いた変更（A53）は path-resolution-across-routes の組にある。 REQ-backup-043（A57）のとおり、識別が変わる前に保存したセッションも一覧・書き戻し・期限切れの整理で探す。設定に書いた root_dir（\"~/\" の展開後、基準につなぐ前）を LocalConfig の root_dir_as_written に残し、以前の版と同じ規則（相対なら設定読み込み時のカレントディレクトリにつなぎ、正規化しない。既定の \".\" なら \"<カレントディレクトリ>/.\"）で求めた識別のうち、symlink を辿らずに字面で正規化すると今の識別と同じになるものだけ（A58）のキーを、今の識別のキーの後に重複なく並べる。別のディレクトリから --config で設定を指定したとき、作業ディレクトリ自身の書き込み先のセッションを取り違えない。セッションごとに最初に記録があるキーを、一覧と書き戻しで同じ規則で選ぶ。整理の対象のキーにも加える。リモートは REQ-backup-021 の字面の正規化がまだ実装されておらず、書いたままの root_dir が今の識別と同じなので、加えるキーはない。テストは EX-backup-024（以前の版の識別で保存したセッションが同じ設定・同じカレントディレクトリで一覧に出て書き戻せる）と、以前の識別の期限切れのセッションが整理されること、作業ディレクトリ自身で保存したセッションが別の場所の設定の一覧に出ず整理もされないこと（A58）を確かめる。"
   requirements:
   - REQ-config-040
   - REQ-config-041
@@ -294,9 +294,11 @@ entries:
   decisions:
   - "docs/decision/records/2026-10-05-quality-config.md#A5"
   - "docs/decision/records/2026-10-06-path-resolution.md#A53"
-  - "docs/decision/records/2026-10-06-path-resolution.md#A56"
   - "docs/decision/records/2026-10-06-path-resolution.md#A57"
   - "docs/decision/records/2026-10-05-quality-backup.md#A1"
   - "docs/decision/records/2026-10-05-quality-backup.md#A5"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A58"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A59"
+  - "docs/decision/records/2026-10-06-path-resolution.md#A60"
   handoff: null
   gaps: []
