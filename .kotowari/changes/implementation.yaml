@@ -280,7 +280,7 @@ entries:
     after: "sha256:6ab3674ed74d300c00d8eac43b546e0cbac406627311bc123a348a1a1555067a"
   ir:
   - path: docs/ir/config/loading.md
-    sha256: "sha256:d14b539480528c53d76018c33478275fb70f7ecd6b09e730cc79fbc543424cd2"
+    sha256: "sha256:a30f9edd329fc3d4b5efd4f9ff9fc1c39085897dfa107d01c6be046528f25cfb"
   - path: docs/ir/backup/sessions.md
     sha256: "sha256:b0b70e516294602da6c068e1a27ae4ded44d78cb8f03a7909c6c430cb97d596b"
   conclusion: existing
