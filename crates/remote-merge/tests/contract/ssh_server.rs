@@ -79,8 +79,17 @@ impl TestServer {
 
     /// 最初のファイルの大きさの問い合わせの途中で接続を切り、中身の読み込みには答える
     pub async fn interrupt_first_size_query() -> Self {
+        Self::interrupt_size_queries(1).await
+    }
+
+    /// ファイルの大きさの問い合わせを毎回途中で切る
+    pub async fn interrupt_all_size_queries() -> Self {
+        Self::interrupt_size_queries(usize::MAX).await
+    }
+
+    async fn interrupt_size_queries(count: usize) -> Self {
         let server = Self::start(false, false, 0, false).await;
-        server.size_interruptions.store(1, Ordering::SeqCst);
+        server.size_interruptions.store(count, Ordering::SeqCst);
         server
     }
 

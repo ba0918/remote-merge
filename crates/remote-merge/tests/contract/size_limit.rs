@@ -262,10 +262,9 @@ fn req_cli_079_a_file_over_the_limit_is_still_a_file_against_a_directory() {
 
 // ── REQ-ssh-003: 大きさの問い合わせも読み取りとして一度だけ再試行する ──
 
-// @kotowari[REQ-ssh-003]
-#[tokio::test(flavor = "multi_thread")]
-async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
-    let server = super::ssh_server::TestServer::interrupt_first_size_query().await;
+/// 試験サーバ `server` の "fixture"（root_dir は一時ディレクトリの "files"、中に example.txt）に
+/// 対して `diff example.txt --right fixture --format json` を実行する
+fn diff_against_fixture(server: &super::ssh_server::TestServer) -> Output {
     let home = tempfile::TempDir::new().unwrap();
     let root = home.path().join("files");
     fs::create_dir_all(&root).unwrap();
@@ -275,8 +274,7 @@ async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
         "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = false\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
         root.to_str().unwrap(), server.port(), root.to_str().unwrap(),
     )).unwrap();
-
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+    std::process::Command::new(env!("CARGO_BIN_EXE_remote-merge"))
         .env_clear()
         .env("HOME", home.path())
         .env("XDG_CACHE_HOME", home.path().join("cache"))
@@ -288,7 +286,15 @@ async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
         .arg(&config_path)
         .args(["--right", "fixture", "--format", "json"])
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+// @kotowari[REQ-ssh-003]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
+    let server = super::ssh_server::TestServer::interrupt_first_size_query().await;
+
+    let output = diff_against_fixture(&server);
 
     assert!(
         String::from_utf8_lossy(&output.stdout).contains("remote updated"),
@@ -296,6 +302,19 @@ async fn a_file_size_query_interrupted_once_reconnects_and_the_read_goes_on() {
     );
     // 切られた一回目の後に尋ね直して読み込みまで進んだ（diff は同じファイルを二度読む）
     assert!(server.size_attempts() >= 2, "{output:?}");
+}
+
+// @kotowari[REQ-ssh-003]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_size_query_interrupted_twice_is_reported_without_a_third_attempt() {
+    let server = super::ssh_server::TestServer::interrupt_all_size_queries().await;
+
+    let output = diff_against_fixture(&server);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(paths_in(&json_of(&output), "errors"), vec!["example.txt"]);
+    assert_eq!(server.size_attempts(), 2, "{output:?}");
+    assert_eq!(server.read_attempts(), 0, "{output:?}");
 }
 
 // ── REQ-cli-094: status は上限を当てない ──
