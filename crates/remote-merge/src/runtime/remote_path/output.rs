@@ -102,11 +102,19 @@ pub fn parse_inspect_path_output(output: &[u8]) -> anyhow::Result<ResolvedPath> 
                 };
             }
             b"error" => {
-                let cause = fields.text()?;
+                // 原因の文言はスクリプトが書く一覧のどれかで、UTF-8 でないものはパスではなく
+                // 壊れた出力として扱う
+                let cause = fields.required()?;
                 ensure_no_more(&mut fields)?;
-                return Err(match ResolveError::from_cause(&cause) {
+                let listed = std::str::from_utf8(cause)
+                    .ok()
+                    .and_then(ResolveError::from_cause);
+                return Err(match listed {
                     Some(error) => error.into(),
-                    None => anyhow::anyhow!("unknown path inspection cause: {cause}"),
+                    None => anyhow::anyhow!(
+                        "unknown path inspection cause: {}",
+                        String::from_utf8_lossy(cause)
+                    ),
                 });
             }
             other => anyhow::bail!(
@@ -157,6 +165,7 @@ mod tests {
     fn unlisted_causes_unknown_kinds_and_broken_fields_are_errors_without_a_cause() {
         for output in [
             b"error\0No such file or directory\0".as_slice(),
+            b"error\0non-UTF-8 path\xff\0",
             b"file\0/srv/a\0",
             b"exists\0",
             b"exists\0/srv/a",
