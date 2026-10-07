@@ -537,14 +537,16 @@ mod tests {
     // @kotowari[REQ-config-035]
     #[test]
     fn include_values_drop_dot_elements_and_repeated_slashes() {
-        let cases: [(&[&str], IncludeValues); 7] = [
+        let cases: [(&[&str], IncludeValues); 9] = [
             (&["."], IncludeValues::WholeRoot),
+            (&["./."], IncludeValues::WholeRoot),
+            (&["./"], IncludeValues::Listed(Vec::new())),
+            (&["././"], IncludeValues::Listed(Vec::new())),
             (&[".", "src"], IncludeValues::WholeRoot),
             (&["a/./b"], IncludeValues::Listed(owned(&["a/b"]))),
             (&["a//b"], IncludeValues::Listed(owned(&["a/b"]))),
             (&["./a/./b/"], IncludeValues::Listed(owned(&["a/b"]))),
             (&[""], IncludeValues::Listed(Vec::new())),
-            (&["./"], IncludeValues::Listed(Vec::new())),
         ];
         for (input, expected) in cases {
             let (values, warnings) = normalize_include_paths(&owned(input));
@@ -556,13 +558,19 @@ mod tests {
     // @kotowari[REQ-config-037]
     #[test]
     fn include_values_that_are_all_invalid_are_told_apart_from_an_empty_include() {
-        let cases: [(&[&str], IncludeValues, usize); 9] = [
+        let cases: [(&[&str], IncludeValues, usize); 15] = [
             (&["/etc"], IncludeValues::AllInvalid, 1),
-            // root そのものを指す絶対パスも、末尾の "/" を除いて空の値とせず絶対パスとして扱う
+            // 検査は先頭の "./" だけを除いた値に当てるので、"/" だけの値も、先頭の "./" を
+            // 除くと "/" で始まる値も、空の値とせず絶対パスとして扱う
             (&["/"], IncludeValues::AllInvalid, 1),
             (&["//"], IncludeValues::AllInvalid, 1),
-            // 先頭の "./" を除いて "/" になる値も、空の値とせず絶対パスとして扱う
+            (&["///"], IncludeValues::AllInvalid, 1),
+            (&["/./"], IncludeValues::AllInvalid, 1),
             (&[".//"], IncludeValues::AllInvalid, 1),
+            (&["././/"], IncludeValues::AllInvalid, 1),
+            (&[".//."], IncludeValues::AllInvalid, 1),
+            (&[".//etc"], IncludeValues::AllInvalid, 1),
+            (&["./../"], IncludeValues::AllInvalid, 1),
             (&["", "/etc"], IncludeValues::AllInvalid, 1),
             // "./" は先頭の "./" を除いた空の値として無視し、root_dir 全体を指すものとしない
             (&["./", "/etc"], IncludeValues::AllInvalid, 1),
