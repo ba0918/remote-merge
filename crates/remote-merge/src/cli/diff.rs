@@ -795,7 +795,6 @@ fn run_diff_fast_path(
 
     let mut statuses = Vec::new();
     let mut existing = Vec::new();
-    let mut equal_binary_paths = Vec::new();
     let mut plain_file_sizes = PlainFileSizes::new();
     let mut read_errors = Vec::new();
 
@@ -860,12 +859,6 @@ fn run_diff_fast_path(
             right_content.as_deref(),
         ) {
             Ok(kind) => {
-                if kind == FileStatusKind::Equal
-                    && (left_content.as_deref().is_some_and(is_binary)
-                        || right_content.as_deref().is_some_and(is_binary))
-                {
-                    equal_binary_paths.push(path.clone());
-                }
                 if kind != FileStatusKind::Equal {
                     let left_size = left_content.as_ref().map(|bytes| bytes.len() as u64);
                     let right_size = right_content.as_ref().map(|bytes| bytes.len() as u64);
@@ -890,8 +883,7 @@ fn run_diff_fast_path(
         anyhow::bail!("specified path(s) not found on either side");
     }
 
-    let mut diff_files = filter_changed_files(&existing, &statuses);
-    diff_files.extend(equal_binary_paths);
+    let diff_files = filter_changed_files(&existing, &statuses);
     Ok((
         left_tree,
         right_tree,

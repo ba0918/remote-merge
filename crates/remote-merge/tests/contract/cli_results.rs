@@ -226,27 +226,6 @@ fn different_binary_files_report_hashes_without_text_lines() {
     assert_ne!(file.left_hash, file.right_hash);
 }
 
-// @kotowari[EX-cli-018]
-#[test]
-fn equal_binary_files_report_matching_hashes() {
-    let fixture = sync_fixture();
-    let bytes = b"\0\xffsame";
-    fs::write(fixture.source.path().join("file.bin"), bytes).unwrap();
-    fs::write(fixture.first.path().join("file.bin"), bytes).unwrap();
-    let (result, code) = execute_diff(diff_args(), fixture.config, fixture.targets).unwrap();
-    assert_eq!(result.files.len(), 1, "{result:?}");
-    let file = &result.files[0];
-    assert!(file.binary);
-    assert!(file.hunks.is_empty());
-    assert_eq!(
-        file.left_hash.as_deref(),
-        Some(compute_sha256(bytes).as_str())
-    );
-    assert_eq!(file.left_hash, file.right_hash);
-    assert_eq!(result.summary.files_with_changes, 0);
-    assert_eq!(code, remote_merge::service::types::exit_code::SUCCESS);
-}
-
 fn merge_binary(source: &[u8], target: &[u8]) -> Vec<u8> {
     let fixture = sync_fixture();
     fs::write(fixture.source.path().join("file.bin"), source).unwrap();

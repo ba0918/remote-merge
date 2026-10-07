@@ -1,5 +1,5 @@
 //! 片側にだけあるファイル・バイナリの diff（docs/ir/cli/diff-output.md の REQ-cli-060、
-//! docs/ir/cli/binary.md の REQ-cli-061）の契約テスト。組み方は diff_support にある。
+//! docs/ir/cli/binary.md の REQ-cli-061・REQ-cli-009）の契約テスト。組み方は diff_support にある。
 
 use std::fs;
 
@@ -219,6 +219,32 @@ fn req_cli_061_a_changed_binary_under_a_directory_is_reported() {
     assert_eq!(file["binary"], true, "{json}");
     assert_eq!(file["left_hash"], sha256(left), "{json}");
     assert_eq!(file["right_hash"], sha256(right), "{json}");
+}
+
+// ── REQ-cli-009: 中身の同じバイナリ ──
+
+// 中身の同じバイナリは、ファイルやその親のディレクトリを名前で指定した diff（一件ずつの比較）
+// でも、パスを指定しない diff（走査）でも項目を出さない。先頭に NUL のあるものと、先頭 8,192
+// バイトの後ろにだけ不正な UTF-8 のあるものの両方で確かめる
+// @kotowari[EX-cli-018]
+#[test]
+fn ex_cli_018_equal_binaries_have_no_item_with_or_without_a_path() {
+    let mut invalid_only_after_8192_bytes = ascii_head_of_8192_bytes();
+    invalid_only_after_8192_bytes.extend_from_slice(b"tail \xff\n");
+    let contents: [&[u8]; 2] = [b"\0\xffsame", &invalid_only_after_8192_bytes];
+    for content in contents {
+        for paths in [&["d/f"][..], &["d"], &[]] {
+            let fixture = DiffFixture::new(&[("d/f", content)], &[("d/f", content)]);
+
+            let (output, code) = fixture.diff(paths);
+            let json = json(&output);
+
+            assert!(paths_of(&output).is_empty(), "{paths:?}: {json}");
+            assert!(output.errors.is_empty(), "{paths:?}: {json}");
+            assert_eq!(output.summary.files_with_changes, 0, "{paths:?}: {json}");
+            assert_eq!(code, 0, "{paths:?}: {json}");
+        }
+    }
 }
 
 // ── REQ-paths-011: 祖先がディレクトリでないパス ──
