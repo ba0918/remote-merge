@@ -23,11 +23,12 @@ include の値が symlink を辿ると root_dir の外へ解決されるとき�
 
 ### REQ-config-034: ファイルを指す include の値はそのファイルを対象にする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A4
+- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A4, docs/decision/records/2026-10-07-include-values-consistency.md#A9
 - verification: unit
 
 include の値がファイルを指すとき、ローカル・SSH・エージェントのどの経路の走査もそのファイル 1 件を一覧に載せる。
 include の値がディレクトリでないものを指す symlink（ファイルへのリンクとリンク切れ）のときは、リンク先のファイルではなく、scan/listing.md の REQ-scan-006 のとおり symlink の項目 1 件を載せる。
+ただし、リンク切れの symlink でも、paths/resolution.md の REQ-paths-002 が末尾の symlink に与える実パスが root_dir の外にあるときは、REQ-config-033 の root_dir の外へ解決される値として扱い、載せない。
 
 ### REQ-config-035: include の値を要素ごとに正規化する
 - kind: ubiquitous

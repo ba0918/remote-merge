@@ -7,7 +7,7 @@ include の値をローカル・SSH・エージェントのどの経路でも同
 一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
 この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
 
-Position: A1〜A8 を反映した。
+Position: A1〜A9 を反映した。
 
 ## Agreements
 
@@ -34,4 +34,7 @@ Position: A1〜A8 を反映した。
   - decided_by: 整合の段（consistency phase）
 - A8 include の起点のディレクトリ symlink が exclude に当たって載らないときは、エージェントの走査もその配下を走査しない。コードを [REQ-config-022](../../ir/config/filters.md#REQ-config-022) と [REQ-config-025](../../ir/config/filters.md#REQ-config-025) にそろえ、IR は変えない。
   - why: REQ-config-022 は "/" を含むパターンに当たったディレクトリの下をどの経路でも除くとし、REQ-config-025 は include の対象のうち exclude に当たらないものだけを対象にするとする。この単位で足したエージェントの起点の処理（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `process_start`）は、起点のリンク自体が exclude で載らなかったときも配下を走査していた。一時的な契約テストで、左右に "app/current"（"../releases/v2" へのリンク）と "releases/v2/x.txt" を置き、include を "app/current"、exclude を "app/current" か "**/current" にした status を測ると、ローカルとエージェントの組では "app/current/x.txt" が right_only で出た（ローカルは起点ごと除いて何も載せない）。起点がリンクでないディレクトリ（include も exclude も "app/sub"）では、エージェントも何も載せなかった。起点が載ったときだけ配下を走査するように直した後は、同じ二つの組の一覧が空になり、exclude が "app/sub" の組は "app/current" と "app/current/x.txt" が equal のまま載った。単体テスト `an_excluded_directory_link_named_in_include_is_not_walked` は直す前に ["app/current/x.txt"] を返して失敗し、直した後に通る。
+  - decided_by: 整合の段（consistency phase）
+- A9 リンク切れの symlink の include の値でも、[REQ-paths-002](../../ir/paths/resolution.md#REQ-paths-002) が末尾の symlink に与える実パス（リンク先の側の辿れた親の実パスにリンク先の最後の名前をつないだもの）が root_dir の外にあるときは、[REQ-config-033](../../ir/config/include.md#REQ-config-033) の root_dir の外へ解決される値として警告して使わず、[REQ-config-034](../../ir/config/include.md#REQ-config-034) の symlink の項目 1 件としては載せない。これを REQ-config-034 に書く。A3 と A4 は今のコードのとおりで、変えない。
+  - why: REQ-config-034（A4）はリンク切れの値を symlink の項目として載せるとし、REQ-config-033 は root_dir の外へ解決される値を使わないとするので、リンク先が外にあるリンク切れの値に二つが同時に当たり、どちらによるかを IR が決めていなかった。REQ-config-033 は禁止で、root_dir の外を指す値を使わない趣旨は、リンク先がないかどうかで変わらない。実装は CLI での値の確認（`crates/remote-merge/src/runtime/include_check.rs` の `include_disposition`）で、リンク切れでも実パスが外なら "Include path resolves outside root_dir, skipping: 値" を出して飛ばす。エージェントの走査の層（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `dangling_link_resolves_inside`）も同じパスの確認で外なら載せない。契約テスト `include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_over_ssh` と `include_values_resolving_outside_the_root_dir_are_warned_and_not_listed_via_the_agent` に root_dir の外のない "missing" を指すリンク切れの "gone" を足し、SSH とエージェントのどちらの組でも左右がそれぞれ警告して（警告 2 行）一覧に載らないことを `cargo nextest run --all-features -E 'test(/resolving_outside_the_root_dir/)'` で確かめた（2 件とも通る）。`include_disposition` が "missing" を指すリンクを外でも走査に渡す一時的な変更の下では、二つのテストが "gone" の警告の数（期待 2、実際 0）で失敗した。CLI の確認が先に飛ばすので、エージェントの走査の層の判定とその警告 "include path escapes root: 値" は CLI からは届かず、利用者の見る文言は A6 の "Include path resolves outside root_dir, skipping: 値" のままである。コードは変えない。
   - decided_by: 整合の段（consistency phase）

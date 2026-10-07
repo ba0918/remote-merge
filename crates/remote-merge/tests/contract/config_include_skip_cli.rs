@@ -62,11 +62,12 @@ fn statuses(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 /// `root` の下に、root_dir の外の `outside` を指す "ext" と、途中の要素 "via" が `outside` を指す
-/// "via/inner" を置く
+/// "via/inner" と、`outside` の中のない "missing" を指すリンク切れの "gone" を置く
 fn place_outside_links(root: &Path, outside: &Path) {
     fs::create_dir_all(root).unwrap();
     symlink(outside, root.join("ext")).unwrap();
     symlink(outside, root.join("via")).unwrap();
+    symlink(outside.join("missing"), root.join("gone")).unwrap();
 }
 
 /// root_dir の外のディレクトリ（"secret.txt" と "inner/deep.txt" を置く）
@@ -129,7 +130,7 @@ async fn include_values_missing_on_the_local_or_agent_side_are_warned_the_same_w
     assert_eq!(statuses_by_path(&output), BTreeMap::new(), "{output:?}");
 }
 
-// @kotowari[EX-config-013]
+// @kotowari[EX-config-013, REQ-config-034]
 #[test]
 fn include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_over_ssh() {
     let mut dirs = TestDirs::new_2way(&[("src/a.txt", "same\n")], &[("src/a.txt", "same\n")]);
@@ -137,9 +138,10 @@ fn include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_over_
     for root in [&dirs.local_dir, &dirs.remote_dir] {
         place_outside_links(root, &outside);
     }
-    let output = status_over_ssh(&mut dirs, &["src", "ext"]);
-    // 左のローカルの側と右の SSH の側がそれぞれ警告する
+    let output = status_over_ssh(&mut dirs, &["src", "ext", "gone"]);
+    // 左のローカルの側と右の SSH の側がそれぞれ警告する。リンク切れでもリンク先が外なら同じ
     assert_eq!(other_warnings_with(&output, "ext"), 2, "{output:?}");
+    assert_eq!(other_warnings_with(&output, "gone"), 2, "{output:?}");
     assert_eq!(
         statuses_by_path(&output),
         statuses(&[("src/a.txt", "equal")]),
@@ -147,7 +149,7 @@ fn include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_over_
     );
 }
 
-// @kotowari[REQ-config-033]
+// @kotowari[REQ-config-033, REQ-config-034]
 #[tokio::test(flavor = "multi_thread")]
 async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed_via_the_agent() {
     let fixture = AgentFixture::new().await;
@@ -160,10 +162,11 @@ async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed
     let output = fixture.status_via_agent_with_include(
         &local_root,
         &remote_root,
-        &["src", "ext", "via/inner"],
+        &["src", "ext", "via/inner", "gone"],
     );
-    // 左のローカルの側と右のエージェントの側がそれぞれ警告する
+    // 左のローカルの側と右のエージェントの側がそれぞれ警告する。リンク切れでもリンク先が外なら同じ
     assert_eq!(other_warnings_with(&output, "ext"), 2, "{output:?}");
+    assert_eq!(other_warnings_with(&output, "gone"), 2, "{output:?}");
     assert_eq!(other_warnings_with(&output, "via/inner"), 2, "{output:?}");
     assert_eq!(
         statuses_by_path(&output),
