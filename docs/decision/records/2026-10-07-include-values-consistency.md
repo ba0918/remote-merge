@@ -7,7 +7,7 @@ include の値をローカル・SSH・エージェントのどの経路でも同
 一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
 この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
 
-Position: A1〜A7 を反映した。
+Position: A1〜A8 を反映した。
 
 ## Agreements
 
@@ -31,4 +31,7 @@ Position: A1〜A7 を反映した。
   - decided_by: 整合の段（consistency phase）
 - A7 エージェントの走査の層で root_dir を実パスに直せないときに include の起点を一つも返さない扱い（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `resolve_include_roots`）は IR に書かない。
   - why: 変更の前は root_dir そのものを起点に返し、その読み込みに失敗して警告だけを出し空の一覧になっていた（変更の前の `advance_one` の `read_dir` の失敗の扱い）。変更の後も空の一覧になり、利用者から見える違いはない。なお、コードを読む限り（実行しては確かめていない）、エージェントの経路は走査の起点の空のパスを受け取り側で確かめておらず（`crates/remote-merge-agent/src/agent/dispatch.rs` の `resolve_scan_root` は空のパスを確かめずに返す）、リモートの root_dir がないときに [REQ-scan-015](../../ir/scan/listing.md#REQ-scan-015) のエラーで止まらず空の一覧を返す。これは include の有無によらない、この単位の前からの動きで、REQ-scan-015 はまだテストのない要件として残っているので、この単位では扱わない。
+  - decided_by: 整合の段（consistency phase）
+- A8 include の起点のディレクトリ symlink が exclude に当たって載らないときは、エージェントの走査もその配下を走査しない。コードを [REQ-config-022](../../ir/config/filters.md#REQ-config-022) と [REQ-config-025](../../ir/config/filters.md#REQ-config-025) にそろえ、IR は変えない。
+  - why: REQ-config-022 は "/" を含むパターンに当たったディレクトリの下をどの経路でも除くとし、REQ-config-025 は include の対象のうち exclude に当たらないものだけを対象にするとする。この単位で足したエージェントの起点の処理（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `process_start`）は、起点のリンク自体が exclude で載らなかったときも配下を走査していた。一時的な契約テストで、左右に "app/current"（"../releases/v2" へのリンク）と "releases/v2/x.txt" を置き、include を "app/current"、exclude を "app/current" か "**/current" にした status を測ると、ローカルとエージェントの組では "app/current/x.txt" が right_only で出た（ローカルは起点ごと除いて何も載せない）。起点がリンクでないディレクトリ（include も exclude も "app/sub"）では、エージェントも何も載せなかった。起点が載ったときだけ配下を走査するように直した後は、同じ二つの組の一覧が空になり、exclude が "app/sub" の組は "app/current" と "app/current/x.txt" が equal のまま載った。単体テスト `an_excluded_directory_link_named_in_include_is_not_walked` は直す前に ["app/current/x.txt"] を返して失敗し、直した後に通る。
   - decided_by: 整合の段（consistency phase）
