@@ -7,7 +7,7 @@ include の値をローカル・SSH・エージェントのどの経路でも同
 一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
 この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
 
-Position: A1〜A10 を反映した。
+Position: A1〜A11 を反映した。
 
 ## Agreements
 
@@ -40,4 +40,7 @@ Position: A1〜A10 を反映した。
   - decided_by: 整合の段（consistency phase）
 - A10 "/" と "//" の include の値は、末尾の "/" を除いて空になっても [REQ-config-024](../../ir/config/filters.md#REQ-config-024) の空の値とせず、絶対パスの値として書いたままの値で警告して無視し、[REQ-config-037](../../ir/config/include.md#REQ-config-037) の無効な値に数える。IR は変えない。
   - why: REQ-config-024 は絶対パスの値を警告して無視するとし、[REQ-config-035](../../ir/config/include.md#REQ-config-035) は続いた "/" を一つにまとめるとするので、"/" と "//" は IR の読みでは絶対パスで、空の値になる読みは IR のどこにもない（末尾の "/" を除くことは IR に書かれていない実装の手順である）。この範囲の変更の前の実装は末尾の "/" を除いて空の値として無視し、include の制限がないものとして全体を走査していたので IR と食い違っており、変更の後は `crates/remote-merge-core/src/filter.rs` の `normalize_include_paths` が "/" で始まる値を "/" として残し、`invalid_include_warning` が書いたままの値で "Absolute path is not allowed in include filter: 値" を返す。単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include`（["/"] と ["//"] が AllInvalid で警告 1 件）と契約テスト `include_with_only_absolute_values_warns_and_stops_without_scanning`（include = ["/"] で "...: /" の警告の後に 0 でない終了コードで止まる）が通る。
+  - decided_by: 整合の段（consistency phase）
+- A11 先頭の "./" を取り除くと "/" だけになる include の値（".//" など）も、A10 の "/" と同じく [REQ-config-024](../../ir/config/filters.md#REQ-config-024) の絶対パスの値として書いたままの値で警告して無視し、[REQ-config-037](../../ir/config/include.md#REQ-config-037) の無効な値に数える。コードを IR にそろえ、IR は変えない。
+  - why: REQ-config-024 は先頭の "./" を取り除いて使うとし、[REQ-config-035](../../ir/config/include.md#REQ-config-035) はその後に正規化するとするので、".//" は "./" を除いた "/" であり、A10 のとおり絶対パスである。A10 の変更の後も、`crates/remote-merge-core/src/filter.rs` の `normalize_include_paths` は末尾の "/" を除いて空になった値が絶対パスかを書いたままの値の先頭（"." で始まる）で見ていたので、".//" を空の値として警告なしに捨て、他に値がなければ `Listed([])`（include の制限がないもの、`crates/remote-merge-config/src/lib.rs` で空の include になる）として root_dir 全体を走査していた。単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include` に [".//"] が AllInvalid で警告 1 件になる組を足すと、直す前は `cargo nextest run --all-features -E 'test(/include_values_that_are_all_invalid/)'` が "left: Listed([]) right: AllInvalid" で失敗し、先頭の "./" を除いた後の値で判定するように直した後に通る。
   - decided_by: 整合の段（consistency phase）
