@@ -89,14 +89,14 @@ TBL-cli-009 が文言を決めていない failed の error は実装者が決�
 | --format に text・json・diff 以外を指定する | "Unknown format: '値' (expected text, json, or diff)" |
 
 ### TBL-cli-009: 参照先を使う merge の三者の存在
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A23, docs/decision/records/2026-10-05-size-limit.md#A30
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A23, docs/decision/records/2026-10-05-size-limit.md#A30, docs/decision/records/2026-10-05-size-limit.md#A32
 
 | 読み込み元 | 書き込み先 | 参照先 | 扱い |
 |---|---|---|---|
 | ある | ない | ない | --force なしで書き込む |
 | ある | ない | ある | 書かずに failed に error "destination changed since reference" で出す |
 | ある | ある | ある | REQ-cli-051 に従う |
-| ある | ある（読み込み元と同じ種類） | ある（読み込み元と種類が違う） | 中身を読まずに、書かずに failed に error "three-way conflict" で出す |
+| ある | ある（読み込み元と同じ種類） | ある（読み込み元と種類が違う。種類は REQ-merge-001 の通常ファイル・ディレクトリ・末尾の symlink） | 中身を読まずに、書かずに failed に error "three-way conflict" で出す |
 | ある | ある | ない | 書き込み先が変わっていないことを確かめられないので、書かずに failed に出す（error の文言は実装者が決める） |
 | 三つのどれかの読み込みに失敗した | - | - | 書かずに failed に error "three-way comparison incomplete" で出す。--dry-run でも同じく failed に出し、参照先との関係のバッジを出さない |
 
