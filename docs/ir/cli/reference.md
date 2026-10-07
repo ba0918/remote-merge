@@ -21,11 +21,11 @@ diff の --ref に設定のサーバ名か "local" を指定すると、diff は
 
 ### REQ-cli-063: diff の JSON に参照先との差を出す
 - kind: state_driven
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A2
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A2, docs/decision/records/2026-10-05-size-limit.md#A33
 - verification: unit
 
 --ref を指定した diff の JSON は、各ファイルに "ref"（参照先の "label" と "root"）と、左から参照先への差 "ref_hunks" を出し、左と参照先が同じなら "ref_hunks" を空の配列にする。
-参照先のファイルを読めないときは "ref" だけを出す。--ref がなければ "ref" も "ref_hunks" も出さない。
+参照先のファイルを読めないときと、参照先の同じパスが左右のファイルと種類の違うものであるときは "ref" だけを出す。--ref がなければ "ref" も "ref_hunks" も出さない。
 
 ### REQ-cli-064: diff のテキストに参照先との差を出す
 - kind: state_driven

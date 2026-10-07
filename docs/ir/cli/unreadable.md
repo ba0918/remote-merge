@@ -23,10 +23,10 @@ diff は、比べるファイルを片側でも読めなかったとき（REQ-cl
 
 ### REQ-cli-090: 参照先を読めない理由を参照先にないことと分ける
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-size-limit.md#A33
 - verification: unit
 
---ref を指定した diff は、参照先のファイルを読むのに参照先にない以外の理由で失敗したとき、REQ-cli-063 のとおりそのファイルに "ref" だけを出し、参照先にないときと区別してそのパスと理由を errors に載せ、終了コード 2 を返す。
+--ref を指定した diff は、参照先のファイルを読むのに参照先にない以外の理由で失敗したとき、REQ-cli-063 のとおりそのファイルに "ref" だけを出し、参照先にないときと区別してそのパスと理由を errors に載せ、終了コード 2 を返す。参照先の同じパスがファイルと種類（REQ-merge-001 の通常ファイル・ディレクトリ・末尾の symlink）の違うものであるときは読み込みの失敗とせず、参照先を読まずに "ref" だけを出し、errors に載せない。
 
 ## Examples
 
