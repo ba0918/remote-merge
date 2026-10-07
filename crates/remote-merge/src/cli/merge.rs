@@ -24,9 +24,9 @@ use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
-    compute_ref_badges, compute_status_from_trees, needs_merge_content_compare,
-    ref_badge_content_paths, refine_status_with_content,
+    compute_status_from_trees, needs_merge_content_compare, refine_status_with_content,
 };
+use crate::service::status_ref_badge::{compute_ref_badges, ref_badge_content_paths};
 use crate::service::sync::{plan_deletions, skip_symlink_deletions};
 use crate::service::types::{
     DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,

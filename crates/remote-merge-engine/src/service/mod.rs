@@ -9,6 +9,7 @@ pub mod merge_reference_reads;
 pub mod path_resolver;
 pub mod rollback;
 pub mod status;
+pub mod status_ref_badge;
 pub mod status_unreadable;
 pub mod sync;
 pub mod types;

@@ -19,10 +19,11 @@ use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
 use crate::service::status::{
-    build_status_output, compute_ref_badges, compute_status_from_trees, needs_content_compare,
-    needs_content_compare_all, paths_without_hashes, ref_badge_content_paths,
-    refine_status_with_content, refine_status_with_hashes, status_exit_code,
+    build_status_output, compute_status_from_trees, needs_content_compare,
+    needs_content_compare_all, paths_without_hashes, refine_status_with_content,
+    refine_status_with_hashes, status_exit_code,
 };
+use crate::service::status_ref_badge::{compute_ref_badges, ref_badge_content_paths};
 use crate::service::status_unreadable::{take_unreadable_files, with_unreadable_files, SideReads};
 use crate::service::types::FileStatusKind;
 use crate::service::types::StatusOutput;
