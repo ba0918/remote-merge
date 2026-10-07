@@ -15,7 +15,7 @@ use std::process::{Command, Output, Stdio};
 use super::common::{gen_config, strip_ansi, TestDirs};
 
 /// `gen_config` の [filter] の exclude の行を `include_line` に置き換えた設定
-fn with_include(config: &str, include_line: &str) -> String {
+pub(super) fn with_include(config: &str, include_line: &str) -> String {
     let replaced = config.replace("exclude = [\".git\", \"target\"]", include_line);
     assert_ne!(replaced, config, "fixture filter exclude line missing");
     replaced
@@ -24,7 +24,7 @@ fn with_include(config: &str, include_line: &str) -> String {
 /// `config` を書き、隔離を確かめてから `status --left local --right develop` を `extra_args` を足して起動する
 ///
 /// 環境変数は全て消し、HOME・XDG の変数・PATH だけを一時ディレクトリの下に向けて渡す。
-fn status(dirs: &mut TestDirs, config: &str, extra_args: &[&str]) -> Output {
+pub(super) fn status(dirs: &mut TestDirs, config: &str, extra_args: &[&str]) -> Output {
     let config_path = dirs.temp.path().join("filters-config.toml");
     fs::write(&config_path, config).unwrap();
     let local_root = dirs.local_dir.clone();
@@ -48,7 +48,7 @@ fn status(dirs: &mut TestDirs, config: &str, extra_args: &[&str]) -> Output {
 }
 
 /// 標準出力と標準エラーをつないだもの
-fn combined(output: &Output) -> String {
+pub(super) fn combined(output: &Output) -> String {
     format!(
         "{}{}",
         strip_ansi(&output.stdout),
@@ -65,7 +65,7 @@ fn toml_string(path: &Path) -> String {
 fn absolute_traversal_and_glob_include_values_each_warn_with_the_value() {
     let mut dirs = TestDirs::new_2way(&[("src/a.txt", "local\n")], &[("src/a.txt", "remote\n")]);
     // 無効な値は有効な "src" と一緒に書き、どれも一時ディレクトリの中を指すものにする
-    // （全て無効な include は FLAG-config-013 の範囲。整え方が壊れても走査が一時ディレクトリの外に向かわないようにする）
+    // （全て無効な include はエラーで止まる。整え方が壊れても走査が一時ディレクトリの外に向かわないようにする）
     let absolute = dirs.local_dir.join("src");
     let traversal = "src/../src";
     let globs = ["lib[1]", "lib*", "lib?"];

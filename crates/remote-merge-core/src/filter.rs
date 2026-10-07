@@ -76,14 +76,27 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
     false
 }
 
+/// 設定の include の値を整えた結果
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IncludeValues {
+    /// 使える値の一覧。空なら include の制限がない
+    Listed(Vec<String>),
+    /// "." を含むので root_dir 全体を指し、include の制限がない
+    WholeRoot,
+    /// 空でない値がすべて無効
+    AllInvalid,
+}
+
 /// include パスを正規化し、不正なパスを警告として返す。
 ///
-/// 戻り値: `(正規化済みパス一覧, 警告メッセージ一覧)`
+/// 戻り値: `(整えた結果, 警告メッセージ一覧)`
 ///
 /// 正規化処理:
 /// - 末尾スラッシュ除去
-/// - 先頭 `./` 除去
+/// - 先頭 `./` 除去（その後に空になる値は空の値として無視する）
 /// - 空文字列除去
+/// - "." の要素の除去と、続いた "/" のまとめ（"a/./b" と "a//b" は "a/b"）
+/// - 正規化で空になる値（"." だけの値）は root_dir 全体を指し、include の制限がない
 /// - 重複排除
 /// - プレフィックス包含除去（`["ja", "ja/Back"]` → `["ja"]`）
 ///
@@ -91,78 +104,97 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
 /// - パストラバーサル（`..` を含むパス）
 /// - 絶対パス
 /// - glob 文字（`*`, `?`, `[`）
-pub fn normalize_include_paths(paths: &[String]) -> (Vec<String>, Vec<String>) {
+///
+/// 空でない値を一つ以上書き、そのすべてを拒否したときは [`IncludeValues::AllInvalid`] を返す。
+pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>) {
     let mut warnings: Vec<String> = Vec::new();
     let mut normalized: Vec<String> = Vec::new();
+    let mut whole_root = false;
 
     for raw in paths {
-        // 空文字列除去
-        if raw.is_empty() {
-            continue;
-        }
-
-        // 先頭 `./` 正規化 + 末尾 `/` 正規化
+        // 先頭 `./` 正規化 + 末尾 `/` 正規化。空になった値は空の値として無視する
         let mut s = raw.as_str();
         while let Some(rest) = s.strip_prefix("./") {
             s = rest;
         }
         let s = s.trim_end_matches('/');
-
-        // 正規化後に空になった場合はスキップ
         if s.is_empty() {
             continue;
         }
 
-        let path = Path::new(s);
-
-        // 絶対パス拒否
-        if path.is_absolute() {
-            warnings.push(format!(
-                "Absolute path is not allowed in include filter: {}",
-                raw
-            ));
+        if let Some(warning) = invalid_include_warning(raw, s) {
+            warnings.push(warning);
             continue;
         }
 
-        // パストラバーサル拒否
-        let has_parent_dir = path.components().any(|c| matches!(c, Component::ParentDir));
-        if has_parent_dir {
-            warnings.push(format!(
-                "Path traversal is not allowed in include filter: {}",
-                raw
-            ));
+        // "." の要素を除き、続いた "/" を一つにまとめる
+        let joined = Path::new(s)
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        if joined.is_empty() {
+            whole_root = true;
             continue;
         }
-
-        // glob 文字警告
-        if s.contains('*') || s.contains('?') || s.contains('[') {
-            warnings.push(format!(
-                "Glob patterns are not supported in include filter: {}",
-                raw
-            ));
-            continue;
-        }
-
-        // 重複排除
-        let owned = s.to_string();
-        if !normalized.contains(&owned) {
-            normalized.push(owned);
+        if !normalized.contains(&joined) {
+            normalized.push(joined);
         }
     }
 
-    // プレフィックス包含除去: ソートして、親が既にリストにあれば子を除去
-    normalized.sort();
+    if whole_root {
+        return (IncludeValues::WholeRoot, warnings);
+    }
+    if normalized.is_empty() && !warnings.is_empty() {
+        return (IncludeValues::AllInvalid, warnings);
+    }
+    (
+        IncludeValues::Listed(drop_nested_paths(normalized)),
+        warnings,
+    )
+}
+
+/// REQ-config-024 の無効な値なら、その警告を返す。`raw` は書いたままの値、`trimmed` は先頭の
+/// "./" と末尾の "/" を除いた値
+fn invalid_include_warning(raw: &str, trimmed: &str) -> Option<String> {
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Some(format!(
+            "Absolute path is not allowed in include filter: {}",
+            raw
+        ));
+    }
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Some(format!(
+            "Path traversal is not allowed in include filter: {}",
+            raw
+        ));
+    }
+    if trimmed.contains('*') || trimmed.contains('?') || trimmed.contains('[') {
+        return Some(format!(
+            "Glob patterns are not supported in include filter: {}",
+            raw
+        ));
+    }
+    None
+}
+
+/// 祖先が一覧にある値を除き、名前の順に並べる
+fn drop_nested_paths(mut paths: Vec<String>) -> Vec<String> {
+    paths.sort();
     let mut result: Vec<String> = Vec::new();
-    for path in &normalized {
+    for path in paths {
         let is_child = result.iter().any(|parent| {
             path.starts_with(parent.as_str()) && path.as_bytes().get(parent.len()) == Some(&b'/')
         });
         if !is_child {
-            result.push(path.clone());
+            result.push(path);
         }
     }
-
-    (result, warnings)
+    result
 }
 
 /// エントリの相対パスが include フィルターに基づいて表示すべきか判定する。
@@ -352,11 +384,19 @@ mod tests {
         assert!(!is_path_excluded("src/app.js", &patterns));
     }
 
+    /// 使える値の一覧になることを確かめて、その一覧を返す
+    fn listed_include_paths(input: &[String]) -> (Vec<String>, Vec<String>) {
+        match normalize_include_paths(input) {
+            (IncludeValues::Listed(paths), warnings) => (paths, warnings),
+            other => panic!("{input:?} was not listed: {other:?}"),
+        }
+    }
+
     // ── normalize_include_paths ──
 
     #[test]
     fn test_normalize_empty_input() {
-        let (paths, warnings) = normalize_include_paths(&[]);
+        let (paths, warnings) = listed_include_paths(&[]);
         assert!(paths.is_empty());
         assert!(warnings.is_empty());
     }
@@ -364,7 +404,7 @@ mod tests {
     #[test]
     fn test_normalize_trailing_slash() {
         let input = vec!["ja/Back/".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back"]);
         assert!(warnings.is_empty());
     }
@@ -372,7 +412,7 @@ mod tests {
     #[test]
     fn test_normalize_leading_dot_slash() {
         let input = vec!["./ja/Back".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back"]);
         assert!(warnings.is_empty());
     }
@@ -380,7 +420,7 @@ mod tests {
     #[test]
     fn test_normalize_multiple_leading_dot_slash() {
         let input = vec!["././ja/Back".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back"]);
         assert!(warnings.is_empty());
     }
@@ -392,8 +432,8 @@ mod tests {
             "foo/../bar".to_string(),
             "./../../etc".to_string(),
         ];
-        let (paths, warnings) = normalize_include_paths(&input);
-        assert!(paths.is_empty());
+        let (values, warnings) = normalize_include_paths(&input);
+        assert_eq!(values, IncludeValues::AllInvalid);
         assert_eq!(warnings.len(), 3);
         for w in &warnings {
             assert!(w.contains("Path traversal"));
@@ -403,8 +443,8 @@ mod tests {
     #[test]
     fn test_normalize_rejects_absolute_path() {
         let input = vec!["/etc/passwd".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
-        assert!(paths.is_empty());
+        let (values, warnings) = normalize_include_paths(&input);
+        assert_eq!(values, IncludeValues::AllInvalid);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("Absolute path"));
     }
@@ -412,7 +452,7 @@ mod tests {
     #[test]
     fn test_normalize_prefix_dedup() {
         let input = vec!["ja/Back".to_string(), "ja".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         // "ja" は "ja/Back" の親なので、"ja" だけが残る
         assert_eq!(paths, vec!["ja"]);
         assert!(warnings.is_empty());
@@ -421,7 +461,7 @@ mod tests {
     #[test]
     fn test_normalize_prefix_dedup_with_trailing_slash() {
         let input = vec!["ja/".to_string(), "ja/Back/".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja"]);
         assert!(warnings.is_empty());
     }
@@ -429,7 +469,7 @@ mod tests {
     #[test]
     fn test_normalize_dedup_identical() {
         let input = vec!["ja/Back/".to_string(), "ja/Back".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back"]);
         assert!(warnings.is_empty());
     }
@@ -437,7 +477,7 @@ mod tests {
     #[test]
     fn test_normalize_empty_strings_removed() {
         let input = vec!["".to_string(), "ja/Back/".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back"]);
         assert!(warnings.is_empty());
     }
@@ -449,8 +489,8 @@ mod tests {
             "test?".to_string(),
             "lib[0]".to_string(),
         ];
-        let (paths, warnings) = normalize_include_paths(&input);
-        assert!(paths.is_empty());
+        let (values, warnings) = normalize_include_paths(&input);
+        assert_eq!(values, IncludeValues::AllInvalid);
         assert_eq!(warnings.len(), 3);
         for w in &warnings {
             assert!(w.contains("Glob patterns"));
@@ -465,7 +505,7 @@ mod tests {
             "src/lib".to_string(),
             "/absolute".to_string(),
         ];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja/Back", "src/lib"]);
         assert_eq!(warnings.len(), 2);
     }
@@ -473,8 +513,8 @@ mod tests {
     #[test]
     fn test_normalize_all_invalid() {
         let input = vec!["../a".to_string(), "/b".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
-        assert!(paths.is_empty());
+        let (values, warnings) = normalize_include_paths(&input);
+        assert_eq!(values, IncludeValues::AllInvalid);
         assert_eq!(warnings.len(), 2);
     }
 
@@ -482,9 +522,49 @@ mod tests {
     fn test_normalize_prefix_no_false_positive() {
         // "japan" は "ja" のプレフィックスだが、パスセグメント境界ではない
         let input = vec!["ja".to_string(), "japan".to_string()];
-        let (paths, warnings) = normalize_include_paths(&input);
+        let (paths, warnings) = listed_include_paths(&input);
         assert_eq!(paths, vec!["ja", "japan"]);
         assert!(warnings.is_empty());
+    }
+
+    fn owned(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    // @kotowari[REQ-config-035]
+    #[test]
+    fn include_values_drop_dot_elements_and_repeated_slashes() {
+        let cases: [(&[&str], IncludeValues); 7] = [
+            (&["."], IncludeValues::WholeRoot),
+            (&[".", "src"], IncludeValues::WholeRoot),
+            (&["a/./b"], IncludeValues::Listed(owned(&["a/b"]))),
+            (&["a//b"], IncludeValues::Listed(owned(&["a/b"]))),
+            (&["./a/./b/"], IncludeValues::Listed(owned(&["a/b"]))),
+            (&[""], IncludeValues::Listed(Vec::new())),
+            (&["./"], IncludeValues::Listed(Vec::new())),
+        ];
+        for (input, expected) in cases {
+            let (values, warnings) = normalize_include_paths(&owned(input));
+            assert_eq!(values, expected, "{input:?}");
+            assert!(warnings.is_empty(), "{input:?}: {warnings:?}");
+        }
+    }
+
+    // @kotowari[REQ-config-037]
+    #[test]
+    fn include_values_that_are_all_invalid_are_told_apart_from_an_empty_include() {
+        let cases: [(&[&str], IncludeValues, usize); 5] = [
+            (&["/etc"], IncludeValues::AllInvalid, 1),
+            (&["", "/etc"], IncludeValues::AllInvalid, 1),
+            (&["../a", "src/*.rs"], IncludeValues::AllInvalid, 2),
+            (&["/etc", "src"], IncludeValues::Listed(owned(&["src"])), 1),
+            (&["/etc", "."], IncludeValues::WholeRoot, 1),
+        ];
+        for (input, expected, warning_count) in cases {
+            let (values, warnings) = normalize_include_paths(&owned(input));
+            assert_eq!(values, expected, "{input:?}");
+            assert_eq!(warnings.len(), warning_count, "{input:?}: {warnings:?}");
+        }
     }
 
     // ── is_path_included ──

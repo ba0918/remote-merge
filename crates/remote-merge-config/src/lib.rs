@@ -14,7 +14,7 @@ pub use remote_merge_settings::{
 };
 
 use crate::error::AppError;
-use crate::filter::normalize_include_paths;
+use crate::filter::{normalize_include_paths, IncludeValues};
 
 // ── 設定ファイル構造体 ──
 
@@ -579,7 +579,16 @@ fn merge_configs(
         for w in &warnings {
             tracing::warn!(target: "remote_merge::config", "{}", w);
         }
-        filter.include = normalized;
+        filter.include = match normalized {
+            IncludeValues::Listed(paths) => paths,
+            IncludeValues::WholeRoot => Vec::new(),
+            // 指定がないものとして全体に広げない
+            IncludeValues::AllInvalid => bail!(AppError::ConfigValidation {
+                field: "filter.include".into(),
+                message: "every include value is invalid; refusing to scan the whole root_dir"
+                    .into(),
+            }),
+        };
     }
 
     // ssh: プロジェクトで上書き
