@@ -136,8 +136,6 @@ impl CoreRuntime {
     // 製品の中身の読み込みはすべてこの二つの入口を通る。上限ありのときは経路に振り分ける前に
     // 大きさだけを尋ね、上限を超えるパスを読まない（docs/ir/cli/size-limit.md の REQ-cli-079）。
 
-    // ── バイト列読み込み ──
-
     /// Side に基づいてバイト列を読み込む（バイナリファイル対応）。`force` が false なら
     /// 上限を超えるファイルは読まずに `FileTooLarge` を返す
     pub fn read_file_bytes(
