@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
+use remote_merge_core::path_resolution::os::resolve_on_this_machine;
+use remote_merge_core::path_resolution::ResolvedPath;
 
 use super::protocol::{AgentFileEntry, FileKind};
 use crate::filter;
@@ -362,8 +364,16 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> (PathBuf, Vec<PathB
                     None
                 }
                 Ok(_) => Some(start),
-                // リンク切れの symlink はそれ自体を載せる
-                Err(_) if start.symlink_metadata().is_ok() => Some(start),
+                // リンク切れの symlink はそれ自体を載せる。ただし root の外へ解決されないかを、CLI の
+                // 値の確認と同じパスの確認で確かめ、確かめられなければ載せない
+                Err(_) if start.symlink_metadata().is_ok() => {
+                    if dangling_link_resolves_inside(&canonical_root, &path_str) {
+                        Some(start)
+                    } else {
+                        tracing::warn!(target: "remote_merge::agent::tree_scan", "include path escapes root: {path_str}");
+                        None
+                    }
+                }
                 Err(e) => {
                     tracing::warn!(target: "remote_merge::agent::tree_scan", "include path does not exist, skipping: {path_str} ({e})");
                     None
@@ -373,6 +383,15 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> (PathBuf, Vec<PathB
         .collect();
 
     (root.to_path_buf(), starts)
+}
+
+/// `canonical_root` の下の `rel` が symlink で、途中の symlink もリンク先も辿った実パスが
+/// `canonical_root` の中にあるか。辿れないときは中にあると確かめられないので false
+fn dangling_link_resolves_inside(canonical_root: &Path, rel: &str) -> bool {
+    matches!(
+        resolve_on_this_machine(canonical_root, rel),
+        Ok(ResolvedPath::Symlink { real_path, .. }) if Path::new(&real_path).starts_with(canonical_root)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,5 +1313,41 @@ mod tests {
             .flat_map(|chunk| chunk.entries.iter().map(|e| e.path.as_str()))
             .collect();
         assert!(all_paths.is_empty(), "{all_paths:?}");
+    }
+
+    // @kotowari[REQ-config-033, REQ-scan-006]
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_reached_through_a_link_outside_root_is_not_listed() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let root = dir.path();
+        std::os::unix::fs::symlink("in-root-missing", root.join("dangling")).unwrap();
+        std::os::unix::fs::symlink("outside-missing", outside.path().join("dangling")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("via")).unwrap();
+        let outside_target = outside.path().join("missing");
+        std::os::unix::fs::symlink(&outside_target, root.join("to-outside")).unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            include: vec![
+                "via/dangling".to_string(),
+                "to-outside".to_string(),
+                "dangling".to_string(),
+            ],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let entries: Vec<_> = chunks.iter().flat_map(|chunk| &chunk.entries).collect();
+        let listed: Vec<(&str, FileKind, Option<&str>)> = entries
+            .iter()
+            .map(|e| (e.path.as_str(), e.kind.clone(), e.symlink_target.as_deref()))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![("dangling", FileKind::Symlink, Some("in-root-missing"))]
+        );
     }
 }
