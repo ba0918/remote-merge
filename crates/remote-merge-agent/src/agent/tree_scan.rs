@@ -230,14 +230,15 @@ impl<'a> ScanIterator<'a> {
     }
 
     /// include の起点を 1 件処理する。起点はそれ自体を `process_entry` で扱い、ディレクトリを指す
-    /// symlink なら、その配下もリンクの名前の下に走査する
+    /// symlink なら、その配下もリンクの名前の下に走査する。リンク自体が exclude に当たって載らないときは、
+    /// ローカルの走査が枝ごと除くのと同じく配下も走査しない
     fn process_start(&mut self, start: &Path) -> bool {
         let is_directory_link = start
             .symlink_metadata()
             .is_ok_and(|meta| meta.file_type().is_symlink())
             && start.is_dir();
         let listed = self.process_entry(start);
-        if is_directory_link {
+        if is_directory_link && listed {
             self.dir_stack.push(start.to_path_buf());
         }
         listed
@@ -1267,5 +1268,31 @@ mod tests {
         assert_eq!(children.len(), 2);
         assert!(children.contains_key("lib.rs"));
         assert!(children.contains_key("main.rs"));
+    }
+
+    // @kotowari[REQ-config-025]
+    #[test]
+    fn an_excluded_directory_link_named_in_include_is_not_walked() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("releases/v2")).unwrap();
+        fs::write(root.join("releases/v2/x.txt"), "x").unwrap();
+        fs::create_dir(root.join("app")).unwrap();
+        std::os::unix::fs::symlink("../releases/v2", root.join("app/current")).unwrap();
+
+        let options = ScanOptions {
+            root: root.to_path_buf(),
+            include: vec!["app/current".to_string()],
+            exclude: vec!["app/current".to_string()],
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+        let all_paths: Vec<&str> = chunks
+            .iter()
+            .flat_map(|chunk| chunk.entries.iter().map(|e| e.path.as_str()))
+            .collect();
+        assert!(all_paths.is_empty(), "{all_paths:?}");
     }
 }
