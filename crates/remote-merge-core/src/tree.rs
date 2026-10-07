@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 pub enum MetadataCmp {
     /// メタデータ上同一（size + mtime 一致）
     Equal,
-    /// メタデータ上確実に異なる（size 不一致）
+    /// メタデータ上確実に異なる（種類の違い、symlink のリンク先の違い、size 不一致）
     Modified,
     /// メタデータだけでは判定不能（size 一致 + mtime 不一致/不明、シンボリックリンク等）
     Undetermined,
@@ -28,7 +28,7 @@ pub enum MetadataCmp {
 ///
 /// 判定ルール:
 /// - 両方シンボリックリンク → ターゲットパスを直接比較
-/// - 片方だけシンボリックリンク → `Modified`（種別が異なる）
+/// - 種類（通常ファイル・ディレクトリ・末尾の symlink）が違う → `Modified`（片方だけ symlink を含む）
 /// - size が異なる → `Modified`（確定）
 /// - size 同じ + mtime 同じ → `Equal`
 /// - size 同じ + mtime 異なる/不明 → `Undetermined`（コンテンツ比較が必要）
@@ -44,8 +44,8 @@ pub fn compare_metadata(left: &FileNode, right: &FileNode) -> MetadataCmp {
             MetadataCmp::Modified
         };
     }
-    // 片方だけ symlink → 種別が異なるので Modified
-    if left.is_symlink() || right.is_symlink() {
+    // 種類（通常ファイル・ディレクトリ・末尾の symlink）が違う → 大きさと更新時刻によらず Modified
+    if left.entry_kind() != right.entry_kind() {
         return MetadataCmp::Modified;
     }
 
@@ -728,6 +728,18 @@ mod tests {
         let l = FileNode::new_file("a");
         let r = FileNode::new_file("a");
         assert_eq!(compare_metadata(&l, &r), MetadataCmp::Undetermined);
+    }
+
+    #[test]
+    fn a_file_and_a_directory_of_equal_size_and_mtime_are_modified() {
+        use chrono::TimeZone;
+        let ts = Utc.timestamp_opt(1700000000, 0).unwrap();
+        let file = make_file_with_meta("a", 4096, Some(ts));
+        let mut dir = FileNode::new_dir("a");
+        dir.size = Some(4096);
+        dir.mtime = Some(ts);
+        assert_eq!(compare_metadata(&file, &dir), MetadataCmp::Modified);
+        assert_eq!(compare_metadata(&dir, &file), MetadataCmp::Modified);
     }
 
     #[test]

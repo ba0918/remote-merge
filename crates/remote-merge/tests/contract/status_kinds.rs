@@ -6,7 +6,7 @@
 
 use remote_merge::service::output::format_json;
 
-use super::status_support::{args, fixture, write_at};
+use super::status_support::{args, file_and_directory_with_equal_metadata, fixture, write_at};
 
 const T0: u64 = 1_700_000_000;
 
@@ -67,5 +67,30 @@ fn checksum_reports_a_file_against_a_directory_as_modified_without_reading_it() 
         );
         assert_eq!(json.get("errors"), None, "{left} {right}: {json}");
         assert_eq!(result.exit_code, 1, "{left} {right}: {json}");
+    }
+}
+
+// 左は通常ファイル、右は同じ名前のディレクトリで、大きさと更新時刻が同じ。--checksum のないときは
+// メタデータで、あるときは中身を読まずに判定する。右がサーバのときと local のときの両方で確かめる
+// @kotowari[TBL-cli-001, REQ-cli-008]
+#[test]
+fn a_file_against_a_directory_of_equal_size_and_time_is_modified() {
+    let fixture = fixture();
+    file_and_directory_with_equal_metadata(fixture.local.path(), fixture.develop.path(), "x", T0);
+
+    for checksum in [false, true] {
+        for (left, right) in [("local", "develop"), ("develop", "local")] {
+            let mut args = args(Some(left), Some(right));
+            args.all = true;
+            args.checksum = checksum;
+
+            let result = fixture.run(args).unwrap();
+            let json = json_of(&result);
+
+            let case = format!("checksum {checksum}, {left} {right}");
+            assert_eq!(file(&json, "x")["status"], "modified", "{case}: {json}");
+            assert_eq!(json.get("errors"), None, "{case}: {json}");
+            assert_eq!(result.exit_code, 1, "{case}: {json}");
+        }
     }
 }

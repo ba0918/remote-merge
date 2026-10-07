@@ -108,6 +108,24 @@ pub fn write_at(root: &Path, path: &str, content: &[u8], mtime: u64) {
         .unwrap();
 }
 
+/// 左に通常ファイル、右に同じ名前のディレクトリを、大きさと更新時刻（UNIX 時刻 `mtime` 秒）を
+/// そろえて置く。ディレクトリの大きさはファイルシステムで違うので、置いたディレクトリに合わせる
+pub fn file_and_directory_with_equal_metadata(
+    file_root: &Path,
+    dir_root: &Path,
+    path: &str,
+    mtime: u64,
+) {
+    write_at(dir_root, &format!("{path}/inner.txt"), b"inner\n", mtime);
+    let dir = dir_root.join(path);
+    fs::File::open(&dir)
+        .unwrap()
+        .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(mtime))
+        .unwrap();
+    let size = fs::metadata(&dir).unwrap().len();
+    write_at(file_root, path, &vec![b'x'; size as usize], mtime);
+}
+
 pub fn symlink(root: &Path, path: &str, target: &str) {
     std::os::unix::fs::symlink(target, root.join(path)).unwrap();
 }
