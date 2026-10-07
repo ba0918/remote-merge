@@ -33,6 +33,9 @@ mod config_include_cli;
 #[path = "contract/config_include_skip_cli.rs"]
 mod config_include_skip_cli;
 #[cfg(feature = "test-utils")]
+#[path = "contract/config_include_targets_cli.rs"]
+mod config_include_targets_cli;
+#[cfg(feature = "test-utils")]
 #[path = "contract/config_loading_cli.rs"]
 mod config_loading_cli;
 #[path = "contract/config_merging.rs"]

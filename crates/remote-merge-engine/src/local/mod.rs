@@ -138,10 +138,12 @@ fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
 
 /// include パスからスキャンルートを解決する。
 ///
-/// - `include_paths` が空の場合は `root` 自体を返す
-/// - 各 include パスを `root` に結合して正規化し、`root` 配下であることを確認する
-/// - 存在しないパスは警告ログを出してスキップ
-/// - シンボリックリンクが `root` 外を指す場合は拒否
+/// - `include_paths` が空の場合は正規化した `root` 自体を返す
+/// - 各 include パスは正規化した `root` に名前のままつなぐ。symlink の値もリンク先に置き換えず、
+///   一覧の名前は include に書いた名前になる
+/// - 重複と、祖先が一覧にある値は名前だけで除く（同じディレクトリを指す別の名前は両方残す）
+/// - 存在しないパスと、`root` の外へ解決されるパスは警告ログを出してスキップ
+///   （走査の前の確認で除いてあるので、通常は当たらない）
 pub fn resolve_scan_roots(root: &Path, include_paths: &[String]) -> Vec<PathBuf> {
     if include_paths.is_empty() {
         return match root.canonicalize() {
@@ -158,52 +160,33 @@ pub fn resolve_scan_roots(root: &Path, include_paths: &[String]) -> Vec<PathBuf>
         }
     };
 
-    let mut scan_roots: Vec<PathBuf> = Vec::new();
-
-    for include_path in include_paths {
-        let joined = root.join(include_path);
-        match joined.canonicalize() {
-            Ok(canonical) => {
-                // root 配下であることを確認（シンボリックリンク脱出防止）
-                if !canonical.starts_with(&canonical_root) {
+    filter::drop_nested_include_paths(include_paths.to_vec())
+        .into_iter()
+        .filter_map(|include_path| {
+            let start = canonical_root.join(&include_path);
+            match start.canonicalize() {
+                Ok(real) if !real.starts_with(&canonical_root) => {
                     tracing::warn!(
                         target: "remote_merge::local",
-                        "Include path escapes root directory: {} -> {}",
-                        include_path,
-                        canonical.display()
+                        "Include path resolves outside root_dir, skipping: {}",
+                        include_path
                     );
-                    continue;
+                    None
                 }
-                if !scan_roots.contains(&canonical) {
-                    scan_roots.push(canonical);
+                Ok(_) => Some(start),
+                // リンク切れの symlink はそれ自体を載せる
+                Err(_) if start.symlink_metadata().is_ok() => Some(start),
+                Err(_) => {
+                    tracing::warn!(
+                        target: "remote_merge::local",
+                        "Include path does not exist, skipping: {}",
+                        include_path
+                    );
+                    None
                 }
             }
-            Err(e) => {
-                tracing::warn!(
-                    target: "remote_merge::local",
-                    "Include path does not exist, skipping: {} ({})",
-                    include_path,
-                    e
-                );
-            }
-        }
-    }
-
-    // 祖先パスが既にリストにある場合、子孫パスを除去する
-    // 例: ["/root/vendor", "/root/vendor/current"] → ["/root/vendor"]
-    scan_roots.sort();
-    scan_roots.dedup();
-    let filtered: Vec<PathBuf> = scan_roots
-        .iter()
-        .filter(|path| {
-            !scan_roots
-                .iter()
-                .any(|other| other != *path && path.starts_with(other))
         })
-        .cloned()
-        .collect();
-
-    filtered
+        .collect()
 }
 
 /// ローカルディレクトリを再帰的に全走査する（変更ファイルフィルター用）
@@ -242,7 +225,7 @@ pub fn scan_local_tree_recursive_with_include(
     let scan_roots = resolve_scan_roots(root, include);
 
     // strip_prefix の失敗を防ぐため、original_root も正規化する
-    // （scan_roots は resolve_scan_roots 内で canonicalize 済み）
+    // （scan_roots は resolve_scan_roots 内で正規化した root の下につないである）
     let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
 
     let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
@@ -284,8 +267,10 @@ fn walk_single_root(
     let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
     let mut truncated = false;
 
+    // include の起点はそれ自体も載せる（ファイルや symlink の値はその 1 件になる）。root 自体は載せない
+    let min_depth = if scan_root == original_root { 1 } else { 0 };
     for entry in WalkDir::new(scan_root)
-        .min_depth(1)
+        .min_depth(min_depth)
         .follow_links(true)
         .into_iter()
         .filter_entry(|e| {

@@ -2,7 +2,8 @@
 //! `AgentFileEntry` のチャンクを生成するモジュール。
 //!
 //! `std::fs` を使用（tokio 不使用）。シンボリックリンクはフォローせず、
-//! ターゲットパスのみを記録する。
+//! ターゲットパスのみを記録する。ただし include の起点がディレクトリを指す symlink のときは、
+//! リンク自体を記録したうえで配下をリンクの名前の下に走査する。
 
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -63,6 +64,8 @@ struct ScanIterator<'a> {
     relative_base: PathBuf,
     /// 未処理のディレクトリスタック
     dir_stack: Vec<PathBuf>,
+    /// まだ載せていない include の起点（それ自体も一覧に載せる）
+    pending_starts: Vec<PathBuf>,
     /// 現在読み込み中のディレクトリイテレータ
     current_read_dir: Option<std::fs::ReadDir>,
     /// 現在のチャンクに蓄積中のエントリ
@@ -75,11 +78,19 @@ struct ScanIterator<'a> {
 
 impl<'a> ScanIterator<'a> {
     fn new(options: &'a ScanOptions) -> Self {
-        let (relative_base, initial_dirs) = resolve_include_roots(&options.root, &options.include);
+        let (relative_base, starts) = resolve_include_roots(&options.root, &options.include);
+        let (dir_stack, mut pending_starts) = if options.include.is_empty() {
+            (starts, Vec::new())
+        } else {
+            (Vec::new(), starts)
+        };
+        // 末尾から取り出すので、書いた順に載せるよう逆にする
+        pending_starts.reverse();
         Self {
             options,
             relative_base,
-            dir_stack: initial_dirs,
+            dir_stack,
+            pending_starts,
             current_read_dir: None,
             buffer: Vec::new(),
             total_scanned: 0,
@@ -111,8 +122,14 @@ impl<'a> ScanIterator<'a> {
                 }
             }
 
-            // 次のディレクトリをスタックからポップ
-            let dir = self.dir_stack.pop()?;
+            // 次のディレクトリをスタックからポップ。なければ次の include の起点を載せる
+            let Some(dir) = self.dir_stack.pop() else {
+                let start = self.pending_starts.pop()?;
+                if self.process_start(&start) {
+                    return Some(());
+                }
+                continue;
+            };
             match std::fs::read_dir(&dir) {
                 Ok(rd) => self.current_read_dir = Some(rd),
                 Err(e) => {
@@ -212,6 +229,20 @@ impl<'a> ScanIterator<'a> {
         true
     }
 
+    /// include の起点を 1 件処理する。起点はそれ自体を `process_entry` で扱い、ディレクトリを指す
+    /// symlink なら、その配下もリンクの名前の下に走査する
+    fn process_start(&mut self, start: &Path) -> bool {
+        let is_directory_link = start
+            .symlink_metadata()
+            .is_ok_and(|meta| meta.file_type().is_symlink())
+            && start.is_dir();
+        let listed = self.process_entry(start);
+        if is_directory_link {
+            self.dir_stack.push(start.to_path_buf());
+        }
+        listed
+    }
+
     /// バッファの中身をソートしてチャンクとして切り出す
     fn flush_chunk(&mut self, is_last: bool, truncated: bool) -> ScanChunk {
         self.buffer.sort_by(|a, b| a.path.cmp(&b.path));
@@ -285,10 +316,11 @@ fn get_permissions(_meta: &std::fs::Metadata, kind: &FileKind) -> u32 {
 /// include パスからスキャン起点を解決し、一覧のパスを相対にする基準とともに返す。
 ///
 /// - include が空: 基準も起点も root をそのまま返す
-/// - include が非空: 各パスを root に結合し、存在確認 + root 配下チェックを行う。
-///   起点は正規化した実パスになるため、基準も正規化した root にする
-///   （root が symlink のときに起点が基準の配下と判定されなくなるのを防ぐ）
-/// - 祖先パスが既にリストにある場合、子孫パスは除去する
+/// - include が非空: 各パスを root に名前のままつないで起点にし、基準も root にする
+///   （symlink の値もリンク先に置き換えず、一覧の名前は include に書いた名前になる）
+/// - 別のプロセスから受け取る値なので、絶対パス・".." を含むパス・root の外へ解決されるパス・
+///   存在しないパスはここでも確かめて走査しない
+/// - 重複と、祖先が一覧にある値は名前だけで除く（同じディレクトリを指す別の名前は両方残す）
 fn resolve_include_roots(root: &Path, include: &[String]) -> (PathBuf, Vec<PathBuf>) {
     if include.is_empty() {
         return (root.to_path_buf(), vec![root.to_path_buf()]);
@@ -298,63 +330,48 @@ fn resolve_include_roots(root: &Path, include: &[String]) -> (PathBuf, Vec<PathB
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot canonicalize root {}: {e}", root.display());
-            return (root.to_path_buf(), vec![root.to_path_buf()]);
+            return (root.to_path_buf(), Vec::new());
         }
     };
 
-    let mut roots: Vec<PathBuf> = Vec::new();
-
-    for path_str in include {
-        // 絶対パスおよびパストラバーサルを拒否
-        if Path::new(path_str).is_absolute() {
-            tracing::warn!(target: "remote_merge::agent::tree_scan", "include: absolute path not allowed: {path_str}");
-            continue;
-        }
-        if Path::new(path_str)
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
-            tracing::warn!(target: "remote_merge::agent::tree_scan", "include: path traversal detected: {path_str}");
-            continue;
-        }
-
-        let joined = root.join(path_str);
-        match joined.canonicalize() {
-            Ok(canonical) => {
-                if !canonical.starts_with(&canonical_root) {
+    let starts = filter::drop_nested_include_paths(include.to_vec())
+        .into_iter()
+        .filter_map(|path_str| {
+            // 絶対パスおよびパストラバーサルを拒否
+            if Path::new(&path_str).is_absolute() {
+                tracing::warn!(target: "remote_merge::agent::tree_scan", "include: absolute path not allowed: {path_str}");
+                return None;
+            }
+            if Path::new(&path_str)
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                tracing::warn!(target: "remote_merge::agent::tree_scan", "include: path traversal detected: {path_str}");
+                return None;
+            }
+            let start = root.join(&path_str);
+            match start.canonicalize() {
+                Ok(real) if !real.starts_with(&canonical_root) => {
                     tracing::warn!(
                         target: "remote_merge::agent::tree_scan",
                         "include path escapes root: {} -> {}",
                         path_str,
-                        canonical.display()
+                        real.display()
                     );
-                    continue;
+                    None
                 }
-                if !roots.contains(&canonical) {
-                    roots.push(canonical);
+                Ok(_) => Some(start),
+                // リンク切れの symlink はそれ自体を載せる
+                Err(_) if start.symlink_metadata().is_ok() => Some(start),
+                Err(e) => {
+                    tracing::warn!(target: "remote_merge::agent::tree_scan", "include path does not exist, skipping: {path_str} ({e})");
+                    None
                 }
             }
-            Err(e) => {
-                tracing::warn!(target: "remote_merge::agent::tree_scan", "include path does not exist, skipping: {path_str} ({e})");
-            }
-        }
-    }
-
-    // 祖先パスが既にリストにある場合、子孫パスを除去する
-    roots.sort();
-    roots.dedup();
-    let filtered: Vec<PathBuf> = roots
-        .iter()
-        .filter(|path| {
-            !roots
-                .iter()
-                .any(|other| other != *path && path.starts_with(other))
         })
-        .cloned()
         .collect();
 
-    // 全ての include パスが無効だった場合は空を返す（スキャンなし）
-    (canonical_root, filtered)
+    (root.to_path_buf(), starts)
 }
 
 // ---------------------------------------------------------------------------

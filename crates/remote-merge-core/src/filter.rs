@@ -152,7 +152,7 @@ pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>)
         return (IncludeValues::AllInvalid, warnings);
     }
     (
-        IncludeValues::Listed(drop_nested_paths(normalized)),
+        IncludeValues::Listed(drop_nested_include_paths(normalized)),
         warnings,
     )
 }
@@ -182,9 +182,10 @@ fn invalid_include_warning(raw: &str, trimmed: &str) -> Option<String> {
     None
 }
 
-/// 祖先が一覧にある値を除き、名前の順に並べる
-fn drop_nested_paths(mut paths: Vec<String>) -> Vec<String> {
+/// 同じ値と、祖先が一覧にある値を名前だけで除き、名前の順に並べる
+pub fn drop_nested_include_paths(mut paths: Vec<String>) -> Vec<String> {
     paths.sort();
+    paths.dedup();
     let mut result: Vec<String> = Vec::new();
     for path in paths {
         let is_child = result.iter().any(|parent| {

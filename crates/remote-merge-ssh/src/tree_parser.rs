@@ -265,13 +265,15 @@ fn write_in_place(remote_path: &str, writer: &str) -> String {
 
 /// `find` コマンド文字列を生成する（再帰スキャン用）
 ///
-/// - `include` が空の場合: `root_dir` 単体を走査対象にする
-/// - `include` が非空の場合: 各 include パスを `root_dir` と結合して複数の開始パスにする
+/// - `include` が空の場合: `root_dir` 単体を走査対象にし、`root_dir` 自体は出さない
+/// - `include` が非空の場合: 各 include パスを `root_dir` と結合して複数の開始パスにし、
+///   開始パス自体も出す（ファイルや symlink の値はその 1 件になり、ディレクトリ symlink の配下は
+///   リンクの名前の下に出る）
 ///
 /// 全パスは `shell_escape` でエスケープされる。
 pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
     let start_paths = if include.is_empty() {
-        shell_escape(root_dir)
+        format!("{} -mindepth 1", shell_escape(root_dir))
     } else {
         let root = root_dir.trim_end_matches('/');
         include
@@ -283,7 +285,7 @@ pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
 
     let link_action = r#"-exec sh -c 'set -e; for path do size=$(stat -c %s -- "$path"); mtime=$(stat -c %Y -- "$path"); mode=$(stat -c %a -- "$path"); target=$(readlink -- "$path"); if test -d "$path"; then kind=d; else kind=f; fi; printf "l\t%s\t%s\t%s\t%s\t%s\t%s\n" "$size" "$mtime" "$mode" "$path" "$target" "$kind"; done' _ {} +"#;
     format!(
-        "find -L {start_paths} -mindepth 1 -xtype l {link_action} && find -L {start_paths} -mindepth 1 ! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        "find -L {start_paths} -xtype l {link_action} && find -L {start_paths} ! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
     )
 }
 
@@ -638,17 +640,19 @@ mod tests {
         let include = vec!["ja/Back".to_string(), "ja/API".to_string()];
         let cmd = build_find_command("/var/www", &include);
         assert_eq!(
-            cmd.matches("find -L '/var/www/ja/Back' '/var/www/ja/API' -mindepth 1")
+            cmd.matches("find -L '/var/www/ja/Back' '/var/www/ja/API' ")
                 .count(),
             2
         );
+        assert!(!cmd.contains("-mindepth"), "{cmd}");
     }
 
     #[test]
     fn test_build_find_command_include_single() {
         let include = vec!["src".to_string()];
         let cmd = build_find_command("/var/www", &include);
-        assert_eq!(cmd.matches("find -L '/var/www/src' -mindepth 1").count(), 2);
+        assert_eq!(cmd.matches("find -L '/var/www/src' ").count(), 2);
+        assert!(!cmd.contains("-mindepth"), "{cmd}");
     }
 
     #[test]
