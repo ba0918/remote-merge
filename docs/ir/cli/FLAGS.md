@@ -167,9 +167,9 @@ diff は片側にないファイルを、ない側を空の内容として参照
 ### FLAG-cli-070: 参照先の root_dir の外の判定
 - kind: gap
 - related: REQ-cli-026, REQ-cli-063
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18
+- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18, docs/decision/records/2026-10-07-size-limit-consistency.md#A4
 
-diff の root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの項目が root_dir の外を指す symlink のとき、--follow-external-links なしでもその内容が "ref_hunks" に出うる（実装を読んで分かったことで未実行）。
+diff の root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの途中のディレクトリが root_dir の外を指す symlink のとき、--follow-external-links なしでもその外のファイルの内容が "ref_hunks" に出る。参照先の同じパスそのものが symlink のときは、REQ-cli-090 により種類の違う参照先として読まないので出ない。
 
 ### FLAG-cli-071: 行を足すだけの変更の競合
 - kind: ambiguity
