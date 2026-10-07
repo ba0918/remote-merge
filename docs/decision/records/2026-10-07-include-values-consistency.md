@@ -7,7 +7,7 @@ include の値をローカル・SSH・エージェントのどの経路でも同
 一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
 この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
 
-Position: A1〜A9 を反映した。
+Position: A1〜A10 を反映した。
 
 ## Agreements
 
@@ -37,4 +37,7 @@ Position: A1〜A9 を反映した。
   - decided_by: 整合の段（consistency phase）
 - A9 リンク切れの symlink の include の値でも、[REQ-paths-002](../../ir/paths/resolution.md#REQ-paths-002) が末尾の symlink に与える実パス（リンク先の側の辿れた親の実パスにリンク先の最後の名前をつないだもの）が root_dir の外にあるときは、[REQ-config-033](../../ir/config/include.md#REQ-config-033) の root_dir の外へ解決される値として警告して使わず、[REQ-config-034](../../ir/config/include.md#REQ-config-034) の symlink の項目 1 件としては載せない。これを REQ-config-034 に書く。A3 と A4 は今のコードのとおりで、変えない。
   - why: REQ-config-034（A4）はリンク切れの値を symlink の項目として載せるとし、REQ-config-033 は root_dir の外へ解決される値を使わないとするので、リンク先が外にあるリンク切れの値に二つが同時に当たり、どちらによるかを IR が決めていなかった。REQ-config-033 は禁止で、root_dir の外を指す値を使わない趣旨は、リンク先がないかどうかで変わらない。実装は CLI での値の確認（`crates/remote-merge/src/runtime/include_check.rs` の `include_disposition`）で、リンク切れでも実パスが外なら "Include path resolves outside root_dir, skipping: 値" を出して飛ばす。エージェントの走査の層（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `dangling_link_resolves_inside`）も同じパスの確認で外なら載せない。契約テスト `include_symlink_resolving_outside_the_root_dir_is_warned_and_not_listed_over_ssh` と `include_values_resolving_outside_the_root_dir_are_warned_and_not_listed_via_the_agent` に root_dir の外のない "missing" を指すリンク切れの "gone" を足し、SSH とエージェントのどちらの組でも左右がそれぞれ警告して（警告 2 行）一覧に載らないことを `cargo nextest run --all-features -E 'test(/resolving_outside_the_root_dir/)'` で確かめた（2 件とも通る）。`include_disposition` が "missing" を指すリンクを外でも走査に渡す一時的な変更の下では、二つのテストが "gone" の警告の数（期待 2、実際 0）で失敗した。CLI の確認が先に飛ばすので、エージェントの走査の層の判定とその警告 "include path escapes root: 値" は CLI からは届かず、利用者の見る文言は A6 の "Include path resolves outside root_dir, skipping: 値" のままである。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A10 "/" と "//" の include の値は、末尾の "/" を除いて空になっても [REQ-config-024](../../ir/config/filters.md#REQ-config-024) の空の値とせず、絶対パスの値として書いたままの値で警告して無視し、[REQ-config-037](../../ir/config/include.md#REQ-config-037) の無効な値に数える。IR は変えない。
+  - why: REQ-config-024 は絶対パスの値を警告して無視するとし、[REQ-config-035](../../ir/config/include.md#REQ-config-035) は続いた "/" を一つにまとめるとするので、"/" と "//" は IR の読みでは絶対パスで、空の値になる読みは IR のどこにもない（末尾の "/" を除くことは IR に書かれていない実装の手順である）。この範囲の変更の前の実装は末尾の "/" を除いて空の値として無視し、include の制限がないものとして全体を走査していたので IR と食い違っており、変更の後は `crates/remote-merge-core/src/filter.rs` の `normalize_include_paths` が "/" で始まる値を "/" として残し、`invalid_include_warning` が書いたままの値で "Absolute path is not allowed in include filter: 値" を返す。単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include`（["/"] と ["//"] が AllInvalid で警告 1 件）と契約テスト `include_with_only_absolute_values_warns_and_stops_without_scanning`（include = ["/"] で "...: /" の警告の後に 0 でない終了コードで止まる）が通る。
   - decided_by: 整合の段（consistency phase）
