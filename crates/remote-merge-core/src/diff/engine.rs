@@ -126,20 +126,18 @@ pub struct DiffStats {
     pub equal: usize,
 }
 
-/// バイナリファイルかどうかを判定する（NUL バイト検出）。
+/// NUL バイトを探す範囲（先頭からのバイト数）
+const NUL_CHECK_LEN: usize = 8192;
+
+/// バイナリファイルかどうかを判定する。
 ///
-/// 先頭 8KB のみをチェックするため、8KB 以降にのみ NUL バイトが存在する
-/// ファイルはテキストとして扱われる。実用上、テキストファイルの先頭 8KB に
-/// NUL バイトが含まれないことは十分信頼できる前提。
+/// 先頭 8KB に NUL バイトを含むか、全体が正しい UTF-8 でなければバイナリとする。
+/// UTF-8 の正しさを全体で確かめるのは、後ろにだけある不正なバイトを置換文字に
+/// 置き換えて比べたり書き戻したりしないため。NUL は先頭 8KB だけを見るので、
+/// 8KB 以降にのみ NUL があるファイルはテキストとして扱われる。
 pub fn is_binary(content: &[u8]) -> bool {
-    let check_len = content.len().min(8192);
-    let slice = &content[..check_len];
-    // NUL バイト検出
-    if slice.contains(&0) {
-        return true;
-    }
-    // 不正 UTF-8 シーケンス検出（画像・コンパイル済みバイナリ等の文字化け防止）
-    std::str::from_utf8(slice).is_err()
+    let nul_check_len = content.len().min(NUL_CHECK_LEN);
+    content[..nul_check_len].contains(&0) || std::str::from_utf8(content).is_err()
 }
 
 /// 2つのテキストの行単位 diff を計算する
@@ -539,6 +537,19 @@ mod tests {
         assert!(is_binary(&[0xFF, 0xFE, 0x80, 0x90]));
         assert!(is_binary(&[0x80, 0x81, 0x82])); // 先頭バイトなしの継続バイト
         assert!(is_binary(b"text\xC0\xAF")); // overlong encoding
+    }
+
+    #[test]
+    fn test_binary_detection_invalid_utf8_only_after_8kb() {
+        let mut content = vec![b'a'; 8192];
+        content.extend_from_slice(b"\xff");
+        assert!(is_binary(&content));
+    }
+
+    #[test]
+    fn test_binary_detection_multibyte_char_across_8kb_boundary_is_text() {
+        let content = format!("{}あ", "a".repeat(8191));
+        assert!(!is_binary(content.as_bytes()));
     }
 
     #[test]

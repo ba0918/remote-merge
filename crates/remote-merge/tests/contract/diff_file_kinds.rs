@@ -70,7 +70,7 @@ fn req_cli_061_invalid_utf8_in_the_first_8192_bytes_makes_the_file_binary() {
     assert_reported_as_binary(b"\xff\xfeleft\n", b"\xff\xferight\n");
 }
 
-// 先頭の 8,192 バイトは ASCII だけにし、境界で多バイト文字が切れて不正な UTF-8 にならないようにする
+// 先頭の 8,192 バイトは ASCII だけにし、NUL がその後ろにだけあるようにする
 // @kotowari[REQ-cli-061]
 #[test]
 fn req_cli_061_a_nul_only_after_8192_bytes_leaves_the_file_as_text() {
@@ -92,6 +92,49 @@ fn req_cli_061_a_nul_only_after_8192_bytes_leaves_the_file_as_text() {
     );
     assert!(
         lines.contains(&("added".to_string(), "\0right-tail".to_string())),
+        "{lines:?}"
+    );
+}
+
+/// 先頭の 8,192 バイトをすべて ASCII にした中身の頭
+fn ascii_head_of_8192_bytes() -> Vec<u8> {
+    "a\n".repeat(4096).into_bytes()
+}
+
+// 先頭の 8,192 バイトは正しい UTF-8 で、その後ろの不正なバイトだけが左右で違う
+// @kotowari[EX-cli-079]
+#[test]
+fn ex_cli_079_invalid_utf8_only_after_8192_bytes_makes_the_file_binary() {
+    let mut left = ascii_head_of_8192_bytes();
+    left.extend_from_slice(b"tail \xff\n");
+    let mut right = ascii_head_of_8192_bytes();
+    right.extend_from_slice(b"tail \xfe\n");
+
+    assert_reported_as_binary(&left, &right);
+}
+
+// 3 バイトの文字 "あ" が先頭 8,192 バイトの境目をまたぐ
+// @kotowari[EX-cli-080]
+#[test]
+fn ex_cli_080_a_multibyte_character_cut_at_8192_bytes_leaves_the_file_as_text() {
+    let head = format!("{}あ\n", "a".repeat(8191));
+    let left = format!("{head}left\n");
+    let right = format!("{head}right\n");
+    let fixture = DiffFixture::new(&[("f", left.as_bytes())], &[("f", right.as_bytes())]);
+
+    let (output, _) = fixture.diff(&["f"]);
+    let json = json(&output);
+    let file = entry(&json, "f");
+
+    assert!(file.get("binary").is_none(), "{json}");
+    assert!(file.get("left_hash").is_none(), "{json}");
+    let lines = lines_of(file);
+    assert!(
+        lines.contains(&("removed".to_string(), "left".to_string())),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&("added".to_string(), "right".to_string())),
         "{lines:?}"
     );
 }

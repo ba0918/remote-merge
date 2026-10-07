@@ -189,6 +189,22 @@ fn hunks_on_a_destination_that_is_not_utf8_stops_without_writing() {
     assert_eq!(read_bytes(&fixture, "develop", PATH), destination);
 }
 
+// 先頭の 8,192 バイトは正しい UTF-8 で、その後ろにだけ不正なバイトがある読み込み元
+// @kotowari[REQ-merge-028]
+#[test]
+fn hunks_on_a_source_with_invalid_utf8_only_after_8192_bytes_stops_without_writing() {
+    let fixture = fixture();
+    let mut source = "a\n".repeat(4096).into_bytes();
+    source.extend_from_slice(b"tail \xff\n");
+    write_bytes(&fixture, "local", PATH, &source);
+    fixture.write("develop", PATH, "destination\n");
+
+    let error = fixture.merge_error(hunk_args(PATH, &[0]));
+
+    assert_eq!(error.to_string(), BINARY_ERROR);
+    assert_eq!(fixture.read("develop", PATH), "destination\n");
+}
+
 /// 参照先 staging に対して左右が同じ行を別々に変えた競合を作る
 fn three_way_conflict(fixture: &Fixture) {
     fixture.write("local", PATH, "left change\n");
