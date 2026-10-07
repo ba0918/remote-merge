@@ -7,7 +7,7 @@ include の値をローカル・SSH・エージェントのどの経路でも同
 一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
 この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
 
-Position: A1〜A11 を反映した。
+Position: A1〜A12 を反映した。
 
 ## Agreements
 
@@ -43,4 +43,7 @@ Position: A1〜A11 を反映した。
   - decided_by: 整合の段（consistency phase）
 - A11 先頭の "./" を取り除くと "/" だけになる include の値（".//" など）も、A10 の "/" と同じく [REQ-config-024](../../ir/config/filters.md#REQ-config-024) の絶対パスの値として書いたままの値で警告して無視し、[REQ-config-037](../../ir/config/include.md#REQ-config-037) の無効な値に数える。コードを IR にそろえ、IR は変えない。
   - why: REQ-config-024 は先頭の "./" を取り除いて使うとし、[REQ-config-035](../../ir/config/include.md#REQ-config-035) はその後に正規化するとするので、".//" は "./" を除いた "/" であり、A10 のとおり絶対パスである。A10 の変更の後も、`crates/remote-merge-core/src/filter.rs` の `normalize_include_paths` は末尾の "/" を除いて空になった値が絶対パスかを書いたままの値の先頭（"." で始まる）で見ていたので、".//" を空の値として警告なしに捨て、他に値がなければ `Listed([])`（include の制限がないもの、`crates/remote-merge-config/src/lib.rs` で空の include になる）として root_dir 全体を走査していた。単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include` に [".//"] が AllInvalid で警告 1 件になる組を足すと、直す前は `cargo nextest run --all-features -E 'test(/include_values_that_are_all_invalid/)'` が "left: Listed([]) right: AllInvalid" で失敗し、先頭の "./" を除いた後の値で判定するように直した後に通る。
+  - decided_by: 整合の段（consistency phase）
+- A12 [REQ-config-024](../../ir/config/filters.md#REQ-config-024) の空の値と警告して無視する値（絶対パス・".."・glob）の判定は、先頭の "./" だけを取り除いた値で行い、[REQ-config-035](../../ir/config/include.md#REQ-config-035) の正規化（"." の要素を除き、続いた "/" と末尾の "/" をまとめる）は判定を通った値にだけ行う。これを REQ-config-035 に書き、末尾の "/" を除くこともそこに書く。コードはこの順に組み直し、A10 と A11 の "/" で始まる値の特別扱いを除く。"./" だけの値は空の値として無視し、"." だけの値は root_dir 全体を指すまま変えない。
+  - why: A10 と A11 は、末尾の "/" を除いた後の値で判定していたために空の値に化けた値を、一つずつ特別扱いで戻していた。REQ-config-024 は先頭の "./" を取り除いた値を使うとだけ書き、末尾の "/" を除くことは IR のどこにも書かれていない実装の手順なので、判定はその前の値に当てるのが IR の読みである。ところが IR は判定と正規化の順を書いていなかったので、同じ取り違えが二度入った。順を書けば、"/"・"//"・".//" のような値が絶対パスであることは REQ-config-024 からそのまま決まる。`crates/remote-merge-core/src/filter.rs` の `normalize_include_paths` は、`strip_leading_dot_slash` の値で空かを見て `invalid_include_warning` で確かめ、通った値だけ `join_normal_elements` で正規化する（`Path::components` が末尾の "/" も除く）。値ごとの結果を出す一時的な単体テストで、"/"・"//"・"///"・"/./"・".//"・"././/"・".//."・".//etc"・"./../"・"./"・"././"・"."・"./." を、この範囲の前（3398b8f）、A10 の変更（ac0638c）、A11 の変更（6bd09f9）の三つの判定の下で測った。前は "/"・"//"・"///"・".//"・"././/" が警告なしの `Listed([])`（全体の走査）、A10 の変更の後も ".//"・"././/" が `Listed([])` で、A11 の変更の後はどれも期待どおり（先頭の "./" を除いて "/" で始まる 8 個と "./../" が警告 1 件の `AllInvalid`、"./"・"././" が警告なしの `Listed([])`、"."・"./." が `WholeRoot`）だった。この 13 個を単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include` と `include_values_drop_dot_elements_and_repeated_slashes` の表に入れ、この範囲の前の判定に戻すと前者が ["/"] の "left: Listed([]) right: AllInvalid" で失敗することを `cargo nextest run --all-features -p remote-merge-core -E 'test(/include_values_/)'` で確かめた。今のコードはどの値でも正しかったので、組み直しは見える動きを変えず、表は組み直しの前後とも通る。
   - decided_by: 整合の段（consistency phase）

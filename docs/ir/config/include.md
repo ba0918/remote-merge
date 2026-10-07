@@ -32,12 +32,13 @@ include の値がディレクトリでないものを指す symlink（ファイ�
 
 ### REQ-config-035: include の値を要素ごとに正規化する
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-05-quality-config.md#A9, docs/decision/records/2026-10-07-include-values-consistency.md#A1
+- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-05-quality-config.md#A9, docs/decision/records/2026-10-07-include-values-consistency.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A12
 - verification: unit
 
-include の値は、どの経路で使う前にも "." の要素を除き、続いた "/" を一つにまとめてから使う（"a/./b" と "a//b" は "a/b" として扱う）。
+include の値は、どの経路で使う前にも "." の要素を除き、続いた "/" を一つにまとめ、末尾の "/" を除いてから使う（"a/./b"、"a//b" と "a/b/" は "a/b" として扱う）。
 正規化で空になる値（"." だけの値）は root_dir 全体を指し、include の制限がないものとして扱い、REQ-config-037 の無効な値に数えない。
 この正規化は config/filters.md の REQ-config-024 で先頭の "./" を取り除いた後に行い、そこで空になる値（"./" だけの値）は REQ-config-024 の空の値として無視し、root_dir 全体を指すものとはしない。
+REQ-config-024 の空の値と警告して無視する値の判定は、この正規化の前の、先頭の "./" だけを取り除いた値で行い、この正規化は判定を通った値にだけ行う。"/" や ".//" のように、先頭の "./" を取り除いて "/" で始まる値は、REQ-config-024 の絶対パスの値であって空の値ではない。
 
 ### REQ-config-036: ディレクトリ symlink の include の値は設定の名前で載せる
 - kind: state_driven
