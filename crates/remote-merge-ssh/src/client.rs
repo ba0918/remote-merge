@@ -676,30 +676,6 @@ impl SshClient {
         Ok((tree, truncated))
     }
 
-    /// リモートファイルの内容を取得する（`exec_strict` 経由の `cat`）
-    ///
-    /// `exec_strict` を使ってチャネル管理を一元化しつつ、
-    /// 非ゼロ終了コードをエラーとして検知する。
-    pub async fn read_file(&mut self, remote_path: &str) -> crate::error::Result<String> {
-        let command = format!("cat {}", shell_escape(remote_path));
-        self.exec_strict(&command).await
-    }
-
-    /// 複数ファイルをテキストとしてバッチ読み込みする（チャンク分割対応）。
-    ///
-    /// `read_files_batch_bytes()` で読んでからファイルごとに文字列に直す。バイト数で区切る
-    /// 形式なので、UTF-8 として不正なバイトを置き換える前の出力を解析する必要がある。
-    pub async fn read_files_batch(
-        &mut self,
-        paths: &[String],
-    ) -> crate::error::Result<HashMap<String, String>> {
-        let contents = self.read_files_batch_bytes(paths).await?;
-        Ok(contents
-            .into_iter()
-            .map(|(path, bytes)| (path, bytes_to_string(bytes)))
-            .collect())
-    }
-
     /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。
     ///
     /// チャネル枯渇防止のため、N個のファイルを1チャネルで読む。パスを `chunk_paths()` で

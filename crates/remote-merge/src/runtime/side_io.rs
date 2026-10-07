@@ -133,32 +133,8 @@ impl CoreRuntime {
 
     // ── 読み込み ──
     //
-    // 製品の中身の読み込みはすべてこの四つの入口を通る。上限ありのときは経路に振り分ける前に
+    // 製品の中身の読み込みはすべてこの二つの入口を通る。上限ありのときは経路に振り分ける前に
     // 大きさだけを尋ね、上限を超えるパスを読まない（docs/ir/cli/size-limit.md の REQ-cli-079）。
-
-    /// Side に基づいてファイルを読み込む。上限を超えるファイルは読まずに `FileTooLarge` を返す
-    pub fn read_file(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        limit: SizeLimit,
-    ) -> anyhow::Result<String> {
-        self.refuse_over_limit(side, rel_path, limit)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.read_file(self, rel_path)
-    }
-
-    /// Side に基づいて複数ファイルをバッチ読み込みする。上限を超えるパスは結果に入れない
-    pub fn read_files_batch(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-        limit: SizeLimit,
-    ) -> anyhow::Result<HashMap<String, String>> {
-        let readable = self.paths_within_limit(side, rel_paths, limit)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.read_files_batch(self, &readable)
-    }
 
     // ── バイト列読み込み ──
 
@@ -578,35 +554,6 @@ impl CoreRuntime {
 // `&mut self` の借用の衝突を避けるため、agent_clients の操作は一時変数を介して行う。
 
 impl CoreRuntime {
-    /// Agent 経由で単一ファイルを読み込む
-    pub(crate) fn try_agent_read_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-    ) -> Option<anyhow::Result<String>> {
-        let rel = rel_path.to_string();
-        let agent_result = self.with_agent(server_name, "read_file", |agent| {
-            agent.read_files(&[rel], AGENT_CHUNK_SIZE_LIMIT)
-        });
-        // with_agent の結果 → FileReadResult の後処理（純粋関数）
-        flatten_agent_read_result(agent_result, extract_single_file_as_string)
-    }
-
-    /// Agent 経由で複数ファイルをバッチ読み込む
-    pub(crate) fn try_agent_read_files_batch(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-    ) -> Option<anyhow::Result<HashMap<String, String>>> {
-        let owned_rel_paths: Vec<String> = rel_paths.to_vec();
-        let agent_result = self.with_agent(server_name, "read_files_batch", |agent| {
-            agent.read_files(&owned_rel_paths, AGENT_CHUNK_SIZE_LIMIT)
-        });
-        flatten_agent_read_result(agent_result, |results| {
-            extract_batch_files_as_string(results, &owned_rel_paths)
-        })
-    }
-
     /// Agent 経由でバイト列を読み込む
     pub(crate) fn try_agent_read_file_bytes(
         &mut self,
@@ -1072,18 +1019,6 @@ fn reassemble_chunked_results(results: Vec<FileReadResult>) -> Option<Vec<(Strin
     Some(assembled)
 }
 
-/// 単一ファイルの `FileReadResult` を `String` に変換する。
-///
-/// `more_to_follow` チャンクを結合してから UTF-8 変換する。
-///
-/// - `FileReadResult::Ok` → `Some(Ok(String))` （UTF-8 変換エラーは `Some(Err)` で伝播）
-/// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
-fn extract_single_file_as_string(results: Vec<FileReadResult>) -> Option<anyhow::Result<String>> {
-    let assembled = reassemble_chunked_results(results)?;
-    let (_, content) = assembled.into_iter().next()?;
-    Some(String::from_utf8(content).map_err(Into::into))
-}
-
 /// 単一ファイルの `FileReadResult` をバイト列として取得する。
 ///
 /// `more_to_follow` チャンクを結合して返す。
@@ -1094,30 +1029,6 @@ fn extract_single_file_as_bytes(results: Vec<FileReadResult>) -> Option<anyhow::
     let assembled = reassemble_chunked_results(results)?;
     let (_, content) = assembled.into_iter().next()?;
     Some(Ok(content))
-}
-
-/// 複数ファイルの `FileReadResult` を `HashMap<String, String>` に変換する。
-///
-/// `more_to_follow` チャンクを結合してからファイル単位で UTF-8 変換する。
-///
-/// - 全ファイル成功 → `Some(Ok(HashMap))`
-/// - UTF-8 変換エラー → `Some(Err)`
-/// - `FileReadResult::Error` → `None`（SSH フォールバック）
-fn extract_batch_files_as_string(
-    results: Vec<FileReadResult>,
-    _rel_paths: &[String],
-) -> Option<anyhow::Result<HashMap<String, String>>> {
-    let assembled = reassemble_chunked_results(results)?;
-    let mut map = HashMap::with_capacity(assembled.len());
-    for (path, content) in assembled {
-        match String::from_utf8(content) {
-            Ok(s) => {
-                map.insert(path, s);
-            }
-            Err(e) => return Some(Err(e.into())),
-        }
-    }
-    Some(Ok(map))
 }
 
 /// 複数ファイルの `FileReadResult` をバイト列の `HashMap` に変換する。
@@ -1192,8 +1103,8 @@ mod tests {
         io.write_file(&mut runtime, "nested/file.txt", "content")
             .unwrap();
         assert_eq!(
-            io.read_file(&mut runtime, "nested/file.txt").unwrap(),
-            "content"
+            io.read_file_bytes(&mut runtime, "nested/file.txt").unwrap(),
+            b"content"
         );
         io.remove_file(&mut runtime, "nested/file.txt").unwrap();
         assert!(!tmp.path().join("nested/file.txt").exists());
@@ -1251,18 +1162,6 @@ mod tests {
         assert!(io.is_available(&runtime));
     }
 
-    #[test]
-    fn test_read_file_local() {
-        let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("test.txt"), "hello local").unwrap();
-
-        let mut rt = create_test_runtime(&tmp);
-        let content = rt
-            .read_file(&Side::Local, "test.txt", SizeLimit::Enforced)
-            .unwrap();
-        assert_eq!(content, "hello local");
-    }
-
     // ── 大きさの上限（ローカルの経路） ──
 
     /// root の下に大きさ `len` の疎なファイルを置いて読めなくし、読めなくなったか（root で動くと
@@ -1294,13 +1193,9 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
 
-        let bytes = rt.read_file_bytes(&Side::Local, "over", false).unwrap_err();
-        let text = rt
-            .read_file(&Side::Local, "over", SizeLimit::Enforced)
-            .unwrap_err();
+        let error = rt.read_file_bytes(&Side::Local, "over", false).unwrap_err();
 
-        assert!(bytes.is::<FileTooLarge>(), "{bytes:#}");
-        assert!(text.is::<FileTooLarge>(), "{text:#}");
+        assert!(error.is::<FileTooLarge>(), "{error:#}");
     }
 
     #[cfg(unix)]
@@ -1325,12 +1220,8 @@ mod tests {
         let bytes = rt
             .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
             .unwrap();
-        let text = rt
-            .read_files_batch(&Side::Local, &paths, SizeLimit::Enforced)
-            .unwrap();
 
         assert_eq!(bytes.keys().collect::<Vec<_>>(), vec!["small"]);
-        assert_eq!(text.keys().collect::<Vec<_>>(), vec!["small"]);
     }
 
     #[cfg(unix)]
@@ -1410,7 +1301,7 @@ mod tests {
         std::fs::write(tmp.path().join("safe.txt"), "ok").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
-        let result = rt.read_file(&Side::Local, "../../../etc/passwd", SizeLimit::Enforced);
+        let result = rt.read_file_bytes(&Side::Local, "../../../etc/passwd", false);
         assert!(result.is_err());
         // エラーチェーン全体（anyhow の chain）を検索
         let err = result.unwrap_err();
@@ -1448,11 +1339,8 @@ mod tests {
     #[test]
     fn test_read_file_remote_nonexistent_server() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.read_file(
-            &Side::Remote("nonexistent".to_string()),
-            "file.txt",
-            SizeLimit::Enforced,
-        );
+        let result =
+            rt.read_file_bytes(&Side::Remote("nonexistent".to_string()), "file.txt", false);
         assert!(result.is_err());
     }
 
@@ -1471,23 +1359,6 @@ mod tests {
         let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
         assert!(names.contains(&"child1.txt"));
         assert!(names.contains(&"child2.txt"));
-    }
-
-    #[test]
-    fn test_read_files_batch_local() {
-        let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
-        std::fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
-
-        let mut rt = create_test_runtime(&tmp);
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let batch = rt
-            .read_files_batch(&Side::Local, &paths, SizeLimit::Enforced)
-            .unwrap();
-
-        assert_eq!(batch.len(), 2);
-        assert_eq!(batch["a.txt"], "aaa");
-        assert_eq!(batch["b.txt"], "bbb");
     }
 
     #[test]
@@ -2393,48 +2264,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ── extract_single_file_as_string テスト ──
-
-    #[test]
-    fn test_extract_single_file_as_string_ok() {
-        let results = vec![FileReadResult::Ok {
-            path: "test.txt".to_string(),
-            content: b"hello world".to_vec(),
-            more_to_follow: false,
-        }];
-        let result = extract_single_file_as_string(results);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().unwrap(), "hello world");
-    }
-
-    #[test]
-    fn test_extract_single_file_as_string_error_returns_none() {
-        let results = vec![FileReadResult::Error {
-            path: "test.txt".to_string(),
-            message: "not found".to_string(),
-        }];
-        let result = extract_single_file_as_string(results);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_extract_single_file_as_string_empty_returns_none() {
-        let result = extract_single_file_as_string(vec![]);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_extract_single_file_as_string_invalid_utf8() {
-        let results = vec![FileReadResult::Ok {
-            path: "bad.txt".to_string(),
-            content: vec![0xFF, 0xFE, 0x00, 0x80],
-            more_to_follow: false,
-        }];
-        let result = extract_single_file_as_string(results);
-        assert!(result.is_some());
-        assert!(result.unwrap().is_err()); // UTF-8 変換エラー
-    }
-
     // ── extract_single_file_as_bytes テスト ──
 
     #[test]
@@ -2458,58 +2287,9 @@ mod tests {
         assert!(extract_single_file_as_bytes(results).is_none());
     }
 
-    // ── extract_batch_files_as_string テスト ──
-
     #[test]
-    fn test_extract_batch_files_as_string_all_ok() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"aaa".to_vec(),
-                more_to_follow: false,
-            },
-            FileReadResult::Ok {
-                path: "b.txt".to_string(),
-                content: b"bbb".to_vec(),
-                more_to_follow: false,
-            },
-        ];
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let result = extract_batch_files_as_string(results, &paths);
-        let map = result.unwrap().unwrap();
-        assert_eq!(map.len(), 2);
-        assert_eq!(map["a.txt"], "aaa");
-        assert_eq!(map["b.txt"], "bbb");
-    }
-
-    #[test]
-    fn test_extract_batch_files_as_string_with_error_returns_none() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"aaa".to_vec(),
-                more_to_follow: false,
-            },
-            FileReadResult::Error {
-                path: "b.txt".to_string(),
-                message: "not found".to_string(),
-            },
-        ];
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        assert!(extract_batch_files_as_string(results, &paths).is_none());
-    }
-
-    #[test]
-    fn test_extract_batch_files_as_string_utf8_error() {
-        let results = vec![FileReadResult::Ok {
-            path: "bad.txt".to_string(),
-            content: vec![0xFF, 0xFE],
-            more_to_follow: false,
-        }];
-        let paths = vec!["bad.txt".to_string()];
-        let result = extract_batch_files_as_string(results, &paths);
-        assert!(result.is_some());
-        assert!(result.unwrap().is_err());
+    fn test_extract_single_file_as_bytes_empty_returns_none() {
+        assert!(extract_single_file_as_bytes(vec![]).is_none());
     }
 
     // ── extract_batch_files_as_bytes テスト ──
@@ -2655,24 +2435,6 @@ mod tests {
     // ── extract with chunks テスト ──
 
     #[test]
-    fn test_extract_single_file_as_string_with_chunks() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "test.txt".to_string(),
-                content: b"hel".to_vec(),
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "test.txt".to_string(),
-                content: b"lo world".to_vec(),
-                more_to_follow: false,
-            },
-        ];
-        let result = extract_single_file_as_string(results);
-        assert_eq!(result.unwrap().unwrap(), "hello world");
-    }
-
-    #[test]
     fn test_extract_single_file_as_bytes_with_chunks() {
         let results = vec![
             FileReadResult::Ok {
@@ -2688,36 +2450,6 @@ mod tests {
         ];
         let result = extract_single_file_as_bytes(results);
         assert_eq!(result.unwrap().unwrap(), vec![0x01, 0x02, 0x03, 0x04]);
-    }
-
-    #[test]
-    fn test_extract_batch_files_as_string_with_chunks() {
-        let results = vec![
-            // a.txt: 2 chunks
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"hel".to_vec(),
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"lo".to_vec(),
-                more_to_follow: false,
-            },
-            // b.txt: 1 chunk
-            FileReadResult::Ok {
-                path: "b.txt".to_string(),
-                content: b"world".to_vec(),
-                more_to_follow: false,
-            },
-        ];
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let map = extract_batch_files_as_string(results, &paths)
-            .unwrap()
-            .unwrap();
-        assert_eq!(map.len(), 2);
-        assert_eq!(map["a.txt"], "hello");
-        assert_eq!(map["b.txt"], "world");
     }
 
     #[test]
@@ -2751,16 +2483,16 @@ mod tests {
 
     #[test]
     fn test_flatten_agent_read_result_none_passthrough() {
-        let result: Option<anyhow::Result<String>> =
-            flatten_agent_read_result(None, extract_single_file_as_string);
+        let result: Option<anyhow::Result<Vec<u8>>> =
+            flatten_agent_read_result(None, extract_single_file_as_bytes);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_flatten_agent_read_result_some_err_passthrough() {
         let err = Some(Err(anyhow::anyhow!("agent error")));
-        let result: Option<anyhow::Result<String>> =
-            flatten_agent_read_result(err, extract_single_file_as_string);
+        let result: Option<anyhow::Result<Vec<u8>>> =
+            flatten_agent_read_result(err, extract_single_file_as_bytes);
         assert!(result.is_some());
         assert!(result.unwrap().is_err());
     }
@@ -2772,9 +2504,9 @@ mod tests {
             content: b"content".to_vec(),
             more_to_follow: false,
         }]));
-        let result: Option<anyhow::Result<String>> =
-            flatten_agent_read_result(ok, extract_single_file_as_string);
-        assert_eq!(result.unwrap().unwrap(), "content");
+        let result: Option<anyhow::Result<Vec<u8>>> =
+            flatten_agent_read_result(ok, extract_single_file_as_bytes);
+        assert_eq!(result.unwrap().unwrap(), b"content");
     }
 
     // ── transform_stat_results テスト ──

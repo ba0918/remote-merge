@@ -228,18 +228,6 @@ pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<Resolve
     )?)
 }
 
-pub fn read_file(root: &Path, rel_path: &str) -> anyhow::Result<String> {
-    executor::read_local_file(root, rel_path)
-        .with_context(|| format!("read local file: {rel_path}"))
-}
-
-pub fn read_files_batch(root: &Path, paths: &[String]) -> anyhow::Result<HashMap<String, String>> {
-    paths
-        .iter()
-        .map(|path| Ok((path.clone(), executor::read_local_file(root, path)?)))
-        .collect()
-}
-
 pub fn read_file_bytes(root: &Path, path: &str) -> anyhow::Result<Vec<u8>> {
     executor::read_local_file_bytes(root, path)
 }

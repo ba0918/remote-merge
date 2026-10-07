@@ -1,7 +1,7 @@
 //! リモートファイルの読み書き操作（内部 API）。
 //!
 //! Side ベースの統一 API (`side_io.rs`) から Remote 分岐で呼ばれる。
-//! 外部からは `read_file(side, path)` 等の統一 API を使用すること。
+//! 外部からは `read_file_bytes(side, path, force)` 等の統一 API を使用すること。
 
 use std::collections::HashMap;
 
@@ -38,57 +38,6 @@ impl CoreRuntime {
             .rt
             .block_on(crate::ssh::exec_strict_bytes(client, &command))?;
         super::remote_path::parse_inspect_path_output(&output)
-    }
-
-    /// リモートファイル内容を取得する（接続エラー時に1回自動再接続）
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_file(side, path)` を使うこと。
-    pub(crate) fn read_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-    ) -> anyhow::Result<String> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
-
-        match self.read_file_inner(server_name, &full_path) {
-            Ok(content) => Ok(content),
-            Err(e) if crate::error::is_connection_error(&e) => {
-                tracing::info!(
-                    "Read failed (connection error), auto-reconnecting: {}",
-                    rel_path
-                );
-                self.try_reconnect(server_name)?;
-                self.read_file_inner(server_name, &full_path)
-                    .with_context(|| format!("read remote file: {rel_path}"))
-            }
-            Err(e) => Err(e).with_context(|| format!("read remote file: {rel_path}")),
-        }
-    }
-
-    /// 複数のリモートファイルをバッチ読み込みする（接続エラー時に1回自動再接続）
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `read_files_batch(side, paths)` を使うこと。
-    pub(crate) fn read_remote_files_batch(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        if rel_paths.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
-
-        match self.read_files_batch_inner(server_name, &full_paths) {
-            Ok(batch_result) => Ok(Self::map_to_rel_paths(rel_paths, &full_paths, batch_result)),
-            Err(e) if crate::error::is_connection_error(&e) => {
-                tracing::info!("Batch read failed (connection error), auto-reconnecting");
-                self.try_reconnect(server_name)?;
-                let batch_result = self.read_files_batch_inner(server_name, &full_paths)?;
-                Ok(Self::map_to_rel_paths(rel_paths, &full_paths, batch_result))
-            }
-            Err(e) => Err(e),
-        }
     }
 
     /// 複数のリモートファイルをバイト列としてバッチ読み込みする（接続エラー時に1回自動再接続）。
@@ -458,40 +407,6 @@ impl CoreRuntime {
             )?);
         }
         Ok(sizes)
-    }
-
-    fn read_file_inner(&mut self, server_name: &str, full_path: &str) -> anyhow::Result<String> {
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.read_file(full_path))
-    }
-
-    fn read_files_batch_inner(
-        &mut self,
-        server_name: &str,
-        full_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.read_files_batch(full_paths))
-    }
-
-    fn map_to_rel_paths(
-        rel_paths: &[String],
-        full_paths: &[String],
-        mut batch_result: HashMap<String, String>,
-    ) -> HashMap<String, String> {
-        let mut result = HashMap::with_capacity(batch_result.len());
-        for (i, rel_path) in rel_paths.iter().enumerate() {
-            if let Some(content) = batch_result.remove(&full_paths[i]) {
-                result.insert(rel_path.clone(), content);
-            }
-        }
-        result
     }
 
     fn read_files_batch_bytes_inner(

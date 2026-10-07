@@ -56,12 +56,6 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         rel_path: &str,
     ) -> anyhow::Result<ResolvedPath>;
-    fn read_file(&mut self, runtime: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String>;
-    fn read_files_batch(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>>;
     fn read_file_bytes(
         &mut self,
         runtime: &mut CoreRuntime,
@@ -168,18 +162,6 @@ impl TargetIo for LocalTargetIo {
         rel_path: &str,
     ) -> anyhow::Result<ResolvedPath> {
         remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
-    }
-
-    fn read_file(&mut self, _: &mut CoreRuntime, rel_path: &str) -> anyhow::Result<String> {
-        remote_merge_engine::local_io::read_file(&self.root, rel_path)
-    }
-
-    fn read_files_batch(
-        &mut self,
-        _: &mut CoreRuntime,
-        paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        remote_merge_engine::local_io::read_files_batch(&self.root, paths)
     }
 
     fn read_file_bytes(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
@@ -339,24 +321,6 @@ impl TargetIo for RemoteTargetIo {
         }
         rt.check_sudo_fallback(&self.name)?;
         rt.inspect_remote_path(&self.name, path)
-    }
-    fn read_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<String> {
-        if let Some(v) = rt.try_agent_read_file(&self.name, path) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.read_remote_file(&self.name, path)
-    }
-    fn read_files_batch(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-    ) -> anyhow::Result<HashMap<String, String>> {
-        if let Some(v) = rt.try_agent_read_files_batch(&self.name, paths) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.read_remote_files_batch(&self.name, paths)
     }
     fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
         if let Some(v) = rt.try_agent_read_file_bytes(&self.name, path) {
