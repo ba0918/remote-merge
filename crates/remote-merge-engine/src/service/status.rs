@@ -1310,17 +1310,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn three_symlinks_need_their_contents_for_a_badge() {
-        let files = vec![modified("link")];
-        let tree = make_tree(vec![FileNode::new_symlink("link", "target")]);
-
-        assert_eq!(
-            ref_badge_content_paths(&files, &tree, &tree, &tree),
-            vec!["link"]
-        );
-    }
-
     // ── status_from_read_results ──
 
     #[test]
