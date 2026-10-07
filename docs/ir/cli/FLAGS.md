@@ -75,9 +75,10 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 ### FLAG-cli-027: 参照先を使う merge での symlink
 - kind: ambiguity
 - related: REQ-cli-051, REQ-merge-003
-- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A9
+- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A9, docs/decision/records/2026-10-05-size-limit.md#A30, docs/decision/records/2026-10-05-size-limit.md#A32
 
 --ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。
+読み込み元と書き込み先と参照先の種類がそろわないときは TBL-cli-009 の種類の行と REQ-merge-001 で決まり、残るのは三つとも symlink のときの比べ方である。
 
 ### FLAG-cli-032: 0 始まりの行番号
 - kind: gap
