@@ -12,7 +12,7 @@ use remote_merge::service::status::{
 use remote_merge::service::types::FileStatusKind;
 use remote_merge::tree::{FileNode, FileTree};
 
-use super::status_support::{fixture, symlink, write_at};
+use super::status_support::{args, fixture, symlink, write_at};
 
 const T0: u64 = 1_700_000_000;
 
@@ -187,6 +187,50 @@ fn two_symlinks_are_compared_by_their_target_text_without_reading_the_content() 
             statuses["other_target"],
             FileStatusKind::Modified,
             "{statuses:?}"
+        );
+    }
+}
+
+// --checksum でも symlink の組はリンク先の文字列で比べ、辿った先を読まない。リンク先がない組も
+// 読めなかったファイルにしない
+// @kotowari[EX-cli-090]
+#[test]
+fn checksum_compares_two_symlinks_by_their_target_text_without_reading_the_content() {
+    let fixture = fixture();
+    let (local, develop) = (fixture.local.path(), fixture.develop.path());
+    write_at(local, "target.txt", b"left\n", T0);
+    write_at(develop, "target.txt", b"right\n", T0);
+    symlink(local, "same_target", "target.txt");
+    symlink(develop, "same_target", "target.txt");
+    symlink(local, "dangling", "missing.txt");
+    symlink(develop, "dangling", "missing.txt");
+
+    for (left, right) in BOTH_PATHS {
+        let mut args = args(Some(left), Some(right));
+        args.all = true;
+        args.checksum = true;
+        let output = fixture.run(args).unwrap().output;
+        let statuses: HashMap<String, FileStatusKind> = output
+            .files
+            .unwrap()
+            .into_iter()
+            .map(|file| (file.path, file.status))
+            .collect();
+
+        assert_eq!(
+            statuses.get("same_target"),
+            Some(&FileStatusKind::Equal),
+            "{left} {right}: {statuses:?}"
+        );
+        assert_eq!(
+            statuses.get("dangling"),
+            Some(&FileStatusKind::Equal),
+            "{left} {right}: {statuses:?}"
+        );
+        assert!(
+            output.errors.is_empty(),
+            "{left} {right}: {:?}",
+            output.errors
         );
     }
 }

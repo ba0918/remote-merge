@@ -200,7 +200,8 @@ pub fn needs_content_compare(
 ///
 /// 両側に存在するファイル（Modified または Equal）をすべて返す。
 /// メタデータで Equal と判定されたファイルも含めて再比較する。左右で種類（通常ファイルと
-/// ディレクトリなど）の違うパスは中身を読まずに Modified のままにする（REQ-cli-008）。
+/// ディレクトリなど）の違うパスは中身を読まずに Modified のままにし、symlink の組はリンク先の
+/// 文字列による判定のまま読まない（REQ-cli-008、REQ-cli-028）。
 pub fn needs_content_compare_all(
     files: &[FileStatus],
     left: &FileTree,
@@ -216,7 +217,8 @@ pub fn needs_content_compare_all(
                 left_index.find_node(&f.path),
                 right_index.find_node(&f.path),
             ) {
-                (Some(l), Some(r)) => kinds_agree([l, r]),
+                // symlink の組はリンク先の文字列で判定済みで、辿った先を読まない（REQ-cli-028）
+                (Some(l), Some(r)) => kinds_agree([l, r]) && !l.is_symlink(),
                 _ => true,
             }
         })
