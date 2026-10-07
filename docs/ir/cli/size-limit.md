@@ -6,11 +6,12 @@
 
 ### REQ-cli-079: すべての操作に一つの大きさの上限を読む前に当てる
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-05-quality-cli.md#A12
+- source: docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-05-quality-cli.md#A12, docs/decision/records/2026-10-05-size-limit.md#A7, docs/decision/records/2026-10-07-size-limit-consistency.md#A2
 - verification: unit
 
 diff・merge・sync・rollback は、ローカル・SSH・エージェントのどの経路でも、比較・書き込み・バックアップのためにファイルの中身を読む前にその大きさを調べ、104,857,600 バイトを超えるファイルは中身を読まずに、各コマンドの中身を読めなかったファイルの扱いに従う。
 --force を指定したコマンドは、そのコマンドが行うバックアップのための読み込みを含めて、この上限を当てずに読む。
+rollback がバックアップの保存先から写しを読むときは、この上限を当てない。rollback で上限を当てるのは、復元の前に書き込み先の今の中身をバックアップするための読み込みである。
 status はこの上限を当てず、REQ-cli-094 による。
 
 ## Examples
