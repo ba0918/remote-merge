@@ -71,7 +71,8 @@ fn checksum_reports_a_file_against_a_directory_as_modified_without_reading_it() 
 }
 
 // 左は通常ファイル、右は同じ名前のディレクトリで、大きさと更新時刻が同じ。--checksum のないときは
-// メタデータで、あるときは中身を読まずに判定する。右がサーバのときと local のときの両方で確かめる
+// メタデータで、あるときは中身を読まずに判定する。左右の向きを入れ替えて確かめる（サーバ名の側も
+// ローカルの一時ディレクトリで、経路はローカルだけ）
 // @kotowari[TBL-cli-001, REQ-cli-008]
 #[test]
 fn a_file_against_a_directory_of_equal_size_and_time_is_modified() {

@@ -178,9 +178,9 @@ pub fn needs_content_compare(
             let rn = right_index.find_node(&f.path);
             match (ln, rn) {
                 (Some(l), Some(r)) => {
-                    // 種類の違うパス（ファイルとディレクトリ）は中身を読み比べない。読めば
-                    // ディレクトリの読み込みが失敗する
-                    if l.is_symlink() || r.is_symlink() || l.is_dir() != r.is_dir() {
+                    // 種類の違うパスは中身を読み比べない（読めばディレクトリの読み込みが失敗する）。
+                    // 種類がそろえば片方が symlink なら両方 symlink で、リンク先で判定済み
+                    if !kinds_agree([l, r]) || l.is_symlink() {
                         return false;
                     }
                     // size が一致 → コンテンツ比較が必要
