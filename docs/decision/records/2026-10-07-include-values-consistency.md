@@ -1,0 +1,34 @@
+# include の値の扱いを経路によらずそろえる単位で IR を実装にそろえる
+
+## Context
+
+include の値をローカル・SSH・エージェントのどの経路でも同じに扱う単位（計画 include-values）の変更を、[config/include.md](../../ir/config/include.md) の IR と突き合わせた。
+値の正規化、走査の前の値ごとの確認、ファイルと symlink の値の載せ方は、IR が決めていることと食い違っていなかった。
+一方で、計画の判断点として利用者が 2026-10-07 に承認した扱いと、実装が新たに持つ動きのいくつかを、IR が書いていなかった。
+この記録は、それぞれを IR に書いたか、IR の外とした理由と、その根拠を残す。
+
+Position: A1〜A7 を反映した。
+
+## Agreements
+
+- A1 include の値は、[REQ-config-024](../../ir/config/filters.md#REQ-config-024) で先頭の "./" を取り除いた後に [REQ-config-035](../../ir/config/include.md#REQ-config-035) の正規化を行う。"./" だけの値は REQ-config-024 の空の値として無視し、"." だけの値と違って root_dir 全体を指すものとしない。これを REQ-config-035 に書く。
+  - why: REQ-config-035 だけを読むと "./" は "." の要素を除いて空になり root_dir 全体を指すが、REQ-config-024 だけを読むと空の値として無視され、二つの順が IR の中で決まっていなかった。違いは無効な値と一緒に書いたときに見える（"./" と "/etc" なら、前者の読みでは全体を走査し、後者の読みでは [REQ-config-037](../../ir/config/include.md#REQ-config-037) のエラーで止まる）。実装は REQ-config-024 を先に当てる（`crates/remote-merge-core/src/filter.rs` の `normalize_include_paths`）。計画の判断点で利用者は「"./" だけの値は今までどおり空の値として無視する」を承認している。単体テスト `include_values_that_are_all_invalid_are_told_apart_from_an_empty_include` に ["./", "/etc"] が AllInvalid になる組を足し、"./" を root_dir 全体として扱う一時的な変更の下で `cargo nextest run --all-features -E 'test(/include_values_that_are_all_invalid/)'` がその組で失敗し、戻すと通ることを確かめた。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A2 include の値が存在するかは、走査する側での値のパスの確認（[REQ-paths-001](../../ir/paths/resolution.md#REQ-paths-001)・[REQ-paths-002](../../ir/paths/resolution.md#REQ-paths-002)）の結果で決め、確認がエラーになった値（途中の祖先がディレクトリでない値を含む）は飛ばさずにそのエラーで止める。これを [REQ-config-032](../../ir/config/include.md#REQ-config-032) に書く。
+  - why: 実装は全体の走査の前に値ごとにパスの確認を呼び、エラーをそのまま返す（`crates/remote-merge/src/runtime/include_check.rs` の `include_to_scan`）。REQ-config-032 は存在しない値を飛ばすとだけ書き、確認のエラーの扱いを書いていなかった。計画の判断点で利用者は「祖先がディレクトリでない値と確認がエラーになった値は、status を含めてそのエラーで止める」を承認している。新しい契約テスト（`crates/remote-merge/tests/contract/config_include_skip_cli.rs` の `include_value_whose_ancestor_is_not_a_directory_on_the_ssh_side_stops_with_that_error`）で、右の SSH の側だけ "src" が通常ファイルのとき include の "src/sub" の status が終了コード 2 と "cannot resolve path: not a directory" で止まり、一覧を出さないことを確かめた。確認のエラーを飛ばす扱いに変えた一時的な変更の下では、同じテストが "src/sub/a.txt" の left_only を出して失敗した。sudo を使うサーバで古いエージェントのときに止まるのは、パスの確認についての [REQ-paths-010](../../ir/paths/routes.md#REQ-paths-010) がそのまま当たるので、IR に足さない。
+  - decided_by: 整合の段（consistency phase）
+- A3 走査する側で include の値がすべて飛ばされたときは、その側を走査せず空の一覧にし、全体に広げない。飛ばした値の配下は、その値がある側にだけある項目として出る。これを [REQ-config-032](../../ir/config/include.md#REQ-config-032) と [EX-config-010](../../ir/config/include.md#EX-config-010) に書く。
+  - why: 空の include は制限がないもの（[REQ-config-004](../../ir/config/filters.md#REQ-config-004)）と読めるので、値がすべて飛ばされた側が全体を走査するかを IR から決められなかった。実装は走査を呼ばずに空の一覧を返す（`crates/remote-merge/src/runtime/side_io.rs` の `fetch_tree_recursive`）。計画の S2 は、これを [2026-10-05-quality-config.md の A4](./2026-10-05-quality-config.md#A4) の全体に広げない趣旨から決め、判断点で利用者は片側にない値の配下を片側だけの項目として出すことを承認している。契約テスト `include_values_missing_on_the_local_or_agent_side_are_warned_the_same_way`（値がすべてない "nope" で一覧が空）と `include_value_missing_on_the_ssh_side_is_warned_and_the_rest_is_compared`（"docs/d.txt" が left_only）が通る。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A4 include の値がファイルへのリンクかリンク切れの symlink のときは、リンク先のファイルではなく symlink の項目 1 件を載せることを [REQ-config-034](../../ir/config/include.md#REQ-config-034) に書く。
+  - why: [REQ-scan-006](../../ir/scan/listing.md#REQ-scan-006) はどの走査も symlink 自体を項目として載せるとするが、include.md だけからは、ファイルを指す symlink の値が REQ-config-034 の「そのファイル 1 件」に当たるのかを読み分けられなかった。計画の判断点で利用者は symlink の項目 1 件として載せることを承認している。契約テスト `include_naming_symlinks_to_files_lists_each_symlink_itself_over_ssh` と `..._via_the_agent` で、リンク先の文字列だけが違い中身の同じファイルを指す "retarget" が modified、"link" と "dangling" が equal になる（ファイルとして載れば "retarget" は equal になる）。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A5 ディレクトリ symlink の include の値は、配下に加えてリンク自体も symlink の項目として載せ、同じディレクトリを指す別の名前の値を両方書いたときは、どちらの名前の下にも配下を載せる。これを [REQ-config-036](../../ir/config/include.md#REQ-config-036) に書く。
+  - why: REQ-config-036 はリンク自体が載るかと、二つの名前を書いたときの扱いを書いていなかった。リンク自体を載せるのは [REQ-scan-006](../../ir/scan/listing.md#REQ-scan-006) と、include のない全体の走査が同じリンクを載せる形に合う。契約テスト `include_naming_a_directory_link_lists_its_files_under_the_link_name_over_ssh` と `include_naming_a_directory_link_and_its_target_lists_both_names_via_the_agent` の期待に "current" を足し、ローカル・SSH・エージェントのどの経路の組でも "current" が equal で載ることを確かめた。ローカルの走査がリンク自体を載せない一時的な変更の下では、両方のテストが失敗した。二つの名前は、計画の判断点で利用者が承認した名前による重複の除き方（`crates/remote-merge-core/src/filter.rs` の `drop_nested_include_paths`）による。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A6 root_dir の外へ解決される値の警告（[REQ-config-033](../../ir/config/include.md#REQ-config-033)）と、値がすべて無効なときのエラー（[REQ-config-037](../../ir/config/include.md#REQ-config-037)）の文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しないことを、それぞれの要件に書く。
+  - why: 計画は二つの文言を実装者に任せ、テストは文言を固定していない（`config_include_skip_cli.rs` の `other_warnings_with`、`config_include_cli.rs` の EX-config-014 のテスト）。IR は文言を書かないまま置いていたので、決め忘れか任せたのかを読み分けられなかった。[REQ-scan-015](../../ir/scan/listing.md#REQ-scan-015) と同じく任せたことを書く。今の文言は "Include path resolves outside root_dir, skipping: 値" と "every include value is invalid; refusing to scan the whole root_dir" である。コードは変えない。
+  - decided_by: 整合の段（consistency phase）
+- A7 エージェントの走査の層で root_dir を実パスに直せないときに include の起点を一つも返さない扱い（`crates/remote-merge-agent/src/agent/tree_scan.rs` の `resolve_include_roots`）は IR に書かない。
+  - why: 変更の前は root_dir そのものを起点に返し、その読み込みに失敗して警告だけを出し空の一覧になっていた（変更の前の `advance_one` の `read_dir` の失敗の扱い）。変更の後も空の一覧になり、利用者から見える違いはない。なお、コードを読む限り（実行しては確かめていない）、エージェントの経路は走査の起点の空のパスを受け取り側で確かめておらず（`crates/remote-merge-agent/src/agent/dispatch.rs` の `resolve_scan_root` は空のパスを確かめずに返す）、リモートの root_dir がないときに [REQ-scan-015](../../ir/scan/listing.md#REQ-scan-015) のエラーで止まらず空の一覧を返す。これは include の有無によらない、この単位の前からの動きで、REQ-scan-015 はまだテストのない要件として残っているので、この単位では扱わない。
+  - decided_by: 整合の段（consistency phase）
