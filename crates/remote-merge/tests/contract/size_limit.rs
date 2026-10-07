@@ -340,6 +340,36 @@ async fn a_file_size_query_interrupted_twice_is_reported_without_a_third_attempt
 
 // ── REQ-cli-094: status は上限を当てない ──
 
+/// `path` の更新時刻を、テストの中で置いたファイルと必ず違う過去の時刻にする
+fn make_older(path: &Path) {
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
+        .unwrap();
+}
+
+fn status_over_ssh(env: &CliEnv) -> Output {
+    env.cmd_with("status")
+        .args([
+            "--left", "local", "--right", "develop", "--all", "--format", "json",
+        ])
+        .output()
+        .unwrap()
+}
+
+/// status の JSON の files にある `big.bin` の判定
+fn status_of_big_bin(json: &serde_json::Value) -> serde_json::Value {
+    json["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("files missing: {json}"))
+        .iter()
+        .find(|file| file["path"] == "big.bin")
+        .unwrap_or_else(|| panic!("big.bin missing: {json}"))["status"]
+        .clone()
+}
+
 // 中身が同じで更新時刻の違うファイルは、上限を当てると中身を比べられずメタデータのまま
 // "modified" に、当てなければ中身を比べて "equal" になる。100MB を超える中身を実際に読むので、
 // 一つずつ走らせる組に入れる
@@ -351,30 +381,36 @@ fn req_cli_094_status_compares_the_contents_of_files_over_the_limit() {
     let local = env.local_dir.join("big.bin");
     place_sparse(&local, LIMIT + 1, b's');
     place_sparse(&env.remote_dir.join("big.bin"), LIMIT + 1, b's');
-    fs::File::options()
-        .write(true)
-        .open(&local)
-        .unwrap()
-        .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000))
-        .unwrap();
+    make_older(&local);
 
-    let output = env
-        .cmd_with("status")
-        .args([
-            "--left", "local", "--right", "develop", "--all", "--format", "json",
-        ])
-        .output()
-        .unwrap();
+    let output = status_over_ssh(&env);
+
+    assert_eq!(status_of_big_bin(&json_of(&output)), "equal", "{output:?}");
+}
+
+// 上限を当てると、読めないファイルとして errors に出て判定されない。100MB を超える中身を
+// 実際に読むので、一つずつ走らせる組に入れる
+// @kotowari[EX-cli-093]
+#[test]
+fn ex_cli_093_status_reports_files_over_the_limit_with_different_contents_as_modified() {
+    let _serial = one_oversized_read_at_a_time();
+    let env = CliEnv::new(&[], &[]);
+    let local = env.local_dir.join("big.bin");
+    place_sparse(&local, LIMIT + 1, b'l');
+    place_sparse(&env.remote_dir.join("big.bin"), LIMIT + 1, b'r');
+    make_older(&local);
+
+    let output = status_over_ssh(&env);
 
     let json = json_of(&output);
-    let status = json["files"]
-        .as_array()
-        .unwrap_or_else(|| panic!("files missing: {json}"))
-        .iter()
-        .find(|file| file["path"] == "big.bin")
-        .unwrap_or_else(|| panic!("big.bin missing: {json}"))["status"]
-        .clone();
-    assert_eq!(status, "equal", "{output:?}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    // 誤りがなければ errors は出力されない
+    assert!(
+        json.get("errors")
+            .is_none_or(|errors| errors == &serde_json::json!([])),
+        "{json}"
+    );
+    assert_eq!(status_of_big_bin(&json), "modified", "{json}");
 }
 
 // ── EX-cli-082: --force で diff の上限を外す ──
