@@ -554,9 +554,11 @@ mod tests {
     // @kotowari[REQ-config-037]
     #[test]
     fn include_values_that_are_all_invalid_are_told_apart_from_an_empty_include() {
-        let cases: [(&[&str], IncludeValues, usize); 5] = [
+        let cases: [(&[&str], IncludeValues, usize); 6] = [
             (&["/etc"], IncludeValues::AllInvalid, 1),
             (&["", "/etc"], IncludeValues::AllInvalid, 1),
+            // "./" は先頭の "./" を除いた空の値として無視し、root_dir 全体を指すものとしない
+            (&["./", "/etc"], IncludeValues::AllInvalid, 1),
             (&["../a", "src/*.rs"], IncludeValues::AllInvalid, 2),
             (&["/etc", "src"], IncludeValues::Listed(owned(&["src"])), 1),
             (&["/etc", "."], IncludeValues::WholeRoot, 1),

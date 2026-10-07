@@ -129,11 +129,14 @@ fn include_naming_a_directory_link_lists_its_files_under_the_link_name_over_ssh(
     place_release_link(&dirs.local_dir.clone(), &dirs.remote_dir.clone());
     let output = status_over_ssh(&mut dirs, &["current"]);
     let listed = statuses_by_path(&output);
-    assert_eq!(
-        listed.get("current/x.txt").map(String::as_str),
-        Some("equal"),
-        "{output:?}"
-    );
+    // リンク自体も symlink の項目として両側に載る
+    for path in ["current", "current/x.txt"] {
+        assert_eq!(
+            listed.get(path).map(String::as_str),
+            Some("equal"),
+            "{path}: {output:?}"
+        );
+    }
     assert_no_one_sided(&listed);
 }
 
@@ -144,10 +147,10 @@ async fn include_naming_a_directory_link_and_its_target_lists_both_names_via_the
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_release_link(&local_root, &remote_root);
     for (include, expected) in [
-        (&["current"][..], &["current/x.txt"][..]),
+        (&["current"][..], &["current", "current/x.txt"][..]),
         (
             &["current", "releases/v2"][..],
-            &["current/x.txt", "releases/v2/x.txt"][..],
+            &["current", "current/x.txt", "releases/v2/x.txt"][..],
         ),
     ] {
         let output = fixture.status_via_agent_with_include(&local_root, &remote_root, include);

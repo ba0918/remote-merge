@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::Output;
 
 use super::common::{gen_config, place_files, strip_ansi, TestDirs};
-use super::config_filters_cli::{status, with_include};
+use super::config_filters_cli::{combined, status, with_include};
 use super::scan_listing_cli::{statuses_by_path, AgentFixture};
 
 /// include を `include` にした設定で、SSH の経路の `status --all --format json` を起動する
@@ -170,4 +170,27 @@ async fn include_values_resolving_outside_the_root_dir_are_warned_and_not_listed
         statuses(&[("src/a.txt", "equal")]),
         "{output:?}"
     );
+}
+
+// @kotowari[REQ-config-032]
+#[test]
+fn include_value_whose_ancestor_is_not_a_directory_on_the_ssh_side_stops_with_that_error() {
+    // 右の SSH の側では "src" が通常ファイルなので、"src/sub" の確認は祖先がディレクトリでないエラーになる
+    let mut dirs = TestDirs::new_2way(
+        &[("src/sub/a.txt", "local\n"), ("top.txt", "local\n")],
+        &[("src", "file\n"), ("top.txt", "remote\n")],
+    );
+    let output = status_over_ssh(&mut dirs, &["src/sub"]);
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    // --format json ではエラーは標準出力の JSON に出る
+    assert!(
+        combined(&output).contains("cannot resolve path: not a directory"),
+        "{output:?}"
+    );
+    // 値を飛ばして続けていれば、左の "src/sub/a.txt" が左だけの項目として出る
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("src/sub/a.txt"),
+        "{output:?}"
+    );
+    assert_eq!(missing_warnings(&output, "src/sub"), 0, "{output:?}");
 }
