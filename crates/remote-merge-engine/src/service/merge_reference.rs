@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::tree::{EntryKind, FileTree};
+use crate::tree::{kinds_agree, EntryKind, FileNode, FileTree};
 
 use super::content_reads::{is_absent, not_absent_in, ContentReads};
 use super::merge::{has_three_way_conflict, reference_check_failure};
@@ -146,12 +146,11 @@ pub fn side_state<'a>(path: &str, tree: &FileTree, reads: &'a ContentReads) -> S
 /// 三つのツリーのうち `path` のあるものの種類がそろい、ディレクトリでないか。そろわなければ
 /// 中身を読まずに扱いが決まり、ディレクトリは中身として読めない
 fn contents_can_decide(path: &str, trees: [&FileTree; 3]) -> bool {
-    let kinds: Vec<EntryKind> = trees
+    let nodes: Vec<&FileNode> = trees
         .iter()
         .filter_map(|tree| tree.find_node(Path::new(path)))
-        .map(|node| node.entry_kind())
         .collect();
-    !kinds.contains(&EntryKind::Directory) && kinds.windows(2).all(|pair| pair[0] == pair[1])
+    !nodes.iter().any(|node| node.is_dir()) && kinds_agree(nodes)
 }
 
 /// `tree` の側で中身を読むパス。`trees` は読み込み元・書き込み先・参照先のツリー。--force では
@@ -205,7 +204,6 @@ pub fn reference_refusal_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tree::FileNode;
     use SideContent::{Absent, Read, Unread};
 
     const BASE: &[u8] = b"base\n";

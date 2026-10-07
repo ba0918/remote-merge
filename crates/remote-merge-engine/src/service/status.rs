@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::three_way;
-use crate::tree::{FileNode, FileTree, NodeKind, NodePresence};
+use crate::tree::{kinds_agree, FileNode, FileTree, NodeKind, NodePresence};
 
 use super::content_reads::ContentReads;
 use super::types::*;
@@ -218,7 +218,7 @@ pub fn needs_content_compare_all(
                 left_index.find_node(&f.path),
                 right_index.find_node(&f.path),
             ) {
-                (Some(l), Some(r)) => l.entry_kind() == r.entry_kind(),
+                (Some(l), Some(r)) => kinds_agree([l, r]),
                 _ => true,
             }
         })
@@ -382,12 +382,7 @@ pub fn compute_ref_badges(
 /// そろうかどうか。どれかにないときは None
 fn three_kinds_agree(path: &str, trees: [&FileTree; 3]) -> Option<bool> {
     let [first, second, third] = trees.map(|tree| tree.find_node(Path::new(path)));
-    let kinds = [
-        first?.entry_kind(),
-        second?.entry_kind(),
-        third?.entry_kind(),
-    ];
-    Some(kinds[0] == kinds[1] && kinds[1] == kinds[2])
+    Some(kinds_agree([first?, second?, third?]))
 }
 
 /// `files` のうち、バッジを決めるのに中身が要る、左右と参照先の三つともに同じ種類であるパス

@@ -6,7 +6,7 @@
 use super::types::*;
 use crate::side::is_remote_to_remote;
 use crate::side::Side;
-use crate::tree::{FileTree, NodeKind};
+use crate::tree::{kinds_agree, FileTree, NodeKind};
 
 /// マージ対象ファイルの前処理結果
 #[derive(Debug, Clone)]
@@ -125,13 +125,7 @@ pub fn determine_merge_action(
     let source_node = source_tree.find_node(path);
     let target_node = target_tree.find_node(path);
     if let (Some(source), Some(target)) = (source_node, target_node) {
-        let different_kind = !matches!(
-            (&source.kind, &target.kind),
-            (NodeKind::File, NodeKind::File)
-                | (NodeKind::Directory, NodeKind::Directory)
-                | (NodeKind::Symlink { .. }, NodeKind::Symlink { .. })
-        );
-        if different_kind {
+        if !kinds_agree([source, target]) {
             return MergeAction::SkipDifferentKind;
         }
     }

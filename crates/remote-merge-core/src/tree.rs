@@ -45,7 +45,7 @@ pub fn compare_metadata(left: &FileNode, right: &FileNode) -> MetadataCmp {
         };
     }
     // 種類（通常ファイル・ディレクトリ・末尾の symlink）が違う → 大きさと更新時刻によらず Modified
-    if left.entry_kind() != right.entry_kind() {
+    if !kinds_agree([left, right]) {
         return MetadataCmp::Modified;
     }
 
@@ -76,6 +76,18 @@ pub enum EntryKind {
     File,
     Directory,
     Symlink,
+}
+
+/// 与えたノードの種類（通常ファイル・ディレクトリ・末尾の symlink。REQ-merge-001）がすべてそろうか
+/// （純粋関数）。リンク先は比べない。ノードが一つもないか一つだけなら、そろうとする。
+///
+/// 「種類がそろうか」の定義はここだけに置き、status・merge・参照先の判定はこれを使う
+pub fn kinds_agree<'a>(nodes: impl IntoIterator<Item = &'a FileNode>) -> bool {
+    let mut kinds = nodes.into_iter().map(FileNode::entry_kind);
+    match kinds.next() {
+        Some(first) => kinds.all(|kind| kind == first),
+        None => true,
+    }
 }
 
 /// ファイルツリーの1ノード
@@ -499,6 +511,21 @@ mod tests {
             FileNode::new_symlink("a", "x").entry_kind(),
             EntryKind::Symlink
         );
+    }
+
+    #[test]
+    fn kinds_agree_when_every_given_node_has_the_same_kind() {
+        let file = FileNode::new_file("a");
+        let dir = FileNode::new_dir("a");
+        let link_x = FileNode::new_symlink("a", "x");
+        let link_y = FileNode::new_symlink("a", "y");
+
+        assert!(kinds_agree([&file, &FileNode::new_file("b")]));
+        assert!(kinds_agree([&link_x, &link_y, &link_x]));
+        assert!(!kinds_agree([&file, &dir]));
+        assert!(!kinds_agree([&file, &file, &link_x]));
+        assert!(kinds_agree([&dir]));
+        assert!(kinds_agree(std::iter::empty::<&FileNode>()));
     }
 
     #[test]
