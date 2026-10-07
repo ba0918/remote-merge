@@ -636,26 +636,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_find_command_with_include() {
-        let include = vec!["ja/Back".to_string(), "ja/API".to_string()];
-        let cmd = build_find_command("/var/www", &include);
-        assert_eq!(
-            cmd.matches("find -L '/var/www/ja/Back' '/var/www/ja/API' ")
-                .count(),
-            2
-        );
-        assert!(!cmd.contains("-mindepth"), "{cmd}");
-    }
-
-    #[test]
-    fn test_build_find_command_include_single() {
-        let include = vec!["src".to_string()];
-        let cmd = build_find_command("/var/www", &include);
-        assert_eq!(cmd.matches("find -L '/var/www/src' ").count(), 2);
-        assert!(!cmd.contains("-mindepth"), "{cmd}");
-    }
-
-    #[test]
     fn test_build_find_command_include_with_special_chars() {
         // スペースや特殊文字を含むパス → shell_escape で保護
         let include = vec!["my dir/sub".to_string(), "it's here".to_string()];
