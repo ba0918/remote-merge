@@ -91,19 +91,17 @@ pub enum IncludeValues {
 ///
 /// 戻り値: `(整えた結果, 警告メッセージ一覧)`
 ///
-/// 正規化処理:
-/// - 末尾スラッシュ除去
-/// - 先頭 `./` 除去（その後に空になる値は空の値として無視する）
-/// - 空文字列除去
-/// - "." の要素の除去と、続いた "/" のまとめ（"a/./b" と "a//b" は "a/b"）
-/// - 正規化で空になる値（"." だけの値）は root_dir 全体を指し、include の制限がない
-/// - 重複排除
-/// - プレフィックス包含除去（`["ja", "ja/Back"]` → `["ja"]`）
+/// 値ごとに次の順で扱う:
+/// 1. 先頭の `./` を繰り返し除く。その値が空なら空の値として無視する（"./" だけの値を含む）
+/// 2. 1 の値を確かめ、次の値を拒否する（警告に追加）
+///    - 絶対パス（"/"・".//" のように "/" で始まる値を含む）
+///    - パストラバーサル（`..` を含むパス）
+///    - glob 文字（`*`, `?`, `[`）
+/// 3. 拒否しなかった値だけ、"." の要素を除き、続いた "/" と末尾の "/" をまとめる
+///    （"a/./b/" と "a//b" は "a/b"）。それで空になる値（"." だけの値）は root_dir 全体を指し、
+///    include の制限がない
 ///
-/// 拒否（警告に追加）:
-/// - パストラバーサル（`..` を含むパス）
-/// - 絶対パス（"/" だけの値を含む）
-/// - glob 文字（`*`, `?`, `[`）
+/// その後、重複とプレフィックス包含（`["ja", "ja/Back"]` → `["ja"]`）を除く。
 ///
 /// 空でない値を一つ以上書き、そのすべてを拒否したときは [`IncludeValues::AllInvalid`] を返す。
 pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>) {
@@ -112,32 +110,17 @@ pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>)
     let mut whole_root = false;
 
     for raw in paths {
-        // 先頭 `./` 正規化 + 末尾 `/` 正規化。空になった値は空の値として無視する
-        let mut s = raw.as_str();
-        while let Some(rest) = s.strip_prefix("./") {
-            s = rest;
+        let value = strip_leading_dot_slash(raw);
+        if value.is_empty() {
+            continue;
         }
-        let s = match s.trim_end_matches('/') {
-            // 先頭の "./" を除いて "/" だけになる値は、空の値ではなく root そのものを指す絶対パスとして扱う
-            "" if s.starts_with('/') => "/",
-            "" => continue,
-            trimmed => trimmed,
-        };
-
-        if let Some(warning) = invalid_include_warning(raw, s) {
+        // 末尾の "/" を除く前の値で確かめる。除いた後で確かめると "/" や ".//" が空の値に化ける
+        if let Some(warning) = invalid_include_warning(raw, value) {
             warnings.push(warning);
             continue;
         }
 
-        // "." の要素を除き、続いた "/" を一つにまとめる
-        let joined = Path::new(s)
-            .components()
-            .filter_map(|c| match c {
-                Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("/");
+        let joined = join_normal_elements(value);
         if joined.is_empty() {
             whole_root = true;
             continue;
@@ -159,10 +142,31 @@ pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>)
     )
 }
 
-/// REQ-config-024 の無効な値なら、その警告を返す。`raw` は書いたままの値、`trimmed` は先頭の
-/// "./" と末尾の "/" を除いた値
-fn invalid_include_warning(raw: &str, trimmed: &str) -> Option<String> {
-    let path = Path::new(trimmed);
+/// 先頭の "./" を繰り返し除いた値を返す
+fn strip_leading_dot_slash(raw: &str) -> &str {
+    let mut value = raw;
+    while let Some(rest) = value.strip_prefix("./") {
+        value = rest;
+    }
+    value
+}
+
+/// "." の要素を除き、続いた "/" と末尾の "/" をまとめた値を返す。確かめた後の相対パスに使う
+fn join_normal_elements(value: &str) -> String {
+    Path::new(value)
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// REQ-config-024 の無効な値なら、その警告を返す。`raw` は書いたままの値、`value` は先頭の
+/// "./" だけを除いた値
+fn invalid_include_warning(raw: &str, value: &str) -> Option<String> {
+    let path = Path::new(value);
     if path.is_absolute() {
         return Some(format!(
             "Absolute path is not allowed in include filter: {}",
@@ -175,7 +179,7 @@ fn invalid_include_warning(raw: &str, trimmed: &str) -> Option<String> {
             raw
         ));
     }
-    if trimmed.contains('*') || trimmed.contains('?') || trimmed.contains('[') {
+    if value.contains('*') || value.contains('?') || value.contains('[') {
         return Some(format!(
             "Glob patterns are not supported in include filter: {}",
             raw
