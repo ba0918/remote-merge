@@ -12,7 +12,7 @@ use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
     SingleMergeResult,
 };
-use crate::service::merge_reference::{paths_to_read, reference_refusal_for, ThreeWaySides};
+use crate::service::merge_reference_reads::{paths_to_read, reference_refusal_for, ThreeWaySides};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,

@@ -5,6 +5,7 @@ pub mod max_files;
 pub mod merge;
 pub mod merge_flow;
 pub mod merge_reference;
+pub mod merge_reference_reads;
 pub mod path_resolver;
 pub mod rollback;
 pub mod status;
