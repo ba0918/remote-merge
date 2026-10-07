@@ -487,8 +487,15 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
+        let include = match self.include_to_scan(side)? {
+            super::include_check::IncludeToScan::Values(include) => include,
+            super::include_check::IncludeToScan::Nothing => {
+                let io = super::target_io::for_side(side, self);
+                return Ok(FileTree::new(&io.root_dir(self)?));
+            }
+        };
         let mut io = super::target_io::for_side(side, self);
-        io.fetch_tree_recursive(self, max_entries, fail_on_truncation)
+        io.fetch_tree_recursive(self, &include, max_entries, fail_on_truncation)
     }
 
     /// 指定サブパス配下のみツリーを取得する。
@@ -788,6 +795,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_fetch_tree_recursive(
         &mut self,
         server_name: &str,
+        include: &[String],
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> Option<anyhow::Result<FileTree>> {
@@ -797,9 +805,8 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
-        let include = self.config.filter.include.clone();
         self.with_agent(server_name, "list_tree", |agent| {
-            agent.list_tree("", &exclude, &include, max_entries)
+            agent.list_tree("", &exclude, include, max_entries)
         })
         .map(|r| {
             r.and_then(|(entries, truncated)| {

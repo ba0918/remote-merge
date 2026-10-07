@@ -340,11 +340,21 @@ impl AgentFixture {
         remote_root: &Path,
         include: &[&str],
     ) -> BTreeMap<String, String> {
+        statuses_by_path(&self.status_via_agent_with_include(local_root, remote_root, include))
+    }
+
+    /// 設定に `[filter]` の include を足して status を起動し、出力を返す
+    pub(super) fn status_via_agent_with_include(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        include: &[&str],
+    ) -> Output {
         let config = format!(
             "{}\n[filter]\ninclude = {include:?}\n",
             self.config(local_root, remote_root)
         );
-        statuses_by_path(&self.status_via_agent_with_config(config, &[]))
+        self.status_via_agent_with_config(config, &[])
     }
 
     fn status_via_agent_with_config(&self, config: String, extra_args: &[&str]) -> Output {

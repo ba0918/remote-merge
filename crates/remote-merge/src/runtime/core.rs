@@ -844,6 +844,7 @@ impl CoreRuntime {
     pub fn fetch_remote_tree_recursive(
         &mut self,
         server_name: &str,
+        include: &[String],
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
@@ -855,7 +856,6 @@ impl CoreRuntime {
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let root_path = server_config.root_dir.clone();
         let exclude = self.config.filter.exclude.clone();
-        let include = self.config.filter.include.clone();
 
         let client = self
             .ssh_clients
@@ -865,7 +865,7 @@ impl CoreRuntime {
         let (nodes, truncated) = self.rt.block_on(client.list_tree_recursive(
             &root_dir,
             &exclude,
-            &include,
+            include,
             max_entries,
             120,
         ))?;
@@ -1343,7 +1343,7 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_server_config() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.fetch_remote_tree_recursive("nonexistent", 10000, false);
+        let result = rt.fetch_remote_tree_recursive("nonexistent", &[], 10000, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -1351,7 +1351,7 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_ssh_connection() {
         let mut rt = runtime_with_server("develop", "/var/www");
-        let result = rt.fetch_remote_tree_recursive("develop", 10000, false);
+        let result = rt.fetch_remote_tree_recursive("develop", &[], 10000, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not connected"));
     }

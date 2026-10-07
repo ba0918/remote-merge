@@ -2,6 +2,7 @@
 
 mod backup_store;
 pub mod core;
+pub(crate) mod include_check;
 #[cfg(feature = "test-utils")]
 pub mod path_route;
 #[cfg(not(feature = "test-utils"))]

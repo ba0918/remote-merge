@@ -103,9 +103,13 @@ pub(crate) trait TargetIo {
         target: &str,
     ) -> anyhow::Result<()>;
     fn fetch_tree(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<FileTree>;
+    /// 走査する root_dir（設定に書いたもの）
+    fn root_dir(&self, runtime: &CoreRuntime) -> anyhow::Result<PathBuf>;
+    /// 全体の走査。`include` は確かめて残った値で、空なら include の制限がない
     fn fetch_tree_recursive(
         &mut self,
         runtime: &mut CoreRuntime,
+        include: &[String],
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree>;
@@ -227,16 +231,21 @@ impl TargetIo for LocalTargetIo {
         remote_merge_engine::local_io::fetch_tree(&self.root, &self.exclude)
     }
 
+    fn root_dir(&self, _: &CoreRuntime) -> anyhow::Result<PathBuf> {
+        Ok(self.root.clone())
+    }
+
     fn fetch_tree_recursive(
         &mut self,
         _: &mut CoreRuntime,
+        include: &[String],
         max: usize,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
         remote_merge_engine::local_io::fetch_tree_recursive(
             &self.root,
             &self.exclude,
-            &self.include,
+            include,
             max,
             fail,
         )
@@ -403,17 +412,25 @@ impl TargetIo for RemoteTargetIo {
     fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
         rt.fetch_remote_tree(&self.name)
     }
+    fn root_dir(&self, rt: &CoreRuntime) -> anyhow::Result<PathBuf> {
+        rt.config
+            .servers
+            .get(&self.name)
+            .map(|server| server.root_dir.clone())
+            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", self.name))
+    }
     fn fetch_tree_recursive(
         &mut self,
         rt: &mut CoreRuntime,
+        include: &[String],
         max: usize,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        if let Some(v) = rt.try_agent_fetch_tree_recursive(&self.name, max, fail) {
+        if let Some(v) = rt.try_agent_fetch_tree_recursive(&self.name, include, max, fail) {
             return v;
         }
         rt.check_sudo_fallback(&self.name)?;
-        rt.fetch_remote_tree_recursive(&self.name, max, fail)
+        rt.fetch_remote_tree_recursive(&self.name, include, max, fail)
     }
     fn fetch_tree_for_subpath(
         &mut self,

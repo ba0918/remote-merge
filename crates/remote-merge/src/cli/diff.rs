@@ -5,6 +5,7 @@ use crate::cli::ref_guard;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
+use crate::runtime::include_check::resolved_path_outside_root;
 use crate::runtime::size_limit::{FileTooLarge, SizeLimit};
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
@@ -908,16 +909,6 @@ fn real_root_dir(
         Side::Remote(name) => &config.servers[name].root_dir,
     };
     Ok(inspected_real_path(core.inspect_path(side, "")?).unwrap_or_else(|| configured.clone()))
-}
-
-/// `root` は実パスに直した root_dir。
-fn resolved_path_outside_root(path: &TargetPath, root: &Path) -> bool {
-    match path {
-        TargetPath::File { real_path } | TargetPath::Symlink { real_path, .. } => {
-            !real_path.starts_with(root)
-        }
-        TargetPath::Missing { real_parent } => !real_parent.starts_with(root),
-    }
 }
 
 fn path_escapes_root(
