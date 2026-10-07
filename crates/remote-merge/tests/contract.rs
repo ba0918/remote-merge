@@ -56,6 +56,9 @@ mod diff_output_cli;
 #[path = "contract/diff_ref_cli.rs"]
 mod diff_ref_cli;
 #[cfg(feature = "test-utils")]
+#[path = "contract/diff_ref_kinds.rs"]
+mod diff_ref_kinds;
+#[cfg(feature = "test-utils")]
 #[path = "contract/diff_ref_scope_cli.rs"]
 mod diff_ref_scope_cli;
 #[cfg(feature = "test-utils")]

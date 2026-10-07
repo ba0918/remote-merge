@@ -614,8 +614,10 @@ pub fn execute_diff(
             let left_content = String::from_utf8_lossy(&left_bytes).into_owned();
             let right_content = String::from_utf8_lossy(&right_bytes).into_owned();
 
-            // 参照先にないときは "ref" だけを出し、ほかの理由で読めないときは errors にも載せる
+            // 参照先にないときと種類の違うときは "ref" だけを出し、ほかの理由で読めないときは
+            // errors にも載せる
             let ref_content = match &ref_side {
+                Some(ref_s) if reference_kind_differs(&mut core, ref_s, path) => None,
                 Some(ref_s) => match read_compared_side(&mut core, ref_s, path, limit) {
                     Ok(content) => {
                         content.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
@@ -962,6 +964,18 @@ fn read_compared_side(
             Ok(TargetPath::Missing { .. }) => Ok(None),
             _ => Err(reason),
         },
+    }
+}
+
+/// 参照先の同じパスが、テキストとして比べる通常ファイルと種類の違うもの（末尾の symlink か
+/// ディレクトリ）か。種類の違う参照先は読み込みの失敗とせず、中身を読まない（REQ-cli-090）。
+/// 種類を確かめられないときは読みに進め、その読み込みの失敗を出す
+fn reference_kind_differs(core: &mut CoreRuntime, ref_side: &Side, path: &str) -> bool {
+    match core.inspect_path(ref_side, path) {
+        Ok(TargetPath::Symlink { .. }) => true,
+        // 子の一覧が取れるのはディレクトリだけ
+        Ok(TargetPath::File { .. }) => core.fetch_children(ref_side, path).is_ok(),
+        Ok(TargetPath::Missing { .. }) | Err(_) => false,
     }
 }
 
