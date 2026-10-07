@@ -102,7 +102,7 @@ pub enum IncludeValues {
 ///
 /// 拒否（警告に追加）:
 /// - パストラバーサル（`..` を含むパス）
-/// - 絶対パス
+/// - 絶対パス（"/" だけの値を含む）
 /// - glob 文字（`*`, `?`, `[`）
 ///
 /// 空でない値を一つ以上書き、そのすべてを拒否したときは [`IncludeValues::AllInvalid`] を返す。
@@ -117,10 +117,12 @@ pub fn normalize_include_paths(paths: &[String]) -> (IncludeValues, Vec<String>)
         while let Some(rest) = s.strip_prefix("./") {
             s = rest;
         }
-        let s = s.trim_end_matches('/');
-        if s.is_empty() {
-            continue;
-        }
+        let s = match s.trim_end_matches('/') {
+            // "/" だけの値は空の値ではなく root そのものを指す絶対パスとして扱う
+            "" if raw.starts_with('/') => "/",
+            "" => continue,
+            trimmed => trimmed,
+        };
 
         if let Some(warning) = invalid_include_warning(raw, s) {
             warnings.push(warning);
@@ -554,8 +556,11 @@ mod tests {
     // @kotowari[REQ-config-037]
     #[test]
     fn include_values_that_are_all_invalid_are_told_apart_from_an_empty_include() {
-        let cases: [(&[&str], IncludeValues, usize); 6] = [
+        let cases: [(&[&str], IncludeValues, usize); 8] = [
             (&["/etc"], IncludeValues::AllInvalid, 1),
+            // root そのものを指す絶対パスも、末尾の "/" を除いて空の値とせず絶対パスとして扱う
+            (&["/"], IncludeValues::AllInvalid, 1),
+            (&["//"], IncludeValues::AllInvalid, 1),
             (&["", "/etc"], IncludeValues::AllInvalid, 1),
             // "./" は先頭の "./" を除いた空の値として無視し、root_dir 全体を指すものとしない
             (&["./", "/etc"], IncludeValues::AllInvalid, 1),

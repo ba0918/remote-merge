@@ -32,11 +32,16 @@ fn include_with_only_absolute_values_warns_and_stops_without_scanning() {
         &[("src/a.txt", "local\n"), ("top.txt", "local\n")],
         &[("src/a.txt", "remote\n"), ("top.txt", "remote\n")],
     );
-    for include_line in ["include = [\"/etc\"]", "include = [\"\", \"/etc\"]"] {
+    for (include_line, absolute) in [
+        ("include = [\"/etc\"]", "/etc"),
+        ("include = [\"\", \"/etc\"]", "/etc"),
+        ("include = [\"/\"]", "/"),
+    ] {
         let output = status_with_include(&mut dirs, include_line);
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let warning = format!("Absolute path is not allowed in include filter: {absolute}\n");
         assert!(
-            combined(&output).contains("Absolute path is not allowed in include filter: /etc"),
+            combined(&output).contains(&warning),
             "{include_line}: {output:?}"
         );
         assert_ne!(output.status.code(), Some(0), "{include_line}: {output:?}");
