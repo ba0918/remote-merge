@@ -521,8 +521,16 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
     let output = fixture.run(&["merge", "a.txt"]);
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
+    // 終わりの Shutdown は、コマンドが終わった後に偽サーバに届くことがあるので比べない
+    let requests: Vec<String> = fixture
+        .server
+        .faults()
+        .agent_requests()
+        .into_iter()
+        .filter(|request| request != "Shutdown")
+        .collect();
     assert_eq!(
-        fixture.server.faults().agent_requests(),
+        requests,
         [
             "ListTree",
             "StatFiles",
@@ -535,7 +543,6 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
             "StatFiles",
             "ReadFiles",
             "WriteFile",
-            "Shutdown",
         ]
     );
 }
