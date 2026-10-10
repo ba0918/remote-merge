@@ -15,6 +15,7 @@ use super::ssh_interrupted_changes::backup_sessions;
 const NOT_WRITTEN: &str = "not written";
 const UNKNOWN: &str = "result unknown";
 const UNTOUCHED: &str = "not attempted";
+const READ_FAILED: &str = "read failed";
 
 /// "a.txt" と "b.txt" を merge で書き換えておき、バックアップを無効にした設定にする
 async fn merged_without_backup(setup: Setup, faults: Faults) -> AgentFixture {
@@ -195,4 +196,65 @@ async fn only_a_rollback_without_backup_asks_the_agent_for_hashes_once_before_re
             "WriteFile",
         ]
     );
+}
+
+/// 書き戻す先にない "b.txt" はまとめてハッシュを取る対象に入らない。まとめのハッシュが
+/// やり直しても `接続断` なら、まとめに入っていた "a.txt" は理由付きの読み込みの失敗、"b.txt" は
+/// 手を付けていない失敗で、どちらも書き戻さない
+fn assert_batch_read_failed_and_rest_untouched(fixture: &AgentFixture, result: &Value) {
+    let failed = result["failed"].as_array().expect("failed");
+    assert_eq!(failed.len(), 2, "{result}");
+    let error = |path: &str| {
+        failed
+            .iter()
+            .find(|entry| entry["path"] == path)
+            .unwrap_or_else(|| panic!("{path} is not in failed: {result}"))["error"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let batch = error("a.txt");
+    assert!(
+        batch.contains(READ_FAILED) && !batch.contains(UNTOUCHED),
+        "{result}"
+    );
+    assert!(error("b.txt").contains(UNTOUCHED), "{result}");
+    assert_eq!(fixture.read_remote("a.txt"), "merged a\n");
+    assert!(!fixture.remote().join("b.txt").exists());
+}
+
+// @kotowari[REQ-ssh-003]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_hash_batch_lost_again_after_reconnecting_fails_its_files_as_reads_and_leaves_the_rest_untouched(
+) {
+    let fixture = merged_without_backup(without_agent(), Faults::default()).await;
+    std::fs::remove_file(fixture.remote().join("b.txt")).unwrap();
+    fixture.server.faults().arm_ssh_cut(SshCut {
+        command: SshCommand::Hash,
+        repeat: Repeat::Every,
+    });
+
+    let result = rollback(&fixture);
+
+    assert_batch_read_failed_and_rest_untouched(&fixture, &result);
+    assert_eq!(fixture.server.faults().ssh_cuts(), 2);
+}
+
+// @kotowari[REQ-ssh-023]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_hash_batch_lost_again_after_restarting_fails_its_files_as_reads_and_leaves_the_rest_untouched(
+) {
+    let fixture = merged_without_backup(Setup::default(), Faults::default()).await;
+    std::fs::remove_file(fixture.remote().join("b.txt")).unwrap();
+    fixture.server.faults().arm_agent_cut(AgentCut {
+        request: Some("HashFiles"),
+        occurrence: 1,
+        point: CutPoint::BeforeResponse,
+        scope: CutScope::Agent,
+        repeat: Repeat::Every,
+    });
+
+    let result = rollback(&fixture);
+
+    assert_batch_read_failed_and_rest_untouched(&fixture, &result);
 }

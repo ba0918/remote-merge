@@ -296,7 +296,12 @@ impl CoreRuntime {
                     // `接続断` は確かめの拒否にせず、そのファイルを理由付きの失敗に、残りを
                     // 手を付けていない失敗にして止める
                     Err(error) if classify(&error).is_disconnection() => {
-                        return Ok(self.stopped_restore(side, files, path, &error));
+                        return Ok(self.stopped_restore(
+                            side,
+                            files,
+                            std::slice::from_ref(path),
+                            &error,
+                        ));
                     }
                     Err(error) => remote_merge_engine::service::rollback::restore_request_refusal(
                         files,
@@ -315,11 +320,19 @@ impl CoreRuntime {
             None
         };
         // バックアップが無効なら、書き戻しの最中の `接続断` の確かめに使う書き戻す前の状態を、
-        // 書き戻す前にまとめて取る（保存しない）。取れなければ何も書き戻さずに止める
+        // 書き戻す前にまとめて取る（保存しない）。取れなければ何も書き戻さずに止める。`接続断` なら、
+        // まとめに入っていたファイルを理由付きの読み込みの失敗に、残りを手を付けていない失敗にする
         let mut states_before =
             if !self.config.backup.enabled && !dry_run && !present_files.is_empty() {
                 let mut io = super::target_io::for_side(side, self);
-                io.states_before_restore(self, &present_files)?
+                match io.states_before_restore(self, &present_files) {
+                    Ok(states) => states,
+                    Err(error) if classify(&error).is_disconnection() => {
+                        let error = label_read(error);
+                        return Ok(self.stopped_restore(side, files, &present_files, &error));
+                    }
+                    Err(error) => return Err(error),
+                }
             } else {
                 HashMap::new()
             };
@@ -483,14 +496,14 @@ impl CoreRuntime {
         }
     }
 
-    /// 書き戻す前の確かめが `接続断` で止まったときの結果。確かめたファイルは理由付きの失敗、
-    /// 残りは手を付けていない失敗
+    /// 書き戻す前の読み取りが `接続断` で止まったときの結果。読み取りに入っていたファイル
+    /// （`failed_paths`）は理由付きの失敗、残りは手を付けていない失敗
     #[allow(clippy::type_complexity)]
     fn stopped_restore(
         &self,
         side: &Side,
         files: &[String],
-        failed_path: &str,
+        failed_paths: &[String],
         error: &anyhow::Error,
     ) -> (
         Vec<crate::service::types::RollbackFileResult>,
@@ -505,7 +518,7 @@ impl CoreRuntime {
             .iter()
             .map(|path| crate::service::types::RollbackFailure {
                 path: path.clone(),
-                error: if path == failed_path {
+                error: if failed_paths.contains(path) {
                     error.to_string()
                 } else {
                     untouched.clone()

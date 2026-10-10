@@ -6,11 +6,11 @@ SSH やエージェントとの接続断が操作の途中で起きたときに�
 
 ### REQ-ssh-003: 読み取りだけ一度再試行する
 - kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A35, docs/decision/records/2026-10-11-agent-operations.md#A37
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A35, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2
 - verification: unit
 
 SSH の読み取りだけのリモート操作（ファイルの読み込み、ツリーの走査、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で `接続断` が起きたとき、再接続してその操作を一度だけ試し、再び失敗したら、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。
-merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理で止めたときは、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出し、1 ファイルずつ読み直さない。
+merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理（バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理を含む）で止めたときは、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出し、1 ファイルずつ読み直さない。
 
 ### REQ-ssh-004: 結果不明の変更を自動反復しない
 - kind: prohibition
@@ -40,11 +40,11 @@ error の文言は IR で決めず、実装者が英語で書く。テストは�
 
 ### REQ-ssh-023: エージェントの読み取りも同じ経路で一度だけやり直す
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A33, docs/decision/records/2026-10-11-agent-operations.md#A37
+- source: docs/decision/records/2026-10-11-agent-operations.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A33, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2
 - verification: unit
 
 どのコマンドでも、エージェントで行う読み取りだけのリモート操作（REQ-ssh-003 と同じ範囲）の途中で `接続断` が起きたとき、エージェントを起動し直してその操作を一度だけ試し、再び失敗したら（起動し直せないときを含む）、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。SSH の経路には切り替えない。
-merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理で止めたときは、REQ-ssh-003 と同じく、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出す。
+merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理（バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理を含む）で止めたときは、REQ-ssh-003 と同じく、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出す。
 
 ## Examples
 
