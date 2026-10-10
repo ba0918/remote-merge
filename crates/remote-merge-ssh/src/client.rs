@@ -606,6 +606,34 @@ impl SshClient {
         Ok(nodes)
     }
 
+    /// `remote_path` の直下の子を一覧し、ディレクトリでないことと一覧を取れなかったことを
+    /// 区別して返す。`rel` は root_dir からのパスで、exclude の当て方と文言に使う
+    pub async fn list_children(
+        &mut self,
+        remote_path: &str,
+        exclude: &[String],
+        rel: &str,
+    ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
+        let command = super::child_listing::list_children_command(remote_path);
+        let output = tokio::time::timeout(
+            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
+            self.run_command(&command),
+        )
+        .await
+        .map_err(|_| AppError::SshTimeout {
+            host: self.server_name.clone(),
+            timeout_sec: Self::DIR_TIMEOUT_SECS,
+        })??;
+        super::child_listing::parse_children_output(
+            &output.stdout,
+            &output.stderr,
+            output.exit_code,
+            rel,
+            exclude,
+            Self::MAX_DIR_ENTRIES,
+        )
+    }
+
     /// リモートディレクトリを再帰的に全走査する（変更ファイルフィルター用）
     pub async fn list_tree_recursive(
         &mut self,

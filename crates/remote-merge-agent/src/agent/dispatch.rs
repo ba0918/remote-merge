@@ -79,6 +79,22 @@ impl Dispatcher {
             AgentRequest::Symlink { path, target } => {
                 Some(vec![self.handle_symlink(&path, &target)])
             }
+            AgentRequest::Remove { path } => Some(vec![operation_result(
+                remote_merge_core::operations::remove(&self.root_dir, &path),
+            )]),
+            AgentRequest::Chmod { path, mode } => Some(vec![operation_result(
+                remote_merge_core::operations::chmod(&self.root_dir, &path, mode),
+            )]),
+            AgentRequest::ListDir {
+                path,
+                exclude,
+                max_entries,
+            } => Some(vec![super::listing::list_dir(
+                &self.root_dir,
+                &path,
+                &exclude,
+                max_entries,
+            )]),
         }
     }
 
@@ -352,6 +368,13 @@ impl Dispatcher {
 
 /// root パラメータを解決する。空文字列なら root_dir をそのまま使用。
 /// パストラバーサルを検出した場合はエラーを返す。
+/// Remove・Chmod の結果を応答にする。失敗の文言は操作・パス・原因を含む
+fn operation_result(result: anyhow::Result<()>) -> AgentResponse {
+    AgentResponse::OperationResult {
+        error: result.err().map(|error| error.to_string()),
+    }
+}
+
 fn resolve_scan_root(root_dir: &Path, root: &str) -> Result<PathBuf, String> {
     if root.is_empty() || root == "." {
         return Ok(root_dir.to_path_buf());

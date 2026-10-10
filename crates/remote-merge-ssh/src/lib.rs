@@ -1,4 +1,5 @@
 pub mod batch_read;
+pub mod child_listing;
 pub mod client;
 pub mod hint;
 pub mod host_key_verifier;

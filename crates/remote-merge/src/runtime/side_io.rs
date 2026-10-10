@@ -514,6 +514,16 @@ impl CoreRuntime {
         io.fetch_children(self, dir_rel_path)
     }
 
+    /// Side に基づいてディレクトリの子を一覧し、三つの結果を区別して返す
+    pub fn list_children(
+        &mut self,
+        side: &Side,
+        dir_rel_path: &str,
+    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+        let mut io = super::target_io::for_side(side, self);
+        io.list_children(self, dir_rel_path)
+    }
+
     // ── 接続 ──
 
     /// リモートの場合のみ接続する（ローカルは何もしない）
@@ -1444,13 +1454,9 @@ mod tests {
 
         let result = rt.remove_file(&Side::Local, "../outside.txt");
         assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(
-            err.contains("Path escapes root_dir")
-                || err.contains("Path traversal")
-                || err.contains("path not found"),
-            "Unexpected error: {}",
-            err
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "path traversal not allowed: ../outside.txt"
         );
     }
 

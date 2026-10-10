@@ -108,6 +108,9 @@ mod merge_write;
 #[cfg(feature = "test-utils")]
 #[path = "contract/path_arguments_cli.rs"]
 mod path_arguments_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/path_operations_agree.rs"]
+mod path_operations_agree;
 #[path = "contract/path_resolution.rs"]
 mod path_resolution;
 #[cfg(feature = "test-utils")]

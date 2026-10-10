@@ -10,7 +10,18 @@ use super::core::CoreRuntime;
 use super::side_io::hash_results_to_map;
 use super::size_limit::FileSize;
 
+use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+
+/// 一覧した子に include を当てる
+fn included_children(listing: ChildListing, path: &str, include: &[String]) -> ChildListing {
+    match listing {
+        ChildListing::Children(nodes) => ChildListing::Children(
+            crate::filter::filter_children_by_include(nodes, path.trim_end_matches('/'), include),
+        ),
+        other => other,
+    }
+}
 
 /// rollback 以外が使うパスの確認の結果。途中の祖先がディレクトリでないことはエラーにしてあるので、
 /// 使う側はこの三つだけを見る
@@ -125,6 +136,12 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         dir_rel_path: &str,
     ) -> anyhow::Result<Vec<FileNode>>;
+    /// 子の一覧。ディレクトリでないことと一覧を取れなかったことを区別する。include を当てた後の子
+    fn list_children(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        dir_rel_path: &str,
+    ) -> anyhow::Result<ChildListing>;
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
     fn is_available(&self, runtime: &CoreRuntime) -> bool;
@@ -274,6 +291,11 @@ impl TargetIo for LocalTargetIo {
             &self.include,
             path,
         )
+    }
+    fn list_children(&mut self, _: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
+        let listing =
+            remote_merge_engine::local_io::list_children(&self.root, &self.exclude, path)?;
+        Ok(included_children(listing, path, &self.include))
     }
     fn connect(&mut self, _: &mut CoreRuntime) -> anyhow::Result<()> {
         Ok(())
@@ -452,6 +474,10 @@ impl TargetIo for RemoteTargetIo {
             path,
             &rt.config.filter.include,
         ))
+    }
+    fn list_children(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
+        let listing = rt.list_remote_children(&self.name, path)?;
+        Ok(included_children(listing, path, &rt.config.filter.include))
     }
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {
         rt.connect(&self.name)

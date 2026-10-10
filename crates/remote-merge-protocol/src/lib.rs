@@ -8,7 +8,8 @@ macro_rules! define_protocol_version {
         /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
         /// v3 → v4: PathInspection の Symlink に real_path フィールド追加
         /// v4 → v5: PathInspection を "/" から要素ごとに辿る確認の結果の種類に変更
-        /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした
+        /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした。
+        ///          Remove・Chmod・ListDir を追加
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -66,6 +67,21 @@ pub enum AgentRequest {
         path: String,
         target: String,
     },
+    /// root_dir からの `path` を消す。末尾の symlink ならリンクだけを消す
+    Remove {
+        path: String,
+    },
+    /// root_dir からの `path` の権限を `mode` にする
+    Chmod {
+        path: String,
+        mode: u32,
+    },
+    /// root_dir からの `path` の直下の子を一覧する。`exclude` は子の root_dir からのパスに当てる
+    ListDir {
+        path: String,
+        exclude: Vec<String>,
+        max_entries: usize,
+    },
     Shutdown,
     Ping,
 }
@@ -102,6 +118,13 @@ pub enum AgentResponse {
     SymlinkResult {
         success: bool,
         error: Option<String>,
+    },
+    /// Remove・Chmod の結果。失敗なら文言（操作・パス・原因を含む）
+    OperationResult {
+        error: Option<String>,
+    },
+    DirListing {
+        result: AgentDirListing,
     },
     Pong,
     Error {
@@ -192,6 +215,17 @@ pub enum AgentPathInspection {
     Error {
         message: String,
     },
+}
+
+/// ListDir の応答。一覧を止めるエラー（リンク先か更新時刻を読めない）は `AgentResponse::Error` で返す
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum AgentDirListing {
+    /// 直下の子。`path` は子の名前
+    Children { entries: Vec<AgentFileEntry> },
+    /// 通常ファイル、ディレクトリでないものへの symlink、リンク切れ、ないパス
+    NotDirectory,
+    /// ディレクトリかもしれないのに中身が分からない
+    Unlistable { reason: String },
 }
 
 // ---------------------------------------------------------------------------

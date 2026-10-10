@@ -434,6 +434,21 @@ pub fn convert_agent_entries_to_nodes(entries: &[AgentFileEntry]) -> Vec<crate::
         .collect()
 }
 
+/// エージェントの子の一覧の応答を、三つの経路に共通の一覧の結果に読む
+pub fn child_listing_from_agent(
+    listing: crate::agent::protocol::AgentDirListing,
+) -> remote_merge_core::listing::ChildListing {
+    use crate::agent::protocol::AgentDirListing;
+    use remote_merge_core::listing::ChildListing;
+    match listing {
+        AgentDirListing::Children { entries } => {
+            ChildListing::Children(convert_agent_entries_to_nodes(&entries))
+        }
+        AgentDirListing::NotDirectory => ChildListing::NotDirectory,
+        AgentDirListing::Unlistable { reason } => ChildListing::Unlistable(reason),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

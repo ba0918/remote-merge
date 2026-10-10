@@ -127,6 +127,7 @@ impl TestServer {
                 target: Some(home.join("remote/example.txt")),
                 sandbox_home: Some(home.to_path_buf()),
                 agent_available,
+                relay_stderr: true,
                 ..Options::default()
             },
             faults,
@@ -213,6 +214,7 @@ impl TestServer {
                 target,
                 sandbox_home,
                 agent_available,
+                relay_stderr: false,
             },
             Faults::default(),
         )
@@ -228,6 +230,7 @@ impl TestServer {
             target,
             sandbox_home,
             agent_available,
+            relay_stderr,
         } = options;
         let faults = FaultState::new(faults);
         let faults_on_server = Arc::clone(&faults);
@@ -274,6 +277,7 @@ impl TestServer {
                 target,
                 sandbox_home,
                 agent_available,
+                relay_stderr,
                 login_limit: limit_on_login,
                 accepted_logins: Arc::new(AtomicUsize::new(0)),
                 login_shell: shell_on_exec,
@@ -306,6 +310,8 @@ struct Options {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
+    /// home の下で実行したコマンドの標準エラーをクライアントに返す
+    relay_stderr: bool,
 }
 
 impl Drop for TestServer {
@@ -326,6 +332,7 @@ struct LocalServer {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
+    relay_stderr: bool,
     login_limit: Arc<AtomicUsize>,
     accepted_logins: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
@@ -348,6 +355,7 @@ impl server::Server for LocalServer {
             target: self.target.clone(),
             sandbox_home: self.sandbox_home.clone(),
             agent_available: self.agent_available,
+            relay_stderr: self.relay_stderr,
             login_limit: Arc::clone(&self.login_limit),
             accepted_logins: Arc::clone(&self.accepted_logins),
             login_shell: Arc::clone(&self.login_shell),
@@ -370,6 +378,7 @@ struct LocalHandler {
     target: Option<PathBuf>,
     sandbox_home: Option<PathBuf>,
     agent_available: bool,
+    relay_stderr: bool,
     login_limit: Arc<AtomicUsize>,
     accepted_logins: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
@@ -554,6 +563,9 @@ impl server::Handler for LocalHandler {
             let result = self.shell_command(&received, home).output()?;
             if !result.stdout.is_empty() {
                 session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+            }
+            if self.relay_stderr && !result.stderr.is_empty() {
+                session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
             }
             session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
             session.eof(channel)?;

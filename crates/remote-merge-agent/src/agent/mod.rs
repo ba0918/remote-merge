@@ -4,6 +4,8 @@ pub mod deploy;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod file_io;
+#[cfg(unix)]
+mod listing;
 pub use remote_merge_protocol as protocol;
 pub use remote_merge_protocol::framing;
 #[cfg(unix)]

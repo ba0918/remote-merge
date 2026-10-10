@@ -219,14 +219,22 @@ impl CoreRuntime {
         rel_path: &str,
         mode: u32,
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let rel = remote_merge_core::rel_path::operation_rel_path(rel_path)?;
+        remote_merge_core::operations::check_mode(rel, mode)?;
+        let full_path = self.resolve_remote_path(server_name, rel)?;
 
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
-        self.rt.block_on(client.chmod_file(&full_path, mode))
+        self.rt
+            .block_on(client.chmod_file(&full_path, mode))
+            .map_err(|error| {
+                let message =
+                    format!("failed to change permissions of {rel:?} to {mode:o}: {error}");
+                error.context(message)
+            })
     }
 
     /// リモートファイルの mtime をバッチ取得する。
@@ -297,13 +305,19 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let rel = remote_merge_core::rel_path::operation_rel_path(rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel)?;
         let cmd = crate::ssh::tree_parser::build_remove_command(&full_path);
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(crate::ssh::exec_strict(client, &cmd))?;
+        self.rt
+            .block_on(crate::ssh::exec_strict(client, &cmd))
+            .map_err(|error| {
+                let message = format!("failed to remove {rel:?}: {error}");
+                error.context(message)
+            })?;
         Ok(())
     }
 
@@ -351,6 +365,25 @@ impl CoreRuntime {
             dir_rel_path,
         ))?;
         Ok(nodes)
+    }
+
+    /// リモートディレクトリの子を SSH で一覧し、三つの結果を区別して返す
+    pub(crate) fn list_remote_children(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+        let rel = remote_merge_core::rel_path::operation_rel_path(rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel)?;
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        self.rt.block_on(client.list_children(
+            full_path.trim_end_matches('/'),
+            &self.config.filter.exclude,
+            rel,
+        ))
     }
 
     // ── private helpers ──

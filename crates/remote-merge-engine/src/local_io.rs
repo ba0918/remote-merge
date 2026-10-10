@@ -276,12 +276,14 @@ pub fn stat_files(
     stat_local_files(root, paths)
 }
 
+/// root_dir からの `path` の権限を変える（docs/ir/paths/operations.md。エージェントと同じ手順）
 pub fn chmod_file(root: &Path, path: &str, mode: u32) -> anyhow::Result<()> {
-    chmod_local_file(&validated_path(root, path)?, mode)
+    remote_merge_core::operations::chmod(root, path, mode)
 }
 
+/// root_dir からの `path` を消す（docs/ir/paths/operations.md。エージェントと同じ手順）
 pub fn remove_file(root: &Path, path: &str) -> anyhow::Result<()> {
-    remove_local_file(&validated_path(root, path)?)
+    remote_merge_core::operations::remove(root, path)
 }
 
 pub fn create_symlink(root: &Path, path: &str, target: &str) -> anyhow::Result<()> {
@@ -349,6 +351,16 @@ pub fn fetch_children(
     Ok(crate::filter::filter_children_by_include(
         nodes, path, include,
     ))
+}
+
+/// root_dir からの `path` の直下の子を、三つの結果を区別して返す（docs/ir/paths/operations.md。
+/// エージェントと同じ手順）
+pub fn list_children(
+    root: &Path,
+    exclude: &[String],
+    path: &str,
+) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+    remote_merge_core::listing::list_children(root, path, exclude, local::MAX_DIR_ENTRIES)
 }
 
 pub fn hashes(root: &Path, paths: &[String]) -> Option<HashMap<String, String>> {

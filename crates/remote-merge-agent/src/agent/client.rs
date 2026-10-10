@@ -9,8 +9,8 @@ use anyhow::{bail, Result};
 
 use super::framing;
 use super::protocol::{
-    self, AgentFileEntry, AgentFileStat, AgentPathInspection, AgentRequest, AgentResponse,
-    FileHashResult, FileReadResult,
+    self, AgentDirListing, AgentFileEntry, AgentFileStat, AgentPathInspection, AgentRequest,
+    AgentResponse, FileHashResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -237,6 +237,41 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         }
     }
 
+    /// root_dir からの `path` を消す。失敗の応答は文言の Err にする
+    pub fn remove(&mut self, path: &str) -> Result<()> {
+        let response = self.request(&AgentRequest::Remove {
+            path: path.to_string(),
+        })?;
+        check_operation_result(response, "Remove")
+    }
+
+    /// root_dir からの `path` の権限を `mode` にする。失敗の応答は文言の Err にする
+    pub fn chmod(&mut self, path: &str, mode: u32) -> Result<()> {
+        let response = self.request(&AgentRequest::Chmod {
+            path: path.to_string(),
+            mode,
+        })?;
+        check_operation_result(response, "Chmod")
+    }
+
+    /// root_dir からの `path` の直下の子を一覧する
+    pub fn list_dir(
+        &mut self,
+        path: &str,
+        exclude: &[String],
+        max_entries: usize,
+    ) -> Result<AgentDirListing> {
+        let response = self.request(&AgentRequest::ListDir {
+            path: path.to_string(),
+            exclude: exclude.to_vec(),
+            max_entries,
+        })?;
+        match response {
+            AgentResponse::DirListing { result } => Ok(result),
+            other => bail!("unexpected response to ListDir: {other:?}"),
+        }
+    }
+
     /// Ping → Pong 確認。
     pub fn ping(&mut self) -> Result<()> {
         let resp = self.request(&AgentRequest::Ping)?;
@@ -278,6 +313,15 @@ fn read_handshake_line(reader: &mut impl Read) -> Result<String> {
         }
     }
     Ok(String::from_utf8(buf)?)
+}
+
+/// Remove・Chmod の応答を検証する。
+fn check_operation_result(resp: AgentResponse, request: &str) -> Result<()> {
+    match resp {
+        AgentResponse::OperationResult { error: None } => Ok(()),
+        AgentResponse::OperationResult { error: Some(error) } => bail!(error),
+        other => bail!("unexpected response to {request}: {other:?}"),
+    }
 }
 
 /// WriteResult レスポンスを検証する。

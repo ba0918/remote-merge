@@ -160,6 +160,16 @@ fn summarize_request(request: &AgentRequest) -> String {
         AgentRequest::Symlink { path, target } => {
             format!("Symlink path={path:?} target={target:?}")
         }
+        AgentRequest::Remove { path } => format!("Remove path={path:?}"),
+        AgentRequest::Chmod { path, mode } => format!("Chmod path={path:?} mode={mode:o}"),
+        AgentRequest::ListDir {
+            path,
+            exclude,
+            max_entries,
+        } => format!(
+            "ListDir path={path:?} exclude_count={} max_entries={max_entries}",
+            exclude.len()
+        ),
         AgentRequest::Shutdown => "Shutdown".to_string(),
         AgentRequest::Ping => "Ping".to_string(),
     }
