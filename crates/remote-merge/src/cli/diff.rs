@@ -1,6 +1,7 @@
 //! diff サブコマンドの実装。
 
 use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
+use crate::cli::diff_listing::{self, ReferenceKind};
 use crate::cli::ref_guard;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
@@ -34,6 +35,7 @@ use crate::service::types::{
 use crate::service::{resolve_scan_strategy, ScanStrategy};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::listing::ChildListing;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -231,8 +233,21 @@ pub fn execute_diff(
         let right_symlink_target =
             link_target_unless_absent(&mut core, &pair.right, &right_tree, path, right_absent)?;
         if left_symlink_target.is_none() && right_symlink_target.is_none() {
-            let left_children = listed_children(&mut core, &pair.left, path, left_absent);
-            let right_children = listed_children(&mut core, &pair.right, path, right_absent);
+            let left_listing = listed_children(&mut core, &pair.left, path, left_absent)?;
+            let right_listing = listed_children(&mut core, &pair.right, path, right_absent)?;
+            // 一覧を取れなかったものは、ファイルとしてもない側としても比べない
+            if let Some(reason) =
+                unlistable_reason((&pair.left, &left_listing), (&pair.right, &right_listing))
+            {
+                errors.push(DiffError {
+                    path: path.clone(),
+                    reason,
+                });
+                has_read_error = true;
+                continue;
+            }
+            let left_children = diff_listing::children(left_listing);
+            let right_children = diff_listing::children(right_listing);
             if are_empty_directories(&left_children, &right_children) {
                 scanned_files = scanned_files.saturating_sub(1);
                 continue;
@@ -351,14 +366,10 @@ pub fn execute_diff(
             } else {
                 read_existing_diff_file(&mut core, &pair.right, path, limit)
             };
-            let left_children = left_content
-                .as_ref()
-                .err()
-                .and_then(|_| core.fetch_children(&pair.left, path).ok());
-            let right_children = right_content
-                .as_ref()
-                .err()
-                .and_then(|_| core.fetch_children(&pair.right, path).ok());
+            let (left_children, left_content) =
+                diff_listing::children_of_unread(&mut core, &pair.left, path, left_content)?;
+            let (right_children, right_content) =
+                diff_listing::children_of_unread(&mut core, &pair.right, path, right_content)?;
             if left_children.is_some() || right_children.is_some() {
                 if left_symlink_target.is_some() != right_symlink_target.is_some() {
                     link_diff.note = Some("type mismatch: symlink vs directory".into());
@@ -618,20 +629,28 @@ pub fn execute_diff(
             // 参照先にないときと種類の違うときは "ref" だけを出し、ほかの理由で読めないときは
             // errors にも載せる
             let ref_content = match &ref_side {
-                Some(ref_s) if reference_kind_differs(&mut core, ref_s, path) => None,
-                Some(ref_s) => match read_compared_side(&mut core, ref_s, path, limit) {
-                    Ok(content) => {
-                        content.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                Some(ref_s) => {
+                    let read = match diff_listing::reference_kind(&mut core, ref_s, path)? {
+                        ReferenceKind::Differs => Ok(None),
+                        ReferenceKind::Unlistable(reason) => Err(reason),
+                        ReferenceKind::Readable => {
+                            read_compared_side(&mut core, ref_s, path, limit)
+                        }
+                    };
+                    match read {
+                        Ok(content) => {
+                            content.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                        }
+                        Err(reason) => {
+                            errors.push(DiffError {
+                                path: path.clone(),
+                                reason: read_failure_reason(&[(ref_s, Some(reason.as_str()))]),
+                            });
+                            has_read_error = true;
+                            None
+                        }
                     }
-                    Err(reason) => {
-                        errors.push(DiffError {
-                            path: path.clone(),
-                            reason: read_failure_reason(&[(ref_s, Some(reason.as_str()))]),
-                        });
-                        has_read_error = true;
-                        None
-                    }
-                },
+                }
                 None => None,
             };
 
@@ -688,17 +707,28 @@ fn are_empty_directories(left: &Option<Vec<FileNode>>, right: &Option<Vec<FileNo
     matches!((left, right), (Some(left), Some(right)) if left.is_empty() && right.is_empty())
 }
 
-/// 子の一覧。取れない側と、子を持てない側の下に展開したパスは None。
+/// 子の一覧。子を持てない側の下に展開したパスは、その側を調べずにディレクトリでないものとする。
 fn listed_children(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
     absent: bool,
-) -> Option<Vec<FileNode>> {
+) -> anyhow::Result<ChildListing> {
     if absent {
-        return None;
+        return Ok(ChildListing::NotDirectory);
     }
-    core.fetch_children(side, path).ok()
+    diff_listing::list(core, side, path)
+}
+
+/// 左右のどちらかの一覧を取れなかった理由。どちらも取れていれば None
+fn unlistable_reason(
+    (left_side, left): (&Side, &ChildListing),
+    (right_side, right): (&Side, &ChildListing),
+) -> Option<String> {
+    let left = diff_listing::unlistable_reason(left);
+    let right = diff_listing::unlistable_reason(right);
+    (left.is_some() || right.is_some())
+        .then(|| read_failure_reason(&[(left_side, left), (right_side, right)]))
 }
 
 /// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
@@ -745,7 +775,7 @@ fn directories_without_files(
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
-) -> HashSet<String> {
+) -> anyhow::Result<HashSet<String>> {
     let mut directories = HashSet::new();
     for path in paths {
         let normalized = path.trim_end_matches('/');
@@ -760,13 +790,13 @@ fn directories_without_files(
         {
             continue;
         }
-        let left_children = core.fetch_children(left, normalized).ok();
-        let right_children = core.fetch_children(right, normalized).ok();
+        let left_children = diff_listing::children(diff_listing::list(core, left, normalized)?);
+        let right_children = diff_listing::children(diff_listing::list(core, right, normalized)?);
         if are_empty_directories(&left_children, &right_children) {
             directories.insert(path.clone());
         }
     }
-    directories
+    Ok(directories)
 }
 
 fn inspected_real_path(path: TargetPath) -> Option<PathBuf> {
@@ -817,8 +847,18 @@ fn run_diff_fast_path(
             existing.push(path.clone());
             continue;
         }
-        let left_children = core.fetch_children(left, path).ok();
-        let right_children = core.fetch_children(right, path).ok();
+        let left_listing = diff_listing::list(core, left, path)?;
+        let right_listing = diff_listing::list(core, right, path)?;
+        // 一覧を取れなかったものは、ファイルとしてもない側としても比べない
+        if let Some(reason) = unlistable_reason((left, &left_listing), (right, &right_listing)) {
+            read_errors.push(DiffError {
+                path: path.clone(),
+                reason,
+            });
+            continue;
+        }
+        let left_children = diff_listing::children(left_listing);
+        let right_children = diff_listing::children(right_listing);
         if are_empty_directories(&left_children, &right_children)
             || left_children
                 .as_ref()
@@ -950,18 +990,6 @@ fn read_compared_side(
     }
 }
 
-/// 参照先の同じパスが、テキストとして比べる通常ファイルと種類の違うもの（末尾の symlink か
-/// ディレクトリ）か。種類の違う参照先は読み込みの失敗とせず、中身を読まない（REQ-cli-090）。
-/// 種類を確かめられないときは読みに進め、その読み込みの失敗を出す
-fn reference_kind_differs(core: &mut CoreRuntime, ref_side: &Side, path: &str) -> bool {
-    match core.inspect_path(ref_side, path) {
-        Ok(TargetPath::Symlink { .. }) => true,
-        // 子の一覧が取れるのはディレクトリだけ
-        Ok(TargetPath::File { .. }) => core.fetch_children(ref_side, path).is_ok(),
-        Ok(TargetPath::Missing { .. }) | Err(_) => false,
-    }
-}
-
 fn link_target_for_diff(
     core: &mut CoreRuntime,
     side: &Side,
@@ -1054,7 +1082,7 @@ fn compute_statuses_and_resolve(
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    let empty_directories = directories_without_files(paths, &existing_files, left, right, core);
+    let empty_directories = directories_without_files(paths, &existing_files, left, right, core)?;
     for path in missing_files
         .iter()
         .filter(|path| !empty_directories.contains(*path))

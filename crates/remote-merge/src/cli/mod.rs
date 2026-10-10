@@ -4,6 +4,7 @@
 
 pub mod content_reads;
 pub mod diff;
+mod diff_listing;
 pub mod logs;
 pub mod merge;
 pub mod ref_guard;

@@ -77,6 +77,9 @@ mod diff_root_link_cli;
 mod diff_selection;
 #[path = "contract/diff_support.rs"]
 mod diff_support;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_unlistable.rs"]
+mod diff_unlistable;
 #[path = "contract/filters.rs"]
 mod filters;
 #[path = "contract/init.rs"]

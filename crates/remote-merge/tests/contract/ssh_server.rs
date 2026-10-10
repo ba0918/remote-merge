@@ -16,7 +16,7 @@ use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{server, Channel, ChannelId, CryptoVec, Disconnect};
 use tokio::net::TcpListener;
 
-use super::server_faults::{self, AgentInbound, FaultState, Faults, SudoAnswer};
+use super::server_faults::{self, AgentInbound, FaultState, Faults, SshCommand, SudoAnswer};
 
 /// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か。
 /// 製品のコマンドは製品の並びで始まり、root_dir と相対パスを r と p に代入する
@@ -643,6 +643,14 @@ impl server::Handler for LocalHandler {
                 channel,
                 CryptoVec::from(format!("exists\0{real_path}\0").as_bytes()),
             )?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
+        if SshCommand::ListChildren.matches(&script) {
+            // パスの確認と同じく、どのパスも通常のファイルとして答える
+            session.data(channel, CryptoVec::from(b"NOTDIR\n".as_slice()))?;
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
             session.close(channel)?;
