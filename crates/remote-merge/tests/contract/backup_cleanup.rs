@@ -66,8 +66,13 @@ fn cleanup_fixture() -> CleanupFixture {
         let side = Side::Remote(name.into());
         core.save_backup(&side, "file.txt", &session, false)
             .unwrap();
-        core.write_file_bytes(&side, "file.txt", b"after\n")
-            .unwrap();
+        core.write_file_bytes(
+            &side,
+            "file.txt",
+            b"after\n",
+            &remote_merge::runtime::change_check::Before::Unknown,
+        )
+        .unwrap();
     }
     core.finish_backup_session(&session);
     drop(core);

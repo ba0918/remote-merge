@@ -4,8 +4,6 @@
 //! Read/Write に対してジェネリックなので、SSHチャネルでもパイプでもテスト可能。
 
 use std::io::{Read, Write};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 
@@ -14,10 +12,6 @@ use super::protocol::{
     self, AgentDirListing, AgentFileEntry, AgentFileStat, AgentPathInspection, AgentRequest,
     AgentResponse, FileHashResult, FileReadResult,
 };
-use super::ssh_transport::TransportState;
-
-/// 変更の要求が失敗したとき、中継が閉じ終わるのを待つ上限（秒）
-const TRANSPORT_SETTLE_SECS: u64 = 2;
 
 /// ハンドシェイク行の最大長（バイト）
 const MAX_HANDSHAKE_LINE: usize = 1024;
@@ -40,10 +34,6 @@ pub struct AgentClient<R: Read, W: Write> {
     reader: R,
     writer: W,
     protocol_version: u32,
-    /// SSH の中継の状態。なければ確かめない
-    transport: Option<Arc<TransportState>>,
-    /// 書いたバイト数（中継がチャネルに渡したバイト数と比べる）
-    written: u64,
 }
 
 impl<R: Read, W: Write> AgentClient<R, W> {
@@ -56,63 +46,13 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             reader,
             writer,
             protocol_version,
-            transport: None,
-            written: 0,
         })
-    }
-
-    /// SSH の中継の状態を渡す。変更の要求は、送る前に中継が閉じていないことを確かめ、
-    /// 失敗したときは要求がチャネルに渡ったかを確かめる
-    pub fn watch_transport(&mut self, transport: Arc<TransportState>) {
-        self.transport = Some(transport);
-    }
-
-    /// 変更の要求を行う。中継が閉じていれば送らず、失敗したときに要求の一バイトもチャネルに
-    /// 渡っていなければ、送らなかった失敗（`AgentNotSent`）にする
-    fn change<T>(&mut self, operation: impl FnOnce(&mut Self) -> Result<T>) -> Result<T> {
-        if self
-            .transport
-            .as_ref()
-            .is_some_and(|state| state.is_closed())
-        {
-            return Err(AgentNotSent.into());
-        }
-        let before = self.written;
-        operation(self).map_err(|error| {
-            if error.is::<AgentRefused>() || !self.not_forwarded_since(before) {
-                error
-            } else {
-                AgentNotSent.into()
-            }
-        })
-    }
-
-    /// 中継が閉じ終わるのを待ち、`before` バイトより後をチャネルに渡していないか
-    fn not_forwarded_since(&self, before: u64) -> bool {
-        let Some(state) = &self.transport else {
-            return false;
-        };
-        let deadline = Instant::now() + Duration::from_secs(TRANSPORT_SETTLE_SECS);
-        while !state.is_closed() {
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        state.forwarded() <= before
-    }
-
-    /// フレームを書き、書いたバイト数を数える
-    fn send_frame(&mut self, data: &[u8]) -> Result<()> {
-        framing::write_frame(&mut self.writer, data)?;
-        self.written += 4 + data.len() as u64;
-        Ok(())
     }
 
     /// リクエストを送信し、レスポンスを1つ受信する。
     pub fn request(&mut self, req: &AgentRequest) -> Result<AgentResponse> {
         let data = protocol::serialize_request(req)?;
-        self.send_frame(&data)?;
+        framing::write_frame(&mut self.writer, &data)?;
         let frame = framing::read_frame(&mut self.reader)?;
         let resp = decode(&frame)?;
         // Error レスポンスは anyhow エラーに変換
@@ -141,7 +81,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             include: include.to_vec(),
             max_entries,
         })?;
-        self.send_frame(&data)?;
+        framing::write_frame(&mut self.writer, &data)?;
 
         // is_last=true になるまでチャンクを読み続ける
         let mut all_nodes = Vec::new();
@@ -189,7 +129,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             paths: paths.to_vec(),
             chunk_size_limit,
         })?;
-        self.send_frame(&data)?;
+        framing::write_frame(&mut self.writer, &data)?;
 
         let mut all_results = Vec::new();
         loop {
@@ -220,7 +160,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let data = protocol::serialize_request(&AgentRequest::HashFiles {
             paths: paths.to_vec(),
         })?;
-        self.send_frame(&data)?;
+        framing::write_frame(&mut self.writer, &data)?;
 
         let mut all_results = Vec::new();
         loop {
@@ -252,10 +192,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// `written_paths` は自動クリーンアップされる（dispatch.rs 参照）。
     /// リトライ時は最初のチャンクから再送すれば安全に上書きされる。
     pub fn write_file(&mut self, path: &str, content: &[u8], is_binary: bool) -> Result<()> {
-        self.change(|client| client.write_file_request(path, content, is_binary))
-    }
-
-    fn write_file_request(&mut self, path: &str, content: &[u8], is_binary: bool) -> Result<()> {
         if content.is_empty() {
             let resp = self.request(&AgentRequest::WriteFile {
                 path: path.to_string(),
@@ -308,10 +244,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// シンボリックリンクを作成する。
     pub fn symlink(&mut self, path: &str, target: &str) -> Result<()> {
-        self.change(|client| client.symlink_request(path, target))
-    }
-
-    fn symlink_request(&mut self, path: &str, target: &str) -> Result<()> {
         let resp = self.request(&AgentRequest::Symlink {
             path: path.to_string(),
             target: target.to_string(),
@@ -334,10 +266,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// root_dir からの `path` を消す。失敗の応答は文言の Err にする
     pub fn remove(&mut self, path: &str) -> Result<()> {
-        self.change(|client| client.remove_request(path))
-    }
-
-    fn remove_request(&mut self, path: &str) -> Result<()> {
         let response = self.request(&AgentRequest::Remove {
             path: path.to_string(),
         })?;
@@ -346,10 +274,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// root_dir からの `path` の権限を `mode` にする。失敗の応答は文言の Err にする
     pub fn chmod(&mut self, path: &str, mode: u32) -> Result<()> {
-        self.change(|client| client.chmod_request(path, mode))
-    }
-
-    fn chmod_request(&mut self, path: &str, mode: u32) -> Result<()> {
         let response = self.request(&AgentRequest::Chmod {
             path: path.to_string(),
             mode,
@@ -391,7 +315,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// Shutdown を送信する（レスポンスなし）。
     pub fn shutdown(&mut self) -> Result<()> {
         let data = protocol::serialize_request(&AgentRequest::Shutdown)?;
-        self.send_frame(&data)?;
+        framing::write_frame(&mut self.writer, &data)?;
         Ok(())
     }
 
@@ -433,18 +357,6 @@ impl std::fmt::Display for AgentRefused {
 }
 
 impl std::error::Error for AgentRefused {}
-
-/// 前の操作の後にエージェントとの通信路が閉じていて、要求を送らなかった
-#[derive(Debug)]
-pub struct AgentNotSent;
-
-impl std::fmt::Display for AgentNotSent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the connection to the agent was already closed; the request was not sent")
-    }
-}
-
-impl std::error::Error for AgentNotSent {}
 
 fn refused(message: impl Into<String>) -> anyhow::Error {
     AgentRefused(message.into()).into()
@@ -527,69 +439,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let client = create_pair(&tmp);
         assert_eq!(client.protocol_version(), protocol::PROTOCOL_VERSION);
-    }
-
-    #[test]
-    fn a_change_is_not_sent_once_the_connection_is_known_to_be_closed() {
-        let tmp = TempDir::new().unwrap();
-        let mut client = create_pair(&tmp);
-        let state = Arc::new(TransportState::default());
-        client.watch_transport(state.clone());
-        client.write_file("before.txt", b"x", false).unwrap();
-
-        state.mark_closed();
-
-        for result in [
-            client.write_file("after.txt", b"x", false),
-            client.symlink("link", "before.txt"),
-            client.remove("before.txt"),
-            client.chmod("before.txt", 0o600),
-        ] {
-            assert!(result.unwrap_err().is::<AgentNotSent>());
-        }
-        assert!(!tmp.path().join("after.txt").exists());
-        assert!(tmp.path().join("before.txt").exists());
-    }
-
-    /// 応答を待つ間に切れる相手。最初の要求を読んだら答えずに切る
-    fn client_cut_after_reading_a_request(
-        state: Arc<TransportState>,
-    ) -> AgentClient<std::os::unix::net::UnixStream, std::os::unix::net::UnixStream> {
-        let (client_stream, server_stream) = UnixStream::pair().unwrap();
-        let mut server_reader = server_stream.try_clone().unwrap();
-        let mut server_writer = server_stream;
-        writeln!(server_writer, "{}", protocol::format_handshake()).unwrap();
-        let closing = state.clone();
-        std::thread::spawn(move || {
-            let _ = framing::read_frame(&mut server_reader);
-            drop(server_writer);
-            closing.mark_closed();
-        });
-        let mut client =
-            AgentClient::connect(client_stream.try_clone().unwrap(), client_stream).unwrap();
-        client.watch_transport(state);
-        client
-    }
-
-    #[test]
-    fn a_change_that_never_reached_the_channel_is_reported_as_not_sent() {
-        let state = Arc::new(TransportState::default());
-        let mut client = client_cut_after_reading_a_request(state);
-
-        let error = client.write_file("a.txt", b"x", false).unwrap_err();
-
-        assert!(error.is::<AgentNotSent>(), "{error:#}");
-    }
-
-    #[test]
-    fn a_change_that_reached_the_channel_without_a_reply_is_not_reported_as_not_sent() {
-        let state = Arc::new(TransportState::default());
-        state.add_forwarded(usize::MAX >> 1);
-        let mut client = client_cut_after_reading_a_request(state);
-
-        let error = client.write_file("a.txt", b"x", false).unwrap_err();
-
-        assert!(!error.is::<AgentNotSent>(), "{error:#}");
     }
 
     #[test]

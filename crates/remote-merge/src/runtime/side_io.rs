@@ -12,7 +12,9 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
 
-use super::connection::{classify, label_change, label_read};
+use super::change_check::{Before, Change};
+use super::confirm::ConfirmedChange;
+use super::connection::{classify, label_read};
 use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
@@ -199,19 +201,26 @@ impl CoreRuntime {
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.write_file(self, rel_path, content).map_err(label_change)
+        let result = io.write_file(self, rel_path, content);
+        let change = Change::Write {
+            before: &Before::Unknown,
+            content: content.as_bytes(),
+        };
+        self.settle_change(side, rel_path, change, result)
     }
 
-    /// Side に基づいてバイト列を書き込む（バイナリファイル対応）
+    /// Side に基づいてバイト列を書き込む（バイナリファイル対応）。`before` は書く前の状態で、
+    /// 書き込みの最中の `接続断` の後に書き込み先を確かめるのに使う
     pub fn write_file_bytes(
         &mut self,
         side: &Side,
         rel_path: &str,
         content: &[u8],
+        before: &Before,
     ) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.write_file_bytes(self, rel_path, content)
-            .map_err(label_change)
+        let result = io.write_file_bytes(self, rel_path, content);
+        self.settle_change(side, rel_path, Change::Write { before, content }, result)
     }
 
     // ── メタデータ ──
@@ -229,7 +238,8 @@ impl CoreRuntime {
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.chmod_file(self, rel_path, mode).map_err(label_change)
+        let result = io.chmod_file(self, rel_path, mode);
+        self.settle_change(side, rel_path, Change::Chmod { mode }, result)
     }
 
     // ── バックアップ一覧・復元 ──
@@ -386,11 +396,22 @@ impl CoreRuntime {
 
             let write_result = match record {
                 super::backup_store::BackupRecord::File { content, .. } => {
-                    self.write_file_bytes(side, path, &content)
+                    let before =
+                        self.restore_before(side, path, current.as_ref(), &pre_rollback_backup);
+                    let backup = pre_rollback_backup
+                        .as_ref()
+                        .map(|session| format!("{session}/{path}"));
+                    self.write_file_bytes(side, path, &content, &before)
+                        .map_err(|error| ConfirmedChange::with_backup(error, backup.as_deref()))
                 }
-                super::backup_store::BackupRecord::Symlink { link_target, .. } => self
-                    .remove_file(side, path)
-                    .and_then(|()| self.create_symlink(side, path, &link_target.to_string_lossy())),
+                super::backup_store::BackupRecord::Symlink { link_target, .. } => {
+                    self.remove_file(side, path).and_then(|()| {
+                        self.create_symlink(side, path, &link_target.to_string_lossy())
+                            .map_err(|error| {
+                                super::connection::prefixed(error, "existing entry deleted, but ")
+                            })
+                    })
+                }
             };
             match write_result {
                 Ok(()) => restored.push(crate::service::types::RollbackFileResult {
@@ -409,6 +430,34 @@ impl CoreRuntime {
         }
 
         Ok((restored, skipped, failed))
+    }
+
+    /// 書き戻す前の、そのパスの状態。ないと分かっていればない、書き戻す前の内容を手元の
+    /// バックアップに保存していればその中身、どちらでもなければ持っていない
+    fn restore_before(
+        &self,
+        side: &Side,
+        path: &str,
+        current: Option<&crate::service::rollback::CurrentRestorePath>,
+        pre_rollback_backup: &Option<String>,
+    ) -> Before {
+        if matches!(
+            current,
+            Some(crate::service::rollback::CurrentRestorePath::Missing { .. })
+        ) {
+            return Before::Absent;
+        }
+        let saved = pre_rollback_backup.as_ref().and_then(|session| {
+            self.backup_store
+                .read_record(&self.config, side, session, path)
+                .ok()
+        });
+        match saved {
+            Some(super::backup_store::BackupRecord::File { content, .. }) => {
+                Before::Content(content)
+            }
+            _ => Before::Unknown,
+        }
     }
 
     /// 書き戻す前の確かめが `接続断` で止まったときの結果。確かめたファイルは理由付きの失敗、
@@ -495,7 +544,8 @@ impl CoreRuntime {
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.remove_file(self, rel_path).map_err(label_change)
+        let result = io.remove_file(self, rel_path);
+        self.settle_change(side, rel_path, Change::Remove, result)
     }
 
     // ── シンボリックリンク ──
@@ -508,8 +558,8 @@ impl CoreRuntime {
         target: &str,
     ) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.create_symlink(self, rel_path, target)
-            .map_err(label_change)
+        let result = io.create_symlink(self, rel_path, target);
+        self.settle_change(side, rel_path, Change::Symlink { target }, result)
     }
 
     // ── ツリー ──
@@ -1002,7 +1052,9 @@ fn reassemble_chunked_results(results: Vec<FileReadResult>) -> Option<Vec<(Strin
 ///
 /// - `FileReadResult::Ok` → `Some(Ok(Vec<u8>))`
 /// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
-fn extract_single_file_as_bytes(results: Vec<FileReadResult>) -> Option<anyhow::Result<Vec<u8>>> {
+pub(crate) fn extract_single_file_as_bytes(
+    results: Vec<FileReadResult>,
+) -> Option<anyhow::Result<Vec<u8>>> {
     let assembled = reassemble_chunked_results(results)?;
     let (_, content) = assembled.into_iter().next()?;
     Some(Ok(content))
@@ -1384,7 +1436,7 @@ mod tests {
         let binary = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00];
 
         let mut rt = create_test_runtime(&tmp);
-        rt.write_file_bytes(&Side::Local, "out.bin", &binary)
+        rt.write_file_bytes(&Side::Local, "out.bin", &binary, &Before::Unknown)
             .unwrap();
 
         let written = std::fs::read(tmp.path().join("out.bin")).unwrap();
@@ -1851,8 +1903,13 @@ mod tests {
         let mut rt = create_test_runtime(&tmp);
 
         let binary = vec![0xFF, 0xFE, 0xFD];
-        rt.write_file_bytes(&Side::Local, "deep/nested/dir/file.bin", &binary)
-            .unwrap();
+        rt.write_file_bytes(
+            &Side::Local,
+            "deep/nested/dir/file.bin",
+            &binary,
+            &Before::Unknown,
+        )
+        .unwrap();
 
         let written = std::fs::read(tmp.path().join("deep/nested/dir/file.bin")).unwrap();
         assert_eq!(written, binary);

@@ -6,6 +6,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::merge::executor::MergeDirection;
+use crate::runtime::change_check::Before;
+use crate::runtime::confirm::ConfirmedChange;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction, DIFFERENT_KIND_REASON};
 use crate::service::types::*;
@@ -90,8 +92,12 @@ pub fn execute_single_merge(
             };
             if target_exists {
                 ctx.core.remove_file(target, path)?;
+                ctx.core
+                    .create_symlink(target, path, &link_target)
+                    .map_err(existing_entry_deleted)?;
+            } else {
+                ctx.core.create_symlink(target, path, &link_target)?;
             }
-            ctx.core.create_symlink(target, path, &link_target)?;
             return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
                 status: "ok".into(),
@@ -116,7 +122,9 @@ pub fn execute_single_merge(
 
             // symlink 削除後は通常ファイル書き込み — バックアップ済みなのでスキップ
             let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
-            ctx.core.write_file_bytes(target, path, &content)?;
+            ctx.core
+                .write_file_bytes(target, path, &content, &Before::Absent)
+                .map_err(existing_entry_deleted)?;
             if ctx.with_permissions {
                 copy_permissions(source, target, path, ctx.core).map_err(content_written)?;
             }
@@ -136,7 +144,8 @@ pub fn execute_single_merge(
     // バイト列でコンテンツ読み込み（ソース側） — バイナリファイルも破壊しない
     let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
 
-    if target_tree
+    // 書く前の状態は、書き込みの最中の `接続断` の後に書き込み先を確かめるのに使う
+    let before = if target_tree
         .find_node(Path::new(path))
         .is_some_and(|node| node.is_file())
     {
@@ -148,11 +157,14 @@ pub fn execute_single_merge(
         if &actual != expected {
             anyhow::bail!("destination content changed since comparison: {path}");
         }
+        Before::Content(actual)
     } else if target_tree.find_node(Path::new(path)).is_none()
         && ctx.core.target_path_exists(target, path)?
     {
         anyhow::bail!("destination appeared since comparison: {path}");
-    }
+    } else {
+        Before::Absent
+    };
 
     // バックアップ（ターゲット側）
     let backup_path = if ctx.core.config.backup.enabled {
@@ -166,7 +178,9 @@ pub fn execute_single_merge(
     let missing_directories = ctx.core.missing_parent_directories(target, path)?;
 
     // バイト列で書き込み（ターゲット側） — バイナリファイルも破壊しない
-    ctx.core.write_file_bytes(target, path, &content)?;
+    ctx.core
+        .write_file_bytes(target, path, &content, &before)
+        .map_err(|error| ConfirmedChange::with_backup(error, backup_path.as_deref()))?;
 
     if !missing_directories.is_empty() {
         let mode = match target {
@@ -213,6 +227,11 @@ pub fn execute_single_merge(
 /// バックアップの失敗の文言（"backup failed: " に続けて原因）。種類は変えない
 fn backup_failure(error: anyhow::Error) -> anyhow::Error {
     crate::runtime::connection::prefixed(error, "backup failed: ")
+}
+
+/// 書き込み先にあったものを消した後の失敗の文言。消したことを示す。種類は変えない
+fn existing_entry_deleted(error: anyhow::Error) -> anyhow::Error {
+    crate::runtime::connection::prefixed(error, "existing entry deleted, but ")
 }
 
 /// 中身を書いた後の失敗の文言。中身は書いたことを示す（REQ-merge-037・REQ-ssh-022）。種類は変えない
@@ -432,7 +451,13 @@ pub fn execute_hunk_merge(
 
             // 書き込み
             ctx.core
-                .write_file_bytes(target, path, merged_text.as_bytes())?;
+                .write_file_bytes(
+                    target,
+                    path,
+                    merged_text.as_bytes(),
+                    &Before::Content(target_bytes),
+                )
+                .map_err(|error| ConfirmedChange::with_backup(error, backup_path.as_deref()))?;
 
             Ok(MergeFileResult {
                 path: path.to_string(),

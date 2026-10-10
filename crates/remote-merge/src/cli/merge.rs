@@ -411,7 +411,12 @@ pub fn execute_merge(
     };
 
     let output = build_merge_output(merged, all_skipped, deleted, failed, ref_source_info);
-    let code = merge_exit_code(&output);
+    // `接続断` で処理を止めた回は、済んだファイルだけでも終了コード 2 で終える（REQ-ssh-022）
+    let code = if core.has_stopped() {
+        crate::service::types::exit_code::ERROR
+    } else {
+        merge_exit_code(&output)
+    };
     if core.config.backup.enabled {
         core.finish_backup_session(&session_id);
     }

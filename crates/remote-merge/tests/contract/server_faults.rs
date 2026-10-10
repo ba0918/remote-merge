@@ -111,6 +111,8 @@ pub struct Faults {
     pub fake_sudo: bool,
     /// この種類の SSH のコマンドを実行せずに、許されない操作として 1 で終える
     pub refuse_ssh: Option<SshCommand>,
+    /// エージェントとの間を一度切った後は、エージェントを起動させない（起動のコマンドを 1 で終える）
+    pub refuse_agent_after_cut: bool,
 }
 
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
@@ -180,6 +182,11 @@ impl FaultState {
         }
         self.ssh_cuts.fetch_add(1, Ordering::SeqCst);
         true
+    }
+
+    /// エージェントの起動を拒むか（切った後に起動し直させないとき）
+    pub fn refuses_agent_start(&self) -> bool {
+        self.faults.refuse_agent_after_cut && self.agent_cut_claimed.load(Ordering::SeqCst)
     }
 
     /// このコマンドを実行せずに拒むか

@@ -4,7 +4,7 @@
 
 use std::io;
 
-use crate::agent::client::{AgentNotSent, AgentRefused};
+use crate::agent::client::AgentRefused;
 use crate::error::AppError;
 
 /// リモートの操作の失敗の種類
@@ -34,7 +34,11 @@ pub fn classify(error: &anyhow::Error) -> Failure {
         if cause.is::<AgentRefused>() {
             return Failure::Refused;
         }
-        if cause.is::<AgentNotSent>() || cause.is::<ProcessingStopped>() {
+        // 確かめた変更の失敗は、そのサーバへの処理を止めた `接続断` のまま
+        if cause.is::<super::confirm::ConfirmedChange>() {
+            return Failure::Lost;
+        }
+        if cause.is::<ProcessingStopped>() {
             return Failure::NotSent;
         }
         if let Some(error) = cause.downcast_ref::<AppError>() {
@@ -50,25 +54,6 @@ pub fn classify(error: &anyhow::Error) -> Failure {
         }
     }
     Failure::Refused
-}
-
-/// 変更の失敗の文言に、結果が分からないことか、手を付けていないことを示す（REQ-ssh-022）。
-/// 種類は変えない
-pub fn label_change(error: anyhow::Error) -> anyhow::Error {
-    if is_stopped(&error) {
-        return error;
-    }
-    let failure = classify(&error);
-    let message = match failure {
-        Failure::Lost => format!(
-            "result unknown: the connection was lost before the change was confirmed: {error:#}"
-        ),
-        Failure::NotSent => format!(
-            "not attempted: the connection was already unusable, so the change was not sent: {error:#}"
-        ),
-        Failure::Refused => return error,
-    };
-    Labeled { failure, message }.into()
 }
 
 /// 読み取りが接続の使えないまま失敗したことを文言に示す（REQ-ssh-003・REQ-ssh-023）。
@@ -111,7 +96,8 @@ pub fn prefixed(error: anyhow::Error, prefix: &str) -> anyhow::Error {
     }
 }
 
-fn is_stopped(error: &anyhow::Error) -> bool {
+/// `接続断` の後に止めたので行わなかった失敗か
+pub(crate) fn is_stopped(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.is::<ProcessingStopped>())
 }
 
@@ -174,11 +160,6 @@ mod tests {
                 Failure::Refused,
             ),
             (
-                "closed before sending",
-                AgentNotSent.into(),
-                Failure::NotSent,
-            ),
-            (
                 "stopped earlier",
                 ProcessingStopped {
                     server: host(),
@@ -230,24 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn labels_tell_an_unknown_result_from_an_untouched_file_and_keep_the_type() {
-        let lost = label_change(io(io::ErrorKind::UnexpectedEof));
-        assert!(lost.to_string().starts_with("result unknown: "), "{lost}");
-        assert_eq!(classify(&lost), Failure::Lost);
-        let unsent = label_change(AgentNotSent.into());
-        assert!(
-            unsent.to_string().starts_with("not attempted: "),
-            "{unsent}"
-        );
-        let stopped: anyhow::Error = ProcessingStopped {
-            server: "fixture".into(),
-            reason: "lost".into(),
-        }
-        .into();
-        let stopped_text = stopped.to_string();
-        assert_eq!(label_change(stopped).to_string(), stopped_text);
-        let refused = label_change(AgentRefused("write failed: denied".into()).into());
-        assert_eq!(refused.to_string(), "write failed: denied");
+    fn a_read_label_keeps_the_type() {
         let read = label_read(io(io::ErrorKind::UnexpectedEof));
         assert!(read.to_string().starts_with("read failed: "), "{read}");
         assert_eq!(classify(&read), Failure::Lost);

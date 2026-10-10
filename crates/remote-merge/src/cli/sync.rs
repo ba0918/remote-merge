@@ -410,7 +410,12 @@ pub fn execute_sync(
         targets: results,
         summary,
     };
-    let code = sync_exit_code(&output);
+    // `接続断` で処理を止めた回は、済んだファイルだけでも終了コード 2 で終える（REQ-ssh-022）
+    let code = if core.has_stopped() {
+        exit_code::ERROR
+    } else {
+        sync_exit_code(&output)
+    };
 
     if core.config.backup.enabled {
         core.finish_backup_session(&session_id);

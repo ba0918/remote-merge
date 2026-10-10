@@ -144,8 +144,11 @@ pub fn execute_rollback(
         failed,
     };
 
+    // `接続断` で処理を止めた回は、済んだファイルだけでも終了コード 2 で終える（REQ-ssh-022）
     let code = if args.dry_run {
         0
+    } else if core.has_stopped() {
+        crate::service::types::exit_code::ERROR
     } else {
         rollback_exit_code(&output)
     };

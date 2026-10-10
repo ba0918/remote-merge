@@ -550,6 +550,12 @@ impl server::Handler for LocalHandler {
                 self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
             }
+            if command.contains(" agent --root ") && self.faults.refuses_agent_start() {
+                session.exit_status_request(channel, 1)?;
+                session.eof(channel)?;
+                session.close(channel)?;
+                return Ok(());
+            }
             if self.agent_available && command.contains(" agent --root ") {
                 let child = tokio::process::Command::from(self.shell_command(&received, home))
                     .stdin(std::process::Stdio::piped())

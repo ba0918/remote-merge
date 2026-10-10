@@ -39,7 +39,13 @@ fn a_retargeted_parent_link_blocks_every_file_in_the_rollback_session() {
     let session = core.reserve_backup_session().unwrap();
     for path in ["first.txt", "shared/second.txt"] {
         core.save_backup(&side, path, &session, false).unwrap();
-        core.write_file_bytes(&side, path, b"merged\n").unwrap();
+        core.write_file_bytes(
+            &side,
+            path,
+            b"merged\n",
+            &remote_merge::runtime::change_check::Before::Unknown,
+        )
+        .unwrap();
     }
     core.finish_backup_session(&session);
     drop(core);
@@ -127,7 +133,13 @@ fn unchanged_parent_link_allows_every_file_in_the_session_to_be_restored() {
     let side = Side::Remote("develop".into());
     for path in ["first.txt", "shared/second.txt"] {
         core.save_backup(&side, path, &session, false).unwrap();
-        core.write_file_bytes(&side, path, b"merged\n").unwrap();
+        core.write_file_bytes(
+            &side,
+            path,
+            b"merged\n",
+            &remote_merge::runtime::change_check::Before::Unknown,
+        )
+        .unwrap();
     }
     core.finish_backup_session(&session);
     drop(core);
@@ -270,8 +282,13 @@ fn expired_backup_fixture() -> (
     let session = core.reserve_backup_session().unwrap();
     core.save_backup(&Side::Remote("develop".into()), "file.txt", &session, false)
         .unwrap();
-    core.write_file_bytes(&Side::Remote("develop".into()), "file.txt", b"after\n")
-        .unwrap();
+    core.write_file_bytes(
+        &Side::Remote("develop".into()),
+        "file.txt",
+        b"after\n",
+        &remote_merge::runtime::change_check::Before::Unknown,
+    )
+    .unwrap();
     core.finish_backup_session(&session);
     drop(core);
     let current = targets.with_now(Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap());
@@ -477,7 +494,13 @@ fn previewing_a_two_file_rollback_reports_both_and_leaves_them_unchanged() {
     for path in ["first.txt", "second.txt"] {
         fs::write(destination.path().join(path), "before\n").unwrap();
         core.save_backup(&side, path, &session, false).unwrap();
-        core.write_file_bytes(&side, path, b"after\n").unwrap();
+        core.write_file_bytes(
+            &side,
+            path,
+            b"after\n",
+            &remote_merge::runtime::change_check::Before::Unknown,
+        )
+        .unwrap();
     }
     core.finish_backup_session(&session);
     drop(core);

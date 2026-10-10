@@ -3,7 +3,8 @@
 //! - 読み取りは同じ経路で一度だけやり直す。エージェントは起動し直し、SSH は再接続する
 //! - 変更はどの `接続断` でも繰り返さず、別の経路でも行わない
 //! - やり直してもだめなとき、変更の `接続断` のとき、送る前に接続が使えなかったときは、
-//!   そのサーバへの処理を止める（以降の操作は行わずに失敗にする）
+//!   そのサーバへの処理を止める（以降の操作は行わずに失敗にする）。変更の `接続断` の後の
+//!   書き込み先の確かめは `confirm` が行う
 
 use super::connection::{classify, Failure, ProcessingStopped};
 use super::core::{BoxedAgentClient, CoreRuntime};
@@ -59,7 +60,7 @@ impl CoreRuntime {
         })
     }
 
-    fn agent_call_once<T>(
+    pub(crate) fn agent_call_once<T>(
         &mut self,
         server_name: &str,
         operation: &mut impl FnMut(&mut BoxedAgentClient) -> anyhow::Result<T>,
@@ -143,6 +144,11 @@ impl CoreRuntime {
             }
         }
         result
+    }
+
+    /// どれかのサーバへの処理を `接続断` で止めたか（その回は終了コード 2 で終える）
+    pub fn has_stopped(&self) -> bool {
+        !self.stopped.is_empty()
     }
 
     /// `side` が処理を止めたサーバなら、行わなかったことを示すエラー

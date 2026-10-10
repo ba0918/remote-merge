@@ -2,6 +2,8 @@
 
 mod agent_operations;
 mod backup_store;
+pub mod change_check;
+pub(crate) mod confirm;
 pub mod connection;
 pub mod core;
 pub(crate) mod include_check;
