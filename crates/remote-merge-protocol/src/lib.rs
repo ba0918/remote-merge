@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 macro_rules! define_protocol_version {
@@ -8,6 +8,7 @@ macro_rules! define_protocol_version {
         /// v2 → v3: HashFiles コマンド追加、FileContents に is_last フィールド追加
         /// v3 → v4: PathInspection の Symlink に real_path フィールド追加
         /// v4 → v5: PathInspection を "/" から要素ごとに辿る確認の結果の種類に変更
+        /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -25,10 +26,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(5);
-
-/// パスの確認を "/" から要素ごとに辿る手順で行う最初の通信の版
-pub const PATH_RESOLUTION_PROTOCOL_VERSION: u32 = 5;
+define_protocol_version!(6);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -42,7 +40,6 @@ pub enum AgentRequest {
     ListTree {
         root: String,
         exclude: Vec<String>,
-        #[serde(default)]
         include: Vec<String>,
         max_entries: usize,
     },
@@ -80,15 +77,11 @@ pub enum AgentResponse {
         is_last: bool,
         total_scanned: usize,
         /// max_entries に達してスキャンが打ち切られた場合 true。
-        /// 後方互換性のため、古いプロトコルからデシリアライズ時は false にフォールバック。
-        #[serde(default)]
         truncated: bool,
     },
     FileContents {
         results: Vec<FileReadResult>,
         /// ストリーミング対応: true で最後のチャンク。
-        /// v2 エージェントとの後方互換性のため、未設定時は true にフォールバック。
-        #[serde(default = "default_is_last")]
         is_last: bool,
     },
     FileHashes {
@@ -136,7 +129,6 @@ pub struct AgentFileEntry {
     pub mtime_nanos: u32,
     pub permissions: u32,
     pub symlink_target: Option<String>,
-    #[serde(default)]
     pub link_is_dir: bool,
 }
 
@@ -151,13 +143,6 @@ pub enum FileReadResult {
         path: String,
         message: String,
     },
-}
-
-/// `is_last` フィールドのデフォルト値。
-/// v2 エージェントは `is_last` フィールドを送信しないため、
-/// デシリアライズ時に true にフォールバックする（単一チャンクとして扱う）。
-fn default_is_last() -> bool {
-    true
 }
 
 /// HashFiles レスポンス用のハッシュ結果。
@@ -235,18 +220,35 @@ pub fn parse_handshake(line: &str) -> Result<u32> {
     Ok(version)
 }
 
-/// パースしたバージョンが現在のプロトコルバージョン以上であるか検証し、
-/// ネゴシエーション済みバージョン（両者の最小値）を返す。
-///
-/// クライアントとサーバーのバージョンが異なる場合、低い方の機能セットで動作する。
-/// サーバーがクライアントより古い場合（例: サーバー v2、クライアント v3）でも接続を許可し、
-/// v2 の機能セットで動作する。ただしサーバーが v1 以下の場合は拒否する。
-pub fn check_protocol_version(remote_version: u32) -> Result<u32> {
-    if remote_version < 2 {
-        bail!("protocol version too old: got {remote_version}, minimum supported is 2");
+/// エージェントが答えた通信の版が手元と違う。違う版のエージェントは使わない
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProtocolVersionMismatch {
+    pub remote: u32,
+    pub local: u32,
+}
+
+impl std::fmt::Display for ProtocolVersionMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the agent speaks protocol v{}, but this remote-merge speaks protocol v{}",
+            self.remote, self.local
+        )
     }
-    // ネゴシエーション: 両者の最小値
-    Ok(remote_version.min(PROTOCOL_VERSION))
+}
+
+impl std::error::Error for ProtocolVersionMismatch {}
+
+/// エージェントが答えた通信の版が手元と同じときだけ受け入れる
+pub fn check_protocol_version(remote_version: u32) -> Result<u32> {
+    if remote_version != PROTOCOL_VERSION {
+        return Err(ProtocolVersionMismatch {
+            remote: remote_version,
+            local: PROTOCOL_VERSION,
+        }
+        .into());
+    }
+    Ok(remote_version)
 }
 
 // ---------------------------------------------------------------------------
@@ -277,33 +279,6 @@ pub fn deserialize_response(data: &[u8]) -> Result<AgentResponse> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn old_agent_entries_without_directory_link_metadata_remain_readable() {
-        #[derive(Serialize)]
-        struct PreviousEntry {
-            path: String,
-            kind: FileKind,
-            size: u64,
-            mtime_secs: i64,
-            mtime_nanos: u32,
-            permissions: u32,
-            symlink_target: Option<String>,
-        }
-        let old = PreviousEntry {
-            path: "linked".into(),
-            kind: FileKind::Symlink,
-            size: 0,
-            mtime_secs: 0,
-            mtime_nanos: 0,
-            permissions: 0,
-            symlink_target: Some("folder".into()),
-        };
-        let bytes = rmp_serde::to_vec(&old).unwrap();
-        let decoded: AgentFileEntry = rmp_serde::from_slice(&bytes).unwrap();
-        assert!(!decoded.link_is_dir);
-        assert_eq!(decoded.symlink_target.as_deref(), Some("folder"));
-    }
-
     // ---- Handshake ----
 
     #[test]
@@ -329,29 +304,23 @@ mod tests {
     }
 
     #[test]
-    fn check_protocol_version_too_old() {
-        let err = check_protocol_version(1).unwrap_err();
-        assert!(err.to_string().contains("too old"));
-    }
-
-    #[test]
     fn check_protocol_version_match() {
         let negotiated = check_protocol_version(PROTOCOL_VERSION).unwrap();
         assert_eq!(negotiated, PROTOCOL_VERSION);
     }
 
     #[test]
-    fn check_protocol_version_v2_accepted() {
-        // v2 Agent はまだ接続可能（HashFiles は使えないが ReadFiles は動作する）
-        let negotiated = check_protocol_version(2).unwrap();
-        assert_eq!(negotiated, 2);
-    }
-
-    #[test]
-    fn check_protocol_version_newer_agent() {
-        // Agent がクライアントより新しい場合 → クライアント側バージョンにネゴシエーション
-        let negotiated = check_protocol_version(999).unwrap();
-        assert_eq!(negotiated, PROTOCOL_VERSION);
+    fn an_older_or_newer_protocol_version_is_refused_with_both_versions() {
+        for remote in [PROTOCOL_VERSION - 1, PROTOCOL_VERSION + 1] {
+            let error = check_protocol_version(remote).unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<ProtocolVersionMismatch>(),
+                Some(&ProtocolVersionMismatch {
+                    remote,
+                    local: PROTOCOL_VERSION
+                })
+            );
+        }
     }
 
     #[test]
@@ -370,38 +339,6 @@ mod tests {
     fn handshake_parse_non_numeric_version() {
         let err = parse_handshake("remote-merge agent vabc").unwrap_err();
         assert!(err.to_string().contains("cannot parse version"));
-    }
-
-    /// include フィールドなしのデータをデシリアライズ → デフォルト空配列（後方互換性）
-    #[test]
-    fn list_tree_without_include_backward_compat() {
-        // include フィールドなしの ListTree を JSON でシミュレート
-        // （msgpack でもフィールドが省略されたときに #[serde(default)] が効く）
-        let json =
-            r#"{"ListTree":{"root":"/var/www","exclude":["node_modules"],"max_entries":5000}}"#;
-        let req: AgentRequest = serde_json::from_str(json).unwrap();
-        match req {
-            AgentRequest::ListTree { include, .. } => {
-                assert!(include.is_empty(), "include should default to empty vec");
-            }
-            other => panic!("expected ListTree, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn response_file_contents_is_last_default_true() {
-        // v2 Agent が is_last を含めずに送信した場合、default_is_last() で true になること
-        let json = r#"{"FileContents":{"results":[]}}"#;
-        let resp: AgentResponse = serde_json::from_str(json).unwrap();
-        match resp {
-            AgentResponse::FileContents { is_last, .. } => {
-                assert!(
-                    is_last,
-                    "is_last should default to true for backward compatibility"
-                );
-            }
-            other => panic!("expected FileContents, got {other:?}"),
-        }
     }
 
     // ---- Path inspection ----
@@ -436,13 +373,6 @@ mod tests {
             let bytes = serialize_response(&response).unwrap();
             assert_eq!(deserialize_response(&bytes).unwrap(), response);
         }
-    }
-
-    // ---- Protocol version ----
-
-    #[test]
-    fn protocol_version_is_5() {
-        assert_eq!(PROTOCOL_VERSION, 5);
     }
 }
 

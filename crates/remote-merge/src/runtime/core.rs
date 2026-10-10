@@ -281,6 +281,16 @@ impl CoreRuntime {
                     server_name.to_string(),
                     AgentUnavailableReason::DeployFailed,
                 );
+                // 版の違うエージェントを使わずに続けることは、利用者に理由を示す
+                if let Some(mismatch) =
+                    e.downcast_ref::<crate::agent::protocol::ProtocolVersionMismatch>()
+                {
+                    tracing::warn!(
+                        "Not using the agent on {}: {}; continuing over SSH",
+                        server_name,
+                        mismatch
+                    );
+                }
                 tracing::debug!(
                     "Agent start failed for {}: {}, using SSH fallback",
                     server_name,

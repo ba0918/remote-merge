@@ -37,17 +37,15 @@ pub struct AgentClient<R: Read, W: Write> {
 }
 
 impl<R: Read, W: Write> AgentClient<R, W> {
-    /// ハンドシェイクを読み取り、バージョンを検証してクライアントを作成する。
-    ///
-    /// ネゴシエーション済みバージョン（クライアントとサーバーの最小値）を保持する。
+    /// ハンドシェイクを読み取り、通信の版が手元と同じときだけクライアントを作成する。
     pub fn connect(mut reader: R, writer: W) -> Result<Self> {
         let line = read_handshake_line(&mut reader)?;
         let remote_version = protocol::parse_handshake(&line)?;
-        let negotiated = protocol::check_protocol_version(remote_version)?;
+        let protocol_version = protocol::check_protocol_version(remote_version)?;
         Ok(Self {
             reader,
             writer,
-            protocol_version: negotiated,
+            protocol_version,
         })
     }
 
@@ -146,16 +144,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// 複数ファイルの SHA-256 ハッシュを取得する（ストリーミング対応）。
-    ///
-    /// negotiated version < 3 の場合はエラーを返す（呼び出し元でフォールバック）。
     pub fn hash_files(&mut self, paths: &[String]) -> Result<Vec<FileHashResult>> {
-        if self.protocol_version < 3 {
-            bail!(
-                "hash_files requires protocol version >= 3, negotiated version is {}",
-                self.protocol_version
-            );
-        }
-
         let data = protocol::serialize_request(&AgentRequest::HashFiles {
             paths: paths.to_vec(),
         })?;
@@ -264,7 +253,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         Ok(())
     }
 
-    /// ネゴシエーション済みのプロトコルバージョンを返す。
+    /// エージェントと同じであることを確かめた通信の版を返す。
     pub fn protocol_version(&self) -> u32 {
         self.protocol_version
     }
@@ -344,23 +333,20 @@ mod tests {
     }
 
     #[test]
-    fn connect_version_too_old() {
-        let handshake = "remote-merge agent v1\n";
-        let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
-        let writer = Vec::new();
-        let err = AgentClient::connect(reader, writer).unwrap_err();
-        assert!(err.to_string().contains("too old"));
-    }
-
-    #[test]
-    fn connect_newer_version_accepted() {
-        // v999 は受け入れられ、PROTOCOL_VERSION にネゴシエーションされる
-        // ただしサーバーがいないので実際の通信はできない（ここではハンドシェイクのみ検証）
-        let handshake = "remote-merge agent v999\n";
-        let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
-        let writer = Vec::new();
-        let client = AgentClient::connect(reader, writer).unwrap();
-        assert_eq!(client.protocol_version(), protocol::PROTOCOL_VERSION);
+    fn connecting_to_an_agent_of_another_protocol_version_fails_with_the_mismatch() {
+        for remote in [
+            protocol::PROTOCOL_VERSION - 1,
+            protocol::PROTOCOL_VERSION + 1,
+        ] {
+            let handshake = format!("remote-merge agent v{remote}\n");
+            let reader = std::io::Cursor::new(handshake.into_bytes());
+            let err = AgentClient::connect(reader, Vec::new()).unwrap_err();
+            assert_eq!(
+                err.downcast_ref::<protocol::ProtocolVersionMismatch>()
+                    .map(|mismatch| mismatch.remote),
+                Some(remote)
+            );
+        }
     }
 
     #[test]
@@ -383,7 +369,7 @@ mod tests {
     #[test]
     fn connect_handshake_eof() {
         // 改行なしで EOF — read_exact が UnexpectedEof を返す
-        let reader = std::io::Cursor::new(b"remote-merge agent v2".to_vec());
+        let reader = std::io::Cursor::new(b"remote-merge agent v6".to_vec());
         let writer = Vec::new();
         let err = AgentClient::connect(reader, writer).unwrap_err();
         // io::Error が anyhow に包まれる — "unexpected end of file" 等
@@ -600,18 +586,5 @@ mod tests {
             &results[0],
             protocol::FileHashResult::Error { .. }
         ));
-    }
-
-    #[test]
-    fn hash_files_version_too_old() {
-        // v2 ハンドシェイクで接続 → hash_files は protocol version エラー
-        let handshake = "remote-merge agent v2\n";
-        let reader = std::io::Cursor::new(handshake.as_bytes().to_vec());
-        let writer = Vec::new();
-        let mut client = AgentClient::connect(reader, writer).unwrap();
-        assert_eq!(client.protocol_version(), 2);
-
-        let err = client.hash_files(&["test.txt".to_string()]).unwrap_err();
-        assert!(err.to_string().contains("protocol version"));
     }
 }

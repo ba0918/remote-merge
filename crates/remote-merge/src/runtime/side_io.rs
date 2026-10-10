@@ -59,19 +59,6 @@ impl CoreRuntime {
         Some(result.and_then(super::path_route::resolved_from_agent))
     }
 
-    /// 接続中のエージェントと交渉した通信の版。エージェントがなければ `None`。
-    /// エージェントの接続のロックが壊れていれば、版が分からないのでエージェントがないとは扱わずに
-    /// エラーにする（sudo を使うサーバを SSH の経路に回さない）
-    pub(crate) fn agent_protocol_version(&self, server_name: &str) -> anyhow::Result<Option<u32>> {
-        let Some(agent) = self.agent_clients.get(server_name) else {
-            return Ok(None);
-        };
-        let agent = agent.lock().map_err(|_| {
-            anyhow::anyhow!("agent connection for {server_name} is unusable (lock poisoned)")
-        })?;
-        Ok(Some(agent.protocol_version()))
-    }
-
     pub(crate) fn server_uses_sudo(&self, server_name: &str) -> bool {
         self.config
             .servers

@@ -111,9 +111,6 @@ mod path_arguments_cli;
 #[path = "contract/path_resolution.rs"]
 mod path_resolution;
 #[cfg(feature = "test-utils")]
-#[path = "contract/path_routes.rs"]
-mod path_routes;
-#[cfg(feature = "test-utils")]
 #[path = "contract/path_routes_agree.rs"]
 mod path_routes_agree;
 #[cfg(feature = "test-utils")]
@@ -161,7 +158,15 @@ mod ssh_login_shell;
 #[path = "contract/ssh_reconnect.rs"]
 mod ssh_reconnect;
 #[cfg(feature = "test-utils")]
+use common::server_faults;
+#[cfg(feature = "test-utils")]
 use common::ssh_server;
+#[cfg(feature = "test-utils")]
+#[path = "contract/agent_support.rs"]
+mod agent_support;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_agent_version.rs"]
+mod ssh_agent_version;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_strict_exec.rs"]
 mod ssh_strict_exec;
