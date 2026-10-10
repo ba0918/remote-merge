@@ -100,6 +100,8 @@ pub struct SshAgentTransport {
     bridge_thread: Option<JoinHandle<()>>,
     writer_relay_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
+    /// SSH のチャネルが閉じた（EOF か送れなかった）ことの記録
+    closed: Arc<AtomicBool>,
 }
 
 #[cfg(unix)]
@@ -133,10 +135,13 @@ impl SshAgentTransport {
 
         // Bridge: channel を排他所有し、select! で双方向中継
         let shutdown3 = shutdown.clone();
+        let closed = Arc::new(AtomicBool::new(false));
+        let closed_on_bridge = closed.clone();
         let bridge_thread = std::thread::Builder::new()
             .name("agent-bridge".into())
             .spawn(move || {
                 bridge_loop(handle, channel, bridge_write, write_rx, shutdown3);
+                closed_on_bridge.store(true, Ordering::Release);
             })?;
 
         Ok(Self {
@@ -145,7 +150,13 @@ impl SshAgentTransport {
             bridge_thread: Some(bridge_thread),
             writer_relay_thread: Some(writer_relay_thread),
             shutdown,
+            closed,
         })
+    }
+
+    /// SSH のチャネルが閉じたことの記録。中継が終わると立つ
+    pub fn closed(&self) -> Arc<AtomicBool> {
+        self.closed.clone()
     }
 
     /// AgentClient に渡す (read, write) ストリームペアと TransportGuard を取り出す。
@@ -348,6 +359,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: Arc::new(AtomicBool::new(false)),
+            closed: Arc::new(AtomicBool::new(false)),
         };
         let (mut read_end, mut write_end, _guard) = transport.into_streams();
         write_end.write_all(b"test").unwrap();
@@ -371,6 +383,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: shutdown.clone(),
+            closed: Arc::new(AtomicBool::new(false)),
         };
         let (_r, _w, guard) = transport.into_streams();
         // transport の Drop が走った後も shutdown は false のまま
@@ -581,6 +594,7 @@ mod tests {
             bridge_thread: Some(thread),
             writer_relay_thread: None,
             shutdown,
+            closed: Arc::new(AtomicBool::new(false)),
         };
 
         let start = Instant::now();

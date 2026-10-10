@@ -4,6 +4,8 @@
 //! Read/Write に対してジェネリックなので、SSHチャネルでもパイプでもテスト可能。
 
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use anyhow::{bail, Result};
 
@@ -34,6 +36,8 @@ pub struct AgentClient<R: Read, W: Write> {
     reader: R,
     writer: W,
     protocol_version: u32,
+    /// 通信路が閉じたことの記録（SSH の中継が立てる）。なければ確かめない
+    closed: Option<Arc<AtomicBool>>,
 }
 
 impl<R: Read, W: Write> AgentClient<R, W> {
@@ -46,7 +50,25 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             reader,
             writer,
             protocol_version,
+            closed: None,
         })
+    }
+
+    /// 通信路が閉じたことの記録を渡す。変更の要求は、送る前にこれを確かめる
+    pub fn watch_closed(&mut self, closed: Arc<AtomicBool>) {
+        self.closed = Some(closed);
+    }
+
+    /// 変更の要求を送る前に、通信路が閉じていないことを確かめる
+    fn ensure_open(&self) -> Result<()> {
+        if self
+            .closed
+            .as_ref()
+            .is_some_and(|closed| closed.load(Ordering::Acquire))
+        {
+            return Err(AgentNotSent.into());
+        }
+        Ok(())
     }
 
     /// リクエストを送信し、レスポンスを1つ受信する。
@@ -54,10 +76,10 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let data = protocol::serialize_request(req)?;
         framing::write_frame(&mut self.writer, &data)?;
         let frame = framing::read_frame(&mut self.reader)?;
-        let resp = protocol::deserialize_response(&frame)?;
+        let resp = decode(&frame)?;
         // Error レスポンスは anyhow エラーに変換
         if let AgentResponse::Error { ref message } = resp {
-            bail!("agent error: {message}");
+            return Err(refused(format!("agent error: {message}")));
         }
         Ok(resp)
     }
@@ -88,9 +110,11 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let was_truncated: bool;
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
-            let resp = protocol::deserialize_response(&frame)?;
+            let resp = decode(&frame)?;
             match resp {
-                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::Error { message } => {
+                    return Err(refused(format!("agent error: {message}")))
+                }
                 AgentResponse::TreeChunk {
                     nodes,
                     is_last,
@@ -103,7 +127,11 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                         break;
                     }
                 }
-                other => bail!("unexpected response to ListTree: {other:?}"),
+                other => {
+                    return Err(unexpected(format!(
+                        "unexpected response to ListTree: {other:?}"
+                    )))
+                }
             }
         }
         Ok((all_nodes, was_truncated))
@@ -128,16 +156,22 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let mut all_results = Vec::new();
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
-            let resp = protocol::deserialize_response(&frame)?;
+            let resp = decode(&frame)?;
             match resp {
-                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::Error { message } => {
+                    return Err(refused(format!("agent error: {message}")))
+                }
                 AgentResponse::FileContents { results, is_last } => {
                     all_results.extend(results);
                     if is_last {
                         break;
                     }
                 }
-                other => bail!("unexpected response to ReadFiles: {other:?}"),
+                other => {
+                    return Err(unexpected(format!(
+                        "unexpected response to ReadFiles: {other:?}"
+                    )))
+                }
             }
         }
         Ok(all_results)
@@ -153,16 +187,22 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let mut all_results = Vec::new();
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
-            let resp = protocol::deserialize_response(&frame)?;
+            let resp = decode(&frame)?;
             match resp {
-                AgentResponse::Error { message } => bail!("agent error: {message}"),
+                AgentResponse::Error { message } => {
+                    return Err(refused(format!("agent error: {message}")))
+                }
                 AgentResponse::FileHashes { results, is_last } => {
                     all_results.extend(results);
                     if is_last {
                         break;
                     }
                 }
-                other => bail!("unexpected response to HashFiles: {other:?}"),
+                other => {
+                    return Err(unexpected(format!(
+                        "unexpected response to HashFiles: {other:?}"
+                    )))
+                }
             }
         }
         Ok(all_results)
@@ -174,6 +214,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// `written_paths` は自動クリーンアップされる（dispatch.rs 参照）。
     /// リトライ時は最初のチャンクから再送すれば安全に上書きされる。
     pub fn write_file(&mut self, path: &str, content: &[u8], is_binary: bool) -> Result<()> {
+        self.ensure_open()?;
         if content.is_empty() {
             let resp = self.request(&AgentRequest::WriteFile {
                 path: path.to_string(),
@@ -206,7 +247,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         })?;
         match resp {
             AgentResponse::Stats { entries } => Ok(entries),
-            other => bail!("unexpected response to StatFiles: {other:?}"),
+            other => Err(unexpected(format!(
+                "unexpected response to StatFiles: {other:?}"
+            ))),
         }
     }
 
@@ -216,12 +259,15 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         })?;
         match response {
             AgentResponse::PathInspection { result } => Ok(result),
-            other => bail!("unexpected response to InspectPath: {other:?}"),
+            other => Err(unexpected(format!(
+                "unexpected response to InspectPath: {other:?}"
+            ))),
         }
     }
 
     /// シンボリックリンクを作成する。
     pub fn symlink(&mut self, path: &str, target: &str) -> Result<()> {
+        self.ensure_open()?;
         let resp = self.request(&AgentRequest::Symlink {
             path: path.to_string(),
             target: target.to_string(),
@@ -229,16 +275,22 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         match resp {
             AgentResponse::SymlinkResult { success, error } => {
                 if !success {
-                    bail!("symlink failed: {}", error.unwrap_or_default());
+                    return Err(refused(format!(
+                        "symlink failed: {}",
+                        error.unwrap_or_default()
+                    )));
                 }
                 Ok(())
             }
-            other => bail!("unexpected response to Symlink: {other:?}"),
+            other => Err(unexpected(format!(
+                "unexpected response to Symlink: {other:?}"
+            ))),
         }
     }
 
     /// root_dir からの `path` を消す。失敗の応答は文言の Err にする
     pub fn remove(&mut self, path: &str) -> Result<()> {
+        self.ensure_open()?;
         let response = self.request(&AgentRequest::Remove {
             path: path.to_string(),
         })?;
@@ -247,6 +299,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// root_dir からの `path` の権限を `mode` にする。失敗の応答は文言の Err にする
     pub fn chmod(&mut self, path: &str, mode: u32) -> Result<()> {
+        self.ensure_open()?;
         let response = self.request(&AgentRequest::Chmod {
             path: path.to_string(),
             mode,
@@ -268,7 +321,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         })?;
         match response {
             AgentResponse::DirListing { result } => Ok(result),
-            other => bail!("unexpected response to ListDir: {other:?}"),
+            other => Err(unexpected(format!(
+                "unexpected response to ListDir: {other:?}"
+            ))),
         }
     }
 
@@ -277,7 +332,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let resp = self.request(&AgentRequest::Ping)?;
         match resp {
             AgentResponse::Pong => Ok(()),
-            other => bail!("unexpected response to Ping: {other:?}"),
+            other => Err(unexpected(format!(
+                "unexpected response to Ping: {other:?}"
+            ))),
         }
     }
 
@@ -315,12 +372,53 @@ fn read_handshake_line(reader: &mut impl Read) -> Result<String> {
     Ok(String::from_utf8(buf)?)
 }
 
+/// エージェントが失敗を返した（`接続断` ではない）。文言は応答の失敗をそのまま持つ
+#[derive(Debug)]
+pub struct AgentRefused(pub String);
+
+impl std::fmt::Display for AgentRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for AgentRefused {}
+
+/// 前の操作の後にエージェントとの通信路が閉じていて、要求を送らなかった
+#[derive(Debug)]
+pub struct AgentNotSent;
+
+impl std::fmt::Display for AgentNotSent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the connection to the agent was already closed; the request was not sent")
+    }
+}
+
+impl std::error::Error for AgentNotSent {}
+
+fn refused(message: impl Into<String>) -> anyhow::Error {
+    AgentRefused(message.into()).into()
+}
+
+/// 想定外の応答。通信の流れが壊れたので、読めなかったフレームと同じく通信路の失敗にする
+fn unexpected(message: String) -> anyhow::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message).into()
+}
+
+/// 応答のフレームを読む。読めないフレームは通信路の失敗にする
+fn decode(frame: &[u8]) -> Result<AgentResponse> {
+    protocol::deserialize_response(frame)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
+}
+
 /// Remove・Chmod の応答を検証する。
 fn check_operation_result(resp: AgentResponse, request: &str) -> Result<()> {
     match resp {
         AgentResponse::OperationResult { error: None } => Ok(()),
-        AgentResponse::OperationResult { error: Some(error) } => bail!(error),
-        other => bail!("unexpected response to {request}: {other:?}"),
+        AgentResponse::OperationResult { error: Some(error) } => Err(refused(error)),
+        other => Err(unexpected(format!(
+            "unexpected response to {request}: {other:?}"
+        ))),
     }
 }
 
@@ -329,11 +427,16 @@ fn check_write_result(resp: AgentResponse) -> Result<()> {
     match resp {
         AgentResponse::WriteResult { success, error } => {
             if !success {
-                bail!("write failed: {}", error.unwrap_or_default());
+                return Err(refused(format!(
+                    "write failed: {}",
+                    error.unwrap_or_default()
+                )));
             }
             Ok(())
         }
-        other => bail!("unexpected response to WriteFile: {other:?}"),
+        other => Err(unexpected(format!(
+            "unexpected response to WriteFile: {other:?}"
+        ))),
     }
 }
 
@@ -374,6 +477,28 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let client = create_pair(&tmp);
         assert_eq!(client.protocol_version(), protocol::PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn a_change_is_not_sent_once_the_connection_is_known_to_be_closed() {
+        let tmp = TempDir::new().unwrap();
+        let mut client = create_pair(&tmp);
+        let closed = Arc::new(AtomicBool::new(false));
+        client.watch_closed(closed.clone());
+        client.write_file("before.txt", b"x", false).unwrap();
+
+        closed.store(true, Ordering::Release);
+
+        for result in [
+            client.write_file("after.txt", b"x", false),
+            client.symlink("link", "before.txt"),
+            client.remove("before.txt"),
+            client.chmod("before.txt", 0o600),
+        ] {
+            assert!(result.unwrap_err().is::<AgentNotSent>());
+        }
+        assert!(!tmp.path().join("after.txt").exists());
+        assert!(tmp.path().join("before.txt").exists());
     }
 
     #[test]

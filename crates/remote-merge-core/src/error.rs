@@ -20,8 +20,14 @@ pub enum AppError {
     ConfigValidation { field: String, message: String },
 
     // ── SSH errors ──
+    /// コマンドを送る前の失敗（接続・認証・チャネルを開けない）
     #[error("SSH connection failed to {host}: {message}")]
     SshConnection { host: String, message: String },
+
+    /// コマンドを送り始めた後に、終わりの状態を受け取れなかった（`接続断`）。文言は
+    /// `SshConnection` と同じにする
+    #[error("SSH connection failed to {host}: {message}")]
+    SshDisconnected { host: String, message: String },
 
     #[error("SSH authentication failed (user: {user}@{host})")]
     SshAuth { host: String, user: String },
@@ -55,13 +61,15 @@ pub type Result<T> = std::result::Result<T, anyhow::Error>;
 
 /// SSH 接続自体が断絶したエラーかどうかを判定する。
 ///
-/// `SshConnection` / `SshTimeout` のみ `true`。
+/// `SshConnection` / `SshDisconnected` / `SshTimeout` のみ `true`。
 /// `SshExec`（コマンド実行失敗＝ファイル不在等）は `false`。
 /// 呼び出し元で `is_connected = false` にすべきかの判定に使う。
 pub fn is_connection_error(e: &anyhow::Error) -> bool {
     matches!(
         e.downcast_ref::<AppError>(),
-        Some(AppError::SshConnection { .. }) | Some(AppError::SshTimeout { .. })
+        Some(AppError::SshConnection { .. })
+            | Some(AppError::SshDisconnected { .. })
+            | Some(AppError::SshTimeout { .. })
     )
 }
 

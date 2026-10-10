@@ -107,7 +107,13 @@ pub fn execute_status(
     // ハッシュ比較が成功すれば全ファイルのコンテンツ転送を回避できる。ハッシュの得られなかった
     // パスは中身を読んで比べ、読めなければ読めなかったファイルとして出す
     let hashes = if ref_side.is_none() && !paths_to_compare.is_empty() {
+        // `接続断` で止めたときは、そのサーバの読み込みは行わずに理由付きの失敗になり、
+        // 比べるはずだったファイルは理由とともに errors に出る
         core.try_hash_compare(&pair.left, &pair.right, &paths_to_compare)
+            .unwrap_or_else(|error| {
+                tracing::warn!("Hash comparison stopped: {error:#}");
+                None
+            })
     } else {
         None
     };

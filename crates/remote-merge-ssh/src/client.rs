@@ -820,7 +820,7 @@ impl SshClient {
         let _ = channel.close().await;
 
         let Some(exit_code) = exit_code else {
-            anyhow::bail!(AppError::SshConnection {
+            anyhow::bail!(AppError::SshDisconnected {
                 host: self.server_name.clone(),
                 message: "Remote command ended without an exit status".into(),
             });
@@ -961,7 +961,7 @@ impl SshClient {
         // EOF 送信
         if let Err(e) = channel.eof().await {
             let _ = channel.close().await;
-            return Err(AppError::SshConnection {
+            return Err(AppError::SshDisconnected {
                 host: self.server_name.clone(),
                 message: format!("Failed to send EOF: {}", e),
             }
@@ -988,7 +988,7 @@ impl SshClient {
             Some(code) => anyhow::bail!(AppError::SshExec {
                 command: format!("{}: exit={}", description, code),
             }),
-            None => anyhow::bail!(AppError::SshConnection {
+            None => anyhow::bail!(AppError::SshDisconnected {
                 host: self.server_name.clone(),
                 message: format!(
                     "Write completion unknown: no exit status for {}",
@@ -1011,7 +1011,7 @@ impl SshClient {
             channel
                 .data(chunk)
                 .await
-                .map_err(|e| AppError::SshConnection {
+                .map_err(|e| AppError::SshDisconnected {
                     host: self.server_name.clone(),
                     message: format!("Failed to send data: {}", e),
                 })?;

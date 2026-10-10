@@ -4,7 +4,6 @@
 //! せず、`size_limit` が入口で行う。
 
 use std::collections::{HashMap, HashSet};
-use std::io;
 
 use crate::agent::protocol::AgentFileStat;
 use crate::ssh::batch_read::{chunk_paths, SSH_BATCH_MAX_COMMAND_LEN};
@@ -63,70 +62,42 @@ pub fn parse_file_size_output(output: &[u8], count: usize) -> anyhow::Result<Vec
         .collect()
 }
 
-/// エージェントへの大きさの問い合わせの結果
+/// エージェントへの大きさの問い合わせの答え
 #[derive(Debug)]
-pub(crate) enum AgentSizes {
-    /// 答えたパスの大きさと、答えなかったパス（root_dir の外を指す symlink など）
-    Answered {
-        known: HashMap<String, u64>,
-        omitted: Vec<String>,
-    },
-    /// エージェントが返したエラー（応答のエラー、想定外の応答、フレームの上限超え）
-    Failed(anyhow::Error),
-    /// エージェントとの接続が切れた
-    ConnectionLost(anyhow::Error),
+pub(crate) struct AgentSizes {
+    /// 答えたパスの大きさ
+    pub known: HashMap<String, u64>,
+    /// 答えなかったパス（root_dir の外を指す symlink など）
+    pub omitted: Vec<String>,
 }
 
 /// `paths` を `batch` 件ごとに `query` で尋ね、答えをパスで突き合わせる。答えの数や順番には
 /// 頼らず、答えのないパスは `omitted` にする。どれかの問い合わせが失敗したら全体を失敗にする
-pub(crate) fn ask_agent_sizes<Q>(paths: &[String], batch: usize, mut query: Q) -> AgentSizes
+/// （失敗の種類は呼び出し元が `connection::classify` で判定する）
+pub(crate) fn ask_agent_sizes<Q>(
+    paths: &[String],
+    batch: usize,
+    mut query: Q,
+) -> anyhow::Result<AgentSizes>
 where
     Q: FnMut(&[String]) -> anyhow::Result<Vec<AgentFileStat>>,
 {
     let mut known = HashMap::with_capacity(paths.len());
     for chunk in paths.chunks(batch) {
         let asked: HashSet<&str> = chunk.iter().map(String::as_str).collect();
-        match query(chunk) {
-            Ok(stats) => known.extend(
-                stats
-                    .into_iter()
-                    .filter(|stat| asked.contains(stat.path.as_str()))
-                    .map(|stat| (stat.path, stat.size)),
-            ),
-            Err(error) if is_connection_lost(&error) => return AgentSizes::ConnectionLost(error),
-            Err(error) => return AgentSizes::Failed(error),
-        }
+        known.extend(
+            query(chunk)?
+                .into_iter()
+                .filter(|stat| asked.contains(stat.path.as_str()))
+                .map(|stat| (stat.path, stat.size)),
+        );
     }
     let omitted = paths
         .iter()
         .filter(|path| !known.contains_key(path.as_str()))
         .cloned()
         .collect();
-    AgentSizes::Answered { known, omitted }
-}
-
-/// エージェントが正しい形のエラー応答を返したか（通信は壊れていない）。エージェントのクライアントは
-/// 応答の Error を "agent error: " で始まる型のないエラーにするので、その形で見分ける
-pub(crate) fn is_error_response(error: &anyhow::Error) -> bool {
-    error
-        .chain()
-        .any(|cause| cause.to_string().starts_with("agent error: "))
-}
-
-/// エージェントとの接続が切れたことを示すエラーか。エージェントが返した応答の誤りとは分ける
-fn is_connection_lost(error: &anyhow::Error) -> bool {
-    error
-        .chain()
-        .filter_map(|cause| cause.downcast_ref::<io::Error>())
-        .any(|error| {
-            matches!(
-                error.kind(),
-                io::ErrorKind::BrokenPipe
-                    | io::ErrorKind::ConnectionReset
-                    | io::ErrorKind::ConnectionAborted
-                    | io::ErrorKind::UnexpectedEof
-            )
-        })
+    Ok(AgentSizes { known, omitted })
 }
 
 #[cfg(test)]
@@ -255,33 +226,10 @@ mod tests {
         });
 
         assert_eq!(batches, vec![paths(&["a", "b"]), paths(&["c"])]);
-        let AgentSizes::Answered { known, omitted } = answer else {
-            panic!("{answer:?}");
-        };
+        let AgentSizes { known, omitted } = answer.unwrap();
         assert_eq!(known.get("a"), Some(&1));
         assert_eq!(known.get("c"), Some(&1));
         assert_eq!(omitted, paths(&["b"]));
-    }
-
-    #[test]
-    fn a_lost_connection_to_the_agent_is_told_apart_from_an_error_it_returned() {
-        let lost = ask_agent_sizes(&paths(&["a"]), 2, |_| {
-            Err(io::Error::from(io::ErrorKind::UnexpectedEof).into())
-        });
-        assert!(matches!(lost, AgentSizes::ConnectionLost(_)), "{lost:?}");
-
-        let returned = ask_agent_sizes(&paths(&["a"]), 2, |_| {
-            Err(anyhow::anyhow!("agent error: stat failed"))
-        });
-        assert!(matches!(returned, AgentSizes::Failed(_)), "{returned:?}");
-
-        let oversized_frame = ask_agent_sizes(&paths(&["a"]), 2, |_| {
-            Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large").into())
-        });
-        assert!(
-            matches!(oversized_frame, AgentSizes::Failed(_)),
-            "{oversized_frame:?}"
-        );
     }
 
     #[test]
@@ -294,6 +242,6 @@ mod tests {
             }
             Ok(vec![stat(&batch[0], 1)])
         });
-        assert!(matches!(answer, AgentSizes::Failed(_)), "{answer:?}");
+        assert!(answer.is_err(), "{answer:?}");
     }
 }

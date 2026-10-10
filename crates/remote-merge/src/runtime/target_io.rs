@@ -7,14 +7,17 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
-use super::side_io::hash_results_to_map;
 use super::size_limit::FileSize;
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
 
 /// 一覧した子に include を当てる
-fn included_children(listing: ChildListing, path: &str, include: &[String]) -> ChildListing {
+pub(crate) fn included_children(
+    listing: ChildListing,
+    path: &str,
+    include: &[String],
+) -> ChildListing {
     match listing {
         ChildListing::Children(nodes) => ChildListing::Children(
             crate::filter::filter_children_by_include(nodes, path.trim_end_matches('/'), include),
@@ -145,11 +148,12 @@ pub(crate) trait TargetIo {
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
     fn is_available(&self, runtime: &CoreRuntime) -> bool;
+    /// パスごとのハッシュ。ハッシュで比べられなければ Ok(None)（中身で比べる）
     fn hashes(
         &mut self,
         runtime: &mut CoreRuntime,
         paths: &[String],
-    ) -> Option<HashMap<String, String>>;
+    ) -> anyhow::Result<Option<HashMap<String, String>>>;
 }
 
 pub(crate) struct LocalTargetIo {
@@ -304,18 +308,12 @@ impl TargetIo for LocalTargetIo {
     fn is_available(&self, _: &CoreRuntime) -> bool {
         true
     }
-    fn hashes(&mut self, _: &mut CoreRuntime, paths: &[String]) -> Option<HashMap<String, String>> {
-        remote_merge_engine::local_io::hashes(&self.root, paths)
-    }
-}
-
-pub(crate) struct RemoteTargetIo {
-    name: String,
-}
-
-impl RemoteTargetIo {
-    pub(crate) fn new(name: String) -> Self {
-        Self { name }
+    fn hashes(
+        &mut self,
+        _: &mut CoreRuntime,
+        paths: &[String],
+    ) -> anyhow::Result<Option<HashMap<String, String>>> {
+        Ok(remote_merge_engine::local_io::hashes(&self.root, paths))
     }
 }
 
@@ -328,201 +326,10 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
                 runtime.config.filter.exclude.clone(),
                 runtime.config.filter.include.clone(),
             )),
-            None => Box::new(RemoteTargetIo::new(name.clone())),
+            None if runtime.stopped.contains_key(name) => {
+                Box::new(super::stopped_target::StoppedTargetIo::new(name.clone()))
+            }
+            None => Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
         },
-    }
-}
-
-impl TargetIo for RemoteTargetIo {
-    fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ResolvedPath> {
-        if let Some(value) = rt.try_agent_inspect_path(&self.name, path) {
-            return value;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.inspect_remote_path(&self.name, path)
-    }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
-        if let Some(v) = rt.try_agent_read_file_bytes(&self.name, path) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.read_remote_file_bytes(&self.name, path)
-    }
-    fn file_sizes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        rt.remote_file_sizes(&self.name, paths)
-    }
-    fn read_files_bytes_batch(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        if let Some(v) = rt.try_agent_read_files_bytes_batch(&self.name, paths) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.read_remote_files_batch_bytes(&self.name, paths)
-    }
-    fn write_file(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &str,
-        content: &str,
-    ) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_write_file(&self.name, path, content.as_bytes(), false) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.write_remote_file(&self.name, path, content)
-    }
-    fn write_file_bytes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &str,
-        content: &[u8],
-    ) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_write_file(&self.name, path, content, true) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.write_remote_file_bytes(&self.name, path, content)
-    }
-    fn stat_files(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-    ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        if let Some(v) = rt.try_agent_stat_files(&self.name, paths) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.stat_remote_files(&self.name, paths)
-    }
-    fn chmod_file(&mut self, rt: &mut CoreRuntime, path: &str, mode: u32) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_chmod(&self.name, path, mode) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.chmod_remote_file(&self.name, path, mode)
-    }
-    fn remove_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_remove(&self.name, path) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.remove_remote_file(&self.name, path)
-    }
-    fn create_symlink(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &str,
-        target: &str,
-    ) -> anyhow::Result<()> {
-        if let Some(v) = rt.try_agent_symlink(&self.name, path, target) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.create_remote_symlink(&self.name, path, target)
-    }
-    fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
-        rt.fetch_remote_tree(&self.name)
-    }
-    fn root_dir(&self, rt: &CoreRuntime) -> anyhow::Result<PathBuf> {
-        rt.config
-            .servers
-            .get(&self.name)
-            .map(|server| server.root_dir.clone())
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", self.name))
-    }
-    fn fetch_tree_recursive(
-        &mut self,
-        rt: &mut CoreRuntime,
-        include: &[String],
-        max: usize,
-        fail: bool,
-    ) -> anyhow::Result<FileTree> {
-        if let Some(v) = rt.try_agent_fetch_tree_recursive(&self.name, include, max, fail) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.fetch_remote_tree_recursive(&self.name, include, max, fail)
-    }
-    fn fetch_tree_for_subpath(
-        &mut self,
-        rt: &mut CoreRuntime,
-        subpath: &str,
-        max: usize,
-        fail: bool,
-    ) -> anyhow::Result<FileTree> {
-        let subpath = subpath.trim_end_matches('/');
-        if std::path::Path::new(subpath).is_absolute() {
-            anyhow::bail!("absolute subpath not allowed: {}", subpath);
-        }
-        if subpath.split('/').any(|part| part == "..") {
-            anyhow::bail!("path traversal not allowed: {}", subpath);
-        }
-        if let Some(v) = rt.try_agent_fetch_tree_for_subpath(&self.name, subpath, max, fail) {
-            return v;
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        rt.fetch_remote_tree_for_subpath(&self.name, subpath, max, fail)
-    }
-    fn fetch_children(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &str,
-    ) -> anyhow::Result<Vec<FileNode>> {
-        remote_merge_engine::rel_path::check_rel_path(path)?;
-        if rt.has_agent(&self.name) {
-            // 今の呼び出し元は、ディレクトリでないことも一覧を取れなかったことも Err として受け取る
-            return match self.list_children(rt, path)? {
-                ChildListing::Children(nodes) => Ok(nodes),
-                ChildListing::NotDirectory => anyhow::bail!("not a directory: {path}"),
-                ChildListing::Unlistable(reason) => anyhow::bail!(reason),
-            };
-        }
-        rt.check_sudo_fallback(&self.name)?;
-        let nodes = rt.fetch_remote_children(&self.name, path)?;
-        Ok(crate::filter::filter_children_by_include(
-            nodes,
-            path,
-            &rt.config.filter.include,
-        ))
-    }
-    fn list_children(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
-        let listing = match rt.try_agent_list_children(&self.name, path) {
-            Some(listing) => listing?,
-            None => {
-                rt.check_sudo_fallback(&self.name)?;
-                rt.list_remote_children(&self.name, path)?
-            }
-        };
-        Ok(included_children(listing, path, &rt.config.filter.include))
-    }
-    fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {
-        rt.connect(&self.name)
-    }
-    fn disconnect(&mut self, rt: &mut CoreRuntime) {
-        rt.disconnect(&self.name);
-    }
-    fn is_available(&self, rt: &CoreRuntime) -> bool {
-        rt.has_client(&self.name)
-    }
-    fn hashes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[String],
-    ) -> Option<HashMap<String, String>> {
-        match rt.try_agent_hash_files(&self.name, paths) {
-            Some(Ok(results)) => Some(hash_results_to_map(&results)),
-            Some(Err(error)) => {
-                tracing::debug!("hash_files failed, falling back to content compare: {error}");
-                None
-            }
-            None => None,
-        }
     }
 }

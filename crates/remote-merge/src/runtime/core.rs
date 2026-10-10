@@ -50,7 +50,7 @@ pub struct CoreRuntime {
     pub(crate) agent_clients: HashMap<String, Arc<Mutex<BoxedAgentClient>>>,
     /// Agent の SSH トランスポートガード（ブリッジスレッドのライフサイクル管理）
     #[cfg(unix)]
-    transport_guards: HashMap<String, TransportGuard>,
+    pub(crate) transport_guards: HashMap<String, TransportGuard>,
     /// Agent が利用不可になったサーバー名とその理由のマップ。
     /// try_start_agent の再試行抑制と SSH フォールバック禁止に使用する。
     pub(crate) agent_unavailable: HashMap<String, AgentUnavailableReason>,
@@ -59,6 +59,8 @@ pub struct CoreRuntime {
     pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
     pub(crate) targets: super::RuntimeTargets,
     pub(crate) backup_store: super::backup_store::BackupStore,
+    /// `接続断` で処理を止めたサーバ名と、止めた理由。以降の操作は行わずに失敗にする
+    pub(crate) stopped: HashMap<String, String>,
 }
 
 impl CoreRuntime {
@@ -85,6 +87,7 @@ impl CoreRuntime {
             )),
             targets,
             backup_store,
+            stopped: HashMap::new(),
         }
     }
 
@@ -308,7 +311,10 @@ impl CoreRuntime {
     /// 3. SshAgentTransport でブリッジスレッドを起動し、UnixStream ペアを取得
     /// 4. AgentClient::connect でハンドシェイク
     #[cfg(unix)]
-    fn start_agent_via_ssh(&mut self, server_name: &str) -> anyhow::Result<BoxedAgentClient> {
+    pub(crate) fn start_agent_via_ssh(
+        &mut self,
+        server_name: &str,
+    ) -> anyhow::Result<BoxedAgentClient> {
         // サーバー設定を取得（借用を先に解決）
         let server_config = self.get_server_config(server_name)?;
         let user = server_config.user.clone();
@@ -467,10 +473,12 @@ impl CoreRuntime {
         // ブリッジスレッドを起動し、UnixStream ペアを取得
         let handle = self.rt.handle().clone();
         let transport = SshAgentTransport::start(handle, channel)?;
+        let closed = transport.closed();
         let (read_stream, write_stream, guard) = transport.into_streams();
 
         // AgentClient を接続（ハンドシェイク）
-        let client = AgentClient::connect(read_stream, write_stream)?;
+        let mut client = AgentClient::connect(read_stream, write_stream)?;
+        client.watch_closed(closed);
         tracing::info!(
             "Agent client connected: server={}, protocol_version={}",
             server_name,
@@ -670,7 +678,10 @@ impl CoreRuntime {
 
     /// Unix 以外のプラットフォームではエージェントは利用不可
     #[cfg(not(unix))]
-    fn start_agent_via_ssh(&mut self, _server_name: &str) -> anyhow::Result<BoxedAgentClient> {
+    pub(crate) fn start_agent_via_ssh(
+        &mut self,
+        _server_name: &str,
+    ) -> anyhow::Result<BoxedAgentClient> {
         anyhow::bail!("Agent SSH transport is only supported on Unix platforms")
     }
 

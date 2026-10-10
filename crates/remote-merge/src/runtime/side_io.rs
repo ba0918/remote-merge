@@ -4,7 +4,6 @@
 //! swap 後に right=local になっても同じ API でアクセスできるようにする。
 
 use std::collections::HashMap;
-use std::io;
 
 use chrono::{DateTime, Utc};
 
@@ -13,8 +12,9 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
 
-use super::core::{AgentUnavailableReason, BoxedAgentClient, CoreRuntime};
-use super::remote_size::{ask_agent_sizes, is_error_response, AgentSizes};
+use super::core::{BoxedAgentClient, CoreRuntime};
+use super::reconnect::{Access, AgentAnswer};
+use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
 
 pub(crate) use remote_merge_engine::local_io::{
@@ -53,7 +53,7 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<ResolvedPath>> {
-        let result = self.with_agent(server_name, "inspect_path", |agent| {
+        let result = self.with_agent(server_name, "inspect_path", Access::Read, |agent| {
             agent.inspect_path(rel_path)
         })?;
         Some(result.and_then(super::path_route::resolved_from_agent))
@@ -561,9 +561,9 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<Vec<u8>>> {
-        let rel = rel_path.to_string();
-        let agent_result = self.with_agent(server_name, "read_file_bytes", |agent| {
-            agent.read_files(&[rel], AGENT_CHUNK_SIZE_LIMIT)
+        let rel = [rel_path.to_string()];
+        let agent_result = self.with_agent(server_name, "read_file_bytes", Access::Read, |agent| {
+            agent.read_files(&rel, AGENT_CHUNK_SIZE_LIMIT)
         });
         flatten_agent_read_result(agent_result, extract_single_file_as_bytes)
     }
@@ -571,63 +571,39 @@ impl CoreRuntime {
     /// Agent 経由で複数ファイルのバイト列をバッチ読み込む（チャンク分割対応）
     ///
     /// パスを `AGENT_READ_BATCH_SIZE` 件ごとにチャンク分割して Agent に送る。
-    /// チャンク途中でエラーが発生した場合は Agent を無効化して None を返す
-    /// （呼び出し元が SSH フォールバックで全件リトライ）。
+    /// エージェントが読めなかったパスがあれば Agent を無効化して None を返す
+    /// （呼び出し元が SSH フォールバックで全件リトライ）。`接続断` はやり直した後のエラーを返す
     pub(crate) fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-        // サーバー設定の存在確認（Agent が有効かどうか）
-        self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-
+        if !self.has_agent(server_name) {
+            return None;
+        }
         let mut merged: HashMap<String, Vec<u8>> = HashMap::with_capacity(rel_paths.len());
 
         // パス数ベースのチャンク分割（フレームサイズ超過防止）
         for chunk in rel_paths.chunks(AGENT_READ_BATCH_SIZE) {
-            let paths: Vec<String> = chunk.to_vec();
-            let result = agent.read_files(&paths, AGENT_CHUNK_SIZE_LIMIT);
-
-            match result {
-                Ok(results) => {
-                    match extract_batch_files_as_bytes(results, chunk) {
-                        Some(Ok(batch)) => merged.extend(batch),
-                        Some(Err(e)) => {
-                            // 変換エラー → 伝播
-                            drop(agent);
-                            return Some(Err(e));
-                        }
-                        None => {
-                            // FileReadResult::Error → SSH フォールバック
-                            drop(agent);
-                            self.invalidate_agent(server_name);
-                            return None;
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Agent read_files_bytes_batch failed for {} (chunk), falling back to SSH: {}",
-                        server_name,
-                        e
-                    );
-                    drop(agent);
+            let results = match self.with_agent(
+                server_name,
+                "read_files_bytes_batch",
+                Access::Read,
+                |agent| agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT),
+            )? {
+                Ok(results) => results,
+                Err(error) => return Some(Err(error)),
+            };
+            match extract_batch_files_as_bytes(results, chunk) {
+                Some(Ok(batch)) => merged.extend(batch),
+                Some(Err(e)) => return Some(Err(e)),
+                None => {
+                    // FileReadResult::Error → SSH フォールバック
                     self.invalidate_agent(server_name);
                     return None;
                 }
             }
         }
-
-        drop(agent);
         Some(Ok(merged))
     }
 
@@ -639,7 +615,7 @@ impl CoreRuntime {
         content: &[u8],
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
-        self.with_agent(server_name, "write_file", |agent| {
+        self.with_agent(server_name, "write_file", Access::Modify, |agent| {
             agent.write_file(rel_path, content, is_binary)
         })
     }
@@ -651,10 +627,10 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let paths = rel_paths.to_vec();
         let owned_rel_paths: Vec<String> = rel_paths.to_vec();
-        let agent_result =
-            self.with_agent(server_name, "stat_files", |agent| agent.stat_files(&paths));
+        let agent_result = self.with_agent(server_name, "stat_files", Access::Read, |agent| {
+            agent.stat_files(rel_paths)
+        });
         // with_agent の結果に対して後処理を適用
         match agent_result {
             Some(Ok(stats)) => transform_stat_results(stats, &owned_rel_paths),
@@ -700,10 +676,9 @@ impl CoreRuntime {
     /// エージェントの `StatFiles` で大きさを尋ね、答えたパスの大きさと答えなかったパスを返す。
     ///
     /// エージェントがなければ None。`with_agent` は通さない: エージェントが返したエラーを SSH への
-    /// 切り替えにすると、その経路だけ上限が黙って外れうる。そこで、接続が切れたときだけ
-    /// エージェントを無効にして None（SSH への切り替え）にし、それ以外の失敗は尋ねたパスすべての
-    /// 失敗にする。正しい形のエラー応答ではエージェントを使い続け、通信が壊れたとき（フレームの
-    /// 破損、想定外の応答、フレームの上限超え）だけ無効にする
+    /// 切り替えにすると、その経路だけ上限が黙って外れうる。そこでエージェントが返したエラーは
+    /// 尋ねたパスすべての失敗にして、エージェントを使い続ける。`接続断` は起動し直して一度だけ
+    /// 尋ね直し、だめならそのエラーを返す（SSH には切り替えない）
     #[allow(clippy::type_complexity)]
     fn try_agent_file_sizes(
         &mut self,
@@ -711,29 +686,17 @@ impl CoreRuntime {
         rel_paths: &[String],
     ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<String>)>> {
         self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-        let Ok(mut agent) = agent_arc.lock() else {
-            self.invalidate_agent(server_name);
-            return None;
-        };
-        let answer = ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
-            agent.stat_files(paths)
-        });
-        drop(agent);
-        match answer {
-            AgentSizes::Answered { known, omitted } => Some(Ok((known, omitted))),
-            AgentSizes::ConnectionLost(error) => {
-                tracing::warn!("Agent connection lost for {}: {}", server_name, error);
-                self.invalidate_agent(server_name);
-                None
+        let answer = self.agent_call(server_name, Access::Read, |agent| {
+            ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
+                agent.stat_files(paths)
+            })
+        })?;
+        Some(match answer {
+            AgentAnswer::Done(answer) => {
+                answer.map(|AgentSizes { known, omitted }| (known, omitted))
             }
-            AgentSizes::Failed(error) => {
-                if !is_error_response(&error) {
-                    self.invalidate_agent(server_name);
-                }
-                Some(Err(error.context("agent could not report file sizes")))
-            }
-        }
+            AgentAnswer::Refused(error) => Err(error.context("agent could not report file sizes")),
+        })
     }
 
     /// Agent 経由でシンボリックリンクを作成する
@@ -743,7 +706,7 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> Option<anyhow::Result<()>> {
-        self.with_agent(server_name, "symlink", |agent| {
+        self.with_agent(server_name, "symlink", Access::Modify, |agent| {
             agent.symlink(rel_path, target)
         })
     }
@@ -757,35 +720,44 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[String],
     ) -> Option<anyhow::Result<Vec<crate::agent::protocol::FileHashResult>>> {
-        let paths = rel_paths.to_vec();
-        self.with_agent(server_name, "hash_files", |agent| agent.hash_files(&paths))
+        self.with_agent(server_name, "hash_files", Access::Read, |agent| {
+            agent.hash_files(rel_paths)
+        })
     }
 
     /// Agent ハッシュ比較を使って status を精緻化する。
     ///
     /// left/right の Side に応じてハッシュを取得し、一致するか比較する。
     /// 成功した場合は `(local_hashes, remote_hashes)` を返す。
-    /// Agent が利用不可、または hash_files がサポートされていない場合は `None` を返す。
+    /// Agent が利用不可、または hash_files がサポートされていない場合は `Ok(None)` を返す。
+    /// `接続断` は中身の比較に移らずに Err を返す。
     ///
     /// 呼び出し元は `refine_status_with_hashes()` に結果を渡してステータスを更新する。
+    #[allow(clippy::type_complexity)]
     pub fn try_hash_compare(
         &mut self,
         left: &Side,
         right: &Side,
         paths: &[String],
-    ) -> Option<(HashMap<String, String>, HashMap<String, String>)> {
+    ) -> anyhow::Result<Option<(HashMap<String, String>, HashMap<String, String>)>> {
         if paths.is_empty() {
-            return Some((HashMap::new(), HashMap::new()));
+            return Ok(Some((HashMap::new(), HashMap::new())));
         }
 
         // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
-        right.server_name()?;
+        if right.server_name().is_none() {
+            return Ok(None);
+        }
         let mut right_io = super::target_io::for_side(right, self);
-        let remote_hashes = right_io.hashes(self, paths)?;
+        let Some(remote_hashes) = right_io.hashes(self, paths)? else {
+            return Ok(None);
+        };
         let mut left_io = super::target_io::for_side(left, self);
-        let local_hashes = left_io.hashes(self, paths)?;
+        let Some(local_hashes) = left_io.hashes(self, paths)? else {
+            return Ok(None);
+        };
 
-        Some((local_hashes, remote_hashes))
+        Ok(Some((local_hashes, remote_hashes)))
     }
 
     /// Agent 経由でツリーを再帰取得する
@@ -802,7 +774,7 @@ impl CoreRuntime {
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
-        self.with_agent(server_name, "list_tree", |agent| {
+        self.with_agent(server_name, "list_tree", Access::Read, |agent| {
             agent.list_tree("", &exclude, include, max_entries)
         })
         .map(|r| {
@@ -837,7 +809,7 @@ impl CoreRuntime {
         // サブパス走査では include フィルターは適用しない
         // （既に特定サブディレクトリを直接指定しているため）
         let subpath_owned = subpath.to_string();
-        self.with_agent(server_name, "list_tree", |agent| {
+        self.with_agent(server_name, "list_tree", Access::Read, |agent| {
             agent.list_tree(&subpath_owned, &exclude, &[], max_entries)
         })
         .map(|r| {
@@ -857,93 +829,41 @@ impl CoreRuntime {
         })
     }
 
-    /// Agent のロック取得 + 操作実行 + エラーハンドリングの共通ヘルパー
+    /// エージェントで操作する共通ヘルパー。
     ///
-    /// 成功: Some(Ok(T))
-    /// Agent 未設定/サーバ未設定: None
-    /// Agent lock 失敗/操作エラー: invalidate + None（SSH フォールバック）
+    /// - 成功、または `接続断`（読み取りはエージェントを起動し直して一度だけやり直した後）: Some
+    /// - エージェント未設定・サーバ未設定: None
+    /// - エージェントが失敗を返した: エージェントを外して None（呼び出し元が SSH の経路に回す。
+    ///   sudo を使うサーバでは呼び出し元の `check_sudo_fallback` が止める）
     ///
-    /// エラーの種類に応じて invalidate 判定を行う:
-    /// - BrokenPipe / ConnectionReset / ConnectionAborted → 致命的: OperationFailed を記録して invalidate
-    /// - 不明エラー → 安全側: OperationFailed を記録して invalidate
-    /// - それ以外の io::Error → 非致命的: warn のみ。invalidate しない
+    /// `接続断` は SSH の経路に回さない（回の途中で経路を変えず、変更を繰り返さない）
     fn with_agent<T, F>(
         &mut self,
         server_name: &str,
         op_name: &str,
-        f: F,
+        access: Access,
+        operation: F,
     ) -> Option<anyhow::Result<T>>
     where
-        F: FnOnce(&mut BoxedAgentClient) -> anyhow::Result<T>,
+        F: FnMut(&mut BoxedAgentClient) -> anyhow::Result<T>,
     {
         self.config.servers.get(server_name)?;
-        let agent_arc = self.agent_clients.get(server_name)?.clone();
-        let mut agent = match agent_arc.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.agent_unavailable.insert(
-                    server_name.to_string(),
-                    AgentUnavailableReason::OperationFailed,
+        match self.agent_call(server_name, access, operation)? {
+            AgentAnswer::Done(result) => Some(result),
+            AgentAnswer::Refused(error) => {
+                tracing::warn!(
+                    "Agent {} failed for {}, falling back to SSH: {}",
+                    op_name,
+                    server_name,
+                    error
                 );
                 self.invalidate_agent(server_name);
-                return None;
-            }
-        };
-        let result = f(&mut agent);
-        drop(agent);
-        match result {
-            Ok(val) => Some(Ok(val)),
-            Err(e) => {
-                // エラー種別を純粋関数で判定
-                let should_invalidate = should_invalidate_agent_error(&e);
-
-                if should_invalidate {
-                    tracing::warn!("Agent invalidated for {}: {}", server_name, e);
-                    // invalidate_agent() 内で agent_unavailable を設定する
-                    // （sudo=true の場合は SudoInvalidated、それ以外は OperationFailed）
-                    self.invalidate_agent(server_name);
-                } else {
-                    tracing::warn!(
-                        "Agent {} temporary error for {}, falling back to SSH: {}",
-                        op_name,
-                        server_name,
-                        e
-                    );
-                }
                 None
             }
         }
     }
 
     // ── Agent パス解決ヘルパー ──
-}
-
-// ── Agent エラー判定関数 ──
-
-/// Agent の操作エラーが接続を invalidate すべきかを判定する純粋関数。
-///
-/// anyhow のエラーチェーン全体を探索し、`io::Error` を検出する。
-///
-/// 判定基準:
-/// - `io::Error` で BrokenPipe / ConnectionReset / ConnectionAborted / UnexpectedEof → true（致命的接続エラー）
-/// - `io::Error` で InvalidData → true（フレームプロトコル破損 — ストリーム同期不可能）
-/// - `io::Error` でそれ以外 → false（一時的エラー、invalidate 不要）
-/// - チェーン内に `io::Error` なし → true（安全側: 不明エラーは invalidate する）
-pub(crate) fn should_invalidate_agent_error(e: &anyhow::Error) -> bool {
-    for cause in e.chain() {
-        if let Some(io_err) = cause.downcast_ref::<io::Error>() {
-            return matches!(
-                io_err.kind(),
-                io::ErrorKind::BrokenPipe
-                    | io::ErrorKind::ConnectionReset
-                    | io::ErrorKind::ConnectionAborted
-                    | io::ErrorKind::UnexpectedEof
-                    | io::ErrorKind::InvalidData
-            );
-        }
-    }
-    // チェーン内に io::Error なし → 安全側に倒して invalidate
-    true
 }
 
 // ── Agent read 結果変換ヘルパー（純粋関数） ──
@@ -1604,18 +1524,25 @@ mod tests {
         assert!(rt.agent_clients.contains_key("develop"));
     }
 
+    // 接続断は SSH で尋ね直さず、エージェントを起動し直して一度だけ尋ね直す。起動し直せなければ
+    // 接続断のまま返す（この試験では SSH につながっていないので起動し直せない）
     #[cfg(unix)]
     #[test]
-    fn a_lost_agent_connection_invalidates_the_agent_and_asks_over_ssh() {
-        let (mut rt, _) = runtime_with_scripted_agent(None);
+    fn a_lost_agent_connection_is_not_asked_again_over_ssh_and_stays_a_connection_loss() {
+        let (mut rt, received) = runtime_with_scripted_agent(None);
 
         let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
 
-        assert!(!rt.agent_clients.contains_key("develop"));
-        assert!(
-            format!("{error:#}").contains("SSH not connected"),
+        assert_eq!(
+            crate::runtime::connection::classify(&error),
+            crate::runtime::connection::Failure::Lost,
             "{error:#}"
         );
+        assert!(
+            format!("{error:#}").contains("could not be restarted"),
+            "{error:#}"
+        );
+        assert_eq!(requests(&received), 1);
     }
 
     #[cfg(unix)]
@@ -2146,91 +2073,6 @@ mod tests {
             .unwrap();
 
         assert!(tree.nodes.is_empty());
-    }
-
-    // ── should_invalidate_agent_error テスト ──
-
-    #[test]
-    fn test_should_invalidate_broken_pipe() {
-        // BrokenPipe → invalidate すべき
-        let io_err = io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe");
-        let e = anyhow::Error::from(io_err);
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_connection_reset() {
-        // ConnectionReset → invalidate すべき
-        let io_err = io::Error::new(io::ErrorKind::ConnectionReset, "connection reset");
-        let e = anyhow::Error::from(io_err);
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_connection_aborted() {
-        // ConnectionAborted → invalidate すべき
-        let io_err = io::Error::new(io::ErrorKind::ConnectionAborted, "connection aborted");
-        let e = anyhow::Error::from(io_err);
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_not_invalidate_non_fatal_io_error() {
-        // WouldBlock など → invalidate しない（一時的エラー）
-        let io_err = io::Error::new(io::ErrorKind::WouldBlock, "would block");
-        let e = anyhow::Error::from(io_err);
-        assert!(!should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_unknown_error() {
-        // io::Error 以外の不明エラー → 安全側で invalidate
-        let e = anyhow::anyhow!("some unknown error");
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_anyhow_wrapped_non_io_error() {
-        // anyhow でラップした文字列エラー → 不明扱いで invalidate
-        let e = anyhow::Error::msg("protocol error: unexpected frame");
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_unexpected_eof() {
-        // UnexpectedEof → invalidate すべき（Agent プロセスのクラッシュ）
-        let io_err = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected eof");
-        let e = anyhow::Error::from(io_err);
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_invalid_data() {
-        // InvalidData → invalidate すべき（フレームプロトコル破損: ストリーム同期不可能）
-        let io_err = io::Error::new(
-            io::ErrorKind::InvalidData,
-            "frame length 458961517 exceeds maximum frame size 16777216",
-        );
-        let e = anyhow::Error::from(io_err);
-        assert!(should_invalidate_agent_error(&e));
-    }
-
-    #[test]
-    fn test_should_invalidate_chained_io_error() {
-        // anyhow チェーンの内部に io::Error がある場合でも検出できること
-        let io_err = io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe");
-        let inner = anyhow::Error::from(io_err);
-        let outer = inner.context("agent operation failed");
-        assert!(should_invalidate_agent_error(&outer));
-    }
-
-    #[test]
-    fn test_should_not_invalidate_chained_non_fatal_io_error() {
-        // チェーン内部の非致命的 io::Error は invalidate しない
-        let io_err = io::Error::new(io::ErrorKind::TimedOut, "timed out");
-        let inner = anyhow::Error::from(io_err);
-        let outer = inner.context("agent operation timed out");
-        assert!(!should_invalidate_agent_error(&outer));
     }
 
     // ── with_agent のキャッシュ動作（間接テスト）──

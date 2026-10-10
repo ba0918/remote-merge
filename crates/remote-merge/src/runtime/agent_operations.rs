@@ -6,6 +6,7 @@
 use remote_merge_core::listing::ChildListing;
 
 use super::core::{BoxedAgentClient, CoreRuntime};
+use super::reconnect::{Access, AgentAnswer};
 
 impl CoreRuntime {
     /// エージェントで消す。エージェントがなければ None
@@ -14,7 +15,7 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> Option<anyhow::Result<()>> {
-        self.with_agent_operation(server_name, |agent| agent.remove(rel_path))
+        self.with_agent_operation(server_name, Access::Modify, |agent| agent.remove(rel_path))
     }
 
     /// エージェントで権限を変える。エージェントがなければ None
@@ -24,7 +25,9 @@ impl CoreRuntime {
         rel_path: &str,
         mode: u32,
     ) -> Option<anyhow::Result<()>> {
-        self.with_agent_operation(server_name, |agent| agent.chmod(rel_path, mode))
+        self.with_agent_operation(server_name, Access::Modify, |agent| {
+            agent.chmod(rel_path, mode)
+        })
     }
 
     /// エージェントで子を一覧する（include は当てない）。エージェントがなければ None
@@ -34,25 +37,24 @@ impl CoreRuntime {
         rel_path: &str,
     ) -> Option<anyhow::Result<ChildListing>> {
         let exclude = self.config.filter.exclude.clone();
-        self.with_agent_operation(server_name, |agent| {
+        self.with_agent_operation(server_name, Access::Read, |agent| {
             agent
                 .list_dir(rel_path, &exclude, crate::config::DEFAULT_MAX_DIR_ENTRIES)
                 .map(crate::agent::tree_scan::child_listing_from_agent)
         })
     }
 
-    /// エージェントがあれば `operation` を行う。どの失敗もエージェントを外さずに返す
+    /// エージェントがあれば `operation` を行う。どの失敗もエージェントを外さずに返す。
+    /// 子の一覧（読み取り）の `接続断` は起動し直して一度だけやり直し、変更はやり直さない
     fn with_agent_operation<T>(
         &mut self,
         server_name: &str,
-        operation: impl FnOnce(&mut BoxedAgentClient) -> anyhow::Result<T>,
+        access: Access,
+        operation: impl FnMut(&mut BoxedAgentClient) -> anyhow::Result<T>,
     ) -> Option<anyhow::Result<T>> {
-        let agent = self.agent_clients.get(server_name)?.clone();
-        let Ok(mut agent) = agent.lock() else {
-            return Some(Err(anyhow::anyhow!(
-                "agent connection for {server_name} is unusable (lock poisoned)"
-            )));
-        };
-        Some(operation(&mut agent))
+        Some(match self.agent_call(server_name, access, operation)? {
+            AgentAnswer::Done(result) => result,
+            AgentAnswer::Refused(error) => Err(error),
+        })
     }
 }

@@ -174,6 +174,9 @@ mod ssh_agent_operations;
 #[path = "contract/ssh_agent_version.rs"]
 mod ssh_agent_version;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_connection_loss.rs"]
+mod ssh_connection_loss;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_strict_exec.rs"]
 mod ssh_strict_exec;
 #[cfg(feature = "test-utils")]

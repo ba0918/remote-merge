@@ -40,7 +40,8 @@ impl CoreRuntime {
         super::remote_path::parse_inspect_path_output(&output)
     }
 
-    /// 複数のリモートファイルをバイト列としてバッチ読み込みする（接続エラー時に1回自動再接続）。
+    /// 複数のリモートファイルをバイト列としてバッチ読み込みする（`接続断` のやり直しは呼び出し元の
+    /// `ssh_read` が行う）。
     ///
     /// SSH の `read_files_batch_bytes()` を使い、チャンク分割されたバッチ読み込みを行う。
     /// side_io.rs の統一 API 経由でのみ使用する。
@@ -55,24 +56,12 @@ impl CoreRuntime {
 
         let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
 
-        match self.read_files_batch_bytes_inner(server_name, &full_paths) {
-            Ok(batch_result) => Ok(Self::map_to_rel_paths_bytes(
-                rel_paths,
-                &full_paths,
-                batch_result,
-            )),
-            Err(e) if crate::error::is_connection_error(&e) => {
-                tracing::info!("Batch read bytes failed (connection error), auto-reconnecting");
-                self.try_reconnect(server_name)?;
-                let batch_result = self.read_files_batch_bytes_inner(server_name, &full_paths)?;
-                Ok(Self::map_to_rel_paths_bytes(
-                    rel_paths,
-                    &full_paths,
-                    batch_result,
-                ))
-            }
-            Err(e) => Err(e),
-        }
+        let batch_result = self.read_files_batch_bytes_inner(server_name, &full_paths)?;
+        Ok(Self::map_to_rel_paths_bytes(
+            rel_paths,
+            &full_paths,
+            batch_result,
+        ))
     }
 
     /// リモートファイルに書き込む（自動再接続なし — safety のため）
@@ -115,7 +104,7 @@ impl CoreRuntime {
 
     /// リモートファイルをバイト列として読み込む（バイナリファイル対応）
     ///
-    /// 接続エラー時に1回自動再接続を試みる。
+    /// `接続断` のやり直しは呼び出し元の `ssh_read` が行う。
     /// side_io.rs の統一 API 経由でのみ使用する。
     pub(crate) fn read_remote_file_bytes(
         &mut self,
@@ -124,21 +113,11 @@ impl CoreRuntime {
     ) -> anyhow::Result<Vec<u8>> {
         let full_path = self.resolve_remote_path(server_name, rel_path)?;
 
-        match self.read_file_bytes_inner(server_name, &full_path) {
-            Ok(bytes) => Ok(bytes),
-            Err(e) if crate::error::is_connection_error(&e) => {
-                tracing::info!(
-                    "Read bytes failed (connection error), auto-reconnecting: {}",
-                    rel_path
-                );
-                self.try_reconnect(server_name)?;
-                self.read_file_bytes_inner(server_name, &full_path)
-            }
-            Err(e) => Err(e),
-        }
+        self.read_file_bytes_inner(server_name, &full_path)
     }
 
-    /// リモートのファイルの大きさを SSH のコマンドで調べる（接続エラー時に1回自動再接続）。
+    /// リモートのファイルの大きさを SSH のコマンドで調べる（`接続断` なら再接続して一度だけ
+    /// やり直す）。
     ///
     /// パスごとの失敗は `FileSize::Unknown`、コマンドの失敗と解析できない出力は Err にする。
     /// side_io.rs の統一 API 経由でのみ使用する。
@@ -151,15 +130,9 @@ impl CoreRuntime {
             return Ok(HashMap::new());
         }
         let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
-        let sizes = match self.file_sizes_inner(server_name, &full_paths) {
-            Ok(sizes) => sizes,
-            Err(e) if crate::error::is_connection_error(&e) => {
-                tracing::info!("File size query failed (connection error), auto-reconnecting");
-                self.try_reconnect(server_name)?;
-                self.file_sizes_inner(server_name, &full_paths)?
-            }
-            Err(e) => return Err(e),
-        };
+        let sizes = self.ssh_read(server_name, |runtime| {
+            runtime.file_sizes_inner(server_name, &full_paths)
+        })?;
         Ok(rel_paths
             .iter()
             .cloned()

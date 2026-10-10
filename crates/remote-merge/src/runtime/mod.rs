@@ -2,12 +2,14 @@
 
 mod agent_operations;
 mod backup_store;
+pub mod connection;
 pub mod core;
 pub(crate) mod include_check;
 #[cfg(feature = "test-utils")]
 pub mod path_route;
 #[cfg(not(feature = "test-utils"))]
 mod path_route;
+mod reconnect;
 pub mod remote_io;
 #[cfg(feature = "test-utils")]
 pub mod remote_path;
@@ -17,10 +19,12 @@ mod remote_path;
 pub mod remote_size;
 #[cfg(not(feature = "test-utils"))]
 mod remote_size;
+mod remote_target;
 #[cfg(all(test, unix))]
 pub(crate) mod scripted_agent;
 pub mod side_io;
 pub mod size_limit;
+mod stopped_target;
 pub(crate) mod target_io;
 
 use std::collections::HashMap;
