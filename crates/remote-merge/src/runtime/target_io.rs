@@ -402,9 +402,17 @@ impl TargetIo for RemoteTargetIo {
         rt.stat_remote_files(&self.name, paths)
     }
     fn chmod_file(&mut self, rt: &mut CoreRuntime, path: &str, mode: u32) -> anyhow::Result<()> {
+        if let Some(v) = rt.try_agent_chmod(&self.name, path, mode) {
+            return v;
+        }
+        rt.check_sudo_fallback(&self.name)?;
         rt.chmod_remote_file(&self.name, path, mode)
     }
     fn remove_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
+        if let Some(v) = rt.try_agent_remove(&self.name, path) {
+            return v;
+        }
+        rt.check_sudo_fallback(&self.name)?;
         rt.remove_remote_file(&self.name, path)
     }
     fn create_symlink(
@@ -468,6 +476,15 @@ impl TargetIo for RemoteTargetIo {
         path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
         remote_merge_engine::rel_path::check_rel_path(path)?;
+        if rt.has_agent(&self.name) {
+            // 今の呼び出し元は、ディレクトリでないことも一覧を取れなかったことも Err として受け取る
+            return match self.list_children(rt, path)? {
+                ChildListing::Children(nodes) => Ok(nodes),
+                ChildListing::NotDirectory => anyhow::bail!("not a directory: {path}"),
+                ChildListing::Unlistable(reason) => anyhow::bail!(reason),
+            };
+        }
+        rt.check_sudo_fallback(&self.name)?;
         let nodes = rt.fetch_remote_children(&self.name, path)?;
         Ok(crate::filter::filter_children_by_include(
             nodes,
@@ -476,7 +493,13 @@ impl TargetIo for RemoteTargetIo {
         ))
     }
     fn list_children(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
-        let listing = rt.list_remote_children(&self.name, path)?;
+        let listing = match rt.try_agent_list_children(&self.name, path) {
+            Some(listing) => listing?,
+            None => {
+                rt.check_sudo_fallback(&self.name)?;
+                rt.list_remote_children(&self.name, path)?
+            }
+        };
         Ok(included_children(listing, path, &rt.config.filter.include))
     }
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {

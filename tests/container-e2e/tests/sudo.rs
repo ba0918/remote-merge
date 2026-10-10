@@ -35,6 +35,11 @@ fn merge(home: &TempDir, port: &str) -> Output {
 }
 
 fn merge_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str) -> Output {
+    run_with(home, port, sudo, deploy_dir, &["merge", "example.txt"])
+}
+
+/// local を左、fixture を右にして `args` のコマンドを JSON の出力で動かす
+fn run_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str, args: &[&str]) -> Output {
     let binary = std::env::var("REMOTE_MERGE_BINARY").unwrap();
     let agent = std::env::var("REMOTE_MERGE_AGENT_BINARY").unwrap();
     let config = config(home.path(), port, sudo, deploy_dir);
@@ -45,18 +50,9 @@ fn merge_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str) -> Outpu
         .env("HOME", home.path())
         .env("XDG_DATA_HOME", home.path().join("data"))
         .env("REMOTE_MERGE_AGENT_BINARY", agent)
-        .args([
-            "--config",
-            config.to_str().unwrap(),
-            "merge",
-            "example.txt",
-            "--left",
-            "local",
-            "--right",
-            "fixture",
-            "--format",
-            "json",
-        ])
+        .args(["--config", config.to_str().unwrap()])
+        .args(args)
+        .args(["--left", "local", "--right", "fixture", "--format", "json"])
         .output()
         .unwrap()
 }
@@ -107,6 +103,30 @@ fn permitted_sudo_preserves_root_owner_mode_and_original_backup() {
         content.status.success() && !content.stdout.is_empty(),
         "{content:?}"
     );
+}
+
+// @kotowari[EX-ssh-034]
+#[test]
+fn a_root_owned_file_only_on_the_target_is_deleted_through_the_agent_under_sudo() {
+    let container = std::env::var("REMOTE_MERGE_E2E_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    fs::create_dir_all(home.path().join("local/delete-only")).unwrap();
+    // 消せるのは root だけ（ディレクトリもファイルも root の持ち物で、利用者は書き込めない）
+    let setup = docker(&container, "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/delete-only && mkdir -p /data/delete-only && printf 'old\\n' > /data/delete-only/old.txt && chown -R root:root /data/delete-only && chmod 755 /data/delete-only && chmod 600 /data/delete-only/old.txt");
+    assert!(setup.status.success(), "{setup:?}");
+
+    let output = run_with(
+        &home,
+        &port,
+        true,
+        "/tmp/agent",
+        &["sync", "delete-only/old.txt", "--delete", "--force"],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    let state = docker(&container, "test -e /data/delete-only/old.txt && echo remains");
+    assert_eq!(String::from_utf8(state.stdout).unwrap(), "");
 }
 
 // @kotowari[EX-testing-007]

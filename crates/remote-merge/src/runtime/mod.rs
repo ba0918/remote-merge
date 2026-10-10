@@ -1,5 +1,6 @@
 //! Runtime: CLI の実行時基盤 (CoreRuntime) と比較先の構成 (RuntimeTargets)。
 
+mod agent_operations;
 mod backup_store;
 pub mod core;
 pub(crate) mod include_check;
