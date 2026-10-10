@@ -28,6 +28,9 @@ impl Failure {
 /// `error` の種類。原因の連なりのうち、最初に種類の分かる原因で決める
 pub fn classify(error: &anyhow::Error) -> Failure {
     for cause in error.chain() {
+        if let Some(labeled) = cause.downcast_ref::<Labeled>() {
+            return labeled.failure;
+        }
         if cause.is::<AgentRefused>() {
             return Failure::Refused;
         }
@@ -47,6 +50,69 @@ pub fn classify(error: &anyhow::Error) -> Failure {
         }
     }
     Failure::Refused
+}
+
+/// 変更の失敗の文言に、結果が分からないことか、手を付けていないことを示す（REQ-ssh-022）。
+/// 種類は変えない
+pub fn label_change(error: anyhow::Error) -> anyhow::Error {
+    if is_stopped(&error) {
+        return error;
+    }
+    let failure = classify(&error);
+    let message = match failure {
+        Failure::Lost => format!(
+            "result unknown: the connection was lost before the change was confirmed: {error:#}"
+        ),
+        Failure::NotSent => format!(
+            "not attempted: the connection was already unusable, so the change was not sent: {error:#}"
+        ),
+        Failure::Refused => return error,
+    };
+    Labeled { failure, message }.into()
+}
+
+/// 読み取りが接続の使えないまま失敗したことを文言に示す（REQ-ssh-003・REQ-ssh-023）。
+/// 種類は変えない
+pub fn label_read(error: anyhow::Error) -> anyhow::Error {
+    let failure = classify(&error);
+    if is_stopped(&error) || failure == Failure::Refused {
+        return error;
+    }
+    let message = format!("read failed: the connection was lost: {error:#}");
+    Labeled { failure, message }.into()
+}
+
+/// 文言を付けた接続の失敗。種類は `failure` に持ち、原因は文言に含める（原因の連なりは持たない
+/// ので、`{:#}` で同じ原因が二度並ばない）
+#[derive(Debug)]
+struct Labeled {
+    failure: Failure,
+    message: String,
+}
+
+impl std::fmt::Display for Labeled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Labeled {}
+
+/// 文言の前に `prefix` を付ける。接続の使えない失敗は種類を残し、それ以外は今までどおり
+/// 文言だけの失敗にする
+pub fn prefixed(error: anyhow::Error, prefix: &str) -> anyhow::Error {
+    match classify(&error) {
+        Failure::Refused => anyhow::anyhow!("{prefix}{error}"),
+        failure => Labeled {
+            failure,
+            message: format!("{prefix}{error:#}"),
+        }
+        .into(),
+    }
+}
+
+fn is_stopped(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<ProcessingStopped>())
 }
 
 /// `接続断` の後、その書き込み先への処理を止めたので行わなかった
@@ -161,6 +227,30 @@ mod tests {
         for (name, error, expected) in cases {
             assert_eq!(classify(&error), expected, "{name}");
         }
+    }
+
+    #[test]
+    fn labels_tell_an_unknown_result_from_an_untouched_file_and_keep_the_type() {
+        let lost = label_change(io(io::ErrorKind::UnexpectedEof));
+        assert!(lost.to_string().starts_with("result unknown: "), "{lost}");
+        assert_eq!(classify(&lost), Failure::Lost);
+        let unsent = label_change(AgentNotSent.into());
+        assert!(
+            unsent.to_string().starts_with("not attempted: "),
+            "{unsent}"
+        );
+        let stopped: anyhow::Error = ProcessingStopped {
+            server: "fixture".into(),
+            reason: "lost".into(),
+        }
+        .into();
+        let stopped_text = stopped.to_string();
+        assert_eq!(label_change(stopped).to_string(), stopped_text);
+        let refused = label_change(AgentRefused("write failed: denied".into()).into());
+        assert_eq!(refused.to_string(), "write failed: denied");
+        let read = label_read(io(io::ErrorKind::UnexpectedEof));
+        assert!(read.to_string().starts_with("read failed: "), "{read}");
+        assert_eq!(classify(&read), Failure::Lost);
     }
 
     #[test]

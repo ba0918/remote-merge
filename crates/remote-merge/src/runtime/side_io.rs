@@ -12,6 +12,7 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
 
+use super::connection::{classify, label_change, label_read};
 use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
@@ -83,7 +84,7 @@ impl CoreRuntime {
         rel_path: &str,
     ) -> anyhow::Result<ResolvedPath> {
         let mut io = super::target_io::for_side(side, self);
-        io.inspect_path(self, rel_path)
+        io.inspect_path(self, rel_path).map_err(label_read)
     }
 
     pub fn missing_parent_directories(
@@ -131,9 +132,10 @@ impl CoreRuntime {
         rel_path: &str,
         force: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))?;
+        self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))
+            .map_err(label_read)?;
         let mut io = super::target_io::for_side(side, self);
-        io.read_file_bytes(self, rel_path)
+        io.read_file_bytes(self, rel_path).map_err(label_read)
     }
 
     /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
@@ -147,9 +149,12 @@ impl CoreRuntime {
         rel_paths: &[String],
         limit: SizeLimit,
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        let readable = self.paths_within_limit(side, rel_paths, limit)?;
+        let readable = self
+            .paths_within_limit(side, rel_paths, limit)
+            .map_err(label_read)?;
         let mut io = super::target_io::for_side(side, self);
         io.read_files_bytes_batch(self, &readable)
+            .map_err(label_read)
     }
 
     /// 上限ありのとき、`rel_path` を読まない理由があれば Err にする
@@ -194,7 +199,7 @@ impl CoreRuntime {
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.write_file(self, rel_path, content)
+        io.write_file(self, rel_path, content).map_err(label_change)
     }
 
     /// Side に基づいてバイト列を書き込む（バイナリファイル対応）
@@ -206,6 +211,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
         io.write_file_bytes(self, rel_path, content)
+            .map_err(label_change)
     }
 
     // ── メタデータ ──
@@ -223,7 +229,7 @@ impl CoreRuntime {
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.chmod_file(self, rel_path, mode)
+        io.chmod_file(self, rel_path, mode).map_err(label_change)
     }
 
     // ── バックアップ一覧・復元 ──
@@ -270,6 +276,11 @@ impl CoreRuntime {
                         &backup_record,
                         Ok(&current),
                     ),
+                    // `接続断` は確かめの拒否にせず、そのファイルを理由付きの失敗に、残りを
+                    // 手を付けていない失敗にして止める
+                    Err(error) if classify(&error).is_disconnection() => {
+                        return Ok(self.stopped_restore(side, files, path, &error));
+                    }
                     Err(error) => remote_merge_engine::service::rollback::restore_request_refusal(
                         files,
                         &backup_record,
@@ -291,6 +302,14 @@ impl CoreRuntime {
         let mut failed = Vec::new();
 
         for path in files {
+            // `接続断` で止めた書き込み先には、手を付けない
+            if let Some(stopped) = self.stopped_error_for(side) {
+                failed.push(crate::service::types::RollbackFailure {
+                    path: path.clone(),
+                    error: stopped.to_string(),
+                });
+                continue;
+            }
             let record = match self
                 .backup_store
                 .read_record(&self.config, side, session_id, path)
@@ -314,11 +333,14 @@ impl CoreRuntime {
                 match self.inspect_recorded_path(side, path, &backup_record) {
                     Ok(current) => Some(current),
                     Err(error) => {
+                        let error = if classify(&error).is_disconnection() {
+                            error.to_string()
+                        } else {
+                            remote_merge_engine::service::rollback::unresolved_path_message(&error)
+                        };
                         failed.push(crate::service::types::RollbackFailure {
                             path: path.clone(),
-                            error: remote_merge_engine::service::rollback::unresolved_path_message(
-                                &error,
-                            ),
+                            error,
                         });
                         continue;
                     }
@@ -352,7 +374,8 @@ impl CoreRuntime {
                     Err(error) => {
                         failed.push(crate::service::types::RollbackFailure {
                             path: path.clone(),
-                            error: format!("backup failed: {error}"),
+                            error: crate::runtime::connection::prefixed(error, "backup failed: ")
+                                .to_string(),
                         });
                         continue;
                     }
@@ -386,6 +409,38 @@ impl CoreRuntime {
         }
 
         Ok((restored, skipped, failed))
+    }
+
+    /// 書き戻す前の確かめが `接続断` で止まったときの結果。確かめたファイルは理由付きの失敗、
+    /// 残りは手を付けていない失敗
+    #[allow(clippy::type_complexity)]
+    fn stopped_restore(
+        &self,
+        side: &Side,
+        files: &[String],
+        failed_path: &str,
+        error: &anyhow::Error,
+    ) -> (
+        Vec<crate::service::types::RollbackFileResult>,
+        Vec<crate::service::types::RollbackSkipped>,
+        Vec<crate::service::types::RollbackFailure>,
+    ) {
+        let untouched = self
+            .stopped_error_for(side)
+            .map(|stopped| stopped.to_string())
+            .unwrap_or_else(|| format!("not attempted: processing stopped ({error})"));
+        let failed = files
+            .iter()
+            .map(|path| crate::service::types::RollbackFailure {
+                path: path.clone(),
+                error: if path == failed_path {
+                    error.to_string()
+                } else {
+                    untouched.clone()
+                },
+            })
+            .collect();
+        (vec![], vec![], failed)
     }
 
     fn restore_path_record(
@@ -440,7 +495,7 @@ impl CoreRuntime {
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
-        io.remove_file(self, rel_path)
+        io.remove_file(self, rel_path).map_err(label_change)
     }
 
     // ── シンボリックリンク ──
@@ -454,6 +509,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);
         io.create_symlink(self, rel_path, target)
+            .map_err(label_change)
     }
 
     // ── ツリー ──

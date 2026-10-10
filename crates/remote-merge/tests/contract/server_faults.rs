@@ -44,7 +44,8 @@ pub enum CutPoint {
 }
 
 /// エージェントとの間を切る条件。`request` の種類（`AgentRequest` の名前。`None` はどの種類も）の
-/// 要求の、エージェントのプロセスごとの `occurrence` 番目（1 から）で切る
+/// 要求の `occurrence` 番目（1 から。起動し直した後も続けて数える）で切る。`Repeat::Every` なら
+/// それ以降の同じ種類の要求でも毎回切る
 #[derive(Debug, Clone, Copy)]
 pub struct AgentCut {
     pub request: Option<&'static str>,
@@ -69,6 +70,8 @@ pub enum SshCommand {
     Read,
     /// ファイルの書き込み
     Write,
+    /// 権限の変更
+    Chmod,
 }
 
 impl SshCommand {
@@ -85,6 +88,7 @@ impl SshCommand {
                     || (script.contains("printf 'END") && script.contains("wc -c <"))
             }
             Self::Write => script.contains("openssl base64 -d") || script.contains("cat >"),
+            Self::Chmod => script.starts_with("chmod "),
         }
     }
 }
@@ -105,11 +109,17 @@ pub struct Faults {
     pub ssh_cut: Option<SshCut>,
     /// `sudo -n true` に 0 を返し、`sudo` で始まるコマンドは前置きを外して同じ利用者で実行する
     pub fake_sudo: bool,
+    /// この種類の SSH のコマンドを実行せずに、許されない操作として 1 で終える
+    pub refuse_ssh: Option<SshCommand>,
 }
 
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
 pub struct FaultState {
     pub faults: Faults,
+    /// 後から仕掛けたエージェントとの間を切る条件（`faults.agent_cut` より優先する）
+    armed_agent_cut: Mutex<Option<AgentCut>>,
+    /// 要求の種類ごとの数（起動し直した後も続けて数える。仕掛け直すと数え直す）
+    agent_counts: Mutex<HashMap<String, usize>>,
     agent_cut_claimed: AtomicBool,
     ssh_cut_claimed: AtomicBool,
     ssh_cuts: AtomicUsize,
@@ -123,6 +133,8 @@ impl FaultState {
         let sudo_bin = faults.fake_sudo.then(fake_sudo_bin);
         Arc::new(Self {
             faults,
+            armed_agent_cut: Mutex::new(None),
+            agent_counts: Mutex::new(HashMap::new()),
             agent_cut_claimed: AtomicBool::new(false),
             ssh_cut_claimed: AtomicBool::new(false),
             ssh_cuts: AtomicUsize::new(0),
@@ -130,6 +142,17 @@ impl FaultState {
             agent_requests: Mutex::new(Vec::new()),
             sudo_bin,
         })
+    }
+
+    /// これから起動するエージェントとの間を切る条件を仕掛ける（準備の操作の後に切るため）
+    pub fn arm_agent_cut(&self, cut: AgentCut) {
+        *self.armed_agent_cut.lock().unwrap() = Some(cut);
+        self.agent_counts.lock().unwrap().clear();
+        self.agent_cut_claimed.store(false, Ordering::SeqCst);
+    }
+
+    fn agent_cut(&self) -> Option<AgentCut> {
+        (*self.armed_agent_cut.lock().unwrap()).or(self.faults.agent_cut)
     }
 
     /// エージェントが受けた要求の種類（起動し直した後のものも続けて並ぶ）
@@ -157,6 +180,13 @@ impl FaultState {
         }
         self.ssh_cuts.fetch_add(1, Ordering::SeqCst);
         true
+    }
+
+    /// このコマンドを実行せずに拒むか
+    pub fn refuses_ssh(&self, script: &str) -> bool {
+        self.faults
+            .refuse_ssh
+            .is_some_and(|command| command.matches(script))
     }
 
     /// 偽の sudo を使うときに PATH の先頭に置くディレクトリ
@@ -234,7 +264,6 @@ struct Pending {
 pub struct AgentInbound {
     state: Arc<FaultState>,
     buffer: Vec<u8>,
-    counts: HashMap<String, usize>,
     pending: Arc<Mutex<VecDeque<Pending>>>,
     stdin: Arc<tokio::sync::Mutex<Option<ChildStdin>>>,
 }
@@ -268,17 +297,22 @@ impl AgentInbound {
         if matches!(request, AgentRequest::Shutdown) {
             return;
         }
-        let count = self.counts.entry(kind.clone()).or_insert(0);
-        *count += 1;
-        let any = self.counts.values().sum::<usize>();
-        let cut = self.state.faults.agent_cut.and_then(|cut| {
+        let (seen_kind, seen_any) = {
+            let mut counts = self.state.agent_counts.lock().unwrap();
+            *counts.entry(kind.clone()).or_insert(0) += 1;
+            (counts[&kind], counts.values().sum::<usize>())
+        };
+        let cut = self.state.agent_cut().and_then(|cut| {
             let seen = match cut.request {
-                Some(name) if name == kind => *self.counts.get(&kind).unwrap(),
+                Some(name) if name == kind => seen_kind,
                 Some(_) => return None,
-                None => any,
+                None => seen_any,
             };
-            (seen == cut.occurrence && self.state.claim_agent_cut(cut.repeat))
-                .then_some((cut.point, cut.scope))
+            let due = match cut.repeat {
+                Repeat::Once => seen == cut.occurrence,
+                Repeat::Every => seen >= cut.occurrence,
+            };
+            (due && self.state.claim_agent_cut(cut.repeat)).then_some((cut.point, cut.scope))
         });
         self.pending.lock().unwrap().push_back(Pending { cut });
     }
@@ -315,10 +349,11 @@ pub fn relay_agent(
         let cut = outbound.run(&mut stdout).await;
         match cut {
             Some(CutScope::Agent) => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
+                // 応答のすぐ後に閉じたことが届くよう、プロセスを終える前にチャネルを閉じる
                 let _ = outbound.handle.eof(channel).await;
                 let _ = outbound.handle.close(channel).await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
             }
             Some(CutScope::Session) => {
                 let _ = child.start_kill();
@@ -350,7 +385,6 @@ pub fn relay_agent(
     AgentInbound {
         state,
         buffer: Vec::new(),
-        counts: HashMap::new(),
         pending,
         stdin,
     }
@@ -416,6 +450,11 @@ impl Outbound {
             Some((CutPoint::BeforeResponse, scope)) => Some(scope),
             Some((CutPoint::AfterResponse, scope)) if last => {
                 self.send(&frame).await;
+                if scope == CutScope::Agent {
+                    // 応答のすぐ後に閉じたことを届ける
+                    let _ = self.handle.eof(self.channel).await;
+                    let _ = self.handle.close(self.channel).await;
+                }
                 Some(scope)
             }
             _ => {

@@ -521,6 +521,17 @@ impl server::Handler for LocalHandler {
                 session.disconnect(Disconnect::ByApplication, "connection lost", "")?;
                 return Ok(());
             }
+            if self.faults.refuses_ssh(&command) {
+                session.extended_data(
+                    channel,
+                    1,
+                    CryptoVec::from(b"Operation not permitted\n".as_slice()),
+                )?;
+                session.exit_status_request(channel, 1)?;
+                session.eof(channel)?;
+                session.close(channel)?;
+                return Ok(());
+            }
             let received = if fake_sudo {
                 match server_faults::fake_sudo_answer(&command, &received) {
                     SudoAnswer::Reply(answer) => {

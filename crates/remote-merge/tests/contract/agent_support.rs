@@ -28,6 +28,8 @@ pub struct AgentFixture {
     pub server: TestServer,
     pub config: PathBuf,
     broken_agent: Option<PathBuf>,
+    /// 足した書き込み先のサーバ
+    others: Vec<TestServer>,
 }
 
 impl AgentFixture {
@@ -76,7 +78,25 @@ impl AgentFixture {
             server,
             config,
             broken_agent,
+            others: Vec::new(),
         }
+    }
+
+    /// エージェントを置いた書き込み先のサーバ `name` を足す。root_dir は home の下の
+    /// "remote-<name>" で、返り値はその root_dir
+    pub async fn add_server(&mut self, name: &str, faults: Faults) -> PathBuf {
+        let remote = self.home.path().join(format!("remote-{name}"));
+        fs::create_dir_all(&remote).unwrap();
+        let server = TestServer::filesystem_with_faults(self.home.path(), true, faults).await;
+        let mut config = fs::read_to_string(&self.config).unwrap();
+        config.push_str(&format!(
+            "[servers.{name}]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n",
+            server.port(),
+            remote.to_str().unwrap()
+        ));
+        fs::write(&self.config, config).unwrap();
+        self.others.push(server);
+        remote
     }
 
     pub fn local(&self) -> PathBuf {
@@ -100,6 +120,14 @@ impl AgentFixture {
 
     /// local を左、fixture を右にしてコマンドを JSON の出力で動かす
     pub fn run(&self, args: &[&str]) -> Output {
+        if args.contains(&"rollback") {
+            return self.run_with_sides(args, &[]);
+        }
+        self.run_with_sides(args, &["--left", "local", "--right", "fixture"])
+    }
+
+    /// `sides`（--left・--right の指定）を付けてコマンドを JSON の出力で動かす
+    pub fn run_with_sides(&self, args: &[&str], sides: &[&str]) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
         command
             .env("HOME", self.home.path())
@@ -109,10 +137,8 @@ impl AgentFixture {
             .args(args)
             .arg("--config")
             .arg(&self.config)
-            .args(["--format", "json"]);
-        if !args.contains(&"rollback") {
-            command.args(["--left", "local", "--right", "fixture"]);
-        }
+            .args(["--format", "json"])
+            .args(sides);
         if let Some(stub) = &self.broken_agent {
             command.env("REMOTE_MERGE_AGENT_BINARY", stub);
         }

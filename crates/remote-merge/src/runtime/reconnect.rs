@@ -145,6 +145,12 @@ impl CoreRuntime {
         result
     }
 
+    /// `side` が処理を止めたサーバなら、行わなかったことを示すエラー
+    pub fn stopped_error_for(&self, side: &crate::side::Side) -> Option<anyhow::Error> {
+        side.server_name()
+            .and_then(|server_name| self.stopped_error(server_name))
+    }
+
     /// 処理を止めたサーバなら、行わなかったことを示すエラー
     pub(crate) fn stopped_error(&self, server_name: &str) -> Option<anyhow::Error> {
         self.stopped.get(server_name).map(|reason| {

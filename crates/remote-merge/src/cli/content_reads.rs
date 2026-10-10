@@ -4,6 +4,7 @@
 //! `ContentReads` で受け取る。呼び出し元は失敗を捨てず、読めなかったパスを読み直してその失敗を
 //! 消さない（読めた中身を後の段でもう一度読むことは妨げない）。
 
+use crate::runtime::connection::classify;
 use crate::runtime::size_limit::{SizeLimit, SizeQueryFailed};
 use crate::runtime::CoreRuntime;
 use crate::service::content_reads::ContentReads;
@@ -12,9 +13,10 @@ use crate::side::Side;
 /// `side` の `paths` の中身を読む。
 ///
 /// まとめて読み、まとめての結果に入らなかったパス（大きさの上限を超えたもの、経路が読めなかった
-/// もの）は一件ずつ読んでその理由を受け取る。大きさを尋ねる操作そのものが失敗したときは、
-/// 一件ずつ読み直さずに尋ねたパスすべての失敗にする（読み直すと次の問い合わせの結果で失敗が
-/// 消えうる）。
+/// もの）は一件ずつ読んでその理由を受け取る。大きさを尋ねる操作そのものが失敗したときと、
+/// まとめての読み込みがやり直しても `接続断` だったときは、一件ずつ読み直さずに尋ねたパスすべての
+/// 失敗にする（読み直すと次の問い合わせの結果で失敗が消えうる。接続断ではつなぎ直しがファイルの
+/// 数だけ繰り返される）。
 pub fn read_contents(
     core: &mut CoreRuntime,
     side: &Side,
@@ -31,7 +33,9 @@ pub fn read_contents(
                 reads.record_read(path, content);
             }
         }
-        Err(error) if error.is::<SizeQueryFailed>() => {
+        // 大きさを尋ねる操作の失敗と、やり直しても接続が使えなかったまとめの読み込みは、
+        // 一件ずつ読み直さない
+        Err(error) if error.is::<SizeQueryFailed>() || classify(&error).is_disconnection() => {
             for path in paths {
                 reads.record_failure(path.as_str(), format!("{error:#}"));
             }

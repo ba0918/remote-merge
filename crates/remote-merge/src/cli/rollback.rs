@@ -120,11 +120,17 @@ pub fn execute_rollback(
             failed.extend(failures);
         }
         Err(e) => {
-            // 個別ファイルのエラーではなく全体エラー
+            // 個別ファイルのエラーではなく全体エラー。どのファイルも書き戻していないので、
+            // 接続が使えなかったときは手を付けていないことが分かる文言にする
+            let error = if crate::runtime::connection::classify(&e).is_disconnection() {
+                format!("not attempted: {e}")
+            } else {
+                format!("{}", e)
+            };
             for path in &plan.files {
                 failed.push(RollbackFailure {
                     path: path.clone(),
-                    error: format!("{}", e),
+                    error: error.clone(),
                 });
             }
         }

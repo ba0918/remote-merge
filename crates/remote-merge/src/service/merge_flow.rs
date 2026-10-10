@@ -51,6 +51,11 @@ pub fn execute_single_merge(
         MergeDirection::RightToLeft => (ctx.right, ctx.left),
     };
 
+    // `接続断` で止めた書き込み先には、手を付けない
+    if let Some(stopped) = ctx.core.stopped_error_for(target) {
+        return Err(stopped);
+    }
+
     // ソース側・ターゲット側のツリーを決定
     let (source_tree, target_tree) = match ctx.direction {
         MergeDirection::LeftToRight => (ctx.left_tree, ctx.right_tree),
@@ -76,7 +81,7 @@ pub fn execute_single_merge(
                 if target_exists {
                     ctx.core
                         .save_symlink_update(target, path, ctx.session_id, &link_target)
-                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
+                        .map_err(backup_failure)?
                 } else {
                     None
                 }
@@ -102,7 +107,7 @@ pub fn execute_single_merge(
                 Some(
                     ctx.core
                         .save_backup(target, path, ctx.session_id, ctx.force)
-                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+                        .map_err(backup_failure)?,
                 )
             } else {
                 None
@@ -113,7 +118,7 @@ pub fn execute_single_merge(
             let content = ctx.core.read_file_bytes(source, path, ctx.force)?;
             ctx.core.write_file_bytes(target, path, &content)?;
             if ctx.with_permissions {
-                copy_permissions(source, target, path, ctx.core);
+                copy_permissions(source, target, path, ctx.core).map_err(content_written)?;
             }
             return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
@@ -153,7 +158,7 @@ pub fn execute_single_merge(
     let backup_path = if ctx.core.config.backup.enabled {
         ctx.core
             .save_backup_if_exists(target, path, ctx.session_id, ctx.force)
-            .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?
+            .map_err(backup_failure)?
     } else {
         None
     };
@@ -172,7 +177,9 @@ pub fn execute_single_merge(
             }
         };
         for directory in missing_directories {
-            ctx.core.chmod_file(target, &directory, mode)?;
+            ctx.core
+                .chmod_file(target, &directory, mode)
+                .map_err(content_written)?;
         }
     }
 
@@ -184,12 +191,14 @@ pub fn execute_single_merge(
                 crate::config::resolve_file_permissions(server, &ctx.core.config.defaults)
             }
         };
-        ctx.core.chmod_file(target, path, mode)?;
+        ctx.core
+            .chmod_file(target, path, mode)
+            .map_err(content_written)?;
     }
 
     // パーミッションコピー（--with-permissions 指定時）
     if ctx.with_permissions {
-        copy_permissions(source, target, path, ctx.core);
+        copy_permissions(source, target, path, ctx.core).map_err(content_written)?;
     }
 
     Ok(SingleMergeResult::Merged(MergeFileResult {
@@ -201,37 +210,63 @@ pub fn execute_single_merge(
     }))
 }
 
-/// ソースからターゲットへパーミッションをコピーする
-pub fn copy_permissions(source: &Side, target: &Side, path: &str, core: &mut CoreRuntime) {
-    let mode = match source {
+/// バックアップの失敗の文言（"backup failed: " に続けて原因）。種類は変えない
+fn backup_failure(error: anyhow::Error) -> anyhow::Error {
+    crate::runtime::connection::prefixed(error, "backup failed: ")
+}
+
+/// 中身を書いた後の失敗の文言。中身は書いたことを示す（REQ-merge-037・REQ-ssh-022）。種類は変えない
+fn content_written(error: anyhow::Error) -> anyhow::Error {
+    crate::runtime::connection::prefixed(error, "content written, but ")
+}
+
+/// ソースからターゲットへパーミッションをコピーする。
+///
+/// 読み込み元の権限に 0o777 を超えるビット（setuid・setgid・sticky）があれば写さずに Err にする。
+/// 読み込み元がリモートのときは権限を得られないので写さない（未対応）
+pub fn copy_permissions(
+    source: &Side,
+    target: &Side,
+    path: &str,
+    core: &mut CoreRuntime,
+) -> anyhow::Result<()> {
+    // 権限の分からないものと 0 は、今までどおり写さない
+    let Some(mode) = source_permissions(source, path, core)?.filter(|mode| *mode > 0) else {
+        return Ok(());
+    };
+    if mode > remote_merge_core::operations::MAX_PERMISSION_MODE {
+        anyhow::bail!(
+            "permissions not copied: the source mode {mode:o} has setuid, setgid or sticky bits"
+        );
+    }
+    core.chmod_file(target, path, mode)
+}
+
+/// 読み込み元の 0o7777 の範囲の権限。分からなければ None
+fn source_permissions(
+    source: &Side,
+    path: &str,
+    core: &CoreRuntime,
+) -> anyhow::Result<Option<u32>> {
+    match source {
         Side::Local => {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 let full = core.config.local.root_dir.join(path);
-                std::fs::metadata(&full)
-                    .map(|m| m.permissions().mode() & 0o777)
-                    .ok()
+                let metadata = std::fs::metadata(&full).map_err(|error| {
+                    anyhow::anyhow!("cannot read the permissions of {path:?}: {error}")
+                })?;
+                Ok(Some(metadata.permissions().mode() & 0o7777))
             }
             #[cfg(not(unix))]
             {
-                let _ = path;
-                None
+                let _ = (path, core);
+                Ok(None)
             }
         }
-        Side::Remote(_) => {
-            // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。
-            // 現時点では未サポート。
-            None
-        }
-    };
-
-    if let Some(m) = mode {
-        if m > 0 && m <= 0o777 {
-            if let Err(e) = core.chmod_file(target, path, m) {
-                tracing::warn!("Failed to set permissions for {}: {}", path, e);
-            }
-        }
+        // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。現時点では未サポート
+        Side::Remote(_) => Ok(None),
     }
 }
 
@@ -250,6 +285,14 @@ pub fn execute_deletions(
     let mut failed = Vec::new();
 
     for path in right_only_files {
+        // `接続断` で止めた書き込み先には、手を付けない
+        if let Some(stopped) = core.stopped_error_for(target) {
+            failed.push(MergeFailure {
+                path: path.clone(),
+                error: stopped.to_string(),
+            });
+            continue;
+        }
         match core.is_terminal_symlink(target, path) {
             Ok(true) => {
                 skipped.push(MergeSkipped {
@@ -381,7 +424,7 @@ pub fn execute_hunk_merge(
                 Some(
                     ctx.core
                         .save_backup(target, path, ctx.session_id, ctx.force)
-                        .map_err(|error| anyhow::anyhow!("backup failed: {error}"))?,
+                        .map_err(backup_failure)?,
                 )
             } else {
                 None
