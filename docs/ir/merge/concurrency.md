@@ -13,10 +13,11 @@
 
 ### REQ-merge-033: 更新を検知したファイルだけを止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9
+- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 merge と sync は、比べたときから書き込み先の中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに failed に出し、他のファイルの処理は続ける。
+`接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ### REQ-merge-038: 最後の要素が symlink のパスへ通常ファイルを書かない
 - kind: prohibition
@@ -53,12 +54,13 @@ merge・sync・rollback の symlink の更新は、比べたときにあった�
 
 ### REQ-merge-041: 比べた後に消えた削除の対象は失敗にする
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A4, docs/decision/records/2026-10-05-ssh-strict-exec.md#A9, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A4, docs/decision/records/2026-10-05-ssh-strict-exec.md#A9, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: review
 - how_to_verify: SSH は "crates/remote-merge-ssh/src/tree_parser.rs" の removing_deletes_a_file_or_a_dangling_link_and_fails_on_a_missing_path（生成した削除のコマンドを sh で実行する）、ローカルは "crates/remote-merge/src/runtime/side_io.rs" の test_remove_local_file_nonexistent を読み、ないパスの削除が失敗することを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。比べた後に書き込み先が消える競合でだけ起きるため、契約テストでは作らない。
 
 --delete の merge と sync は、消そうとした書き込み先が比べた後に消えていたとき、どの経路でもそのファイルを failed に出し、他のファイルの処理は続ける。
 リモートの削除を使う symlink の更新でも、消えていた書き込み先は failed に出す。
+`接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ## Examples
 

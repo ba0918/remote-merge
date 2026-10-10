@@ -6,20 +6,22 @@ status と diff が比べるべきファイルや参照先のファイルの中�
 
 ### REQ-cli-088: status は読めないファイルを判定せずに知らせる
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A26, docs/decision/records/2026-10-05-size-limit.md#A29
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A14, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A26, docs/decision/records/2026-10-05-size-limit.md#A29, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 status は、中身を読み比べるファイルを片側でも読めなかったとき、そのファイルを "modified" とも "equal" とも判定せず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のファイルの比較を続けて終了コード 2 を返す。
 --ref を指定した status で、左右と参照先の三つともにあるファイルの参照先との違いを決めるためだけに読んだ中身を読めなかったときは、そのファイルの判定を残し、TBL-cli-005 の印を出さず、そのパスと理由を同じく errors に出して終了コード 2 を返す。
 JSON の summary には errors に出したファイルの件数を出す。
 summary の件数のキー名とテキストで示す文言は IR で決めず、実装者が決める。テストはトップレベルの errors の項目と終了コードを確かめ、件数のキー名と文言を固定しない。
+`接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ### REQ-cli-089: diff は読めない側を空とみなさない
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-05-size-limit.md#A15, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20
+- source: docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-05-size-limit.md#A15, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 diff は、比べるファイルを片側でも読めなかったとき（REQ-cli-079 の大きさの上限を超えたときを含む）、読めない側を空として全ての行を差分に出さず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のファイルの比較を続けて終了コード 2 を返す。読めなかったファイルは JSON の files に項目として載せず、summary の差分のあるファイルの数に入れない。
+`接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ### REQ-cli-090: 参照先を読めない理由を参照先にないことと分ける
 - kind: event_driven

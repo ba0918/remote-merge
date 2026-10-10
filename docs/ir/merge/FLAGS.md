@@ -43,3 +43,10 @@ REQ-merge-014 は --with-permissions を指定したとき読み込み元のフ�
 - source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A9
 
 差分のないファイルを --hunks で指定すると、実装は JSON で status "skipped (no changes)" を出して終了コード 0 を返すが、テキストでは書き込んだときと同じ "Merged: パス" の行を出す。旧資料に記述がなくテストもない。
+
+### FLAG-merge-020: REQ-merge-041 の確かめ方の理由に出典がない
+- kind: gap
+- related: REQ-merge-041
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
+
+REQ-merge-041 の how_to_verify は、契約テストを作らない理由（比べた後に書き込み先が消える競合でだけ起きる）と、SSH のテストが生成した削除のコマンドを sh で実行することを書いているが、引いている決定（2026-10-05-ssh-strict-exec の A4・A9・A14）はどちらも書いていない。2026-10-11 の agent-operations の突き合わせで 3 回目まで残った。エージェントの経路も削除を行うようになる（REQ-ssh-010）ので、確かめ方をエージェントの削除のテストと合わせて書き直すときに、理由の出典を決める。

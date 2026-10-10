@@ -63,6 +63,7 @@ Position: A66 まで実装し、差分レビューで warn 以上の指摘がな
 - A17 エージェントとの通信の版が 5 未満になったときは、パスの確認だけエージェントを使わず SSH のスクリプトで行う。
   - why: 古いエージェントは古い辿り方をするため、使うと経路差が戻る。ハッシュの一致しないエージェントは通常は自動で置き直されるので、この道を通るのは置き直しに失敗したときに限られると見込む（置き直しの判定のコードは読んでおらず推測）。
   - decided_by: 利用者（推奨を採った）
+  - superseded_by: [A2 (agent-operations)](./2026-10-11-agent-operations.md#A2)
 - A18 パスの辿り方の規則は、IR の新しいディレクトリ "docs/ir/paths/" の "resolution.md" に書く（ID は REQ-paths-001 から）。祖先が通常ファイルならスキップするという rollback の規則は [REQ-backup-031](../../ir/backup/rollback-path.md#REQ-backup-031) に残す。
   - why: 辿り方は rollback・diff・merge が共通に使う規則で、特定の機能の文書に置くと他の機能から参照しにくい。
   - decided_by: 利用者（推奨を採った）
@@ -148,6 +149,7 @@ Position: A66 まで実装し、差分レビューで warn 以上の指摘がな
 - A45 sudo を使うサーバでエージェントとの通信の版が 5 未満のときは、パスの確認を SSH の経路で行わず、エージェントの置き直しが要ることを示すエラーにする。
   - why: SSH の経路の確認はログインした利用者の権限で動き、読み書きをする root のエージェントと利用者が違うので、A34 の同じ利用者という前提が崩れる。
   - decided_by: 利用者（推奨を採った）
+  - superseded_by: [A2 (agent-operations)](./2026-10-11-agent-operations.md#A2)
 - A46 検索権限は、実行する利用者の実効 uid に対する access（ローカルとエージェントでは faccessat の AT_EACCESS）で判定する。SSH の `[ -x ]` がこれと一致するかを、E2E のコンテナ（BusyBox）と dash で root として確かめ、食い違えば実装を止めて利用者に返す。
   - why: `[ -x ]` は実装によって実効 uid やモードのビットで判定し、access(2) は実 uid で判定するので、root でモード 000 のディレクトリを見ると経路で答えが割れうる（推測で、確かめていない）。
   - decided_by: 利用者（推奨を採った）

@@ -34,11 +34,13 @@
 
 ### REQ-merge-037: 権限の複製に失敗したファイルを失敗として出す
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5
+- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A22, docs/decision/records/2026-10-11-agent-operations.md#A26
 - verification: unit
 
 --with-permissions を指定した merge と sync が書き込み先の権限の変更に失敗したとき、そのファイルを中身は書いたことが分かる error で failed に出し、終了コード 2 を返す。
 この error は中身を書いたことを示すが、その文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
+読み込み元の権限に 0o777 を超えるビット（setuid・setgid・sticky）があるときも、権限を写さず、中身は書いたことと特別なビットのために写さなかったことが分かる error で同じく failed に出し、終了コード 2 を返す。
+`接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ## Examples
 
@@ -90,4 +92,10 @@ Scenario: 権限の変更が拒まれる
 Given 書き込み先のファイルの中身は書けるが権限は変えられない
 When --with-permissions でマージする
 Then そのファイルは中身を書いたことが分かる error で failed に出て終了コード 2 を返す
+
+@id=EX-merge-051 @about=REQ-merge-037 @source=docs/decision/records/2026-10-11-agent-operations.md#A22
+Scenario: 読み込み元に setuid がある
+Given ローカルの "run.sh" の権限が 0o4755 で、書き込み先の "run.sh" の権限が 0o644 である
+When --with-permissions で "run.sh" を merge する
+Then 中身は書き込まれ、権限は 0o644 のまま変わらず、"run.sh" は中身は書いたことと特別なビットのために写さなかったことが分かる error で failed に出て、終了コード 2 を返す
 ```

@@ -1,22 +1,43 @@
-# 読み取り中の SSH 切断
+# SSH とエージェントの接続断
 
-SSH 接続が途中で切れた場合に、読み取りを再開する範囲と書き込みの扱い。
+SSH やエージェントとの接続断が操作の途中で起きたときに、やり直す範囲、変更の扱い、その回の処理を止める範囲。
 
 ## Requirements
 
 ### REQ-ssh-003: 読み取りだけ一度再試行する
 - kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32
 - verification: unit
 
-SSH の読み取りだけのリモート操作（ファイルの読み込み、ツリーの走査、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で接続が切れたとき、再接続してその操作を一度だけ試し、再び失敗したら失敗を報告する。
+SSH の読み取りだけのリモート操作（ファイルの読み込み、ツリーの走査、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で `接続断` が起きたとき、再接続してその操作を一度だけ試し、再び失敗したら、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。
+merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。
 
-### REQ-ssh-004: 結果不明の書き込みを自動反復しない
+### REQ-ssh-004: 結果不明の変更を自動反復しない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A24
 - verification: unit
 
-SSH の書き込み中に接続が切れて更新結果が不明なとき、同じ書き込みを自動で繰り返さない。
+ローカル以外のどの経路でも、書き込み・symlink の作成・削除・権限の変更の最中に `接続断` が起きたとき、同じ変更を自動で繰り返さず、別の経路（エージェントから SSH への切り替えを含む）でも行わない。sudo=true を指定したかどうかによらない。
+
+### REQ-ssh-022: 変更の最中の接続断でその書き込み先への処理を止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A24, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A26, docs/decision/records/2026-10-11-agent-operations.md#A34
+- verification: unit
+
+merge・sync（--delete を含む）・rollback が、書き込み先への書き込み・symlink の作成・削除・権限の変更の最中に `接続断` に出会ったとき、そのファイルを結果が分からないことが分かる error で failed に出し、その書き込み先でまだ処理していない残りのファイルを変更せずに、手を付けていないことが分かる error で failed に出し、終了コード 2 を返す。済んだファイルはそのまま結果に出す。
+前の操作の後に接続が使えなくなっていて変更の要求を送れなかったときも、その書き込み先への処理を同じく止め、送れなかったファイルと残りのファイルを手を付けていない失敗として failed に出す。
+中身を書いた後の権限の変更が `接続断` になったときは、そのファイルの error を、中身は書いたことと権限の変更の結果が分からないことの両方が分かるものにする。
+sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
+`接続断` でない失敗（相手が失敗を返した、コマンドが 0 以外で終わった）は、そのファイルだけを failed に出して残りを続ける。
+error の文言は IR で決めず、実装者が英語で書く。テストは、結果が分からないこと、手を付けていないこと、中身は書いたことを区別できることを確かめ、文言を固定しない。
+
+### REQ-ssh-023: エージェントの読み取りも同じ経路で一度だけやり直す
+- kind: event_driven
+- source: docs/decision/records/2026-10-11-agent-operations.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A33
+- verification: unit
+
+どのコマンドでも、エージェントで行う読み取りだけのリモート操作（REQ-ssh-003 と同じ範囲）の途中で `接続断` が起きたとき、エージェントを起動し直してその操作を一度だけ試し、再び失敗したら（起動し直せないときを含む）、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。SSH の経路には切り替えない。
+merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。
 
 ## Examples
 
@@ -50,4 +71,70 @@ Scenario: 走査の途中で一度だけ切れる
 Given SSH のツリーの走査の途中で一度だけ接続が切れる
 When status を実行する
 Then 再接続して走査を一度やり直し、やり直した走査の一覧で比べる
+
+@id=EX-ssh-038 @about=REQ-ssh-004 @source=docs/decision/records/2026-10-11-agent-operations.md#A5
+Scenario: エージェントへの書き込みの応答が来ない
+Given sudo=true を指定していないサーバで、エージェントが書き込みの要求を受けた後に応答を返さずに接続が切れる
+When そのファイルを merge する
+Then 同じ書き込みは SSH の経路でも行われず、そのファイルは結果が分からない失敗になる
+
+@id=EX-ssh-039 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A5
+Scenario: 三つのファイルの merge の二つ目で切れる
+Given "a.txt"・"b.txt"・"c.txt" を merge し、"b.txt" の書き込みの最中に接続が切れる
+When merge の結果を見る
+Then "a.txt" は書き込まれ、"b.txt" は結果が分からない失敗、"c.txt" は手を付けていない失敗として failed に出て、"c.txt" は書き込み先で変わらず、終了コード 2 を返す
+
+@id=EX-ssh-040 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A8,docs/decision/records/2026-10-11-agent-operations.md#A5,docs/decision/records/2026-10-11-agent-operations.md#A32
+Scenario: 1 ファイルの書き込みが失敗しただけ
+Given "a.txt"・"b.txt"・"c.txt" を merge し、書き込み先の "b.txt" に書き込む権限がない
+When merge の結果を見る
+Then "b.txt" だけが failed に出て、"a.txt" と "c.txt" は書き込まれ、終了コード 2 を返す
+
+@id=EX-ssh-041 @about=REQ-ssh-023 @source=docs/decision/records/2026-10-11-agent-operations.md#A10
+Scenario: エージェントの読み込みで一度だけ切れる
+Given sudo=true を指定していないサーバで、エージェントの読み込みの途中で一度だけ接続が切れる
+When status を実行する
+Then エージェントを起動し直して読み込みを一度やり直し、SSH の経路では読まずに比べた結果を返す
+
+@id=EX-ssh-042 @about=REQ-ssh-023 @source=docs/decision/records/2026-10-11-agent-operations.md#A10,docs/decision/records/2026-10-11-agent-operations.md#A25,docs/decision/records/2026-10-11-agent-operations.md#A32
+Scenario: 起動し直したエージェントでも読めない
+Given sudo=true を指定していないサーバで "a.txt"・"b.txt" を merge し、最初に読む "a.txt" の読み込みが、エージェントを起動し直した後にも接続断で失敗する
+When merge を実行する
+Then SSH の経路に切り替えずに止まり、どのファイルも書き込まず、終了コード 2 を返す
+
+@id=EX-ssh-043 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A9,docs/decision/records/2026-10-11-agent-operations.md#A5
+Scenario: --delete の削除の最中に切れる
+Given 書き込み先にだけ "x.txt" と "y.txt" があり、--delete の sync で "x.txt" の削除の最中に接続が切れる
+When sync の結果を見る
+Then "x.txt" は結果が分からない失敗、"y.txt" は手を付けていない失敗として failed に出て、"y.txt" は書き込み先に残り、終了コード 2 を返す
+
+@id=EX-ssh-044 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A9,docs/decision/records/2026-10-11-agent-operations.md#A5
+Scenario: rollback の書き戻しの最中に切れる
+Given リモートの書き込み先へ "a.txt" と "b.txt" を書き戻す rollback で、"a.txt" の書き戻しの最中に接続が切れる
+When rollback の結果を見る
+Then "a.txt" は結果が分からない失敗、"b.txt" は手を付けていない失敗として failed に出て、終了コード 2 を返す
+
+@id=EX-ssh-045 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A21,docs/decision/records/2026-10-11-agent-operations.md#A5,docs/decision/records/2026-10-11-agent-operations.md#A32
+Scenario: 二つの書き込み先の sync で一方だけ切れる
+Given 書き込み先 "s1" と "s2" への sync で、"s1" への書き込みの最中に接続が切れる
+When sync の結果を見る
+Then "s1" の残りのファイルは手を付けていない失敗になり、"s2" へは全てのファイルが書き込まれ、終了コード 2 を返す
+
+@id=EX-ssh-046 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A24
+Scenario: 次の変更の要求を送れない
+Given "a.txt"・"b.txt"・"c.txt" を merge し、"a.txt" を書いた後にエージェントが終わっていて "b.txt" の要求を送れない
+When merge の結果を見る
+Then "b.txt" と "c.txt" は手を付けていない失敗として failed に出て、SSH の経路でも書き込まれず、終了コード 2 を返す
+
+@id=EX-ssh-047 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A26,docs/decision/records/2026-10-11-agent-operations.md#A5
+Scenario: 中身を書いた後の権限の変更の最中に切れる
+Given 新しいファイル "a.txt" を merge し、中身を書いた後の権限の変更の最中に接続が切れる
+When merge の結果を見る
+Then "a.txt" は中身は書いたことと権限の変更の結果が分からないことの両方が分かる error で failed に出て、終了コード 2 を返す
+
+@id=EX-ssh-048 @about=REQ-ssh-003 @source=docs/decision/records/2026-10-11-agent-operations.md#A20,docs/decision/records/2026-10-11-agent-operations.md#A25,docs/decision/records/2026-10-11-agent-operations.md#A32
+Scenario: やり直した SSH の読み取りもまた切れる
+Given エージェントを使わないサーバで、"a.txt"・"b.txt" を merge し、"a.txt" の読み取りが再接続の後にも接続断で失敗する
+When merge の結果を見る
+Then "a.txt" は理由付きで、"b.txt" は手を付けていない失敗として failed に出て、どちらも書き込まれず、終了コード 2 を返す
 ```

@@ -18,13 +18,6 @@
 
 SSH の経路でパスの確認が symlink に出会い、リモートに readlink がないとき、確認は "cannot resolve path: readlink not available" で止める。symlink に出会わない確認は readlink がなくても続ける。
 
-### REQ-paths-010: 古いエージェントでは SSH で確認する
-- kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A17, docs/decision/records/2026-10-06-path-resolution.md#A45
-- verification: unit
-
-エージェントとの通信の版が 5 未満のとき、パスの確認はエージェントを使わず SSH の経路で行い、sudo を使うサーバではエージェントの置き直しが要ることを示すエラーで止める。
-
 ### REQ-paths-011: 祖先がディレクトリでなければ rollback 以外はエラーにする
 - kind: state_driven
 - source: docs/decision/records/2026-10-06-path-resolution.md#A16
@@ -54,23 +47,11 @@ Given リモートに readlink がなく、root_dir の下に通常ファイル 
 When SSH の経路で "a.txt" と "l" を確認する
 Then "a.txt" は存在するで、"l" の確認は "cannot resolve path: readlink not available" で止まる
 
-@id=EX-paths-021 @about=REQ-paths-010 @source=docs/decision/records/2026-10-06-path-resolution.md#A17
-Scenario: 版 4 のエージェント
-Given 接続したエージェントとの通信の版が 4 である
-When パスを確認する
-Then 確認は SSH の経路で行われる
-
 @id=EX-paths-022 @about=REQ-paths-011 @source=docs/decision/records/2026-10-06-path-resolution.md#A16
 Scenario: merge の書き込み先の祖先が通常ファイル
 Given 書き込み先の "dir" が通常ファイルになっている
 When "dir/a.txt" を merge する
 Then そのファイルは "cannot resolve path: not a directory" のエラーになる
-
-@id=EX-paths-024 @about=REQ-paths-010 @source=docs/decision/records/2026-10-06-path-resolution.md#A45
-Scenario: sudo のサーバの版 4 のエージェント
-Given sudo を使うサーバで、接続したエージェントとの通信の版が 4 である
-When パスを確認する
-Then 確認は SSH の経路で行われず、エージェントの置き直しが要ることを示すエラーになる
 
 @id=EX-paths-025 @about=REQ-paths-012 @source=docs/decision/records/2026-10-06-path-resolution.md#A53
 Scenario: リモートの相対の root_dir

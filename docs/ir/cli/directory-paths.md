@@ -26,6 +26,16 @@ include 指定があり、include に一致しないディレクトリが左右�
 片側にだけあり、配下を include と exclude で絞ると比べるファイルがないディレクトリを CLI diff に指定したとき、"not found on either side" の警告もエラーも出さず、比べるファイル 0 件・差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
 片側にだけあるディレクトリを展開した子について、ない側を空とみなす警告は走査方式によらず出さない。
 
+### REQ-cli-096: 子の一覧を取れないディレクトリをエラーとして示す
+- kind: event_driven
+- source: docs/decision/records/2026-10-11-agent-operations.md#A11, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A31
+- verification: unit
+
+CLI diff は、指定したパスやその配下の子の一覧を、どの経路でも、ディレクトリではないもの（通常ファイル、ディレクトリでないものへの symlink、リンク切れの symlink、ないパス）と、一覧を取れなかったもの（読めないディレクトリ）とに分けて扱う。
+一覧の途中の `接続断` は REQ-ssh-003 と REQ-ssh-023 により、一覧の中の symlink のリンク先か更新時刻を読めないときは REQ-paths-017 による。
+ディレクトリではないものは、その種類に合わせて今までどおり比べる。
+一覧を取れなかったものは、ファイルとしてもない側としても扱わず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、他のパスの比較を続けて終了コード 2 を返す。
+
 ## Examples
 
 ```gherkin
@@ -46,9 +56,21 @@ Scenario: ディレクトリへの symlink を二通りに指定する
 Given shared は左右で異なるリンク文字列を持つディレクトリ symlink である
 When CLI diff で shared と shared/ をそれぞれ指定する
 Then 両方で同じリンク文字列の差と配下の差分が示される
-@id=EX-cli-071 @about=REQ-cli-087 @source=docs/decision/records/2026-10-05-quality-cli.md#A10
+@id=EX-cli-071 @about=REQ-cli-087 @source=docs/decision/records/2026-10-05-quality-cli.md#A10,docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A2
 Scenario: 片側にだけある中身の空なディレクトリを指定する
 Given 左にだけ中身の空なディレクトリ "empty" がある
 When CLI diff で "empty" と "empty/" をそれぞれ指定する
 Then どちらも "not found on either side" を出さず差分なしで終了コード 0 を返す
+
+@id=EX-cli-095 @about=REQ-cli-096 @source=docs/decision/records/2026-10-11-agent-operations.md#A11,docs/decision/records/2026-10-11-agent-operations.md#A31
+Scenario: 読めないディレクトリを指定する
+Given sudo=true を指定していないサーバへ root でない利用者でつなぎ、右の "secret" はその利用者が読めないディレクトリで、左の "secret" には "a.txt" がある
+When CLI diff で "secret" を指定する
+Then "secret" はファイルとしても右にないものとしても比べられず、左の "secret/a.txt" も files に出ず、"secret" と理由が errors に出て終了コード 2 を返す
+
+@id=EX-cli-096 @about=REQ-cli-096 @source=docs/decision/records/2026-10-11-agent-operations.md#A11
+Scenario: 通常ファイルを指定する
+Given "a.txt" は左右とも通常ファイルで中身が違う
+When CLI diff で "a.txt" を指定する
+Then "a.txt" はファイルとして比べられて差分が出て、errors には何も出ない
 ```
