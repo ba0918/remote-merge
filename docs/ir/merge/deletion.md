@@ -41,7 +41,7 @@ merge のテキスト出力は削除したファイルを "Deleted: パス" の�
 
 ### REQ-merge-034: 削除できなかった対象は失敗として出す
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 --delete の merge と sync は、削除の直前に書き込み先の種類を調べられなかったファイルと、削除に失敗したファイルを failed に出し、他のファイルの処理は続ける。

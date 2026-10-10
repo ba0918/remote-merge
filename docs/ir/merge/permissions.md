@@ -34,7 +34,7 @@
 
 ### REQ-merge-037: 権限の複製に失敗したファイルを失敗として出す
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A22, docs/decision/records/2026-10-11-agent-operations.md#A26
+- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A22
 - verification: unit
 
 --with-permissions を指定した merge と sync が書き込み先の権限の変更に失敗したとき、そのファイルを中身は書いたことが分かる error で failed に出し、終了コード 2 を返す。

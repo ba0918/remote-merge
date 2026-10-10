@@ -6,7 +6,7 @@
 
 ### REQ-backup-017: バックアップ失敗を原因付きで報告する
 - kind: event_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A14, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A14, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 merge・--delete・sync でファイルのバックアップに失敗したとき、そのファイルを結果の failed に出し、その error を "backup failed: " に続けて原因を示す文字列にする。

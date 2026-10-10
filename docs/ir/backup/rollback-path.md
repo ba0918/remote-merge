@@ -27,7 +27,7 @@ rollback の dry-run はセッション内の復元予定とブロック理由�
 
 ### REQ-backup-027: 書き戻す前の内容を退避する
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 バックアップが有効なとき、rollback は書き戻す前の現在の内容を新しいセッションに保存してその ID を pre_rollback_backup に示す。保存できないファイルは書き戻さず error "backup failed: " に続く原因で失敗とし、戻す先にファイルがなければ保存も pre_rollback_backup の表示もしない。
