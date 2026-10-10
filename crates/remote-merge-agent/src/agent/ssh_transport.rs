@@ -27,6 +27,35 @@ use anyhow::Result;
 #[cfg(unix)]
 use russh::ChannelMsg;
 
+/// 中継の状態。クライアントは、送った変更の要求がチャネルに渡ったかをこれで確かめる
+#[derive(Debug, Default)]
+pub struct TransportState {
+    /// 中継が終わった（チャネルの EOF か、チャネルに送れなかった）
+    closed: std::sync::atomic::AtomicBool,
+    /// クライアントが書いたバイト列のうち、チャネルに渡したバイト数
+    forwarded: std::sync::atomic::AtomicU64,
+}
+
+impl TransportState {
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub fn forwarded(&self) -> u64 {
+        self.forwarded.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub fn mark_closed(&self) {
+        self.closed
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn add_forwarded(&self, bytes: usize) {
+        self.forwarded
+            .fetch_add(bytes as u64, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 /// リモートの agent が標準エラーに出した文字列を中継する記録の target。
 ///
 /// 中身はリモートのシェルや sudo も含む外部の出力なので、診断ログのファイルには残さない。
@@ -100,8 +129,8 @@ pub struct SshAgentTransport {
     bridge_thread: Option<JoinHandle<()>>,
     writer_relay_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
-    /// SSH のチャネルが閉じた（EOF か送れなかった）ことの記録
-    closed: Arc<AtomicBool>,
+    /// 中継の状態（閉じたこと、チャネルに渡したバイト数）
+    state: Arc<TransportState>,
 }
 
 #[cfg(unix)]
@@ -135,13 +164,20 @@ impl SshAgentTransport {
 
         // Bridge: channel を排他所有し、select! で双方向中継
         let shutdown3 = shutdown.clone();
-        let closed = Arc::new(AtomicBool::new(false));
-        let closed_on_bridge = closed.clone();
+        let state = Arc::new(TransportState::default());
+        let state_on_bridge = state.clone();
         let bridge_thread = std::thread::Builder::new()
             .name("agent-bridge".into())
             .spawn(move || {
-                bridge_loop(handle, channel, bridge_write, write_rx, shutdown3);
-                closed_on_bridge.store(true, Ordering::Release);
+                bridge_loop(
+                    handle,
+                    channel,
+                    bridge_write,
+                    write_rx,
+                    shutdown3,
+                    &state_on_bridge,
+                );
+                state_on_bridge.mark_closed();
             })?;
 
         Ok(Self {
@@ -150,13 +186,13 @@ impl SshAgentTransport {
             bridge_thread: Some(bridge_thread),
             writer_relay_thread: Some(writer_relay_thread),
             shutdown,
-            closed,
+            state,
         })
     }
 
-    /// SSH のチャネルが閉じたことの記録。中継が終わると立つ
-    pub fn closed(&self) -> Arc<AtomicBool> {
-        self.closed.clone()
+    /// 中継の状態
+    pub fn state(&self) -> Arc<TransportState> {
+        self.state.clone()
     }
 
     /// AgentClient に渡す (read, write) ストリームペアと TransportGuard を取り出す。
@@ -250,6 +286,7 @@ fn bridge_loop(
     mut bridge_write: UnixStream,
     mut write_rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
     shutdown: Arc<AtomicBool>,
+    state: &TransportState,
 ) {
     handle.block_on(async move {
         loop {
@@ -257,7 +294,10 @@ fn bridge_loop(
                 tracing::debug!(target: "remote_merge::agent::ssh_transport", "bridge_loop: shutdown signal received");
                 break;
             }
+            // チャネルの EOF を、クライアントが続けて書いた要求より先に扱う（閉じた後の要求を
+            // チャネルに渡さない）
             tokio::select! {
+                biased;
                 msg = channel.wait() => {
                     match msg {
                         Some(ChannelMsg::Data { ref data }) => {
@@ -288,6 +328,7 @@ fn bridge_loop(
                                 tracing::warn!(target: "remote_merge::agent::ssh_transport", "bridge_loop: channel.data() failed: {e}");
                                 break;
                             }
+                            state.add_forwarded(bytes.len());
                         }
                         None => {
                             // writer-relay が終了 → stdin EOF を送信
@@ -359,7 +400,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: Arc::new(AtomicBool::new(false)),
-            closed: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(TransportState::default()),
         };
         let (mut read_end, mut write_end, _guard) = transport.into_streams();
         write_end.write_all(b"test").unwrap();
@@ -383,7 +424,7 @@ mod tests {
             bridge_thread: None,
             writer_relay_thread: None,
             shutdown: shutdown.clone(),
-            closed: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(TransportState::default()),
         };
         let (_r, _w, guard) = transport.into_streams();
         // transport の Drop が走った後も shutdown は false のまま
@@ -594,7 +635,7 @@ mod tests {
             bridge_thread: Some(thread),
             writer_relay_thread: None,
             shutdown,
-            closed: Arc::new(AtomicBool::new(false)),
+            state: Arc::new(TransportState::default()),
         };
 
         let start = Instant::now();

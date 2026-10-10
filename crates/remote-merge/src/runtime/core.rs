@@ -473,12 +473,12 @@ impl CoreRuntime {
         // ブリッジスレッドを起動し、UnixStream ペアを取得
         let handle = self.rt.handle().clone();
         let transport = SshAgentTransport::start(handle, channel)?;
-        let closed = transport.closed();
+        let transport_state = transport.state();
         let (read_stream, write_stream, guard) = transport.into_streams();
 
         // AgentClient を接続（ハンドシェイク）
         let mut client = AgentClient::connect(read_stream, write_stream)?;
-        client.watch_closed(closed);
+        client.watch_transport(transport_state);
         tracing::info!(
             "Agent client connected: server={}, protocol_version={}",
             server_name,
