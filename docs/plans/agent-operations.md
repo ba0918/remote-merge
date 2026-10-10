@@ -6,7 +6,7 @@
 
 ## Specification
 
-IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A40（A5・A24・A26 は A38 で置き換えた）。この計画が扱うのは次のとおり。
+IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A41（A5・A24・A26 は A38 で置き換えた）。この計画が扱うのは次のとおり。
 
 - 経路の選び方: `docs/ir/ssh/fallback.md#REQ-ssh-005`、`#REQ-ssh-010`、`#REQ-ssh-021`
 - 接続断: `docs/ir/ssh/reconnect.md#REQ-ssh-003`、`#REQ-ssh-004`、`#REQ-ssh-022`、`#REQ-ssh-023`、`docs/ir/ssh/sudo.md#REQ-ssh-009`
@@ -275,8 +275,8 @@ Docker の実機の sudo の例は `scripts/run-container-e2e.sh` で走らせ�
 - Purpose: バックアップが無効な rollback で、書き戻す前に書き戻す先の通常ファイルのハッシュを一回の要求でまとめて取り、S8 の確かめの「書く前」に使う。S8 で入れた、この構成だけ "result unknown" にする暫定の扱いを消す
 - Specification: `docs/ir/ssh/reconnect.md#REQ-ssh-022`, `docs/ir/backup/rollback-path.md#REQ-backup-028`
 - Prerequisites: S8
-- May change: `crates/remote-merge/src/runtime/side_io.rs`, `crates/remote-merge/src/runtime/`, `crates/remote-merge/src/cli/rollback.rs`, `crates/remote-merge/tests/contract/`
-- Done when: バックアップを無効にした rollback で、一つ目の書き戻しの要求が行われる前に切ると、一つ目は書いていない失敗、二つ目は手を付けていない失敗になり、結果が分からない失敗にならない。ハッシュはどこにも保存されない。バックアップが無効な rollback で増える要求は、エージェントでも SSH でも、書き戻しの前のハッシュのまとめての一回だけである。バックアップが有効な rollback と merge・sync の要求の並びは変わらない
+- May change: `crates/remote-merge/src/runtime/side_io.rs`, `crates/remote-merge/src/runtime/`, `crates/remote-merge/src/cli/rollback.rs`, `crates/remote-merge-ssh/src/`（まとめてハッシュを取るコマンドを足す。`batch_read.rs` と同じくコマンドの長さで分ける）, `crates/remote-merge/tests/contract/`（`ssh_server.rs` を含む）
+- Done when: バックアップを無効にした rollback で、一つ目の書き戻しの要求が行われる前に切ると、一つ目は書いていない失敗、二つ目は手を付けていない失敗になり、結果が分からない失敗にならない。ハッシュはどこにも保存されない。バックアップが無効な rollback で増える要求は、エージェントでは書き戻しの前の HashFiles の一回、SSH ではまとめてハッシュを取るコマンド（コマンドの長さで分けた分を含む）だけである。SSH でハッシュのコマンドがないサーバでも、結果が分からない失敗にならない。バックアップが有効な rollback と merge・sync の要求の並びは変わらない
 - Shown by: test — 契約テスト `// @kotowari[EX-ssh-053]`（`5aea20f` の製品コードで RED になることを確かめる）。要求の並びは、バックアップが無効な rollback のエージェントへの要求を数える契約テストで確かめる
-- Left to the implementer: まとめて取るハッシュの要求の形（今ある HashFiles と SSH のハッシュの読み取りを使う）、error の文言
-- Stop and hand back if: 書き戻す先のハッシュをまとめて一回で取る道が、エージェントか SSH のどちらかの経路にない
+- Left to the implementer: エージェントは今ある HashFiles を使う。SSH のまとめてハッシュを取るコマンドの組み立て方（A41: `sha256sum`、なければ `shasum -a 256`、どちらもなければ今ある中身のまとめ読みに切り替える。`crates/remote-merge-agent/src/agent/deploy/transfer.rs` の `installed_checksum_command` と同じ順）、出力の読み方、error の文言
+- Stop and hand back if: SSH のまとめてハッシュを取るコマンドで、ファイル名に含まれる文字（空白・改行など）のために、どのハッシュがどのファイルのものか決まって読み分けられなかった
