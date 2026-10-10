@@ -6,7 +6,7 @@
 
 ## Specification
 
-IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A39（A5・A24・A26 は A38 で置き換えた）。この計画が扱うのは次のとおり。
+IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A40（A5・A24・A26 は A38 で置き換えた）。この計画が扱うのは次のとおり。
 
 - 経路の選び方: `docs/ir/ssh/fallback.md#REQ-ssh-005`、`#REQ-ssh-010`、`#REQ-ssh-021`
 - 接続断: `docs/ir/ssh/reconnect.md#REQ-ssh-003`、`#REQ-ssh-004`、`#REQ-ssh-022`、`#REQ-ssh-023`、`docs/ir/ssh/sudo.md#REQ-ssh-009`
@@ -115,7 +115,7 @@ hunk の merge（`merge_flow.rs` の `execute_hunk_merge`）は、今はファ�
 
 ## Step order and prerequisites
 
-S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 の順にする。S1〜S6 は済んでいる（`08fe148..758c448`）。
+S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9 の順にする。S1〜S8 は済んでいる（`08fe148..5aea20f`）。
 
 - S1 は、後の全ステップの契約テストが使う道具を足す
 - S2 は、エージェントの要求の型を変える S3 の前提になる。版を上げる変更は一回にまとめる
@@ -123,6 +123,7 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 の順にする。S1〜S6 �
 - S5 の接続断の分類とやり直しは、S6 の止め方と S7 の一覧の接続断の前提になる
 - S6 は S5 の分類を使い、エラーを文字列に変える前に判定する
 - S7 は S3 の型と S5 のやり直しを使う
+- S9 は、S8 の確かめを、書く前の中身を持たないバックアップ無効の rollback に広げる（A40）
 - S8 は、仕様の見直し（A38・A39）で S6 の結果の出し方を変える。S6 のテストのうち例の書き直されたものを、S8 で新しい例に合わせる。S7 とは独立している
 
 ## Verification map
@@ -136,6 +137,7 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 の順にする。S1〜S6 �
 | S5 | REQ-ssh-003、REQ-ssh-004、REQ-ssh-009、REQ-ssh-023 | EX-ssh-019、EX-ssh-041 |
 | S6 | REQ-ssh-022、REQ-merge-037 | EX-ssh-040、EX-ssh-042、EX-ssh-045、EX-ssh-048、EX-merge-044、EX-merge-051 |
 | S7 | REQ-cli-096 | EX-cli-095、EX-cli-096 |
+| S9 | REQ-ssh-022 | EX-ssh-053 |
 | S8 | REQ-ssh-022、REQ-ssh-004 | EX-ssh-007、EX-ssh-038、EX-ssh-039、EX-ssh-043、EX-ssh-044、EX-ssh-046、EX-ssh-047、EX-ssh-050、EX-ssh-051、EX-ssh-052 |
 
 接続断の例外を書き足した既存の要件（REQ-merge-033・034・041、REQ-cli-088・089、REQ-backup-017・027）は、それぞれの既存のテストが通り続けることと、S6 の REQ-ssh-022 の例で確かめる。REQ-backup-017・027 の接続断（バックアップのための読み込みの接続断）は、S6 で契約テストを一つ足して確かめる。
@@ -267,3 +269,14 @@ Docker の実機の sudo の例は `scripts/run-container-e2e.sh` で走らせ�
 - Shown by: test — 契約テスト `// @kotowari[EX-ssh-038]`、`// @kotowari[REQ-ssh-022, EX-ssh-039]`、`// @kotowari[EX-ssh-043]`、`// @kotowari[EX-ssh-044]`、`// @kotowari[EX-ssh-046]`、`// @kotowari[EX-ssh-047]`、`// @kotowari[EX-ssh-050]`、`// @kotowari[EX-ssh-051]`、`// @kotowari[EX-ssh-052]`、`// @kotowari[REQ-ssh-004, EX-ssh-007]`（S6 の印付きのテストは、書き直された例に合わせて直す）。接続断のない merge の要求の並びが変わらないことは、要求の並びを数える契約テストで確かめる。EX-ssh-046 は `.agents/artifacts/implement-scratch/ex_ssh_046_test.rs` に退避したテストを元にしてよい。どの例も `758c448` の製品コードで RED になることを確かめる
 - Left to the implementer: 確かめの比べ方（中身そのものかハッシュか）、書く前の状態の持ち方、error の文言（A34。英語で、書いていない・書きかけ・結果が分からない・手を付けていない・中身は書いたことが読めるようにする）
 - Stop and hand back if: 書く前の状態を確かめに使える形で持てない書き込みがあり、「書いていない」と「書きかけ」を分けられなかった。テストの道具で EX-ssh-050・051・052 の切り方のどれかを起こせなかった
+
+### S9: バックアップが無効な rollback でも、書く前のハッシュで確かめる
+
+- Purpose: バックアップが無効な rollback で、書き戻す前に書き戻す先の通常ファイルのハッシュを一回の要求でまとめて取り、S8 の確かめの「書く前」に使う。S8 で入れた、この構成だけ "result unknown" にする暫定の扱いを消す
+- Specification: `docs/ir/ssh/reconnect.md#REQ-ssh-022`, `docs/ir/backup/rollback-path.md#REQ-backup-028`
+- Prerequisites: S8
+- May change: `crates/remote-merge/src/runtime/side_io.rs`, `crates/remote-merge/src/runtime/`, `crates/remote-merge/src/cli/rollback.rs`, `crates/remote-merge/tests/contract/`
+- Done when: バックアップを無効にした rollback で、一つ目の書き戻しの要求が行われる前に切ると、一つ目は書いていない失敗、二つ目は手を付けていない失敗になり、結果が分からない失敗にならない。ハッシュはどこにも保存されない。バックアップが無効な rollback で増える要求は、エージェントでも SSH でも、書き戻しの前のハッシュのまとめての一回だけである。バックアップが有効な rollback と merge・sync の要求の並びは変わらない
+- Shown by: test — 契約テスト `// @kotowari[EX-ssh-053]`（`5aea20f` の製品コードで RED になることを確かめる）。要求の並びは、バックアップが無効な rollback のエージェントへの要求を数える契約テストで確かめる
+- Left to the implementer: まとめて取るハッシュの要求の形（今ある HashFiles と SSH のハッシュの読み取りを使う）、error の文言
+- Stop and hand back if: 書き戻す先のハッシュをまとめて一回で取る道が、エージェントか SSH のどちらかの経路にない
