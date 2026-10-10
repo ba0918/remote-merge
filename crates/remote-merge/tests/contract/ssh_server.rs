@@ -14,9 +14,9 @@ use russh::keys::ssh_key::rand_core::OsRng;
 use russh::keys::{Algorithm, PrivateKey};
 use russh::server::{Auth, Msg, Server as _, Session};
 use russh::{server, Channel, ChannelId, CryptoVec, Disconnect};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::process::ChildStdin;
+
+use super::server_faults::{self, AgentInbound, FaultState, Faults, SudoAnswer};
 
 /// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か。
 /// 製品のコマンドは製品の並びで始まり、root_dir と相対パスを r と p に代入する
@@ -54,6 +54,7 @@ pub struct TestServer {
     login_limit: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
     host_key: String,
+    faults: Arc<FaultState>,
 }
 
 impl TestServer {
@@ -111,16 +112,31 @@ impl TestServer {
     }
 
     pub async fn filesystem_with_agent(home: &Path) -> Self {
-        Self::start_options(
-            false,
-            false,
-            0,
-            false,
-            Some(home.join("remote/example.txt")),
-            Some(home.to_path_buf()),
-            true,
+        Self::filesystem_with_faults(home, true, Faults::default()).await
+    }
+
+    /// home の下で本物のシェルでコマンドを実行する偽サーバに、故障を起こさせる。
+    /// `agent_available` なら " agent --root " を含む exec を本物のエージェントのプロセスにつなぐ
+    pub async fn filesystem_with_faults(
+        home: &Path,
+        agent_available: bool,
+        faults: Faults,
+    ) -> Self {
+        Self::start_with(
+            Options {
+                target: Some(home.join("remote/example.txt")),
+                sandbox_home: Some(home.to_path_buf()),
+                agent_available,
+                ..Options::default()
+            },
+            faults,
         )
         .await
+    }
+
+    /// 故障の状態（エージェントが受けた要求、起動の回数、切った回数）
+    pub fn faults(&self) -> &FaultState {
+        &self.faults
     }
 
     pub fn read_attempts(&self) -> usize {
@@ -188,6 +204,33 @@ impl TestServer {
         sandbox_home: Option<PathBuf>,
         agent_available: bool,
     ) -> Self {
+        Self::start_with(
+            Options {
+                legacy,
+                incomplete_writes,
+                interrupt_reads,
+                reject_sudo,
+                target,
+                sandbox_home,
+                agent_available,
+            },
+            Faults::default(),
+        )
+        .await
+    }
+
+    async fn start_with(options: Options, faults: Faults) -> Self {
+        let Options {
+            legacy,
+            incomplete_writes,
+            interrupt_reads,
+            reject_sudo,
+            target,
+            sandbox_home,
+            agent_available,
+        } = options;
+        let faults = FaultState::new(faults);
+        let faults_on_server = Arc::clone(&faults);
         let mut config = server::Config {
             auth_rejection_time: Duration::from_millis(10),
             auth_rejection_time_initial: Some(Duration::ZERO),
@@ -234,6 +277,7 @@ impl TestServer {
                 login_limit: limit_on_login,
                 accepted_logins: Arc::new(AtomicUsize::new(0)),
                 login_shell: shell_on_exec,
+                faults: faults_on_server,
             };
             let _ = server.run_on_socket(config, &listener).await;
         });
@@ -248,8 +292,20 @@ impl TestServer {
             login_limit,
             login_shell,
             host_key,
+            faults,
         }
     }
+}
+
+#[derive(Default)]
+struct Options {
+    legacy: bool,
+    incomplete_writes: bool,
+    interrupt_reads: usize,
+    reject_sudo: bool,
+    target: Option<PathBuf>,
+    sandbox_home: Option<PathBuf>,
+    agent_available: bool,
 }
 
 impl Drop for TestServer {
@@ -273,6 +329,7 @@ struct LocalServer {
     login_limit: Arc<AtomicUsize>,
     accepted_logins: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
+    faults: Arc<FaultState>,
 }
 
 impl server::Server for LocalServer {
@@ -295,7 +352,8 @@ impl server::Server for LocalServer {
             accepted_logins: Arc::clone(&self.accepted_logins),
             login_shell: Arc::clone(&self.login_shell),
             write_channels: HashMap::new(),
-            agent_stdin: HashMap::new(),
+            agent_inbound: HashMap::new(),
+            faults: Arc::clone(&self.faults),
         }
     }
 }
@@ -316,12 +374,27 @@ struct LocalHandler {
     accepted_logins: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
     write_channels: HashMap<ChannelId, (String, Vec<u8>)>,
-    agent_stdin: HashMap<ChannelId, ChildStdin>,
+    agent_inbound: HashMap<ChannelId, AgentInbound>,
+    faults: Arc<FaultState>,
 }
 
 impl LocalHandler {
     fn current_login_shell(&self) -> &'static str {
         *self.login_shell.lock().unwrap()
+    }
+
+    /// home の下でログインシェルにコマンドを渡す。偽の sudo なら PATH の先頭に置く
+    fn shell_command(&self, received: &str, home: &Path) -> std::process::Command {
+        let mut command = std::process::Command::new(self.current_login_shell());
+        command
+            .arg("-c")
+            .arg(received)
+            .env("HOME", home)
+            .current_dir(home);
+        if let Some(path) = server_faults::path_with(self.faults.fake_sudo_path()) {
+            command.env("PATH", path);
+        }
+        command
     }
 }
 
@@ -334,8 +407,8 @@ impl server::Handler for LocalHandler {
         data: &[u8],
         _: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(stdin) = self.agent_stdin.get_mut(&channel) {
-            stdin.write_all(data).await?;
+        if let Some(inbound) = self.agent_inbound.get_mut(&channel) {
+            inbound.feed(data).await;
         }
         if let Some((_, buffer)) = self.write_channels.get_mut(&channel) {
             buffer.extend_from_slice(data);
@@ -348,14 +421,13 @@ impl server::Handler for LocalHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        self.agent_stdin.remove(&channel);
+        if let Some(inbound) = self.agent_inbound.remove(&channel) {
+            inbound.close().await;
+        }
         if let Some((command, encoded)) = self.write_channels.remove(&channel) {
             let home = self.sandbox_home.as_ref().unwrap();
-            let mut child = std::process::Command::new(self.current_login_shell())
-                .arg("-c")
-                .arg(&command)
-                .env("HOME", home)
-                .current_dir(home)
+            let mut child = self
+                .shell_command(&command, home)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -429,52 +501,48 @@ impl server::Handler for LocalHandler {
                     "{{ {}; }} 2>/dev/null",
                     remote_merge::agent::deploy::detect_remote_target_command()
                 );
+            let fake_sudo = self.faults.faults.fake_sudo;
             assert!(
-                command.contains(home.to_str().unwrap()) || detects_target_only,
+                command.contains(home.to_str().unwrap())
+                    || detects_target_only
+                    || (fake_sudo && server_faults::is_sudo_preflight(&command)),
                 "unexpected remote command: {command}"
             );
+            if self.faults.should_cut_ssh(&command) {
+                session.disconnect(Disconnect::ByApplication, "connection lost", "")?;
+                return Ok(());
+            }
+            let received = if fake_sudo {
+                match server_faults::fake_sudo_answer(&command, &received) {
+                    SudoAnswer::Reply(answer) => {
+                        session.data(channel, CryptoVec::from(answer.as_bytes()))?;
+                        session.exit_status_request(channel, 0)?;
+                        session.eof(channel)?;
+                        session.close(channel)?;
+                        return Ok(());
+                    }
+                    SudoAnswer::Run(received) => received,
+                }
+            } else {
+                received
+            };
             if command.contains("openssl base64 -d") || command.contains("cat >") {
                 self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
             }
             if self.agent_available && command.contains(" agent --root ") {
-                let mut child = tokio::process::Command::new(self.current_login_shell())
-                    .arg("-c")
-                    .arg(&received)
-                    .env("HOME", home)
-                    .current_dir(home)
+                let child = tokio::process::Command::from(self.shell_command(&received, home))
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::piped())
                     .spawn()?;
-                self.agent_stdin
-                    .insert(channel, child.stdin.take().unwrap());
-                let mut stdout = child.stdout.take().unwrap();
-                let handle = session.handle();
-                tokio::spawn(async move {
-                    let mut buffer = [0u8; 32768];
-                    while let Ok(count) = stdout.read(&mut buffer).await {
-                        if count == 0 {
-                            break;
-                        }
-                        if handle
-                            .data(channel, CryptoVec::from(&buffer[..count]))
-                            .await
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    let status = child
-                        .wait()
-                        .await
-                        .ok()
-                        .and_then(|status| status.code())
-                        .unwrap_or(1);
-                    let _ = handle.exit_status_request(channel, status as u32).await;
-                    let _ = handle.eof(channel).await;
-                    let _ = handle.close(channel).await;
-                });
+                let inbound = server_faults::relay_agent(
+                    Arc::clone(&self.faults),
+                    child,
+                    channel,
+                    session.handle(),
+                );
+                self.agent_inbound.insert(channel, inbound);
                 return Ok(());
             }
             if command.contains("test -L") && command.contains("echo SYMLINK") {
@@ -483,12 +551,7 @@ impl server::Handler for LocalHandler {
                 session.close(channel)?;
                 return Ok(());
             }
-            let result = std::process::Command::new(self.current_login_shell())
-                .arg("-c")
-                .arg(&received)
-                .env("HOME", home)
-                .current_dir(home)
-                .output()?;
+            let result = self.shell_command(&received, home).output()?;
             if !result.stdout.is_empty() {
                 session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
             }

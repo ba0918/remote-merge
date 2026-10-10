@@ -14,6 +14,9 @@ use tempfile::TempDir;
 #[path = "../contract/ssh_server.rs"]
 pub(crate) mod ssh_server;
 
+#[path = "../contract/server_faults.rs"]
+pub(crate) mod server_faults;
+
 pub(crate) mod login_shell;
 
 // ─── ファイル配置ヘルパー ────────────────────────────────
