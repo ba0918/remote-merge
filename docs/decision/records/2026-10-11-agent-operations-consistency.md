@@ -6,7 +6,7 @@
 変更の最中の `接続断` の後の確かめと、バックアップが無効な rollback のまとめてのハッシュで、IR に書かれていない場合と、IR と違う動きが見つかった。
 ここでは、試しの実行で確かめた事実をもとに、IR とコードのどちらをどう合わせたかを決める。
 
-Position: A1〜A2 まで決めた。
+Position: A1〜A3 で出揃った。
 
 ## Agreements
 
@@ -15,4 +15,7 @@ Position: A1〜A2 まで決めた。
   - decided_by: 一貫性の段（consistency phase）
 - A2 バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理（[A40](./2026-10-11-agent-operations.md#A40)・[A41](./2026-10-11-agent-operations.md#A41)。SSH でハッシュのコマンドがないときに代わりにまとめて読む処理を含む）は、[REQ-ssh-003](../../ir/ssh/reconnect.md#REQ-ssh-003)・[REQ-ssh-023](../../ir/ssh/reconnect.md#REQ-ssh-023) の「書き込み先の中身をまとめて読む処理」に入る。やり直しても `接続断` で止めたときは、そのまとめに入っていたファイル（書き戻す先にある通常ファイル）を理由付きの読み込みの失敗に、入っていなかった残りを手を付けていない失敗にする。二つの要件の文にこのことを書き足し、コードをこれに合わせた。
   - why: ハッシュを取るには中身を読むので、まとめて読む処理と同じ扱いにするのが REQ-ssh-003 の読み取りの範囲（ハッシュを含む）と [A37](./2026-10-11-agent-operations.md#A37) に合う。試しの契約テスト（エージェントを使わないサーバとエージェントを使うサーバのそれぞれで、"a.txt" は書き戻す先にあり "b.txt" はない rollback を、バックアップを無効にして、ハッシュのコマンドか HashFiles の要求を毎回切って行う）で、直す前のコードは SSH で "a.txt"・"b.txt" とも "not attempted: SSH connection failed to fixture: Remote command ended without an exit status"、エージェントで両方とも "not attempted: failed to fill whole buffer" を出した。まとめに入っていた "a.txt" まで手を付けていない失敗になり、IR の区別と違っていた。直した後は "a.txt" が "read failed: the connection was lost: ..."、"b.txt" が "not attempted: ..." になる（`crates/remote-merge/src/runtime/side_io.rs` の `restore_backup`）。
+  - decided_by: 一貫性の段（consistency phase）
+- A3 権限の変更の最中の `接続断` の後に権限を読んで確かめる一覧は、SSH の経路でも exclude を当てずに取る（エージェントの経路はすでに当てていない）。コードを直し、IR は変えない。
+  - why: [REQ-ssh-022](../../ir/ssh/reconnect.md#REQ-ssh-022) は「権限の変更は、読んだ権限で変えたか変えていないかとする」と決め、[A7](./2026-10-11-agent-operations.md#A7) は経路によって結果を変えない。確かめに使う親の子の一覧に、SSH だけが設定の exclude を名前と root_dir からのパスの両方に当てていた（FLAG-paths-002 の今の SSH の当て方）。試しの契約テスト（エージェントを使わないサーバで exclude を "vendor/**" にし、書き込み先にない "a/vendor/x.txt" を merge して、作ったディレクトリ "a/vendor" の権限の変更のコマンドで session を切る。作ったディレクトリの権限は求めた権限と同じ 775）で、直す前のコードは "content written, but permissions not changed: after reconnecting, the path was not found (...)" を出した。ディレクトリはあり、権限も求めたとおりなのに「変えていない」になっていた。直した後は「変えた」と確かめ、残りの新しいファイルの権限の変更に手を付けていないこと（A1）を出す（`crates/remote-merge/src/runtime/confirm.rs` の `observe_mode`）。
   - decided_by: 一貫性の段（consistency phase）

@@ -371,17 +371,25 @@ impl CoreRuntime {
         server_name: &str,
         rel_path: &str,
     ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+        let exclude = self.config.filter.exclude.clone();
+        self.list_remote_children_excluding(server_name, rel_path, &exclude)
+    }
+
+    /// [`Self::list_remote_children`] の、当てる exclude を `exclude` にしたもの
+    pub(crate) fn list_remote_children_excluding(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        exclude: &[String],
+    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
         let rel = remote_merge_core::rel_path::operation_rel_path(rel_path)?;
         let full_path = self.resolve_remote_path(server_name, rel)?;
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.list_children(
-            full_path.trim_end_matches('/'),
-            &self.config.filter.exclude,
-            rel,
-        ))
+        self.rt
+            .block_on(client.list_children(full_path.trim_end_matches('/'), exclude, rel))
     }
 
     // ── private helpers ──

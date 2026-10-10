@@ -324,6 +324,50 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
     assert_ne!(mode & 0o777, 0o600);
 }
 
+// @kotowari[REQ-ssh-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_would_hide() {
+    // "vendor/**" を SSH の子の一覧は深い階層の "a/vendor" にも当てる（FLAG-paths-002）が、
+    // 確かめはその当て方によらず、作ったディレクトリ "a/vendor" の権限を読む。
+    // 作ったディレクトリに付ける権限を、このプロセスの umask で作られる権限と同じにして、
+    // 切れた権限の変更が「変えた」と確かめられるようにする
+    let fixture = AgentFixture::new(
+        Setup {
+            agent_disabled: true,
+            ..Setup::default()
+        },
+        Faults::default(),
+    )
+    .await;
+    let created = fixture.home.path().join("umask-probe");
+    fs::create_dir(&created).unwrap();
+    let dir_mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+    let mut config = fs::read_to_string(&fixture.config).unwrap();
+    config.push_str(&format!(
+        "[filter]\nexclude = [\"vendor/**\"]\n[defaults]\ndir_permissions = \"0o{dir_mode:o}\"\n"
+    ));
+    fs::write(&fixture.config, config).unwrap();
+    fixture.put("a/keep.txt", Some("k\n"), Some("k\n"));
+    fixture.put("a/vendor/x.txt", Some("new\n"), None);
+    fixture.server.faults().arm_ssh_cut(SshCut {
+        command: SshCommand::Chmod,
+        repeat: Repeat::Once,
+    });
+
+    let output = fixture.run(&["merge", "a/vendor/x.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    let error = failure(&result["failed"], "a/vendor/x.txt");
+    assert!(
+        error.contains(CONTENT_WRITTEN)
+            && error.contains(UNTOUCHED)
+            && !error.contains(PERMISSIONS_UNCHANGED),
+        "{error}"
+    );
+    assert_eq!(fixture.read_remote("a/vendor/x.txt"), "new\n");
+}
+
 // @kotowari[EX-ssh-046]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_gone_before_the_next_change_is_confirmed_and_the_rest_is_untouched() {

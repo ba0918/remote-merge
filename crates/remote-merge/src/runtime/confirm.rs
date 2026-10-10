@@ -142,7 +142,8 @@ impl CoreRuntime {
             .unwrap_or_else(|| Err(anyhow::anyhow!("the agent could not read {path}")))
     }
 
-    /// 親の子の一覧から、そのパスの権限を読む
+    /// 親の子の一覧から、そのパスの権限を読む。変えたパスそのものを読むので、exclude はどの経路でも
+    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）
     fn observe_mode(&mut self, server: &str, path: &str) -> anyhow::Result<Observed> {
         let (parent, name) = match path.rsplit_once('/') {
             Some((parent, name)) => (parent, name),
@@ -154,7 +155,7 @@ impl CoreRuntime {
             })
             .map(crate::agent::tree_scan::child_listing_from_agent)?
         } else {
-            self.list_remote_children(server, parent)?
+            self.list_remote_children_excluding(server, parent, &[])?
         };
         match listing {
             ChildListing::Children(nodes) => Ok(nodes
