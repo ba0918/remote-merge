@@ -21,7 +21,7 @@ merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結�
 
 ### REQ-ssh-022: 変更の最中の接続断で、そのファイルを確かめてから書き込み先への処理を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34
+- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A41, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34
 - verification: unit
 
 merge・sync（--delete を含む）・rollback が、書き込み先への書き込み・symlink の作成・削除・権限の変更の最中に `接続断` に出会ったとき、同じ経路で一度だけつなぎ直して（エージェントは起動し直し、SSH はつなぎ直し）、そのファイルの今の状態を読んで確かめる。
@@ -31,7 +31,7 @@ merge・sync（--delete を含む）・rollback が、書き込み先への書�
 前の操作の後に接続が使えなくなっていて変更の要求を送れなかったときも、同じく確かめて出す。
 中身を書いた後の権限の変更が `接続断` になったときは、そのファイルの error を、中身は書いたことと確かめた権限の結果の両方が分かるものにする。
 どの場合も、その書き込み先でまだ処理していない残りのファイルを変更せずに、手を付けていないことが分かる error で failed に出し、終了コード 2 を返す。済んだファイルはそのまま結果に出す。
-`接続断` が起きないときは、確かめるための要求を増やさない。ただし、バックアップが無効な rollback では、書き戻す前に、書き戻す先にある通常ファイルのハッシュを一回の要求でまとめて取り、確かめの「書く前」に使う。このハッシュは保存しない。
+`接続断` が起きないときは、確かめるための要求を増やさない。ただし、バックアップが無効な rollback では、書き戻す前に、書き戻す先にある通常ファイルのハッシュを、書き戻すファイルの数によらずまとめて取り（SSH でコマンドの長さの上限のために分けることはある）、確かめの「書く前」に使う。SSH でハッシュを取るコマンドのないサーバでは、代わりに中身をまとめて読む。取ったものは保存しない。
 sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
 `接続断` でない失敗（相手が失敗を返した、コマンドが 0 以外で終わった）は、そのファイルだけを failed に出して残りを続ける。
 error の文言は IR で決めず、実装者が英語で書く。テストは、書いていない・書きかけ・結果が分からない・手を付けていない・中身は書いたことを区別できることを確かめ、文言を固定しない。
