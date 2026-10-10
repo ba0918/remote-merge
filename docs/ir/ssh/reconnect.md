@@ -21,12 +21,14 @@ merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結�
 
 ### REQ-ssh-022: 変更の最中の接続断で、そのファイルを確かめてから書き込み先への処理を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A41, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34
+- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A41, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34, docs/decision/records/2026-10-11-agent-operations-consistency.md#A1
 - verification: unit
 
 merge・sync（--delete を含む）・rollback が、書き込み先への書き込み・symlink の作成・削除・権限の変更の最中に `接続断` に出会ったとき、同じ経路で一度だけつなぎ直して（エージェントは起動し直し、SSH はつなぎ直し）、そのファイルの今の状態を読んで確かめる。
 書き込みと symlink の作成は、書こうとしたものと同じなら「書けた」、書く前と同じ（書く前になかったなら、ない）なら「書いていない」、どちらでもなければ「書きかけ」とする。削除は、なければ「消せた」、あれば「消していない」とする。権限の変更は、読んだ権限で「変えた」か「変えていない」とする。
-「書けた」「消せた」「変えた」ファイルは済んだファイルとして結果に出し、それ以外はその結果が分かる error で failed に出す。「書きかけ」の error には、バックアップを取っていればその場所も出し、自動では書き戻さない。
+「書けた」「消せた」「変えた」ファイルは済んだファイルとして結果に出し、それ以外はその結果が分かる error で failed に出す。
+ただし、「書けた」「消せた」の後にそのファイルの変更が残っているとき（新しいファイルや作ったディレクトリの権限の変更、--with-permissions の権限の複製、symlink を置き換えるために消した後の作成）は、残りの変更を行わず、そのファイルを、済んだ変更と手を付けていない変更の両方が分かる error で failed に出す。
+「書きかけ」の error には、バックアップを取っていればその場所も出し、自動では書き戻さない。
 つなぎ直しか確かめる読み込みが失敗したときだけ、そのファイルを結果が分からないことが分かる error で failed に出す。
 前の操作の後に接続が使えなくなっていて変更の要求を送れなかったときも、同じく確かめて出す。
 中身を書いた後の権限の変更が `接続断` になったときは、そのファイルの error を、中身は書いたことと確かめた権限の結果の両方が分かるものにする。
@@ -148,6 +150,12 @@ Scenario: 書けた後、応答の前に切れる
 Given "a.txt"・"b.txt" を merge し、"a.txt" の書き込みが終わった後、その応答を返す前に接続が切れる
 When merge の結果を見る
 Then "a.txt" は書き込まれた結果に出て、"b.txt" は手を付けていない失敗として failed に出て、終了コード 2 を返す
+
+@id=EX-ssh-054 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations-consistency.md#A1,docs/decision/records/2026-10-11-agent-operations.md#A38
+Scenario: 新しいファイルを書けた後、応答の前に切れる
+Given 書き込み先にない "a.txt" と書き込み先にある "b.txt" を merge し、"a.txt" の書き込みが終わった後、その応答を返す前に接続が切れる
+When merge の結果を見る
+Then "a.txt" は中身は書いたことと権限の変更に手を付けていないことの両方が分かる error で、"b.txt" は手を付けていない失敗として failed に出て、終了コード 2 を返す
 
 @id=EX-ssh-051 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A38,docs/decision/records/2026-10-11-agent-operations.md#A39
 Scenario: 分けて送る大きな書き込みの途中で切れる

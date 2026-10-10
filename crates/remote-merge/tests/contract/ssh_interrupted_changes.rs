@@ -379,6 +379,37 @@ async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
     assert_eq!(fixture.server.faults().agent_starts(), 2);
 }
 
+// @kotowari[EX-ssh-054]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_file_written_before_its_reply_is_lost_leaves_its_permission_change_untouched() {
+    // 新しいファイルは、書いた後に既定の権限に変える。その権限の変更は、確かめた後には行わない
+    let fixture = AgentFixture::new(
+        Setup::default(),
+        cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once),
+    )
+    .await;
+    fixture.put("a.txt", Some("local\n"), None);
+    fixture.put("b.txt", Some("local\n"), Some("remote old\n"));
+
+    let output = fixture.run(&["merge", "a.txt", "b.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    assert!(paths(&result["merged"]).is_empty(), "{result}");
+    let error = failure(&result["failed"], "a.txt");
+    assert!(
+        error.contains(CONTENT_WRITTEN) && error.contains(UNTOUCHED),
+        "{error}"
+    );
+    assert!(
+        failure(&result["failed"], "b.txt").contains(UNTOUCHED),
+        "{result}"
+    );
+    assert_eq!(fixture.read_remote("a.txt"), "local\n");
+    assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
+    assert_eq!(count(&fixture, "Chmod"), 0);
+}
+
 /// エージェントが一度に書く大きさ（4 MiB）を超える中身
 fn larger_than_one_chunk(byte: u8) -> Vec<u8> {
     vec![byte; 4 * 1024 * 1024 + 1024]
