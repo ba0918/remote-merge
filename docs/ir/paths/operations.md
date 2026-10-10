@@ -32,12 +32,13 @@
 
 ### REQ-paths-017: 子の一覧の項目の値は経路によらない
 - kind: invariant
-- source: docs/decision/records/2026-10-11-agent-operations.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-11-agent-operations.md#A31
+- source: docs/decision/records/2026-10-11-agent-operations.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-11-agent-operations.md#A36, docs/decision/records/2026-10-11-agent-operations.md#A31
 - verification: unit
 
 子の一覧は、どの経路でも、各項目の種類、大きさ、権限（0o7777 の範囲の権限のビット）、更新時刻（ナノ秒まで）、symlink のリンク先（読んだ文字列そのまま）を同じ値で返す。
 symlink のリンク先か更新時刻を読めないときは、走査の REQ-scan-015 と同じく、既定の値で埋めずにエラーで止まる。
 エージェントの子の一覧は、exclude をローカルの経路と同じく、直下の子の root_dir からのパスに当てる。
+SSH の経路の更新時刻は、リモートの find が出した桁までとし、秒しか出さない find でナノ秒を記録するファイルシステムを一覧したときの差は FLAG-paths-003 に残す。
 
 ## Examples
 
