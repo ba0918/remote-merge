@@ -15,6 +15,7 @@ use crate::error::AppError;
 use crate::login_shell::wrap_for_login_shell;
 use crate::tree::FileNode;
 
+use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::{append_known_hosts_entry, SshHandler};
@@ -727,6 +728,29 @@ impl SshClient {
         }
 
         Ok(merged)
+    }
+
+    /// 複数ファイルの SHA-256 をまとめて取る（チャンク分割対応）。
+    ///
+    /// 通常ファイルでないか読めなかったパスは結果に入れない。サーバに sha256sum も shasum も
+    /// なければ `BatchHashes::Unsupported` を返す。チャンクのどれかでコマンドが失敗するか出力の
+    /// 形式が合わない場合は全体エラーとして返す（部分結果を返さない）。
+    pub async fn hash_files_batch(
+        &mut self,
+        paths: &[String],
+    ) -> crate::error::Result<BatchHashes> {
+        let mut merged = HashMap::with_capacity(paths.len());
+        for chunk in batch_hash::chunk_paths(paths, batch_read::SSH_BATCH_MAX_COMMAND_LEN) {
+            let Some(command) = batch_hash::build_batch_hash_command(&chunk) else {
+                continue;
+            };
+            let output = self.exec_strict_bytes(&command).await?;
+            match batch_hash::parse_batch_hash_output(&output, &chunk)? {
+                BatchHashes::Unsupported => return Ok(BatchHashes::Unsupported),
+                BatchHashes::Hashes(hashes) => merged.extend(hashes),
+            }
+        }
+        Ok(BatchHashes::Hashes(merged))
     }
 
     /// `exec_strict()` のバイト列版。stdout を UTF-8 変換せずに返す。

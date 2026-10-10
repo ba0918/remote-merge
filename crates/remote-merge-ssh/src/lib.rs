@@ -1,3 +1,4 @@
+pub mod batch_hash;
 pub mod batch_read;
 pub mod child_listing;
 pub mod client;

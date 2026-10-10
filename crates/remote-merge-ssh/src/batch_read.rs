@@ -74,34 +74,41 @@ fn estimate_end_marker_len(path_count: usize) -> usize {
 /// 各チャンクの合計コマンド長が `max_command_len` バイト以下になるように分割する。
 /// 1パスだけで上限を超える場合は、そのパスだけで1チャンクにする（パニックしない）。
 pub fn chunk_paths(paths: &[String], max_command_len: usize) -> Vec<Vec<String>> {
-    if paths.is_empty() {
-        return Vec::new();
-    }
+    chunk_paths_by(
+        paths,
+        max_command_len,
+        estimate_command_len_for_path,
+        estimate_end_marker_len,
+    )
+}
 
+/// [`chunk_paths`] の分け方を、1パスが足す長さ（`path_len`。パスとチャンク内の 0 から数えた
+/// インデックスから）と、パスの数で決まる残りの長さ（`fixed_len`）を与えて行う。
+pub(crate) fn chunk_paths_by(
+    paths: &[String],
+    max_command_len: usize,
+    path_len: impl Fn(&str, usize) -> usize,
+    fixed_len: impl Fn(usize) -> usize,
+) -> Vec<Vec<String>> {
     let mut chunks: Vec<Vec<String>> = Vec::new();
     let mut current_chunk: Vec<String> = Vec::new();
-    // 現在のチャンクのコマンド長（終端マーカーを除く）
+    // 現在のチャンクのコマンド長（パスの数で決まる部分を除く）
     let mut current_len: usize = 0;
 
     for path in paths.iter() {
-        // `build_batch_cat_command()` はチャンク内 0-origin のインデックスを使うため、それと一致させる
-        let chunk_local_index = current_chunk.len();
-        let path_len = estimate_command_len_for_path(path, chunk_local_index);
-        let end_marker_len = estimate_end_marker_len(current_chunk.len() + 1);
-
-        if current_chunk.is_empty() {
-            // チャンクが空の場合は必ず追加（1パスで上限超えでもパニックしない）
-            current_chunk.push(path.clone());
-            current_len = path_len;
-        } else if current_len + path_len + end_marker_len > max_command_len {
-            chunks.push(current_chunk);
-            current_chunk = vec![path.clone()];
+        // コマンドはチャンク内 0-origin のインデックスを使うため、それと一致させる
+        let added = path_len(path, current_chunk.len());
+        if !current_chunk.is_empty()
+            && current_len + added + fixed_len(current_chunk.len() + 1) > max_command_len
+        {
+            chunks.push(std::mem::take(&mut current_chunk));
             // 新チャンクの先頭なのでインデックス 0 で再推定
-            current_len = estimate_command_len_for_path(path, 0);
+            current_len = path_len(path, 0);
         } else {
-            current_chunk.push(path.clone());
-            current_len += path_len;
+            // チャンクが空の場合は必ず追加（1パスで上限超えでもパニックしない）
+            current_len += added;
         }
+        current_chunk.push(path.clone());
     }
 
     if !current_chunk.is_empty() {
