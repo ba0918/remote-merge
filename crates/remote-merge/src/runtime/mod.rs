@@ -22,6 +22,7 @@ pub mod remote_size;
 #[cfg(not(feature = "test-utils"))]
 mod remote_size;
 mod remote_target;
+mod restore_before;
 #[cfg(all(test, unix))]
 pub(crate) mod scripted_agent;
 pub mod side_io;

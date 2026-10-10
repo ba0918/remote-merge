@@ -72,6 +72,8 @@ pub enum SshCommand {
     Write,
     /// 権限の変更
     Chmod,
+    /// ファイルのハッシュ（sha256sum か shasum）
+    Hash,
 }
 
 impl SshCommand {
@@ -89,6 +91,7 @@ impl SshCommand {
             }
             Self::Write => script.contains("openssl base64 -d") || script.contains("cat >"),
             Self::Chmod => script.starts_with("chmod "),
+            Self::Hash => script.contains("sha256sum"),
         }
     }
 }
@@ -113,6 +116,8 @@ pub struct Faults {
     pub refuse_ssh: Option<SshCommand>,
     /// エージェントとの間を一度切った後は、エージェントを起動させない（起動のコマンドを 1 で終える）
     pub refuse_agent_after_cut: bool,
+    /// sha256sum と shasum のないサーバにする（どちらも見つからないときと同じく 127 で終える）
+    pub without_hash_commands: bool,
 }
 
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
@@ -120,6 +125,8 @@ pub struct FaultState {
     pub faults: Faults,
     /// 後から仕掛けたエージェントとの間を切る条件（`faults.agent_cut` より優先する）
     armed_agent_cut: Mutex<Option<AgentCut>>,
+    /// 後から仕掛けた SSH のコマンドで切る条件（`faults.ssh_cut` より優先する）
+    armed_ssh_cut: Mutex<Option<SshCut>>,
     /// 要求の種類ごとの数（起動し直した後も続けて数える。仕掛け直すと数え直す）
     agent_counts: Mutex<HashMap<String, usize>>,
     agent_cut_claimed: AtomicBool,
@@ -128,14 +135,17 @@ pub struct FaultState {
     agent_starts: AtomicUsize,
     agent_requests: Mutex<Vec<String>>,
     sudo_bin: Option<tempfile::TempDir>,
+    missing_hash_bin: Option<tempfile::TempDir>,
 }
 
 impl FaultState {
     pub fn new(faults: Faults) -> Arc<Self> {
         let sudo_bin = faults.fake_sudo.then(fake_sudo_bin);
+        let missing_hash_bin = faults.without_hash_commands.then(missing_hash_bin);
         Arc::new(Self {
             faults,
             armed_agent_cut: Mutex::new(None),
+            armed_ssh_cut: Mutex::new(None),
             agent_counts: Mutex::new(HashMap::new()),
             agent_cut_claimed: AtomicBool::new(false),
             ssh_cut_claimed: AtomicBool::new(false),
@@ -143,6 +153,7 @@ impl FaultState {
             agent_starts: AtomicUsize::new(0),
             agent_requests: Mutex::new(Vec::new()),
             sudo_bin,
+            missing_hash_bin,
         })
     }
 
@@ -151,6 +162,12 @@ impl FaultState {
         *self.armed_agent_cut.lock().unwrap() = Some(cut);
         self.agent_counts.lock().unwrap().clear();
         self.agent_cut_claimed.store(false, Ordering::SeqCst);
+    }
+
+    /// これから受ける SSH のコマンドで session を切る条件を仕掛ける（準備の操作の後に切るため）
+    pub fn arm_ssh_cut(&self, cut: SshCut) {
+        *self.armed_ssh_cut.lock().unwrap() = Some(cut);
+        self.ssh_cut_claimed.store(false, Ordering::SeqCst);
     }
 
     fn agent_cut(&self) -> Option<AgentCut> {
@@ -174,7 +191,7 @@ impl FaultState {
 
     /// このコマンドで session を切るか。切るなら数える
     pub fn should_cut_ssh(&self, script: &str) -> bool {
-        let Some(cut) = self.faults.ssh_cut else {
+        let Some(cut) = (*self.armed_ssh_cut.lock().unwrap()).or(self.faults.ssh_cut) else {
             return false;
         };
         if !cut.command.matches(script) || !claim(&self.ssh_cut_claimed, cut.repeat) {
@@ -196,9 +213,13 @@ impl FaultState {
             .is_some_and(|command| command.matches(script))
     }
 
-    /// 偽の sudo を使うときに PATH の先頭に置くディレクトリ
-    pub fn fake_sudo_path(&self) -> Option<&Path> {
-        self.sudo_bin.as_ref().map(|dir| dir.path())
+    /// PATH の先頭に置くディレクトリ（偽の sudo と、見つからないハッシュのコマンド）
+    pub fn extra_path_dirs(&self) -> Vec<&Path> {
+        [&self.sudo_bin, &self.missing_hash_bin]
+            .into_iter()
+            .flatten()
+            .map(|dir| dir.path())
+            .collect()
     }
 
     fn claim_agent_cut(&self, repeat: Repeat) -> bool {
@@ -220,6 +241,22 @@ fn fake_sudo_bin() -> tempfile::TempDir {
     let sudo = dir.path().join("sudo");
     std::fs::write(&sudo, "#!/bin/sh\n[ \"$1\" = -n ] && shift\nexec \"$@\"\n").unwrap();
     std::fs::set_permissions(&sudo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir
+}
+
+/// 見つからないコマンドと同じく 127 で終える sha256sum と shasum
+fn missing_hash_bin() -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    for name in ["sha256sum", "shasum"] {
+        let stub = dir.path().join(name);
+        std::fs::write(
+            &stub,
+            format!("#!/bin/sh\necho '{name}: not found' >&2\nexit 127\n"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     dir
 }
 
@@ -249,10 +286,12 @@ pub fn is_sudo_preflight(script: &str) -> bool {
     script == "sudo -n true" || (script.starts_with("id -u ") && script.contains("&& id -g "))
 }
 
-/// PATH の先頭に偽の sudo を置いた値
-pub fn path_with(dir: Option<&Path>) -> Option<std::ffi::OsString> {
-    let dir = dir?;
-    let mut paths = vec![PathBuf::from(dir)];
+/// PATH の先頭に `dirs` を置いた値。`dirs` が空なら None（PATH を変えない）
+pub fn path_with(dirs: &[&Path]) -> Option<std::ffi::OsString> {
+    if dirs.is_empty() {
+        return None;
+    }
+    let mut paths: Vec<PathBuf> = dirs.iter().map(PathBuf::from).collect();
     paths.extend(std::env::split_paths(
         &std::env::var_os("PATH").unwrap_or_default(),
     ));

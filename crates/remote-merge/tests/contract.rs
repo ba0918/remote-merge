@@ -183,6 +183,9 @@ mod ssh_connection_loss;
 #[path = "contract/ssh_interrupted_changes.rs"]
 mod ssh_interrupted_changes;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_interrupted_rollback.rs"]
+mod ssh_interrupted_rollback;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_strict_exec.rs"]
 mod ssh_strict_exec;
 #[cfg(feature = "test-utils")]

@@ -392,7 +392,8 @@ impl LocalHandler {
         *self.login_shell.lock().unwrap()
     }
 
-    /// home の下でログインシェルにコマンドを渡す。偽の sudo なら PATH の先頭に置く
+    /// home の下でログインシェルにコマンドを渡す。偽の sudo と見つからないハッシュのコマンドは
+    /// PATH の先頭に置く
     fn shell_command(&self, received: &str, home: &Path) -> std::process::Command {
         let mut command = std::process::Command::new(self.current_login_shell());
         command
@@ -400,7 +401,7 @@ impl LocalHandler {
             .arg(received)
             .env("HOME", home)
             .current_dir(home);
-        if let Some(path) = server_faults::path_with(self.faults.fake_sudo_path()) {
+        if let Some(path) = server_faults::path_with(&self.faults.extra_path_dirs()) {
             command.env("PATH", path);
         }
         command

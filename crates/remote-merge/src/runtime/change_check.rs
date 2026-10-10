@@ -8,7 +8,10 @@ pub enum Before {
     Absent,
     /// この中身の通常のファイルだった
     Content(Vec<u8>),
-    /// 書く前の中身を持っていない（バックアップを取らない rollback）
+    /// この SHA-256（小文字の16進）の中身の通常のファイルだった（バックアップを取らない rollback が
+    /// 書き戻す前にまとめて取る）
+    Hash(String),
+    /// 書く前の中身を持っていない
     Unknown,
 }
 
@@ -67,6 +70,9 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
                 (Before::Content(previous), Observed::File(now)) if previous == now => {
                     Outcome::NotDone
                 }
+                (Before::Hash(previous), Observed::File(now)) if *previous == sha256_hex(now) => {
+                    Outcome::NotDone
+                }
                 (Before::Unknown, _) => Outcome::Undetermined,
                 _ => Outcome::Partial,
             }
@@ -85,6 +91,11 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
             _ => Outcome::NotDone,
         },
     }
+}
+
+fn sha256_hex(content: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(content))
 }
 
 /// 確かめた結果が分かる失敗の文言。`cause` は最初の `接続断` の原因
@@ -125,6 +136,7 @@ pub fn describe_unconfirmed(cause: &str, reason: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     fn file(text: &str) -> Observed {
         Observed::File(text.as_bytes().to_vec())
@@ -133,6 +145,7 @@ mod tests {
     #[test]
     fn a_write_is_judged_against_the_new_and_the_previous_content() {
         let previous = Before::Content(b"old".to_vec());
+        let old_hash = Before::Hash(format!("{:x}", Sha256::digest(b"old")));
         let cases = [
             (&previous, file("new"), Outcome::Done),
             (&previous, file("old"), Outcome::NotDone),
@@ -144,6 +157,10 @@ mod tests {
             (&Before::Absent, file(""), Outcome::Partial),
             (&Before::Unknown, file("new"), Outcome::Done),
             (&Before::Unknown, file("old"), Outcome::Undetermined),
+            (&old_hash, file("new"), Outcome::Done),
+            (&old_hash, file("old"), Outcome::NotDone),
+            (&old_hash, file("ne"), Outcome::Partial),
+            (&old_hash, Observed::Absent, Outcome::Partial),
         ];
         for (before, observed, expected) in cases {
             let change = Change::Write {

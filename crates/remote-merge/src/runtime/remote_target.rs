@@ -261,4 +261,11 @@ impl TargetIo for RemoteTargetIo {
             None => Ok(None),
         })
     }
+    fn states_before_restore(
+        &mut self,
+        rt: &mut CoreRuntime,
+        paths: &[String],
+    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+        self.guarded(rt, |rt, name| rt.remote_states_before_restore(name, paths))
+    }
 }

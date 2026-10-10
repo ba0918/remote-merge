@@ -154,6 +154,12 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         paths: &[String],
     ) -> anyhow::Result<Option<HashMap<String, String>>>;
+    /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
+    fn states_before_restore(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        paths: &[String],
+    ) -> anyhow::Result<HashMap<String, super::change_check::Before>>;
 }
 
 pub(crate) struct LocalTargetIo {
@@ -314,6 +320,14 @@ impl TargetIo for LocalTargetIo {
         paths: &[String],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         Ok(remote_merge_engine::local_io::hashes(&self.root, paths))
+    }
+    /// このマシンの書き込みは `接続断` にならず、書き込み先を確かめないので、何も読まない
+    fn states_before_restore(
+        &mut self,
+        _: &mut CoreRuntime,
+        _: &[String],
+    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+        Ok(HashMap::new())
     }
 }
 

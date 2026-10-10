@@ -124,4 +124,11 @@ impl TargetIo for StoppedTargetIo {
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         self.refuse(rt)
     }
+    fn states_before_restore(
+        &mut self,
+        rt: &mut CoreRuntime,
+        _: &[String],
+    ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
+        self.refuse(rt)
+    }
 }

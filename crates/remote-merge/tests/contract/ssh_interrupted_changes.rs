@@ -385,7 +385,7 @@ fn larger_than_one_chunk(byte: u8) -> Vec<u8> {
 }
 
 /// 手元に保存したバックアップの session の名前
-fn backup_sessions(fixture: &AgentFixture) -> Vec<String> {
+pub fn backup_sessions(fixture: &AgentFixture) -> Vec<String> {
     let mut found = Vec::new();
     let mut pending = vec![fixture.home.path().to_path_buf()];
     while let Some(dir) = pending.pop() {

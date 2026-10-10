@@ -64,6 +64,31 @@ impl CoreRuntime {
         ))
     }
 
+    /// 複数のリモートファイルの SHA-256 をまとめて取る（`接続断` のやり直しは呼び出し元の
+    /// `ssh_read` が行う）。結果のキーは root_dir からの相対パス
+    pub(crate) fn hash_remote_files_batch(
+        &mut self,
+        server_name: &str,
+        rel_paths: &[String],
+    ) -> anyhow::Result<crate::ssh::batch_hash::BatchHashes> {
+        use crate::ssh::batch_hash::BatchHashes;
+        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        Ok(
+            match self.rt.block_on(client.hash_files_batch(&full_paths))? {
+                BatchHashes::Unsupported => BatchHashes::Unsupported,
+                BatchHashes::Hashes(hashes) => BatchHashes::Hashes(Self::map_to_rel_paths_bytes(
+                    rel_paths,
+                    &full_paths,
+                    hashes,
+                )),
+            },
+        )
+    }
+
     /// リモートファイルに書き込む（自動再接続なし — safety のため）
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `write_file(side, path, content)` を使うこと。
@@ -427,11 +452,11 @@ impl CoreRuntime {
         self.rt.block_on(client.read_files_batch_bytes(full_paths))
     }
 
-    fn map_to_rel_paths_bytes(
+    fn map_to_rel_paths_bytes<T>(
         rel_paths: &[String],
         full_paths: &[String],
-        mut batch_result: HashMap<String, Vec<u8>>,
-    ) -> HashMap<String, Vec<u8>> {
+        mut batch_result: HashMap<String, T>,
+    ) -> HashMap<String, T> {
         let mut result = HashMap::with_capacity(batch_result.len());
         for (i, rel_path) in rel_paths.iter().enumerate() {
             if let Some(content) = batch_result.remove(&full_paths[i]) {

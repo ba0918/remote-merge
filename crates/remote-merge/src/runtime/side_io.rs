@@ -270,6 +270,8 @@ impl CoreRuntime {
         Vec<crate::service::types::RollbackSkipped>,
         Vec<crate::service::types::RollbackFailure>,
     )> {
+        // 書き戻す先にある通常のファイル（バックアップが無効なときに書き戻す前の状態を取る）
+        let mut present_files = Vec::new();
         for path in files {
             let record = self
                 .backup_store
@@ -281,11 +283,16 @@ impl CoreRuntime {
             ) {
                 let inspected = self.inspect_recorded_path(side, path, &backup_record);
                 let refusal = match inspected {
-                    Ok(current) => remote_merge_engine::service::rollback::restore_request_refusal(
-                        files,
-                        &backup_record,
-                        Ok(&current),
-                    ),
+                    Ok(current) => {
+                        if super::restore_before::needs_state_before(&backup_record, &current) {
+                            present_files.push(path.clone());
+                        }
+                        remote_merge_engine::service::rollback::restore_request_refusal(
+                            files,
+                            &backup_record,
+                            Ok(&current),
+                        )
+                    }
                     // `接続断` は確かめの拒否にせず、そのファイルを理由付きの失敗に、残りを
                     // 手を付けていない失敗にして止める
                     Err(error) if classify(&error).is_disconnection() => {
@@ -307,6 +314,15 @@ impl CoreRuntime {
         } else {
             None
         };
+        // バックアップが無効なら、書き戻しの最中の `接続断` の確かめに使う書き戻す前の状態を、
+        // 書き戻す前にまとめて取る（保存しない）。取れなければ何も書き戻さずに止める
+        let mut states_before =
+            if !self.config.backup.enabled && !dry_run && !present_files.is_empty() {
+                let mut io = super::target_io::for_side(side, self);
+                io.states_before_restore(self, &present_files)?
+            } else {
+                HashMap::new()
+            };
         let mut restored = Vec::new();
         let mut skipped = Vec::new();
         let mut failed = Vec::new();
@@ -396,8 +412,13 @@ impl CoreRuntime {
 
             let write_result = match record {
                 super::backup_store::BackupRecord::File { content, .. } => {
-                    let before =
-                        self.restore_before(side, path, current.as_ref(), &pre_rollback_backup);
+                    let before = self.restore_before(
+                        side,
+                        path,
+                        current.as_ref(),
+                        &pre_rollback_backup,
+                        &mut states_before,
+                    );
                     let backup = pre_rollback_backup
                         .as_ref()
                         .map(|session| format!("{session}/{path}"));
@@ -433,13 +454,15 @@ impl CoreRuntime {
     }
 
     /// 書き戻す前の、そのパスの状態。ないと分かっていればない、書き戻す前の内容を手元の
-    /// バックアップに保存していればその中身、どちらでもなければ持っていない
+    /// バックアップに保存していればその中身、バックアップが無効で書き戻す前にまとめて取って
+    /// いれば（`states_before`）そのハッシュか中身、どれでもなければ持っていない
     fn restore_before(
         &self,
         side: &Side,
         path: &str,
         current: Option<&crate::service::rollback::CurrentRestorePath>,
         pre_rollback_backup: &Option<String>,
+        states_before: &mut HashMap<String, Before>,
     ) -> Before {
         if matches!(
             current,
@@ -456,7 +479,7 @@ impl CoreRuntime {
             Some(super::backup_store::BackupRecord::File { content, .. }) => {
                 Before::Content(content)
             }
-            _ => Before::Unknown,
+            _ => states_before.remove(path).unwrap_or(Before::Unknown),
         }
     }
 

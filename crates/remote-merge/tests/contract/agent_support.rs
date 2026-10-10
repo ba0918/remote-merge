@@ -99,6 +99,13 @@ impl AgentFixture {
         remote
     }
 
+    /// これから動かすコマンドでバックアップを無効にする（`[backup] enabled = false`）
+    pub fn disable_backup(&self) {
+        let mut config = fs::read_to_string(&self.config).unwrap();
+        config.push_str("[backup]\nenabled = false\n");
+        fs::write(&self.config, config).unwrap();
+    }
+
     pub fn local(&self) -> PathBuf {
         self.home.path().join("local")
     }

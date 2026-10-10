@@ -1,3 +1,4 @@
+pub(crate) use remote_merge_ssh::batch_hash;
 pub use remote_merge_ssh::batch_read;
 pub use remote_merge_ssh::client;
 pub use remote_merge_ssh::hint;
