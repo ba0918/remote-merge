@@ -66,20 +66,18 @@ impl CoreRuntime {
         })
     }
 
-    /// リモートの `rel_path` の項目そのものが symlink ならそのリンク先の文字列（`TargetIo` の
-    /// `entry_link_target`）。エージェントがあれば、親ディレクトリの子を exclude を当てず件数でも
-    /// 打ち切らずに一覧してその項目を探す（エージェントには一つの項目だけを読む要求がなく、子の一覧には
-    /// SSH の一覧の時間の上限がない）。なければ SSH でその項目だけを読む
+    /// リモートの `rel_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先の
+    /// 文字列（`TargetIo` の `entry_link_target`）。エージェントがあればエージェントで、なければ SSH で、
+    /// どちらもその項目だけを読む
     pub(crate) fn remote_entry_link_target(
         &mut self,
         server_name: &str,
         rel_path: &str,
     ) -> anyhow::Result<Option<String>> {
-        let parent = rel_path.rsplit_once('/').map_or("", |(parent, _)| parent);
-        if let Some(listing) = self.try_agent_list_children(server_name, parent, &[], usize::MAX) {
-            return remote_merge_engine::service::merge_flow::listed_link_target(
-                rel_path, &listing?,
-            );
+        if let Some(target) = self.with_agent_operation(server_name, Access::Read, |agent| {
+            agent.read_entry_link(rel_path)
+        }) {
+            return target;
         }
         self.check_sudo_fallback(server_name)?;
         self.ssh_read(server_name, |rt| {

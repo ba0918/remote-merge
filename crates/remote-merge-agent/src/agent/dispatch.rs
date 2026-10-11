@@ -96,6 +96,10 @@ impl Dispatcher {
                 &exclude,
                 max_entries,
             )),
+            AgentRequest::ReadEntryLink { path } => Some(vec![super::entry_link::read_entry_link(
+                &self.root_dir,
+                &path,
+            )]),
         }
     }
 

@@ -58,6 +58,9 @@ enum Change {
     UnchangedLeadingSpace,
     /// "\" を含むリンク先を指す symlink のまま変わらない
     UnchangedBackslash,
+    /// b.txt を指す symlink のまま変わらず、親ディレクトリ（root_dir）が探索だけできる（0300）ように
+    /// なる
+    ParentSearchOnly,
     /// UTF-8 でないリンク先を指す symlink が、UTF-8 でないバイトだけが違う別のリンク先を指すように
     /// 作り直される
     RepointedNonUtf8,
@@ -72,6 +75,7 @@ impl Change {
             Self::UnchangedNonUtf8 => "non-utf8",
             Self::UnchangedLeadingSpace => "leading-space",
             Self::UnchangedBackslash => "backslash",
+            Self::ParentSearchOnly => "parent-search-only",
             Self::RepointedNonUtf8 => "repointed-non-utf8",
         }
     }
@@ -84,6 +88,7 @@ impl Change {
             "non-utf8" => Self::UnchangedNonUtf8,
             "leading-space" => Self::UnchangedLeadingSpace,
             "backslash" => Self::UnchangedBackslash,
+            "parent-search-only" => Self::ParentSearchOnly,
             "repointed-non-utf8" => Self::RepointedNonUtf8,
             other => panic!("{other}"),
         }
@@ -92,7 +97,7 @@ impl Change {
     /// 比べるときの書き込み先の link.txt のリンク先
     fn destination_link(self) -> PathBuf {
         match self {
-            Self::ToRegularFile | Self::Repointed => "b.txt".into(),
+            Self::ToRegularFile | Self::Repointed | Self::ParentSearchOnly => "b.txt".into(),
             Self::UnchangedDangling => "missing.txt".into(),
             Self::UnchangedNonUtf8 | Self::RepointedNonUtf8 => non_utf8_path(NON_UTF8_COMPARED),
             Self::UnchangedLeadingSpace => LEADING_SPACE.into(),
@@ -115,6 +120,7 @@ impl Change {
                 fs::remove_file(&link).unwrap();
                 symlink(non_utf8_path(NON_UTF8_REPOINTED), &link).unwrap();
             }
+            Self::ParentSearchOnly => set_mode(root, 0o300),
             Self::UnchangedDangling
             | Self::UnchangedNonUtf8
             | Self::UnchangedLeadingSpace
@@ -155,6 +161,11 @@ impl Outcome {
     fn failed_as_changed(&self) -> bool {
         matches!(self, Self::Failed(error) if error.contains("changed"))
     }
+}
+
+fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
 }
 
 fn non_utf8_path(bytes: &[u8]) -> PathBuf {
@@ -336,7 +347,10 @@ fn regular_file_content(path: &Path) -> Option<String> {
 /// エージェントの経路で、書き込み先の確認をエージェントが受け持ったこと
 fn assert_agent_served(fixture: &AgentFixture) {
     let requests = fixture.server.faults().agent_requests();
-    assert!(requests.iter().any(|r| r == "ListDir"), "{requests:?}");
+    assert!(
+        requests.iter().any(|r| r == "ReadEntryLink"),
+        "{requests:?}"
+    );
 }
 
 const EX_053: &str = "merge_symlink_changed_routes::ex_merge_053_a_destination_symlink_replaced_by_a_regular_file_after_comparison_fails_and_the_file_is_kept_on_all_three_routes";
@@ -467,6 +481,52 @@ async fn an_unchanged_destination_symlink_whose_target_has_a_backslash_is_replac
         return;
     }
     assert_unchanged_destination_is_replaced(Change::UnchangedBackslash, BACKSLASH_TEST).await;
+}
+
+const PARENT_SEARCH_ONLY: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_whose_parent_became_search_only_is_replaced_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_destination_symlink_whose_parent_became_search_only_is_replaced_on_all_three_routes(
+) {
+    if serve_child() {
+        return;
+    }
+    // 権限に関わらず読める利用者（root）では、読めない親ディレクトリを作れない
+    let probe = TempDir::new().unwrap();
+    set_mode(probe.path(), 0o300);
+    let unreadable = fs::read_dir(probe.path()).is_err();
+    set_mode(probe.path(), 0o700);
+    if !unreadable {
+        eprintln!("skipped: a directory with mode 0300 is readable by this user");
+        return;
+    }
+    let change = Change::ParentSearchOnly;
+    let (local, local_root) = local_route(change, false);
+    let (ssh, ssh_fixture) = remote_route(ssh_only(), change, false, PARENT_SEARCH_ONLY).await;
+    let (agent, agent_fixture) =
+        remote_route(Setup::default(), change, false, PARENT_SEARCH_ONLY).await;
+
+    let routes = [
+        (&local, local_root.path().to_path_buf()),
+        (&ssh, ssh_fixture.remote()),
+        (&agent, agent_fixture.remote()),
+    ];
+    let observed = routes.map(|(outcome, root)| {
+        // 一時ディレクトリを消せるよう、確かめる前に権限を戻す
+        set_mode(&root, 0o700);
+        (
+            matches!(outcome, Outcome::Merged),
+            fs::read_link(root.join(LINK)).ok(),
+        )
+    });
+    let expected = (true, Some(PathBuf::from("a.txt")));
+    assert_eq!(
+        observed,
+        [expected.clone(), expected.clone(), expected],
+        "local, ssh, agent: {local:?}, {ssh:?}, {agent:?}"
+    );
+    assert_agent_served(&agent_fixture);
 }
 
 /// 書き込み先の symlink のリンク先が UTF-8 でないとき、三つの経路とも failed になり、書き込み先の

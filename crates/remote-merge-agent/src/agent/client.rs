@@ -9,8 +9,8 @@ use anyhow::{bail, Result};
 
 use super::framing;
 use super::protocol::{
-    self, AgentDirListing, AgentFileEntry, AgentFileStat, AgentPathInspection, AgentRequest,
-    AgentResponse, FileHashResult, FileReadResult,
+    self, AgentDirListing, AgentEntryLink, AgentFileEntry, AgentFileStat, AgentPathInspection,
+    AgentRequest, AgentResponse, FileHashResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -287,6 +287,24 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             mode,
         })?;
         check_operation_result(response, "Chmod")
+    }
+
+    /// root_dir からの `path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先。
+    /// symlink でないか、ないなら None。拒まれたか読めなければ文言の Err にする
+    pub fn read_entry_link(&mut self, path: &str) -> Result<Option<String>> {
+        let response = self.request(&AgentRequest::ReadEntryLink {
+            path: path.to_string(),
+        })?;
+        match response {
+            AgentResponse::EntryLink { result } => match result {
+                AgentEntryLink::Symlink { target } => Ok(Some(target)),
+                AgentEntryLink::NotSymlink => Ok(None),
+                AgentEntryLink::Error { message } => Err(refused(message)),
+            },
+            other => Err(unexpected(format!(
+                "unexpected response to ReadEntryLink: {other:?}"
+            ))),
+        }
     }
 
     /// root_dir からの `path` の直下の子を一覧する（分けて返された子は最後の応答まで集める）

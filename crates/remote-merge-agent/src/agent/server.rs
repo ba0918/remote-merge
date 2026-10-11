@@ -170,6 +170,7 @@ fn summarize_request(request: &AgentRequest) -> String {
             "ListDir path={path:?} exclude_count={} max_entries={max_entries}",
             exclude.len()
         ),
+        AgentRequest::ReadEntryLink { path } => format!("ReadEntryLink path={path:?}"),
         AgentRequest::Shutdown => "Shutdown".to_string(),
         AgentRequest::Ping => "Ping".to_string(),
     }

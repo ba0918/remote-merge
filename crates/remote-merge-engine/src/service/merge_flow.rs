@@ -9,8 +9,7 @@ use crate::diff::engine::{
 use crate::merge::executor::MergeDirection;
 use crate::service::merge::find_symlink_target;
 use crate::service::types::{FileStatus, FileStatusKind, HunkMergeInfo};
-use crate::tree::{find_node_in_slice, FileTree, NodeKind};
-use remote_merge_core::listing::ChildListing;
+use crate::tree::{find_node_in_slice, FileTree};
 
 /// ソース側にファイルが存在しない方向のマージを検出する
 ///
@@ -66,28 +65,6 @@ pub fn check_symlink_destination_unchanged(
         );
     }
     Ok(())
-}
-
-/// 親ディレクトリの子の一覧 `listing` から、`path` の項目が symlink ならそのリンク先の文字列を返す。
-/// リンクは辿らずに一覧が読んだ文字列そのままを使う（REQ-paths-017）。項目がないか symlink でなければ
-/// None、親を一覧できなければ Err
-pub fn listed_link_target(path: &str, listing: &ChildListing) -> anyhow::Result<Option<String>> {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    match listing {
-        ChildListing::Children(nodes) => {
-            Ok(nodes
-                .iter()
-                .find(|node| node.name == name)
-                .and_then(|node| match &node.kind {
-                    NodeKind::Symlink { target } => Some(target.clone()),
-                    _ => None,
-                }))
-        }
-        ChildListing::NotDirectory => Ok(None),
-        ChildListing::Unlistable(reason) => {
-            anyhow::bail!("cannot list the parent directory of {path}: {reason}")
-        }
-    }
 }
 
 /// hunk merge 対象ファイルのバリデーション（純粋関数）。
@@ -239,29 +216,6 @@ mod tests {
         let target = "\u{FFFD}.txt";
         let tree = tree_with(FileNode::new_symlink("link", target));
         assert!(check_symlink_destination_unchanged("link", &tree, Some(target)).is_err());
-    }
-
-    #[test]
-    fn the_listed_link_target_is_the_string_of_the_entry_when_it_is_a_symlink() {
-        let listing = ChildListing::Children(vec![
-            FileNode::new_file("other"),
-            FileNode::new_symlink("link", "missing.txt"),
-            FileNode::new_file("file"),
-        ]);
-        let target = listed_link_target("dir/link", &listing).unwrap();
-        assert_eq!(target.as_deref(), Some("missing.txt"));
-        assert_eq!(listed_link_target("dir/file", &listing).unwrap(), None);
-        assert_eq!(listed_link_target("dir/absent", &listing).unwrap(), None);
-    }
-
-    #[test]
-    fn a_parent_that_is_not_a_directory_has_no_link_and_an_unlistable_parent_fails() {
-        assert_eq!(
-            listed_link_target("dir/link", &ChildListing::NotDirectory).unwrap(),
-            None
-        );
-        let unlistable = ChildListing::Unlistable("permission denied".into());
-        assert!(listed_link_target("dir/link", &unlistable).is_err());
     }
 
     #[test]

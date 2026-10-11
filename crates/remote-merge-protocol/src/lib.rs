@@ -11,6 +11,7 @@ macro_rules! define_protocol_version {
         /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした。
         ///          Remove・Chmod・ListDir を追加
         /// v6 → v7: ListTree の応答に、循環で走査を止めたことを示す TreeIncomplete を追加
+        /// v7 → v8: 一つの項目を辿らずに読む ReadEntryLink を追加
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -28,7 +29,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(7);
+define_protocol_version!(8);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -83,6 +84,11 @@ pub enum AgentRequest {
         exclude: Vec<String>,
         max_entries: usize,
     },
+    /// root_dir からの `path` の項目そのもの（最後の要素のリンクは辿らない）が symlink なら、その
+    /// リンク先を読む。親ディレクトリは一覧しない
+    ReadEntryLink {
+        path: String,
+    },
     Shutdown,
     Ping,
 }
@@ -132,6 +138,10 @@ pub enum AgentResponse {
     DirListing {
         result: AgentDirListing,
         is_last: bool,
+    },
+    /// ReadEntryLink の応答
+    EntryLink {
+        result: AgentEntryLink,
     },
     Pong,
     Error {
@@ -222,6 +232,17 @@ pub enum AgentPathInspection {
     Error {
         message: String,
     },
+}
+
+/// ReadEntryLink の結果
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentEntryLink {
+    /// 項目が symlink。リンク先は読んだ文字列そのまま
+    Symlink { target: String },
+    /// symlink でないか、ないか、途中がディレクトリでない
+    NotSymlink,
+    /// パスを拒んだか、項目を読めなかった。値は文言
+    Error { message: String },
 }
 
 /// ListDir の応答。一覧を止めるエラー（リンク先か更新時刻を読めない）は `AgentResponse::Error` で返す
