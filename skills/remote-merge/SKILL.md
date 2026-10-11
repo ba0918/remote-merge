@@ -181,6 +181,12 @@ Backups are stored only on the machine running `remote-merge`, under
 are separated by write target and use UTC IDs in the form `YYYYMMDD-HHMMSS`, with `-N` (`N >= 2`)
 when multiple operations start in the same second.
 
+Sessions are looked up only by the current identity of the write target. Sessions that earlier
+versions saved under a different identity are no longer listed, rolled back or cleaned up by
+retention; they stay in the backup directory. This includes sessions for a `root_dir` written with
+a trailing `/`, `.` segments (such as `./`) or repeated `/`, even when the config is unchanged,
+because the identity now drops those spellings (`/srv/app/` and `/srv/app` are the same target).
+
 ### 5. Verify
 
 ```bash
@@ -296,6 +302,8 @@ Keys and sections the tool does not know are errors: a config file that has one 
 
 - **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
 - **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
+
+A `.remote-merge-backup/` directory that earlier versions left in a write target is no longer skipped: it is scanned, compared, merged, synced and deleted like any other directory. To keep it out, add `".remote-merge-backup"` to `exclude`.
 
 remote-merge does not protect confidential files. diff, status, merge, sync and rollback handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`.
 
