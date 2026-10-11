@@ -523,7 +523,8 @@ fn is_last(response: &AgentResponse) -> bool {
     match response {
         AgentResponse::TreeChunk { is_last, .. }
         | AgentResponse::FileContents { is_last, .. }
-        | AgentResponse::FileHashes { is_last, .. } => *is_last,
+        | AgentResponse::FileHashes { is_last, .. }
+        | AgentResponse::DirListing { is_last, .. } => *is_last,
         _ => true,
     }
 }

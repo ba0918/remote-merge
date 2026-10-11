@@ -89,12 +89,12 @@ impl Dispatcher {
                 path,
                 exclude,
                 max_entries,
-            } => Some(vec![super::listing::list_dir(
+            } => Some(super::listing::list_dir(
                 &self.root_dir,
                 &path,
                 &exclude,
                 max_entries,
-            )]),
+            )),
         }
     }
 

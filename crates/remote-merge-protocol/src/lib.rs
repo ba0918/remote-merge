@@ -123,8 +123,10 @@ pub enum AgentResponse {
     OperationResult {
         error: Option<String>,
     },
+    /// ListDir の応答。直下の子が多いときは、子を分けて複数の応答で返す（`is_last` で最後）
     DirListing {
         result: AgentDirListing,
+        is_last: bool,
     },
     Pong,
     Error {

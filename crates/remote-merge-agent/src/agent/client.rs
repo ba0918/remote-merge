@@ -281,23 +281,46 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         check_operation_result(response, "Chmod")
     }
 
-    /// root_dir からの `path` の直下の子を一覧する
+    /// root_dir からの `path` の直下の子を一覧する（分けて返された子は最後の応答まで集める）
     pub fn list_dir(
         &mut self,
         path: &str,
         exclude: &[String],
         max_entries: usize,
     ) -> Result<AgentDirListing> {
-        let response = self.request(&AgentRequest::ListDir {
+        let data = protocol::serialize_request(&AgentRequest::ListDir {
             path: path.to_string(),
             exclude: exclude.to_vec(),
             max_entries,
         })?;
-        match response {
-            AgentResponse::DirListing { result } => Ok(result),
-            other => Err(unexpected(format!(
-                "unexpected response to ListDir: {other:?}"
-            ))),
+        framing::write_frame(&mut self.writer, &data)?;
+
+        let mut children = Vec::new();
+        loop {
+            let frame = framing::read_frame(&mut self.reader)?;
+            match decode(&frame)? {
+                AgentResponse::Error { message } => {
+                    return Err(refused(format!("agent error: {message}")))
+                }
+                AgentResponse::DirListing {
+                    result: AgentDirListing::Children { entries },
+                    is_last,
+                } => {
+                    children.extend(entries);
+                    if is_last {
+                        return Ok(AgentDirListing::Children { entries: children });
+                    }
+                }
+                AgentResponse::DirListing {
+                    result,
+                    is_last: true,
+                } if children.is_empty() => return Ok(result),
+                other => {
+                    return Err(unexpected(format!(
+                        "unexpected response to ListDir: {other:?}"
+                    )))
+                }
+            }
         }
     }
 
@@ -645,6 +668,30 @@ mod tests {
         // '\r' が含まれるが、parse_handshake は trim するので問題ない
         let version = protocol::parse_handshake(&line).unwrap();
         assert_eq!(version, protocol::PROTOCOL_VERSION);
+    }
+
+    // ---- ListDir ----
+
+    #[test]
+    fn a_listing_larger_than_one_frame_is_returned_whole_and_the_agent_stays_usable() {
+        // 4000 バイトのリンク先の symlink 5000 個は、リンク先だけでフレームの上限（16 MiB）を超える
+        let tmp = TempDir::new().unwrap();
+        let target = "t".repeat(4000);
+        for index in 0..5000 {
+            std::os::unix::fs::symlink(&target, tmp.path().join(format!("l{index}"))).unwrap();
+        }
+
+        let mut client = create_pair(&tmp);
+        let listing = client.list_dir("", &[], 10_000).unwrap();
+
+        let AgentDirListing::Children { entries } = listing else {
+            panic!("{listing:?}");
+        };
+        assert_eq!(entries.len(), 5000);
+        assert!(entries
+            .iter()
+            .all(|entry| entry.symlink_target.as_deref() == Some(target.as_str())));
+        client.ping().unwrap();
     }
 
     // ---- HashFiles ----
