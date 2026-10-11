@@ -21,10 +21,10 @@ root_dir 自体がディレクトリへの symlink のとき、status・diff・m
 
 ### REQ-scan-012: UTF-8 でない名前を置き換えて載せない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7
+- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-untested-items-implement.md#A5
 - verification: unit
 
-ツリーの走査は、UTF-8 として読めない名前のファイルを置換文字に置き換えた名前で一覧に載せず、読めない名前として報告する。
+ツリーの走査は、UTF-8 として読めない名前のファイルを置換文字に置き換えた名前で一覧に載せず、読めない名前として報告する。報告するパスは、root_dir からのパスの UTF-8 として読める部分はそのままにし、読めない部分のバイトを一つずつ "\xNN"（NN は小文字の 16 進 2 桁）と書いたものとする。
 status と diff は、そのファイルを REQ-cli-088 と REQ-cli-089 の読めないファイルと同じく errors に出す。merge と sync は、そのファイルをそのパスの failed の項目として出す。failed の理由の文言は IR で決めず、実装者が決め、テストはその文言を固定しない。そのファイルがあるとき、status・diff・merge・sync は終了コード 2 を返す。
 
 ### REQ-scan-015: root_dir や項目の情報を読めなければ走査を止める

@@ -57,7 +57,8 @@ fn assert_reported_as_unreadable_name(output: &Output) {
         "{json}"
     );
     assert!(files.contains(&"ok.txt".to_string()), "{json}");
-    assert!(!paths_in(&json, "errors").is_empty(), "{json}");
+    // 読めない部分のバイトを \xNN と書いたパスで示す
+    assert_eq!(paths_in(&json, "errors"), vec!["bad\\xff.txt"], "{json}");
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
 
