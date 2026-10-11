@@ -137,6 +137,9 @@ mod rollback_path_ssh;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
 #[cfg(feature = "test-utils")]
+#[path = "contract/scan_excluded_dangling_link.rs"]
+mod scan_excluded_dangling_link;
+#[cfg(feature = "test-utils")]
 #[path = "contract/scan_excluded_unresolvable_link.rs"]
 mod scan_excluded_unresolvable_link;
 #[path = "contract/scan_limit_scope.rs"]

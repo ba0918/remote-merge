@@ -302,6 +302,9 @@ fn walk_single_root(
         let path = match entry {
             Ok(entry) => entry.path().to_path_buf(),
             Err(error) => match error.path() {
+                // リンク先がないか辿れない symlink の失敗は filter_entry を通らずに届くので、exclude に
+                // 当たるものはここで除く（REQ-config-021・REQ-config-022・REQ-scan-015）
+                Some(path) if is_excluded_path(path, original_root, exclude) => continue,
                 Some(path)
                     if error
                         .io_error()
@@ -312,9 +315,6 @@ fn walk_single_root(
                 {
                     path.to_path_buf()
                 }
-                // リンク先を辿れない symlink の失敗は filter_entry を通らずに届くので、exclude に
-                // 当たるものはここで除く（REQ-scan-015・REQ-config-021）
-                Some(path) if is_excluded_path(path, original_root, exclude) => continue,
                 _ => anyhow::bail!("Directory scan incomplete: {error}"),
             },
         };

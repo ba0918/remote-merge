@@ -14,7 +14,7 @@ use super::scan_listing_cli::{statuses_by_path, AgentFixture};
 use super::scan_routes_agree::{all_equal, SshFixture};
 
 /// 辿れない symlink の置き方の名前、それを `root` に置く関数、それを除く exclude の行
-type Placement = (&'static str, fn(&Path), &'static str);
+pub(super) type Placement = (&'static str, fn(&Path), &'static str);
 
 const EXCLUDED_UNRESOLVABLE: [Placement; 4] = [
     ("an excluded loop", place_a_loop, "exclude = [\"a\", \"b\"]"),
@@ -63,7 +63,7 @@ fn place_plain_files(root: &Path) {
 
 /// 左右の root_dir に通常のファイルを置き、`unresolvable_on_left` なら左、そうでなければ右に
 /// 辿れない symlink を置く
-fn roots(
+pub(super) fn roots(
     base: &Path,
     label: &str,
     place: fn(&Path),
