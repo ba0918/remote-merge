@@ -22,7 +22,7 @@ use remote_merge_core::listing::{list_children_with, ChildListing, ListingReader
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 
-const MAX_ENTRIES: usize = 10_000;
+pub(super) const MAX_ENTRIES: usize = 10_000;
 
 const SSH_CONFIG: &str = "REMOTE_MERGE_OPERATIONS_CONFIG";
 const SSH_REQUEST: &str = "REMOTE_MERGE_OPERATIONS_REQUEST";
@@ -31,7 +31,7 @@ const SSH_RESULT: &str = "REMOTE_MERGE_OPERATIONS_RESULT";
 const SSH_SERVER_TEST: &str = "path_operations_agree::a_listing_with_an_unreadable_link_target_stops_with_an_error_naming_the_link";
 
 /// SSH の経路の操作を受け持つプロセスなら、`SSH_REQUEST` の操作（"remove\tパス"、
-/// "chmod\tパス\t8 進の権限"、"list\tパス"）を行って結果の文字列を `SSH_RESULT` に書き、true を返す
+/// "chmod\tパス\t8 進の権限"、"list\tパス"、走査の "scan"）を行って結果の文字列を `SSH_RESULT` に書き、true を返す
 fn serve_ssh_request() -> bool {
     let Ok(config) = std::env::var(SSH_CONFIG) else {
         return false;
@@ -51,6 +51,12 @@ fn serve_ssh_request() -> bool {
         ["list", path] => listing_text(
             runtime
                 .list_children(&side, path)
+                .map_err(|e| e.to_string()),
+        ),
+        ["scan"] => super::scan_times_agree::times_text(
+            runtime
+                .fetch_tree_recursive(&side, MAX_ENTRIES, true)
+                .map(|tree| tree.nodes)
                 .map_err(|e| e.to_string()),
         ),
         other => panic!("{other:?}"),
@@ -78,8 +84,8 @@ fn listing_text(listing: Result<ChildListing, String>) -> String {
 }
 
 /// 一つの経路の root_dir と、その外のディレクトリ
-struct RouteDir {
-    root: PathBuf,
+pub(super) struct RouteDir {
+    pub(super) root: PathBuf,
     outside: PathBuf,
 }
 
@@ -95,17 +101,17 @@ impl RouteDir {
 }
 
 /// 三つの経路の root_dir と、SSH の経路の偽サーバ
-struct Routes {
+pub(super) struct Routes {
     home: tempfile::TempDir,
     _server: TestServer,
     config: PathBuf,
-    local: RouteDir,
+    pub(super) local: RouteDir,
     ssh: RouteDir,
     agent: RouteDir,
 }
 
 impl Routes {
-    async fn new(state: impl Fn(&Path, &Path)) -> Self {
+    pub(super) async fn new(state: impl Fn(&Path, &Path)) -> Self {
         let home = tempfile::Builder::new()
             .permissions(fs::Permissions::from_mode(0o700))
             .tempdir()
@@ -147,7 +153,7 @@ impl Routes {
     /// 製品の実行時処理を SSH でつないで `request` の操作を行い、結果の文字列を返す。
     /// 実行時処理は HOME の known_hosts を読み書きするので、HOME を一時ディレクトリにした
     /// テストのプロセスで動かす（[`serve_ssh_request`]）
-    fn over_ssh(&self, request: &str) -> String {
+    pub(super) fn over_ssh(&self, request: &str) -> String {
         let result = self.home.path().join("ssh-result");
         let output = Command::new(std::env::current_exe().unwrap())
             .env("HOME", self.home.path())
@@ -164,7 +170,7 @@ impl Routes {
     }
 
     /// エージェントのプロセスを起動して `operation` を行う
-    fn over_agent<T>(&self, operation: impl FnOnce(&mut Agent) -> T) -> T {
+    pub(super) fn over_agent<T>(&self, operation: impl FnOnce(&mut Agent) -> T) -> T {
         let mut agent = Agent::start(&self.agent.root, self.home.path());
         let result = operation(&mut agent);
         agent.stop();
@@ -172,9 +178,9 @@ impl Routes {
     }
 }
 
-struct Agent {
+pub(super) struct Agent {
     child: Child,
-    client: AgentClient<std::process::ChildStdout, std::process::ChildStdin>,
+    pub(super) client: AgentClient<std::process::ChildStdout, std::process::ChildStdin>,
 }
 
 impl Agent {
@@ -330,7 +336,7 @@ fn mode_of(path: &Path) -> u32 {
 }
 
 /// 更新時刻をナノ秒まで決める（symlink はリンク自身）
-fn set_mtime(path: &Path, stamp: &str) {
+pub(super) fn set_mtime(path: &Path, stamp: &str) {
     let status = Command::new("touch")
         .args(["-h", "-d", stamp])
         .arg(path)

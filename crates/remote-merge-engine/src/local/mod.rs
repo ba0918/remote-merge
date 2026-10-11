@@ -3,11 +3,10 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use chrono::{TimeZone, Utc};
 
 use crate::filter;
 use crate::tree::{FileNode, FileTree};
-use remote_merge_core::listing::{ListingReader, ThisMachine};
+use remote_merge_core::listing::{modified, ListingReader, ThisMachine};
 
 /// ローカルファイルシステムからディレクトリツリーを取得する
 ///
@@ -98,17 +97,17 @@ pub fn scan_dir_with_limit(
                 .unwrap_or_else(|_| "???".to_string());
             let mut node = FileNode::new_symlink(&file_name, target);
             node.link_is_dir = entry.path().is_dir();
-            apply_metadata(&mut node, &symlink_meta);
+            apply_metadata(&mut node, &symlink_meta)?;
             node
         } else if symlink_meta.is_dir() {
             // ディレクトリ: children は None（遅延読み込み）
             let mut node = FileNode::new_dir(&file_name);
-            apply_metadata(&mut node, &symlink_meta);
+            apply_metadata(&mut node, &symlink_meta)?;
             node
         } else {
             // 通常ファイル
             let mut node = FileNode::new_file(&file_name);
-            apply_metadata(&mut node, &symlink_meta);
+            apply_metadata(&mut node, &symlink_meta)?;
             node
         };
 
@@ -118,8 +117,9 @@ pub fn scan_dir_with_limit(
     Ok((nodes, truncated))
 }
 
-/// メタデータをノードに適用
-fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
+/// メタデータをノードに適用する。更新時刻はエージェントと子の一覧と同じ読み方で、1970 年より前も
+/// ナノ秒まで読む。読めなければ既定の値で埋めずに Err
+fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) -> std::io::Result<()> {
     node.size = Some(meta.len());
 
     #[cfg(unix)]
@@ -128,16 +128,11 @@ fn apply_metadata(node: &mut FileNode, meta: &std::fs::Metadata) {
     }
     #[cfg(not(unix))]
     {
-        let _ = meta;
         node.permissions = None;
     }
 
-    // mtime を DateTime<Utc> に変換
-    if let Ok(mtime) = meta.modified() {
-        if let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) {
-            node.mtime = Utc.timestamp_opt(duration.as_secs() as i64, 0).single();
-        }
-    }
+    node.mtime = Some(modified(meta)?);
+    Ok(())
 }
 
 /// include パスからスキャンルートを解決する。
@@ -364,7 +359,12 @@ fn walk_single_root(
             FileNode::new_file(&file_name)
         };
 
-        apply_metadata(&mut node, &meta);
+        // 更新時刻を読めなければ、既定の値で埋めずに走査を止める（REQ-scan-015）
+        apply_metadata(&mut node, &meta).map_err(|error| {
+            anyhow::anyhow!(
+                "Directory scan incomplete: failed to scan {rel_path:?}: cannot read the modification time: {error}"
+            )
+        })?;
         flat_entries.push((rel_path, node));
     }
 

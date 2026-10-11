@@ -152,6 +152,9 @@ mod scan_names_as_read_cli;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_routes_agree.rs"]
 mod scan_routes_agree;
+#[cfg(feature = "test-utils")]
+#[path = "contract/scan_times_agree.rs"]
+mod scan_times_agree;
 #[path = "contract/scan_unreadable_entry.rs"]
 mod scan_unreadable_entry;
 #[path = "contract/scan_unreadable_link.rs"]

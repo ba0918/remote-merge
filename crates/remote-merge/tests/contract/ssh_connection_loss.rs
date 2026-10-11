@@ -27,6 +27,20 @@ fn agent_cut(request: &'static str, repeat: Repeat) -> Faults {
     }
 }
 
+/// remote の `paths` の更新時刻を local と違う時刻にする。サイズが同じファイルを、更新時刻で
+/// 同じと決めずに中身で比べさせる（docs/ir/cli/status.md の TBL-cli-001）
+fn with_remote_times_apart(fixture: &AgentFixture, paths: &[&str]) {
+    let apart = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for path in paths {
+        std::fs::File::options()
+            .write(true)
+            .open(fixture.remote().join(path))
+            .unwrap()
+            .set_modified(apart)
+            .unwrap();
+    }
+}
+
 // @kotowari[EX-ssh-019]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scan_cut_once_is_scanned_again_after_reconnecting_and_compared() {
@@ -100,6 +114,7 @@ async fn an_agent_read_cut_once_restarts_the_agent_and_reads_again_without_ssh()
     let fixture = AgentFixture::new(Setup::default(), agent_cut("HashFiles", Repeat::Once)).await;
     fixture.put("example.txt", Some("local\n"), Some("remot\n"));
     fixture.put("same.txt", Some("same\n"), Some("same\n"));
+    with_remote_times_apart(&fixture, &["example.txt", "same.txt"]);
 
     let output = fixture.run(&["status"]);
 
@@ -186,6 +201,7 @@ async fn an_agent_read_whose_ssh_session_is_cut_once_on_a_sudo_server_reconnects
     .await;
     fixture.put("example.txt", Some("local\n"), Some("remot\n"));
     fixture.put("same.txt", Some("same\n"), Some("same\n"));
+    with_remote_times_apart(&fixture, &["example.txt", "same.txt"]);
 
     let output = fixture.run(&["status"]);
 
