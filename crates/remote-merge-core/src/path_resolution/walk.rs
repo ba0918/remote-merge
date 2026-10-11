@@ -96,20 +96,18 @@ fn step_in_missing_part(real: &str, name: &str) -> Result<String, ResolveError> 
     joined_within_limits(real, name)
 }
 
-/// 存在しないと分かった要素から先を、[`resolve_path`] が存在しない部分を辿るのと同じ手順で辿る。
+/// 実パス `real_parent` の下の相対パス `tail` を、[`resolve_path`] が存在しない部分を辿るのと
+/// 同じ手順（".." を拒み、長さの上限を確かめる）で辿り、つないだ実パスを返す。
 ///
-/// `real_parent` はその要素の親の実パス（その要素を確かめた [`ResolvedPath::Missing`] の
-/// `real_parent`）、`tail` はその要素から始まる相対パスで、要素を二つ以上持つ。
-/// 同じ祖先の下の多くのパスを、祖先を一度確かめるだけで確認するために使う
-pub fn resolve_below_missing(real_parent: &str, tail: &str) -> Result<ResolvedPath, ResolveError> {
+/// `tail` の最初の要素が `real_parent` の下にないことは、呼び出し側が別に分かっているものとし、
+/// ここでは確かめない。親が存在するかも求めない。同じ場所の下の多くのパスを、
+/// その場所を一度確かめるだけで確認するために使う
+pub fn walk_missing_part(real_parent: &str, tail: &str) -> Result<String, ResolveError> {
     let mut real = real_parent.to_string();
     for component in components(tail, true) {
         real = step_in_missing_part(&real, &component.name)?;
     }
-    Ok(ResolvedPath::Missing {
-        real_parent: parent(&real),
-        parent_exists: false,
-    })
+    Ok(real)
 }
 
 /// root_dir（絶対パス）と確認する相対パス `rel` をつないだパスを "/" から要素ごとに辿る
@@ -242,9 +240,10 @@ mod tests {
         Entries(map)
     }
 
-    /// 存在しない祖先の下は、祖先の結果と残りの要素だけで、全体を辿ったのと同じ結果になる
+    /// 存在しない祖先の下や、存在する親の下の存在しない名前は、親の実パスと残りの要素だけで、
+    /// 全体を辿ったのと同じ実パスかエラーになる
     #[test]
-    fn below_a_missing_ancestor_gives_the_same_result_as_the_whole_walk() {
+    fn a_missing_part_walks_to_the_same_place_as_the_whole_walk() {
         let entries = root_with(&[]);
         let long = "d".repeat(4096 - "/root/new/".len());
         let too_long_name = "n".repeat(NAME_LENGTH_LIMIT + 1);
@@ -254,6 +253,7 @@ mod tests {
             format!("new/{long}"),
             format!("new/{too_long_name}/c.txt"),
             "new/../x".to_string(),
+            "a.txt".to_string(),
         ] {
             let Ok(ResolvedPath::Missing { real_parent, .. }) =
                 resolve_path("/root", "new", &entries)
@@ -261,11 +261,12 @@ mod tests {
                 panic!("new must be missing");
             };
 
-            assert_eq!(
-                resolve_below_missing(&real_parent, &tail),
-                resolve_path("/root", &tail, &entries),
-                "{tail}"
-            );
+            let walked = walk_missing_part(&real_parent, &tail).map(|real| parent(&real));
+            let whole = resolve_path("/root", &tail, &entries).map(|resolved| match resolved {
+                ResolvedPath::Missing { real_parent, .. } => real_parent,
+                other => panic!("{tail} must be missing: {other:?}"),
+            });
+            assert_eq!(walked, whole, "{tail}");
         }
     }
 

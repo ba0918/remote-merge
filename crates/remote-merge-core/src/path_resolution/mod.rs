@@ -8,7 +8,7 @@ pub mod os;
 mod walk;
 
 pub use error::ResolveError;
-pub use walk::{resolve_below_missing, resolve_path};
+pub use walk::{resolve_path, walk_missing_part};
 
 /// 実パスの長さの上限（バイト）。つないだ直後の実パスがこれ以上なら止める
 pub const PATH_LENGTH_LIMIT: usize = 4096;

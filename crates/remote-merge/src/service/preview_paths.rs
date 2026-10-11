@@ -41,7 +41,9 @@ fn inspect_group<'a>(
     group: &'a PreviewGroup,
 ) -> Vec<(&'a String, anyhow::Result<TargetPath>)> {
     let mut outcomes = Vec::new();
-    // ないと分かった場所の親の実パスと、その場所の相対パス
+    // ないと分かった場所の親の実パスと、その場所の相対パス。祖先の組では祖先そのものが、
+    // 最初の子の組では最初の子がその場所で、残りの子（ツリーで、その親の下にないと分かっている）は
+    // 同じ親の下の名前として辿る
     let mut missing: Option<(PathBuf, &str)> = None;
     let mut paths = group.paths.iter();
     match &group.probe {
@@ -64,7 +66,7 @@ fn inspect_group<'a>(
     for path in paths {
         let outcome = match &missing {
             Some((real_parent, place)) => {
-                core.inspect_path_below_missing(real_parent, tail_from(path, place))
+                core.inspect_missing_path(real_parent, tail_from(path, place))
             }
             None => core.inspect_path(target, path),
         };
