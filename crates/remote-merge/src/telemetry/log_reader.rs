@@ -28,6 +28,16 @@ pub struct LogFilter {
     pub tail: Option<usize>,
 }
 
+/// 重い順に並べたログの水準の名前
+pub const LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
+
+/// 水準の重さの順位（error が 0 で最も重い）。五つの名前以外は None。大文字と小文字は区別しない
+pub fn level_rank(name: &str) -> Option<usize> {
+    LEVELS
+        .iter()
+        .position(|level| level.eq_ignore_ascii_case(name))
+}
+
 /// JSONL ログファイルを読み取ってフィルタリングする（純粋関数）
 pub fn read_logs(path: &std::path::Path, filter: &LogFilter) -> std::io::Result<Vec<LogEntry>> {
     if !path.exists() {
@@ -47,9 +57,12 @@ pub fn filter_log_lines(content: &str, filter: &LogFilter) -> Vec<LogEntry> {
         .filter(|line| !line.is_empty())
         .filter_map(|line| serde_json::from_str::<LogEntry>(line).ok())
         .filter(|entry| {
-            // レベルフィルタ
+            // レベルフィルタ: 指定した水準とそれより重い水準だけを残す（REQ-cli-093）
             if let Some(ref level) = filter.level {
-                if !entry.level.eq_ignore_ascii_case(level) {
+                let heavier_or_equal = level_rank(&entry.level)
+                    .zip(level_rank(level))
+                    .is_some_and(|(entry, wanted)| entry <= wanted);
+                if !heavier_or_equal {
                     return false;
                 }
             }
@@ -336,10 +349,34 @@ mod tests {
     fn test_filter_log_lines_level_case_insensitive() {
         let content = sample_jsonl();
         let filter = LogFilter {
-            level: Some("info".into()),
+            level: Some("Warn".into()),
             ..Default::default()
         };
         let entries = filter_log_lines(&content, &filter);
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn a_level_shows_itself_and_the_heavier_levels() {
+        let content = sample_jsonl();
+        let levels = |level: &str| -> Vec<String> {
+            let filter = LogFilter {
+                level: Some(level.into()),
+                ..Default::default()
+            };
+            filter_log_lines(&content, &filter)
+                .into_iter()
+                .map(|entry| entry.level)
+                .collect()
+        };
+        assert_eq!(levels("warn"), ["ERROR", "WARN", "ERROR"]);
+        assert_eq!(levels("info").len(), 5);
+    }
+
+    #[test]
+    fn only_the_five_level_names_have_a_rank() {
+        assert_eq!(level_rank("ERROR"), Some(0));
+        assert_eq!(level_rank("trace"), Some(4));
+        assert_eq!(level_rank("notice"), None);
     }
 }

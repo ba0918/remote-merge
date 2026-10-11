@@ -23,6 +23,14 @@ pub struct LogsArgs {
 /// logs サブコマンドを実行する
 pub fn run_logs(args: LogsArgs) -> anyhow::Result<i32> {
     let format = OutputFormat::parse(&args.format)?;
+    if let Some(level) = &args.level {
+        if log_reader::level_rank(level).is_none() {
+            anyhow::bail!(
+                "unknown log level: {level} (expected one of: {})",
+                log_reader::LEVELS.join(", ")
+            );
+        }
+    }
 
     let since = match &args.since {
         Some(s) => {

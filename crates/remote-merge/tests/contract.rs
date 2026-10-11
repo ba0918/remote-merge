@@ -104,6 +104,8 @@ mod diff_unlistable;
 mod filters;
 #[path = "contract/init.rs"]
 mod init;
+#[path = "contract/logs_level.rs"]
+mod logs_level;
 #[path = "contract/merge_cli.rs"]
 mod merge_cli;
 #[cfg(feature = "test-utils")]
