@@ -28,10 +28,10 @@ merge・--delete・sync でファイルのバックアップに失敗したと�
 
 ### REQ-backup-045: 集約先の準備に失敗したら書き込みを始めない
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-backup.md#A4
+- source: docs/decision/records/2026-10-05-quality-backup.md#A4, docs/decision/records/2026-10-12-untested-items-consistency-2.md#A2
 - verification: unit
 
-バックアップが有効な merge・sync・rollback で、セッション ID の予約、集約先や書き込み先ごとの領域や一時的な保存場所の作成、予約の読み取りが入出力エラーで失敗したときは、どの段階の失敗でも、どのファイルも書き込む前にコマンド全体をエラーで止める。書き換え前の内容を保存できないファイルの扱いは REQ-backup-002 による。
+バックアップが有効な merge・sync・rollback で、セッション ID の予約、集約先や書き込み先ごとの領域の作成、予約の読み取りが入出力エラーで失敗したときは、どの段階の失敗でも、どのファイルも書き込む前にコマンド全体をエラーで止める。書き換え前の内容を保存できないファイルの扱いは REQ-backup-002 による。ファイルごとに書き換え前の内容を保存するときに作る一時的な保存場所を作れないときも、そのファイルの書き換え前の内容を保存できないものとして REQ-backup-002 による。
 
 ## Examples
 
