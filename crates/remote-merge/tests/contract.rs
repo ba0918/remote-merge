@@ -182,6 +182,9 @@ mod scan_routes_agree;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_times_agree.rs"]
 mod scan_times_agree;
+#[cfg(feature = "test-utils")]
+#[path = "contract/scan_unreadable_directory.rs"]
+mod scan_unreadable_directory;
 #[path = "contract/scan_unreadable_entry.rs"]
 mod scan_unreadable_entry;
 #[path = "contract/scan_unreadable_link.rs"]

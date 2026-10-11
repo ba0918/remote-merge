@@ -168,7 +168,14 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             if let Some(mut rd) = self.current_read_dir.take() {
                 let result = Self::next_valid_path(&mut rd, &self.options.exclude);
                 match result {
-                    Some(path) => {
+                    Some(Err(error)) => {
+                        // 項目を読めないディレクトリを飛ばした一覧を返さず、走査を止める（REQ-scan-014）
+                        self.stop_unreadable(format!(
+                            "failed to scan: cannot read a directory entry: {error}"
+                        ));
+                        return None;
+                    }
+                    Some(Ok(path)) => {
                         // イテレータを戻す
                         self.current_read_dir = Some(rd);
                         if self.process_entry(&path) {
@@ -195,32 +202,54 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             self.current_ancestry = ancestry;
             match std::fs::read_dir(&dir) {
                 Ok(rd) => self.current_read_dir = Some(rd),
-                Err(e) => {
-                    tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read directory {}: {e}", dir.display());
+                // ないディレクトリ（まだない走査の起点）は空として扱う
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::debug!(target: "remote_merge::agent::tree_scan", "directory not found {}: {error}", dir.display());
                     continue;
+                }
+                Err(error) => {
+                    // 読めないディレクトリを飛ばした一覧を返さず、走査を止める（REQ-scan-014）
+                    let rel = self.relative_name(&dir);
+                    self.stop_unreadable(format!(
+                        "failed to scan {rel:?}: cannot read the directory: {error}"
+                    ));
+                    return None;
                 }
             }
         }
     }
 
-    /// ReadDir から次の有効なパスを取得する（セグメント除外を適用）
-    fn next_valid_path(rd: &mut std::fs::ReadDir, exclude: &[String]) -> Option<PathBuf> {
+    /// ReadDir から次の有効なパスを取得する（セグメント除外を適用）。項目を読めなければその誤り
+    fn next_valid_path(
+        rd: &mut std::fs::ReadDir,
+        exclude: &[String],
+    ) -> Option<std::io::Result<PathBuf>> {
         for entry_result in rd.by_ref() {
             let entry = match entry_result {
                 Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!(target: "remote_merge::agent::tree_scan", "error reading directory entry: {e}");
-                    continue;
-                }
+                Err(error) => return Some(Err(error)),
             };
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if filter::should_exclude(&name_str, exclude) {
                 continue;
             }
-            return Some(entry.path());
+            return Some(Ok(entry.path()));
         }
         None
+    }
+
+    /// 走査を不完全な一覧として止める
+    fn stop_unreadable(&mut self, reason: String) {
+        self.stopped = Some(UnreadableEntry(reason).into());
+    }
+
+    /// 一覧に載せる形の、`path` の相対パス
+    fn relative_name(&self, path: &Path) -> String {
+        path.strip_prefix(&self.relative_base)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned()
     }
 
     /// 1エントリを処理してバッファに追加する。
@@ -341,8 +370,12 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
         match self.current_ancestry.descend(dir) {
             Ok(Ok(ancestry)) => self.dir_stack.push((dir.to_path_buf(), ancestry)),
             Ok(Err(cycle)) => self.stopped = Some(cycle.into()),
-            Err(e) => {
-                tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read directory {}: {e}", dir.display());
+            Err(error) => {
+                // 読めないディレクトリを飛ばした一覧を返さず、走査を止める（REQ-scan-014）
+                let rel = self.relative_name(dir);
+                self.stop_unreadable(format!(
+                    "failed to scan {rel:?}: cannot read the directory: {error}"
+                ));
             }
         }
     }
@@ -801,7 +834,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unreadable_entry_skipped() {
+    fn an_unreadable_directory_stops_the_scan_as_incomplete() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = TempDir::new().unwrap();
@@ -819,19 +852,19 @@ mod tests {
             ..Default::default()
         };
 
-        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
-        let all_paths: Vec<&str> = chunks
-            .iter()
-            .flat_map(|c| c.entries.iter().map(|e| e.path.as_str()))
-            .collect();
+        if fs::read_dir(root.join("noperm")).is_ok() {
+            fs::set_permissions(root.join("noperm"), fs::Permissions::from_mode(0o755)).unwrap();
+            eprintln!("skipped: the directory is readable without permission (running as root)");
+            return;
+        }
 
-        // ok.txt は含まれる
-        assert!(all_paths.contains(&"ok.txt"));
-        // secret.txt は読めないので含まれない
-        assert!(!all_paths.contains(&"noperm/secret.txt"));
+        let result = scan_tree(&options).collect::<Result<Vec<_>>>();
 
         // クリーンアップ: パーミッション戻す
         fs::set_permissions(root.join("noperm"), fs::Permissions::from_mode(0o755)).unwrap();
+        // 読めないディレクトリを飛ばした一覧を返さず、不完全な一覧として止める
+        let error = result.expect_err("an unreadable directory must stop the scan");
+        assert!(incomplete_reason(&error).is_some(), "{error}");
     }
 
     #[test]
