@@ -6,7 +6,8 @@
 use crate::config::AppConfig;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::output::{
-    format_backup_list_text, format_json, format_rollback_text, OutputFormat,
+    format_backup_list_text, format_json, format_rollback_dry_run_text, format_rollback_text,
+    OutputFormat,
 };
 use crate::service::rollback::{mark_expired, plan_restore, rollback_exit_code};
 use crate::service::source_pair::build_source_info;
@@ -199,16 +200,7 @@ fn print_rollback_result(
         RollbackCommandOutput::Restore(output) => print_rollback_output(output, format)?,
         RollbackCommandOutput::DryRun { output, warnings } => match format {
             OutputFormat::Text => {
-                println!(
-                    "Dry run - would restore from session {}:",
-                    output.session_id
-                );
-                for file in &output.restored {
-                    println!("  \u{2713} {}", file.path);
-                }
-                for skipped in &output.skipped {
-                    println!("  - {} (skipped: {})", skipped.path, skipped.reason);
-                }
+                println!("{}", format_rollback_dry_run_text(output));
                 for warning in warnings {
                     eprintln!("Warning: {}", warning);
                 }

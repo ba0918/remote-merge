@@ -495,9 +495,7 @@ pub fn format_rollback_text(output: &RollbackOutput) -> String {
         lines.push(format!("  - {} (skipped: {})", s.path, s.reason));
     }
 
-    for f in &output.failed {
-        lines.push(format!("  \u{2717} {} (error: {})", f.path, f.error));
-    }
+    lines.extend(output.failed.iter().map(format_rollback_failed_line));
 
     lines.push(String::new());
     let restored = output.restored.len();
@@ -515,6 +513,30 @@ pub fn format_rollback_text(output: &RollbackOutput) -> String {
     lines.push(format!("{}.", summary_parts.join(", ")));
 
     lines.join("\n")
+}
+
+/// rollback --dry-run の結果をテキストフォーマットする（警告は呼び出し側が標準エラーに出す）
+pub fn format_rollback_dry_run_text(output: &RollbackOutput) -> String {
+    let mut lines = vec![format!(
+        "Dry run - would restore from session {}:",
+        output.session_id
+    )];
+    for file in &output.restored {
+        lines.push(format!("  \u{2713} {}", file.path));
+    }
+    for skipped in &output.skipped {
+        lines.push(format!(
+            "  - {} (skipped: {})",
+            skipped.path, skipped.reason
+        ));
+    }
+    lines.extend(output.failed.iter().map(format_rollback_failed_line));
+    lines.join("\n")
+}
+
+/// 戻せなかったファイル一件の行（実行時と dry-run で同じ形）
+fn format_rollback_failed_line(failure: &RollbackFailure) -> String {
+    format!("  \u{2717} {} (error: {})", failure.path, failure.error)
 }
 
 /// SyncOutput をテキストフォーマットする

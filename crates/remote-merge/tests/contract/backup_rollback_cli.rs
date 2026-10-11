@@ -6,7 +6,9 @@ use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
 
 use remote_merge::cli::rollback::{execute_rollback, RollbackCommandOutput};
-use remote_merge::service::output::{format_backup_list_text, format_json, format_rollback_text};
+use remote_merge::service::output::{
+    format_backup_list_text, format_json, format_rollback_dry_run_text, format_rollback_text,
+};
 use remote_merge::service::types::RollbackOutput;
 use tempfile::TempDir;
 
@@ -338,10 +340,9 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
         .is_symlink());
 }
 
-// 書き戻す先の親ディレクトリを辿れなくして、そのファイルの確かめを失敗させる
-// @kotowari[REQ-backup-038, EX-backup-031]
-#[test]
-fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
+/// 書き戻す先の親ディレクトリを辿れなくして、そのファイルの確かめを失敗させた
+/// rollback --dry-run の結果と終了コードを返す。書き込み先を変えていないことも確かめる。
+fn dry_run_with_a_blocked_parent() -> (RollbackOutput, i32) {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
@@ -368,6 +369,18 @@ fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
     let RollbackCommandOutput::DryRun { output, .. } = result.output else {
         panic!("expected dry-run output")
     };
+    assert_eq!(
+        fs::read_to_string(develop.path().join("kept.txt")).unwrap(),
+        "merged\n"
+    );
+    (output, result.exit_code)
+}
+
+// @kotowari[REQ-backup-038, EX-backup-031]
+#[test]
+fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
+    let (output, exit_code) = dry_run_with_a_blocked_parent();
+
     assert!(
         output
             .failed
@@ -375,11 +388,25 @@ fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
             .any(|failure| failure.path == "sub/blocked.txt"),
         "{output:?}"
     );
-    assert_eq!(result.exit_code, 2);
-    assert_eq!(
-        fs::read_to_string(develop.path().join("kept.txt")).unwrap(),
-        "merged\n"
-    );
+    assert_eq!(exit_code, 2);
+}
+
+// 終了コード 2 の原因が分かるよう、dry-run のテキストにも失敗したパスと理由を出す
+// @kotowari[REQ-backup-037, EX-backup-031]
+#[test]
+fn ex_backup_031_dry_run_text_shows_the_failed_path_and_its_error() {
+    let (output, _) = dry_run_with_a_blocked_parent();
+    let failure = output
+        .failed
+        .iter()
+        .find(|failure| failure.path == "sub/blocked.txt")
+        .unwrap_or_else(|| panic!("{output:?}"));
+
+    let text = format_rollback_dry_run_text(&output);
+
+    let failed = line_for(&text, "sub/blocked.txt");
+    assert!(failed.starts_with("\u{2717} sub/blocked.txt"), "{text}");
+    assert!(failed.contains(&failure.error), "{text}");
 }
 
 // @kotowari[REQ-backup-039]
