@@ -173,12 +173,6 @@ pub struct AgentConfig {
     pub enabled: bool,
     /// デプロイ先ディレクトリ（デフォルト: /var/tmp）
     pub deploy_dir: String,
-    /// Ping タイムアウト秒数（デフォルト: 30）
-    pub timeout_secs: u64,
-    /// ListTree の1チャンクあたりエントリ数（デフォルト: 1000）
-    pub tree_chunk_size: usize,
-    /// ファイルチャンク最大サイズ（デフォルト: 4MB）
-    pub max_file_chunk_bytes: usize,
 }
 
 // ── デフォルト値 ──
@@ -203,25 +197,21 @@ impl Default for BackupConfig {
 
 /// AgentConfig のデフォルト定数
 const DEFAULT_AGENT_DEPLOY_DIR: &str = "/var/tmp";
-const DEFAULT_AGENT_TIMEOUT_SECS: u64 = 30;
-const DEFAULT_AGENT_TREE_CHUNK_SIZE: usize = 1000;
-const DEFAULT_AGENT_MAX_FILE_CHUNK_BYTES: usize = 4 * 1024 * 1024; // 4MB
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             deploy_dir: DEFAULT_AGENT_DEPLOY_DIR.to_string(),
-            timeout_secs: DEFAULT_AGENT_TIMEOUT_SECS,
-            tree_chunk_size: DEFAULT_AGENT_TREE_CHUNK_SIZE,
-            max_file_chunk_bytes: DEFAULT_AGENT_MAX_FILE_CHUNK_BYTES,
         }
     }
 }
 
 // ── TOML デシリアライズ用の中間構造体 ──
+// どの構造体も知らないキーとセクションを読み込みのエラーにする（REQ-config-039）
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawConfig {
     servers: Option<HashMap<String, RawServerConfig>>,
     local: Option<RawLocalConfig>,
@@ -231,11 +221,10 @@ struct RawConfig {
     agent: Option<RawAgentConfig>,
     defaults: Option<RawDefaultsConfig>,
     max_scan_entries: Option<usize>,
-    /// 使わないキー。どんな型の値でも読み込みを止めずに受け付ける
-    badge_scan_max_files: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawServerConfig {
     host: String,
     port: Option<u16>,
@@ -251,12 +240,14 @@ struct RawServerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawDefaultsConfig {
     file_permissions: Option<String>,
     dir_permissions: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawSshOptions {
     kex_algorithms: Option<Vec<String>>,
     host_key_algorithms: Option<Vec<String>>,
@@ -265,6 +256,7 @@ struct RawSshOptions {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawLocalConfig {
     root_dir: String,
     /// この root_dir を書いた設定ファイルの、書かれた形のパス。読み込んだ後に入れる
@@ -273,31 +265,31 @@ struct RawLocalConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawFilterConfig {
     exclude: Option<Vec<String>>,
-    sensitive: Option<Vec<String>>,
     include: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawSshConfig {
     timeout_sec: Option<u64>,
     strict_host_key_checking: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBackupConfig {
     enabled: Option<bool>,
     retention_days: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawAgentConfig {
     enabled: Option<bool>,
     deploy_dir: Option<String>,
-    timeout_secs: Option<u64>,
-    tree_chunk_size: Option<usize>,
-    max_file_chunk_bytes: Option<usize>,
 }
 
 // ── パース・マージロジック ──
@@ -318,8 +310,6 @@ pub fn project_config_path() -> PathBuf {
 /// - `[servers.*]`: プロジェクト設定で上書き
 /// - `[local]`: プロジェクト設定で上書き
 /// - `[filter].exclude`: 和集合
-/// - `[filter].sensitive`: 使わない（指定があれば一度だけ警告する）
-/// - `badge_scan_max_files`: 使わない（指定があれば値を検査せずに一度だけ警告する）
 /// - `[ssh]`: プロジェクト設定で上書き
 /// - `[backup]`: プロジェクト設定で上書き
 pub fn load_config() -> crate::error::Result<AppConfig> {
@@ -391,33 +381,7 @@ pub fn load_config_from_paths(
         });
     }
 
-    if specifies_sensitive(global_raw.as_ref()) || specifies_sensitive(project_raw.as_ref()) {
-        eprintln!("Warning: {SENSITIVE_IGNORED_WARNING}");
-    }
-    if specifies_badge_scan_max_files(global_raw.as_ref())
-        || specifies_badge_scan_max_files(project_raw.as_ref())
-    {
-        eprintln!("Warning: {BADGE_SCAN_IGNORED_WARNING}");
-    }
-
     merge_configs(global_raw, project_raw)
-}
-
-/// `[filter] sensitive` の指定が残った設定への警告文（"Warning: " の接頭辞は出力時に付ける）
-const SENSITIVE_IGNORED_WARNING: &str = "[filter] sensitive is no longer used and is ignored";
-
-/// 設定ファイルに `[filter] sensitive` の指定があるか。指定は読み込みを止めずに受け付け、使わない
-fn specifies_sensitive(raw: Option<&RawConfig>) -> bool {
-    raw.and_then(|r| r.filter.as_ref())
-        .is_some_and(|f| f.sensitive.is_some())
-}
-
-/// `badge_scan_max_files` の指定が残った設定への警告文（"Warning: " の接頭辞は出力時に付ける）
-const BADGE_SCAN_IGNORED_WARNING: &str = "badge_scan_max_files is no longer used and is ignored";
-
-/// 設定ファイルに `badge_scan_max_files` の指定があるか。指定は値を検査せずに受け付け、使わない
-fn specifies_badge_scan_max_files(raw: Option<&RawConfig>) -> bool {
-    raw.is_some_and(|r| r.badge_scan_max_files.is_some())
 }
 
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
@@ -691,11 +655,6 @@ fn convert_agent_config(raw: Option<&RawAgentConfig>) -> AgentConfig {
         Some(r) => AgentConfig {
             enabled: r.enabled.unwrap_or(defaults.enabled),
             deploy_dir: r.deploy_dir.clone().unwrap_or(defaults.deploy_dir),
-            timeout_secs: r.timeout_secs.unwrap_or(defaults.timeout_secs),
-            tree_chunk_size: r.tree_chunk_size.unwrap_or(defaults.tree_chunk_size),
-            max_file_chunk_bytes: r
-                .max_file_chunk_bytes
-                .unwrap_or(defaults.max_file_chunk_bytes),
         },
     }
 }
@@ -1337,9 +1296,6 @@ root_dir = "/home/user/app"
 
         assert!(config.agent.enabled);
         assert_eq!(config.agent.deploy_dir, "/var/tmp");
-        assert_eq!(config.agent.timeout_secs, 30);
-        assert_eq!(config.agent.tree_chunk_size, 1000);
-        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
     }
 
     #[test]
@@ -1356,18 +1312,12 @@ root_dir = "/home/user/app"
 [agent]
 enabled = false
 deploy_dir = "/opt/agents"
-timeout_secs = 60
-tree_chunk_size = 500
-max_file_chunk_bytes = 1048576
 "#;
         let f = write_temp_config(content);
         let config = load_config_from_paths(Some(f.path()), None).unwrap();
 
         assert!(!config.agent.enabled);
         assert_eq!(config.agent.deploy_dir, "/opt/agents");
-        assert_eq!(config.agent.timeout_secs, 60);
-        assert_eq!(config.agent.tree_chunk_size, 500);
-        assert_eq!(config.agent.max_file_chunk_bytes, 1_048_576);
     }
 
     #[test]
@@ -1383,18 +1333,14 @@ root_dir = "/home/user/app"
 
 [agent]
 enabled = false
-tree_chunk_size = 2000
 "#;
         let f = write_temp_config(content);
         let config = load_config_from_paths(Some(f.path()), None).unwrap();
 
         // 明示的に指定した値
         assert!(!config.agent.enabled);
-        assert_eq!(config.agent.tree_chunk_size, 2000);
         // 未指定フィールドはデフォルト
         assert_eq!(config.agent.deploy_dir, "/var/tmp");
-        assert_eq!(config.agent.timeout_secs, 30);
-        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
     }
 
     #[test]
@@ -1410,15 +1356,11 @@ root_dir = "/home/user/app"
 
 [agent]
 enabled = true
-deploy_dir = "/var/tmp"
-timeout_secs = 30
+deploy_dir = "/opt/global"
 "#;
         let project = r#"
 [agent]
 enabled = false
-deploy_dir = "/opt/custom"
-timeout_secs = 120
-tree_chunk_size = 500
 "#;
         let gf = write_temp_config(global);
         let pf = write_temp_config(project);
@@ -1426,11 +1368,8 @@ tree_chunk_size = 500
 
         // プロジェクト設定で上書き
         assert!(!config.agent.enabled);
-        assert_eq!(config.agent.deploy_dir, "/opt/custom");
-        assert_eq!(config.agent.timeout_secs, 120);
-        assert_eq!(config.agent.tree_chunk_size, 500);
         // プロジェクト設定にない項目はデフォルト（グローバルからは引き継がない）
-        assert_eq!(config.agent.max_file_chunk_bytes, 4 * 1024 * 1024);
+        assert_eq!(config.agent.deploy_dir, "/var/tmp");
     }
 
     #[test]

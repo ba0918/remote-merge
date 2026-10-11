@@ -47,9 +47,6 @@ retention_days = 30
 [agent]
 enabled = false
 deploy_dir = "/opt/agent"
-timeout_secs = 5
-tree_chunk_size = 10
-max_file_chunk_bytes = 1024
 "#;
 
 // ─── セクションごとの合成（REQ-config-011） ─────────────────
@@ -110,9 +107,6 @@ fn project_agent_section_replaces_the_global_one_and_omitted_keys_use_defaults()
     );
     assert!(config.agent.enabled);
     assert_eq!(config.agent.deploy_dir, "/srv/agent");
-    assert_eq!(config.agent.timeout_secs, 30);
-    assert_eq!(config.agent.tree_chunk_size, 1000);
-    assert_eq!(config.agent.max_file_chunk_bytes, 4_194_304);
 }
 
 // @kotowari[REQ-config-011]
@@ -131,9 +125,6 @@ fn global_sections_are_used_when_the_project_config_lacks_them() {
         assert_eq!(config.backup.retention_days, 30, "{layout:?}");
         assert!(!config.agent.enabled, "{layout:?}");
         assert_eq!(config.agent.deploy_dir, "/opt/agent", "{layout:?}");
-        assert_eq!(config.agent.timeout_secs, 5, "{layout:?}");
-        assert_eq!(config.agent.tree_chunk_size, 10, "{layout:?}");
-        assert_eq!(config.agent.max_file_chunk_bytes, 1024, "{layout:?}");
     }
 }
 
@@ -208,7 +199,7 @@ fn defaults_key_in_neither_config_uses_the_default_value() {
 
 // ─── 省いたキーの既定値（REQ-config-013、TBL-config-001） ─────
 
-/// TBL-config-001 の [ssh]・[backup]・[agent]・[defaults] の 11 行
+/// TBL-config-001 の [ssh]・[backup]・[agent]・[defaults] の 8 行
 fn assert_section_defaults(config: &AppConfig, case: &str) {
     assert_eq!(config.ssh.timeout_sec, 300, "{case}");
     assert_eq!(
@@ -220,9 +211,6 @@ fn assert_section_defaults(config: &AppConfig, case: &str) {
     assert_eq!(config.backup.retention_days, 7, "{case}");
     assert!(config.agent.enabled, "{case}");
     assert_eq!(config.agent.deploy_dir, "/var/tmp", "{case}");
-    assert_eq!(config.agent.timeout_secs, 30, "{case}");
-    assert_eq!(config.agent.tree_chunk_size, 1000, "{case}");
-    assert_eq!(config.agent.max_file_chunk_bytes, 4_194_304, "{case}");
     assert_eq!(config.defaults.file_permissions, 0o664, "{case}");
     assert_eq!(config.defaults.dir_permissions, 0o775, "{case}");
 }

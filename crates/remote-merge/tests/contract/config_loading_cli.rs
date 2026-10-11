@@ -523,115 +523,16 @@ fn logs_warns_that_config_is_ignored_and_runs_without_reading_it() {
     assert_eq!(first["message"], "saved entry");
 }
 
-// ─── 使われなくなった [filter] の sensitive の警告（REQ-config-030） ─────────────────
-
-const SENSITIVE_IGNORED_WARNING: &str =
-    "Warning: [filter] sensitive is no longer used and is ignored";
+// ─── 知らないキーとセクションで止める（REQ-config-039） ─────────────────
 
 impl Workspace {
-    /// `write_config` と同じ設定の [filter] に sensitive の指定を足して書く
-    fn write_config_with_sensitive(&mut self, path: &Path, local_root: &Path) {
-        let base = gen_config(
-            local_root,
-            &self.dirs.remote_dir,
-            None,
-            self.dirs.server_port(),
-        );
-        let exclude_line = "exclude = [\".git\", \"target\"]";
-        let content = base.replace(
-            exclude_line,
-            &format!("{exclude_line}\nsensitive = [\"*.key\"]"),
-        );
-        assert_ne!(content, base, "fixture filter exclude line missing");
-        self.write(path, local_root, &content);
-    }
-}
-
-/// 警告の行の数を数え、指定が使われずに status が最後まで続いたこと（読み込んだ設定の root_dir の一覧が出ること）を確かめる
-fn assert_sensitive_warnings(output: &Output, expected_warnings: usize, expected_paths: &[&str]) {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(
-        stderr.matches(SENSITIVE_IGNORED_WARNING).count(),
-        expected_warnings,
-        "{output:?}"
-    );
-    // ローカルの側にだけファイルを置くため "left_only" があり、終了コードは 1 になる
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"));
-    assert_eq!(listed_paths(&json), expected_paths);
-}
-
-// @kotowari[REQ-config-030]
-#[test]
-fn sensitive_in_the_project_config_warns_once_and_is_not_used() {
-    let mut workspace = Workspace::new();
-    let cwd = workspace.dir("work");
-    let local = workspace.local_root_with("project-local", "server.key");
-    workspace.write_config_with_sensitive(&cwd.join(".remote-merge.toml"), &local);
-
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-    assert_sensitive_warnings(&output, 1, &["server.key"]);
-}
-
-// @kotowari[REQ-config-030]
-#[test]
-fn config_without_sensitive_does_not_warn() {
-    let mut workspace = Workspace::new();
-    let cwd = workspace.dir("work");
-    let local = workspace.local_root_with("project-local", "server.key");
-    workspace.write_config(&cwd.join(".remote-merge.toml"), &local);
-
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-    assert_sensitive_warnings(&output, 0, &["server.key"]);
-}
-
-// @kotowari[REQ-config-030]
-#[cfg(target_os = "linux")]
-#[test]
-fn sensitive_in_the_global_config_warns_once_and_is_not_used() {
-    let mut workspace = Workspace::new();
-    let cwd = workspace.dir("work");
-    let local = workspace.local_root_with("global-local", "server.key");
-    let global_path = workspace.global_config_path();
-    workspace.write_config_with_sensitive(&global_path, &local);
-
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-    assert_sensitive_warnings(&output, 1, &["server.key"]);
-}
-
-// @kotowari[REQ-config-030]
-#[cfg(target_os = "linux")]
-#[test]
-fn sensitive_in_both_configs_warns_only_once() {
-    let mut workspace = Workspace::new();
-    let cwd = workspace.dir("work");
-    let global_local = workspace.local_root_with("global-local", "from-global.txt");
-    let global_path = workspace.global_config_path();
-    workspace.write_config_with_sensitive(&global_path, &global_local);
-    let local = workspace.local_root_with("project-local", "server.key");
-    workspace.write_config_with_sensitive(&cwd.join(".remote-merge.toml"), &local);
-
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-    assert_sensitive_warnings(&output, 1, &["server.key"]);
-}
-
-// ─── 使われなくなった badge_scan_max_files の警告（REQ-config-031） ─────────────────
-
-const BADGE_SCAN_IGNORED_WARNING: &str =
-    "Warning: badge_scan_max_files is no longer used and is ignored";
-
-impl Workspace {
-    /// `write_config` と同じ設定のトップレベルに badge_scan_max_files の指定を足して書く
-    fn write_config_with_badge_scan_max_files(
+    /// `write_config` と同じ設定の `anchor` の行の後に `addition` の行を足して書く
+    fn write_config_with_line_after(
         &mut self,
         path: &Path,
         local_root: &Path,
-        value: &str,
+        anchor: &str,
+        addition: &str,
     ) {
         let base = gen_config(
             local_root,
@@ -639,90 +540,89 @@ impl Workspace {
             None,
             self.dirs.server_port(),
         );
-        let content = format!("badge_scan_max_files = {value}\n{base}");
+        let content = base.replacen(anchor, &format!("{anchor}\n{addition}"), 1);
+        assert_ne!(content, base, "fixture line {anchor:?} missing");
         self.write(path, local_root, &content);
     }
 }
 
-/// 警告の行の数を数え、指定が使われずに status が最後まで続いたこと（読み込んだ設定の root_dir の一覧が出ること）を確かめる
-fn assert_badge_scan_warnings(output: &Output, expected_warnings: usize, expected_paths: &[&str]) {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(
-        stderr.matches(BADGE_SCAN_IGNORED_WARNING).count(),
-        expected_warnings,
-        "{output:?}"
-    );
-    // ローカルの側にだけファイルを置くため "left_only" があり、終了コードは 1 になる
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("status output is not JSON ({error}): {output:?}"));
-    assert_eq!(listed_paths(&json), expected_paths);
+/// 比較を始めずに終了コード 2 で止まったこと。比較を始めれば status は標準出力に一覧を書く。
+/// エラーの文言は IR が定めていないので見ない
+fn assert_stops_before_comparing(output: &Output) {
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
 }
 
-// @kotowari[REQ-config-031]
+// @kotowari[REQ-config-039, EX-config-015]
 #[test]
-fn badge_scan_max_files_in_the_project_config_warns_once_for_any_value() {
-    for value in ["500", "0", "20000", "-1", "\"many\""] {
-        let mut workspace = Workspace::new();
-        let cwd = workspace.dir("work");
-        let local = workspace.local_root_with("project-local", "file.txt");
-        workspace.write_config_with_badge_scan_max_files(
-            &cwd.join(".remote-merge.toml"),
-            &local,
-            value,
-        );
-
-        let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-        assert_badge_scan_warnings(&output, 1, &["file.txt"]);
-    }
-}
-
-// @kotowari[REQ-config-031]
-#[cfg(target_os = "linux")]
-#[test]
-fn badge_scan_max_files_in_the_global_config_warns_once() {
+fn misspelled_key_in_the_project_config_stops_before_comparing() {
     let mut workspace = Workspace::new();
     let cwd = workspace.dir("work");
-    let local = workspace.local_root_with("global-local", "file.txt");
-    let global_path = workspace.global_config_path();
-    workspace.write_config_with_badge_scan_max_files(&global_path, &local, "0");
-
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
-
-    assert_badge_scan_warnings(&output, 1, &["file.txt"]);
-}
-
-// @kotowari[REQ-config-031]
-#[cfg(target_os = "linux")]
-#[test]
-fn badge_scan_max_files_in_both_configs_warns_only_once() {
-    let mut workspace = Workspace::new();
-    let cwd = workspace.dir("work");
-    let global_local = workspace.local_root_with("global-local", "from-global.txt");
-    let global_path = workspace.global_config_path();
-    workspace.write_config_with_badge_scan_max_files(&global_path, &global_local, "10");
     let local = workspace.local_root_with("project-local", "file.txt");
-    workspace.write_config_with_badge_scan_max_files(
+    workspace.write_config_with_line_after(
         &cwd.join(".remote-merge.toml"),
         &local,
-        "\"many\"",
+        "[filter]",
+        "inclde = [\"src\"]",
     );
 
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
+    let output = workspace.status(&cwd, None, &[]);
 
-    assert_badge_scan_warnings(&output, 1, &["file.txt"]);
+    assert_stops_before_comparing(&output);
 }
 
-// @kotowari[REQ-config-031]
+// @kotowari[REQ-config-039, EX-config-021]
+#[cfg(target_os = "linux")]
 #[test]
-fn config_without_badge_scan_max_files_does_not_warn() {
+fn sensitive_left_in_the_global_filter_stops_before_comparing() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("global-local", "server.pem");
+    let global_path = workspace.global_config_path();
+    workspace.write_config_with_line_after(
+        &global_path,
+        &local,
+        "[filter]",
+        "sensitive = [\"*.pem\"]",
+    );
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_stops_before_comparing(&output);
+}
+
+// @kotowari[REQ-config-039, EX-config-022]
+#[test]
+fn agent_timeout_secs_left_in_the_project_config_stops_before_comparing() {
     let mut workspace = Workspace::new();
     let cwd = workspace.dir("work");
     let local = workspace.local_root_with("project-local", "file.txt");
-    workspace.write_config(&cwd.join(".remote-merge.toml"), &local);
+    workspace.write_config_with_line_after(
+        &cwd.join(".remote-merge.toml"),
+        &local,
+        "[agent]",
+        "timeout_secs = 30",
+    );
 
-    let output = workspace.status(&cwd, None, &["--format", "json"]);
+    let output = workspace.status(&cwd, None, &[]);
 
-    assert_badge_scan_warnings(&output, 0, &["file.txt"]);
+    assert_stops_before_comparing(&output);
+}
+
+// @kotowari[REQ-config-039]
+#[test]
+fn unknown_section_in_the_project_config_stops_before_comparing() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    let local = workspace.local_root_with("project-local", "file.txt");
+    workspace.write_config_with_line_after(
+        &cwd.join(".remote-merge.toml"),
+        &local,
+        "[agent]\nenabled = false",
+        "\n[backups]\nenabled = true",
+    );
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_stops_before_comparing(&output);
 }

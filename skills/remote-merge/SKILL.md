@@ -288,17 +288,16 @@ dir_permissions = "0775"                # Default dir perms (default: 0775)
 [agent]
 enabled = true                          # Use Agent for fast scanning (default: true)
 deploy_dir = "/var/tmp"                 # Agent binary location (default: /var/tmp)
-timeout_secs = 30                       # Agent ping timeout (default: 30)
 ```
+
+Keys and sections not shown above are errors: a config file that has one (a misspelling, or a key earlier versions read such as `[filter] sensitive`, `badge_scan_max_files` or `[agent] timeout_secs`) stops the command with exit code 2 before anything is compared.
 
 ### Filter semantics
 
 - **exclude**: Glob patterns applied after scanning. Segment patterns (`*.log`) match file/dir names; path patterns (`vendor/**`) match full paths.
 - **include**: Directory prefixes (not globs). Limits scan starting points. If specified, only these directories are scanned. `include + exclude` = AND (include first, then exclude).
 
-remote-merge does not protect confidential files. diff, status, merge, sync and rollback handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`. A leftover `sensitive` key under `[filter]` is ignored with a warning.
-
-A leftover top-level `badge_scan_max_files` key is also ignored with a warning, whatever its value.
+remote-merge does not protect confidential files. diff, status, merge, sync and rollback handle files such as `.env` or `*.pem` exactly like any other file: their contents are shown, copied, written and deleted without extra confirmation. Keep files you must not read or change out of reach outside the tool (the permissions of the account or agent that runs it, or the execution environment), or remove them from the scan with `exclude`.
 
 ## Global CLI Options
 
