@@ -7,3 +7,4 @@ pub mod operations;
 pub mod path_resolution;
 pub mod rel_path;
 pub mod tree;
+pub mod unreadable_name;

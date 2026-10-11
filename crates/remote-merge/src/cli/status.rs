@@ -27,6 +27,8 @@ use crate::service::status_ref_badge::{compute_ref_badges, ref_badge_content_pat
 use crate::service::status_unreadable::{take_unreadable_files, with_unreadable_files, SideReads};
 use crate::service::types::FileStatusKind;
 use crate::service::types::StatusOutput;
+use crate::service::types::UnreadableFile;
+use crate::service::unreadable_names::unreadable_names;
 use crate::side::Side;
 
 /// status サブコマンドの引数
@@ -169,6 +171,8 @@ pub fn execute_status(
     let mut ref_badges = None;
     let mut ref_contents = None;
 
+    let mut ref_scan = None;
+
     if let Some((ref_s, ref_tree, info)) = reference {
         ref_info = Some(info);
         let reads = read_contents(&mut core, ref_s, &badge_paths, SizeLimit::Lifted);
@@ -183,6 +187,7 @@ pub fn execute_status(
         );
         ref_badges = Some(badges);
         ref_contents = Some((ref_s.display_name().to_string(), reads));
+        ref_scan = Some((ref_s.display_name().to_string(), ref_tree));
     }
 
     // 読めなかったファイルは理由とともに errors に出し、読み比べるはずだったものは判定しない
@@ -194,11 +199,24 @@ pub fn execute_status(
         .iter()
         .map(|(name, reads)| (name.as_str(), reads))
         .collect();
-    let unreadable = take_unreadable_files(
+    let mut unreadable = take_unreadable_files(
         &mut files,
         &compare_paths,
         &compared_sides,
         &reference_sides,
+    );
+    // 走査で見つけた UTF-8 として読めない名前のファイルも、読めないファイルとして出す
+    let mut scanned = vec![
+        (pair.left.display_name(), &left_tree),
+        (pair.right.display_name(), &right_tree),
+    ];
+    if let Some((name, tree)) = &ref_scan {
+        scanned.push((name.as_str(), tree));
+    }
+    unreadable.extend(
+        unreadable_names(&scanned)
+            .into_iter()
+            .map(|(path, reason)| UnreadableFile { path, reason }),
     );
 
     let mut output = with_unreadable_files(

@@ -31,6 +31,7 @@ pub mod status_ref_badge;
 pub mod status_unreadable;
 pub mod sync;
 pub mod types;
+pub mod unreadable_names;
 
 pub use fast_path::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_diff_scan_strategy,

@@ -69,8 +69,8 @@ async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_all_t
             .client
             .list_tree("", &[], &[], MAX_ENTRIES)
             .map_err(|error| error.to_string());
-        let entries = listed.map(|(entries, _)| {
-            remote_merge::agent::tree_scan::convert_agent_entries_to_nodes(&entries)
+        let entries = listed.map(|listed| {
+            remote_merge::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries)
         });
         times_text(entries)
     });

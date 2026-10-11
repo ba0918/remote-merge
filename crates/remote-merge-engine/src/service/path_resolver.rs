@@ -331,6 +331,7 @@ mod tests {
                 FileNode::new_file("config.toml"),
                 FileNode::new_dir_with_children("empty_dir", vec![]),
             ],
+            unreadable_names: Vec::new(),
         }
     }
 
@@ -506,6 +507,7 @@ mod tests {
                 "src",
                 vec![FileNode::new_file("main.rs")],
             )],
+            unreadable_names: Vec::new(),
         };
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
@@ -513,6 +515,7 @@ mod tests {
                 "src",
                 vec![FileNode::new_file("extra.rs")],
             )],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![
             make_status("src/main.rs", FileStatusKind::LeftOnly),
@@ -531,6 +534,7 @@ mod tests {
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![
             make_status("config.toml", FileStatusKind::Modified),
@@ -558,6 +562,7 @@ mod tests {
         let left_tree = FileTree {
             root: PathBuf::from("/project"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
@@ -565,6 +570,7 @@ mod tests {
                 "deploy",
                 vec![FileNode::new_file("run.sh")],
             )],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![make_status("deploy/run.sh", FileStatusKind::RightOnly)];
         let paths = vec!["deploy".to_string()];
@@ -654,6 +660,7 @@ mod tests {
                 "src",
                 vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
             )],
+            unreadable_names: Vec::new(),
         };
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
@@ -664,6 +671,7 @@ mod tests {
                     FileNode::new_file("extra.rs"),
                 ],
             )],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![
             make_status("src/main.rs", FileStatusKind::Modified),
@@ -769,6 +777,7 @@ mod tests {
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![
             make_status("config.toml", FileStatusKind::Modified),
@@ -786,6 +795,7 @@ mod tests {
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let statuses = vec![
             make_status("config.toml", FileStatusKind::Modified),

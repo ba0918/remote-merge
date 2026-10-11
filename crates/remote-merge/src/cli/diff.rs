@@ -33,6 +33,7 @@ use crate::service::types::{
     exit_code, DiffError, DiffOutput, FileStatus, FileStatusKind, LinkTargets, MultiDiffOutput,
     MultiDiffSummary,
 };
+use crate::service::unreadable_names::requested_unreadable_names;
 use crate::service::{resolve_diff_scan_strategy, ScanStrategy};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
@@ -1052,6 +1053,17 @@ fn run_diff_full_scan(
 ) -> anyhow::Result<DiffScanResult> {
     let (left_tree, left_truncated) = fetch_tree_keeping_read(core, left, max_entries)?;
     let (right_tree, right_truncated) = fetch_tree_keeping_read(core, right, max_entries)?;
+    // UTF-8 として読めない名前のファイルは比べられないので、理由とともに誤りに載せる
+    let unreadable: Vec<DiffError> = requested_unreadable_names(
+        paths,
+        &[
+            (left.display_name(), &left_tree),
+            (right.display_name(), &right_tree),
+        ],
+    )
+    .into_iter()
+    .map(|(path, reason)| DiffError { path, reason })
+    .collect();
     let (left_tree, right_tree, statuses, existing, diff_files, sizes, read_errors) =
         compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)?;
     // 上限を超えても読めた分は比べ、上限の超過を一度だけ誤りに載せる
@@ -1061,7 +1073,11 @@ fn run_diff_full_scan(
             path: ".".into(),
             reason: truncated.to_string(),
         });
-    let errors = truncation.into_iter().chain(read_errors).collect();
+    let errors = truncation
+        .into_iter()
+        .chain(unreadable)
+        .chain(read_errors)
+        .collect();
     Ok((
         left_tree, right_tree, statuses, existing, diff_files, sizes, errors,
     ))

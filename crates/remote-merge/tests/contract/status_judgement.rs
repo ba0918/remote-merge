@@ -130,6 +130,7 @@ fn unknown_size_or_timestamp_is_decided_by_the_content() {
     let tree = |nodes: Vec<FileNode>| FileTree {
         root: PathBuf::from("/unused"),
         nodes,
+        unreadable_names: Vec::new(),
     };
     let mut sized = FileNode::new_file("no_mtime.txt");
     sized.size = Some(6);

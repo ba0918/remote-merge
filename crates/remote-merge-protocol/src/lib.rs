@@ -12,6 +12,7 @@ macro_rules! define_protocol_version {
         ///          Remove・Chmod・ListDir を追加
         /// v6 → v7: ListTree の応答に、循環で走査を止めたことを示す TreeIncomplete を追加
         /// v7 → v8: 一つの項目を辿らずに読む ReadEntryLink を追加
+        /// v8 → v9: TreeChunk に UTF-8 として読めない名前のファイルの unreadable_names を追加
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -29,7 +30,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(8);
+define_protocol_version!(9);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -101,6 +102,9 @@ pub enum AgentResponse {
         total_scanned: usize,
         /// max_entries に達してスキャンが打ち切られた場合 true。
         truncated: bool,
+        /// UTF-8 として読めない名前のファイルの走査の起点からのパス（読めない部分を `\xNN` と
+        /// 書いた形）。一覧の nodes には載せない
+        unreadable_names: Vec<String>,
     },
     /// ディレクトリを指す symlink が祖先へ戻る循環で走査を止めた。一覧は返さない
     TreeIncomplete {

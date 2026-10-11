@@ -49,6 +49,22 @@ pub fn parse_find_record(
     Ok(Some(node))
 }
 
+/// パスが UTF-8 として読めない項目を報告する名前（`base_path` からの相対パスで、読めない部分を
+/// `\xNN` と書いた形）。パスが読める項目、ディレクトリ、exclude に当たる項目は None
+pub fn unreadable_record_name(
+    record: &FindRecord,
+    base_path: &str,
+    exclude: &[String],
+) -> Option<String> {
+    let escaped = record.unreadable_path.as_deref()?;
+    let excluded = relative_name(&record.path, base_path)
+        .is_none_or(|name| filter::is_path_excluded(name, exclude));
+    if record.kind == "d" || excluded {
+        return None;
+    }
+    relative_name(escaped, base_path).map(str::to_string)
+}
+
 /// 項目の `base_path` からの相対パス。`base_path` 自体は None
 pub fn find_record_name<'a>(record: &'a FindRecord, base_path: &str) -> Option<&'a str> {
     relative_name(&record.path, base_path)

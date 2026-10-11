@@ -32,6 +32,7 @@ use crate::service::types::{
     DeleteFileResult, DeleteStatus, FileStatus, FileStatusKind, MergeFailure, MergeFileResult,
     MergeOutcome, MergeOutput,
 };
+use crate::service::unreadable_names::requested_unreadable_names;
 use crate::service::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
 };
@@ -599,8 +600,32 @@ fn fetch_trees_and_statuses_for_merge(
         failures = verified.failures;
         refine_status_with_content(&mut statuses, &verified.pairs);
     }
+    // 走査で見つけた UTF-8 として読めない名前のファイルは書けないので、failed に出す
+    failures.extend(unreadable_name_failures(
+        comparison.requested,
+        (left, &left_tree),
+        (right, &right_tree),
+    ));
 
     Ok((left_tree, right_tree, statuses, failures))
+}
+
+/// 指定したパスの範囲にある、UTF-8 として読めない名前のファイルを merge と sync の failed にする
+pub(crate) fn unreadable_name_failures(
+    requested: &[String],
+    (left, left_tree): (&Side, &FileTree),
+    (right, right_tree): (&Side, &FileTree),
+) -> Vec<MergeFailure> {
+    requested_unreadable_names(
+        requested,
+        &[
+            (left.display_name(), left_tree),
+            (right.display_name(), right_tree),
+        ],
+    )
+    .into_iter()
+    .map(|(path, error)| MergeFailure { path, error })
+    .collect()
 }
 
 /// 指定ディレクトリパスのサブツリーを取得して結合する。
@@ -620,6 +645,8 @@ fn fetch_partial_trees(
         let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
         merge_partial_nodes(&mut left_tree.nodes, lt.nodes);
         merge_partial_nodes(&mut right_tree.nodes, rt.nodes);
+        left_tree.unreadable_names.extend(lt.unreadable_names);
+        right_tree.unreadable_names.extend(rt.unreadable_names);
     }
     left_tree.sort();
     right_tree.sort();

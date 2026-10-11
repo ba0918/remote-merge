@@ -5,6 +5,7 @@
 //! 読めないバイトは、ほかの経路と同じく列ごとに置換文字にする。
 
 use chrono::{DateTime, Utc};
+use remote_merge_core::unreadable_name::escape_non_utf8;
 
 /// find の `-printf` に渡す、一つの項目の七つの列。どの列も NUL で終える。
 /// 種類、大きさ、更新時刻、権限、パス、リンク先、リンク先の種類の順
@@ -31,6 +32,9 @@ pub struct FindRecord {
     pub link_target: String,
     /// `%Y`（symlink ならリンク先の種類）
     pub link_kind: String,
+    /// パスが UTF-8 として読めないとき、読めない部分を `\xNN` と書いたパス（`path` は置換文字に
+    /// したもの）。読めるときは None
+    pub unreadable_path: Option<String>,
 }
 
 /// NUL で区切った find の出力を項目に切り分ける。列の数が七の倍数でないか、最後の列が NUL で
@@ -42,10 +46,7 @@ pub fn parse_find_records(output: &[u8]) -> anyhow::Result<Vec<FindRecord>> {
     let Some(body) = output.strip_suffix(b"\0") else {
         anyhow::bail!("unexpected output from find: the last entry is not terminated");
     };
-    let fields: Vec<String> = body
-        .split(|byte| *byte == 0)
-        .map(|field| String::from_utf8_lossy(field).into_owned())
-        .collect();
+    let fields: Vec<&[u8]> = body.split(|byte| *byte == 0).collect();
     let (records, rest) = fields.as_chunks::<FIELDS>();
     if !rest.is_empty() {
         anyhow::bail!(
@@ -57,16 +58,24 @@ pub fn parse_find_records(output: &[u8]) -> anyhow::Result<Vec<FindRecord>> {
         .iter()
         .map(
             |[kind, size, mtime, mode, path, link_target, link_kind]| FindRecord {
-                kind: kind.clone(),
-                size: size.clone(),
-                mtime: mtime.clone(),
-                mode: mode.clone(),
-                path: path.clone(),
-                link_target: link_target.clone(),
-                link_kind: link_kind.clone(),
+                kind: text(kind),
+                size: text(size),
+                mtime: text(mtime),
+                mode: text(mode),
+                path: text(path),
+                link_target: text(link_target),
+                link_kind: text(link_kind),
+                unreadable_path: std::str::from_utf8(path)
+                    .is_err()
+                    .then(|| escape_non_utf8(path)),
             },
         )
         .collect())
+}
+
+/// 列を文字列にする。UTF-8 として読めないバイトは置換文字にする
+fn text(field: &[u8]) -> String {
+    String::from_utf8_lossy(field).into_owned()
 }
 
 /// find の `%T@`（"秒.小数"）を、出した桁までの時刻に読む
@@ -118,6 +127,7 @@ l\x004\x002.0\x00777\x00/r/b\\c\x00a\tb\\c\x00f\x00";
         let output = b"f\x001\x001.0\x00644\x00/r/\xff.txt\x00\x00f\x00";
         let records = parse_find_records(output).unwrap();
         assert_eq!(records[0].path, "/r/\u{fffd}.txt");
+        assert_eq!(records[0].unreadable_path.as_deref(), Some("/r/\\xff.txt"));
         assert_eq!(records[0].kind, "f");
     }
 

@@ -671,6 +671,7 @@ mod tests {
                 FileNode::new_file("docs"),
                 FileNode::new_file("vendor"),
             ],
+            unreadable_names: Vec::new(),
         };
         let original_len = tree.nodes.len();
         filter_tree_by_include(&mut tree, &[]);
@@ -694,6 +695,7 @@ mod tests {
                 FileNode::new_dir("vendor"),
                 FileNode::new_file("README.md"),
             ],
+            unreadable_names: Vec::new(),
         };
         let include = vec!["src".to_string(), "vendor/current".to_string()];
         filter_tree_by_include(&mut tree, &include);

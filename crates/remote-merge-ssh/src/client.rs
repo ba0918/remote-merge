@@ -27,6 +27,7 @@ use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
     build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
     build_write_text_command, find_record_name, parse_find_record, shell_escape,
+    unreadable_record_name,
 };
 use zeroize::Zeroizing;
 
@@ -49,6 +50,17 @@ fn exec_failure(command: &str, exit_code: u32, stderr: &str) -> AppError {
     AppError::SshExec {
         command: format!("{command}: exit={exit_code}, stderr={stderr}"),
     }
+}
+
+/// リモートの再帰走査の結果
+#[derive(Debug)]
+pub struct TreeListing {
+    /// 一覧に載せたノードのツリー
+    pub nodes: Vec<FileNode>,
+    /// 件数の上限で打ち切ったか
+    pub truncated: bool,
+    /// UTF-8 として読めない名前のファイルの走査の起点からのパス（`\xNN` で書いた形）
+    pub unreadable_names: Vec<String>,
 }
 
 /// SSH接続を管理するクライアント
@@ -705,7 +717,7 @@ impl SshClient {
         include: &[String],
         max_entries: usize,
         timeout_secs: u64,
-    ) -> crate::error::Result<(Vec<FileNode>, bool)> {
+    ) -> crate::error::Result<TreeListing> {
         // root_dir の存在チェック。接続エラーなどを「ない」にしないよう、終了コード 1 だけを見る
         let check_cmd = format!("test -d {}", shell_escape(remote_path));
         let check = self.run_command(&check_cmd).await?;
@@ -757,6 +769,7 @@ impl SshClient {
         let excluded = ExcludedBranches::from_find_records(&records, remote_path, exclude);
         let mut flat_nodes = Vec::new();
         let mut truncated = false;
+        let mut unreadable_names = Vec::new();
         // 載せたファイルと symlink の数
         let mut counted = 0;
 
@@ -764,6 +777,11 @@ impl SshClient {
             if find_record_name(record, remote_path)
                 .is_some_and(|name| excluded.contains_ancestor_of(name))
             {
+                continue;
+            }
+            // UTF-8 として読めない名前は置き換えて載せず、読めない名前として報告する（REQ-scan-012）
+            if record.unreadable_path.is_some() {
+                unreadable_names.extend(unreadable_record_name(record, remote_path, exclude));
                 continue;
             }
             let Some(node) = parse_find_record(record, remote_path, exclude)? else {
@@ -786,8 +804,11 @@ impl SshClient {
             flat_nodes.push(node);
         }
 
-        let tree = build_tree_from_flat(flat_nodes);
-        Ok((tree, truncated))
+        Ok(TreeListing {
+            nodes: build_tree_from_flat(flat_nodes),
+            truncated,
+            unreadable_names,
+        })
     }
 
     /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。

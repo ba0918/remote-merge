@@ -136,6 +136,18 @@ pub fn hash_results_to_map(results: &[FileHashResult]) -> HashMap<String, String
 
 // ── subpath ツリー構築ヘルパー ──
 
+/// サブパスを起点に走査した、読めない名前のファイルのパスを root_dir からのパスにする
+pub fn names_in_subpath(subpath: &str, names: Vec<String>) -> Vec<String> {
+    let subpath = subpath.trim_end_matches('/');
+    if subpath.is_empty() {
+        return names;
+    }
+    names
+        .into_iter()
+        .map(|name| format!("{subpath}/{name}"))
+        .collect()
+}
+
 /// スキャン結果のノード群を subpath の階層構造でラップする。
 ///
 /// 例: subpath="app/controllers", nodes=[file_0.php, file_1.php]
@@ -317,13 +329,13 @@ pub fn fetch_tree_recursive(
     max: usize,
     fail: bool,
 ) -> anyhow::Result<FileTree> {
-    let (nodes, truncated) =
-        local::scan_local_tree_recursive_with_include(root, exclude, include, max)?;
-    if truncated {
+    let scan = local::scan_local_tree_recursive_with_include(root, exclude, include, max)?;
+    if scan.truncated {
         check_truncation(max, fail)?;
     }
     let mut tree = FileTree::new(root);
-    tree.nodes = nodes;
+    tree.nodes = scan.nodes;
+    tree.unreadable_names = scan.unreadable_names;
     tree.sort();
     Ok(tree)
 }
@@ -346,12 +358,13 @@ pub fn fetch_tree_for_subpath(
     if !scan_root.exists() || !scan_root.is_dir() {
         return Ok(FileTree::new(root));
     }
-    let (nodes, truncated) = local::scan_local_tree_recursive(&scan_root, exclude, max)?;
-    if truncated {
+    let scan = local::scan_local_tree_recursive(&scan_root, exclude, max)?;
+    if scan.truncated {
         check_truncation(max, fail)?;
     }
     let mut tree = FileTree::new(root);
-    tree.nodes = wrap_nodes_in_subpath(subpath, nodes);
+    tree.nodes = wrap_nodes_in_subpath(subpath, scan.nodes);
+    tree.unreadable_names = names_in_subpath(subpath, scan.unreadable_names);
     tree.sort();
     Ok(tree)
 }

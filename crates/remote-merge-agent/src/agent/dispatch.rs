@@ -135,6 +135,7 @@ impl Dispatcher {
                         is_last: chunk.is_last,
                         total_scanned: chunk.total_scanned,
                         truncated: chunk.truncated,
+                        unreadable_names: chunk.unreadable_names,
                     });
                 }
                 Err(e) => {
@@ -156,6 +157,7 @@ impl Dispatcher {
                 is_last: true,
                 total_scanned: 0,
                 truncated: false,
+                unreadable_names: vec![],
             });
         }
 
@@ -547,6 +549,7 @@ mod tests {
                 is_last,
                 total_scanned,
                 truncated,
+                ..
             } => {
                 assert!(nodes.is_empty());
                 assert!(*is_last);

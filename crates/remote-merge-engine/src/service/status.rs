@@ -479,6 +479,7 @@ mod tests {
         FileTree {
             root: PathBuf::from("/test"),
             nodes,
+            unreadable_names: Vec::new(),
         }
     }
 

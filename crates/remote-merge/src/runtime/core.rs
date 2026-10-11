@@ -888,7 +888,7 @@ impl CoreRuntime {
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
 
-        let (nodes, truncated) = self.rt.block_on(client.list_tree_recursive(
+        let listing = self.rt.block_on(client.list_tree_recursive(
             &root_dir,
             &exclude,
             include,
@@ -896,12 +896,13 @@ impl CoreRuntime {
             scan_timeout_sec,
         ))?;
 
-        if truncated {
+        if listing.truncated {
             super::side_io::check_truncation(max_entries, fail_on_truncation)?;
         }
 
         let mut tree = FileTree::new(&root_path);
-        tree.nodes = nodes;
+        tree.nodes = listing.nodes;
+        tree.unreadable_names = listing.unreadable_names;
         tree.sort();
         Ok(tree)
     }
@@ -954,8 +955,8 @@ impl CoreRuntime {
             scan_timeout_sec,
         ));
 
-        let (nodes, truncated) = match result {
-            Ok(pair) => pair,
+        let listing = match result {
+            Ok(listing) => listing,
             Err(e) => {
                 // リモートパスが存在しない場合は空ツリーを返す（型安全に判定）
                 if e.downcast_ref::<crate::error::AppError>()
@@ -969,14 +970,15 @@ impl CoreRuntime {
             }
         };
 
-        if truncated {
+        if listing.truncated {
             super::side_io::check_truncation(max_entries, fail_on_truncation)?;
         }
 
         let mut tree = FileTree::new(&root_path);
         // SSH の list_tree_recursive は scan_path をルートとして走査するため、
         // 結果を subpath 配下にラップして root_dir からの相対パスにする
-        tree.nodes = super::side_io::wrap_nodes_in_subpath(subpath, nodes);
+        tree.nodes = super::side_io::wrap_nodes_in_subpath(subpath, listing.nodes);
+        tree.unreadable_names = super::side_io::names_in_subpath(subpath, listing.unreadable_names);
         tree.sort();
         Ok(tree)
     }

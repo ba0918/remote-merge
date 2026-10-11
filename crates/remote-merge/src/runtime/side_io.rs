@@ -21,7 +21,7 @@ use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
 
 pub(crate) use remote_merge_engine::local_io::{
-    check_truncation, hash_results_to_map, wrap_nodes_in_subpath,
+    check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
 };
 #[cfg(test)]
 pub(crate) use remote_merge_engine::local_io::{
@@ -931,12 +931,14 @@ impl CoreRuntime {
             agent.list_tree("", &exclude, include, max_entries)
         })
         .map(|r| {
-            r.and_then(|(entries, end)| {
-                check_agent_tree_end(end, max_entries, fail_on_truncation)?;
-                let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+            r.and_then(|listed| {
+                check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
+                let flat_nodes =
+                    crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
                 tree.nodes = nodes;
+                tree.unreadable_names = listed.unreadable_names;
                 tree.sort();
                 Ok(tree)
             })
@@ -964,14 +966,16 @@ impl CoreRuntime {
             agent.list_tree(&subpath_owned, &exclude, &[], max_entries)
         })
         .map(|r| {
-            r.and_then(|(entries, end)| {
-                check_agent_tree_end(end, max_entries, fail_on_truncation)?;
-                let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
+            r.and_then(|listed| {
+                check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
+                let flat_nodes =
+                    crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
                 // Agent の list_tree は subpath をルートとして走査するため、
                 // 結果を subpath 配下にラップして root_dir からの相対パスにする
                 tree.nodes = wrap_nodes_in_subpath(&subpath_owned, nodes);
+                tree.unreadable_names = names_in_subpath(&subpath_owned, listed.unreadable_names);
                 tree.sort();
                 Ok(tree)
             })

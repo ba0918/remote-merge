@@ -196,6 +196,12 @@ pub fn execute_sync(
             compare_failures = verified.failures;
             refine_status_with_content(&mut statuses, &verified.pairs);
         }
+        // 走査で見つけた UTF-8 として読めない名前のファイルは書けないので、failed に出す
+        compare_failures.extend(super::merge::unreadable_name_failures(
+            &args.paths,
+            (left_side, &left_tree),
+            (right_side, &right_tree),
+        ));
 
         // パス解決 + 差分フィルタ
         let resolved_paths =
@@ -559,6 +565,7 @@ fn fetch_partial_tree(
     for dir_path in dir_paths {
         let sub = core.fetch_tree_for_subpath(side, dir_path, max_entries, true)?;
         merge_partial_nodes(&mut tree.nodes, sub.nodes);
+        tree.unreadable_names.extend(sub.unreadable_names);
     }
     tree.sort();
     Ok(tree)
@@ -596,6 +603,7 @@ mod tests {
         FileTree {
             root: std::path::PathBuf::from("/local"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         }
     }
 
@@ -663,6 +671,7 @@ mod tests {
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let plan = plan_merge(&["src/main.rs".into()]);
         let server_plans = vec![ServerPlan {
@@ -715,6 +724,7 @@ mod tests {
         let right_tree = FileTree {
             root: PathBuf::from("/remote"),
             nodes: vec![],
+            unreadable_names: Vec::new(),
         };
         let plan = MergePlan {
             files: vec![],

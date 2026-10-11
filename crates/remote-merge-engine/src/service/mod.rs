@@ -13,3 +13,4 @@ pub mod status_ref_badge;
 pub mod status_unreadable;
 pub mod sync;
 pub mod types;
+pub mod unreadable_names;

@@ -246,7 +246,7 @@ fn agent_list_tree_roundtrip() {
 
     let mut proc = AgentProcess::spawn(tmp.path()).expect("agent should start");
 
-    let (entries, _truncated) = proc
+    let remote_merge::agent::client::TreeList { entries, .. } = proc
         .client
         .list_tree("", &[], &[], 10_000)
         .expect("list_tree should succeed");

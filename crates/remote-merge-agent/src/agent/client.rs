@@ -74,7 +74,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         exclude: &[String],
         include: &[String],
         max_entries: usize,
-    ) -> Result<(Vec<AgentFileEntry>, TreeEnd)> {
+    ) -> Result<TreeList> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
             root: root.to_string(),
@@ -86,6 +86,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
         // is_last=true になるまでチャンクを読み続ける
         let mut all_nodes = Vec::new();
+        let mut unreadable_names = Vec::new();
         let end: TreeEnd;
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
@@ -95,15 +96,21 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                     return Err(refused(format!("agent error: {message}")))
                 }
                 AgentResponse::TreeIncomplete { reason } => {
-                    return Ok((Vec::new(), TreeEnd::Incomplete(reason)));
+                    return Ok(TreeList {
+                        entries: Vec::new(),
+                        end: TreeEnd::Incomplete(reason),
+                        unreadable_names: Vec::new(),
+                    });
                 }
                 AgentResponse::TreeChunk {
                     nodes,
                     is_last,
                     truncated,
+                    unreadable_names: unreadable,
                     ..
                 } => {
                     all_nodes.extend(nodes);
+                    unreadable_names.extend(unreadable);
                     if is_last {
                         end = if truncated {
                             TreeEnd::Truncated
@@ -120,7 +127,11 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 }
             }
         }
-        Ok((all_nodes, end))
+        Ok(TreeList {
+            entries: all_nodes,
+            end,
+            unreadable_names,
+        })
     }
 
     /// 複数ファイルを読み込む（ストリーミング対応）。
@@ -407,6 +418,17 @@ impl std::fmt::Display for AgentRefused {
 
 impl std::error::Error for AgentRefused {}
 
+/// ListTree の結果
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreeList {
+    /// 一覧に載せた項目
+    pub entries: Vec<AgentFileEntry>,
+    /// 一覧の終わり方
+    pub end: TreeEnd,
+    /// UTF-8 として読めない名前のファイルの走査の起点からのパス（読めない部分を `\xNN` と書いた形）
+    pub unreadable_names: Vec<String>,
+}
+
 /// ListTree の一覧の終わり方
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TreeEnd {
@@ -573,7 +595,7 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let (entries, end) = client.list_tree("", &[], &[], 10000).unwrap();
+        let TreeList { entries, end, .. } = client.list_tree("", &[], &[], 10000).unwrap();
         assert!(entries.is_empty());
         assert_eq!(end, TreeEnd::Complete);
     }
@@ -586,7 +608,7 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let (entries, end) = client.list_tree("", &[], &[], 10000).unwrap();
+        let TreeList { entries, end, .. } = client.list_tree("", &[], &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));

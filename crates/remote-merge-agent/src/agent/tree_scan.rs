@@ -50,6 +50,9 @@ pub struct ScanChunk {
     pub total_scanned: usize,
     /// 上限に達した後にまだ載せる項目があり、一覧を打ち切ったか（最後のチャンクだけ true になりうる）
     pub truncated: bool,
+    /// UTF-8 として読めない名前のファイルの相対パス（読めない部分を `\xNN` と書いた形）。entries には
+    /// 載せない（docs/ir/scan/listing.md の REQ-scan-012）
+    pub unreadable_names: Vec<String>,
 }
 
 /// ディレクトリツリーを再帰走査し、チャンク単位で結果を返すイテレータ
@@ -83,6 +86,19 @@ impl std::fmt::Display for UnreadableEntry {
 
 impl std::error::Error for UnreadableEntry {}
 
+/// UTF-8 として読めない相対パスを、読めない部分を `\xNN` と書いた形にする
+#[cfg(unix)]
+fn unreadable_name(relative: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    remote_merge_core::unreadable_name::escape_non_utf8(relative.as_os_str().as_bytes())
+}
+
+/// UTF-8 として読めない相対パスを示す形にする（Unix 以外ではバイト列を取り出せない）
+#[cfg(not(unix))]
+fn unreadable_name(relative: &Path) -> String {
+    relative.to_string_lossy().into_owned()
+}
+
 /// [`scan_tree`] の、symlink のリンク先の読み方を `reader` にしたもの
 pub fn scan_tree_with<'a, R: ListingReader>(
     reader: &'a R,
@@ -113,6 +129,8 @@ struct ScanIterator<'a, R> {
     stopped: Option<anyhow::Error>,
     /// 現在のチャンクに蓄積中のエントリ
     buffer: Vec<AgentFileEntry>,
+    /// 現在のチャンクに蓄積中の、UTF-8 として読めない名前のファイルの相対パス
+    unreadable_names: Vec<String>,
     /// 走査済みエントリ総数
     total_scanned: usize,
     /// 走査完了フラグ
@@ -151,6 +169,7 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             current_ancestry: DirAncestry::default(),
             stopped: None,
             buffer: Vec::new(),
+            unreadable_names: Vec::new(),
             total_scanned: 0,
             finished: false,
         }
@@ -282,6 +301,19 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
 
         let file_type = meta.file_type();
 
+        // UTF-8 として読めない名前は置き換えて載せず、ファイルなら読めない名前として報告する
+        // （REQ-scan-012）。ディレクトリは配下を走査し、配下のファイルも同じく報告する
+        if let Ok(relative) = path.strip_prefix(&self.relative_base) {
+            if relative.to_str().is_none() {
+                if file_type.is_dir() {
+                    self.queue_directory(path);
+                } else {
+                    self.unreadable_names.push(unreadable_name(relative));
+                }
+                return false;
+            }
+        }
+
         // ディレクトリとディレクトリを指す symlink は配下を走査キューに追加する。
         // ディレクトリ自体は buffer には入れない
         let is_directory_link = if file_type.is_symlink() {
@@ -388,6 +420,7 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             is_last,
             total_scanned: self.total_scanned,
             truncated,
+            unreadable_names: std::mem::take(&mut self.unreadable_names),
         }
     }
 
