@@ -655,7 +655,7 @@ impl SshClient {
         let command = super::child_listing::list_children_command(remote_path);
         let output = tokio::time::timeout(
             Duration::from_secs(Self::DIR_TIMEOUT_SECS),
-            self.run_command(&command),
+            self.run_command_bytes(&command),
         )
         .await
         .map_err(|_| AppError::SshTimeout {
@@ -664,7 +664,7 @@ impl SshClient {
         })??;
         super::child_listing::parse_children_output(
             &output.stdout,
-            &output.stderr,
+            &String::from_utf8_lossy(&output.stderr),
             output.exit_code,
             rel,
             exclude,

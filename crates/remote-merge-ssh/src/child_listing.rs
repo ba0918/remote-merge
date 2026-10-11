@@ -6,6 +6,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::filter;
+use crate::find_records::{parse_find_records, NAMED_RECORD_FORMAT};
 use crate::tree::FileNode;
 use crate::tree_parser::shell_escape;
 use remote_merge_core::listing::ChildListing;
@@ -15,12 +16,13 @@ const NOT_DIRECTORY: &str = "NOTDIR";
 const UNLISTABLE: &str = "UNLISTABLE";
 
 /// `dir` の直下の子を一覧するコマンド。最初の行で、一覧したか、ディレクトリでないか、
-/// 一覧を取れなかったかを示す。ないパスとディレクトリでないものを途中に含むパスは、find の
+/// 一覧を取れなかったかを示す。一覧した子は、その行の後に NUL で区切った項目
+/// （[`crate::find_records`]）で出す。ないパスとディレクトリでないものを途中に含むパスは、find の
 /// 原因の文言（C ロケール）で「ディレクトリではない」と見分ける
 pub fn list_children_command(dir: &str) -> String {
     format!(
         "p={p}; if [ -d \"$p\" ]; then printf '{DIRECTORY}\\n'; \
-exec find \"$p\"/ -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%f\\t%l\\t%Y\\n'; \
+exec find \"$p\"/ -maxdepth 1 -mindepth 1 -printf '{NAMED_RECORD_FORMAT}'; \
 elif [ -e \"$p\" ] || [ -L \"$p\" ]; then printf '{NOT_DIRECTORY}\\n'; \
 else e=$(LC_ALL=C find \"$p\" -maxdepth 0 2>&1 >/dev/null); case $e in \
 *'No such file or directory'*|*'Not a directory'*) printf '{NOT_DIRECTORY}\\n';; \
@@ -32,41 +34,46 @@ else e=$(LC_ALL=C find \"$p\" -maxdepth 0 2>&1 >/dev/null); case $e in \
 /// [`list_children_command`] の出力を読む。`rel` は一覧したディレクトリの root_dir からのパス。
 /// 項目の更新時刻などを読めなければ、既定の値で埋めずに Err にする
 pub fn parse_children_output(
-    stdout: &str,
+    stdout: &[u8],
     stderr: &str,
     exit_code: u32,
     rel: &str,
     exclude: &[String],
     max_entries: usize,
 ) -> anyhow::Result<ChildListing> {
-    let (head, rest) = stdout.split_once('\n').unwrap_or((stdout, ""));
-    match head {
+    let (head, rest) = match stdout.iter().position(|byte| *byte == b'\n') {
+        Some(end) => (&stdout[..end], &stdout[end + 1..]),
+        None => (stdout, &[][..]),
+    };
+    match String::from_utf8_lossy(head).as_ref() {
         NOT_DIRECTORY => Ok(ChildListing::NotDirectory),
         UNLISTABLE => Ok(ChildListing::Unlistable(format!(
             "failed to list {rel:?}: {}",
-            rest.trim()
+            String::from_utf8_lossy(rest).trim()
         ))),
         DIRECTORY if exit_code != 0 => Ok(ChildListing::Unlistable(format!(
             "failed to list {rel:?}: {}",
             stderr.trim()
         ))),
         DIRECTORY => children(rest, rel, exclude, max_entries).map(ChildListing::Children),
-        _ => anyhow::bail!("failed to list {rel:?}: unexpected output from the server: {head:?}"),
+        other => {
+            anyhow::bail!("failed to list {rel:?}: unexpected output from the server: {other:?}")
+        }
     }
 }
 
 fn children(
-    lines: &str,
+    output: &[u8],
     rel: &str,
     exclude: &[String],
     max_entries: usize,
 ) -> anyhow::Result<Vec<FileNode>> {
+    let records = parse_find_records(output).map_err(|error| {
+        anyhow::anyhow!("failed to list {rel:?}: unexpected output from the server: {error}")
+    })?;
     let mut nodes = Vec::new();
-    for line in lines.lines().filter(|line| !line.is_empty()) {
-        let fields: Vec<&str> = line.splitn(7, '\t').collect();
-        let [kind, size, mtime, mode, name, target, target_kind] = fields.as_slice() else {
-            anyhow::bail!("failed to list {rel:?}: unexpected output from the server: {line:?}");
-        };
+    for record in &records {
+        let name = record.path.as_str();
         let child_rel = if rel.is_empty() {
             name.to_string()
         } else {
@@ -79,18 +86,19 @@ fn children(
         if nodes.len() >= max_entries {
             break;
         }
-        let mut node = match *kind {
-            "d" => FileNode::new_dir(*name),
+        let mut node = match record.kind.as_str() {
+            "d" => FileNode::new_dir(name),
             "l" => {
-                let mut node = FileNode::new_symlink(*name, *target);
-                node.link_is_dir = *target_kind == "d";
+                let mut node = FileNode::new_symlink(name, record.link_target.as_str());
+                node.link_is_dir = record.link_kind == "d";
                 node
             }
-            _ => FileNode::new_file(*name),
+            _ => FileNode::new_file(name),
         };
         let unreadable = |what: &str, raw: &str| {
             anyhow::anyhow!("failed to list {child_rel:?}: cannot read the {what}: {raw:?}")
         };
+        let (size, mode, mtime) = (&record.size, &record.mode, &record.mtime);
         node.size = Some(size.parse().map_err(|_| unreadable("size", size))?);
         node.permissions = Some(
             u32::from_str_radix(mode, 8).map_err(|_| unreadable("permissions", mode))? & 0o7777,
@@ -121,6 +129,15 @@ pub fn parse_find_time(raw: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
 
+    /// 一覧したことを示す行と、TAB で区切って書いた子の列を NUL で区切った項目にした出力
+    fn listed(rows: &[&str]) -> Vec<u8> {
+        let records: String = rows
+            .iter()
+            .map(|row| format!("{}\0", row.replace('\t', "\0")))
+            .collect();
+        format!("DIR\n{records}").into_bytes()
+    }
+
     #[test]
     fn find_time_keeps_the_digits_find_printed_without_rounding() {
         let time = parse_find_time("1700000000.1234567890").unwrap();
@@ -141,7 +158,15 @@ mod tests {
     #[test]
     fn the_first_line_tells_a_listing_from_a_non_directory_and_an_unlistable_directory() {
         let listing = |stdout: &str, exit: u32| {
-            parse_children_output(stdout, "find: Permission denied", exit, "d", &[], 10).unwrap()
+            parse_children_output(
+                stdout.as_bytes(),
+                "find: Permission denied",
+                exit,
+                "d",
+                &[],
+                10,
+            )
+            .unwrap()
         };
         assert!(matches!(listing("NOTDIR\n", 0), ChildListing::NotDirectory));
         assert!(
@@ -155,10 +180,12 @@ mod tests {
 
     #[test]
     fn a_link_target_keeps_its_surrounding_spaces_and_special_permission_bits_are_kept() {
-        let stdout =
-            "DIR\nl\t3\t1700000000.5\t777\tl\t t \tf\nd\t4096\t1700000000.0\t2755\ts\t\td\n";
+        let stdout = listed(&[
+            "l\t3\t1700000000.5\t777\tl\t t \tf",
+            "d\t4096\t1700000000.0\t2755\ts\t\td",
+        ]);
         let ChildListing::Children(nodes) =
-            parse_children_output(stdout, "", 0, "", &[], 10).unwrap()
+            parse_children_output(&stdout, "", 0, "", &[], 10).unwrap()
         else {
             panic!();
         };
@@ -170,8 +197,8 @@ mod tests {
 
     #[test]
     fn an_unreadable_modification_time_stops_the_listing_instead_of_being_left_empty() {
-        let stdout = "DIR\nf\t1\tnan\t644\ta.txt\t\tf\n";
-        let error = parse_children_output(stdout, "", 0, "", &[], 10)
+        let stdout = listed(&["f\t1\tnan\t644\ta.txt\t\tf"]);
+        let error = parse_children_output(&stdout, "", 0, "", &[], 10)
             .unwrap_err()
             .to_string();
         assert!(
@@ -182,9 +209,9 @@ mod tests {
 
     #[test]
     fn the_listing_stops_at_the_entry_limit() {
-        let stdout = "DIR\nf\t1\t1.0\t644\ta\t\tf\nf\t1\t1.0\t644\tb\t\tf\n";
+        let stdout = listed(&["f\t1\t1.0\t644\ta\t\tf", "f\t1\t1.0\t644\tb\t\tf"]);
         let ChildListing::Children(nodes) =
-            parse_children_output(stdout, "", 0, "", &[], 1).unwrap()
+            parse_children_output(&stdout, "", 0, "", &[], 1).unwrap()
         else {
             panic!();
         };

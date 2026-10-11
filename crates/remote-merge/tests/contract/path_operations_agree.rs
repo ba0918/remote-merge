@@ -533,6 +533,28 @@ async fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_all_three
     assert_eq!(local[0].mtime, Some((-1, 0)));
 }
 
+// @kotowari[REQ-paths-017, EX-paths-037]
+#[tokio::test(flavor = "multi_thread")]
+async fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_same_names_on_all_three_routes(
+) {
+    let routes = Routes::new(|root, _| {
+        fs::create_dir(root.join("a")).unwrap();
+        for name in ["x\ty.txt", "p\nq.txt"] {
+            fs::write(root.join("a").join(name), "x\n").unwrap();
+            set_mtime(&root.join("a").join(name), "@1700000000.5");
+        }
+    })
+    .await;
+
+    let (local, [local_text, ssh, agent]) = list_on_all_routes(&routes, "a");
+
+    assert_eq!(ssh, local_text);
+    assert_eq!(agent, local_text);
+    let mut names: Vec<&str> = local.iter().map(|entry| entry.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["p\nq.txt", "x\ty.txt"]);
+}
+
 /// リンク先の読み取りだけを失敗させる
 struct UnreadableLinks;
 
