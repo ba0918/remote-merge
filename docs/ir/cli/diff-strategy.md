@@ -43,10 +43,11 @@ errors に載せる上限の超過の reason は、REQ-scan-008 の "Tree scan t
 
 ### REQ-cli-085: 通常のディレクトリと通常ファイルの組は両方を示す
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-untested-items-consistency-5.md#A2
 - verification: unit
 
 片側が通常のディレクトリで他方が通常ファイルのパスを diff で比べるとき、EX-cli-061 のディレクトリ symlink と通常ファイルの組と同じく、種類の差を示し、ディレクトリ側の子ファイルとファイル側の本文をそれぞれ比較結果として示す。
+ファイルはファイル側にだけあるので、REQ-cli-086 の片側にだけある 0 バイトのファイルと同じく、ファイル側の本文が空でもそのパスを差分ありと数える。
 
 ## Examples
 
