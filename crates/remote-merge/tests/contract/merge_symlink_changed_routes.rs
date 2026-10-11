@@ -29,6 +29,10 @@ const LINK: &str = "link.txt";
 const THIRD_PARTY: &str = "third party\n";
 /// 比べた後に書き込み先の symlink を作り直したリンク先
 const REPOINTED: &str = "c.txt";
+/// 比べるときの UTF-8 でないリンク先（0xff は UTF-8 にならないバイト）
+const NON_UTF8_COMPARED: &[u8] = b"\xff.txt";
+/// 比べた後に作り直した UTF-8 でないリンク先。UTF-8 でないバイトだけが比べたときと違う
+const NON_UTF8_REPOINTED: &[u8] = b"\xfe.txt";
 
 const CHILD_CONFIG: &str = "REMOTE_MERGE_SYMLINK_CHANGE_CONFIG";
 const CHILD_ROOT: &str = "REMOTE_MERGE_SYMLINK_CHANGE_ROOT";
@@ -46,6 +50,9 @@ enum Change {
     UnchangedDangling,
     /// UTF-8 でないリンク先を指す symlink のまま変わらない
     UnchangedNonUtf8,
+    /// UTF-8 でないリンク先を指す symlink が、UTF-8 でないバイトだけが違う別のリンク先を指すように
+    /// 作り直される
+    RepointedNonUtf8,
 }
 
 impl Change {
@@ -55,6 +62,7 @@ impl Change {
             Self::Repointed => "repointed",
             Self::UnchangedDangling => "dangling",
             Self::UnchangedNonUtf8 => "non-utf8",
+            Self::RepointedNonUtf8 => "repointed-non-utf8",
         }
     }
 
@@ -64,16 +72,17 @@ impl Change {
             "repointed" => Self::Repointed,
             "dangling" => Self::UnchangedDangling,
             "non-utf8" => Self::UnchangedNonUtf8,
+            "repointed-non-utf8" => Self::RepointedNonUtf8,
             other => panic!("{other}"),
         }
     }
 
     /// 比べるときの書き込み先の link.txt のリンク先
-    fn destination_link(self) -> &'static str {
+    fn destination_link(self) -> PathBuf {
         match self {
-            Self::ToRegularFile | Self::Repointed => "b.txt",
-            Self::UnchangedDangling => "missing.txt",
-            Self::UnchangedNonUtf8 => "non-utf8",
+            Self::ToRegularFile | Self::Repointed => "b.txt".into(),
+            Self::UnchangedDangling => "missing.txt".into(),
+            Self::UnchangedNonUtf8 | Self::RepointedNonUtf8 => non_utf8_path(NON_UTF8_COMPARED),
         }
     }
 
@@ -87,6 +96,10 @@ impl Change {
             Self::Repointed => {
                 fs::remove_file(&link).unwrap();
                 symlink(REPOINTED, &link).unwrap();
+            }
+            Self::RepointedNonUtf8 => {
+                fs::remove_file(&link).unwrap();
+                symlink(non_utf8_path(NON_UTF8_REPOINTED), &link).unwrap();
             }
             Self::UnchangedDangling | Self::UnchangedNonUtf8 => {}
         }
@@ -127,6 +140,10 @@ impl Outcome {
     }
 }
 
+fn non_utf8_path(bytes: &[u8]) -> PathBuf {
+    std::ffi::OsStr::from_bytes(bytes).into()
+}
+
 /// 読み込み元の link.txt は a.txt を、書き込み先の link.txt は `change` の始めのリンク先を指す状態を作る
 fn put_links(source_root: &Path, destination_root: &Path, change: Change) {
     for root in [source_root, destination_root] {
@@ -135,12 +152,7 @@ fn put_links(source_root: &Path, destination_root: &Path, change: Change) {
         }
     }
     symlink("a.txt", source_root.join(LINK)).unwrap();
-    let destination_link = match change {
-        // 0xff は UTF-8 にならないバイト
-        Change::UnchangedNonUtf8 => std::ffi::OsStr::from_bytes(b"\xff.txt").to_os_string(),
-        _ => change.destination_link().into(),
-    };
-    symlink(destination_link, destination_root.join(LINK)).unwrap();
+    symlink(change.destination_link(), destination_root.join(LINK)).unwrap();
 }
 
 /// `source` と `destination` を比べ、書き込み先の root_dir `destination_root` に `change` を起こしてから
@@ -415,13 +427,59 @@ async fn an_unchanged_dangling_destination_symlink_is_replaced_on_all_three_rout
     assert_unchanged_destination_is_replaced(Change::UnchangedDangling, DANGLING).await;
 }
 
-const NON_UTF8: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_with_a_non_utf8_target_is_replaced_on_all_three_routes";
+/// 書き込み先の symlink のリンク先が UTF-8 でないとき、三つの経路とも failed になり、書き込み先の
+/// symlink は `expected_link` を指したまま残ることを確かめる
+async fn assert_non_utf8_destination_is_kept(change: Change, expected_link: &[u8], test: &str) {
+    let (local, local_root) = local_route(change, false);
+    let (ssh, ssh_fixture) = remote_route(ssh_only(), change, false, test).await;
+    let (agent, agent_fixture) = remote_route(Setup::default(), change, false, test).await;
 
-// @kotowari[REQ-merge-033]
+    let routes = [
+        (&local, local_root.path().to_path_buf()),
+        (&ssh, ssh_fixture.remote()),
+        (&agent, agent_fixture.remote()),
+    ];
+    let observed = routes.map(|(outcome, root)| {
+        (
+            matches!(outcome, Outcome::Failed(_)),
+            fs::read_link(root.join(LINK)).ok(),
+        )
+    });
+    let expected = (true, Some(non_utf8_path(expected_link)));
+    assert_eq!(
+        observed,
+        [expected.clone(), expected.clone(), expected],
+        "local, ssh, agent: {local:?}, {ssh:?}, {agent:?}"
+    );
+    assert_agent_served(&agent_fixture);
+}
+
+const REPOINTED_NON_UTF8: &str = "merge_symlink_changed_routes::ex_merge_055_a_destination_symlink_repointed_to_another_non_utf8_target_fails_and_keeps_its_new_target_on_all_three_routes";
+
+// @kotowari[REQ-merge-033, EX-merge-055]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unchanged_destination_symlink_with_a_non_utf8_target_is_replaced_on_all_three_routes() {
+async fn ex_merge_055_a_destination_symlink_repointed_to_another_non_utf8_target_fails_and_keeps_its_new_target_on_all_three_routes(
+) {
     if serve_child() {
         return;
     }
-    assert_unchanged_destination_is_replaced(Change::UnchangedNonUtf8, NON_UTF8).await;
+    assert_non_utf8_destination_is_kept(
+        Change::RepointedNonUtf8,
+        NON_UTF8_REPOINTED,
+        REPOINTED_NON_UTF8,
+    )
+    .await;
+}
+
+const NON_UTF8: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_with_a_non_utf8_target_fails_and_is_kept_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_destination_symlink_with_a_non_utf8_target_fails_and_is_kept_on_all_three_routes(
+) {
+    if serve_child() {
+        return;
+    }
+    assert_non_utf8_destination_is_kept(Change::UnchangedNonUtf8, NON_UTF8_COMPARED, NON_UTF8)
+        .await;
 }

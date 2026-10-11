@@ -45,7 +45,10 @@ pub fn check_source_exists(
 /// （REQ-merge-033）。
 ///
 /// `current` は今の書き込み先が symlink ならそのリンク先の文字列で、symlink でないかないなら None。
-/// 比べたときに symlink でなかった書き込み先には当てない
+/// 比べたときに symlink でなかった書き込み先には当てない。
+///
+/// リンク先の UTF-8 でないバイトは置換文字に置き換えた文字列で届くので、置換文字を含むリンク先は、
+/// 文字列が同じでも変わっていないとは確かめられず、Err にする
 pub fn check_symlink_destination_unchanged(
     path: &str,
     target_tree: &FileTree,
@@ -56,6 +59,11 @@ pub fn check_symlink_destination_unchanged(
     };
     if current != Some(compared.as_str()) {
         anyhow::bail!("destination content changed since comparison: {path}");
+    }
+    if compared.contains(char::REPLACEMENT_CHARACTER) {
+        anyhow::bail!(
+            "cannot confirm the destination is unchanged since comparison: the link target is not valid UTF-8 or contains U+FFFD: {path}"
+        );
     }
     Ok(())
 }
@@ -222,6 +230,15 @@ mod tests {
                 "{current:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_destination_symlink_whose_target_holds_a_replacement_character_cannot_be_confirmed() {
+        // UTF-8 でないバイトは置換文字に置き換えた文字列で届くので、同じ文字列でも元のバイトが
+        // 同じとは言えない
+        let target = "\u{FFFD}.txt";
+        let tree = tree_with(FileNode::new_symlink("link", target));
+        assert!(check_symlink_destination_unchanged("link", &tree, Some(target)).is_err());
     }
 
     #[test]
