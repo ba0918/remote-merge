@@ -207,10 +207,21 @@ pub fn split_missing_paths(
     statuses: &[FileStatus],
 ) -> anyhow::Result<(Vec<String>, Vec<String>)> {
     let (existing, missing) = partition_existing_files(resolved, statuses);
-    if existing.is_empty() && !missing.is_empty() {
-        anyhow::bail!("specified path(s) not found on either side");
+    if every_path_missing(&existing, &missing) {
+        return Err(paths_not_found());
     }
     Ok((existing, missing))
+}
+
+/// [`partition_existing_files`] で分けた（あるパス, ないパス）で、指定したパスがすべて左右の
+/// どちらにもないか（REQ-merge-035）
+pub fn every_path_missing(existing: &[String], missing: &[String]) -> bool {
+    existing.is_empty() && !missing.is_empty()
+}
+
+/// 指定したパスがすべて左右のどちらにもなく、書き込まずに止まるときの誤り
+pub fn paths_not_found() -> anyhow::Error {
+    anyhow::anyhow!("specified path(s) not found on either side")
 }
 
 /// status から差分のあるファイルのみをフィルタする（Equal を除外）。
@@ -271,6 +282,20 @@ pub fn filter_merge_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_path_missing_only_when_none_exists_and_some_was_specified() {
+        let paths = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        };
+
+        assert!(every_path_missing(&[], &paths(&["x.txt"])));
+        assert!(!every_path_missing(&paths(&["a.txt"]), &paths(&["x.txt"])));
+        assert!(!every_path_missing(&[], &[]));
+    }
     use crate::tree::FileNode;
     use std::path::PathBuf;
 

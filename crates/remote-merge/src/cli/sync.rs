@@ -17,8 +17,8 @@ use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
 use crate::service::path_resolver::{
-    check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
-    split_missing_paths,
+    check_path_arguments, every_path_missing, filter_merge_candidates, partition_existing_files,
+    paths_not_found, resolve_target_files_from_statuses,
 };
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
@@ -87,6 +87,8 @@ struct ServerPlan {
     target_info: SourceInfo,
     compare_failures: Vec<MergeFailure>,
     expected_target_contents: HashMap<String, Vec<u8>>,
+    /// 指定したパスがすべて、この書き込み先と読み込み元のどちらにもないか
+    every_path_missing: bool,
 }
 
 /// sync サブコマンドを実行する
@@ -208,8 +210,10 @@ pub fn execute_sync(
         // パス解決 + 差分フィルタ
         let resolved_paths =
             resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
-        // 左右のどちらにもないパスは警告して failed に入れ、すべてないときは書き込まずに止める
-        let (resolved_paths, missing_paths) = split_missing_paths(&resolved_paths, &statuses)?;
+        // 左右のどちらにもないパスは警告して failed に入れる。すべてないかは書き込み先ごとに覚え、
+        // どの書き込み先でもすべてないときだけ、計画の後で書き込まずに止める
+        let (resolved_paths, missing_paths) = partition_existing_files(&resolved_paths, &statuses);
+        let every_path_missing = every_path_missing(&resolved_paths, &missing_paths);
         compare_failures.extend(super::merge::missing_path_failures(&missing_paths));
         // 種類の違う対象とその配下は、書き込み・dry-run・削除のどれの計画にも入れない
         let (resolved_paths, kind_skipped) =
@@ -265,7 +269,17 @@ pub fn execute_sync(
             target_info,
             compare_failures,
             expected_target_contents,
+            every_path_missing,
         });
+    }
+
+    // 接続や走査に失敗した書き込み先はパスの有無が分からないので、止めずにその失敗を報告する
+    if connection_failures.is_empty()
+        && !server_plans.is_empty()
+        && server_plans.iter().all(|sp| sp.every_path_missing)
+    {
+        core.disconnect_all();
+        return Err(paths_not_found());
     }
 
     // 作業対象の有無を確認
@@ -697,6 +711,7 @@ mod tests {
             },
             compare_failures: vec![],
             expected_target_contents: HashMap::new(),
+            every_path_missing: false,
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);
@@ -756,6 +771,7 @@ mod tests {
             },
             compare_failures: vec![],
             expected_target_contents: HashMap::new(),
+            every_path_missing: false,
         }];
 
         let targets = build_dry_run_targets(&server_plans, &[]);

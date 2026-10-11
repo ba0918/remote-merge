@@ -172,3 +172,121 @@ fn req_merge_035_a_path_on_neither_side_under_a_different_kind_is_failed_not_ski
         }
     }
 }
+
+// ─── sync の書き込み先が複数のとき ─────────────────────────────
+
+/// sync の読み込み元と書き込み先 "a"・"b" をローカルのディレクトリにした組み立て
+struct MultiTarget {
+    _dirs: [tempfile::TempDir; 4],
+    config: remote_merge::config::AppConfig,
+    targets: remote_merge::runtime::RuntimeTargets,
+}
+
+/// 三つとも "keep.txt" を持ち、"x.txt" は `b_has_x` のときだけ "b" にある
+fn multi_target(b_has_x: bool) -> MultiTarget {
+    use super::common::place_files;
+    let dirs = [(); 4].map(|_| tempfile::TempDir::new().unwrap());
+    let [source, a, b, config_dir] = &dirs;
+    for root in [source.path(), a.path(), b.path()] {
+        place_files(root, &[("keep.txt", "same\n")]);
+    }
+    if b_has_x {
+        place_files(b.path(), &[("x.txt", "only on b\n")]);
+    }
+    let config_path = config_dir.path().join("config.toml");
+    let server = |name: &str, root: &std::path::Path| {
+        format!(
+            "[servers.{name}]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n",
+            root.display().to_string()
+        )
+    };
+    std::fs::write(
+        &config_path,
+        format!(
+            "[local]\nroot_dir = {:?}\n{}{}[backup]\nenabled = false\n",
+            source.path().display().to_string(),
+            server("a", a.path()),
+            server("b", b.path()),
+        ),
+    )
+    .unwrap();
+    let config = remote_merge::config::load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = remote_merge::runtime::RuntimeTargets::production()
+        .with_local("a", a.path())
+        .with_local("b", b.path())
+        .with_startup_directory(config_dir.path().to_path_buf());
+    MultiTarget {
+        _dirs: dirs,
+        config,
+        targets,
+    }
+}
+
+fn sync_x_with_delete(
+    fixture: &MultiTarget,
+    right: &[&str],
+) -> anyhow::Result<remote_merge::cli::sync::SyncCommandResult> {
+    let args = remote_merge::cli::sync::SyncArgs {
+        paths: vec!["x.txt".into()],
+        left: Some("local".into()),
+        right: right.iter().map(|name| name.to_string()).collect(),
+        dry_run: true,
+        force: true,
+        delete: true,
+        with_permissions: false,
+        checksum: false,
+        format: "json".into(),
+        max_entries: None,
+    };
+    remote_merge::cli::sync::execute_sync(args, fixture.config.clone(), fixture.targets.clone())
+}
+
+// 指定したパスがある書き込み先があれば止まらず、ない書き込み先ではそのパスを failed に入れる
+// @kotowari[REQ-merge-035]
+#[test]
+fn req_merge_035_sync_fails_a_path_only_for_the_target_where_it_is_on_neither_side() {
+    use remote_merge::cli::sync::SyncCommandOutput;
+
+    for right in [["a", "b"], ["b", "a"]] {
+        let fixture = multi_target(true);
+
+        let result = sync_x_with_delete(&fixture, &right)
+            .unwrap_or_else(|error| panic!("{right:?}: {error}"));
+
+        let SyncCommandOutput::Result(output) = &result.output else {
+            panic!("{right:?}: expected sync result")
+        };
+        let target = |label: &str| {
+            output
+                .targets
+                .iter()
+                .find(|target| target.target.label == label)
+                .unwrap_or_else(|| panic!("{right:?}: {label} missing: {output:?}"))
+        };
+        let failed: Vec<&str> = target("a").failed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(failed, ["x.txt"], "{right:?}: {output:?}");
+        assert!(target("a").merged.is_empty(), "{right:?}: {output:?}");
+        let deleted: Vec<&str> = target("b")
+            .deleted
+            .iter()
+            .map(|d| d.path.as_str())
+            .collect();
+        assert_eq!(deleted, ["x.txt"], "{right:?}: {output:?}");
+        assert!(target("b").failed.is_empty(), "{right:?}: {output:?}");
+    }
+}
+
+// 指定したパスがどの書き込み先でも左右のどちらにもないときは、エラーで止まる
+// @kotowari[REQ-merge-035]
+#[test]
+fn req_merge_035_sync_stops_when_the_path_is_on_neither_side_for_every_target() {
+    let fixture = multi_target(false);
+
+    let result = sync_x_with_delete(&fixture, &["a", "b"]);
+
+    assert!(
+        result.is_err(),
+        "{:?}",
+        result.map(|result| result.exit_code)
+    );
+}
