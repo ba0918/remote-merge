@@ -38,6 +38,13 @@ async fn copy_new_file_from_remote(setup: Setup) -> u32 {
     assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
     let created = fixture.local().join(FILE);
     assert_eq!(fs::read_to_string(&created).unwrap(), "remote\n");
+    // 読み込み元をどちらの経路で走査したか
+    let requests = fixture.server.faults().agent_requests();
+    assert_eq!(
+        requests.iter().any(|request| request == "ListTree"),
+        !setup.agent_disabled,
+        "{requests:?}"
+    );
     mode_of(&created)
 }
 
