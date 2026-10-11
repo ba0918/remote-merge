@@ -102,6 +102,39 @@ fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body() {
     }
 }
 
+// 中身の空なファイルと子のないディレクトリの組も、種類の差を変更のあるファイルとして数え、差分ありで終わる
+// @kotowari[REQ-cli-085, REQ-cli-056]
+#[test]
+fn req_cli_085_an_empty_file_against_an_empty_directory_is_counted_as_a_change() {
+    for directory_on_left in [true, false] {
+        let fixture = Fixture::new("");
+        let (directory, file) = if directory_on_left {
+            (fixture.left(), fixture.right())
+        } else {
+            (fixture.right(), fixture.left())
+        };
+        std::fs::create_dir_all(directory.join("x")).unwrap();
+        place_files(file, &[("x", "")]);
+
+        for paths in [strings(&["x"]), strings(&[])] {
+            let run = fixture.diff(&paths, None);
+
+            let context = format!("directory on left {directory_on_left}, {paths:?}");
+            assert!(
+                run.entry("x")["note"].is_string(),
+                "{context}: {}",
+                run.json
+            );
+            assert_eq!(
+                run.json["summary"]["files_with_changes"], 1,
+                "{context}: {}",
+                run.json
+            );
+            assert_eq!(run.code, exit_code::DIFF_FOUND, "{context}");
+        }
+    }
+}
+
 /// 子のないディレクトリとファイルの組の、"x" の項目に種類の差と "body" の本文があり、誤りがない
 fn assert_kind_and_body(json: &serde_json::Value, context: &str) {
     assert!(json.get("errors").is_none(), "{context}: {json}");

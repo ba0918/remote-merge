@@ -46,6 +46,8 @@ pub(super) fn directory_against_file(
         )
     };
     output.note = Some(note.into());
+    // ファイルはファイル側にだけあるので、中身が空でも変更のあるファイルと数える
+    output.one_sided = true;
     output
 }
 
@@ -85,6 +87,15 @@ mod tests {
         assert_eq!(lines(&output).len(), 1, "{output:?}");
         assert!(lines(&output)[0].1 == "body", "{output:?}");
         assert!(output.has_changes());
+    }
+
+    #[test]
+    fn an_empty_file_against_a_directory_counts_as_a_change() {
+        for file in [FileSide::Left(b""), FileSide::Right(b"")] {
+            let output = directory_against_file("x", (info("left"), info("right")), file, None);
+
+            assert!(output.has_changes(), "{output:?}");
+        }
     }
 
     #[test]

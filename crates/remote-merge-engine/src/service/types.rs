@@ -127,7 +127,7 @@ pub struct DiffOutput {
     /// コンフリクト領域（3way diff 時のみ。空なら省略）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflict_regions: Vec<crate::diff::conflict::ConflictRegion>,
-    /// 片側にだけあるファイル。中身が空でも変更のあるファイルと数える
+    /// 片側にだけあるファイル（もう一方がディレクトリのときを含む）。中身が空でも変更のあるファイルと数える
     #[serde(skip)]
     pub one_sided: bool,
 }
