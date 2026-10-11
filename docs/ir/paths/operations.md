@@ -6,7 +6,7 @@
 
 ### REQ-paths-013: 三つの操作はどの経路も同じ結果にする
 - kind: invariant
-- source: docs/decision/records/2026-10-11-agent-operations.md#A7, docs/decision/records/2026-10-11-agent-operations.md#A12, docs/decision/records/2026-10-11-agent-operations.md#A16, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-11-scan-route-parity.md#A1
+- source: docs/decision/records/2026-10-11-agent-operations.md#A7, docs/decision/records/2026-10-11-agent-operations.md#A12, docs/decision/records/2026-10-11-agent-operations.md#A16, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-11-scan-route-parity.md#A1, docs/decision/records/2026-10-12-ssh-output-parsing.md#A1
 - verification: unit
 
 同じファイルシステムの状態と同じパスに対して、同じ利用者・同じ権限で行う削除・権限の変更・子の一覧は、ローカル・SSH・エージェントのどの経路でも同じ成否になり、同じものを変える。
@@ -14,7 +14,6 @@
 削除は、末尾の symlink ならリンクそのものを消してリンク先を変えず、ディレクトリとないパスは消さずに失敗する。--delete は末尾の symlink を REQ-merge-002 のとおりスキップするので、末尾の symlink の削除は merge と rollback が symlink を置き換えるときに起きる。
 末尾の "/" は除いたパスとして扱う。
 子の一覧は、ディレクトリとディレクトリへの symlink ならその直下の子を返す。
-ただし SSH の経路の子の一覧は、名前に TAB か改行を含む子（FLAG-paths-001）で、まだ他の経路と違う。
 
 ### REQ-paths-015: 0o777 を超える権限は付けない
 - kind: prohibition
@@ -103,4 +102,10 @@ Scenario: パスのパターンの exclude と深い階層の同じ名前
 Given exclude に "vendor/**" があり、書き込み先に "vendor/x.txt" と "a/vendor/y.txt" がある
 When ローカル・SSH・エージェントのそれぞれの経路で "a" の子の一覧を取る
 Then どの経路でも子に "a/vendor" が含まれる
+
+@id=EX-paths-037 @about=REQ-paths-013,REQ-paths-017 @source=docs/decision/records/2026-10-12-ssh-output-parsing.md#A1
+Scenario: 名前に TAB か改行を含む子の一覧
+Given ディレクトリ "a" に、名前に TAB を含む "x\ty.txt" と、名前に改行を含む "p\nq.txt" がある
+When ローカル・SSH・エージェントのそれぞれの経路で "a" の子の一覧を取る
+Then どの経路でも、その二つが同じ名前で子に含まれる
 ```

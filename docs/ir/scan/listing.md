@@ -6,10 +6,11 @@ status・diff・merge・sync のツリーの走査が、symlink・root_dir・UTF
 
 ### REQ-scan-006: symlink はそれ自体を一覧に載せる
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A1
+- source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A1, docs/decision/records/2026-10-12-ssh-output-parsing.md#A1
 - verification: unit
 
 ツリーの走査は、ローカル・SSH・エージェントのどの経路でも symlink 自体を一覧の一つの項目としてリンク先の文字列とともに載せ、リンク先がない symlink も載せる。
+項目の名前とリンク先の文字列は、TAB・改行・"\" を含めて、どの経路でも読んだとおりに載せる。
 
 ### REQ-scan-007: root_dir の symlink を辿る
 - kind: state_driven
@@ -42,4 +43,16 @@ Scenario: UTF-8 として読めない名前のファイルがある
 Given 左の root_dir に UTF-8 として読めない名前のファイルがある
 When status --format json を実行する
 Then その名前は置換文字に置き換えて files に載らず、errors に出て終了コード 2 を返す
+
+@id=EX-scan-015 @about=REQ-scan-006 @source=docs/decision/records/2026-10-12-ssh-output-parsing.md#A1
+Scenario: 名前に TAB・改行・"\" を含むファイルの走査
+Given root_dir に、名前に TAB を含む "x\ty.txt" と、名前に改行を含む "p\nq.txt" と、名前に "\" を含む "b\\c.txt" がある
+When ローカル・SSH・エージェントのそれぞれの経路で status を実行する
+Then どの経路でも、その三つが同じ名前で一覧に一件ずつ載る
+
+@id=EX-scan-016 @about=REQ-scan-006 @source=docs/decision/records/2026-10-12-ssh-output-parsing.md#A1
+Scenario: リンク先に TAB や末尾の改行を含む symlink の走査
+Given root_dir に、リンク先が "a\tb.txt" の symlink と、リンク先が改行で終わる symlink と、リンク先に "\" を含む symlink がある
+When ローカル・SSH・エージェントのそれぞれの経路で走査する
+Then どの経路でも、三つの symlink は読んだとおりのリンク先で一覧に載る
 ```

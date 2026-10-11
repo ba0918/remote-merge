@@ -2,13 +2,6 @@
 
 ## Flags
 
-### FLAG-paths-001: SSH の子の一覧が名前に TAB か改行を含む子を読み違える
-- kind: gap
-- related: REQ-paths-013, REQ-paths-017
-- source: docs/decision/records/2026-10-11-agent-operations.md#A16
-
-SSH の経路の子の一覧は、名前に TAB か改行を含む子を正しく読めない。エージェントの経路はこの影響を受けない。SSH の走査と一覧の出力の読み方をまとめて直す別の単位で扱う（品質の台帳に記録する）。
-
 ### FLAG-paths-003: 秒しか出さない find では SSH の子の一覧の更新時刻がナノ秒まで一致しない
 - kind: gap
 - related: REQ-paths-017

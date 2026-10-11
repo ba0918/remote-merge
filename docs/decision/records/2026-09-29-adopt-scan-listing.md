@@ -47,6 +47,7 @@ status・diff・merge・sync がツリーを走査したとき一覧に何が載
 - A12 未決の FLAG として残す。SSH の経路の走査は find の出力を行ごとに読むため、名前に改行を含むファイルがあると、改行の前までを名前とするファイルを一覧に載せると実装からは読める（実行はしていない）。旧資料に記述がなく、確かめるテストもない。
   - why: 利用者に見える挙動に仕様とテストが欠けており、次にこの機能を扱うときに決める。
   - decided_by: 利用者（推奨を採用）
+  - superseded_by: [ssh-output-parsing A1](./2026-10-12-ssh-output-parsing.md#A1)
 
 ## Revisions
 
