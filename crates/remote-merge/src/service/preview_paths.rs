@@ -9,8 +9,9 @@ use crate::tree::FileTree;
 pub use remote_merge_engine::service::preview_paths::*;
 
 /// 実行時に書く前の確認で失敗するパスを、書き込み先を変えずに確かめて失敗として返す。
-/// ツリーにない祖先の下のパスは、その祖先を一度確かめ、祖先がないか確認が失敗したら
-/// 下のパスすべてに当てる。祖先があれば、実行時と同じくパスを一つずつ確かめる
+/// ツリーにない祖先の下のパスは、その祖先を一度だけ確かめる。祖先がなければ、その結果と
+/// 残りの要素から、実行時と同じ手順で各パスの結果を求める。祖先があるか、祖先の確認が
+/// 失敗したときは、実行時と同じくパスを一つずつ確かめる
 pub fn preview_path_failures(
     core: &mut CoreRuntime,
     target: &Side,
@@ -19,29 +20,34 @@ pub fn preview_path_failures(
 ) -> Vec<MergeFailure> {
     let mut failures = Vec::new();
     for group in preview_groups(paths, target_tree) {
-        let (decided, rest) = match &group.probe {
-            Some(ancestor) => settle_group(&group, probe(core, target, ancestor)),
-            None => (Vec::new(), group.paths.clone()),
-        };
-        failures.extend(decided);
-        failures.extend(rest.into_iter().filter_map(|path| {
-            inspection_failure(core, target, &path).map(|error| MergeFailure { path, error })
-        }));
+        let missing_parent =
+            group
+                .probe
+                .as_deref()
+                .and_then(|ancestor| match core.inspect_path(target, ancestor) {
+                    Ok(TargetPath::Missing { real_parent }) => Some((ancestor, real_parent)),
+                    _ => None,
+                });
+        for path in &group.paths {
+            let outcome = match &missing_parent {
+                Some((ancestor, real_parent)) => {
+                    core.inspect_path_below_missing(real_parent, tail_from(path, ancestor))
+                }
+                None => core.inspect_path(target, path),
+            };
+            if let Err(error) = outcome {
+                failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: format!("{error}"),
+                });
+            }
+        }
     }
     failures
 }
 
-fn probe(core: &mut CoreRuntime, target: &Side, ancestor: &str) -> ProbeOutcome {
-    match core.inspect_path(target, ancestor) {
-        Ok(TargetPath::Missing { .. }) => ProbeOutcome::Missing,
-        Ok(_) => ProbeOutcome::Present,
-        Err(error) => ProbeOutcome::Failed(format!("{error}")),
-    }
-}
-
-/// 実行時と同じ確認で失敗したときの理由
-fn inspection_failure(core: &mut CoreRuntime, target: &Side, path: &str) -> Option<String> {
-    core.inspect_path(target, path)
-        .err()
-        .map(|error| format!("{error}"))
+/// `path` のうち、祖先 `ancestor` の最後の要素から先の部分
+fn tail_from<'a>(path: &'a str, ancestor: &str) -> &'a str {
+    let start = ancestor.rfind('/').map_or(0, |index| index + 1);
+    &path[start..]
 }

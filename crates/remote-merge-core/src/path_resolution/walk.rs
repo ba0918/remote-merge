@@ -79,6 +79,39 @@ fn not_a_directory_before(
     })
 }
 
+/// `real` に要素 `name` をつないだ実パス。長すぎれば辿らずに止める
+fn joined_within_limits(real: &str, name: &str) -> Result<String, ResolveError> {
+    let next = joined(real, name);
+    if name.len() > NAME_LENGTH_LIMIT || next.len() >= PATH_LENGTH_LIMIT {
+        return Err(ResolveError::PathTooLong);
+    }
+    Ok(next)
+}
+
+/// 存在しない要素より後の一つの要素を辿る。そこには何もないので、".." を拒み、長さの上限だけを確かめる
+fn step_in_missing_part(real: &str, name: &str) -> Result<String, ResolveError> {
+    if name == ".." {
+        return Err(ResolveError::ParentReferenceInMissingPart);
+    }
+    joined_within_limits(real, name)
+}
+
+/// 存在しないと分かった要素から先を、[`resolve_path`] が存在しない部分を辿るのと同じ手順で辿る。
+///
+/// `real_parent` はその要素の親の実パス（その要素を確かめた [`ResolvedPath::Missing`] の
+/// `real_parent`）、`tail` はその要素から始まる相対パスで、要素を二つ以上持つ。
+/// 同じ祖先の下の多くのパスを、祖先を一度確かめるだけで確認するために使う
+pub fn resolve_below_missing(real_parent: &str, tail: &str) -> Result<ResolvedPath, ResolveError> {
+    let mut real = real_parent.to_string();
+    for component in components(tail, true) {
+        real = step_in_missing_part(&real, &component.name)?;
+    }
+    Ok(ResolvedPath::Missing {
+        real_parent: parent(&real),
+        parent_exists: false,
+    })
+}
+
 /// root_dir（絶対パス）と確認する相対パス `rel` をつないだパスを "/" から要素ごとに辿る
 pub fn resolve_path(
     root: &str,
@@ -100,21 +133,15 @@ pub fn resolve_path(
     while let Some(component) = queue.pop_front() {
         let rest = queue.len();
         expansions.retain(|expansion| expansion.rest <= rest);
+        if missing_parent_exists.is_some() {
+            real = step_in_missing_part(&real, &component.name)?;
+            continue;
+        }
         if component.name == ".." {
-            if missing_parent_exists.is_some() {
-                return Err(ResolveError::ParentReferenceInMissingPart);
-            }
             real = parent(&real);
             continue;
         }
-        let next = joined(&real, &component.name);
-        if component.name.len() > NAME_LENGTH_LIMIT || next.len() >= PATH_LENGTH_LIMIT {
-            return Err(ResolveError::PathTooLong);
-        }
-        if missing_parent_exists.is_some() {
-            real = next;
-            continue;
-        }
+        let next = joined_within_limits(&real, &component.name)?;
         if !ops.can_search(&real)? {
             return Err(ResolveError::PermissionDenied);
         }
@@ -213,6 +240,33 @@ mod tests {
         let mut map: HashMap<_, _> = entries.iter().copied().collect();
         map.insert("/root", Ok(EntryKind::Directory));
         Entries(map)
+    }
+
+    /// 存在しない祖先の下は、祖先の結果と残りの要素だけで、全体を辿ったのと同じ結果になる
+    #[test]
+    fn below_a_missing_ancestor_gives_the_same_result_as_the_whole_walk() {
+        let entries = root_with(&[]);
+        let long = "d".repeat(4096 - "/root/new/".len());
+        let too_long_name = "n".repeat(NAME_LENGTH_LIMIT + 1);
+        for tail in [
+            "new/a.txt".to_string(),
+            "new/sub/b.txt".to_string(),
+            format!("new/{long}"),
+            format!("new/{too_long_name}/c.txt"),
+            "new/../x".to_string(),
+        ] {
+            let Ok(ResolvedPath::Missing { real_parent, .. }) =
+                resolve_path("/root", "new", &entries)
+            else {
+                panic!("new must be missing");
+            };
+
+            assert_eq!(
+                resolve_below_missing(&real_parent, &tail),
+                resolve_path("/root", &tail, &entries),
+                "{tail}"
+            );
+        }
     }
 
     #[test]

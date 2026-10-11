@@ -89,6 +89,22 @@ impl CoreRuntime {
         io.inspect_path(self, rel_path).map_err(label_read)
     }
 
+    /// 存在しないと分かった要素から先のパスの確認を、要素を辿り直さずに求める。
+    /// `real_parent` はその要素を確かめた結果の親の実パス、`tail` はその要素から始まる相対パス。
+    /// 結果とエラーは、同じパスを `inspect_path` で確かめたときと同じに読む
+    pub(crate) fn inspect_path_below_missing(
+        &mut self,
+        real_parent: &std::path::Path,
+        tail: &str,
+    ) -> anyhow::Result<super::target_io::TargetPath> {
+        let resolved = remote_merge_core::path_resolution::resolve_below_missing(
+            &real_parent.to_string_lossy(),
+            tail,
+        )
+        .map_err(|error| label_read(error.into()))?;
+        super::target_io::target_path_outside_rollback(resolved)
+    }
+
     pub fn missing_parent_directories(
         &mut self,
         side: &Side,

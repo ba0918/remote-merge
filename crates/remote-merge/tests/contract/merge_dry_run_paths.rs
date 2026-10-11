@@ -65,3 +65,73 @@ fn sync_previews_a_destination_ancestor_that_is_a_file_as_the_same_failure() {
         assert_eq!(fixture.read("develop", "x"), DESTINATION_FILE);
     }
 }
+
+const PATH_TOO_LONG: &str = "cannot resolve path: path too long";
+
+/// `base` の下に、実パスがちょうど `length` バイトになるまでディレクトリを重ねて作る
+fn deep_directory(base: &std::path::Path, length: usize) -> std::path::PathBuf {
+    let mut path = base.to_path_buf();
+    while path.as_os_str().len() < length {
+        let room = length - path.as_os_str().len() - 1;
+        path.push("d".repeat(room.min(200)));
+    }
+    std::fs::create_dir_all(&path).unwrap();
+    assert_eq!(path.as_os_str().len(), length);
+    path
+}
+
+/// 読み込み元の "deep/newdir/f.txt" は短いパスにあり、書き込み先の "deep" は実パスが 4085 バイトの
+/// ディレクトリへの symlink にする。書き込み先の "deep/newdir" は 4092 バイトで上限に届かず、
+/// "deep/newdir/f.txt" は 4098 バイトで上限の 4096 バイトを超える
+fn destination_path_too_long() -> (Fixture, tempfile::TempDir) {
+    let outside = tempfile::TempDir::new().unwrap();
+    let real = std::fs::canonicalize(outside.path()).unwrap();
+    let deep = deep_directory(&real, 4085);
+    let fixture = fixture();
+    fixture.create_dir("local", "deep/newdir");
+    fixture.write("local", "deep/newdir/f.txt", "incoming\n");
+    fixture.symlink("develop", "deep", deep.to_str().unwrap());
+    (fixture, outside)
+}
+
+fn assert_failed_as_path_too_long(label: &str, result: &serde_json::Value, code: i32) {
+    let failed = result["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{label}: {result}");
+    assert_eq!(failed[0]["path"], "deep/newdir/f.txt", "{label}: {result}");
+    assert_eq!(failed[0]["error"], PATH_TOO_LONG, "{label}: {result}");
+    assert!(
+        result["merged"].as_array().unwrap().is_empty(),
+        "{label}: {result}"
+    );
+    assert_eq!(code, 2, "{label}: {result}");
+}
+
+// @kotowari[REQ-cli-091, REQ-paths-003]
+#[test]
+fn merge_previews_a_destination_path_that_is_too_long_as_the_same_failure() {
+    for dry_run in [true, false] {
+        let (fixture, _outside) = destination_path_too_long();
+
+        let (json, code) = fixture.merge_json(MergeArgs {
+            dry_run,
+            ..args(&["deep"])
+        });
+
+        assert_failed_as_path_too_long(&format!("dry_run={dry_run}"), &json, code);
+    }
+}
+
+// @kotowari[REQ-cli-091, REQ-paths-003]
+#[test]
+fn sync_previews_a_destination_path_that_is_too_long_as_the_same_failure() {
+    for dry_run in [true, false] {
+        let (fixture, _outside) = destination_path_too_long();
+
+        let (json, code) = fixture.sync_json(SyncArgs {
+            dry_run,
+            ..sync_args(&["deep"])
+        });
+
+        assert_failed_as_path_too_long(&format!("dry_run={dry_run}"), &json["targets"][0], code);
+    }
+}

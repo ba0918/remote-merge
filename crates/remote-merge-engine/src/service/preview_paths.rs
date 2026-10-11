@@ -3,33 +3,22 @@
 //! 実行時は、比べたときの書き込み先のツリーにないパスを書く前に、書き込み先でパスを確かめる。
 //! 途中の祖先がディレクトリでなければ、そこで "not a directory" の失敗になる。
 //! --dry-run でも同じ失敗を出すため、その確認で失敗しうるパスだけを選ぶ。
-//! ツリーにない同じ祖先の下のパスは、その祖先を一度確かめれば結果が決まることが多いので、
-//! 祖先ごとにまとめる。
+//! ツリーにない同じ祖先の下のパスは、その祖先を確かめる問い合わせを一度だけにするため、
+//! 祖先ごとにまとめる。まとめるのは問い合わせだけで、各パスの結果は実行時と同じ確認の手順で決める。
 
 use std::path::Path;
 
-use super::types::MergeFailure;
 use crate::tree::FileTree;
 
 /// 確認をまとめる単位
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewGroup {
     /// 先に一度だけ確かめる、ツリーにない最初の祖先。ツリーにあってディレクトリでない
-    /// 祖先の下では None で、パスを一つずつ確かめる
+    /// 祖先の下では None で、パスを一つずつ確かめる。祖先がないと分かれば、その確認の結果と
+    /// 残りの要素から各パスの結果を求め、祖先があれば各パスを確かめる
     pub probe: Option<String>,
     /// まとめたパス
     pub paths: Vec<String>,
-}
-
-/// 祖先を一度確かめた結果
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProbeOutcome {
-    /// 祖先がない。その下のパスもすべてない
-    Missing,
-    /// 祖先が何かとして存在する。その下はパスごとに確かめないと分からない
-    Present,
-    /// 祖先の確認そのものが失敗した。その下のパスも同じ理由で失敗する
-    Failed(String),
 }
 
 /// 書き込み先のツリーにないパスのうち、祖先がツリーで分かるディレクトリ
@@ -58,28 +47,6 @@ pub fn preview_groups(paths: &[String], target_tree: &FileTree) -> Vec<PreviewGr
         }
     }
     groups
-}
-
-/// 祖先を確かめた結果から、決まった失敗と、まだ一つずつ確かめるパスに分ける純粋関数
-pub fn settle_group(
-    group: &PreviewGroup,
-    outcome: ProbeOutcome,
-) -> (Vec<MergeFailure>, Vec<String>) {
-    match outcome {
-        ProbeOutcome::Missing => (Vec::new(), Vec::new()),
-        ProbeOutcome::Present => (Vec::new(), group.paths.clone()),
-        ProbeOutcome::Failed(error) => (
-            group
-                .paths
-                .iter()
-                .map(|path| MergeFailure {
-                    path: path.clone(),
-                    error: error.clone(),
-                })
-                .collect(),
-            Vec::new(),
-        ),
-    }
 }
 
 /// `path` の祖先のうち、ツリーでディレクトリ（かディレクトリへの symlink）と分からない最初のもの
@@ -167,49 +134,5 @@ mod tests {
         );
 
         assert!(groups.is_empty(), "{groups:?}");
-    }
-
-    fn group() -> PreviewGroup {
-        PreviewGroup {
-            probe: Some("newdir".into()),
-            paths: paths(&["newdir/a.txt", "newdir/b.txt"]),
-        }
-    }
-
-    /// 決まった失敗を (パス, 理由) にし、残りのパスと並べる
-    fn settled(outcome: ProbeOutcome) -> (Vec<(String, String)>, Vec<String>) {
-        let (failed, rest) = settle_group(&group(), outcome);
-        let failed = failed
-            .into_iter()
-            .map(|entry| (entry.path, entry.error))
-            .collect();
-        (failed, rest)
-    }
-
-    #[test]
-    fn a_missing_probe_settles_every_path_without_failure() {
-        assert_eq!(settled(ProbeOutcome::Missing), (vec![], vec![]));
-    }
-
-    #[test]
-    fn a_failed_probe_fails_every_path_with_the_same_reason() {
-        let (failed, rest) = settled(ProbeOutcome::Failed("boom".into()));
-
-        assert_eq!(
-            failed,
-            [
-                ("newdir/a.txt".to_string(), "boom".to_string()),
-                ("newdir/b.txt".to_string(), "boom".to_string()),
-            ]
-        );
-        assert!(rest.is_empty());
-    }
-
-    #[test]
-    fn a_present_probe_leaves_every_path_to_be_inspected() {
-        assert_eq!(
-            settled(ProbeOutcome::Present),
-            (vec![], paths(&["newdir/a.txt", "newdir/b.txt"]))
-        );
     }
 }
