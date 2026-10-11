@@ -177,7 +177,7 @@ fn req_merge_035_a_path_on_neither_side_under_a_different_kind_is_failed_not_ski
 
 /// sync の読み込み元と書き込み先 "a"・"b" をローカルのディレクトリにした組み立て
 struct MultiTarget {
-    _dirs: [tempfile::TempDir; 4],
+    dirs: [tempfile::TempDir; 4],
     config: remote_merge::config::AppConfig,
     targets: remote_merge::runtime::RuntimeTargets,
 }
@@ -216,7 +216,7 @@ fn multi_target(b_has_x: bool) -> MultiTarget {
         .with_local("b", b.path())
         .with_startup_directory(config_dir.path().to_path_buf());
     MultiTarget {
-        _dirs: dirs,
+        dirs,
         config,
         targets,
     }
@@ -301,7 +301,7 @@ fn req_merge_035_sync_does_not_stop_when_a_target_could_not_be_scanned() {
 
     for right in [["a", "b"], ["b", "a"]] {
         let fixture = multi_target(false);
-        let b_root = fixture._dirs[2].path().to_path_buf();
+        let b_root = fixture.dirs[2].path().to_path_buf();
         std::fs::remove_dir_all(&b_root).unwrap();
 
         let result = sync_x_with_delete(&fixture, &right)
