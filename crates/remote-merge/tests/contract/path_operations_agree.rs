@@ -476,6 +476,22 @@ async fn listing_the_same_directory_gives_the_same_entries_on_all_three_routes()
     assert_eq!(local.unwrap().len(), 1);
 }
 
+// @kotowari[REQ-paths-017]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_entry_modified_before_1970_is_listed_with_the_same_time_on_all_three_routes() {
+    let routes = Routes::new(|root, _| {
+        fs::write(root.join("old.txt"), "old\n").unwrap();
+        set_mtime(&root.join("old.txt"), "@-1");
+    })
+    .await;
+
+    let (local, [local_text, ssh, agent]) = list_on_all_routes(&routes, "");
+
+    assert_eq!(ssh, local_text);
+    assert_eq!(agent, local_text);
+    assert_eq!(local[0].mtime, Some((-1, 0)));
+}
+
 /// リンク先の読み取りだけを失敗させる
 struct UnreadableLinks;
 

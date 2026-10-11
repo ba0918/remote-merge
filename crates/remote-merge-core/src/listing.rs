@@ -141,13 +141,19 @@ fn permission_bits(meta: &std::fs::Metadata) -> u32 {
     }
 }
 
-/// ナノ秒までの更新時刻
+/// ナノ秒までの更新時刻。1970 年より前は、秒を負の値に切り下げ、ナノ秒を正の値にする
 fn modified(meta: &std::fs::Metadata) -> io::Result<DateTime<Utc>> {
-    let since_epoch = meta
-        .modified()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(io::Error::other)?;
-    DateTime::from_timestamp(since_epoch.as_secs() as i64, since_epoch.subsec_nanos())
+    let (seconds, nanos) = match meta.modified()?.duration_since(std::time::UNIX_EPOCH) {
+        Ok(after) => (after.as_secs() as i64, after.subsec_nanos()),
+        Err(before) => {
+            let before = before.duration();
+            match before.subsec_nanos() {
+                0 => (-(before.as_secs() as i64), 0),
+                nanos => (-(before.as_secs() as i64) - 1, 1_000_000_000 - nanos),
+            }
+        }
+    };
+    DateTime::from_timestamp(seconds, nanos)
         .ok_or_else(|| io::Error::other("modification time out of range"))
 }
 
@@ -231,6 +237,21 @@ mod tests {
             .map(|node| node.name)
             .collect();
         assert_eq!(names, ["a.txt"]);
+    }
+
+    #[test]
+    fn a_time_before_1970_is_read_with_whole_seconds_rounded_down() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let root = tempfile::tempdir().unwrap();
+        let file = std::fs::File::create(root.path().join("old")).unwrap();
+        file.set_modified(UNIX_EPOCH - Duration::from_millis(1500))
+            .unwrap();
+        let nodes = listed(list_children(root.path(), "", &[], 10).unwrap());
+        let mtime = nodes[0].mtime.unwrap();
+        assert_eq!(
+            (mtime.timestamp(), mtime.timestamp_subsec_nanos()),
+            (-2, 500_000_000)
+        );
     }
 
     #[test]
