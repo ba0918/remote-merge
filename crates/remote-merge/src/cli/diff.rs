@@ -240,7 +240,12 @@ pub fn execute_diff(
             }
             let left_children = diff_listing::children(left_listing);
             let right_children = diff_listing::children(right_listing);
-            if are_empty_directories(&left_children, &right_children) {
+            // 比べるファイルのないディレクトリ（両側か、もう一方にないとき）は差分なしとする（REQ-cli-087）
+            let missing = (
+                left_children.is_none() && is_missing(&mut core, &pair.left, path, left_absent)?,
+                right_children.is_none() && is_missing(&mut core, &pair.right, path, right_absent)?,
+            );
+            if without_files(&left_children, &right_children, missing) {
                 scanned_files = scanned_files.saturating_sub(1);
                 continue;
             }
@@ -748,6 +753,29 @@ fn are_empty_directories(left: &Option<Vec<FileNode>>, right: &Option<Vec<FileNo
     matches!((left, right), (Some(left), Some(right)) if left.is_empty() && right.is_empty())
 }
 
+/// 比べるファイルのないディレクトリか。左右とも中身の空なディレクトリか、片側が中身の空な
+/// ディレクトリでもう一方にないとき。`missing` は（左, 右）にないか
+fn without_files(
+    left: &Option<Vec<FileNode>>,
+    right: &Option<Vec<FileNode>>,
+    (left_missing, right_missing): (bool, bool),
+) -> bool {
+    let empty = |children: &Option<Vec<FileNode>>| children.as_ref().is_some_and(Vec::is_empty);
+    are_empty_directories(left, right)
+        || (empty(left) && right_missing)
+        || (empty(right) && left_missing)
+}
+
+/// その側にパスがないか。子を持てない側の下に展開したパスは調べずにないものとする
+fn is_missing(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    absent: bool,
+) -> anyhow::Result<bool> {
+    Ok(absent || matches!(core.inspect_path(side, path)?, TargetPath::Missing { .. }))
+}
+
 /// 子の一覧。子を持てない側の下に展開したパスは、その側を調べずにディレクトリでないものとする。
 fn listed_children(
     core: &mut CoreRuntime,
@@ -907,7 +935,11 @@ fn run_diff_fast_path(
         }
         let left_children = diff_listing::children(left_listing);
         let right_children = diff_listing::children(right_listing);
-        if are_empty_directories(&left_children, &right_children)
+        let missing = (
+            matches!(left_path, TargetPath::Missing { .. }),
+            matches!(right_path, TargetPath::Missing { .. }),
+        );
+        if without_files(&left_children, &right_children, missing)
             || left_children
                 .as_ref()
                 .is_some_and(|nodes| !nodes.is_empty())
