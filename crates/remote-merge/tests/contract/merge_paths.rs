@@ -114,7 +114,8 @@ fn a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target(
     let shared = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    fs::write(shared.path().join("file.txt"), "incoming\n").unwrap();
+    // 大きさを変え、配下が大きさと更新時刻だけで同じと判定される回を作らない
+    fs::write(shared.path().join("file.txt"), "incoming contents\n").unwrap();
     symlink(shared.path(), local.path().join("linked")).unwrap();
     fs::create_dir(destination.path().join("linked")).unwrap();
     fs::write(destination.path().join("linked/file.txt"), "existing\n").unwrap();

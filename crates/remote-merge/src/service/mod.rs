@@ -16,6 +16,7 @@
 pub mod content_reads;
 pub mod diff;
 pub mod fast_path;
+pub mod kind_skip;
 pub mod max_files;
 pub mod merge;
 pub mod merge_flow;

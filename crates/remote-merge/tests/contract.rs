@@ -97,6 +97,8 @@ mod merge_created_directory_routes;
 mod merge_force_cli;
 #[path = "contract/merge_hunks.rs"]
 mod merge_hunks;
+#[path = "contract/merge_kind_subtree.rs"]
+mod merge_kind_subtree;
 #[path = "contract/merge_links.rs"]
 mod merge_links;
 #[path = "contract/merge_paths.rs"]

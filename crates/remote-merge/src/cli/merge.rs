@@ -7,6 +7,7 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::content_reads::verified_content_pairs;
+use crate::service::kind_skip::split_different_kind_subtrees;
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
@@ -179,6 +180,9 @@ pub fn execute_merge(
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+    // 種類の違う対象とその配下は、書き込み・dry-run・削除のどれの計画にも入れない
+    let (resolved_paths, kind_skipped) =
+        split_different_kind_subtrees(&resolved_paths, &left_tree, &right_tree);
     // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
     let (mut diff_files, right_only_skipped) =
         filter_merge_candidates(&resolved_paths, &statuses, args.delete);
@@ -186,6 +190,7 @@ pub fn execute_merge(
 
     // マージ計画
     let mut plan = plan_merge(&diff_files);
+    plan.skipped.extend(kind_skipped);
 
     let destination_paths: Vec<String> = plan
         .files
@@ -318,10 +323,6 @@ pub fn execute_merge(
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
-        // 種類の違う対象は書き込むときと同じ判定でスキップとして出す
-        let (planned, kind_skipped) =
-            crate::service::merge::split_different_kinds(&plan.files, &left_tree, &right_tree);
-        all_skipped.extend(kind_skipped);
         // dry-run: 削除対象を "would delete" として表示
         let dry_deleted: Vec<DeleteFileResult> = delete_targets
             .iter()
@@ -332,7 +333,7 @@ pub fn execute_merge(
             })
             .collect();
         let output = build_merge_output(
-            planned
+            plan.files
                 .iter()
                 .map(|p| MergeFileResult {
                     path: p.clone(),
