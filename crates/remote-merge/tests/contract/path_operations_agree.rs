@@ -403,6 +403,22 @@ async fn a_mode_with_setuid_is_refused_without_change_on_all_three_routes() {
     }
 }
 
+// @kotowari[REQ-paths-018, EX-paths-035]
+#[tokio::test(flavor = "multi_thread")]
+async fn changing_a_setgid_directory_to_775_keeps_setgid_on_all_three_routes() {
+    let routes = Routes::new(|root, _| {
+        fs::create_dir(root.join("shared")).unwrap();
+        fs::set_permissions(root.join("shared"), fs::Permissions::from_mode(0o2775)).unwrap();
+    })
+    .await;
+
+    chmod_on_all_routes(&routes, "shared", 0o775).assert_all_ok();
+
+    for dir in [&routes.local, &routes.ssh, &routes.agent] {
+        assert_eq!(mode_of(&dir.root.join("shared")), 0o2775, "{:?}", dir.root);
+    }
+}
+
 // @kotowari[REQ-paths-016, EX-paths-032]
 #[tokio::test(flavor = "multi_thread")]
 async fn changing_the_permissions_of_a_missing_path_names_the_operation_the_path_and_the_cause() {
