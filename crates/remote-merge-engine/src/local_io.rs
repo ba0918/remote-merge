@@ -12,18 +12,34 @@ use crate::tree::{FileNode, FileTree};
 
 // ── truncation 判定関数 ──
 
-/// ツリースキャンの truncation を検査する。
-///
-/// `fail_on_truncation` が true ならエラーを返し、false なら warn ログのみで Ok を返す。
-pub fn check_truncation(max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<()> {
-    if fail_on_truncation {
-        anyhow::bail!(
+/// 走査が件数の上限に当たって打ち切られたこと。文は上限の上げ方とパスの指定の仕方を案内する
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanTruncated {
+    pub max_entries: usize,
+}
+
+impl std::fmt::Display for ScanTruncated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
             "Tree scan truncated at {} entries. Results may be incomplete. \
              Use --max-entries <value> to increase the limit, \
              or set max_scan_entries in config, \
              or specify file paths instead of scanning all.",
-            max_entries
-        );
+            self.max_entries
+        )
+    }
+}
+
+impl std::error::Error for ScanTruncated {}
+
+/// ツリースキャンの truncation を検査する。
+///
+/// `fail_on_truncation` が true なら [`ScanTruncated`] のエラーを返し、false なら warn ログのみで
+/// Ok を返す。
+pub fn check_truncation(max_entries: usize, fail_on_truncation: bool) -> anyhow::Result<()> {
+    if fail_on_truncation {
+        return Err(ScanTruncated { max_entries }.into());
     }
     tracing::warn!(
         target: "remote_merge::runtime::side_io",

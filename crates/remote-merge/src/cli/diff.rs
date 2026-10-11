@@ -36,6 +36,7 @@ use crate::service::{resolve_diff_scan_strategy, ScanStrategy};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
+use remote_merge_engine::local_io::ScanTruncated;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -282,10 +283,9 @@ pub fn execute_diff(
                 for child in children {
                     visited_entries += 1;
                     if visited_entries > max_entries {
-                        let reason = "directory comparison incomplete (entry limit exceeded)";
                         errors.push(DiffError {
                             path: path.clone(),
-                            reason: reason.into(),
+                            reason: ScanTruncated { max_entries }.to_string(),
                         });
                         has_read_error = true;
                         break;
@@ -438,12 +438,12 @@ pub fn execute_diff(
                 for child in children {
                     visited_entries += 1;
                     if visited_entries > max_entries {
-                        let reason = "directory comparison incomplete (entry limit exceeded)";
+                        let reason = ScanTruncated { max_entries }.to_string();
                         errors.push(DiffError {
                             path: path.clone(),
-                            reason: reason.into(),
+                            reason: reason.clone(),
                         });
-                        link_diff.note = Some(reason.into());
+                        link_diff.note = Some(reason);
                         has_read_error = true;
                         break;
                     }
@@ -572,6 +572,11 @@ pub fn execute_diff(
         let (left_ok, right_ok) = (left_read.is_some(), right_read.is_some());
         let left_bytes = left_read.unwrap_or_default();
         let right_bytes = right_read.unwrap_or_default();
+        // 両側にあり中身の同じファイルは、どの走査方式でも項目に出さない（打ち切られた走査で
+        // 片側にだけ載ったファイルも、両側を読んで同じなら差分ではない）
+        if left_ok && right_ok && left_bytes == right_bytes {
+            continue;
+        }
 
         let output = if is_binary(&left_bytes) || is_binary(&right_bytes) {
             // バイナリファイル: SHA-256 ハッシュを計算して直接 DiffOutput を構築
@@ -1010,9 +1015,39 @@ fn run_diff_full_scan(
     max_entries: usize,
     limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
-    let left_tree = core.fetch_tree_recursive(left, max_entries, true)?;
-    let right_tree = core.fetch_tree_recursive(right, max_entries, true)?;
-    compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)
+    let (left_tree, left_truncated) = fetch_tree_keeping_read(core, left, max_entries)?;
+    let (right_tree, right_truncated) = fetch_tree_keeping_read(core, right, max_entries)?;
+    let (left_tree, right_tree, statuses, existing, diff_files, sizes, read_errors) =
+        compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)?;
+    // 上限を超えても読めた分は比べ、上限の超過を一度だけ誤りに載せる
+    let truncation = left_truncated
+        .or(right_truncated)
+        .map(|truncated| DiffError {
+            path: ".".into(),
+            reason: truncated.to_string(),
+        });
+    let errors = truncation.into_iter().chain(read_errors).collect();
+    Ok((
+        left_tree, right_tree, statuses, existing, diff_files, sizes, errors,
+    ))
+}
+
+/// 側の root_dir 全体を走査する。件数の上限を超えたら、上限までに読めたツリーと上限の超過を返す
+fn fetch_tree_keeping_read(
+    core: &mut CoreRuntime,
+    side: &Side,
+    max_entries: usize,
+) -> anyhow::Result<(FileTree, Option<ScanTruncated>)> {
+    match core.fetch_tree_recursive(side, max_entries, true) {
+        Ok(tree) => Ok((tree, None)),
+        Err(error) => match error.downcast_ref::<ScanTruncated>().copied() {
+            Some(truncated) => Ok((
+                core.fetch_tree_recursive(side, max_entries, false)?,
+                Some(truncated),
+            )),
+            None => Err(error),
+        },
+    }
 }
 
 /// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）

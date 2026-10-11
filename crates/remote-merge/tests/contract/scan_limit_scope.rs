@@ -96,6 +96,8 @@ fn status(fixture: ScopeFixture) -> anyhow::Result<()> {
     execute_status(args, fixture.config, fixture.targets).map(|_| ())
 }
 
+/// パスを指定しない diff。diff は上限を超えても読めた分を比べ、上限の超過を errors に載せる
+/// （docs/ir/cli/diff-strategy.md の REQ-cli-084）ので、errors の最初の理由をエラーとして返す
 fn diff_without_paths(fixture: ScopeFixture) -> anyhow::Result<()> {
     let args = DiffArgs {
         paths: vec![],
@@ -109,7 +111,11 @@ fn diff_without_paths(fixture: ScopeFixture) -> anyhow::Result<()> {
         follow_external_links: false,
         max_entries: Some(LIMIT),
     };
-    execute_diff(args, fixture.config, fixture.targets).map(|_| ())
+    let (output, _) = execute_diff(args, fixture.config, fixture.targets)?;
+    match output.errors.first() {
+        Some(error) => Err(anyhow::anyhow!(error.reason.clone())),
+        None => Ok(()),
+    }
 }
 
 fn owned(paths: &[&str]) -> Vec<String> {

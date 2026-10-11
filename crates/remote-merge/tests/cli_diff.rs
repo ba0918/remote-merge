@@ -555,7 +555,9 @@ fn directory_link_entry_limit_counts_children_across_nested_links() {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
-        result["errors"].to_string().contains("entry limit"),
+        result["errors"]
+            .to_string()
+            .contains("Tree scan truncated at 3 entries."),
         "{result}"
     );
     assert!(result["files"].to_string().contains("left"), "{result}");

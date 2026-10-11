@@ -53,6 +53,9 @@ mod diagnostics;
 #[path = "contract/diagnostics_sent_data.rs"]
 mod diagnostics_sent_data;
 #[cfg(feature = "test-utils")]
+#[path = "contract/diff_entry_limit.rs"]
+mod diff_entry_limit;
+#[cfg(feature = "test-utils")]
 #[path = "contract/diff_excluded_directory.rs"]
 mod diff_excluded_directory;
 #[path = "contract/diff_file_kinds.rs"]
