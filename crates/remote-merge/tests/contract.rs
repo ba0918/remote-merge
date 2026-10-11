@@ -271,6 +271,9 @@ mod status_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/status_targets.rs"]
 mod status_targets;
+#[cfg(feature = "test-utils")]
+#[path = "contract/status_time_precision.rs"]
+mod status_time_precision;
 #[path = "contract/status_unreadable.rs"]
 mod status_unreadable;
 #[cfg(feature = "test-utils")]

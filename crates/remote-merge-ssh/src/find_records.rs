@@ -73,6 +73,13 @@ pub fn parse_find_records(output: &[u8]) -> anyhow::Result<Vec<FindRecord>> {
         .collect())
 }
 
+/// find の `%T@` が出した秒の小数の桁数（ナノ秒より細かい桁は数えない）。秒までしか出さない find
+/// なら 0
+pub fn find_time_digits(raw: &str) -> u8 {
+    let fraction = raw.split_once('.').map_or("", |(_, fraction)| fraction);
+    fraction.len().min(9) as u8
+}
+
 /// 列を文字列にする。UTF-8 として読めないバイトは置換文字にする
 fn text(field: &[u8]) -> String {
     String::from_utf8_lossy(field).into_owned()
@@ -129,6 +136,13 @@ l\x004\x002.0\x00777\x00/r/b\\c\x00a\tb\\c\x00f\x00";
         assert_eq!(records[0].path, "/r/\u{fffd}.txt");
         assert_eq!(records[0].unreadable_path.as_deref(), Some("/r/\\xff.txt"));
         assert_eq!(records[0].kind, "f");
+    }
+
+    #[test]
+    fn find_time_digits_count_the_printed_fraction_up_to_nanoseconds() {
+        assert_eq!(find_time_digits("1700000000"), 0);
+        assert_eq!(find_time_digits("1700000000.5"), 1);
+        assert_eq!(find_time_digits("1700000000.1234567890"), 9);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::filter;
-use crate::find_records::{parse_find_time, FindRecord, RECORD_FORMAT};
+use crate::find_records::{find_time_digits, parse_find_time, FindRecord, RECORD_FORMAT};
 use crate::tree::FileNode;
 
 /// find が出した一つの項目（[`crate::find_records`]）をノードにする。`base_path` 自体と exclude に
@@ -44,6 +44,7 @@ pub fn parse_find_record(
     node.size = Some(size);
     node.link_is_dir = is_link && record.link_kind == "d";
     node.mtime = Some(mtime);
+    node.mtime_digits = find_time_digits(&record.mtime);
     node.permissions = Some(permissions);
 
     Ok(Some(node))

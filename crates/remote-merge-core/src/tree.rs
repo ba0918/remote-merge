@@ -52,11 +52,28 @@ pub fn compare_metadata(left: &FileNode, right: &FileNode) -> MetadataCmp {
     match (left.size, right.size) {
         (Some(ls), Some(rs)) if ls != rs => MetadataCmp::Modified,
         (Some(_), Some(_)) => match (left.mtime, right.mtime) {
-            (Some(lt), Some(rt)) if lt == rt => MetadataCmp::Equal,
+            (Some(lt), Some(rt))
+                if same_time(lt, rt, left.mtime_digits.min(right.mtime_digits)) =>
+            {
+                MetadataCmp::Equal
+            }
             _ => MetadataCmp::Undetermined,
         },
         _ => MetadataCmp::Undetermined,
     }
+}
+
+/// 二つの更新時刻が、秒の小数 `digits` 桁の精度で同じか。片側でも秒の精度しかない（`digits` が 0）
+/// なら、秒が同じでも中身を読み比べるので同じとしない（TBL-cli-001）
+fn same_time(left: DateTime<Utc>, right: DateTime<Utc>, digits: u8) -> bool {
+    if digits == 0 {
+        return false;
+    }
+    let unit = 10u32.pow(u32::from(
+        NANOS_DIGITS.saturating_sub(digits.min(NANOS_DIGITS)),
+    ));
+    left.timestamp() == right.timestamp()
+        && left.timestamp_subsec_nanos() / unit == right.timestamp_subsec_nanos() / unit
 }
 
 /// ファイルノードの種別
@@ -113,7 +130,12 @@ pub struct FileNode {
     pub children: Option<BTreeMap<String, FileNode>>,
     /// Whether a symlink points to a directory (independent of its write kind).
     pub link_is_dir: bool,
+    /// `mtime` を読んだ精度（秒の小数の桁数）。ナノ秒なら [`NANOS_DIGITS`]、秒までしか読めなかったら 0
+    pub mtime_digits: u8,
 }
+
+/// ナノ秒の精度の更新時刻の、秒の小数の桁数
+pub const NANOS_DIGITS: u8 = 9;
 
 impl FileNode {
     /// 新しいファイルノードを作成
@@ -126,6 +148,7 @@ impl FileNode {
             permissions: None,
             children: None,
             link_is_dir: false,
+            mtime_digits: NANOS_DIGITS,
         }
     }
 
@@ -139,6 +162,7 @@ impl FileNode {
             permissions: None,
             children: None, // 未取得
             link_is_dir: false,
+            mtime_digits: NANOS_DIGITS,
         }
     }
 
@@ -154,6 +178,7 @@ impl FileNode {
             permissions: None,
             children: Some(children_map),
             link_is_dir: false,
+            mtime_digits: NANOS_DIGITS,
         }
     }
 
@@ -169,6 +194,7 @@ impl FileNode {
             permissions: None,
             children: None,
             link_is_dir: false,
+            mtime_digits: NANOS_DIGITS,
         }
     }
 
@@ -725,6 +751,40 @@ mod tests {
     }
 
     // ── compare_metadata ──
+
+    fn file_at(nanos: i64, digits: u8) -> FileNode {
+        let mut node = FileNode::new_file("a.txt");
+        node.size = Some(6);
+        node.mtime = DateTime::from_timestamp_nanos(nanos).into();
+        node.mtime_digits = digits;
+        node
+    }
+
+    #[test]
+    fn a_time_with_seconds_only_on_either_side_is_decided_by_the_content() {
+        let second = 1_700_000_000_000_000_000;
+        assert_eq!(
+            compare_metadata(&file_at(second, 9), &file_at(second, 0)),
+            MetadataCmp::Undetermined
+        );
+        assert_eq!(
+            compare_metadata(&file_at(second, 0), &file_at(second, 0)),
+            MetadataCmp::Undetermined
+        );
+    }
+
+    #[test]
+    fn times_are_compared_at_the_finest_precision_both_sides_have() {
+        let base = 1_700_000_000_123_456_000;
+        assert_eq!(
+            compare_metadata(&file_at(base + 789, 9), &file_at(base, 6)),
+            MetadataCmp::Equal
+        );
+        assert_eq!(
+            compare_metadata(&file_at(base + 789, 9), &file_at(base, 9)),
+            MetadataCmp::Undetermined
+        );
+    }
 
     fn make_file_with_meta(name: &str, size: u64, mtime: Option<DateTime<Utc>>) -> FileNode {
         let mut node = FileNode::new_file(name);

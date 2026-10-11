@@ -613,6 +613,7 @@ pub fn convert_agent_entries_to_nodes(entries: &[AgentFileEntry]) -> Vec<crate::
                 permissions: Some(entry.permissions),
                 children: None, // 遅延読み込み（ディレクトリ含む）
                 link_is_dir: entry.link_is_dir,
+                mtime_digits: crate::tree::NANOS_DIGITS,
             }
         })
         .collect()

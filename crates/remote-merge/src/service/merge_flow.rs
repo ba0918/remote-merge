@@ -611,6 +611,7 @@ mod tests {
             children: None,
             permissions: None,
             link_is_dir: false,
+            mtime_digits: crate::tree::NANOS_DIGITS,
         });
         tree
     }
@@ -627,6 +628,7 @@ mod tests {
             children: None,
             permissions: None,
             link_is_dir: false,
+            mtime_digits: crate::tree::NANOS_DIGITS,
         });
         tree
     }
