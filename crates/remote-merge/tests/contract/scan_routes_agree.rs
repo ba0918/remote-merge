@@ -19,14 +19,14 @@ use super::server_faults::Faults;
 use super::ssh_server::TestServer;
 
 /// `gen_config` の [filter] の exclude の行を `exclude_line` に置き換えた設定
-fn with_exclude(config: &str, exclude_line: &str) -> String {
+pub(super) fn with_exclude(config: &str, exclude_line: &str) -> String {
     let replaced = config.replace("exclude = [\".git\", \"target\"]", exclude_line);
     assert_ne!(replaced, config, "fixture filter exclude line missing");
     replaced
 }
 
 /// 全ての項目が "equal" の一覧
-fn all_equal(paths: &[&str]) -> BTreeMap<String, String> {
+pub(super) fn all_equal(paths: &[&str]) -> BTreeMap<String, String> {
     paths
         .iter()
         .map(|path| (path.to_string(), "equal".to_string()))
@@ -150,13 +150,13 @@ async fn files_inside_a_directory_link_are_listed_under_the_link_via_the_agent()
 ///
 /// 循環は find が標準エラーに出す文言で報告されるため、標準エラーを返さない `TestDirs` の
 /// 試験サーバでは観測できない。
-struct SshFixture {
-    temp: tempfile::TempDir,
+pub(super) struct SshFixture {
+    pub(super) temp: tempfile::TempDir,
     server: TestServer,
 }
 
 impl SshFixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let temp = tempfile::TempDir::new().unwrap();
         let server =
             TestServer::filesystem_with_faults(temp.path(), false, Faults::default()).await;
@@ -171,7 +171,7 @@ impl SshFixture {
     }
 
     /// [`Self::status`] の設定の exclude の行を `exclude_line` に置き換えて起動する
-    fn status_with_exclude(
+    pub(super) fn status_with_exclude(
         &self,
         local_root: &Path,
         remote_root: &Path,

@@ -312,6 +312,9 @@ fn walk_single_root(
                 {
                     path.to_path_buf()
                 }
+                // リンク先を辿れない symlink の失敗は filter_entry を通らずに届くので、exclude に
+                // 当たるものはここで除く（REQ-scan-015・REQ-config-021）
+                Some(path) if is_excluded_path(path, original_root, exclude) => continue,
                 _ => anyhow::bail!("Directory scan incomplete: {error}"),
             },
         };
@@ -369,6 +372,12 @@ fn walk_single_root(
     }
 
     Ok((flat_entries, truncated))
+}
+
+/// `path` の `original_root` からの相対パスが exclude に当たるか
+fn is_excluded_path(path: &Path, original_root: &Path, exclude: &[String]) -> bool {
+    path.strip_prefix(original_root)
+        .is_ok_and(|rel| filter::is_path_excluded(&rel.to_string_lossy(), exclude))
 }
 
 /// フラットなエントリリスト（相対パス付き）から再帰ツリーを構築する
