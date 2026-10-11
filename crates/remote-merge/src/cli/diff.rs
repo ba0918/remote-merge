@@ -229,10 +229,15 @@ pub fn execute_diff(
             }
             let left_children = diff_listing::children(left_listing);
             let right_children = diff_listing::children(right_listing);
-            // 比べるファイルのないディレクトリ（両側か、もう一方にないとき）は差分なしとする（REQ-cli-087）
+            // 比べるファイルのないディレクトリ（両側か、もう一方にないとき）は差分なしとする（REQ-cli-087）。
+            // ないかは、もう一方がディレクトリのときだけ調べる（ファイルどうしの組では使わない）
             let missing = (
-                left_children.is_none() && is_missing(&mut core, &pair.left, path, left_absent)?,
-                right_children.is_none() && is_missing(&mut core, &pair.right, path, right_absent)?,
+                left_children.is_none()
+                    && right_children.is_some()
+                    && is_missing(&mut core, &pair.left, path, left_absent)?,
+                right_children.is_none()
+                    && left_children.is_some()
+                    && is_missing(&mut core, &pair.right, path, right_absent)?,
             );
             if without_files(&left_children, &right_children, missing) {
                 scanned_files = scanned_files.saturating_sub(1);
