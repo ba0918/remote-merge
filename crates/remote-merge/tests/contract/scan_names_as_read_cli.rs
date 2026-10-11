@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::common::{gen_config, place_files, place_symlink, TestDirs};
-use super::scan_listing_cli::{status_over_ssh, statuses_by_path};
+use super::scan_listing_cli::{status_over_ssh, statuses_by_path, AgentFixture};
 
 /// 名前に TAB・改行・"\" を含むファイル
 const SPECIAL_NAMES: [&str; 3] = ["x\ty.txt", "p\nq.txt", "b\\c.txt"];
@@ -53,6 +53,15 @@ fn listed_over_ssh(dirs: &mut TestDirs) -> BTreeMap<String, String> {
     statuses_by_path(&status_over_ssh(dirs, &config, &local_root, &[]))
 }
 
+fn listed_via_agent(
+    fixture: &AgentFixture,
+    place: impl Fn(&Path, &Path),
+) -> BTreeMap<String, String> {
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    place(&local_root, &remote_root);
+    statuses_by_path(&fixture.status_via_agent(&local_root, &remote_root, &[]))
+}
+
 // @kotowari[REQ-scan-006, EX-scan-015]
 #[test]
 fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_read_over_ssh() {
@@ -69,6 +78,27 @@ fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_lis
     place_special_links(&dirs.local_dir.clone(), &dirs.remote_dir.clone());
     assert_eq!(
         listed_over_ssh(&mut dirs),
+        only_equal(SPECIAL_LINKS.map(|(name, _)| name))
+    );
+}
+
+// @kotowari[REQ-scan-006, EX-scan-015]
+#[tokio::test(flavor = "multi_thread")]
+async fn ex_scan_015_names_with_a_tab_a_newline_or_a_backslash_are_listed_as_read_via_the_agent() {
+    let fixture = AgentFixture::new().await;
+    assert_eq!(
+        listed_via_agent(&fixture, place_special_names),
+        only_equal(SPECIAL_NAMES)
+    );
+}
+
+// @kotowari[REQ-scan-006, EX-scan-016]
+#[tokio::test(flavor = "multi_thread")]
+async fn ex_scan_016_link_targets_with_a_tab_a_trailing_newline_or_a_backslash_are_listed_as_read_via_the_agent(
+) {
+    let fixture = AgentFixture::new().await;
+    assert_eq!(
+        listed_via_agent(&fixture, place_special_links),
         only_equal(SPECIAL_LINKS.map(|(name, _)| name))
     );
 }

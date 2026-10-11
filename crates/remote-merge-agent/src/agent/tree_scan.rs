@@ -199,7 +199,7 @@ impl<'a> ScanIterator<'a> {
         };
 
         let rel = match path.strip_prefix(&self.relative_base) {
-            Ok(r) => r.to_string_lossy().replace('\\', "/"),
+            Ok(r) => r.to_string_lossy().into_owned(),
             Err(_) => return false,
         };
 
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn paths_are_relative_forward_slash() {
+    fn paths_are_relative() {
         let dir = create_test_tree();
         let options = ScanOptions {
             root: dir.path().to_path_buf(),
@@ -553,11 +553,6 @@ mod tests {
             assert!(
                 !entry.path.starts_with('/'),
                 "path should be relative: {}",
-                entry.path
-            );
-            assert!(
-                !entry.path.contains('\\'),
-                "path should use forward slashes: {}",
                 entry.path
             );
         }
