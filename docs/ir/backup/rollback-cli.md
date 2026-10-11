@@ -27,10 +27,11 @@ rollback の結果はテキストでは戻したファイルを "✓"、スキ�
 
 ### REQ-backup-038: rollback の終了コード
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A5
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations-consistency-3.md#A1
 - verification: unit
 
 rollback はスキップも失敗もなく一件以上戻したとき 0、スキップか失敗があるか戻したファイルがないとき 2、対象のセッションが見つからないとき 2 を返し、--dry-run と --list は 0 を返す。
+ただし --dry-run でも、`接続断` で書き込み先への処理を止めたとき（REQ-ssh-003・REQ-ssh-023）は 2 を返す。
 
 ### REQ-backup-039: 復元先の指定
 - kind: state_driven

@@ -249,3 +249,49 @@ async fn an_agent_hash_batch_lost_again_after_restarting_fails_its_files_as_read
 
     assert_batch_read_failed_and_rest_untouched(&fixture, &result);
 }
+
+/// "a.txt" を merge で書き換えておき、rollback --dry-run のパスの確認を毎回切ってから動かす
+fn dry_run_with_every_path_inspection_cut(fixture: &AgentFixture, arm: impl FnOnce()) -> Value {
+    fixture.put("a.txt", Some("merged a\n"), Some("original a\n"));
+    let merge = fixture.run(&["merge", "a.txt"]);
+    assert!(merge.status.success(), "{merge:?}");
+    arm();
+
+    let output = fixture.run(&["rollback", "--target", "fixture", "--dry-run"]);
+
+    // 接続断でその回を止めたので、dry-run でも終了コード 2 で終える
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(fixture.read_remote("a.txt"), "merged a\n");
+    json(&output)
+}
+
+// @kotowari[REQ-ssh-023, REQ-backup-038]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_dry_run_stopped_by_a_connection_loss_exits_with_2() {
+    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
+    let result = dry_run_with_every_path_inspection_cut(&fixture, || {
+        fixture.server.faults().arm_agent_cut(AgentCut {
+            request: Some("InspectPath"),
+            occurrence: 1,
+            point: CutPoint::BeforeResponse,
+            scope: CutScope::Agent,
+            repeat: Repeat::Every,
+        });
+    });
+    let error = result["failed"][0]["error"].as_str().unwrap();
+    assert!(error.contains(READ_FAILED), "{result}");
+}
+
+// @kotowari[REQ-ssh-003, REQ-backup-038]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_dry_run_stopped_by_a_connection_loss_exits_with_2() {
+    let fixture = AgentFixture::new(without_agent(), Faults::default()).await;
+    let result = dry_run_with_every_path_inspection_cut(&fixture, || {
+        fixture.server.faults().arm_ssh_cut(SshCut {
+            command: SshCommand::PathInspection,
+            repeat: Repeat::Every,
+        });
+    });
+    let error = result["failed"][0]["error"].as_str().unwrap();
+    assert!(error.contains(READ_FAILED), "{result}");
+}
