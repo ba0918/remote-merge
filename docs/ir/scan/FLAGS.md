@@ -23,3 +23,10 @@ REQ-config-003 と REQ-config-004 は exclude と include が merge と sync の
 - source: docs/decision/records/2026-10-12-ssh-output-parsing-consistency-3.md#A1
 
 SSH の経路の走査は、リモートの find の %T@ が出した桁までの更新時刻を持つ。CentOS 5 の findutils 4.2.27 の %T@ は秒しか出さない（1970 年より前の -1000000.25 秒も "-1000001" と出す。コンテナで確かめた）ため、このサーバでナノ秒を記録するファイルシステムを走査したときは、秒未満の部分がローカルとエージェントの経路と一致しない。子の一覧の同じ差は FLAG-paths-003 に残す。
+
+### FLAG-scan-016: diff のディレクトリの展開で UTF-8 でない名前を置き換える
+- kind: gap
+- related: REQ-scan-012, REQ-scan-009
+- source: docs/decision/records/2026-10-12-untested-items-consistency.md#A3
+
+REQ-scan-012 はツリーの走査が UTF-8 として読めない名前を置換文字に置き換えて載せないと決めるが、名前で指定したディレクトリを diff が展開するときの子の一覧は走査ではなく、その対象かが決まっていない。今はその子を置換文字に置き換えた名前で扱い、ローカルの経路で "d" に "bad\xff.txt" があるとき、`diff d` は errors に置換文字を含むパスを理由 "not found on either side" で出して終了コード 2 を返す（パスを指定しない diff は "d/bad\xff.txt" を読めない名前として出す）。
