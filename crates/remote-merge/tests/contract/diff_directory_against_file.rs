@@ -31,3 +31,18 @@ fn ex_cli_078_a_directory_against_a_file_shows_the_kind_the_children_and_the_bod
         assert_eq!(run.code, exit_code::DIFF_FOUND, "{} paths", paths.len());
     }
 }
+
+// 全体を走査する diff でも、ディレクトリ側の子は一つの項目として一度だけ示し、一度だけ数える
+// @kotowari[REQ-cli-085]
+#[test]
+fn req_cli_085_the_whole_scan_shows_each_child_of_the_directory_once() {
+    let fixture = Fixture::new("");
+    place_files(fixture.left(), &[("x/child.txt", "left child\n")]);
+    place_files(fixture.right(), &[("x", "right body\n")]);
+
+    let run = fixture.diff(&strings(&[]), None);
+
+    assert_eq!(run.paths(), vec!["x", "x/child.txt"], "{}", run.json);
+    assert_eq!(run.json["summary"]["files_with_changes"], 2, "{}", run.json);
+    assert_eq!(run.code, exit_code::DIFF_FOUND);
+}

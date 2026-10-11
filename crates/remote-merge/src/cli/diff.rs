@@ -170,6 +170,8 @@ pub fn execute_diff(
     let mut has_read_error = !scan_errors.is_empty();
     let mut errors = scan_errors;
     let mut pending: VecDeque<String> = diff_files.iter().cloned().collect();
+    // 比べる対象に入れたパス。ディレクトリを展開した子が既にあれば、もう一度は入れない
+    let mut queued: HashSet<String> = diff_files.iter().cloned().collect();
     let mut scanned_files = existing_files.len();
     let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
@@ -326,14 +328,17 @@ pub fn execute_diff(
                     }
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
-                    pending.push_back(child_path.clone());
                     absent_sides
                         .insert(child_path.clone(), (left_below_absent, right_below_absent));
                     active_directories.insert(
-                        child_path,
+                        child_path.clone(),
                         (left_ancestors.clone(), right_ancestors.clone()),
                     );
-                    scanned_files += 1;
+                    // 全体の走査で既に比べる対象にある子は、二度比べず二度数えない
+                    if queued.insert(child_path.clone()) {
+                        pending.push_back(child_path);
+                        scanned_files += 1;
+                    }
                 }
                 continue;
             }
@@ -483,13 +488,17 @@ pub fn execute_diff(
                     }
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
-                    pending.push_back(child_path.clone());
-                    absent_sides.insert(child_path, (left_below_absent, right_below_absent));
+                    absent_sides
+                        .insert(child_path.clone(), (left_below_absent, right_below_absent));
                     active_directories.insert(
-                        format!("{path}/{child}"),
+                        child_path.clone(),
                         (left_ancestors.clone(), right_ancestors.clone()),
                     );
-                    scanned_files += 1;
+                    // 全体の走査で既に比べる対象にある子は、二度比べず二度数えない
+                    if queued.insert(child_path.clone()) {
+                        pending.push_back(child_path);
+                        scanned_files += 1;
+                    }
                 }
                 let left_bytes = left_content.ok().flatten();
                 let right_bytes = right_content.ok().flatten();
