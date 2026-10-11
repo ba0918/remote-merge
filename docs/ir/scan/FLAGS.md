@@ -7,7 +7,7 @@
 - related: REQ-scan-002
 - source: docs/decision/records/2026-09-29-adopt-scan-listing.md#A4
 
-旧総合仕様のシンボリックリンクの扱いの節はリンク先を辿らないとし、旧個別仕様 symlink-merge の 3.7 は途中のディレクトリ symlink の配下をツリーの取得で列挙しないとするが、merge と sync のツリーの取得は status と同じ走査を使うため、ローカルと SSH の経路では途中のディレクトリ symlink を辿って配下を列挙する（実装を読んで分かったことで未実行）。
+旧総合仕様のシンボリックリンクの扱いの節はリンク先を辿らないとし、旧個別仕様 symlink-merge の 3.7 は途中のディレクトリ symlink の配下をツリーの取得で列挙しないとするが、merge と sync のツリーの取得は status と同じ走査を使うため、ローカル・SSH・エージェントのどの経路でも途中のディレクトリ symlink を辿って配下を列挙する（実装を読んで分かったことで未実行。エージェントの経路は REQ-scan-011 のとおり辿る）。
 
 ### FLAG-scan-007: ディレクトリを指定した merge と sync の絞り込み
 - kind: contradiction
