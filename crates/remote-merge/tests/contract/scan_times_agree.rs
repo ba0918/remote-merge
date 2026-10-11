@@ -1,6 +1,6 @@
 #![cfg(unix)]
 //! 走査が、読めた更新時刻を既定の値で埋めずに、ローカル・SSH・エージェントのどの経路でも読んだ
-//! とおりの秒とナノ秒で載せること（docs/ir/scan/listing.md の REQ-scan-015）の契約テスト。
+//! とおりの秒とナノ秒で載せること（docs/ir/scan/listing.md の REQ-scan-016）の契約テスト。
 //!
 //! 経路ごとの root_dir と偽サーバは子の一覧の契約テスト（path_operations_agree）のものを使う。
 
@@ -43,9 +43,9 @@ pub(super) fn times_text(scan: Result<Vec<FileNode>, String>) -> String {
     format!("{:?}", times(scan))
 }
 
-// @kotowari[REQ-scan-015]
+// @kotowari[REQ-scan-016]
 #[tokio::test(flavor = "multi_thread")]
-async fn req_scan_015_a_modification_time_before_1970_is_listed_as_read_on_all_three_routes() {
+async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_all_three_routes() {
     let routes = Routes::new(|root, _| {
         fs::write(root.join("old.txt"), "old\n").unwrap();
         set_mtime(&root.join("old.txt"), "@-1000000.25");

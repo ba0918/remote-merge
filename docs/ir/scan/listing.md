@@ -1,6 +1,6 @@
 # 走査の一覧に載るもの
 
-status・diff・merge・sync のツリーの走査が、symlink・root_dir・UTF-8 でない名前をどう一覧に載せるか、root_dir や項目の情報を読めないときにどう止まるか。
+status・diff・merge・sync のツリーの走査が、symlink・root_dir・UTF-8 でない名前・更新時刻をどう一覧に載せるか、root_dir や項目の情報を読めないときにどう止まるか。
 
 ## Requirements
 
@@ -34,6 +34,14 @@ status と diff は、そのファイルを REQ-cli-088 と REQ-cli-089 の読�
 
 root_dir がないか読めないとき、ローカル・SSH・エージェントのどの経路も走査の時点でエラーで止まり、リモートでは "Remote root_dir not found: サーバ名:パス" を出す。symlink のリンク先の文字列か更新時刻を読めないときも、既定の値で埋めずにエラーで止まる。リンク先がないのではなく、ループしているか途中にディレクトリでないものを含むためにリンク先を辿れない symlink があるときも、ディレクトリへの symlink かを決められないので、それを載せずにエラーで止まる（リンク先がない symlink は REQ-scan-006 のとおり載せる）。include の起点がないときは config/include.md の REQ-config-032 による。
 ローカルの root_dir がないか読めないときのエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
+
+### REQ-scan-016: 走査の更新時刻は読んだとおりに載せる
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-12-ssh-output-parsing-consistency-3.md#A1
+- verification: unit
+
+ツリーの走査は、ローカル・SSH・エージェントのどの経路でも、項目の更新時刻を、1970 年より前のものも含めて読んだ値のままナノ秒まで載せる。
+SSH の経路の更新時刻は、リモートの find が出した桁までとし、秒しか出さない find でナノ秒を記録するファイルシステムを走査したときの差は FLAG-scan-015 に残す。
 
 ## Examples
 

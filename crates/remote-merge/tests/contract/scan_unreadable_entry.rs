@@ -1,6 +1,6 @@
 #![cfg(unix)]
-//! エージェントの走査が、項目の更新時刻やメタデータを既定の値で埋めず、読めない項目を飛ばさずに
-//! 止まること（docs/ir/scan/listing.md の REQ-scan-015）の契約テスト。
+//! エージェントの走査が、項目の更新時刻を読んだとおりに載せ（docs/ir/scan/listing.md の
+//! REQ-scan-016）、読めない項目を飛ばさずに止まること（同じく REQ-scan-015）の契約テスト。
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -8,9 +8,9 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use remote_merge::agent::tree_scan::{incomplete_reason, scan_tree, ScanOptions};
 
-// @kotowari[REQ-scan-015]
+// @kotowari[REQ-scan-016]
 #[test]
-fn req_scan_015_the_agent_scan_lists_a_modification_time_before_1970_as_read_instead_of_a_default()
+fn req_scan_016_the_agent_scan_lists_a_modification_time_before_1970_as_read_instead_of_a_default()
 {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("old.txt");
