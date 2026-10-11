@@ -27,11 +27,11 @@ rollback の結果はテキストでは戻したファイルを "✓"、スキ�
 
 ### REQ-backup-038: rollback の終了コード
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations-consistency-3.md#A1
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations-consistency-3.md#A1, docs/decision/records/2026-10-11-permission-copy.md#A4
 - verification: unit
 
-rollback はスキップも失敗もなく一件以上戻したとき 0、スキップか失敗があるか戻したファイルがないとき 2、対象のセッションが見つからないとき 2 を返し、--dry-run と --list は 0 を返す。
-ただし --dry-run でも、`接続断` で書き込み先への処理を止めたとき（REQ-ssh-003・REQ-ssh-023）は 2 を返す。
+rollback はスキップも失敗もなく一件以上戻したとき 0、スキップか失敗があるか戻したファイルがないとき 2、対象のセッションが見つからないとき 2 を返し、--list は 0 を返す。
+--dry-run は、failed がなければ 0、failed があれば実行時と同じく 2 を返す。`接続断` で書き込み先への処理を止めたとき（REQ-ssh-003・REQ-ssh-023）も 2 を返す。
 
 ### REQ-backup-039: 復元先の指定
 - kind: state_driven
@@ -77,4 +77,10 @@ Scenario: セッションの記録が壊れている
 Given 集約先の一つのセッションの記録が解析できない中身に書き換えられている
 When rollback --list を実行する
 Then そのセッションを黙って除いた一覧は出ず、記録のパスと理由を示すエラーで止まる
+
+@id=EX-backup-031 @about=REQ-backup-038 @source=docs/decision/records/2026-10-11-permission-copy.md#A4
+Scenario: failed のある rollback --dry-run
+Given 戻すセッションのファイルのうち一件が、rollback --dry-run の結果で failed に出る状態である
+When rollback --dry-run を実行する
+Then 終了コード 2 を返す
 ```

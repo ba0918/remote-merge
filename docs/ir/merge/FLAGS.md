@@ -2,20 +2,6 @@
 
 ## Flags
 
-### FLAG-merge-002: リモートの読み込み元の権限の複製
-- kind: contradiction
-- related: REQ-merge-014, REQ-merge-012
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A6
-
-REQ-merge-014 は --with-permissions を指定したとき読み込み元のファイル権限を書き込み先に反映するとするが、実装は読み込み元がローカルのときだけ権限を写し、読み込み元がリモートのときは何も知らせずに写さず、新しく作るファイルには設定された権限も付けない。
-
-### FLAG-merge-007: 読み込み元の権限が 0 のときの複製
-- kind: gap
-- related: REQ-merge-014
-- source: docs/decision/records/2026-09-28-merge-write-mutant-flags.md#A1
-
---with-permissions の merge で読み込み元がローカルのとき、実装は読み込み元の権限の値が 0（mode 000）なら書き込み先の権限を変えずに残す。REQ-merge-014 は読み込み元のファイル権限を書き込み先に反映するとし、字のとおり読むと 0 も反映することになるが、IR はこの場合を決めていない。読み込み元は中身を読んだ後に権限を読むため、この違いは読み込みと権限の読み取りの間に読み込み元の権限が 0 に変わったときにだけ起きる。
-
 ### FLAG-merge-012: エージェントの経路の拒否と切り替え
 - kind: contradiction
 - related: REQ-merge-004

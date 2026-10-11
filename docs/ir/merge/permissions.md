@@ -21,7 +21,7 @@
 
 ### REQ-merge-014: 権限の複製は明示する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A40
+- source: docs/decision/records/2026-09-25-spec-migration.md#A40, docs/decision/records/2026-10-11-permission-copy.md#A1
 - verification: unit
 
 --with-permissions を指定したときだけ、読み込み元のファイル権限を書き込み先に反映する。
@@ -35,11 +35,12 @@
 
 ### REQ-merge-037: 権限の複製に失敗したファイルを失敗として出す
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A22
+- source: docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-11-permission-copy.md#A2, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A22
 - verification: unit
 
 --with-permissions を指定した merge と sync が書き込み先の権限の変更に失敗したとき、そのファイルを中身は書いたことが分かる error で failed に出し、終了コード 2 を返す。
 この error は中身を書いたことを示すが、その文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
+読み込み元の権限が分からないとき（走査したツリーに権限の値がない）は、権限を写さず、中身は書いたことと権限を写せなかったことが分かる error で同じく failed に出し、終了コード 2 を返す。
 読み込み元の権限に 0o777 を超えるビット（setuid・setgid・sticky）があるときも、権限を写さず、中身は書いたことと特別なビットのために写さなかったことが分かる error で同じく failed に出し、終了コード 2 を返す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
@@ -105,4 +106,10 @@ Scenario: 読み込み元に setuid がある
 Given ローカルの "run.sh" の権限が 0o4755 で、書き込み先の "run.sh" の権限が 0o644 である
 When --with-permissions で "run.sh" を merge する
 Then 中身は書き込まれ、権限は 0o644 のまま変わらず、"run.sh" は中身は書いたことと特別なビットのために写さなかったことが分かる error で failed に出て、終了コード 2 を返す
+
+@id=EX-merge-056 @about=REQ-merge-014 @source=docs/decision/records/2026-10-11-permission-copy.md#A1
+Scenario: 読み込み元の権限が 0 のファイルを権限ごと写す
+Given 読み込み元の "a.txt" の権限が 0 で、書き込み先の "a.txt" の権限が 0o644 で中身が違う
+When --with-permissions を付けて "a.txt" を merge する
+Then 書き込み先の "a.txt" の権限は 0 になる
 ```
