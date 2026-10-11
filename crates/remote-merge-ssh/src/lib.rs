@@ -7,6 +7,7 @@ pub mod host_key_verifier;
 pub mod passphrase_provider;
 pub mod tree_parser;
 
+pub(crate) mod excluded_branches;
 pub(crate) mod known_hosts;
 pub(crate) mod known_hosts_io;
 pub(crate) mod login_shell;

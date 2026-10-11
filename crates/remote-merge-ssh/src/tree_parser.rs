@@ -31,17 +31,9 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
     let size: Option<u64> = parts[1].parse().ok();
     let mtime_ts: Option<f64> = parts[2].parse().ok();
     let permissions: Option<u32> = u32::from_str_radix(parts[3], 8).ok();
-    let full_path = parts[4];
     let link_target = if parts.len() >= 6 { parts[5] } else { "" };
 
-    // ファイル名を抽出
-    let name = full_path
-        .strip_prefix(base_path)
-        .unwrap_or(full_path)
-        .trim_start_matches('/');
-    if name.is_empty() {
-        return None;
-    }
+    let name = relative_name(parts[4], base_path)?;
 
     // 除外フィルター（相対パス全体でマッチ）
     if filter::is_path_excluded(name, exclude) {
@@ -66,6 +58,19 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
     node.permissions = permissions;
 
     Some(node)
+}
+
+/// `find -printf` の出力行の `base_path` からの相対パス。列が足りない行と `base_path` 自体は None
+pub fn find_line_name<'a>(line: &'a str, base_path: &str) -> Option<&'a str> {
+    relative_name(line.split('\t').nth(4)?, base_path)
+}
+
+fn relative_name<'a>(full_path: &'a str, base_path: &str) -> Option<&'a str> {
+    let name = full_path
+        .strip_prefix(base_path)
+        .unwrap_or(full_path)
+        .trim_start_matches('/');
+    (!name.is_empty()).then_some(name)
 }
 
 /// フラットなノードリスト（相対パス含む名前）から再帰ツリーを構築する

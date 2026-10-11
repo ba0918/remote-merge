@@ -350,11 +350,27 @@ impl AgentFixture {
         remote_root: &Path,
         include: &[&str],
     ) -> Output {
+        self.status_via_agent_with_filter(
+            local_root,
+            remote_root,
+            &format!("include = {include:?}"),
+            &[],
+        )
+    }
+
+    /// 設定に `[filter]` の中身 `filter` を足して status を起動し、出力を返す
+    pub(super) fn status_via_agent_with_filter(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        filter: &str,
+        extra_args: &[&str],
+    ) -> Output {
         let config = format!(
-            "{}\n[filter]\ninclude = {include:?}\n",
+            "{}\n[filter]\n{filter}\n",
             self.config(local_root, remote_root)
         );
-        self.status_via_agent_with_config(config, &[])
+        self.status_via_agent_with_config(config, extra_args)
     }
 
     fn status_via_agent_with_config(&self, config: String, extra_args: &[&str]) -> Output {

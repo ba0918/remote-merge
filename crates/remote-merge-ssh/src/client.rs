@@ -17,13 +17,14 @@ use crate::tree::FileNode;
 
 use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
+use super::excluded_branches::ExcludedBranches;
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
     build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
-    build_write_text_command, parse_find_line, shell_escape,
+    build_write_text_command, find_line_name, parse_find_line, shell_escape,
 };
 use zeroize::Zeroizing;
 
@@ -695,11 +696,17 @@ impl SshClient {
             }
         };
 
+        let excluded = ExcludedBranches::from_find_output(&output, remote_path, exclude);
         let mut flat_nodes = Vec::new();
         let mut truncated = false;
 
         for line in output.lines() {
             if line.trim().is_empty() {
+                continue;
+            }
+            if find_line_name(line, remote_path)
+                .is_some_and(|name| excluded.contains_ancestor_of(name))
+            {
                 continue;
             }
             if flat_nodes.len() >= max_entries {
