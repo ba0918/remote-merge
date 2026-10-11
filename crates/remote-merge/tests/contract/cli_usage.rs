@@ -13,8 +13,13 @@ fn starting_without_a_subcommand_shows_usage_and_writes_nothing() {
         let cwd = home.path().join("cwd");
         fs::create_dir_all(&cwd).unwrap();
 
-        let output = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
-            .env_clear()
+        let mut command = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
+        command.env_clear();
+        // カバレッジの計測中は、計測データの書き出し先を残す（消すと実行ディレクトリに書かれる）
+        if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+            command.env("LLVM_PROFILE_FILE", profile);
+        }
+        let output = command
             .env("HOME", home.path().join("home"))
             .env("XDG_CACHE_HOME", home.path().join("cache"))
             .env("XDG_CONFIG_HOME", home.path().join("config"))
