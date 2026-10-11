@@ -14,3 +14,6 @@ Position: 決定は A1 から順に足していく。
 - A1 名前で指定したディレクトリを diff が展開して比べるときも、件数の上限に当てる件数にはファイルと symlink だけを数え、ディレクトリを数えない。これを [REQ-cli-084](../../ir/cli/diff-strategy.md#REQ-cli-084) に書き足し、展開する子のうち、どちらかの側でディレクトリでないものだけを数える。
   - why: [REQ-scan-010](../../ir/scan/limits.md#REQ-scan-010) は、どの経路の走査も件数にディレクトリを数えないと決め、REQ-cli-084 は diff の上限の超過を走査方式によらず同じに扱うと決めている。展開でだけディレクトリを数える理由は IR にない。測ったこと（使い捨てのテストで、コミットしていない）: 左右に "d/a.txt" と "d/sub/b.txt" を置き（大きさが左右で違う）、`--max-entries 2` で diff を動かすと、パスを指定しないときは上限を超えずに二つの差分を出し、"d" を指定したときは "d/sub" に `Tree scan truncated at 2 entries.` を出して終了コード 2 を返し、"d/sub/b.txt" を比べなかった。
   - decided_by: 一貫性の確認（consistency phase）
+- A2 diff は、"."・"./"・空の値・"/" や glob 文字を含むパスと一緒に名前で指定したパスも、一つずつ比べてフィルタを当てない。root_dir 全体の走査の結果と合わせるとき、名前で指定したパスには一つずつ比べた結果だけを使い、比べるパスは全体の走査と同じくパスの順に並べる。どちらか一方で指定したパスが見つからなくても、もう一方の結果があれば使う。IR は変えない。
+  - why: [REQ-cli-081](../../ir/cli/diff-strategy.md#REQ-cli-081) は、指定したパスの数と走査方式によらず名前で指定したファイルに include と exclude を当てないと決めている。[REQ-cli-052](../../ir/cli/directory-paths.md#REQ-cli-052) は "." があるときに root_dir 全体を比べると決めており、名前で指定したファイルを足しても全体の比べ方は変わらない。測ったこと（使い捨てのテストで、コミットしていない）: exclude "*.log" で左右の "app.log" と "a.txt" の中身を変え、`diff app.log` は "app.log" の差分を出したが、`diff . app.log` は "a.txt" だけを出して "app.log" を警告もなく比べなかった。
+  - decided_by: 一貫性の確認（consistency phase）

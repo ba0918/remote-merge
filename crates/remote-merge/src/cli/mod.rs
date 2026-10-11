@@ -7,6 +7,7 @@ pub mod diff;
 mod diff_children;
 mod diff_kinds;
 mod diff_listing;
+mod diff_scans;
 pub mod logs;
 pub mod merge;
 pub mod ref_guard;

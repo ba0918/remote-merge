@@ -90,21 +90,37 @@ pub fn resolve_scan_strategy(paths: &[String], has_delete_flag: bool) -> ScanStr
     ScanStrategy::FastPath(paths.to_vec())
 }
 
-/// diff のスキャン戦略を判定する純粋関数。
+/// diff の指定したパスの比べ方。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffPaths {
+    /// root_dir 全体を走査して比べるときの、走査に渡すパス（パスの指定がないときは空）。全体を
+    /// 走査しないときは None
+    pub whole: Option<Vec<String>>,
+    /// 一つずつ比べる、名前で指定したパス
+    pub named: Vec<String>,
+}
+
+/// diff の指定したパスを、root_dir 全体の走査で比べるものと、名前で一つずつ比べるものに分ける
+/// 純粋関数。
 ///
-/// diff は名前で指定したパスを、数によらず一つずつ比べる（名前で指定したファイルは中身で比べ、
-/// フィルタを当てない）。パスがないとき、root_dir 全体を指すものや glob 文字を含むものがあるとき
-/// だけ root_dir 全体を走査する。末尾の "/" は呼び出し元で外してある。
-pub fn resolve_diff_scan_strategy(paths: &[String]) -> ScanStrategy {
-    let whole = paths.is_empty()
-        || paths
-            .iter()
-            .any(|p| p.is_empty() || is_root_marker(p) || has_glob_chars(p))
-        || check_path_traversal(paths).is_err();
-    if whole {
-        ScanStrategy::FullScan
-    } else {
-        ScanStrategy::FastPath(paths.to_vec())
+/// diff は名前で指定したパスを、数によらず、root_dir 全体を指すパスと一緒に指定されても一つずつ
+/// 比べる（名前で指定したファイルは中身で比べ、フィルタを当てない）。パスがないとき、root_dir 全体を
+/// 指すものや glob 文字を含むものがあるときは root_dir 全体も走査する。末尾の "/" は呼び出し元で
+/// 外してある。
+pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
+    if paths.is_empty() || check_path_traversal(paths).is_err() {
+        return DiffPaths {
+            whole: Some(paths.to_vec()),
+            named: Vec::new(),
+        };
+    }
+    let (whole, named): (Vec<String>, Vec<String>) = paths
+        .iter()
+        .cloned()
+        .partition(|p| p.is_empty() || is_root_marker(p) || has_glob_chars(p));
+    DiffPaths {
+        whole: (!whole.is_empty()).then_some(whole),
+        named,
     }
 }
 
@@ -155,26 +171,47 @@ pub fn has_root_parent_dir(parent_dirs: &[String]) -> bool {
 mod tests {
     use super::*;
 
-    // ── resolve_diff_scan_strategy ──
+    // ── split_diff_paths ──
+
+    fn strings(paths: &[&str]) -> Vec<String> {
+        paths.iter().map(|path| path.to_string()).collect()
+    }
 
     #[test]
     fn diff_compares_more_than_twenty_named_paths_one_by_one() {
         let paths: Vec<String> = (0..21).map(|i| format!("file_{i}.txt")).collect();
         assert_eq!(
-            resolve_diff_scan_strategy(&paths),
-            ScanStrategy::FastPath(paths.clone())
+            split_diff_paths(&paths),
+            DiffPaths {
+                whole: None,
+                named: paths.clone()
+            }
         );
     }
 
     #[test]
     fn diff_scans_the_whole_root_dir_without_names() {
-        for paths in [vec![], vec![".".to_string()], vec!["a/*.txt".to_string()]] {
+        for paths in [vec![], strings(&["."]), strings(&["a/*.txt"])] {
             assert_eq!(
-                resolve_diff_scan_strategy(&paths),
-                ScanStrategy::FullScan,
+                split_diff_paths(&paths),
+                DiffPaths {
+                    whole: Some(paths.clone()),
+                    named: Vec::new()
+                },
                 "{paths:?}"
             );
         }
+    }
+
+    #[test]
+    fn diff_compares_names_beside_the_root_dir_one_by_one() {
+        assert_eq!(
+            split_diff_paths(&strings(&[".", "app.log", "a/*.txt"])),
+            DiffPaths {
+                whole: Some(strings(&[".", "a/*.txt"])),
+                named: strings(&["app.log"])
+            }
+        );
     }
 
     // ── resolve_scan_strategy ──

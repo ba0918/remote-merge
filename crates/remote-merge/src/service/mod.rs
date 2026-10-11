@@ -34,8 +34,8 @@ pub mod types;
 pub mod unreadable_names;
 
 pub use fast_path::{
-    fast_path_to_parent_dirs, has_root_parent_dir, resolve_diff_scan_strategy,
-    resolve_scan_strategy, ScanStrategy,
+    fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, split_diff_paths,
+    DiffPaths, ScanStrategy,
 };
 pub use output::{format_json, OutputFormat};
 pub use source_pair::{resolve_source_pair, SourceArgs, SourcePair};

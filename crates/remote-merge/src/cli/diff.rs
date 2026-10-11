@@ -4,6 +4,7 @@ use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
 use crate::cli::diff_children::children_to_expand;
 use crate::cli::diff_kinds::{directory_against_file, FileSide};
 use crate::cli::diff_listing::{self, ReferenceKind};
+use crate::cli::diff_scans::{combine, DiffScanResult, PathsNotFound, PlainFileSizes};
 use crate::cli::ref_guard;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
@@ -26,6 +27,7 @@ use crate::service::path_resolver::{
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
 };
+use crate::service::split_diff_paths;
 use crate::service::status::{
     compute_status_from_trees, needs_content_compare, refine_status_with_content,
     status_from_read_results,
@@ -35,31 +37,12 @@ use crate::service::types::{
     MultiDiffSummary,
 };
 use crate::service::unreadable_names::requested_unreadable_names;
-use crate::service::{resolve_diff_scan_strategy, ScanStrategy};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
 use remote_merge_engine::local_io::ScanTruncated;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-
-/// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
-/// plain_file_sizes, read_errors）。plain_file_sizes は diff_files のうち、中身を読む前に通常の
-/// ファイルと分かっているパスの左右の大きさ（ない側は None）。--max-files の枠が埋まった後に
-/// 読まずに数えてよいかの判定に使う。read_errors は名前で指定したファイルの状態を決めるために
-/// 中身を読めなかったパスで、diff_files には入れない。
-type DiffScanResult = (
-    FileTree,
-    FileTree,
-    Vec<FileStatus>,
-    Vec<String>,
-    Vec<String>,
-    PlainFileSizes,
-    Vec<DiffError>,
-);
-
-/// パスごとの、通常のファイルとしてある側の大きさ（左, 右）
-type PlainFileSizes = HashMap<String, (Option<u64>, Option<u64>)>;
 
 /// diff サブコマンドの引数
 pub struct DiffArgs {
@@ -132,29 +115,32 @@ pub fn execute_diff(
     let left_root = real_root_dir(&mut core, &pair.left, &config)?;
     let right_root = real_root_dir(&mut core, &pair.right, &config)?;
 
-    // 名前で指定したパスは一つずつ比べ、それ以外は root_dir 全体を走査する
+    // 名前で指定したパスは一つずつ比べ、root_dir 全体を指すものがあれば全体も走査する
     let limit = SizeLimit::from_force(args.force);
+    let paths = split_diff_paths(&args.paths);
+    let whole = paths.whole.as_ref().map(|whole| {
+        run_diff_full_scan(
+            whole,
+            &pair.left,
+            &pair.right,
+            &mut core,
+            max_entries,
+            limit,
+        )
+    });
+    let named = (!paths.named.is_empty()).then(|| {
+        run_diff_fast_path(
+            &paths.named,
+            (&pair.left, &left_root),
+            (&pair.right, &right_root),
+            &mut core,
+            &config,
+            args.follow_external_links,
+            limit,
+        )
+    });
     let (left_tree, right_tree, _, existing_files, diff_files, plain_file_sizes, scan_errors) =
-        if let ScanStrategy::FastPath(target_paths) = resolve_diff_scan_strategy(&args.paths) {
-            run_diff_fast_path(
-                &target_paths,
-                (&pair.left, &left_root),
-                (&pair.right, &right_root),
-                &mut core,
-                &config,
-                args.follow_external_links,
-                limit,
-            )?
-        } else {
-            run_diff_full_scan(
-                &args.paths,
-                &pair.left,
-                &pair.right,
-                &mut core,
-                max_entries,
-                limit,
-            )?
-        };
+        combine(whole, named, &paths.named)?;
 
     // Ref server handling
     let ref_side = resolve_ref_source(args.ref_server.as_deref(), &config)?;
@@ -986,7 +972,7 @@ fn run_diff_fast_path(
     }
 
     if existing.is_empty() && read_errors.is_empty() && !target_paths.is_empty() {
-        anyhow::bail!("specified path(s) not found on either side");
+        return Err(PathsNotFound.into());
     }
 
     let diff_files = filter_changed_files(&existing, &statuses);
@@ -1163,7 +1149,7 @@ fn compute_statuses_and_resolve(
     }
 
     if existing_files.is_empty() && empty_directories.is_empty() && !paths.is_empty() {
-        anyhow::bail!("specified path(s) not found on either side");
+        return Err(PathsNotFound.into());
     }
 
     // 走査は指定の外のファイルも読み比べるので、誤りは指定したパスに当たるものだけにする

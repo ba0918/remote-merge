@@ -68,3 +68,20 @@ fn ex_cli_074_an_excluded_file_under_a_named_directory_or_the_root_dir_is_not_co
         assert_eq!(run.paths(), vec!["logs/keep.txt"], "{paths:?}");
     }
 }
+
+// root_dir 全体を指す "." と一緒に名前で指定したファイルにも、フィルタを当てずに比べる
+// @kotowari[REQ-cli-081]
+#[test]
+fn req_cli_081_an_excluded_file_named_beside_the_root_dir_is_compared() {
+    let fixture = Fixture::new("exclude = [\"*.log\"]");
+    place_files(fixture.left(), &[("app.log", "left\n"), ("a.txt", "l\n")]);
+    place_files(
+        fixture.right(),
+        &[("app.log", "right\n"), ("a.txt", "rr\n")],
+    );
+
+    let run = fixture.diff(&strings(&[".", "app.log"]), None);
+
+    assert_eq!(run.paths(), vec!["a.txt", "app.log"], "{}", run.json);
+    assert_eq!(run.code, exit_code::DIFF_FOUND);
+}
