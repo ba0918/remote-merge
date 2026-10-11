@@ -21,3 +21,7 @@ Position: A1〜A3 を反映した。
 - A3 [FLAG-scan-007](../../ir/scan/FLAGS.md) に、ファイルのパスを指定した merge と sync も、親ディレクトリの下の走査で "/" を含む exclude を親ディレクトリからの相対パスに当て、パスのパターンで除外したディレクトリの下のファイルを書き込むことを加え、見出しを「パスを指定した」に広げる。
   - why: A1 の確かめで、exclude "a/vendor" の設定で SSH の経路の `merge a/vendor/x.txt` が "a/vendor/x.txt" を書き込んだ（`an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_would_hide` の exclude を "a/vendor" にした一時的な変更で `cargo nextest run --all-features -E 'test(an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_would_hide)'` が PASS し、テストは書き込んだ中身を確かめている）。これは [REQ-config-022](../../ir/config/filters.md#REQ-config-022) と [REQ-config-003](../../ir/config/filters.md#REQ-config-003) に反するが、FLAG-scan-007 はディレクトリのパスを指定した場合だけを書いていた。走査の起点は、SSH が `list_tree_recursive` の `remote_path`（この単位で変えた `ExcludedBranches::from_find_output` も同じ起点を使う）、ローカルが `crates/remote-merge-engine/src/local_io.rs` の `fetch_tree_for_subpath` の `scan_root`、エージェントが `crates/remote-merge/src/runtime/side_io.rs` の `try_agent_fetch_tree_for_subpath` が渡す `subpath` で、三つの経路とも指定したパスの親ディレクトリからの相対パスに当てる。経路差はない。ローカルとエージェントは実装を読んで分かったことで、実行はしていない。直すのは TBL-scan-001 の走査の範囲にかかわり、この単位の計画の範囲の外なので、FLAG に残す。
   - decided_by: 整合の段（consistency phase）
+
+## Revisions
+
+- 2026-10-11: A3 の why の確かめは、ファイルを元の側にだけ置いていたため、ローカルの経路の走査を観測したものだった。三つの経路で測り直した結果と FLAG-scan-007 の本文の改めは [scan-route-parity-consistency-2 A1](./2026-10-11-scan-route-parity-consistency-2.md#A1) に残す。
