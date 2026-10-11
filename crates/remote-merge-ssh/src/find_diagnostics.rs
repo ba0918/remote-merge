@@ -1,15 +1,18 @@
 //! 走査の find が失敗したとき、失敗したのが exclude で除くパスだけかを見分ける
 //! （docs/ir/config/filters.md の REQ-config-021・REQ-config-022）。
 //!
-//! ローカルとエージェントの走査は exclude に当たったディレクトリの下へ降りないので、その下の
-//! 循環する symlink や読めないディレクトリでは失敗しない。SSH の find は `find_prune` で刈り込める
-//! パターンなら降りないが、刈り込めないパターンでは降りて失敗する。その失敗が、除くパスだけで
-//! 起きたと言えるときに限り、走査を成功として扱う。
+//! ローカルとエージェントの走査は exclude に当たったディレクトリの下へ降りず、exclude に当たる
+//! symlink のリンク先を辿れなくても失敗しない。SSH の find は `find_prune` で刈り込めるパターンなら
+//! 降りないが、刈り込めないパターンでは降りて失敗し、`-L` では刈り込む前にリンク先を辿るので、
+//! exclude に当たる symlink 自体でも失敗する。その失敗が、除くパスだけで起きたと言えるときに限り、
+//! 走査を成功として扱う。
 //!
-//! 見分けるのは GNU findutils が C ロケールで出す次の二つの文言だけで、標準エラーの行が一つでも
+//! 見分けるのは GNU findutils が C ロケールで出す次の文言だけで、標準エラーの行が一つでも
 //! これに当たらないか、どれかのパスが root_dir の外か除かれないなら、今までどおり失敗にする:
 //!
 //! - `find: 'P': Permission denied`
+//! - `find: 'P': Not a directory`（途中にディレクトリでないものを含むリンク先の symlink）
+//! - `find: 'P': Too many levels of symbolic links`（ループしている symlink）
 //! - `find: File system loop detected; 'P' is part of the same file system loop as 'Q'.`
 //!
 //! パスの引用の中の "\" の逃がしは、GNU find が C ロケールで出す形（`\'`・`\\`・制御文字の
@@ -19,7 +22,12 @@
 use crate::filter;
 
 const PREFIX: &str = "find: ";
-const PERMISSION_DENIED: &str = ": Permission denied";
+/// 引用したパスの後ろに続く、見分ける診断の文言
+const PATH_FAILURES: [&str; 3] = [
+    ": Permission denied",
+    ": Not a directory",
+    ": Too many levels of symbolic links",
+];
 const LOOP_HEAD: &str = "File system loop detected; ";
 const LOOP_MIDDLE: &str = " is part of the same file system loop as ";
 
@@ -79,7 +87,7 @@ fn diagnostic_path(line: &str) -> Option<String> {
         return (rest == ".").then_some(path);
     }
     let (path, rest) = quoted(body)?;
-    (rest == PERMISSION_DENIED).then_some(path)
+    PATH_FAILURES.contains(&rest).then_some(path)
 }
 
 /// 先頭の `'...'` の中身と、その後ろを返す。逃がしを戻した中身が UTF-8 として読めなければ None
@@ -214,6 +222,26 @@ mod tests {
                 "{pattern}"
             );
         }
+    }
+
+    /// findutils 4.9.0・4.10.0 が、リンク先を辿れない symlink（ループしている、途中にディレクトリで
+    /// ないものを含む）に出す診断
+    const UNRESOLVABLE_LINKS: &str = "find: '/r/a': Too many levels of symbolic links\n\
+                                      find: '/r/n': Not a directory\n\
+                                      find: '/r/d/n': Not a directory\n";
+
+    #[test]
+    fn an_unresolvable_symlink_that_is_excluded_or_below_an_excluded_directory_is_accepted() {
+        assert!(only_excluded_paths_failed(
+            UNRESOLVABLE_LINKS,
+            "/r",
+            &exclude(&["a", "n", "[d]"])
+        ));
+        assert!(!only_excluded_paths_failed(
+            UNRESOLVABLE_LINKS,
+            "/r",
+            &exclude(&["a", "[d]"])
+        ));
     }
 
     #[test]
