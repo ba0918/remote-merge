@@ -85,3 +85,20 @@ fn req_cli_081_an_excluded_file_named_beside_the_root_dir_is_compared() {
     assert_eq!(run.paths(), vec!["a.txt", "app.log"], "{}", run.json);
     assert_eq!(run.code, exit_code::DIFF_FOUND);
 }
+
+// root_dir 全体を指す "." と一緒に "./" で始まる形で名前を指定しても、同じファイルを一度だけ示して
+// 一度だけ数える
+// @kotowari[REQ-cli-052, REQ-cli-081]
+#[test]
+fn req_cli_081_a_file_named_beside_the_root_dir_in_another_form_is_shown_once() {
+    let fixture = Fixture::new("");
+    place_files(fixture.left(), &[("a.txt", "l\n"), ("d/x.txt", "l\n")]);
+    place_files(fixture.right(), &[("a.txt", "rr\n"), ("d/x.txt", "rr\n")]);
+
+    let run = fixture.diff(&strings(&[".", "./a.txt", "./d"]), None);
+
+    assert_eq!(run.paths().len(), 2, "{}", run.json);
+    assert_eq!(run.json["summary"]["files_with_changes"], 2, "{}", run.json);
+    assert_eq!(run.json["summary"]["scanned_files"], 2, "{}", run.json);
+    assert_eq!(run.code, exit_code::DIFF_FOUND);
+}

@@ -106,7 +106,8 @@ pub struct DiffPaths {
 /// diff は名前で指定したパスを、数によらず、root_dir 全体を指すパスと一緒に指定されても一つずつ
 /// 比べる（名前で指定したファイルは中身で比べ、フィルタを当てない）。パスがないとき、root_dir 全体を
 /// 指すものや glob 文字を含むものがあるときは root_dir 全体も走査する。末尾の "/" は呼び出し元で
-/// 外してある。
+/// 外してある。root_dir 全体も走査するときは、名前で指定したパスを走査の結果と同じ形（"." の要素と
+/// 続いた "/" を除いた形）にそろえ、同じファイルを二つの形で示さない。
 pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
     if paths.is_empty() || check_path_traversal(paths).is_err() {
         return DiffPaths {
@@ -118,10 +119,27 @@ pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
         .iter()
         .cloned()
         .partition(|p| p.is_empty() || is_root_marker(p) || has_glob_chars(p));
-    DiffPaths {
-        whole: (!whole.is_empty()).then_some(whole),
-        named,
+    if whole.is_empty() {
+        return DiffPaths { whole: None, named };
     }
+    let mut scanned_form: Vec<String> = Vec::new();
+    for path in named.iter().map(|path| as_scanned(path)) {
+        if !scanned_form.contains(&path) {
+            scanned_form.push(path);
+        }
+    }
+    DiffPaths {
+        whole: Some(whole),
+        named: scanned_form,
+    }
+}
+
+/// 走査の結果と同じ形のパス。"." の要素と、続いた "/" を除く
+fn as_scanned(path: &str) -> String {
+    path.split('/')
+        .filter(|element| !element.is_empty() && *element != ".")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// パスが "." や "./" などのルートマーカーかどうかを判定する。
@@ -210,6 +228,24 @@ mod tests {
             DiffPaths {
                 whole: Some(strings(&[".", "a/*.txt"])),
                 named: strings(&["app.log"])
+            }
+        );
+    }
+
+    #[test]
+    fn names_beside_the_root_dir_take_the_form_of_the_scanned_paths() {
+        assert_eq!(
+            split_diff_paths(&strings(&[".", "./a.txt", "d//./b.txt", "a.txt"])),
+            DiffPaths {
+                whole: Some(strings(&["."])),
+                named: strings(&["a.txt", "d/b.txt"])
+            }
+        );
+        assert_eq!(
+            split_diff_paths(&strings(&["./a.txt"])),
+            DiffPaths {
+                whole: None,
+                named: strings(&["./a.txt"])
             }
         );
     }
