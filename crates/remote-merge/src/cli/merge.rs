@@ -323,6 +323,16 @@ pub fn execute_merge(
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
+        // 実行時に書く前の確認で失敗するパスは、同じ失敗として出す（REQ-cli-091）
+        let path_failures = crate::service::preview_paths::preview_path_failures(
+            &mut core,
+            &pair.right,
+            &right_tree,
+            &plan.files,
+        );
+        plan.files
+            .retain(|path| !path_failures.iter().any(|failure| failure.path == *path));
+        failed.extend(path_failures);
         // dry-run: 削除対象を "would delete" として表示
         let dry_deleted: Vec<DeleteFileResult> = delete_targets
             .iter()

@@ -25,6 +25,7 @@ pub mod merge_reference_reads;
 pub mod output;
 pub mod path_resolver;
 pub mod permission_copy;
+pub mod preview_paths;
 pub mod rollback;
 pub mod source_pair;
 pub mod status;

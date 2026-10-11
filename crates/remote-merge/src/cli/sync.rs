@@ -283,6 +283,19 @@ pub fn execute_sync(
 
     // dry-run: 計画を出力して終了
     if args.dry_run {
+        // 実行時に書く前の確認で失敗するパスは、同じ失敗として出す（REQ-cli-091）
+        for sp in &mut server_plans {
+            let path_failures = crate::service::preview_paths::preview_path_failures(
+                &mut core,
+                &sp.pair.right,
+                &sp.right_tree,
+                &sp.plan.files,
+            );
+            sp.plan
+                .files
+                .retain(|path| !path_failures.iter().any(|failure| failure.path == *path));
+            sp.compare_failures.extend(path_failures);
+        }
         let targets = build_dry_run_targets(&server_plans, &connection_failures);
         let summary = compute_sync_summary(&targets);
         let output = SyncOutput {

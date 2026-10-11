@@ -8,6 +8,7 @@ pub mod merge_flow;
 pub mod merge_reference;
 pub mod merge_reference_reads;
 pub mod path_resolver;
+pub mod preview_paths;
 pub mod rollback;
 pub mod status;
 pub mod status_ref_badge;
