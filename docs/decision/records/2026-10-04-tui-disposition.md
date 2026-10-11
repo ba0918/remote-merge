@@ -23,6 +23,7 @@ TUI は WebView 方式への移行を想定して凍結中だが、製品 crate 
 - A5 TUI だけが使う設定 badge_scan_max_files は、読み込みを止めずに受け付けて使わないことを一度だけ警告する。テーマを保存する state.toml は読み書きをやめ、既存のファイルは消さない。
   - why: 既存の設定ファイルを壊さず、効かなくなったことに気づけるようにする（機密の設定と同じ扱い）。利用者のファイルを勝手に消さない。
   - decided_by: user (took the recommendation)
+  - superseded_by: [drop-compat A1](./2026-10-11-drop-compat.md#A1)
 - A6 Web（WebView 方式）はこの判断では扱わず、TUI を除いた後に改めて決める。
   - why: 何を作るかは TUI の扱いと独立に決められ、今の TUI の状態管理を引き継ぐ前提も置かない。
   - decided_by: user (took the recommendation)
