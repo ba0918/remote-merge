@@ -409,6 +409,43 @@ fn ex_backup_031_dry_run_text_shows_the_failed_path_and_its_error() {
     assert!(failed.contains(&failure.error), "{text}");
 }
 
+// @kotowari[REQ-backup-037]
+#[test]
+fn dry_run_text_marks_the_planned_and_skipped_files_without_a_summary() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("gone")).unwrap();
+    fs::create_dir(develop.path().join("gone")).unwrap();
+    for path in ["kept.txt", "gone/skipped.txt"] {
+        fs::write(local.path().join(path), "merged\n").unwrap();
+        fs::write(develop.path().join(path), "original\n").unwrap();
+    }
+    let config = config(&local, &develop, true);
+    let mut merge = merge_args("kept.txt");
+    merge.paths = vec!["kept.txt".into(), "gone/skipped.txt".into()];
+    let merged = merge_files(merge, config.clone(), targets(&develop, &store));
+    assert_eq!(merged.merged.len(), 2, "{merged:?}");
+    fs::remove_dir_all(develop.path().join("gone")).unwrap();
+    let mut args = rollback_args("develop", None);
+    args.dry_run = true;
+    let result = execute_rollback(args, config, targets(&develop, &store)).unwrap();
+    let RollbackCommandOutput::DryRun { output, .. } = result.output else {
+        panic!("expected dry-run output")
+    };
+
+    let text = format_rollback_dry_run_text(&output);
+
+    assert!(
+        line_for(&text, "kept.txt").starts_with("\u{2713} kept.txt"),
+        "{text}"
+    );
+    let skipped = line_for(&text, "gone/skipped.txt");
+    assert!(skipped.starts_with("- gone/skipped.txt"), "{text}");
+    assert!(skipped.contains(&output.skipped[0].reason), "{text}");
+    assert!(!text.contains("Restored"), "{text}");
+}
+
 // @kotowari[REQ-backup-039]
 #[test]
 fn target_is_required_except_for_list_which_defaults_to_local() {
