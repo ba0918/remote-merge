@@ -23,6 +23,12 @@ const PERMISSION_DENIED: &str = ": Permission denied";
 const LOOP_HEAD: &str = "File system loop detected; ";
 const LOOP_MIDDLE: &str = " is part of the same file system loop as ";
 
+/// 走査の find の終了コード `exit_code` と標準エラー `stderr` から、走査が失敗したか。
+/// exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく失敗にしない
+pub fn scan_failed(exit_code: u32, stderr: &str, base_path: &str, exclude: &[String]) -> bool {
+    exit_code != 0 && !(exit_code == 1 && only_excluded_paths_failed(stderr, base_path, exclude))
+}
+
 /// 標準エラー `stderr` の行がすべて、`base_path` の下で exclude に当たるパス（かその下のパス）を
 /// 辿れなかったという find の診断で、そうした行が一つ以上あるか
 pub fn only_excluded_paths_failed(stderr: &str, base_path: &str, exclude: &[String]) -> bool {

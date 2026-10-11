@@ -741,13 +741,10 @@ impl SshClient {
             }
         };
         let stderr = String::from_utf8_lossy(&result.stderr);
-        // exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく成功にする
+        if find_diagnostics::scan_failed(result.exit_code, &stderr, remote_path, exclude) {
+            anyhow::bail!(exec_failure(&command, result.exit_code, &stderr));
+        }
         if result.exit_code != 0 {
-            let excluded_only = result.exit_code == 1
-                && find_diagnostics::only_excluded_paths_failed(&stderr, remote_path, exclude);
-            if !excluded_only {
-                anyhow::bail!(exec_failure(&command, result.exit_code, &stderr));
-            }
             tracing::debug!(
                 target: "remote_merge::ssh::client",
                 "Recursive scan: ignored find errors below excluded paths: {}",
