@@ -1,43 +1,55 @@
 //! --dry-run で、書き込み先のパスの確認が要るパスを選び、確認の回数をまとめる判定。
 //!
 //! 実行時は、比べたときの書き込み先のツリーにないパスを書く前に、書き込み先でパスを確かめる。
-//! 途中の祖先がディレクトリでなければ、そこで "not a directory" の失敗になる。
-//! --dry-run でも同じ失敗を出すため、その確認で失敗しうるパスだけを選ぶ。
-//! ツリーにない同じ祖先の下のパスは、その祖先を確かめる問い合わせを一度だけにするため、
-//! 祖先ごとにまとめる。まとめるのは問い合わせだけで、各パスの結果は実行時と同じ確認の手順で決める。
+//! --dry-run でも同じ失敗を出すため、同じパスを同じ手順で確かめる。
+//! 同じ場所の下のパスは、その場所を確かめる問い合わせを一度だけにするため、まとめる。
+//! まとめるのは問い合わせだけで、各パスの結果は実行時と同じ確認の手順で決める。
 
 use std::path::Path;
 
 use crate::tree::FileTree;
 
+/// 組の中で先に一度だけ確かめるもの
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewProbe {
+    /// ツリーにあってディレクトリでない祖先の下。パスを一つずつ確かめる
+    EachPath,
+    /// ツリーにない最初の祖先。祖先がないと分かれば、その確認の結果と残りの要素から
+    /// 各パスの結果を求め、祖先があれば各パスを確かめる
+    Ancestor(String),
+    /// 祖先がすべてツリーで分かるディレクトリで、親が `parent` のパス。最初のパスを確かめ、
+    /// ないと分かれば、その確認の結果と名前から残りのパスの結果を求める
+    FirstChild { parent: String },
+}
+
 /// 確認をまとめる単位
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewGroup {
-    /// 先に一度だけ確かめる、ツリーにない最初の祖先。ツリーにあってディレクトリでない
-    /// 祖先の下では None で、パスを一つずつ確かめる。祖先がないと分かれば、その確認の結果と
-    /// 残りの要素から各パスの結果を求め、祖先があれば各パスを確かめる
-    pub probe: Option<String>,
+    pub probe: PreviewProbe,
     /// まとめたパス
     pub paths: Vec<String>,
 }
 
-/// 書き込み先のツリーにないパスのうち、祖先がツリーで分かるディレクトリ
-/// （かディレクトリへの symlink）だけではないものを、ディレクトリと分からない最初の祖先ごとに
-/// まとめる純粋関数。祖先がすべてツリーにあるディレクトリなら、確かめても失敗しないので選ばない
+/// 書き込み先のツリーにないパスを、先に確かめるものが同じ組にまとめる純粋関数。
+/// ツリーにあるパスは、実行時も書く前のパスの確認をしないので選ばない
 pub fn preview_groups(paths: &[String], target_tree: &FileTree) -> Vec<PreviewGroup> {
     let mut groups: Vec<PreviewGroup> = Vec::new();
     for path in paths {
         if target_tree.find_node(Path::new(path.as_str())).is_some() {
             continue;
         }
-        let Some(ancestor) = first_unknown_ancestor(path, target_tree) else {
-            continue;
+        let probe = match first_unknown_ancestor(path, target_tree) {
+            Some(ancestor) if target_tree.find_node(Path::new(ancestor)).is_none() => {
+                PreviewProbe::Ancestor(ancestor.to_string())
+            }
+            Some(_) => PreviewProbe::EachPath,
+            None => PreviewProbe::FirstChild {
+                parent: path
+                    .rfind('/')
+                    .map_or("", |index| &path[..index])
+                    .to_string(),
+            },
         };
-        let probe = target_tree
-            .find_node(Path::new(ancestor))
-            .is_none()
-            .then(|| ancestor.to_string());
-        // 一つずつ確かめるパス（probe が None）は一つの組にまとめる
         match groups.iter_mut().find(|group| group.probe == probe) {
             Some(group) => group.paths.push(path.clone()),
             None => groups.push(PreviewGroup {
@@ -84,7 +96,7 @@ mod tests {
         assert_eq!(
             preview_groups(&paths(&["x/a.txt", "x/b.txt"]), &target),
             [PreviewGroup {
-                probe: None,
+                probe: PreviewProbe::EachPath,
                 paths: paths(&["x/a.txt", "x/b.txt"]),
             }]
         );
@@ -101,11 +113,11 @@ mod tests {
             preview_groups(&planned, &target),
             [
                 PreviewGroup {
-                    probe: Some("newdir".into()),
+                    probe: PreviewProbe::Ancestor("newdir".into()),
                     paths: many,
                 },
                 PreviewGroup {
-                    probe: Some("dir/other".into()),
+                    probe: PreviewProbe::Ancestor("dir/other".into()),
                     paths: paths(&["dir/other/g.txt"]),
                 },
             ]
@@ -113,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn paths_present_or_under_known_directories_are_not_inspected() {
+    fn paths_under_known_directories_share_one_probe_per_parent() {
         let mut link = FileNode::new_symlink("linked", "/shared");
         link.link_is_dir = true;
         let target = tree(vec![
@@ -129,10 +141,32 @@ mod tests {
                 "linked/new.txt",
                 "top.txt",
                 "new.txt",
+                "dir/other.txt",
+                "linked/other.txt",
             ]),
             &target,
         );
 
-        assert!(groups.is_empty(), "{groups:?}");
+        assert_eq!(
+            groups,
+            [
+                PreviewGroup {
+                    probe: PreviewProbe::FirstChild {
+                        parent: "dir".into()
+                    },
+                    paths: paths(&["dir/new.txt", "dir/other.txt"]),
+                },
+                PreviewGroup {
+                    probe: PreviewProbe::FirstChild {
+                        parent: "linked".into()
+                    },
+                    paths: paths(&["linked/new.txt", "linked/other.txt"]),
+                },
+                PreviewGroup {
+                    probe: PreviewProbe::FirstChild { parent: "".into() },
+                    paths: paths(&["new.txt"]),
+                },
+            ]
+        );
     }
 }

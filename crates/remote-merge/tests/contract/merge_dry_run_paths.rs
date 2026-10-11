@@ -135,3 +135,65 @@ fn sync_previews_a_destination_path_that_is_too_long_as_the_same_failure() {
         assert_failed_as_path_too_long(&format!("dry_run={dry_run}"), &json["targets"][0], code);
     }
 }
+
+/// 書き込み先の "deep" を、実パスが 4085 バイトのディレクトリへの symlink にし、その直下に
+/// 読み込み元の "deep/a" と "deep/longname.txt" を置く。"deep" は書き込み先のツリーに
+/// ディレクトリへの symlink として載り、"deep/a" は 4087 バイトで上限に届かず、
+/// "deep/longname.txt" は 4098 バイトで上限の 4096 バイトを超える
+fn destination_child_too_long() -> (Fixture, tempfile::TempDir) {
+    let outside = tempfile::TempDir::new().unwrap();
+    let real = std::fs::canonicalize(outside.path()).unwrap();
+    let deep = deep_directory(&real, 4085);
+    let fixture = fixture();
+    fixture.create_dir("local", "deep");
+    fixture.write("local", "deep/a", "incoming\n");
+    fixture.write("local", "deep/longname.txt", "incoming\n");
+    fixture.symlink("develop", "deep", deep.to_str().unwrap());
+    (fixture, outside)
+}
+
+/// "deep/longname.txt" だけが長すぎる失敗に出て、"deep/a" は書く（予定に出る）ことを確かめる
+fn assert_only_the_long_child_failed(label: &str, result: &serde_json::Value, code: i32) {
+    let failed = result["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{label}: {result}");
+    assert_eq!(failed[0]["path"], "deep/longname.txt", "{label}: {result}");
+    assert_eq!(failed[0]["error"], PATH_TOO_LONG, "{label}: {result}");
+    let merged: Vec<&str> = result["merged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(merged, ["deep/a"], "{label}: {result}");
+    assert_eq!(code, 2, "{label}: {result}");
+}
+
+// @kotowari[REQ-cli-091, REQ-paths-003, REQ-paths-011, EX-paths-039]
+#[test]
+fn merge_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() {
+    for dry_run in [true, false] {
+        let (fixture, _outside) = destination_child_too_long();
+
+        let (json, code) = fixture.merge_json(MergeArgs {
+            dry_run,
+            ..args(&["."])
+        });
+
+        assert_only_the_long_child_failed(&format!("dry_run={dry_run}"), &json, code);
+    }
+}
+
+// @kotowari[REQ-cli-091, REQ-paths-003, REQ-paths-011]
+#[test]
+fn sync_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() {
+    for dry_run in [true, false] {
+        let (fixture, _outside) = destination_child_too_long();
+
+        let (json, code) = fixture.sync_json(SyncArgs {
+            dry_run,
+            ..sync_args(&["."])
+        });
+
+        assert_only_the_long_child_failed(&format!("dry_run={dry_run}"), &json["targets"][0], code);
+    }
+}
