@@ -36,9 +36,6 @@ pub struct AppConfig {
 #[derive(Debug, Clone)]
 pub struct LocalConfig {
     pub root_dir: PathBuf,
-    /// 設定に書いた root_dir。"~/" はホームに展開し、設定ファイルの場所にはつながない。
-    /// 以前の版がバックアップの書き込み先の識別に使った値を求めるためだけに持つ（REQ-backup-043）
-    pub root_dir_as_written: PathBuf,
 }
 
 /// フィルター設定
@@ -181,7 +178,6 @@ impl Default for LocalConfig {
     fn default() -> Self {
         Self {
             root_dir: PathBuf::from("."),
-            root_dir_as_written: PathBuf::from("."),
         }
     }
 }
@@ -495,7 +491,6 @@ fn merge_configs(
     }
     let local = LocalConfig {
         root_dir: resolve_local_root(&local_raw.root_dir, &local_raw.config_path)?,
-        root_dir_as_written: expand_tilde(&local_raw.root_dir),
     };
 
     // filter: 和集合でマージ

@@ -61,15 +61,6 @@ pub fn local_target_identity(
     identity_from_startup_directory(&config.root_dir, startup_directory)
 }
 
-/// 以前の版がローカルの書き込み先の識別に使った値。設定に書いた root_dir を、相対なら設定読み込み時の
-/// カレントディレクトリにつなぎ、どちらも正規化しない（REQ-backup-043）
-pub fn previous_local_target_identity(
-    config: &LocalConfig,
-    startup_directory: &Path,
-) -> LocalTargetIdentity {
-    identity_from_startup_directory(&config.root_dir_as_written, startup_directory)
-}
-
 fn identity_from_startup_directory(
     root_dir: &Path,
     startup_directory: &Path,
@@ -255,7 +246,6 @@ mod tests {
     fn relative_local_root_is_resolved_from_startup_directory() {
         let config = LocalConfig {
             root_dir: PathBuf::from("project"),
-            root_dir_as_written: PathBuf::from("project"),
         };
 
         assert_eq!(
@@ -273,7 +263,6 @@ mod tests {
         std::os::unix::fs::symlink(&release, temp.path().join("current")).unwrap();
         let config = LocalConfig {
             root_dir: PathBuf::from("current"),
-            root_dir_as_written: PathBuf::from("current"),
         };
 
         assert_eq!(
