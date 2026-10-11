@@ -51,7 +51,7 @@ enum Commands {
         #[arg(long)]
         right: Option<String>,
         /// Reference server for 3-way comparison (shows [ref≠] badges and ref vs left diff)
-        #[arg(long, alias = "reference")]
+        #[arg(long)]
         r#ref: Option<String>,
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
@@ -82,7 +82,7 @@ enum Commands {
         #[arg(long)]
         right: Option<String>,
         /// Reference server for 3-way comparison (shows ref vs left diff and conflicts)
-        #[arg(long, alias = "reference")]
+        #[arg(long)]
         r#ref: Option<String>,
         /// Output format (text, json)
         #[arg(long, default_value = "text")]
@@ -116,7 +116,7 @@ enum Commands {
         #[arg(long)]
         right: Option<String>,
         /// Reference server for 3-way comparison (shows [ref≠] badges)
-        #[arg(long, alias = "reference")]
+        #[arg(long)]
         r#ref: Option<String>,
         /// Preview merge without writing files
         #[arg(long)]
