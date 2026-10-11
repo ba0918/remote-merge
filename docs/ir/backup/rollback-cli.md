@@ -20,10 +20,11 @@ rollback を実行すると、書き込み先の選んだセッションの各�
 
 ### REQ-backup-037: 復元結果の出力形式
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A4
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A4, docs/decision/records/2026-10-11-permission-copy-consistency-2.md#A1
 - verification: unit
 
 rollback の結果はテキストでは戻したファイルを "✓"、スキップを "-" と理由、失敗を "✗" と理由で示し、"Restored N file(s)" にスキップ数と失敗数があればそれを続けた集計行を出す。JSON では target、session_id、restored（path と pre_rollback_backup）、skipped（path と reason）、failed（path と error）を出す。
+--dry-run のテキストは、戻す予定のファイルを "✓"、スキップを "-" と理由、失敗を "✗" と理由で同じように示し、集計行は出さない。
 
 ### REQ-backup-038: rollback の終了コード
 - kind: ubiquitous
@@ -78,9 +79,10 @@ Given 集約先の一つのセッションの記録が解析できない中身�
 When rollback --list を実行する
 Then そのセッションを黙って除いた一覧は出ず、記録のパスと理由を示すエラーで止まる
 
-@id=EX-backup-031 @about=REQ-backup-038 @source=docs/decision/records/2026-10-11-permission-copy.md#A4
+@id=EX-backup-031 @about=REQ-backup-038 @source=docs/decision/records/2026-10-11-permission-copy.md#A4,docs/decision/records/2026-10-11-permission-copy-consistency-2.md#A1
 Scenario: failed のある rollback --dry-run
 Given 戻すセッションのファイルのうち一件が、rollback --dry-run の結果で failed に出る状態である
 When rollback --dry-run を実行する
 Then 終了コード 2 を返す
+And テキストの出力にそのファイルが "✗" とその理由で示される
 ```
