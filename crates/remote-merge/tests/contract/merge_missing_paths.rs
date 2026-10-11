@@ -120,3 +120,55 @@ fn req_merge_035_every_path_on_neither_side_stops_without_writing() {
         }
     }
 }
+
+/// 読み込み元の "x" は通常ファイル、書き込み先の "x" は "x/only.txt" を持つディレクトリで、
+/// "other.txt" は左右で中身が違う。"x/nope.txt" は左右のどちらにもない
+fn env_under_a_different_kind() -> CliEnv {
+    CliEnv::new(
+        &[("x", "incoming\n"), ("other.txt", "incoming\n")],
+        &[("x/only.txt", "existing\n"), ("other.txt", "existing\n")],
+    )
+}
+
+// @kotowari[REQ-merge-035, REQ-merge-001]
+#[test]
+fn req_merge_035_a_path_on_neither_side_under_a_different_kind_is_failed_not_skipped() {
+    for command in ["merge", "sync"] {
+        for dry_run in [false, true] {
+            let label = format!("{command} dry_run={dry_run}");
+            let mut only_missing = vec!["--delete", "x/nope.txt"];
+            let mut with_other = vec!["--delete", "x/nope.txt", "other.txt"];
+            if dry_run {
+                only_missing.push("--dry-run");
+                with_other.push("--dry-run");
+            }
+
+            let env = env_under_a_different_kind();
+            let stopped = run(&env, command, &only_missing);
+            assert_eq!(stopped.status.code(), Some(2), "{label}: {stopped:?}");
+            assert_eq!(
+                std::fs::read_to_string(env.remote_dir.join("other.txt")).unwrap(),
+                "existing\n",
+                "{label}"
+            );
+
+            let env = env_under_a_different_kind();
+            let output = run(&env, command, &with_other);
+            let json = json(&output);
+            assert_eq!(
+                paths(&json, command, "failed"),
+                ["x/nope.txt"],
+                "{label}: {json}"
+            );
+            assert!(
+                paths(&json, command, "skipped").is_empty(),
+                "{label}: {json}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(env.remote_dir.join("x/only.txt")).unwrap(),
+                "existing\n",
+                "{label}"
+            );
+        }
+    }
+}
