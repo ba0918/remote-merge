@@ -62,18 +62,19 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         Ok(resp)
     }
 
-    /// ListTree を送信し、全エントリと truncation フラグを返す。
+    /// ListTree を送信し、全エントリと一覧の終わり方を返す。
     ///
     /// サーバーは大規模ディレクトリを複数の `TreeChunk` フレームにストリーミングする。
     /// `is_last: true` のチャンクを受信するまでループして全エントリを収集する。
-    /// 戻り値の `bool` は、max_entries に達してスキャンが打ち切られた場合に `true`。
+    /// 循環で走査が止まったときはエントリを返さず [`TreeEnd::Incomplete`] にする。エージェントが
+    /// 失敗を返したのではないので、呼び出し元は SSH の経路に回さずに不完全な一覧として報告する
     pub fn list_tree(
         &mut self,
         root: &str,
         exclude: &[String],
         include: &[String],
         max_entries: usize,
-    ) -> Result<(Vec<AgentFileEntry>, bool)> {
+    ) -> Result<(Vec<AgentFileEntry>, TreeEnd)> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
             root: root.to_string(),
@@ -85,13 +86,16 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
         // is_last=true になるまでチャンクを読み続ける
         let mut all_nodes = Vec::new();
-        let was_truncated: bool;
+        let end: TreeEnd;
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
             let resp = decode(&frame)?;
             match resp {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
+                }
+                AgentResponse::TreeIncomplete { reason } => {
+                    return Ok((Vec::new(), TreeEnd::Incomplete(reason)));
                 }
                 AgentResponse::TreeChunk {
                     nodes,
@@ -101,7 +105,11 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 } => {
                     all_nodes.extend(nodes);
                     if is_last {
-                        was_truncated = truncated;
+                        end = if truncated {
+                            TreeEnd::Truncated
+                        } else {
+                            TreeEnd::Complete
+                        };
                         break;
                     }
                 }
@@ -112,7 +120,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 }
             }
         }
-        Ok((all_nodes, was_truncated))
+        Ok((all_nodes, end))
     }
 
     /// 複数ファイルを読み込む（ストリーミング対応）。
@@ -381,6 +389,17 @@ impl std::fmt::Display for AgentRefused {
 
 impl std::error::Error for AgentRefused {}
 
+/// ListTree の一覧の終わり方
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TreeEnd {
+    /// 全てを一覧した
+    Complete,
+    /// max_entries に達して打ち切った
+    Truncated,
+    /// 循環で走査を止めた（理由の文言）。エントリは返さない
+    Incomplete(String),
+}
+
 fn refused(message: impl Into<String>) -> anyhow::Error {
     AgentRefused(message.into()).into()
 }
@@ -536,9 +555,9 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let (entries, truncated) = client.list_tree("", &[], &[], 10000).unwrap();
+        let (entries, end) = client.list_tree("", &[], &[], 10000).unwrap();
         assert!(entries.is_empty());
-        assert!(!truncated);
+        assert_eq!(end, TreeEnd::Complete);
     }
 
     #[test]
@@ -549,14 +568,14 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let (entries, truncated) = client.list_tree("", &[], &[], 10000).unwrap();
+        let (entries, end) = client.list_tree("", &[], &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));
         // ディレクトリ "sub" は buffer に含まれない
         assert!(!paths.contains(&"sub"));
         assert!(paths.contains(&"sub/inner.txt"));
-        assert!(!truncated);
+        assert_eq!(end, TreeEnd::Complete);
     }
 
     // ---- ReadFiles ----

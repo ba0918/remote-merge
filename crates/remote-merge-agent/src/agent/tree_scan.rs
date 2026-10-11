@@ -1,9 +1,9 @@
 //! リモートサーバー上でディレクトリツリーを再帰走査し、
 //! `AgentFileEntry` のチャンクを生成するモジュール。
 //!
-//! `std::fs` を使用（tokio 不使用）。シンボリックリンクはフォローせず、
-//! ターゲットパスのみを記録する。ただし include の起点がディレクトリを指す symlink のときは、
-//! リンク自体を記録したうえで配下をリンクの名前の下に走査する。
+//! `std::fs` を使用（tokio 不使用）。シンボリックリンクはリンク自体をターゲットパスとともに記録し、
+//! ディレクトリを指す symlink は、ローカルと SSH の走査と同じく配下もリンクの名前の下に走査する。
+//! 祖先へ戻る symlink は循環として走査を止める（[`DirectoryCycle`] の Err を返す）。
 
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -12,6 +12,7 @@ use anyhow::Result;
 use remote_merge_core::path_resolution::os::resolve_on_this_machine;
 use remote_merge_core::path_resolution::ResolvedPath;
 
+use super::dir_ancestry::{DirAncestry, DirectoryCycle};
 use super::protocol::{AgentFileEntry, FileKind};
 use crate::filter;
 
@@ -64,12 +65,16 @@ struct ScanIterator<'a> {
     options: &'a ScanOptions,
     /// 一覧のパスを相対にする基準。走査の起点と同じ形（正規化の有無）にそろえる
     relative_base: PathBuf,
-    /// 未処理のディレクトリスタック
-    dir_stack: Vec<PathBuf>,
+    /// 未処理のディレクトリと、その祖先の並びのスタック
+    dir_stack: Vec<(PathBuf, DirAncestry)>,
     /// まだ載せていない include の起点（それ自体も一覧に載せる）
     pending_starts: Vec<PathBuf>,
     /// 現在読み込み中のディレクトリイテレータ
     current_read_dir: Option<std::fs::ReadDir>,
+    /// 現在読み込み中のディレクトリの祖先の並び（include の起点を処理する間は空）
+    current_ancestry: DirAncestry,
+    /// 走査を止めた循環。見つかった後は項目を載せない
+    cycle: Option<DirectoryCycle>,
     /// 現在のチャンクに蓄積中のエントリ
     buffer: Vec<AgentFileEntry>,
     /// 走査済みエントリ総数
@@ -82,7 +87,19 @@ impl<'a> ScanIterator<'a> {
     fn new(options: &'a ScanOptions) -> Self {
         let (relative_base, starts) = resolve_include_roots(&options.root, &options.include);
         let (dir_stack, mut pending_starts) = if options.include.is_empty() {
-            (starts, Vec::new())
+            let with_ancestry = starts
+                .into_iter()
+                .map(|start| {
+                    // 起点の祖先の並びは空なので循環にはならない。読めない起点は read_dir の失敗として扱う
+                    let ancestry = DirAncestry::default()
+                        .descend(&start)
+                        .ok()
+                        .and_then(Result::ok)
+                        .unwrap_or_default();
+                    (start, ancestry)
+                })
+                .collect();
+            (with_ancestry, Vec::new())
         } else {
             (Vec::new(), starts)
         };
@@ -94,6 +111,8 @@ impl<'a> ScanIterator<'a> {
             dir_stack,
             pending_starts,
             current_read_dir: None,
+            current_ancestry: DirAncestry::default(),
+            cycle: None,
             buffer: Vec::new(),
             total_scanned: 0,
             finished: false,
@@ -105,6 +124,9 @@ impl<'a> ScanIterator<'a> {
     /// None を返したら走査終了。
     fn advance_one(&mut self) -> Option<()> {
         loop {
+            if self.cycle.is_some() {
+                return None;
+            }
             // current_read_dir を一旦 take して借用を分離する
             if let Some(mut rd) = self.current_read_dir.take() {
                 let result = Self::next_valid_path(&mut rd, &self.options.exclude);
@@ -125,13 +147,15 @@ impl<'a> ScanIterator<'a> {
             }
 
             // 次のディレクトリをスタックからポップ。なければ次の include の起点を載せる
-            let Some(dir) = self.dir_stack.pop() else {
+            let Some((dir, ancestry)) = self.dir_stack.pop() else {
                 let start = self.pending_starts.pop()?;
-                if self.process_start(&start) {
+                self.current_ancestry = DirAncestry::default();
+                if self.process_entry(&start) {
                     return Some(());
                 }
                 continue;
             };
+            self.current_ancestry = ancestry;
             match std::fs::read_dir(&dir) {
                 Ok(rd) => self.current_read_dir = Some(rd),
                 Err(e) => {
@@ -186,9 +210,13 @@ impl<'a> ScanIterator<'a> {
 
         let file_type = meta.file_type();
 
-        // ディレクトリは走査キューに追加するだけで buffer には入れない
-        if file_type.is_dir() {
-            self.dir_stack.push(path.to_path_buf());
+        // ディレクトリとディレクトリを指す symlink は配下を走査キューに追加する。
+        // ディレクトリ自体は buffer には入れない
+        let is_directory_link = file_type.is_symlink() && path.is_dir();
+        if file_type.is_dir() || is_directory_link {
+            self.queue_directory(path);
+        }
+        if file_type.is_dir() || self.cycle.is_some() {
             return false;
         }
 
@@ -224,26 +252,23 @@ impl<'a> ScanIterator<'a> {
             mtime_nanos,
             permissions,
             symlink_target,
-            link_is_dir: file_type.is_symlink() && path.is_dir(),
+            link_is_dir: is_directory_link,
         });
         // ファイルとシンボリックリンクのみカウント（ディレクトリは含まない）
         self.total_scanned += 1;
         true
     }
 
-    /// include の起点を 1 件処理する。起点はそれ自体を `process_entry` で扱い、ディレクトリを指す
-    /// symlink なら、その配下もリンクの名前の下に走査する。リンク自体が exclude に当たって載らないときは、
-    /// ローカルの走査が枝ごと除くのと同じく配下も走査しない
-    fn process_start(&mut self, start: &Path) -> bool {
-        let is_directory_link = start
-            .symlink_metadata()
-            .is_ok_and(|meta| meta.file_type().is_symlink())
-            && start.is_dir();
-        let listed = self.process_entry(start);
-        if is_directory_link && listed {
-            self.dir_stack.push(start.to_path_buf());
+    /// `dir` を、現在読み込み中のディレクトリの子として走査キューに追加する。
+    /// 祖先と同じディレクトリなら追加せずに循環として走査を止める
+    fn queue_directory(&mut self, dir: &Path) {
+        match self.current_ancestry.descend(dir) {
+            Ok(Ok(ancestry)) => self.dir_stack.push((dir.to_path_buf(), ancestry)),
+            Ok(Err(cycle)) => self.cycle = Some(cycle),
+            Err(e) => {
+                tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read directory {}: {e}", dir.display());
+            }
         }
-        listed
     }
 
     /// バッファの中身をソートしてチャンクとして切り出す
@@ -282,6 +307,9 @@ impl Iterator for ScanIterator<'_> {
             if self.total_scanned >= self.options.max_entries {
                 self.finished = true;
                 let truncated = self.probe_beyond_limit();
+                if let Some(cycle) = self.cycle.take() {
+                    return Some(Err(cycle.into()));
+                }
                 return Some(Ok(self.flush_chunk(true, truncated)));
             }
 
@@ -289,6 +317,9 @@ impl Iterator for ScanIterator<'_> {
             if self.advance_one().is_none() {
                 // 走査終了
                 self.finished = true;
+                if let Some(cycle) = self.cycle.take() {
+                    return Some(Err(cycle.into()));
+                }
                 return Some(Ok(self.flush_chunk(true, false)));
             }
 

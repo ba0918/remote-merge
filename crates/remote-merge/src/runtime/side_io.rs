@@ -920,10 +920,8 @@ impl CoreRuntime {
             agent.list_tree("", &exclude, include, max_entries)
         })
         .map(|r| {
-            r.and_then(|(entries, truncated)| {
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
+            r.and_then(|(entries, end)| {
+                check_agent_tree_end(end, max_entries, fail_on_truncation)?;
                 let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
@@ -955,10 +953,8 @@ impl CoreRuntime {
             agent.list_tree(&subpath_owned, &exclude, &[], max_entries)
         })
         .map(|r| {
-            r.and_then(|(entries, truncated)| {
-                if truncated {
-                    check_truncation(max_entries, fail_on_truncation)?;
-                }
+            r.and_then(|(entries, end)| {
+                check_agent_tree_end(end, max_entries, fail_on_truncation)?;
                 let flat_nodes = crate::agent::tree_scan::convert_agent_entries_to_nodes(&entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
@@ -1144,6 +1140,20 @@ fn transform_stat_results(
     Some(Ok(results))
 }
 
+/// エージェントの走査の終わり方を、ローカルと SSH の走査と同じ報告にする。循環で止まった走査は
+/// 打ち切りの設定によらず、一覧を返さずに不完全な一覧として Err にする
+fn check_agent_tree_end(
+    end: crate::agent::client::TreeEnd,
+    max_entries: usize,
+    fail_on_truncation: bool,
+) -> anyhow::Result<()> {
+    use crate::agent::client::TreeEnd;
+    match end {
+        TreeEnd::Complete => Ok(()),
+        TreeEnd::Truncated => check_truncation(max_entries, fail_on_truncation),
+        TreeEnd::Incomplete(reason) => anyhow::bail!("Directory scan incomplete: {reason}"),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

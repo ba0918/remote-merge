@@ -1,5 +1,6 @@
 pub mod client;
 pub mod deploy;
+pub mod dir_ancestry;
 #[cfg(unix)]
 pub mod dispatch;
 #[cfg(unix)]

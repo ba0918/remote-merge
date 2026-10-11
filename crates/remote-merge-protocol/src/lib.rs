@@ -10,6 +10,7 @@ macro_rules! define_protocol_version {
         /// v4 → v5: PathInspection を "/" から要素ごとに辿る確認の結果の種類に変更
         /// v5 → v6: 手元と同じ版だけを受け入れ、古い版のための既定値をなくした。
         ///          Remove・Chmod・ListDir を追加
+        /// v6 → v7: ListTree の応答に、循環で走査を止めたことを示す TreeIncomplete を追加
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -27,7 +28,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(6);
+define_protocol_version!(7);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -94,6 +95,10 @@ pub enum AgentResponse {
         total_scanned: usize,
         /// max_entries に達してスキャンが打ち切られた場合 true。
         truncated: bool,
+    },
+    /// ディレクトリを指す symlink が祖先へ戻る循環で走査を止めた。一覧は返さない
+    TreeIncomplete {
+        reason: String,
     },
     FileContents {
         results: Vec<FileReadResult>,
