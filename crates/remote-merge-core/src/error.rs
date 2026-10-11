@@ -10,11 +10,10 @@ pub enum AppError {
         global_path: PathBuf,
     },
 
-    #[error("Failed to parse config file: {source}")]
-    ConfigParse {
-        #[source]
-        source: toml::de::Error,
-    },
+    /// 設定ファイルを TOML として、または設定として解釈できない。`detail` は位置と理由だけで、
+    /// 設定ファイルの行の抜き出しと書かれた値を含めない（REQ-config-043）
+    #[error("Failed to parse config file: {path}: {detail}")]
+    ConfigParse { path: PathBuf, detail: String },
 
     #[error("Invalid config value: {field} - {message}")]
     ConfigValidation { field: String, message: String },

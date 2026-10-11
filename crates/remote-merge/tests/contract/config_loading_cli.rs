@@ -626,3 +626,89 @@ fn unknown_section_in_the_project_config_stops_before_comparing() {
 
     assert_stops_before_comparing(&output);
 }
+
+// ─── 解釈できない設定のエラーに書かれた中身を出さない（REQ-config-043） ───────
+
+const SENTINEL_PASSWORD: &str = "SENTINEL-PW";
+
+impl Workspace {
+    /// [servers] の develop を `fields` のインラインテーブル一行で書いた、製品が解釈できない設定を書く。
+    ///
+    /// 隔離の確認は fixture のパスワードを求めるため、このファイルにはかけない。製品は知らないキーか
+    /// 値の型の違いで読み込みを止めるため、このファイルから接続先を得ることはない（終了コード 2 と、
+    /// 標準出力が空であることをテストで確かめる）。接続先は念のため試験サーバにする
+    fn write_server_line(&self, path: &Path, fields: &str) {
+        let local = self.dir("project-local");
+        let content = format!(
+            "[local]\nroot_dir = \"{local}\"\n\n[servers]\ndevelop = {{ host = \"127.0.0.1\", port = {port}, auth = \"password\", root_dir = \"{remote}\", {fields} }}\n",
+            local = local.display(),
+            port = self.dirs.server_port(),
+            remote = self.dirs.remote_dir.display(),
+        );
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+}
+
+/// 解釈できない設定のエラーで止まり、標準エラーにも JSON の error にも `secret` が出ないこと
+fn assert_parse_error_hides(output: &Output, secret: &str) {
+    assert_stops_with_parse_error(output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains(secret), "{secret:?} in stderr: {stderr}");
+    if !output.stdout.is_empty() {
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|err| panic!("{err}: {output:?}"));
+        let error = json["error"].as_str().expect("error missing");
+        assert!(!error.contains(secret), "{secret:?} in JSON error: {error}");
+    }
+}
+
+// @kotowari[REQ-config-043, EX-config-024]
+#[test]
+fn ex_config_024_an_unknown_key_on_the_password_line_does_not_show_the_password() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    workspace.write_server_line(
+        &cwd.join(".remote-merge.toml"),
+        "user = \"fixture-user\", password = \"SENTINEL-PW\", bogus = 1",
+    );
+
+    let text = workspace.status(&cwd, None, &[]);
+    let json = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_parse_error_hides(&text, SENTINEL_PASSWORD);
+    assert!(!json.stdout.is_empty(), "{json:?}");
+    assert_parse_error_hides(&json, SENTINEL_PASSWORD);
+}
+
+// @kotowari[REQ-config-043, EX-config-025]
+#[test]
+fn ex_config_025_a_type_mismatch_on_the_password_line_does_not_show_the_password() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    workspace.write_server_line(
+        &cwd.join(".remote-merge.toml"),
+        "password = \"SENTINEL-PW\", user = 1",
+    );
+
+    let output = workspace.status(&cwd, None, &[]);
+
+    assert_parse_error_hides(&output, SENTINEL_PASSWORD);
+}
+
+// @kotowari[REQ-config-043]
+#[test]
+fn a_value_of_the_wrong_type_is_not_shown_in_the_parse_error() {
+    let mut workspace = Workspace::new();
+    let cwd = workspace.dir("work");
+    workspace.write_server_line(
+        &cwd.join(".remote-merge.toml"),
+        "user = \"fixture-user\", password = \"fixture-password\", sudo = \"SENTINEL-PW\"",
+    );
+
+    let text = workspace.status(&cwd, None, &[]);
+    let json = workspace.status(&cwd, None, &["--format", "json"]);
+
+    assert_parse_error_hides(&text, SENTINEL_PASSWORD);
+    assert_parse_error_hides(&json, SENTINEL_PASSWORD);
+}

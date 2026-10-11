@@ -1,5 +1,7 @@
 use remote_merge_core::{error, filter};
 
+mod parse_error;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -386,8 +388,13 @@ fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
                 .context(format!("Failed to read config file: {}", shown.display())));
         }
     };
-    let mut raw: RawConfig =
-        toml::from_str(&content).map_err(|e| AppError::ConfigParse { source: e })?;
+    let mut raw: RawConfig = match toml::from_str(&content) {
+        Ok(raw) => raw,
+        Err(error) => bail!(AppError::ConfigParse {
+            path: path_for_messages(path)?,
+            detail: parse_error::describe(&content, &error),
+        }),
+    };
     if let Some(local) = raw.local.as_mut() {
         local.config_path = path.to_path_buf();
     }
