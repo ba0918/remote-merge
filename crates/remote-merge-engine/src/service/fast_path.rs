@@ -107,7 +107,8 @@ pub struct DiffPaths {
 /// 比べる（名前で指定したファイルは中身で比べ、フィルタを当てない）。パスがないとき、root_dir 全体を
 /// 指すものや glob 文字を含むものがあるときは root_dir 全体も走査する。末尾の "/" は呼び出し元で
 /// 外してある。root_dir 全体も走査するときは、名前で指定したパスを走査の結果と同じ形（"." の要素と
-/// 続いた "/" を除いた形）にそろえ、同じファイルを二つの形で示さない。
+/// 続いた "/" を除いた形）にそろえ、同じファイルを二つの形で示さない。そろえると空になる名前
+/// （root_dir そのもの）は全体の走査に任せる。
 pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
     if paths.is_empty() || check_path_traversal(paths).is_err() {
         return DiffPaths {
@@ -124,7 +125,8 @@ pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
     }
     let mut scanned_form: Vec<String> = Vec::new();
     for path in named.iter().map(|path| as_scanned(path)) {
-        if !scanned_form.contains(&path) {
+        // "./." のように root_dir そのものを指す名前は、全体の走査がその配下を比べる
+        if !path.is_empty() && !scanned_form.contains(&path) {
             scanned_form.push(path);
         }
     }
@@ -239,6 +241,13 @@ mod tests {
             DiffPaths {
                 whole: Some(strings(&["."])),
                 named: strings(&["a.txt", "d/b.txt"])
+            }
+        );
+        assert_eq!(
+            split_diff_paths(&strings(&[".", "./.", "././.", "./a.txt"])),
+            DiffPaths {
+                whole: Some(strings(&["."])),
+                named: strings(&["a.txt"])
             }
         );
         assert_eq!(
