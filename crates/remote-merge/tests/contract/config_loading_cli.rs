@@ -169,6 +169,15 @@ fn assert_stops_with_parse_error(output: &Output) {
     );
 }
 
+/// 解釈できない設定のエラーで止まり、接頭辞のすぐ後に読めなかった設定ファイルの絶対パスを示すこと
+fn assert_parse_error_names(output: &Output, config: &Path) {
+    assert_stops_with_parse_error(output);
+    assert_stops_with(
+        output,
+        &format!("Failed to parse config file: {}: ", config.display()),
+    );
+}
+
 // @kotowari[REQ-config-005]
 #[test]
 fn project_config_in_the_current_directory_is_read() {
@@ -281,7 +290,8 @@ fn unparsable_project_config_stops_with_a_parse_error() {
 
     let output = workspace.status(&cwd, None, &[]);
 
-    assert_stops_with_parse_error(&output);
+    let absolute = cwd.canonicalize().unwrap().join(".remote-merge.toml");
+    assert_parse_error_names(&output, &absolute);
 }
 
 // @kotowari[REQ-config-009]
@@ -293,7 +303,8 @@ fn unparsable_config_option_file_stops_with_a_parse_error() {
 
     let output = workspace.status(&cwd, Some("broken.toml"), &[]);
 
-    assert_stops_with_parse_error(&output);
+    let absolute = cwd.canonicalize().unwrap().join("broken.toml");
+    assert_parse_error_names(&output, &absolute);
 }
 
 // @kotowari[REQ-config-009]
@@ -308,7 +319,7 @@ fn unparsable_global_config_stops_with_a_parse_error_even_with_a_valid_project_c
 
     let output = workspace.status(&cwd, None, &[]);
 
-    assert_stops_with_parse_error(&output);
+    assert_parse_error_names(&output, &workspace.global_config_path());
 }
 
 // @kotowari[REQ-config-010]

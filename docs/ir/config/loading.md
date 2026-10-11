@@ -34,10 +34,10 @@
 
 ### REQ-config-009: TOML として読めない設定で止める
 - kind: event_driven
-- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A5
+- source: docs/decision/records/2026-09-28-adopt-config-loading.md#A5, docs/decision/records/2026-10-11-drop-compat-consistency-2.md#A1
 - verification: unit
 
-設定ファイルが TOML として読めないときは "Failed to parse config file: " に続けて読めなかった理由を示すエラーで止まり、終了コード 2 を返す。
+設定ファイルが TOML として読めないときは "Failed to parse config file: 絶対パス: " に続けて読めなかった理由を示すエラーで止まり、終了コード 2 を返す。絶対パスは読めなかった設定ファイルのものである。
 
 ### REQ-config-010: ローカルの root_dir のホームを展開する
 - kind: event_driven
