@@ -1,11 +1,12 @@
 #![cfg(unix)]
-//! status が、片側でも更新時刻が秒の精度しかなく秒が同じファイルを、中身を読み比べて判定すること
-//! （docs/ir/cli/status.md の TBL-cli-001 と例 EX-cli-089）の契約テスト。
+//! status と sync が、片側でも更新時刻が秒の精度しかなく秒が同じファイルを、中身を読み比べて判定
+//! すること（docs/ir/cli/status.md の TBL-cli-001 と例 EX-cli-089、docs/ir/merge/comparison.md の
+//! 例 EX-merge-041）の契約テスト。
 //!
 //! 秒の精度しかない更新時刻は、更新時刻を秒までしか出さない find（docs/ir/scan/listing.md の
 //! REQ-scan-016）のリモートで生じる。試験 SSH サーバのログインシェルを、受けたコマンドの find の
 //! 更新時刻の書式 `%T@` を秒までの `%Ts` に替えて実行するシェルにして、その find を再現する。
-//! 実行ファイルを `status --left local --right develop` で起動し、右の走査は SSH の経路になる。
+//! 実行ファイルを `--left local --right develop` で起動し、右の走査は SSH の経路になる。
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -69,4 +70,37 @@ fn ex_cli_089_a_remote_time_with_seconds_only_in_the_same_second_is_decided_by_t
         .and_then(|files| files.iter().find(|file| file["path"] == "a.txt"))
         .unwrap_or_else(|| panic!("a.txt missing: {json}"));
     assert_eq!(file["status"], "modified", "{json}");
+}
+
+// @kotowari[REQ-merge-020, EX-merge-041]
+#[test]
+fn ex_merge_041_sync_writes_a_file_whose_remote_time_has_seconds_only_in_the_same_second() {
+    let env = CliEnv::new(&[], &[]);
+    let second = SystemTime::UNIX_EPOCH + Duration::from_secs(T0);
+    for root in [&env.local_dir, &env.remote_dir] {
+        fs::create_dir_all(root.join("dir")).unwrap();
+    }
+    write_at(&env.local_dir, "dir/a.txt", b"alpha\n", second);
+    write_at(
+        &env.remote_dir,
+        "dir/a.txt",
+        b"bravo\n",
+        second + Duration::from_millis(700),
+    );
+    env.use_remote_login_shell(seconds_only_find_shell(env.temp_root()));
+
+    let output = env
+        .cmd_with("sync")
+        .args([
+            "dir/", "--left", "local", "--right", "develop", "--force", "--format", "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(env.remote_dir.join("dir/a.txt")).unwrap(),
+        "alpha\n",
+        "{output:?}"
+    );
 }
