@@ -103,6 +103,8 @@ mod merge_hunks;
 mod merge_kind_subtree;
 #[path = "contract/merge_links.rs"]
 mod merge_links;
+#[path = "contract/merge_new_link_paths.rs"]
+mod merge_new_link_paths;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[cfg(feature = "test-utils")]
