@@ -38,6 +38,8 @@ pub struct MergeContext<'a> {
 pub enum SingleMergeResult {
     Merged(MergeFileResult),
     Skipped(MergeSkipped),
+    /// ディレクトリとディレクトリへの symlink の組で、手を付けず結果にも出さない
+    Unchanged,
 }
 
 /// 単一ファイルのマージを実行する
@@ -75,6 +77,7 @@ pub fn execute_single_merge(
                 reason: DIFFERENT_KIND_REASON.into(),
             }));
         }
+        MergeAction::KeepDirectoryPair => return Ok(SingleMergeResult::Unchanged),
         MergeAction::CreateSymlink {
             link_target,
             target_exists,

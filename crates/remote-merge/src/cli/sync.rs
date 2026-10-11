@@ -353,6 +353,7 @@ pub fn execute_sync(
                     Ok(crate::service::merge_flow::SingleMergeResult::Skipped(reason)) => {
                         skipped_by_kind.push(reason)
                     }
+                    Ok(crate::service::merge_flow::SingleMergeResult::Unchanged) => {}
                     Err(e) => failed.push(MergeFailure {
                         path: path.clone(),
                         error: format!("{}", e),

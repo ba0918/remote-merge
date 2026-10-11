@@ -109,7 +109,7 @@ fn a_directory_does_not_replace_a_regular_file() {
 
 // @kotowari[REQ-merge-001]
 #[test]
-fn a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target() {
+fn a_directory_link_merges_its_children_into_a_destination_directory() {
     let local = TempDir::new().unwrap();
     let shared = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
@@ -121,18 +121,20 @@ fn a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target(
     fs::write(destination.path().join("linked/file.txt"), "existing\n").unwrap();
 
     let output = merge(&local, &destination, &backup, "linked");
-    assert!(output.merged.is_empty(), "{output:?}");
-    assert!(
-        output
-            .skipped
-            .iter()
-            .any(|entry| entry.path == "linked" && !entry.reason.is_empty()),
-        "{output:?}"
-    );
+    let merged: Vec<&str> = output
+        .merged
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(merged, ["linked/file.txt"], "{output:?}");
+    assert!(output.skipped.is_empty(), "{output:?}");
     assert_eq!(
         fs::read_to_string(destination.path().join("linked/file.txt")).unwrap(),
-        "existing\n"
+        "incoming contents\n"
     );
+    assert!(fs::symlink_metadata(destination.path().join("linked"))
+        .unwrap()
+        .is_dir());
 }
 
 // @kotowari[EX-merge-005]

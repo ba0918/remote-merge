@@ -387,6 +387,7 @@ pub fn execute_merge(
                     merged.push(result);
                 }
                 Ok(SingleMergeResult::Skipped(reason)) => all_skipped.push(reason),
+                Ok(SingleMergeResult::Unchanged) => {}
                 Err(e) => failed.push(MergeFailure {
                     path: path.clone(),
                     error: format!("{}", e),

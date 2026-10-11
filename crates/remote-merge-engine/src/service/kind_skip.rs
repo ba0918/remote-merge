@@ -2,24 +2,57 @@
 //!
 //! merge・sync・--dry-run・--delete はすべて解決済みの対象パスから計画を立てるので、
 //! 計画の前にここを一度通せば、書き込みと削除の両方が同じ判定に従う。
+//! ディレクトリとディレクトリへの symlink の組は種類の違いとせず、組のパスだけを黙って外し、
+//! 中のパスはそのまま比べる。
 
-use super::merge::split_different_kinds;
+use std::path::Path;
+
+use super::merge::{determine_merge_action, MergeAction, DIFFERENT_KIND_REASON};
 use super::types::MergeSkipped;
 use crate::tree::FileTree;
 
-/// 対象パスから、種類の違うパスとその配下を外す純粋関数。
+/// 対象パスから、種類の違うパスとその配下、ディレクトリの組のパスを外す純粋関数。
 ///
 /// スキップとして返すのは種類の違うパス自身だけで、配下は黙って外す。
-/// 種類の違いは対象パスの中だけで探し、祖先のディレクトリは見ない。
-/// 対象に入っていない途中の symlink を辿って書く場合はそのまま残す。
+/// 対象に入っていない祖先が種類の違うパスのときは、書き込み先の祖先がディレクトリ
+/// （かディレクトリへの symlink）なら、その祖先を一件スキップとして返して配下を外す。
+/// 書き込み先の祖先がディレクトリでないときは、書くときの "not a directory" の失敗に任せる。
 pub fn split_different_kind_subtrees(
     paths: &[String],
     source_tree: &FileTree,
     target_tree: &FileTree,
 ) -> (Vec<String>, Vec<MergeSkipped>) {
-    let (kept, skipped) = split_different_kinds(paths, source_tree, target_tree);
-    let roots: Vec<&str> = skipped.iter().map(|entry| entry.path.as_str()).collect();
-    (without_descendants(kept, &roots), skipped)
+    let action = |path: &str| determine_merge_action(source_tree, target_tree, path);
+    let mut roots: Vec<String> = Vec::new();
+    let mut candidates = Vec::new();
+    for path in paths {
+        match action(path) {
+            MergeAction::SkipDifferentKind => roots.push(path.clone()),
+            MergeAction::KeepDirectoryPair => {}
+            _ => candidates.push(path.clone()),
+        }
+    }
+    for path in &candidates {
+        let skipped_ancestor = ancestors(path).find(|ancestor| {
+            action(ancestor) == MergeAction::SkipDifferentKind
+                && target_holds_children(target_tree, ancestor)
+        });
+        if let Some(ancestor) = skipped_ancestor {
+            if !roots.iter().any(|root| root == ancestor) {
+                roots.push(ancestor.to_string());
+            }
+        }
+    }
+    let root_refs: Vec<&str> = roots.iter().map(String::as_str).collect();
+    let kept = without_descendants(candidates, &root_refs);
+    let skipped = roots
+        .into_iter()
+        .map(|path| MergeSkipped {
+            path,
+            reason: DIFFERENT_KIND_REASON.into(),
+        })
+        .collect();
+    (kept, skipped)
 }
 
 /// `roots` のどれかの配下にあるパスを外す純粋関数。`roots` 自身は外さない。
@@ -35,6 +68,19 @@ fn is_descendant(path: &str, root: &str) -> bool {
     let root = root.trim_end_matches('/');
     path.strip_prefix(root)
         .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// `path` の祖先を root_dir に近い順に返す（`path` 自身は含まない）
+fn ancestors(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/')
+        .map(move |(index, _)| &path[..index])
+}
+
+/// 書き込み先の `path` が、配下を持てるディレクトリかディレクトリへの symlink か
+fn target_holds_children(target_tree: &FileTree, path: &str) -> bool {
+    target_tree
+        .find_node(Path::new(path))
+        .is_some_and(|node| node.is_dir() || (node.is_symlink() && node.link_is_dir))
 }
 
 #[cfg(test)]
@@ -78,27 +124,108 @@ mod tests {
         assert_eq!(kept, ["a/b.txt", "c.txt"]);
     }
 
+    fn directory_link(name: &str) -> FileNode {
+        let mut node = FileNode::new_symlink(name, "/elsewhere");
+        node.link_is_dir = true;
+        node
+    }
+
     #[test]
     fn a_kind_mismatch_drops_its_children_and_is_skipped_once() {
         let source = tree(vec![
-            FileNode::new_symlink("linked", "/elsewhere"),
+            FileNode::new_file("x"),
             FileNode::new_file("other.txt"),
         ]);
         let target = tree(vec![
-            FileNode::new_dir_with_children("linked", vec![FileNode::new_file("file.txt")]),
+            FileNode::new_dir_with_children("x", vec![FileNode::new_file("only.txt")]),
             FileNode::new_file("other.txt"),
         ]);
 
         let (kept, skipped) = split_different_kind_subtrees(
-            &paths(&["linked", "linked/file.txt", "other.txt"]),
+            &paths(&["x", "x/only.txt", "other.txt"]),
             &source,
             &target,
         );
 
         assert_eq!(kept, ["other.txt"]);
         assert_eq!(skipped.len(), 1);
-        assert_eq!(skipped[0].path, "linked");
+        assert_eq!(skipped[0].path, "x");
         assert_eq!(skipped[0].reason, DIFFERENT_KIND_REASON);
+    }
+
+    #[test]
+    fn a_child_named_directly_under_a_destination_directory_is_dropped_and_its_ancestor_skipped() {
+        let source = tree(vec![FileNode::new_file("x")]);
+        let target = tree(vec![FileNode::new_dir_with_children(
+            "x",
+            vec![FileNode::new_file("only.txt")],
+        )]);
+
+        let (kept, skipped) =
+            split_different_kind_subtrees(&paths(&["x/only.txt"]), &source, &target);
+
+        assert!(kept.is_empty(), "{kept:?}");
+        let skipped: Vec<&str> = skipped.iter().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(skipped, ["x"]);
+    }
+
+    /// 書き込み先の祖先が通常ファイルの子は残し、書くときの "not a directory" の失敗に任せる
+    #[test]
+    fn a_child_named_directly_under_a_destination_file_is_kept() {
+        let source = tree(vec![FileNode::new_dir_with_children(
+            "x",
+            vec![FileNode::new_file("a.txt")],
+        )]);
+        let target = tree(vec![FileNode::new_file("x")]);
+
+        let (kept, skipped) = split_different_kind_subtrees(&paths(&["x/a.txt"]), &source, &target);
+
+        assert_eq!(kept, ["x/a.txt"]);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn a_directory_and_a_directory_link_are_compared_inside_without_a_skip() {
+        for (source, target) in [
+            (
+                tree(vec![directory_link("linked")]),
+                tree(vec![FileNode::new_dir_with_children(
+                    "linked",
+                    vec![FileNode::new_file("file.txt")],
+                )]),
+            ),
+            (
+                tree(vec![FileNode::new_dir_with_children(
+                    "linked",
+                    vec![FileNode::new_file("file.txt")],
+                )]),
+                tree(vec![directory_link("linked")]),
+            ),
+        ] {
+            let (kept, skipped) = split_different_kind_subtrees(
+                &paths(&["linked", "linked/file.txt"]),
+                &source,
+                &target,
+            );
+
+            assert_eq!(kept, ["linked/file.txt"]);
+            assert!(skipped.is_empty(), "{skipped:?}");
+        }
+    }
+
+    #[test]
+    fn a_link_that_is_not_marked_as_a_directory_is_still_a_different_kind() {
+        let source = tree(vec![FileNode::new_symlink("linked", "/elsewhere")]);
+        let target = tree(vec![FileNode::new_dir_with_children(
+            "linked",
+            vec![FileNode::new_file("file.txt")],
+        )]);
+
+        let (kept, skipped) =
+            split_different_kind_subtrees(&paths(&["linked", "linked/file.txt"]), &source, &target);
+
+        assert!(kept.is_empty(), "{kept:?}");
+        assert_eq!(skipped.len(), 1);
     }
 
     #[test]
@@ -107,7 +234,7 @@ mod tests {
             "linked",
             vec![FileNode::new_file("file.txt")],
         )]);
-        let target = tree(vec![FileNode::new_symlink("linked", "shared")]);
+        let target = tree(vec![directory_link("linked")]);
 
         let (kept, skipped) =
             split_different_kind_subtrees(&paths(&["linked/file.txt"]), &source, &target);

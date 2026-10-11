@@ -6,7 +6,7 @@
 use super::types::*;
 use crate::side::is_remote_to_remote;
 use crate::side::Side;
-use crate::tree::{kinds_agree, FileTree, NodeKind};
+use crate::tree::{kinds_agree, FileNode, FileTree, NodeKind};
 
 /// マージ対象ファイルの前処理結果
 #[derive(Debug, Clone)]
@@ -100,6 +100,8 @@ pub fn find_symlink_target(tree: &FileTree, path: &str) -> Option<String> {
 pub enum MergeAction {
     /// 既存対象の種類が異なる場合は置き換えない
     SkipDifferentKind,
+    /// ディレクトリとディレクトリへの symlink の組は、組そのものに手を付けず中を比べる
+    KeepDirectoryPair,
     /// ソースが symlink → ターゲットに symlink を作成
     CreateSymlink {
         link_target: String,
@@ -125,6 +127,9 @@ pub fn determine_merge_action(
     let source_node = source_tree.find_node(path);
     let target_node = target_tree.find_node(path);
     if let (Some(source), Some(target)) = (source_node, target_node) {
+        if is_directory_pair(source, target) {
+            return MergeAction::KeepDirectoryPair;
+        }
         if !kinds_agree([source, target]) {
             return MergeAction::SkipDifferentKind;
         }
@@ -145,6 +150,13 @@ pub fn determine_merge_action(
         return MergeAction::ReplaceSymlinkWithFile;
     }
     MergeAction::Normal
+}
+
+/// 片方がディレクトリで、もう片方がディレクトリへの symlink か（純粋関数）。
+/// merge と sync はこの組を種類の違いとせず、一つのディレクトリとして中を比べる
+pub fn is_directory_pair(a: &FileNode, b: &FileNode) -> bool {
+    let directory_link = |node: &FileNode| node.is_symlink() && node.link_is_dir;
+    (a.is_dir() && directory_link(b)) || (directory_link(a) && b.is_dir())
 }
 
 /// 種類の違いで書き込まない対象のスキップ理由
@@ -510,6 +522,38 @@ mod tests {
 
         let action = determine_merge_action(&source_tree, &target_tree, "logs");
         assert_eq!(action, MergeAction::SkipDifferentKind);
+    }
+
+    fn directory_link(name: &str) -> FileNode {
+        let mut node = FileNode::new_symlink(name, "/shared/logs");
+        node.link_is_dir = true;
+        node
+    }
+
+    #[test]
+    fn a_directory_and_a_directory_link_keep_the_pair_in_either_direction() {
+        let dir = make_tree_with_nodes(vec![FileNode::new_dir_with_children("logs", vec![])]);
+        let link = make_tree_with_nodes(vec![directory_link("logs")]);
+
+        assert_eq!(
+            determine_merge_action(&link, &dir, "logs"),
+            MergeAction::KeepDirectoryPair
+        );
+        assert_eq!(
+            determine_merge_action(&dir, &link, "logs"),
+            MergeAction::KeepDirectoryPair
+        );
+    }
+
+    #[test]
+    fn a_directory_link_does_not_pair_with_a_regular_file() {
+        let file = make_tree_with_nodes(vec![FileNode::new_file("logs")]);
+        let link = make_tree_with_nodes(vec![directory_link("logs")]);
+
+        assert_eq!(
+            determine_merge_action(&link, &file, "logs"),
+            MergeAction::SkipDifferentKind
+        );
     }
 
     // ── check_r2r_guard tests ──
