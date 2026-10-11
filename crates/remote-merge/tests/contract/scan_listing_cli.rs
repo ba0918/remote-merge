@@ -381,9 +381,7 @@ impl AgentFixture {
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.assert_agent_started();
         assert!(
-            !commands
-                .iter()
-                .any(|command| command.starts_with("find -L")),
+            !commands.iter().any(|command| command.contains("find -L")),
             "the tree was scanned over plain SSH: {commands:?}"
         );
         output

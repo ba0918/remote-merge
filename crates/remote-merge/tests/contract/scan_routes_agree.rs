@@ -200,9 +200,7 @@ impl SshFixture {
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.server.commands();
         assert!(
-            commands
-                .iter()
-                .any(|command| command.starts_with("find -L")),
+            commands.iter().any(|command| command.contains("find -L")),
             "the tree was not scanned over SSH: {commands:?}"
         );
         output
@@ -310,21 +308,80 @@ impl Drop for RestoreMode<'_> {
     }
 }
 
-// @kotowari[REQ-config-022]
-#[tokio::test(flavor = "multi_thread")]
-async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_over_ssh()
-{
+/// 左右に [`OUTSIDE_EXCLUDED_DIRECTORY`] を置き、右の `locked` の下を読めないディレクトリにして
+/// `exclude_line` の設定で status を起動する
+fn status_with_an_unreadable_directory(
+    fixture: &SshFixture,
+    locked: &str,
+    exclude_line: &str,
+) -> Output {
     use std::os::unix::fs::PermissionsExt;
-    let fixture = SshFixture::new().await;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         place_files(root, &OUTSIDE_EXCLUDED_DIRECTORY);
     }
-    let locked = remote_root.join("a/b/locked");
+    let locked = remote_root.join(locked);
     place_files(&locked, &ONE_FILE);
     let _restore = RestoreMode(&locked);
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_A_B);
+    fixture.status_with_exclude(&local_root, &remote_root, exclude_line)
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_over_ssh()
+{
+    let fixture = SshFixture::new().await;
+    let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", EXCLUDE_A_B);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+}
+
+// ─── find のパターンに移せない exclude でも同じ（REQ-config-022・REQ-config-021） ─────────
+
+/// "a/b" に当たるが find のパターンでは同じ意味に書けないパターン
+const NON_PRUNABLE_EXCLUDES: [&str; 2] = ["exclude = [\"a/?\"]", "exclude = [\"**/b\"]"];
+const EXCLUDE_B_BY_CLASS: &str = "exclude = [\"[b]\"]";
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cycle_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan() {
+    for exclude_line in NON_PRUNABLE_EXCLUDES {
+        let fixture = SshFixture::new().await;
+        let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
+        let output = fixture.status_with_exclude(&local_root, &remote_root, exclude_line);
+        assert!(output.status.success(), "{exclude_line}: {output:?}");
+        assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+    }
+}
+
+// @kotowari[REQ-config-021]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_the_ssh_scan() {
+    let fixture = SshFixture::new().await;
+    let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
+    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_B_BY_CLASS);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan(
+) {
+    for exclude_line in NON_PRUNABLE_EXCLUDES {
+        let fixture = SshFixture::new().await;
+        let output = status_with_an_unreadable_directory(&fixture, "a/b/locked", exclude_line);
+        assert!(output.status.success(), "{exclude_line}: {output:?}");
+        assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+    }
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_directory_outside_the_excluded_directories_still_fails_the_ssh_scan() {
+    let fixture = SshFixture::new().await;
+    let output =
+        status_with_an_unreadable_directory(&fixture, "d/locked", NON_PRUNABLE_EXCLUDES[0]);
+    assert_incomplete_scan_reported(&output, &["permission denied"]);
 }

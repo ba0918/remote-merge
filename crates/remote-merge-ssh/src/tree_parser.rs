@@ -278,6 +278,9 @@ fn write_in_place(remote_path: &str, writer: &str) -> String {
 /// `exclude` のうち find のパターンで同じ意味に書けるものは、find がその下へ降りないように
 /// 刈り込む（[`crate::find_prune`]）。刈り込めないものは出力を読む側で除く。
 ///
+/// 二つの find は、前の find が失敗しても両方を動かし、失敗した方の終了コードを返す（前の find を
+/// 優先する）。診断の文言を見分けられるよう C ロケールで動かす（[`crate::find_diagnostics`]）。
+///
 /// 全パスは `shell_escape` でエスケープされる。
 pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]) -> String {
     let root = root_dir.trim_end_matches('/');
@@ -294,7 +297,9 @@ pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]
     let link_action = r#"-exec sh -c 'set -e; for path do size=$(stat -c %s -- "$path"); mtime=$(stat -c %Y -- "$path"); mode=$(stat -c %a -- "$path"); target=$(readlink -- "$path"); if test -d "$path"; then kind=d; else kind=f; fi; printf "l\t%s\t%s\t%s\t%s\t%s\t%s\n" "$size" "$mtime" "$mode" "$path" "$target" "$kind"; done' _ {} +"#;
     let prune = crate::find_prune::prune_clause(root, exclude);
     format!(
-        "find -L {start_paths} {prune}-xtype l {link_action} && find -L {start_paths} {prune}! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        "LC_ALL=C find -L {start_paths} {prune}-xtype l {link_action}; l=$?; \
+         LC_ALL=C find -L {start_paths} {prune}! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'; p=$?; \
+         [ \"$l\" -ne 0 ] && exit \"$l\"; exit \"$p\""
     )
 }
 

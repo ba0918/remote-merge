@@ -18,6 +18,7 @@ use crate::tree::FileNode;
 use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
 use super::excluded_branches::ExcludedBranches;
+use super::find_diagnostics;
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
@@ -40,6 +41,13 @@ struct CommandOutputBytes {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
     exit_code: u32,
+}
+
+/// 非ゼロで終わったコマンドのエラー
+fn exec_failure(command: &str, exit_code: u32, stderr: &str) -> AppError {
+    AppError::SshExec {
+        command: format!("{command}: exit={exit_code}, stderr={stderr}"),
+    }
 }
 
 /// SSH接続を管理するクライアント
@@ -680,9 +688,9 @@ impl SshClient {
 
         let command = build_find_command(remote_path, include, exclude);
 
-        let output = match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            self.exec_strict(&command),
+            self.run_command(&command),
         )
         .await
         {
@@ -695,6 +703,24 @@ impl SshClient {
                 .into());
             }
         };
+        // exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく成功にする
+        if result.exit_code != 0 {
+            let excluded_only = result.exit_code == 1
+                && find_diagnostics::only_excluded_paths_failed(
+                    &result.stderr,
+                    remote_path,
+                    exclude,
+                );
+            if !excluded_only {
+                anyhow::bail!(exec_failure(&command, result.exit_code, &result.stderr));
+            }
+            tracing::debug!(
+                target: "remote_merge::ssh::client",
+                "Recursive scan: ignored find errors below excluded paths: {}",
+                result.stderr.trim_end()
+            );
+        }
+        let output = result.stdout;
 
         let excluded = ExcludedBranches::from_find_output(&output, remote_path, exclude);
         let mut flat_nodes = Vec::new();
@@ -802,12 +828,7 @@ impl SshClient {
         let result = self.run_command(command).await?;
 
         if result.exit_code != 0 {
-            anyhow::bail!(AppError::SshExec {
-                command: format!(
-                    "{}: exit={}, stderr={}",
-                    command, result.exit_code, result.stderr
-                ),
-            });
+            anyhow::bail!(exec_failure(command, result.exit_code, &result.stderr));
         }
 
         Ok(result.stdout)
