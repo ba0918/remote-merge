@@ -72,9 +72,8 @@ fn children(
         } else {
             format!("{rel}/{name}")
         };
-        // 名前だけと root_dir からのパスの両方に当てる（FLAG-paths-002 の今の SSH の当て方）
-        if filter::is_path_excluded(name, exclude) || filter::is_path_excluded(&child_rel, exclude)
-        {
+        // ローカルとエージェントの経路と同じく、root_dir からのパスに当てる
+        if filter::is_path_excluded(&child_rel, exclude) {
             continue;
         }
         if nodes.len() >= max_entries {

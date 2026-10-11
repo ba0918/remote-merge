@@ -136,6 +136,14 @@ impl Routes {
         }
     }
 
+    /// SSH の経路の設定に exclude を足す。ローカルとエージェントの経路には呼び出し側が渡す
+    fn with_exclude(self, exclude: &[String]) -> Self {
+        let mut config = fs::read_to_string(&self.config).unwrap();
+        config.push_str(&format!("[filter]\nexclude = {exclude:?}\n"));
+        fs::write(&self.config, config).unwrap();
+        self
+    }
+
     /// 製品の実行時処理を SSH でつないで `request` の操作を行い、結果の文字列を返す。
     /// 実行時処理は HOME の known_hosts を読み書きするので、HOME を一時ディレクトリにした
     /// テストのプロセスで動かす（[`serve_ssh_request`]）
@@ -291,7 +299,17 @@ fn entry(node: &FileNode) -> Entry {
 
 /// 三つの経路の一覧（比べる値の文字列）。ローカルの一覧はその値も返す
 fn list_on_all_routes(routes: &Routes, path: &str) -> (Vec<Entry>, [String; 3]) {
-    let local = remote_merge_engine::local_io::list_children(&routes.local.root, &[], path)
+    list_on_all_routes_excluding(routes, path, &[])
+}
+
+/// [`list_on_all_routes`] の、ローカルとエージェントの経路に exclude を渡すもの。SSH の経路の
+/// exclude は [`Routes::with_exclude`] で設定に書く
+fn list_on_all_routes_excluding(
+    routes: &Routes,
+    path: &str,
+    exclude: &[String],
+) -> (Vec<Entry>, [String; 3]) {
+    let local = remote_merge_engine::local_io::list_children(&routes.local.root, exclude, path)
         .map_err(|error| error.to_string());
     let local_text = listing_text(local.clone());
     let ssh = routes.over_ssh(&format!("list\t{path}"));
@@ -299,7 +317,7 @@ fn list_on_all_routes(routes: &Routes, path: &str) -> (Vec<Entry>, [String; 3]) 
         listing_text(
             agent
                 .client
-                .list_dir(path, &[], MAX_ENTRIES)
+                .list_dir(path, exclude, MAX_ENTRIES)
                 .map(child_listing_from_agent)
                 .map_err(|error| error.to_string()),
         )
@@ -474,6 +492,29 @@ async fn listing_the_same_directory_gives_the_same_entries_on_all_three_routes()
     });
     assert_eq!(agent, local);
     assert_eq!(local.unwrap().len(), 1);
+}
+
+// @kotowari[REQ-paths-017, EX-paths-036]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_path_pattern_exclude_does_not_hide_a_deeper_child_of_the_same_name_on_all_three_routes()
+{
+    let routes = Routes::new(|root, _| {
+        fs::create_dir_all(root.join("vendor")).unwrap();
+        fs::write(root.join("vendor/x.txt"), "x\n").unwrap();
+        fs::create_dir_all(root.join("a/vendor")).unwrap();
+        fs::write(root.join("a/vendor/y.txt"), "y\n").unwrap();
+        set_mtime(&root.join("a/vendor"), "@1700000000.5");
+    })
+    .await;
+    let exclude = ["vendor/**".to_string()];
+    let routes = routes.with_exclude(&exclude);
+
+    let (local, [local_text, ssh, agent]) = list_on_all_routes_excluding(&routes, "a", &exclude);
+
+    assert_eq!(ssh, local_text);
+    assert_eq!(agent, local_text);
+    let names: Vec<&str> = local.iter().map(|entry| entry.name.as_str()).collect();
+    assert_eq!(names, ["vendor"]);
 }
 
 // @kotowari[REQ-paths-017]

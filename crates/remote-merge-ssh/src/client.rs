@@ -1269,15 +1269,16 @@ fn parse_listing(
             tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
             break;
         }
-        if let Some(node) = parse_find_line(line, remote_path, exclude) {
-            // maxdepth 1 で得たノード名は1セグメントのみ。
-            // パスパターン（例: config/*.toml）にマッチさせるため、
-            // parent_rel_path を付けてフルパスで再フィルタする。
-            if !parent_rel_path.is_empty() {
-                let full_rel = format!("{}/{}", parent_rel_path, node.name);
-                if crate::filter::is_path_excluded(&full_rel, exclude) {
-                    continue;
-                }
+        if let Some(node) = parse_find_line(line, remote_path, &[]) {
+            // maxdepth 1 で得たノード名は1セグメントのみ。ローカルとエージェントの経路と同じく、
+            // 名前だけでなく root_dir からのパスに当てる
+            let full_rel = if parent_rel_path.is_empty() {
+                node.name.clone()
+            } else {
+                format!("{}/{}", parent_rel_path, node.name)
+            };
+            if crate::filter::is_path_excluded(&full_rel, exclude) {
+                continue;
             }
             nodes.push(node);
         }
