@@ -12,8 +12,9 @@
 //! - `find: 'P': Permission denied`
 //! - `find: File system loop detected; 'P' is part of the same file system loop as 'Q'.`
 //!
-//! パスの引用の中の `\'` と `\\` だけを戻し、ほかの "\" を含む引用（制御文字や ASCII 以外の
-//! バイトの逃がし）は見分けない。
+//! パスの引用の中の "\" の逃がしは、GNU find が C ロケールで出す形（`\'`・`\\`・制御文字の
+//! `\a`・`\b`・`\f`・`\n`・`\r`・`\t`・`\v`、ASCII 以外のバイトや残りの制御文字の 3 桁の 8 進）を
+//! 戻す。ほかの形の逃がしと、戻したバイトが UTF-8 として読めないパスは見分けない。
 
 use crate::filter;
 
@@ -47,21 +48,55 @@ fn diagnostic_path(line: &str) -> Option<String> {
     (rest == PERMISSION_DENIED).then_some(path)
 }
 
-/// 先頭の `'...'` の中身と、その後ろを返す
+/// 先頭の `'...'` の中身と、その後ろを返す。逃がしを戻した中身が UTF-8 として読めなければ None
 fn quoted(text: &str) -> Option<(String, &str)> {
-    let mut chars = text.strip_prefix('\'')?.char_indices();
-    let mut content = String::new();
-    while let Some((index, c)) = chars.next() {
-        match c {
-            '\'' => return Some((content, &text[index + 2..])),
-            '\\' => match chars.next()? {
-                (_, escaped @ ('\'' | '\\')) => content.push(escaped),
-                _ => return None,
-            },
-            _ => content.push(c),
+    let body = text.strip_prefix('\'')?;
+    let bytes = body.as_bytes();
+    let mut content = Vec::new();
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
+            b'\'' => return Some((String::from_utf8(content).ok()?, &body[index + 1..])),
+            b'\\' => {
+                let (unescaped, used) = unescape(&bytes[index + 1..])?;
+                content.push(unescaped);
+                index += 1 + used;
+            }
+            _ => {
+                content.push(byte);
+                index += 1;
+            }
         }
     }
     None
+}
+
+/// "\" の後ろの並び `rest` の先頭を 1 バイトに戻し、使った長さとともに返す
+fn unescape(rest: &[u8]) -> Option<(u8, usize)> {
+    let byte = match *rest.first()? {
+        b'\'' => b'\'',
+        b'\\' => b'\\',
+        b'a' => 0x07,
+        b'b' => 0x08,
+        b'f' => 0x0c,
+        b'n' => b'\n',
+        b'r' => b'\r',
+        b't' => b'\t',
+        b'v' => 0x0b,
+        _ => return octal_byte(rest),
+    };
+    Some((byte, 1))
+}
+
+/// 3 桁の 8 進で書いたバイト
+fn octal_byte(rest: &[u8]) -> Option<(u8, usize)> {
+    let digits = rest.get(..3)?;
+    let value = digits.iter().try_fold(0u32, |value, digit| {
+        (b'0'..=b'7')
+            .contains(digit)
+            .then(|| value * 8 + u32::from(digit - b'0'))
+    })?;
+    Some((u8::try_from(value).ok()?, 3))
 }
 
 /// `path` の `base_path` からの相対パス。`base_path` の下でなければ None
@@ -168,10 +203,28 @@ mod tests {
             "/r",
             &exclude(&["it's/a\\\\b"])
         ));
-        assert!(!only_excluded_paths_failed(
-            "find: '/r/a\\nb/x': Permission denied\n",
+    }
+
+    #[test]
+    fn c_escapes_and_octal_bytes_in_paths_are_decoded() {
+        // GNU find は C ロケールで ASCII 以外のバイトを 3 桁の 8 進、制御文字を C の逃がしで出す
+        let stderr = "find: '/r/a/b/\\346\\227\\245\\0011/t\\tn\\nx': Permission denied\n";
+        assert!(only_excluded_paths_failed(stderr, "/r", &exclude(&["a/?"])));
+        assert!(only_excluded_paths_failed(
+            "find: '/r/\\346\\227\\245/x': Permission denied\n",
             "/r",
-            &exclude(&["*"])
+            &exclude(&["日"])
         ));
+    }
+
+    #[test]
+    fn paths_that_are_not_utf8_or_unknown_escapes_are_not_accepted() {
+        for path in ["/r/a/b/\\377", "/r/a/b/\\q", "/r/a/b/\\34"] {
+            let stderr = format!("find: '{path}': Permission denied\n");
+            assert!(
+                !only_excluded_paths_failed(&stderr, "/r", &exclude(&["a/b"])),
+                "{path}"
+            );
+        }
     }
 }

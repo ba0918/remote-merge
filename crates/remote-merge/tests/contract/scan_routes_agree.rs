@@ -379,6 +379,18 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_patter
 
 // @kotowari[REQ-config-022]
 #[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan(
+) {
+    for exclude_line in NON_PRUNABLE_EXCLUDES {
+        let fixture = SshFixture::new().await;
+        let output = status_with_an_unreadable_directory(&fixture, "a/b/日本", exclude_line);
+        assert!(output.status.success(), "{exclude_line}: {output:?}");
+        assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+    }
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_outside_the_excluded_directories_still_fails_the_ssh_scan() {
     let fixture = SshFixture::new().await;
     let output =
