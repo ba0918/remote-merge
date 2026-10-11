@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use remote_merge::cli::status::{execute_status, StatusArgs};
 use remote_merge::merge::executor::MergeDirection;
 use remote_merge::runtime::CoreRuntime;
 use remote_merge::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
@@ -305,62 +304,4 @@ fn creating_a_new_file_in_a_missing_directory_records_nothing_and_leaves_no_sess
     );
     assert_eq!(store_entries(store.path()), [store.path().to_path_buf()]);
     assert!(listed_sessions("develop", config, targets(&develop, &store)).is_empty());
-}
-
-// @kotowari[REQ-backup-016]
-#[test]
-fn legacy_backup_directory_is_left_alone_and_hidden_from_list_and_status() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-    let legacy = develop.path().join(".remote-merge-backup");
-    fs::create_dir(&legacy).unwrap();
-    fs::write(legacy.join("20200101-000000"), "legacy\n").unwrap();
-    let config = config(&local, &develop, true);
-
-    merge_files(
-        merge_args("file.txt"),
-        config.clone(),
-        targets(&develop, &store),
-    );
-
-    let sessions = listed_sessions("develop", config.clone(), targets(&develop, &store));
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert!(
-        sessions[0]
-            .files
-            .iter()
-            .all(|file| !file.path.contains(".remote-merge-backup")),
-        "{sessions:?}"
-    );
-    let legacy_entries = fs::read_dir(&legacy)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect::<Vec<_>>();
-    assert_eq!(legacy_entries, ["20200101-000000"]);
-    assert_eq!(
-        fs::read_to_string(legacy.join("20200101-000000")).unwrap(),
-        "legacy\n"
-    );
-    let status = execute_status(
-        StatusArgs {
-            left: Some("local".into()),
-            right: Some("develop".into()),
-            ref_server: None,
-            format: "json".into(),
-            summary: false,
-            all: true,
-            checksum: true,
-            verbose: 0,
-            max_entries: None,
-        },
-        config,
-        targets(&develop, &store),
-    )
-    .unwrap();
-    let listed = serde_json::to_string(&status.output).unwrap();
-    assert!(!listed.contains(".remote-merge-backup"), "{listed}");
-    assert_eq!(status.output.summary.right_only, 0);
 }

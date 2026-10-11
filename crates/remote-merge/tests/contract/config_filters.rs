@@ -242,3 +242,19 @@ fn exclude_removes_matching_paths_from_the_include_target() {
         set(&["src/a.txt"])
     );
 }
+
+// ─── 書き込み先に残った以前の版のバックアップの置き場（REQ-config-003） ─────────────────
+
+// @kotowari[REQ-config-003, EX-config-023]
+#[test]
+fn ex_config_023_a_leftover_backup_directory_is_listed_like_any_other_directory() {
+    let workspace = Workspace::new(&["file.txt"]);
+    let leftover = workspace.develop.path().join(".remote-merge-backup");
+    fs::create_dir(&leftover).unwrap();
+    fs::write(leftover.join("old.txt"), "left by an earlier version\n").unwrap();
+
+    assert_eq!(
+        workspace.listed("exclude = [\".git\"]"),
+        set(&[".remote-merge-backup/old.txt", "file.txt"])
+    );
+}
