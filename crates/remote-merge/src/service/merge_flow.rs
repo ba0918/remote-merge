@@ -96,6 +96,7 @@ pub fn execute_single_merge(
             } else {
                 None
             };
+            let missing_directories = ctx.core.missing_parent_directories(target, path)?;
             if target_exists {
                 ctx.core.remove_file(target, path)?;
                 ctx.core
@@ -104,6 +105,8 @@ pub fn execute_single_merge(
             } else {
                 ctx.core.create_symlink(target, path, &link_target)?;
             }
+            set_directory_permissions(ctx.core, target, &missing_directories)
+                .map_err(link_created)?;
             return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
                 status: "ok".into(),
@@ -188,20 +191,7 @@ pub fn execute_single_merge(
         .write_file_bytes(target, path, &content, &before)
         .map_err(|error| ConfirmedChange::with_backup(error, backup_path.as_deref()))?;
 
-    if !missing_directories.is_empty() {
-        let mode = match target {
-            Side::Local => ctx.core.config.defaults.dir_permissions,
-            Side::Remote(name) => {
-                let server = &ctx.core.config.servers[name];
-                crate::config::resolve_dir_permissions(server, &ctx.core.config.defaults)
-            }
-        };
-        for directory in missing_directories {
-            ctx.core
-                .chmod_file(target, &directory, mode)
-                .map_err(content_written)?;
-        }
-    }
+    set_directory_permissions(ctx.core, target, &missing_directories).map_err(content_written)?;
 
     if target_tree.find_node(Path::new(path)).is_none() && !ctx.with_permissions {
         let mode = match target {
@@ -243,6 +233,34 @@ fn existing_entry_deleted(error: anyhow::Error) -> anyhow::Error {
 /// 中身を書いた後の失敗の文言。中身は書いたことを示す（REQ-merge-037・REQ-ssh-022）。種類は変えない
 fn content_written(error: anyhow::Error) -> anyhow::Error {
     crate::runtime::connection::prefixed(error, "content written, but ")
+}
+
+/// symlink を作った後の失敗の文言。リンクは作ったことを示す。種類は変えない
+fn link_created(error: anyhow::Error) -> anyhow::Error {
+    crate::runtime::connection::prefixed(error, "link created, but ")
+}
+
+/// 書き込みで作られたディレクトリ `directories` に、書き込み先に設定された権限を付ける
+/// （REQ-merge-012。どの経路でもここで付ける）
+fn set_directory_permissions(
+    core: &mut CoreRuntime,
+    target: &Side,
+    directories: &[String],
+) -> anyhow::Result<()> {
+    if directories.is_empty() {
+        return Ok(());
+    }
+    let mode = match target {
+        Side::Local => core.config.defaults.dir_permissions,
+        Side::Remote(name) => {
+            let server = &core.config.servers[name];
+            crate::config::resolve_dir_permissions(server, &core.config.defaults)
+        }
+    };
+    for directory in directories {
+        core.chmod_file(target, directory, mode)?;
+    }
+    Ok(())
 }
 
 /// 読み込み元の走査したツリー `source_tree` の権限を、書き込み先の `path` に写す。

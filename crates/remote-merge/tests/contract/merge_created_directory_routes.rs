@@ -88,3 +88,85 @@ async fn a_directory_merge_creates_under_a_setgid_parent_keeps_setgid_on_all_thr
         "local, ssh, agent"
     );
 }
+
+const LINK: &str = "linked/new/link";
+
+/// 新しいディレクトリの権限を `mode` にした fixture
+async fn fixture_with_dir_permissions(setup: Setup, mode: &str) -> AgentFixture {
+    let fixture = AgentFixture::new(setup, Faults::default()).await;
+    let mut config = fs::read_to_string(&fixture.config).unwrap();
+    config.push_str(&format!("[defaults]\ndir_permissions = \"{mode}\"\n"));
+    fs::write(&fixture.config, config).unwrap();
+    fixture
+}
+
+/// 読み込み元 `source_root` に "linked/new/link"（"x.txt" への symlink）を置き、それを `sides` の
+/// 向きで書き込み先 `target_root` へ merge して、作られた "linked" と "linked/new" の権限を返す
+fn merge_symlink_into_new_directories(
+    fixture: &AgentFixture,
+    source_root: &Path,
+    target_root: &Path,
+    sides: &[&str],
+) -> [u32; 2] {
+    let source = source_root.join(LINK);
+    fs::create_dir_all(source.parent().unwrap()).unwrap();
+    fs::write(source.parent().unwrap().join("x.txt"), "x\n").unwrap();
+    std::os::unix::fs::symlink("x.txt", &source).unwrap();
+
+    let output = fixture.run_with_sides(&["merge", LINK], sides);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(json(&output)["merged"].as_array().map(Vec::len), Some(1));
+    let created = target_root.join(LINK);
+    assert_eq!(fs::read_link(&created).unwrap(), Path::new("x.txt"));
+    [
+        mode_of(&target_root.join("linked")),
+        mode_of(&target_root.join("linked/new")),
+    ]
+}
+
+// umask の既定（0o755 か 0o775）と違う 0o750 にして、設定の権限が付いたことを見分ける
+// @kotowari[REQ-merge-012]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_symlink_merged_into_new_directories_gets_the_directory_permissions_on_all_three_routes()
+{
+    let local_route = {
+        let fixture = fixture_with_dir_permissions(Setup::default(), "0o750").await;
+        merge_symlink_into_new_directories(
+            &fixture,
+            &fixture.remote(),
+            &fixture.local(),
+            &["--left", "fixture", "--right", "local"],
+        )
+    };
+    let ssh_route = {
+        let setup = Setup {
+            agent_disabled: true,
+            ..Setup::default()
+        };
+        let fixture = fixture_with_dir_permissions(setup, "0o750").await;
+        merge_symlink_into_new_directories(
+            &fixture,
+            &fixture.local(),
+            &fixture.remote(),
+            &["--left", "local", "--right", "fixture"],
+        )
+    };
+    let agent_route = {
+        let fixture = fixture_with_dir_permissions(Setup::default(), "0o750").await;
+        let modes = merge_symlink_into_new_directories(
+            &fixture,
+            &fixture.local(),
+            &fixture.remote(),
+            &["--left", "local", "--right", "fixture"],
+        );
+        let requests = fixture.server.faults().agent_requests();
+        assert!(requests.iter().any(|r| r == "Symlink"), "{requests:?}");
+        modes
+    };
+
+    assert_eq!(
+        [local_route, ssh_route, agent_route],
+        [[0o750; 2]; 3],
+        "local, ssh, agent"
+    );
+}
