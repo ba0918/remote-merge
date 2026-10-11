@@ -6,11 +6,11 @@
 
 ## Specification
 
-IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A41（A5・A24・A26 は A38 で置き換えた）。この計画が扱うのは次のとおり。
+IR は `docs/ir/` にある。決定は `docs/decision/records/2026-10-11-agent-operations.md` の A1〜A42（A5・A24・A26 は A38 で置き換えた）、IR とコードの突き合わせで REQ-ssh-003・REQ-ssh-022・REQ-ssh-023 を書き足した `docs/decision/records/2026-10-11-agent-operations-consistency.md` の A1〜A3、二度目の突き合わせで変えないと決めた二つの動きの `docs/decision/records/2026-10-11-agent-operations-consistency-2.md` の A1・A2。この計画が扱うのは次のとおり。
 
 - 経路の選び方: `docs/ir/ssh/fallback.md#REQ-ssh-005`、`#REQ-ssh-010`、`#REQ-ssh-021`
 - 接続断: `docs/ir/ssh/reconnect.md#REQ-ssh-003`、`#REQ-ssh-004`、`#REQ-ssh-022`、`#REQ-ssh-023`、`docs/ir/ssh/sudo.md#REQ-ssh-009`
-- 三つの操作: `docs/ir/paths/operations.md#REQ-paths-013`、`#REQ-paths-015`、`#REQ-paths-016`、`#REQ-paths-017`
+- 三つの操作: `docs/ir/paths/operations.md#REQ-paths-013`、`#REQ-paths-015`、`#REQ-paths-016`、`#REQ-paths-017`、`#REQ-paths-018`
 - diff の一覧の失敗: `docs/ir/cli/directory-paths.md#REQ-cli-096`
 - 権限の複製の失敗: `docs/ir/merge/permissions.md#REQ-merge-037`
 - 接続断の例外を書き足した既存の要件（この計画で振る舞いを変えるのは接続断のときだけ）: `docs/ir/merge/concurrency.md#REQ-merge-033`、`#REQ-merge-041`、`docs/ir/merge/deletion.md#REQ-merge-034`、`docs/ir/cli/unreadable.md#REQ-cli-088`、`#REQ-cli-089`、`docs/ir/backup/failure.md#REQ-backup-017`、`docs/ir/backup/rollback-path.md#REQ-backup-027`
@@ -87,7 +87,7 @@ SSH の読み取りの時間切れ（`AppError::SshTimeout`。子の一覧の 30
 
 rollback の止め方を変える主な場所は `side_io.rs` の `restore_backup` である。加えて、`crates/remote-merge/src/cli/rollback.rs` の 122〜130 行付近が全体の Err を全ファイルの同じ失敗に変えているので、ここも「手を付けていない」と区別できる形にする。
 
-failed の項目の形は変えない（欄を足さない）。「結果が分からない」「手を付けていない」「読み込みに失敗した」「中身は書いた」の区別は、error の文言で読めるようにする（A34。文言そのものは実装者が英語で書く）。
+failed の項目の形は変えない（欄を足さない）。「書いていない」「書きかけ」「結果が分からない」「手を付けていない」「読み込みに失敗した」「中身は書いた」の区別は、error の文言で読めるようにする（A34。文言そのものは実装者が英語で書く）。
 
 status と diff で読み取りを止めたときの出力は、今の size_limit の契約テスト（diff の読み込みが二度切れると、JSON の errors にそのパスが出て終了コード 2）と同じ形にする。止めたパスを理由付きで errors に出し、残りのパスは比べずに終了コード 2 を返す。
 
@@ -115,7 +115,7 @@ hunk の merge（`merge_flow.rs` の `execute_hunk_merge`）は、今はファ�
 
 ## Step order and prerequisites
 
-S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9 の順にする。S1〜S8 は済んでいる（`08fe148..5aea20f`）。
+S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9 の順にする。S1〜S9 は済んでいる（`08fe148..27af092`）。
 
 - S1 は、後の全ステップの契約テストが使う道具を足す
 - S2 は、エージェントの要求の型を変える S3 の前提になる。版を上げる変更は一回にまとめる
@@ -132,13 +132,13 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 → S8 → S9 の順にする。S1�
 |---|---|---|
 | S1 | なし（テストの道具） | なし |
 | S2 | REQ-ssh-005、REQ-ssh-021 | EX-ssh-036、EX-ssh-037、EX-ssh-049（EX-ssh-009・EX-ssh-010 は既存のテストが通り続ける） |
-| S3 | REQ-paths-013、REQ-paths-015、REQ-paths-016、REQ-paths-017 | EX-paths-026、EX-paths-027、EX-paths-028、EX-paths-031、EX-paths-032、EX-paths-033、EX-paths-034 |
+| S3 | REQ-paths-013、REQ-paths-015、REQ-paths-016、REQ-paths-017、REQ-paths-018 | EX-paths-026、EX-paths-027、EX-paths-028、EX-paths-031、EX-paths-032、EX-paths-033、EX-paths-034、EX-paths-035 |
 | S4 | REQ-ssh-010 | EX-ssh-034、EX-ssh-035 |
 | S5 | REQ-ssh-003、REQ-ssh-004、REQ-ssh-009、REQ-ssh-023 | EX-ssh-019、EX-ssh-041 |
 | S6 | REQ-ssh-022、REQ-merge-037 | EX-ssh-040、EX-ssh-042、EX-ssh-045、EX-ssh-048、EX-merge-044、EX-merge-051 |
 | S7 | REQ-cli-096 | EX-cli-095、EX-cli-096 |
 | S9 | REQ-ssh-022 | EX-ssh-053 |
-| S8 | REQ-ssh-022、REQ-ssh-004 | EX-ssh-007、EX-ssh-038、EX-ssh-039、EX-ssh-043、EX-ssh-044、EX-ssh-046、EX-ssh-047、EX-ssh-050、EX-ssh-051、EX-ssh-052 |
+| S8 | REQ-ssh-022、REQ-ssh-004 | EX-ssh-007、EX-ssh-038、EX-ssh-039、EX-ssh-043、EX-ssh-044、EX-ssh-046、EX-ssh-047、EX-ssh-050、EX-ssh-051、EX-ssh-052、EX-ssh-054 |
 
 接続断の例外を書き足した既存の要件（REQ-merge-033・034・041、REQ-cli-088・089、REQ-backup-017・027）は、それぞれの既存のテストが通り続けることと、S6 の REQ-ssh-022 の例で確かめる。REQ-backup-017・027 の接続断（バックアップのための読み込みの接続断）は、S6 で契約テストを一つ足して確かめる。
 
@@ -207,11 +207,11 @@ Docker の実機の sudo の例は `scripts/run-container-e2e.sh` で走らせ�
 ### S3: 削除・権限の変更・子の一覧を、三つの経路で同じ結果にする
 
 - Purpose: エージェントに Remove・Chmod・ListDir を足し、ローカルと SSH の違う点を決定のとおりに直して、三つの経路の結果をそろえる
-- Specification: `docs/ir/paths/operations.md#REQ-paths-013`, `docs/ir/paths/operations.md#REQ-paths-015`, `docs/ir/paths/operations.md#REQ-paths-016`, `docs/ir/paths/operations.md#REQ-paths-017`
+- Specification: `docs/ir/paths/operations.md#REQ-paths-013`, `docs/ir/paths/operations.md#REQ-paths-015`, `docs/ir/paths/operations.md#REQ-paths-016`, `docs/ir/paths/operations.md#REQ-paths-017`, `docs/ir/paths/operations.md#REQ-paths-018`
 - Prerequisites: S2
 - May change: `crates/remote-merge-protocol/src/lib.rs`, `crates/remote-merge-agent/src/agent/`, `crates/remote-merge/src/agent/`, `crates/remote-merge-engine/src/local_io.rs`, `crates/remote-merge-engine/src/local/mod.rs`, `crates/remote-merge-engine/src/merge/executor.rs`, `crates/remote-merge-ssh/src/client.rs`, `crates/remote-merge-ssh/src/tree_parser.rs`, `crates/remote-merge-core/src/`, `crates/remote-merge/src/runtime/`, `crates/remote-merge/tests/contract/`
-- Done when: 同じ一時ディレクトリに対して、ローカル・SSH・エージェントの経路で三つの操作を行うと、次のとおりになる。末尾の symlink の削除はリンクだけを消す。ディレクトリとないパスの削除は失敗して何も変えない。root_dir の外を指す途中の symlink の先の権限の変更は成功する。0o777 を超える値の権限の変更はエラーで何も変えない。失敗の文言は、操作・パス・原因を含む。子の一覧の各項目は、種類・大きさ・0o7777 の範囲の権限・ナノ秒までの更新時刻・前後の空白を削らないリンク先が一致する。ローカルの経路でリンク先の読み取りの失敗を差し込むと、一覧は "???" を返さずエラーで止まる。三つの経路の子の一覧は、「ディレクトリではない」（通常ファイル、ディレクトリでないものへの symlink、リンク切れ、ないパス）、「一覧を取れなかった」（読めないディレクトリ）、「止めるエラー」（リンク先か更新時刻を読めない）の三つを区別した結果を返す新しい関数を持つ。".." と絶対パスは、どの経路でも A12 の文言で、末尾の "/" を除く前の値で拒否する（A30 のとおり印を付けない単体テストで固める）。エージェントの子の一覧は、exclude を直下の子の root_dir からのパスに当て、件数を SSH と同じ上限で打ち切る。全体の走査の値は変わらない。diff は S3 の後も今の関数で動く
-- Shown by: test — 三つの経路を同じディレクトリで比べる契約テスト（`crates/remote-merge/tests/contract/path_routes_agree.rs` の EX-paths-019 の形）`// @kotowari[REQ-paths-013, EX-paths-026]`、`// @kotowari[EX-paths-027]`、`// @kotowari[EX-paths-028]`、`// @kotowari[REQ-paths-015, EX-paths-031]`、`// @kotowari[REQ-paths-016, EX-paths-032]`、`// @kotowari[REQ-paths-017, EX-paths-033]`（exclude の当て方も同じテストで確かめる）、`// @kotowari[EX-paths-034]`（ローカルの一覧の関数にリンク先の読み取りを差し込める継ぎ目を作り、契約テストから失敗を差し込む）。印のない単体テストで、".." と絶対パスと "/" の拒否（A12・A28）、一覧の結果の型の分類、SSH の `%T@` を文字列のまま読むこと、件数の上限。エージェントの経路は操作がまだないので、どの契約テストも変更前の HEAD で RED になることを確かめる
+- Done when: 同じ一時ディレクトリに対して、ローカル・SSH・エージェントの経路で三つの操作を行うと、次のとおりになる。末尾の symlink の削除はリンクだけを消す。ディレクトリとないパスの削除は失敗して何も変えない。root_dir の外を指す途中の symlink の先の権限の変更は成功する。0o777 を超える値の権限の変更はエラーで何も変えない。ディレクトリの権限の変更は、すでに付いている setuid・setgid を残し、0o777 の範囲のビットと sticky を指定の値にする（A42。0o2775 のディレクトリを 0o775 に変えると 0o2775 のまま）。ファイルの権限の変更は指定の値そのものにする。失敗の文言は、操作・パス・原因を含む。子の一覧の各項目は、種類・大きさ・0o7777 の範囲の権限・ナノ秒までの更新時刻・前後の空白を削らないリンク先が一致する。ローカルの経路でリンク先の読み取りの失敗を差し込むと、一覧は "???" を返さずエラーで止まる。三つの経路の子の一覧は、「ディレクトリではない」（通常ファイル、ディレクトリでないものへの symlink、リンク切れ、ないパス）、「一覧を取れなかった」（読めないディレクトリ）、「止めるエラー」（リンク先か更新時刻を読めない）の三つを区別した結果を返す新しい関数を持つ。".." と絶対パスは、どの経路でも A12 の文言で、末尾の "/" を除く前の値で拒否する（A30 のとおり印を付けない単体テストで固める）。エージェントの子の一覧は、exclude を直下の子の root_dir からのパスに当て、件数を SSH と同じ上限で打ち切る。全体の走査の値は変わらない。diff は S3 の後も今の関数で動く
+- Shown by: test — 三つの経路を同じディレクトリで比べる契約テスト（`crates/remote-merge/tests/contract/path_routes_agree.rs` の EX-paths-019 の形）`// @kotowari[REQ-paths-013, EX-paths-026]`、`// @kotowari[EX-paths-027]`、`// @kotowari[EX-paths-028]`、`// @kotowari[REQ-paths-015, EX-paths-031]`、`// @kotowari[REQ-paths-018, EX-paths-035]`、`// @kotowari[REQ-paths-016, EX-paths-032]`、`// @kotowari[REQ-paths-017, EX-paths-033]`（exclude の当て方も同じテストで確かめる）、`// @kotowari[EX-paths-034]`（ローカルの一覧の関数にリンク先の読み取りを差し込める継ぎ目を作り、契約テストから失敗を差し込む）。印のない単体テストで、".." と絶対パスと "/" の拒否（A12・A28）、一覧の結果の型の分類、SSH の `%T@` を文字列のまま読むこと、件数の上限。エージェントの経路は操作がまだないので、どの契約テストも変更前の HEAD で RED になることを確かめる
 - Left to the implementer: エージェントの新しい操作のパスの辿り方の実装（既存の `inspect_path` の辿り方を使うか、別に書くか。root_dir の外を指す途中の symlink を辿ること）。一覧の結果の型の形
 - Stop and hand back if: ローカルと SSH で、決定（A31）が同じとした点が実際には違った。リンク先の読み取りの失敗を差し込む継ぎ目を、製品のふるまいを変えずに作れなかった。SSH の find の `%m` が特別なビットを出さなかった。子の一覧の値だけを直すことができず、全体の走査の値まで変わってしまった
 
@@ -246,7 +246,7 @@ Docker の実機の sudo の例は `scripts/run-container-e2e.sh` で走らせ�
 - Done when: 三つのファイルの merge で、二つ目の書き込みの最中に切ると、一つ目は書かれ、二つ目は結果が分からない失敗、三つ目は手を付けていない失敗として failed に出て、三つ目は変わらず、終了コード 2 を返す。エージェントの書き込みの応答が来ないとき、同じ書き込みは SSH でも行われない。書き込み先の権限がなくて 1 ファイルが失敗しただけなら、そのファイルだけ failed で、残りは書かれる。--delete の削除の最中、rollback の書き戻しの最中に切ったときも同じ形になる。二つの書き込み先の sync で一方だけ切れると、他方は全部書かれる。次の要求を送れないときは、そのファイルから後が手を付けていない失敗になる。中身を書いた後の権限の変更で切れると、中身は書いたことと結果が分からないことの両方が読める error になる。最初の読み込みが、やり直し後も切れると、何も書かずに止まる。SSH の読み取りが、やり直し後も切れたときも同じく止まる。まとめて読む処理が接続断なら、そのまとめのファイルはすべて読み込みの失敗として出て、1 ファイルずつ読み直さない。バックアップのための読み込みが接続断になったときも、そのファイルは 1 ファイルの失敗として続けず、同じく止まる。--with-permissions の権限の変更が拒まれたファイルと、読み込み元に setuid があるファイルは、中身は書いたことが分かる error で failed に出て、終了コード 2 を返し、権限は変わらない。failed の項目に欄は足さず、区別は error の文言で読める
 - Shown by: test — 契約テスト `// @kotowari[REQ-ssh-022, EX-ssh-039]`、`// @kotowari[EX-ssh-038]`、`// @kotowari[EX-ssh-040]`、`// @kotowari[EX-ssh-043]`、`// @kotowari[EX-ssh-044]`、`// @kotowari[EX-ssh-045]`、`// @kotowari[EX-ssh-046]`、`// @kotowari[EX-ssh-047]`、`// @kotowari[EX-ssh-042]`、`// @kotowari[EX-ssh-048]`、`// @kotowari[REQ-merge-037, EX-merge-044]`、`// @kotowari[EX-merge-051]`、バックアップの読み込みの接続断の契約テスト `// @kotowari[REQ-backup-017]`。まとめて読む処理の接続断の扱いは、EX-ssh-042 か EX-ssh-048 のテストの中で、読み込みの要求の回数で確かめる。EX-ssh-040 は今の動きを守る回帰のテストなので HEAD でも通る。それ以外は変更前の HEAD で RED になることを確かめる
 - Left to the implementer: 内部の結果の型の形（出力の JSON の形は変えない）
-- Stop and hand back if: error の文言だけでは、テストが「結果が分からない」「手を付けていない」「読み込みに失敗した」「中身は書いた」を区別できなかった
+- Stop and hand back if: error の文言だけでは、テストが「書いていない」「書きかけ」「結果が分からない」「手を付けていない」「読み込みに失敗した」「中身は書いた」を区別できなかった
 
 ### S7: diff で子の一覧を取れなかったディレクトリをエラーとして出す
 
@@ -265,8 +265,8 @@ Docker の実機の sudo の例は `scripts/run-container-e2e.sh` で走らせ�
 - Specification: `docs/ir/ssh/reconnect.md#REQ-ssh-022`, `docs/ir/ssh/reconnect.md#REQ-ssh-004`
 - Prerequisites: S6
 - May change: `crates/remote-merge/src/cli/merge.rs`, `crates/remote-merge/src/cli/sync.rs`, `crates/remote-merge/src/cli/rollback.rs`, `crates/remote-merge/src/service/merge_flow.rs`, `crates/remote-merge/src/runtime/`, `crates/remote-merge-agent/src/agent/ssh_transport.rs`, `crates/remote-merge-agent/src/agent/client.rs`, `crates/remote-merge-engine/src/service/`, `crates/remote-merge/tests/contract/`
-- Done when: 二つ目のファイルの書き込みの要求が書かれる前に切ると、二つ目は書いていない失敗、三つ目は手を付けていない失敗になり、どちらも変わらない。書いた後で応答の前に切ると、そのファイルは書き込まれた結果に出て、残りは手を付けていない失敗になり、終了コード 2 を返す。前の操作の後にエージェントが終わっているときも、次のファイルは書いていない失敗になり、タイミングで出方が変わらない。分けて送る大きな書き込みの途中で切ると、書きかけであることとバックアップの場所が error に出て、書き戻さない。つなぎ直せないときだけ結果が分からない失敗になる。削除・rollback の書き戻し・書いた後の権限の変更でも、確かめた結果（消していない、書いていない、権限は変えていない）が error で読める。同じ変更は SSH でもエージェントでも繰り返されない。接続断が起きない merge では、エージェントへの要求の並びが S6 と同じで、確かめのための要求が増えていない。S6 の「送れなかった」を見分ける仕組みは残っていない
-- Shown by: test — 契約テスト `// @kotowari[EX-ssh-038]`、`// @kotowari[REQ-ssh-022, EX-ssh-039]`、`// @kotowari[EX-ssh-043]`、`// @kotowari[EX-ssh-044]`、`// @kotowari[EX-ssh-046]`、`// @kotowari[EX-ssh-047]`、`// @kotowari[EX-ssh-050]`、`// @kotowari[EX-ssh-051]`、`// @kotowari[EX-ssh-052]`、`// @kotowari[REQ-ssh-004, EX-ssh-007]`（S6 の印付きのテストは、書き直された例に合わせて直す）。接続断のない merge の要求の並びが変わらないことは、要求の並びを数える契約テストで確かめる。EX-ssh-046 は `.agents/artifacts/implement-scratch/ex_ssh_046_test.rs` に退避したテストを元にしてよい。どの例も `758c448` の製品コードで RED になることを確かめる
+- Done when: 二つ目のファイルの書き込みの要求が書かれる前に切ると、二つ目は書いていない失敗、三つ目は手を付けていない失敗になり、どちらも変わらない。書いた後で応答の前に切ると、そのファイルは書き込まれた結果に出て、残りは手を付けていない失敗になり、終了コード 2 を返す。ただし、そのファイルに書いた後の変更が残っているとき（新しいファイルや作ったディレクトリの権限の変更、--with-permissions の権限の複製、symlink を置き換えるために消した後の作成）は、残りの変更を行わず、そのファイルを、中身は書いたことと手を付けていない変更の両方が分かる error で failed に出す（EX-ssh-054）。権限の変更の確かめは、ディレクトリにすでに付いていた setuid・setgid を残した権限を「変えた」とする（A42）。前の操作の後にエージェントが終わっているときも、次のファイルは書いていない失敗になり、タイミングで出方が変わらない。分けて送る大きな書き込みの途中で切ると、書きかけであることとバックアップの場所が error に出て、書き戻さない。つなぎ直せないときだけ結果が分からない失敗になる。削除・rollback の書き戻し・書いた後の権限の変更でも、確かめた結果（消していない、書いていない、権限は変えていない）が error で読める。同じ変更は SSH でもエージェントでも繰り返されない。接続断が起きない merge では、確かめのための要求が増えていない（書き込みの後にエージェントへの要求がない）。S6 の「送れなかった」を見分ける仕組みは残っていない
+- Shown by: test — 契約テスト `// @kotowari[EX-ssh-038]`、`// @kotowari[REQ-ssh-022, EX-ssh-039]`、`// @kotowari[EX-ssh-043]`、`// @kotowari[EX-ssh-044]`、`// @kotowari[EX-ssh-046]`、`// @kotowari[EX-ssh-047]`、`// @kotowari[EX-ssh-050]`、`// @kotowari[EX-ssh-051]`、`// @kotowari[EX-ssh-052]`、`// @kotowari[EX-ssh-054]`、`// @kotowari[REQ-ssh-004, EX-ssh-007]`（S6 の印付きのテストは、書き直された例に合わせて直す）。接続断のない merge で確かめのための要求が増えていないことは、書き込みの後に要求がないことを見る契約テストで確かめる（読み込みの並びは仕様で決めていないので固定しない）。EX-ssh-046 は `.agents/artifacts/implement-scratch/ex_ssh_046_test.rs` に退避したテストを元にしてよい。どの例も `758c448` の製品コードで RED になることを確かめる
 - Left to the implementer: 確かめの比べ方（中身そのものかハッシュか）、書く前の状態の持ち方、error の文言（A34。英語で、書いていない・書きかけ・結果が分からない・手を付けていない・中身は書いたことが読めるようにする）
 - Stop and hand back if: 書く前の状態を確かめに使える形で持てない書き込みがあり、「書いていない」と「書きかけ」を分けられなかった。テストの道具で EX-ssh-050・051・052 の切り方のどれかを起こせなかった
 
