@@ -787,6 +787,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- a/src/config.ts (local)"));
@@ -820,6 +821,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("truncated"));
@@ -999,6 +1001,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("--- ref:staging:config.ts (reference diff vs left)"));
@@ -1030,6 +1033,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("ref"));
@@ -1060,6 +1064,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -1096,6 +1101,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Symbolic link targets differ"));
@@ -1255,6 +1261,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         }
     }
 
@@ -1391,6 +1398,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains(
@@ -1423,6 +1431,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ (left: sha256=abc123, right: missing)"));
@@ -1452,6 +1461,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Binary files differ"));
@@ -1482,6 +1492,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = format_json(&output).unwrap();
         assert!(json.contains("\"left_hash\""));
@@ -1515,6 +1526,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("left_hash"));
@@ -1622,6 +1634,7 @@ mod tests {
             note: None,
             conflict_count: 2,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(text.contains("Conflicts: 2 region(s)"));
@@ -1651,6 +1664,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let text = format_diff_text(&output);
         assert!(!text.contains("Conflicts"));
@@ -1714,6 +1728,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = format_json(&output).unwrap();
         assert!(!json.contains("conflict_count"));
@@ -1855,6 +1870,7 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            one_sided: false,
             conflict_count: 1,
             conflict_regions: vec![ConflictRegion {
                 ref_range: 10..15,

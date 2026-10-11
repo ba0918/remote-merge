@@ -643,6 +643,7 @@ pub fn execute_diff(
                 note: None,
                 conflict_count: 0,
                 conflict_regions: vec![],
+                one_sided: false,
             }
         } else {
             // テキストファイル: String に変換して既存の build_diff_output を呼ぶ
@@ -688,7 +689,17 @@ pub fn execute_diff(
                 ref_content.as_deref(),
             )
         };
+        // 片側にだけあるファイルは、中身が空でも片側だけの項目として差分ありとする（REQ-cli-086）
+        let mut output = output;
+        if left_ok != right_ok {
+            output.one_sided = true;
+            if output.hunks.is_empty() && !output.binary {
+                let side = if left_ok { "left" } else { "right" };
+                output.note = Some(format!("empty file only on the {side}"));
+            }
+        }
         if !expanded_children.contains(path)
+            || output.one_sided
             || output.binary && output.left_hash != output.right_hash
             || !output.hunks.is_empty()
             || output.note.is_some()

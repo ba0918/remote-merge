@@ -76,6 +76,9 @@ mod diff_max_files;
 #[path = "contract/diff_named_files.rs"]
 mod diff_named_files;
 #[cfg(feature = "test-utils")]
+#[path = "contract/diff_one_sided.rs"]
+mod diff_one_sided;
+#[cfg(feature = "test-utils")]
 #[path = "contract/diff_output_cli.rs"]
 mod diff_output_cli;
 #[cfg(feature = "test-utils")]

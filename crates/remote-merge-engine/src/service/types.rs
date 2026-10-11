@@ -127,6 +127,9 @@ pub struct DiffOutput {
     /// コンフリクト領域（3way diff 時のみ。空なら省略）
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub conflict_regions: Vec<crate::diff::conflict::ConflictRegion>,
+    /// 片側にだけあるファイル。中身が空でも変更のあるファイルと数える
+    #[serde(skip)]
+    pub one_sided: bool,
 }
 
 impl DiffOutput {
@@ -139,6 +142,7 @@ impl DiffOutput {
                     .as_ref()
                     .is_some_and(|targets| targets.left != targets.right))
             || !self.hunks.is_empty()
+            || self.one_sided
     }
 }
 
@@ -524,6 +528,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"context\""));
@@ -685,6 +690,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("\"ref\""));
@@ -715,6 +721,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"ref\""));
@@ -829,6 +836,7 @@ mod tests {
                 note: None,
                 conflict_count: 0,
                 conflict_regions: vec![],
+                one_sided: false,
             }],
             errors: vec![],
             summary: MultiDiffSummary {
@@ -886,6 +894,7 @@ mod tests {
             left_hash: None,
             right_hash: None,
             note: None,
+            one_sided: false,
             conflict_count: 1,
             conflict_regions: vec![ConflictRegion {
                 ref_range: 0..1,

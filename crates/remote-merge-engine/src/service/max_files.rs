@@ -139,6 +139,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         }
     }
 

@@ -86,6 +86,7 @@ pub fn build_diff_output(
         note: None,
         conflict_count: conflict_info.conflict_count(),
         conflict_regions: conflict_info.regions,
+        one_sided: false,
     }
 }
 
@@ -191,6 +192,7 @@ pub fn build_symlink_diff_output(
         note,
         conflict_count: 0,
         conflict_regions: vec![],
+        one_sided: false,
     }
 }
 
@@ -217,6 +219,7 @@ pub fn build_uncompared_diff_output(
         note: Some(note.to_string()),
         conflict_count: 0,
         conflict_regions: vec![],
+        one_sided: false,
     }
 }
 
@@ -509,6 +512,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -532,6 +536,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         assert_eq!(diff_exit_code(&output), exit_code::DIFF_FOUND);
     }
@@ -558,6 +563,7 @@ mod tests {
             note: None,
             conflict_count: 0,
             conflict_regions: vec![],
+            one_sided: false,
         };
         assert!(output.symlink);
         assert!(!output.binary);

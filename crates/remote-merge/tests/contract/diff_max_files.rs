@@ -181,25 +181,26 @@ fn req_cli_055_zero_outputs_every_changed_file() {
     assert!(!format_multi_diff_text(&output).contains("more files"));
 }
 
-// 片側にだけある空のファイルは変更のあるファイルではないので、数えも打ち切りもしない
-// @kotowari[REQ-cli-055]
+// 片側にだけある空のファイルも変更のあるファイル（REQ-cli-086）なので、ほかのファイルと同じく
+// 数え、--max-files を超えれば打ち切る
+// @kotowari[REQ-cli-055, REQ-cli-086]
 #[test]
-fn req_cli_055_empty_file_on_one_side_is_not_counted_without_paths() {
+fn req_cli_055_empty_file_on_one_side_is_counted_without_paths() {
     let output = diff(empty_left_only_fixture(), &[], 1);
 
-    assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
-    assert!(!output.truncated);
-    assert_eq!(output.changed_files_total, None);
+    assert_eq!(output.files.len(), 1, "{output:?}");
+    assert!(output.truncated);
+    assert_eq!(output.changed_files_total, Some(2));
 }
 
-// @kotowari[REQ-cli-055]
+// @kotowari[REQ-cli-055, REQ-cli-086]
 #[test]
-fn req_cli_055_empty_file_on_one_side_is_not_counted_with_file_paths() {
+fn req_cli_055_empty_file_on_one_side_is_counted_with_file_paths() {
     let output = diff(empty_left_only_fixture(), &["a/1.txt", "d.txt"], 1);
 
-    assert_eq!(changed_paths(&output), vec!["a/1.txt".to_string()]);
-    assert!(!output.truncated);
-    assert_eq!(output.changed_files_total, None);
+    assert_eq!(output.files.len(), 1, "{output:?}");
+    assert!(output.truncated);
+    assert_eq!(output.changed_files_total, Some(2));
 }
 
 // 左右で中身の同じ ".env" は他のファイルと同じく変更のないものとし、数えも打ち切りもしない
