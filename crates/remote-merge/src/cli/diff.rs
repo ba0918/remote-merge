@@ -251,10 +251,8 @@ pub fn execute_diff(
                 scanned_files = scanned_files.saturating_sub(1);
                 continue;
             }
-            let has_children = |children: &Option<Vec<FileNode>>| {
-                children.as_ref().is_some_and(|nodes| !nodes.is_empty())
-            };
-            if has_children(&left_children) || has_children(&right_children) {
+            // 残るディレクトリは子を持つか、子がなくてもう一方がファイル（REQ-cli-085）
+            if left_children.is_some() || right_children.is_some() {
                 let (mut left_ancestors, mut right_ancestors) =
                     active_directories.remove(path).unwrap_or_default();
                 let left_real = real_path_unless_absent(&mut core, &pair.left, path, left_absent)?;
@@ -939,18 +937,8 @@ fn run_diff_fast_path(
         }
         let left_children = diff_listing::children(left_listing);
         let right_children = diff_listing::children(right_listing);
-        let missing = (
-            matches!(left_path, TargetPath::Missing { .. }),
-            matches!(right_path, TargetPath::Missing { .. }),
-        );
-        if without_files(&left_children, &right_children, missing)
-            || left_children
-                .as_ref()
-                .is_some_and(|nodes| !nodes.is_empty())
-            || right_children
-                .as_ref()
-                .is_some_and(|nodes| !nodes.is_empty())
-        {
+        // ディレクトリのある側があれば、比べるファイルのないものも含めて展開する側で扱う
+        if left_children.is_some() || right_children.is_some() {
             statuses.push(FileStatus {
                 path: path.clone(),
                 status: FileStatusKind::Modified,

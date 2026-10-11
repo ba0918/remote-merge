@@ -80,3 +80,22 @@ fn req_cli_085_an_unreadable_file_against_a_directory_is_an_error_and_the_childr
     }
     fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
 }
+
+// 子のないディレクトリとファイルの組も、種類の差とファイル側の本文を示す
+// @kotowari[REQ-cli-085]
+#[test]
+fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body() {
+    let fixture = Fixture::new("");
+    std::fs::create_dir_all(fixture.left().join("x")).unwrap();
+    place_files(fixture.right(), &[("x", "right body\n")]);
+
+    for paths in [strings(&["x"]), strings(&[])] {
+        let run = fixture.diff(&paths, None);
+
+        assert!(run.json.get("errors").is_none(), "{paths:?}: {}", run.json);
+        let kinds = run.entry("x");
+        assert!(kinds["note"].is_string(), "{paths:?}: {kinds}");
+        assert!(kinds["hunks"].to_string().contains("right body"), "{kinds}");
+        assert_eq!(run.code, exit_code::DIFF_FOUND, "{paths:?}");
+    }
+}
