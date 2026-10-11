@@ -294,3 +294,47 @@ fn req_scan_012_sync_reports_a_file_whose_name_is_not_utf8_as_failed() {
     assert_eq!(result.exit_code, 2);
     assert_eq!(destination_names(&fixture), vec![b"ok.txt".to_vec()]);
 }
+
+// root_dir 全体と名前で指定したファイルを合わせて比べるときも、全体の走査で見つけた読めない名前の
+// ファイルを errors に残す。全体の走査に比べるファイルがほかになく、指定したファイルが同じでも同じ
+// @kotowari[REQ-scan-012, REQ-cli-081]
+#[test]
+fn req_scan_012_diff_of_the_root_and_a_named_file_keeps_a_file_whose_name_is_not_utf8_in_errors() {
+    let source = TempDir::new().unwrap();
+    let destination = TempDir::new().unwrap();
+    let config_dir = TempDir::new().unwrap();
+    place_files(source.path(), &[("app.log", "same\n")]);
+    place_files(destination.path(), &[("app.log", "same\n")]);
+    place_bad_name(source.path());
+    let config_path = config_dir.path().join("config.toml");
+    fs::write(&config_path, format!(
+        "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"example.invalid\"\nuser = \"unused\"\nroot_dir = {:?}\n[filter]\nexclude = [\"*.log\"]\n",
+        source.path().display().to_string(), destination.path().display().to_string(),
+    )).unwrap();
+    let config = load_config_from_paths(Some(&config_path), None).unwrap();
+    let targets = RuntimeTargets::production()
+        .with_local("develop", destination.path())
+        .with_startup_directory(config_dir.path().to_path_buf());
+    let args = DiffArgs {
+        paths: vec![".".into(), "app.log".into()],
+        left: Some("local".into()),
+        right: Some("develop".into()),
+        ref_server: None,
+        format: "json".into(),
+        max_lines: None,
+        max_files: 100,
+        force: false,
+        follow_external_links: false,
+        max_entries: None,
+    };
+
+    let (output, code) = execute_diff(args, config, targets).unwrap();
+
+    let errors: Vec<&str> = output
+        .errors
+        .iter()
+        .map(|error| error.path.as_str())
+        .collect();
+    assert_eq!(errors, vec!["bad\\xff.txt"], "{output:?}");
+    assert_eq!(code, 2, "{output:?}");
+}

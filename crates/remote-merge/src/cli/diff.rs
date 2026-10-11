@@ -1078,8 +1078,6 @@ fn run_diff_full_scan(
     .into_iter()
     .map(|(path, reason)| DiffError { path, reason })
     .collect();
-    let (left_tree, right_tree, statuses, existing, diff_files, sizes, read_errors) =
-        compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)?;
     // 上限を超えても読めた分は比べ、上限の超過を一度だけ誤りに載せる
     let truncation = left_truncated
         .or(right_truncated)
@@ -1087,14 +1085,15 @@ fn run_diff_full_scan(
             path: ".".into(),
             reason: truncated.to_string(),
         });
-    let errors = truncation
-        .into_iter()
-        .chain(unreadable)
-        .chain(read_errors)
-        .collect();
-    Ok((
-        left_tree, right_tree, statuses, existing, diff_files, sizes, errors,
-    ))
+    let scan_errors = truncation.into_iter().chain(unreadable).collect();
+    compute_statuses_and_resolve(
+        paths,
+        (left, right),
+        core,
+        (left_tree, right_tree),
+        scan_errors,
+        limit,
+    )
 }
 
 /// 側の root_dir 全体を走査する。件数の上限を超えたら、上限までに読めたツリーと上限の超過を返す
@@ -1115,13 +1114,14 @@ fn fetch_tree_keeping_read(
     }
 }
 
-/// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）
+/// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）。`scan_errors` は
+/// 走査で見つけた誤り（上限の超過と読めない名前）で、返す誤りの先頭に置く
 fn compute_statuses_and_resolve(
     paths: &[String],
     (left, right): (&Side, &Side),
     core: &mut CoreRuntime,
-    left_tree: FileTree,
-    right_tree: FileTree,
+    (left_tree, right_tree): (FileTree, FileTree),
+    scan_errors: Vec<DiffError>,
     limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
@@ -1148,7 +1148,13 @@ fn compute_statuses_and_resolve(
         eprintln!("Warning: '{}' not found on either side", path);
     }
 
-    if existing_files.is_empty() && empty_directories.is_empty() && !paths.is_empty() {
+    // 走査が誤りを見つけたときは、比べるパスがなくても見つからなかったとせず、その誤りを返す
+    // （root_dir 全体と名前で指定したパスを合わせるときに、誤りが落ちないように）
+    if existing_files.is_empty()
+        && empty_directories.is_empty()
+        && !paths.is_empty()
+        && scan_errors.is_empty()
+    {
         return Err(PathsNotFound.into());
     }
 
@@ -1175,6 +1181,7 @@ fn compute_statuses_and_resolve(
             plain_file_sizes(path, &left_tree, &right_tree).map(|sizes| (path.clone(), sizes))
         })
         .collect();
+    let errors = scan_errors.into_iter().chain(read_errors).collect();
     Ok((
         left_tree,
         right_tree,
@@ -1182,7 +1189,7 @@ fn compute_statuses_and_resolve(
         existing_files,
         diff_files,
         plain_file_sizes,
-        read_errors,
+        errors,
     ))
 }
 
@@ -1296,8 +1303,8 @@ mod tests {
             &["a.txt".to_string()],
             (&Side::Local, &Side::Remote("develop".into())),
             &mut core,
-            both(),
-            both(),
+            (both(), both()),
+            Vec::new(),
             SizeLimit::Enforced,
         )
         .unwrap();
