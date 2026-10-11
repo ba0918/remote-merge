@@ -67,13 +67,6 @@ XDG_DATA_HOME が絶対パスならバックアップはその下の "remote-mer
 
 書き込み先に元のファイルがないときは何も記録せず結果に backup を出さず、何も記録しなかった操作のセッションは集約先に残さず一覧にも出さない。
 
-### REQ-backup-016: 旧バックアップディレクトリを扱わない
-- kind: prohibition
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A30
-- verification: unit
-
-書き込み先にある既存の ".remote-merge-backup/" は読みも書きもせず、rollback の一覧にも status の結果にも出さない。
-
 ## Examples
 
 ```gherkin

@@ -22,6 +22,7 @@
 - A4 既存の設定に残る sensitive の指定は、読み込みを止めずに受け付け、使われないことを警告する。
   - why: 既存の設定ファイルを壊さず、効かなくなったことに利用者が気づけるようにする。エラーで止めると既存の設定が使えなくなり、黙って無視すると効いていると誤解させる。
   - decided_by: user (took the recommendation)
+  - superseded_by: [drop-compat A1](./2026-10-11-drop-compat.md#A1)
 - A5 JSON の "sensitive" 欄と、テキストの " [SENSITIVE]" の印を出力から除く。JSON の形が変わる破壊的な変更として扱い、リリースでは版を上げて変更履歴に明記する。
   - why: 常に false の欄を残すと、まだ判定しているように誤解させる。
   - decided_by: user (took the recommendation)
@@ -38,6 +39,7 @@
 - A9 設定に [filter] の sensitive の指定があるときは、標準エラーに "Warning: [filter] sensitive is no longer used and is ignored" を一回の実行につき一度だけ出し、指定を使わずに続ける。グローバル設定とプロジェクト設定のどちらに書いてあっても同じとする。
   - why: A4 の警告を、利用者が気づけてテストで確かめられる形に決める。
   - decided_by: user (took the recommendation)
+  - superseded_by: [drop-compat A1](./2026-10-11-drop-compat.md#A1)
 - A10 凍結中の TUI からも、機密の持ち出し確認のダイアログと、一括マージの確認画面の機密の表示を除く。凍結の例外は除くことに限り、新しい機能は足さない。
   - why: A2 の方針を TUI にも揃える。除くだけなら凍結の目的（WebView 方式への移行前に手を広げない）に反しない。
   - decided_by: user (took the recommendation)

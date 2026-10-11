@@ -60,20 +60,6 @@ include の値は先頭の "./" を取り除いて使い、空の値を無視し
 
 include と exclude を併せて指定したとき、include の対象のうち exclude に当たらないパスだけを対象にする。
 
-### REQ-config-030: sensitive の指定は使わずに警告する
-- kind: state_driven
-- source: docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A4, docs/decision/records/2026-10-04-drop-sensitive-file-handling.md#A9
-- verification: unit
-
-`グローバル設定` か `プロジェクト設定` の [filter] に sensitive の指定があるときは、標準エラーに "Warning: [filter] sensitive is no longer used and is ignored" を一回の実行につき一度だけ出し、その指定を使わずに続ける。
-
-### REQ-config-031: badge_scan_max_files は使わずに警告する
-- kind: state_driven
-- source: docs/decision/records/2026-10-04-tui-disposition.md#A5, docs/decision/records/2026-10-04-tui-disposition.md#A13, docs/decision/records/2026-10-04-tui-disposition.md#A21
-- verification: unit
-
-`グローバル設定` か `プロジェクト設定` に badge_scan_max_files の指定があるときは、どんな値でも検査せずに標準エラーに "Warning: badge_scan_max_files is no longer used and is ignored" を一回の実行につき一度だけ出し、その指定を使わずに続ける。
-
 ## Examples
 
 ```gherkin
@@ -106,4 +92,10 @@ Scenario: パスのパターンがディレクトリに当たる
 Given exclude に "a/b" があり、ディレクトリ "a/b" の下に "a/b/c.txt" がある
 When SSH の側を含む status を実行する
 Then "a/b/c.txt" はどの経路でも一覧に含まれない
+
+@id=EX-config-023 @about=REQ-config-003 @source=docs/decision/records/2026-10-11-drop-compat.md#A5
+Scenario: 以前の版のバックアップの置き場が書き込み先に残っている
+Given 書き込み先の root_dir に ".remote-merge-backup/old.txt" があり、exclude に ".remote-merge-backup" がない
+When status を実行する
+Then ".remote-merge-backup/old.txt" はほかのファイルと同じく一覧に出る
 ```

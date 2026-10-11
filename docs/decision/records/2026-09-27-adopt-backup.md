@@ -103,6 +103,7 @@
 - A30 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は既存の ".remote-merge-backup/" を読みも書きもせず、rollback の一覧に出さず、ファイル一覧・差分の対象から除くとし、実装は書き込み先にそのディレクトリがあっても rollback の一覧と status に出さない。
   - why: 旧資料と実装の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）
+  - superseded_by: [drop-compat A5](./2026-10-11-drop-compat.md#A5)
 - A31 旧資料と現行実装が一致するため、レビューなしで仕様とする。旧資料は利用者向けスキル文書（"skills/remote-merge/SKILL.md" と "skills/remote-merge/references/json-schemas.md"）のバックアップ構造・backup・rollback の説明を集約先の場所とバックアップ・rollback の挙動に一致させるとし、現行の両文書は集約先の場所と backup の "{session_id}/{relative_path}" 形式を記述している。
   - why: 旧資料と文書の一致を確認し、利用者が一覧から外さなかった。
   - decided_by: 利用者（現状追認の一覧を承認）

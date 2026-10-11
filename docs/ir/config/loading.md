@@ -55,10 +55,10 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 
 ### REQ-config-039: 知らないキーとセクションで止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A3, docs/decision/records/2026-10-05-quality-config.md#A10
+- source: docs/decision/records/2026-10-05-quality-config.md#A3, docs/decision/records/2026-10-05-quality-config.md#A10, docs/decision/records/2026-10-11-drop-compat.md#A1, docs/decision/records/2026-10-11-drop-compat.md#A2, docs/decision/records/2026-10-11-drop-compat.md#A3
 - verification: unit
 
-`グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。[filter] の sensitive と badge_scan_max_files はこのエラーにせず、REQ-config-030 と REQ-config-031 の警告を出して続ける。
+`グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。以前の版が読んでいた [filter] の sensitive、badge_scan_max_files、[agent] の timeout_secs・tree_chunk_size・max_file_chunk_bytes も知らないキーとして扱う。
 このエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
@@ -81,6 +81,18 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 @id=EX-config-015 @about=REQ-config-039 @source=docs/decision/records/2026-10-05-quality-config.md#A3
 Scenario: キー名を書き間違える
 Given `プロジェクト設定` の [filter] に include の書き間違い "inclde" がある
+When status を実行する
+Then 比較を始めずにエラーで止まり終了コード 2 を返す
+
+@id=EX-config-021 @about=REQ-config-039 @source=docs/decision/records/2026-10-11-drop-compat.md#A1,docs/decision/records/2026-10-11-drop-compat.md#A3
+Scenario: 以前の版が読んでいたキーを残した設定
+Given `グローバル設定` の [filter] に sensitive = ["*.pem"] がある
+When status を実行する
+Then 比較を始めずにエラーで止まり終了コード 2 を返す
+
+@id=EX-config-022 @about=REQ-config-039 @source=docs/decision/records/2026-10-11-drop-compat.md#A2,docs/decision/records/2026-10-11-drop-compat.md#A3
+Scenario: 使われなくなった agent のキーを残した設定
+Given `プロジェクト設定` の [agent] に timeout_secs = 30 がある
 When status を実行する
 Then 比較を始めずにエラーで止まり終了コード 2 を返す
 

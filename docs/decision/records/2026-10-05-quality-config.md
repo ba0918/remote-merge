@@ -27,6 +27,7 @@
 - A6 使われない [agent] の timeout_secs・tree_chunk_size・max_file_chunk_bytes は、badge_scan_max_files と同じく使われないことを示す警告を出して無視する。省いたキーの既定値の表からこの三つを除く（D17）。
   - why: 読むだけで効かず、警告もなかった（指摘 config_cli-8）。エージェントは固定の上限で動いている。警告の文言は [A10](#A10) で実装者に委ねた。
   - decided_by: 利用者（2026-10-05、品質レビューの判断 D17 を推奨どおり採用）
+  - superseded_by: [drop-compat A2](./2026-10-11-drop-compat.md#A2)
 - A7 "/" を含む exclude のパターンがディレクトリに当たったときは、名前のパターンの [REQ-config-021](../../ir/config/filters.md#REQ-config-021) と同じく、その配下も除く（D21）。
   - why: ローカルとエージェントは配下を除き、SSH だけ残していた。SSH は除外した配下も辿るため、件数の上限に当たったり失敗したりしていた（指摘 status_scan-2）。パスそのものだけを除く使い方はできなくなるが、"a/b/*" のように書けば配下だけも選べる。SSH は find の -prune で枝刈りする。
   - decided_by: 利用者（2026-10-05、品質レビューの判断 D21 を推奨どおり採用）

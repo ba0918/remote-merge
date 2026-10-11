@@ -49,6 +49,7 @@ TUI は WebView 方式への移行を想定して凍結中だが、製品 crate 
 - A13 badge_scan_max_files の指定に出す警告は "Warning: badge_scan_max_files is no longer used and is ignored" とし、値は検査せず、一回の実行につき一度だけ標準エラーに出す。
   - why: A5 の警告を、機密の設定の警告と同じ形で利用者が気づけてテストで確かめられるように決める。使わない値の範囲で設定全体を止めない。
   - decided_by: user (took the recommendation)
+  - superseded_by: [drop-compat A1](./2026-10-11-drop-compat.md#A1)
 
 - A14 CLI のサブコマンドの実行も診断ログを保存し、CLI の logs で閲覧できるようにする。リモートで内部的に動く agent サブコマンドは保存しない。保存する内容の規則（ファイルの中身や認証情報を含めない）は変えない。
   - why: これまで診断ログを保存していたのは TUI だけで、TUI を除くと logs が読む記録がなくなる。障害を調べる手段を残し、エージェントが使った後からも原因を追えるようにする。agent はリモートのサーバ上で動くので、利用者の手元の記録にならず、リモートに余計なファイルを残す。
@@ -75,6 +76,7 @@ TUI は WebView 方式への移行を想定して凍結中だが、製品 crate 
 - A21 badge_scan_max_files にはどんな値が書いてあっても設定の読み込みを止めず、警告だけを出す。
   - why: A13 の「値を検査しない」を、型の違う値にも及ぼす。
   - decided_by: user (took the recommendation)
+  - superseded_by: [drop-compat A1](./2026-10-11-drop-compat.md#A1)
 
 - A22 診断ログのファイルには remote-merge 自身の記録だけを残し、SSH ライブラリなど外部の crate の記録は細かさの指定にかかわらず残さない。
   - why: 最も細かい指定では外部の SSH ライブラリが暗号化前の送信データを記録し、ファイルの中身や認証情報がファイルに残る（レビューで再現）。A16 の -v や --debug でファイルを細かくする働きは自分の記録について保つ。
