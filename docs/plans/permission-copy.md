@@ -78,7 +78,7 @@ Docker の実機の例（EX-merge-056）は `scripts/run-container-e2e.sh` で�
 - Purpose: 読み込み元がローカルでもリモートでも走査したツリーの権限を写し、0 も写し、値がないときは failed にする。
 - Specification: docs/ir/merge/permissions.md#REQ-merge-036, docs/ir/merge/permissions.md#REQ-merge-014, docs/ir/merge/permissions.md#REQ-merge-037
 - Prerequisites: なし
-- May change: crates/remote-merge/src/service/merge_flow.rs、crates/remote-merge/src/cli/merge.rs、crates/remote-merge/src/cli/sync.rs、crates/remote-merge/tests/contract/ の中
+- May change: crates/remote-merge/src/service/merge_flow.rs、crates/remote-merge/src/service/permission_copy.rs、crates/remote-merge/src/cli/merge.rs、crates/remote-merge/src/cli/sync.rs、crates/remote-merge/tests/contract/ の中、tests/container-e2e/tests/sudo.rs
 - Done when: EX-merge-043 と EX-merge-056 の契約テストが通り、値がないときの failed がテストで確かめられ、全テストが通る
 - Shown by: test — EX-merge-043・EX-merge-056 の契約テスト（印 `// @kotowari[REQ-merge-036, EX-merge-043]`、`// @kotowari[REQ-merge-014, EX-merge-056]`）。RED を確かめてから直す
 - Left to the implementer: 権限の取り出し方、値がないときのテストを契約テストにするか単体テストにするか
