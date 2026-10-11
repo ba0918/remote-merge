@@ -70,7 +70,7 @@ pub fn incomplete_reason(error: &anyhow::Error) -> Option<String> {
     })
 }
 
-/// 項目の情報（symlink のリンク先、更新時刻）を読めなかった。既定の値で埋めずに走査を止め、
+/// 項目の情報（メタデータ、symlink のリンク先、更新時刻）を読めなかった。既定の値で埋めずに走査を止め、
 /// 不完全な一覧として報告する（docs/ir/scan/listing.md の REQ-scan-015）
 #[derive(Debug)]
 pub struct UnreadableEntry(String);
@@ -227,14 +227,6 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
     /// ファイル/シンボリックリンクをバッファに追加した場合 true、
     /// ディレクトリ（走査キューに追加）・除外等でスキップした場合 false を返す。
     fn process_entry(&mut self, path: &Path) -> bool {
-        let meta = match path.symlink_metadata() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read metadata for {}: {e}", path.display());
-                return false;
-            }
-        };
-
         let rel = match path.strip_prefix(&self.relative_base) {
             Ok(r) => r.to_string_lossy().into_owned(),
             Err(_) => return false,
@@ -244,6 +236,20 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
         if filter::is_path_excluded(&rel, &self.options.exclude) {
             return false;
         }
+
+        // 項目の情報を読めなければ、その項目を飛ばさずに走査を止める（REQ-scan-015）
+        let meta = match path.symlink_metadata() {
+            Ok(m) => m,
+            Err(error) => {
+                self.stopped = Some(
+                    UnreadableEntry(format!(
+                        "failed to scan {rel:?}: cannot read the metadata: {error}"
+                    ))
+                    .into(),
+                );
+                return false;
+            }
+        };
 
         let file_type = meta.file_type();
 
@@ -1472,5 +1478,34 @@ mod tests {
             (entry.mtime_secs, entry.mtime_nanos),
             (-1_000_001, 750_000_000)
         );
+    }
+
+    // @kotowari[REQ-scan-015]
+    #[cfg(unix)]
+    #[test]
+    fn an_entry_whose_metadata_cannot_be_read_stops_the_scan_as_incomplete() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: geteuid() は引数なしの POSIX 関数で、常にスレッドセーフに呼べる。
+        if unsafe { libc::geteuid() } == 0 {
+            // root は検索の権限がなくても項目を stat できるので、この状態を作れない
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        fs::write(dir.path().join("sub/a.txt"), "a").unwrap();
+        // 読めるが検索できないディレクトリ: 名前は一覧できるが、項目を stat できない
+        fs::set_permissions(dir.path().join("sub"), fs::Permissions::from_mode(0o444)).unwrap();
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+
+        let result: Result<Vec<_>> = scan_tree(&options).collect();
+
+        fs::set_permissions(dir.path().join("sub"), fs::Permissions::from_mode(0o755)).unwrap();
+        let error = result.expect_err("an entry without its metadata must not be dropped");
+        let reason = incomplete_reason(&error)
+            .unwrap_or_else(|| panic!("not reported as an incomplete scan: {error}"));
+        assert!(reason.contains("sub/a.txt"), "{reason}");
     }
 }
