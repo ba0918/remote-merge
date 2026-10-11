@@ -6,10 +6,11 @@
 
 ### REQ-merge-012: 新規作成は設定された権限にする
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A40, docs/decision/records/2026-10-05-quality-merge.md#A4
+- source: docs/decision/records/2026-09-25-spec-migration.md#A40, docs/decision/records/2026-10-05-quality-merge.md#A4, docs/decision/records/2026-10-11-agent-operations.md#A42, docs/decision/records/2026-10-11-agent-operations-consistency-3.md#A2
 - verification: unit
 
 新しいファイルやディレクトリを作るとき、書き込み先に設定された権限で作る。--with-permissions を指定して新しいファイルを作るときは REQ-merge-036 による。
+新しいディレクトリが作られたときに親から受け継いだ setuid・setgid は、REQ-paths-018 と同じく、ローカル・SSH・エージェントのどの経路でも残し、0o777 の範囲のビットを設定された権限にする。
 
 ### REQ-merge-013: 既存ファイルの権限を保持する
 - kind: invariant
@@ -56,6 +57,12 @@ Scenario: 新しいディレクトリを作る
 Given 書き込み先に新規ディレクトリの権限が設定されている
 When 配下にないディレクトリへファイルを同期する
 Then 新規ディレクトリには設定した権限が付く
+
+@id=EX-merge-052 @about=REQ-merge-012 @source=docs/decision/records/2026-10-11-agent-operations.md#A42,docs/decision/records/2026-10-11-agent-operations-consistency-3.md#A2
+Scenario: setgid の親の下に新しいディレクトリを作る
+Given 書き込み先の新規ディレクトリの権限が 0o775 に設定され、書き込み先の "shared" の権限が 0o2775 で、"shared/new" はない
+When ローカル・SSH・エージェントのそれぞれの経路で "shared/new/a.txt" を merge する
+Then どの経路でも作られた "shared/new" の権限は 0o2775 になる
 
 @id=EX-merge-026 @about=REQ-merge-013 @source=docs/decision/records/2026-09-25-spec-migration.md#A40
 Scenario: 権限複製を指定せず上書きする

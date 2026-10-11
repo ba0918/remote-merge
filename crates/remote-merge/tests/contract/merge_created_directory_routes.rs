@@ -41,7 +41,7 @@ fn merge_into_setgid_parent(fixture: &AgentFixture, target_root: &Path, sides: &
     mode_of(&target_root.join("shared/new"))
 }
 
-// @kotowari[REQ-paths-018, REQ-merge-012]
+// @kotowari[REQ-paths-018, REQ-merge-012, EX-merge-052]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_directory_merge_creates_under_a_setgid_parent_keeps_setgid_on_all_three_routes() {
     let local_route = {
