@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
+use remote_merge_core::listing::{ListingReader, ThisMachine};
 use remote_merge_core::path_resolution::os::resolve_on_this_machine;
 use remote_merge_core::path_resolution::ResolvedPath;
 
@@ -54,14 +55,50 @@ pub struct ScanChunk {
 
 /// ディレクトリツリーを再帰走査し、チャンク単位で結果を返すイテレータ
 pub fn scan_tree(options: &ScanOptions) -> impl Iterator<Item = Result<ScanChunk>> + '_ {
-    ScanIterator::new(options)
+    scan_tree_with(&ThisMachine, options)
+}
+
+/// 走査のエラーが、エージェントの失敗ではなく走査を止めた不完全な一覧か。そうなら報告する理由。
+/// 不完全な一覧は SSH の経路に回さずに、そのまま利用者に報告する
+pub fn incomplete_reason(error: &anyhow::Error) -> Option<String> {
+    let cycle = error
+        .downcast_ref::<DirectoryCycle>()
+        .map(ToString::to_string);
+    cycle.or_else(|| {
+        error
+            .downcast_ref::<UnreadableLinkTarget>()
+            .map(ToString::to_string)
+    })
+}
+
+/// symlink のリンク先を読めなかった。空のリンク先で埋めずに走査を止め、不完全な一覧として報告する
+/// （docs/ir/scan/listing.md の REQ-scan-015）
+#[derive(Debug)]
+pub struct UnreadableLinkTarget(String);
+
+impl std::fmt::Display for UnreadableLinkTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UnreadableLinkTarget {}
+
+/// [`scan_tree`] の、symlink のリンク先の読み方を `reader` にしたもの
+pub fn scan_tree_with<'a, R: ListingReader>(
+    reader: &'a R,
+    options: &'a ScanOptions,
+) -> impl Iterator<Item = Result<ScanChunk>> + 'a {
+    ScanIterator::new(reader, options)
 }
 
 // ---------------------------------------------------------------------------
 // Internal iterator
 // ---------------------------------------------------------------------------
 
-struct ScanIterator<'a> {
+struct ScanIterator<'a, R> {
+    /// symlink のリンク先の読み方
+    reader: &'a R,
     options: &'a ScanOptions,
     /// 一覧のパスを相対にする基準。走査の起点と同じ形（正規化の有無）にそろえる
     relative_base: PathBuf,
@@ -73,8 +110,8 @@ struct ScanIterator<'a> {
     current_read_dir: Option<std::fs::ReadDir>,
     /// 現在読み込み中のディレクトリの祖先の並び（include の起点を処理する間は空）
     current_ancestry: DirAncestry,
-    /// 走査を止めた循環。見つかった後は項目を載せない
-    cycle: Option<DirectoryCycle>,
+    /// 走査を止めた理由（循環か、読めないリンク先）。見つかった後は項目を載せない
+    stopped: Option<anyhow::Error>,
     /// 現在のチャンクに蓄積中のエントリ
     buffer: Vec<AgentFileEntry>,
     /// 走査済みエントリ総数
@@ -83,8 +120,8 @@ struct ScanIterator<'a> {
     finished: bool,
 }
 
-impl<'a> ScanIterator<'a> {
-    fn new(options: &'a ScanOptions) -> Self {
+impl<'a, R: ListingReader> ScanIterator<'a, R> {
+    fn new(reader: &'a R, options: &'a ScanOptions) -> Self {
         let (relative_base, starts) = resolve_include_roots(&options.root, &options.include);
         let (dir_stack, mut pending_starts) = if options.include.is_empty() {
             let with_ancestry = starts
@@ -106,13 +143,14 @@ impl<'a> ScanIterator<'a> {
         // 末尾から取り出すので、書いた順に載せるよう逆にする
         pending_starts.reverse();
         Self {
+            reader,
             options,
             relative_base,
             dir_stack,
             pending_starts,
             current_read_dir: None,
             current_ancestry: DirAncestry::default(),
-            cycle: None,
+            stopped: None,
             buffer: Vec::new(),
             total_scanned: 0,
             finished: false,
@@ -124,7 +162,7 @@ impl<'a> ScanIterator<'a> {
     /// None を返したら走査終了。
     fn advance_one(&mut self) -> Option<()> {
         loop {
-            if self.cycle.is_some() {
+            if self.stopped.is_some() {
                 return None;
             }
             // current_read_dir を一旦 take して借用を分離する
@@ -216,15 +254,26 @@ impl<'a> ScanIterator<'a> {
         if file_type.is_dir() || is_directory_link {
             self.queue_directory(path);
         }
-        if file_type.is_dir() || self.cycle.is_some() {
+        if file_type.is_dir() || self.stopped.is_some() {
             return false;
         }
 
         let (kind, symlink_target) = if file_type.is_symlink() {
-            let target = std::fs::read_link(path)
-                .ok()
-                .map(|t| t.to_string_lossy().into_owned());
-            (FileKind::Symlink, target)
+            match self.reader.read_link(path) {
+                Ok(target) => (
+                    FileKind::Symlink,
+                    Some(target.to_string_lossy().into_owned()),
+                ),
+                Err(error) => {
+                    self.stopped = Some(
+                        UnreadableLinkTarget(format!(
+                            "failed to scan {rel:?}: cannot read the link target: {error}"
+                        ))
+                        .into(),
+                    );
+                    return false;
+                }
+            }
         } else {
             (FileKind::File, None)
         };
@@ -264,7 +313,7 @@ impl<'a> ScanIterator<'a> {
     fn queue_directory(&mut self, dir: &Path) {
         match self.current_ancestry.descend(dir) {
             Ok(Ok(ancestry)) => self.dir_stack.push((dir.to_path_buf(), ancestry)),
-            Ok(Err(cycle)) => self.cycle = Some(cycle),
+            Ok(Err(cycle)) => self.stopped = Some(cycle.into()),
             Err(e) => {
                 tracing::warn!(target: "remote_merge::agent::tree_scan", "cannot read directory {}: {e}", dir.display());
             }
@@ -294,7 +343,7 @@ impl<'a> ScanIterator<'a> {
     }
 }
 
-impl Iterator for ScanIterator<'_> {
+impl<R: ListingReader> Iterator for ScanIterator<'_, R> {
     type Item = Result<ScanChunk>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -307,8 +356,8 @@ impl Iterator for ScanIterator<'_> {
             if self.total_scanned >= self.options.max_entries {
                 self.finished = true;
                 let truncated = self.probe_beyond_limit();
-                if let Some(cycle) = self.cycle.take() {
-                    return Some(Err(cycle.into()));
+                if let Some(stopped) = self.stopped.take() {
+                    return Some(Err(stopped));
                 }
                 return Some(Ok(self.flush_chunk(true, truncated)));
             }
@@ -317,8 +366,8 @@ impl Iterator for ScanIterator<'_> {
             if self.advance_one().is_none() {
                 // 走査終了
                 self.finished = true;
-                if let Some(cycle) = self.cycle.take() {
-                    return Some(Err(cycle.into()));
+                if let Some(stopped) = self.stopped.take() {
+                    return Some(Err(stopped));
                 }
                 return Some(Ok(self.flush_chunk(true, false)));
             }

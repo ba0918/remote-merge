@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::dir_ancestry::DirectoryCycle;
 use super::file_io::{self, SavedMetadata};
 use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
 use super::server::MetadataConfig;
@@ -139,10 +138,8 @@ impl Dispatcher {
                     });
                 }
                 Err(e) => {
-                    if let Some(cycle) = e.downcast_ref::<DirectoryCycle>() {
-                        return vec![AgentResponse::TreeIncomplete {
-                            reason: cycle.to_string(),
-                        }];
+                    if let Some(reason) = tree_scan::incomplete_reason(&e) {
+                        return vec![AgentResponse::TreeIncomplete { reason }];
                     }
                     return vec![AgentResponse::Error {
                         message: format!("tree scan error: {e}"),
