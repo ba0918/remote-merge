@@ -776,7 +776,7 @@ impl SshClient {
                 );
                 break;
             }
-            if let Some(node) = parse_find_record(record, remote_path, exclude) {
+            if let Some(node) = parse_find_record(record, remote_path, exclude)? {
                 flat_nodes.push(node);
             }
         }
@@ -1319,7 +1319,7 @@ fn parse_listing(
             tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
             break;
         }
-        if let Some(node) = parse_find_record(&record, remote_path, &[]) {
+        if let Some(node) = parse_find_record(&record, remote_path, &[])? {
             // maxdepth 1 で得たノード名は1セグメントのみ。ローカルとエージェントの経路と同じく、
             // 名前だけでなく root_dir からのパスに当てる
             let full_rel = if parent_rel_path.is_empty() {

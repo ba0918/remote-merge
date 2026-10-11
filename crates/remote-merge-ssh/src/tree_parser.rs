@@ -2,35 +2,37 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, TimeZone, Utc};
-
 use crate::filter;
-use crate::find_records::{FindRecord, RECORD_FORMAT};
+use crate::find_records::{parse_find_time, FindRecord, RECORD_FORMAT};
 use crate::tree::FileNode;
 
 /// find が出した一つの項目（[`crate::find_records`]）をノードにする。`base_path` 自体と exclude に
-/// 当たる項目は None
+/// 当たる項目は None。大きさ・更新時刻・権限を読めない項目は、出力の形が違うので Err
 pub fn parse_find_record(
     record: &FindRecord,
     base_path: &str,
     exclude: &[String],
-) -> Option<FileNode> {
-    let size: Option<u64> = record.size.parse().ok();
-    let mtime_ts: Option<f64> = record.mtime.parse().ok();
-    let permissions: Option<u32> = u32::from_str_radix(&record.mode, 8).ok();
-
-    let name = relative_name(&record.path, base_path)?;
+) -> anyhow::Result<Option<FileNode>> {
+    let Some(name) = relative_name(&record.path, base_path) else {
+        return Ok(None);
+    };
 
     // 除外フィルター（相対パス全体でマッチ）
     if filter::is_path_excluded(name, exclude) {
-        return None;
+        return Ok(None);
     }
 
-    // mtime 変換
-    let mtime: Option<DateTime<Utc>> = mtime_ts.and_then(|ts| {
-        Utc.timestamp_opt(ts as i64, ((ts.fract()) * 1_000_000_000.0) as u32)
-            .single()
-    });
+    let unreadable = |what: &str, raw: &str| {
+        anyhow::anyhow!("unexpected output from find: cannot read the {what} of {name:?}: {raw:?}")
+    };
+    let size: u64 = record
+        .size
+        .parse()
+        .map_err(|_| unreadable("size", &record.size))?;
+    let mtime = parse_find_time(&record.mtime)
+        .ok_or_else(|| unreadable("modification time", &record.mtime))?;
+    let permissions = u32::from_str_radix(&record.mode, 8)
+        .map_err(|_| unreadable("permissions", &record.mode))?;
 
     let is_link = record.kind == "l";
     let mut node = match record.kind.as_str() {
@@ -39,12 +41,12 @@ pub fn parse_find_record(
         _ => FileNode::new_file(name),
     };
 
-    node.size = size;
+    node.size = Some(size);
     node.link_is_dir = is_link && record.link_kind == "d";
-    node.mtime = mtime;
-    node.permissions = permissions;
+    node.mtime = Some(mtime);
+    node.permissions = Some(permissions);
 
-    Some(node)
+    Ok(Some(node))
 }
 
 /// 項目の `base_path` からの相対パス。`base_path` 自体は None
@@ -329,7 +331,9 @@ mod tests {
         let entries: Vec<_> = parse_find_records(&output.stdout)
             .unwrap()
             .iter()
-            .filter_map(|record| parse_find_record(record, root.path().to_str().unwrap(), &[]))
+            .filter_map(|record| {
+                parse_find_record(record, root.path().to_str().unwrap(), &[]).unwrap()
+            })
             .collect();
         let tree = build_tree_from_flat(entries);
         let outer = tree.iter().find(|node| node.name == "outer").unwrap();
@@ -402,7 +406,9 @@ mod tests {
     #[test]
     fn test_parse_find_record_file() {
         let line = "f\t1024\t1705312800.0\t644\t/var/www/app/index.html\t";
-        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[])
+            .unwrap()
+            .unwrap();
 
         assert_eq!(node.name, "index.html");
         assert!(node.is_file());
@@ -414,7 +420,9 @@ mod tests {
     #[test]
     fn test_parse_find_record_directory() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app/src\t";
-        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[])
+            .unwrap()
+            .unwrap();
 
         assert_eq!(node.name, "src");
         assert!(node.is_dir());
@@ -424,7 +432,9 @@ mod tests {
     #[test]
     fn test_parse_find_record_symlink() {
         let line = "l\t10\t1705312800.0\t777\t/var/www/app/link\t../shared/config";
-        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[])
+            .unwrap()
+            .unwrap();
 
         assert_eq!(node.name, "link");
         assert!(node.is_symlink());
@@ -436,24 +446,59 @@ mod tests {
     #[test]
     fn a_remote_directory_link_can_be_expanded_without_changing_its_link_kind() {
         let line = "l\t10\t1705312800.0\t777\t/var/www/app/linked\t../shared\td";
-        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[])
+            .unwrap()
+            .unwrap();
         assert!(node.is_symlink());
         assert!(node.link_is_dir);
         assert!(node.children.is_none());
     }
 
     #[test]
+    fn a_record_whose_size_mode_or_modification_time_cannot_be_read_is_malformed_output() {
+        for line in [
+            "f\tx\t1705312800.0\t644\t/r/a.txt\t",
+            "f\t\t1705312800.0\t644\t/r/a.txt\t",
+            "f\t1\t1705312800.0\t9z\t/r/a.txt\t",
+            "f\t1\t1705312800.0\t\t/r/a.txt\t",
+            "f\t1\tnan\t644\t/r/a.txt\t",
+            "f\t1\tinf\t644\t/r/a.txt\t",
+            "f\t1\t1e9\t644\t/r/a.txt\t",
+            "f\t1\t\t644\t/r/a.txt\t",
+        ] {
+            assert!(
+                parse_find_record(&record(line), "/r", &[]).is_err(),
+                "{line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_modification_time_before_1970_with_a_fraction_is_read_as_find_printed_it() {
+        // find は -1000000.25 秒を、秒を切り下げて正の小数を足した形で出す
+        let line = "f\t1\t-1000001.7500000000\t644\t/r/old.txt\t";
+        let node = parse_find_record(&record(line), "/r", &[])
+            .unwrap()
+            .unwrap();
+        let mtime = node.mtime.unwrap();
+        assert_eq!(
+            (mtime.timestamp(), mtime.timestamp_subsec_nanos()),
+            (-1_000_001, 750_000_000)
+        );
+    }
+
+    #[test]
     fn test_parse_find_record_exclude() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t";
         let exclude = vec!["node_modules".to_string()];
-        let node = parse_find_record(&record(line), "/var/www/app", &exclude);
+        let node = parse_find_record(&record(line), "/var/www/app", &exclude).unwrap();
         assert!(node.is_none());
     }
 
     #[test]
     fn test_parse_find_record_root_itself() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app\t";
-        let node = parse_find_record(&record(line), "/var/www/app", &[]);
+        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
         assert!(node.is_none());
     }
 
