@@ -615,6 +615,18 @@ impl SshClient {
         exclude: &[String],
         rel: &str,
     ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
+        self.list_children_with_limit(remote_path, exclude, rel, Self::MAX_DIR_ENTRIES)
+            .await
+    }
+
+    /// [`Self::list_children`] の、子を `max_entries` 件で打ち切るもの
+    pub async fn list_children_with_limit(
+        &mut self,
+        remote_path: &str,
+        exclude: &[String],
+        rel: &str,
+        max_entries: usize,
+    ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
         let command = super::child_listing::list_children_command(remote_path);
         let output = tokio::time::timeout(
             Duration::from_secs(Self::DIR_TIMEOUT_SECS),
@@ -631,7 +643,7 @@ impl SshClient {
             output.exit_code,
             rel,
             exclude,
-            Self::MAX_DIR_ENTRIES,
+            max_entries,
         )
     }
 

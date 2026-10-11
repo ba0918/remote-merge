@@ -145,25 +145,21 @@ impl CoreRuntime {
     }
 
     /// 親の子の一覧から、そのパスの権限を読む。変えたパスそのものを読むので、exclude はどの経路でも
-    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）。どの経路の一覧も
-    /// `DEFAULT_MAX_DIR_ENTRIES` 件で打ち切る
+    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）。打ち切った一覧ではそのパスが
+    /// 入らないことがあるので、件数でも打ち切らない（読むのは `接続断` の後だけ）
     fn observe_mode(&mut self, server: &str, path: &str) -> anyhow::Result<Observed> {
         let (parent, name) = match path.rsplit_once('/') {
             Some((parent, name)) => (parent, name),
             None => ("", path),
         };
         let listing = if self.has_agent(server) {
-            self.agent_once(server, |agent| {
-                agent.list_dir(parent, &[], crate::config::DEFAULT_MAX_DIR_ENTRIES)
-            })
-            .map(crate::agent::tree_scan::child_listing_from_agent)?
+            self.agent_once(server, |agent| agent.list_dir(parent, &[], usize::MAX))
+                .map(crate::agent::tree_scan::child_listing_from_agent)?
         } else {
-            self.list_remote_children_excluding(server, parent, &[])?
+            self.list_remote_children_excluding(server, parent, &[], usize::MAX)?
         };
         match listing {
-            ChildListing::Children(nodes) => {
-                mode_in_listing(&nodes, name, crate::config::DEFAULT_MAX_DIR_ENTRIES)
-            }
+            ChildListing::Children(nodes) => Ok(mode_in_listing(&nodes, name)),
             ChildListing::NotDirectory => Ok(Observed::Absent),
             ChildListing::Unlistable(reason) => anyhow::bail!(reason),
         }

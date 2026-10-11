@@ -860,3 +860,62 @@ async fn a_setuid_source_mode_is_not_copied_and_the_written_content_is_reported(
         0o644
     );
 }
+
+/// 子の一覧の上限（10,000 件）の倍の子を、書き込み先の "a" に置く。GNU find は子の多い
+/// ディレクトリを inode の順に読むことがあり、そのとき後で作るディレクトリは上限までの一覧に入らない
+fn crowd_remote_parent(fixture: &AgentFixture) {
+    let parent = fixture.remote().join("a");
+    fs::create_dir_all(&parent).unwrap();
+    for index in 0..20_000 {
+        fs::write(parent.join(format!("f{index:05}")), "").unwrap();
+    }
+}
+
+/// 切れた権限の変更が、子の多い親の下の作ったディレクトリでも「変えた」と確かめられ、
+/// 結果が分からない失敗にならないこと
+fn assert_confirmed_under_a_crowded_parent(output: &std::process::Output) {
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(output);
+    let error = failure(&result["failed"], "a/new/x.txt");
+    assert!(
+        error.contains(CONTENT_WRITTEN)
+            && error.contains(UNTOUCHED)
+            && !error.contains(UNKNOWN)
+            && !error.contains(PERMISSIONS_UNCHANGED),
+        "{error}"
+    );
+}
+
+// @kotowari[REQ-ssh-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_permission_change_is_confirmed_under_a_parent_with_more_children_than_a_listing_holds(
+) {
+    // SSH の経路が作るディレクトリはこのプロセスの umask の権限になるので、作ったディレクトリに
+    // 付ける権限をそれと同じにして、切れた権限の変更が「変えた」と確かめられるようにする
+    let fixture = AgentFixture::new(
+        Setup {
+            agent_disabled: true,
+            ..Setup::default()
+        },
+        Faults::default(),
+    )
+    .await;
+    let created = fixture.home.path().join("umask-probe");
+    fs::create_dir(&created).unwrap();
+    let dir_mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+    let mut config = fs::read_to_string(&fixture.config).unwrap();
+    config.push_str(&format!(
+        "[defaults]\ndir_permissions = \"0o{dir_mode:o}\"\n"
+    ));
+    fs::write(&fixture.config, config).unwrap();
+    crowd_remote_parent(&fixture);
+    fixture.put("a/new/x.txt", Some("new\n"), None);
+    fixture.server.faults().arm_ssh_cut(SshCut {
+        command: SshCommand::Chmod,
+        repeat: Repeat::Once,
+    });
+
+    let output = fixture.run(&["merge", "a/new/x.txt"]);
+
+    assert_confirmed_under_a_crowded_parent(&output);
+}

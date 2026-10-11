@@ -104,27 +104,18 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
     }
 }
 
-/// 親の子の一覧 `nodes` から、子 `name` の権限を読む。`max_entries` 件まで並んだ一覧で見つからない
-/// ときは、打ち切られて入らなかったかもしれないので、ないとは決めずに確かめられなかったことにする
-pub fn mode_in_listing(
-    nodes: &[FileNode],
-    name: &str,
-    max_entries: usize,
-) -> anyhow::Result<Observed> {
-    let Some(node) = nodes.iter().find(|node| node.name == name) else {
-        if nodes.len() >= max_entries {
-            anyhow::bail!(
-                "{name:?} was not in the listing of its parent, which stopped at {max_entries} entries"
-            );
-        }
-        return Ok(Observed::Absent);
-    };
-    Ok(node
-        .permissions
-        .map_or(Observed::Absent, |mode| Observed::Mode {
-            mode,
-            directory: node.is_dir() || node.link_is_dir,
-        }))
+/// 打ち切っていない親の子の一覧 `nodes` から、子 `name` の権限を読む
+pub fn mode_in_listing(nodes: &[FileNode], name: &str) -> Observed {
+    nodes
+        .iter()
+        .find(|node| node.name == name)
+        .and_then(|node| {
+            node.permissions.map(|mode| Observed::Mode {
+                mode,
+                directory: node.is_dir() || node.link_is_dir,
+            })
+        })
+        .unwrap_or(Observed::Absent)
 }
 
 fn sha256_hex(content: &[u8]) -> String {
@@ -255,30 +246,27 @@ mod tests {
     }
 
     #[test]
-    fn a_mode_is_read_from_the_listing_and_a_name_missing_from_a_full_listing_is_unconfirmed() {
+    fn a_mode_is_read_from_the_listing_and_a_name_missing_from_it_is_absent() {
         let mut dir = FileNode::new_dir("d");
         dir.permissions = Some(0o2775);
         let mut file = FileNode::new_file("f");
         file.permissions = Some(0o644);
         let nodes = [dir, file];
         assert_eq!(
-            mode_in_listing(&nodes, "d", 10).unwrap(),
+            mode_in_listing(&nodes, "d"),
             Observed::Mode {
                 mode: 0o2775,
                 directory: true
             }
         );
         assert_eq!(
-            mode_in_listing(&nodes, "f", 10).unwrap(),
+            mode_in_listing(&nodes, "f"),
             Observed::Mode {
                 mode: 0o644,
                 directory: false
             }
         );
-        assert_eq!(mode_in_listing(&nodes, "x", 10).unwrap(), Observed::Absent);
-        // 上限まで並んだ一覧は打ち切られたかもしれないので、ないとは決めない
-        let error = mode_in_listing(&nodes, "x", 2).unwrap_err().to_string();
-        assert!(error.contains('2'), "{error}");
+        assert_eq!(mode_in_listing(&nodes, "x"), Observed::Absent);
     }
 
     #[test]
