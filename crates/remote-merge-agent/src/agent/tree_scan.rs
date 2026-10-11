@@ -255,7 +255,22 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
 
         // ディレクトリとディレクトリを指す symlink は配下を走査キューに追加する。
         // ディレクトリ自体は buffer には入れない
-        let is_directory_link = file_type.is_symlink() && path.is_dir();
+        let is_directory_link = if file_type.is_symlink() {
+            match link_points_to_directory(path) {
+                Ok(is_directory) => is_directory,
+                Err(error) => {
+                    self.stopped = Some(
+                        UnreadableEntry(format!(
+                            "failed to scan {rel:?}: cannot follow the link target: {error}"
+                        ))
+                        .into(),
+                    );
+                    return false;
+                }
+            }
+        } else {
+            false
+        };
         if file_type.is_dir() || is_directory_link {
             self.queue_directory(path);
         }
@@ -389,6 +404,17 @@ impl<R: ListingReader> Iterator for ScanIterator<'_, R> {
                 return Some(Ok(self.flush_chunk(false, false)));
             }
         }
+    }
+}
+
+/// symlink `path` がディレクトリを指すか。リンク先がない symlink はディレクトリを指さないものとして
+/// 載せる（REQ-scan-006）。ループや途中がディレクトリでないなど、ないのではなく辿れないときは、
+/// ディレクトリへのリンクかを決められないので Err（REQ-scan-015）
+fn link_points_to_directory(path: &Path) -> std::io::Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(target) => Ok(target.is_dir()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
 }
 

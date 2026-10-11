@@ -157,6 +157,9 @@ mod scan_unreadable_entry;
 #[path = "contract/scan_unreadable_link.rs"]
 mod scan_unreadable_link;
 #[cfg(feature = "test-utils")]
+#[path = "contract/scan_unresolvable_link_cli.rs"]
+mod scan_unresolvable_link_cli;
+#[cfg(feature = "test-utils")]
 #[path = "contract/size_limit.rs"]
 mod size_limit;
 #[cfg(feature = "test-utils")]
