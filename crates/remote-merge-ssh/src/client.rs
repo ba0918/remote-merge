@@ -733,7 +733,7 @@ impl SshClient {
         {
             Ok(result) => result?,
             Err(_) => {
-                return Err(AppError::SshTimeout {
+                return Err(AppError::SshScanTimeout {
                     host: self.server_name.clone(),
                     timeout_sec: timeout_secs,
                 }

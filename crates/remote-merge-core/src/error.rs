@@ -37,6 +37,10 @@ pub enum AppError {
     #[error("SSH connection timed out ({timeout_sec}s): {host}")]
     SshTimeout { host: String, timeout_sec: u64 },
 
+    /// 接続はできていて、リモートのツリーの走査が時間内に終わらなかった
+    #[error("Remote tree scan did not finish within {timeout_sec}s: {host}")]
+    SshScanTimeout { host: String, timeout_sec: u64 },
+
     #[error("Failed to load SSH private key: {path}")]
     SshKeyLoad { path: PathBuf },
 
@@ -60,7 +64,8 @@ pub type Result<T> = std::result::Result<T, anyhow::Error>;
 
 /// SSH 接続自体が断絶したエラーかどうかを判定する。
 ///
-/// `SshConnection` / `SshDisconnected` / `SshTimeout` のみ `true`。
+/// `SshConnection` / `SshDisconnected` / `SshTimeout` / `SshScanTimeout` のみ `true`。
+/// 走査の時間切れもコマンドの終わりを受け取れなかったので、接続の時間切れと同じく扱う。
 /// `SshExec`（コマンド実行失敗＝ファイル不在等）は `false`。
 /// 呼び出し元で `is_connected = false` にすべきかの判定に使う。
 pub fn is_connection_error(e: &anyhow::Error) -> bool {
@@ -69,6 +74,7 @@ pub fn is_connection_error(e: &anyhow::Error) -> bool {
         Some(AppError::SshConnection { .. })
             | Some(AppError::SshDisconnected { .. })
             | Some(AppError::SshTimeout { .. })
+            | Some(AppError::SshScanTimeout { .. })
     )
 }
 
@@ -94,6 +100,21 @@ mod tests {
         }
         .into();
         assert!(is_connection_error(&err));
+    }
+
+    #[test]
+    fn a_scan_timeout_is_handled_as_a_lost_connection_but_reads_differently() {
+        let scan: anyhow::Error = AppError::SshScanTimeout {
+            host: "example.com".to_string(),
+            timeout_sec: 30,
+        }
+        .into();
+        let connection = AppError::SshTimeout {
+            host: "example.com".to_string(),
+            timeout_sec: 30,
+        };
+        assert!(is_connection_error(&scan));
+        assert_ne!(scan.to_string(), connection.to_string());
     }
 
     #[test]

@@ -180,6 +180,9 @@ mod scan_names_as_read_cli;
 #[path = "contract/scan_routes_agree.rs"]
 mod scan_routes_agree;
 #[cfg(feature = "test-utils")]
+#[path = "contract/scan_timeout.rs"]
+mod scan_timeout;
+#[cfg(feature = "test-utils")]
 #[path = "contract/scan_times_agree.rs"]
 mod scan_times_agree;
 #[cfg(feature = "test-utils")]

@@ -880,6 +880,8 @@ impl CoreRuntime {
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let root_path = server_config.root_dir.clone();
         let exclude = self.config.filter.exclude.clone();
+        // 走査の時間切れは接続の設定の timeout_sec から決める（REQ-scan-013）
+        let scan_timeout_sec = self.config.ssh.timeout_sec;
 
         let client = self
             .ssh_clients
@@ -891,7 +893,7 @@ impl CoreRuntime {
             &exclude,
             include,
             max_entries,
-            120,
+            scan_timeout_sec,
         ))?;
 
         if truncated {
@@ -923,6 +925,8 @@ impl CoreRuntime {
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let root_path = server_config.root_dir.clone();
         let exclude = self.config.filter.exclude.clone();
+        // 走査の時間切れは接続の設定の timeout_sec から決める（REQ-scan-013）
+        let scan_timeout_sec = self.config.ssh.timeout_sec;
 
         // root_dir/subpath を走査対象にする
         let scan_path = if subpath.is_empty() {
@@ -947,7 +951,7 @@ impl CoreRuntime {
             &exclude,
             &[],
             max_entries,
-            120,
+            scan_timeout_sec,
         ));
 
         let (nodes, truncated) = match result {
