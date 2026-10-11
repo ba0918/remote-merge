@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use remote_merge::agent::tree_scan::{incomplete_reason, scan_tree_with, ScanOptions};
 use remote_merge_core::listing::ListingReader;
+use remote_merge_engine::local::scan_local_tree_recursive_with;
 
 /// リンク先の読み取りだけを失敗させる
 struct UnreadableLinks;
@@ -46,4 +47,18 @@ fn req_scan_015_the_agent_scan_stops_as_incomplete_when_a_link_target_cannot_be_
         .unwrap_or_else(|| panic!("not reported as an incomplete scan: {error}"));
     assert!(reason.contains("sub/l"), "{reason}");
     assert!(reason.contains("link target"), "{reason}");
+}
+
+// @kotowari[REQ-scan-015]
+#[test]
+fn req_scan_015_the_local_scan_stops_when_a_link_target_cannot_be_read() {
+    let root = root_with_a_link();
+
+    let result = scan_local_tree_recursive_with(&UnreadableLinks, root.path(), &[], &[], 100);
+
+    let error = result
+        .expect_err("a link without its target must not be listed")
+        .to_string();
+    assert!(error.contains("sub/l"), "{error}");
+    assert!(error.contains("link target"), "{error}");
 }

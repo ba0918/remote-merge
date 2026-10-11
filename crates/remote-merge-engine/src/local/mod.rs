@@ -7,6 +7,7 @@ use chrono::{TimeZone, Utc};
 
 use crate::filter;
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::listing::{ListingReader, ThisMachine};
 
 /// ローカルファイルシステムからディレクトリツリーを取得する
 ///
@@ -219,6 +220,17 @@ pub fn scan_local_tree_recursive_with_include(
     include: &[String],
     max_entries: usize,
 ) -> crate::error::Result<(Vec<FileNode>, bool)> {
+    scan_local_tree_recursive_with(&ThisMachine, root, exclude, include, max_entries)
+}
+
+/// [`scan_local_tree_recursive_with_include`] の、symlink のリンク先の読み方を `reader` にしたもの
+pub fn scan_local_tree_recursive_with(
+    reader: &impl ListingReader,
+    root: &Path,
+    exclude: &[String],
+    include: &[String],
+    max_entries: usize,
+) -> crate::error::Result<(Vec<FileNode>, bool)> {
     if !root.exists() {
         anyhow::bail!(crate::error::AppError::PathNotFound {
             path: root.to_path_buf(),
@@ -239,6 +251,7 @@ pub fn scan_local_tree_recursive_with_include(
             break;
         }
         let (entries, trunc) = walk_single_root(
+            reader,
             scan_root,
             &canonical_root,
             exclude,
@@ -260,6 +273,7 @@ pub fn scan_local_tree_recursive_with_include(
 /// パスは `original_root` からの相対パスとして格納される。
 /// `remaining` は残りエントリ数上限。
 fn walk_single_root(
+    reader: &impl ListingReader,
     scan_root: &Path,
     original_root: &Path,
     exclude: &[String],
@@ -335,10 +349,13 @@ fn walk_single_root(
         let meta = path.symlink_metadata()?;
 
         let mut node = if meta.is_symlink() {
-            let target = std::fs::read_link(&path)
-                .map(|t| t.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "???".to_string());
-            FileNode::new_symlink(&file_name, target)
+            // リンク先を読めなければ、既定の値で埋めずに走査を止める（REQ-scan-015）
+            let target = reader.read_link(&path).map_err(|error| {
+                anyhow::anyhow!(
+                    "Directory scan incomplete: failed to scan {rel_path:?}: cannot read the link target: {error}"
+                )
+            })?;
+            FileNode::new_symlink(&file_name, target.to_string_lossy().into_owned())
         } else if meta.is_dir() {
             let mut d = FileNode::new_dir(&file_name);
             d.children = Some(std::collections::BTreeMap::new()); // loaded 状態
