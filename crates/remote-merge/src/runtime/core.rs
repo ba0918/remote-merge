@@ -912,6 +912,7 @@ impl CoreRuntime {
         let mut tree = FileTree::new(&root_path);
         tree.nodes = listing.nodes;
         tree.unreadable_names = listing.unreadable_names;
+        tree.truncated = listing.truncated;
         tree.sort();
         Ok(tree)
     }
@@ -988,6 +989,7 @@ impl CoreRuntime {
         // 結果を subpath 配下にラップして root_dir からの相対パスにする
         tree.nodes = super::side_io::wrap_nodes_in_subpath(subpath, listing.nodes);
         tree.unreadable_names = super::side_io::names_in_subpath(subpath, listing.unreadable_names);
+        tree.truncated = listing.truncated;
         tree.sort();
         Ok(tree)
     }

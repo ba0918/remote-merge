@@ -1101,22 +1101,15 @@ fn run_diff_full_scan(
     )
 }
 
-/// 側の root_dir 全体を走査する。件数の上限を超えたら、上限までに読めたツリーと上限の超過を返す
+/// 側の root_dir 全体を一度だけ走査する。件数の上限を超えたら、上限までに読めたツリーと上限の超過を返す
 fn fetch_tree_keeping_read(
     core: &mut CoreRuntime,
     side: &Side,
     max_entries: usize,
 ) -> anyhow::Result<(FileTree, Option<ScanTruncated>)> {
-    match core.fetch_tree_recursive(side, max_entries, true) {
-        Ok(tree) => Ok((tree, None)),
-        Err(error) => match error.downcast_ref::<ScanTruncated>().copied() {
-            Some(truncated) => Ok((
-                core.fetch_tree_recursive(side, max_entries, false)?,
-                Some(truncated),
-            )),
-            None => Err(error),
-        },
-    }
+    let tree = core.fetch_tree_recursive(side, max_entries, false)?;
+    let truncated = tree.truncated.then_some(ScanTruncated { max_entries });
+    Ok((tree, truncated))
 }
 
 /// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）。`scan_errors` は

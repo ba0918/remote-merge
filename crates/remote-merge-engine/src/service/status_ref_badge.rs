@@ -115,6 +115,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes,
             unreadable_names: Vec::new(),
+            truncated: false,
         }
     }
 

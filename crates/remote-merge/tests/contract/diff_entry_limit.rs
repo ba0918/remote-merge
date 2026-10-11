@@ -100,3 +100,78 @@ fn req_cli_084_a_directory_is_not_counted_toward_the_limit_when_a_named_director
         assert_eq!(run.code, exit_code::DIFF_FOUND, "{paths:?}");
     }
 }
+
+/// 右の root_dir に置く、件数の上限 5 を超える 10 件のファイル
+fn over_the_limit() -> Vec<(String, &'static str)> {
+    (0..10)
+        .map(|index| (format!("d/{index}.txt"), "right\n"))
+        .collect()
+}
+
+/// root_dir 全体の diff の出力が、読めた差分を残し、上限の超過を errors に載せて終了コード 2 で終わる
+fn assert_kept_with_truncation(output: &std::process::Output, route: &str) {
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{route}: {error}: {output:?}"));
+    let compared = json["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{route}: {json}"));
+    assert!(
+        compared.iter().any(|file| file["path"]
+            .as_str()
+            .is_some_and(|path| path.starts_with("d/"))),
+        "{route}: {json}"
+    );
+    let errors = json["errors"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{route}: {json}"));
+    assert!(
+        errors.iter().any(|error| error["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("Tree scan truncated at 5 entries."))),
+        "{route}: {json}"
+    );
+    assert_eq!(output.status.code(), Some(2), "{route}: {output:?}");
+}
+
+// SSH の経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
+// @kotowari[REQ-cli-084]
+#[test]
+fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_over_ssh() {
+    let files = over_the_limit();
+    let remote: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, body)| (path.as_str(), *body))
+        .collect();
+    let env = super::common::CliEnv::new(&[], &remote);
+
+    let output = env
+        .cmd_with("diff")
+        .args(["--left", "local", "--right", "develop", "--format", "json"])
+        .args(["--max-entries", "5"])
+        .output()
+        .unwrap();
+
+    assert_kept_with_truncation(&output, "ssh");
+}
+
+// エージェントの経路の走査が上限を超えても、読めた差分を残して上限の超過を errors に載せる
+// @kotowari[REQ-cli-084]
+#[tokio::test(flavor = "multi_thread")]
+async fn req_cli_084_a_remote_scan_over_the_entry_limit_keeps_the_differences_it_read_via_the_agent(
+) {
+    use super::agent_support::{AgentFixture, Setup};
+    let fixture =
+        AgentFixture::new(Setup::default(), super::server_faults::Faults::default()).await;
+    std::fs::create_dir_all(fixture.local()).unwrap();
+    for (path, body) in over_the_limit() {
+        fixture.put(&path, None, Some(body));
+    }
+
+    let output = fixture.run(&["diff", "--max-entries", "5"]);
+
+    assert_kept_with_truncation(&output, "agent");
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("falling back"),
+        "{output:?}"
+    );
+}

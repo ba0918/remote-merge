@@ -955,13 +955,14 @@ impl CoreRuntime {
         })
         .map(|r| {
             r.and_then(|listed| {
-                check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
+                let truncated = check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
                 let flat_nodes =
                     crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
                 let mut tree = FileTree::new(&root_dir);
                 tree.nodes = nodes;
                 tree.unreadable_names = listed.unreadable_names;
+                tree.truncated = truncated;
                 tree.sort();
                 Ok(tree)
             })
@@ -990,7 +991,7 @@ impl CoreRuntime {
         })
         .map(|r| {
             r.and_then(|listed| {
-                check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
+                let truncated = check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
                 let flat_nodes =
                     crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
                 let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
@@ -999,6 +1000,7 @@ impl CoreRuntime {
                 // 結果を subpath 配下にラップして root_dir からの相対パスにする
                 tree.nodes = wrap_nodes_in_subpath(&subpath_owned, nodes);
                 tree.unreadable_names = names_in_subpath(&subpath_owned, listed.unreadable_names);
+                tree.truncated = truncated;
                 tree.sort();
                 Ok(tree)
             })
@@ -1178,17 +1180,17 @@ fn transform_stat_results(
     Some(Ok(results))
 }
 
-/// エージェントの走査の終わり方を、ローカルと SSH の走査と同じ報告にする。循環で止まった走査は
-/// 打ち切りの設定によらず、一覧を返さずに不完全な一覧として Err にする
+/// エージェントの走査の終わり方を、ローカルと SSH の走査と同じ報告にする。返す値は件数の上限で
+/// 打ち切ったか。循環で止まった走査は打ち切りの設定によらず、一覧を返さずに不完全な一覧として Err にする
 fn check_agent_tree_end(
     end: crate::agent::client::TreeEnd,
     max_entries: usize,
     fail_on_truncation: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     use crate::agent::client::TreeEnd;
     match end {
-        TreeEnd::Complete => Ok(()),
-        TreeEnd::Truncated => check_truncation(max_entries, fail_on_truncation),
+        TreeEnd::Complete => Ok(false),
+        TreeEnd::Truncated => check_truncation(max_entries, fail_on_truncation).map(|()| true),
         TreeEnd::Incomplete(reason) => anyhow::bail!("Directory scan incomplete: {reason}"),
     }
 }
@@ -1959,7 +1961,8 @@ mod tests {
         let mut rt = create_test_runtime(&tmp);
         // fail_on_truncation = false → truncation 時も Ok
         let result = rt.fetch_tree_recursive(&Side::Local, 1, false);
-        assert!(result.is_ok());
+        // 打ち切ったことはツリーに残す
+        assert!(result.unwrap().truncated);
     }
 
     #[test]
@@ -1974,7 +1977,7 @@ mod tests {
         assert!(result.is_ok());
         // fail_on_truncation = false でも当然 Ok
         let result = rt.fetch_tree_recursive(&Side::Local, 10000, false);
-        assert!(result.is_ok());
+        assert!(!result.unwrap().truncated);
     }
 
     // ── create_local_backups テスト ──
@@ -2227,8 +2230,9 @@ mod tests {
         let result = rt.fetch_tree_for_subpath(&Side::Local, "dir", 1, false);
         assert!(result.is_ok());
         let tree = result.unwrap();
-        // truncation でも部分結果が返る
+        // truncation でも部分結果が返り、打ち切ったことはツリーに残す
         assert!(!tree.nodes.is_empty());
+        assert!(tree.truncated);
     }
 
     #[test]

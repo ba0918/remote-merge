@@ -244,6 +244,8 @@ pub struct FileTree {
     /// 走査で見つけた、UTF-8 として読めない名前のファイルの root からのパス。ノードには載せず、
     /// 読めない部分を `\xNN` と書いた形で持つ（[`crate::unreadable_name`]）
     pub unreadable_names: Vec<String>,
+    /// 走査が件数の上限で一覧を打ち切ったか。打ち切りを誤りにしない走査でだけ true になる
+    pub truncated: bool,
 }
 
 impl FileTree {
@@ -253,6 +255,7 @@ impl FileTree {
             root: root.into(),
             nodes: Vec::new(),
             unreadable_names: Vec::new(),
+            truncated: false,
         }
     }
 
@@ -640,6 +643,7 @@ mod tests {
                 ],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
 
         assert!(tree.find_node(Path::new("src")).is_some());
@@ -657,6 +661,7 @@ mod tests {
                 vec![FileNode::new_file("main.rs"), FileNode::new_dir("utils")],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
 
         // ノードを可変参照で取得して変更
@@ -685,6 +690,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_file("a.txt")],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         assert!(tree.find_node_mut(Path::new("nonexistent")).is_none());
     }
@@ -698,6 +704,7 @@ mod tests {
                 vec![FileNode::new_file("main.rs")],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         assert_eq!(
             tree.find_node_or_unloaded(Path::new("src/main.rs")),
@@ -711,6 +718,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_dir_with_children("src", vec![])],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         // src はロード済み（空）→ main.rs は確実に存在しない
         assert_eq!(
@@ -725,6 +733,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_dir("src")], // children: None = 未ロード
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         // src が未ロードなので子の存在は判定不能
         assert_eq!(
@@ -742,6 +751,7 @@ mod tests {
                 vec![FileNode::new_dir("app")], // app は未ロード
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         // src/app が未ロードなので src/app/mod.rs の存在は判定不能
         assert_eq!(
@@ -887,6 +897,7 @@ mod tests {
                 )],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         let created = tree.ensure_path(Path::new("a/b/c"));
         assert_eq!(created, 0);
@@ -902,6 +913,7 @@ mod tests {
                 vec![FileNode::new_dir_with_children("b", vec![])],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         let created = tree.ensure_path(Path::new("a/b/c"));
         assert_eq!(created, 1);
@@ -915,6 +927,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_dir("a")],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         // a は未ロード（children: None）
         let created = tree.ensure_path(Path::new("a/b/c/d"));
@@ -937,6 +950,7 @@ mod tests {
             root: PathBuf::from("/test"),
             nodes: vec![FileNode::new_dir("a")], // children: None
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         assert!(!tree.find_node(Path::new("a")).unwrap().is_loaded());
 
@@ -955,6 +969,7 @@ mod tests {
                 vec![FileNode::new_file("existing.txt")],
             )],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
 
         let created = tree.ensure_path(Path::new("a/b"));

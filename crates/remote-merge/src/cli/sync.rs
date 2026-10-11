@@ -695,6 +695,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         let plan = plan_merge(&["src/main.rs".into()]);
         let server_plans = vec![ServerPlan {
@@ -749,6 +750,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            truncated: false,
         };
         let plan = MergePlan {
             files: vec![],

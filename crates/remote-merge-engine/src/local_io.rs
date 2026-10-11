@@ -336,6 +336,7 @@ pub fn fetch_tree_recursive(
     let mut tree = FileTree::new(root);
     tree.nodes = scan.nodes;
     tree.unreadable_names = scan.unreadable_names;
+    tree.truncated = scan.truncated;
     tree.sort();
     Ok(tree)
 }
@@ -365,6 +366,7 @@ pub fn fetch_tree_for_subpath(
     let mut tree = FileTree::new(root);
     tree.nodes = wrap_nodes_in_subpath(subpath, scan.nodes);
     tree.unreadable_names = names_in_subpath(subpath, scan.unreadable_names);
+    tree.truncated = scan.truncated;
     tree.sort();
     Ok(tree)
 }
