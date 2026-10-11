@@ -301,19 +301,6 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
 
         let file_type = meta.file_type();
 
-        // UTF-8 として読めない名前は置き換えて載せず、ファイルなら読めない名前として報告する
-        // （REQ-scan-012）。ディレクトリは配下を走査し、配下のファイルも同じく報告する
-        if let Ok(relative) = path.strip_prefix(&self.relative_base) {
-            if relative.to_str().is_none() {
-                if file_type.is_dir() {
-                    self.queue_directory(path);
-                } else {
-                    self.unreadable_names.push(unreadable_name(relative));
-                }
-                return false;
-            }
-        }
-
         // ディレクトリとディレクトリを指す symlink は配下を走査キューに追加する。
         // ディレクトリ自体は buffer には入れない
         let is_directory_link = if file_type.is_symlink() {
@@ -335,6 +322,19 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
         if file_type.is_dir() || is_directory_link {
             self.queue_directory(path);
         }
+
+        // UTF-8 として読めない名前は置き換えて載せず、ディレクトリ以外（ディレクトリを指す symlink を
+        // 含む）は読めない名前として報告する（REQ-scan-012）。配下はほかの経路と同じく上で走査キューに
+        // 追加済みで、配下のファイルも同じく報告する
+        if let Ok(relative) = path.strip_prefix(&self.relative_base) {
+            if relative.to_str().is_none() {
+                if !file_type.is_dir() {
+                    self.unreadable_names.push(unreadable_name(relative));
+                }
+                return false;
+            }
+        }
+
         if file_type.is_dir() || self.stopped.is_some() {
             return false;
         }
@@ -899,6 +899,57 @@ mod tests {
         // 読めないディレクトリを飛ばした一覧を返さず、不完全な一覧として止める
         let error = result.expect_err("an unreadable directory must stop the scan");
         assert!(incomplete_reason(&error).is_some(), "{error}");
+    }
+
+    /// UTF-8 として読めない名前（"ln" と 0xff）で `target` を指す symlink を root に置く
+    #[cfg(unix)]
+    fn place_non_utf8_link(root: &Path, target: &str) {
+        use std::os::unix::ffi::OsStrExt;
+        std::os::unix::fs::symlink(target, root.join(std::ffi::OsStr::from_bytes(b"ln\xff")))
+            .unwrap();
+    }
+
+    // @kotowari[REQ-scan-012, REQ-scan-011]
+    #[cfg(unix)]
+    #[test]
+    fn req_scan_012_a_directory_link_whose_name_is_not_utf8_is_reported_and_walked() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("real")).unwrap();
+        fs::write(dir.path().join("real/x.txt"), "x").unwrap();
+        place_non_utf8_link(dir.path(), "real");
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let chunks = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+
+        let unreadable: Vec<&str> = chunks
+            .iter()
+            .flat_map(|chunk| chunk.unreadable_names.iter().map(String::as_str))
+            .collect();
+        assert_eq!(unreadable, vec!["ln\\xff", "ln\\xff/x.txt"]);
+    }
+
+    // @kotowari[REQ-scan-011]
+    #[cfg(unix)]
+    #[test]
+    fn req_scan_011_a_cycle_through_a_link_whose_name_is_not_utf8_stops_the_scan() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("ok.txt"), "ok").unwrap();
+        place_non_utf8_link(dir.path(), ".");
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            chunk_size: 1000,
+            ..Default::default()
+        };
+
+        let error = scan_tree(&options)
+            .collect::<Result<Vec<_>>>()
+            .expect_err("a cycle must stop the scan");
+
+        assert!(error.downcast_ref::<DirectoryCycle>().is_some(), "{error}");
     }
 
     #[test]

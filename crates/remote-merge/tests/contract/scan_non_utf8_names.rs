@@ -96,6 +96,62 @@ async fn req_scan_012_status_reports_a_remote_file_whose_name_is_not_utf8_via_th
     assert_reported_as_unreadable_name(&output);
 }
 
+/// UTF-8 として読めない名前（"ln" と 0xff）の、"real" ディレクトリを指す symlink
+const BAD_LINK: &[u8] = b"ln\xff";
+const LINKED: [(&str, &str); 1] = [("real/x.txt", "same\n")];
+
+fn place_bad_directory_link(root: &Path) {
+    std::os::unix::fs::symlink("real", root.join(OsStr::from_bytes(BAD_LINK))).unwrap();
+}
+
+/// 読めない名前のディレクトリへの symlink そのものと、その下のファイルを errors に出し、終了コード 2 で終わる
+fn assert_link_and_files_below_reported(output: &Output) {
+    let json: Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("stdout is not JSON ({error}): {output:?}"));
+    assert_eq!(
+        paths_in(&json, "errors"),
+        vec!["ln\\xff", "ln\\xff/x.txt"],
+        "{json}"
+    );
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+}
+
+fn status_over_ssh_with_bad_directory_link(on_local: bool) -> Output {
+    let mut dirs = TestDirs::new_2way(&LINKED, &LINKED);
+    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
+    place_bad_directory_link(if on_local { &local_root } else { &remote_root });
+    let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
+    status_over_ssh(&mut dirs, &config, &local_root, &[])
+}
+
+// @kotowari[REQ-scan-012]
+#[test]
+fn req_scan_012_status_reports_files_below_a_local_directory_link_whose_name_is_not_utf8() {
+    assert_link_and_files_below_reported(&status_over_ssh_with_bad_directory_link(true));
+}
+
+// @kotowari[REQ-scan-012]
+#[test]
+fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_over_ssh()
+{
+    assert_link_and_files_below_reported(&status_over_ssh_with_bad_directory_link(false));
+}
+
+// @kotowari[REQ-scan-012]
+#[tokio::test(flavor = "multi_thread")]
+async fn req_scan_012_status_reports_files_below_a_remote_directory_link_whose_name_is_not_utf8_via_the_agent(
+) {
+    let fixture = AgentFixture::new().await;
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    place_files(&local_root, &LINKED);
+    place_files(&remote_root, &LINKED);
+    place_bad_directory_link(&remote_root);
+
+    let output = fixture.status_via_agent(&local_root, &remote_root, &[]);
+
+    assert_link_and_files_below_reported(&output);
+}
+
 // ─── diff・merge・sync（ローカルの経路） ─────────────────────────────
 
 struct Fixture {
