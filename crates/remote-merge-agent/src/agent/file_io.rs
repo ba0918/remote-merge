@@ -11,6 +11,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::agent::protocol::{AgentFileStat, AgentPathInspection, FileReadResult};
 use crate::agent::server::MetadataConfig;
+use remote_merge_core::operations::resulting_mode;
 use remote_merge_core::path_resolution::{self, ResolveError, ResolvedPath};
 
 // ---------------------------------------------------------------------------
@@ -249,11 +250,16 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
 /// ディレクトリにパーミッションを適用する。
 ///
 /// `create_dir_all` で作成された新規ディレクトリに対して、`dir_permissions` を設定する。
-/// 既存ディレクトリは変更しない。
+/// 既存ディレクトリは変更しない。権限の変更の操作と同じく、親から受け継いだ setuid・setgid は
+/// 残す（[`resulting_mode`]）。
 pub fn apply_dir_permissions(path: &Path, mode: Option<u32>) -> std::io::Result<()> {
     if let Some(m) = mode {
-        let perms = fs::Permissions::from_mode(m & 0o7777);
-        if let Err(e) = fs::set_permissions(path, perms) {
+        let result = fs::metadata(path).and_then(|meta| {
+            let current = meta.permissions().mode() & 0o7777;
+            let perms = fs::Permissions::from_mode(resulting_mode(current, m & 0o7777, true));
+            fs::set_permissions(path, perms)
+        });
+        if let Err(e) = result {
             tracing::debug!(target: "remote_merge::agent::file_io", "chmod failed for directory {}: {e}", path.display());
         }
     }
@@ -1064,6 +1070,19 @@ mod tests {
 
         let meta = fs::metadata(&dir).unwrap();
         assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
+    }
+
+    #[test]
+    fn apply_dir_permissions_keeps_setgid_the_directory_has() {
+        let tmp = setup();
+        let dir = tmp.path().join("shared");
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o2700)).unwrap();
+
+        apply_dir_permissions(&dir, Some(0o775)).unwrap();
+
+        let meta = fs::metadata(&dir).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o7777, 0o2775);
     }
 
     #[test]

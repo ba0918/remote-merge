@@ -90,6 +90,9 @@ mod merge_cli;
 #[path = "contract/merge_cli_ssh.rs"]
 mod merge_cli_ssh;
 #[cfg(feature = "test-utils")]
+#[path = "contract/merge_created_directory_routes.rs"]
+mod merge_created_directory_routes;
+#[cfg(feature = "test-utils")]
 #[path = "contract/merge_force_cli.rs"]
 mod merge_force_cli;
 #[path = "contract/merge_hunks.rs"]
