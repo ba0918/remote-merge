@@ -29,10 +29,11 @@ status と diff は、そのファイルを REQ-cli-088 と REQ-cli-089 の読�
 
 ### REQ-scan-015: root_dir や項目の情報を読めなければ走査を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-scan.md#A5, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-ssh-output-parsing-consistency-2.md#A1
+- source: docs/decision/records/2026-10-05-quality-scan.md#A5, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-ssh-output-parsing-consistency-2.md#A1, docs/decision/records/2026-10-12-ssh-output-parsing-consistency-3.md#A2
 - verification: unit
 
 root_dir がないか読めないとき、ローカル・SSH・エージェントのどの経路も走査の時点でエラーで止まり、リモートでは "Remote root_dir not found: サーバ名:パス" を出す。symlink のリンク先の文字列か更新時刻を読めないときも、既定の値で埋めずにエラーで止まる。リンク先がないのではなく、ループしているか途中にディレクトリでないものを含むためにリンク先を辿れない symlink があるときも、ディレクトリへの symlink かを決められないので、それを載せずにエラーで止まる（リンク先がない symlink は REQ-scan-006 のとおり載せる）。include の起点がないときは config/include.md の REQ-config-032 による。
+exclude に当たる symlink と、exclude に当たるディレクトリの下の symlink は、リンク先を辿れなくても走査を止めずに一覧に載せない（config/filters.md の REQ-config-021・REQ-config-022。SSH の経路の古い find の差は FLAG-config-016）。
 ローカルの root_dir がないか読めないときのエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
 ### REQ-scan-016: 走査の更新時刻は読んだとおりに載せる
