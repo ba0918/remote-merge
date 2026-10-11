@@ -48,8 +48,13 @@ pub fn classify(error: &anyhow::Error) -> Failure {
                 _ => Failure::Refused,
             };
         }
-        // エージェントとの通信路の読み書きの失敗は、どの種類でも応答を受け取れなかったことになる
-        if cause.is::<io::Error>() {
+        if let Some(error) = cause.downcast_ref::<io::Error>() {
+            // 大きすぎるフレームは、手元で何も書かずに拒んだもので、接続は使える
+            if error.kind() == io::ErrorKind::InvalidInput {
+                return Failure::Refused;
+            }
+            // エージェントとの通信路の読み書きのほかの失敗は、どの種類でも応答を受け取れなかった
+            // ことになる
             return Failure::Lost;
         }
     }
@@ -162,6 +167,12 @@ mod tests {
             ("read timeout", io(io::ErrorKind::TimedOut), Failure::Lost),
             ("would block", io(io::ErrorKind::WouldBlock), Failure::Lost),
             ("other io", io(io::ErrorKind::Other), Failure::Lost),
+            // 大きすぎて送らなかった要求（write_frame が何も書かずに返す）。接続は使える
+            (
+                "frame too large to send",
+                io(io::ErrorKind::InvalidInput),
+                Failure::Refused,
+            ),
             (
                 "agent error",
                 AgentRefused("agent error: x".into()).into(),
