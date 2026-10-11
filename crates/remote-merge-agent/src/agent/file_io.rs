@@ -11,7 +11,6 @@ use anyhow::{bail, Context, Result};
 
 use crate::agent::protocol::{AgentFileStat, AgentPathInspection, FileReadResult};
 use crate::agent::server::MetadataConfig;
-use remote_merge_core::operations::resulting_mode;
 use remote_merge_core::path_resolution::{self, ResolveError, ResolvedPath};
 
 // ---------------------------------------------------------------------------
@@ -247,25 +246,6 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
     }
 }
 
-/// ディレクトリにパーミッションを適用する。
-///
-/// `create_dir_all` で作成された新規ディレクトリに対して、`dir_permissions` を設定する。
-/// 既存ディレクトリは変更しない。権限の変更の操作と同じく、親から受け継いだ setuid・setgid は
-/// 残す（[`resulting_mode`]）。
-pub fn apply_dir_permissions(path: &Path, mode: Option<u32>) -> std::io::Result<()> {
-    if let Some(m) = mode {
-        let result = fs::metadata(path).and_then(|meta| {
-            let current = meta.permissions().mode() & 0o7777;
-            let perms = fs::Permissions::from_mode(resulting_mode(current, m & 0o7777, true));
-            fs::set_permissions(path, perms)
-        });
-        if let Err(e) = result {
-            tracing::debug!(target: "remote_merge::agent::file_io", "chmod failed for directory {}: {e}", path.display());
-        }
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // File operations
 // ---------------------------------------------------------------------------
@@ -354,7 +334,7 @@ fn write_chunk_without_following_link(
 ///
 /// `write_file` と同等の書き込みを行い、追加で以下を実行:
 /// - `is_first_chunk=true`: 既存ファイルのメタデータを `saved_metadata` に保存して返す
-/// - `is_first_chunk=true`: 新規ディレクトリに `config.dir_permissions` を適用
+/// - `is_first_chunk=true`: 親ディレクトリを作る（作ったディレクトリの権限は呼び出し元が後で変える）
 /// - `is_last_chunk=true`（最終チャンク）: メタデータを復元/適用
 ///   - 既存ファイルだった場合: `saved_metadata` の uid/gid/mode で復元
 ///   - 新規ファイルだった場合: `config` のデフォルト値で設定
@@ -375,20 +355,10 @@ pub fn write_file_with_metadata(
         // 既存ファイルのメタデータを保存
         captured_metadata = SavedMetadata::from_path(&path);
 
-        // 親ディレクトリの作成（新規ディレクトリにはパーミッション適用）
+        // 親ディレクトリの作成。作ったディレクトリの権限は、呼び出し元が書いた後に変える
         if let Some(parent) = path.parent() {
-            // create_dir_all 前に新規作成されるディレクトリを特定
-            let new_dirs = if config.dir_permissions.is_some() {
-                find_dirs_to_create(root_dir, parent)
-            } else {
-                vec![]
-            };
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create dirs: {}", parent.display()))?;
-            // 新規作成されたディレクトリに dir_permissions を適用
-            if !new_dirs.is_empty() {
-                apply_dir_permissions_recursive(&new_dirs, config.dir_permissions)?;
-            }
         }
     }
     let file = write_chunk_without_following_link(&path, content, is_first_chunk)?;
@@ -423,36 +393,6 @@ pub fn write_file_with_metadata(
     Ok(captured_metadata)
 }
 
-/// root_dir から dir までの各ディレクトリに対してパーミッションを適用する。
-///
-/// `create_dir_all` で複数階層が新規作成された場合、`newly_created` で
-/// 指定された新規ディレクトリにのみ `dir_permissions` を適用する。
-/// root_dir 自体は除外する。
-fn apply_dir_permissions_recursive(newly_created: &[PathBuf], mode: Option<u32>) -> Result<()> {
-    for dir in newly_created {
-        let _ = apply_dir_permissions(dir, mode);
-    }
-    Ok(())
-}
-
-/// root_dir から parent までのパスを列挙し、事前に存在しなかったディレクトリを特定する。
-///
-/// `create_dir_all` の前に呼び出し、戻り値を `apply_dir_permissions_recursive` に渡す。
-fn find_dirs_to_create(root_dir: &Path, parent: &Path) -> Vec<PathBuf> {
-    let Ok(rel) = parent.strip_prefix(root_dir) else {
-        return vec![];
-    };
-    let mut dirs_to_create = Vec::new();
-    let mut current = root_dir.to_path_buf();
-    for component in rel.components() {
-        current = current.join(component);
-        if !current.exists() {
-            dirs_to_create.push(current.clone());
-        }
-    }
-    dirs_to_create
-}
-
 /// ファイルのメタデータ（stat）を取得する。
 pub fn stat_file(root_dir: &Path, rel_path: &str) -> Result<AgentFileStat> {
     let path = validate_path(root_dir, rel_path)?;
@@ -469,20 +409,18 @@ pub fn stat_file(root_dir: &Path, rel_path: &str) -> Result<AgentFileStat> {
 
 /// シンボリックリンクを作成する。ターゲットが root_dir 外に逃げないことを検証する。
 pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<()> {
-    create_symlink_with_metadata(root_dir, rel_path, target, None, None, None)
+    create_symlink_with_metadata(root_dir, rel_path, target, None, None)
 }
 
 /// メタデータ付きシンボリックリンクを作成する。
 ///
 /// symlink 作成後、euid==0 の場合のみ lchown で uid/gid を設定する。
-/// `dir_permissions` が指定されている場合、新規作成されたディレクトリにパーミッションを適用する。
 pub fn create_symlink_with_metadata(
     root_dir: &Path,
     rel_path: &str,
     target: &str,
     uid: Option<u32>,
     gid: Option<u32>,
-    dir_permissions: Option<u32>,
 ) -> Result<()> {
     let link_path = validate_entry_path(root_dir, rel_path)?;
 
@@ -493,18 +431,9 @@ pub fn create_symlink_with_metadata(
         }
     }
 
+    // 作ったディレクトリの権限は、呼び出し元が作った後に変える
     if let Some(parent) = link_path.parent() {
-        // create_dir_all 前に新規作成されるディレクトリを特定
-        let new_dirs = if dir_permissions.is_some() {
-            find_dirs_to_create(root_dir, parent)
-        } else {
-            vec![]
-        };
         fs::create_dir_all(parent)?;
-        // 新規作成されたディレクトリに dir_permissions を適用
-        if !new_dirs.is_empty() {
-            apply_dir_permissions_recursive(&new_dirs, dir_permissions)?;
-        }
     }
 
     // 作成先に何かあれば置き換えずに失敗する（比べたときにあった書き込み先は呼び出し元が先に消す）
@@ -976,130 +905,6 @@ mod tests {
         assert_eq!(meta.permissions().mode() & 0o7777, 0o600);
     }
 
-    #[test]
-    fn write_file_with_metadata_new_dir_permissions() {
-        let tmp = setup();
-        let config = MetadataConfig {
-            file_permissions: Some(0o644),
-            dir_permissions: Some(0o755),
-            ..Default::default()
-        };
-
-        write_file_with_metadata(
-            tmp.path(),
-            "newdir/subdir/file.txt",
-            b"data",
-            true,
-            true,
-            None,
-            &config,
-        )
-        .unwrap();
-
-        // 新規作成された中間ディレクトリ (newdir) にも dir_permissions が適用されている
-        let parent_dir_meta = fs::metadata(tmp.path().join("newdir")).unwrap();
-        assert_eq!(
-            parent_dir_meta.permissions().mode() & 0o7777,
-            0o755,
-            "intermediate directory 'newdir' should have dir_permissions applied"
-        );
-
-        // 末端ディレクトリ (newdir/subdir) にも dir_permissions が適用されている
-        let dir_meta = fs::metadata(tmp.path().join("newdir/subdir")).unwrap();
-        assert_eq!(dir_meta.permissions().mode() & 0o7777, 0o755);
-
-        // ファイルにも file_permissions が適用されている
-        let file_meta = fs::metadata(tmp.path().join("newdir/subdir/file.txt")).unwrap();
-        assert_eq!(file_meta.permissions().mode() & 0o7777, 0o644);
-    }
-
-    #[test]
-    fn write_file_with_metadata_existing_intermediate_dir_not_changed() {
-        let tmp = setup();
-        // 既存の中間ディレクトリを先に作成（パーミッション 0o700）
-        fs::create_dir(tmp.path().join("existing_parent")).unwrap();
-        fs::set_permissions(
-            tmp.path().join("existing_parent"),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
-
-        let config = MetadataConfig {
-            file_permissions: Some(0o644),
-            dir_permissions: Some(0o755),
-            ..Default::default()
-        };
-
-        write_file_with_metadata(
-            tmp.path(),
-            "existing_parent/newchild/file.txt",
-            b"data",
-            true,
-            true,
-            None,
-            &config,
-        )
-        .unwrap();
-
-        // 既存ディレクトリは変更されないこと
-        let parent_meta = fs::metadata(tmp.path().join("existing_parent")).unwrap();
-        assert_eq!(
-            parent_meta.permissions().mode() & 0o7777,
-            0o700,
-            "existing directory should NOT have permissions changed"
-        );
-
-        // 新規作成された子ディレクトリには dir_permissions が適用されること
-        let child_meta = fs::metadata(tmp.path().join("existing_parent/newchild")).unwrap();
-        assert_eq!(
-            child_meta.permissions().mode() & 0o7777,
-            0o755,
-            "newly created directory should have dir_permissions applied"
-        );
-    }
-
-    // ── apply_dir_permissions ──
-
-    #[test]
-    fn apply_dir_permissions_sets_mode() {
-        let tmp = setup();
-        let dir = tmp.path().join("testdir");
-        fs::create_dir(&dir).unwrap();
-
-        apply_dir_permissions(&dir, Some(0o755)).unwrap();
-
-        let meta = fs::metadata(&dir).unwrap();
-        assert_eq!(meta.permissions().mode() & 0o7777, 0o755);
-    }
-
-    #[test]
-    fn apply_dir_permissions_keeps_setgid_the_directory_has() {
-        let tmp = setup();
-        let dir = tmp.path().join("shared");
-        fs::create_dir(&dir).unwrap();
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o2700)).unwrap();
-
-        apply_dir_permissions(&dir, Some(0o775)).unwrap();
-
-        let meta = fs::metadata(&dir).unwrap();
-        assert_eq!(meta.permissions().mode() & 0o7777, 0o2775);
-    }
-
-    #[test]
-    fn apply_dir_permissions_none_does_nothing() {
-        let tmp = setup();
-        let dir = tmp.path().join("testdir2");
-        fs::create_dir(&dir).unwrap();
-
-        let meta_before = fs::metadata(&dir).unwrap();
-        let mode_before = meta_before.permissions().mode() & 0o7777;
-
-        apply_dir_permissions(&dir, None).unwrap();
-
-        let meta_after = fs::metadata(&dir).unwrap();
-        assert_eq!(meta_after.permissions().mode() & 0o7777, mode_before);
-    }
-
     // ── create_symlink_with_metadata ──
 
     #[test]
@@ -1107,7 +912,7 @@ mod tests {
         let tmp = setup();
         fs::write(tmp.path().join("target.txt"), "link target").unwrap();
 
-        create_symlink_with_metadata(tmp.path(), "meta_link.txt", "target.txt", None, None, None)
+        create_symlink_with_metadata(tmp.path(), "meta_link.txt", "target.txt", None, None)
             .unwrap();
 
         let link = tmp.path().join("meta_link.txt");
@@ -1149,42 +954,6 @@ mod tests {
     // ── list_backup_sessions ──
 
     // ── restore_backup ──
-
-    // ── create_symlink_with_metadata dir_permissions ──
-
-    #[test]
-    fn symlink_with_metadata_applies_dir_permissions() {
-        let tmp = setup();
-        fs::write(tmp.path().join("target.txt"), "link target").unwrap();
-
-        create_symlink_with_metadata(
-            tmp.path(),
-            "newparent/nested/link.txt",
-            "target.txt",
-            None,
-            None,
-            Some(0o755),
-        )
-        .unwrap();
-
-        // 新規作成されたディレクトリに dir_permissions が適用されている
-        let parent_meta = fs::metadata(tmp.path().join("newparent")).unwrap();
-        assert_eq!(
-            parent_meta.permissions().mode() & 0o7777,
-            0o755,
-            "intermediate directory should have dir_permissions applied"
-        );
-        let nested_meta = fs::metadata(tmp.path().join("newparent/nested")).unwrap();
-        assert_eq!(
-            nested_meta.permissions().mode() & 0o7777,
-            0o755,
-            "nested directory should have dir_permissions applied"
-        );
-
-        // symlink が正しく作成されていること
-        let link = tmp.path().join("newparent/nested/link.txt");
-        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
-    }
 
     // ── 最後の要素が既存の symlink のパス ──
 

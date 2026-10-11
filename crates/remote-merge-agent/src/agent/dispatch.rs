@@ -362,7 +362,6 @@ impl Dispatcher {
             target,
             self.metadata_config.default_uid,
             self.metadata_config.default_gid,
-            self.metadata_config.dir_permissions,
         ) {
             Ok(()) => AgentResponse::SymlinkResult {
                 success: true,
