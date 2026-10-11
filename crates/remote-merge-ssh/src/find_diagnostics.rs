@@ -23,13 +23,32 @@ const PERMISSION_DENIED: &str = ": Permission denied";
 const LOOP_HEAD: &str = "File system loop detected; ";
 const LOOP_MIDDLE: &str = " is part of the same file system loop as ";
 
+/// 走査のコマンドが最初の find の直前に標準エラーへ書く行。リモートのログインシェルが起動時に
+/// 標準エラーへ書いたものと、find が書いたものを分ける
+pub const FIND_STDERR_MARKER: &str = "remote-merge: find starts";
+
+/// 標準エラー `stderr` のうち、走査の find が書いた部分（[`FIND_STDERR_MARKER`] の行の後ろ）。
+/// その行がなければ、どこからが find のものか分からないので全体
+pub fn find_stderr(stderr: &str) -> &str {
+    let mut offset = 0;
+    for line in stderr.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim_end_matches(['\n', '\r']) == FIND_STDERR_MARKER {
+            return &stderr[offset..];
+        }
+    }
+    stderr
+}
+
 /// 走査の find の終了コード `exit_code` と標準エラー `stderr` から、走査が失敗したか。
 /// exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく失敗にしない。
 ///
 /// 終了コードが 0 でも、標準エラーに診断があれば失敗にする。findutils 4.2.27 は、途中に
 /// ディレクトリでないものを含むリンク先の symlink を "find: P: Not a directory" と出しながら
 /// 終了コード 0 で終え、その symlink を一覧に出す
+/// 見るのは find が書いた部分（[`find_stderr`]）だけ
 pub fn scan_failed(exit_code: u32, stderr: &str, base_path: &str, exclude: &[String]) -> bool {
+    let stderr = find_stderr(stderr);
     let diagnosed = stderr.lines().any(|line| !line.is_empty());
     match exit_code {
         0 if !diagnosed => false,
@@ -170,6 +189,20 @@ mod tests {
         assert!(!scan_failed(1, DENIED_UNDER_A_B, "/r", &exclude(&["a/b"])));
         assert!(scan_failed(1, "", "/r", &[]));
         assert!(scan_failed(2, DENIED_UNDER_A_B, "/r", &exclude(&["a/b"])));
+    }
+
+    #[test]
+    fn lines_before_the_marker_do_not_fail_the_scan() {
+        let noise = "Welcome to the server\nfish: some startup message\n";
+        let stderr = format!("{noise}{FIND_STDERR_MARKER}\n");
+        assert!(!scan_failed(0, &stderr, "/b", &[]));
+        let stderr = format!("{noise}{FIND_STDERR_MARKER}\n{NOT_A_DIRECTORY_ON_FINDUTILS_4_2_27}");
+        assert!(scan_failed(0, &stderr, "/b", &[]));
+    }
+
+    #[test]
+    fn without_the_marker_every_line_counts() {
+        assert!(scan_failed(0, "Welcome to the server\n", "/b", &[]));
     }
 
     #[test]

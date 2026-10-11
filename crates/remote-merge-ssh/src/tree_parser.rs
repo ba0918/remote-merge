@@ -269,6 +269,7 @@ fn write_in_place(remote_path: &str, writer: &str) -> String {
 ///
 /// 二つの find は、前の find が失敗しても両方を動かし、失敗した方の終了コードを返す（前の find を
 /// 優先する）。診断の文言を見分けられるよう C ロケールで動かす（[`crate::find_diagnostics`]）。
+/// 最初の find の前に、ログインシェルの起動時の出力と find の診断を分ける行を標準エラーに書く。
 ///
 /// 全パスは `shell_escape` でエスケープされる。
 pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]) -> String {
@@ -289,8 +290,10 @@ pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]
         r#"-exec sh -c 'set -e; for path do find "$path" -maxdepth 0 -printf "{RECORD_FORMAT}"; done' _ {{}} +"#
     );
     let prune = crate::find_prune::prune_clause(root, exclude);
+    let marker = shell_escape(crate::find_diagnostics::FIND_STDERR_MARKER);
     format!(
-        "LC_ALL=C find -L {start_paths} {prune}-xtype l {link_action}; l=$?; \
+        "printf '%s\\n' {marker} >&2; \
+         LC_ALL=C find -L {start_paths} {prune}-xtype l {link_action}; l=$?; \
          LC_ALL=C find -L {start_paths} {prune}! -xtype l -printf '{RECORD_FORMAT}'; p=$?; \
          [ \"$l\" -ne 0 ] && exit \"$l\"; exit \"$p\""
     )
@@ -355,6 +358,24 @@ mod tests {
         assert!(
             inner.children.as_ref().unwrap().contains_key("child.txt"),
             "{inner:?}"
+        );
+    }
+
+    #[test]
+    fn startup_output_of_the_shell_on_stderr_does_not_fail_the_scan() {
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::write(root.path().join("a.txt"), "a").unwrap();
+        let base = root.path().to_str().unwrap();
+        let command = build_find_command(base, &[], &[]);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &format!("echo 'startup message' >&2; {command}")])
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let exit_code = output.status.code().unwrap() as u32;
+        assert!(
+            !crate::find_diagnostics::scan_failed(exit_code, &stderr, base, &[]),
+            "{stderr}"
         );
     }
 

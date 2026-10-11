@@ -742,9 +742,10 @@ impl SshClient {
         };
         let stderr = String::from_utf8_lossy(&result.stderr);
         if find_diagnostics::scan_failed(result.exit_code, &stderr, remote_path, exclude) {
-            anyhow::bail!(exec_failure(&command, result.exit_code, &stderr));
+            let find_stderr = find_diagnostics::find_stderr(&stderr);
+            anyhow::bail!(exec_failure(&command, result.exit_code, find_stderr));
         }
-        if !stderr.trim().is_empty() {
+        if !find_diagnostics::find_stderr(&stderr).trim().is_empty() {
             tracing::debug!(
                 target: "remote_merge::ssh::client",
                 "Recursive scan: ignored find errors below excluded paths: {}",
