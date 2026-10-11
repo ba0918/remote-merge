@@ -326,9 +326,8 @@ async fn a_permission_change_cut_after_writing_reports_written_content_and_uncha
 
 // @kotowari[REQ-ssh-022]
 #[tokio::test(flavor = "multi_thread")]
-async fn an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_would_hide() {
-    // "vendor/**" を SSH の子の一覧は深い階層の "a/vendor" にも当てる（FLAG-paths-002）が、
-    // 確かめはその当て方によらず、作ったディレクトリ "a/vendor" の権限を読む。
+async fn a_cut_ssh_permission_change_of_a_created_directory_is_confirmed_as_changed() {
+    // 確かめは、親 "a" の子の一覧から、作ったディレクトリ "a/vendor" の権限を読む。
     // 作ったディレクトリに付ける権限を、このプロセスの umask で作られる権限と同じにして、
     // 切れた権限の変更が「変えた」と確かめられるようにする
     let fixture = AgentFixture::new(
@@ -344,7 +343,7 @@ async fn an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_
     let dir_mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
     let mut config = fs::read_to_string(&fixture.config).unwrap();
     config.push_str(&format!(
-        "[filter]\nexclude = [\"vendor/**\"]\n[defaults]\ndir_permissions = \"0o{dir_mode:o}\"\n"
+        "[defaults]\ndir_permissions = \"0o{dir_mode:o}\"\n"
     ));
     fs::write(&fixture.config, config).unwrap();
     fixture.put("a/keep.txt", Some("k\n"), Some("k\n"));

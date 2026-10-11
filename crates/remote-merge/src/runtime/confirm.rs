@@ -145,8 +145,9 @@ impl CoreRuntime {
     }
 
     /// 親の子の一覧から、そのパスの権限を読む。変えたパスそのものを読むので、exclude はどの経路でも
-    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）。打ち切った一覧ではそのパスが
-    /// 入らないことがあるので、件数でも打ち切らない（読むのは `接続断` の後だけ）
+    /// 当てない（当てると、exclude に当たるディレクトリを作ったときにその権限を読めない）。
+    /// 打ち切った一覧ではそのパスが入らないことがあるので、件数でも打ち切らない（読むのは `接続断` の
+    /// 後だけ）
     fn observe_mode(&mut self, server: &str, path: &str) -> anyhow::Result<Observed> {
         let (parent, name) = match path.rsplit_once('/') {
             Some((parent, name)) => (parent, name),
