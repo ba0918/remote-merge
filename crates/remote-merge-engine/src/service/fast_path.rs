@@ -90,6 +90,24 @@ pub fn resolve_scan_strategy(paths: &[String], has_delete_flag: bool) -> ScanStr
     ScanStrategy::FastPath(paths.to_vec())
 }
 
+/// diff のスキャン戦略を判定する純粋関数。
+///
+/// diff は名前で指定したパスを、数によらず一つずつ比べる（名前で指定したファイルは中身で比べ、
+/// フィルタを当てない）。パスがないとき、root_dir 全体を指すものや glob 文字を含むものがあるとき
+/// だけ root_dir 全体を走査する。末尾の "/" は呼び出し元で外してある。
+pub fn resolve_diff_scan_strategy(paths: &[String]) -> ScanStrategy {
+    let whole = paths.is_empty()
+        || paths
+            .iter()
+            .any(|p| p.is_empty() || is_root_marker(p) || has_glob_chars(p))
+        || check_path_traversal(paths).is_err();
+    if whole {
+        ScanStrategy::FullScan
+    } else {
+        ScanStrategy::FastPath(paths.to_vec())
+    }
+}
+
 /// パスが "." や "./" などのルートマーカーかどうかを判定する。
 fn is_root_marker(path: &str) -> bool {
     let trimmed = path.trim_end_matches('/');
@@ -136,6 +154,28 @@ pub fn has_root_parent_dir(parent_dirs: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── resolve_diff_scan_strategy ──
+
+    #[test]
+    fn diff_compares_more_than_twenty_named_paths_one_by_one() {
+        let paths: Vec<String> = (0..21).map(|i| format!("file_{i}.txt")).collect();
+        assert_eq!(
+            resolve_diff_scan_strategy(&paths),
+            ScanStrategy::FastPath(paths.clone())
+        );
+    }
+
+    #[test]
+    fn diff_scans_the_whole_root_dir_without_names() {
+        for paths in [vec![], vec![".".to_string()], vec!["a/*.txt".to_string()]] {
+            assert_eq!(
+                resolve_diff_scan_strategy(&paths),
+                ScanStrategy::FullScan,
+                "{paths:?}"
+            );
+        }
+    }
 
     // ── resolve_scan_strategy ──
 

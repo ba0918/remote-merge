@@ -52,12 +52,18 @@ mod diagnostics;
 #[cfg(all(unix, feature = "test-utils"))]
 #[path = "contract/diagnostics_sent_data.rs"]
 mod diagnostics_sent_data;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_excluded_directory.rs"]
+mod diff_excluded_directory;
 #[path = "contract/diff_file_kinds.rs"]
 mod diff_file_kinds;
 #[path = "contract/diff_format.rs"]
 mod diff_format;
 #[path = "contract/diff_max_files.rs"]
 mod diff_max_files;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_named_files.rs"]
+mod diff_named_files;
 #[cfg(feature = "test-utils")]
 #[path = "contract/diff_output_cli.rs"]
 mod diff_output_cli;
@@ -75,6 +81,9 @@ mod diff_ref_scope_cli;
 mod diff_root_link_cli;
 #[path = "contract/diff_selection.rs"]
 mod diff_selection;
+#[cfg(feature = "test-utils")]
+#[path = "contract/diff_strategy_support.rs"]
+mod diff_strategy_support;
 #[path = "contract/diff_support.rs"]
 mod diff_support;
 #[cfg(feature = "test-utils")]

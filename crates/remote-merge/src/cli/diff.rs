@@ -32,7 +32,7 @@ use crate::service::types::{
     exit_code, DiffError, DiffOutput, FileStatus, FileStatusKind, LinkTargets, MultiDiffOutput,
     MultiDiffSummary,
 };
-use crate::service::{resolve_scan_strategy, ScanStrategy};
+use crate::service::{resolve_diff_scan_strategy, ScanStrategy};
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
@@ -128,39 +128,28 @@ pub fn execute_diff(
     let left_root = real_root_dir(&mut core, &pair.left, &config)?;
     let right_root = real_root_dir(&mut core, &pair.right, &config)?;
 
-    // ScanStrategy で分岐: FastPath / PartialScan / FullScan
-    let strategy = resolve_scan_strategy(&args.paths, false);
+    // 名前で指定したパスは一つずつ比べ、それ以外は root_dir 全体を走査する
     let limit = SizeLimit::from_force(args.force);
-
     let (left_tree, right_tree, _, existing_files, diff_files, plain_file_sizes, scan_errors) =
-        match strategy {
-            ScanStrategy::FastPath(ref target_paths) => run_diff_fast_path(
-                target_paths,
+        if let ScanStrategy::FastPath(target_paths) = resolve_diff_scan_strategy(&args.paths) {
+            run_diff_fast_path(
+                &target_paths,
                 (&pair.left, &left_root),
                 (&pair.right, &right_root),
                 &mut core,
                 &config,
                 args.follow_external_links,
                 limit,
-            )?,
-            ScanStrategy::PartialScan(ref dir_paths) => run_diff_partial_scan(
-                dir_paths,
-                &args.paths,
-                &pair.left,
-                &pair.right,
-                &mut core,
-                &config,
-                max_entries,
-                limit,
-            )?,
-            ScanStrategy::FullScan => run_diff_full_scan(
+            )?
+        } else {
+            run_diff_full_scan(
                 &args.paths,
                 &pair.left,
                 &pair.right,
                 &mut core,
                 max_entries,
                 limit,
-            )?,
+            )?
         };
 
     // Ref server handling
@@ -1005,44 +994,6 @@ fn link_target_for_diff(
     })
 }
 
-/// PartialScan: 指定ディレクトリ配下のみツリー取得して既存フローに接続する。
-#[allow(clippy::too_many_arguments)]
-fn run_diff_partial_scan(
-    dir_paths: &[String],
-    original_paths: &[String],
-    left: &Side,
-    right: &Side,
-    core: &mut CoreRuntime,
-    config: &AppConfig,
-    max_entries: usize,
-    limit: SizeLimit,
-) -> anyhow::Result<DiffScanResult> {
-    // 各ディレクトリのサブツリーを取得して結合
-    let mut left_tree = FileTree::new(&config.local.root_dir);
-    let mut right_tree = FileTree::new(&config.local.root_dir);
-
-    for dir_path in dir_paths {
-        let lt = core.fetch_tree_for_subpath(left, dir_path, max_entries, true)?;
-        let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
-        left_tree.nodes.extend(lt.nodes);
-        right_tree.nodes.extend(rt.nodes);
-    }
-    left_tree.sort();
-    left_tree.nodes.dedup_by_key(|n| n.name.clone());
-    right_tree.sort();
-    right_tree.nodes.dedup_by_key(|n| n.name.clone());
-
-    // 以降は FullScan と同じフロー
-    compute_statuses_and_resolve(
-        original_paths,
-        (left, right),
-        core,
-        left_tree,
-        right_tree,
-        limit,
-    )
-}
-
 /// FullScan: 従来通り全ツリーを取得する。
 fn run_diff_full_scan(
     paths: &[String],
@@ -1057,7 +1008,7 @@ fn run_diff_full_scan(
     compute_statuses_and_resolve(paths, (left, right), core, left_tree, right_tree, limit)
 }
 
-/// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（PartialScan / FullScan 共通）
+/// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）
 fn compute_statuses_and_resolve(
     paths: &[String],
     (left, right): (&Side, &Side),
