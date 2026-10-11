@@ -12,7 +12,8 @@ pub use remote_merge_engine::service::preview_paths::*;
 
 /// 実行時に書く前の確認で失敗するパスを、書き込み先を変えずに確かめて失敗として返す。
 /// 組ごとに一度だけ問い合わせ、ないと分かった場所の下のパスは、その結果と残りの要素から
-/// 実行時と同じ手順で結果を求める。分からなければ、実行時と同じくパスを一つずつ確かめる
+/// 実行時と同じ手順で結果を求める。分からなければ、実行時と同じくパスを一つずつ確かめる。
+/// 失敗は、実行時と同じく `paths` の順に並べて返す
 pub fn preview_path_failures(
     core: &mut CoreRuntime,
     target: &Side,
@@ -30,7 +31,7 @@ pub fn preview_path_failures(
             }
         }
     }
-    failures
+    in_plan_order(failures, paths)
 }
 
 /// 組の各パスを、実行時と同じ確認の結果にする

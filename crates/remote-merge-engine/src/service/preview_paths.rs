@@ -7,6 +7,7 @@
 
 use std::path::Path;
 
+use super::types::MergeFailure;
 use crate::tree::FileTree;
 
 /// 組の中で先に一度だけ確かめるもの
@@ -59,6 +60,15 @@ pub fn preview_groups(paths: &[String], target_tree: &FileTree) -> Vec<PreviewGr
         }
     }
     groups
+}
+
+/// 失敗を、計画のパスの並び（実行時に失敗を出す順）に並べ直す純粋関数。
+/// 計画にないパスの失敗は後ろに、元の順のまま置く
+pub fn in_plan_order(mut failures: Vec<MergeFailure>, plan: &[String]) -> Vec<MergeFailure> {
+    let position = |path: &str| plan.iter().position(|planned| planned == path);
+    // 安定な並べ替えなので、計画にない失敗（None は後ろ）は元の順のまま残る
+    failures.sort_by_key(|failure| position(&failure.path).map_or((1, 0), |index| (0, index)));
+    failures
 }
 
 /// `path` の祖先のうち、ツリーでディレクトリ（かディレクトリへの symlink）と分からない最初のもの
@@ -168,5 +178,26 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn failures_follow_the_order_of_the_plan() {
+        let failure = |path: &str| MergeFailure {
+            path: path.into(),
+            error: "e".into(),
+        };
+        let plan = paths(&["deep/a.txt", "deep/b/x", "deep/z.txt"]);
+        let grouped = vec![
+            failure("deep/a.txt"),
+            failure("deep/z.txt"),
+            failure("deep/b/x"),
+        ];
+
+        let ordered: Vec<String> = in_plan_order(grouped, &plan)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+
+        assert_eq!(ordered, plan);
     }
 }
