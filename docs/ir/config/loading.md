@@ -55,10 +55,11 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 
 ### REQ-config-039: 知らないキーとセクションで止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A3, docs/decision/records/2026-10-05-quality-config.md#A10, docs/decision/records/2026-10-11-drop-compat.md#A1, docs/decision/records/2026-10-11-drop-compat.md#A2, docs/decision/records/2026-10-11-drop-compat.md#A3
+- source: docs/decision/records/2026-10-05-quality-config.md#A3, docs/decision/records/2026-10-05-quality-config.md#A10, docs/decision/records/2026-10-11-drop-compat.md#A1, docs/decision/records/2026-10-11-drop-compat.md#A2, docs/decision/records/2026-10-11-drop-compat.md#A3, docs/decision/records/2026-10-11-drop-compat-consistency.md#A1
 - verification: unit
+- definition: TBL-config-004
 
-`グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。以前の版が読んでいた [filter] の sensitive、badge_scan_max_files、[agent] の timeout_secs・tree_chunk_size・max_file_chunk_bytes も知らないキーとして扱う。
+`グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。製品の知っているセクションとキーは TBL-config-004 のものだけである。以前の版が読んでいた [filter] の sensitive、badge_scan_max_files、[agent] の timeout_secs・tree_chunk_size・max_file_chunk_bytes も知らないキーとして扱う。
 このエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
@@ -74,6 +75,23 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 - verification: unit
 
 [local] の root_dir が空の文字列のときは、理由 "root_dir must not be empty" を示すエラーで止まり、終了コード 2 を返す。
+
+## Decision tables
+
+### TBL-config-004: 製品の知っているセクションとキー
+- source: docs/decision/records/2026-10-11-drop-compat-consistency.md#A1
+
+| セクション | キー |
+|---|---|
+| (トップレベル) | max_scan_entries |
+| [servers.名前] | host、port、user、auth、password、key、root_dir、sudo、file_permissions、dir_permissions |
+| [servers.名前.ssh_options] | kex_algorithms、host_key_algorithms、ciphers、mac_algorithms |
+| [local] | root_dir |
+| [filter] | exclude、include |
+| [ssh] | timeout_sec、strict_host_key_checking |
+| [backup] | enabled、retention_days |
+| [agent] | enabled、deploy_dir |
+| [defaults] | file_permissions、dir_permissions |
 
 ## Examples
 
