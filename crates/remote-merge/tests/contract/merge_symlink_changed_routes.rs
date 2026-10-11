@@ -8,6 +8,7 @@
 //! 子のプロセスとして起動して行う。
 
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,13 +35,17 @@ const CHILD_ROOT: &str = "REMOTE_MERGE_SYMLINK_CHANGE_ROOT";
 const CHILD_CHANGE: &str = "REMOTE_MERGE_SYMLINK_CHANGE_KIND";
 const CHILD_RESULT: &str = "REMOTE_MERGE_SYMLINK_CHANGE_RESULT";
 
-/// 比べた後、merge の前に書き込み先の symlink に起こす変化
+/// 書き込み先の symlink の始めの状態と、比べた後、merge の前にそれに起こす変化
 #[derive(Debug, Clone, Copy)]
 enum Change {
-    /// 通常ファイルに替わる
+    /// b.txt を指す symlink が通常ファイルに替わる
     ToRegularFile,
-    /// 別のリンク先を指すように作り直される
+    /// b.txt を指す symlink が別のリンク先を指すように作り直される
     Repointed,
+    /// ないファイルを指す（リンク切れの）symlink のまま変わらない
+    UnchangedDangling,
+    /// UTF-8 でないリンク先を指す symlink のまま変わらない
+    UnchangedNonUtf8,
 }
 
 impl Change {
@@ -48,6 +53,8 @@ impl Change {
         match self {
             Self::ToRegularFile => "file",
             Self::Repointed => "repointed",
+            Self::UnchangedDangling => "dangling",
+            Self::UnchangedNonUtf8 => "non-utf8",
         }
     }
 
@@ -55,16 +62,33 @@ impl Change {
         match name {
             "file" => Self::ToRegularFile,
             "repointed" => Self::Repointed,
+            "dangling" => Self::UnchangedDangling,
+            "non-utf8" => Self::UnchangedNonUtf8,
             other => panic!("{other}"),
+        }
+    }
+
+    /// 比べるときの書き込み先の link.txt のリンク先
+    fn destination_link(self) -> &'static str {
+        match self {
+            Self::ToRegularFile | Self::Repointed => "b.txt",
+            Self::UnchangedDangling => "missing.txt",
+            Self::UnchangedNonUtf8 => "non-utf8",
         }
     }
 
     fn apply(self, root: &Path) {
         let link = root.join(LINK);
-        fs::remove_file(&link).unwrap();
         match self {
-            Self::ToRegularFile => fs::write(&link, THIRD_PARTY).unwrap(),
-            Self::Repointed => symlink(REPOINTED, &link).unwrap(),
+            Self::ToRegularFile => {
+                fs::remove_file(&link).unwrap();
+                fs::write(&link, THIRD_PARTY).unwrap();
+            }
+            Self::Repointed => {
+                fs::remove_file(&link).unwrap();
+                symlink(REPOINTED, &link).unwrap();
+            }
+            Self::UnchangedDangling | Self::UnchangedNonUtf8 => {}
         }
     }
 }
@@ -103,15 +127,20 @@ impl Outcome {
     }
 }
 
-/// 読み込み元の link.txt は a.txt を、書き込み先の link.txt は b.txt を指す状態を作る
-fn put_links(source_root: &Path, destination_root: &Path) {
+/// 読み込み元の link.txt は a.txt を、書き込み先の link.txt は `change` の始めのリンク先を指す状態を作る
+fn put_links(source_root: &Path, destination_root: &Path, change: Change) {
     for root in [source_root, destination_root] {
         for name in ["a.txt", "b.txt", REPOINTED] {
             fs::write(root.join(name), format!("{name}\n")).unwrap();
         }
     }
     symlink("a.txt", source_root.join(LINK)).unwrap();
-    symlink("b.txt", destination_root.join(LINK)).unwrap();
+    let destination_link = match change {
+        // 0xff は UTF-8 にならないバイト
+        Change::UnchangedNonUtf8 => std::ffi::OsStr::from_bytes(b"\xff.txt").to_os_string(),
+        _ => change.destination_link().into(),
+    };
+    symlink(destination_link, destination_root.join(LINK)).unwrap();
 }
 
 /// `source` と `destination` を比べ、書き込み先の root_dir `destination_root` に `change` を起こしてから
@@ -172,7 +201,7 @@ fn local_route(change: Change, backup: bool) -> (Outcome, TempDir) {
     let source = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
-    put_links(source.path(), destination.path());
+    put_links(source.path(), destination.path(), change);
     let config_path = source.path().join("config.toml");
     fs::write(
         &config_path,
@@ -237,7 +266,7 @@ async fn remote_route(
     if !backup {
         fixture.disable_backup();
     }
-    put_links(&fixture.local(), &fixture.remote());
+    put_links(&fixture.local(), &fixture.remote(), change);
     let result = fixture.home.path().join("child-result.txt");
     let output = Command::new(std::env::current_exe().unwrap())
         .env("HOME", fixture.home.path())
@@ -278,7 +307,7 @@ fn regular_file_content(path: &Path) -> Option<String> {
 /// エージェントの経路で、書き込み先の確認をエージェントが受け持ったこと
 fn assert_agent_served(fixture: &AgentFixture) {
     let requests = fixture.server.faults().agent_requests();
-    assert!(requests.iter().any(|r| r == "InspectPath"), "{requests:?}");
+    assert!(requests.iter().any(|r| r == "ListDir"), "{requests:?}");
 }
 
 const EX_053: &str = "merge_symlink_changed_routes::ex_merge_053_a_destination_symlink_replaced_by_a_regular_file_after_comparison_fails_and_the_file_is_kept_on_all_three_routes";
@@ -347,4 +376,52 @@ async fn ex_merge_054_a_destination_symlink_repointed_after_comparison_fails_and
         "local, ssh, agent: {local:?}, {ssh:?}, {agent:?}"
     );
     assert_agent_served(&agent_fixture);
+}
+
+/// 変わっていない書き込み先の symlink が三つの経路で置き換えられ、a.txt を指すことを確かめる
+async fn assert_unchanged_destination_is_replaced(change: Change, test: &str) {
+    let (local, local_root) = local_route(change, false);
+    let (ssh, ssh_fixture) = remote_route(ssh_only(), change, false, test).await;
+    let (agent, agent_fixture) = remote_route(Setup::default(), change, false, test).await;
+
+    let routes = [
+        (&local, local_root.path().to_path_buf()),
+        (&ssh, ssh_fixture.remote()),
+        (&agent, agent_fixture.remote()),
+    ];
+    let observed = routes.map(|(outcome, root)| {
+        (
+            matches!(outcome, Outcome::Merged),
+            fs::read_link(root.join(LINK)).ok(),
+        )
+    });
+    let expected = (true, Some(PathBuf::from("a.txt")));
+    assert_eq!(
+        observed,
+        [expected.clone(), expected.clone(), expected],
+        "local, ssh, agent: {local:?}, {ssh:?}, {agent:?}"
+    );
+    assert_agent_served(&agent_fixture);
+}
+
+const DANGLING: &str = "merge_symlink_changed_routes::an_unchanged_dangling_destination_symlink_is_replaced_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_dangling_destination_symlink_is_replaced_on_all_three_routes() {
+    if serve_child() {
+        return;
+    }
+    assert_unchanged_destination_is_replaced(Change::UnchangedDangling, DANGLING).await;
+}
+
+const NON_UTF8: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_with_a_non_utf8_target_is_replaced_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_destination_symlink_with_a_non_utf8_target_is_replaced_on_all_three_routes() {
+    if serve_child() {
+        return;
+    }
+    assert_unchanged_destination_is_replaced(Change::UnchangedNonUtf8, NON_UTF8).await;
 }

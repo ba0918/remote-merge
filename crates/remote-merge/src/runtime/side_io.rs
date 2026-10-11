@@ -577,18 +577,16 @@ impl CoreRuntime {
         ))
     }
 
-    /// パスの末尾が symlink ならそのリンク先の文字列。symlink でないかないなら None
+    /// パスの項目が symlink ならそのリンク先の文字列。親ディレクトリの子の一覧から読むので、リンクは
+    /// 辿らない。symlink でないかないなら None、親を一覧できなければ Err
     pub fn current_link_target(
         &mut self,
         side: &Side,
         path: &str,
     ) -> anyhow::Result<Option<String>> {
-        Ok(match self.inspect_path(side, path)? {
-            super::target_io::TargetPath::Symlink { link_target, .. } => {
-                Some(link_target.to_string_lossy().into_owned())
-            }
-            _ => None,
-        })
+        let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+        let listing = self.list_children(side, parent)?;
+        remote_merge_engine::service::merge_flow::listed_link_target(path, &listing)
     }
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
