@@ -40,6 +40,13 @@ symlink のリンク先か更新時刻を読めないときは、走査の REQ-s
 エージェントの子の一覧は、exclude をローカルの経路と同じく、直下の子の root_dir からのパスに当てる。
 SSH の経路の更新時刻は、リモートの find が出した桁までとし、秒しか出さない find でナノ秒を記録するファイルシステムを一覧したときの差は FLAG-paths-003 に残す。
 
+### REQ-paths-018: ディレクトリの権限の変更は setuid・setgid を残す
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-11-agent-operations.md#A42
+- verification: unit
+
+ディレクトリの権限の変更は、ローカル・SSH・エージェントのどの経路でも、そのディレクトリにすでに付いている setuid・setgid を残し、0o777 の範囲のビットと sticky を指定の値にする。ファイルの権限の変更は、指定の値そのものにする。
+
 ## Examples
 
 ```gherkin
@@ -84,4 +91,10 @@ Scenario: リンク先を読めない symlink のある一覧
 Given ローカルの経路で一覧するディレクトリの中の symlink "l" について、単体テストでリンク先の読み取りの失敗を差し込む
 When そのディレクトリの子を一覧する
 Then 一覧は "???" をリンク先にした項目を返さず、"l" とリンク先を読めないことを示すエラーで止まる
+
+@id=EX-paths-035 @about=REQ-paths-018 @source=docs/decision/records/2026-10-11-agent-operations.md#A42
+Scenario: setgid の付いたディレクトリの権限を変える
+Given 権限が 0o2775 のディレクトリ "shared" がある
+When ローカル・SSH・エージェントのそれぞれの経路で "shared" の権限を 0o775 に変える
+Then どの経路でも "shared" の権限は 0o2775 になる
 ```

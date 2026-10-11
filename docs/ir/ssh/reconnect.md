@@ -147,7 +147,7 @@ Then "a.txt" は理由付きで、"b.txt" は手を付けていない失敗と�
 
 @id=EX-ssh-050 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A38,docs/decision/records/2026-10-11-agent-operations.md#A32
 Scenario: 書けた後、応答の前に切れる
-Given "a.txt"・"b.txt" を merge し、"a.txt" の書き込みが終わった後、その応答を返す前に接続が切れる
+Given 書き込み先にある "a.txt" と "b.txt" を merge し、"a.txt" の書き込みが終わった後、その応答を返す前に接続が切れる
 When merge の結果を見る
 Then "a.txt" は書き込まれた結果に出て、"b.txt" は手を付けていない失敗として failed に出て、終了コード 2 を返す
 
