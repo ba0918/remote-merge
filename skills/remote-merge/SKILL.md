@@ -290,7 +290,7 @@ enabled = true                          # Use Agent for fast scanning (default: 
 deploy_dir = "/var/tmp"                 # Agent binary location (default: /var/tmp)
 ```
 
-Keys and sections not shown above are errors: a config file that has one (a misspelling, or a key earlier versions read such as `[filter] sensitive`, `badge_scan_max_files` or `[agent] timeout_secs`) stops the command with exit code 2 before anything is compared.
+Keys and sections the tool does not know are errors: a config file that has one (a misspelling, or a key earlier versions read such as `[filter] sensitive`, `badge_scan_max_files` or `[agent] timeout_secs`) stops the command with exit code 2 before anything is compared.
 
 ### Filter semantics
 
