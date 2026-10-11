@@ -21,7 +21,7 @@ root_dir 自体がディレクトリへの symlink のとき、status・diff・m
 
 ### REQ-scan-012: UTF-8 でない名前を置き換えて載せない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-untested-items-implement.md#A5
+- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-untested-items-implement.md#A5, docs/decision/records/2026-10-12-untested-items-consistency.md#A4
 - verification: unit
 
 ツリーの走査は、UTF-8 として読めない名前のファイルを置換文字に置き換えた名前で一覧に載せず、読めない名前として報告する。報告するパスは、root_dir からのパスの UTF-8 として読める部分はそのままにし、読めない部分のバイトを一つずつ "\xNN"（NN は小文字の 16 進 2 桁）と書いたものとする。
