@@ -8,7 +8,7 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
 use crate::runtime::include_check::resolved_path_outside_root;
-use crate::runtime::size_limit::{FileTooLarge, SizeLimit};
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::content_reads::verified_content_pairs;
@@ -278,13 +278,12 @@ pub fn execute_diff(
                 left_ancestors.extend(left_real);
                 right_ancestors.extend(right_real);
                 scanned_files = scanned_files.saturating_sub(1);
-                // 一覧の取れなかった側がファイルなら、その側には子がない。本文を種類の差とともに示す
-                let left_file = (!left_absent && left_children.is_none())
-                    .then(|| file_body(&mut core, &pair.left, path, limit))
-                    .flatten();
-                let right_file = (!right_absent && right_children.is_none())
-                    .then(|| file_body(&mut core, &pair.right, path, limit))
-                    .flatten();
+                // ディレクトリでなくパスのある側はファイルで、その側には子がない。本文を種類の差と
+                // ともに示す
+                let left_file = (!left_absent && left_children.is_none() && !missing.0)
+                    .then(|| file_body(&mut core, &pair.left, path, limit));
+                let right_file = (!right_absent && right_children.is_none() && !missing.1)
+                    .then(|| file_body(&mut core, &pair.right, path, limit));
                 let left_below_absent = left_absent || left_file.is_some();
                 let right_below_absent = right_absent || right_file.is_some();
                 let file = match (&left_file, &right_file) {
@@ -809,20 +808,16 @@ fn unlistable_reason(
         .then(|| read_failure_reason(&[(left_side, left), (right_side, right)]))
 }
 
-/// 一覧の取れなかった側を通常ファイルとして読んだ本文。読めればディレクトリでなく通常ファイルで、
-/// 子を持てない。大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てず、
-/// 読まなかった理由を返す。ファイルでなければ None
+/// ディレクトリでなくパスのある側を通常ファイルとして読んだ本文。読めなかったとき（大きさの上限で
+/// 読まなかったときを含む）は、読めなかった理由
 fn file_body(
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
     limit: SizeLimit,
-) -> Option<Result<Vec<u8>, String>> {
-    match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
-        Ok(body) => Some(Ok(body)),
-        Err(error) if error.is::<FileTooLarge>() => Some(Err(format!("{error:#}"))),
-        Err(_) => None,
-    }
+) -> Result<Vec<u8>, String> {
+    core.read_file_bytes(side, path, limit == SizeLimit::Lifted)
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// 子を持てない側の下に展開したパスは、その側を調べずにないものとする。
