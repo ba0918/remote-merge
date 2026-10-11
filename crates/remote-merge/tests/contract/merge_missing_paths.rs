@@ -290,3 +290,36 @@ fn req_merge_035_sync_stops_when_the_path_is_on_neither_side_for_every_target() 
         result.map(|result| result.exit_code)
     );
 }
+
+// 書き込み先のツリーを取れないときは、その書き込み先でパスがあるかが分からないので、ほかの
+// 書き込み先でパスがすべてなくても止まらず、その失敗と failed を報告する
+// @kotowari[REQ-merge-035, REQ-merge-015]
+#[test]
+fn req_merge_035_sync_does_not_stop_when_a_target_could_not_be_scanned() {
+    use remote_merge::cli::sync::SyncCommandOutput;
+    use remote_merge::service::types::SyncTargetStatus;
+
+    for right in [["a", "b"], ["b", "a"]] {
+        let fixture = multi_target(false);
+        let b_root = fixture._dirs[2].path().to_path_buf();
+        std::fs::remove_dir_all(&b_root).unwrap();
+
+        let result = sync_x_with_delete(&fixture, &right)
+            .unwrap_or_else(|error| panic!("{right:?}: {error}"));
+
+        let SyncCommandOutput::Result(output) = &result.output else {
+            panic!("{right:?}: expected sync result")
+        };
+        let target = |label: &str| {
+            output
+                .targets
+                .iter()
+                .find(|target| target.target.label == label)
+                .unwrap_or_else(|| panic!("{right:?}: {label} missing: {output:?}"))
+        };
+        let failed: Vec<&str> = target("a").failed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(failed, ["x.txt"], "{right:?}: {output:?}");
+        assert_eq!(target("b").status, SyncTargetStatus::Failed, "{right:?}");
+        assert_ne!(result.exit_code, 0, "{right:?}");
+    }
+}

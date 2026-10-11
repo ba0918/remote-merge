@@ -27,11 +27,12 @@
 
 ### REQ-merge-035: 両側にないパスを failed に入れる
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-merge.md#A3, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-12-untested-items-consistency-4.md#A1
+- source: docs/decision/records/2026-10-05-quality-merge.md#A3, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-12-untested-items-consistency-4.md#A1, docs/decision/records/2026-10-12-untested-items-consistency-5.md#A1
 - verification: unit
 
 merge と sync は、指定したパスが左右のどちらにもないとき、--dry-run かどうかによらず、パスごとに警告を出してそのパスを failed に入れ、指定したパスがすべてないときは書き込まずにエラーで止まる。
 左右のどちらにもないパスは、その祖先が REQ-merge-001 で種類の違いによりスキップする対象でも、この扱いによる（そのパスのために祖先を skipped に出すことはない）。
+書き込み先が複数の sync では、左右を読み込み元とそれぞれの書き込み先とし、どちらにもないパスはその書き込み先の failed に入れ、エラーで止まるのは、すべての書き込み先で指定したパスがすべてないときだけとする（REQ-merge-015）。接続かツリーの取得に失敗した書き込み先があるときは、その書き込み先でのパスの有無が分からないので止まらず、その失敗とほかの書き込み先の failed を報告する。
 両側にないパスの警告と failed の error の文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
 ## Examples
