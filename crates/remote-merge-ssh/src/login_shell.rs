@@ -112,7 +112,7 @@ mod tests {
         std::fs::write(dir.path().join("it's/a\\b.txt"), "x").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("it's", dir.path().join("link")).unwrap();
-        let script = crate::tree_parser::build_find_command(dir.path().to_str().unwrap(), &[]);
+        let script = crate::tree_parser::build_find_command(dir.path().to_str().unwrap(), &[], &[]);
         assert_every_login_shell_runs(&script, dir.path());
     }
 }

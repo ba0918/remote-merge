@@ -678,7 +678,7 @@ impl SshClient {
             }),
         }
 
-        let command = build_find_command(remote_path, include);
+        let command = build_find_command(remote_path, include, exclude);
 
         let output = match tokio::time::timeout(
             Duration::from_secs(timeout_secs),

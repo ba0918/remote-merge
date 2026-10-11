@@ -8,6 +8,7 @@ pub mod passphrase_provider;
 pub mod tree_parser;
 
 pub(crate) mod excluded_branches;
+pub(crate) mod find_prune;
 pub(crate) mod known_hosts;
 pub(crate) mod known_hosts_io;
 pub(crate) mod login_shell;

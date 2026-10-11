@@ -166,15 +166,36 @@ impl SshFixture {
     /// 左右の root_dir を一時ディレクトリの下に置いた設定で status を起動し、右の走査が SSH の
     /// find で行われたことを確かめて出力を返す
     fn status(&self, local_root: &Path, remote_root: &Path, extra_args: &[&str]) -> Output {
+        let config = gen_config(local_root, remote_root, None, self.server.port());
+        self.status_with_config(local_root, remote_root, &config, extra_args)
+    }
+
+    /// [`Self::status`] の設定の exclude の行を `exclude_line` に置き換えて起動する
+    fn status_with_exclude(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        exclude_line: &str,
+    ) -> Output {
+        let config = with_exclude(
+            &gen_config(local_root, remote_root, None, self.server.port()),
+            exclude_line,
+        );
+        self.status_with_config(local_root, remote_root, &config, &[])
+    }
+
+    fn status_with_config(
+        &self,
+        local_root: &Path,
+        remote_root: &Path,
+        config: &str,
+        extra_args: &[&str],
+    ) -> Output {
         for root in [local_root, remote_root] {
             assert!(root.starts_with(self.temp.path()), "root escapes fixture");
         }
         let config_path = self.temp.path().join("scan-routes-config.toml");
-        std::fs::write(
-            &config_path,
-            gen_config(local_root, remote_root, None, self.server.port()),
-        )
-        .unwrap();
+        std::fs::write(&config_path, config).unwrap();
         let output = launch_status(self.temp.path(), &config_path, extra_args);
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.server.commands();
@@ -239,4 +260,71 @@ async fn files_reached_through_a_directory_link_count_toward_the_scan_limit_via_
     let output =
         fixture.status_via_agent(&local_root, &remote_root, &["--max-entries", SMALL_LIMIT]);
     assert_incomplete_scan_reported(&output, &LIMIT_WORDS);
+}
+
+// ─── exclude に当たったディレクトリの下へは降りない（REQ-config-022・REQ-config-021） ─────────
+
+/// 左右に置くファイル。右だけ、exclude に当たるディレクトリ "a/b" の下に読めない構成を足す
+const OUTSIDE_EXCLUDED_DIRECTORY: [(&str, &str); 1] = [("a/keep.txt", "same\n")];
+const EXCLUDE_B: &str = "exclude = [\"b\"]";
+
+/// 左右に [`OUTSIDE_EXCLUDED_DIRECTORY`] を置き、右の "a/b/back" を右の root_dir 自体を指す
+/// symlink にする（辿れば循環になる）
+fn roots_with_a_cycle_below_a_b(fixture: &SshFixture) -> [std::path::PathBuf; 2] {
+    let roots = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    for root in &roots {
+        place_files(root, &OUTSIDE_EXCLUDED_DIRECTORY);
+    }
+    std::fs::create_dir_all(roots[1].join("a/b")).unwrap();
+    std::os::unix::fs::symlink(&roots[1], roots[1].join("a/b/back")).unwrap();
+    roots
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cycle_below_a_directory_matched_by_a_path_pattern_is_not_walked_over_ssh() {
+    let fixture = SshFixture::new().await;
+    let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
+    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_A_B);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+}
+
+// @kotowari[REQ-config-021]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cycle_below_a_directory_matched_by_a_name_pattern_is_not_walked_over_ssh() {
+    let fixture = SshFixture::new().await;
+    let [local_root, remote_root] = roots_with_a_cycle_below_a_b(&fixture);
+    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_B);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
+}
+
+/// 落ちても `path` の権限を戻し、一時ディレクトリを消せるようにする
+struct RestoreMode<'a>(&'a Path);
+
+impl Drop for RestoreMode<'_> {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+// @kotowari[REQ-config-022]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_over_ssh()
+{
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = SshFixture::new().await;
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    for root in [&local_root, &remote_root] {
+        place_files(root, &OUTSIDE_EXCLUDED_DIRECTORY);
+    }
+    let locked = remote_root.join("a/b/locked");
+    place_files(&locked, &ONE_FILE);
+    let _restore = RestoreMode(&locked);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let output = fixture.status_with_exclude(&local_root, &remote_root, EXCLUDE_A_B);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }

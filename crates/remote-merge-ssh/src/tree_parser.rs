@@ -275,12 +275,15 @@ fn write_in_place(remote_path: &str, writer: &str) -> String {
 ///   開始パス自体も出す（ファイルや symlink の値はその 1 件になり、ディレクトリ symlink の配下は
 ///   リンクの名前の下に出る）
 ///
+/// `exclude` のうち find のパターンで同じ意味に書けるものは、find がその下へ降りないように
+/// 刈り込む（[`crate::find_prune`]）。刈り込めないものは出力を読む側で除く。
+///
 /// 全パスは `shell_escape` でエスケープされる。
-pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
+pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]) -> String {
+    let root = root_dir.trim_end_matches('/');
     let start_paths = if include.is_empty() {
         format!("{} -mindepth 1", shell_escape(root_dir))
     } else {
-        let root = root_dir.trim_end_matches('/');
         include
             .iter()
             .map(|p| shell_escape(&format!("{}/{}", root, p)))
@@ -289,8 +292,9 @@ pub fn build_find_command(root_dir: &str, include: &[String]) -> String {
     };
 
     let link_action = r#"-exec sh -c 'set -e; for path do size=$(stat -c %s -- "$path"); mtime=$(stat -c %Y -- "$path"); mode=$(stat -c %a -- "$path"); target=$(readlink -- "$path"); if test -d "$path"; then kind=d; else kind=f; fi; printf "l\t%s\t%s\t%s\t%s\t%s\t%s\n" "$size" "$mtime" "$mode" "$path" "$target" "$kind"; done' _ {} +"#;
+    let prune = crate::find_prune::prune_clause(root, exclude);
     format!(
-        "find -L {start_paths} -xtype l {link_action} && find -L {start_paths} ! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
+        "find -L {start_paths} {prune}-xtype l {link_action} && find -L {start_paths} {prune}! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'"
     )
 }
 
@@ -310,7 +314,7 @@ mod tests {
         symlink(second.path(), first.path().join("inner")).unwrap();
         symlink(first.path(), root.path().join("outer")).unwrap();
 
-        let command = build_find_command(root.path().to_str().unwrap(), &[]);
+        let command = build_find_command(root.path().to_str().unwrap(), &[], &[]);
         let output = std::process::Command::new("sh")
             .args(["-c", &command])
             .output()
@@ -346,12 +350,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn recursive_scan_does_not_descend_into_an_excluded_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(root.path().join("a/b")).unwrap();
+        std::fs::write(root.path().join("a/keep.txt"), "x").unwrap();
+        symlink(root.path(), root.path().join("a/b/back")).unwrap();
+        for exclude in [["a/b".to_string()], ["b".to_string()]] {
+            let command = build_find_command(root.path().to_str().unwrap(), &[], &exclude);
+            let output = std::process::Command::new("sh")
+                .args(["-c", &command])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{exclude:?}: {output:?}");
+            let names: Vec<_> = String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .filter_map(|line| find_line_name(line, root.path().to_str().unwrap()))
+                .map(str::to_string)
+                .collect();
+            assert_eq!(names, ["a", "a/keep.txt"], "{exclude:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn recursive_scan_reports_a_cycle_instead_of_a_partial_tree() {
         use std::os::unix::fs::symlink;
         let root = tempfile::TempDir::new().unwrap();
         std::fs::create_dir(root.path().join("folder")).unwrap();
         symlink(root.path(), root.path().join("folder/back")).unwrap();
-        let command = build_find_command(root.path().to_str().unwrap(), &[]);
+        let command = build_find_command(root.path().to_str().unwrap(), &[], &[]);
         let output = std::process::Command::new("sh")
             .args(["-c", &command])
             .output()
@@ -636,7 +665,7 @@ mod tests {
 
     #[test]
     fn test_build_find_command_no_include() {
-        let cmd = build_find_command("/var/www", &[]);
+        let cmd = build_find_command("/var/www", &[], &[]);
         assert_eq!(cmd.matches("find -L '/var/www' -mindepth 1").count(), 2);
     }
 
@@ -644,7 +673,7 @@ mod tests {
     fn test_build_find_command_include_with_special_chars() {
         // スペースや特殊文字を含むパス → shell_escape で保護
         let include = vec!["my dir/sub".to_string(), "it's here".to_string()];
-        let cmd = build_find_command("/var/www", &include);
+        let cmd = build_find_command("/var/www", &include, &[]);
         assert!(cmd.contains("'/var/www/my dir/sub'"));
         assert!(cmd.contains("'/var/www/it'\\''s here'"));
     }
@@ -653,7 +682,7 @@ mod tests {
     fn test_build_find_command_root_trailing_slash() {
         // root_dir の末尾スラッシュが重複しない
         let include = vec!["src".to_string()];
-        let cmd = build_find_command("/var/www/", &include);
+        let cmd = build_find_command("/var/www/", &include, &[]);
         assert!(cmd.contains("'/var/www/src'"));
         // "/var/www//src" にならないことを確認
         assert!(!cmd.contains("//"));
