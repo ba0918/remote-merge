@@ -165,3 +165,38 @@ async fn an_agent_read_cut_every_time_on_a_sudo_server_stops_without_an_unprivil
     let over_ssh = ssh_reads_and_writes(&fixture);
     assert!(over_ssh.is_empty(), "{over_ssh:#?}");
 }
+
+// @kotowari[REQ-ssh-023, REQ-ssh-009]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_read_whose_ssh_session_is_cut_once_on_a_sudo_server_reconnects_and_reads_again() {
+    // SSH の session ごと切れると、起動し直しの前の sudo の確かめも切れた session で失敗する。
+    // その失敗は sudo の設定の誤りではないので、再接続してから起動し直す
+    let mut faults = agent_cut("HashFiles", Repeat::Once);
+    if let Some(cut) = faults.agent_cut.as_mut() {
+        cut.scope = CutScope::Session;
+    }
+    faults.fake_sudo = true;
+    let fixture = AgentFixture::new(
+        Setup {
+            sudo: true,
+            ..Setup::default()
+        },
+        faults,
+    )
+    .await;
+    fixture.put("example.txt", Some("local\n"), Some("remot\n"));
+    fixture.put("same.txt", Some("same\n"), Some("same\n"));
+
+    let output = fixture.run(&["status"]);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let files = json(&output)["files"].to_string();
+    assert!(
+        files.contains("example.txt") && files.contains("modified"),
+        "{files}"
+    );
+    assert!(!files.contains("same.txt"), "{files}");
+    assert_eq!(fixture.server.faults().agent_starts(), 2);
+    let over_ssh = ssh_reads_and_writes(&fixture);
+    assert!(over_ssh.is_empty(), "{over_ssh:#?}");
+}

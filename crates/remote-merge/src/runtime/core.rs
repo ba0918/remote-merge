@@ -552,10 +552,15 @@ impl CoreRuntime {
         // sudo NOPASSWD チェック
         let sudo_cmd = deploy::build_sudo_check_command();
         let ssh_client = require_ssh_client(&mut self.ssh_clients, server_name)?;
-        if let Err(_e) = self
+        if let Err(error) = self
             .rt
             .block_on(crate::ssh::exec_strict(ssh_client, sudo_cmd))
         {
+            // 接続が使えなかった失敗は sudo の設定の誤りではないので、種類を残して返す
+            // （起動し直しが再接続に進めるように）
+            if super::connection::classify(&error).is_disconnection() {
+                return Err(error);
+            }
             anyhow::bail!(
                 "sudo requires NOPASSWD to be configured for user '{}' on {}. \
                  Add to /etc/sudoers: {} ALL=(ALL) NOPASSWD: ALL",

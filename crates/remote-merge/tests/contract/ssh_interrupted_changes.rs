@@ -475,6 +475,42 @@ async fn a_write_done_before_its_reply_is_lost_is_confirmed_as_written() {
     assert_eq!(fixture.server.faults().agent_starts(), 2);
 }
 
+// @kotowari[REQ-ssh-022, REQ-ssh-004]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_whose_ssh_session_is_cut_on_a_sudo_server_is_confirmed_after_reconnecting() {
+    // SSH の session ごと切れると、起動し直しの前の sudo の確かめも切れた session で失敗する。
+    // 再接続してからエージェントを起動し直して確かめ、書き込みは繰り返さない
+    let mut faults = cut("WriteFile", 1, CutPoint::BeforeResponse, Repeat::Once);
+    if let Some(cut) = faults.agent_cut.as_mut() {
+        cut.scope = CutScope::Session;
+    }
+    faults.fake_sudo = true;
+    let fixture = AgentFixture::new(
+        Setup {
+            sudo: true,
+            ..Setup::default()
+        },
+        faults,
+    )
+    .await;
+    fixture.put("a.txt", Some("local\n"), Some("remote old\n"));
+    fixture.put("b.txt", Some("local\n"), Some("remote old\n"));
+
+    let output = fixture.run(&["merge", "a.txt", "b.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    assert_eq!(paths(&result["merged"]), ["a.txt"], "{result}");
+    assert!(
+        failure(&result["failed"], "b.txt").contains(UNTOUCHED),
+        "{result}"
+    );
+    assert_eq!(fixture.read_remote("a.txt"), "local\n");
+    assert_eq!(fixture.read_remote("b.txt"), "remote old\n");
+    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().agent_starts(), 2);
+}
+
 // @kotowari[EX-ssh-054]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_file_written_before_its_reply_is_lost_leaves_its_permission_change_untouched() {
