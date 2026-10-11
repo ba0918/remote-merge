@@ -379,6 +379,20 @@ pub fn load_config_from_paths(
     merge_configs(global_raw, project_raw)
 }
 
+/// exclude を、使うものと "../" を含んで捨てるもの（重ねて書かれたものは一つ）に分ける
+fn split_suspicious_excludes(patterns: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let mut kept = Vec::new();
+    let mut suspicious: Vec<String> = Vec::new();
+    for pattern in patterns {
+        if !pattern.contains("../") {
+            kept.push(pattern);
+        } else if !suspicious.contains(&pattern) {
+            suspicious.push(pattern);
+        }
+    }
+    (kept, suspicious)
+}
+
 fn load_raw_config(path: &Path) -> crate::error::Result<RawConfig> {
     let content = match std::fs::read_to_string(path) {
         Ok(content) => content,
@@ -529,6 +543,16 @@ fn merge_configs(
             }
         }
     }
+
+    // "../" を含む exclude は読み込みの時にパターンごとに一度だけ警告して捨てる（REQ-config-038）
+    let (exclude, suspicious) = split_suspicious_excludes(std::mem::take(&mut filter.exclude));
+    for pattern in &suspicious {
+        tracing::warn!(
+            target: "remote_merge::config",
+            "Skipping suspicious exclude pattern containing '../': {pattern}"
+        );
+    }
+    filter.exclude = exclude;
 
     // include パスの正規化（パストラバーサル・絶対パス・glob を拒否）
     if !filter.include.is_empty() {
@@ -833,6 +857,16 @@ pub fn expand_tilde(path: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suspicious_exclude_patterns_are_split_out_once_each() {
+        let patterns = ["*.log", "../a", "b/../c", "../a"]
+            .map(String::from)
+            .to_vec();
+        let (kept, suspicious) = split_suspicious_excludes(patterns);
+        assert_eq!(kept, ["*.log"]);
+        assert_eq!(suspicious, ["../a", "b/../c"]);
+    }
     use std::io::Write;
     use tempfile::NamedTempFile;
 

@@ -41,12 +41,9 @@ pub fn is_path_excluded(path: &str, patterns: &[String]) -> bool {
     }
 
     for pattern in patterns {
-        // セキュリティ: パターン側に ../ が含まれる場合はスキップ
+        // セキュリティ: パターン側に ../ が含まれる場合はスキップ。設定の読み込みで警告して
+        // 捨てているので、ここでは警告しない
         if pattern.contains("../") {
-            tracing::warn!(
-                "Skipping suspicious exclude pattern containing '../': {}",
-                pattern
-            );
             continue;
         }
 

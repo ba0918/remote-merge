@@ -44,6 +44,9 @@ mod config_loading_cli;
 mod config_merging;
 #[path = "contract/config_precedence.rs"]
 mod config_precedence;
+#[cfg(feature = "test-utils")]
+#[path = "contract/config_suspicious_exclude.rs"]
+mod config_suspicious_exclude;
 #[path = "contract/config_values.rs"]
 mod config_values;
 #[cfg(feature = "test-utils")]
