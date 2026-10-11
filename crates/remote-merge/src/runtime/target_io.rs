@@ -145,6 +145,13 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         dir_rel_path: &str,
     ) -> anyhow::Result<ChildListing>;
+    /// 子の一覧のうち、exclude・include を当てず、件数でも打ち切らないもの。一覧から特定の子を
+    /// 探すときに使う（打ち切った一覧ではその子が入らないことがある）
+    fn list_children_uncut(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        dir_rel_path: &str,
+    ) -> anyhow::Result<ChildListing>;
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
     fn is_available(&self, runtime: &CoreRuntime) -> bool;
@@ -306,6 +313,13 @@ impl TargetIo for LocalTargetIo {
         let listing =
             remote_merge_engine::local_io::list_children(&self.root, &self.exclude, path)?;
         Ok(included_children(listing, path, &self.include))
+    }
+    fn list_children_uncut(
+        &mut self,
+        _: &mut CoreRuntime,
+        path: &str,
+    ) -> anyhow::Result<ChildListing> {
+        remote_merge_core::listing::list_children(&self.root, path, &[], usize::MAX)
     }
     fn connect(&mut self, _: &mut CoreRuntime) -> anyhow::Result<()> {
         Ok(())

@@ -365,23 +365,8 @@ impl CoreRuntime {
         Ok(nodes)
     }
 
-    /// リモートディレクトリの子を SSH で一覧し、三つの結果を区別して返す
-    pub(crate) fn list_remote_children(
-        &mut self,
-        server_name: &str,
-        rel_path: &str,
-    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
-        let exclude = self.config.filter.exclude.clone();
-        self.list_remote_children_excluding(
-            server_name,
-            rel_path,
-            &exclude,
-            crate::config::DEFAULT_MAX_DIR_ENTRIES,
-        )
-    }
-
-    /// [`Self::list_remote_children`] の、当てる exclude を `exclude` にし、子を `max_entries` 件で
-    /// 打ち切るもの
+    /// リモートディレクトリの子を SSH で一覧し、三つの結果を区別して返す。`exclude` を当て、子を
+    /// `max_entries` 件で打ち切る
     pub(crate) fn list_remote_children_excluding(
         &mut self,
         server_name: &str,

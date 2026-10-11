@@ -230,14 +230,23 @@ impl TargetIo for RemoteTargetIo {
     }
     fn list_children(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
         self.guarded(rt, |rt, name| {
-            let listing = match rt.try_agent_list_children(name, path) {
-                Some(listing) => listing?,
-                None => {
-                    rt.check_sudo_fallback(name)?;
-                    rt.ssh_read(name, |rt| rt.list_remote_children(name, path))?
-                }
-            };
+            let exclude = rt.config.filter.exclude.clone();
+            let listing = rt.list_remote_children_on_route(
+                name,
+                path,
+                &exclude,
+                crate::config::DEFAULT_MAX_DIR_ENTRIES,
+            )?;
             Ok(included_children(listing, path, &rt.config.filter.include))
+        })
+    }
+    fn list_children_uncut(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &str,
+    ) -> anyhow::Result<ChildListing> {
+        self.guarded(rt, |rt, name| {
+            rt.list_remote_children_on_route(name, path, &[], usize::MAX)
         })
     }
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {

@@ -578,14 +578,15 @@ impl CoreRuntime {
     }
 
     /// パスの項目が symlink ならそのリンク先の文字列。親ディレクトリの子の一覧から読むので、リンクは
-    /// 辿らない。symlink でないかないなら None、親を一覧できなければ Err
+    /// 辿らない。一覧は件数で打ち切らないものを使う。symlink でないかないなら None、親を一覧できなければ Err
     pub fn current_link_target(
         &mut self,
         side: &Side,
         path: &str,
     ) -> anyhow::Result<Option<String>> {
         let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let listing = self.list_children(side, parent)?;
+        let mut io = super::target_io::for_side(side, self);
+        let listing = io.list_children_uncut(self, parent)?;
         remote_merge_engine::service::merge_flow::listed_link_target(path, &listing)
     }
 

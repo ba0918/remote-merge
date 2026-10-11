@@ -30,17 +30,39 @@ impl CoreRuntime {
         })
     }
 
-    /// エージェントで子を一覧する（include は当てない）。エージェントがなければ None
+    /// エージェントで子を一覧する（`exclude` を当て、`max_entries` 件で打ち切る。include は当てない）。
+    /// エージェントがなければ None
     pub(crate) fn try_agent_list_children(
         &mut self,
         server_name: &str,
         rel_path: &str,
+        exclude: &[String],
+        max_entries: usize,
     ) -> Option<anyhow::Result<ChildListing>> {
-        let exclude = self.config.filter.exclude.clone();
         self.with_agent_operation(server_name, Access::Read, |agent| {
             agent
-                .list_dir(rel_path, &exclude, crate::config::DEFAULT_MAX_DIR_ENTRIES)
+                .list_dir(rel_path, exclude, max_entries)
                 .map(crate::agent::tree_scan::child_listing_from_agent)
+        })
+    }
+
+    /// リモートの子を、エージェントがあればエージェントで、なければ SSH で一覧する（`exclude` を当て、
+    /// `max_entries` 件で打ち切る。include は当てない）
+    pub(crate) fn list_remote_children_on_route(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+        exclude: &[String],
+        max_entries: usize,
+    ) -> anyhow::Result<ChildListing> {
+        if let Some(listing) =
+            self.try_agent_list_children(server_name, rel_path, exclude, max_entries)
+        {
+            return listing;
+        }
+        self.check_sudo_fallback(server_name)?;
+        self.ssh_read(server_name, |rt| {
+            rt.list_remote_children_excluding(server_name, rel_path, exclude, max_entries)
         })
     }
 
