@@ -28,10 +28,10 @@ Position: 決定は A1〜A7 で出揃った。A7 は実装の後のレビュー�
 - A6 diff・merge・sync の --ref の別名 --reference を捨てる。--reference を書くと、ほかの知らないオプションと同じく使い方のエラーになる。IR は別名を書いていないので、IR は変えない。
   - why: A3 が名前を挙げた。
   - decided_by: 利用者（[agent-operations A3](./2026-10-11-agent-operations.md#A3)）
-
 - A7 設定ファイルを解釈できないときのエラー（TOML の書き方の誤り、値の型の違い、知らないキーとセクション）は、標準エラーにも --format json の error にも、設定ファイルの行の抜き出しと、書かれた値を含めない。どの設定ファイルの何行目・何列目か、どのキーか、なぜ解釈できないかは出してよい。[REQ-config-043](../../ir/config/loading.md#REQ-config-043) として IR に足す。
   - why: 実装の後のレビューで、`[servers]` の一行に password と書き間違いのキーが並ぶ設定で、エラーがその行をそのまま出し、パスワードが標準エラーと JSON の error に出ると分かった（手元で再現した）。型の違う値でも、この単位より前から同じように出ていた。A3 で知らないキーをエラーにしたので、出るきっかけが増えた。利用者は「今直す」と決めた。REQ-config-043 で `docs/ir/config/loading.md` は要件の数の目安を超えるが（kotowari の too_many_requirements）、設定ファイルの読み込みとそのエラーの規則は一つの文書にあるほうが探しやすいので、分けずに残す。
   - decided_by: 利用者（2026-10-11）
+
 ## Prohibitions
 
 - P1 捨てたキー・別名・以前の識別のセッション・".remote-merge-backup/" を、別の形で受け付ける道（移し替え、捨てたことを知らせる専用の警告やエラーの文言）は作らない。
