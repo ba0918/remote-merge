@@ -5,6 +5,7 @@
 //! 同じ場所の下のパスは、その場所を確かめる問い合わせを一度だけにするため、まとめる。
 //! まとめるのは問い合わせだけで、各パスの結果は実行時と同じ確認の手順で決める。
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use super::types::MergeFailure;
@@ -65,9 +66,19 @@ pub fn preview_groups(paths: &[String], target_tree: &FileTree) -> Vec<PreviewGr
 /// 失敗を、計画のパスの並び（実行時に失敗を出す順）に並べ直す純粋関数。
 /// 計画にないパスの失敗は後ろに、元の順のまま置く
 pub fn in_plan_order(mut failures: Vec<MergeFailure>, plan: &[String]) -> Vec<MergeFailure> {
-    let position = |path: &str| plan.iter().position(|planned| planned == path);
-    // 安定な並べ替えなので、計画にない失敗（None は後ろ）は元の順のまま残る
-    failures.sort_by_key(|failure| position(&failure.path).map_or((1, 0), |index| (0, index)));
+    // 計画のパスの位置は一度だけ表にし、失敗ごとに計画を端から探さない
+    let positions: HashMap<&str, usize> = plan
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(index, path)| (path.as_str(), index))
+        .collect();
+    // 安定な並べ替えなので、計画にない失敗（後ろに置く）は元の順のまま残る
+    failures.sort_by_cached_key(|failure| {
+        positions
+            .get(failure.path.as_str())
+            .map_or((1, 0), |index| (0, *index))
+    });
     failures
 }
 
@@ -194,6 +205,26 @@ mod tests {
         ];
 
         let ordered: Vec<String> = in_plan_order(grouped, &plan)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+
+        assert_eq!(ordered, plan);
+    }
+
+    #[test]
+    fn many_failures_follow_a_large_plan() {
+        let plan: Vec<String> = (0..50_000).map(|i| format!("dir/f{i:05}.txt")).collect();
+        let failures = plan
+            .iter()
+            .rev()
+            .map(|path| MergeFailure {
+                path: path.clone(),
+                error: "e".into(),
+            })
+            .collect();
+
+        let ordered: Vec<String> = in_plan_order(failures, &plan)
             .into_iter()
             .map(|entry| entry.path)
             .collect();
