@@ -3,10 +3,8 @@
 //! 「ディレクトリではない」「一覧を取れなかった」「直下の子」を区別する。更新時刻は find の
 //! `%T@` を文字列のまま読み、find が出した桁まで（ナノ秒まで）を落とさない。
 
-use chrono::{DateTime, Utc};
-
 use crate::filter;
-use crate::find_records::{parse_find_records, NAMED_RECORD_FORMAT};
+use crate::find_records::{parse_find_records, parse_find_time, NAMED_RECORD_FORMAT};
 use crate::tree::FileNode;
 use crate::tree_parser::shell_escape;
 use remote_merge_core::listing::ChildListing;
@@ -110,21 +108,6 @@ fn children(
     Ok(nodes)
 }
 
-/// find の `%T@`（"秒.小数"）を、出した桁までの時刻に読む
-pub fn parse_find_time(raw: &str) -> Option<DateTime<Utc>> {
-    let (seconds, fraction) = raw.split_once('.').unwrap_or((raw, ""));
-    let seconds: i64 = seconds.parse().ok()?;
-    if !fraction.chars().all(|ch| ch.is_ascii_digit()) {
-        return None;
-    }
-    let digits: String = fraction
-        .chars()
-        .chain(std::iter::repeat('0'))
-        .take(9)
-        .collect();
-    DateTime::from_timestamp(seconds, digits.parse().ok()?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,23 +119,6 @@ mod tests {
             .map(|row| format!("{}\0", row.replace('\t', "\0")))
             .collect();
         format!("DIR\n{records}").into_bytes()
-    }
-
-    #[test]
-    fn find_time_keeps_the_digits_find_printed_without_rounding() {
-        let time = parse_find_time("1700000000.1234567890").unwrap();
-        assert_eq!(time.timestamp(), 1_700_000_000);
-        assert_eq!(time.timestamp_subsec_nanos(), 123_456_789);
-        let seconds_only = parse_find_time("1700000000").unwrap();
-        assert_eq!(seconds_only.timestamp_subsec_nanos(), 0);
-        assert_eq!(
-            parse_find_time("1700000000.5")
-                .unwrap()
-                .timestamp_subsec_nanos(),
-            500_000_000
-        );
-        assert!(parse_find_time("x.1").is_none());
-        assert!(parse_find_time("1.x").is_none());
     }
 
     #[test]
