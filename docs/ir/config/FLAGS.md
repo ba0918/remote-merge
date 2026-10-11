@@ -30,9 +30,9 @@
 
 旧総合仕様はパスワードを設定ファイルに書かず接続時のプロンプトか環境変数で渡すとするが、実装は設定の password を平文のまま受け付けて使うときに "Server 'サーバ名': using plaintext password from config. Key authentication is recommended." の警告を出すだけで、接続時にパスワードを尋ねることはなく、環境変数にも設定にもパスワードがなければ "SSH authentication failed (user: ユーザ名@ホスト)" の認証エラーにする。
 
-### FLAG-config-016: 古い find のサーバで exclude の下の失敗が走査を止める
+### FLAG-config-016: 古い find のサーバや UTF-8 でない名前で exclude の下の失敗が走査を止める
 - kind: gap
 - related: REQ-config-021, REQ-config-022
-- source: docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A2
+- source: docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A2, docs/decision/records/2026-10-11-scan-route-parity-consistency-4.md#A1
 
 SSH の経路の走査は、find のパターンで同じ意味に書けない exclude のパターン（"a/?"・"**/b"・"[b]" のように "?"・"["・"**" を含むもの）に当たるディレクトリの下へ降り、その下の循環する symlink や読めないディレクトリについて find が出す診断が GNU findutils の C ロケールの文言（4.5.11・4.9.0・4.10.0 で確かめた形）のときだけ、走査を止めない。findutils 4.4.2 はパスの引用を "`" で始め、4.2.27 はパスを引用せず循環を別の文言で出す（どちらもコンテナで確かめた）ため、こうした find のサーバでは SSH の経路だけが走査をエラーにする。診断のパスの逃がしを戻したバイトが UTF-8 として読めないときも同じになる。刈り込めるパターン（文字と単独の "*" だけの名前のパターンと、末尾の "/**" を除いて glob の文字を含まないパスのパターン）は、4.2.27 と 4.4.2 でも find がその下へ降りないので、この差は起きない。
