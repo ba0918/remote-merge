@@ -157,8 +157,10 @@ async fn only_a_rollback_without_backup_asks_the_agent_for_hashes_once_before_re
     let mut sequences = Vec::new();
     for fixture in [&with_backup, &without_backup] {
         let before = fixture.server.faults().agent_requests().len();
+        let starts = fixture.server.faults().agent_starts();
         let output = fixture.run(&["rollback", "--target", "fixture", "--force"]);
         assert_eq!(output.status.code(), Some(0), "{output:?}");
+        assert_eq!(fixture.server.faults().agent_starts(), starts + 1);
         // 終わりの Shutdown は、コマンドが終わった後に偽サーバに届くことがあるので比べない
         let requests = fixture.server.faults().agent_requests()[before..].to_vec();
         sequences.push(
@@ -169,33 +171,22 @@ async fn only_a_rollback_without_backup_asks_the_agent_for_hashes_once_before_re
         );
     }
 
-    assert_eq!(
-        sequences[0],
-        [
-            "InspectPath",
-            "InspectPath",
-            "InspectPath",
-            "InspectPath",
-            "ReadFiles",
-            "WriteFile",
-            "InspectPath",
-            "InspectPath",
-            "ReadFiles",
-            "WriteFile",
-        ]
+    // バックアップが有効な rollback はハッシュを取らない。無効な rollback は、最初の書き戻しの前に
+    // 一回だけまとめて取る。どちらも二つのファイルを一回ずつ書き戻す
+    let count = |requests: &[String], kind: &str| {
+        requests.iter().filter(|request| *request == kind).count()
+    };
+    assert_eq!(count(&sequences[0], "HashFiles"), 0, "{:?}", sequences[0]);
+    assert_eq!(count(&sequences[1], "HashFiles"), 1, "{:?}", sequences[1]);
+    let position = |kind: &str| sequences[1].iter().position(|request| request == kind);
+    assert!(
+        position("HashFiles") < position("WriteFile"),
+        "{:?}",
+        sequences[1]
     );
-    assert_eq!(
-        sequences[1],
-        [
-            "InspectPath",
-            "InspectPath",
-            "HashFiles",
-            "InspectPath",
-            "WriteFile",
-            "InspectPath",
-            "WriteFile",
-        ]
-    );
+    for requests in &sequences {
+        assert_eq!(count(requests, "WriteFile"), 2, "{requests:?}");
+    }
 }
 
 /// 書き戻す先にない "b.txt" はまとめてハッシュを取る対象に入らない。まとめのハッシュが

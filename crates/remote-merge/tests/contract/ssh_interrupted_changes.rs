@@ -684,7 +684,8 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
     let output = fixture.run(&["merge", "a.txt"]);
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    // 終わりの Shutdown は、コマンドが終わった後に偽サーバに届くことがあるので比べない
+    // 確かめは変更の後に読むので、接続断がなければ書き込みの後にはどの要求も来ない。
+    // 終わりの Shutdown は、コマンドが終わった後に偽サーバに届くことがあるので数えない
     let requests: Vec<String> = fixture
         .server
         .faults()
@@ -693,21 +694,12 @@ async fn a_merge_without_a_cut_sends_no_request_for_confirmation() {
         .filter(|request| request != "Shutdown")
         .collect();
     assert_eq!(
-        requests,
-        [
-            "ListTree",
-            "StatFiles",
-            "ReadFiles",
-            "StatFiles",
-            "ReadFiles",
-            "StatFiles",
-            "ReadFiles",
-            "InspectPath",
-            "StatFiles",
-            "ReadFiles",
-            "WriteFile",
-        ]
+        requests.last().map(String::as_str),
+        Some("WriteFile"),
+        "{requests:?}"
     );
+    assert_eq!(count(&fixture, "WriteFile"), 1);
+    assert_eq!(fixture.server.faults().agent_starts(), 1);
 }
 
 // @kotowari[EX-ssh-048]
