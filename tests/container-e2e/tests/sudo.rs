@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -40,6 +41,25 @@ fn merge_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str) -> Outpu
 
 /// local を左、fixture を右にして `args` のコマンドを JSON の出力で動かす
 fn run_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str, args: &[&str]) -> Output {
+    run_with_sides(
+        home,
+        port,
+        sudo,
+        deploy_dir,
+        args,
+        &["--left", "local", "--right", "fixture"],
+    )
+}
+
+/// `sides`（--left・--right の指定）を付けて `args` のコマンドを JSON の出力で動かす
+fn run_with_sides(
+    home: &TempDir,
+    port: &str,
+    sudo: bool,
+    deploy_dir: &str,
+    args: &[&str],
+    sides: &[&str],
+) -> Output {
     let binary = std::env::var("REMOTE_MERGE_BINARY").unwrap();
     let agent = std::env::var("REMOTE_MERGE_AGENT_BINARY").unwrap();
     let config = config(home.path(), port, sudo, deploy_dir);
@@ -52,7 +72,8 @@ fn run_with(home: &TempDir, port: &str, sudo: bool, deploy_dir: &str, args: &[&s
         .env("REMOTE_MERGE_AGENT_BINARY", agent)
         .args(["--config", config.to_str().unwrap()])
         .args(args)
-        .args(["--left", "local", "--right", "fixture", "--format", "json"])
+        .args(sides)
+        .args(["--format", "json"])
         .output()
         .unwrap()
 }
@@ -247,4 +268,36 @@ fn nothing_in_a_deploy_directory_under_a_parent_owned_by_another_user_is_run() {
         String::from_utf8(state.stdout).unwrap(),
         "beside a foreign parent\n"
     );
+}
+
+// root だけが読める権限 0 のファイルは、sudo で動くエージェントが走査して読める
+// @kotowari[REQ-merge-014, EX-merge-056]
+#[test]
+fn ex_merge_056_a_source_mode_of_0_read_under_sudo_is_copied_to_the_destination() {
+    let container = std::env::var("REMOTE_MERGE_E2E_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    let local = home.path().join("local/zero-mode/a.txt");
+    fs::create_dir_all(local.parent().unwrap()).unwrap();
+    fs::write(&local, "destination\n").unwrap();
+    fs::set_permissions(&local, fs::Permissions::from_mode(0o644)).unwrap();
+    let setup = docker(&container, "mkdir -p /tmp/agent/remote-merge-testuser && rm -rf /data/zero-mode && mkdir -p /data/zero-mode && printf 'source\\n' > /data/zero-mode/a.txt && chown root:root /data/zero-mode/a.txt && chmod 000 /data/zero-mode/a.txt");
+    assert!(setup.status.success(), "{setup:?}");
+
+    let output = run_with_sides(
+        &home,
+        &port,
+        true,
+        "/tmp/agent",
+        &["merge", "zero-mode/a.txt", "--with-permissions"],
+        &["--left", "fixture", "--right", "local"],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        fs::metadata(&local).unwrap().permissions().mode() & 0o7777,
+        0
+    );
+    fs::set_permissions(&local, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(fs::read_to_string(&local).unwrap(), "source\n");
 }

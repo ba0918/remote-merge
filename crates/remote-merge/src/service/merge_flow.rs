@@ -10,6 +10,7 @@ use crate::runtime::change_check::Before;
 use crate::runtime::confirm::ConfirmedChange;
 use crate::runtime::CoreRuntime;
 use crate::service::merge::{determine_merge_action, MergeAction, DIFFERENT_KIND_REASON};
+use crate::service::permission_copy::permissions_to_copy;
 use crate::service::types::*;
 use crate::side::Side;
 use crate::tree::FileTree;
@@ -131,7 +132,7 @@ pub fn execute_single_merge(
                 .write_file_bytes(target, path, &content, &Before::Absent)
                 .map_err(existing_entry_deleted)?;
             if ctx.with_permissions {
-                copy_permissions(source, target, path, ctx.core).map_err(content_written)?;
+                copy_permissions(source_tree, target, path, ctx.core).map_err(content_written)?;
             }
             return Ok(SingleMergeResult::Merged(MergeFileResult {
                 path: path.to_string(),
@@ -217,7 +218,7 @@ pub fn execute_single_merge(
 
     // パーミッションコピー（--with-permissions 指定時）
     if ctx.with_permissions {
-        copy_permissions(source, target, path, ctx.core).map_err(content_written)?;
+        copy_permissions(source_tree, target, path, ctx.core).map_err(content_written)?;
     }
 
     Ok(SingleMergeResult::Merged(MergeFileResult {
@@ -244,54 +245,19 @@ fn content_written(error: anyhow::Error) -> anyhow::Error {
     crate::runtime::connection::prefixed(error, "content written, but ")
 }
 
-/// ソースからターゲットへパーミッションをコピーする。
-///
-/// 読み込み元の権限に 0o777 を超えるビット（setuid・setgid・sticky）があれば写さずに Err にする。
-/// 読み込み元がリモートのときは権限を得られないので写さない（未対応）
-pub fn copy_permissions(
-    source: &Side,
+/// 読み込み元の走査したツリー `source_tree` の権限を、書き込み先の `path` に写す。
+/// 写せない権限（値がない・特別なビットを含む）は写さずに Err にする（REQ-merge-037）
+fn copy_permissions(
+    source_tree: &FileTree,
     target: &Side,
     path: &str,
     core: &mut CoreRuntime,
 ) -> anyhow::Result<()> {
-    // 権限の分からないものと 0 は、今までどおり写さない
-    let Some(mode) = source_permissions(source, path, core)?.filter(|mode| *mode > 0) else {
-        return Ok(());
-    };
-    if mode > remote_merge_core::operations::MAX_PERMISSION_MODE {
-        anyhow::bail!(
-            "permissions not copied: the source mode {mode:o} has setuid, setgid or sticky bits"
-        );
-    }
+    let scanned = source_tree
+        .find_node(Path::new(path))
+        .and_then(|node| node.permissions);
+    let mode = permissions_to_copy(scanned)?;
     core.chmod_file(target, path, mode)
-}
-
-/// 読み込み元の 0o7777 の範囲の権限。分からなければ None
-fn source_permissions(
-    source: &Side,
-    path: &str,
-    core: &CoreRuntime,
-) -> anyhow::Result<Option<u32>> {
-    match source {
-        Side::Local => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let full = core.config.local.root_dir.join(path);
-                let metadata = std::fs::metadata(&full).map_err(|error| {
-                    anyhow::anyhow!("cannot read the permissions of {path:?}: {error}")
-                })?;
-                Ok(Some(metadata.permissions().mode() & 0o7777))
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = (path, core);
-                Ok(None)
-            }
-        }
-        // リモートの場合、CLI ではツリーデータがないため stat で取得が必要。現時点では未サポート
-        Side::Remote(_) => Ok(None),
-    }
 }
 
 /// 削除操作の実行（--delete 用）。

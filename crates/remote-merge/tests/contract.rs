@@ -101,6 +101,9 @@ mod merge_hunks;
 mod merge_links;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_permission_copy.rs"]
+mod merge_permission_copy;
 #[path = "contract/merge_ref_hunks_fix.rs"]
 mod merge_ref_hunks_fix;
 #[path = "contract/merge_ref_kinds.rs"]
