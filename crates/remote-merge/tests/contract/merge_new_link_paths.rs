@@ -35,7 +35,7 @@ fn assert_only_failed(label: &str, result: &serde_json::Value, code: i32, path: 
     assert_eq!(code, 2, "{label}: {result}");
 }
 
-// @kotowari[REQ-paths-011, REQ-cli-091, EX-paths-022, EX-paths-038]
+// @kotowari[REQ-paths-011, REQ-cli-091]
 #[test]
 fn merge_fails_a_new_link_under_a_destination_file_as_not_a_directory() {
     for dry_run in [true, false] {
