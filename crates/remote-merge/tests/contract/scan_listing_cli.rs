@@ -138,6 +138,35 @@ fn status_lists_symlinks_themselves_with_their_target_text_over_ssh() {
     assert_symlinks_listed_with_their_target_text(&statuses);
 }
 
+/// 前後に空白があるリンク先と "\" を含むリンク先の symlink を、左右の root_dir に同じく置く
+fn place_link_targets_to_keep_as_read(local: &Path, remote: &Path) {
+    for root in [local, remote] {
+        place_symlink(root, "spaced", " target.txt ");
+        place_symlink(root, "backslash", "sub\\b.txt");
+    }
+}
+
+/// 左のローカルの経路と右の経路が、上の symlink のリンク先を同じ文字列で載せたことを確かめる
+fn assert_link_targets_kept_as_read(statuses: &BTreeMap<String, String>) {
+    for path in ["spaced", "backslash"] {
+        assert_eq!(
+            statuses.get(path).map(String::as_str),
+            Some("equal"),
+            "{path}: {statuses:?}"
+        );
+    }
+}
+
+// @kotowari[REQ-scan-006]
+#[test]
+fn status_lists_link_targets_with_spaces_or_backslashes_as_read_over_ssh() {
+    let mut dirs = TestDirs::new_2way(&[], &[]);
+    let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
+    place_link_targets_to_keep_as_read(&local_root, &remote_root);
+    let statuses = listed_over_ssh(&mut dirs, &local_root, &remote_root);
+    assert_link_targets_kept_as_read(&statuses);
+}
+
 /// `temp` の中に実在するディレクトリ（"f.txt" と "sub/g.txt" を置く）と、それを指す symlink を
 /// 左右それぞれに作り、symlink のパスを返す
 fn linked_roots(temp: &Path) -> (PathBuf, PathBuf) {
@@ -496,6 +525,16 @@ async fn status_lists_symlinks_themselves_with_their_target_text_via_the_agent()
     place_symlink_cases(&local_root, &remote_root);
     let statuses = fixture.listed_via_agent(&local_root, &remote_root);
     assert_symlinks_listed_with_their_target_text(&statuses);
+}
+
+// @kotowari[REQ-scan-006]
+#[tokio::test(flavor = "multi_thread")]
+async fn status_lists_link_targets_with_spaces_or_backslashes_as_read_via_the_agent() {
+    let fixture = AgentFixture::new().await;
+    let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
+    place_link_targets_to_keep_as_read(&local_root, &remote_root);
+    let statuses = fixture.listed_via_agent(&local_root, &remote_root);
+    assert_link_targets_kept_as_read(&statuses);
 }
 
 // @kotowari[REQ-scan-007]

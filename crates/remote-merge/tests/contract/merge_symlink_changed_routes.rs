@@ -33,6 +33,10 @@ const REPOINTED: &str = "c.txt";
 const NON_UTF8_COMPARED: &[u8] = b"\xff.txt";
 /// 比べた後に作り直した UTF-8 でないリンク先。UTF-8 でないバイトだけが比べたときと違う
 const NON_UTF8_REPOINTED: &[u8] = b"\xfe.txt";
+/// 前に空白があるリンク先
+const LEADING_SPACE: &str = " a.txt";
+/// "\" を含むリンク先
+const BACKSLASH: &str = "sub\\b.txt";
 
 const CHILD_CONFIG: &str = "REMOTE_MERGE_SYMLINK_CHANGE_CONFIG";
 const CHILD_ROOT: &str = "REMOTE_MERGE_SYMLINK_CHANGE_ROOT";
@@ -50,6 +54,10 @@ enum Change {
     UnchangedDangling,
     /// UTF-8 でないリンク先を指す symlink のまま変わらない
     UnchangedNonUtf8,
+    /// 前に空白があるリンク先を指す symlink のまま変わらない
+    UnchangedLeadingSpace,
+    /// "\" を含むリンク先を指す symlink のまま変わらない
+    UnchangedBackslash,
     /// UTF-8 でないリンク先を指す symlink が、UTF-8 でないバイトだけが違う別のリンク先を指すように
     /// 作り直される
     RepointedNonUtf8,
@@ -62,6 +70,8 @@ impl Change {
             Self::Repointed => "repointed",
             Self::UnchangedDangling => "dangling",
             Self::UnchangedNonUtf8 => "non-utf8",
+            Self::UnchangedLeadingSpace => "leading-space",
+            Self::UnchangedBackslash => "backslash",
             Self::RepointedNonUtf8 => "repointed-non-utf8",
         }
     }
@@ -72,6 +82,8 @@ impl Change {
             "repointed" => Self::Repointed,
             "dangling" => Self::UnchangedDangling,
             "non-utf8" => Self::UnchangedNonUtf8,
+            "leading-space" => Self::UnchangedLeadingSpace,
+            "backslash" => Self::UnchangedBackslash,
             "repointed-non-utf8" => Self::RepointedNonUtf8,
             other => panic!("{other}"),
         }
@@ -83,6 +95,8 @@ impl Change {
             Self::ToRegularFile | Self::Repointed => "b.txt".into(),
             Self::UnchangedDangling => "missing.txt".into(),
             Self::UnchangedNonUtf8 | Self::RepointedNonUtf8 => non_utf8_path(NON_UTF8_COMPARED),
+            Self::UnchangedLeadingSpace => LEADING_SPACE.into(),
+            Self::UnchangedBackslash => BACKSLASH.into(),
         }
     }
 
@@ -101,7 +115,10 @@ impl Change {
                 fs::remove_file(&link).unwrap();
                 symlink(non_utf8_path(NON_UTF8_REPOINTED), &link).unwrap();
             }
-            Self::UnchangedDangling | Self::UnchangedNonUtf8 => {}
+            Self::UnchangedDangling
+            | Self::UnchangedNonUtf8
+            | Self::UnchangedLeadingSpace
+            | Self::UnchangedBackslash => {}
         }
     }
 }
@@ -425,6 +442,31 @@ async fn an_unchanged_dangling_destination_symlink_is_replaced_on_all_three_rout
         return;
     }
     assert_unchanged_destination_is_replaced(Change::UnchangedDangling, DANGLING).await;
+}
+
+const LEADING_SPACE_TEST: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_whose_target_has_a_leading_space_is_replaced_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_destination_symlink_whose_target_has_a_leading_space_is_replaced_on_all_three_routes(
+) {
+    if serve_child() {
+        return;
+    }
+    assert_unchanged_destination_is_replaced(Change::UnchangedLeadingSpace, LEADING_SPACE_TEST)
+        .await;
+}
+
+const BACKSLASH_TEST: &str = "merge_symlink_changed_routes::an_unchanged_destination_symlink_whose_target_has_a_backslash_is_replaced_on_all_three_routes";
+
+// @kotowari[REQ-merge-033]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unchanged_destination_symlink_whose_target_has_a_backslash_is_replaced_on_all_three_routes(
+) {
+    if serve_child() {
+        return;
+    }
+    assert_unchanged_destination_is_replaced(Change::UnchangedBackslash, BACKSLASH_TEST).await;
 }
 
 /// 書き込み先の symlink のリンク先が UTF-8 でないとき、三つの経路とも failed になり、書き込み先の

@@ -48,7 +48,7 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
 
     let mut node = match file_type {
         "d" => FileNode::new_dir(name),
-        "l" => FileNode::new_symlink(name, link_target.trim()),
+        "l" => FileNode::new_symlink(name, link_target),
         _ => FileNode::new_file(name),
     };
 

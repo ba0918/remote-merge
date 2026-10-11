@@ -223,7 +223,7 @@ impl<'a> ScanIterator<'a> {
         let (kind, symlink_target) = if file_type.is_symlink() {
             let target = std::fs::read_link(path)
                 .ok()
-                .map(|t| t.to_string_lossy().replace('\\', "/"));
+                .map(|t| t.to_string_lossy().into_owned());
             (FileKind::Symlink, target)
         } else {
             (FileKind::File, None)
