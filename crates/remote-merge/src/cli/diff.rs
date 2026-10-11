@@ -483,7 +483,7 @@ pub fn execute_diff(
                     link_diff.hunks = content_diff.hunks;
                     link_diff.truncated = content_diff.truncated;
                 }
-                file_diffs.push(link_diff);
+                push_unless_identical_link(&mut file_diffs, link_diff);
                 continue;
             }
             if left_content.is_err() || right_content.is_err() {
@@ -515,7 +515,7 @@ pub fn execute_diff(
                 link_diff.binary = true;
                 link_diff.left_hash = left_content.as_ref().map(|bytes| compute_sha256(bytes));
                 link_diff.right_hash = right_content.as_ref().map(|bytes| compute_sha256(bytes));
-                file_diffs.push(link_diff);
+                push_unless_identical_link(&mut file_diffs, link_diff);
                 continue;
             }
             let left_text = String::from_utf8_lossy(left_content.as_deref().unwrap_or_default());
@@ -532,7 +532,7 @@ pub fn execute_diff(
             );
             link_diff.hunks = content_diff.hunks;
             link_diff.truncated = content_diff.truncated;
-            file_diffs.push(link_diff);
+            push_unless_identical_link(&mut file_diffs, link_diff);
             continue;
         }
 
@@ -687,6 +687,13 @@ pub fn execute_diff(
 
     core.disconnect_all();
     Ok((multi_output, code))
+}
+
+/// symlink の項目を、リンク文字列も参照先の中身も左右で同じで補足もないときは出さない
+fn push_unless_identical_link(file_diffs: &mut Vec<DiffOutput>, link_diff: DiffOutput) {
+    if link_diff.has_changes() || link_diff.note.is_some() {
+        file_diffs.push(link_diff);
+    }
 }
 
 /// 左右とも子の一覧が取れて（ディレクトリで）どちらにも子がないか。
