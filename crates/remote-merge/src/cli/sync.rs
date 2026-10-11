@@ -498,18 +498,17 @@ fn build_dry_run_targets(
             skipped.extend(sp.right_only_skipped.clone());
             skipped.extend(sp.delete_skipped.clone());
 
-            SyncTargetResult {
+            let mut result = SyncTargetResult {
                 target: sp.target_info.clone(),
                 merged,
                 skipped,
                 deleted,
                 failed: sp.compare_failures.clone(),
-                status: if sp.compare_failures.is_empty() {
-                    SyncTargetStatus::Success
-                } else {
-                    SyncTargetStatus::Failed
-                },
-            }
+                status: SyncTargetStatus::Success,
+            };
+            // 書き込む予定のファイルを書き込めたファイルとして、実行時と同じ判定で決める
+            result.status = compute_target_status(&result);
+            result
         })
         .collect();
 

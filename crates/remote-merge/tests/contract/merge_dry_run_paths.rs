@@ -194,6 +194,10 @@ fn sync_previews_a_too_long_path_under_a_known_directory_as_the_same_failure() {
             ..sync_args(&["."])
         });
 
-        assert_only_the_long_child_failed(&format!("dry_run={dry_run}"), &json["targets"][0], code);
+        let label = format!("dry_run={dry_run}");
+        let target = &json["targets"][0];
+        assert_only_the_long_child_failed(&label, target, code);
+        // 書き込む（予定の）ファイルと失敗があるので、--dry-run でも実行時と同じく "partial"
+        assert_eq!(target["status"], "partial", "{label}: {target}");
     }
 }
