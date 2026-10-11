@@ -8,7 +8,9 @@
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
 
-use super::change_check::{describe, describe_unconfirmed, judge, Change, Observed, Outcome};
+use super::change_check::{
+    describe, describe_unconfirmed, judge, mode_in_listing, Change, Observed, Outcome,
+};
 use super::connection::{classify, is_stopped};
 use super::core::CoreRuntime;
 use crate::side::Side;
@@ -143,7 +145,8 @@ impl CoreRuntime {
     }
 
     /// 親の子の一覧から、そのパスの権限を読む。変えたパスそのものを読むので、exclude はどの経路でも
-    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）
+    /// 当てない（SSH の一覧の当て方は他の経路と違う。FLAG-paths-002）。どの経路の一覧も
+    /// `DEFAULT_MAX_DIR_ENTRIES` 件で打ち切る
     fn observe_mode(&mut self, server: &str, path: &str) -> anyhow::Result<Observed> {
         let (parent, name) = match path.rsplit_once('/') {
             Some((parent, name)) => (parent, name),
@@ -158,15 +161,9 @@ impl CoreRuntime {
             self.list_remote_children_excluding(server, parent, &[])?
         };
         match listing {
-            ChildListing::Children(nodes) => Ok(nodes
-                .iter()
-                .find(|node| node.name == name)
-                .and_then(|node| {
-                    let directory = node.is_dir() || node.link_is_dir;
-                    node.permissions
-                        .map(|mode| Observed::Mode { mode, directory })
-                })
-                .unwrap_or(Observed::Absent)),
+            ChildListing::Children(nodes) => {
+                mode_in_listing(&nodes, name, crate::config::DEFAULT_MAX_DIR_ENTRIES)
+            }
             ChildListing::NotDirectory => Ok(Observed::Absent),
             ChildListing::Unlistable(reason) => anyhow::bail!(reason),
         }
