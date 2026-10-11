@@ -6,12 +6,13 @@
 
 ### REQ-merge-001: 種類の違う既存の対象を置き換えない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A1, docs/decision/records/2026-10-12-skip-subtree.md#A2, docs/decision/records/2026-10-12-skip-subtree.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A4
+- source: docs/decision/records/2026-09-25-spec-migration.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A1, docs/decision/records/2026-10-12-skip-subtree.md#A2, docs/decision/records/2026-10-12-skip-subtree.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A4, docs/decision/records/2026-10-12-skip-subtree-consistency.md#A1
 - verification: unit
 
 読み込み元と書き込み先の種類が通常ファイル・ディレクトリ・末尾の symlink の間で異なるとき、merge と sync は書き込み先を変更せず、その対象を理由付きでスキップする。
 ただし、ディレクトリと、ディレクトリへの symlink の組は種類の違いとせず、組そのものは置き換えず結果にも出さず、その中のパスをふつうに比べて merge・sync・--delete の対象にする（書き込み先の側が symlink なら REQ-merge-004 による）。
 スキップした対象の配下は、--dry-run を含めて書かず、--delete でも消さない。結果の skipped にはスキップした対象を一件だけ出し、配下は出さない。
+--delete を付けて書き込み先にだけある配下のパスを直接指定し、その祖先が読み込み元と書き込み先で種類が違うときも、その祖先をスキップした対象として扱い、そのパスを消さず、skipped には祖先を一件だけ出す。読み込み元の配下のパスを直接指定し、書き込み先の祖先がディレクトリでないときは REQ-paths-011 による。
 
 ### REQ-merge-002: 削除対象の symlink を残す
 - kind: prohibition
@@ -146,4 +147,10 @@ Scenario: 読み込み元のディレクトリへの symlink の中を、書き�
 Given 読み込み元の "linked" はディレクトリへの symlink で、その先に "file.txt" があり、書き込み先の "linked" は中身の違う "linked/file.txt" を持つディレクトリである
 When "linked" を含む範囲を merge する
 Then 書き込み先の "linked/file.txt" は読み込み元の中身に更新され、書き込み先の "linked" はディレクトリのまま残り、skipped に "linked" は出ない
+
+@id=EX-merge-061 @about=REQ-merge-001 @source=docs/decision/records/2026-10-12-skip-subtree-consistency.md#A1,docs/decision/records/2026-10-12-skip-subtree.md#A3
+Scenario: 種類の違う祖先の下の、書き込み先だけのパスを直接指定しても --delete で消さない
+Given 読み込み元の "x" は通常ファイルで、書き込み先の "x" は、読み込み元にない "x/only.txt" を持つディレクトリである
+When --delete を付けて "x/only.txt" を merge する
+Then 書き込み先の "x/only.txt" は消えず、skipped には "x" だけが種類の違いの理由で出る
 ```

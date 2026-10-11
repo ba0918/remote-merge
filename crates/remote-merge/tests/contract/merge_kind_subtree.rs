@@ -275,7 +275,7 @@ fn a_destination_directory_link_gives_the_same_result_for_the_root_and_for_the_c
     assert_eq!(explicit_file, INCOMING);
 }
 
-// @kotowari[REQ-merge-001, EX-merge-059]
+// @kotowari[REQ-merge-001, EX-merge-059, EX-merge-061]
 #[test]
 fn a_file_over_a_directory_gives_the_same_result_for_the_root_and_for_the_child_path() {
     let [(whole, whole_file), (explicit, explicit_file)] = whole_root_and_explicit_path(
