@@ -5,35 +5,21 @@ use std::path::Path;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::filter;
+use crate::find_records::{FindRecord, RECORD_FORMAT};
 use crate::tree::FileNode;
 
-/// `find -printf` の出力行をパースする
-///
-/// フォーマット: `%y\t%s\t%T@\t%m\t%p\t%l`
-/// - %y: ファイルタイプ (f=file, d=dir, l=symlink)
-/// - %s: サイズ
-/// - %T@: mtime (Unix timestamp)
-/// - %m: パーミッション (8進数)
-/// - %p: フルパス
-/// - %l: シンボリックリンク先（リンクでない場合は空）
-pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Option<FileNode> {
-    let parts: Vec<&str> = line.splitn(7, '\t').collect();
-    if parts.len() < 5 {
-        tracing::warn!(
-            target: "remote_merge::ssh::tree_parser",
-            "Failed to parse find output (insufficient columns): {}",
-            line
-        );
-        return None;
-    }
+/// find が出した一つの項目（[`crate::find_records`]）をノードにする。`base_path` 自体と exclude に
+/// 当たる項目は None
+pub fn parse_find_record(
+    record: &FindRecord,
+    base_path: &str,
+    exclude: &[String],
+) -> Option<FileNode> {
+    let size: Option<u64> = record.size.parse().ok();
+    let mtime_ts: Option<f64> = record.mtime.parse().ok();
+    let permissions: Option<u32> = u32::from_str_radix(&record.mode, 8).ok();
 
-    let file_type = parts[0];
-    let size: Option<u64> = parts[1].parse().ok();
-    let mtime_ts: Option<f64> = parts[2].parse().ok();
-    let permissions: Option<u32> = u32::from_str_radix(parts[3], 8).ok();
-    let link_target = if parts.len() >= 6 { parts[5] } else { "" };
-
-    let name = relative_name(parts[4], base_path)?;
+    let name = relative_name(&record.path, base_path)?;
 
     // 除外フィルター（相対パス全体でマッチ）
     if filter::is_path_excluded(name, exclude) {
@@ -46,23 +32,24 @@ pub fn parse_find_line(line: &str, base_path: &str, exclude: &[String]) -> Optio
             .single()
     });
 
-    let mut node = match file_type {
+    let is_link = record.kind == "l";
+    let mut node = match record.kind.as_str() {
         "d" => FileNode::new_dir(name),
-        "l" => FileNode::new_symlink(name, link_target),
+        "l" => FileNode::new_symlink(name, record.link_target.as_str()),
         _ => FileNode::new_file(name),
     };
 
     node.size = size;
-    node.link_is_dir = file_type == "l" && parts.get(6).is_some_and(|kind| *kind == "d");
+    node.link_is_dir = is_link && record.link_kind == "d";
     node.mtime = mtime;
     node.permissions = permissions;
 
     Some(node)
 }
 
-/// `find -printf` の出力行の `base_path` からの相対パス。列が足りない行と `base_path` 自体は None
-pub fn find_line_name<'a>(line: &'a str, base_path: &str) -> Option<&'a str> {
-    relative_name(line.split('\t').nth(4)?, base_path)
+/// 項目の `base_path` からの相対パス。`base_path` 自体は None
+pub fn find_record_name<'a>(record: &'a FindRecord, base_path: &str) -> Option<&'a str> {
+    relative_name(&record.path, base_path)
 }
 
 fn relative_name<'a>(full_path: &'a str, base_path: &str) -> Option<&'a str> {
@@ -75,7 +62,7 @@ fn relative_name<'a>(full_path: &'a str, base_path: &str) -> Option<&'a str> {
 
 /// フラットなノードリスト（相対パス含む名前）から再帰ツリーを構築する
 ///
-/// `parse_find_line` が返す `name` は "src/main.rs" のような相対パスになる。
+/// `parse_find_record` が返す `name` は "src/main.rs" のような相対パスになる。
 /// これを "/" で分割して BTreeMap ベースの中間構造に挿入し、
 /// 最終段階で一括変換することで Vec↔BTreeMap 往復を排除する。
 pub fn build_tree_from_flat(flat_nodes: Vec<FileNode>) -> Vec<FileNode> {
@@ -294,11 +281,15 @@ pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]
             .join(" ")
     };
 
-    let link_action = r#"-exec sh -c 'set -e; for path do size=$(stat -c %s -- "$path"); mtime=$(stat -c %Y -- "$path"); mode=$(stat -c %a -- "$path"); target=$(readlink -- "$path"); if test -d "$path"; then kind=d; else kind=f; fi; printf "l\t%s\t%s\t%s\t%s\t%s\t%s\n" "$size" "$mtime" "$mode" "$path" "$target" "$kind"; done' _ {} +"#;
+    // find -L の `%s`・`%T@`・`%m`・`%l` はリンク先のものになるので、symlink はリンクを辿らない find で
+    // 一つずつ出す。リンク先の種類（`%Y`）は辿った先の種類
+    let link_action = format!(
+        r#"-exec sh -c 'set -e; for path do find "$path" -maxdepth 0 -printf "{RECORD_FORMAT}"; done' _ {{}} +"#
+    );
     let prune = crate::find_prune::prune_clause(root, exclude);
     format!(
         "LC_ALL=C find -L {start_paths} {prune}-xtype l {link_action}; l=$?; \
-         LC_ALL=C find -L {start_paths} {prune}! -xtype l -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\n'; p=$?; \
+         LC_ALL=C find -L {start_paths} {prune}! -xtype l -printf '{RECORD_FORMAT}'; p=$?; \
          [ \"$l\" -ne 0 ] && exit \"$l\"; exit \"$p\""
     )
 }
@@ -306,7 +297,17 @@ pub fn build_find_command(root_dir: &str, include: &[String], exclude: &[String]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::find_records::parse_find_records;
     use crate::tree::NodeKind;
+
+    /// TAB で区切って書いた列（足りない列は空）を、find が出す一つの項目にする
+    fn record(fields: &str) -> FindRecord {
+        let mut fields: Vec<&str> = fields.split('\t').collect();
+        fields.resize(7, "");
+        parse_find_records(format!("{}\0", fields.join("\0")).as_bytes())
+            .unwrap()
+            .remove(0)
+    }
 
     #[cfg(unix)]
     #[test]
@@ -325,10 +326,10 @@ mod tests {
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
-        let entries: Vec<_> = String::from_utf8(output.stdout)
+        let entries: Vec<_> = parse_find_records(&output.stdout)
             .unwrap()
-            .lines()
-            .filter_map(|line| parse_find_line(line, root.path().to_str().unwrap(), &[]))
+            .iter()
+            .filter_map(|record| parse_find_record(record, root.path().to_str().unwrap(), &[]))
             .collect();
         let tree = build_tree_from_flat(entries);
         let outer = tree.iter().find(|node| node.name == "outer").unwrap();
@@ -368,10 +369,10 @@ mod tests {
                 .output()
                 .unwrap();
             assert!(output.status.success(), "{exclude:?}: {output:?}");
-            let names: Vec<_> = String::from_utf8(output.stdout)
-                .unwrap()
-                .lines()
-                .filter_map(|line| find_line_name(line, root.path().to_str().unwrap()))
+            let records = parse_find_records(&output.stdout).unwrap();
+            let names: Vec<_> = records
+                .iter()
+                .filter_map(|record| find_record_name(record, root.path().to_str().unwrap()))
                 .map(str::to_string)
                 .collect();
             assert_eq!(names, ["a", "a/keep.txt"], "{exclude:?}");
@@ -399,9 +400,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_find_line_file() {
+    fn test_parse_find_record_file() {
         let line = "f\t1024\t1705312800.0\t644\t/var/www/app/index.html\t";
-        let node = parse_find_line(line, "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
 
         assert_eq!(node.name, "index.html");
         assert!(node.is_file());
@@ -411,9 +412,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_find_line_directory() {
+    fn test_parse_find_record_directory() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app/src\t";
-        let node = parse_find_line(line, "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
 
         assert_eq!(node.name, "src");
         assert!(node.is_dir());
@@ -421,9 +422,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_find_line_symlink() {
+    fn test_parse_find_record_symlink() {
         let line = "l\t10\t1705312800.0\t777\t/var/www/app/link\t../shared/config";
-        let node = parse_find_line(line, "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
 
         assert_eq!(node.name, "link");
         assert!(node.is_symlink());
@@ -435,24 +436,24 @@ mod tests {
     #[test]
     fn a_remote_directory_link_can_be_expanded_without_changing_its_link_kind() {
         let line = "l\t10\t1705312800.0\t777\t/var/www/app/linked\t../shared\td";
-        let node = parse_find_line(line, "/var/www/app", &[]).unwrap();
+        let node = parse_find_record(&record(line), "/var/www/app", &[]).unwrap();
         assert!(node.is_symlink());
         assert!(node.link_is_dir);
         assert!(node.children.is_none());
     }
 
     #[test]
-    fn test_parse_find_line_exclude() {
+    fn test_parse_find_record_exclude() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t";
         let exclude = vec!["node_modules".to_string()];
-        let node = parse_find_line(line, "/var/www/app", &exclude);
+        let node = parse_find_record(&record(line), "/var/www/app", &exclude);
         assert!(node.is_none());
     }
 
     #[test]
-    fn test_parse_find_line_root_itself() {
+    fn test_parse_find_record_root_itself() {
         let line = "d\t4096\t1705312800.0\t755\t/var/www/app\t";
-        let node = parse_find_line(line, "/var/www/app", &[]);
+        let node = parse_find_record(&record(line), "/var/www/app", &[]);
         assert!(node.is_none());
     }
 

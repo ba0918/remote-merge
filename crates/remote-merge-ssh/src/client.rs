@@ -19,13 +19,14 @@ use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
 use super::excluded_branches::ExcludedBranches;
 use super::find_diagnostics;
+use super::find_records::{parse_find_records, RECORD_FORMAT};
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
     build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
-    build_write_text_command, find_line_name, parse_find_line, shell_escape,
+    build_write_text_command, find_record_name, parse_find_record, shell_escape,
 };
 use zeroize::Zeroizing;
 
@@ -568,20 +569,31 @@ impl SshClient {
     ) -> crate::error::Result<(Vec<FileNode>, bool)> {
         let command = list_dir_command(remote_path);
 
-        let output = tokio::time::timeout(Duration::from_secs(timeout_secs), self.exec(&command))
-            .await
-            .map_err(|_| AppError::SshTimeout {
-                host: self.server_name.clone(),
-                timeout_sec: timeout_secs,
-            })??;
+        let result = tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            self.run_command_bytes(&command),
+        )
+        .await
+        .map_err(|_| AppError::SshTimeout {
+            host: self.server_name.clone(),
+            timeout_sec: timeout_secs,
+        })??;
+        if result.exit_code != 0 {
+            tracing::debug!(
+                target: "remote_merge::ssh::client",
+                "Remote command exited with non-zero: cmd='{}', code={}",
+                command,
+                result.exit_code
+            );
+        }
 
-        Ok(parse_listing(
-            &output,
+        parse_listing(
+            &result.stdout,
             remote_path,
             exclude,
             parent_rel_path,
             max_entries,
-        ))
+        )
     }
 
     /// リモートディレクトリの直下エントリを取得し、ディレクトリでなければエラーにする
@@ -598,7 +610,7 @@ impl SshClient {
         let command = list_dir_command(remote_path);
         let output = tokio::time::timeout(
             Duration::from_secs(Self::DIR_TIMEOUT_SECS),
-            self.exec_strict(&command),
+            self.exec_strict_bytes(&command),
         )
         .await
         .map_err(|_| AppError::SshTimeout {
@@ -611,7 +623,7 @@ impl SshClient {
             exclude,
             parent_rel_path,
             crate::config::DEFAULT_MAX_DIR_ENTRIES,
-        );
+        )?;
         Ok(nodes)
     }
 
@@ -715,7 +727,7 @@ impl SshClient {
 
         let result = match tokio::time::timeout(
             Duration::from_secs(timeout_secs),
-            self.run_command(&command),
+            self.run_command_bytes(&command),
         )
         .await
         {
@@ -728,34 +740,28 @@ impl SshClient {
                 .into());
             }
         };
+        let stderr = String::from_utf8_lossy(&result.stderr);
         // exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく成功にする
         if result.exit_code != 0 {
             let excluded_only = result.exit_code == 1
-                && find_diagnostics::only_excluded_paths_failed(
-                    &result.stderr,
-                    remote_path,
-                    exclude,
-                );
+                && find_diagnostics::only_excluded_paths_failed(&stderr, remote_path, exclude);
             if !excluded_only {
-                anyhow::bail!(exec_failure(&command, result.exit_code, &result.stderr));
+                anyhow::bail!(exec_failure(&command, result.exit_code, &stderr));
             }
             tracing::debug!(
                 target: "remote_merge::ssh::client",
                 "Recursive scan: ignored find errors below excluded paths: {}",
-                result.stderr.trim_end()
+                stderr.trim_end()
             );
         }
-        let output = result.stdout;
+        let records = parse_find_records(&result.stdout)?;
 
-        let excluded = ExcludedBranches::from_find_output(&output, remote_path, exclude);
+        let excluded = ExcludedBranches::from_find_records(&records, remote_path, exclude);
         let mut flat_nodes = Vec::new();
         let mut truncated = false;
 
-        for line in output.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if find_line_name(line, remote_path)
+        for record in &records {
+            if find_record_name(record, remote_path)
                 .is_some_and(|name| excluded.contains_ancestor_of(name))
             {
                 continue;
@@ -770,7 +776,7 @@ impl SshClient {
                 );
                 break;
             }
-            if let Some(node) = parse_find_line(line, remote_path, exclude) {
+            if let Some(node) = parse_find_record(record, remote_path, exclude) {
                 flat_nodes.push(node);
             }
         }
@@ -1296,26 +1302,24 @@ fn read_file_command(remote_path: &str) -> String {
 }
 
 /// `list_dir_command` の出力を直下のノードに直す。返り値の bool は件数の上限で打ち切ったか。
+/// 出力の形が合わなければ Err
 fn parse_listing(
-    output: &str,
+    output: &[u8],
     remote_path: &str,
     exclude: &[String],
     parent_rel_path: &str,
     max_entries: usize,
-) -> (Vec<FileNode>, bool) {
+) -> crate::error::Result<(Vec<FileNode>, bool)> {
     let mut nodes = Vec::new();
     let mut truncated = false;
 
-    for line in output.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
+    for record in parse_find_records(output)? {
         if nodes.len() >= max_entries {
             truncated = true;
             tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
             break;
         }
-        if let Some(node) = parse_find_line(line, remote_path, &[]) {
+        if let Some(node) = parse_find_record(&record, remote_path, &[]) {
             // maxdepth 1 で得たノード名は1セグメントのみ。ローカルとエージェントの経路と同じく、
             // 名前だけでなく root_dir からのパスに当てる
             let full_rel = if parent_rel_path.is_empty() {
@@ -1330,7 +1334,7 @@ fn parse_listing(
         }
     }
 
-    (nodes, truncated)
+    Ok((nodes, truncated))
 }
 
 /// 子の一覧を取るコマンド。試験 SSH サーバを使う試験が、受けたコマンドのうち一覧を見分けるために
@@ -1342,7 +1346,7 @@ pub fn list_dir_command_for_tests(remote_path: &str) -> String {
 
 fn list_dir_command(remote_path: &str) -> String {
     format!(
-        "find {}/ -maxdepth 1 -mindepth 1 -printf '%y\\t%s\\t%T@\\t%m\\t%p\\t%l\\t%Y\\n'",
+        "find {}/ -maxdepth 1 -mindepth 1 -printf '{RECORD_FORMAT}'",
         shell_escape(if remote_path.trim_end_matches('/').is_empty() {
             "/"
         } else {
@@ -1373,6 +1377,34 @@ mod tests {
         assert!(output.status.success(), "{output:?}");
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(text.contains("child.txt"), "{text:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn listing_keeps_names_and_link_targets_with_tabs_newlines_and_backslashes() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::TempDir::new().unwrap();
+        for name in ["x\ty.txt", "p\nq.txt", "b\\c.txt"] {
+            std::fs::write(root.path().join(name), "x").unwrap();
+        }
+        symlink("line\n", root.path().join("link")).unwrap();
+        let dir = root.path().to_str().unwrap();
+        let output = std::process::Command::new("sh")
+            .args(["-c", &list_dir_command(dir)])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let (nodes, _) = parse_listing(&output.stdout, dir, &[], "", 10).unwrap();
+        let mut names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["b\\c.txt", "link", "p\nq.txt", "x\ty.txt"]);
+        let link = nodes.iter().find(|node| node.name == "link").unwrap();
+        assert_eq!(
+            link.kind,
+            crate::tree::NodeKind::Symlink {
+                target: "line\n".into()
+            }
+        );
     }
 
     #[cfg(unix)]

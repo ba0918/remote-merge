@@ -10,22 +10,23 @@
 use std::collections::HashSet;
 
 use crate::filter;
-use crate::tree_parser::find_line_name;
+use crate::find_records::FindRecord;
+use crate::tree_parser::find_record_name;
 
 /// 走査が出したパスのうち、exclude に当たったもの
 #[derive(Debug, Default)]
 pub struct ExcludedBranches(HashSet<String>);
 
 impl ExcludedBranches {
-    /// find の出力 `output`（パスは `base_path` の下）から、exclude に当たったパスを集める
-    pub fn from_find_output(output: &str, base_path: &str, exclude: &[String]) -> Self {
+    /// find が出した項目 `records`（パスは `base_path` の下）から、exclude に当たったパスを集める
+    pub fn from_find_records(records: &[FindRecord], base_path: &str, exclude: &[String]) -> Self {
         if exclude.is_empty() {
             return Self::default();
         }
         Self(
-            output
-                .lines()
-                .filter_map(|line| find_line_name(line, base_path))
+            records
+                .iter()
+                .filter_map(|record| find_record_name(record, base_path))
                 .filter(|name| filter::is_path_excluded(name, exclude))
                 .map(str::to_string)
                 .collect(),

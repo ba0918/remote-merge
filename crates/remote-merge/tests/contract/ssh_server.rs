@@ -655,6 +655,13 @@ impl server::Handler for LocalHandler {
             session.close(channel)?;
             return Ok(());
         }
+        if SshCommand::Scan.matches(&script) {
+            // 走査には、項目のない一覧を答える
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+            return Ok(());
+        }
         if SshCommand::ListChildren.matches(&script) {
             // パスの確認と同じく、どのパスも通常のファイルとして答える
             session.data(channel, CryptoVec::from(b"NOTDIR\n".as_slice()))?;

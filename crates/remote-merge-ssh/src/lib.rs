@@ -3,6 +3,7 @@ pub mod batch_read;
 pub mod child_listing;
 pub mod client;
 pub mod entry_link;
+pub mod find_records;
 pub mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;

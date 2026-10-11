@@ -358,17 +358,18 @@ async fn test_ssh_connect_and_exec() {
 async fn test_ssh_list_dir() {
     let handle = start_test_server().await;
 
-    // find -printf のモックレスポンス
-    let find_output = "\
-f\t1024\t1705312800.0\t644\t/var/www/app/index.html\t
-d\t4096\t1705312800.0\t755\t/var/www/app/src\t
-l\t10\t1705312800.0\t777\t/var/www/app/config\t../shared/config.json
-f\t2048\t1705312800.0\t644\t/var/www/app/README.md\t
-d\t4096\t1705312800.0\t755\t/var/www/app/node_modules\t
-";
+    // find -printf のモックレスポンス（一つの項目は NUL で終える七つの列）
+    let find_output = [
+        "f\x001024\x001705312800.0\x00644\x00/var/www/app/index.html\x00\x00f\x00",
+        "d\x004096\x001705312800.0\x00755\x00/var/www/app/src\x00\x00d\x00",
+        "l\x0010\x001705312800.0\x00777\x00/var/www/app/config\x00../shared/config.json\x00N\x00",
+        "f\x002048\x001705312800.0\x00644\x00/var/www/app/README.md\x00\x00f\x00",
+        "d\x004096\x001705312800.0\x00755\x00/var/www/app/node_modules\x00\x00d\x00",
+    ]
+    .concat();
     handle
         .registry
-        .register("find '/var/www/app'", find_output, 0);
+        .register("find '/var/www/app'", &find_output, 0);
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
