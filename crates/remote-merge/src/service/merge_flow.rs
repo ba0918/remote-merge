@@ -16,7 +16,7 @@ use crate::tree::FileTree;
 use remote_merge_engine::service::merge_flow::{prepare_hunk_merge, HunkMergePreparation};
 
 pub use remote_merge_engine::service::merge_flow::{
-    check_source_exists, validate_hunk_merge_target,
+    check_source_exists, check_symlink_destination_unchanged, validate_hunk_merge_target,
 };
 
 /// 単一マージに必要なコンテキスト
@@ -78,6 +78,11 @@ pub fn execute_single_merge(
             link_target,
             target_exists,
         } => {
+            // 比べたときにあった symlink は、比べたときのまま残っているときだけ置き換える
+            if target_exists {
+                let current = ctx.core.current_link_target(target, path)?;
+                check_symlink_destination_unchanged(path, target_tree, current.as_deref())?;
+            }
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
             let backup_path = if ctx.core.config.backup.enabled {
                 if target_exists {

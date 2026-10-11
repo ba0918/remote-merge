@@ -577,6 +577,20 @@ impl CoreRuntime {
         ))
     }
 
+    /// パスの末尾が symlink ならそのリンク先の文字列。symlink でないかないなら None
+    pub fn current_link_target(
+        &mut self,
+        side: &Side,
+        path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(match self.inspect_path(side, path)? {
+            super::target_io::TargetPath::Symlink { link_target, .. } => {
+                Some(link_target.to_string_lossy().into_owned())
+            }
+            _ => None,
+        })
+    }
+
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
         let mut io = super::target_io::for_side(side, self);

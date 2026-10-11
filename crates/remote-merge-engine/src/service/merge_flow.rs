@@ -7,6 +7,7 @@ use crate::diff::engine::{
     DiffResult,
 };
 use crate::merge::executor::MergeDirection;
+use crate::service::merge::find_symlink_target;
 use crate::service::types::{FileStatus, FileStatusKind, HunkMergeInfo};
 use crate::tree::{find_node_in_slice, FileTree};
 
@@ -35,6 +36,25 @@ pub fn check_source_exists(
             path,
             source_name
         );
+    }
+    Ok(())
+}
+
+/// 比べたときに symlink だった書き込み先が、今も同じリンク先を指す symlink かを確かめる
+/// （REQ-merge-033）。
+///
+/// `current` は今の書き込み先が symlink ならそのリンク先の文字列で、symlink でないかないなら None。
+/// 比べたときに symlink でなかった書き込み先には当てない
+pub fn check_symlink_destination_unchanged(
+    path: &str,
+    target_tree: &FileTree,
+    current: Option<&str>,
+) -> anyhow::Result<()> {
+    let Some(compared) = find_symlink_target(target_tree, path) else {
+        return Ok(());
+    };
+    if current != Some(compared.as_str()) {
+        anyhow::bail!("destination content changed since comparison: {path}");
     }
     Ok(())
 }
@@ -146,6 +166,48 @@ pub fn prepare_hunk_merge(
                 merged_text,
                 hunk_info,
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::tree::FileNode;
+
+    fn tree_with(node: FileNode) -> FileTree {
+        let mut tree = FileTree::new(PathBuf::from("/tmp"));
+        tree.nodes.push(node);
+        tree
+    }
+
+    #[test]
+    fn a_destination_symlink_still_pointing_at_the_compared_target_passes() {
+        let tree = tree_with(FileNode::new_symlink("link", "b.txt"));
+        assert!(check_symlink_destination_unchanged("link", &tree, Some("b.txt")).is_ok());
+    }
+
+    #[test]
+    fn a_destination_symlink_that_changed_since_comparison_fails() {
+        let tree = tree_with(FileNode::new_symlink("link", "b.txt"));
+        // リンク先が変わった・symlink でなくなった・消えた
+        for current in [Some("c.txt"), None] {
+            assert!(
+                check_symlink_destination_unchanged("link", &tree, current).is_err(),
+                "{current:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_destination_that_was_not_a_symlink_at_comparison_is_not_checked() {
+        let file = tree_with(FileNode::new_file("link"));
+        let empty = FileTree::new(PathBuf::from("/tmp"));
+        for tree in [&file, &empty] {
+            assert!(check_symlink_destination_unchanged("link", tree, Some("x")).is_ok());
+            assert!(check_symlink_destination_unchanged("link", tree, None).is_ok());
         }
     }
 }

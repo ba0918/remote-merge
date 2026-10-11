@@ -109,6 +109,9 @@ mod merge_ref_kinds;
 mod merge_results;
 #[path = "contract/merge_support.rs"]
 mod merge_support;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_symlink_changed_routes.rs"]
+mod merge_symlink_changed_routes;
 #[path = "contract/merge_write.rs"]
 mod merge_write;
 #[cfg(feature = "test-utils")]
