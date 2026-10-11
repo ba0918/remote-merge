@@ -13,10 +13,11 @@
 
 ### REQ-merge-033: 更新を検知したファイルだけを止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9, docs/decision/records/2026-10-11-symlink-merge-check.md#A1, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9, docs/decision/records/2026-10-11-symlink-merge-check.md#A1, docs/decision/records/2026-10-11-symlink-merge-check-consistency.md#A1, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
 - verification: unit
 
 merge と sync は、比べたときから書き込み先の中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに failed に出し、他のファイルの処理は続ける。
+比べたときに symlink だった書き込み先のリンク先が UTF-8 として読めないバイトか置換文字 U+FFFD を含むときは、変わっていないことを確かめられないので、変わったファイルと同じく書かずに failed に出す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ### REQ-merge-038: 最後の要素が symlink のパスへ通常ファイルを書かない
@@ -123,5 +124,11 @@ Then そのファイルは failed に出て、現れた通常ファイルの中�
 Scenario: 比べた後に書き込み先の symlink のリンク先が変わる
 Given 読み込み元も書き込み先も symlink で、比べた後、merge の前に書き込み先の symlink が別のリンク先を指すように作り直された
 When そのパスを merge する
+Then そのファイルは failed に出て、書き込み先の symlink は作り直されたリンク先を指したままである
+
+@id=EX-merge-055 @about=REQ-merge-033 @source=docs/decision/records/2026-10-11-symlink-merge-check-consistency.md#A1
+Scenario: 比べた後に書き込み先の symlink が UTF-8 でないバイトだけが違うリンク先に作り直される
+Given 読み込み元も書き込み先も symlink で、書き込み先のリンク先は UTF-8 として読めないバイトを含み、比べた後、merge の前にそのバイトだけが違うリンク先を指すように作り直された
+When バックアップを無効にしてそのパスを merge する
 Then そのファイルは failed に出て、書き込み先の symlink は作り直されたリンク先を指したままである
 ```
