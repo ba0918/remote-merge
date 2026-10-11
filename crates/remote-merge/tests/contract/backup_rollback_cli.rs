@@ -338,6 +338,50 @@ fn dry_run_reports_the_same_changed_path_skip_with_exit_code_0() {
         .is_symlink());
 }
 
+// 書き戻す先の親ディレクトリを辿れなくして、そのファイルの確かめを失敗させる
+// @kotowari[REQ-backup-038, EX-backup-031]
+#[test]
+fn ex_backup_031_a_dry_run_with_a_failed_file_exits_with_2() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::create_dir(local.path().join("sub")).unwrap();
+    fs::create_dir(develop.path().join("sub")).unwrap();
+    for path in ["kept.txt", "sub/blocked.txt"] {
+        fs::write(local.path().join(path), "merged\n").unwrap();
+        fs::write(develop.path().join(path), "original\n").unwrap();
+    }
+    let config = config(&local, &develop, true);
+    let mut merge = merge_args("kept.txt");
+    merge.paths = vec!["kept.txt".into(), "sub/blocked.txt".into()];
+    let merged = merge_files(merge, config.clone(), targets(&develop, &store));
+    assert_eq!(merged.merged.len(), 2, "{merged:?}");
+    let blocked = develop.path().join("sub");
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    let mut args = rollback_args("develop", None);
+    args.dry_run = true;
+
+    let result = execute_rollback(args, config, targets(&develop, &store));
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o755)).unwrap();
+    let result = result.unwrap();
+
+    let RollbackCommandOutput::DryRun { output, .. } = result.output else {
+        panic!("expected dry-run output")
+    };
+    assert!(
+        output
+            .failed
+            .iter()
+            .any(|failure| failure.path == "sub/blocked.txt"),
+        "{output:?}"
+    );
+    assert_eq!(result.exit_code, 2);
+    assert_eq!(
+        fs::read_to_string(develop.path().join("kept.txt")).unwrap(),
+        "merged\n"
+    );
+}
+
 // @kotowari[REQ-backup-039]
 #[test]
 fn target_is_required_except_for_list_which_defaults_to_local() {

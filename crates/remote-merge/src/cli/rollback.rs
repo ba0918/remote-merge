@@ -145,8 +145,9 @@ pub fn execute_rollback(
     };
 
     // `接続断` で処理を止めた回は、済んだファイルだけでも、dry-run でも終了コード 2 で終える
-    // （REQ-ssh-022・REQ-ssh-003・REQ-backup-038）
-    let code = if core.has_stopped() {
+    // （REQ-ssh-022・REQ-ssh-003・REQ-backup-038）。dry-run は failed があれば 2 にし、
+    // 戻すファイルがないことやスキップでは 2 にしない
+    let code = if core.has_stopped() || (args.dry_run && !output.failed.is_empty()) {
         crate::service::types::exit_code::ERROR
     } else if args.dry_run {
         0
