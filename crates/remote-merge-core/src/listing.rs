@@ -142,7 +142,7 @@ fn permission_bits(meta: &std::fs::Metadata) -> u32 {
 }
 
 /// ナノ秒までの更新時刻。1970 年より前は、秒を負の値に切り下げ、ナノ秒を正の値にする
-fn modified(meta: &std::fs::Metadata) -> io::Result<DateTime<Utc>> {
+pub fn modified(meta: &std::fs::Metadata) -> io::Result<DateTime<Utc>> {
     let (seconds, nanos) = match meta.modified()?.duration_since(std::time::UNIX_EPOCH) {
         Ok(after) => (after.as_secs() as i64, after.subsec_nanos()),
         Err(before) => {

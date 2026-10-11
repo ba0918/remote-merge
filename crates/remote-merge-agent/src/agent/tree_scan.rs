@@ -6,10 +6,9 @@
 //! 祖先へ戻る symlink は循環として走査を止める（[`DirectoryCycle`] の Err を返す）。
 
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
-use remote_merge_core::listing::{ListingReader, ThisMachine};
+use remote_merge_core::listing::{modified, ListingReader, ThisMachine};
 use remote_merge_core::path_resolution::os::resolve_on_this_machine;
 use remote_merge_core::path_resolution::ResolvedPath;
 
@@ -66,23 +65,23 @@ pub fn incomplete_reason(error: &anyhow::Error) -> Option<String> {
         .map(ToString::to_string);
     cycle.or_else(|| {
         error
-            .downcast_ref::<UnreadableLinkTarget>()
+            .downcast_ref::<UnreadableEntry>()
             .map(ToString::to_string)
     })
 }
 
-/// symlink のリンク先を読めなかった。空のリンク先で埋めずに走査を止め、不完全な一覧として報告する
-/// （docs/ir/scan/listing.md の REQ-scan-015）
+/// 項目の情報（symlink のリンク先、更新時刻）を読めなかった。既定の値で埋めずに走査を止め、
+/// 不完全な一覧として報告する（docs/ir/scan/listing.md の REQ-scan-015）
 #[derive(Debug)]
-pub struct UnreadableLinkTarget(String);
+pub struct UnreadableEntry(String);
 
-impl std::fmt::Display for UnreadableLinkTarget {
+impl std::fmt::Display for UnreadableEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl std::error::Error for UnreadableLinkTarget {}
+impl std::error::Error for UnreadableEntry {}
 
 /// [`scan_tree`] の、symlink のリンク先の読み方を `reader` にしたもの
 pub fn scan_tree_with<'a, R: ListingReader>(
@@ -110,7 +109,7 @@ struct ScanIterator<'a, R> {
     current_read_dir: Option<std::fs::ReadDir>,
     /// 現在読み込み中のディレクトリの祖先の並び（include の起点を処理する間は空）
     current_ancestry: DirAncestry,
-    /// 走査を止めた理由（循環か、読めないリンク先）。見つかった後は項目を載せない
+    /// 走査を止めた理由（循環か、読めない項目の情報）。見つかった後は項目を載せない
     stopped: Option<anyhow::Error>,
     /// 現在のチャンクに蓄積中のエントリ
     buffer: Vec<AgentFileEntry>,
@@ -266,7 +265,7 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
                 ),
                 Err(error) => {
                     self.stopped = Some(
-                        UnreadableLinkTarget(format!(
+                        UnreadableEntry(format!(
                             "failed to scan {rel:?}: cannot read the link target: {error}"
                         ))
                         .into(),
@@ -284,12 +283,19 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             0
         };
 
-        let (mtime_secs, mtime_nanos) = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| (d.as_secs() as i64, d.subsec_nanos()))
-            .unwrap_or((0, 0));
+        // 更新時刻を読めなければ、既定の値で埋めずに走査を止める（REQ-scan-015）
+        let mtime = match modified(&meta) {
+            Ok(mtime) => mtime,
+            Err(error) => {
+                self.stopped = Some(
+                    UnreadableEntry(format!(
+                        "failed to scan {rel:?}: cannot read the modification time: {error}"
+                    ))
+                    .into(),
+                );
+                return false;
+            }
+        };
 
         let permissions = get_permissions(&meta, &kind);
 
@@ -297,8 +303,8 @@ impl<'a, R: ListingReader> ScanIterator<'a, R> {
             path: rel,
             kind,
             size,
-            mtime_secs,
-            mtime_nanos,
+            mtime_secs: mtime.timestamp(),
+            mtime_nanos: mtime.timestamp_subsec_nanos(),
             permissions,
             symlink_target,
             link_is_dir: is_directory_link,
@@ -1438,6 +1444,33 @@ mod tests {
         assert_eq!(
             listed,
             vec![("dangling", FileKind::Symlink, Some("in-root-missing"))]
+        );
+    }
+
+    // @kotowari[REQ-scan-015]
+    #[test]
+    fn a_modification_time_before_1970_is_listed_as_read_instead_of_a_default() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.txt");
+        fs::write(&path, "x").unwrap();
+        let before_1970 = std::time::UNIX_EPOCH - std::time::Duration::new(1_000_000, 250_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(before_1970)
+            .unwrap();
+        let options = ScanOptions {
+            root: dir.path().to_path_buf(),
+            ..Default::default()
+        };
+
+        let chunks: Vec<_> = scan_tree(&options).collect::<Result<Vec<_>>>().unwrap();
+
+        let entry = &chunks[0].entries[0];
+        assert_eq!(
+            (entry.mtime_secs, entry.mtime_nanos),
+            (-1_000_001, 750_000_000)
         );
     }
 }
