@@ -146,7 +146,10 @@ fn a_root_owned_file_only_on_the_target_is_deleted_through_the_agent_under_sudo(
     );
 
     assert!(output.status.success(), "{output:?}");
-    let state = docker(&container, "test -e /data/delete-only/old.txt && echo remains");
+    let state = docker(
+        &container,
+        "test -e /data/delete-only/old.txt && echo remains",
+    );
     assert_eq!(String::from_utf8(state.stdout).unwrap(), "");
 }
 
