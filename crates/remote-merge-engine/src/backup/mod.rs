@@ -25,7 +25,9 @@ pub struct LocalTargetIdentity {
 
 impl LocalTargetIdentity {
     pub fn new(root_dir: PathBuf) -> Self {
-        Self { root_dir }
+        Self {
+            root_dir: lexically_normalized(&root_dir),
+        }
     }
 
     pub fn root_dir(&self) -> &Path {
@@ -77,8 +79,14 @@ pub fn remote_target_identity(config: &ServerConfig) -> RemoteTargetIdentity {
     RemoteTargetIdentity {
         host: config.host.clone(),
         port: config.port,
-        root_dir: config.root_dir.clone(),
+        root_dir: lexically_normalized(&config.root_dir),
     }
+}
+
+/// REQ-backup-021 の字面の正規化。symlink を辿らず、"." の要素と末尾の "/" を除き、続いた "/" を
+/// 一つにする（".." は残す）
+fn lexically_normalized(root_dir: &Path) -> PathBuf {
+    root_dir.components().collect()
 }
 
 /// 現在時刻からバックアップ用タイムスタンプ（= セッションID）を生成する。

@@ -208,6 +208,75 @@ fn sessions_for_two_write_targets_remain_separate() {
     assert_eq!(staging_sessions[0].files[0].path, "staging.txt");
 }
 
+/// `path` に末尾の "/" を足したもの
+fn with_trailing_slash(path: &std::path::Path) -> std::path::PathBuf {
+    format!("{}/", path.display()).into()
+}
+
+// @kotowari[REQ-backup-021, EX-backup-023]
+#[test]
+fn ex_backup_023_a_session_stays_listed_after_the_trailing_slash_of_a_remote_root_dir_is_removed() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let written_with_slash = with_trailing_slash(develop.path());
+    let before = config_with_servers(
+        &local,
+        &[("develop", "example.invalid", 22, &written_with_slash)],
+        true,
+    );
+    let output = merge_files(merge_args("file.txt"), before, targets(&develop, &store));
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    let after = config_with_servers(
+        &local,
+        &[("develop", "example.invalid", 22, develop.path())],
+        true,
+    );
+
+    let listed = listed_sessions("develop", after, targets(&develop, &store));
+
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
+/// [local] の root_dir に `local_root` を書いた設定を読み込む。develop は使わない値にする
+fn config_with_local_root(dir: &TempDir, local_root: &std::path::Path) -> AppConfig {
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        format!(
+            "[local]\nroot_dir = {:?}\n[servers.develop]\nhost = \"develop.invalid\"\nuser = \"unused\"\nroot_dir = \"/srv/unused\"\n[backup]\nenabled = true\n",
+            local_root.display().to_string()
+        ),
+    )
+    .unwrap();
+    remote_merge::config::load_config_from_paths(Some(&path), None).unwrap()
+}
+
+// @kotowari[REQ-backup-021, EX-backup-023]
+#[test]
+fn ex_backup_023_a_session_stays_listed_after_the_trailing_slash_of_the_local_root_dir_is_removed()
+{
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    let configs = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "old local\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "new remote\n").unwrap();
+    let before = config_with_local_root(&configs, &with_trailing_slash(local.path()));
+    let mut args = merge_args("file.txt");
+    args.left = Some("develop".into());
+    args.right = Some("local".into());
+    let output = merge_files(args, before, targets(&develop, &store));
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    let after = config_with_local_root(&configs, local.path());
+
+    let listed = listed_sessions("local", after, targets(&develop, &store));
+
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
 // @kotowari[REQ-backup-021]
 #[test]
 fn relative_local_root_is_identified_from_the_directory_of_its_config_file() {
