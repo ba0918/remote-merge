@@ -24,9 +24,18 @@ const LOOP_HEAD: &str = "File system loop detected; ";
 const LOOP_MIDDLE: &str = " is part of the same file system loop as ";
 
 /// 走査の find の終了コード `exit_code` と標準エラー `stderr` から、走査が失敗したか。
-/// exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく失敗にしない
+/// exclude で除くパスの下で辿れなかっただけなら、ローカルとエージェントと同じく失敗にしない。
+///
+/// 終了コードが 0 でも、標準エラーに診断があれば失敗にする。findutils 4.2.27 は、途中に
+/// ディレクトリでないものを含むリンク先の symlink を "find: P: Not a directory" と出しながら
+/// 終了コード 0 で終え、その symlink を一覧に出す
 pub fn scan_failed(exit_code: u32, stderr: &str, base_path: &str, exclude: &[String]) -> bool {
-    exit_code != 0 && !(exit_code == 1 && only_excluded_paths_failed(stderr, base_path, exclude))
+    let diagnosed = stderr.lines().any(|line| !line.is_empty());
+    match exit_code {
+        0 if !diagnosed => false,
+        0 | 1 => !only_excluded_paths_failed(stderr, base_path, exclude),
+        _ => true,
+    }
 }
 
 /// 標準エラー `stderr` の行がすべて、`base_path` の下で exclude に当たるパス（かその下のパス）を
@@ -133,6 +142,35 @@ mod tests {
 
     const LOOP_UNDER_A_B: &str = "find: File system loop detected; '/r/a/b/back' is part of the same file system loop as '/r'.\n";
     const DENIED_UNDER_A_B: &str = "find: '/r/a/b/locked': Permission denied\n";
+
+    /// findutils 4.2.27（CentOS 5）が、途中にディレクトリでないものを含むリンク先の symlink
+    /// （n -> top.txt/x）を終了コード 0 で出したときの標準エラー
+    const NOT_A_DIRECTORY_ON_FINDUTILS_4_2_27: &str = "find: /b/n: Not a directory\n";
+
+    #[test]
+    fn a_diagnostic_fails_the_scan_even_when_find_exits_with_zero() {
+        assert!(scan_failed(
+            0,
+            NOT_A_DIRECTORY_ON_FINDUTILS_4_2_27,
+            "/b",
+            &[]
+        ));
+        assert!(scan_failed(
+            0,
+            NOT_A_DIRECTORY_ON_FINDUTILS_4_2_27,
+            "/b",
+            &exclude(&["n"])
+        ));
+    }
+
+    #[test]
+    fn a_scan_succeeds_without_diagnostics_or_with_only_those_below_excluded_paths() {
+        assert!(!scan_failed(0, "", "/r", &[]));
+        assert!(!scan_failed(0, DENIED_UNDER_A_B, "/r", &exclude(&["a/b"])));
+        assert!(!scan_failed(1, DENIED_UNDER_A_B, "/r", &exclude(&["a/b"])));
+        assert!(scan_failed(1, "", "/r", &[]));
+        assert!(scan_failed(2, DENIED_UNDER_A_B, "/r", &exclude(&["a/b"])));
+    }
 
     #[test]
     fn errors_below_an_excluded_directory_are_accepted() {

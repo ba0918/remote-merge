@@ -744,7 +744,7 @@ impl SshClient {
         if find_diagnostics::scan_failed(result.exit_code, &stderr, remote_path, exclude) {
             anyhow::bail!(exec_failure(&command, result.exit_code, &stderr));
         }
-        if result.exit_code != 0 {
+        if !stderr.trim().is_empty() {
             tracing::debug!(
                 target: "remote_merge::ssh::client",
                 "Recursive scan: ignored find errors below excluded paths: {}",
