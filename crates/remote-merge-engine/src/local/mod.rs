@@ -250,7 +250,7 @@ pub fn scan_local_tree_recursive_with(
             scan_root,
             &canonical_root,
             exclude,
-            max_entries - flat_entries.len(),
+            max_entries - counted_entries(&flat_entries),
         )?;
         flat_entries.extend(entries);
         if trunc {
@@ -278,6 +278,8 @@ fn walk_single_root(
 
     let mut flat_entries: Vec<(String, FileNode)> = Vec::new();
     let mut truncated = false;
+    // 載せたファイルと symlink の数
+    let mut counted = 0;
 
     // include の起点はそれ自体も載せる（ファイルや symlink の値はその 1 件になる）。root 自体は載せない
     let min_depth = if scan_root == original_root { 1 } else { 0 };
@@ -319,16 +321,6 @@ fn walk_single_root(
             },
         };
 
-        if flat_entries.len() >= remaining {
-            truncated = true;
-            tracing::warn!(
-                target: "remote_merge::local",
-                "Recursive scan: entry count reached limit: {}",
-                scan_root.display()
-            );
-            break;
-        }
-
         let rel_path = path
             .strip_prefix(original_root)
             .unwrap_or(&path)
@@ -345,6 +337,17 @@ fn walk_single_root(
             .to_string_lossy()
             .to_string();
         let meta = path.symlink_metadata()?;
+
+        // 上限にはファイルと symlink だけを数え、上限の後に載せる項目がもう一件あるときだけ打ち切る
+        if !meta.is_dir() && counted >= remaining {
+            truncated = true;
+            tracing::warn!(
+                target: "remote_merge::local",
+                "Recursive scan: entry count reached limit: {}",
+                scan_root.display()
+            );
+            break;
+        }
 
         let mut node = if meta.is_symlink() {
             // リンク先を読めなければ、既定の値で埋めずに走査を止める（REQ-scan-015）
@@ -368,10 +371,18 @@ fn walk_single_root(
                 "Directory scan incomplete: failed to scan {rel_path:?}: cannot read the modification time: {error}"
             )
         })?;
+        if !node.is_dir() {
+            counted += 1;
+        }
         flat_entries.push((rel_path, node));
     }
 
     Ok((flat_entries, truncated))
+}
+
+/// 件数の上限に当てる項目（ファイルと symlink）の数。ディレクトリは数えない
+fn counted_entries(entries: &[(String, FileNode)]) -> usize {
+    entries.iter().filter(|(_, node)| !node.is_dir()).count()
 }
 
 /// `path` の `original_root` からの相対パスが exclude に当たるか
@@ -650,9 +661,8 @@ mod tests {
         let (nodes, truncated) = scan_local_tree_recursive(dir.path(), &[], 2).unwrap();
 
         assert!(truncated);
-        // ノード数は上限以下（ツリー構築で増える場合があるが、元のフラットエントリが2以下）
-        let flat_count = count_all_nodes(&nodes);
-        assert!(flat_count <= 3); // 2エントリ + 1中間ディレクトリ程度
+        // 上限に数えるのはファイルと symlink だけで、ディレクトリは数えない
+        assert_eq!(count_files(&nodes), 2);
     }
 
     fn count_all_nodes(nodes: &[FileNode]) -> usize {
@@ -664,6 +674,19 @@ mod tests {
             }
         }
         count
+    }
+
+    fn count_files(nodes: &[FileNode]) -> usize {
+        nodes
+            .iter()
+            .map(|node| match &node.children {
+                Some(children) => {
+                    let children: Vec<FileNode> = children.values().cloned().collect();
+                    count_files(&children)
+                }
+                None => usize::from(!node.is_dir()),
+            })
+            .sum()
     }
 
     #[test]

@@ -757,6 +757,8 @@ impl SshClient {
         let excluded = ExcludedBranches::from_find_records(&records, remote_path, exclude);
         let mut flat_nodes = Vec::new();
         let mut truncated = false;
+        // 載せたファイルと symlink の数
+        let mut counted = 0;
 
         for record in &records {
             if find_record_name(record, remote_path)
@@ -764,19 +766,24 @@ impl SshClient {
             {
                 continue;
             }
-            if flat_nodes.len() >= max_entries {
-                truncated = true;
-                tracing::warn!(
-                    target: "remote_merge::ssh::client",
-                    "Recursive scan: entry count reached limit {}: {}",
-                    max_entries,
-                    remote_path
-                );
-                break;
+            let Some(node) = parse_find_record(record, remote_path, exclude)? else {
+                continue;
+            };
+            // 上限にはファイルと symlink だけを数え、上限の後に載せる項目がもう一件あるときだけ打ち切る
+            if !node.is_dir() {
+                if counted >= max_entries {
+                    truncated = true;
+                    tracing::warn!(
+                        target: "remote_merge::ssh::client",
+                        "Recursive scan: entry count reached limit {}: {}",
+                        max_entries,
+                        remote_path
+                    );
+                    break;
+                }
+                counted += 1;
             }
-            if let Some(node) = parse_find_record(record, remote_path, exclude)? {
-                flat_nodes.push(node);
-            }
+            flat_nodes.push(node);
         }
 
         let tree = build_tree_from_flat(flat_nodes);

@@ -228,7 +228,9 @@ fn status_counts_files_reached_through_a_directory_link_toward_its_limit() {
     fs::write(shared.path().join("alpha.txt"), "alpha\n").unwrap();
     fs::write(shared.path().join("beta.txt"), "beta\n").unwrap();
     symlink(shared.path(), fixture.source.path().join("linked")).unwrap();
-    let error = execute_status(status_args(Some(5)), fixture.config, fixture.targets)
+    // 左の走査で数える項目は "folder" の下の 2 件、"linked" とその下の 2 件の 5 件で、上限 4 を超える。
+    // リンクの下を数えなければ 3 件で上限に収まる
+    let error = execute_status(status_args(Some(4)), fixture.config, fixture.targets)
         .err()
         .expect("linked entries must count toward the scan limit");
     assert!(error.to_string().contains("Tree scan truncated"), "{error}");
