@@ -40,7 +40,7 @@ S1・S2・S3 は互いに依存しないので、この順に一つずつコミ�
 | 要件・例 | 示す段 | 確かめ方 |
 |---|---|---|
 | REQ-merge-036、EX-merge-043 | S1 | 契約テスト: リモートの読み込み元の 0o600 のファイルを --with-permissions で新しく作ると、書き込み先の権限が 0o600 |
-| REQ-merge-014、EX-merge-056 | S1 | 契約テスト: 読み込み元の権限 0 のファイルを --with-permissions で merge すると、書き込み先の権限が 0 |
+| REQ-merge-014、EX-merge-056 | S1 | 契約テスト: 読み込み元の権限 0 のファイルを --with-permissions で merge すると、書き込み先の権限が 0。EX-merge-056 のテストは `tests/container-e2e/` の独立ワークスペースにあり、通常の cargo nextest では走らないので、`scripts/run-container-e2e.sh` で走らせる（Docker が要るので、人が走らせて結果を確かめる） |
 | REQ-merge-037 | S1 | 走査したツリーに権限の値がないときに failed になることは、その状態を作る経路があれば契約テストで、なければ純粋関数の単体テストで確かめる（どちらを選んだかを報告する） |
 | REQ-merge-012 | S2 | 契約テスト: エージェントの経路で、作るディレクトリの権限の変更が失敗する状態で merge すると、そのファイルが中身は書いたと分かる error で failed になり、ローカルと SSH の経路と同じ結果になる |
 | REQ-backup-038、EX-backup-031 | S3 | 契約テスト: failed の出る rollback --dry-run が終了コード 2 を返し、failed のない --dry-run は 0 のまま |
@@ -62,6 +62,8 @@ S1・S2・S3 は互いに依存しないので、この順に一つずつコミ�
 ```sh
 systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-features
 ```
+
+Docker の実機の例（EX-merge-056）は `scripts/run-container-e2e.sh` で走らせる（Docker が要るので、人が走らせて結果を確かめる）。
 
 ## Out of scope
 
@@ -111,6 +113,6 @@ systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-feature
 - Prerequisites: S1、S2、S3
 - May change: 印の付け直しに要るテストのファイルだけ
 - Done when: `kotowari query` で REQ-merge-036・EX-merge-043・EX-merge-056・EX-backup-031 の tests が空でなく、このブランチが変えたファイルと計画の ID に `kotowari check` のエラーがない
-- Shown by: check — `kotowari query <ID> | jq '.items[0].tests'` を各 ID について、`kotowari check --format json`、`systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-features`
+- Shown by: check — `kotowari query <ID> | jq '.items[0].tests'` を各 ID について、`kotowari check --format json`、`systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-features`、`scripts/run-container-e2e.sh`（EX-merge-056 のテストを走らせる。Docker が要るので、人が走らせて結果を確かめる）
 - Left to the implementer: none
 - Stop and hand back if: 計画の範囲の ID の findings が消えないとき
