@@ -6,10 +6,11 @@
 
 ### REQ-merge-001: 種類の違う既存の対象を置き換えない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A3
+- source: docs/decision/records/2026-09-25-spec-migration.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A1, docs/decision/records/2026-10-12-skip-subtree.md#A2, docs/decision/records/2026-10-12-skip-subtree.md#A3
 - verification: unit
 
 読み込み元と書き込み先の種類が通常ファイル・ディレクトリ・末尾の symlink の間で異なるとき、merge と sync は書き込み先を変更せず、その対象を理由付きでスキップする。
+スキップした対象がディレクトリかディレクトリへの symlink のとき、その配下も、--dry-run を含めて書かず、--delete でも消さない。結果の skipped にはスキップした対象を一件だけ出し、配下は出さない。書き込み先の途中の symlink を辿る REQ-merge-004 は、その symlink 自体がこの要件でスキップした対象でないときに当たる。
 
 ### REQ-merge-002: 削除対象の symlink を残す
 - kind: prohibition
@@ -120,4 +121,22 @@ Scenario: リンク先が "-" で始まる symlink を作る
 Given 読み込み元の symlink のリンク先が "--target-directory=sub" で、書き込み先にそのパスがなく "sub" ディレクトリがある
 When そのパスをマージする
 Then 書き込み先のそのパスにリンク先が "--target-directory=sub" の symlink ができ、"sub" の中には何も作られない
+
+@id=EX-merge-057 @about=REQ-merge-001 @source=docs/decision/records/2026-10-12-skip-subtree.md#A1,docs/decision/records/2026-10-12-skip-subtree.md#A2
+Scenario: 読み込み元のディレクトリへの symlink の配下を、書き込み先のディレクトリに書かない
+Given 読み込み元の "linked" はディレクトリへの symlink で、その先に "file.txt" があり、書き込み先の "linked" は中身の違う "linked/file.txt" を持つディレクトリである
+When "linked" を含む範囲を merge する
+Then 書き込み先の "linked/file.txt" は変わらず、skipped には "linked" だけが種類の違いの理由で出る
+
+@id=EX-merge-058 @about=REQ-merge-001 @source=docs/decision/records/2026-10-12-skip-subtree.md#A1,docs/decision/records/2026-10-12-skip-subtree.md#A2
+Scenario: 書き込み先のディレクトリへの symlink を通って書かない
+Given 読み込み元の "linked" は "file.txt" を持つディレクトリで、書き込み先の "linked" は root_dir の外のディレクトリを指す symlink で、その先に中身の違う "file.txt" がある
+When "linked" を含む範囲を merge する
+Then root_dir の外のリンク先の "file.txt" は変わらず、skipped には "linked" だけが出る
+
+@id=EX-merge-059 @about=REQ-merge-001 @source=docs/decision/records/2026-10-12-skip-subtree.md#A3,docs/decision/records/2026-10-12-skip-subtree.md#A2
+Scenario: 種類の違いでスキップしたパスの配下を --delete で消さない
+Given 読み込み元の "linked" はディレクトリへの symlink で、書き込み先の "linked" は、読み込み元にない "linked/only.txt" を持つディレクトリである
+When --delete を付けて "linked" を含む範囲を merge する
+Then 書き込み先の "linked/only.txt" は消えず、skipped には "linked" だけが出る
 ```

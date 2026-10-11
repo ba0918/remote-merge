@@ -1,0 +1,29 @@
+# 種類の違いでスキップしたパスの配下にも手を付けない
+
+## Context
+
+品質の台帳の so-1 を調べた結果である。契約テスト `merge_paths::a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target`（[REQ-merge-001](../../ir/merge/symlink.md#REQ-merge-001)）は 1 割ほどの実行で落ちる。落ちるのは、二つの file.txt の大きさと更新時刻がたまたまそろわなかった回である（そろうと中身を読まずに同じと判定し、その回は通る）。
+落ちた回の出力は、種類の違う "linked"（片方がディレクトリ、片方がディレクトリへの symlink）を skipped に出しながら、配下の "linked/file.txt" を merged に出していた。種類の判定（`determine_merge_action`・`split_different_kinds`）はそのパス自身しか見ず、祖先をスキップしたことを見ていない。向きを逆にすると（書き込み先がディレクトリへの symlink）、symlink を通ってリンク先のファイルが上書きされ、リンク先が root_dir の外でも同じだった（調べ役が測った）。
+
+REQ-merge-001 の「その対象をスキップする」が配下を含むかは文面だけでは決まらなかったので、利用者に尋ねた。
+
+Position: 決定は A1〜A3 で出揃った。
+
+## Agreements
+
+- A1 読み込み元と書き込み先の種類が違ってスキップしたパスの配下は、merge でも sync でも（--dry-run を含む）書かない。[REQ-merge-001](../../ir/merge/symlink.md#REQ-merge-001) に書き足し、例 EX-merge-057・EX-merge-058 を足す。書き込み先の途中の symlink を辿って書く [REQ-merge-004](../../ir/merge/symlink.md#REQ-merge-004) は、その symlink 自体が種類の違いでスキップされたパスでないときに当たる。
+  - why: 出力は "linked" をスキップしたと言うのに、配下を書いていて、利用者は書き込みに気づけない。書き込み先が symlink のときは、root_dir の外のリンク先まで書き換わる。
+  - decided_by: 利用者（2026-10-12、「配下も書かない」を選んだ）
+- A2 そのとき結果の skipped には、種類の違うパスを一件だけ出し、配下は出さない。
+  - why: 今の出力の形のまま、大きいディレクトリでも件数が膨らまない。スキップした理由はその一件で分かる。
+  - decided_by: 利用者（2026-10-12、「"linked" の一件だけ」を選んだ）
+- A3 --delete でも、種類の違いでスキップしたパスの配下は消さない。例 EX-merge-059 を足す。
+  - why: 書き込みと同じく、スキップしたパスの下には手を付けない。symlink を通って root_dir の外のファイルを消すこともなくなる。
+  - decided_by: 利用者（2026-10-12、「消さない」を選んだ）
+
+## Rejected
+
+- R1 配下は辿ってマージする（今の動きを仕様にする）。
+  - why: 表示と実際が食い違い、symlink を通って root_dir の外を書き換える。
+- R2 配下も一件ずつ skipped に並べる。
+  - why: 大きいディレクトリで件数が膨らむ（A2）。
