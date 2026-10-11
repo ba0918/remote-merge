@@ -161,8 +161,12 @@ impl CoreRuntime {
             ChildListing::Children(nodes) => Ok(nodes
                 .iter()
                 .find(|node| node.name == name)
-                .and_then(|node| node.permissions)
-                .map_or(Observed::Absent, Observed::Mode)),
+                .and_then(|node| {
+                    let directory = node.is_dir() || node.link_is_dir;
+                    node.permissions
+                        .map(|mode| Observed::Mode { mode, directory })
+                })
+                .unwrap_or(Observed::Absent)),
             ChildListing::NotDirectory => Ok(Observed::Absent),
             ChildListing::Unlistable(reason) => anyhow::bail!(reason),
         }

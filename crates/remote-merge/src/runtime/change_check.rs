@@ -1,6 +1,8 @@
 //! 変更の最中の `接続断` の後に、書き込み先を読んで確かめた結果の判定
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022）。読み書きはしない。
 
+use remote_merge_core::operations::resulting_mode;
+
 /// 変更の前の、そのパスの状態。書き込みの確かめに使う
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Before {
@@ -41,8 +43,12 @@ pub enum Observed {
     File(Vec<u8>),
     /// 末尾の symlink と、そのリンク先
     Link(String),
-    /// 権限の変更の確かめで読んだ、0o7777 の範囲の権限
-    Mode(u32),
+    /// 権限の変更の確かめで読んだ、0o7777 の範囲の権限と、ディレクトリ（かディレクトリへの
+    /// symlink）か
+    Mode {
+        mode: u32,
+        directory: bool,
+    },
 }
 
 /// 確かめた結果
@@ -87,7 +93,11 @@ pub fn judge(change: &Change<'_>, observed: &Observed) -> Outcome {
             _ => Outcome::NotDone,
         },
         Change::Chmod { mode } => match observed {
-            Observed::Mode(now) if now == mode => Outcome::Done,
+            // ディレクトリはすでに付いていた setuid・setgid を残す（REQ-paths-018）
+            Observed::Mode {
+                mode: now,
+                directory,
+            } if resulting_mode(*now, *mode, *directory) == *now => Outcome::Done,
             _ => Outcome::NotDone,
         },
     }
@@ -116,7 +126,7 @@ pub fn describe(change: &Change<'_>, outcome: Outcome, observed: &Observed, caus
             "not deleted: after reconnecting, the file was confirmed to still exist".to_string()
         }
         (Change::Chmod { .. }, Outcome::NotDone) => match observed {
-            Observed::Mode(now) => format!(
+            Observed::Mode { mode: now, .. } => format!(
                 "permissions not changed: after reconnecting, the mode was confirmed to be {now:o}"
             ),
             _ => "permissions not changed: after reconnecting, the path was not found".to_string(),
@@ -190,10 +200,34 @@ mod tests {
             Outcome::NotDone
         );
 
+        let file = |mode| Observed::Mode {
+            mode,
+            directory: false,
+        };
         let chmod = Change::Chmod { mode: 0o600 };
-        assert_eq!(judge(&chmod, &Observed::Mode(0o600)), Outcome::Done);
-        assert_eq!(judge(&chmod, &Observed::Mode(0o644)), Outcome::NotDone);
+        assert_eq!(judge(&chmod, &file(0o600)), Outcome::Done);
+        assert_eq!(judge(&chmod, &file(0o644)), Outcome::NotDone);
         assert_eq!(judge(&chmod, &Observed::Absent), Outcome::NotDone);
+    }
+
+    #[test]
+    fn a_directory_permission_change_is_judged_with_its_setuid_and_setgid_kept() {
+        let chmod = Change::Chmod { mode: 0o775 };
+        let cases = [
+            (0o2775, true, Outcome::Done),
+            (0o6775, true, Outcome::Done),
+            (0o775, true, Outcome::Done),
+            (0o3775, true, Outcome::NotDone),
+            (0o2755, true, Outcome::NotDone),
+            (0o2775, false, Outcome::NotDone),
+        ];
+        for (mode, directory, expected) in cases {
+            assert_eq!(
+                judge(&chmod, &Observed::Mode { mode, directory }),
+                expected,
+                "{mode:o} {directory}"
+            );
+        }
     }
 
     #[test]
@@ -211,7 +245,10 @@ mod tests {
             describe(
                 &Change::Chmod { mode: 0o600 },
                 Outcome::NotDone,
-                &Observed::Mode(0o644),
+                &Observed::Mode {
+                    mode: 0o644,
+                    directory: false,
+                },
                 "eof",
             ),
             describe_unconfirmed("eof", "could not reconnect"),

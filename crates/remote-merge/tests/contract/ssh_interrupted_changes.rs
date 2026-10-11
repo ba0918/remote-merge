@@ -368,6 +368,58 @@ async fn an_ssh_permission_change_is_confirmed_on_an_entry_the_exclude_patterns_
     assert_eq!(fixture.read_remote("a/vendor/x.txt"), "new\n");
 }
 
+// @kotowari[REQ-ssh-022, REQ-paths-018]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cut_permission_change_of_a_directory_that_kept_setgid_is_confirmed_as_changed() {
+    // setgid の親の下に作ったディレクトリは setgid を受け継ぐ。ディレクトリの権限の変更は
+    // setgid を残すので、0o777 の範囲が付ける権限と同じなら、切れた権限の変更は「変えた」。
+    // 作ったディレクトリに付ける権限を、このプロセスの umask で作られる権限と同じにする
+    let fixture = AgentFixture::new(
+        Setup {
+            agent_disabled: true,
+            ..Setup::default()
+        },
+        Faults::default(),
+    )
+    .await;
+    let created = fixture.home.path().join("umask-probe");
+    fs::create_dir(&created).unwrap();
+    let dir_mode = fs::metadata(&created).unwrap().permissions().mode() & 0o777;
+    let mut config = fs::read_to_string(&fixture.config).unwrap();
+    config.push_str(&format!(
+        "[defaults]\ndir_permissions = \"0o{dir_mode:o}\"\n"
+    ));
+    fs::write(&fixture.config, config).unwrap();
+    fixture.put("a/keep.txt", Some("k\n"), Some("k\n"));
+    fs::set_permissions(
+        fixture.remote().join("a"),
+        fs::Permissions::from_mode(0o2775),
+    )
+    .unwrap();
+    fixture.put("a/new/x.txt", Some("new\n"), None);
+    fixture.server.faults().arm_ssh_cut(SshCut {
+        command: SshCommand::Chmod,
+        repeat: Repeat::Once,
+    });
+
+    let output = fixture.run(&["merge", "a/new/x.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    let error = failure(&result["failed"], "a/new/x.txt");
+    assert!(
+        error.contains(CONTENT_WRITTEN)
+            && error.contains(UNTOUCHED)
+            && !error.contains(PERMISSIONS_UNCHANGED),
+        "{error}"
+    );
+    let mode = fs::metadata(fixture.remote().join("a/new"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o7777, 0o2000 | dir_mode);
+}
+
 // @kotowari[EX-ssh-046]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_gone_before_the_next_change_is_confirmed_and_the_rest_is_untouched() {
