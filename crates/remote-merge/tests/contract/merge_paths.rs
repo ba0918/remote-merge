@@ -109,29 +109,32 @@ fn a_directory_does_not_replace_a_regular_file() {
 
 // @kotowari[REQ-merge-001]
 #[test]
-fn a_directory_link_does_not_merge_its_children_into_a_different_kind_of_target() {
+fn a_directory_link_merges_its_children_into_a_destination_directory() {
     let local = TempDir::new().unwrap();
     let shared = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    fs::write(shared.path().join("file.txt"), "incoming\n").unwrap();
+    // 大きさを変え、配下が大きさと更新時刻だけで同じと判定される回を作らない
+    fs::write(shared.path().join("file.txt"), "incoming contents\n").unwrap();
     symlink(shared.path(), local.path().join("linked")).unwrap();
     fs::create_dir(destination.path().join("linked")).unwrap();
     fs::write(destination.path().join("linked/file.txt"), "existing\n").unwrap();
 
     let output = merge(&local, &destination, &backup, "linked");
-    assert!(output.merged.is_empty(), "{output:?}");
-    assert!(
-        output
-            .skipped
-            .iter()
-            .any(|entry| entry.path == "linked" && !entry.reason.is_empty()),
-        "{output:?}"
-    );
+    let merged: Vec<&str> = output
+        .merged
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    assert_eq!(merged, ["linked/file.txt"], "{output:?}");
+    assert!(output.skipped.is_empty(), "{output:?}");
     assert_eq!(
         fs::read_to_string(destination.path().join("linked/file.txt")).unwrap(),
-        "existing\n"
+        "incoming contents\n"
     );
+    assert!(fs::symlink_metadata(destination.path().join("linked"))
+        .unwrap()
+        .is_dir());
 }
 
 // @kotowari[EX-merge-005]

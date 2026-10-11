@@ -38,6 +38,8 @@ pub struct MergeContext<'a> {
 pub enum SingleMergeResult {
     Merged(MergeFileResult),
     Skipped(MergeSkipped),
+    /// ディレクトリとディレクトリへの symlink の組で、手を付けず結果にも出さない
+    Unchanged,
 }
 
 /// 単一ファイルのマージを実行する
@@ -75,6 +77,7 @@ pub fn execute_single_merge(
                 reason: DIFFERENT_KIND_REASON.into(),
             }));
         }
+        MergeAction::KeepDirectoryPair => return Ok(SingleMergeResult::Unchanged),
         MergeAction::CreateSymlink {
             link_target,
             target_exists,
@@ -83,6 +86,10 @@ pub fn execute_single_merge(
             if target_exists {
                 let current = ctx.core.current_link_target(target, path)?;
                 check_symlink_destination_unchanged(path, target_tree, current.as_deref())?;
+            } else {
+                // 比べたときになかった作成先も、通常ファイルを書くときと同じパスの確認を書く前にする。
+                // 祖先ごとの確認だけでは、末尾の要素の長さや祖先が通常ファイルであることが分からない
+                ctx.core.inspect_path(target, path)?;
             }
             // ターゲット側に既存ファイル/symlink がある場合、バックアップを作成してから削除
             let backup_path = if ctx.core.config.backup.enabled {

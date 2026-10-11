@@ -122,16 +122,22 @@ mod merge_cli_ssh;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_created_directory_routes.rs"]
 mod merge_created_directory_routes;
+#[path = "contract/merge_dry_run_paths.rs"]
+mod merge_dry_run_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_force_cli.rs"]
 mod merge_force_cli;
 #[path = "contract/merge_hunks.rs"]
 mod merge_hunks;
+#[path = "contract/merge_kind_subtree.rs"]
+mod merge_kind_subtree;
 #[path = "contract/merge_links.rs"]
 mod merge_links;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_missing_paths.rs"]
 mod merge_missing_paths;
+#[path = "contract/merge_new_link_paths.rs"]
+mod merge_new_link_paths;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[cfg(feature = "test-utils")]

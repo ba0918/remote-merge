@@ -391,7 +391,9 @@ fn walk_single_root(
                     "Directory scan incomplete: failed to scan {rel_path:?}: cannot read the link target: {error}"
                 )
             })?;
-            FileNode::new_symlink(&file_name, target.to_string_lossy().into_owned())
+            let mut link = FileNode::new_symlink(&file_name, target.to_string_lossy().into_owned());
+            link.link_is_dir = path.is_dir();
+            link
         } else if meta.is_dir() {
             let mut d = FileNode::new_dir(&file_name);
             d.children = Some(std::collections::BTreeMap::new()); // loaded 状態
@@ -575,6 +577,29 @@ mod tests {
         let children = scan_dir(&dir.path().join("subdir"), &[], "subdir").unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "nested.txt");
+    }
+
+    /// 再帰走査でも、子の一覧や SSH・エージェントの走査と同じく、ディレクトリへの symlink を印す
+    #[test]
+    fn recursive_scan_marks_which_links_point_to_directories() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("real")).unwrap();
+        std::fs::write(root.join("target.txt"), "content").unwrap();
+        symlink(root.join("real"), root.join("dir_link")).unwrap();
+        symlink(root.join("target.txt"), root.join("file_link")).unwrap();
+
+        let LocalScan { nodes, .. } = scan_local_tree_recursive(root, &[], 100).unwrap();
+        let link_is_dir = |name: &str| {
+            nodes
+                .iter()
+                .find(|node| node.name == name)
+                .unwrap_or_else(|| panic!("{name} not scanned: {nodes:?}"))
+                .link_is_dir
+        };
+
+        assert!(link_is_dir("dir_link"));
+        assert!(!link_is_dir("file_link"));
     }
 
     #[test]

@@ -76,13 +76,19 @@ fn assert_old_content_was_backed_up(backup_root: &std::path::Path) {
     );
 }
 
-// @kotowari[EX-merge-007]
+// @kotowari[EX-merge-007, EX-merge-058]
 #[tokio::test(flavor = "multi_thread")]
 async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
     std::thread::spawn(verify_local_external_link)
         .join()
         .unwrap();
-    for agent_available in [false, true] {
+    // ファイルを直接指定しても root 全体を指定しても、書き込み先のディレクトリへの symlink の中を比べて書く
+    for (agent_available, requested) in [
+        (false, "linked/file.txt"),
+        (false, "."),
+        (true, "linked/file.txt"),
+        (true, "."),
+    ] {
         // 配置先とその祖先はグループやその他が書き込めると Agent が実行されないため、umask によらず決める
         let home = tempfile::Builder::new()
             .permissions(fs::Permissions::from_mode(0o700))
@@ -94,7 +100,8 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
         fs::create_dir_all(local.join("linked")).unwrap();
         fs::create_dir_all(&remote).unwrap();
         fs::create_dir_all(&shared).unwrap();
-        fs::write(local.join("linked/file.txt"), "incoming\n").unwrap();
+        // 大きさを変え、root 全体の比較で大きさと更新時刻だけで同じと判定される回を作らない
+        fs::write(local.join("linked/file.txt"), "incoming contents\n").unwrap();
         let actual = shared.join("file.txt");
         fs::write(&actual, "existing\n").unwrap();
         symlink(&shared, remote.join("linked")).unwrap();
@@ -131,14 +138,7 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
             .env("XDG_DATA_HOME", home.path().join("data"))
             .env("REMOTE_MERGE_AGENT_BINARY", agent_binary)
             .args([
-                "merge",
-                "linked/file.txt",
-                "--left",
-                "local",
-                "--right",
-                "fixture",
-                "--format",
-                "json",
+                "merge", requested, "--left", "local", "--right", "fixture", "--format", "json",
             ])
             .arg("--config")
             .arg(&config_path)
@@ -146,12 +146,20 @@ async fn external_parent_links_are_backed_up_and_updated_over_ssh_and_agent() {
             .unwrap();
         assert!(
             output.status.success(),
-            "mode {agent_available}: {output:?}"
+            "mode {agent_available} {requested}: {output:?}"
         );
         let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(result["merged"][0]["path"], "linked/file.txt", "{result}");
         assert!(result["merged"][0]["backup"].as_str().is_some(), "{result}");
-        assert_eq!(fs::read(&actual).unwrap(), b"incoming\n");
+        assert!(
+            result["skipped"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|entry| entry["path"] != "linked"),
+            "{result}"
+        );
+        assert_eq!(fs::read(&actual).unwrap(), b"incoming contents\n");
         assert_eq!(fs::read_link(remote.join("linked")).unwrap(), shared);
         let backup_root = home.path().join("data/remote-merge/backups");
         assert_old_content_was_backed_up(&backup_root);

@@ -7,6 +7,7 @@ use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::content_reads::verified_content_pairs;
+use crate::service::kind_skip::split_different_kind_subtrees;
 use crate::service::merge::{build_merge_output, check_r2r_guard, merge_exit_code, plan_merge};
 use crate::service::merge_flow::{
     execute_deletions, execute_hunk_merge, execute_single_merge, HunkMergeContext, MergeContext,
@@ -185,6 +186,9 @@ pub fn execute_merge(
     let (resolved_paths, missing_paths) = split_missing_paths(&resolved_paths, &statuses)?;
     let mut compare_failures = compare_failures;
     compare_failures.extend(missing_path_failures(&missing_paths));
+    // 種類の違う対象とその配下は、書き込み・dry-run・削除のどれの計画にも入れない
+    let (resolved_paths, kind_skipped) =
+        split_different_kind_subtrees(&resolved_paths, &left_tree, &right_tree);
     // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
     let (mut diff_files, right_only_skipped) =
         filter_merge_candidates(&resolved_paths, &statuses, args.delete);
@@ -192,6 +196,7 @@ pub fn execute_merge(
 
     // マージ計画
     let mut plan = plan_merge(&diff_files);
+    plan.skipped.extend(kind_skipped);
 
     let destination_paths: Vec<String> = plan
         .files
@@ -323,10 +328,16 @@ pub fn execute_merge(
 
     // dry-run: ref badge 付きの計画を出力して終了
     if args.dry_run {
-        // 種類の違う対象は書き込むときと同じ判定でスキップとして出す
-        let (planned, kind_skipped) =
-            crate::service::merge::split_different_kinds(&plan.files, &left_tree, &right_tree);
-        all_skipped.extend(kind_skipped);
+        // 実行時に書く前の確認で失敗するパスは、同じ失敗として出す（REQ-cli-091）
+        let path_failures = crate::service::preview_paths::preview_path_failures(
+            &mut core,
+            &pair.right,
+            &right_tree,
+            &plan.files,
+        );
+        plan.files
+            .retain(|path| !path_failures.iter().any(|failure| failure.path == *path));
+        failed.extend(path_failures);
         // dry-run: 削除対象を "would delete" として表示
         let dry_deleted: Vec<DeleteFileResult> = delete_targets
             .iter()
@@ -337,7 +348,7 @@ pub fn execute_merge(
             })
             .collect();
         let output = build_merge_output(
-            planned
+            plan.files
                 .iter()
                 .map(|p| MergeFileResult {
                     path: p.clone(),
@@ -391,6 +402,7 @@ pub fn execute_merge(
                     merged.push(result);
                 }
                 Ok(SingleMergeResult::Skipped(reason)) => all_skipped.push(reason),
+                Ok(SingleMergeResult::Unchanged) => {}
                 Err(e) => failed.push(MergeFailure {
                     path: path.clone(),
                     error: format!("{}", e),

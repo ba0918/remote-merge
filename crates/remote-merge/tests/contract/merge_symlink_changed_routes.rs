@@ -223,6 +223,7 @@ fn merge_after_change(
     let outcome = match execute_single_merge(&mut ctx, LINK) {
         Ok(SingleMergeResult::Merged(_)) => Outcome::Merged,
         Ok(SingleMergeResult::Skipped(skipped)) => Outcome::Skipped(skipped.reason),
+        Ok(SingleMergeResult::Unchanged) => panic!("a single link is not a directory pair"),
         Err(error) => Outcome::Failed(error.to_string()),
     };
     if core.config.backup.enabled {

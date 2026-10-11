@@ -1,12 +1,14 @@
 pub mod content_reads;
 pub mod diff;
 pub mod fast_path;
+pub mod kind_skip;
 pub mod max_files;
 pub mod merge;
 pub mod merge_flow;
 pub mod merge_reference;
 pub mod merge_reference_reads;
 pub mod path_resolver;
+pub mod preview_paths;
 pub mod rollback;
 pub mod status;
 pub mod status_ref_badge;
