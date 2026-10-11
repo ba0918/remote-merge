@@ -19,6 +19,7 @@ use crate::service::output::{
 };
 use crate::service::path_resolver::{
     check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
+    split_missing_paths,
 };
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -180,6 +181,10 @@ pub fn execute_merge(
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
         resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+    // 左右のどちらにもないパスは警告して failed に入れ、すべてないときは書き込まずに止める
+    let (resolved_paths, missing_paths) = split_missing_paths(&resolved_paths, &statuses)?;
+    let mut compare_failures = compare_failures;
+    compare_failures.extend(missing_path_failures(&missing_paths));
     // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
     let (mut diff_files, right_only_skipped) =
         filter_merge_candidates(&resolved_paths, &statuses, args.delete);
@@ -205,7 +210,6 @@ pub fn execute_merge(
         SizeLimit::from_force(args.force),
     )
     .into_parts();
-    let mut compare_failures = compare_failures;
     compare_failures.extend(expected_failures);
     plan.files
         .retain(|path| !compare_failures.iter().any(|failure| failure.path == *path));
@@ -608,6 +612,20 @@ fn fetch_trees_and_statuses_for_merge(
     ));
 
     Ok((left_tree, right_tree, statuses, failures))
+}
+
+/// 左右のどちらにもない指定したパスを、パスごとに標準エラーに警告して merge と sync の failed にする
+pub(crate) fn missing_path_failures(missing: &[String]) -> Vec<MergeFailure> {
+    missing
+        .iter()
+        .map(|path| {
+            eprintln!("Warning: '{path}' not found on either side");
+            MergeFailure {
+                path: path.clone(),
+                error: "not found on either side".into(),
+            }
+        })
+        .collect()
 }
 
 /// 指定したパスの範囲にある、UTF-8 として読めない名前のファイルを merge と sync の failed にする

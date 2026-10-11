@@ -17,6 +17,7 @@ use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeC
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
 use crate::service::path_resolver::{
     check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
+    split_missing_paths,
 };
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
 use crate::service::status::{
@@ -206,6 +207,9 @@ pub fn execute_sync(
         // パス解決 + 差分フィルタ
         let resolved_paths =
             resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+        // 左右のどちらにもないパスは警告して failed に入れ、すべてないときは書き込まずに止める
+        let (resolved_paths, missing_paths) = split_missing_paths(&resolved_paths, &statuses)?;
+        compare_failures.extend(super::merge::missing_path_failures(&missing_paths));
         // BUG 1 fix: filter_merge_candidates で RightOnly を merge 対象から常に除外
         let (mut diff_files, right_only_skipped) =
             filter_merge_candidates(&resolved_paths, &statuses, args.delete);

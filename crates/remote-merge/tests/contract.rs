@@ -126,6 +126,9 @@ mod merge_force_cli;
 mod merge_hunks;
 #[path = "contract/merge_links.rs"]
 mod merge_links;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_missing_paths.rs"]
+mod merge_missing_paths;
 #[path = "contract/merge_paths.rs"]
 mod merge_paths;
 #[cfg(feature = "test-utils")]

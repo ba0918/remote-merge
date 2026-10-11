@@ -200,6 +200,19 @@ pub fn partition_existing_files(
     (existing, missing)
 }
 
+/// merge と sync の指定したパスのうち、左右のどちらにもないものを分ける（REQ-merge-035）。
+/// 返り値は（あるパス, ないパス）。指定したパスがすべてないときは書き込ませずに Err
+pub fn split_missing_paths(
+    resolved: &[String],
+    statuses: &[FileStatus],
+) -> anyhow::Result<(Vec<String>, Vec<String>)> {
+    let (existing, missing) = partition_existing_files(resolved, statuses);
+    if existing.is_empty() && !missing.is_empty() {
+        anyhow::bail!("specified path(s) not found on either side");
+    }
+    Ok((existing, missing))
+}
+
 /// status から差分のあるファイルのみをフィルタする（Equal を除外）。
 ///
 /// diff / merge の両方で使用する共通フィルタ。
