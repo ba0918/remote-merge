@@ -62,6 +62,13 @@ init・logs に --config を指定したときは "Warning: --config is ignored 
 `グローバル設定` か `プロジェクト設定` に製品の知らないキーかセクションがあるときはエラーで止まり、終了コード 2 を返す。製品の知っているセクションとキーは TBL-config-004 のものだけである。以前の版が読んでいた [filter] の sensitive、badge_scan_max_files、[agent] の timeout_secs・tree_chunk_size・max_file_chunk_bytes も知らないキーとして扱う。
 このエラーの文言は IR で決めず、実装者が英語で書き、テストはその文言を固定しない。
 
+### REQ-config-043: 設定のエラーに書かれた中身を出さない
+- kind: prohibition
+- source: docs/decision/records/2026-10-11-drop-compat.md#A7
+- verification: unit
+
+`グローバル設定` か `プロジェクト設定` を解釈できないとき（TOML の書き方の誤り、値の型の違い、知らないキーかセクション）のエラーは、標準エラーにも --format json の error にも、設定ファイルの行の抜き出しと、設定ファイルに書かれた値を含めない。設定ファイルのパス、行と列、キーの名前、解釈できない理由は含めてよい。
+
 ### REQ-config-040: 相対の root_dir は設定ファイルの場所を基準にする
 - kind: state_driven
 - source: docs/decision/records/2026-10-05-quality-config.md#A5, docs/decision/records/2026-10-06-path-resolution.md#A65, docs/decision/records/2026-10-06-path-resolution.md#A66
@@ -119,4 +126,16 @@ Scenario: 別のディレクトリの設定を --config で指定する
 Given "proj/.remote-merge.toml" の [local] の root_dir が "." である
 When "proj" の外のディレクトリから --config "proj/.remote-merge.toml" を指定して status を実行する
 Then ローカルの root_dir は "proj" のディレクトリになる
+
+@id=EX-config-024 @about=REQ-config-043 @source=docs/decision/records/2026-10-11-drop-compat.md#A7
+Scenario: パスワードと同じ行に書き間違いのキーがある
+Given `プロジェクト設定` の [servers] に、password = "SENTINEL-PW" と知らないキー bogus を一行に書いたサーバがある
+When status を --format json を付けたときと付けないときで実行する
+Then 標準エラーにも JSON の error にも、設定を解釈できないエラーが出て、そこに "SENTINEL-PW" は含まれない
+
+@id=EX-config-025 @about=REQ-config-043 @source=docs/decision/records/2026-10-11-drop-compat.md#A7
+Scenario: パスワードと同じ行の別のキーの型が違う
+Given `プロジェクト設定` の [servers] に、password = "SENTINEL-PW" と user = 1 を一行に書いたサーバがある
+When status を実行する
+Then 標準エラーに設定を解釈できないエラーが出て、そこに "SENTINEL-PW" は含まれない
 ```

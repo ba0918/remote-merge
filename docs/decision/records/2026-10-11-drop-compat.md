@@ -6,7 +6,7 @@
 A3 が名前を挙げたのは、設定の使われなくなったキー（[REQ-config-030](../../ir/config/filters.md#REQ-config-030)・[REQ-config-031](../../ir/config/filters.md#REQ-config-031)）と、捨てると知らないキーになるので未実装の [REQ-config-039](../../ir/config/loading.md#REQ-config-039) の実装、バックアップのセッションの古い探し方（[REQ-backup-043](../../ir/backup/sessions.md#REQ-backup-043)）、古い置き場の除外（[REQ-backup-016](../../ir/backup/storage.md#REQ-backup-016)）、--ref の別名 --reference、コードの中の互換の名残である。
 利用者は 2026-10-11 に、この単位からは自分に戻さず自走してよいと指示した。ここに書く決定は、どれも A3 とその前提の決定から導いたもので、新しい方針は足していない。サーバの道具の違いを吸収する分岐（[A4](./2026-10-11-agent-operations.md#A4)）は互換に数えず、この単位でも変えない。
 
-Position: 決定は A1〜A6 で出揃った。
+Position: 決定は A1〜A7 で出揃った。A7 は実装の後のレビューで分かったことを利用者が決めた。
 
 ## Agreements
 
@@ -29,6 +29,9 @@ Position: 決定は A1〜A6 で出揃った。
   - why: A3 が名前を挙げた。
   - decided_by: 利用者（[agent-operations A3](./2026-10-11-agent-operations.md#A3)）
 
+- A7 設定ファイルを解釈できないときのエラー（TOML の書き方の誤り、値の型の違い、知らないキーとセクション）は、標準エラーにも --format json の error にも、設定ファイルの行の抜き出しと、書かれた値を含めない。どの設定ファイルの何行目・何列目か、どのキーか、なぜ解釈できないかは出してよい。[REQ-config-043](../../ir/config/loading.md#REQ-config-043) として IR に足す。
+  - why: 実装の後のレビューで、`[servers]` の一行に password と書き間違いのキーが並ぶ設定で、エラーがその行をそのまま出し、パスワードが標準エラーと JSON の error に出ると分かった（手元で再現した）。型の違う値でも、この単位より前から同じように出ていた。A3 で知らないキーをエラーにしたので、出るきっかけが増えた。利用者は「今直す」と決めた。REQ-config-043 で `docs/ir/config/loading.md` は要件の数の目安を超えるが（kotowari の too_many_requirements）、設定ファイルの読み込みとそのエラーの規則は一つの文書にあるほうが探しやすいので、分けずに残す。
+  - decided_by: 利用者（2026-10-11）
 ## Prohibitions
 
 - P1 捨てたキー・別名・以前の識別のセッション・".remote-merge-backup/" を、別の形で受け付ける道（移し替え、捨てたことを知らせる専用の警告やエラーの文言）は作らない。
@@ -48,3 +51,4 @@ Position: 決定は A1〜A6 で出揃った。
 ## Revisions
 
 - 2026-10-11: [drop-sensitive-file-handling A4](./2026-10-04-drop-sensitive-file-handling.md#A4)・[A9](./2026-10-04-drop-sensitive-file-handling.md#A9)、[tui-disposition A5](./2026-10-04-tui-disposition.md#A5) の badge_scan_max_files の警告を A1 で、[quality-config A6](./2026-10-05-quality-config.md#A6) を A2 で、[quality-config A3](./2026-10-05-quality-config.md#A3) の例外の文を A3 で、[quality-backup A1](./2026-10-05-quality-backup.md#A1)・[A5](./2026-10-05-quality-backup.md#A5) と [path-resolution A58](./2026-10-06-path-resolution.md#A58) の以前の識別の探し方を A4 で、[adopt-backup A30](./2026-09-27-adopt-backup.md#A30) を A5 で置き換えた。
+- 2026-10-11: 実装の後のレビューで、設定のエラーがパスワードを出すと分かり、A7 を足した。
