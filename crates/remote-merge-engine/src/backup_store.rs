@@ -323,29 +323,40 @@ impl BackupStore {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
         let target_key = target_key(config, target, &self.startup_directory)?;
-        let Ok(entries) = fs::read_dir(root.join("sessions")) else {
+        // 中身が見つからないものだけをセッションなしとして扱い、ほかの読み込みや解析の失敗は
+        // そのパスと理由を示して止める（docs/ir/backup/rollback-cli.md の REQ-backup-041・044）
+        let sessions_dir = root.join("sessions");
+        let Some(entries) = unless_not_found(fs::read_dir(&sessions_dir), &sessions_dir)? else {
             return Ok(Vec::new());
         };
         let mut sessions = Vec::new();
-        for entry in entries.filter_map(Result::ok) {
+        for entry in entries {
+            let entry = entry.map_err(|error| unreadable_store(&sessions_dir, error))?;
             let Some(session_id) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
             if crate::backup::parse_session_id(&session_id).is_none() {
                 continue;
             }
-            let Ok(records) = fs::read_dir(entry.path().join(&target_key).join("records")) else {
+            let records_dir = entry.path().join(&target_key).join("records");
+            let Some(records) = unless_not_found(fs::read_dir(&records_dir), &records_dir)? else {
                 continue;
             };
             let mut files = Vec::new();
             let mut complete = true;
-            for record_dir in records.filter_map(Result::ok) {
-                let record = fs::read(record_dir.path().join("record.json"))
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice::<StoredBackupRecord>(&bytes).ok());
+            for record_dir in records {
+                let record_dir = record_dir
+                    .map_err(|error| unreadable_store(&records_dir, error))?
+                    .path();
+                let Some(record) = read_stored_record(&record_dir)? else {
+                    complete = false;
+                    break;
+                };
                 match record {
-                    Some(StoredBackupRecord::File { path, .. }) => {
-                        let Ok(metadata) = fs::metadata(record_dir.path().join("content")) else {
+                    StoredBackupRecord::File { path, .. } => {
+                        let content = record_dir.join("content");
+                        let Some(metadata) = unless_not_found(fs::metadata(&content), &content)?
+                        else {
                             complete = false;
                             break;
                         };
@@ -355,18 +366,14 @@ impl BackupStore {
                             link_target: None,
                         });
                     }
-                    Some(StoredBackupRecord::Symlink {
+                    StoredBackupRecord::Symlink {
                         path, link_target, ..
-                    }) => {
+                    } => {
                         files.push(crate::service::types::BackupEntry {
                             path,
                             size: None,
                             link_target: Some(link_target.to_string_lossy().into_owned()),
                         });
-                    }
-                    None => {
-                        complete = false;
-                        break;
                     }
                 }
             }
@@ -428,6 +435,37 @@ impl BackupStore {
             }
         }
     }
+}
+
+/// 一つの記録のディレクトリの記録を読んで解析する。記録がなければ None
+fn read_stored_record(record_dir: &Path) -> anyhow::Result<Option<StoredBackupRecord>> {
+    let path = record_dir.join("record.json");
+    let Some(bytes) = unless_not_found(fs::read(&path), &path)? else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        anyhow::anyhow!(
+            "backup record could not be parsed: {}: {error}",
+            path.display()
+        )
+    })
+}
+
+/// 読み込みの結果。見つからなければ None、ほかの失敗はパスと理由を示すエラー
+fn unless_not_found<T>(result: std::io::Result<T>, path: &Path) -> anyhow::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(unreadable_store(path, error)),
+    }
+}
+
+/// 集約先の中身の読み込みの失敗。どのパスかを示す
+fn unreadable_store(path: &Path, error: std::io::Error) -> anyhow::Error {
+    anyhow::anyhow!(
+        "backup store could not be read: {}: {error}",
+        path.display()
+    )
 }
 
 /// 集約先の準備の失敗。どの場所で失敗したかを示す

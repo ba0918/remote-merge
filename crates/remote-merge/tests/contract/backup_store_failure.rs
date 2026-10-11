@@ -1,6 +1,7 @@
 #![cfg(unix)]
-//! 集約先の準備に失敗したら書き込みを始めないこと（docs/ir/backup/failure.md の REQ-backup-045）の
-//! 契約テスト。
+//! 集約先の準備に失敗したら書き込みを始めないこと（docs/ir/backup/failure.md の REQ-backup-045）と、
+//! 集約先の中身を読めないか解析できない rollback がエラーで止まること（docs/ir/backup/rollback-cli.md
+//! の REQ-backup-044）の契約テスト。
 //!
 //! 集約先を置くディレクトリに書き込めなくして集約先を作れなくするか、集約先の中の領域を置く
 //! 場所をファイルでふさぐ。root の利用者はアクセス権によらず書き込めるので、書き込めない
@@ -11,10 +12,13 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput, MergeCommandResult};
+use remote_merge::cli::rollback::execute_rollback;
 use remote_merge::runtime::RuntimeTargets;
 use tempfile::TempDir;
 
-use super::backup_support::{config, fixed_now, merge_args};
+use super::backup_support::{
+    config, fixed_now, merge_args, merge_files, rollback_list_args, store_entries, targets,
+};
 
 /// 書き込めなくしたディレクトリ。drop で書き込めるように戻し、一時ディレクトリを消せるようにする
 struct ReadOnly(PathBuf);
@@ -114,4 +118,51 @@ fn req_backup_045_an_area_that_cannot_be_created_in_the_store_stops_the_merge_be
     );
 
     assert_stopped_before_writing(result, &develop);
+}
+
+/// 集約先の中のセッションの記録（ファイル）。merge が作ったセッションのもの
+fn session_records(store: &Path) -> Vec<PathBuf> {
+    store_entries(store)
+        .into_iter()
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+// @kotowari[REQ-backup-044, EX-backup-025]
+#[test]
+fn ex_backup_025_a_session_record_that_cannot_be_parsed_stops_the_list() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let config = config(&local, &develop, true);
+    let mut args = merge_args("file.txt");
+    args.force = true;
+    let merged = merge_files(args, config.clone(), targets(&develop, &store));
+    assert_eq!(merged.merged.len(), 1, "{merged:?}");
+    let records: Vec<PathBuf> = session_records(store.path())
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert!(!records.is_empty(), "{:?}", store_entries(store.path()));
+    for record in &records {
+        fs::write(record, "{ not a record").unwrap();
+    }
+
+    let error = execute_rollback(
+        rollback_list_args("develop"),
+        config,
+        targets(&develop, &store),
+    )
+    .err()
+    .expect("an unparsable session record must stop the list");
+
+    let message = format!("{error:#}");
+    assert!(
+        records
+            .iter()
+            .any(|record| message.contains(&record.display().to_string())),
+        "the record path is missing: {message}"
+    );
 }
