@@ -34,11 +34,12 @@ diff は、パスの指定の仕方と走査方式によらず symlink を REQ-c
 
 ### REQ-cli-084: 件数の上限を超えても読めた差分を残す
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-29-adopt-diff-output.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A15, docs/decision/records/2026-09-29-adopt-scan-limits.md#A1
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-29-adopt-diff-output.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A15, docs/decision/records/2026-09-29-adopt-scan-limits.md#A1, docs/decision/records/2026-10-12-untested-items-consistency.md#A1
 - verification: unit
 
 diff の走査が件数の上限を超えたとき、パスの数と走査方式によらず、読めた分の差分を files に残し、上限の超過をトップレベルの errors に載せて終了コード 2 を返す。
 errors に載せる上限の超過の reason は、REQ-scan-008 の "Tree scan truncated at 上限 entries." で始まる案内の文とする。
+名前で指定したディレクトリを展開して比べるときも、件数の上限に当てる件数には scan/limits.md の REQ-scan-010 と同じくファイルと symlink だけを数え、ディレクトリを数えない。
 
 ### REQ-cli-085: 通常のディレクトリと通常ファイルの組は両方を示す
 - kind: state_driven

@@ -4,6 +4,7 @@
 
 pub mod content_reads;
 pub mod diff;
+mod diff_children;
 mod diff_kinds;
 mod diff_listing;
 pub mod logs;

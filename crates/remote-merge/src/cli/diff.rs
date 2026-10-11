@@ -1,6 +1,7 @@
 //! diff サブコマンドの実装。
 
 use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
+use crate::cli::diff_children::children_to_expand;
 use crate::cli::diff_kinds::{directory_against_file, FileSide};
 use crate::cli::diff_listing::{self, ReferenceKind};
 use crate::cli::ref_guard;
@@ -39,7 +40,7 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
 use remote_merge_engine::local_io::ScanTruncated;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 /// diff の ScanStrategy 分岐結果（left_tree, right_tree, statuses, existing_files, diff_files,
@@ -307,14 +308,10 @@ pub fn execute_diff(
                     }
                     None => {}
                 }
-                let children: BTreeSet<_> = left_children
-                    .iter()
-                    .flatten()
-                    .chain(right_children.iter().flatten())
-                    .map(|node| node.name.as_str())
-                    .collect();
-                for child in children {
-                    visited_entries += 1;
+                let children =
+                    children_to_expand(left_children.as_deref(), right_children.as_deref());
+                for (child, counted) in children {
+                    visited_entries += usize::from(counted);
                     if visited_entries > max_entries {
                         errors.push(DiffError {
                             path: path.clone(),
@@ -465,14 +462,10 @@ pub fn execute_diff(
                     || right_symlink_target.is_some()
                         && right_content.is_err()
                         && right_children.is_none();
-                let children: BTreeSet<_> = left_children
-                    .iter()
-                    .flatten()
-                    .chain(right_children.iter().flatten())
-                    .map(|node| node.name.as_str())
-                    .collect();
-                for child in children {
-                    visited_entries += 1;
+                let children =
+                    children_to_expand(left_children.as_deref(), right_children.as_deref());
+                for (child, counted) in children {
+                    visited_entries += usize::from(counted);
                     if visited_entries > max_entries {
                         let reason = ScanTruncated { max_entries }.to_string();
                         errors.push(DiffError {
