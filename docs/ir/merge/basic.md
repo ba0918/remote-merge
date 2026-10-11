@@ -27,7 +27,7 @@
 
 ### REQ-merge-035: 両側にないパスを failed に入れる
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-merge.md#A3, docs/decision/records/2026-10-05-quality-merge.md#A5
+- source: docs/decision/records/2026-10-05-quality-merge.md#A3, docs/decision/records/2026-10-05-quality-merge.md#A5, docs/decision/records/2026-10-12-untested-items-consistency-4.md#A1
 - verification: unit
 
 merge と sync は、指定したパスが左右のどちらにもないとき、--dry-run かどうかによらず、パスごとに警告を出してそのパスを failed に入れ、指定したパスがすべてないときは書き込まずにエラーで止まる。
