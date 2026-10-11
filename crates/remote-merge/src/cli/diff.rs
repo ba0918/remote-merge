@@ -1,6 +1,7 @@
 //! diff サブコマンドの実装。
 
 use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
+use crate::cli::diff_kinds::{directory_against_file, FileSide};
 use crate::cli::diff_listing::{self, ReferenceKind};
 use crate::cli::ref_guard;
 use crate::config::{resolve_max_entries, AppConfig};
@@ -269,11 +270,38 @@ pub fn execute_diff(
                 left_ancestors.extend(left_real);
                 right_ancestors.extend(right_real);
                 scanned_files = scanned_files.saturating_sub(1);
-                let left_below_absent = left_absent
-                    || left_children.is_none() && reads_as_file(&mut core, &pair.left, path, limit);
-                let right_below_absent = right_absent
-                    || right_children.is_none()
-                        && reads_as_file(&mut core, &pair.right, path, limit);
+                // 一覧の取れなかった側がファイルなら、その側には子がない。本文を種類の差とともに示す
+                let left_file = (!left_absent && left_children.is_none())
+                    .then(|| file_body(&mut core, &pair.left, path, limit))
+                    .flatten();
+                let right_file = (!right_absent && right_children.is_none())
+                    .then(|| file_body(&mut core, &pair.right, path, limit))
+                    .flatten();
+                let left_below_absent = left_absent || left_file.is_some();
+                let right_below_absent = right_absent || right_file.is_some();
+                let file = match (&left_file, &right_file) {
+                    (Some(Ok(body)), _) => Some(Ok(FileSide::Left(body))),
+                    (_, Some(Ok(body))) => Some(Ok(FileSide::Right(body))),
+                    (Some(Err(reason)), _) => Some(Err((&pair.left, reason))),
+                    (_, Some(Err(reason))) => Some(Err((&pair.right, reason))),
+                    _ => None,
+                };
+                match file {
+                    Some(Ok(file)) => file_diffs.push(directory_against_file(
+                        path,
+                        (left_info.clone(), right_info.clone()),
+                        file,
+                        args.max_lines,
+                    )),
+                    Some(Err((side, reason))) => {
+                        errors.push(DiffError {
+                            path: path.clone(),
+                            reason: read_failure_reason(&[(side, Some(reason.as_str()))]),
+                        });
+                        has_read_error = true;
+                    }
+                    None => {}
+                }
                 let children: BTreeSet<_> = left_children
                     .iter()
                     .flatten()
@@ -732,12 +760,19 @@ fn unlistable_reason(
         .then(|| read_failure_reason(&[(left_side, left), (right_side, right)]))
 }
 
-/// 一覧の取れなかった側の中身を読めるか。読めればディレクトリでなく通常ファイルで、子を持てない。
-/// 大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てない
-fn reads_as_file(core: &mut CoreRuntime, side: &Side, path: &str, limit: SizeLimit) -> bool {
+/// 一覧の取れなかった側を通常ファイルとして読んだ本文。読めればディレクトリでなく通常ファイルで、
+/// 子を持てない。大きさの上限で読まなかったものも、大きさの分かる通常ファイルなので子を持てず、
+/// 読まなかった理由を返す。ファイルでなければ None
+fn file_body(
+    core: &mut CoreRuntime,
+    side: &Side,
+    path: &str,
+    limit: SizeLimit,
+) -> Option<Result<Vec<u8>, String>> {
     match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
-        Ok(_) => true,
-        Err(error) => error.is::<FileTooLarge>(),
+        Ok(body) => Some(Ok(body)),
+        Err(error) if error.is::<FileTooLarge>() => Some(Err(format!("{error:#}"))),
+        Err(_) => None,
     }
 }
 
