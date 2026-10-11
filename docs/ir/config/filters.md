@@ -20,17 +20,17 @@ include 指定があるとき、ツリー・status・merge・sync は一致す�
 
 ### REQ-config-021: 名前のパターンは各要素に当てる
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A1
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A1, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
 - verification: unit
 
-"/" を含まない exclude のパターンは、root_dir からの相対パスのいずれかの要素（ファイル名かディレクトリ名）に glob で当たるときそのパスを除外し、ディレクトリ名に当たればその下のパスも全て除外する。
+"/" を含まない exclude のパターンは、root_dir からの相対パスのいずれかの要素（ファイル名かディレクトリ名）に glob で当たるときそのパスを除外し、ディレクトリ名に当たればその下のパスも全て除外する。ローカル・SSH・エージェントのどの経路の走査も同じに除外し、除外したディレクトリの下にある循環する symlink や読めないディレクトリでは走査を止めず、不完全な一覧とも報告しない（SSH の経路の古い find は FLAG-config-016）。
 
 ### REQ-config-022: パスのパターンはパス全体に当てる
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A2, docs/decision/records/2026-10-05-quality-config.md#A7
+- source: docs/decision/records/2026-09-29-adopt-config-filters.md#A2, docs/decision/records/2026-10-05-quality-config.md#A7, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
 - verification: unit
 
-"/" を含む exclude のパターンは、root_dir からの相対パス全体に glob で当たるときそのパスを除外し、当たったパスがディレクトリならその下のパスも全て除外する。ローカル・SSH・エージェントのどの経路の走査も同じに除外する。
+"/" を含む exclude のパターンは、root_dir からの相対パス全体に glob で当たるときそのパスを除外し、当たったパスがディレクトリならその下のパスも全て除外する。ローカル・SSH・エージェントのどの経路の走査も同じに除外し、除外したディレクトリの下にある循環する symlink や読めないディレクトリでは走査を止めず、不完全な一覧とも報告しない（SSH の経路の古い find は FLAG-config-016）。
 
 ### REQ-config-038: "../" を含む exclude のパターンは読み込み時に捨てる
 - kind: event_driven

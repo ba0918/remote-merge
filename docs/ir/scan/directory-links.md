@@ -6,10 +6,10 @@
 
 ### REQ-scan-002: CLI の一覧にはリンク先の配下を含める
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A7
+- source: docs/decision/records/2026-09-25-spec-migration.md#A7, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
 - verification: unit
 
-CLI status はディレクトリを指す symlink の配下も走査件数の上限内で再帰列挙し、循環または件数超過が起きた場合は不完全な一覧であることを報告する。
+CLI status はディレクトリを指す symlink の配下も走査件数の上限内で再帰列挙し、循環または件数超過が起きた場合は不完全な一覧であることを報告する。exclude で除外したディレクトリの下の循環は、config/filters.md の REQ-config-021 と REQ-config-022 のとおり報告しない。
 
 ### REQ-scan-011: エージェントの経路もディレクトリ symlink を辿る
 - kind: state_driven

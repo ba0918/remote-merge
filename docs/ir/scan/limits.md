@@ -57,10 +57,10 @@ SSH の経路の走査の時間切れの長さは [ssh] timeout_sec の値とし
 
 ### REQ-scan-014: 読めないディレクトリで走査全体を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-scan.md#A5
+- source: docs/decision/records/2026-10-05-quality-scan.md#A5, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
 - verification: unit
 
-走査の途中に読めないディレクトリがあるとき、ローカル・SSH・エージェントのどの経路でも、そのディレクトリを飛ばした一覧を返さずに走査全体をエラーにし、終了コード 2 を返す。
+走査の途中に読めないディレクトリがあるとき、ローカル・SSH・エージェントのどの経路でも、そのディレクトリを飛ばした一覧を返さずに走査全体をエラーにし、終了コード 2 を返す。exclude で除外したディレクトリの下の読めないディレクトリは、config/filters.md の REQ-config-021 と REQ-config-022 のとおり走査を止めない。
 
 ## Decision tables
 
