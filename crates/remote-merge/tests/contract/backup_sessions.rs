@@ -240,6 +240,42 @@ fn ex_backup_023_a_session_stays_listed_after_the_trailing_slash_of_a_remote_roo
     assert_eq!(listed.len(), 1, "{listed:?}");
 }
 
+// @kotowari[REQ-backup-021]
+#[test]
+fn a_session_stays_listed_after_the_leading_dot_of_a_relative_remote_root_dir_is_removed() {
+    let local = TempDir::new().unwrap();
+    let develop = TempDir::new().unwrap();
+    let store = TempDir::new().unwrap();
+    fs::write(local.path().join("file.txt"), "new\n").unwrap();
+    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let before = config_with_servers(
+        &local,
+        &[(
+            "develop",
+            "example.invalid",
+            22,
+            std::path::Path::new("./srv/app"),
+        )],
+        true,
+    );
+    let output = merge_files(merge_args("file.txt"), before, targets(&develop, &store));
+    assert_eq!(output.merged.len(), 1, "{output:?}");
+    let after = config_with_servers(
+        &local,
+        &[(
+            "develop",
+            "example.invalid",
+            22,
+            std::path::Path::new("srv/app"),
+        )],
+        true,
+    );
+
+    let listed = listed_sessions("develop", after, targets(&develop, &store));
+
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
 /// [local] の root_dir に `local_root` を書いた設定を読み込む。develop は使わない値にする
 fn config_with_local_root(dir: &TempDir, local_root: &std::path::Path) -> AppConfig {
     let path = dir.path().join("config.toml");

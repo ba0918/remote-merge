@@ -1,6 +1,6 @@
 //! 集約バックアップの場所、書き込み先の識別、セッション ID を扱う。
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
@@ -81,9 +81,18 @@ pub fn remote_target_identity(config: &ServerConfig) -> RemoteTargetIdentity {
 }
 
 /// REQ-backup-021 の字面の正規化。symlink を辿らず、"." の要素と末尾の "/" を除き、続いた "/" を
-/// 一つにする（".." は残す）
+/// 一つにする（".." は残す）。components は先頭の "." を残すので、それも除く。
+/// "." の要素だけのパスは "." にする
 fn lexically_normalized(root_dir: &Path) -> PathBuf {
-    root_dir.components().collect()
+    let normalized: PathBuf = root_dir
+        .components()
+        .filter(|component| !matches!(component, Component::CurDir))
+        .collect();
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
 }
 
 /// 現在時刻からバックアップ用タイムスタンプ（= セッションID）を生成する。
