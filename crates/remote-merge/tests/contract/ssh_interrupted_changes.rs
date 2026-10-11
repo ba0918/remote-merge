@@ -711,6 +711,45 @@ async fn an_ssh_read_lost_again_after_reconnecting_fails_that_file_and_leaves_th
     assert!(!fixture.remote().join("b.txt").exists());
 }
 
+// @kotowari[REQ-ssh-003, EX-ssh-048]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ssh_read_whose_reconnect_is_refused_fails_that_file_and_leaves_the_rest_untouched() {
+    // 最初の接続だけを受け入れ、切れた読み込みの後の再接続は認証で拒む
+    let fixture = AgentFixture::new(
+        Setup {
+            agent_disabled: true,
+            ..Setup::default()
+        },
+        Faults {
+            ssh_cut: Some(SshCut {
+                command: SshCommand::PathInspection,
+                repeat: Repeat::Once,
+            }),
+            ..Faults::default()
+        },
+    )
+    .await;
+    fixture.server.reject_logins_after(1);
+    fixture.put("a.txt", Some("a\n"), None);
+    fixture.put("b.txt", Some("b\n"), None);
+
+    let output = fixture.run(&["merge", "a.txt", "b.txt"]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let result = json(&output);
+    assert!(
+        failure(&result["failed"], "a.txt").contains(READ_FAILED),
+        "{result}"
+    );
+    assert!(
+        failure(&result["failed"], "b.txt").contains(UNTOUCHED),
+        "{result}"
+    );
+    assert_eq!(fixture.server.faults().ssh_cuts(), 1);
+    assert!(!fixture.remote().join("a.txt").exists());
+    assert!(!fixture.remote().join("b.txt").exists());
+}
+
 // @kotowari[REQ-backup-017]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_backup_read_lost_again_after_the_retry_stops_instead_of_failing_only_that_file() {

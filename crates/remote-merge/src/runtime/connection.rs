@@ -56,6 +56,14 @@ pub fn classify(error: &anyhow::Error) -> Failure {
     Failure::Refused
 }
 
+/// 接続の使えない失敗 `error` の後のやり直し（再接続かエージェントの起動し直し）が `retry` で
+/// 失敗したときのエラー。種類は最初の失敗の `error` で決まり、`retry` は文言にだけ含める
+/// （再接続が認証で拒まれても、そのサーバへの処理を止める `接続断` のまま）
+pub fn retry_failed(error: anyhow::Error, what: &str, retry: &anyhow::Error) -> anyhow::Error {
+    let message = format!("{error}; {what}: {retry:#}");
+    error.context(message)
+}
+
 /// 読み取りが接続の使えないまま失敗したことを文言に示す（REQ-ssh-003・REQ-ssh-023）。
 /// 種類は変えない
 pub fn label_read(error: anyhow::Error) -> anyhow::Error {
@@ -208,6 +216,25 @@ mod tests {
         for (name, error, expected) in cases {
             assert_eq!(classify(&error), expected, "{name}");
         }
+    }
+
+    #[test]
+    fn a_failed_retry_keeps_the_type_of_the_first_failure_and_names_both() {
+        let lost = app(AppError::SshDisconnected {
+            host: "fixture".into(),
+            message: "ended without an exit status".into(),
+        });
+        let refused = app(AppError::SshAuth {
+            user: "u".into(),
+            host: "h".into(),
+        });
+        let error = retry_failed(lost, "could not reconnect", &refused);
+        assert_eq!(classify(&error), Failure::Lost);
+        let text = format!("{error}");
+        assert!(
+            text.contains("without an exit status") && text.contains("could not reconnect"),
+            "{text}"
+        );
     }
 
     #[test]

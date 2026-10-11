@@ -6,7 +6,7 @@
 //!   そのサーバへの処理を止める（以降の操作は行わずに失敗にする）。変更の `接続断` の後の
 //!   書き込み先の確かめは `confirm` が行う
 
-use super::connection::{classify, Failure, ProcessingStopped};
+use super::connection::{classify, retry_failed, Failure, ProcessingStopped};
 use super::core::{BoxedAgentClient, CoreRuntime};
 
 /// エージェントの操作が読み取りか変更か
@@ -49,8 +49,8 @@ impl CoreRuntime {
             error
         );
         if let Err(restart) = self.restart_agent(server_name) {
-            let message = format!("{error}; the agent could not be restarted: {restart:#}");
-            return Some(AgentAnswer::Done(Err(error.context(message))));
+            let error = retry_failed(error, "the agent could not be restarted", &restart);
+            return Some(AgentAnswer::Done(Err(error)));
         }
         Some(match self.agent_call_once(server_name, &mut operation) {
             None => AgentAnswer::Done(Err(error)),
@@ -117,8 +117,7 @@ impl CoreRuntime {
                     error
                 );
                 if let Err(reconnect) = self.try_reconnect(server_name) {
-                    let message = format!("{error}; could not reconnect: {reconnect:#}");
-                    return Err(reconnect.context(message));
+                    return Err(retry_failed(error, "could not reconnect", &reconnect));
                 }
                 read(self)
             }
