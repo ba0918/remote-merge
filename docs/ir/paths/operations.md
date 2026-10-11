@@ -6,7 +6,7 @@
 
 ### REQ-paths-013: 三つの操作はどの経路も同じ結果にする
 - kind: invariant
-- source: docs/decision/records/2026-10-11-agent-operations.md#A7, docs/decision/records/2026-10-11-agent-operations.md#A12, docs/decision/records/2026-10-11-agent-operations.md#A16, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A31
+- source: docs/decision/records/2026-10-11-agent-operations.md#A7, docs/decision/records/2026-10-11-agent-operations.md#A12, docs/decision/records/2026-10-11-agent-operations.md#A16, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-11-scan-route-parity.md#A1
 - verification: unit
 
 同じファイルシステムの状態と同じパスに対して、同じ利用者・同じ権限で行う削除・権限の変更・子の一覧は、ローカル・SSH・エージェントのどの経路でも同じ成否になり、同じものを変える。
@@ -14,7 +14,7 @@
 削除は、末尾の symlink ならリンクそのものを消してリンク先を変えず、ディレクトリとないパスは消さずに失敗する。--delete は末尾の symlink を REQ-merge-002 のとおりスキップするので、末尾の symlink の削除は merge と rollback が symlink を置き換えるときに起きる。
 末尾の "/" は除いたパスとして扱う。
 子の一覧は、ディレクトリとディレクトリへの symlink ならその直下の子を返す。
-ただし SSH の経路の子の一覧は、名前に TAB か改行を含む子（FLAG-paths-001）と exclude の当て方（FLAG-paths-002）で、まだ他の経路と違う。
+ただし SSH の経路の子の一覧は、名前に TAB か改行を含む子（FLAG-paths-001）で、まだ他の経路と違う。
 
 ### REQ-paths-015: 0o777 を超える権限は付けない
 - kind: prohibition
@@ -32,12 +32,12 @@
 
 ### REQ-paths-017: 子の一覧の項目の値は経路によらない
 - kind: invariant
-- source: docs/decision/records/2026-10-11-agent-operations.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-11-agent-operations.md#A36, docs/decision/records/2026-10-11-agent-operations.md#A31
+- source: docs/decision/records/2026-10-11-agent-operations.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A17, docs/decision/records/2026-10-11-scan-route-parity.md#A1, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-11-agent-operations.md#A36, docs/decision/records/2026-10-11-agent-operations.md#A31
 - verification: unit
 
 子の一覧は、どの経路でも、各項目の種類、大きさ、権限（0o7777 の範囲の権限のビット）、更新時刻（ナノ秒まで）、symlink のリンク先（読んだ文字列そのまま）を同じ値で返す。
 symlink のリンク先か更新時刻を読めないときは、走査の REQ-scan-015 と同じく、既定の値で埋めずにエラーで止まる。
-エージェントの子の一覧は、exclude をローカルの経路と同じく、直下の子の root_dir からのパスに当てる。
+子の一覧は、どの経路でも、exclude を直下の子の root_dir からの相対パスに、走査と同じ規則（config/filters.md の REQ-config-021 と REQ-config-022）で当てる。
 SSH の経路の更新時刻は、リモートの find が出した桁までとし、秒しか出さない find でナノ秒を記録するファイルシステムを一覧したときの差は FLAG-paths-003 に残す。
 
 ### REQ-paths-018: ディレクトリの権限の変更は setuid・setgid を残す
@@ -97,4 +97,10 @@ Scenario: setgid の付いたディレクトリの権限を変える
 Given 権限が 0o2775 のディレクトリ "shared" がある
 When ローカル・SSH・エージェントのそれぞれの経路で "shared" の権限を 0o775 に変える
 Then どの経路でも "shared" の権限は 0o2775 になる
+
+@id=EX-paths-036 @about=REQ-paths-017 @source=docs/decision/records/2026-10-11-scan-route-parity.md#A1
+Scenario: パスのパターンの exclude と深い階層の同じ名前
+Given exclude に "vendor/**" があり、書き込み先に "vendor/x.txt" と "a/vendor/y.txt" がある
+When ローカル・SSH・エージェントのそれぞれの経路で "a" の子の一覧を取る
+Then どの経路でも子に "a/vendor" が含まれる
 ```
