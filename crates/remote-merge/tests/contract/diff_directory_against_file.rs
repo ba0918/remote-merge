@@ -5,8 +5,10 @@
 
 use remote_merge::service::types::exit_code;
 
-use super::common::place_files;
+use super::agent_support::{self, AgentFixture, Setup};
+use super::common::{place_files, CliEnv};
 use super::diff_strategy_support::{strings, Fixture};
+use super::server_faults::Faults;
 
 // ── REQ-cli-085: 通常のディレクトリと通常ファイルの組は両方を示す ──
 
@@ -97,5 +99,72 @@ fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body() {
         assert!(kinds["note"].is_string(), "{paths:?}: {kinds}");
         assert!(kinds["hunks"].to_string().contains("right body"), "{kinds}");
         assert_eq!(run.code, exit_code::DIFF_FOUND, "{paths:?}");
+    }
+}
+
+/// 子のないディレクトリとファイルの組の、"x" の項目に種類の差と "body" の本文があり、誤りがない
+fn assert_kind_and_body(json: &serde_json::Value, context: &str) {
+    assert!(json.get("errors").is_none(), "{context}: {json}");
+    let entry = json["files"]
+        .as_array()
+        .and_then(|files| files.iter().find(|file| file["path"] == "x"))
+        .unwrap_or_else(|| panic!("{context}: x missing: {json}"));
+    assert!(entry["note"].is_string(), "{context}: {entry}");
+    assert!(
+        entry["hunks"].to_string().contains("body"),
+        "{context}: {entry}"
+    );
+}
+
+// SSH の経路でも、子のないディレクトリとファイルの組は種類の差とファイル側の本文を示す
+// @kotowari[REQ-cli-085]
+#[test]
+fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body_over_ssh() {
+    for directory_on_local in [true, false] {
+        let env = CliEnv::new(&[], &[]);
+        let (directory, file) = if directory_on_local {
+            (&env.local_dir, &env.remote_dir)
+        } else {
+            (&env.remote_dir, &env.local_dir)
+        };
+        std::fs::create_dir_all(directory.join("x")).unwrap();
+        place_files(file, &[("x", "body\n")]);
+
+        for paths in [&["x"][..], &[]] {
+            let output = env
+                .cmd_with("diff")
+                .args(paths)
+                .args(["--left", "local", "--right", "develop", "--format", "json"])
+                .output()
+                .unwrap();
+
+            let context = format!("directory on local {directory_on_local}, {paths:?}");
+            let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|error| panic!("{context}: {error}: {output:?}"));
+            assert_kind_and_body(&json, &context);
+            assert_eq!(output.status.code(), Some(1), "{context}: {output:?}");
+        }
+    }
+}
+
+// エージェントの経路でも、子のないディレクトリとファイルの組は種類の差とファイル側の本文を示す
+// @kotowari[REQ-cli-085]
+#[tokio::test(flavor = "multi_thread")]
+async fn req_cli_085_an_empty_directory_against_a_file_shows_the_kind_and_the_body_via_the_agent() {
+    let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
+    fixture.disable_backup();
+    std::fs::create_dir_all(fixture.remote().join("x")).unwrap();
+    fixture.put("x", Some("body\n"), None);
+
+    for paths in [&["diff", "x"][..], &["diff"]] {
+        let output = fixture.run(paths);
+
+        let json = agent_support::json(&output);
+        assert_kind_and_body(&json, &format!("{paths:?}"));
+        assert_eq!(output.status.code(), Some(1), "{paths:?}: {output:?}");
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("falling back"),
+            "{paths:?}: {output:?}"
+        );
     }
 }
