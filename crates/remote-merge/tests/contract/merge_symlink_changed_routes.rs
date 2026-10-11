@@ -196,7 +196,7 @@ fn merge_after_change(
     let destination_tree = core.fetch_tree_recursive(destination, 100, true).unwrap();
     change.apply(destination_root);
     let session_id = if core.config.backup.enabled {
-        core.reserve_backup_session().unwrap()
+        core.reserve_backup_session(&[]).unwrap()
     } else {
         "unused".into()
     };

@@ -15,6 +15,8 @@ mod backup_rollback_path;
 mod backup_sessions;
 #[path = "contract/backup_storage.rs"]
 mod backup_storage;
+#[path = "contract/backup_store_failure.rs"]
+mod backup_store_failure;
 #[path = "contract/backup_support.rs"]
 mod backup_support;
 #[path = "contract/cli_results.rs"]

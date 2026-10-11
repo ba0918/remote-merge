@@ -157,7 +157,7 @@ fn overwrite_backs_up_the_destination_content_read_immediately_before_writing() 
         hunks: None,
         ref_badge: None,
     }];
-    let session_id = core.reserve_backup_session().unwrap();
+    let session_id = core.reserve_backup_session(&[]).unwrap();
     let expected_target_contents = HashMap::from([("file.txt".to_string(), current)]);
     let left = Side::Local;
     let right = Side::Remote("develop".into());
@@ -204,7 +204,7 @@ fn deletion_backs_up_the_destination_content_read_immediately_before_removing() 
     let config = config(&local, &develop, true);
     let mut core = CoreRuntime::with_targets(config.clone(), targets(&develop, &store));
     scan_then_change_destination(&mut core, &develop, "obsolete.txt");
-    let session_id = core.reserve_backup_session().unwrap();
+    let session_id = core.reserve_backup_session(&[]).unwrap();
 
     let (deleted, _, failed) = execute_deletions(
         &mut core,

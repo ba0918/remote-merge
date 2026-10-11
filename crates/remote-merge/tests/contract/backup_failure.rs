@@ -2,6 +2,7 @@
 //! バックアップできないときと集約先が決まらないとき（docs/ir/backup/failure.md）の契約テスト。
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 
 use remote_merge::cli::merge::execute_merge;
 use remote_merge::cli::rollback::execute_rollback;
@@ -11,7 +12,7 @@ use remote_merge::service::types::SyncOutput;
 use tempfile::TempDir;
 
 use super::backup_support::{
-    config, fixed_now, merge_args, merge_files, rollback_args, rollback_list_args,
+    config, fixed_now, merge_args, merge_files, rollback_args, rollback_list_args, targets,
 };
 
 const LOCATION_ERROR: &str = "backup store location could not be determined";
@@ -69,81 +70,67 @@ fn assert_backup_failure(error: &str) {
     assert!(!cause.trim().is_empty(), "no cause in {error:?}");
 }
 
-// @kotowari[REQ-backup-017]
+// 集約先を作れないとき（集約先の場所がファイルでふさがれている）は、ファイルごとの失敗にせずに
+// どのファイルも書き込む前に merge と sync を止める
+// @kotowari[REQ-backup-045]
 #[test]
-fn merge_reports_a_file_it_cannot_back_up_as_failed_and_leaves_it_unchanged() {
+fn merge_and_sync_stop_before_writing_when_the_store_cannot_be_created() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
     let store_parent = TempDir::new().unwrap();
     fs::write(local.path().join("file.txt"), "new content\n").unwrap();
     fs::write(develop.path().join("file.txt"), "old\n").unwrap();
+    let config = config(&local, &develop, true);
 
-    let output = merge_files(
+    let merge = execute_merge(
         merge_args("file.txt"),
-        config(&local, &develop, true),
+        config.clone(),
+        unusable_store_targets(&develop, &store_parent),
+    );
+    let sync = execute_sync(
+        sync_args("file.txt"),
+        config,
         unusable_store_targets(&develop, &store_parent),
     );
 
-    assert!(output.merged.is_empty(), "{output:?}");
-    assert_eq!(output.failed.len(), 1, "{output:?}");
-    assert_eq!(output.failed[0].path, "file.txt");
-    assert_backup_failure(&output.failed[0].error);
+    assert!(merge.is_err(), "merge must stop as a whole");
+    assert!(sync.is_err(), "sync must stop as a whole");
     assert_eq!(
         fs::read_to_string(develop.path().join("file.txt")).unwrap(),
         "old\n"
     );
 }
 
+// 書き込み先のファイルを読めないと書き換え前の内容を保存できないので、そのファイルを消さずに
+// "backup failed: " と原因を failed に出す。root の利用者は読めてしまうので飛ばす
 // @kotowari[REQ-backup-017]
 #[test]
 fn delete_reports_a_file_it_cannot_back_up_as_failed_and_keeps_it() {
     let local = TempDir::new().unwrap();
     let develop = TempDir::new().unwrap();
-    let store_parent = TempDir::new().unwrap();
-    fs::write(develop.path().join("obsolete.txt"), "original\n").unwrap();
+    let store = TempDir::new().unwrap();
+    let obsolete = develop.path().join("obsolete.txt");
+    fs::write(&obsolete, "original\n").unwrap();
+    fs::set_permissions(&obsolete, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&obsolete).is_ok() {
+        eprintln!("skipped: the file is readable without permission (running as root)");
+        return;
+    }
     let mut args = merge_args("obsolete.txt");
     args.delete = true;
 
     let output = merge_files(
         args,
         config(&local, &develop, true),
-        unusable_store_targets(&develop, &store_parent),
+        targets(&develop, &store),
     );
 
+    fs::set_permissions(&obsolete, fs::Permissions::from_mode(0o600)).unwrap();
     assert!(output.deleted.is_empty(), "{output:?}");
     assert_eq!(output.failed.len(), 1, "{output:?}");
     assert_eq!(output.failed[0].path, "obsolete.txt");
     assert_backup_failure(&output.failed[0].error);
-    assert_eq!(
-        fs::read_to_string(develop.path().join("obsolete.txt")).unwrap(),
-        "original\n"
-    );
-}
-
-// @kotowari[REQ-backup-017]
-#[test]
-fn sync_reports_a_file_it_cannot_back_up_as_failed_and_leaves_it_unchanged() {
-    let local = TempDir::new().unwrap();
-    let develop = TempDir::new().unwrap();
-    let store_parent = TempDir::new().unwrap();
-    fs::write(local.path().join("file.txt"), "new content\n").unwrap();
-    fs::write(develop.path().join("file.txt"), "old\n").unwrap();
-
-    let output = sync_output(
-        sync_args("file.txt"),
-        config(&local, &develop, true),
-        unusable_store_targets(&develop, &store_parent),
-    );
-
-    let target = &output.targets[0];
-    assert!(target.merged.is_empty(), "{output:?}");
-    assert_eq!(target.failed.len(), 1, "{output:?}");
-    assert_eq!(target.failed[0].path, "file.txt");
-    assert_backup_failure(&target.failed[0].error);
-    assert_eq!(
-        fs::read_to_string(develop.path().join("file.txt")).unwrap(),
-        "old\n"
-    );
+    assert_eq!(fs::read_to_string(&obsolete).unwrap(), "original\n");
 }
 
 // @kotowari[REQ-backup-018]

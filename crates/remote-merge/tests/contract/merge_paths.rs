@@ -994,10 +994,15 @@ fn deletion_fails_without_removing_a_file_when_backup_cannot_be_saved() {
     let local = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let backup = TempDir::new().unwrap();
-    let blocked_store = backup.path().join("occupied");
-    fs::write(&blocked_store, "not a directory").unwrap();
+    // 読めない書き込み先のファイルは、書き換え前の内容を集約先へ保存できない。root の利用者は
+    // 読めてしまうので飛ばす
     let file = destination.path().join("obsolete.txt");
     fs::write(&file, "original\n").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&file).is_ok() {
+        eprintln!("skipped: the file is readable without permission (running as root)");
+        return;
+    }
     let (config, targets) = setup(&local, &destination, &backup);
     let result = execute_merge(
         MergeArgs {
@@ -1005,9 +1010,10 @@ fn deletion_fails_without_removing_a_file_when_backup_cannot_be_saved() {
             ..merge_args("obsolete.txt")
         },
         config,
-        targets.with_backup_store(Some(blocked_store)),
-    )
-    .unwrap();
+        targets,
+    );
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let result = result.unwrap();
     let MergeCommandOutput::Files(output) = result.output else {
         panic!("expected per-file result")
     };
@@ -1361,7 +1367,7 @@ fn delete_rechecks_a_link_that_appears_after_the_listing() {
     symlink("target.txt", destination.path().join("link.txt")).unwrap();
     let (config, targets) = setup(&local, &destination, &backup);
     let mut core = CoreRuntime::with_targets(config, targets);
-    let session = core.reserve_backup_session().unwrap();
+    let session = core.reserve_backup_session(&[]).unwrap();
     let (deleted, skipped, failures) = execute_deletions(
         &mut core,
         &Side::Remote("develop".into()),
@@ -1800,7 +1806,7 @@ fn one_failed_backup_does_not_prevent_the_other_file_from_merging() {
             )
         })
         .collect();
-    let session = core.reserve_backup_session().unwrap();
+    let session = core.reserve_backup_session(&[]).unwrap();
     core.save_backup(&right, "anchor.txt", &session, false)
         .unwrap();
     let session_dir = backup.path().join("sessions").join(&session);

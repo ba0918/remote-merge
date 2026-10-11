@@ -19,7 +19,8 @@ pub struct BackupStore {
     root: Option<PathBuf>,
     startup_directory: PathBuf,
     now: DateTime<Utc>,
-    initialization_error: Option<String>,
+    /// このコマンドが前もって作った書き込み先ごとの説明のディレクトリ（キー）。何も保存しなければ除く
+    created_targets: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -99,7 +100,7 @@ impl BackupStore {
             root,
             startup_directory,
             now,
-            initialization_error: None,
+            created_targets: Vec::new(),
         }
     }
 
@@ -108,16 +109,14 @@ impl BackupStore {
             .root
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
-        if let Err(error) = create_dir_owner_only(root) {
-            self.initialization_error = Some(error.to_string());
-            return Ok(next_session_id(self.now, &[]));
-        }
+        // 集約先と予約の場所を作れなければ、どのファイルも書き込む前にコマンド全体を止める
+        // （docs/ir/backup/failure.md の REQ-backup-045）
+        create_dir_owner_only(root).map_err(|error| store_failure(root, error))?;
         let reservations = root.join("reservations");
-        if let Err(error) = create_dir_owner_only(&reservations) {
-            self.initialization_error = Some(error.to_string());
-            return Ok(next_session_id(self.now, &[]));
-        }
-        let mut existing = fs::read_dir(&reservations)?
+        create_dir_owner_only(&reservations)
+            .map_err(|error| store_failure(&reservations, error))?;
+        let mut existing = fs::read_dir(&reservations)
+            .map_err(|error| store_failure(&reservations, error))?
             .filter_map(Result::ok)
             .filter_map(|entry| entry.file_name().into_string().ok())
             .collect::<Vec<_>>();
@@ -133,9 +132,39 @@ impl BackupStore {
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     existing.push(id)
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(store_failure(&reservation, error)),
             }
         }
+    }
+
+    /// 書き込み先 `target` のセッション `session_id` の領域を、ファイルを書き込む前に作る。作れなければ
+    /// ファイルごとの失敗にせず、コマンド全体を止める（REQ-backup-045）
+    pub fn prepare_target(
+        &mut self,
+        config: &AppConfig,
+        target: &Side,
+        session_id: &str,
+    ) -> anyhow::Result<()> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("backup store location could not be determined"))?;
+        let description = target_description(config, target, &self.startup_directory)?;
+        let key = format!("{:x}", Sha256::digest(description.as_bytes()));
+        let target_dir = root.join("targets").join(&key);
+        if !target_dir.exists() {
+            self.created_targets.push(key.clone());
+        }
+        create_dir_owner_only(&target_dir).map_err(|error| store_failure(&target_dir, error))?;
+        let description_file = target_dir.join("target.txt");
+        write_file_owner_only(&description_file, description.as_bytes())
+            .map_err(|error| store_failure(&description_file, error))?;
+        let records = root
+            .join("sessions")
+            .join(session_id)
+            .join(key)
+            .join("records");
+        create_dir_owner_only(&records).map_err(|error| store_failure(&records, error))
     }
 
     pub fn save_file(
@@ -180,9 +209,6 @@ impl BackupStore {
         record: &StoredBackup<'_>,
         content: Option<&[u8]>,
     ) -> anyhow::Result<String> {
-        if let Some(error) = &self.initialization_error {
-            anyhow::bail!(error.clone());
-        }
         let root = self
             .root
             .as_ref()
@@ -220,7 +246,29 @@ impl BackupStore {
 
     pub fn finish_session(&self, session_id: &str) {
         let Some(root) = &self.root else { return };
-        if root.join("sessions").join(session_id).exists() {
+        // 前もって作った領域のうち、何も保存しなかったもの（空のディレクトリ）を除く
+        let session_dir = root.join("sessions").join(session_id);
+        if let Ok(areas) = fs::read_dir(&session_dir) {
+            for area in areas.filter_map(Result::ok) {
+                let _ = fs::remove_dir(area.path().join("records"));
+                let emptied = fs::remove_dir(area.path()).is_ok();
+                let key = area.file_name();
+                if emptied
+                    && self
+                        .created_targets
+                        .iter()
+                        .any(|created| key == created.as_str())
+                {
+                    let target_dir = root.join("targets").join(&key);
+                    let _ = fs::remove_file(target_dir.join("target.txt"));
+                    let _ = fs::remove_dir(target_dir);
+                }
+            }
+        }
+        let _ = fs::remove_dir(&session_dir);
+        let _ = fs::remove_dir(root.join("sessions"));
+        let _ = fs::remove_dir(root.join("targets"));
+        if session_dir.exists() {
             return;
         }
         let reservations = root.join("reservations");
@@ -380,6 +428,14 @@ impl BackupStore {
             }
         }
     }
+}
+
+/// 集約先の準備の失敗。どの場所で失敗したかを示す
+fn store_failure(path: &Path, error: std::io::Error) -> anyhow::Error {
+    anyhow::anyhow!(
+        "backup store could not be prepared: {}: {error}",
+        path.display()
+    )
 }
 
 fn create_temporary_entry(parent: &Path) -> std::io::Result<PathBuf> {

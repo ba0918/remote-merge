@@ -317,7 +317,7 @@ fn a_recorded_symlink_is_not_restored_with_or_without_force() {
     symlink("target.txt", develop.path().join("link.txt")).unwrap();
     let config = config(&local, &develop, true);
     let mut core = CoreRuntime::with_targets(config.clone(), targets(&develop, &store));
-    let session_id = core.reserve_backup_session().unwrap();
+    let session_id = core.reserve_backup_session(&[]).unwrap();
     core.save_backup(
         &Side::Remote("develop".into()),
         "link.txt",
@@ -494,7 +494,7 @@ fn rollback_skips_a_deleted_file_after_its_parent_symlink_is_retargeted() {
     symlink(&release_a, develop.path().join("current")).unwrap();
     let config = config(&local, &develop, true);
     let mut core = CoreRuntime::with_targets(config.clone(), targets(&develop, &store));
-    let session_id = core.reserve_backup_session().unwrap();
+    let session_id = core.reserve_backup_session(&[]).unwrap();
     core.save_backup(
         &Side::Remote("develop".into()),
         "current/file.txt",

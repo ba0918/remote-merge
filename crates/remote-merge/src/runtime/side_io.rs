@@ -315,7 +315,7 @@ impl CoreRuntime {
             }
         }
         let pre_session_id = if self.config.backup.enabled && !dry_run {
-            Some(self.reserve_backup_session()?)
+            Some(self.reserve_backup_session(&[side])?)
         } else {
             None
         };

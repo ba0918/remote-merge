@@ -319,7 +319,8 @@ pub fn execute_sync(
 
     // マージ + 削除実行
     let session_id = if core.config.backup.enabled {
-        core.reserve_backup_session()?
+        let sides: Vec<&Side> = server_plans.iter().map(|plan| &plan.pair.right).collect();
+        core.reserve_backup_session(&sides)?
     } else {
         crate::backup::backup_timestamp()
     };

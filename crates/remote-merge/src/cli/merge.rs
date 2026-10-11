@@ -359,7 +359,7 @@ pub fn execute_merge(
     // マージ実行
     let mut merged = Vec::new();
     let session_id = if core.config.backup.enabled {
-        core.reserve_backup_session()?
+        core.reserve_backup_session(&[&pair.right])?
     } else {
         crate::backup::backup_timestamp()
     };
@@ -492,7 +492,7 @@ fn run_hunk_merge(
     )?;
 
     let session_id = if core.config.backup.enabled {
-        core.reserve_backup_session()?
+        core.reserve_backup_session(&[right])?
     } else {
         crate::backup::backup_timestamp()
     };

@@ -61,7 +61,7 @@ fn cleanup_fixture() -> CleanupFixture {
         .clone()
         .with_now(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap());
     let mut core = CoreRuntime::with_targets(original_config.clone(), old_targets);
-    let session = core.reserve_backup_session().unwrap();
+    let session = core.reserve_backup_session(&[]).unwrap();
     for name in ["retired", "active"] {
         let side = Side::Remote(name.into());
         core.save_backup(&side, "file.txt", &session, false)

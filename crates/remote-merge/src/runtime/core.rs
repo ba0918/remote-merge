@@ -96,8 +96,17 @@ impl CoreRuntime {
         self.passphrase_provider = Some(provider);
     }
 
-    pub fn reserve_backup_session(&mut self) -> anyhow::Result<String> {
-        self.backup_store.reserve_session()
+    /// バックアップのセッションを予約し、書き込み先 `targets` ごとの領域を書き込む前に作る
+    pub fn reserve_backup_session(
+        &mut self,
+        targets: &[&crate::side::Side],
+    ) -> anyhow::Result<String> {
+        let session_id = self.backup_store.reserve_session()?;
+        for target in targets {
+            self.backup_store
+                .prepare_target(&self.config, target, &session_id)?;
+        }
+        Ok(session_id)
     }
 
     pub fn finish_backup_session(&self, session_id: &str) {
