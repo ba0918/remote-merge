@@ -12,8 +12,8 @@
 //! - "/" を含まないパターンは、文字と単独の `*` だけのものを `-name` にする
 //! - "/" を含むパターンは、glob の文字を含まないもの（末尾の "/**" を除いた残りがそうであるもの
 //!   を含む）を `-path` にする
-//! - `?`・`[`・`{`・`\`・`!`・`**` を含むもの、`../` を含むもの（`is_path_excluded` が無視する）は
-//!   刈り込まない
+//! - `?`・`[`・`{`・`\`・`!`・`**` を含むもの、`../` を含むもの（`is_path_excluded` が無視する）、
+//!   "/" で終わるもの（どのパスにも当たらない）は刈り込まない
 
 use crate::tree_parser::shell_escape;
 
@@ -45,7 +45,8 @@ fn find_test(prefix: &str, pattern: &str) -> Option<String> {
         return name_pattern(pattern).map(|name| format!("-name {}", shell_escape(name)));
     }
     let literal = pattern.strip_suffix("/**").unwrap_or(pattern);
-    if literal.is_empty() || literal.contains(GLOB_CHARS) {
+    // "/" で終わるパターンは走査のどのパスにも当たらず、find の -path は当たらないという警告を出す
+    if literal.is_empty() || literal.ends_with('/') || literal.contains(GLOB_CHARS) {
         return None;
     }
     let path = format!("{}/{}", escape_fnmatch(prefix), literal);
@@ -124,6 +125,19 @@ mod tests {
             "a?", "[ab]", "{a,b}", "a\\*", "!a", "**", "a**", "", "a/*", "**/a", "a/{b,c}",
             "a/[b]/**", "!a/b", "/**",
         ] {
+            assert_eq!(find_test("/r", pattern), None, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn a_path_pattern_ending_with_a_slash_is_not_pruned() {
+        // 走査のパスは "/" で終わらないので、このパターンはどのパスも除かない。find の -path に
+        // 移すと、どのパスにも当たらないという警告を標準エラーに出す
+        for pattern in ["dist/", "a/b/", "dist//**"] {
+            assert!(!crate::filter::is_path_excluded(
+                "dist",
+                &patterns(&[pattern])
+            ));
             assert_eq!(find_test("/r", pattern), None, "{pattern}");
         }
     }
