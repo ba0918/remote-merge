@@ -108,11 +108,11 @@ impl TargetIo for StoppedTargetIo {
     fn list_children(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<ChildListing> {
         self.refuse(rt)
     }
-    fn list_children_uncut(
+    fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
         _: &str,
-    ) -> anyhow::Result<ChildListing> {
+    ) -> anyhow::Result<Option<String>> {
         self.refuse(rt)
     }
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {

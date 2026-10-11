@@ -240,14 +240,12 @@ impl TargetIo for RemoteTargetIo {
             Ok(included_children(listing, path, &rt.config.filter.include))
         })
     }
-    fn list_children_uncut(
+    fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
         path: &str,
-    ) -> anyhow::Result<ChildListing> {
-        self.guarded(rt, |rt, name| {
-            rt.list_remote_children_on_route(name, path, &[], usize::MAX)
-        })
+    ) -> anyhow::Result<Option<String>> {
+        self.guarded(rt, |rt, name| rt.remote_entry_link_target(name, path))
     }
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {
         rt.connect(&self.name)

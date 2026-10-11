@@ -1,4 +1,5 @@
 pub mod diff;
+pub mod entry_link;
 pub mod error;
 pub mod filter;
 pub mod listing;

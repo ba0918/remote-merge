@@ -660,6 +660,31 @@ impl SshClient {
         )
     }
 
+    /// `remote_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を返す。
+    /// 親ディレクトリは一覧しない。`rel` は root_dir からのパス（文言に使う）
+    pub async fn entry_link_target(
+        &mut self,
+        remote_path: &str,
+        rel: &str,
+    ) -> crate::error::Result<Option<String>> {
+        let command = super::entry_link::link_target_command(remote_path);
+        let output = tokio::time::timeout(
+            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
+            self.run_command(&command),
+        )
+        .await
+        .map_err(|_| AppError::SshTimeout {
+            host: self.server_name.clone(),
+            timeout_sec: Self::DIR_TIMEOUT_SECS,
+        })??;
+        super::entry_link::parse_link_target_output(
+            &output.stdout,
+            &output.stderr,
+            output.exit_code,
+            rel,
+        )
+    }
+
     /// リモートディレクトリを再帰的に全走査する（変更ファイルフィルター用）
     pub async fn list_tree_recursive(
         &mut self,

@@ -158,7 +158,7 @@ fn modified(meta: &std::fs::Metadata) -> io::Result<DateTime<Utc>> {
 }
 
 /// ないパス（途中がディレクトリでないものを含む）
-fn is_missing(error: &io::Error) -> bool {
+pub(crate) fn is_missing(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::NotFound || error.raw_os_error() == Some(not_a_directory())
 }
 

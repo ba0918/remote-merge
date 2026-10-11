@@ -145,13 +145,13 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         dir_rel_path: &str,
     ) -> anyhow::Result<ChildListing>;
-    /// 子の一覧のうち、exclude・include を当てず、件数でも打ち切らないもの。一覧から特定の子を
-    /// 探すときに使う（打ち切った一覧ではその子が入らないことがある）
-    fn list_children_uncut(
+    /// `rel_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先の文字列。
+    /// symlink でないか、ないか、途中がディレクトリでないなら None。exclude・include は当てない
+    fn entry_link_target(
         &mut self,
         runtime: &mut CoreRuntime,
-        dir_rel_path: &str,
-    ) -> anyhow::Result<ChildListing>;
+        rel_path: &str,
+    ) -> anyhow::Result<Option<String>>;
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
     fn is_available(&self, runtime: &CoreRuntime) -> bool;
@@ -314,12 +314,12 @@ impl TargetIo for LocalTargetIo {
             remote_merge_engine::local_io::list_children(&self.root, &self.exclude, path)?;
         Ok(included_children(listing, path, &self.include))
     }
-    fn list_children_uncut(
+    fn entry_link_target(
         &mut self,
         _: &mut CoreRuntime,
         path: &str,
-    ) -> anyhow::Result<ChildListing> {
-        remote_merge_core::listing::list_children(&self.root, path, &[], usize::MAX)
+    ) -> anyhow::Result<Option<String>> {
+        remote_merge_core::entry_link::link_target_of_entry(&self.root, path)
     }
     fn connect(&mut self, _: &mut CoreRuntime) -> anyhow::Result<()> {
         Ok(())

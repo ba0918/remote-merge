@@ -388,6 +388,22 @@ impl CoreRuntime {
         ))
     }
 
+    /// リモートの `rel_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を、
+    /// SSH でその項目だけを読んで返す
+    pub(crate) fn ssh_entry_link_target(
+        &mut self,
+        server_name: &str,
+        rel_path: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let rel = remote_merge_core::rel_path::operation_rel_path(rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel)?;
+        let client = self
+            .ssh_clients
+            .get_mut(server_name)
+            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
+        self.rt.block_on(client.entry_link_target(&full_path, rel))
+    }
+
     // ── private helpers ──
 
     fn resolve_remote_path(&self, server_name: &str, rel_path: &str) -> anyhow::Result<String> {
