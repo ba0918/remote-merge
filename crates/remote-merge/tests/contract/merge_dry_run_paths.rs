@@ -33,7 +33,7 @@ fn assert_failed_as_not_a_directory(label: &str, result: &serde_json::Value, cod
     assert_eq!(code, 2, "{label}: {result}");
 }
 
-// @kotowari[REQ-cli-091, REQ-paths-011]
+// @kotowari[REQ-cli-091, REQ-paths-011, EX-paths-022, EX-paths-038]
 #[test]
 fn merge_previews_a_destination_ancestor_that_is_a_file_as_the_same_failure() {
     for dry_run in [true, false] {

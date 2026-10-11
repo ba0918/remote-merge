@@ -20,10 +20,11 @@ SSH の経路でパスの確認が symlink に出会い、リモートに readli
 
 ### REQ-paths-011: 祖先がディレクトリでなければ rollback 以外はエラーにする
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A16
+- source: docs/decision/records/2026-10-06-path-resolution.md#A16, docs/decision/records/2026-10-12-skip-subtree-consistency-2.md#A1
 - verification: unit
 
 パスの確認の結果が途中の祖先がディレクトリでないとき、diff・merge・sync とバックアップの作成は、そのパスを "cannot resolve path: not a directory" のエラーとして扱う。
+merge と sync の --dry-run も、書き込む予定のパスについて実行時と同じパスの確認をし、途中の祖先がディレクトリでないパスは書き込む予定に出さず、同じエラーとして failed に出す。
 
 ### REQ-paths-012: リモートの相対の root_dir はログインした利用者の作業ディレクトリを基準にする
 - kind: state_driven
@@ -52,6 +53,12 @@ Scenario: merge の書き込み先の祖先が通常ファイル
 Given 書き込み先の "dir" が通常ファイルになっている
 When "dir/a.txt" を merge する
 Then そのファイルは "cannot resolve path: not a directory" のエラーになる
+
+@id=EX-paths-038 @about=REQ-paths-011,REQ-cli-091 @source=docs/decision/records/2026-10-12-skip-subtree-consistency-2.md#A1
+Scenario: --dry-run の merge の書き込み先の祖先が通常ファイル
+Given 書き込み先の "dir" が通常ファイルになっている
+When --dry-run を付けて "dir/a.txt" を merge する
+Then "dir/a.txt" は merged に出ず、failed に "cannot resolve path: not a directory" のエラーで出て、終了コード 2 を返し、書き込み先の "dir" は変わらない
 
 @id=EX-paths-025 @about=REQ-paths-012 @source=docs/decision/records/2026-10-06-path-resolution.md#A53
 Scenario: リモートの相対の root_dir
