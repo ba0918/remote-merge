@@ -18,7 +18,8 @@ use crate::tree::FileNode;
 use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
 use super::host_key_verifier::HostKeyVerifier;
-use super::known_hosts::{append_known_hosts_entry, SshHandler};
+use super::known_hosts::SshHandler;
+use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
     build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
@@ -522,8 +523,6 @@ impl SshClient {
 
     /// ディレクトリ取得のデフォルトタイムアウト（秒）
     pub const DIR_TIMEOUT_SECS: u64 = 30;
-    /// ディレクトリ取得のデフォルト最大エントリ数（config::DEFAULT_MAX_DIR_ENTRIES と同値）
-    pub const MAX_DIR_ENTRIES: usize = crate::config::DEFAULT_MAX_DIR_ENTRIES;
 
     /// リモートディレクトリの直下エントリを取得する
     ///
@@ -541,7 +540,7 @@ impl SshClient {
             exclude,
             parent_rel_path,
             Self::DIR_TIMEOUT_SECS,
-            Self::MAX_DIR_ENTRIES,
+            crate::config::DEFAULT_MAX_DIR_ENTRIES,
         )
         .await
         .map(|(nodes, _)| nodes)
@@ -602,7 +601,7 @@ impl SshClient {
             remote_path,
             exclude,
             parent_rel_path,
-            Self::MAX_DIR_ENTRIES,
+            crate::config::DEFAULT_MAX_DIR_ENTRIES,
         );
         Ok(nodes)
     }
@@ -615,8 +614,13 @@ impl SshClient {
         exclude: &[String],
         rel: &str,
     ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
-        self.list_children_with_limit(remote_path, exclude, rel, Self::MAX_DIR_ENTRIES)
-            .await
+        self.list_children_with_limit(
+            remote_path,
+            exclude,
+            rel,
+            crate::config::DEFAULT_MAX_DIR_ENTRIES,
+        )
+        .await
     }
 
     /// [`Self::list_children`] の、子を `max_entries` 件で打ち切るもの

@@ -241,12 +241,6 @@ impl SshHandler {
     }
 }
 
-// format_fingerprint, append_known_hosts_entry, known_hosts_path は
-// known_hosts_io モジュールに移動。
-
-/// 後方互換: client.rs から使われる re-export
-pub(crate) use known_hosts_io::append_known_hosts_entry;
-
 /// known_hosts のテキスト内容をパースする（"@" で始まる印付きの行は除く）
 pub(crate) fn parse_known_hosts(content: &str) -> Vec<KnownHost> {
     entry_lines(content)

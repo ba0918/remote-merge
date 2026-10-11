@@ -27,9 +27,6 @@ pub fn scan_local_tree(root: &Path, exclude: &[String]) -> crate::error::Result<
     Ok(tree)
 }
 
-/// ディレクトリ取得のデフォルト最大エントリ数（後方互換エイリアス）
-pub const MAX_DIR_ENTRIES: usize = crate::config::DEFAULT_MAX_DIR_ENTRIES;
-
 /// 指定ディレクトリの直下エントリのみを取得する（1階層のみ）
 ///
 /// サブディレクトリは children: None（未取得）で返す。
@@ -41,7 +38,13 @@ pub fn scan_dir(
     exclude: &[String],
     parent_rel_path: &str,
 ) -> crate::error::Result<Vec<FileNode>> {
-    scan_dir_with_limit(dir, exclude, parent_rel_path, MAX_DIR_ENTRIES).map(|(nodes, _)| nodes)
+    scan_dir_with_limit(
+        dir,
+        exclude,
+        parent_rel_path,
+        crate::config::DEFAULT_MAX_DIR_ENTRIES,
+    )
+    .map(|(nodes, _)| nodes)
 }
 
 /// 指定ディレクトリの直下エントリを取得する（エントリ数制限付き）

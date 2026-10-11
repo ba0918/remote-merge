@@ -360,7 +360,12 @@ pub fn list_children(
     exclude: &[String],
     path: &str,
 ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
-    remote_merge_core::listing::list_children(root, path, exclude, local::MAX_DIR_ENTRIES)
+    remote_merge_core::listing::list_children(
+        root,
+        path,
+        exclude,
+        crate::config::DEFAULT_MAX_DIR_ENTRIES,
+    )
 }
 
 pub fn hashes(root: &Path, paths: &[String]) -> Option<HashMap<String, String>> {

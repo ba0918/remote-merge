@@ -209,7 +209,6 @@ pub struct MultiDiffSummary {
 pub struct MergeOutput {
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
-    #[serde(default)]
     pub deleted: Vec<DeleteFileResult>,
     pub failed: Vec<MergeFailure>,
     #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
@@ -355,7 +354,6 @@ pub struct SyncTargetResult {
     pub target: SourceInfo,
     pub merged: Vec<MergeFileResult>,
     pub skipped: Vec<MergeSkipped>,
-    #[serde(default)]
     pub deleted: Vec<DeleteFileResult>,
     pub failed: Vec<MergeFailure>,
     pub status: SyncTargetStatus,
@@ -862,18 +860,6 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(!json.contains("\"truncated\""));
         assert!(!json.contains("\"changed_files_total\""));
-    }
-
-    #[test]
-    fn test_status_summary_backward_compat_deserialize() {
-        // Old JSON without ref fields should deserialize with ref_* = None
-        let json = r#"{"modified":1,"left_only":0,"right_only":0,"equal":5}"#;
-        let summary: StatusSummary = serde_json::from_str(json).unwrap();
-        assert_eq!(summary.modified, 1);
-        assert_eq!(summary.equal, 5);
-        assert!(summary.ref_differs.is_none());
-        assert!(summary.ref_only.is_none());
-        assert!(summary.ref_missing.is_none());
     }
 
     #[test]
