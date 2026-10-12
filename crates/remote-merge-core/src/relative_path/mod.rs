@@ -11,6 +11,9 @@ pub enum RelPathError {
     Absolute(String),
     #[error("path traversal not allowed: {0}")]
     Traversal(String),
+    /// 一つの項目を求めるところに、root_dir 全体を指す値が来た
+    #[error("root_dir itself is not an entry: {0}")]
+    RootDirItself(String),
 }
 
 /// 入力の形の検査を通った、root_dir からの相対パス
@@ -108,6 +111,9 @@ pub fn as_typed_all(paths: &[RelPath]) -> Vec<String> {
         .map(|path| path.as_typed().to_string())
         .collect()
 }
+
+mod entry;
+pub use entry::{entries_as_typed, EntryPath};
 
 #[cfg(test)]
 mod tests;
