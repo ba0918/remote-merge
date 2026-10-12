@@ -38,15 +38,7 @@ pub fn over_shell(
         &exclude.prunable(),
     );
     let output = shell_command(&script).output().unwrap();
-    let mut answers = parse(&output.stdout, &output.stderr, &script_questions)?;
-    crate::scan_search::complete_unsearchable(
-        root.as_os_str().as_bytes(),
-        &script_questions,
-        &mut answers,
-        |script| Ok(shell_command(script).output().unwrap().stdout),
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(answers)
+    parse(&output.stdout, &output.stderr, &script_questions)
 }
 
 /// スクリプトを動かすシェル。REMOTE_MERGE_TEST_SCAN_IMAGE にコンテナのイメージ（centos:5 など）を

@@ -92,3 +92,66 @@ async fn an_unreadable_directory_with_a_newline_in_its_name_is_handled_the_same_
         assert_eq!(codes[0].0, expected, "{parent}: {codes:?}");
     }
 }
+
+/// 試す側の "d" に `names` を置いて検索の権限をなくし（mode 0644）、三つの経路で status を動かした
+/// 終了コードと誤り
+async fn unsearchable_on_every_route(names: &[&str]) -> Option<Vec<(Option<i32>, String)>> {
+    let mut seen = Vec::new();
+    for route in ROUTES {
+        let sides = Sides::new(route).await;
+        sides.fixture.put("top.txt", Some("same\n"), Some("same\n"));
+        let dir = sides.tested_root().join("d");
+        fs::create_dir_all(&dir).unwrap();
+        for name in names {
+            fs::write(dir.join(name), "x\n").unwrap();
+        }
+        let output = status_with_mode(&sides, &dir, 0o644)?;
+        let error = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            .map(|json| json["error"].to_string())
+            .unwrap_or_default();
+        seen.push((output.status.code(), error));
+    }
+    Some(seen)
+}
+
+// @kotowari[REQ-scan-014, REQ-scan-017]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_directory_without_search_permission_holding_entries_stops_the_scan_on_every_route() {
+    for names in [&["a.txt", "b.txt"][..], &["*"][..]] {
+        let Some(seen) = unsearchable_on_every_route(names).await else {
+            return;
+        };
+        assert!(seen.iter().all(|s| *s == seen[0]), "{names:?}: {seen:?}");
+        assert_eq!(seen[0].0, Some(2), "{names:?}: {seen:?}");
+        assert!(
+            seen[0].1.contains("Cannot read directory: d"),
+            "{names:?}: {seen:?}"
+        );
+    }
+}
+
+// @kotowari[REQ-config-044, REQ-scan-017]
+#[tokio::test(flavor = "multi_thread")]
+async fn many_unreadable_directories_below_an_excluded_directory_do_not_stop_the_scan() {
+    for route in ROUTES {
+        let sides = Sides::new(route).await;
+        sides.fixture.put("top.txt", Some("same\n"), Some("same\n"));
+        with_exclude(&sides, "c?che");
+        let dirs: Vec<_> = (0..800)
+            .map(|i| {
+                sides
+                    .tested_root()
+                    .join(format!("cache/locked_directory_number_{i:04}"))
+            })
+            .collect();
+        for dir in &dirs {
+            fs::create_dir_all(dir).unwrap();
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let output = sides.run_into_tested(&["status"]);
+        for dir in &dirs {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(output.status.code(), Some(0), "{route:?}: {output:?}");
+    }
+}

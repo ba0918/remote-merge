@@ -34,7 +34,7 @@ fn printf_literal(bytes: &[u8]) -> String {
 
 /// root_dir に移る文。root_dir がないか入れなければ、その理由を出して終える。"/" で始まらない
 /// root_dir は "./" を前に付け、"-" で始まる値を cd のオプションに読ませない
-pub(crate) fn root_setup(root: &[u8]) -> String {
+fn root_setup(root: &[u8]) -> String {
     let root = if root.starts_with(b"/") {
         root.to_vec()
     } else {
@@ -49,7 +49,7 @@ pub(crate) fn root_setup(root: &[u8]) -> String {
 }
 
 /// 変数 `name` に `bytes` をそのまま入れる文。末尾の改行も残すため、後ろに "x" を足して外す
-pub(crate) fn assign(name: &str, bytes: &[u8]) -> String {
+fn assign(name: &str, bytes: &[u8]) -> String {
     format!(
         "{name}=$(printf '{}x'); {name}=${{{name}%x}}\n",
         printf_literal(bytes)
@@ -84,6 +84,7 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
         "LC_ALL=C; export LC_ALL\nprintf '{MARKER}\\000'\nprintf '{MARKER}\\n' >&2\nF='{RECORD_FORMAT}'\n"
     );
     script.push_str(&prune_setup);
+    script.push_str(CHECK);
     script.push_str(&root_setup(root));
     script.push_str(&format!(
         concat!(
@@ -100,6 +101,9 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
             "  find -H \"$1\" -prune -printf \"$F\"\n",
             "  find -H \"$1\" -mindepth 1 {prune}-printf \"$F\"\n",
             "  printf '@R\\000%s\\000' \"$?\"\n",
+            "  printf '@C\\000'; sh -c \"$c\" sh \"$1\"\n",
+            "  find -H \"$1\" -mindepth 1 {prune}-type d -exec sh -c \"$c\" sh {{}} + 2>/dev/null\n",
+            "  printf '@CE\\000'\n",
             " fi\n",
             " printf '@Z\\000'\n",
             "}}\n",
@@ -114,6 +118,25 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
 }
 
 const END: &str = "printf '@END\\000'\n";
+
+/// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。
+/// find の診断から推し量らない（診断を出さない find もある）。読めて検索できないディレクトリは、
+/// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
+/// 名前に持つ子があるかを、一文字を [] で囲んだ glob で確かめて見分ける
+const CHECK: &str = concat!(
+    "c='lit() { for q in \"$1\"/$2; do [ \"$q\" != \"$1/$2\" ]; return; done; }\n",
+    "for d do printf \"@D\\000%s\\000\" \"$d\"\n",
+    " if [ -r \"$d\" ]; then r=1; else r=0; fi; if [ -x \"$d\" ]; then x=1; else x=0; fi\n",
+    " printf \"%s%s\\000\" $r $x\n",
+    " if [ $r = 1 ] && [ $x = 0 ]; then for p in \"$d\"/* \"$d\"/.[!.]* \"$d\"/..?*; do\n",
+    "  case \"$p\" in\n",
+    "   \"$d/*\") lit \"$d\" \"[*]\" || continue;;\n",
+    "   \"$d/.[!.]*\") lit \"$d\" \".[[]!.][*]\" || continue;;\n",
+    "   \"$d/..?*\") lit \"$d\" \"..[?][*]\" || continue;;\n",
+    "  esac; printf \"N%s\\000\" \"${p##*/}\"\n",
+    " done; fi; printf \"@E\\000\"\n",
+    "done'\n",
+);
 
 /// 一つの問いに答える行
 fn question_lines(question: &ScriptQuestion) -> String {

@@ -1,49 +1,15 @@
 //! 走査のスクリプト（[`crate::scan_script`]）の出力を、問いへの答えにする。読めない出力・
 //! 読めないパスを知らせる以外の find の診断・途中で切れた出力は、空にせずに誤りにする。
 
-use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
+use remote_merge_core::scan::raw::{
+    join_relative, Answer, LinkTarget, RawEntry, ReadCause, Subtree, Unreached, UnreadableDir,
+};
+
+pub(crate) use crate::scan_diagnostics::DirCheck;
+use crate::scan_tokens::Tokens;
 
 use crate::scan_fields::{link_target_from, printed_start, raw_entry, unreached_from, Record};
 use crate::scan_script::{ScriptQuestion, MARKER};
-
-/// NUL で区切った出力を前から読む
-struct Tokens<'a> {
-    rest: std::slice::Split<'a, u8, fn(&u8) -> bool>,
-}
-
-impl<'a> Tokens<'a> {
-    fn next(&mut self) -> Result<&'a [u8], String> {
-        self.rest
-            .next()
-            .ok_or_else(|| "The scan output ended early".to_string())
-    }
-
-    fn expect(&mut self, tag: &[u8]) -> Result<(), String> {
-        let token = self.next()?;
-        if token == tag {
-            return Ok(());
-        }
-        Err(format!(
-            "Unexpected scan output: {:?} instead of {:?}",
-            String::from_utf8_lossy(token),
-            String::from_utf8_lossy(tag)
-        ))
-    }
-
-    /// 項目の 8 つの欄。`first` は先に読んだ最初の欄
-    fn record(&mut self, first: &'a [u8]) -> Result<Record<'a>, String> {
-        Ok(Record {
-            kind: first,
-            dev: self.next()?,
-            ino: self.next()?,
-            time: self.next()?,
-            mode: self.next()?,
-            size: self.next()?,
-            link: self.next()?,
-            path: self.next()?,
-        })
-    }
-}
 
 /// find が出したパスの、問いのパスからの相対パス
 fn relative(printed: &[u8], start: &[u8]) -> Result<Vec<u8>, String> {
@@ -76,6 +42,7 @@ fn answer(
     tokens: &mut Tokens,
     question: &ScriptQuestion,
     statuses: &mut Vec<Vec<u8>>,
+    checks: &mut Vec<DirCheck>,
 ) -> Result<Answer, String> {
     tokens.expect(b"@Q")?;
     let start = printed_start(question);
@@ -122,6 +89,11 @@ fn answer(
             }
             tree.entries.push(entry_of(&tokens.record(first)?, &start)?);
         }
+        tokens.expect(b"@C")?;
+        while let Some(check) = tokens.check()? {
+            apply_check(&mut tree, &check, &start)?;
+            checks.push(check);
+        }
         answer.subtree = Some(tree);
         token = tokens.next()?;
     }
@@ -151,6 +123,7 @@ pub fn parse(
     };
     let mut answers = Vec::with_capacity(questions.len());
     let mut statuses = Vec::new();
+    let mut checks = Vec::new();
     for question in questions {
         if answers.is_empty() {
             let mut peek = Tokens {
@@ -165,14 +138,32 @@ pub fn parse(
                 return Ok(questions.iter().map(|_| unreached_answer(why)).collect());
             }
         }
-        answers.push(answer(&mut tokens, question, &mut statuses)?);
+        answers.push(answer(&mut tokens, question, &mut statuses, &mut checks)?);
     }
     tokens.expect(b"@END")?;
-    let attributed = crate::scan_diagnostics::attribute(stderr, questions, &mut answers)?;
-    if attributed == 0 && statuses.iter().any(|status| status != b"0") {
+    let explained = crate::scan_diagnostics::validate(stderr, &checks)?;
+    if explained == 0 && statuses.iter().any(|status| status != b"0") {
         return Err("find failed without saying which directory it could not read".into());
     }
     Ok(answers)
+}
+
+/// 確かめた結果を部分木に入れる。読めないディレクトリはそのまま、読めて検索できないディレクトリは
+/// 子の名前ごとに情報を読めない項目にする（exclude に当たるかは規則が決める）
+fn apply_check(tree: &mut Subtree, check: &DirCheck, start: &[u8]) -> Result<(), String> {
+    let rel = relative(&check.printed, start)?;
+    if !check.readable {
+        tree.unreadable
+            .push(UnreadableDir::new(rel, ReadCause::PermissionDenied));
+    } else if !check.searchable {
+        for name in &check.names {
+            tree.unreadable_entries.push(UnreadableDir::new(
+                join_relative(&rel, name),
+                ReadCause::PermissionDenied,
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn unreached_answer(why: Unreached) -> Answer {
@@ -190,3 +181,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "scan_agree_tests.rs"]
 mod agree_tests;
+
+#[cfg(all(test, unix))]
+#[path = "scan_agree_search_tests.rs"]
+mod agree_search_tests;
