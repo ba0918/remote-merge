@@ -1,0 +1,89 @@
+//! 走査の求めと結果（一覧・不完全の報告・エラー）。エージェントの通信でもこの形のまま運ぶ。
+
+use serde::{Deserialize, Serialize};
+
+/// 走査の起点。パスは root_dir からの、"." の要素と空の要素と末尾の "/" を除いたもの
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScanScope {
+    /// root_dir 全体
+    Whole,
+    /// include の値。値そのものとその下を載せる（docs/ir/config/include.md）
+    Values(Vec<String>),
+    /// 指定したディレクトリの下だけ。件数の上限はディレクトリごとに当てる（TBL-scan-001）
+    Below(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanRequest {
+    pub scope: ScanScope,
+    pub max_entries: usize,
+}
+
+/// 一覧に載せた項目の種類
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListedKind {
+    File,
+    Directory,
+    Symlink { target: String, is_dir: bool },
+}
+
+/// 一覧に載せた項目。`path` は root_dir からのパス
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListedEntry {
+    pub path: String,
+    pub kind: ListedKind,
+    pub size: u64,
+    pub mtime_secs: i64,
+    pub mtime_nanos: u32,
+    /// 更新時刻を読めた桁（秒の小数の桁数）
+    pub mtime_digits: u8,
+    pub permissions: u32,
+}
+
+/// 走査の一覧
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Listing {
+    pub entries: Vec<ListedEntry>,
+    /// UTF-8 として読めない名前の項目の、読めない部分を `\xNN` と書いた root_dir からのパス
+    pub unreadable_names: Vec<String>,
+    /// 件数の上限を超えて途中で打ち切った
+    pub truncated: bool,
+}
+
+/// 走査を止める誤り。パスは root_dir からのもので、読めない部分は `\xNN` と書く
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+pub enum ScanFailure {
+    #[error("root_dir not found")]
+    RootMissing,
+    #[error("Cannot read root_dir")]
+    RootUnreadable,
+    #[error("Cannot scan {path}: a parent is not a directory")]
+    StartBlocked { path: String },
+    #[error("Cannot scan {path}: it cannot be read")]
+    StartUnreadable { path: String },
+    #[error("Cannot read directory: {path}")]
+    UnreadableDirectory { path: String },
+    #[error("Cannot follow symbolic link (loop or non-directory in its target): {path}")]
+    UnresolvableLink { path: String },
+    #[error("Cannot read the link target of {path}")]
+    UnreadableLinkTarget { path: String },
+    #[error("Cannot read the modification time of {path}")]
+    UnreadableTime { path: String },
+    #[error("Directory scan incomplete: symbolic link cycle at {path}")]
+    Cycle { path: String },
+}
+
+/// 走査の誤り。集め方そのものの失敗は、元の誤り（接続断・時間切れ）のまま運ぶ
+#[derive(Debug, thiserror::Error)]
+pub enum ScanError {
+    #[error(transparent)]
+    Failure(#[from] ScanFailure),
+    #[error(transparent)]
+    Collect(anyhow::Error),
+}
+
+impl From<super::raw::CollectError> for ScanError {
+    fn from(error: super::raw::CollectError) -> Self {
+        Self::Collect(error.0)
+    }
+}

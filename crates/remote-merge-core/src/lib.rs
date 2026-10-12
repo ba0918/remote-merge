@@ -6,5 +6,6 @@ pub mod listing;
 pub mod operations;
 pub mod path_resolution;
 pub mod relative_path;
+pub mod scan;
 pub mod tree;
 pub mod unreadable_name;
