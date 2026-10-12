@@ -76,7 +76,7 @@ fn output_that_ends_early_or_an_unexplained_diagnostic_is_an_error() {
     let cut = b"junk@RMSCAN\0@Q\0d\x001\x002\x000\x00755\x004096\0\0.\0@Z\0";
     assert!(parse(cut, b"", &questions).is_err());
     let mut whole = cut.to_vec();
-    whole.extend_from_slice(b"@END\0");
+    whole.extend_from_slice(b"@RT\x001\0@END\0");
     assert!(parse(&whole, b"noise\n@RMSCAN\n", &questions).is_ok());
     let stderr = b"@RMSCAN\nfind: something else went wrong\n";
     assert!(parse(&whole, stderr, &questions).is_err());
@@ -103,7 +103,7 @@ fn an_entry_find_reported_as_gone_is_answered_as_changed_in_its_subtree() {
             record(&format!("{start}/sub"))
         )
     };
-    let stdout = format!("@RMSCAN\0{}@END\0", answer("./q"));
+    let stdout = format!("@RMSCAN\0{}@RT\x001\0@END\0", answer("./q"));
     let checks = "\0@QS\0\0@D\0./q\x0011\0@E\0\0@D\0./q/sub\x0011\0@E\0";
     let questions = [ScriptQuestion {
         path: b"q",
@@ -122,4 +122,22 @@ fn an_entry_find_reported_as_gone_is_answered_as_changed_in_its_subtree() {
     );
     let outside = stderr("find: './elsewhere': No such file or directory\n");
     assert!(parse(stdout.as_bytes(), &outside, &questions).is_err());
+}
+
+// @kotowari[REQ-scan-017]
+#[test]
+fn the_end_of_the_output_says_whether_the_root_dir_is_still_there() {
+    let questions = [ScriptQuestion {
+        path: b"",
+        descend: false,
+    }];
+    let body = b"@RMSCAN\0@Q\0d\x001\x002\x000\x00755\x004096\0\0.\0@Z\0".to_vec();
+    let there = [&body[..], b"@RT\x001\0@END\0"].concat();
+    let gone = [&body[..], b"@RT\x000\0@END\0"].concat();
+    assert!(!crate::scan_script::root_gone(&there));
+    assert!(crate::scan_script::root_gone(&gone));
+    assert!(parse(&there, b"", &questions).is_ok());
+    // 終わりの印のない出力は、途中で切れたもの
+    let cut = [&body[..], b"@END\0"].concat();
+    assert!(parse(&cut, b"", &questions).is_err());
 }

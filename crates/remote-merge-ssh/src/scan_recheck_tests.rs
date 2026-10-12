@@ -1,5 +1,6 @@
 use super::*;
-use remote_merge_core::scan::raw::{DirId, RawEntry, RawKind, RawTime};
+use remote_merge_core::scan::exclude::Exclude;
+use remote_merge_core::scan::raw::{Answer, DirId, RawEntry, RawKind, RawTime};
 
 fn entry(path: &[u8], kind: RawKind) -> RawEntry {
     RawEntry {
@@ -69,7 +70,7 @@ fn only_a_readable_and_searchable_directory_without_listed_children_is_asked_aga
 }
 
 fn recheck_output(records: &[u8], status: &[u8]) -> (Vec<u8>, Vec<u8>) {
-    let stdout = [&b"motd@RMSCAN\0@R\0"[..], status, b"\0@END\0"].concat();
+    let stdout = [&b"motd@RMSCAN\0@R\0"[..], status, b"\0@RT\x001\0@END\0"].concat();
     let stderr = [&b"motd\n@RMSCAN\n\0@QS\0"[..], records].concat();
     (stdout, stderr)
 }
@@ -153,7 +154,7 @@ fn a_missing_extra_or_failed_answer_to_the_second_question_is_an_error() {
 }
 
 #[test]
-fn a_root_dir_that_went_away_before_the_second_question_changes_every_asked_directory() {
+fn a_root_dir_that_cannot_be_entered_for_the_second_question_gives_no_answer() {
     let stdout = b"@RMSCAN\0@F\0U\0";
     assert_eq!(read_recheck(stdout, b"@RMSCAN\n"), Ok(None));
 }

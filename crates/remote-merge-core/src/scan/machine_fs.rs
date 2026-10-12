@@ -5,7 +5,29 @@ use std::fs::Metadata;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::raw::{DirId, LinkTarget, RawEntry, RawKind, RawTime, Unreached};
+use super::raw::{DirId, LinkTarget, RawEntry, RawKind, RawTime, ReadCause, Unreached};
+
+/// 集め始めにはディレクトリだった root_dir が、もうないかディレクトリでない
+pub(super) fn root_went_away(was_dir: bool, root: &Path) -> bool {
+    was_dir && !root.is_dir()
+}
+
+/// 読みに行ったディレクトリが、もうないかディレクトリでなくなっていた（走査の途中で変わった）
+pub(super) fn went_away(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
+}
+
+/// ディレクトリを読めなかった理由
+pub(super) fn cause_of(error: &std::io::Error) -> ReadCause {
+    if error.kind() == std::io::ErrorKind::PermissionDenied {
+        ReadCause::PermissionDenied
+    } else {
+        ReadCause::Other
+    }
+}
 
 #[cfg(unix)]
 pub fn bytes_of(name: &OsStr) -> Vec<u8> {

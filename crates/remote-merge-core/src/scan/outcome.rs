@@ -155,6 +155,10 @@ pub enum ScanError {
 
 impl From<super::raw::CollectError> for ScanError {
     fn from(error: super::raw::CollectError) -> Self {
-        Self::Collect(error.0)
+        match error {
+            super::raw::CollectError::Failed(error) => Self::Collect(error),
+            // 集めている間に root_dir がなくなったら、ほかの答えによらず root_dir が変わったもの
+            super::raw::CollectError::RootGone => Self::Failure(ScanFailure::RootChanged),
+        }
     }
 }

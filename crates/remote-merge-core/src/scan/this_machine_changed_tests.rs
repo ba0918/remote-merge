@@ -49,3 +49,18 @@ fn an_entry_gone_before_its_information_was_read_is_answered_as_changed() {
         )]
     );
 }
+
+// @kotowari[REQ-scan-017, REQ-scan-015]
+#[test]
+fn only_a_root_dir_that_was_there_when_collecting_began_can_go_away() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    std::fs::create_dir(&root).unwrap();
+    assert!(!root_went_away(true, &root));
+    std::fs::remove_dir(&root).unwrap();
+    assert!(root_went_away(true, &root));
+    // 集め始めからなかった root_dir は、root_dir がないことで答える
+    assert!(!root_went_away(false, &root));
+    std::fs::write(&root, "now a file").unwrap();
+    assert!(root_went_away(true, &root));
+}

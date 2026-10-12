@@ -4,7 +4,10 @@
 use std::path::{Path, PathBuf};
 
 use super::exclude::Exclude;
-use super::machine_fs::{bytes_of, entry_at, link_target, path_of, raw_entry, unreached};
+use super::machine_fs::{
+    bytes_of, cause_of, entry_at, link_target, path_of, raw_entry, root_went_away, unreached,
+    went_away,
+};
 use super::parts::join;
 use super::raw::{
     Answer, CollectError, Collector, LinkTarget, Question, RawKind, ReadCause, Subtree,
@@ -64,7 +67,12 @@ impl Collector for MachineCollector {
         questions: &[Question],
         exclude: &Exclude,
     ) -> Result<Vec<Answer>, CollectError> {
-        Ok(questions.iter().map(|q| self.answer(q, exclude)).collect())
+        let was_dir = self.root.is_dir();
+        let answers = questions.iter().map(|q| self.answer(q, exclude)).collect();
+        if root_went_away(was_dir, &self.root) {
+            return Err(CollectError::RootGone);
+        }
+        Ok(answers)
     }
 }
 
@@ -167,23 +175,6 @@ fn child_unreadable(tree: &mut Subtree, child_rel: Vec<u8>, error: &std::io::Err
     }
     tree.unreadable_entries
         .push(UnreadableDir::new(child_rel, cause_of(error)));
-}
-
-/// 読みに行ったディレクトリが、もうないかディレクトリでなくなっていた（走査の途中で変わった）
-fn went_away(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-    )
-}
-
-/// ディレクトリを読めなかった理由
-fn cause_of(error: &std::io::Error) -> ReadCause {
-    if error.kind() == std::io::ErrorKind::PermissionDenied {
-        ReadCause::PermissionDenied
-    } else {
-        ReadCause::Other
-    }
 }
 
 #[cfg(all(test, unix))]

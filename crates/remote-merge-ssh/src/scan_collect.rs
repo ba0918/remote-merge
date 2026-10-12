@@ -7,10 +7,9 @@ use remote_merge_core::scan::raw::{Answer, CollectError, Collector, Question};
 
 use crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN;
 use crate::client::SshClient;
-use crate::scan_diagnostics::DirCheck;
 use crate::scan_output::parse;
 use crate::scan_recheck::{apply_recheck, read_recheck, recheck_script, split_recheck, EmptyDir};
-use crate::scan_script::{build, split_for_command_line, ScriptQuestion};
+use crate::scan_script::{build, root_gone, split_for_command_line, ScriptQuestion};
 
 pub struct SshCollector<'a> {
     pub client: &'a mut SshClient,
@@ -37,19 +36,22 @@ impl Collector for SshCollector<'_> {
             run,
         )
         .map_err(|failure| match failure {
-            CollectFailure::Run(error) => CollectError(error),
+            CollectFailure::Run(error) => CollectError::Failed(error),
             CollectFailure::Read(message) => {
-                CollectError(anyhow::Error::from(AppError::RemoteParse { message }))
+                CollectError::Failed(anyhow::Error::from(AppError::RemoteParse { message }))
             }
+            CollectFailure::RootGone => CollectError::RootGone,
         })
     }
 }
 
-/// 走査のスクリプトを動かせなかったか、出力を読めなかった
+/// 走査のスクリプトを動かせなかったか、出力を読めなかったか、root_dir がなくなった
 #[derive(Debug)]
 pub enum CollectFailure<E> {
     Run(E),
     Read(String),
+    /// 走査を始めたときにはあった root_dir が、もうないかディレクトリでない
+    RootGone,
 }
 
 /// 問いをコマンド行に収まるまとまりにして `run` で動かし（標準出力と標準エラーを返す）、
@@ -74,6 +76,10 @@ pub fn collect_with<E>(
     for range in split_for_command_line(root, &script_questions, &prunable, limit) {
         let part = &script_questions[range];
         let (stdout, stderr) = run(&build(root, part, &prunable)).map_err(CollectFailure::Run)?;
+        // root_dir が途中で消えたら、ほかの知らせによらずそれで答える
+        if root_gone(&stdout) {
+            return Err(CollectFailure::RootGone);
+        }
         let parsed = parse(&stdout, &stderr, part).map_err(CollectFailure::Read)?;
         let offset = answers.len();
         empty.extend(parsed.empty.into_iter().map(|dir| EmptyDir {
@@ -91,24 +97,21 @@ pub fn collect_with<E>(
     let mut checks = Vec::new();
     for range in split_recheck(root, &printed, limit) {
         let (stdout, stderr) =
-            run(&recheck_script(root, &printed[range.clone()])).map_err(CollectFailure::Run)?;
-        match read_recheck(&stdout, &stderr).map_err(CollectFailure::Read)? {
-            Some(group) => checks.extend(group),
-            // root_dir にもう入れない。尋ねたディレクトリはどれも変わったものにする
-            None => checks.extend(printed[range].iter().map(|path| gone(path))),
+            run(&recheck_script(root, &printed[range])).map_err(CollectFailure::Run)?;
+        if root_gone(&stdout) {
+            return Err(CollectFailure::RootGone);
         }
+        // root_dir にもう入れないときも、root_dir がなくなったものとして答える
+        let group = read_recheck(&stdout, &stderr)
+            .map_err(CollectFailure::Read)?
+            .ok_or(CollectFailure::RootGone)?;
+        checks.extend(group);
     }
     let paths: Vec<&[u8]> = questions.iter().map(|q| q.path.as_slice()).collect();
     apply_recheck(&mut answers, &empty, &checks, &paths, exclude).map_err(CollectFailure::Read)?;
     Ok(answers)
 }
 
-fn gone(printed: &[u8]) -> DirCheck {
-    DirCheck {
-        printed: printed.to_vec(),
-        readable: false,
-        searchable: false,
-        gone: true,
-        names: Vec::new(),
-    }
-}
+#[cfg(all(test, unix))]
+#[path = "scan_root_gone_tests.rs"]
+mod root_gone_tests;

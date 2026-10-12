@@ -38,6 +38,7 @@ pub fn over_shell(
     .map_err(|failure| match failure {
         crate::scan_collect::CollectFailure::Run(error) => error.to_string(),
         crate::scan_collect::CollectFailure::Read(message) => message,
+        crate::scan_collect::CollectFailure::RootGone => "root_dir went away".to_string(),
     })
 }
 
@@ -156,7 +157,7 @@ impl Collector for Shell {
         exclude: &Exclude,
     ) -> Result<Vec<Answer>, remote_merge_core::scan::raw::CollectError> {
         over_shell(&self.0, questions, exclude)
-            .map_err(|e| remote_merge_core::scan::raw::CollectError(anyhow::anyhow!(e)))
+            .map_err(|e| remote_merge_core::scan::raw::CollectError::Failed(anyhow::anyhow!(e)))
     }
 }
 

@@ -132,6 +132,8 @@ pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Resu
         }
         answers.push(answer(&mut tokens, question, &mut statuses)?);
     }
+    tokens.expect(b"@RT")?;
+    tokens.expect(b"1")?;
     tokens.expect(b"@END")?;
     let marker = [MARKER.as_bytes(), b"\n"].concat();
     let after = stderr

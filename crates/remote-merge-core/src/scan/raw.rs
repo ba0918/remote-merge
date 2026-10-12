@@ -129,13 +129,19 @@ pub trait Collector {
     ) -> Result<Vec<Answer>, CollectError>;
 }
 
-/// 集め方そのものの失敗（接続・道具の出力を読めない・時間切れ）。走査はこれで止まる
+/// 集め方が答えを返せなかった。走査はこれで止まる
 #[derive(Debug)]
-pub struct CollectError(pub anyhow::Error);
+pub enum CollectError {
+    /// 集め方そのものの失敗（接続・道具の出力を読めない・時間切れ）
+    Failed(anyhow::Error),
+    /// 集め始めにはディレクトリだった root_dir が、集め終わったときにはもうなかったか
+    /// ディレクトリでなくなっていた。答えは使えない
+    RootGone,
+}
 
 impl From<anyhow::Error> for CollectError {
     fn from(error: anyhow::Error) -> Self {
-        Self(error)
+        Self::Failed(error)
     }
 }
 

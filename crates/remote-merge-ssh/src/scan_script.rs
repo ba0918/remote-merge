@@ -33,7 +33,8 @@ fn printf_literal(bytes: &[u8]) -> String {
 }
 
 /// root_dir に移る文。root_dir がないか入れなければ、その理由を出して終える。"/" で始まらない
-/// root_dir は "./" を前に付け、"-" で始まる値を cd のオプションに読ませない
+/// root_dir は "./" を前に付け、"-" で始まる値を cd のオプションに読ませない。移った先の絶対
+/// パスを R に置き、終わりに root_dir がまだあるかを確かめるのに使う（[`END`]）
 pub(crate) fn root_setup(root: &[u8]) -> String {
     let root = if root.starts_with(b"/") {
         root.to_vec()
@@ -44,6 +45,7 @@ pub(crate) fn root_setup(root: &[u8]) -> String {
     setup.push_str(concat!(
         "if [ -d \"$r\" ]; then cd \"$r\" 2>/dev/null || { printf '@F\\000U\\000'; exit 0; }\n",
         "else e=$(ls -dL -- \"$r\" 2>&1 >/dev/null); printf '@F\\000%s\\000' \"$e\"; exit 0; fi\n",
+        "R=$PWD\n",
     ));
     setup
 }
@@ -115,7 +117,17 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
     script
 }
 
-const END: &str = "printf '@END\\000'\n";
+/// スクリプトの終わり。root_dir がまだディレクトリかを絶対パスで確かめて "@RT" に 1 か 0 で
+/// 出す。sh や find の知らせを読み分けずに、root_dir が走査の途中で消えたかをこれで決める
+pub(crate) const END: &str = concat!(
+    "if [ -d \"$R\" ]; then t=1; else t=0; fi; printf '@RT\\000%s\\000' $t\n",
+    "printf '@END\\000'\n",
+);
+
+/// スクリプトの終わりに、root_dir がもうないと出したか
+pub fn root_gone(stdout: &[u8]) -> bool {
+    stdout.ends_with(b"@RT\x000\x00@END\x00")
+}
 
 /// 一つの問いに答える行
 fn question_lines(question: &ScriptQuestion) -> String {

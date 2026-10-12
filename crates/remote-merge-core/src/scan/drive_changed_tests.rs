@@ -76,3 +76,23 @@ fn a_root_dir_that_changed_during_the_scan_is_its_own_failure() {
     let result = run(&mut fake, &exclude(&[]), &whole(100));
     assert_eq!(failure(result), ScanFailure::RootChanged);
 }
+
+/// root_dir が集めている間になくなったと答える集め方
+struct RootGone;
+
+impl super::super::raw::Collector for RootGone {
+    fn collect(
+        &mut self,
+        _: &[super::super::raw::Question],
+        _: &super::super::exclude::Exclude,
+    ) -> Result<Vec<super::super::raw::Answer>, super::super::raw::CollectError> {
+        Err(super::super::raw::CollectError::RootGone)
+    }
+}
+
+// @kotowari[REQ-scan-017]
+#[test]
+fn a_root_dir_that_went_away_while_collecting_stops_the_scan_as_root_changed() {
+    let result = super::super::drive::scan(&mut RootGone, &exclude(&[]), &whole(100));
+    assert_eq!(failure(result), ScanFailure::RootChanged);
+}

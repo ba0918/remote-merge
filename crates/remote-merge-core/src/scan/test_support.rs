@@ -42,7 +42,7 @@ impl Collector for Fake {
             .map(|q| {
                 self.asked.push(q.clone());
                 self.answers.get(&q.path).cloned().ok_or_else(|| {
-                    CollectError(anyhow::anyhow!(
+                    CollectError::Failed(anyhow::anyhow!(
                         "unexpected question: {}",
                         String::from_utf8_lossy(&q.path)
                     ))
