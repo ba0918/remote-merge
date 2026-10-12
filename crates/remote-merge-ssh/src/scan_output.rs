@@ -4,6 +4,7 @@
 use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
 
 use crate::scan_checks::{apply_checks, split_stderr};
+use crate::scan_recheck::{empty_dirs, EmptyDir};
 use crate::scan_tokens::Tokens;
 
 use crate::scan_fields::{link_target_from, printed_start, raw_entry, unreached_from, Record};
@@ -92,12 +93,15 @@ fn answer(
     Ok(answer)
 }
 
+/// 一度目の走査の答えと、空かをもう一度尋ねるディレクトリ（[`crate::scan_recheck`]）
+#[derive(Debug)]
+pub struct Parsed {
+    pub answers: Vec<Answer>,
+    pub empty: Vec<EmptyDir>,
+}
+
 /// 標準出力と標準エラーを読んで、問いごとの答えにする
-pub fn parse(
-    stdout: &[u8],
-    stderr: &[u8],
-    questions: &[ScriptQuestion],
-) -> Result<Vec<Answer>, String> {
+pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Result<Parsed, String> {
     let marker = [MARKER.as_bytes(), b"\0"].concat();
     let begin = stdout
         .windows(marker.len())
@@ -120,7 +124,10 @@ pub fn parse(
                     b"" => Unreached::NotDirectory,
                     message => unreached_from(message),
                 };
-                return Ok(questions.iter().map(|_| unreached_answer(why)).collect());
+                return Ok(Parsed {
+                    answers: questions.iter().map(|_| unreached_answer(why)).collect(),
+                    empty: Vec::new(),
+                });
             }
         }
         answers.push(answer(&mut tokens, question, &mut statuses)?);
@@ -134,14 +141,25 @@ pub fn parse(
     let parts = split_stderr(after)?;
     let mut groups = parts.groups.into_iter();
     let mut checks = Vec::new();
-    for (question, answer) in questions.iter().zip(answers.iter_mut()) {
+    let mut empty = Vec::new();
+    for (index, (question, answer)) in questions.iter().zip(answers.iter_mut()).enumerate() {
         let Some(tree) = &mut answer.subtree else {
             continue;
         };
         let group = groups
             .next()
             .ok_or("The directory checks in the scan output are missing")?;
-        apply_checks(tree, &group, &printed_start(question))?;
+        let start = printed_start(question);
+        apply_checks(tree, &group, &start)?;
+        empty.extend(
+            empty_dirs(tree, &group, &start)
+                .into_iter()
+                .map(|(rel, printed)| EmptyDir {
+                    answer: index,
+                    rel,
+                    printed,
+                }),
+        );
         checks.extend(group);
     }
     if groups.next().is_some() {
@@ -151,7 +169,7 @@ pub fn parse(
     if explained == 0 && statuses.iter().any(|status| status != b"0") {
         return Err("find failed without saying which directory it could not read".into());
     }
-    Ok(answers)
+    Ok(Parsed { answers, empty })
 }
 
 fn unreached_answer(why: Unreached) -> Answer {

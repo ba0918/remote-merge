@@ -77,7 +77,9 @@ fn a_root_dir_that_starts_with_a_dash_is_not_read_as_an_option() {
         .current_dir(temp.path())
         .output()
         .unwrap();
-    let answers = crate::scan_output::parse(&output.stdout, &output.stderr, &questions).unwrap();
+    let answers = crate::scan_output::parse(&output.stdout, &output.stderr, &questions)
+        .unwrap()
+        .answers;
     let entries = &answers[0].subtree.as_ref().unwrap().entries;
     assert_eq!(entries[0].path, b"a.txt");
 }

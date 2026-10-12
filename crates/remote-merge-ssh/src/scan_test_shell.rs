@@ -12,33 +12,33 @@ use remote_merge_core::scan::outcome::{ScanRequest, ScanScope};
 use remote_merge_core::scan::raw::{Answer, Collector, Question, RawEntry, RawTime};
 use remote_merge_core::scan::this_machine::MachineCollector;
 
-use crate::scan_output::parse;
-use crate::scan_script::{build, ScriptQuestion};
-
 pub fn exclude(patterns: &[&str]) -> Exclude {
     Exclude::new(&patterns.iter().map(|p| p.to_string()).collect::<Vec<_>>())
 }
 
-/// スクリプトを sh で動かして答えを読む
+/// スクリプトを sh で動かして答えを読む（SSH の経路と同じく、空に見えたディレクトリには
+/// もう一度尋ねる）
 pub fn over_shell(
     root: &Path,
     questions: &[Question],
     exclude: &Exclude,
 ) -> Result<Vec<Answer>, String> {
-    let script_questions: Vec<ScriptQuestion> = questions
-        .iter()
-        .map(|q| ScriptQuestion {
-            path: &q.path,
-            descend: q.descend,
-        })
-        .collect();
-    let script = build(
+    let run = |script: &str| {
+        shell_command(script)
+            .output()
+            .map(|output| (output.stdout, output.stderr))
+    };
+    crate::scan_collect::collect_with(
         root.as_os_str().as_bytes(),
-        &script_questions,
-        &exclude.prunable(),
-    );
-    let output = shell_command(&script).output().unwrap();
-    parse(&output.stdout, &output.stderr, &script_questions)
+        questions,
+        exclude,
+        crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN,
+        run,
+    )
+    .map_err(|failure| match failure {
+        crate::scan_collect::CollectFailure::Run(error) => error.to_string(),
+        crate::scan_collect::CollectFailure::Read(message) => message,
+    })
 }
 
 /// スクリプトを動かすシェル。REMOTE_MERGE_TEST_SCAN_IMAGE にコンテナのイメージ（centos:5 など）を

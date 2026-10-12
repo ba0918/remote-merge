@@ -864,7 +864,7 @@ async fn only_a_failed_root_check_means_the_scan_root_is_missing() {
         .await
         .expect_err("a cut-off scan must fail");
 
-    let answers = parse(&stdout, &stderr, &root).unwrap();
+    let answers = parse(&stdout, &stderr, &root).unwrap().answers;
     assert_eq!(answers[0].entry, Err(Unreached::Missing));
     assert!(
         remote_merge::error::is_connection_error(&cut_off),

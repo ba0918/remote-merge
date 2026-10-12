@@ -34,7 +34,7 @@ fn printf_literal(bytes: &[u8]) -> String {
 
 /// root_dir に移る文。root_dir がないか入れなければ、その理由を出して終える。"/" で始まらない
 /// root_dir は "./" を前に付け、"-" で始まる値を cd のオプションに読ませない
-fn root_setup(root: &[u8]) -> String {
+pub(crate) fn root_setup(root: &[u8]) -> String {
     let root = if root.starts_with(b"/") {
         root.to_vec()
     } else {
@@ -84,7 +84,7 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
         "LC_ALL=C; export LC_ALL\nprintf '{MARKER}\\000'\nprintf '{MARKER}\\n' >&2\nF='{RECORD_FORMAT}'\n"
     );
     script.push_str(&prune_setup);
-    script.push_str(CHECK);
+    script.push_str(&crate::scan_checks::check_script(false));
     script.push_str(&root_setup(root));
     script.push_str(&format!(
         concat!(
@@ -117,28 +117,6 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
 
 const END: &str = "printf '@END\\000'\n";
 
-/// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。結果は
-/// find の一覧と混ざらないよう標準エラーに、NUL で区切った目印付きの記録で出す。
-/// find の診断から推し量らない（診断を出さない find もある）。もうないかディレクトリでなくなって
-/// いたら "G" を出す。読めて検索できないディレクトリは、
-/// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
-/// 名前に持つ子があるかを、一文字を [] で囲んだ glob で確かめて見分ける
-pub(crate) const CHECK: &str = concat!(
-    "c='exec >&2; lit() { for q in \"$1\"/$2; do [ \"$q\" != \"$1/$2\" ]; return; done; }\n",
-    "for d do printf \"\\000@D\\000%s\\000\" \"$d\"\n",
-    " if [ ! -d \"$d\" ]; then printf \"G\\000\"; else\n",
-    " if [ -r \"$d\" ]; then r=1; else r=0; fi; if [ -x \"$d\" ]; then x=1; else x=0; fi\n",
-    " printf \"%s%s\\000\" $r $x\n",
-    " if [ $r = 1 ] && [ $x = 0 ]; then for p in \"$d\"/* \"$d\"/.[!.]* \"$d\"/..?*; do\n",
-    "  case \"$p\" in\n",
-    "   \"$d/*\") lit \"$d\" \"[*]\" || continue;;\n",
-    "   \"$d/.[!.]*\") lit \"$d\" \".[[]!.][*]\" || continue;;\n",
-    "   \"$d/..?*\") lit \"$d\" \"..[?][*]\" || continue;;\n",
-    "  esac; printf \"N%s\\000\" \"${p##*/}\"\n",
-    " done; fi; fi; printf \"@E\\000\"\n",
-    "done'\n",
-);
-
 /// 一つの問いに答える行
 fn question_lines(question: &ScriptQuestion) -> String {
     let path = if question.path.is_empty() {
@@ -162,23 +140,34 @@ pub fn split_for_command_line(
     limit: usize,
 ) -> Vec<std::ops::Range<usize>> {
     let base = wrapped_len(&build(root, &[], prunable));
+    split_by_length(base, questions.iter().map(question_lines), limit)
+}
+
+/// 問いのない台の長さ `base` に、問いごとの行 `lines` を足していき、`limit` バイトを超える前で
+/// 分ける。一つでも収まらない行は一つで送る
+pub(crate) fn split_by_length(
+    base: usize,
+    lines: impl ExactSizeIterator<Item = String>,
+    limit: usize,
+) -> Vec<std::ops::Range<usize>> {
+    let count = lines.len();
     let mut ranges = Vec::new();
     let (mut begin, mut length) = (0, base);
-    for (index, question) in questions.iter().enumerate() {
-        let added = crate::login_shell::wrapped_script_len(&question_lines(question));
+    for (index, line) in lines.enumerate() {
+        let added = crate::login_shell::wrapped_script_len(&line);
         if index > begin && length + added > limit {
             ranges.push(begin..index);
             (begin, length) = (index, base);
         }
         length += added;
     }
-    if begin < questions.len() || questions.is_empty() {
-        ranges.push(begin..questions.len());
+    if begin < count || count == 0 {
+        ranges.push(begin..count);
     }
     ranges
 }
 
-fn wrapped_len(script: &str) -> usize {
+pub(crate) fn wrapped_len(script: &str) -> usize {
     crate::login_shell::WRAP_OVERHEAD + crate::login_shell::wrapped_script_len(script)
 }
 

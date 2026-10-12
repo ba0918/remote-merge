@@ -12,6 +12,7 @@ pub mod scan_collect;
 pub mod scan_diagnostics;
 pub mod scan_fields;
 pub mod scan_output;
+pub mod scan_recheck;
 pub mod scan_script;
 #[cfg(all(test, unix))]
 mod scan_test_shell;

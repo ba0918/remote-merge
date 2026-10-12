@@ -137,7 +137,7 @@ fn the_check_script_answers_a_directory_that_became_a_file_or_went_away_as_chang
         let path = path.to_str().unwrap().as_bytes();
         let script = format!(
             "{}{}sh -c \"$c\" sh \"$a\"\n",
-            crate::scan_script::CHECK,
+            check_script(false),
             crate::scan_script::assign("a", path)
         );
         let output = crate::scan_test_shell::shell_command(&script)
