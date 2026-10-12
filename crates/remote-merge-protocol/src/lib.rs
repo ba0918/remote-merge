@@ -16,7 +16,8 @@ macro_rules! define_protocol_version {
         /// v7 → v8: 一つの項目を辿らずに読む ReadEntryLink を追加
         /// v8 → v9: TreeChunk に UTF-8 として読めない名前のファイルの unreadable_names を追加
         /// v9 → v10: 受け取ったパスを入力の形の検査で拒んだことを型で返す。一つのパスの要求は
-        ///           PathRefused、複数のパスの要求は FileContents・FileHashes・Stats の refused
+        ///           PathRefused、複数のパスの要求は FileContents・FileHashes・Stats の refused。
+        ///           項目の操作の要求で root_dir 全体を項目として拒んだ理由も同じ型で運ぶ
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
