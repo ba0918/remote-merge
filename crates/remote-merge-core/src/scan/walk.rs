@@ -14,7 +14,7 @@ pub(super) struct Walk<'a> {
     max_entries: usize,
     counts: Vec<usize>,
     pub(super) entries: Vec<ListedEntry>,
-    unreadable_names: Vec<String>,
+    pub(super) unreadable_names: Vec<String>,
     pub truncated: bool,
     /// 循環に出会ったパス（不完全な一覧。REQ-scan-002）
     pub cycle: Option<String>,
@@ -80,29 +80,39 @@ impl<'a> Walk<'a> {
         if let Some(cause) = unreadable.get(&b""[..]) {
             return Err(unreadable_directory(base, *cause).into());
         }
-        // 情報を読めなかった項目は、exclude に当たらなければ、それを入れているディレクトリを
-        // 読めなかったものにする（REQ-scan-014・REQ-config-044）
-        let mut unread_entries: Vec<_> = tree.unreadable_entries.iter().collect();
-        unread_entries.sort();
-        for item in unread_entries {
-            if !self.exclude.excludes(&join(base, &item.path)) {
-                let parent = parent_of(&item.path);
-                return Err(unreadable_directory(&join(base, parent), item.cause).into());
-            }
-        }
         let mut dir_ids: HashMap<&[u8], DirId> = HashMap::from([(&b""[..], tree.start.id)]);
         for entry in &tree.entries {
             if entry.kind == RawKind::Directory {
                 dir_ids.insert(&entry.path, entry.id);
             }
         }
-        let mut sorted: Vec<&RawEntry> = tree.entries.iter().collect();
-        sorted.sort_by(|a, b| a.path.cmp(&b.path));
-        for entry in sorted {
+        // 項目と、情報を読めなかった項目を、パスの順に一つの並びで扱う。件数の上限や循環で
+        // 止まった位置より後ろのものには当たらない
+        let mut sorted: Vec<(&[u8], Option<&RawEntry>, Option<ReadCause>)> = tree
+            .entries
+            .iter()
+            .map(|entry| (entry.path.as_slice(), Some(entry), None))
+            .chain(
+                tree.unreadable_entries
+                    .iter()
+                    .map(|item| (item.path.as_slice(), None, Some(item.cause))),
+            )
+            .collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (rel, entry, unread) in sorted {
             if self.stopped() {
                 return Ok(());
             }
-            let path = join(base, &entry.path);
+            let path = join(base, rel);
+            let Some(entry) = entry else {
+                // 情報を読めなかった項目は、exclude に当たらなければ、それを入れている
+                // ディレクトリを読めなかったものにする（REQ-scan-014・REQ-config-044）
+                if self.exclude.excludes(&path) {
+                    continue;
+                }
+                let cause = unread.unwrap_or(ReadCause::Other);
+                return Err(unreadable_directory(&join(base, parent_of(rel)), cause).into());
+            };
             if entry.path.is_empty() || self.exclude.excludes(&path) {
                 continue;
             }
@@ -123,23 +133,6 @@ impl<'a> Walk<'a> {
             if let Some(link) = self.take_leaf(&path, entry, chain, counter)? {
                 self.pending.push(link);
             }
-        }
-        Ok(())
-    }
-
-    /// 指定したディレクトリの起点を器のディレクトリとして載せる
-    pub fn list_container(&mut self, path: &[u8], entry: &RawEntry) -> Result<(), ScanError> {
-        self.list_directory(path, entry)
-    }
-
-    /// ディレクトリは数えずに載せる。名前が UTF-8 として読めなければ載せず、下の項目で報告する
-    fn list_directory(&mut self, path: &[u8], entry: &RawEntry) -> Result<(), ScanError> {
-        match std::str::from_utf8(path) {
-            Ok(text) => self
-                .entries
-                .push(listed_entry(text, entry, ListedKind::Directory)?),
-            // 名前が読めないディレクトリも、空で下に何もないときに黙って消えないよう報告する
-            Err(_) => self.unreadable_names.push(shown(path)),
         }
         Ok(())
     }

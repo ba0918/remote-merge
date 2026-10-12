@@ -123,3 +123,22 @@ fn a_directory_whose_name_is_not_utf8_is_reported_even_when_empty() {
     let listing = run(&mut fake, &exclude(&[]), &whole(9)).unwrap();
     assert_eq!(listing.unreadable_names, ["emp\\xfey"]);
 }
+
+// @kotowari[REQ-scan-004, REQ-scan-014]
+#[test]
+fn an_unreadable_entry_after_the_limit_is_reached_is_treated_like_an_unreadable_directory() {
+    let tree = || {
+        let mut tree = subtree(1, vec![file(b"a.txt"), file(b"b.txt"), dir(b"z", 2)]);
+        tree.unreadable_entries.push(UnreadableDir::new(
+            b"z/x".to_vec(),
+            ReadCause::PermissionDenied,
+        ));
+        tree.unreadable
+            .push(UnreadableDir::new(b"z".to_vec(), ReadCause::Other));
+        tree
+    };
+    // 上限で止まる位置より後ろの、読めない項目と読めないディレクトリはどちらも当たらない
+    let mut fake = Fake::default().with(b"", root_with(tree()));
+    let listing = run(&mut fake, &exclude(&[]), &whole(1)).unwrap();
+    assert!(listing.truncated);
+}
