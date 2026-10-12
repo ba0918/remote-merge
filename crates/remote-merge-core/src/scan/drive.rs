@@ -2,8 +2,9 @@
 //! [`Walk`] で一覧にする。root_dir の確認は、どの起点でも最初の問いの一つとして一度だけ行う。
 
 use super::exclude::Exclude;
-use super::outcome::{Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
+use super::outcome::{Listing, ScanError, ScanFailure, ScanRequest};
 use super::raw::{Answer, Collector, DirId, Question, RawKind, Unreached};
+use super::start_paths::{start_paths, StartPath};
 use super::walk::{PendingLink, Walk};
 
 pub fn scan(
@@ -19,7 +20,7 @@ pub fn scan(
     }];
     questions.extend(starts.iter().map(|start| Question {
         path: start.path.clone(),
-        descend: true,
+        descend: start.descend,
     }));
     let answers = ask(collector, &questions, exclude)?;
     let root_id = root_identity(&answers[0])?;
@@ -32,10 +33,10 @@ pub fn scan(
         if start.with_self {
             take_value(&mut walk, &start.path, answer, root_id, start.group)?;
         } else {
-            take_below(&mut walk, &start.path, answer, root_id, start.group)?;
+            take_below(&mut walk, start, answer, root_id)?;
         }
     }
-    while !walk.pending.is_empty() && !walk.truncated {
+    while !walk.pending.is_empty() && !walk.stopped() {
         let pending = std::mem::take(&mut walk.pending);
         let questions: Vec<Question> = pending
             .iter()
@@ -117,75 +118,44 @@ fn take_value(
     }
 }
 
-/// 指定したディレクトリの下だけを載せる（TBL-scan-001）
+/// 指定したディレクトリの下だけを載せる（TBL-scan-001）。起点がディレクトリ（かディレクトリへの
+/// リンク）なら、空でも分かるようにそれ自身を器のディレクトリとして載せる
 fn take_below(
     walk: &mut Walk,
-    path: &[u8],
+    start: &StartPath,
     answer: &Answer,
     root: DirId,
-    counter: usize,
 ) -> Result<(), ScanError> {
+    let path = start.path.as_slice();
     let entry = match &answer.entry {
+        Err(_) if start.excluded => return Ok(()),
         Err(why) => return unreached(path, *why),
         Ok(entry) => entry,
     };
     let is_dir = match entry.kind {
         RawKind::Directory => true,
         RawKind::Symlink { .. } => {
-            let link = PendingLink::new(path.to_vec(), vec![root], counter);
             if answer.link != Some(super::raw::LinkTarget::Directory) {
+                if start.excluded {
+                    return Ok(());
+                }
+                let link = PendingLink::new(path.to_vec(), vec![root], start.group);
                 return walk.take_link(link, answer);
             }
             true
         }
         _ => false,
     };
-    match (is_dir, &answer.subtree) {
+    if !is_dir {
+        return Ok(());
+    }
+    let tree = answer.subtree.as_ref();
+    walk.list_container(path, tree.map_or(entry, |tree| &tree.start))?;
+    match (start.descend, tree) {
         (false, _) => Ok(()),
-        (true, Some(tree)) => walk.take_subtree(path, tree, &[root], counter),
+        (true, Some(tree)) => walk.take_subtree(path, tree, &[root], start.group),
         (true, None) => Err(missing_subtree()),
     }
-}
-
-/// 整えた起点
-struct StartPath {
-    path: Vec<u8>,
-    with_self: bool,
-    group: usize,
-}
-
-/// 起点のパスを整え、exclude に当たるものと、ほかの起点の下にあるものを除く（同じパスなら自身も
-/// 載せる起点を残す）。root_dir 全体を指す起点があれば全体の走査にする。返す値の一つ目は全体の
-/// 走査か
-fn start_paths(scope: &ScanScope, exclude: &Exclude) -> (bool, Vec<StartPath>) {
-    let starts = match scope {
-        ScanScope::Whole => return (true, Vec::new()),
-        ScanScope::Starts(starts) => starts,
-    };
-    let mut normal: Vec<StartPath> = starts
-        .iter()
-        .map(|start| StartPath {
-            path: super::starts::normalize(&start.path).into_bytes(),
-            with_self: start.with_self,
-            group: start.group,
-        })
-        .collect();
-    if normal.iter().any(|start| start.path.is_empty()) {
-        return (true, Vec::new());
-    }
-    normal.sort_by(|a, b| a.path.cmp(&b.path).then(b.with_self.cmp(&a.with_self)));
-    let mut kept: Vec<StartPath> = Vec::new();
-    for start in normal {
-        let covered = kept.iter().any(|outer| {
-            outer.path == start.path
-                || (start.path.starts_with(&outer.path)
-                    && start.path.get(outer.path.len()) == Some(&b'/'))
-        });
-        if !covered && !exclude.excludes(&start.path) {
-            kept.push(start);
-        }
-    }
-    (false, kept)
 }
 
 #[cfg(test)]
@@ -195,6 +165,14 @@ mod tests;
 #[cfg(test)]
 #[path = "drive_limit_tests.rs"]
 mod limit_tests;
+
+#[cfg(test)]
+#[path = "drive_name_tests.rs"]
+mod name_tests;
+
+#[cfg(test)]
+#[path = "drive_include_tests.rs"]
+mod include_tests;
 
 #[cfg(test)]
 #[path = "drive_scope_tests.rs"]

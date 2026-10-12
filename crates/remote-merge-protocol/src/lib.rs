@@ -113,6 +113,8 @@ pub enum AgentResponse {
         unreadable_names: Vec<String>,
         /// 件数の上限を超えて打ち切った
         truncated: bool,
+        /// 循環に出会って止めたパス
+        cycle: Option<String>,
     },
     /// 走査を止めた（root_dir がない・読めないディレクトリ・循環など）。一覧は返さない
     TreeFailed {

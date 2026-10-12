@@ -2,6 +2,7 @@
 
 use crate::cli::content_reads::{read_contents, read_failure_reason, read_one};
 use crate::cli::diff_children::children_to_expand;
+use crate::cli::diff_expansion::Expansions;
 use crate::cli::diff_kinds::{directory_against_file, FileSide};
 use crate::cli::diff_listing::{self, ReferenceKind};
 use crate::cli::diff_scans::{combine, DiffScanResult, PathsNotFound, PlainFileSizes};
@@ -112,8 +113,10 @@ pub fn execute_diff(
     let left_root = real_root_dir(&mut core, &pair.left, &config)?;
     let right_root = real_root_dir(&mut core, &pair.right, &config)?;
 
-    // 名前で指定したパスは一つずつ比べ、root_dir 全体を指すものがあれば全体も走査する
+    // 名前で指定したパスは一つずつ比べ、root_dir 全体を指すものがあれば全体も走査する。
+    // 指定したディレクトリの配下は、全体と同じ走査を起点をそのディレクトリにして集める
     let limit = SizeLimit::from_force(args.force);
+    let mut expansions = Expansions::new(max_entries);
     let paths = split_diff_paths(&rel_paths);
     let whole = paths.whole.as_ref().map(|whole| {
         run_diff_full_scan(
@@ -121,6 +124,7 @@ pub fn execute_diff(
             &pair.left,
             &pair.right,
             &mut core,
+            &mut expansions,
             max_entries,
             limit,
         )
@@ -130,7 +134,7 @@ pub fn execute_diff(
             &paths.named,
             (&pair.left, &left_root),
             (&pair.right, &right_root),
-            &mut core,
+            (&mut core, &mut expansions),
             &config,
             args.follow_external_links,
             limit,
@@ -157,9 +161,7 @@ pub fn execute_diff(
     // 比べる対象に入れたパス。ディレクトリを展開した子が既にあれば、もう一度は入れない
     let mut queued: HashSet<String> = diff_files.iter().cloned().collect();
     let mut scanned_files = existing_files.len();
-    let mut visited_entries = 0;
     let mut expanded_children = HashSet::new();
-    let mut active_directories: HashMap<String, (Vec<PathBuf>, Vec<PathBuf>)> = HashMap::new();
     // 展開した子パスごとに、親がディレクトリでないと分かっている側か。その側にはその子がない。
     // 一覧に失敗しただけの側（読む権限がない、接続の失敗）は当てず、その側でも子を読む
     let mut absent_sides: HashMap<String, (bool, bool)> = HashMap::new();
@@ -211,8 +213,10 @@ pub fn execute_diff(
         let right_symlink_target =
             link_target_unless_absent(&mut core, &pair.right, &right_tree, path, right_absent)?;
         if left_symlink_target.is_none() && right_symlink_target.is_none() {
-            let left_listing = listed_children(&mut core, &pair.left, path, left_absent)?;
-            let right_listing = listed_children(&mut core, &pair.right, path, right_absent)?;
+            let left_listing =
+                listed_children(&mut expansions, &mut core, &pair.left, path, left_absent)?;
+            let right_listing =
+                listed_children(&mut expansions, &mut core, &pair.right, path, right_absent)?;
             // 一覧を取れなかったものは、ファイルとしてもない側としても比べない
             if let Some(reason) =
                 unlistable_reason((&pair.left, &left_listing), (&pair.right, &right_listing))
@@ -242,28 +246,6 @@ pub fn execute_diff(
             }
             // 残るディレクトリは子を持つか、子がなくてもう一方がファイル（REQ-cli-085）
             if left_children.is_some() || right_children.is_some() {
-                let (mut left_ancestors, mut right_ancestors) =
-                    active_directories.remove(path).unwrap_or_default();
-                let left_real = real_path_unless_absent(&mut core, &pair.left, path, left_absent)?;
-                let right_real =
-                    real_path_unless_absent(&mut core, &pair.right, path, right_absent)?;
-                if left_real
-                    .as_ref()
-                    .is_some_and(|real| left_ancestors.contains(real))
-                    || right_real
-                        .as_ref()
-                        .is_some_and(|real| right_ancestors.contains(real))
-                {
-                    let reason = "directory comparison incomplete (symlink cycle)";
-                    errors.push(DiffError {
-                        path: path.clone(),
-                        reason: reason.into(),
-                    });
-                    has_read_error = true;
-                    continue;
-                }
-                left_ancestors.extend(left_real);
-                right_ancestors.extend(right_real);
                 scanned_files = scanned_files.saturating_sub(1);
                 // ディレクトリでなくパスのある側はファイルで、その側には子がない。本文を種類の差と
                 // ともに示す
@@ -298,24 +280,11 @@ pub fn execute_diff(
                 }
                 let children =
                     children_to_expand(left_children.as_deref(), right_children.as_deref());
-                for (child, counted) in children {
-                    visited_entries += usize::from(counted);
-                    if visited_entries > max_entries {
-                        errors.push(DiffError {
-                            path: path.clone(),
-                            reason: ScanTruncated { max_entries }.to_string(),
-                        });
-                        has_read_error = true;
-                        break;
-                    }
+                for child in children {
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
                     absent_sides
                         .insert(child_path.clone(), (left_below_absent, right_below_absent));
-                    active_directories.insert(
-                        child_path.clone(),
-                        (left_ancestors.clone(), right_ancestors.clone()),
-                    );
                     // 全体の走査で既に比べる対象にある子は、二度比べず二度数えない
                     if queued.insert(child_path.clone()) {
                         pending.push_back(child_path);
@@ -376,10 +345,20 @@ pub fn execute_diff(
             } else {
                 read_existing_diff_file(&mut core, &pair.right, path, limit)
             };
-            let (left_children, left_content) =
-                diff_listing::children_of_unread(&mut core, &pair.left, path, left_content)?;
-            let (right_children, right_content) =
-                diff_listing::children_of_unread(&mut core, &pair.right, path, right_content)?;
+            let (left_children, left_content) = diff_listing::children_of_unread(
+                &mut expansions,
+                &mut core,
+                &pair.left,
+                path,
+                left_content,
+            )?;
+            let (right_children, right_content) = diff_listing::children_of_unread(
+                &mut expansions,
+                &mut core,
+                &pair.right,
+                path,
+                right_content,
+            )?;
             if left_children.is_some() || right_children.is_some() {
                 if left_symlink_target.is_some() != right_symlink_target.is_some() {
                     link_diff.note = Some("type mismatch: symlink vs directory".into());
@@ -414,30 +393,6 @@ pub fn execute_diff(
                     });
                     has_read_error = true;
                 }
-                let (mut left_ancestors, mut right_ancestors) =
-                    active_directories.remove(path).unwrap_or_default();
-                let left_real = real_path_unless_absent(&mut core, &pair.left, path, left_absent)?;
-                let right_real =
-                    real_path_unless_absent(&mut core, &pair.right, path, right_absent)?;
-                if left_real
-                    .as_ref()
-                    .is_some_and(|real| left_ancestors.contains(real))
-                    || right_real
-                        .as_ref()
-                        .is_some_and(|real| right_ancestors.contains(real))
-                {
-                    let reason = "directory comparison incomplete (symlink cycle)";
-                    errors.push(DiffError {
-                        path: path.clone(),
-                        reason: reason.into(),
-                    });
-                    link_diff.note = Some(reason.into());
-                    has_read_error = true;
-                    file_diffs.push(link_diff);
-                    continue;
-                }
-                left_ancestors.extend(left_real);
-                right_ancestors.extend(right_real);
                 // 既にないものとした側、ファイルとして読めた側、
                 // 参照先を読めないリンクとして誤りを記録した側だけに子がない
                 let left_below_absent = left_absent
@@ -452,26 +407,11 @@ pub fn execute_diff(
                         && right_children.is_none();
                 let children =
                     children_to_expand(left_children.as_deref(), right_children.as_deref());
-                for (child, counted) in children {
-                    visited_entries += usize::from(counted);
-                    if visited_entries > max_entries {
-                        let reason = ScanTruncated { max_entries }.to_string();
-                        errors.push(DiffError {
-                            path: path.clone(),
-                            reason: reason.clone(),
-                        });
-                        link_diff.note = Some(reason);
-                        has_read_error = true;
-                        break;
-                    }
+                for child in children {
                     let child_path = format!("{path}/{child}");
                     expanded_children.insert(child_path.clone());
                     absent_sides
                         .insert(child_path.clone(), (left_below_absent, right_below_absent));
-                    active_directories.insert(
-                        child_path.clone(),
-                        (left_ancestors.clone(), right_ancestors.clone()),
-                    );
                     // 全体の走査で既に比べる対象にある子は、二度比べず二度数えない
                     if queued.insert(child_path.clone()) {
                         pending.push_back(child_path);
@@ -646,7 +586,12 @@ pub fn execute_diff(
             // errors にも載せる
             let ref_content = match &ref_side {
                 Some(ref_s) => {
-                    let read = match diff_listing::reference_kind(&mut core, ref_s, path)? {
+                    let read = match diff_listing::reference_kind(
+                        &mut expansions,
+                        &mut core,
+                        ref_s,
+                        path,
+                    )? {
                         ReferenceKind::Differs => Ok(None),
                         ReferenceKind::Unlistable(reason) => Err(reason),
                         ReferenceKind::Readable => {
@@ -699,6 +644,11 @@ pub fn execute_diff(
             file_diffs.push(output);
         }
     }
+
+    // 指定したディレクトリの走査の打ち切りと読めない名前を、誤りに載せる
+    let notices = expansions.take_notices();
+    has_read_error |= !notices.is_empty();
+    errors.extend(notices);
 
     // --max-files はディレクトリを展開した後の変更のあるファイルを数える
     let limited = limit_changed_files(file_diffs, args.max_files, budget.unread());
@@ -765,6 +715,7 @@ fn is_missing(
 
 /// 子の一覧。子を持てない側の下に展開したパスは、その側を調べずにディレクトリでないものとする。
 fn listed_children(
+    expansions: &mut Expansions,
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
@@ -773,7 +724,7 @@ fn listed_children(
     if absent {
         return Ok(ChildListing::NotDirectory);
     }
-    diff_listing::list(core, side, path)
+    expansions.list(core, side, path)
 }
 
 /// 左右のどちらかの一覧を取れなかった理由。どちらも取れていれば None
@@ -813,27 +764,14 @@ fn link_target_unless_absent(
     link_target_for_diff(core, side, tree, path)
 }
 
-/// 子を持てない側の下に展開したパスは、その側を調べずに実パスなしとする。
-fn real_path_unless_absent(
-    core: &mut CoreRuntime,
-    side: &Side,
-    path: &str,
-    absent: bool,
-) -> anyhow::Result<Option<PathBuf>> {
-    if absent {
-        return Ok(None);
-    }
-    Ok(inspected_real_path(core.inspect_path(side, path)?))
-}
-
 /// 指定したパスのうち、比べるファイルを一つも解決せず、左右ともディレクトリで
 /// 配下を include で絞った一覧が空のもの。ツリーに現れない include の外のディレクトリも含む。
 fn directories_without_files(
     paths: &[String],
     existing_files: &[String],
-    left: &Side,
-    right: &Side,
+    (left, right): (&Side, &Side),
     core: &mut CoreRuntime,
+    expansions: &mut Expansions,
 ) -> anyhow::Result<HashSet<String>> {
     let mut directories = HashSet::new();
     for path in paths {
@@ -849,8 +787,8 @@ fn directories_without_files(
         {
             continue;
         }
-        let left_children = diff_listing::children(diff_listing::list(core, left, normalized)?);
-        let right_children = diff_listing::children(diff_listing::list(core, right, normalized)?);
+        let left_children = diff_listing::children(expansions.list(core, left, normalized)?);
+        let right_children = diff_listing::children(expansions.list(core, right, normalized)?);
         if are_empty_directories(&left_children, &right_children) {
             directories.insert(path.clone());
         }
@@ -875,7 +813,7 @@ fn run_diff_fast_path(
     target_paths: &[String],
     (left, left_root): (&Side, &Path),
     (right, right_root): (&Side, &Path),
-    core: &mut CoreRuntime,
+    (core, expansions): (&mut CoreRuntime, &mut Expansions),
     config: &AppConfig,
     follow_external_links: bool,
     limit: SizeLimit,
@@ -906,8 +844,8 @@ fn run_diff_fast_path(
             existing.push(path.clone());
             continue;
         }
-        let left_listing = diff_listing::list(core, left, path)?;
-        let right_listing = diff_listing::list(core, right, path)?;
+        let left_listing = expansions.list(core, left, path)?;
+        let right_listing = expansions.list(core, right, path)?;
         // 一覧を取れなかったものは、ファイルとしてもない側としても比べない
         if let Some(reason) = unlistable_reason((left, &left_listing), (right, &right_listing)) {
             read_errors.push(DiffError {
@@ -1064,6 +1002,7 @@ fn run_diff_full_scan(
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
+    expansions: &mut Expansions,
     max_entries: usize,
     limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
@@ -1091,7 +1030,7 @@ fn run_diff_full_scan(
     compute_statuses_and_resolve(
         paths,
         (left, right),
-        core,
+        (core, expansions),
         (left_tree, right_tree),
         scan_errors,
         limit,
@@ -1114,7 +1053,7 @@ fn fetch_tree_keeping_read(
 fn compute_statuses_and_resolve(
     paths: &[RelPath],
     (left, right): (&Side, &Side),
-    core: &mut CoreRuntime,
+    (core, expansions): (&mut CoreRuntime, &mut Expansions),
     (left_tree, right_tree): (FileTree, FileTree),
     scan_errors: Vec<DiffError>,
     limit: SizeLimit,
@@ -1135,8 +1074,13 @@ fn compute_statuses_and_resolve(
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    let empty_directories =
-        directories_without_files(&as_typed_all(paths), &existing_files, left, right, core)?;
+    let empty_directories = directories_without_files(
+        &as_typed_all(paths),
+        &existing_files,
+        (left, right),
+        core,
+        expansions,
+    )?;
     for path in missing_files
         .iter()
         .filter(|path| !empty_directories.contains(*path))
@@ -1298,7 +1242,7 @@ mod tests {
         let (_, _, _, _, diff_files, _, read_errors) = super::compute_statuses_and_resolve(
             &[super::RelPath::parse("a.txt").unwrap()],
             (&Side::Local, &Side::Remote("develop".into())),
-            &mut core,
+            (&mut core, &mut super::Expansions::new(100)),
             (both(), both()),
             Vec::new(),
             SizeLimit::Enforced,

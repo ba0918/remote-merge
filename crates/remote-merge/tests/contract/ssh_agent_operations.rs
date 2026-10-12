@@ -40,7 +40,7 @@ async fn the_three_operations_go_to_the_agent_on_a_server_without_sudo() {
     assert_eq!(fixture.read_remote("new.txt"), "new\n");
     assert!(!fixture.remote().join("old.txt").exists());
     let requests = fixture.server.faults().agent_requests();
-    for request in ["Chmod", "Remove", "ListDir"] {
+    for request in ["Chmod", "Remove", "ListTree"] {
         assert!(
             requests.iter().any(|seen| seen == request),
             "{request}: {requests:?}"

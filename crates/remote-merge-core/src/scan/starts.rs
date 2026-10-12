@@ -25,7 +25,7 @@ pub fn scope_for(dirs: Option<&[String]>, include: Option<&[String]>) -> ScanSco
 }
 
 /// ディレクトリ `dir` の下を include の値で絞った起点。`dir` が値の下（か同じ）ならその下全体、
-/// 値が `dir` の下ならその値、どちらでもなければ何もない
+/// そうでなければ `dir` がディレクトリかを確かめる起点と、`dir` の下にある値
 fn narrowed(dir: &str, group: usize, values: &[String]) -> Vec<Start> {
     let dir_path = normalize(dir);
     if values
@@ -34,14 +34,17 @@ fn narrowed(dir: &str, group: usize, values: &[String]) -> Vec<Start> {
     {
         return vec![Start::below(dir.to_string(), group)];
     }
-    values
+    let inner = values
         .iter()
         .filter(|value| is_within(&normalize(value), &dir_path))
         .map(|value| Start {
             path: value.clone(),
             with_self: true,
+            descend: true,
             group,
-        })
+        });
+    std::iter::once(Start::check(dir.to_string(), group))
+        .chain(inner)
         .collect()
 }
 

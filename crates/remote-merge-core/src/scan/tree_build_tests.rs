@@ -32,6 +32,7 @@ fn listed_entries_become_nested_nodes_with_their_metadata() {
         ],
         unreadable_names: vec!["bad\\xff".into()],
         truncated: true,
+        cycle: None,
     };
     let tree = to_tree("/root", listing);
     assert_eq!(tree.root, std::path::PathBuf::from("/root"));

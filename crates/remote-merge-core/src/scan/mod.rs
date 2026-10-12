@@ -10,10 +10,12 @@ mod machine_fs;
 pub mod outcome;
 mod parts;
 pub mod raw;
+mod start_paths;
 pub mod starts;
 pub mod this_machine;
 pub mod tree_build;
 mod walk;
+mod walk_links;
 
 #[cfg(test)]
 mod test_support;

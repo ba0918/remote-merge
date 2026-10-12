@@ -23,11 +23,34 @@ pub fn into_tree(
         Err(ScanError::Failure(failure)) => return Err(failure.into()),
         Err(ScanError::Collect(error)) => return Err(error),
     };
+    if let Some(path) = listing.cycle.clone() {
+        return Err(PartialScan {
+            failure: ScanFailure::Cycle { path },
+            tree: to_tree(root, listing),
+        }
+        .into());
+    }
     if listing.truncated {
         check_truncation(max_entries, fail_on_truncation)?;
     }
     Ok(to_tree(root, listing))
 }
+
+/// 循環で止めた走査（REQ-scan-002）。merge・sync・status はこれで止まり（REQ-scan-005）、diff は
+/// 読めたところまでのツリーで比べて不完全な比較として報告する（REQ-cli-021）
+#[derive(Debug)]
+pub struct PartialScan {
+    pub failure: ScanFailure,
+    pub tree: FileTree,
+}
+
+impl std::fmt::Display for PartialScan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.failure.fmt(f)
+    }
+}
+
+impl std::error::Error for PartialScan {}
 
 #[cfg(test)]
 mod tests {
@@ -48,6 +71,7 @@ mod tests {
             }],
             unreadable_names: Vec::new(),
             truncated,
+            cycle: None,
         }
     }
 
@@ -80,9 +104,23 @@ mod tests {
         let failed = Err(ScanError::Failure(ScanFailure::RootMissing));
         let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
         assert_eq!(error.to_string(), "no root");
-        let cycle = ScanFailure::Cycle { path: "a".into() };
-        let failed = Err(ScanError::Failure(cycle.clone()));
+        let unreadable = ScanFailure::UnresolvableLink { path: "a".into() };
+        let failed = Err(ScanError::Failure(unreadable.clone()));
         let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
-        assert_eq!(error.downcast_ref::<ScanFailure>(), Some(&cycle));
+        assert_eq!(error.downcast_ref::<ScanFailure>(), Some(&unreadable));
+    }
+
+    // @kotowari[REQ-scan-002, REQ-scan-005]
+    #[test]
+    fn a_listing_stopped_at_a_cycle_is_an_error_that_keeps_what_was_read() {
+        let mut stopped = listing(false);
+        stopped.cycle = Some("a/up".into());
+        for fail in [true, false] {
+            let error =
+                into_tree(Path::new("/r"), Ok(stopped.clone()), 9, fail, missing).unwrap_err();
+            assert!(error.to_string().contains("cycle at a/up"), "{error}");
+            let partial = error.downcast_ref::<PartialScan>().unwrap();
+            assert!(partial.tree.find_node("a.txt").is_some());
+        }
     }
 }

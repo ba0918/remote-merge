@@ -37,11 +37,14 @@ fn a_named_directory_is_narrowed_to_the_include_values_from_the_root_dir() {
         scope_for(Some(&dirs), Some(&include)),
         ScanScope::Starts(vec![
             Start::below("src/sub/", 0),
+            Start::check("lib/", 1),
             Start {
                 path: "lib/core".into(),
                 with_self: true,
+                descend: true,
                 group: 1,
             },
+            Start::check("docs/", 2),
             Start::below("lib/core/x", 3),
         ])
     );

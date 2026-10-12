@@ -60,6 +60,7 @@ fn chunks(listing: Listing) -> Vec<AgentResponse> {
                     Vec::new()
                 },
                 truncated: is_last && listing.truncated,
+                cycle: if is_last { listing.cycle.clone() } else { None },
             }
         })
         .collect()

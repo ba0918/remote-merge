@@ -18,6 +18,9 @@ pub struct Start {
     /// 起点そのものも載せる（include の値。docs/ir/config/include.md）か、下だけを載せる
     /// （指定したディレクトリ。TBL-scan-001）か
     pub with_self: bool,
+    /// 下も集めるか。false なら起点がディレクトリかどうかだけを確かめ、ディレクトリなら器として
+    /// 載せる（include の外の指定したディレクトリ。REQ-cli-077）
+    pub descend: bool,
     /// 件数の上限を当てる組。同じ組の起点は件数を合わせて数える（TBL-scan-001）
     pub group: usize,
 }
@@ -28,6 +31,7 @@ impl Start {
         Self {
             path: path.into(),
             with_self: true,
+            descend: true,
             group: 0,
         }
     }
@@ -37,6 +41,17 @@ impl Start {
         Self {
             path: path.into(),
             with_self: false,
+            descend: true,
+            group,
+        }
+    }
+
+    /// 指定したディレクトリがディレクトリかどうかだけを確かめる起点
+    pub fn check(path: impl Into<String>, group: usize) -> Self {
+        Self {
+            path: path.into(),
+            with_self: false,
+            descend: false,
             group,
         }
     }
@@ -77,6 +92,8 @@ pub struct Listing {
     pub unreadable_names: Vec<String>,
     /// 件数の上限を超えて途中で打ち切った
     pub truncated: bool,
+    /// ディレクトリへの symlink の循環に出会って、そこで止めたパス（REQ-scan-002）
+    pub cycle: Option<String>,
 }
 
 /// ディレクトリを読めなかった理由。経路によらず同じ文言にするため、OS や道具の文言は運ばない

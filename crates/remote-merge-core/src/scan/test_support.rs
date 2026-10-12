@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use super::exclude::Exclude;
-use super::outcome::{ListedKind, Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
+use super::outcome::{ListedKind, Listing, ScanError, ScanFailure, ScanRequest, ScanScope, Start};
 use super::raw::{
     Answer, CollectError, Collector, DirId, LinkTarget, Question, RawEntry, RawKind, RawTime,
     Subtree, Unreached,
@@ -174,4 +174,18 @@ pub fn listed(listing: &Listing) -> Vec<String> {
         .filter(|e| !matches!(e.kind, ListedKind::Directory))
         .map(|e| e.path.clone())
         .collect()
+}
+
+/// 指定したディレクトリの下だけの起点（ディレクトリごとに件数の組を分ける）
+pub fn below(paths: &[&str]) -> ScanScope {
+    let starts = paths
+        .iter()
+        .enumerate()
+        .map(|(group, p)| Start::below(*p, group))
+        .collect();
+    ScanScope::Starts(starts)
+}
+
+pub fn values(paths: &[&str]) -> ScanScope {
+    ScanScope::Starts(paths.iter().map(|p| Start::value(*p)).collect())
 }

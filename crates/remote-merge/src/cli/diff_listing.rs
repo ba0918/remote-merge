@@ -1,30 +1,15 @@
-//! diff が使う子の一覧（docs/ir/cli/directory-paths.md の REQ-cli-096）。
+//! diff が使う子の一覧の読み方（docs/ir/cli/directory-paths.md の REQ-cli-096）。一覧そのものは
+//! 名前で指定したディレクトリの走査（[`super::diff_expansion`]）から答える。
 //!
-//! 「ディレクトリではない」と「一覧を取れなかった」を分ける。一覧の途中の `接続断` は、やり直しの
-//! 後もだめなら一覧を取れなかったものとしてそのパスを errors に出す。一覧の中のリンク先か更新時刻を
-//! 読めないときは `Err` のまま返し、diff を止める。
+//! 「ディレクトリではない」と「一覧を取れなかった」を分ける。
 
 use remote_merge_core::listing::ChildListing;
 
-use crate::runtime::connection::classify;
+use super::diff_expansion::Expansions;
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::CoreRuntime;
 use crate::side::Side;
 use crate::tree::FileNode;
-
-/// `side` の `path` の子の一覧
-pub(crate) fn list(
-    core: &mut CoreRuntime,
-    side: &Side,
-    path: &str,
-) -> anyhow::Result<ChildListing> {
-    match core.list_children(side, path) {
-        Err(error) if classify(&error).is_disconnection() => {
-            Ok(ChildListing::Unlistable(format!("{error:#}")))
-        }
-        result => result,
-    }
-}
 
 /// ディレクトリの直下の子。ディレクトリでないか一覧を取れなかったら None
 pub(crate) fn children(listing: ChildListing) -> Option<Vec<FileNode>> {
@@ -47,6 +32,7 @@ pub(crate) type ContentRead = Result<Option<Vec<u8>>, String>;
 
 /// 中身を読めなかった側の子の一覧。一覧を取れなかったときは、読めなかった理由をその理由に替える
 pub(crate) fn children_of_unread(
+    expansions: &mut Expansions,
     core: &mut CoreRuntime,
     side: &Side,
     path: &str,
@@ -55,7 +41,7 @@ pub(crate) fn children_of_unread(
     if content.is_ok() {
         return Ok((None, content));
     }
-    Ok(match list(core, side, path)? {
+    Ok(match expansions.list(core, side, path)? {
         ChildListing::Unlistable(reason) => (None, Err(reason)),
         listing => (children(listing), content),
     })
@@ -74,13 +60,14 @@ pub(crate) enum ReferenceKind {
 /// 参照先の同じパスが、テキストとして比べる通常ファイルと種類の違うものか。
 /// 種類を確かめられないときは読みに進め、その読み込みの失敗を出す
 pub(crate) fn reference_kind(
+    expansions: &mut Expansions,
     core: &mut CoreRuntime,
     ref_side: &Side,
     path: &str,
 ) -> anyhow::Result<ReferenceKind> {
     Ok(match core.inspect_path(ref_side, path) {
         Ok(TargetPath::Symlink { .. }) => ReferenceKind::Differs,
-        Ok(TargetPath::File { .. }) => match list(core, ref_side, path)? {
+        Ok(TargetPath::File { .. }) => match expansions.list(core, ref_side, path)? {
             ChildListing::Children(_) => ReferenceKind::Differs,
             ChildListing::NotDirectory => ReferenceKind::Readable,
             ChildListing::Unlistable(reason) => ReferenceKind::Unlistable(reason),

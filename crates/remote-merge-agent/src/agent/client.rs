@@ -97,11 +97,13 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                     is_last,
                     unreadable_names,
                     truncated,
+                    cycle,
                 } => {
                     listing.entries.extend(entries);
                     listing.unreadable_names.extend(unreadable_names);
                     if is_last {
                         listing.truncated = truncated;
+                        listing.cycle = cycle;
                         return Ok(Ok(listing));
                     }
                 }

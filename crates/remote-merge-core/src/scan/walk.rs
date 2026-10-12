@@ -6,16 +6,18 @@ use std::collections::HashMap;
 use super::exclude::Exclude;
 use super::outcome::{ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
-use super::parts::{changed, join, listed_entry, parent_ids, shown, unreadable_directory};
-use super::raw::{Answer, DirId, LinkTarget, RawEntry, RawKind, ReadCause, Subtree};
+use super::parts::{join, listed_entry, parent_ids, shown, unreadable_directory};
+use super::raw::{DirId, RawEntry, RawKind, ReadCause, Subtree};
 
 pub(super) struct Walk<'a> {
     exclude: &'a Exclude,
     max_entries: usize,
     counts: Vec<usize>,
-    entries: Vec<ListedEntry>,
+    pub(super) entries: Vec<ListedEntry>,
     unreadable_names: Vec<String>,
     pub truncated: bool,
+    /// 循環に出会ったパス（不完全な一覧。REQ-scan-002）
+    pub cycle: Option<String>,
     pub pending: Vec<PendingLink>,
 }
 
@@ -28,8 +30,14 @@ impl<'a> Walk<'a> {
             entries: Vec::new(),
             unreadable_names: Vec::new(),
             truncated: false,
+            cycle: None,
             pending: Vec::new(),
         }
+    }
+
+    /// 件数の上限か循環で、これより先を集めない
+    pub fn stopped(&self) -> bool {
+        self.truncated || self.cycle.is_some()
     }
 
     pub fn finish(mut self) -> Listing {
@@ -39,6 +47,7 @@ impl<'a> Walk<'a> {
             entries: self.entries,
             unreadable_names: self.unreadable_names,
             truncated: self.truncated,
+            cycle: self.cycle,
         }
     }
 
@@ -60,7 +69,8 @@ impl<'a> Walk<'a> {
         counter: usize,
     ) -> Result<(), ScanError> {
         if ancestors.contains(&tree.start.id) {
-            return Err(ScanFailure::Cycle { path: shown(base) }.into());
+            self.cycle = Some(shown(base));
+            return Ok(());
         }
         let unreadable: HashMap<&[u8], ReadCause> = tree
             .unreadable
@@ -79,7 +89,7 @@ impl<'a> Walk<'a> {
         let mut sorted: Vec<&RawEntry> = tree.entries.iter().collect();
         sorted.sort_by(|a, b| a.path.cmp(&b.path));
         for entry in sorted {
-            if self.truncated {
+            if self.stopped() {
                 return Ok(());
             }
             let path = join(base, &entry.path);
@@ -87,6 +97,11 @@ impl<'a> Walk<'a> {
                 continue;
             }
             if entry.kind == RawKind::Directory {
+                // リンクを辿った先で、辿ってきた祖先のディレクトリにまた出会った（REQ-scan-002）
+                if ancestors.contains(&entry.id) {
+                    self.cycle = Some(shown(&path));
+                    return Ok(());
+                }
                 if let Some(cause) = unreadable.get(entry.path.as_slice()) {
                     return Err(unreadable_directory(&path, *cause).into());
                 }
@@ -98,6 +113,11 @@ impl<'a> Walk<'a> {
             self.take_leaf(&path, entry, chain, counter)?;
         }
         Ok(())
+    }
+
+    /// 指定したディレクトリの起点を器のディレクトリとして載せる
+    pub fn list_container(&mut self, path: &[u8], entry: &RawEntry) -> Result<(), ScanError> {
+        self.list_directory(path, entry)
     }
 
     /// ディレクトリは数えずに載せる。名前が UTF-8 として読めなければ載せず、下の項目で報告する
@@ -117,7 +137,7 @@ impl<'a> Walk<'a> {
         ancestors: Vec<DirId>,
         counter: usize,
     ) -> Result<(), ScanError> {
-        if !self.count(counter) {
+        if self.stopped() || !self.count(counter) {
             return Ok(());
         }
         let target = match &entry.kind {
@@ -158,28 +178,5 @@ impl<'a> Walk<'a> {
             });
         }
         Ok(())
-    }
-
-    /// 待たせた symlink のリンク先を答えから決める（REQ-scan-002・018）
-    pub fn take_link(&mut self, link: PendingLink, answer: &Answer) -> Result<(), ScanError> {
-        match answer.link {
-            Some(LinkTarget::Directory) => {
-                let Some(tree) = &answer.subtree else {
-                    return Err(changed(&link.path));
-                };
-                if let Some(index) = link.listed {
-                    if let ListedKind::Symlink { is_dir, .. } = &mut self.entries[index].kind {
-                        *is_dir = true;
-                    }
-                }
-                self.take_subtree(&link.path, tree, &link.ancestors, link.counter)
-            }
-            Some(LinkTarget::NotDirectory | LinkTarget::Missing) => Ok(()),
-            Some(LinkTarget::Unresolvable) => Err(ScanFailure::UnresolvableLink {
-                path: shown(&link.path),
-            }
-            .into()),
-            None => Err(changed(&link.path)),
-        }
     }
 }

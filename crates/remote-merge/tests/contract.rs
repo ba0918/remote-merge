@@ -78,6 +78,9 @@ mod diff_identical_links;
 #[path = "contract/diff_max_files.rs"]
 mod diff_max_files;
 #[cfg(feature = "test-utils")]
+#[path = "contract/diff_named_directory_scan.rs"]
+mod diff_named_directory_scan;
+#[cfg(feature = "test-utils")]
 #[path = "contract/diff_named_files.rs"]
 mod diff_named_files;
 #[cfg(feature = "test-utils")]

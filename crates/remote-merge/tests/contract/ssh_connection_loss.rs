@@ -89,7 +89,7 @@ async fn a_read_cut_again_after_the_retry_stops_the_command_with_exit_code_2() {
         },
         Faults {
             ssh_cut: Some(SshCut {
-                command: SshCommand::ListChildren,
+                command: SshCommand::Scan,
                 repeat: Repeat::Every,
             }),
             ..Faults::default()
