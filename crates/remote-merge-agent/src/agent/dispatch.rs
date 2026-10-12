@@ -1049,8 +1049,9 @@ mod tests {
     }
 
     #[test]
-    fn symlink_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
+    // リンク先が ".." で始まる symlink も、ほかの経路と同じくそのまま作る（REQ-merge-023）
+    fn a_symlink_to_a_parent_target_is_created() {
+        let (tmp, mut d) = setup();
 
         let resp = single(
             d.dispatch(AgentRequest::Symlink {
@@ -1060,13 +1061,17 @@ mod tests {
             .unwrap(),
         );
 
-        match resp {
-            AgentResponse::SymlinkResult { success, error } => {
-                assert!(!success);
-                assert!(error.unwrap().contains("escapes root"));
+        assert_eq!(
+            resp,
+            AgentResponse::SymlinkResult {
+                success: true,
+                error: None
             }
-            other => panic!("expected SymlinkResult, got {other:?}"),
-        }
+        );
+        assert_eq!(
+            fs::read_link(tmp.path().join("link")).unwrap(),
+            std::path::Path::new("../etc/passwd")
+        );
     }
 
     // ── Path traversal protection ──

@@ -2,13 +2,6 @@
 
 ## Flags
 
-### FLAG-merge-012: エージェントの経路の拒否と切り替え
-- kind: contradiction
-- related: REQ-merge-004
-- source: docs/decision/records/2026-09-28-adopt-merge-links.md#A10
-
-旧個別仕様 symlink-merge の 3.4・3.5 はエージェントが root_dir の外を指す途中の symlink 越しの書き込みと、".." や絶対パスをリンク先に持つ symlink の作成を拒否せず、SSH の経路に切り替わることもないとするが、実装のエージェントはどちらも拒否し、書き込みは SSH の経路に切り替えて行う。sudo を使う設定では SSH の経路への切り替えが止められるため、その書き込みは失敗するとコードからは読める（実行しての確認はしていない）。
-
 ### FLAG-merge-013: merge の dry-run の削除予定の表示
 - kind: gap
 - related: REQ-merge-026, REQ-merge-027, REQ-cli-004

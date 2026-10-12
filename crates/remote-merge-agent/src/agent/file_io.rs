@@ -6,11 +6,11 @@
 use std::ffi::CString;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use remote_merge_core::relative_path::RelPath;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
 use crate::agent::protocol::{AgentFileStat, AgentPathInspection, FileReadResult};
 use crate::agent::server::MetadataConfig;
@@ -325,7 +325,7 @@ pub fn stat_file(root_dir: &Path, rel_path: &RelPath) -> Result<AgentFileStat> {
     })
 }
 
-/// シンボリックリンクを作成する。ターゲットが root_dir 外に逃げないことを検証する。
+/// シンボリックリンクを作成する。リンク先は辿らずにそのまま書く（REQ-merge-023）。
 pub fn create_symlink(root_dir: &Path, rel_path: &RelPath, target: &str) -> Result<()> {
     create_symlink_with_metadata(root_dir, rel_path, target, None, None)
 }
@@ -341,13 +341,6 @@ pub fn create_symlink_with_metadata(
     gid: Option<u32>,
 ) -> Result<()> {
     let link_path = full_path(root_dir, rel_path);
-
-    // ターゲットの安全性検証: root_dir からの相対として解決
-    for component in Path::new(target).components() {
-        if matches!(component, Component::ParentDir | Component::RootDir) {
-            bail!("symlink target escapes root: {target}");
-        }
-    }
 
     // 作ったディレクトリの権限は、呼び出し元が作った後に変える
     if let Some(parent) = link_path.parent() {
@@ -539,11 +532,14 @@ mod tests {
     }
 
     #[test]
-    fn symlink_target_traversal_rejected() {
+    // リンク先は辿らずにそのまま作る（REQ-merge-023）
+    fn a_link_to_a_parent_target_is_created_with_that_literal_target() {
         let tmp = setup();
-        let result = create_symlink(tmp.path(), &rel("bad_link"), "../etc/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("escapes root"));
+        create_symlink(tmp.path(), &rel("up_link"), "../etc/passwd").unwrap();
+        assert_eq!(
+            fs::read_link(tmp.path().join("up_link")).unwrap(),
+            Path::new("../etc/passwd")
+        );
     }
 
     // ── 追加テスト ──
@@ -840,11 +836,14 @@ mod tests {
     }
 
     #[test]
-    fn symlink_absolute_target_rejected() {
+    // リンク先は辿らずにそのまま作る（REQ-merge-023）
+    fn a_link_to_an_absolute_target_is_created_with_that_literal_target() {
         let tmp = setup();
-        let result = create_symlink(tmp.path(), &rel("link"), "/etc/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("escapes root"));
+        create_symlink(tmp.path(), &rel("link"), "/etc/passwd").unwrap();
+        assert_eq!(
+            fs::read_link(tmp.path().join("link")).unwrap(),
+            Path::new("/etc/passwd")
+        );
     }
 
     // ── list_backup_sessions ──

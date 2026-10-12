@@ -117,6 +117,9 @@ mod filters;
 mod init;
 #[path = "contract/logs_level.rs"]
 mod logs_level;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_agent_outside_links.rs"]
+mod merge_agent_outside_links;
 #[path = "contract/merge_cli.rs"]
 mod merge_cli;
 #[cfg(feature = "test-utils")]
