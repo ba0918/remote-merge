@@ -106,6 +106,7 @@ mod diff_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/diff_unlistable.rs"]
 mod diff_unlistable;
+#[cfg(feature = "test-utils")]
 #[path = "contract/dry_run_failures.rs"]
 mod dry_run_failures;
 #[path = "contract/filters.rs"]
