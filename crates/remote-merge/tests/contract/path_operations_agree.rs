@@ -53,6 +53,11 @@ fn serve_ssh_request() -> bool {
                 .list_children(&side, path)
                 .map_err(|e| e.to_string()),
         ),
+        ["tree"] => super::scan_routes_metadata::tree_json(
+            runtime
+                .fetch_tree_recursive(&side, MAX_ENTRIES, true)
+                .map_err(|e| e.to_string()),
+        ),
         ["scan"] => super::scan_times_agree::times_text(
             runtime
                 .fetch_tree_recursive(&side, MAX_ENTRIES, true)
@@ -143,7 +148,7 @@ impl Routes {
     }
 
     /// SSH の経路の設定に exclude を足す。ローカルとエージェントの経路には呼び出し側が渡す
-    fn with_exclude(self, exclude: &[String]) -> Self {
+    pub(super) fn with_exclude(self, exclude: &[String]) -> Self {
         let mut config = fs::read_to_string(&self.config).unwrap();
         config.push_str(&format!("[filter]\nexclude = {exclude:?}\n"));
         fs::write(&self.config, config).unwrap();
