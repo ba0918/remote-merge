@@ -113,7 +113,7 @@ fn full_protocol_roundtrip() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tree_scan_and_convert_to_file_nodes() {
+fn a_scan_over_the_protocol_becomes_a_file_tree() {
     use crate::tree::NodeKind;
 
     let tmp = TempDir::new().unwrap();

@@ -228,6 +228,9 @@ mod scan_partial_starts;
 #[path = "contract/scan_routes_agree.rs"]
 mod scan_routes_agree;
 #[cfg(feature = "test-utils")]
+#[path = "contract/scan_routes_same_tree.rs"]
+mod scan_routes_same_tree;
+#[cfg(feature = "test-utils")]
 #[path = "contract/scan_timeout.rs"]
 mod scan_timeout;
 #[cfg(feature = "test-utils")]
