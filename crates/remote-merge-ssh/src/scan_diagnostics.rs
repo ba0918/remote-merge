@@ -4,10 +4,9 @@
 use std::collections::HashMap;
 
 use crate::scan_fields::diagnosed_path;
-use crate::scan_script::MARKER;
 
 /// find が出会ったディレクトリを確かめた結果。`printed` は find に渡した形のパス
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirCheck {
     pub printed: Vec<u8>,
     pub readable: bool,
@@ -19,18 +18,13 @@ pub struct DirCheck {
 /// 知らせがすべて確かめた結果と合うかを確かめ、合った知らせの数を返す。ディレクトリについての
 /// 知らせはそのディレクトリが読めないか検索できないとき、項目についての知らせはそれを入れている
 /// ディレクトリが検索できないときだけ合う
-pub fn validate(stderr: &[u8], checks: &[DirCheck]) -> Result<usize, String> {
-    let marker = [MARKER.as_bytes(), b"\n"].concat();
-    let begin = stderr
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .map_or(stderr.len(), |at| at + marker.len());
+pub fn validate(diagnostics: &[u8], checks: &[DirCheck]) -> Result<usize, String> {
     let checked: HashMap<&[u8], &DirCheck> = checks
         .iter()
         .map(|check| (check.printed.as_slice(), check))
         .collect();
     let mut explained = 0;
-    for message in messages(&stderr[begin..]) {
+    for message in messages(diagnostics) {
         let unexplained = || format!("find reported: {}", String::from_utf8_lossy(&message));
         let path = diagnosed_path(&message).ok_or_else(unexplained)?;
         let fits = match checked.get(path.as_slice()) {
@@ -109,7 +103,7 @@ mod validate_tests {
 
     #[test]
     fn a_message_must_fit_what_the_directory_check_found() {
-        let stderr = |line: &str| format!("@RMSCAN\n{line}\n").into_bytes();
+        let stderr = |line: &str| format!("{line}\n").into_bytes();
         let checks = [
             check(b"./locked", false, false),
             check(b"./d", true, false),

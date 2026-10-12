@@ -582,7 +582,9 @@ impl server::Handler for LocalHandler {
             if !result.stdout.is_empty() {
                 session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
             }
-            if self.relay_stderr && !result.stderr.is_empty() {
+            // 走査は確かめた結果を標準エラーに出す。本物の SSH と同じく、走査の標準エラーはいつも返す
+            let relays = self.relay_stderr || SshCommand::Scan.matches(&script);
+            if relays && !result.stderr.is_empty() {
                 session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
             }
             session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;

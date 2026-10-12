@@ -7,6 +7,7 @@ pub mod find_records;
 pub mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;
+pub mod scan_checks;
 pub mod scan_collect;
 pub mod scan_diagnostics;
 pub mod scan_fields;

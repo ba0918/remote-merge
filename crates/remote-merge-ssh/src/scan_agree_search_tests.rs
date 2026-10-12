@@ -117,3 +117,48 @@ fn an_unreadable_directory_whose_name_holds_a_find_prefix_after_a_newline_agrees
         assert_eq!(shell, machine, "{parent}");
     }
 }
+
+/// 名前に "skipme" を含むディレクトリを渡されると何もせずに失敗する sh を置いたディレクトリ
+fn failing_sh(temp: &std::path::Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = temp.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let sh = bin.join("sh");
+    fs::write(
+        &sh,
+        "#!/bin/sh\nfor a do case \"$a\" in *skipme*) exit 1;; esac; done\nexec /bin/sh \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&sh, fs::Permissions::from_mode(0o755)).unwrap();
+    bin
+}
+
+// @kotowari[REQ-scan-014, REQ-scan-017]
+#[test]
+fn a_directory_check_that_fails_or_goes_missing_stops_the_scan() {
+    use crate::scan_script::{build, ScriptQuestion};
+    use remote_merge_core::scan::exclude::Prunable;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    fs::create_dir_all(root.join("skipme")).unwrap();
+    fs::write(root.join("skipme/f.txt"), "f").unwrap();
+    fs::set_permissions(root.join("skipme"), fs::Permissions::from_mode(0o644)).unwrap();
+    let bin = failing_sh(temp.path());
+    let questions = [ScriptQuestion {
+        path: b"",
+        descend: true,
+    }];
+    let script = build(
+        root.as_os_str().as_bytes(),
+        &questions,
+        &Prunable::default(),
+    );
+    let output = shell_command_with_path(&script, Some(&bin))
+        .output()
+        .unwrap();
+    fs::set_permissions(root.join("skipme"), fs::Permissions::from_mode(0o755)).unwrap();
+    let parsed = crate::scan_output::parse(&output.stdout, &output.stderr, &questions);
+    assert!(parsed.is_err(), "{parsed:?}");
+}

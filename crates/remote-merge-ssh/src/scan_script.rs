@@ -99,11 +99,9 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
             " else e=$(ls -d -- \"$1\" 2>&1 >/dev/null); printf '@E\\000%s\\000@Z\\000' \"$e\"; return; fi\n",
             " if [ \"$2\" = 1 ] && [ -d \"$1\" ]; then printf '@T\\000'\n",
             "  find -H \"$1\" -prune -printf \"$F\"\n",
-            "  find -H \"$1\" -mindepth 1 {prune}-printf \"$F\"\n",
+            "  printf '\\000@QS\\000' >&2; sh -c \"$c\" sh \"$1\"\n",
+            "  find -H \"$1\" -mindepth 1 {prune}\\( -type d -printf \"$F\" -exec sh -c \"$c\" sh {{}} + \\) -o -printf \"$F\"\n",
             "  printf '@R\\000%s\\000' \"$?\"\n",
-            "  printf '@C\\000'; sh -c \"$c\" sh \"$1\"\n",
-            "  find -H \"$1\" -mindepth 1 {prune}-type d -exec sh -c \"$c\" sh {{}} + 2>/dev/null\n",
-            "  printf '@CE\\000'\n",
             " fi\n",
             " printf '@Z\\000'\n",
             "}}\n",
@@ -119,13 +117,14 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
 
 const END: &str = "printf '@END\\000'\n";
 
-/// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。
+/// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。結果は
+/// find の一覧と混ざらないよう標準エラーに、NUL で区切った目印付きの記録で出す。
 /// find の診断から推し量らない（診断を出さない find もある）。読めて検索できないディレクトリは、
 /// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
 /// 名前に持つ子があるかを、一文字を [] で囲んだ glob で確かめて見分ける
 const CHECK: &str = concat!(
-    "c='lit() { for q in \"$1\"/$2; do [ \"$q\" != \"$1/$2\" ]; return; done; }\n",
-    "for d do printf \"@D\\000%s\\000\" \"$d\"\n",
+    "c='exec >&2; lit() { for q in \"$1\"/$2; do [ \"$q\" != \"$1/$2\" ]; return; done; }\n",
+    "for d do printf \"\\000@D\\000%s\\000\" \"$d\"\n",
     " if [ -r \"$d\" ]; then r=1; else r=0; fi; if [ -x \"$d\" ]; then x=1; else x=0; fi\n",
     " printf \"%s%s\\000\" $r $x\n",
     " if [ $r = 1 ] && [ $x = 0 ]; then for p in \"$d\"/* \"$d\"/.[!.]* \"$d\"/..?*; do\n",

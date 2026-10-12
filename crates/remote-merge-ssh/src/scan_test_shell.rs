@@ -45,10 +45,19 @@ pub fn over_shell(
 /// 置くと、一時ディレクトリを同じパスに見せたそのコンテナの sh と find で動かす（古い find で
 /// 確かめるための手段で、CI では使わない）
 pub fn shell_command(script: &str) -> Command {
+    shell_command_with_path(script, None)
+}
+
+/// [`shell_command`] の、`bin` を PATH の先頭に置いたもの（find が -exec で起こす sh を差し替える）
+pub fn shell_command_with_path(script: &str, bin: Option<&Path>) -> Command {
     let image = std::env::var("REMOTE_MERGE_TEST_SCAN_IMAGE").unwrap_or_default();
+    let path = bin.map(|bin| format!("{}:/usr/bin:/bin", bin.to_str().unwrap()));
     if image.is_empty() {
-        let mut command = Command::new("sh");
+        let mut command = Command::new("/bin/sh");
         command.args(["-c", script]);
+        if let Some(path) = &path {
+            command.env("PATH", path);
+        }
         return command;
     }
     let temp = std::env::temp_dir();
@@ -59,8 +68,11 @@ pub fn shell_command(script: &str) -> Command {
     let mut command = Command::new("docker");
     command
         .args(["run", "--rm", "-u", &user, "-v"])
-        .arg(format!("{temp}:{temp}"))
-        .args([image.as_str(), "sh", "-c", script]);
+        .arg(format!("{temp}:{temp}"));
+    if let Some(path) = &path {
+        command.args(["-e", &format!("PATH={path}")]);
+    }
+    command.args([image.as_str(), "/bin/sh", "-c", script]);
     command
 }
 
