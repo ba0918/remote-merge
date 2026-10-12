@@ -44,6 +44,15 @@ impl CoreRuntime {
     /// の外へ解決される値は警告して飛ばし、確認がエラーになった値はそのエラーで止める
     /// （docs/ir/config/include.md の REQ-config-032・033）
     fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
+        if let Some(checked) = self.checked_include.get(side) {
+            return Ok(checked.clone());
+        }
+        let checked = self.check_include(side)?;
+        self.checked_include.insert(side.clone(), checked.clone());
+        Ok(checked)
+    }
+
+    fn check_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
         let values = self.config.filter.include.clone();
         if values.is_empty() {
             return Ok(None);

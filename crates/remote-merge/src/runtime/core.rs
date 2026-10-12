@@ -66,6 +66,9 @@ pub struct CoreRuntime {
     pub(crate) backup_store: super::backup_store::BackupStore,
     /// `接続断` で処理を止めたサーバ名と、止めた理由。以降の操作は行わずに失敗にする
     pub(crate) stopped: HashMap<String, String>,
+    /// 側ごとに一度だけ確かめた include の値（None は include の指定がない）。一つのコマンドで
+    /// 何度走査しても、root_dir と include の値の確認と警告は側ごとに一度にする
+    pub(crate) checked_include: HashMap<crate::side::Side, Option<Vec<String>>>,
 }
 
 impl CoreRuntime {
@@ -93,6 +96,7 @@ impl CoreRuntime {
             targets,
             backup_store,
             stopped: HashMap::new(),
+            checked_include: HashMap::new(),
         }
     }
 

@@ -77,3 +77,51 @@ async fn the_root_dir_is_checked_once_however_many_directories_are_named_over_ss
     let three = commands_for(Route::Ssh, &["a/", "b/", "c/"]).await;
     assert_eq!(one, three);
 }
+
+/// root_dir と include の値 "src" のパスの確認のコマンドの数（SSH の偽サーバが受けたもの）
+fn root_and_include_checks(sides: &Sides) -> usize {
+    sides
+        .fixture
+        .server
+        .commands()
+        .iter()
+        .filter_map(|script| {
+            let rest = script.strip_prefix("LC_ALL=C; r=")?;
+            let (_, rest) = rest.split_once("; p=")?;
+            Some(
+                rest.split_once("; ")
+                    .map_or(rest, |(rel, _)| rel)
+                    .to_string(),
+            )
+        })
+        .filter(|rel| rel == "''" || rel == "'src'")
+        .count()
+}
+
+/// include を "src" にして、SSH の経路の側を右に `diff names` を動かしたときの確認の数
+async fn checks_for_diff(names: &[&str]) -> usize {
+    let sides = Sides::new(Route::Ssh).await;
+    for dir in ["a", "b", "c"] {
+        sides
+            .fixture
+            .put(&format!("src/{dir}/x.txt"), Some("left\n"), Some("right\n"));
+    }
+    let mut config = std::fs::read_to_string(&sides.fixture.config).unwrap();
+    config.push_str("[filter]\ninclude = [\"src\"]\n");
+    std::fs::write(&sides.fixture.config, config).unwrap();
+    let mut args = vec!["diff"];
+    args.extend(names);
+    let output = sides.run_into_tested(&args);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    root_and_include_checks(&sides)
+}
+
+// root_dir と include の値の確認は、diff で指定したディレクトリの数によらず側ごとに一度
+// @kotowari[REQ-scan-020, REQ-config-032]
+#[tokio::test(flavor = "multi_thread")]
+async fn root_and_include_checks_happen_once_however_many_directories_diff_names() {
+    let one = checks_for_diff(&["src/a"]).await;
+    let three = checks_for_diff(&["src/a", "src/b", "src/c"]).await;
+    assert!(one > 0, "no checks were seen");
+    assert_eq!(one, three);
+}
