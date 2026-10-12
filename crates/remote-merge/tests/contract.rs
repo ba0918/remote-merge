@@ -292,6 +292,9 @@ use common::ssh_server;
 #[path = "contract/agent_support.rs"]
 mod agent_support;
 #[cfg(feature = "test-utils")]
+#[path = "contract/agent_unreadable_answer.rs"]
+mod agent_unreadable_answer;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_agent_operations.rs"]
 mod ssh_agent_operations;
 #[cfg(feature = "test-utils")]

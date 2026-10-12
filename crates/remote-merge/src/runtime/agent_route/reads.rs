@@ -1,30 +1,19 @@
-//! エージェントの経路の読み取り（中身・大きさ・更新時刻・ハッシュ・項目のリンク先）
+//! エージェントの経路の読み取り（中身・大きさ・更新時刻・ハッシュ・項目のリンク先）。
+//! エージェントが答えた失敗の種類は、操作とパスを添えた誤りにする
 
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use remote_merge_core::op_failure::{failure_of, OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
 
 use super::{with_agent, AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE};
-use crate::agent::client::AgentRefused;
-use crate::agent::protocol::{AgentFileStat, FileReadResult};
+use crate::agent::protocol::StatResult;
 use crate::runtime::core::CoreRuntime;
 use crate::runtime::size_limit::FileSize;
 
-/// 分けて返った中身をパスごとにつなぐ。読めなかったパスがあれば、その失敗にする
-fn joined(results: Vec<FileReadResult>) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-    let mut contents: HashMap<String, Vec<u8>> = HashMap::new();
-    for result in results {
-        match result {
-            FileReadResult::Ok { path, content, .. } => {
-                contents.entry(path).or_default().extend(content)
-            }
-            FileReadResult::Error { path, message } => {
-                return Err(AgentRefused(format!("cannot read {path}: {message}")).into())
-            }
-        }
-    }
-    Ok(contents)
+fn failed(operation: Operation, path: &str, failure: OpFailure) -> anyhow::Error {
+    OpError::new(operation, path, failure).into()
 }
 
 /// 中身をまとめて読む。読めなかったパスがあれば誤り
@@ -36,9 +25,12 @@ pub(crate) fn read(
     let mut contents = HashMap::new();
     for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
         let results = with_agent(rt, server_name, |agent| {
-            agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT)
+            agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT, None)
         })?;
-        contents.extend(joined(results)?);
+        for (path, result) in results {
+            let content = result.map_err(|failure| failed(Operation::Read, &path, failure))?;
+            contents.insert(path, content);
+        }
     }
     Ok(contents)
 }
@@ -48,15 +40,10 @@ pub(crate) fn read_one(
     server_name: &str,
     path: &EntryPath,
 ) -> anyhow::Result<Vec<u8>> {
-    read(rt, server_name, std::slice::from_ref(path))?
+    let mut contents = read(rt, server_name, std::slice::from_ref(path))?;
+    Ok(contents
         .remove(path.as_typed())
-        .ok_or_else(|| {
-            AgentRefused(format!(
-                "the agent returned no content for {}",
-                path.as_typed()
-            ))
-            .into()
-        })
+        .expect("the client checks that every path asked is answered"))
 }
 
 /// 一度に送るパスの数の上限ごとに分けて尋ねる。どれかの回が失敗したら全体の失敗にする
@@ -64,7 +51,7 @@ fn stat_in_batches(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[EntryPath],
-) -> anyhow::Result<Vec<AgentFileStat>> {
+) -> anyhow::Result<Vec<StatResult>> {
     let mut stats = Vec::new();
     for batch in paths.chunks(AGENT_READ_BATCH_SIZE) {
         stats.extend(with_agent(rt, server_name, |agent| {
@@ -74,61 +61,59 @@ fn stat_in_batches(
     Ok(stats)
 }
 
-/// パスごとの大きさ。エージェントが答えなかったパスは、SSH で尋ね直さずに尋ねられなかったことにする
+/// パスごとの大きさ。パスごとの失敗は分からない大きさにし、読み込みでその失敗を受け取る
 pub(crate) fn sizes(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[EntryPath],
 ) -> anyhow::Result<HashMap<String, FileSize>> {
-    let stats = stat_in_batches(rt, server_name, paths)?;
-    let known: HashMap<String, u64> = stats
+    Ok(stat_in_batches(rt, server_name, paths)?
         .into_iter()
-        .map(|stat| (stat.path, stat.size))
-        .collect();
-    Ok(paths
-        .iter()
-        .map(|path| {
-            let size = match known.get(path.as_typed()) {
-                Some(size) => FileSize::Known(*size),
-                None => FileSize::Unavailable(format!(
-                    "the agent did not answer the size of {}",
-                    path.as_typed()
-                )),
-            };
-            (path.as_typed().to_string(), size)
+        .map(|result| match result {
+            StatResult::Ok(stat) => (stat.path, FileSize::Known(stat.size)),
+            StatResult::Failed { path, .. } => (path, FileSize::Unknown),
         })
         .collect())
 }
 
-/// パスごとの更新時刻。答えのないパスは None
+/// パスごとの更新時刻。ないパスは None、そのほかの失敗は誤り
 pub(crate) fn stat(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[EntryPath],
 ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-    let stats = stat_in_batches(rt, server_name, paths)?;
-    let known: HashMap<String, Option<DateTime<Utc>>> = stats
+    stat_in_batches(rt, server_name, paths)?
         .into_iter()
-        .map(|stat| {
-            let modified = DateTime::from_timestamp(stat.mtime_secs, stat.mtime_nanos);
-            (stat.path, modified)
+        .map(|result| match result {
+            StatResult::Ok(stat) => {
+                let modified = DateTime::from_timestamp(stat.mtime_secs, stat.mtime_nanos);
+                Ok((stat.path, modified))
+            }
+            StatResult::Failed { path, failure } => match OpFailure::from(failure) {
+                OpFailure::NotFound => Ok((path, None)),
+                failure => Err(failed(Operation::Stat, &path, failure)),
+            },
         })
-        .collect();
-    Ok(paths
-        .iter()
-        .map(|path| {
-            let modified = known.get(path.as_typed()).copied().flatten();
-            (path.as_typed().to_string(), modified)
-        })
-        .collect())
+        .collect()
 }
 
+/// 項目そのものが symlink ならそのリンク先。symlink でないか、ないか、途中がディレクトリでなければ None
 pub(crate) fn entry_link(
     rt: &mut CoreRuntime,
     server_name: &str,
     path: &EntryPath,
 ) -> anyhow::Result<Option<String>> {
-    with_agent(rt, server_name, |agent| agent.read_entry_link(path))
+    match with_agent(rt, server_name, |agent| agent.read_entry_link(path)) {
+        Err(error)
+            if matches!(
+                failure_of(&error),
+                Some(OpFailure::NotFound | OpFailure::NotADirectory)
+            ) =>
+        {
+            Ok(None)
+        }
+        other => other,
+    }
 }
 
 /// パスごとの比べる値（symlink はリンク先）

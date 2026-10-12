@@ -3,8 +3,6 @@ pub mod deploy;
 #[cfg(unix)]
 pub mod dispatch;
 #[cfg(unix)]
-mod entry_link;
-#[cfg(unix)]
 pub mod file_io;
 #[cfg(unix)]
 mod listing;

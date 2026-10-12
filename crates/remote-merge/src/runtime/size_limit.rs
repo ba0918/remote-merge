@@ -33,8 +33,6 @@ pub(crate) enum FileSize {
     Known(u64),
     /// パスごとの失敗（ない、権限がない）。読み込みに進めて、その読み込みの失敗を返す
     Unknown,
-    /// 大きさを尋ねられなかった。上限を外して読まず、この理由で読み込みの失敗にする
-    Unavailable(String),
 }
 
 /// 上限を超えたので中身を読まなかったファイル
@@ -65,7 +63,6 @@ pub(crate) fn refusal(path: &str, size: Option<&FileSize>) -> Option<anyhow::Err
             .into(),
         ),
         FileSize::Known(_) | FileSize::Unknown => None,
-        FileSize::Unavailable(reason) => Some(anyhow::anyhow!("{reason}: {path}")),
     }
 }
 
@@ -119,23 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn a_path_whose_size_could_not_be_asked_is_refused_with_that_reason() {
-        let refusal = refusal("f", Some(&FileSize::Unavailable("no route".into()))).unwrap();
-        assert!(refusal.downcast_ref::<FileTooLarge>().is_none());
-        assert!(refusal.to_string().contains("no route"), "{refusal}");
-    }
-
-    #[test]
     fn only_the_paths_within_the_limit_are_read_from_a_batch() {
         let limit = MAX_BINARY_FILE_SIZE as u64;
-        let paths: Vec<String> = ["small", "big", "unknown", "unavailable"]
-            .map(String::from)
-            .to_vec();
+        let paths: Vec<String> = ["small", "big", "unknown"].map(String::from).to_vec();
         let sizes = sizes(&[
             ("small", FileSize::Known(1)),
             ("big", FileSize::Known(limit + 1)),
             ("unknown", FileSize::Unknown),
-            ("unavailable", FileSize::Unavailable("no route".into())),
         ]);
 
         assert_eq!(readable_paths(&paths, &sizes), vec!["small", "unknown"]);

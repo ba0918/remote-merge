@@ -9,8 +9,9 @@ use std::os::unix::net::UnixStream;
 use tempfile::TempDir;
 
 use super::client::AgentClient;
-use super::protocol::FileReadResult;
+use super::protocol::StatResult;
 use super::server::{run_agent_loop, MetadataConfig};
+use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::outcome::{ListedEntry, ListedKind, ScanRequest, ScanScope};
 
@@ -80,12 +81,11 @@ fn full_protocol_roundtrip() {
     assert_eq!(paths, ["hello.txt", "sub", "sub/inner.txt"]);
 
     // ReadFiles
-    let results = client.read_files(&rels(&["hello.txt"]), 1_048_576).unwrap();
+    let results = client
+        .read_files(&rels(&["hello.txt"]), 1_048_576, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
-    match &results[0] {
-        FileReadResult::Ok { content, .. } => assert_eq!(content, b"world"),
-        FileReadResult::Error { message, .. } => panic!("expected Ok, got Error: {message}"),
-    }
+    assert_eq!(results[0].1, Ok(b"world".to_vec()));
 
     // WriteFile
     client
@@ -99,7 +99,7 @@ fn full_protocol_roundtrip() {
     // StatFiles
     let stats = client.stat_files(&rels(&["written.txt"])).unwrap();
     assert_eq!(stats.len(), 1);
-    assert_eq!(stats[0].size, 11); // "new content".len()
+    assert!(matches!(&stats[0], StatResult::Ok(stat) if stat.size == 11));
 
     // Ping
     client.ping().unwrap();
@@ -182,15 +182,10 @@ fn chunked_write_and_read_roundtrip() {
 
     // ReadFiles で読み返して検証
     let results = client
-        .read_files(&rels(&["large.bin"]), 16 * 1024 * 1024)
+        .read_files(&rels(&["large.bin"]), 16 * 1024 * 1024, None)
         .unwrap();
-    let mut reassembled = Vec::new();
-    for r in &results {
-        match r {
-            FileReadResult::Ok { content, .. } => reassembled.extend_from_slice(content),
-            FileReadResult::Error { message, .. } => panic!("read error: {message}"),
-        }
-    }
+    assert_eq!(results.len(), 1);
+    let reassembled = results[0].1.clone().unwrap();
     assert_eq!(reassembled.len(), data.len());
     assert_eq!(reassembled, data);
 }
@@ -236,17 +231,10 @@ fn read_nonexistent_returns_error_not_crash() {
     let mut client = create_pair(&tmp);
 
     let results = client
-        .read_files(&rels(&["nonexistent/path/xyz123"]), 1024)
+        .read_files(&rels(&["nonexistent/path/xyz123"]), 1024, None)
         .unwrap();
     assert_eq!(results.len(), 1);
-    match &results[0] {
-        FileReadResult::Error { message, .. } => {
-            assert!(!message.is_empty());
-        }
-        FileReadResult::Ok { .. } => {
-            // 実装によっては空を返す可能性もあるが、基本的に Error が来る
-        }
-    }
+    assert_eq!(results[0].1, Err(OpFailure::NotFound));
 }
 
 #[test]
@@ -255,13 +243,13 @@ fn server_continues_after_error() {
     let mut client = create_pair(&tmp);
 
     // エラーを引き起こす操作
-    let _ = client.read_files(&rels(&["nonexistent/abc"]), 1024);
+    let _ = client.read_files(&rels(&["nonexistent/abc"]), 1024, None);
 
     // サーバーが続行していることを Ping で確認
     client.ping().unwrap();
 
     // もう一度エラーを起こしても問題ない
-    let _ = client.read_files(&rels(&["another/nonexistent"]), 1024);
+    let _ = client.read_files(&rels(&["another/nonexistent"]), 1024, None);
     client.ping().unwrap();
 }
 
@@ -296,16 +284,11 @@ fn symlink_create_and_list_and_read() {
     );
 
     // ReadFiles でシンボリックリンクを読む → ターゲットの内容が返る
-    let results = client.read_files(&rels(&[link_rel]), 1_048_576).unwrap();
+    let results = client
+        .read_files(&rels(&[link_rel]), 1_048_576, None)
+        .unwrap();
     assert_eq!(results.len(), 1);
-    match &results[0] {
-        FileReadResult::Ok { content, .. } => {
-            assert_eq!(content, b"symlink content");
-        }
-        FileReadResult::Error { message, .. } => {
-            panic!("expected Ok, got Error: {message}");
-        }
-    }
+    assert_eq!(results[0].1, Ok(b"symlink content".to_vec()));
 }
 
 // ---------------------------------------------------------------------------
@@ -337,23 +320,17 @@ fn read_50_files_in_single_request() {
         .read_files(
             &paths.iter().map(|p| entry(p)).collect::<Vec<_>>(),
             1_048_576,
+            None,
         )
         .unwrap();
     assert_eq!(results.len(), count);
 
-    for (i, result) in results.iter().enumerate() {
+    for (i, (_, result)) in results.iter().enumerate() {
         let expected_content = format!("content of file {i}");
-        match result {
-            FileReadResult::Ok { content, .. } => {
-                assert_eq!(
-                    String::from_utf8_lossy(content),
-                    expected_content,
-                    "file {i} content mismatch"
-                );
-            }
-            FileReadResult::Error { message, .. } => {
-                panic!("file {i} returned error: {message}");
-            }
-        }
+        assert_eq!(
+            result.as_deref().map(String::from_utf8_lossy),
+            Ok(expected_content.into()),
+            "file {i} content mismatch"
+        );
     }
 }

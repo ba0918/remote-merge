@@ -32,7 +32,7 @@ pub(crate) fn hash_results_to_map(
         .filter_map(|result| match result {
             FileHashResult::Ok { path, hash } => Some((path.clone(), hash.clone())),
             FileHashResult::Symlink { path, target } => Some((path.clone(), target.clone())),
-            FileHashResult::Error { .. } => None,
+            FileHashResult::Failed { .. } => None,
         })
         .collect()
 }
@@ -1421,25 +1421,27 @@ mod tests {
         assert_eq!(requests(&received), 1);
     }
 
-    // エージェントが答えなかったパスは、sudo の指定によらず SSH で尋ね直さず、尋ねられなかった理由で
-    // 読まない（REQ-ssh-010）
+    // エージェントが尋ねたパスに答えなかったら、要求と合わない応答（接続断）にし、sudo の指定に
+    // よらず SSH で尋ね直さない（REQ-ssh-010・D20）
     #[cfg(unix)]
     #[test]
-    fn a_path_the_agent_leaves_out_is_refused_without_asking_over_ssh() {
+    fn a_path_the_agent_leaves_out_is_a_disconnection_and_is_not_asked_over_ssh() {
         for sudo in [false, true] {
             let (mut rt, received) =
                 runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
-                    entries: vec![],
+                    results: vec![],
                     refused: vec![],
                 }));
             rt.config.servers.get_mut("develop").unwrap().sudo = sudo;
 
-            let sizes = remote_sizes(&mut rt).unwrap();
+            let error = remote_sizes(&mut rt).unwrap_err();
 
-            let refusal = size_limit::refusal("a.bin", sizes.get("a.bin")).unwrap();
-            assert!(!refusal.is::<FileTooLarge>(), "{refusal:#}");
+            assert!(
+                crate::runtime::connection::classify(&error).is_disconnection(),
+                "{error:#}"
+            );
             assert_eq!(requests(&received), 1);
-            assert!(rt.agent_clients.contains_key("develop"));
+            assert!(!rt.has_client("develop"));
         }
     }
 
@@ -1915,9 +1917,11 @@ mod tests {
                 path: "link".into(),
                 target: "/opt/target".into(),
             },
-            FileHashResult::Error {
+            FileHashResult::Failed {
                 path: "fail.txt".into(),
-                reason: "error".into(),
+                failure: crate::agent::protocol::WireFailure::Io {
+                    reason: "error".into(),
+                },
             },
         ];
         let map = hash_results_to_map(&results);

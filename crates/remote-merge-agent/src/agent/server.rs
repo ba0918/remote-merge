@@ -137,8 +137,9 @@ fn summarize_request(request: &AgentRequest) -> String {
         AgentRequest::ReadFiles {
             paths,
             chunk_size_limit,
+            size_limit,
         } => format!(
-            "ReadFiles path_count={} chunk_size_limit={chunk_size_limit}",
+            "ReadFiles path_count={} chunk_size_limit={chunk_size_limit} size_limit={size_limit:?}",
             paths.len()
         ),
         AgentRequest::HashFiles { paths } => format!("HashFiles path_count={}", paths.len()),

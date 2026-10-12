@@ -495,24 +495,19 @@ async fn agent_ssh_read_files_roundtrip() {
         .read_files(
             &[remote_merge_core::relative_path::EntryPath::parse("test.txt").unwrap()],
             1_048_576,
+            None,
         )
         .expect("read_files failed");
 
     assert_eq!(results.len(), 1, "expected 1 result");
 
-    match &results[0] {
-        remote_merge::agent::protocol::FileReadResult::Ok {
-            path,
-            content: actual,
-            ..
-        } => {
-            assert_eq!(path, "test.txt", "path mismatch");
-            assert_eq!(actual.as_slice(), expected_content, "content mismatch");
-        }
-        remote_merge::agent::protocol::FileReadResult::Error { message, .. } => {
-            panic!("expected Ok, got Error: {message}");
-        }
-    }
+    let (path, actual) = &results[0];
+    assert_eq!(path, "test.txt", "path mismatch");
+    assert_eq!(
+        actual.as_deref(),
+        Ok(expected_content.as_slice()),
+        "content mismatch"
+    );
 
     client.shutdown().expect("shutdown send failed");
     ssh.disconnect().await.expect("disconnect failed");

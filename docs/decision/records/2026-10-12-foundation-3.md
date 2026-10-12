@@ -79,6 +79,10 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
   - why: 今まではエージェントのないサーバでハッシュを使わず、同じ状態でも経路によって比べ方が違った。ハッシュは操作の一つで、どの経路でも同じ結果になる（[REQ-paths-013](../../ir/paths/operations.md#REQ-paths-013)）。道具がないときの扱いは [TBL-ssh-002](../../ir/ssh/compatibility.md#TBL-ssh-002) による。
   - decided_by: Claude（REQ-paths-013 と TBL-ssh-002 から導いた。自走の指示により決めた）
 
+- D26 エージェントの単体テスト `stat_files_nonexistent_skips_with_no_abort`（受け取り口）は、ないパスの StatFiles の答えを黙って外すことを確かめていた。通信の版 12 では、尋ねたパスのすべてにパスごとの成功か失敗の種類を返し、ないパスはないの失敗として返すことを確かめるテストに直す。答えの欠けたパスは、要求と合わない応答として接続断にする。同じく、読み込みとハッシュの失敗を文字列で返していたテスト（`read_files_nonexistent_returns_error_variant` ほか）は、失敗の種類で返すことを確かめるテストに直す。
+  - why: 失敗した操作の結果をないことや空として扱わない（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。答えを外すと、呼び出し側はないことと答えなかったことを見分けられない（D9・D20）。
+  - decided_by: Claude（REQ-paths-020・D9・D20 から導いた。自走の指示により決めた）
+
 ## Rejected
 
 - D15 SSH の経路でも、操作の失敗を見分けられないときは今のとおり経路の例外として IR に残す。

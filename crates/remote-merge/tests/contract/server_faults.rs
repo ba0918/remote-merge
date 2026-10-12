@@ -41,6 +41,8 @@ pub enum CutPoint {
     BeforeResponse,
     /// 要求の応答（分けて返す応答は最後まで）を中継した後。次の要求を送る前に切れている状態
     AfterResponse,
+    /// 応答の代わりに、長さは正しいが中身を読めないフレームを返し、エージェントとの間は切らない
+    GarbledAnswer,
 }
 
 /// エージェントとの間を切る条件。`request` の種類（`AgentRequest` の名前。`None` はどの種類も）の
@@ -493,6 +495,11 @@ impl Outbound {
             front
         };
         match pending.and_then(|pending| pending.cut) {
+            Some((CutPoint::GarbledAnswer, _)) => {
+                // 0xc1 は MessagePack で使われない値なので、どの応答としても読めない
+                self.send(&[0, 0, 0, 3, 0xc1, 0xc1, 0xc1]).await;
+                None
+            }
             Some((CutPoint::BeforeResponse, scope)) => Some(scope),
             Some((CutPoint::AfterResponse, scope)) if last => {
                 self.send(&frame).await;

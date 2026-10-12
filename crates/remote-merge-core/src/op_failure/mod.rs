@@ -66,6 +66,20 @@ pub fn from_io_error(error: &std::io::Error) -> OpFailure {
     }
 }
 
+/// 誤りの連なりの種類。操作の失敗の型があればそれ、OS の誤りがあればその訳、どちらもなければ
+/// 文言を持つ I/O
+pub fn from_error(error: &anyhow::Error) -> OpFailure {
+    for cause in error.chain() {
+        if let Some(op) = cause.downcast_ref::<OpError>() {
+            return op.failure.clone();
+        }
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return from_io_error(io);
+        }
+    }
+    OpFailure::Io(format!("{error:#}"))
+}
+
 /// std の表示に付く " (os error N)" を除いた OS の理由
 fn os_reason(error: &std::io::Error) -> String {
     let shown = error.to_string();
