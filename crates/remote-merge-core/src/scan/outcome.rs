@@ -119,6 +119,9 @@ pub enum ScanFailure {
     RootMissing,
     #[error("Cannot read root_dir")]
     RootUnreadable,
+    /// root_dir そのものが走査の途中でなくなったかディレクトリでなくなった
+    #[error("root_dir changed during the scan")]
+    RootChanged,
     #[error("Cannot scan {path}: a parent is not a directory")]
     StartBlocked { path: String },
     #[error("Cannot scan {path}: it cannot be read")]

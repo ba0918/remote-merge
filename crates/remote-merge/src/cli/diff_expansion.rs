@@ -152,6 +152,7 @@ fn scan_below(
         // diff 全体を止める
         ScanFailure::RootMissing
         | ScanFailure::RootUnreadable
+        | ScanFailure::RootChanged
         | ScanFailure::UnreadableLinkTarget { .. }
         | ScanFailure::UnreadableTime { .. }
         | ScanFailure::InconsistentAnswer { .. }

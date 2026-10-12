@@ -66,3 +66,13 @@ fn an_entry_that_went_away_before_its_information_was_read_stops_the_scan_as_cha
     let listing = run(&mut fake, &exclude(&["*.txt"]), &whole(100)).unwrap();
     assert!(listing.entries.iter().all(|e| e.path == "d"));
 }
+
+// @kotowari[REQ-scan-017]
+#[test]
+fn a_root_dir_that_changed_during_the_scan_is_its_own_failure() {
+    let mut tree = subtree(1, vec![file(b"a.txt")]);
+    tree.changed.push(Vec::new());
+    let mut fake = Fake::default().with(b"", root_with(tree));
+    let result = run(&mut fake, &exclude(&[]), &whole(100));
+    assert_eq!(failure(result), ScanFailure::RootChanged);
+}

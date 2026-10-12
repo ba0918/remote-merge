@@ -20,6 +20,12 @@ pub fn into_tree(
     let listing = match scanned {
         Ok(listing) => listing,
         Err(ScanError::Failure(ScanFailure::RootMissing)) => return Err(root_missing()),
+        Err(ScanError::Failure(ScanFailure::RootChanged)) => {
+            return Err(RootChanged {
+                root: root.to_path_buf(),
+            }
+            .into())
+        }
         Err(ScanError::Failure(failure)) => return Err(failure.into()),
         Err(ScanError::Collect(error)) => return Err(error),
     };
@@ -35,6 +41,25 @@ pub fn into_tree(
     }
     Ok(to_tree(root, listing))
 }
+
+/// root_dir そのものが走査の途中でなくなったかディレクトリでなくなった（REQ-scan-017）。
+/// 利用者が読んで分かるよう、root_dir のパスを添える
+#[derive(Debug)]
+pub struct RootChanged {
+    pub root: std::path::PathBuf,
+}
+
+impl std::fmt::Display for RootChanged {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "root_dir changed during the scan: {}",
+            self.root.display()
+        )
+    }
+}
+
+impl std::error::Error for RootChanged {}
 
 /// 循環で止めた走査（REQ-scan-002）。走査を止める失敗（`ScanFailure`）とは別の型で、読めた
 /// ところまでのツリーを持つ。merge・sync・status はこれで止まり（REQ-scan-005）、diff は読めた
@@ -114,6 +139,17 @@ mod tests {
         let failed = Err(ScanError::Failure(unreadable.clone()));
         let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
         assert_eq!(error.downcast_ref::<ScanFailure>(), Some(&unreadable));
+    }
+
+    // @kotowari[REQ-scan-017]
+    #[test]
+    fn a_root_dir_that_changed_during_the_scan_is_reported_with_its_path() {
+        let failed = Err(ScanError::Failure(ScanFailure::RootChanged));
+        let error = into_tree(Path::new("/srv/app"), failed, 9, true, missing).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "root_dir changed during the scan: /srv/app"
+        );
     }
 
     // @kotowari[REQ-scan-002, REQ-scan-005]

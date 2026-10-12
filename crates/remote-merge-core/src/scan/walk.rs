@@ -83,6 +83,9 @@ impl<'a> Walk<'a> {
         // 一覧に出た後で、ない・ディレクトリでない・中身が合わないと分かった項目は、読めない
         // のではなく走査の途中で変わったもの（REQ-scan-017）
         if tree.changed.iter().any(Vec::is_empty) {
+            if base.is_empty() {
+                return Err(ScanFailure::RootChanged.into());
+            }
             return Err(changed(base));
         }
         if let Some(cause) = unreadable.get(&b""[..]) {
