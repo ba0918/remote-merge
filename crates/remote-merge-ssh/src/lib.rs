@@ -13,6 +13,8 @@ pub(crate) mod excluded_branches;
 pub(crate) mod find_diagnostics;
 pub(crate) mod find_prune;
 pub(crate) mod known_hosts;
+#[cfg(all(unix, any(test, feature = "test-utils")))]
+pub(crate) mod known_hosts_guard;
 pub(crate) mod known_hosts_io;
 pub(crate) mod known_hosts_location;
 pub(crate) mod login_shell;
