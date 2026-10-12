@@ -111,8 +111,8 @@ fn take_value(
         let tree = answer.subtree.as_ref().ok_or_else(missing_subtree)?;
         return walk.take_subtree(path, tree, &[root], counter);
     }
-    walk.take_leaf(path, entry, vec![root], counter)?;
-    match walk.pending.pop() {
+    // 値そのものが symlink なら、同じ問いの答えでそのリンク先を決める
+    match walk.take_leaf(path, entry, vec![root], counter)? {
         Some(link) => walk.take_link(link, answer),
         None => Ok(()),
     }

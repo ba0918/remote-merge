@@ -154,3 +154,68 @@ fn an_excluded_named_directory_is_listed_only_as_a_directory_and_never_stops_the
     assert_eq!(paths, ["target"]);
     assert!(fake.asked.iter().all(|q| !q.descend));
 }
+
+// @kotowari[REQ-config-034, REQ-config-036]
+#[test]
+fn a_file_value_after_a_value_holding_a_link_lists_both_without_mixing_their_answers() {
+    let tree = subtree(2, vec![file(b"x.txt"), link(b"l", b"x.txt")]);
+    let mut fake = Fake::default()
+        .with(b"", root(None))
+        .with(b"a", plain(dir(b"", 2), Some(tree)))
+        .with(b"b.txt", plain(file(b""), None))
+        .with(b"a/l", link_answer(LinkTarget::NotDirectory, None));
+    let listing = run(&mut fake, &exclude(&[]), &scope(values(&["a", "b.txt"]), 9)).unwrap();
+    assert_eq!(listed(&listing), ["a/l", "a/x.txt", "b.txt"]);
+}
+
+/// "a/l" がディレクトリへのリンクとして載ったか
+fn followed(listing: &super::super::outcome::Listing, path: &str) -> bool {
+    listing
+        .entries
+        .iter()
+        .any(|e| e.path == path && matches!(e.kind, ListedKind::Symlink { is_dir: true, .. }))
+}
+
+// @kotowari[REQ-scan-004, REQ-config-034]
+#[test]
+fn a_link_value_after_the_limit_is_reached_does_not_take_another_link_s_answer() {
+    let to_dir = || link_answer(LinkTarget::Directory, Some(subtree(5, vec![file(b"q")])));
+    let mut fake = Fake::default()
+        .with(b"", root(None))
+        .with(
+            b"a",
+            plain(dir(b"", 2), Some(subtree(2, vec![link(b"l", b"t")]))),
+        )
+        .with(b"m", to_dir());
+    let listing = run(&mut fake, &exclude(&[]), &scope(values(&["a", "m"]), 1)).unwrap();
+    assert!(listing.truncated);
+    assert_eq!(listed(&listing), ["a/l"]);
+    assert!(!followed(&listing, "a/l"));
+}
+
+// @kotowari[REQ-scan-002, REQ-config-036]
+#[test]
+fn a_link_value_after_a_cycle_does_not_take_another_link_s_answer() {
+    let mut fake = Fake::default()
+        .with(b"", root(None))
+        .with(
+            b"a",
+            plain(dir(b"", 2), Some(subtree(2, vec![link(b"l", b"t")]))),
+        )
+        .with(
+            b"c",
+            link_answer(LinkTarget::Directory, Some(subtree(1, vec![]))),
+        )
+        .with(
+            b"m",
+            link_answer(LinkTarget::Directory, Some(subtree(5, vec![]))),
+        );
+    let listing = run(
+        &mut fake,
+        &exclude(&[]),
+        &scope(values(&["a", "c", "m"]), 9),
+    )
+    .unwrap();
+    assert_eq!(listing.cycle.as_deref(), Some("c"));
+    assert!(!followed(&listing, "a/l"));
+}

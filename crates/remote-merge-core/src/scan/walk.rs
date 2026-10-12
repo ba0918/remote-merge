@@ -110,7 +110,9 @@ impl<'a> Walk<'a> {
             }
             let mut chain = ancestors.to_vec();
             chain.extend(parent_ids(&entry.path, &dir_ids));
-            self.take_leaf(&path, entry, chain, counter)?;
+            if let Some(link) = self.take_leaf(&path, entry, chain, counter)? {
+                self.pending.push(link);
+            }
         }
         Ok(())
     }
@@ -129,16 +131,17 @@ impl<'a> Walk<'a> {
         Ok(())
     }
 
-    /// ファイル・symlink・そのほかの項目を数えて載せる。symlink は辿るかを決めるまで待たせる
+    /// ファイル・symlink・そのほかの項目を数えて載せる。symlink なら、辿るかを決めるために
+    /// 待たせるリンクを返す（止まった後や件数の上限を超えたときは載せず、何も返さない）
     pub fn take_leaf(
         &mut self,
         path: &[u8],
         entry: &RawEntry,
         ancestors: Vec<DirId>,
         counter: usize,
-    ) -> Result<(), ScanError> {
+    ) -> Result<Option<PendingLink>, ScanError> {
         if self.stopped() || !self.count(counter) {
-            return Ok(());
+            return Ok(None);
         }
         let target = match &entry.kind {
             RawKind::Symlink { target: None } => {
@@ -169,14 +172,11 @@ impl<'a> Walk<'a> {
                 None
             }
         };
-        if target.is_some() {
-            self.pending.push(PendingLink {
-                path: path.to_vec(),
-                ancestors,
-                counter,
-                listed,
-            });
-        }
-        Ok(())
+        Ok(target.map(|_| PendingLink {
+            path: path.to_vec(),
+            ancestors,
+            counter,
+            listed,
+        }))
     }
 }
