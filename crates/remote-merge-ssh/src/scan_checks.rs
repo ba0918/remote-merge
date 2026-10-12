@@ -40,14 +40,16 @@ pub fn split_stderr(after_marker: &[u8]) -> Result<StderrParts, String> {
     Ok(parts)
 }
 
-/// "@D" に続く、パス・読めるか検索できるか・子の名前（"N" を前に付ける）・"@E" を読む
+/// "@D" に続く、パス・読めるか検索できるか（もうないかディレクトリでなければ "G"）・子の名前
+/// （"N" を前に付ける）・"@E" を読む
 fn read_check<'a>(tokens: &mut impl Iterator<Item = &'a [u8]>) -> Option<DirCheck> {
     let printed = tokens.next()?.to_vec();
-    let (readable, searchable) = match tokens.next()? {
-        b"11" => (true, true),
-        b"10" => (true, false),
-        b"01" => (false, true),
-        b"00" => (false, false),
+    let (readable, searchable, gone) = match tokens.next()? {
+        b"11" => (true, true, false),
+        b"10" => (true, false, false),
+        b"01" => (false, true, false),
+        b"00" => (false, false, false),
+        b"G" => (false, false, true),
         _ => return None,
     };
     let mut names = Vec::new();
@@ -61,6 +63,7 @@ fn read_check<'a>(tokens: &mut impl Iterator<Item = &'a [u8]>) -> Option<DirChec
         printed,
         readable,
         searchable,
+        gone,
         names,
     })
 }
@@ -92,7 +95,9 @@ pub fn apply_checks(tree: &mut Subtree, checks: &[DirCheck], start: &[u8]) -> Re
         .collect();
     for rel in &listed {
         let check = by_rel.remove(rel).ok_or_else(|| mismatch("missing", rel))?;
-        if !check.readable {
+        if check.gone {
+            tree.changed.push(rel.clone());
+        } else if !check.readable {
             tree.unreadable
                 .push(UnreadableDir::new(rel.clone(), ReadCause::PermissionDenied));
         } else if !check.searchable {

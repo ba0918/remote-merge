@@ -74,19 +74,24 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
     let mut tree = Subtree {
         start: match std::fs::metadata(dir) {
             Ok(meta) => raw_entry(Vec::new(), &meta, None),
-            Err(_) => {
-                return unreadable_start(dir);
+            Err(error) => {
+                return unreadable_start(dir, &error);
             }
         },
         entries: Vec::new(),
         unreadable: Vec::new(),
         unreadable_entries: Vec::new(),
+        changed: Vec::new(),
     };
     let mut stack: Vec<Vec<u8>> = vec![Vec::new()];
     while let Some(rel) = stack.pop() {
         let read = std::fs::read_dir(dir.join(path_of(&rel)));
         let children = match read {
             Ok(children) => children,
+            Err(error) if went_away(&error) => {
+                tree.changed.push(rel);
+                continue;
+            }
             Err(error) => {
                 tree.unreadable
                     .push(UnreadableDir::new(rel, cause_of(&error)));
@@ -129,8 +134,9 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
     tree
 }
 
-/// 起点を辿れたのに読めない（リンク先が変わった）。起点そのものを読めないものとする
-fn unreadable_start(dir: &Path) -> Subtree {
+/// 起点を辿れたのに読めない（リンク先が変わった）。もうないかディレクトリでないなら変わった
+/// もの、そうでなければ起点そのものを読めないものとする
+fn unreadable_start(dir: &Path, error: &std::io::Error) -> Subtree {
     let start = entry_at(dir, Vec::new()).unwrap_or_else(|_| super::raw::RawEntry {
         path: Vec::new(),
         kind: RawKind::Directory,
@@ -139,12 +145,29 @@ fn unreadable_start(dir: &Path) -> Subtree {
         mode: 0,
         id: super::raw::DirId { dev: 0, ino: 0 },
     });
+    let (unreadable, changed) = if went_away(error) {
+        (Vec::new(), vec![Vec::new()])
+    } else {
+        (
+            vec![UnreadableDir::new(Vec::new(), ReadCause::Other)],
+            Vec::new(),
+        )
+    };
     Subtree {
         start,
         entries: Vec::new(),
-        unreadable: vec![UnreadableDir::new(Vec::new(), ReadCause::Other)],
+        unreadable,
         unreadable_entries: Vec::new(),
+        changed,
     }
+}
+
+/// 読みに行ったディレクトリが、もうないかディレクトリでなくなっていた（走査の途中で変わった）
+fn went_away(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+    )
 }
 
 /// ディレクトリを読めなかった理由
@@ -159,3 +182,7 @@ fn cause_of(error: &std::io::Error) -> ReadCause {
 #[cfg(all(test, unix))]
 #[path = "this_machine_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "this_machine_changed_tests.rs"]
+mod changed_tests;

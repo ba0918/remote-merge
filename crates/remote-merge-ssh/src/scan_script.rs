@@ -49,7 +49,7 @@ fn root_setup(root: &[u8]) -> String {
 }
 
 /// 変数 `name` に `bytes` をそのまま入れる文。末尾の改行も残すため、後ろに "x" を足して外す
-fn assign(name: &str, bytes: &[u8]) -> String {
+pub(crate) fn assign(name: &str, bytes: &[u8]) -> String {
     format!(
         "{name}=$(printf '{}x'); {name}=${{{name}%x}}\n",
         printf_literal(bytes)
@@ -119,12 +119,14 @@ const END: &str = "printf '@END\\000'\n";
 
 /// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。結果は
 /// find の一覧と混ざらないよう標準エラーに、NUL で区切った目印付きの記録で出す。
-/// find の診断から推し量らない（診断を出さない find もある）。読めて検索できないディレクトリは、
+/// find の診断から推し量らない（診断を出さない find もある）。もうないかディレクトリでなくなって
+/// いたら "G" を出す。読めて検索できないディレクトリは、
 /// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
 /// 名前に持つ子があるかを、一文字を [] で囲んだ glob で確かめて見分ける
-const CHECK: &str = concat!(
+pub(crate) const CHECK: &str = concat!(
     "c='exec >&2; lit() { for q in \"$1\"/$2; do [ \"$q\" != \"$1/$2\" ]; return; done; }\n",
     "for d do printf \"\\000@D\\000%s\\000\" \"$d\"\n",
+    " if [ ! -d \"$d\" ]; then printf \"G\\000\"; else\n",
     " if [ -r \"$d\" ]; then r=1; else r=0; fi; if [ -x \"$d\" ]; then x=1; else x=0; fi\n",
     " printf \"%s%s\\000\" $r $x\n",
     " if [ $r = 1 ] && [ $x = 0 ]; then for p in \"$d\"/* \"$d\"/.[!.]* \"$d\"/..?*; do\n",
@@ -133,7 +135,7 @@ const CHECK: &str = concat!(
     "   \"$d/.[!.]*\") lit \"$d\" \".[[]!.][*]\" || continue;;\n",
     "   \"$d/..?*\") lit \"$d\" \"..[?][*]\" || continue;;\n",
     "  esac; printf \"N%s\\000\" \"${p##*/}\"\n",
-    " done; fi; printf \"@E\\000\"\n",
+    " done; fi; fi; printf \"@E\\000\"\n",
     "done'\n",
 );
 

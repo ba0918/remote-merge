@@ -11,6 +11,8 @@ pub struct DirCheck {
     pub printed: Vec<u8>,
     pub readable: bool,
     pub searchable: bool,
+    /// 確かめたときに、もうないかディレクトリでなかった（読めも検索もできないものとして扱う）
+    pub gone: bool,
     /// 読めて検索できないときの子の名前
     pub names: Vec<Vec<u8>>,
 }
@@ -97,6 +99,7 @@ mod validate_tests {
             printed: printed.to_vec(),
             readable,
             searchable,
+            gone: false,
             names: Vec::new(),
         }
     }

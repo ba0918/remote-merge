@@ -1,12 +1,14 @@
 //! 集めた生の項目を一覧に載せる規則。exclude・件数・UTF-8 でない名前・循環・辿るか・読めない
 //! ときに止めるかをここで決める（docs/ir/scan/ と docs/ir/config/filters.md）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::exclude::Exclude;
 use super::outcome::{ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
-use super::parts::{join, listed_entry, parent_ids, parent_of, shown, unreadable_directory};
+use super::parts::{
+    changed, join, listed_entry, parent_ids, parent_of, shown, unreadable_directory,
+};
 use super::raw::{DirId, RawEntry, RawKind, ReadCause, Subtree};
 
 pub(super) struct Walk<'a> {
@@ -77,6 +79,12 @@ impl<'a> Walk<'a> {
             .iter()
             .map(|dir| (dir.path.as_slice(), dir.cause))
             .collect();
+        // 一覧に載せた後で、ない・ディレクトリでない・中身が合わないと分かったディレクトリは、
+        // 読めないのではなく走査の途中で変わったもの（REQ-scan-017）
+        let changed_dirs: HashSet<&[u8]> = tree.changed.iter().map(Vec::as_slice).collect();
+        if changed_dirs.contains(&b""[..]) {
+            return Err(changed(base));
+        }
         if let Some(cause) = unreadable.get(&b""[..]) {
             return Err(unreadable_directory(base, *cause).into());
         }
@@ -121,6 +129,9 @@ impl<'a> Walk<'a> {
                 if ancestors.contains(&entry.id) {
                     self.cycle = Some(shown(&path));
                     return Ok(());
+                }
+                if changed_dirs.contains(entry.path.as_slice()) {
+                    return Err(changed(&path));
                 }
                 if let Some(cause) = unreadable.get(entry.path.as_slice()) {
                     return Err(unreadable_directory(&path, *cause).into());

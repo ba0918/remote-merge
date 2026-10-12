@@ -70,6 +70,7 @@ fn answer(
             entries: Vec::new(),
             unreadable: Vec::new(),
             unreadable_entries: Vec::new(),
+            changed: Vec::new(),
         };
         loop {
             let first = tokens.next()?;

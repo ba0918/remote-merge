@@ -181,3 +181,7 @@ mod include_tests;
 #[cfg(test)]
 #[path = "drive_scope_tests.rs"]
 mod scope_tests;
+
+#[cfg(test)]
+#[path = "drive_changed_tests.rs"]
+mod changed_tests;
