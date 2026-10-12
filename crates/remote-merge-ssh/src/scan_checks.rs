@@ -20,8 +20,7 @@ pub use crate::scan_diagnostics::DirCheck;
 /// いたら "G" を出す。読めて検索できないディレクトリ（`every_name` なら読めるディレクトリすべて）は、
 /// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
 /// 名前に持つ子があるかを確かめて見分ける。検索できるディレクトリでは test で、検索できない
-/// ディレクトリでは一文字を [] で囲んだ glob で確かめる。シェルの関数は使わない（古い bash は
-/// 関数を呼ぶたびに位置引数を写すので、数千のディレクトリを渡すと秒の単位で遅くなる）
+/// ディレクトリでは一文字を [] で囲んだ glob で確かめる。シェルの関数は使わない（docs/remote-tools.md）
 pub(crate) fn check_script(every_name: bool) -> String {
     let names_when = if every_name {
         "[ $r = 1 ]"

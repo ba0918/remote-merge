@@ -83,8 +83,7 @@ pub fn recheck_script(root: &[u8], printed: &[&[u8]]) -> String {
 }
 
 /// 一つのディレクトリを sh に渡す引数と、その前に置く文。表示できる ASCII で "'" を含まない
-/// パスはそのまま引用し、ほかは変数に入れてから渡す（ディレクトリごとにコマンド置換で
-/// プロセスを起こすと、数千のディレクトリで秒の単位で遅くなる）
+/// パスはそのまま引用し、ほかは変数に入れてから渡す（コマンド置換の費用は docs/remote-tools.md）
 fn dir_arg(index: usize, path: &[u8]) -> (String, String) {
     let plain = path
         .iter()
