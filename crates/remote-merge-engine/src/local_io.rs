@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use remote_merge_core::path_resolution::{self, ResolvedPath};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_protocol::FileHashResult;
 
 use crate::local;
@@ -257,14 +257,14 @@ pub fn inspect_local_path(root: &Path, rel_path: &RelPath) -> anyhow::Result<Res
     )?)
 }
 
-pub fn read_file_bytes(root: &Path, path: &RelPath) -> anyhow::Result<Vec<u8>> {
+pub fn read_file_bytes(root: &Path, path: &EntryPath) -> anyhow::Result<Vec<u8>> {
     executor::read_local_file_bytes(root, path)
 }
 
 /// パスごとの中身。キーは入力されたままのパス
 pub fn read_files_bytes_batch(
     root: &Path,
-    paths: &[RelPath],
+    paths: &[EntryPath],
 ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
     paths
         .iter()
@@ -279,7 +279,7 @@ pub fn read_files_bytes_batch(
 
 /// パスごとの、symlink を辿った先のファイルの大きさ。調べられないパス（ない、権限がない）は
 /// None。キーは入力されたままのパス
-pub fn file_sizes(root: &Path, paths: &[RelPath]) -> HashMap<String, Option<u64>> {
+pub fn file_sizes(root: &Path, paths: &[EntryPath]) -> HashMap<String, Option<u64>> {
     paths
         .iter()
         .map(|path| {
@@ -291,19 +291,19 @@ pub fn file_sizes(root: &Path, paths: &[RelPath]) -> HashMap<String, Option<u64>
         .collect()
 }
 
-pub fn write_file(root: &Path, path: &RelPath, content: &str) -> anyhow::Result<()> {
+pub fn write_file(root: &Path, path: &EntryPath, content: &str) -> anyhow::Result<()> {
     executor::write_local_file(root, path, content)
         .with_context(|| format!("write local file: {}", path.as_typed()))
 }
 
-pub fn write_file_bytes(root: &Path, path: &RelPath, content: &[u8]) -> anyhow::Result<()> {
+pub fn write_file_bytes(root: &Path, path: &EntryPath, content: &[u8]) -> anyhow::Result<()> {
     executor::write_local_file_bytes(root, path, content)
 }
 
 /// パスごとの更新時刻。キーは入力されたままのパス
 pub fn stat_files(
     root: &Path,
-    paths: &[RelPath],
+    paths: &[EntryPath],
 ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
     let mut stats = stat_local_files(root, &operation_paths(paths))?;
     for ((path, _), rel) in stats.iter_mut().zip(paths) {
@@ -313,21 +313,21 @@ pub fn stat_files(
 }
 
 /// root_dir からの `path` の権限を変える（docs/ir/paths/operations.md。エージェントと同じ手順）
-pub fn chmod_file(root: &Path, path: &RelPath, mode: u32) -> anyhow::Result<()> {
+pub fn chmod_file(root: &Path, path: &EntryPath, mode: u32) -> anyhow::Result<()> {
     remote_merge_core::operations::chmod(root, path, mode)
 }
 
 /// root_dir からの `path` を消す（docs/ir/paths/operations.md。エージェントと同じ手順）
-pub fn remove_file(root: &Path, path: &RelPath) -> anyhow::Result<()> {
+pub fn remove_file(root: &Path, path: &EntryPath) -> anyhow::Result<()> {
     remote_merge_core::operations::remove(root, path)
 }
 
-pub fn create_symlink(root: &Path, path: &RelPath, target: &str) -> anyhow::Result<()> {
+pub fn create_symlink(root: &Path, path: &EntryPath, target: &str) -> anyhow::Result<()> {
     create_local_symlink(&root.join(path.as_str()), target)
 }
 
 /// 末尾の "/" を除いた、操作に渡す形のパス
-fn operation_paths(paths: &[RelPath]) -> Vec<String> {
+fn operation_paths(paths: &[EntryPath]) -> Vec<String> {
     paths.iter().map(|path| path.as_str().to_string()).collect()
 }
 
@@ -408,7 +408,7 @@ pub fn list_children(
 }
 
 /// パスごとのハッシュ（symlink はリンク先）。キーは入力されたままのパス
-pub fn hashes(root: &Path, paths: &[RelPath]) -> Option<HashMap<String, String>> {
+pub fn hashes(root: &Path, paths: &[EntryPath]) -> Option<HashMap<String, String>> {
     Some(
         paths
             .iter()
@@ -506,8 +506,8 @@ mod tests {
         let root = directory.path();
         std::fs::write(root.join("file"), "12345").unwrap();
         symlink("file", root.join("link")).unwrap();
-        let paths: Vec<RelPath> = ["file", "link", "missing"]
-            .map(|path| RelPath::parse(path).unwrap())
+        let paths: Vec<EntryPath> = ["file", "link", "missing"]
+            .map(|path| EntryPath::parse(path).unwrap())
             .to_vec();
 
         let sizes = file_sizes(root, &paths);

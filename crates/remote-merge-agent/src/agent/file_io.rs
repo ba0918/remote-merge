@@ -8,7 +8,7 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use anyhow::{Context, Result};
 
@@ -43,8 +43,8 @@ impl SavedMetadata {
 // Paths
 // ---------------------------------------------------------------------------
 
-/// root_dir からの相対パスの、このマシンでのパス。末尾の "/" は除く
-fn full_path(root_dir: &Path, rel_path: &RelPath) -> PathBuf {
+/// root_dir の下の項目の、このマシンでのパス。末尾の "/" は除く
+fn full_path(root_dir: &Path, rel_path: &EntryPath) -> PathBuf {
     root_dir.join(rel_path.as_str())
 }
 
@@ -170,7 +170,7 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
 /// chunk_size_limit を超えるファイルは分割して返す。
 pub fn read_file_chunked(
     root_dir: &Path,
-    rel_path: &RelPath,
+    rel_path: &EntryPath,
     chunk_size_limit: usize,
 ) -> Result<Vec<FileReadResult>> {
     let path = full_path(root_dir, rel_path);
@@ -205,7 +205,7 @@ pub fn read_file_chunked(
 /// - `is_first_chunk=false`: append モード（既存ファイルに追記）
 pub fn write_file(
     root_dir: &Path,
-    rel_path: &RelPath,
+    rel_path: &EntryPath,
     content: &[u8],
     is_first_chunk: bool,
 ) -> Result<()> {
@@ -257,7 +257,7 @@ fn write_chunk_without_following_link(
 ///   - 新規ファイルだった場合: `config` のデフォルト値で設定
 pub fn write_file_with_metadata(
     root_dir: &Path,
-    rel_path: &RelPath,
+    rel_path: &EntryPath,
     content: &[u8],
     is_first_chunk: bool,
     is_last_chunk: bool,
@@ -311,7 +311,7 @@ pub fn write_file_with_metadata(
 }
 
 /// ファイルのメタデータ（stat）を取得する。
-pub fn stat_file(root_dir: &Path, rel_path: &RelPath) -> Result<AgentFileStat> {
+pub fn stat_file(root_dir: &Path, rel_path: &EntryPath) -> Result<AgentFileStat> {
     let path = full_path(root_dir, rel_path);
     let rel_path = rel_path.as_typed();
     let meta =
@@ -326,7 +326,7 @@ pub fn stat_file(root_dir: &Path, rel_path: &RelPath) -> Result<AgentFileStat> {
 }
 
 /// シンボリックリンクを作成する。リンク先は辿らずにそのまま書く（REQ-merge-023）。
-pub fn create_symlink(root_dir: &Path, rel_path: &RelPath, target: &str) -> Result<()> {
+pub fn create_symlink(root_dir: &Path, rel_path: &EntryPath, target: &str) -> Result<()> {
     create_symlink_with_metadata(root_dir, rel_path, target, None, None)
 }
 
@@ -335,7 +335,7 @@ pub fn create_symlink(root_dir: &Path, rel_path: &RelPath, target: &str) -> Resu
 /// symlink 作成後、euid==0 の場合のみ lchown で uid/gid を設定する。
 pub fn create_symlink_with_metadata(
     root_dir: &Path,
-    rel_path: &RelPath,
+    rel_path: &EntryPath,
     target: &str,
     uid: Option<u32>,
     gid: Option<u32>,
@@ -373,8 +373,8 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
-    fn rel(path: &str) -> RelPath {
-        RelPath::parse(path).unwrap()
+    fn rel(path: &str) -> EntryPath {
+        EntryPath::parse(path).unwrap()
     }
 
     // ── 途中の symlink ──

@@ -3,7 +3,7 @@
 //! リモートエージェントプロセスとフレームプロトコルで通信する。
 //! Read/Write に対してジェネリックなので、SSHチャネルでもパイプでもテスト可能。
 
-use remote_merge_core::relative_path::{as_typed_all, RelPath};
+use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
 use std::io::{Read, Write};
 
 use anyhow::{bail, Result};
@@ -143,12 +143,12 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// `is_last: true` まで読み続けて全結果を収集する。
     pub fn read_files(
         &mut self,
-        paths: &[RelPath],
+        paths: &[EntryPath],
         chunk_size_limit: usize,
     ) -> Result<Vec<FileReadResult>> {
         // リクエスト送信（ストリーミングのため self.request() は使わない）
         let data = protocol::serialize_request(&AgentRequest::ReadFiles {
-            paths: as_typed_all(paths),
+            paths: entries_as_typed(paths),
             chunk_size_limit,
         })?;
         framing::write_frame(&mut self.writer, &data)?;
@@ -183,9 +183,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// 複数ファイルの SHA-256 ハッシュを取得する（ストリーミング対応）。
-    pub fn hash_files(&mut self, paths: &[RelPath]) -> Result<Vec<FileHashResult>> {
+    pub fn hash_files(&mut self, paths: &[EntryPath]) -> Result<Vec<FileHashResult>> {
         let data = protocol::serialize_request(&AgentRequest::HashFiles {
-            paths: as_typed_all(paths),
+            paths: entries_as_typed(paths),
         })?;
         framing::write_frame(&mut self.writer, &data)?;
 
@@ -223,7 +223,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// チャンク転送の途中でエラーが発生した場合、サーバー側の
     /// `written_paths` は自動クリーンアップされる（dispatch.rs 参照）。
     /// リトライ時は最初のチャンクから再送すれば安全に上書きされる。
-    pub fn write_file(&mut self, path: &RelPath, content: &[u8], is_binary: bool) -> Result<()> {
+    pub fn write_file(&mut self, path: &EntryPath, content: &[u8], is_binary: bool) -> Result<()> {
         let path = path.as_typed();
         if content.is_empty() {
             let resp = self.request(&AgentRequest::WriteFile {
@@ -251,9 +251,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// ファイルのメタデータを取得する。
-    pub fn stat_files(&mut self, paths: &[RelPath]) -> Result<Vec<AgentFileStat>> {
+    pub fn stat_files(&mut self, paths: &[EntryPath]) -> Result<Vec<AgentFileStat>> {
         let resp = self.request(&AgentRequest::StatFiles {
-            paths: as_typed_all(paths),
+            paths: entries_as_typed(paths),
         })?;
         match resp {
             AgentResponse::Stats { entries, refused } => {
@@ -279,7 +279,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// シンボリックリンクを作成する。
-    pub fn symlink(&mut self, path: &RelPath, target: &str) -> Result<()> {
+    pub fn symlink(&mut self, path: &EntryPath, target: &str) -> Result<()> {
         let resp = self.request(&AgentRequest::Symlink {
             path: path.as_typed().to_string(),
             target: target.to_string(),
@@ -301,7 +301,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// root_dir からの `path` を消す。失敗の応答は文言の Err にする
-    pub fn remove(&mut self, path: &RelPath) -> Result<()> {
+    pub fn remove(&mut self, path: &EntryPath) -> Result<()> {
         let response = self.request(&AgentRequest::Remove {
             path: path.as_typed().to_string(),
         })?;
@@ -309,7 +309,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// root_dir からの `path` の権限を `mode` にする。失敗の応答は文言の Err にする
-    pub fn chmod(&mut self, path: &RelPath, mode: u32) -> Result<()> {
+    pub fn chmod(&mut self, path: &EntryPath, mode: u32) -> Result<()> {
         let response = self.request(&AgentRequest::Chmod {
             path: path.as_typed().to_string(),
             mode,
@@ -319,7 +319,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// root_dir からの `path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先。
     /// symlink でないか、ないなら None。拒まれたか読めなければ文言の Err にする
-    pub fn read_entry_link(&mut self, path: &RelPath) -> Result<Option<String>> {
+    pub fn read_entry_link(&mut self, path: &EntryPath) -> Result<Option<String>> {
         let response = self.request(&AgentRequest::ReadEntryLink {
             path: path.as_typed().to_string(),
         })?;
@@ -522,8 +522,12 @@ mod tests {
         RelPath::parse(path).unwrap()
     }
 
-    fn rels(paths: &[&str]) -> Vec<RelPath> {
-        paths.iter().map(|path| rel(path)).collect()
+    fn entry(path: &str) -> EntryPath {
+        EntryPath::parse(path).unwrap()
+    }
+
+    fn rels(paths: &[&str]) -> Vec<EntryPath> {
+        paths.iter().map(|path| entry(path)).collect()
     }
     use crate::agent::server::{run_agent_loop, MetadataConfig};
     use std::os::unix::net::UnixStream;
@@ -738,7 +742,7 @@ mod tests {
 
         let mut client = create_pair(&tmp);
         client
-            .write_file(&rel("out.txt"), b"written data", false)
+            .write_file(&entry("out.txt"), b"written data", false)
             .unwrap();
 
         let content = std::fs::read_to_string(tmp.path().join("out.txt")).unwrap();
@@ -750,7 +754,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut client = create_pair(&tmp);
-        client.write_file(&rel("empty.txt"), b"", false).unwrap();
+        client.write_file(&entry("empty.txt"), b"", false).unwrap();
 
         let content = std::fs::read(tmp.path().join("empty.txt")).unwrap();
         assert!(content.is_empty());
@@ -763,7 +767,7 @@ mod tests {
         let data = vec![0xABu8; WRITE_CHUNK_SIZE + 1000];
 
         let mut client = create_pair(&tmp);
-        client.write_file(&rel("large.bin"), &data, true).unwrap();
+        client.write_file(&entry("large.bin"), &data, true).unwrap();
 
         let written = std::fs::read(tmp.path().join("large.bin")).unwrap();
         assert_eq!(written, data);

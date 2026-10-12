@@ -15,7 +15,7 @@ use super::core::CoreRuntime;
 use super::side_io::hash_results_to_map;
 use super::size_limit::FileSize;
 use super::target_io::{included_children, TargetIo};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -54,7 +54,11 @@ impl TargetIo for RemoteTargetIo {
             rt.ssh_read(name, |rt| rt.inspect_remote_path(name, path))
         })
     }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &EntryPath,
+    ) -> anyhow::Result<Vec<u8>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_read_file_bytes(name, path) {
                 return v;
@@ -66,14 +70,14 @@ impl TargetIo for RemoteTargetIo {
     fn file_sizes(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         self.guarded(rt, |rt, name| rt.remote_file_sizes(name, paths))
     }
     fn read_files_bytes_batch(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_read_files_bytes_batch(name, paths) {
@@ -86,7 +90,7 @@ impl TargetIo for RemoteTargetIo {
     fn write_file(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         content: &str,
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -100,7 +104,7 @@ impl TargetIo for RemoteTargetIo {
     fn write_file_bytes(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -114,7 +118,7 @@ impl TargetIo for RemoteTargetIo {
     fn stat_files(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_stat_files(name, paths) {
@@ -127,7 +131,7 @@ impl TargetIo for RemoteTargetIo {
     fn chmod_file(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         mode: u32,
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -138,7 +142,7 @@ impl TargetIo for RemoteTargetIo {
             rt.chmod_remote_file(name, path, mode)
         })
     }
-    fn remove_file(&mut self, rt: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<()> {
+    fn remove_file(&mut self, rt: &mut CoreRuntime, path: &EntryPath) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_remove(name, path) {
                 return v;
@@ -150,7 +154,7 @@ impl TargetIo for RemoteTargetIo {
     fn create_symlink(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -253,7 +257,7 @@ impl TargetIo for RemoteTargetIo {
     fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
     ) -> anyhow::Result<Option<String>> {
         self.guarded(rt, |rt, name| rt.remote_entry_link_target(name, path))
     }
@@ -269,7 +273,7 @@ impl TargetIo for RemoteTargetIo {
     fn hashes(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         self.guarded(rt, |rt, name| match rt.try_agent_hash_files(name, paths) {
             Some(Ok(results)) => Ok(Some(hash_results_to_map(&results))),
@@ -281,7 +285,7 @@ impl TargetIo for RemoteTargetIo {
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
         self.guarded(rt, |rt, name| rt.remote_states_before_restore(name, paths))
     }

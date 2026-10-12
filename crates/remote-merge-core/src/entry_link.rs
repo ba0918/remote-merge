@@ -8,10 +8,10 @@
 use std::path::Path;
 
 use crate::listing::is_missing;
-use crate::relative_path::RelPath;
+use crate::relative_path::EntryPath;
 
 /// root_dir `root` の下の `path` の項目が symlink ならそのリンク先の文字列を返す
-pub fn link_target_of_entry(root: &Path, path: &RelPath) -> anyhow::Result<Option<String>> {
+pub fn link_target_of_entry(root: &Path, path: &EntryPath) -> anyhow::Result<Option<String>> {
     let path = path.as_str();
     let full = root.join(path);
     let meta = match full.symlink_metadata() {
@@ -32,8 +32,8 @@ pub fn link_target_of_entry(root: &Path, path: &RelPath) -> anyhow::Result<Optio
 mod tests {
     use super::*;
 
-    fn rel(path: &str) -> crate::relative_path::RelPath {
-        crate::relative_path::RelPath::parse(path).unwrap()
+    fn rel(path: &str) -> EntryPath {
+        EntryPath::parse(path).unwrap()
     }
     use std::os::unix::fs::symlink;
 

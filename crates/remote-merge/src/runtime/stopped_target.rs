@@ -1,7 +1,7 @@
 //! `接続断` で処理を止めたサーバの比較先。読み書きは行わずに、行わなかったことを示す失敗にする
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-003・REQ-ssh-023）。
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -36,30 +36,30 @@ impl TargetIo for StoppedTargetIo {
     fn inspect_path(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<ResolvedPath> {
         self.refuse(rt)
     }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, _: &EntryPath) -> anyhow::Result<Vec<u8>> {
         self.refuse(rt)
     }
     fn file_sizes(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         self.refuse(rt)
     }
     fn read_files_bytes_batch(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         self.refuse(rt)
     }
-    fn write_file(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: &str) -> anyhow::Result<()> {
+    fn write_file(&mut self, rt: &mut CoreRuntime, _: &EntryPath, _: &str) -> anyhow::Result<()> {
         self.refuse(rt)
     }
     fn write_file_bytes(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &RelPath,
+        _: &EntryPath,
         _: &[u8],
     ) -> anyhow::Result<()> {
         self.refuse(rt)
@@ -67,17 +67,22 @@ impl TargetIo for StoppedTargetIo {
     fn stat_files(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         self.refuse(rt)
     }
-    fn chmod_file(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: u32) -> anyhow::Result<()> {
+    fn chmod_file(&mut self, rt: &mut CoreRuntime, _: &EntryPath, _: u32) -> anyhow::Result<()> {
         self.refuse(rt)
     }
-    fn remove_file(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<()> {
+    fn remove_file(&mut self, rt: &mut CoreRuntime, _: &EntryPath) -> anyhow::Result<()> {
         self.refuse(rt)
     }
-    fn create_symlink(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: &str) -> anyhow::Result<()> {
+    fn create_symlink(
+        &mut self,
+        rt: &mut CoreRuntime,
+        _: &EntryPath,
+        _: &str,
+    ) -> anyhow::Result<()> {
         self.refuse(rt)
     }
     fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
@@ -121,7 +126,7 @@ impl TargetIo for StoppedTargetIo {
     fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &RelPath,
+        _: &EntryPath,
     ) -> anyhow::Result<Option<String>> {
         self.refuse(rt)
     }
@@ -137,14 +142,14 @@ impl TargetIo for StoppedTargetIo {
     fn hashes(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         self.refuse(rt)
     }
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
         self.refuse(rt)
     }

@@ -141,7 +141,7 @@ fn agent_nonexistent_root_exits_with_error() {
 
     // WriteFile を送ると root が存在しないためエラーが返るはず
     let result = client.write_file(
-        &remote_merge_core::relative_path::RelPath::parse("test.txt").unwrap(),
+        &remote_merge_core::relative_path::EntryPath::parse("test.txt").unwrap(),
         b"data",
         false,
     );

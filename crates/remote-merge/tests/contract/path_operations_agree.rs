@@ -249,7 +249,7 @@ impl<T: std::fmt::Debug> Outcomes<T> {
 }
 
 fn remove_on_all_routes(routes: &Routes, path: &'static str) -> Outcomes<()> {
-    let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
+    let rel = &remote_merge_core::relative_path::EntryPath::parse(path).unwrap();
     let local = remote_merge_engine::local_io::remove_file(&routes.local.root, rel)
         .map_err(|error| error.to_string());
     let ssh = operation_outcome(routes.over_ssh(&format!("remove\t{path}")));
@@ -258,7 +258,7 @@ fn remove_on_all_routes(routes: &Routes, path: &'static str) -> Outcomes<()> {
 }
 
 fn chmod_on_all_routes(routes: &Routes, path: &'static str, mode: u32) -> Outcomes<()> {
-    let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
+    let rel = &remote_merge_core::relative_path::EntryPath::parse(path).unwrap();
     let local = remote_merge_engine::local_io::chmod_file(&routes.local.root, rel, mode)
         .map_err(|error| error.to_string());
     let ssh = operation_outcome(routes.over_ssh(&format!("chmod\t{path}\t{mode:o}")));

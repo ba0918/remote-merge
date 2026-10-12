@@ -19,7 +19,7 @@ use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
-use remote_merge_core::relative_path::{as_typed_all, RelPath};
+use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
@@ -58,8 +58,13 @@ fn checked(path: &str) -> anyhow::Result<RelPath> {
     Ok(RelPath::parse(path)?)
 }
 
-fn checked_all(paths: &[String]) -> anyhow::Result<Vec<RelPath>> {
-    paths.iter().map(|path| checked(path)).collect()
+/// 一つの項目への操作に渡すパス。root_dir 全体を指す値はここで止まり、項目の操作には届かない
+fn checked_entry(path: &str) -> anyhow::Result<EntryPath> {
+    Ok(EntryPath::parse(path)?)
+}
+
+fn checked_entries(paths: &[String]) -> anyhow::Result<Vec<EntryPath>> {
+    paths.iter().map(|path| checked_entry(path)).collect()
 }
 
 impl CoreRuntime {
@@ -172,7 +177,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<Vec<u8>> {
         self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))
             .map_err(label_read)?;
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         io.read_file_bytes(self, &rel_path).map_err(label_read)
     }
@@ -191,7 +196,7 @@ impl CoreRuntime {
         let readable = self
             .paths_within_limit(side, rel_paths, limit)
             .map_err(label_read)?;
-        let readable = checked_all(&readable)?;
+        let readable = checked_entries(&readable)?;
         let mut io = super::target_io::for_side(side, self);
         io.read_files_bytes_batch(self, &readable)
             .map_err(label_read)
@@ -207,7 +212,7 @@ impl CoreRuntime {
         if limit == SizeLimit::Lifted {
             return Ok(());
         }
-        let asked = [checked(rel_path)?];
+        let asked = [checked_entry(rel_path)?];
         let mut io = super::target_io::for_side(side, self);
         let sizes = io
             .file_sizes(self, &asked)
@@ -228,7 +233,7 @@ impl CoreRuntime {
         if limit == SizeLimit::Lifted || rel_paths.is_empty() {
             return Ok(rel_paths.to_vec());
         }
-        let asked = checked_all(rel_paths)?;
+        let asked = checked_entries(rel_paths)?;
         let mut io = super::target_io::for_side(side, self);
         let sizes = io
             .file_sizes(self, &asked)
@@ -240,7 +245,7 @@ impl CoreRuntime {
 
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         let result = io.write_file(self, &rel_path, content);
         let change = Change::Write {
@@ -259,7 +264,7 @@ impl CoreRuntime {
         content: &[u8],
         before: &Before,
     ) -> anyhow::Result<()> {
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         let result = io.write_file_bytes(self, &rel_path, content);
         self.settle_change(side, &rel_path, Change::Write { before, content }, result)
@@ -273,14 +278,14 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        let rel_paths = checked_all(rel_paths)?;
+        let rel_paths = checked_entries(rel_paths)?;
         let mut io = super::target_io::for_side(side, self);
         io.stat_files(self, &rel_paths)
     }
 
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         let result = io.chmod_file(self, &rel_path, mode);
         self.settle_change(side, &rel_path, Change::Chmod { mode }, result)
@@ -368,7 +373,7 @@ impl CoreRuntime {
         // まとめに入っていたファイルを理由付きの読み込みの失敗に、残りを手を付けていない失敗にする
         let mut states_before =
             if !self.config.backup.enabled && !dry_run && !present_files.is_empty() {
-                let present = checked_all(&present_files)?;
+                let present = checked_entries(&present_files)?;
                 let mut io = super::target_io::for_side(side, self);
                 match io.states_before_restore(self, &present) {
                     Ok(states) => states,
@@ -629,14 +634,14 @@ impl CoreRuntime {
         side: &Side,
         path: &str,
     ) -> anyhow::Result<Option<String>> {
-        let path = checked(path)?;
+        let path = checked_entry(path)?;
         let mut io = super::target_io::for_side(side, self);
         io.entry_link_target(self, &path)
     }
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         let result = io.remove_file(self, &rel_path);
         self.settle_change(side, &rel_path, Change::Remove, result)
@@ -651,7 +656,7 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
-        let rel_path = checked(rel_path)?;
+        let rel_path = checked_entry(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         let result = io.create_symlink(self, &rel_path, target);
         self.settle_change(side, &rel_path, Change::Symlink { target }, result)
@@ -763,7 +768,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_read_file_bytes(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> Option<anyhow::Result<Vec<u8>>> {
         let rel = [rel_path.clone()];
         let agent_result = self.with_agent(server_name, "read_file_bytes", Access::Read, |agent| {
@@ -780,7 +785,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
         if !self.has_agent(server_name) {
             return None;
@@ -798,7 +803,7 @@ impl CoreRuntime {
                 Ok(results) => results,
                 Err(error) => return Some(Err(error)),
             };
-            match extract_batch_files_as_bytes(results, &as_typed_all(chunk)) {
+            match extract_batch_files_as_bytes(results, &entries_as_typed(chunk)) {
                 Some(Ok(batch)) => merged.extend(batch),
                 Some(Err(e)) => return Some(Err(e)),
                 None => {
@@ -815,7 +820,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_write_file(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &[u8],
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
@@ -829,9 +834,9 @@ impl CoreRuntime {
     pub(crate) fn try_agent_stat_files(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let owned_rel_paths: Vec<String> = as_typed_all(rel_paths);
+        let owned_rel_paths: Vec<String> = entries_as_typed(rel_paths);
         let agent_result = self.with_agent(server_name, "stat_files", Access::Read, |agent| {
             agent.stat_files(rel_paths)
         });
@@ -849,7 +854,7 @@ impl CoreRuntime {
     pub(crate) fn remote_file_sizes(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         let Some(answer) = self.try_agent_file_sizes(server_name, rel_paths) else {
             self.check_sudo_fallback(server_name)?;
@@ -888,8 +893,8 @@ impl CoreRuntime {
     fn try_agent_file_sizes(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
-    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<RelPath>)>> {
+        rel_paths: &[EntryPath],
+    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<EntryPath>)>> {
         self.config.servers.get(server_name)?;
         let answer = self.agent_call(server_name, Access::Read, |agent| {
             ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
@@ -908,7 +913,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_symlink(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         target: &str,
     ) -> Option<anyhow::Result<()>> {
         self.with_agent(server_name, "symlink", Access::Modify, |agent| {
@@ -923,7 +928,7 @@ impl CoreRuntime {
     pub fn try_agent_hash_files(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> Option<anyhow::Result<Vec<crate::agent::protocol::FileHashResult>>> {
         self.with_agent(server_name, "hash_files", Access::Read, |agent| {
             agent.hash_files(rel_paths)
@@ -953,7 +958,7 @@ impl CoreRuntime {
         if right.server_name().is_none() {
             return Ok(None);
         }
-        let paths = &checked_all(paths)?;
+        let paths = &checked_entries(paths)?;
         let mut right_io = super::target_io::for_side(right, self);
         let Some(remote_hashes) = right_io.hashes(self, paths)? else {
             return Ok(None);
@@ -1247,16 +1252,16 @@ mod tests {
 
         io.write_file(
             &mut runtime,
-            &RelPath::parse("nested/file.txt").unwrap(),
+            &EntryPath::parse("nested/file.txt").unwrap(),
             "content",
         )
         .unwrap();
         assert_eq!(
-            io.read_file_bytes(&mut runtime, &RelPath::parse("nested/file.txt").unwrap())
+            io.read_file_bytes(&mut runtime, &EntryPath::parse("nested/file.txt").unwrap())
                 .unwrap(),
             b"content"
         );
-        io.remove_file(&mut runtime, &RelPath::parse("nested/file.txt").unwrap())
+        io.remove_file(&mut runtime, &EntryPath::parse("nested/file.txt").unwrap())
             .unwrap();
         assert!(!tmp.path().join("nested/file.txt").exists());
     }
@@ -1270,7 +1275,7 @@ mod tests {
 
         io.create_symlink(
             &mut runtime,
-            &RelPath::parse("link.txt").unwrap(),
+            &EntryPath::parse("link.txt").unwrap(),
             "target.txt",
         )
         .unwrap();
@@ -1717,13 +1722,62 @@ mod tests {
         })
     }
 
-    fn asked() -> Vec<RelPath> {
-        vec![RelPath::parse("a.bin").unwrap()]
+    fn asked() -> Vec<EntryPath> {
+        vec![EntryPath::parse("a.bin").unwrap()]
     }
 
     #[cfg(unix)]
     fn requests(received: &std::sync::atomic::AtomicUsize) -> usize {
         received.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    // ── root_dir 全体を指す値は、どの経路の項目の操作にも届かない ──
+
+    const ROOT_FORMS: [&str; 5] = ["/", ".", "", "//", "./"];
+
+    /// 一つの項目への操作のそれぞれに root_dir 全体を渡し、どれも型にするところで止まることを確かめる
+    fn assert_every_entry_operation_refuses_the_root_dir(rt: &mut CoreRuntime, side: &Side) {
+        for root in ROOT_FORMS {
+            let results: Vec<anyhow::Result<()>> = vec![
+                rt.chmod_file(side, root, 0o700),
+                rt.write_file(side, root, "x"),
+                rt.write_file_bytes(side, root, b"x", &Before::Unknown),
+                rt.remove_file(side, root),
+                rt.create_symlink(side, root, "x"),
+                rt.read_file_bytes(side, root, true).map(|_| ()),
+                rt.read_file_bytes(side, root, false).map(|_| ()),
+                rt.current_link_target(side, root).map(|_| ()),
+                rt.stat_files(side, &[root.to_string()]).map(|_| ()),
+                rt.read_files_bytes_batch(side, &[root.to_string()], SizeLimit::Enforced)
+                    .map(|_| ()),
+            ];
+            for result in results {
+                let message = format!("{:#}", result.unwrap_err());
+                assert_eq!(
+                    message,
+                    format!("root_dir itself is not an entry: {root}"),
+                    "{side:?} {root:?}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_agent_route_receives_no_entry_operation_on_the_root_dir_itself() {
+        let (mut rt, received) = runtime_with_scripted_agent(None);
+
+        assert_every_entry_operation_refuses_the_root_dir(&mut rt, &Side::Remote("develop".into()));
+
+        assert_eq!(requests(&received), 0);
+    }
+
+    #[test]
+    fn the_ssh_route_receives_no_entry_operation_on_the_root_dir_itself() {
+        // SSH の接続がない書き込み先でも、経路に届く前に型にするところで止まる
+        let mut rt = runtime_with_server("develop", "/srv/app");
+
+        assert_every_entry_operation_refuses_the_root_dir(&mut rt, &Side::Remote("develop".into()));
     }
 
     // エージェントのエラー応答は、尋ねたパスの失敗として返り、エージェントに一度だけ尋ね、

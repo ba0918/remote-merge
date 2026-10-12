@@ -4,10 +4,10 @@
 use std::path::Path;
 
 use super::protocol::{AgentEntryLink, AgentResponse};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::EntryPath;
 
 /// root_dir からの `path` の項目そのものを読んだ応答
-pub fn read_entry_link(root: &Path, path: &RelPath) -> AgentResponse {
+pub fn read_entry_link(root: &Path, path: &EntryPath) -> AgentResponse {
     let result = match remote_merge_core::entry_link::link_target_of_entry(root, path) {
         Ok(Some(target)) => AgentEntryLink::Symlink { target },
         Ok(None) => AgentEntryLink::NotSymlink,
@@ -24,7 +24,7 @@ mod tests {
     use std::os::unix::fs::{symlink, PermissionsExt};
 
     fn result(root: &Path, path: &str) -> AgentEntryLink {
-        match read_entry_link(root, &RelPath::parse(path).unwrap()) {
+        match read_entry_link(root, &EntryPath::parse(path).unwrap()) {
             AgentResponse::EntryLink { result } => result,
             other => panic!("{other:?}"),
         }

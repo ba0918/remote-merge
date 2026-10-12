@@ -5,7 +5,7 @@
 //! エージェントでは HashFiles の要求一回、SSH ではまとめてハッシュを取るコマンド（コマンドの長さで
 //! 分けることはある）で取り、SSH でハッシュのコマンドがないサーバでは中身をまとめて読む。
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::EntryPath;
 use std::collections::HashMap;
 
 use crate::agent::protocol::FileHashResult;
@@ -43,7 +43,7 @@ impl CoreRuntime {
     pub(crate) fn remote_states_before_restore(
         &mut self,
         server_name: &str,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Before>> {
         if paths.is_empty() {
             return Ok(HashMap::new());

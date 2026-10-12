@@ -8,7 +8,7 @@ use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
 use super::size_limit::FileSize;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
@@ -74,47 +74,51 @@ pub(crate) trait TargetIo {
     fn read_file_bytes(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> anyhow::Result<Vec<u8>>;
     /// パスごとの、symlink を辿った先のファイルの大きさ。大きさを尋ねる操作そのものが失敗したら Err
     fn file_sizes(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>>;
     fn read_files_bytes_batch(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>>;
     fn write_file(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &str,
     ) -> anyhow::Result<()>;
     fn write_file_bytes(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()>;
     fn stat_files(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>;
     fn chmod_file(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         mode: u32,
     ) -> anyhow::Result<()>;
-    fn remove_file(&mut self, runtime: &mut CoreRuntime, rel_path: &RelPath) -> anyhow::Result<()>;
+    fn remove_file(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        rel_path: &EntryPath,
+    ) -> anyhow::Result<()>;
     fn create_symlink(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()>;
     fn fetch_tree(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<FileTree>;
@@ -151,7 +155,7 @@ pub(crate) trait TargetIo {
     fn entry_link_target(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> anyhow::Result<Option<String>>;
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
@@ -160,13 +164,13 @@ pub(crate) trait TargetIo {
     fn hashes(
         &mut self,
         runtime: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>>;
     /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
     fn states_before_restore(
         &mut self,
         runtime: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>>;
 }
 
@@ -203,14 +207,18 @@ impl TargetIo for LocalTargetIo {
         remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
     }
 
-    fn read_file_bytes(&mut self, _: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(
+        &mut self,
+        _: &mut CoreRuntime,
+        path: &EntryPath,
+    ) -> anyhow::Result<Vec<u8>> {
         remote_merge_engine::local_io::read_file_bytes(&self.root, path)
     }
 
     fn file_sizes(
         &mut self,
         _: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         Ok(remote_merge_engine::local_io::file_sizes(&self.root, paths)
             .into_iter()
@@ -221,7 +229,7 @@ impl TargetIo for LocalTargetIo {
     fn read_files_bytes_batch(
         &mut self,
         _: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         remote_merge_engine::local_io::read_files_bytes_batch(&self.root, paths)
     }
@@ -229,7 +237,7 @@ impl TargetIo for LocalTargetIo {
     fn write_file(
         &mut self,
         _: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         content: &str,
     ) -> anyhow::Result<()> {
         remote_merge_engine::local_io::write_file(&self.root, path, content)
@@ -238,7 +246,7 @@ impl TargetIo for LocalTargetIo {
     fn write_file_bytes(
         &mut self,
         _: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
         remote_merge_engine::local_io::write_file_bytes(&self.root, path, content)
@@ -247,22 +255,27 @@ impl TargetIo for LocalTargetIo {
     fn stat_files(
         &mut self,
         _: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         remote_merge_engine::local_io::stat_files(&self.root, paths)
     }
 
-    fn chmod_file(&mut self, _: &mut CoreRuntime, path: &RelPath, mode: u32) -> anyhow::Result<()> {
+    fn chmod_file(
+        &mut self,
+        _: &mut CoreRuntime,
+        path: &EntryPath,
+        mode: u32,
+    ) -> anyhow::Result<()> {
         remote_merge_engine::local_io::chmod_file(&self.root, path, mode)
     }
 
-    fn remove_file(&mut self, _: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<()> {
+    fn remove_file(&mut self, _: &mut CoreRuntime, path: &EntryPath) -> anyhow::Result<()> {
         remote_merge_engine::local_io::remove_file(&self.root, path)
     }
     fn create_symlink(
         &mut self,
         _: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
         remote_merge_engine::local_io::create_symlink(&self.root, path, target)
@@ -331,7 +344,7 @@ impl TargetIo for LocalTargetIo {
     fn entry_link_target(
         &mut self,
         _: &mut CoreRuntime,
-        path: &RelPath,
+        path: &EntryPath,
     ) -> anyhow::Result<Option<String>> {
         remote_merge_core::entry_link::link_target_of_entry(&self.root, path)
     }
@@ -345,7 +358,7 @@ impl TargetIo for LocalTargetIo {
     fn hashes(
         &mut self,
         _: &mut CoreRuntime,
-        paths: &[RelPath],
+        paths: &[EntryPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         Ok(remote_merge_engine::local_io::hashes(&self.root, paths))
     }
@@ -353,7 +366,7 @@ impl TargetIo for LocalTargetIo {
     fn states_before_restore(
         &mut self,
         _: &mut CoreRuntime,
-        _: &[RelPath],
+        _: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
         Ok(HashMap::new())
     }

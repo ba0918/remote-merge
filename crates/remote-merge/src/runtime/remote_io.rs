@@ -11,7 +11,7 @@ use crate::merge::executor;
 
 use super::core::CoreRuntime;
 use super::size_limit::FileSize;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 // ── CoreRuntime にリモートI/Oを実装 ──
 //
@@ -48,7 +48,7 @@ impl CoreRuntime {
     pub(crate) fn read_remote_files_batch_bytes(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         if rel_paths.is_empty() {
             return Ok(HashMap::new());
@@ -69,7 +69,7 @@ impl CoreRuntime {
     pub(crate) fn hash_remote_files_batch(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<crate::ssh::batch_hash::BatchHashes> {
         use crate::ssh::batch_hash::BatchHashes;
         let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
@@ -95,10 +95,10 @@ impl CoreRuntime {
     pub(crate) fn write_remote_file(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &str,
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
 
         let client = self
             .ssh_clients
@@ -134,9 +134,9 @@ impl CoreRuntime {
     pub(crate) fn read_remote_file_bytes(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> anyhow::Result<Vec<u8>> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
 
         self.read_file_bytes_inner(server_name, &full_path)
     }
@@ -149,7 +149,7 @@ impl CoreRuntime {
     pub(crate) fn ssh_file_sizes(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         if rel_paths.is_empty() {
             return Ok(HashMap::new());
@@ -173,10 +173,10 @@ impl CoreRuntime {
     pub(crate) fn write_remote_file_bytes(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
 
         let client = self
             .ssh_clients
@@ -214,12 +214,12 @@ impl CoreRuntime {
     pub(crate) fn chmod_remote_file(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         mode: u32,
     ) -> anyhow::Result<()> {
         let rel = rel_path.as_str();
         remote_merge_core::operations::check_mode(rel, mode)?;
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
 
         let client = self
             .ssh_clients
@@ -243,7 +243,7 @@ impl CoreRuntime {
     pub(crate) fn stat_remote_files(
         &mut self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<chrono::DateTime<chrono::Utc>>)>> {
         if rel_paths.is_empty() {
             return Ok(vec![]);
@@ -303,10 +303,10 @@ impl CoreRuntime {
     pub(crate) fn remove_remote_file(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> anyhow::Result<()> {
         let rel = rel_path.as_str();
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
         let cmd = crate::ssh::tree_parser::build_remove_command(&full_path);
         let client = self
             .ssh_clients
@@ -327,10 +327,10 @@ impl CoreRuntime {
     pub(crate) fn create_remote_symlink(
         &mut self,
         server_name: &str,
-        link_rel_path: &RelPath,
+        link_rel_path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, link_rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, link_rel_path.as_rel())?;
         let cmd = crate::ssh::tree_parser::build_create_symlink_command(target, &full_path);
         let client = self
             .ssh_clients
@@ -395,10 +395,10 @@ impl CoreRuntime {
     pub(crate) fn ssh_entry_link_target(
         &mut self,
         server_name: &str,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
     ) -> anyhow::Result<Option<String>> {
         let rel = rel_path.as_str();
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
+        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
         let client = self
             .ssh_clients
             .get_mut(server_name)
@@ -417,13 +417,13 @@ impl CoreRuntime {
     fn resolve_remote_paths(
         &self,
         server_name: &str,
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
     ) -> anyhow::Result<Vec<String>> {
         let server_config = self.get_server_config(server_name)?;
         let remote_root = server_config.root_dir.to_string_lossy().to_string();
         Ok(rel_paths
             .iter()
-            .map(|rel| executor::remote_full_path(&remote_root, rel))
+            .map(|rel| executor::remote_full_path(&remote_root, rel.as_rel()))
             .collect())
     }
 
@@ -475,7 +475,7 @@ impl CoreRuntime {
     }
 
     fn map_to_rel_paths_bytes<T>(
-        rel_paths: &[RelPath],
+        rel_paths: &[EntryPath],
         full_paths: &[String],
         mut batch_result: HashMap<String, T>,
     ) -> HashMap<String, T> {

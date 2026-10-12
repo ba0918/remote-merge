@@ -13,7 +13,7 @@ use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResul
 use super::receipt;
 use super::server::MetadataConfig;
 use super::tree_scan::{self, ScanOptions};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 /// ストリーミングチャンクの閾値。
 ///
@@ -71,7 +71,7 @@ impl Dispatcher {
                 // TODO: is_binary は将来のバイナリファイル最適化で使用予定
                 is_binary: _,
                 more_to_follow,
-            } => Some(refused_or(&path, |path| {
+            } => Some(refused_or_entry(&path, |path| {
                 vec![self.handle_write_file(&path, &content, more_to_follow)]
             })),
             AgentRequest::StatFiles { paths } => Some(vec![self.handle_stat_files(&paths)]),
@@ -80,16 +80,16 @@ impl Dispatcher {
                     result: file_io::inspect_path(&self.root_dir, &path),
                 }]
             })),
-            AgentRequest::Symlink { path, target } => Some(refused_or(&path, |path| {
+            AgentRequest::Symlink { path, target } => Some(refused_or_entry(&path, |path| {
                 vec![self.handle_symlink(&path, &target)]
             })),
-            AgentRequest::Remove { path } => Some(refused_or(&path, |path| {
+            AgentRequest::Remove { path } => Some(refused_or_entry(&path, |path| {
                 vec![operation_result(remote_merge_core::operations::remove(
                     &self.root_dir,
                     &path,
                 ))]
             })),
-            AgentRequest::Chmod { path, mode } => Some(refused_or(&path, |path| {
+            AgentRequest::Chmod { path, mode } => Some(refused_or_entry(&path, |path| {
                 vec![operation_result(remote_merge_core::operations::chmod(
                     &self.root_dir,
                     &path,
@@ -103,7 +103,7 @@ impl Dispatcher {
             } => Some(refused_or(&path, |path| {
                 super::listing::list_dir(&self.root_dir, &path, &exclude, max_entries)
             })),
-            AgentRequest::ReadEntryLink { path } => Some(refused_or(&path, |path| {
+            AgentRequest::ReadEntryLink { path } => Some(refused_or_entry(&path, |path| {
                 vec![super::entry_link::read_entry_link(&self.root_dir, &path)]
             })),
         }
@@ -177,7 +177,7 @@ impl Dispatcher {
     /// 累積コンテンツサイズが `STREAMING_CHUNK_THRESHOLD` を超えたタイミングで
     /// 中間チャンク (`is_last: false`) を送出し、最後のチャンクに `is_last: true` を設定する。
     fn handle_read_files(&self, paths: &[String], chunk_size_limit: usize) -> Vec<AgentResponse> {
-        let (paths, refused) = receipt::split_checked(paths);
+        let (paths, refused) = receipt::split_entries(paths);
         let mut responses: Vec<AgentResponse> = Vec::new();
         let mut current_results: Vec<FileReadResult> = Vec::new();
         let mut current_size: usize = 0;
@@ -228,7 +228,7 @@ impl Dispatcher {
     /// 結果はストリーミング対応のため Vec<AgentResponse> を返すが、
     /// 現時点では単一チャンクで全結果を返す。
     fn handle_hash_files(&self, paths: &[String]) -> Vec<AgentResponse> {
-        let (paths, refused) = receipt::split_checked(paths);
+        let (paths, refused) = receipt::split_entries(paths);
         let mut results: Vec<FileHashResult> = Vec::with_capacity(paths.len());
 
         for rel in &paths {
@@ -288,7 +288,7 @@ impl Dispatcher {
 
     fn handle_write_file(
         &mut self,
-        rel_path: &RelPath,
+        rel_path: &EntryPath,
         content: &[u8],
         more_to_follow: bool,
     ) -> AgentResponse {
@@ -344,7 +344,7 @@ impl Dispatcher {
     }
 
     fn handle_stat_files(&self, paths: &[String]) -> AgentResponse {
-        let (paths, refused) = receipt::split_checked(paths);
+        let (paths, refused) = receipt::split_entries(paths);
         let mut entries = Vec::new();
 
         for rel in &paths {
@@ -362,7 +362,7 @@ impl Dispatcher {
         AgentResponse::Stats { entries, refused }
     }
 
-    fn handle_symlink(&self, rel_path: &RelPath, target: &str) -> AgentResponse {
+    fn handle_symlink(&self, rel_path: &EntryPath, target: &str) -> AgentResponse {
         match file_io::create_symlink_with_metadata(
             &self.root_dir,
             rel_path,
@@ -390,6 +390,18 @@ fn refused_or(
     handle: impl FnOnce(RelPath) -> Vec<AgentResponse>,
 ) -> Vec<AgentResponse> {
     match RelPath::parse(path) {
+        Ok(path) => handle(path),
+        Err(refusal) => vec![AgentResponse::PathRefused { refusal }],
+    }
+}
+
+/// 一つの項目の要求の受け取り口。パスが項目として検査を通れば `handle` に渡し、通らなければ
+/// （root_dir 全体を指す値を含む）拒んだ理由を返す
+fn refused_or_entry(
+    path: &str,
+    handle: impl FnOnce(EntryPath) -> Vec<AgentResponse>,
+) -> Vec<AgentResponse> {
+    match EntryPath::parse(path) {
         Ok(path) => handle(path),
         Err(refusal) => vec![AgentResponse::PathRefused { refusal }],
     }
@@ -606,6 +618,118 @@ mod tests {
             );
         }
         assert!(!tmp.path().parent().unwrap().join("escape.txt").exists());
+    }
+
+    /// root_dir 全体を指す入力の形
+    const ROOT_FORMS: [&str; 5] = ["/", ".", "", "//", "./"];
+
+    fn root_dir_itself(path: &str) -> RelPathError {
+        RelPathError::RootDirItself(path.into())
+    }
+
+    fn mode_of(path: &std::path::Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[test]
+    fn a_request_for_one_entry_refuses_the_whole_root_dir_without_changing_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, mut d) = setup();
+        fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(tmp.path().join("kept.txt"), "kept").unwrap();
+        for root in ROOT_FORMS {
+            let requests = [
+                AgentRequest::WriteFile {
+                    path: root.into(),
+                    content: b"x".to_vec(),
+                    is_binary: false,
+                    more_to_follow: false,
+                },
+                AgentRequest::Symlink {
+                    path: root.into(),
+                    target: "x".into(),
+                },
+                AgentRequest::Remove { path: root.into() },
+                AgentRequest::Chmod {
+                    path: root.into(),
+                    mode: 0o700,
+                },
+                AgentRequest::ReadEntryLink { path: root.into() },
+            ];
+            for request in requests {
+                assert_eq!(
+                    d.dispatch(request.clone()).unwrap(),
+                    vec![AgentResponse::PathRefused {
+                        refusal: root_dir_itself(root)
+                    }],
+                    "{request:?}"
+                );
+            }
+        }
+        assert_eq!(mode_of(tmp.path()), 0o755);
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("kept.txt")).unwrap(),
+            "kept"
+        );
+    }
+
+    #[test]
+    fn a_request_for_many_entries_carries_the_whole_root_dir_as_refused() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("ok.txt"), "data").unwrap();
+        for root in ROOT_FORMS {
+            let paths = vec![root.to_string(), "ok.txt".to_string()];
+            let refused = vec![root_dir_itself(root)];
+            let read = d
+                .dispatch(AgentRequest::ReadFiles {
+                    paths: paths.clone(),
+                    chunk_size_limit: 4096,
+                })
+                .unwrap();
+            assert!(
+                matches!(read.last(), Some(AgentResponse::FileContents { refused: r, .. }) if *r == refused),
+                "{root:?}: {read:?}"
+            );
+            let hashed = single(
+                d.dispatch(AgentRequest::HashFiles {
+                    paths: paths.clone(),
+                })
+                .unwrap(),
+            );
+            assert!(
+                matches!(&hashed, AgentResponse::FileHashes { refused: r, results, .. } if *r == refused && results.len() == 1),
+                "{root:?}: {hashed:?}"
+            );
+            let stats = single(d.dispatch(AgentRequest::StatFiles { paths }).unwrap());
+            assert!(
+                matches!(&stats, AgentResponse::Stats { refused: r, entries } if *r == refused && entries.len() == 1),
+                "{root:?}: {stats:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn requests_over_a_range_accept_the_whole_root_dir() {
+        let (_tmp, mut d) = setup();
+        for root in ROOT_FORMS {
+            for request in [
+                AgentRequest::InspectPath { path: root.into() },
+                AgentRequest::ListDir {
+                    path: root.into(),
+                    exclude: vec![],
+                    max_entries: 10,
+                },
+            ] {
+                let responses = d.dispatch(request.clone()).unwrap();
+                assert!(
+                    !responses
+                        .iter()
+                        .any(|r| matches!(r, AgentResponse::PathRefused { .. })),
+                    "{request:?}: {responses:?}"
+                );
+            }
+        }
     }
 
     #[test]

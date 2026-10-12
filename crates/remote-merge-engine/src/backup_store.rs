@@ -446,8 +446,8 @@ fn read_stored_record(record_dir: &Path) -> anyhow::Result<Option<StoredBackupRe
     parse_stored_record(&bytes, &path).map(Some)
 }
 
-/// 記録を解析する。記録の path は外から書き換えられうるので、root_dir からの相対パスの形で
-/// なければ解析できない記録として扱う
+/// 記録を解析する。記録の path は外から書き換えられうるので、root_dir の下の一つの項目を指す
+/// 形（root_dir 全体を指す値を含まない）でなければ解析できない記録として扱う
 fn parse_stored_record(bytes: &[u8], path: &Path) -> anyhow::Result<StoredBackupRecord> {
     let record: StoredBackupRecord = serde_json::from_slice(bytes).map_err(|error| {
         anyhow::anyhow!(
@@ -457,7 +457,7 @@ fn parse_stored_record(bytes: &[u8], path: &Path) -> anyhow::Result<StoredBackup
     })?;
     let (StoredBackupRecord::File { path: rel_path, .. }
     | StoredBackupRecord::Symlink { path: rel_path, .. }) = &record;
-    remote_merge_core::relative_path::RelPath::parse(rel_path).map_err(|error| {
+    remote_merge_core::relative_path::EntryPath::parse(rel_path).map_err(|error| {
         anyhow::anyhow!(
             "backup record could not be parsed: {}: {error}",
             path.display()

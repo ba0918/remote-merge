@@ -14,7 +14,7 @@ use super::change_check::{
 use super::connection::{classify, is_stopped};
 use super::core::CoreRuntime;
 use crate::side::Side;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::EntryPath;
 
 /// 確かめた結果が分かる変更の失敗。`接続断` の種類を持つ
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl CoreRuntime {
     pub(crate) fn settle_change(
         &mut self,
         side: &Side,
-        path: &RelPath,
+        path: &EntryPath,
         change: Change<'_>,
         result: anyhow::Result<()>,
     ) -> anyhow::Result<()> {
@@ -94,7 +94,7 @@ impl CoreRuntime {
     fn observe_after_loss(
         &mut self,
         server: &str,
-        path: &RelPath,
+        path: &EntryPath,
         change: &Change<'_>,
     ) -> anyhow::Result<Observed> {
         if self.has_agent(server) {
@@ -112,14 +112,14 @@ impl CoreRuntime {
     fn observe_entry(
         &mut self,
         server: &str,
-        path: &RelPath,
+        path: &EntryPath,
         with_content: bool,
     ) -> anyhow::Result<Observed> {
         let resolved = if self.has_agent(server) {
-            self.agent_once(server, |agent| agent.inspect_path(path))
+            self.agent_once(server, |agent| agent.inspect_path(path.as_rel()))
                 .and_then(super::path_route::resolved_from_agent)?
         } else {
-            self.inspect_remote_path(server, path)?
+            self.inspect_remote_path(server, path.as_rel())?
         };
         Ok(match resolved {
             ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. } => {
@@ -133,7 +133,7 @@ impl CoreRuntime {
         })
     }
 
-    fn read_after_loss(&mut self, server: &str, path: &RelPath) -> anyhow::Result<Vec<u8>> {
+    fn read_after_loss(&mut self, server: &str, path: &EntryPath) -> anyhow::Result<Vec<u8>> {
         if !self.has_agent(server) {
             return self.read_remote_file_bytes(server, path);
         }
@@ -153,7 +153,7 @@ impl CoreRuntime {
     /// 当てない（当てると、exclude に当たるディレクトリを作ったときにその権限を読めない）。
     /// 打ち切った一覧ではそのパスが入らないことがあるので、件数でも打ち切らない（読むのは `接続断` の
     /// 後だけ）
-    fn observe_mode(&mut self, server: &str, path: &RelPath) -> anyhow::Result<Observed> {
+    fn observe_mode(&mut self, server: &str, path: &EntryPath) -> anyhow::Result<Observed> {
         let (parent, name) = path.parent_and_name();
         let parent = &parent;
         let listing = if self.has_agent(server) {

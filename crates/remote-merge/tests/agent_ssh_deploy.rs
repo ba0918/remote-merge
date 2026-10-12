@@ -492,7 +492,7 @@ async fn agent_ssh_read_files_roundtrip() {
 
     let results = client
         .read_files(
-            &[remote_merge_core::relative_path::RelPath::parse("test.txt").unwrap()],
+            &[remote_merge_core::relative_path::EntryPath::parse("test.txt").unwrap()],
             1_048_576,
         )
         .expect("read_files failed");

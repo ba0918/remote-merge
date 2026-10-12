@@ -3,7 +3,7 @@
 //! 大きさは読み込みと同じく symlink を辿った先のファイルについて調べる。上限の判定はここでは
 //! せず、`size_limit` が入口で行う。
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::EntryPath;
 use std::collections::{HashMap, HashSet};
 
 use crate::agent::protocol::AgentFileStat;
@@ -69,23 +69,23 @@ pub(crate) struct AgentSizes {
     /// 答えたパスの大きさ
     pub known: HashMap<String, u64>,
     /// 答えなかったパス
-    pub omitted: Vec<RelPath>,
+    pub omitted: Vec<EntryPath>,
 }
 
 /// `paths` を `batch` 件ごとに `query` で尋ね、答えをパスで突き合わせる。答えの数や順番には
 /// 頼らず、答えのないパスは `omitted` にする。どれかの問い合わせが失敗したら全体を失敗にする
 /// （失敗の種類は呼び出し元が `connection::classify` で判定する）
 pub(crate) fn ask_agent_sizes<Q>(
-    paths: &[RelPath],
+    paths: &[EntryPath],
     batch: usize,
     mut query: Q,
 ) -> anyhow::Result<AgentSizes>
 where
-    Q: FnMut(&[RelPath]) -> anyhow::Result<Vec<AgentFileStat>>,
+    Q: FnMut(&[EntryPath]) -> anyhow::Result<Vec<AgentFileStat>>,
 {
     let mut known = HashMap::with_capacity(paths.len());
     for chunk in paths.chunks(batch) {
-        let asked: HashSet<&str> = chunk.iter().map(RelPath::as_typed).collect();
+        let asked: HashSet<&str> = chunk.iter().map(EntryPath::as_typed).collect();
         known.extend(
             query(chunk)?
                 .into_iter()
@@ -109,10 +109,10 @@ mod tests {
         names.iter().map(|name| name.to_string()).collect()
     }
 
-    fn rels(names: &[&str]) -> Vec<RelPath> {
+    fn rels(names: &[&str]) -> Vec<EntryPath> {
         names
             .iter()
-            .map(|name| RelPath::parse(name).unwrap())
+            .map(|name| EntryPath::parse(name).unwrap())
             .collect()
     }
 

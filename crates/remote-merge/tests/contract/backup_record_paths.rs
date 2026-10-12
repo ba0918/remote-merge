@@ -94,3 +94,24 @@ fn a_record_whose_path_is_absolute_stops_the_list_with_the_reason() {
         "{message}"
     );
 }
+
+// 記録の path が root_dir 全体を指すと、書き戻しが root_dir そのものに向かうので解析できない記録にする
+// @kotowari[REQ-backup-044]
+#[test]
+fn a_record_whose_path_names_the_whole_root_dir_stops_the_list_with_the_reason() {
+    for path in ["/", "//", ".", "./", ""] {
+        let (local, develop, store) = (
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+            TempDir::new().unwrap(),
+        );
+        session_record_with_path(&local, &develop, &store, path);
+
+        let message = list_error(&local, &develop, &store);
+
+        assert!(
+            message.contains(&format!("root_dir itself is not an entry: {path}")),
+            "{path:?}: {message}"
+        );
+    }
+}

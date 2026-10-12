@@ -12,14 +12,18 @@ use super::client::{AgentClient, TreeList};
 use super::protocol::{FileKind, FileReadResult};
 use super::server::{run_agent_loop, MetadataConfig};
 use super::tree_scan::convert_agent_entries_to_nodes;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 fn rel(path: &str) -> RelPath {
     RelPath::parse(path).unwrap()
 }
 
-fn rels(paths: &[&str]) -> Vec<RelPath> {
-    paths.iter().map(|path| rel(path)).collect()
+fn entry(path: &str) -> EntryPath {
+    EntryPath::parse(path).unwrap()
+}
+
+fn rels(paths: &[&str]) -> Vec<EntryPath> {
+    paths.iter().map(|path| entry(path)).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +80,7 @@ fn full_protocol_roundtrip() {
 
     // WriteFile
     client
-        .write_file(&rel("written.txt"), b"new content", false)
+        .write_file(&entry("written.txt"), b"new content", false)
         .unwrap();
     assert_eq!(
         fs::read_to_string(tmp.path().join("written.txt")).unwrap(),
@@ -156,7 +160,7 @@ fn chunked_write_and_read_roundtrip() {
     let data = vec![0xCDu8; 4 * 1024 * 1024 + 1000];
 
     let mut client = create_pair(&tmp);
-    client.write_file(&rel("large.bin"), &data, true).unwrap();
+    client.write_file(&entry("large.bin"), &data, true).unwrap();
 
     // ファイルシステム上で検証
     let written = fs::read(tmp.path().join("large.bin")).unwrap();
@@ -266,7 +270,7 @@ fn symlink_create_and_list_and_read() {
 
     // シンボリックリンク作成（相対パスで指定）
     let link_rel = "mylink.txt";
-    client.symlink(&rel(link_rel), "target.txt").unwrap();
+    client.symlink(&entry(link_rel), "target.txt").unwrap();
 
     // ListTree でシンボリックリンクが表示される
     let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
@@ -316,7 +320,10 @@ fn read_50_files_in_single_request() {
 
     // 全50ファイルを1リクエストで読み込む
     let results = client
-        .read_files(&paths.iter().map(|p| rel(p)).collect::<Vec<_>>(), 1_048_576)
+        .read_files(
+            &paths.iter().map(|p| entry(p)).collect::<Vec<_>>(),
+            1_048_576,
+        )
         .unwrap();
     assert_eq!(results.len(), count);
 

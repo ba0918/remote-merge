@@ -111,6 +111,9 @@ mod diff_unlistable;
 #[cfg(feature = "test-utils")]
 #[path = "contract/dry_run_failures.rs"]
 mod dry_run_failures;
+#[cfg(feature = "test-utils")]
+#[path = "contract/entry_path_routes.rs"]
+mod entry_path_routes;
 #[path = "contract/filters.rs"]
 mod filters;
 #[path = "contract/init.rs"]

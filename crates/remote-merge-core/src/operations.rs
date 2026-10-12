@@ -4,14 +4,14 @@
 
 use std::path::Path;
 
-use crate::relative_path::RelPath;
+use crate::relative_path::EntryPath;
 
 /// 権限の変更で付けてよい値の上限。setuid・setgid・sticky は付けない
 pub const MAX_PERMISSION_MODE: u32 = 0o777;
 
 /// root_dir `root` の下の `path` を消す。末尾の symlink ならリンクだけを消し、ディレクトリと
 /// ないパスは消さずに失敗する
-pub fn remove(root: &Path, path: &RelPath) -> anyhow::Result<()> {
+pub fn remove(root: &Path, path: &EntryPath) -> anyhow::Result<()> {
     let rel = path.as_str();
     std::fs::remove_file(root.join(rel))
         .map_err(|error| anyhow::anyhow!("failed to remove {rel:?}: {error}"))
@@ -19,7 +19,7 @@ pub fn remove(root: &Path, path: &RelPath) -> anyhow::Result<()> {
 
 /// root_dir `root` の下の `path`（末尾の symlink はリンク先）の権限を `mode` にする。
 /// ディレクトリはすでに付いている setuid・setgid を残す（[`resulting_mode`]）
-pub fn chmod(root: &Path, path: &RelPath, mode: u32) -> anyhow::Result<()> {
+pub fn chmod(root: &Path, path: &EntryPath, mode: u32) -> anyhow::Result<()> {
     let rel = path.as_str();
     check_mode(rel, mode)?;
     set_mode(&root.join(rel), mode).map_err(|error| {
@@ -66,8 +66,8 @@ fn set_mode(full: &Path, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    fn rel(path: &str) -> crate::relative_path::RelPath {
-        crate::relative_path::RelPath::parse(path).unwrap()
+    fn rel(path: &str) -> EntryPath {
+        EntryPath::parse(path).unwrap()
     }
     use std::os::unix::fs::{symlink, PermissionsExt};
 
