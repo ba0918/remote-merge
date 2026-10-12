@@ -31,6 +31,18 @@ SSH の経路は、リモートのシェルと道具（find・stat・dd など�
 - 一覧に出た名前が、情報を取りに行く前に消えたときは、どの版もその名前について "No such file or directory" と知らせ、終了コードは 1 になる。パスの引用は読めないディレクトリの知らせと同じく版で違う（4.2.27 は引用しない、4.4.2 は "`" で始めて `'` で閉じる、4.5.11 と 4.9.0 は `'` で囲む。いずれも C ロケール）。4.2.27・4.4.2・4.5.11・4.9.0 で、find の途中で項目を消して確かめた。
 - 標準エラーに何か出たのに終了コードが 0 のことがある（4.2.27）。終了コードだけで成功を決められない。
 
+## 失敗の理由の見分け方
+
+root でない利用者で、C ロケール（`LC_ALL=C`）で確かめた。対象は CentOS 5（coreutils 5.97）・CentOS 6（8.4）・CentOS 7（8.22）のコンテナ、手元の Ubuntu（coreutils 9.4、sh は dash）、Alpine の BusyBox 1.37.0。
+
+- シェルのテストが偽で理由が分からないときの `ls -d` の標準エラーは、どれも OS の文言で終わる。ないパスは "No such file or directory"、途中が通常ファイルのパス（通常ファイルへの symlink を途中に含むものも）は "Not a directory"、検索の権限がないディレクトリの下のパス（その下の何段目でも）は "Permission denied" である。前に付く文言（"ls: パス: "・"ls: cannot access パス: "・"ls: cannot access 'パス': "）は版で違うので、終わりだけを読む。終了コードは coreutils が 2、BusyBox が 1 である。
+- 自分を指す symlink の下のパスは、coreutils が "Too many levels of symbolic links"、BusyBox が "Symbolic link loop" で終わる。
+- 検索の権限がないディレクトリそのものは、`[ -e ]`・`[ -d ]` が真で、`[ -r ]`・`[ -x ]` が偽になり、`ls -d` は成功する。その下のパスは `[ -e ]`・`[ -L ]` がどれも偽になる。
+- リンク切れの symlink は `[ -L ]` が真で `[ -e ]` が偽になる。coreutils の `ls -d` はリンクそのものを示して成功し、BusyBox の `ls -d` はリンク先を辿って "No such file or directory" で失敗する。
+- `cat`・`rm`・`chmod`・`stat -L -c %s`・`sha256sum`・`ls -ldn` の失敗の文言も、ない・途中がディレクトリでない・権限がないで、上と同じ三つの文言で終わる（前に付く文言は道具と版で違う）。
+- 他人の持ち物のファイルの権限を変えようとすると、`chmod` は "Operation not permitted"（EPERM）で終わる。
+- 読む権限のないファイル（mode 000）は `[ -e ]` が真で `[ -r ]` が偽になり、`cat`・`sha256sum` は "Permission denied" で終わる。
+
 ## ハッシュ・大きさ・書き込み
 
 - SHA-256: `sha256sum` がなく `shasum -a 256` だけのサーバがある。
