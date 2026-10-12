@@ -50,7 +50,8 @@ pub fn validate(stderr: &[u8], checks: &[DirCheck]) -> Result<usize, String> {
 }
 
 /// 標準エラーを find の知らせ一つずつに分ける。古い find（4.2.27）はパスを引用しないので、名前の
-/// 中の改行で行が割れる。"find: " で始まらない行は前の知らせの続きとしてつなぐ
+/// 中の改行で行が割れる。"find: " で始まらない行と、前の知らせがまだ読み分けられないときの行は、
+/// 前の知らせの続きとしてつなぐ
 fn messages(text: &[u8]) -> Vec<Vec<u8>> {
     let mut messages: Vec<Vec<u8>> = Vec::new();
     let body = text.strip_suffix(b"\n").unwrap_or(text);
@@ -58,8 +59,10 @@ fn messages(text: &[u8]) -> Vec<Vec<u8>> {
         return messages;
     }
     for line in body.split(|byte| *byte == b'\n') {
+        // 前の知らせがまだパスと理由に読み分けられないなら、"find: " で始まる行も、名前の中の
+        // 改行の後に続く部分としてつなぐ
         match messages.last_mut() {
-            Some(last) if !line.starts_with(b"find: ") => {
+            Some(last) if !line.starts_with(b"find: ") || diagnosed_path(last).is_none() => {
                 last.push(b'\n');
                 last.extend_from_slice(line);
             }
@@ -84,6 +87,10 @@ mod tests {
             ]
         );
         assert!(messages(b"").is_empty());
+        assert_eq!(
+            messages(b"find: ./c/x\nfind: y: Permission denied\n"),
+            [b"find: ./c/x\nfind: y: Permission denied".to_vec()]
+        );
     }
 }
 

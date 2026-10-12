@@ -89,3 +89,31 @@ fn many_unreadable_directories_below_an_excluded_directory_agree() {
     assert!(machine.starts_with("Ok("), "{machine}");
     assert_eq!(shell, machine);
 }
+
+// @kotowari[REQ-scan-017, REQ-scan-014, REQ-config-044]
+#[test]
+fn an_unreadable_directory_whose_name_holds_a_find_prefix_after_a_newline_agrees() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    for parent in ["cache", "plain"] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let dir = root.join(parent).join(OsStr::from_bytes(b"x\nfind: y"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("h.txt"), "h").unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+        let rule = exclude(&["c?che"]);
+        let machine = scan_with(
+            &mut MachineCollector::new(root.to_path_buf()),
+            &rule,
+            ScanScope::Whole,
+        );
+        let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        if permissions_apply_root() {
+            return;
+        }
+        assert_eq!(shell, machine, "{parent}");
+    }
+}
