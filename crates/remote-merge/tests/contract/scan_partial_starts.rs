@@ -32,6 +32,11 @@ async fn an_unreadable_source_directory_stops_the_scan_instead_of_listing_nothin
         let output = sides.run_from_tested(&["merge", "sub/", "--force"]);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .contains("Cannot read directory: sub: permission denied"),
+            "{route:?}: {output:?}"
+        );
         let other = fs::read_to_string(sides.other_root().join("sub/g.txt")).unwrap();
         assert_ne!(
             other,
@@ -49,6 +54,11 @@ async fn a_source_directory_below_a_file_stops_the_scan_instead_of_listing_nothi
         sides.fixture.put("f.txt", Some("left\n"), Some("right\n"));
         let output = sides.run_from_tested(&["merge", "f.txt/x/", "--force"]);
         assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout)
+                .contains("Cannot scan f.txt/x: a parent is not a directory"),
+            "{route:?}: {output:?}"
+        );
     }
 }
 
