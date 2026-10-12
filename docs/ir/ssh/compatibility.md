@@ -30,6 +30,7 @@
 - verification: unit
 
 TBL-ssh-002 で道具がないの失敗にする道具がリモートにないとき、その道具を要る操作は、道具の名前を含む誤り（paths/operations.md の REQ-paths-020 の道具がない）で失敗し、ほかの道具の答えから推し量った結果も、空の結果も、既定の値も返さない。
+find が -printf か "-exec … {} +" を受け付けないときの誤りの文は、要る道具（-printf と "-exec … {} +" を受け付ける find）と、エージェントを使えばそのサーバを扱えることを含む。文言は IR で決めず、実装者が英語で書き、テストはその二つを含むことだけを確かめる。
 走査が道具がないで失敗したときは、status・diff・merge・sync は、走査を止めるほかの誤りと同じく何も書き込まずに終了コード 2 で止まる。
 
 ## Decision tables
@@ -72,7 +73,7 @@ Then 不一致の理由と設定のヒントが表示される
 Scenario: BusyBox の find だけのサーバをエージェントなしで比べる
 Given サーバの find が -printf を受け付けない BusyBox の find で、そのサーバではエージェントを使わない
 When status を実行する
-Then 走査は find が -printf を受け付けないことを示す誤りで止まり、空の一覧で比べず、終了コード 2 を返す
+Then 走査は、-printf と "-exec … {} +" を受け付ける find が要ることと、エージェントを使えば扱えることを示す誤りで止まり、空の一覧で比べず、終了コード 2 を返す
 
 @id=EX-ssh-058 @about=REQ-ssh-025 @source=docs/decision/records/2026-10-12-foundation-3.md#D7
 Scenario: sha256sum がなく shasum だけのサーバ

@@ -6,11 +6,11 @@
 
 ### REQ-ssh-005: エージェントの不在で操作を失わない
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A31, docs/decision/records/2026-10-11-agent-operations.md#A29, docs/decision/records/2026-10-11-agent-operations.md#A32
+- source: docs/decision/records/2026-09-25-spec-migration.md#A31, docs/decision/records/2026-10-11-agent-operations.md#A29, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-12-foundation-3.md#D3
 - verification: unit
 
 sudo=true を指定していないサーバでは、リモート側のエージェントを利用できないときも、SSH の経路でファイルの比較とマージを行える。
-sudo=true を指定したサーバでエージェントを利用できない（起動できない、REQ-ssh-021 の通信の版が違う）ときは、ファイルを読み書きする前に接続のエラーで止め、終了コード 2 を返し、SSH の経路では行わない。
+sudo=true を指定したサーバでエージェントを利用できない（[agent] enabled が false、配置先が REQ-ssh-014 か REQ-ssh-017 に当たる、配置できないか起動できない、REQ-ssh-021 の通信の版が違う。TBL-ssh-001）ときは、ファイルを読み書きする前に接続のエラーで止め、終了コード 2 を返し、SSH の経路では行わない。
 
 ### REQ-ssh-010: 選んだ経路ですべての操作を行い、選び直さない
 - kind: state_driven
@@ -33,10 +33,19 @@ sudo=true を指定したサーバでエージェントを利用できない（�
 
 接続したエージェントが答えた通信の版が手元の通信の版と同じでないとき、そのエージェントは使わない。sudo=true を指定したサーバでは REQ-ssh-005 のとおり接続のエラーで止める。sudo=true を指定していないサーバでは、エージェントを使わないことと通信の版が違うことを英語の警告で標準エラーに出し、REQ-ssh-005 のとおり SSH の経路で行う。警告の文言は IR で決めず、テストは警告が出てエージェントを使わない理由が読めることだけを確かめ、文言を固定しない。
 
+### REQ-ssh-027: エージェントを配置・起動できずに切り替えるときは理由を示す
+- kind: event_driven
+- source: docs/decision/records/2026-10-12-foundation-3.md#D19
+- verification: unit
+
+sudo=true を指定していないサーバで、エージェントを配置できないか起動できずに SSH の経路にするときは、黙って切り替えず、エージェントを使わないことと切り替える理由を含む英語の警告を標準エラーに出す。
+警告は標準出力に出さず、JSON の出力を壊さない。
+警告の文言は IR で決めず、テストは警告が標準エラーに出て理由が読めることだけを確かめ、文言を固定しない。
+
 ## Decision tables
 
 ### TBL-ssh-001: エージェントを使うか SSH にするか
-- source: docs/decision/records/2026-10-12-foundation-3.md#D3, docs/decision/records/2026-10-11-agent-operations.md#A29, docs/decision/records/2026-10-05-harden-security.md#A14
+- source: docs/decision/records/2026-10-12-foundation-3.md#D3, docs/decision/records/2026-10-12-foundation-3.md#D19, docs/decision/records/2026-10-11-agent-operations.md#A29, docs/decision/records/2026-10-05-harden-security.md#A14
 
 | sudo=true の指定 | エージェントの状態 | 選ぶ経路 | 利用者に示すこと |
 |---|---|---|---|
@@ -44,7 +53,7 @@ sudo=true を指定したサーバでエージェントを利用できない（�
 | なし | [agent] enabled が false | SSH | なし |
 | なし | 配置先が REQ-ssh-014 か REQ-ssh-017 に当たる | SSH | 配置先のパスを示す警告（REQ-ssh-019） |
 | なし | 通信の版が手元と違う | SSH | 通信の版が違う警告（REQ-ssh-021） |
-| なし | 配置できないか起動できない | SSH | 警告は IR で決めない |
+| なし | 配置できないか起動できない | SSH | エージェントを使わないことと切り替える理由を示す警告（REQ-ssh-027） |
 | あり | 上の二行目から五行目のどれか | 選ばずに止める | ファイルを読み書きする前の接続のエラーと終了コード 2（REQ-ssh-005） |
 
 ## Examples
@@ -103,4 +112,10 @@ Scenario: sudo のサーバでエージェントを無効にしている
 Given サーバに sudo=true を指定し、[agent] enabled が false である
 When そのサーバとの差分を確認する
 Then ファイルを読む前に接続のエラーで止まり、終了コード 2 を返し、SSH の経路で読まない
+
+@id=EX-ssh-059 @about=REQ-ssh-027 @source=docs/decision/records/2026-10-12-foundation-3.md#D19
+Scenario: エージェントを起動できないサーバを JSON で比べる
+Given サーバに sudo=true を指定せず、リモート側のエージェントが起動できない
+When status --format json を実行する
+Then エージェントを使わないことと起動できない理由を含む警告が標準エラーに出て、SSH の経路で比べた結果が標準出力に JSON として出る
 ```

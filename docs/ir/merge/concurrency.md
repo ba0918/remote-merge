@@ -30,18 +30,18 @@ merge と sync は、比べたときから書き込み先の中身が変わっ�
 書き込み先の途中の symlink は REQ-merge-004 のとおり辿る。
 リモートの dd が "oflag=nofollow" を受け付けないときに残る競合は FLAG-merge-021 に残す。
 
-### REQ-merge-039: SSH の書き込みは書き込み先をその場で書き換える
+### REQ-merge-039: 書き込みは書き込み先をその場で書き換える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-05-ssh-strict-exec.md#A14, docs/decision/records/2026-10-11-agent-operations.md#A6, docs/decision/records/2026-10-12-foundation-3.md#D18
 - verification: review
-- how_to_verify: "crates/remote-merge-ssh/src/tree_parser.rs" の a_write_keeps_owner_mode_and_hard_links_and_truncates_old_content・writes_create_a_missing_file_and_leave_no_other_entry・a_link_swapped_in_during_a_write_keeps_its_target_unchanged・a_write_onto_a_directory_fails_without_change・without_dd_nofollow_a_link_destination_is_refused_and_a_file_is_written・a_decoder_that_fails_after_writing_part_fails_the_write・a_binary_write_without_openssl_fails_and_keeps_the_destination を読み、生成した書き込みのコマンドを各ログインシェルから sh で実行して、書き込み先と同じディレクトリに他の項目が現れないこと、既存の書き込み先の権限とハードリンクが残り古い中身が切り詰められること、書き込みの途中で書き込み先を symlink に替えてもリンク先が変わらないこと、中身を途中まで書いた後でデコードが失敗すると書き込みが失敗すること、openssl のない PATH ではバイナリの書き込みが失敗し書き込み先が変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。
+- how_to_verify: "crates/remote-merge-ssh/src/tree_parser.rs" の a_write_keeps_owner_mode_and_hard_links_and_truncates_old_content・writes_create_a_missing_file_and_leave_no_other_entry・a_link_swapped_in_during_a_write_keeps_its_target_unchanged・a_write_onto_a_directory_fails_without_change・without_dd_nofollow_a_link_destination_is_refused_and_a_file_is_written・a_decoder_that_fails_after_writing_part_fails_the_write・a_binary_write_without_openssl_fails_and_keeps_the_destination を読み、生成した書き込みのコマンドを各ログインシェルから sh で実行して、書き込み先と同じディレクトリに他の項目が現れないこと、既存の書き込み先の権限とハードリンクが残り古い中身が切り詰められること、書き込みの途中で書き込み先を symlink に替えてもリンク先が変わらないこと、中身を途中まで書いた後でデコードが失敗すると書き込みが失敗すること、openssl のない PATH ではバイナリの書き込みが失敗し書き込み先が変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。 ローカルとエージェントの書き込みが同じくその場で書き、inode・所有者・ハードリンクを保つことは、EX-merge-062 の三つの経路の契約テストで確かめる。
 
-SSH の経路の通常ファイルの書き込みは、一時ファイルを作らず、書き込み先のファイルをその場で開いて古い中身を切り詰めてから書く。
-書き込み先のファイルそのものに書くので、REQ-merge-013 と REQ-backup-029 のとおり所有者と権限を変えず、ハードリンクも保つ。
+通常ファイルの書き込みは、一時ファイルを作らず、書き込み先のファイルをその場で開いて古い中身を切り詰めてから書く。
+書き込み先のファイルそのものに書くので、書き込み先の inode は変わらず、REQ-merge-013 と REQ-backup-029 のとおり所有者と権限を変えず、ハードリンクも保つ。
 書き込みを始めた後で書き込み先が symlink に替わっても、リンク先は変えない。
 書き込み先が symlink でない既存のディレクトリなら書かずに失敗する。
-標準入力を書き込む中身に変えるコマンド（テキストはそのまま渡すもの、バイナリは base64 をデコードするもの）が失敗したときは、書き込み先に書けていても書き込みを失敗にする。
-標準入力を書き込む中身に変えるコマンドがリモートに見つからないときは、書き込み先を開かずに書き込みを失敗にし、書き込み先を変えない。
+書き込む中身を作る処理（リモートの道具で base64 を復号するものを含む）が失敗したときは、書き込み先に書けていても書き込みを失敗にする。
+その処理に要る道具がリモートにないときは、書き込み先を開かずに書き込みを失敗にし、書き込み先を変えない（ssh/compatibility.md の TBL-ssh-002）。
 書き込みの途中で失敗したときは、途中までの中身が書き込み先に残る。
 
 ### REQ-merge-040: symlink の作成先にある項目を置き換えない
@@ -98,7 +98,7 @@ Then リンク先のファイルは変わらない
 
 @id=EX-merge-050 @about=REQ-merge-039 @source=docs/decision/records/2026-10-05-ssh-strict-exec.md#A11
 Scenario: SSH の書き込みが既存のファイルの権限とハードリンクを保つ
-Given SSH の経路の書き込み先が、既定と違う権限を持ち、別の名前のハードリンクもある既存のファイルである
+Given エージェントを使わないリモートの書き込み先が、既定と違う権限を持ち、別の名前のハードリンクもある既存のファイルである
 When 元より短い中身でそのファイルをマージする
 Then 書き込み先の権限は変わらず、ハードリンクの別の名前からも新しい中身だけが読め、書き込み先のディレクトリに他の項目は現れない
 
@@ -131,4 +131,10 @@ Scenario: 比べた後に書き込み先の symlink が UTF-8 でないバイト
 Given 読み込み元も書き込み先も symlink で、書き込み先のリンク先は UTF-8 として読めないバイトを含み、比べた後、merge の前にそのバイトだけが違うリンク先を指すように作り直された
 When バックアップを無効にしてそのパスを merge する
 Then そのファイルは failed に出て、書き込み先の symlink は作り直されたリンク先を指したままである
+
+@id=EX-merge-062 @about=REQ-merge-039 @source=docs/decision/records/2026-10-12-foundation-3.md#D18
+Scenario: 三つの経路で既存のファイルに書く
+Given ローカル・SSH・エージェントの書き込み先に、別の名前のハードリンクもある既存の "a.txt" がある
+When それぞれの経路で "a.txt" に新しい中身を merge する
+Then どの経路でも "a.txt" の inode と所有者は書く前と同じで、ハードリンクの別の名前からも新しい中身が読める
 ```

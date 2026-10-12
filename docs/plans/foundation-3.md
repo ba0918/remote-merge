@@ -6,14 +6,14 @@
 
 ## Specification
 
-- 方針: `docs/decision/records/2026-10-12-foundation.md`（A1〜A10）、`docs/decision/records/2026-10-12-foundation-3.md`（D1〜D14）
+- 方針: `docs/decision/records/2026-10-12-foundation.md`（A1〜A10）、`docs/decision/records/2026-10-12-foundation-3.md`（D1〜D12・D14・D18〜D20。D13 は D8・D18・D19 で決まった）
 - 段 1・段 2 の記録: `docs/decision/records/2026-10-12-foundation-1.md`（B4・B7・B8）、`docs/decision/records/2026-10-12-foundation-2.md`（C6・C11・C14・C15）
 - 操作と失敗の種類: `docs/ir/paths/operations.md`（REQ-paths-013・016・017・020）、`docs/ir/paths/FLAGS.md`
 - パスの確認: `docs/ir/paths/resolution.md`、`docs/ir/paths/routes.md`（REQ-paths-008・009・012）
-- 経路の選び方: `docs/ir/ssh/fallback.md`（TBL-ssh-001、REQ-ssh-005・010・021・024）、`docs/ir/ssh/deploy.md`
+- 経路の選び方: `docs/ir/ssh/fallback.md`（TBL-ssh-001、REQ-ssh-005・010・021・024・027）、`docs/ir/ssh/deploy.md`
 - 接続断: `docs/ir/CONTEXT.md` の用語、`docs/ir/ssh/reconnect.md`（REQ-ssh-003・004・022・023）
 - リモートの道具: `docs/ir/ssh/compatibility.md`（TBL-ssh-002、REQ-ssh-025・026）、`docs/remote-tools.md`
-- 大きさの上限と書き込み先の操作: `docs/ir/cli/size-limit.md`（REQ-cli-079）、`docs/ir/merge/concurrency.md`（REQ-merge-038・040・041）、`docs/ir/merge/FLAGS.md`（FLAG-merge-021）
+- 大きさの上限と書き込み先の操作: `docs/ir/cli/size-limit.md`（REQ-cli-079）、`docs/ir/merge/concurrency.md`（REQ-merge-038・039・040・041）、`docs/ir/merge/FLAGS.md`（FLAG-merge-021）
 
 ## Approach and why
 
@@ -21,11 +21,13 @@
 
 **失敗は一つの型にする（D1）。** 型は core に置き、ローカルとエージェントは同じ関数で OS の誤りをこの型に訳す（D2）。上限を超えるは、経路が答えた大きさと上限から一つの純粋な関数が決める。利用者に見える失敗の文言はこの型から一か所で作り、出力の型は変えない（foundation A6）。
 
-**経路の選び方は一つの純粋な関数にする（D3・D4）。** 入力は sudo の指定・`[agent] enabled`・配置先の検査の結果・配置と起動の結果・通信の版が同じか、出力はエージェント・SSH（警告付き）・止める、で TBL-ssh-001 をそのまま書く。サーバにつなぐときに一度だけ呼び、その後は選び直さない。接続断は同じ経路でつなぎ直す。段 2 で走査の失敗を TreeFailed として運び SSH に回さないようにした形（C11・C15）を、すべての操作に広げる。
+**経路の選び方は一つの純粋な関数にする（D3・D4）。** 入力は sudo の指定・`[agent] enabled`・配置先の検査の結果・配置と起動の結果・通信の版が同じか、出力はエージェント・SSH（警告付き）・止める、で TBL-ssh-001 をそのまま書く。配置・起動できずに SSH にするときも、理由を含む英語の警告を標準エラーに出す（D19）。サーバにつなぐときに一度だけ呼び、その後は選び直さない。接続断は同じ経路でつなぎ直す。段 2 で走査の失敗を TreeFailed として運び SSH に回さないようにした形（C11・C15）を、すべての操作に広げる。
 
-**SSH は事実を集めるだけにする（D5〜D8）。** パスの確認は段 1 の純粋な手順をそのまま使い、SSH は確かめる途中のすべてのパスの、まだ辿っていない要素の事実を一回の sh で答える。手順が symlink を差し込んだパスだけを次の回に回す。失敗の理由は、シェルのテストで決まらないときだけ `ls -d` の C ロケールの文言の終わりで見分ける（D2・D10）。子の一覧は段 2 の走査の集め方を深さ一つにして使い、子の一覧のための find の書き方を持たない（D6）。大きさ・読み込み・ハッシュは複数のパスをまとめ、答えはパスごとに成功か失敗の種類を持つ（D7）。道具がないときは推し量らずに道具がないの失敗にする（TBL-ssh-002）。
+**SSH は事実を集めるだけにする（D5〜D8）。** パスの確認は段 1 の純粋な手順をそのまま使い、SSH は確かめる途中のすべてのパスの、まだ辿っていない要素の事実を一回の sh で答える。手順が symlink を差し込んだパスだけを次の回に回す。失敗の理由は、シェルのテストで決まらないときだけ `ls -d` の C ロケールの文言の終わりで見分ける（D2・D10）。子の一覧は段 2 の走査の集め方を深さ一つにして使い、子の一覧のための find の書き方を持たない（D6）。大きさ・読み込み・ハッシュは複数のパスをまとめ、答えはパスごとに成功か失敗の種類を持つ（D7）。道具がないときは推し量らずに道具がないの失敗にする（TBL-ssh-002）。find が -printf か `-exec {} +` を受け付けないときの誤りの文には、要る find と、エージェントを使えば扱えることを入れる（D8）。
 
-**通信の版を 12 に上げる（D9）。** 操作の応答は成功の値か失敗の種類を運ぶ。エージェントの応答のフレームを読めない・要求と合わない応答は接続断にする（D2）。SSH の答えの形が壊れているときも接続断にする。
+**通信の版を 12 に上げる（D9）。** 操作の応答は成功の値か失敗の種類を運ぶ。エージェントの応答のフレームを読めない・要求と合わない応答は接続断にする（D2）。SSH の答えの形が壊れているときも接続断にする（D20）。
+
+**書き込みはどの経路もその場で書き換える（D18）。** 一時ファイルを作らず、書き込み先の inode・所有者・ハードリンクを保つ。ローカルやエージェントが今この書き方になっていないと分かったら、S7 で直す。
 
 ## Scope of change
 
@@ -55,14 +57,15 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 の順。S2 は S1 に依らない�
 |---|---|---|
 | REQ-paths-020、EX-paths-044・045、REQ-paths-016 | S1・S7 | 失敗の型と訳し方の単体テスト（OS の誤りを手で作って渡す）と、三つの経路で同じ種類になることの契約テスト |
 | REQ-cli-079（上限を超える） | S1・S5 | 上限の判定の単体テストと、既存の大きさの上限の契約テスト |
-| TBL-ssh-001、REQ-ssh-024、EX-ssh-056 | S2 | 選び方の関数の単体テスト（表の行ごと）と、sudo=true・`[agent] enabled` が false の契約テスト |
+| TBL-ssh-001、REQ-ssh-024・027、EX-ssh-056・059 | S2 | 選び方の関数の単体テスト（表の行ごと）と、sudo=true・`[agent] enabled` が false の契約テスト |
 | REQ-ssh-010、EX-ssh-055 | S2・S3 | エージェントの読み込みが権限がないで失敗しても SSH に回さない契約テスト。既存の EX-ssh-034・035 のテスト |
 | REQ-ssh-003・004・022・023、`接続断` の用語 | S3・S7 | 既存の接続断の契約テストと、エージェントの応答のフレームを壊したとき・SSH の答えの目印を欠いたときに接続断として扱う契約テスト |
 | 通信の版 12（D9） | S3 | 通信の直列化した形を固定するテストと、版 11 のエージェントを使わない既存のテスト（REQ-ssh-021） |
 | REQ-paths-008・009・012、EX-paths-019・020・025・043 | S4 | 既存の三つの経路の確認の契約テスト（`path_routes_agree.rs`）を新しい部品で動かし、検索できないディレクトリの下と、`ls -d` で理由を見分ける場合を足す |
 | REQ-paths-013・017・018・019、EX-paths-026〜037・040〜042 | S5・S6 | 既存の三つの経路の操作の契約テスト（`path_operations_agree.rs` ほか） |
-| TBL-ssh-002、REQ-ssh-025・026、EX-ssh-057・058 | S5・S6 | PATH を絞った sh と、-printf を受け付けない find を置いた PATH で、道具がないの失敗と代わりの道具を確かめる契約テスト |
+| TBL-ssh-002、REQ-ssh-025・026、EX-ssh-057・058 | S5・S6 | PATH を絞った sh と、-printf を受け付けない find を置いた PATH で、道具がないの失敗（誤りの文が要る find とエージェントで扱えることを含む）と代わりの道具を確かめる契約テスト |
 | REQ-merge-038・040・041、FLAG-merge-021 | S5 | 既存のテストと how_to_verify の確かめ |
+| REQ-merge-039、EX-merge-062 | S7 | 三つの経路でハードリンクのある既存のファイルに書き、inode・所有者・別の名前から読める中身を確かめる契約テスト |
 
 ## Left to the implementer
 
@@ -92,8 +95,7 @@ SSH の集め方とエージェントの通信を変えるので、最後に `sc
 
 - 比べる流れ（両側の状態 → 判定 → 必要な分だけ読む → もう一度判定）の作り直し（段 4）
 - diff・status・merge・sync・rollback を新しい流れに載せ替えること（段 5）
-- 書き込みの仕方そのもの（一時ファイルを使うか、その場で書き換えるか）。REQ-merge-039 は利用者に返している（D13）
-- BusyBox の find だけのサーバを、エージェントなしで扱えるようにすること（D13）
+- BusyBox の find だけのサーバを、エージェントなしで扱えるようにすること（D8 で断ると決めた）
 - コマンドの入口の検査・新しいディレクトリの権限・diff のディレクトリの扱いの要件から「どの経路でも」を外すこと（D12。段 4・5）
 
 ## Steps
@@ -112,10 +114,10 @@ SSH の集め方とエージェントの通信を変えるので、最後に `sc
 ### S2: 経路の選び方を一つの関数にする
 
 - Purpose: TBL-ssh-001 を一つの純粋な関数にし、サーバにつなぐときに一度だけ呼び、その後は選び直さない。
-- Specification: docs/ir/ssh/fallback.md#TBL-ssh-001, docs/ir/ssh/fallback.md#REQ-ssh-024, docs/ir/ssh/fallback.md#REQ-ssh-010, docs/ir/ssh/fallback.md#REQ-ssh-005, docs/ir/ssh/fallback.md#REQ-ssh-021, docs/decision/records/2026-10-12-foundation-3.md#D3, docs/decision/records/2026-10-12-foundation-3.md#D4
+- Specification: docs/ir/ssh/fallback.md#TBL-ssh-001, docs/ir/ssh/fallback.md#REQ-ssh-024, docs/ir/ssh/fallback.md#REQ-ssh-027, docs/decision/records/2026-10-12-foundation-3.md#D19, docs/ir/ssh/fallback.md#REQ-ssh-010, docs/ir/ssh/fallback.md#REQ-ssh-005, docs/ir/ssh/fallback.md#REQ-ssh-021, docs/decision/records/2026-10-12-foundation-3.md#D3, docs/decision/records/2026-10-12-foundation-3.md#D4
 - Prerequisites: なし
 - May change: crates/remote-merge-core/src/ または crates/remote-merge-engine/src/、crates/remote-merge/src/runtime/
-- Done when: 表の行ごとの単体テストと、EX-ssh-055・056 の契約テストが通り、選び方の判断がほかの場所に残らず、全テストが通る
+- Done when: 表の行ごとの単体テストと、EX-ssh-055・056・059 の契約テスト（EX-ssh-059 は警告が標準エラーに出て、標準出力の JSON が読めること）が通り、選び方の判断がほかの場所に残らず、全テストが通る
 - Shown by: test — 単体テストと契約テスト（先に落ちることを確かめる）
 - Left to the implementer: 入力の型の形
 - Stop and hand back if: 表にない状態（どの行にも当たらない入力）が見つかったとき
@@ -159,18 +161,18 @@ SSH の集め方とエージェントの通信を変えるので、最後に `sc
 - Specification: docs/ir/paths/operations.md#REQ-paths-017, docs/ir/paths/operations.md#REQ-paths-013, docs/ir/ssh/compatibility.md#REQ-ssh-026, docs/decision/records/2026-10-12-foundation-3.md#D6, docs/decision/records/2026-10-12-foundation-2.md#C6
 - Prerequisites: S1
 - May change: crates/remote-merge-core/src/scan/、crates/remote-merge-ssh/src/、crates/remote-merge-agent/src/agent/、crates/remote-merge-engine/src/、crates/remote-merge/src/runtime/
-- Done when: EX-paths-033〜037 と EX-ssh-057（-printf を受け付けない find を置いた PATH で、走査と子の一覧が道具がないで止まる）の契約テストが通り、子の一覧のための SSH の実装とエージェントの一覧の実装が消え、全テストが通る
+- Done when: EX-paths-033〜037 と EX-ssh-057（-printf を受け付けない find を置いた PATH で、走査と子の一覧が道具がないで止まり、誤りの文が要る find とエージェントで扱えることを含む）の契約テストが通り、子の一覧のための SSH の実装とエージェントの一覧の実装が消え、全テストが通る
 - Shown by: test — 契約テスト
 - Left to the implementer: 深さ一つの指定の仕方
 - Stop and hand back if: 子の一覧の結果を走査の規則で作れない要件が見つかったとき
 
-### S7: 三つの経路の操作が同じ種類で失敗することを見張り、片付ける
+### S7: 三つの経路の操作が同じ種類で失敗し、同じく書くことを見張り、片付ける
 
-- Purpose: 経路の差が新しく入ったら落ちるテストを置き、置き換えた古い実装と印を片付ける。
-- Specification: docs/ir/paths/operations.md#REQ-paths-013, docs/ir/paths/operations.md#REQ-paths-020, docs/ir/ssh/reconnect.md, docs/decision/records/2026-10-12-foundation-3.md#D12
+- Purpose: 経路の差が新しく入ったら落ちるテストを置き、書き込みをどの経路もその場で書き換える形に揃え、置き換えた古い実装と印を片付ける。
+- Specification: docs/ir/paths/operations.md#REQ-paths-013, docs/ir/paths/operations.md#REQ-paths-020, docs/ir/merge/concurrency.md#REQ-merge-039, docs/ir/ssh/reconnect.md, docs/decision/records/2026-10-12-foundation-3.md#D12, docs/decision/records/2026-10-12-foundation-3.md#D18
 - Prerequisites: S2, S3, S4, S5, S6
-- May change: crates/remote-merge/tests/contract/、`docs/ir/` の how_to_verify のテストの場所、PROJECT.md、上の「読まない・写さないもの」のうち残ったもの
-- Done when: EX-paths-044・045 の契約テスト（ない・権限がない・ディレクトリでないを三つの経路で読み・削除・権限の変更・大きさ・ハッシュに当てる）と、SSH の答えの目印を欠いたときに接続断として扱う契約テストが通る。`kotowari check` の error が 0、コンテナの e2e が通る
+- May change: crates/remote-merge/tests/contract/、crates/remote-merge-engine/src/ と crates/remote-merge-agent/src/agent/ の書き込み（EX-merge-062 が落ちたときだけ）、`docs/ir/` の how_to_verify のテストの場所、PROJECT.md、上の「読まない・写さないもの」のうち残ったもの
+- Done when: EX-paths-044・045 の契約テスト（ない・権限がない・ディレクトリでないを三つの経路で読み・削除・権限の変更・大きさ・ハッシュに当てる）と、SSH の答えの目印を欠いたときに接続断として扱う契約テストと、EX-merge-062 の契約テスト（三つの経路でハードリンクのある既存のファイルに書き、inode と所有者が変わらず、別の名前から新しい中身が読める）が通る。`kotowari check` の error が 0、コンテナの e2e が通る
 - Shown by: test — 契約テストと `kotowari check`
 - Left to the implementer: 状態の作り方
 - Stop and hand back if: 道具の限界で揃えられない項目があるとき
