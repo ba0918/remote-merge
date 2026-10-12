@@ -30,10 +30,7 @@ pub(super) fn unreadable_directory(path: &[u8], cause: super::raw::ReadCause) ->
 
 /// 走査の途中で項目が変わり、問いの答えが前の答えと合わない
 pub(super) fn changed(path: &[u8]) -> ScanError {
-    ScanError::Collect(anyhow::anyhow!(
-        "Entry changed during the scan: {}",
-        shown(path)
-    ))
+    ScanFailure::ChangedDuringScan { path: shown(path) }.into()
 }
 
 /// 起点からの `path` の親までの各ディレクトリの番号（起点そのものを含む）

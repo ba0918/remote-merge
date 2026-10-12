@@ -133,6 +133,14 @@ pub enum ScanFailure {
     UnreadableTime { path: String },
     #[error("Directory scan incomplete: symbolic link cycle at {path}")]
     Cycle { path: String },
+    #[error("Entry changed during the scan: {path}")]
+    ChangedDuringScan { path: String },
+    /// 集め方の答えが問いと合わない
+    #[error("The scan answers did not match the questions: {detail}")]
+    InconsistentAnswer { detail: String },
+    /// 集め方そのものが失敗した（エージェントの中で起きたもの）
+    #[error("Cannot collect the entries to scan: {message}")]
+    CollectFailed { message: String },
 }
 
 /// 走査の誤り。集め方そのものの失敗は、元の誤り（接続断・時間切れ）のまま運ぶ

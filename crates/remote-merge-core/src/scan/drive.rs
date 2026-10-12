@@ -60,19 +60,23 @@ fn ask(
 ) -> Result<Vec<Answer>, ScanError> {
     let answers = collector.collect(questions, exclude)?;
     if answers.len() != questions.len() {
-        return Err(ScanError::Collect(anyhow::anyhow!(
-            "The scan returned {} answers for {} questions",
-            answers.len(),
-            questions.len()
-        )));
+        return Err(ScanFailure::InconsistentAnswer {
+            detail: format!(
+                "{} answers for {} questions",
+                answers.len(),
+                questions.len()
+            ),
+        }
+        .into());
     }
     Ok(answers)
 }
 
 fn missing_subtree() -> ScanError {
-    ScanError::Collect(anyhow::anyhow!(
-        "The scan returned no entries below a directory"
-    ))
+    ScanFailure::InconsistentAnswer {
+        detail: "no entries below a directory".into(),
+    }
+    .into()
 }
 
 /// root_dir がないか読めなければ止める（REQ-scan-015）

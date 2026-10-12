@@ -1669,6 +1669,30 @@ mod tests {
         (rt, received)
     }
 
+    /// エージェントの走査の失敗は、SSH の経路に回さずに走査の誤りにし、エージェントも外さない
+    #[cfg(unix)]
+    #[test]
+    fn a_scan_failure_from_the_agent_is_a_scan_error_and_keeps_the_agent() {
+        use remote_merge_core::scan::outcome::ScanFailure;
+        let failure = ScanFailure::CollectFailed {
+            message: "disk went away".into(),
+        };
+        let (mut rt, received) =
+            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::TreeFailed {
+                failure: failure.clone(),
+            }));
+        let error = rt
+            .fetch_tree_recursive(&Side::Remote("develop".into()), 100, true)
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<ScanFailure>(),
+            Some(&failure),
+            "{error:#}"
+        );
+        assert_eq!(requests(&received), 1);
+        assert!(rt.has_agent("develop"));
+    }
+
     #[cfg(unix)]
     fn agent_error(message: &str) -> Option<crate::agent::protocol::AgentResponse> {
         Some(crate::agent::protocol::AgentResponse::Error {

@@ -6,7 +6,8 @@ use std::path::Path;
 use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::drive::scan;
 use remote_merge_core::scan::exclude::Exclude;
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
+use remote_merge_core::scan::raw::Collector;
 use remote_merge_core::scan::this_machine::MachineCollector;
 
 use super::protocol::AgentResponse;
@@ -26,11 +27,24 @@ pub fn list_tree(root_dir: &Path, request: &ScanRequest, exclude: &[String]) -> 
         }
     }
     let mut collector = MachineCollector::new(root_dir.to_path_buf());
-    match scan(&mut collector, &Exclude::new(exclude), request) {
+    scan_with(&mut collector, request, exclude)
+}
+
+/// `collector` で集めて走査し、結果を応答にする
+fn scan_with(
+    collector: &mut dyn Collector,
+    request: &ScanRequest,
+    exclude: &[String],
+) -> Vec<AgentResponse> {
+    match scan(collector, &Exclude::new(exclude), request) {
         Ok(listing) => chunks(listing),
         Err(ScanError::Failure(failure)) => vec![AgentResponse::TreeFailed { failure }],
-        Err(ScanError::Collect(error)) => vec![AgentResponse::Error {
-            message: format!("tree scan error: {error:#}"),
+        // 集め方そのものの失敗も走査の失敗として運び、エージェントの故障として SSH の経路に
+        // 回させない
+        Err(ScanError::Collect(error)) => vec![AgentResponse::TreeFailed {
+            failure: ScanFailure::CollectFailed {
+                message: format!("{error:#}"),
+            },
         }],
     }
 }
@@ -69,7 +83,7 @@ fn chunks(listing: Listing) -> Vec<AgentResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remote_merge_core::scan::outcome::{ScanFailure, Start};
+    use remote_merge_core::scan::outcome::Start;
 
     fn whole() -> ScanRequest {
         ScanRequest {
@@ -103,6 +117,52 @@ mod tests {
             .map(|r| matches!(r, AgentResponse::TreeChunk { is_last: true, .. }))
             .collect();
         assert_eq!(lasts, [false, true]);
+    }
+
+    /// 問いに答えない（答えの数が合わない）集め方
+    struct Silent;
+
+    impl remote_merge_core::scan::raw::Collector for Silent {
+        fn collect(
+            &mut self,
+            _: &[remote_merge_core::scan::raw::Question],
+            _: &Exclude,
+        ) -> Result<
+            Vec<remote_merge_core::scan::raw::Answer>,
+            remote_merge_core::scan::raw::CollectError,
+        > {
+            Ok(Vec::new())
+        }
+    }
+
+    /// 集められない集め方
+    struct Broken;
+
+    impl remote_merge_core::scan::raw::Collector for Broken {
+        fn collect(
+            &mut self,
+            _: &[remote_merge_core::scan::raw::Question],
+            _: &Exclude,
+        ) -> Result<
+            Vec<remote_merge_core::scan::raw::Answer>,
+            remote_merge_core::scan::raw::CollectError,
+        > {
+            Err(anyhow::anyhow!("disk went away").into())
+        }
+    }
+
+    #[test]
+    fn any_scan_error_is_answered_as_a_typed_scan_failure_not_as_an_agent_error() {
+        for collector in [
+            &mut Silent as &mut dyn remote_merge_core::scan::raw::Collector,
+            &mut Broken,
+        ] {
+            let responses = scan_with(collector, &whole(), &[]);
+            assert!(
+                matches!(responses.as_slice(), [AgentResponse::TreeFailed { .. }]),
+                "{responses:?}"
+            );
+        }
     }
 
     #[test]
