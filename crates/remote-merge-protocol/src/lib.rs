@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub use remote_merge_core::relative_path::RelPathError;
+pub use remote_merge_core::scan::outcome::{ListedEntry, ScanFailure, ScanRequest};
 
 macro_rules! define_protocol_version {
     ($version:literal) => {
@@ -18,6 +19,9 @@ macro_rules! define_protocol_version {
         /// v9 → v10: 受け取ったパスを入力の形の検査で拒んだことを型で返す。一つのパスの要求は
         ///           PathRefused、複数のパスの要求は FileContents・FileHashes・Stats の refused。
         ///           項目の操作の要求で root_dir 全体を項目として拒んだ理由も同じ型で運ぶ
+        /// v10 → v11: ListTree を走査の規則の求め（起点の範囲と件数の上限）にし、TreeChunk で
+        ///           規則が載せた一覧の項目を、TreeFailed で走査を止めた誤りの種類を運ぶ。
+        ///           TreeIncomplete をなくした
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -35,7 +39,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(10);
+define_protocol_version!(11);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -46,11 +50,10 @@ pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AgentRequest {
+    /// root_dir の下を走査の規則で走査する。`exclude` は root_dir からのパスに当てる
     ListTree {
-        root: String,
+        request: ScanRequest,
         exclude: Vec<String>,
-        include: Vec<String>,
-        max_entries: usize,
     },
     ReadFiles {
         paths: Vec<String>,
@@ -101,19 +104,19 @@ pub enum AgentRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum AgentResponse {
+    /// ListTree の一覧。項目が多いときは分けて返し、`is_last` の応答に読めない名前と打ち切りを
+    /// 載せる
     TreeChunk {
-        nodes: Vec<AgentFileEntry>,
+        entries: Vec<ListedEntry>,
         is_last: bool,
-        total_scanned: usize,
-        /// max_entries に達してスキャンが打ち切られた場合 true。
-        truncated: bool,
-        /// UTF-8 として読めない名前のファイルの走査の起点からのパス（読めない部分を `\xNN` と
-        /// 書いた形）。一覧の nodes には載せない
+        /// UTF-8 として読めない名前の項目の root_dir からのパス（読めない部分を `\xNN` と書いた形）
         unreadable_names: Vec<String>,
+        /// 件数の上限を超えて打ち切った
+        truncated: bool,
     },
-    /// ディレクトリを指す symlink が祖先へ戻る循環で走査を止めた。一覧は返さない
-    TreeIncomplete {
-        reason: String,
+    /// 走査を止めた（root_dir がない・読めないディレクトリ・循環など）。一覧は返さない
+    TreeFailed {
+        failure: ScanFailure,
     },
     FileContents {
         results: Vec<FileReadResult>,

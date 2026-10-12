@@ -12,7 +12,6 @@ use super::file_io::{self, SavedMetadata};
 use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
 use super::receipt;
 use super::server::MetadataConfig;
-use super::tree_scan::{self, ScanOptions};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 /// ストリーミングチャンクの閾値。
@@ -52,14 +51,11 @@ impl Dispatcher {
         match request {
             AgentRequest::Ping => Some(vec![AgentResponse::Pong]),
             AgentRequest::Shutdown => None,
-            AgentRequest::ListTree {
-                root,
-                exclude,
-                include,
-                max_entries,
-            } => Some(refused_or(&root, |root| {
-                self.handle_list_tree(&root, &exclude, &include, max_entries)
-            })),
+            AgentRequest::ListTree { request, exclude } => Some(super::tree_listing::list_tree(
+                &self.root_dir,
+                &request,
+                &exclude,
+            )),
             AgentRequest::ReadFiles {
                 paths,
                 chunk_size_limit,
@@ -107,69 +103,6 @@ impl Dispatcher {
                 vec![super::entry_link::read_entry_link(&self.root_dir, &path)]
             })),
         }
-    }
-
-    /// ListTree をストリーミングで処理し、複数の TreeChunk を返す。
-    ///
-    /// `scan_tree` が生成する各チャンクをそのまま個別の `TreeChunk` レスポンスにマッピングする。
-    /// これにより大規模ディレクトリでも1フレームが MAX_FRAME_SIZE を超えない。
-    fn handle_list_tree(
-        &self,
-        root: &RelPath,
-        exclude: &[String],
-        include: &[String],
-        max_entries: usize,
-    ) -> Vec<AgentResponse> {
-        let scan_root = if root.is_root() {
-            self.root_dir.clone()
-        } else {
-            self.root_dir.join(root.as_str())
-        };
-        let options = ScanOptions {
-            root: scan_root,
-            exclude: exclude.to_vec(),
-            include: include.to_vec(),
-            max_entries,
-            ..Default::default()
-        };
-
-        let mut responses: Vec<AgentResponse> = Vec::new();
-
-        for chunk_result in tree_scan::scan_tree(&options) {
-            match chunk_result {
-                Ok(chunk) => {
-                    responses.push(AgentResponse::TreeChunk {
-                        nodes: chunk.entries,
-                        is_last: chunk.is_last,
-                        total_scanned: chunk.total_scanned,
-                        truncated: chunk.truncated,
-                        unreadable_names: chunk.unreadable_names,
-                    });
-                }
-                Err(e) => {
-                    if let Some(reason) = tree_scan::incomplete_reason(&e) {
-                        return vec![AgentResponse::TreeIncomplete { reason }];
-                    }
-                    return vec![AgentResponse::Error {
-                        message: format!("tree scan error: {e}"),
-                    }];
-                }
-            }
-        }
-
-        // 空ディレクトリの場合 scan_tree は空エントリの is_last=true チャンクを1つ返すが、
-        // 念のため responses が空の場合もガードする
-        if responses.is_empty() {
-            responses.push(AgentResponse::TreeChunk {
-                nodes: vec![],
-                is_last: true,
-                total_scanned: 0,
-                truncated: false,
-                unreadable_names: vec![],
-            });
-        }
-
-        responses
     }
 
     /// ReadFiles をストリーミングで処理し、フレームサイズ制限内で分割する。
@@ -435,6 +368,17 @@ fn estimate_read_result_size(result: &FileReadResult) -> usize {
 mod tests {
     use super::*;
     use remote_merge_core::relative_path::RelPathError;
+    use remote_merge_core::scan::outcome::{ScanRequest, ScanScope};
+
+    fn list_tree(scope: ScanScope) -> AgentRequest {
+        AgentRequest::ListTree {
+            request: ScanRequest {
+                scope,
+                max_entries: 10000,
+            },
+            exclude: vec![],
+        }
+    }
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -542,21 +486,11 @@ mod tests {
         let (tmp, mut d) = setup();
         let requests = [
             (
-                AgentRequest::ListTree {
-                    root: "../../etc".into(),
-                    exclude: vec![],
-                    include: vec![],
-                    max_entries: 10000,
-                },
+                list_tree(ScanScope::Below(vec!["../../etc".into()])),
                 traversal("../../etc"),
             ),
             (
-                AgentRequest::ListTree {
-                    root: "/etc".into(),
-                    exclude: vec![],
-                    include: vec![],
-                    max_entries: 10000,
-                },
+                list_tree(ScanScope::Values(vec!["/etc".into()])),
                 absolute("/etc"),
             ),
             (
@@ -741,15 +675,10 @@ mod tests {
         fs::write(tmp.path().join("a.txt"), "a").unwrap();
         for root in ["", "/", "."] {
             let resps = d
-                .dispatch(AgentRequest::ListTree {
-                    root: root.into(),
-                    exclude: vec![],
-                    include: vec![],
-                    max_entries: 10000,
-                })
+                .dispatch(list_tree(ScanScope::Below(vec![root.into()])))
                 .unwrap();
             assert!(
-                matches!(resps.last(), Some(AgentResponse::TreeChunk { nodes, .. }) if nodes.len() == 1),
+                matches!(resps.last(), Some(AgentResponse::TreeChunk { entries, .. }) if entries.len() == 1),
                 "{root:?}: {resps:?}"
             );
         }
@@ -780,22 +709,17 @@ mod tests {
         fs::create_dir(tmp.path().join("sub")).unwrap();
         fs::write(tmp.path().join("sub/b.txt"), "world").unwrap();
 
-        let resps = d
-            .dispatch(AgentRequest::ListTree {
-                root: String::new(),
-                exclude: vec![],
-                include: vec![],
-                max_entries: 10000,
-            })
-            .unwrap();
+        let resps = d.dispatch(list_tree(ScanScope::Whole)).unwrap();
 
         // 全チャンクからエントリを収集
         let mut all_paths: Vec<String> = Vec::new();
         let mut last_count = 0;
         for resp in &resps {
             match resp {
-                AgentResponse::TreeChunk { nodes, is_last, .. } => {
-                    all_paths.extend(nodes.iter().map(|n| n.path.clone()));
+                AgentResponse::TreeChunk {
+                    entries, is_last, ..
+                } => {
+                    all_paths.extend(entries.iter().map(|n| n.path.clone()));
                     if *is_last {
                         last_count += 1;
                     }
@@ -811,8 +735,8 @@ mod tests {
 
         let paths: Vec<&str> = all_paths.iter().map(|s| s.as_str()).collect();
         assert!(paths.contains(&"a.txt"));
-        // ディレクトリ "sub" は buffer に含まれない
-        assert!(!paths.contains(&"sub"));
+        // ディレクトリも一覧の項目に載る
+        assert!(paths.contains(&"sub"));
         assert!(paths.contains(&"sub/b.txt"));
     }
 
@@ -820,27 +744,18 @@ mod tests {
     fn list_tree_empty_dir_returns_single_chunk() {
         let (_tmp, mut d) = setup();
 
-        let resps = d
-            .dispatch(AgentRequest::ListTree {
-                root: String::new(),
-                exclude: vec![],
-                include: vec![],
-                max_entries: 10000,
-            })
-            .unwrap();
+        let resps = d.dispatch(list_tree(ScanScope::Whole)).unwrap();
 
         assert_eq!(resps.len(), 1, "empty dir should return exactly one chunk");
         match &resps[0] {
             AgentResponse::TreeChunk {
-                nodes,
+                entries,
                 is_last,
-                total_scanned,
                 truncated,
                 ..
             } => {
-                assert!(nodes.is_empty());
+                assert!(entries.is_empty());
                 assert!(*is_last);
-                assert_eq!(*total_scanned, 0);
                 assert!(!*truncated);
             }
             other => panic!("expected TreeChunk, got {other:?}"),
@@ -850,26 +765,12 @@ mod tests {
     #[test]
     fn list_tree_multi_chunk() {
         let (tmp, mut d) = setup();
-        // デフォルト chunk_size=1000 を超えるファイル数を作成するのは重いため、
-        // chunk_size を小さくしたオプションは dispatch から直接指定できない。
-        // ここでは handle_list_tree を間接的に呼ぶのではなく、
-        // scan_tree の chunk_size=2 相当になるよう十分なファイルを作成して
-        // dispatch の経路を通る統合テストとする。
-        // (chunk_size はデフォルト 1000 なので、複数チャンクを強制するには
-        //  1001 ファイルが必要 — 代わりに handle_list_tree の内部動作は
-        //  tree_scan::tests で検証済みのため、ここでは 3 ファイルで基本動作を確認する)
+        // 分け方は tree_listing のテストで確かめるので、ここでは 3 ファイルで dispatch の経路を通す
         for i in 0..3 {
             fs::write(tmp.path().join(format!("f{i}.txt")), "x").unwrap();
         }
 
-        let resps = d
-            .dispatch(AgentRequest::ListTree {
-                root: String::new(),
-                exclude: vec![],
-                include: vec![],
-                max_entries: 10000,
-            })
-            .unwrap();
+        let resps = d.dispatch(list_tree(ScanScope::Whole)).unwrap();
 
         // 全チャンクのうち最後だけ is_last=true であること
         let last_flags: Vec<bool> = resps
@@ -894,7 +795,7 @@ mod tests {
         let total_entries: usize = resps
             .iter()
             .map(|r| match r {
-                AgentResponse::TreeChunk { nodes, .. } => nodes.len(),
+                AgentResponse::TreeChunk { entries, .. } => entries.len(),
                 _ => 0,
             })
             .sum();

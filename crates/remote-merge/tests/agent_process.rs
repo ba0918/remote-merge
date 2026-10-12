@@ -250,25 +250,26 @@ fn agent_list_tree_roundtrip() {
 
     let mut proc = AgentProcess::spawn(tmp.path()).expect("agent should start");
 
-    let remote_merge::agent::client::TreeList { entries, .. } = proc
+    let request = remote_merge_core::scan::outcome::ScanRequest {
+        scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+        max_entries: 10_000,
+    };
+    let entries = proc
         .client
-        .list_tree(
-            &remote_merge_core::relative_path::RelPath::root(),
-            &[],
-            &[],
-            10_000,
-        )
-        .expect("list_tree should succeed");
+        .list_tree(&request, &[])
+        .expect("list_tree should succeed")
+        .expect("the scan should not stop")
+        .entries;
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(
         paths.contains(&"hello.txt"),
         "expected hello.txt in entries, got: {paths:?}"
     );
-    // ディレクトリ "sub" は buffer に含まれない（ファイル+シンボリックリンクのみ）
+    // ディレクトリも一覧の項目に載る
     assert!(
-        !paths.contains(&"sub"),
-        "sub directory should not appear in entries, got: {paths:?}"
+        paths.contains(&"sub"),
+        "sub directory should appear in entries, got: {paths:?}"
     );
     assert!(
         paths.contains(&"sub/inner.txt"),

@@ -20,6 +20,8 @@ use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
 use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
+use remote_merge_core::scan::outcome::{ScanError, ScanRequest, ScanScope};
+use remote_merge_engine::scan_result::into_tree;
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
@@ -994,29 +996,11 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> Option<anyhow::Result<FileTree>> {
-        let root_dir = self
-            .config
-            .servers
-            .get(server_name)
-            .map(|s| s.root_dir.clone())?;
-        let exclude = self.config.filter.exclude.clone();
-        self.with_agent(server_name, "list_tree", Access::Read, |agent| {
-            agent.list_tree(&RelPath::root(), &exclude, include, max_entries)
-        })
-        .map(|r| {
-            r.and_then(|listed| {
-                let truncated = check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
-                let flat_nodes =
-                    crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
-                let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
-                let mut tree = FileTree::new(&root_dir);
-                tree.nodes = nodes;
-                tree.unreadable_names = listed.unreadable_names;
-                tree.truncated = truncated;
-                tree.sort();
-                Ok(tree)
-            })
-        })
+        let request = ScanRequest {
+            scope: remote_merge_engine::scan_result::scope_of_include(include),
+            max_entries,
+        };
+        self.try_agent_scan(server_name, &request, fail_on_truncation)
     }
 
     /// Agent 経由でサブパス配下のツリーを取得する
@@ -1027,32 +1011,39 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> Option<anyhow::Result<FileTree>> {
+        let request = ScanRequest {
+            scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
+            max_entries,
+        };
+        self.try_agent_scan(server_name, &request, fail_on_truncation)
+    }
+
+    /// エージェントで、ローカルと同じ集め方と規則で走査する。走査を止めた誤り（root_dir がない・
+    /// 読めないディレクトリ・循環など）はエージェントの故障ではないので、SSH の経路に回さずに返す
+    fn try_agent_scan(
+        &mut self,
+        server_name: &str,
+        request: &ScanRequest,
+        fail_on_truncation: bool,
+    ) -> Option<anyhow::Result<FileTree>> {
         let root_dir = self
             .config
             .servers
             .get(server_name)
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
-        // サブパス走査では include フィルターは適用しない
-        // （既に特定サブディレクトリを直接指定しているため）
-        let subpath_owned = subpath.as_str().to_string();
         self.with_agent(server_name, "list_tree", Access::Read, |agent| {
-            agent.list_tree(subpath, &exclude, &[], max_entries)
+            agent.list_tree(request, &exclude)
         })
-        .map(|r| {
-            r.and_then(|listed| {
-                let truncated = check_agent_tree_end(listed.end, max_entries, fail_on_truncation)?;
-                let flat_nodes =
-                    crate::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries);
-                let nodes = crate::ssh::tree_parser::build_tree_from_flat(flat_nodes);
-                let mut tree = FileTree::new(&root_dir);
-                // Agent の list_tree は subpath をルートとして走査するため、
-                // 結果を subpath 配下にラップして root_dir からの相対パスにする
-                tree.nodes = wrap_nodes_in_subpath(&subpath_owned, nodes);
-                tree.unreadable_names = names_in_subpath(&subpath_owned, listed.unreadable_names);
-                tree.truncated = truncated;
-                tree.sort();
-                Ok(tree)
+        .map(|answer| {
+            answer.and_then(|scanned| {
+                into_tree(
+                    &root_dir,
+                    scanned.map_err(ScanError::Failure),
+                    request.max_entries,
+                    fail_on_truncation,
+                    || remote_root_missing(server_name, &root_dir),
+                )
             })
         })
     }
@@ -1230,20 +1221,15 @@ fn transform_stat_results(
     Some(Ok(results))
 }
 
-/// エージェントの走査の終わり方を、ローカルと SSH の走査と同じ報告にする。返す値は件数の上限で
-/// 打ち切ったか。循環で止まった走査は打ち切りの設定によらず、一覧を返さずに不完全な一覧として Err にする
-fn check_agent_tree_end(
-    end: crate::agent::client::TreeEnd,
-    max_entries: usize,
-    fail_on_truncation: bool,
-) -> anyhow::Result<bool> {
-    use crate::agent::client::TreeEnd;
-    match end {
-        TreeEnd::Complete => Ok(false),
-        TreeEnd::Truncated => check_truncation(max_entries, fail_on_truncation).map(|()| true),
-        TreeEnd::Incomplete(reason) => anyhow::bail!("Directory scan incomplete: {reason}"),
+/// リモートの root_dir がないときの誤り（REQ-scan-015）
+pub(crate) fn remote_root_missing(server_name: &str, root_dir: &std::path::Path) -> anyhow::Error {
+    crate::error::AppError::RemoteRootNotFound {
+        host: server_name.to_string(),
+        path: root_dir.to_string_lossy().into_owned(),
     }
+    .into()
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

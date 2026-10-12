@@ -43,7 +43,7 @@ impl CoreRuntime {
         self.with_agent_operation(server_name, Access::Read, |agent| {
             agent
                 .list_dir(rel_path, exclude, max_entries)
-                .map(crate::agent::tree_scan::child_listing_from_agent)
+                .map(crate::agent::child_nodes::child_listing_from_agent)
         })
     }
 

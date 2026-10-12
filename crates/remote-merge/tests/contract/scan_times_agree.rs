@@ -65,18 +65,17 @@ async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_all_t
     );
     let ssh = routes.over_ssh("scan");
     let agent = routes.over_agent(|agent| {
+        let request = remote_merge_core::scan::outcome::ScanRequest {
+            scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+            max_entries: MAX_ENTRIES,
+        };
         let listed = agent
             .client
-            .list_tree(
-                &remote_merge_core::relative_path::RelPath::root(),
-                &[],
-                &[],
-                MAX_ENTRIES,
-            )
-            .map_err(|error| error.to_string());
-        let entries = listed.map(|listed| {
-            remote_merge::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries)
-        });
+            .list_tree(&request, &[])
+            .map_err(|error| error.to_string())
+            .and_then(|scanned| scanned.map_err(|failure| failure.to_string()));
+        let entries =
+            listed.map(|listing| remote_merge_core::scan::tree_build::to_tree("", listing).nodes);
         times_text(entries)
     });
 

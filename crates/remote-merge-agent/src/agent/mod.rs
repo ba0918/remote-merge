@@ -1,6 +1,5 @@
 pub mod client;
 pub mod deploy;
-pub mod dir_ancestry;
 #[cfg(unix)]
 pub mod dispatch;
 #[cfg(unix)]
@@ -13,10 +12,12 @@ mod listing;
 mod receipt;
 pub use remote_merge_protocol as protocol;
 pub use remote_merge_protocol::framing;
+pub mod child_nodes;
 #[cfg(unix)]
 pub mod server;
 pub mod ssh_transport;
-pub mod tree_scan;
+#[cfg(unix)]
+mod tree_listing;
 
 #[cfg(all(test, unix))]
 mod tests;

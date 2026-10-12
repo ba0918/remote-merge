@@ -432,14 +432,15 @@ async fn agent_ssh_list_tree_roundtrip() {
 
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
-    let remote_merge::agent::client::TreeList { entries, .. } = client
-        .list_tree(
-            &remote_merge_core::relative_path::RelPath::root(),
-            &[],
-            &[],
-            10_000,
-        )
-        .expect("list_tree failed");
+    let request = remote_merge_core::scan::outcome::ScanRequest {
+        scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+        max_entries: 10_000,
+    };
+    let entries = client
+        .list_tree(&request, &[])
+        .expect("list_tree failed")
+        .expect("the scan should not stop")
+        .entries;
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
 
@@ -447,10 +448,10 @@ async fn agent_ssh_list_tree_roundtrip() {
         paths.contains(&"hello.txt"),
         "expected hello.txt, got: {paths:?}"
     );
-    // ディレクトリ "subdir" は buffer に含まれない（ファイル+シンボリックリンクのみ）
+    // ディレクトリも一覧の項目に載る
     assert!(
-        !paths.contains(&"subdir"),
-        "subdir directory should not appear in entries, got: {paths:?}"
+        paths.contains(&"subdir"),
+        "subdir directory should appear in entries, got: {paths:?}"
     );
     assert!(
         paths.contains(&"subdir/inner.txt"),

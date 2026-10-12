@@ -6,9 +6,11 @@
 pub mod drive;
 pub mod exclude;
 pub mod include;
+mod machine_fs;
 pub mod outcome;
 mod parts;
 pub mod raw;
+pub mod this_machine;
 pub mod tree_build;
 mod walk;
 

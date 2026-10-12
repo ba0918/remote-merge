@@ -5,7 +5,7 @@ use super::outcome::{ListedEntry, ListedKind, ScanError, ScanFailure};
 use super::raw::{DirId, RawEntry, RawTime};
 use crate::unreadable_name::escape_non_utf8;
 
-pub(super) fn join(base: &[u8], rel: &[u8]) -> Vec<u8> {
+pub(crate) fn join(base: &[u8], rel: &[u8]) -> Vec<u8> {
     match (base.is_empty(), rel.is_empty()) {
         (true, _) => rel.to_vec(),
         (_, true) => base.to_vec(),

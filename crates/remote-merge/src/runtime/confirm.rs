@@ -158,7 +158,7 @@ impl CoreRuntime {
         let parent = &parent;
         let listing = if self.has_agent(server) {
             self.agent_once(server, |agent| agent.list_dir(parent, &[], usize::MAX))
-                .map(crate::agent::tree_scan::child_listing_from_agent)?
+                .map(crate::agent::child_nodes::child_listing_from_agent)?
         } else {
             self.list_remote_children_excluding(server, parent, &[], usize::MAX)?
         };

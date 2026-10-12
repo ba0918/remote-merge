@@ -8,10 +8,12 @@ use std::io::{Read, Write};
 
 use anyhow::{bail, Result};
 
+use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest};
+
 use super::framing;
 use super::protocol::{
-    self, AgentDirListing, AgentEntryLink, AgentFileEntry, AgentFileStat, AgentPathInspection,
-    AgentRequest, AgentResponse, FileHashResult, FileReadResult,
+    self, AgentDirListing, AgentEntryLink, AgentFileStat, AgentPathInspection, AgentRequest,
+    AgentResponse, FileHashResult, FileReadResult,
 };
 
 /// ハンドシェイク行の最大長（バイト）
@@ -64,63 +66,43 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         }
     }
 
-    /// ListTree を送信し、全エントリと一覧の終わり方を返す。
+    /// ListTree を送り、走査の一覧か、走査を止めた誤りの種類を返す。
     ///
-    /// サーバーは大規模ディレクトリを複数の `TreeChunk` フレームにストリーミングする。
-    /// `is_last: true` のチャンクを受信するまでループして全エントリを収集する。
-    /// 循環で走査が止まったときはエントリを返さず [`TreeEnd::Incomplete`] にする。エージェントが
-    /// 失敗を返したのではないので、呼び出し元は SSH の経路に回さずに不完全な一覧として報告する
+    /// エージェントは大きい一覧を複数の `TreeChunk` に分けて返すので、`is_last` の応答まで読む。
+    /// 走査を止めた誤り（root_dir がない・読めないディレクトリ・循環など）はエージェントの故障では
+    /// ないので、呼び出し元は SSH の経路に回さずにその誤りを報告する
     pub fn list_tree(
         &mut self,
-        root: &RelPath,
+        request: &ScanRequest,
         exclude: &[String],
-        include: &[String],
-        max_entries: usize,
-    ) -> Result<TreeList> {
+    ) -> Result<std::result::Result<Listing, ScanFailure>> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
-            root: root.as_typed().to_string(),
+            request: request.clone(),
             exclude: exclude.to_vec(),
-            include: include.to_vec(),
-            max_entries,
         })?;
         framing::write_frame(&mut self.writer, &data)?;
 
-        // is_last=true になるまでチャンクを読み続ける
-        let mut all_nodes = Vec::new();
-        let mut unreadable_names = Vec::new();
-        let end: TreeEnd;
+        let mut listing = Listing::default();
         loop {
             let frame = framing::read_frame(&mut self.reader)?;
-            let resp = decode(&frame)?;
-            match resp {
+            match decode(&frame)? {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
                 }
                 AgentResponse::PathRefused { refusal } => return Err(refusal.into()),
-                AgentResponse::TreeIncomplete { reason } => {
-                    return Ok(TreeList {
-                        entries: Vec::new(),
-                        end: TreeEnd::Incomplete(reason),
-                        unreadable_names: Vec::new(),
-                    });
-                }
+                AgentResponse::TreeFailed { failure } => return Ok(Err(failure)),
                 AgentResponse::TreeChunk {
-                    nodes,
+                    entries,
                     is_last,
+                    unreadable_names,
                     truncated,
-                    unreadable_names: unreadable,
-                    ..
                 } => {
-                    all_nodes.extend(nodes);
-                    unreadable_names.extend(unreadable);
+                    listing.entries.extend(entries);
+                    listing.unreadable_names.extend(unreadable_names);
                     if is_last {
-                        end = if truncated {
-                            TreeEnd::Truncated
-                        } else {
-                            TreeEnd::Complete
-                        };
-                        break;
+                        listing.truncated = truncated;
+                        return Ok(Ok(listing));
                     }
                 }
                 other => {
@@ -130,11 +112,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 }
             }
         }
-        Ok(TreeList {
-            entries: all_nodes,
-            end,
-            unreadable_names,
-        })
     }
 
     /// 複数ファイルを読み込む（ストリーミング対応）。
@@ -436,28 +413,6 @@ impl std::fmt::Display for AgentRefused {
 
 impl std::error::Error for AgentRefused {}
 
-/// ListTree の結果
-#[derive(Debug, Clone, PartialEq)]
-pub struct TreeList {
-    /// 一覧に載せた項目
-    pub entries: Vec<AgentFileEntry>,
-    /// 一覧の終わり方
-    pub end: TreeEnd,
-    /// UTF-8 として読めない名前のファイルの走査の起点からのパス（読めない部分を `\xNN` と書いた形）
-    pub unreadable_names: Vec<String>,
-}
-
-/// ListTree の一覧の終わり方
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TreeEnd {
-    /// 全てを一覧した
-    Complete,
-    /// max_entries に達して打ち切った
-    Truncated,
-    /// 循環で走査を止めた（理由の文言）。エントリは返さない
-    Incomplete(String),
-}
-
 fn refused(message: impl Into<String>) -> anyhow::Error {
     AgentRefused(message.into()).into()
 }
@@ -687,13 +642,20 @@ mod tests {
 
     // ---- ListTree ----
 
+    fn whole() -> ScanRequest {
+        ScanRequest {
+            scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+            max_entries: 10000,
+        }
+    }
+
     #[test]
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let TreeList { entries, end, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
-        assert!(entries.is_empty());
-        assert_eq!(end, TreeEnd::Complete);
+        let listing = client.list_tree(&whole(), &[]).unwrap().unwrap();
+        assert!(listing.entries.is_empty());
+        assert!(!listing.truncated);
     }
 
     #[test]
@@ -704,14 +666,20 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let TreeList { entries, end, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
+        let listing = client.list_tree(&whole(), &[]).unwrap().unwrap();
 
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
-        assert!(paths.contains(&"hello.txt"));
-        // ディレクトリ "sub" は buffer に含まれない
-        assert!(!paths.contains(&"sub"));
-        assert!(paths.contains(&"sub/inner.txt"));
-        assert_eq!(end, TreeEnd::Complete);
+        let paths: Vec<&str> = listing.entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, ["hello.txt", "sub", "sub/inner.txt"]);
+        assert!(!listing.truncated);
+    }
+
+    #[test]
+    fn list_tree_reports_why_the_scan_stopped() {
+        let tmp = TempDir::new().unwrap();
+        let mut client = create_pair(&tmp);
+        std::fs::remove_dir(tmp.path()).unwrap();
+        let failure = client.list_tree(&whole(), &[]).unwrap().unwrap_err();
+        assert_eq!(failure, ScanFailure::RootMissing);
     }
 
     // ---- ReadFiles ----

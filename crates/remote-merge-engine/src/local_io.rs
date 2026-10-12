@@ -5,9 +5,13 @@ use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use remote_merge_core::path_resolution::{self, ResolvedPath};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::exclude::Exclude;
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
+use remote_merge_core::scan::this_machine::MachineCollector;
 use remote_merge_protocol::FileHashResult;
 
-use crate::local;
+use crate::scan_result::{into_tree, scope_of_include};
+
 use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
 
@@ -300,10 +304,22 @@ pub fn create_symlink(root: &Path, path: &EntryPath, target: &str) -> anyhow::Re
     create_local_symlink(&root.join(path.as_str()), target)
 }
 
+/// root_dir の直下だけのツリー（下のディレクトリは読まない）
 pub fn fetch_tree(root: &Path, exclude: &[String]) -> anyhow::Result<FileTree> {
-    local::scan_local_tree(root, exclude)
+    let mut tree = FileTree::new(root);
+    tree.nodes = fetch_children(root, exclude, &[], &RelPath::root())?;
+    tree.sort();
+    Ok(tree)
 }
 
+/// root_dir の下をこのマシンで走査する。エージェントも同じ集め方と規則を使う
+/// （docs/decision/records/2026-10-12-foundation-2.md の C6）
+pub fn scan(root: &Path, exclude: &[String], request: &ScanRequest) -> Result<Listing, ScanError> {
+    let mut collector = MachineCollector::new(root.to_path_buf());
+    remote_merge_core::scan::drive::scan(&mut collector, &Exclude::new(exclude), request)
+}
+
+/// 全体の走査。`include` は確かめて残った値で、空なら include の制限がない
 pub fn fetch_tree_recursive(
     root: &Path,
     exclude: &[String],
@@ -311,18 +327,16 @@ pub fn fetch_tree_recursive(
     max: usize,
     fail: bool,
 ) -> anyhow::Result<FileTree> {
-    let scan = local::scan_local_tree_recursive_with_include(root, exclude, include, max)?;
-    if scan.truncated {
-        check_truncation(max, fail)?;
-    }
-    let mut tree = FileTree::new(root);
-    tree.nodes = scan.nodes;
-    tree.unreadable_names = scan.unreadable_names;
-    tree.truncated = scan.truncated;
-    tree.sort();
-    Ok(tree)
+    let request = ScanRequest {
+        scope: scope_of_include(include),
+        max_entries: max,
+    };
+    into_tree(root, scan(root, exclude, &request), max, fail, || {
+        missing_root(root)
+    })
 }
 
+/// 指定したディレクトリの下だけの走査
 pub fn fetch_tree_for_subpath(
     root: &Path,
     exclude: &[String],
@@ -330,34 +344,39 @@ pub fn fetch_tree_for_subpath(
     max: usize,
     fail: bool,
 ) -> anyhow::Result<FileTree> {
-    let subpath = subpath.as_str();
-    let scan_root = root.join(subpath);
-    if !scan_root.exists() || !scan_root.is_dir() {
-        return Ok(FileTree::new(root));
-    }
-    let scan = local::scan_local_tree_recursive(&scan_root, exclude, max)?;
-    if scan.truncated {
-        check_truncation(max, fail)?;
-    }
-    let mut tree = FileTree::new(root);
-    tree.nodes = wrap_nodes_in_subpath(subpath, scan.nodes);
-    tree.unreadable_names = names_in_subpath(subpath, scan.unreadable_names);
-    tree.truncated = scan.truncated;
-    tree.sort();
-    Ok(tree)
+    let request = ScanRequest {
+        scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
+        max_entries: max,
+    };
+    into_tree(root, scan(root, exclude, &request), max, fail, || {
+        missing_root(root)
+    })
 }
 
+/// ローカルの root_dir がないときの誤り
+pub fn missing_root(root: &Path) -> anyhow::Error {
+    crate::error::AppError::PathNotFound {
+        path: root.to_path_buf(),
+    }
+    .into()
+}
+
+/// root_dir からの `path` の直下の子。ディレクトリでなければ空で、一覧を取れなければ誤り
 pub fn fetch_children(
     root: &Path,
     exclude: &[String],
     include: &[String],
     path: &RelPath,
 ) -> anyhow::Result<Vec<FileNode>> {
-    let full = root.join(path.as_str());
-    let path = path.as_typed();
-    let nodes = local::scan_dir(&full, exclude, path)?;
+    let nodes = match list_children(root, exclude, path)? {
+        remote_merge_core::listing::ChildListing::Children(nodes) => nodes,
+        remote_merge_core::listing::ChildListing::NotDirectory => Vec::new(),
+        remote_merge_core::listing::ChildListing::Unlistable(reason) => anyhow::bail!(reason),
+    };
     Ok(crate::filter::filter_children_by_include(
-        nodes, path, include,
+        nodes,
+        path.as_str(),
+        include,
     ))
 }
 

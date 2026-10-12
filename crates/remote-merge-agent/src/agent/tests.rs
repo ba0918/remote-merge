@@ -1,6 +1,6 @@
 //! Agent E2E テスト。
 //!
-//! Client → Server → Dispatch → file_io/tree_scan の全プロトコルフローを
+//! Client → Server → Dispatch → file_io・走査の全プロトコルフローを
 //! UnixStream ペアを使ってインプロセスで検証する。SSH 不要。
 
 use std::fs;
@@ -8,14 +8,26 @@ use std::os::unix::net::UnixStream;
 
 use tempfile::TempDir;
 
-use super::client::{AgentClient, TreeList};
-use super::protocol::{FileKind, FileReadResult};
+use super::client::AgentClient;
+use super::protocol::FileReadResult;
 use super::server::{run_agent_loop, MetadataConfig};
-use super::tree_scan::convert_agent_entries_to_nodes;
-use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::relative_path::EntryPath;
+use remote_merge_core::scan::outcome::{ListedEntry, ListedKind, ScanRequest, ScanScope};
 
-fn rel(path: &str) -> RelPath {
-    RelPath::parse(path).unwrap()
+/// root_dir 全体を走査した一覧の項目
+fn whole_listing(
+    client: &mut AgentClient<UnixStream, UnixStream>,
+    exclude: &[String],
+) -> Vec<ListedEntry> {
+    let request = ScanRequest {
+        scope: ScanScope::Whole,
+        max_entries: 10000,
+    };
+    client
+        .list_tree(&request, exclude)
+        .unwrap()
+        .unwrap()
+        .entries
 }
 
 fn entry(path: &str) -> EntryPath {
@@ -63,12 +75,9 @@ fn full_protocol_roundtrip() {
     let mut client = create_pair(&tmp);
 
     // ListTree
-    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
+    let entries = whole_listing(&mut client, &[]);
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
-    assert!(paths.contains(&"hello.txt"));
-    // ディレクトリ "sub" は buffer に含まれない（走査キューにのみ追加）
-    assert!(!paths.contains(&"sub"));
-    assert!(paths.contains(&"sub/inner.txt"));
+    assert_eq!(paths, ["hello.txt", "sub", "sub/inner.txt"]);
 
     // ReadFiles
     let results = client.read_files(&rels(&["hello.txt"]), 1_048_576).unwrap();
@@ -117,32 +126,36 @@ fn tree_scan_and_convert_to_file_nodes() {
     std::os::unix::fs::symlink("root.txt", tmp.path().join("link")).unwrap();
 
     let mut client = create_pair(&tmp);
-    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
+    let entries = whole_listing(&mut client, &[]);
 
     // エントリ種類の検証
     let file_entry = entries.iter().find(|e| e.path == "root.txt").unwrap();
-    assert_eq!(file_entry.kind, FileKind::File);
-
-    // ディレクトリ "a" は buffer に含まれない
-    assert!(!entries.iter().any(|e| e.path == "a"));
-
+    assert_eq!(file_entry.kind, ListedKind::File);
+    let dir_entry = entries.iter().find(|e| e.path == "a").unwrap();
+    assert_eq!(dir_entry.kind, ListedKind::Directory);
     let link_entry = entries.iter().find(|e| e.path == "link").unwrap();
-    assert_eq!(link_entry.kind, FileKind::Symlink);
-    assert_eq!(link_entry.symlink_target.as_deref(), Some("root.txt"));
+    assert_eq!(
+        link_entry.kind,
+        ListedKind::Symlink {
+            target: "root.txt".into(),
+            is_dir: false
+        }
+    );
 
-    // convert_agent_entries_to_nodes の検証
-    let nodes = convert_agent_entries_to_nodes(&entries);
-    assert_eq!(nodes.len(), entries.len());
-
-    // NodeKind マッピングの検証
-    let root_node = nodes.iter().find(|n| n.name == "root.txt").unwrap();
-    assert!(matches!(root_node.kind, NodeKind::File));
-
-    // ディレクトリ "a" は entries に含まれないため nodes にも含まれない
-    assert!(!nodes.iter().any(|n| n.name == "a"));
-
-    let link_node = nodes.iter().find(|n| n.name == "link").unwrap();
-    match &link_node.kind {
+    // ツリーにした形の検証
+    let tree = remote_merge_core::scan::tree_build::to_tree(
+        tmp.path(),
+        remote_merge_core::scan::outcome::Listing {
+            entries,
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        tree.find_node("root.txt").unwrap().kind,
+        NodeKind::File
+    ));
+    assert!(tree.find_node("a/b/file_b.txt").is_some());
+    match &tree.find_node("link").unwrap().kind {
         NodeKind::Symlink { target } => assert_eq!(target, "root.txt"),
         other => panic!("expected Symlink, got {other:?}"),
     }
@@ -196,14 +209,10 @@ fn exclude_patterns_filter_entries() {
     fs::write(tmp.path().join(".git/HEAD"), "ref").unwrap();
 
     let mut client = create_pair(&tmp);
-    let TreeList { entries, .. } = client
-        .list_tree(
-            &rel(""),
-            &["node_modules".to_string(), ".git".to_string()],
-            &[],
-            10000,
-        )
-        .unwrap();
+    let entries = whole_listing(
+        &mut client,
+        &["node_modules".to_string(), ".git".to_string()],
+    );
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains(&"keep.txt"));
@@ -273,13 +282,18 @@ fn symlink_create_and_list_and_read() {
     client.symlink(&entry(link_rel), "target.txt").unwrap();
 
     // ListTree でシンボリックリンクが表示される
-    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
+    let entries = whole_listing(&mut client, &[]);
     let link_entry = entries
         .iter()
         .find(|e| e.path == link_rel)
         .expect("symlink should appear in tree");
-    assert_eq!(link_entry.kind, FileKind::Symlink);
-    assert_eq!(link_entry.symlink_target.as_deref(), Some("target.txt"));
+    assert_eq!(
+        link_entry.kind,
+        ListedKind::Symlink {
+            target: "target.txt".into(),
+            is_dir: false
+        }
+    );
 
     // ReadFiles でシンボリックリンクを読む → ターゲットの内容が返る
     let results = client.read_files(&rels(&[link_rel]), 1_048_576).unwrap();

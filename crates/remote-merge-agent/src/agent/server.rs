@@ -128,15 +128,11 @@ fn send_response(writer: &mut impl Write, response: &AgentResponse) -> Result<()
 
 fn summarize_request(request: &AgentRequest) -> String {
     match request {
-        AgentRequest::ListTree {
-            root,
-            exclude,
-            include,
-            max_entries,
-        } => format!(
-            "ListTree root={root:?} exclude_count={} include_count={} max_entries={max_entries}",
+        AgentRequest::ListTree { request, exclude } => format!(
+            "ListTree scope={:?} exclude_count={} max_entries={}",
+            request.scope,
             exclude.len(),
-            include.len()
+            request.max_entries
         ),
         AgentRequest::ReadFiles {
             paths,

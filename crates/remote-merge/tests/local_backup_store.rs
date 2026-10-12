@@ -166,23 +166,18 @@ fn merge_through_a_symlink_cycle_stops_before_writing() {
     fs::write(local.path().join("cycle/file.txt"), "replacement\n").unwrap();
     symlink("cycle", develop.path().join("cycle")).unwrap();
 
-    let result = execute_merge(
+    // 書き込み先の親 "cycle" を辿れないので、その下の走査は空の一覧にならずに止まる
+    // （docs/ir/scan/directory-links.md の REQ-scan-018）
+    let error = execute_merge(
         merge_args("cycle/file.txt"),
         config(&local, &develop, true),
         targets(&develop, &store),
     )
-    .unwrap();
-
-    let MergeCommandOutput::Files(output) = result.output else {
-        panic!("expected per-file merge output");
-    };
-    assert!(output.merged.is_empty());
-    assert_eq!(output.failed.len(), 1);
-    assert_eq!(output.failed[0].path, "cycle/file.txt");
+    .err()
+    .expect("the scan below a link that cannot be followed must stop");
     assert!(
-        output.failed[0].error.contains("symbolic links"),
-        "{}",
-        output.failed[0].error
+        error.to_string().contains("Cannot follow symbolic link"),
+        "{error:#}"
     );
     assert!(develop
         .path()

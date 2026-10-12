@@ -12,8 +12,8 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
+use remote_merge::agent::child_nodes::child_listing_from_agent;
 use remote_merge::agent::client::AgentClient;
-use remote_merge::agent::tree_scan::child_listing_from_agent;
 use remote_merge::runtime::CoreRuntime;
 use remote_merge::side::Side;
 use remote_merge::tree::{FileNode, NodeKind};
