@@ -3,7 +3,7 @@
 //! CLI の diff/merge/sync コマンドで共通のスキャン戦略判定を行い、
 //! 分岐条件のずれを防止する。全て純粋関数。
 
-use super::path_resolver::check_path_traversal;
+use remote_merge_core::relative_path::RelPath;
 
 /// fast path のパス数上限。超えると FullScan にフォールバック。
 pub const FAST_PATH_MAX_PATHS: usize = 20;
@@ -35,45 +35,23 @@ pub enum ScanStrategy {
 ///
 /// Note: stat は I/O なのでこの関数内では行わない。ディレクトリ判定は末尾 "/" のヒントのみ使用。
 /// stat でディレクトリと判明した場合は呼び出し元が PartialScan に切り替える。
-pub fn resolve_scan_strategy(paths: &[String], has_delete_flag: bool) -> ScanStrategy {
-    // 空パス → FullScan
-    if paths.is_empty() {
-        return ScanStrategy::FullScan;
-    }
-
-    // --delete フラグ → FullScan（RightOnly を知る必要がある）
-    if has_delete_flag {
-        return ScanStrategy::FullScan;
-    }
-
-    // "." や "./" を含む → FullScan
-    if paths.iter().any(|p| is_root_marker(p)) {
-        return ScanStrategy::FullScan;
-    }
-
-    // 空文字列を含む → FullScan
-    if paths.iter().any(|p| p.is_empty()) {
-        return ScanStrategy::FullScan;
-    }
-
-    // glob 文字を含む → FullScan
-    if paths.iter().any(|p| has_glob_chars(p)) {
-        return ScanStrategy::FullScan;
-    }
-
-    // パストラバーサルチェック（"." 以外の ".." を検出）
-    if check_path_traversal(paths).is_err() {
-        return ScanStrategy::FullScan;
-    }
-
-    // パス数上限チェック
-    if paths.len() > FAST_PATH_MAX_PATHS {
+pub fn resolve_scan_strategy(paths: &[RelPath], has_delete_flag: bool) -> ScanStrategy {
+    // 空パス・--delete（RightOnly を知る必要がある）・root_dir 全体・glob 文字・パス数の上限超え
+    // → FullScan
+    if paths.is_empty()
+        || has_delete_flag
+        || paths
+            .iter()
+            .any(|p| p.is_root() || has_glob_chars(p.as_typed()))
+        || paths.len() > FAST_PATH_MAX_PATHS
+    {
         return ScanStrategy::FullScan;
     }
 
     // ディレクトリ（末尾 "/"）とファイルの分類
-    let has_dirs = paths.iter().any(|p| p.ends_with('/'));
-    let has_files = paths.iter().any(|p| !p.ends_with('/'));
+    let has_dirs = paths.iter().any(RelPath::has_trailing_slash);
+    let has_files = paths.iter().any(|p| !p.has_trailing_slash());
+    let typed: Vec<String> = paths.iter().map(|p| p.as_typed().to_string()).collect();
 
     if has_dirs && has_files {
         // ファイルとディレクトリが混在 → FullScan
@@ -82,12 +60,11 @@ pub fn resolve_scan_strategy(paths: &[String], has_delete_flag: bool) -> ScanStr
 
     if has_dirs {
         // 全パスがディレクトリ形式 → PartialScan
-        let dir_paths: Vec<String> = paths.to_vec();
-        return ScanStrategy::PartialScan(dir_paths);
+        return ScanStrategy::PartialScan(typed);
     }
 
     // 全パスがファイル形式 → FastPath
-    ScanStrategy::FastPath(paths.to_vec())
+    ScanStrategy::FastPath(typed)
 }
 
 /// diff の指定したパスの比べ方。
@@ -95,7 +72,7 @@ pub fn resolve_scan_strategy(paths: &[String], has_delete_flag: bool) -> ScanStr
 pub struct DiffPaths {
     /// root_dir 全体を走査して比べるときの、走査に渡すパス（パスの指定がないときは空）。全体を
     /// 走査しないときは None
-    pub whole: Option<Vec<String>>,
+    pub whole: Option<Vec<RelPath>>,
     /// 一つずつ比べる、名前で指定したパス
     pub named: Vec<String>,
 }
@@ -109,17 +86,18 @@ pub struct DiffPaths {
 /// 外してある。root_dir 全体も走査するときは、名前で指定したパスを走査の結果と同じ形（"." の要素と
 /// 続いた "/" を除いた形）にそろえ、同じファイルを二つの形で示さない。そろえると空になる名前
 /// （root_dir そのもの）は全体の走査に任せる。
-pub fn split_diff_paths(paths: &[String]) -> DiffPaths {
-    if paths.is_empty() || check_path_traversal(paths).is_err() {
+pub fn split_diff_paths(paths: &[RelPath]) -> DiffPaths {
+    if paths.is_empty() {
         return DiffPaths {
-            whole: Some(paths.to_vec()),
+            whole: Some(Vec::new()),
             named: Vec::new(),
         };
     }
-    let (whole, named): (Vec<String>, Vec<String>) = paths
+    let (whole, named): (Vec<RelPath>, Vec<RelPath>) = paths
         .iter()
         .cloned()
-        .partition(|p| p.is_empty() || is_root_marker(p) || has_glob_chars(p));
+        .partition(|p| p.is_root() || has_glob_chars(p.as_typed()));
+    let named: Vec<String> = named.iter().map(|p| p.as_typed().to_string()).collect();
     if whole.is_empty() {
         return DiffPaths { whole: None, named };
     }
@@ -142,12 +120,6 @@ fn as_scanned(path: &str) -> String {
         .filter(|element| !element.is_empty() && *element != ".")
         .collect::<Vec<_>>()
         .join("/")
-}
-
-/// パスが "." や "./" などのルートマーカーかどうかを判定する。
-fn is_root_marker(path: &str) -> bool {
-    let trimmed = path.trim_end_matches('/');
-    trimmed == "." || trimmed.is_empty()
 }
 
 /// パスに glob 文字（*, ?, [）が含まれているかを判定する。
@@ -193,6 +165,10 @@ mod tests {
 
     // ── split_diff_paths ──
 
+    fn rels(paths: &[String]) -> Vec<RelPath> {
+        paths.iter().map(|p| RelPath::parse(p).unwrap()).collect()
+    }
+
     fn strings(paths: &[&str]) -> Vec<String> {
         paths.iter().map(|path| path.to_string()).collect()
     }
@@ -201,7 +177,7 @@ mod tests {
     fn diff_compares_more_than_twenty_named_paths_one_by_one() {
         let paths: Vec<String> = (0..21).map(|i| format!("file_{i}.txt")).collect();
         assert_eq!(
-            split_diff_paths(&paths),
+            split_diff_paths(&rels(&paths)),
             DiffPaths {
                 whole: None,
                 named: paths.clone()
@@ -213,9 +189,9 @@ mod tests {
     fn diff_scans_the_whole_root_dir_without_names() {
         for paths in [vec![], strings(&["."]), strings(&["a/*.txt"])] {
             assert_eq!(
-                split_diff_paths(&paths),
+                split_diff_paths(&rels(&paths)),
                 DiffPaths {
-                    whole: Some(paths.clone()),
+                    whole: Some(rels(&paths)),
                     named: Vec::new()
                 },
                 "{paths:?}"
@@ -226,9 +202,9 @@ mod tests {
     #[test]
     fn diff_compares_names_beside_the_root_dir_one_by_one() {
         assert_eq!(
-            split_diff_paths(&strings(&[".", "app.log", "a/*.txt"])),
+            split_diff_paths(&rels(&strings(&[".", "app.log", "a/*.txt"]))),
             DiffPaths {
-                whole: Some(strings(&[".", "a/*.txt"])),
+                whole: Some(rels(&strings(&[".", "a/*.txt"]))),
                 named: strings(&["app.log"])
             }
         );
@@ -237,21 +213,21 @@ mod tests {
     #[test]
     fn names_beside_the_root_dir_take_the_form_of_the_scanned_paths() {
         assert_eq!(
-            split_diff_paths(&strings(&[".", "./a.txt", "d//./b.txt", "a.txt"])),
+            split_diff_paths(&rels(&strings(&[".", "./a.txt", "d//./b.txt", "a.txt"]))),
             DiffPaths {
-                whole: Some(strings(&["."])),
+                whole: Some(rels(&strings(&["."]))),
                 named: strings(&["a.txt", "d/b.txt"])
             }
         );
         assert_eq!(
-            split_diff_paths(&strings(&[".", "./.", "././.", "./a.txt"])),
+            split_diff_paths(&rels(&strings(&[".", "./.", "././.", "./a.txt"]))),
             DiffPaths {
-                whole: Some(strings(&["."])),
+                whole: Some(rels(&strings(&["."]))),
                 named: strings(&["a.txt"])
             }
         );
         assert_eq!(
-            split_diff_paths(&strings(&["./a.txt"])),
+            split_diff_paths(&rels(&strings(&["./a.txt"]))),
             DiffPaths {
                 whole: None,
                 named: strings(&["./a.txt"])
@@ -269,20 +245,26 @@ mod tests {
     #[test]
     fn dot_returns_full_scan() {
         let paths = vec![".".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn dot_slash_returns_full_scan() {
         let paths = vec!["./".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn single_file_returns_fast_path() {
         let paths = vec!["file.txt".to_string()];
         assert_eq!(
-            resolve_scan_strategy(&paths, false),
+            resolve_scan_strategy(&rels(&paths), false),
             ScanStrategy::FastPath(vec!["file.txt".to_string()])
         );
     }
@@ -291,7 +273,7 @@ mod tests {
     fn single_dir_returns_partial_scan() {
         let paths = vec!["dir/".to_string()];
         assert_eq!(
-            resolve_scan_strategy(&paths, false),
+            resolve_scan_strategy(&rels(&paths), false),
             ScanStrategy::PartialScan(vec!["dir/".to_string()])
         );
     }
@@ -299,39 +281,54 @@ mod tests {
     #[test]
     fn mixed_file_and_dir_returns_full_scan() {
         let paths = vec!["file.txt".to_string(), "dir/".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn glob_star_returns_full_scan() {
         let paths = vec!["*.php".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn glob_bracket_returns_full_scan() {
         let paths = vec!["file[1].txt".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn glob_question_returns_full_scan() {
         let paths = vec!["file?.txt".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn over_limit_returns_full_scan() {
         let paths: Vec<String> = (0..21).map(|i| format!("file_{}.txt", i)).collect();
         assert_eq!(paths.len(), 21);
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn at_limit_returns_fast_path() {
         let paths: Vec<String> = (0..20).map(|i| format!("file_{}.txt", i)).collect();
         assert_eq!(paths.len(), 20);
-        match resolve_scan_strategy(&paths, false) {
+        match resolve_scan_strategy(&rels(&paths), false) {
             ScanStrategy::FastPath(p) => assert_eq!(p.len(), 20),
             other => panic!("expected FastPath, got {:?}", other),
         }
@@ -340,20 +337,26 @@ mod tests {
     #[test]
     fn delete_flag_returns_full_scan() {
         let paths = vec!["file.txt".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, true), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), true),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn empty_string_returns_full_scan() {
         let paths = vec!["".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     #[test]
     fn multiple_files_returns_fast_path() {
         let paths = vec!["a/b/c.txt".to_string(), "x/y.txt".to_string()];
         assert_eq!(
-            resolve_scan_strategy(&paths, false),
+            resolve_scan_strategy(&rels(&paths), false),
             ScanStrategy::FastPath(vec!["a/b/c.txt".to_string(), "x/y.txt".to_string()])
         );
     }
@@ -362,22 +365,16 @@ mod tests {
     fn multiple_dirs_returns_partial_scan() {
         let paths = vec!["dir1/".to_string(), "dir2/".to_string()];
         assert_eq!(
-            resolve_scan_strategy(&paths, false),
+            resolve_scan_strategy(&rels(&paths), false),
             ScanStrategy::PartialScan(vec!["dir1/".to_string(), "dir2/".to_string()])
         );
-    }
-
-    #[test]
-    fn path_traversal_returns_full_scan() {
-        let paths = vec!["../etc/passwd".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
     }
 
     #[test]
     fn nested_file_path_returns_fast_path() {
         let paths = vec!["src/service/fast_path.rs".to_string()];
         assert_eq!(
-            resolve_scan_strategy(&paths, false),
+            resolve_scan_strategy(&rels(&paths), false),
             ScanStrategy::FastPath(vec!["src/service/fast_path.rs".to_string()])
         );
     }
@@ -390,7 +387,10 @@ mod tests {
     #[test]
     fn glob_in_middle_of_path_returns_full_scan() {
         let paths = vec!["src/*.rs".to_string()];
-        assert_eq!(resolve_scan_strategy(&paths, false), ScanStrategy::FullScan);
+        assert_eq!(
+            resolve_scan_strategy(&rels(&paths), false),
+            ScanStrategy::FullScan
+        );
     }
 
     // ── fast_path_to_parent_dirs ──

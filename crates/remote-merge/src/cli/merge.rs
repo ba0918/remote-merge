@@ -19,7 +19,7 @@ use crate::service::output::{
     OutputFormat,
 };
 use crate::service::path_resolver::{
-    check_path_arguments, filter_merge_candidates, resolve_target_files_from_statuses,
+    filter_merge_candidates, parse_path_arguments, resolve_target_files_from_statuses,
     split_missing_paths,
 };
 use crate::service::source_pair::{
@@ -40,6 +40,7 @@ use crate::service::{
 };
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::relative_path::RelPath;
 
 /// merge サブコマンドの引数
 pub struct MergeArgs {
@@ -70,7 +71,7 @@ pub struct MergeCommandResult {
 }
 
 /// merge 引数のバリデーション: --left と --right の両方が必須、paths は1つ以上必須
-fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
+fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<Vec<RelPath>> {
     if args.paths.is_empty() {
         anyhow::bail!("at least one path is required for merge");
     }
@@ -79,7 +80,7 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
             "--left and --right are required for merge command (e.g. --left local --right staging)"
         );
     }
-    check_path_arguments(&args.paths)?;
+    let paths = parse_path_arguments(&args.paths)?;
     // --hunks 固有のバリデーション
     if let Some(ref hunks) = args.hunks {
         if args.paths.len() != 1 {
@@ -95,7 +96,7 @@ fn validate_merge_args(args: &MergeArgs) -> anyhow::Result<()> {
             anyhow::bail!("--hunks requires at least one hunk index");
         }
     }
-    Ok(())
+    Ok(paths)
 }
 
 /// merge サブコマンドを実行する
@@ -111,7 +112,7 @@ pub fn execute_merge(
     config: AppConfig,
     targets: RuntimeTargets,
 ) -> anyhow::Result<MergeCommandResult> {
-    validate_merge_args(&args)?;
+    let rel_paths = validate_merge_args(&args)?;
 
     // フォーマットを先にパースして不正値を早期エラーにする
     OutputFormat::parse(&args.format)?;
@@ -147,7 +148,7 @@ pub fn execute_merge(
         return run_hunk_merge(
             &pair.left,
             &pair.right,
-            &args.paths[0],
+            &rel_paths[0],
             hunk_indices,
             direction,
             args.dry_run,
@@ -164,7 +165,7 @@ pub fn execute_merge(
 
     // ScanStrategy で分岐: merge では FastPath → PartialScan にフォールバック
     // （optimistic locking に tree の mtime が必要なため）
-    let strategy = resolve_scan_strategy(&args.paths, args.delete);
+    let strategy = resolve_scan_strategy(&rel_paths, args.delete);
     let (left_tree, right_tree, statuses, compare_failures) = fetch_trees_and_statuses_for_merge(
         &strategy,
         MergeCompareOptions {
@@ -181,7 +182,7 @@ pub fn execute_merge(
 
     // Resolve paths using statuses (includes right-only files)
     let resolved_paths =
-        resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+        resolve_target_files_from_statuses(&rel_paths, &statuses, &left_tree, &right_tree)?;
     // 左右のどちらにもないパスは警告して failed に入れ、すべてないときは書き込まずに止める
     let (resolved_paths, missing_paths) = split_missing_paths(&resolved_paths, &statuses)?;
     let mut compare_failures = compare_failures;
@@ -466,7 +467,7 @@ fn print_merge_result(output: &MergeCommandOutput, format: OutputFormat) -> anyh
 fn run_hunk_merge(
     left: &Side,
     right: &Side,
-    path: &str,
+    rel_path: &RelPath,
     hunk_indices: &[usize],
     direction: MergeDirection,
     dry_run: bool,
@@ -476,6 +477,8 @@ fn run_hunk_merge(
     mut core: CoreRuntime,
 ) -> anyhow::Result<MergeCommandResult> {
     use crate::service::merge::build_merge_output;
+
+    let path = rel_path.as_typed();
 
     core.connect_if_remote(left)?;
     core.connect_if_remote(right)?;
@@ -492,7 +495,7 @@ fn run_hunk_merge(
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
     let config = core.config.clone();
     let paths = vec![path.to_string()];
-    let strategy = resolve_scan_strategy(&paths, false);
+    let strategy = resolve_scan_strategy(std::slice::from_ref(rel_path), false);
     let (left_tree, right_tree, _statuses, _compare_failures) = fetch_trees_and_statuses_for_merge(
         &strategy,
         MergeCompareOptions {

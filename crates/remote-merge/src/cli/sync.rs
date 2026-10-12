@@ -17,7 +17,7 @@ use crate::service::merge::{check_r2r_guard, plan_merge, MergePlan};
 use crate::service::merge_flow::{execute_deletions, execute_single_merge, MergeContext};
 use crate::service::output::{format_json, format_sync_text, OutputFormat};
 use crate::service::path_resolver::{
-    check_path_arguments, every_path_missing, filter_merge_candidates, partition_existing_files,
+    every_path_missing, filter_merge_candidates, parse_path_arguments, partition_existing_files,
     paths_not_found, resolve_target_files_from_statuses,
 };
 use crate::service::source_pair::{build_source_info, resolve_source_pairs, SourcePair};
@@ -33,6 +33,7 @@ use crate::service::{
 };
 use crate::side::Side;
 use crate::tree::FileTree;
+use remote_merge_core::relative_path::RelPath;
 
 /// sync サブコマンドの引数
 pub struct SyncArgs {
@@ -61,7 +62,7 @@ pub struct SyncCommandResult {
 }
 
 /// sync 引数のバリデーション
-fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<()> {
+fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<Vec<RelPath>> {
     if args.left.is_none() {
         anyhow::bail!("--left is required for sync command");
     }
@@ -71,8 +72,7 @@ fn validate_sync_args(args: &SyncArgs) -> anyhow::Result<()> {
     if args.paths.is_empty() {
         anyhow::bail!("at least one path is required for sync");
     }
-    check_path_arguments(&args.paths)?;
-    Ok(())
+    parse_path_arguments(&args.paths)
 }
 
 /// サーバごとのマージ計画（内部用）
@@ -104,7 +104,7 @@ pub fn execute_sync(
     config: AppConfig,
     targets: RuntimeTargets,
 ) -> anyhow::Result<SyncCommandResult> {
-    validate_sync_args(&args)?;
+    let rel_paths = validate_sync_args(&args)?;
     OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
 
@@ -124,7 +124,7 @@ pub fn execute_sync(
 
     // ScanStrategy で分岐: sync では FastPath → PartialScan にフォールバック
     // （merge と同様、optimistic locking に tree の mtime が必要）
-    let strategy = resolve_scan_strategy(&args.paths, args.delete);
+    let strategy = resolve_scan_strategy(&rel_paths, args.delete);
 
     // 接続 + left ツリー取得（全ペアで共有）
     let mut core = CoreRuntime::with_targets(config.clone(), targets);
@@ -209,7 +209,7 @@ pub fn execute_sync(
 
         // パス解決 + 差分フィルタ
         let resolved_paths =
-            resolve_target_files_from_statuses(&args.paths, &statuses, &left_tree, &right_tree)?;
+            resolve_target_files_from_statuses(&rel_paths, &statuses, &left_tree, &right_tree)?;
         // 左右のどちらにもないパスは警告して failed に入れる。すべてないかは書き込み先ごとに覚え、
         // どの書き込み先でもすべてないときだけ、計画の後で書き込まずに止める
         let (resolved_paths, missing_paths) = partition_existing_files(&resolved_paths, &statuses);

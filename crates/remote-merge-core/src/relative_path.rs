@@ -21,9 +21,9 @@ pub struct RelPath {
 }
 
 impl RelPath {
-    /// 絶対パスと ".." の要素を拒む。"/" だけの値は root_dir 全体として受け付ける
+    /// 絶対パスと ".." の要素を拒む。"/" だけからなる値は root_dir 全体として受け付ける
     pub fn parse(input: &str) -> Result<Self, RelPathError> {
-        if input.starts_with('/') && input != "/" {
+        if input.starts_with('/') && !input.trim_end_matches('/').is_empty() {
             return Err(RelPathError::Absolute(input.to_string()));
         }
         if input.split('/').any(|element| element == "..") {
@@ -49,7 +49,20 @@ impl RelPath {
 
     pub fn is_root(&self) -> bool {
         let stripped = self.typed.trim_end_matches('/');
-        self.typed == "/" || stripped.is_empty() || stripped == "."
+        stripped.is_empty() || stripped == "."
+    }
+
+    /// 末尾の "/" を除いた値で入力されたものとみなした RelPath。"/" だけからなる値と空の値は
+    /// そのまま残す
+    pub fn without_trailing_slash(&self) -> RelPath {
+        let stripped = self.typed.trim_end_matches('/');
+        if stripped.is_empty() {
+            self.clone()
+        } else {
+            RelPath {
+                typed: stripped.to_string(),
+            }
+        }
     }
 
     /// root_dir 全体を指す値を除き、末尾に "/" を付けて入力されたか
@@ -86,12 +99,22 @@ mod tests {
             "absolute subpath not allowed: /etc/passwd"
         );
         assert_eq!(refusal("/a/"), "absolute subpath not allowed: /a/");
-        assert_eq!(refusal("//"), "absolute subpath not allowed: //");
+        assert_eq!(refusal("/."), "absolute subpath not allowed: /.");
     }
 
     #[test]
     fn a_parent_element_is_refused_with_the_path_as_typed() {
-        for input in ["../b.txt", "a/../b", "a/..", "src/../", "..", "./../x"] {
+        for input in [
+            "../b.txt",
+            "a/../b",
+            "a/..",
+            "src/../",
+            "..",
+            "./../x",
+            "../etc/passwd",
+            "src/..",
+            "src/../etc/passwd",
+        ] {
             assert_eq!(
                 refusal(input),
                 format!("path traversal not allowed: {input}"),
@@ -114,7 +137,7 @@ mod tests {
 
     #[test]
     fn slash_dot_dot_slash_and_empty_name_the_whole_root_dir() {
-        for input in ["/", ".", "./", ""] {
+        for input in ["/", "//", ".", "./", ""] {
             let path = parsed(input);
             assert!(path.is_root(), "{input}");
             assert_eq!(path.as_str(), "", "{input}");
@@ -132,6 +155,16 @@ mod tests {
         assert!(!plain.has_trailing_slash());
         assert_eq!(slash.as_typed(), "src/");
         assert_eq!(parsed("a/b//").as_str(), "a/b");
+    }
+
+    #[test]
+    fn dropping_the_trailing_slash_keeps_the_whole_root_dir_as_typed() {
+        assert_eq!(parsed("src/").without_trailing_slash().as_typed(), "src");
+        assert_eq!(parsed("src").without_trailing_slash().as_typed(), "src");
+        assert_eq!(parsed("./").without_trailing_slash().as_typed(), ".");
+        for input in ["/", "//", ".", ""] {
+            assert_eq!(parsed(input).without_trailing_slash().as_typed(), input);
+        }
     }
 
     #[test]

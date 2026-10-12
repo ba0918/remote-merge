@@ -7,41 +7,22 @@ use std::collections::BTreeSet;
 
 use crate::service::types::{FileStatus, FileStatusKind, MergeSkipped};
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::relative_path::RelPath;
 
-/// パスリストに `"."` や `"./"` などのルートマーカーが含まれているかを判定する。
+/// パスリストに root_dir 全体を指すもの（"/"・"."・"./"・空の値）が含まれているかを判定する。
 ///
-/// ルートマーカーが含まれている場合、全ファイルを対象にする。
-fn has_root_marker(paths: &[String]) -> bool {
-    paths.iter().any(|p| is_root_marker(p))
+/// 含まれている場合、全ファイルを対象にする。
+fn has_root_marker(paths: &[RelPath]) -> bool {
+    paths.iter().any(RelPath::is_root)
 }
 
-/// コマンドのパスの引数が、root_dir の外を指しうる値を含まないか検証する。
-///
-/// root_dir 全体を指す値（`has_root_marker` と同じく、末尾の "/" を除くと空か "." になる値）は
-/// 受け付ける。それ以外は入力されたままの値を `check_rel_path` で検査し、エラーにもその値を出す。
-pub fn check_path_arguments(paths: &[String]) -> anyhow::Result<()> {
+/// コマンドのパスの引数を、入力の形を検査して root_dir からの相対パスにする。最初に検査を
+/// 通らなかった値のエラーで止める
+pub fn parse_path_arguments(paths: &[String]) -> anyhow::Result<Vec<RelPath>> {
     paths
         .iter()
-        .filter(|path| !is_root_marker(path))
-        .try_for_each(|path| crate::rel_path::check_rel_path(path))
-}
-
-fn is_root_marker(path: &str) -> bool {
-    let n = path.trim_end_matches('/');
-    n == "." || n.is_empty()
-}
-
-/// パスにトラバーサルコンポーネント（`..`）が含まれていないか検証する。
-///
-/// `../foo`, `foo/..`, `foo/../bar` のいずれもエラーとして拒否する。
-pub fn check_path_traversal(paths: &[String]) -> anyhow::Result<()> {
-    for path in paths {
-        let has_traversal = path.split('/').any(|component| component == "..");
-        if has_traversal {
-            anyhow::bail!("path traversal not allowed: {}", path);
-        }
-    }
-    Ok(())
+        .map(|path| RelPath::parse(path).map_err(anyhow::Error::from))
+        .collect()
 }
 
 /// パス引数をファイルリストに解決する。
@@ -49,11 +30,8 @@ pub fn check_path_traversal(paths: &[String]) -> anyhow::Result<()> {
 /// - ファイルパス → そのまま返す
 /// - ディレクトリパス → 配下のファイルを再帰収集
 /// - 空 → 全ファイルを返す
-/// - `../` を含むパス → エラー（パストラバーサル防止）
 /// - 重複パスは BTreeSet で自動除外
-pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result<Vec<String>> {
-    check_path_traversal(paths)?;
-
+pub fn resolve_target_files(paths: &[RelPath], tree: &FileTree) -> anyhow::Result<Vec<String>> {
     // "." or "./" → treat as "all files" (same as empty paths)
     if paths.is_empty() || has_root_marker(paths) {
         let mut all = collect_all_files(tree);
@@ -63,7 +41,7 @@ pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result
 
     let mut result = BTreeSet::new();
     for path in paths {
-        let normalized = path.trim_end_matches('/');
+        let normalized = path.as_str();
         if is_directory_in_tree(normalized, tree) {
             for file in collect_files_under(normalized, tree) {
                 result.insert(file);
@@ -71,7 +49,7 @@ pub fn resolve_target_files(paths: &[String], tree: &FileTree) -> anyhow::Result
         } else {
             // For non-directory paths, use normalized form too
             result.insert(if normalized.is_empty() {
-                path.clone()
+                path.as_typed().to_string()
             } else {
                 normalized.to_string()
             });
@@ -143,13 +121,11 @@ fn collect_files_recursive(node: &FileNode, current_path: &str, files: &mut Vec<
 /// tree ベースの `resolve_target_files` とは異なり、左右両方のツリーから
 /// 計算済みの FileStatus リストを使うことで right-only ファイルも漏れなく含める。
 pub fn resolve_target_files_from_statuses(
-    paths: &[String],
+    paths: &[RelPath],
     statuses: &[FileStatus],
     left_tree: &FileTree,
     right_tree: &FileTree,
 ) -> anyhow::Result<Vec<String>> {
-    check_path_traversal(paths)?;
-
     // Empty paths or "." / "./" = all files from statuses
     if paths.is_empty() || has_root_marker(paths) {
         let mut all: Vec<String> = statuses.iter().map(|s| s.path.clone()).collect();
@@ -160,11 +136,11 @@ pub fn resolve_target_files_from_statuses(
     let mut result = BTreeSet::new();
     for path in paths {
         // Check if it's a directory in either tree
-        let is_dir =
-            is_directory_in_tree(path, left_tree) || is_directory_in_tree(path, right_tree);
+        let is_dir = is_directory_in_tree(path.as_str(), left_tree)
+            || is_directory_in_tree(path.as_str(), right_tree);
         if is_dir {
             // Collect all status entries under this directory prefix
-            let normalized = path.trim_end_matches('/');
+            let normalized = path.as_str();
             let prefix_with_slash = format!("{}/", normalized);
             for status in statuses {
                 if status.path.starts_with(&prefix_with_slash) || status.path == normalized {
@@ -172,7 +148,7 @@ pub fn resolve_target_files_from_statuses(
                 }
             }
         } else {
-            result.insert(path.clone());
+            result.insert(path.as_typed().to_string());
         }
     }
 
@@ -299,11 +275,22 @@ mod tests {
     use crate::tree::FileNode;
     use std::path::PathBuf;
 
+    fn rels(paths: &[String]) -> Vec<RelPath> {
+        parse_path_arguments(paths).unwrap()
+    }
+
+    #[test]
+    fn path_arguments_are_returned_checked_in_the_order_given() {
+        let paths = parse_path_arguments(&["b/".to_string(), "a.txt".to_string()]).unwrap();
+        let typed: Vec<&str> = paths.iter().map(|path| path.as_typed()).collect();
+        assert_eq!(typed, ["b/", "a.txt"]);
+    }
+
     #[test]
     fn path_arguments_naming_the_root_dir_are_accepted() {
         for path in ["/", "//", ".", "./", ""] {
             assert!(
-                check_path_arguments(&[path.to_string()]).is_ok(),
+                parse_path_arguments(&[path.to_string()]).is_ok(),
                 "{path:?} was rejected"
             );
         }
@@ -313,7 +300,7 @@ mod tests {
     fn path_arguments_inside_the_root_dir_are_accepted() {
         for path in ["a.txt", "dir/", "dir/a.txt", "a..b.txt", "./a.txt"] {
             assert!(
-                check_path_arguments(&[path.to_string()]).is_ok(),
+                parse_path_arguments(&[path.to_string()]).is_ok(),
                 "{path:?} was rejected"
             );
         }
@@ -322,7 +309,7 @@ mod tests {
     #[test]
     fn absolute_path_arguments_are_rejected_as_typed() {
         for path in ["/etc/passwd", "/etc/", "/."] {
-            let error = check_path_arguments(&["a.txt".to_string(), path.to_string()])
+            let error = parse_path_arguments(&["a.txt".to_string(), path.to_string()])
                 .expect_err(path)
                 .to_string();
             assert_eq!(error, format!("absolute subpath not allowed: {path}"));
@@ -332,7 +319,7 @@ mod tests {
     #[test]
     fn path_arguments_with_a_parent_component_are_rejected_as_typed() {
         for path in ["..", "../b.txt", "a/../b.txt", "a/..", "a/../"] {
-            let error = check_path_arguments(&[path.to_string()])
+            let error = parse_path_arguments(&[path.to_string()])
                 .expect_err(path)
                 .to_string();
             assert_eq!(error, format!("path traversal not allowed: {path}"));
@@ -378,7 +365,7 @@ mod tests {
     fn file_path_returned_as_is() {
         let tree = make_test_tree();
         let paths = vec!["src/main.rs".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["src/main.rs"]);
     }
 
@@ -386,7 +373,7 @@ mod tests {
     fn directory_expands_to_child_files() {
         let tree = make_test_tree();
         let paths = vec!["src".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
@@ -409,39 +396,6 @@ mod tests {
     }
 
     #[test]
-    fn path_traversal_rejected() {
-        let tree = make_test_tree();
-        let paths = vec!["../etc/passwd".to_string()];
-        let err = resolve_target_files(&paths, &tree).unwrap_err();
-        assert!(
-            err.to_string().contains("path traversal not allowed"),
-            "unexpected error: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn dotdot_alone_rejected() {
-        let tree = make_test_tree();
-        let paths = vec!["..".to_string()];
-        assert!(resolve_target_files(&paths, &tree).is_err());
-    }
-
-    #[test]
-    fn trailing_dotdot_rejected() {
-        let tree = make_test_tree();
-        let paths = vec!["src/..".to_string()];
-        assert!(resolve_target_files(&paths, &tree).is_err());
-    }
-
-    #[test]
-    fn middle_dotdot_rejected() {
-        let tree = make_test_tree();
-        let paths = vec!["src/../etc/passwd".to_string()];
-        assert!(resolve_target_files(&paths, &tree).is_err());
-    }
-
-    #[test]
     fn duplicate_paths_deduplicated() {
         let tree = make_test_tree();
         let paths = vec![
@@ -449,7 +403,7 @@ mod tests {
             "src/main.rs".to_string(),
             "config.toml".to_string(),
         ];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["config.toml", "src/main.rs"]);
     }
 
@@ -457,7 +411,7 @@ mod tests {
     fn nonexistent_path_returned_as_is() {
         let tree = make_test_tree();
         let paths = vec!["nonexistent.txt".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["nonexistent.txt"]);
     }
 
@@ -465,7 +419,7 @@ mod tests {
     fn mixed_file_and_directory() {
         let tree = make_test_tree();
         let paths = vec!["config.toml".to_string(), "src/utils".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["config.toml", "src/utils/helper.rs"]);
     }
 
@@ -473,7 +427,7 @@ mod tests {
     fn empty_directory_returns_no_files() {
         let tree = make_test_tree();
         let paths = vec!["empty_dir".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert!(result.is_empty());
     }
 
@@ -481,7 +435,7 @@ mod tests {
     fn directory_and_overlapping_file_deduplicated() {
         let tree = make_test_tree();
         let paths = vec!["src".to_string(), "src/main.rs".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         // src expands to all files, src/main.rs is a duplicate → deduplicated
         assert_eq!(
             result,
@@ -564,7 +518,8 @@ mod tests {
         ];
         let paths = vec!["src".to_string()];
         let result =
-            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &left_tree, &right_tree)
+                .unwrap();
         assert_eq!(result, vec!["src/extra.rs", "src/main.rs"]);
     }
 
@@ -588,16 +543,6 @@ mod tests {
         assert_eq!(result, vec!["config.toml", "src/lib.rs", "src/main.rs"]);
     }
 
-    /// パストラバーサルが拒否されることを検証する。
-    #[test]
-    fn from_statuses_rejects_path_traversal() {
-        let tree = make_test_tree();
-        let statuses = vec![];
-        let paths = vec!["../etc/passwd".to_string()];
-        let err = resolve_target_files_from_statuses(&paths, &statuses, &tree, &tree).unwrap_err();
-        assert!(err.to_string().contains("path traversal not allowed"));
-    }
-
     /// right_tree にのみ存在するディレクトリが正しく認識されることを検証する。
     #[test]
     fn from_statuses_directory_only_in_right_tree() {
@@ -619,7 +564,8 @@ mod tests {
         let statuses = vec![make_status("deploy/run.sh", FileStatusKind::RightOnly)];
         let paths = vec!["deploy".to_string()];
         let result =
-            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &left_tree, &right_tree)
+                .unwrap();
         assert_eq!(result, vec!["deploy/run.sh"]);
     }
 
@@ -629,7 +575,8 @@ mod tests {
         let tree = make_test_tree();
         let statuses = vec![make_status("config.toml", FileStatusKind::Modified)];
         let paths = vec!["config.toml".to_string()];
-        let result = resolve_target_files_from_statuses(&paths, &statuses, &tree, &tree).unwrap();
+        let result =
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &tree, &tree).unwrap();
         assert_eq!(result, vec!["config.toml"]);
     }
 
@@ -639,7 +586,7 @@ mod tests {
     fn trailing_slash_directory_expands() {
         let tree = make_test_tree();
         let paths = vec!["src/".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
@@ -650,7 +597,7 @@ mod tests {
     fn trailing_slash_nested_directory() {
         let tree = make_test_tree();
         let paths = vec!["src/utils/".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["src/utils/helper.rs"]);
     }
 
@@ -658,7 +605,7 @@ mod tests {
     fn trailing_slash_nonexistent_treated_as_file() {
         let tree = make_test_tree();
         let paths = vec!["nonexistent/".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(result, vec!["nonexistent"]);
     }
 
@@ -666,7 +613,7 @@ mod tests {
     fn slash_only_treated_as_all_files() {
         let tree = make_test_tree();
         let paths = vec!["/".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         // "/" normalizes to empty string via trim_end_matches('/'),
         // which is treated as a root marker → returns all files
         assert_eq!(
@@ -684,7 +631,7 @@ mod tests {
     fn mixed_trailing_slash_paths() {
         let tree = make_test_tree();
         let paths = vec!["src/".to_string(), "config.toml".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec![
@@ -726,7 +673,8 @@ mod tests {
         ];
         let paths = vec!["src/".to_string()];
         let result =
-            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &left_tree, &right_tree)
+                .unwrap();
         assert_eq!(result, vec!["src/extra.rs", "src/lib.rs", "src/main.rs"]);
     }
 
@@ -776,7 +724,7 @@ mod tests {
         let tree = make_test_tree();
         // Multiple trailing slashes: "src//" -> trim_end_matches('/') -> "src"
         let paths = vec!["src//".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec!["src/lib.rs", "src/main.rs", "src/utils/helper.rs"]
@@ -789,7 +737,7 @@ mod tests {
     fn dot_returns_all_files() {
         let tree = make_test_tree();
         let paths = vec![".".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec![
@@ -805,7 +753,7 @@ mod tests {
     fn dot_slash_returns_all_files() {
         let tree = make_test_tree();
         let paths = vec!["./".to_string()];
-        let result = resolve_target_files(&paths, &tree).unwrap();
+        let result = resolve_target_files(&rels(&paths), &tree).unwrap();
         assert_eq!(
             result,
             vec![
@@ -832,7 +780,8 @@ mod tests {
         ];
         let paths = vec![".".to_string()];
         let result =
-            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &left_tree, &right_tree)
+                .unwrap();
         assert_eq!(result, vec!["config.toml", "src/main.rs"]);
     }
 
@@ -851,7 +800,8 @@ mod tests {
         ];
         let paths = vec!["./".to_string()];
         let result =
-            resolve_target_files_from_statuses(&paths, &statuses, &left_tree, &right_tree).unwrap();
+            resolve_target_files_from_statuses(&rels(&paths), &statuses, &left_tree, &right_tree)
+                .unwrap();
         assert_eq!(result, vec!["config.toml", "src/main.rs"]);
     }
 

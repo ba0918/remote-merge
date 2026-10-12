@@ -21,7 +21,7 @@ use crate::service::max_files::{changes_without_reading, limit_changed_files, Ch
 use crate::service::merge::find_symlink_target;
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
-    check_path_arguments, filter_changed_files, partition_existing_files,
+    filter_changed_files, parse_path_arguments, partition_existing_files,
     resolve_target_files_from_statuses,
 };
 use crate::service::source_pair::{
@@ -40,6 +40,7 @@ use crate::service::unreadable_names::requested_unreadable_names;
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
+use remote_merge_core::relative_path::RelPath;
 use remote_merge_engine::local_io::ScanTruncated;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -85,20 +86,16 @@ pub fn run_diff_with_targets(
 }
 
 pub fn execute_diff(
-    mut args: DiffArgs,
+    args: DiffArgs,
     config: AppConfig,
     targets: RuntimeTargets,
 ) -> anyhow::Result<(MultiDiffOutput, i32)> {
     OutputFormat::parse(&args.format)?;
     let max_entries = resolve_max_entries(args.max_entries, &config)?;
-    check_path_arguments(&args.paths)?;
-    for path in &mut args.paths {
-        if !path.trim_end_matches('/').is_empty() {
-            *path = path.trim_end_matches('/').to_string();
-        } else if path == "./" {
-            *path = ".".into();
-        }
-    }
+    let rel_paths: Vec<RelPath> = parse_path_arguments(&args.paths)?
+        .iter()
+        .map(RelPath::without_trailing_slash)
+        .collect();
 
     let source_args = SourceArgs {
         left: args.left,
@@ -117,7 +114,7 @@ pub fn execute_diff(
 
     // 名前で指定したパスは一つずつ比べ、root_dir 全体を指すものがあれば全体も走査する
     let limit = SizeLimit::from_force(args.force);
-    let paths = split_diff_paths(&args.paths);
+    let paths = split_diff_paths(&rel_paths);
     let whole = paths.whole.as_ref().map(|whole| {
         run_diff_full_scan(
             whole,
@@ -1061,9 +1058,17 @@ fn link_target_for_diff(
     })
 }
 
+/// 入力されたままの形のパス
+fn typed_paths(paths: &[RelPath]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.as_typed().to_string())
+        .collect()
+}
+
 /// FullScan: 従来通り全ツリーを取得する。
 fn run_diff_full_scan(
-    paths: &[String],
+    paths: &[RelPath],
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
@@ -1074,7 +1079,7 @@ fn run_diff_full_scan(
     let (right_tree, right_truncated) = fetch_tree_keeping_read(core, right, max_entries)?;
     // UTF-8 として読めない名前のファイルは比べられないので、理由とともに誤りに載せる
     let unreadable: Vec<DiffError> = requested_unreadable_names(
-        paths,
+        &typed_paths(paths),
         &[
             (left.display_name(), &left_tree),
             (right.display_name(), &right_tree),
@@ -1115,7 +1120,7 @@ fn fetch_tree_keeping_read(
 /// ツリーからステータス計算 → パス解決 → diff ファイルリスト構築（FullScan）。`scan_errors` は
 /// 走査で見つけた誤り（上限の超過と読めない名前）で、返す誤りの先頭に置く
 fn compute_statuses_and_resolve(
-    paths: &[String],
+    paths: &[RelPath],
     (left, right): (&Side, &Side),
     core: &mut CoreRuntime,
     (left_tree, right_tree): (FileTree, FileTree),
@@ -1138,7 +1143,8 @@ fn compute_statuses_and_resolve(
         resolve_target_files_from_statuses(paths, &statuses, &left_tree, &right_tree)?;
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
-    let empty_directories = directories_without_files(paths, &existing_files, left, right, core)?;
+    let empty_directories =
+        directories_without_files(&typed_paths(paths), &existing_files, left, right, core)?;
     for path in missing_files
         .iter()
         .filter(|path| !empty_directories.contains(*path))
@@ -1298,7 +1304,7 @@ mod tests {
         let both = || tree(vec![FileNode::new_file("a.txt")]);
 
         let (_, _, _, _, diff_files, _, read_errors) = super::compute_statuses_and_resolve(
-            &["a.txt".to_string()],
+            &[super::RelPath::parse("a.txt").unwrap()],
             (&Side::Local, &Side::Remote("develop".into())),
             &mut core,
             (both(), both()),
