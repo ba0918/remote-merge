@@ -463,3 +463,7 @@ mod tests {
 }
 
 pub mod framing;
+
+#[cfg(test)]
+#[path = "wire_shape_tests.rs"]
+mod wire_shape_tests;
