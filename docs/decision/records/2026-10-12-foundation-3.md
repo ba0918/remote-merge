@@ -97,7 +97,7 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
 
 - D30 [REQ-merge-039](../../ir/merge/concurrency.md#REQ-merge-039) の verification を review から unit にし、三つの経路でハードリンクのある既存のファイルに書く EX-merge-062 の契約テストを数える。これに伴い、今まで review の手順で確かめていた SSH の経路の EX-merge-046（書き込みの途中で書き込み先が symlink に替わる）と EX-merge-050（既存のファイルの権限とハードリンクを保つ）にも契約テストを置く。EX-merge-046 は、製品の SSH の経路が送る書き込みのコマンドをこのマシンの sh で動かし、標準入力の途中で書き込み先を symlink に替える。how_to_verify は、生成したコマンドの細かな場合を確かめる単体テストの場所の案内として残す。
   - why: 利用者の指示による。EX-merge-062 は三つの経路の振る舞いを契約テストで確かめられ、review のままでは kotowari が数えない。
-  - decided_by: 利用者（段 3 の指示で、REQ-merge-039 を kotowari が数える形にすると決めた）
+  - decided_by: verification を unit にすることは利用者（段 3 の指示）。EX-merge-046・050 に契約テストを置くことは Claude（verification を unit にすると例のすべてにテストが要るため。自走の指示により決めた）
 
 ## Rejected
 
