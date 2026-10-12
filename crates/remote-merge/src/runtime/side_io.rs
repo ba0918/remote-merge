@@ -20,7 +20,7 @@ use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
 use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
-use remote_merge_core::scan::outcome::{ScanError, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{ScanError, ScanRequest};
 use remote_merge_engine::scan_result::into_tree;
 
 #[cfg(test)]
@@ -665,7 +665,7 @@ impl CoreRuntime {
         io.fetch_tree(self)
     }
 
-    /// Side に基づいてファイルツリーを再帰取得する
+    /// Side に基づいてファイルツリーを再帰取得する（root_dir 全体の走査）
     ///
     /// `fail_on_truncation` が true の場合、max_entries で切り捨てが発生するとエラーを返す。
     /// false の場合は warn ログのみで Ok を返す（従来動作）。
@@ -675,25 +675,11 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        let include = match self.include_to_scan(side)? {
-            super::include_check::IncludeToScan::Values(include) => include,
-            super::include_check::IncludeToScan::Nothing => {
-                let io = super::target_io::for_side(side, self);
-                return Ok(FileTree::new(&io.root_dir(self)?));
-            }
-        };
-        let mut io = super::target_io::for_side(side, self);
-        io.fetch_tree_recursive(self, &include, max_entries, fail_on_truncation)
+        self.scan_side(side, None, max_entries, fail_on_truncation)
     }
 
-    /// 指定サブパス配下のみツリーを取得する。
-    /// ルート全体のスキャンを回避し、ディレクトリ指定時のパフォーマンスを改善する。
-    ///
-    /// - ローカル: scan_local_tree_recursive() に root_dir + subpath を渡す
-    /// - リモート Agent: list_tree に subpath を渡す
-    /// - リモート SSH: find -P <root_dir>/<subpath> でサブツリーのみ走査
-    /// - 存在しないサブパス → 空ツリー（エラーではない）
-    /// - truncation は fail_on_truncation に従う
+    /// 指定サブパス配下のみツリーを取得する。ないサブパスは空の一覧で、起点を読めないときと
+    /// 途中がディレクトリでないときは誤り（TBL-scan-001）
     pub fn fetch_tree_for_subpath(
         &mut self,
         side: &Side,
@@ -701,31 +687,24 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        let subpath = checked(subpath)?;
-        self.refuse_missing_root_dir(side)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.fetch_tree_for_subpath(self, &subpath, max_entries, fail_on_truncation)
+        self.fetch_tree_below(
+            side,
+            &[subpath.to_string()],
+            max_entries,
+            fail_on_truncation,
+        )
     }
 
-    /// root_dir がなければ、部分の走査も全体の走査と同じく走査の時点で止める
-    /// （docs/ir/scan/listing.md の REQ-scan-015）。部分のパスがないだけなら空の一覧にする
-    fn refuse_missing_root_dir(&mut self, side: &Side) -> anyhow::Result<()> {
-        if !matches!(
-            self.inspect_path(side, "")?,
-            super::target_io::TargetPath::Missing { .. }
-        ) {
-            return Ok(());
-        }
-        let io = super::target_io::for_side(side, self);
-        let root = io.root_dir(self)?;
-        Err(match side {
-            Side::Local => crate::error::AppError::PathNotFound { path: root },
-            Side::Remote(name) => crate::error::AppError::RemoteRootNotFound {
-                host: name.clone(),
-                path: root.to_string_lossy().into_owned(),
-            },
-        }
-        .into())
+    /// 指定した複数のディレクトリの下を一度の走査で取得する。件数の上限はディレクトリごとに当て、
+    /// root_dir の確認は一度だけ行う（TBL-scan-001）
+    pub fn fetch_tree_below(
+        &mut self,
+        side: &Side,
+        dirs: &[String],
+        max_entries: usize,
+        fail_on_truncation: bool,
+    ) -> anyhow::Result<FileTree> {
+        self.scan_side(side, Some(dirs), max_entries, fail_on_truncation)
     }
 
     /// Side に基づいてディレクトリの子ノードを取得する
@@ -988,39 +967,9 @@ impl CoreRuntime {
         Ok(Some((local_hashes, remote_hashes)))
     }
 
-    /// Agent 経由でツリーを再帰取得する
-    pub(crate) fn try_agent_fetch_tree_recursive(
-        &mut self,
-        server_name: &str,
-        include: &[String],
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> Option<anyhow::Result<FileTree>> {
-        let request = ScanRequest {
-            scope: remote_merge_engine::scan_result::scope_of_include(include),
-            max_entries,
-        };
-        self.try_agent_scan(server_name, &request, fail_on_truncation)
-    }
-
-    /// Agent 経由でサブパス配下のツリーを取得する
-    pub(crate) fn try_agent_fetch_tree_for_subpath(
-        &mut self,
-        server_name: &str,
-        subpath: &RelPath,
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> Option<anyhow::Result<FileTree>> {
-        let request = ScanRequest {
-            scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
-            max_entries,
-        };
-        self.try_agent_scan(server_name, &request, fail_on_truncation)
-    }
-
     /// エージェントで、ローカルと同じ集め方と規則で走査する。走査を止めた誤り（root_dir がない・
     /// 読めないディレクトリ・循環など）はエージェントの故障ではないので、SSH の経路に回さずに返す
-    fn try_agent_scan(
+    pub(crate) fn try_agent_scan(
         &mut self,
         server_name: &str,
         request: &ScanRequest,
@@ -1296,9 +1245,13 @@ mod tests {
         let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
         let mut runtime = CoreRuntime::new_for_test();
 
-        let tree = io
-            .fetch_tree_for_subpath(&mut runtime, &RelPath::parse("nested").unwrap(), 100, false)
-            .unwrap();
+        let request = remote_merge_core::scan::outcome::ScanRequest {
+            scope: remote_merge_core::scan::outcome::ScanScope::Starts(vec![
+                remote_merge_core::scan::outcome::Start::below("nested", 0),
+            ]),
+            max_entries: 100,
+        };
+        let tree = io.scan_tree(&mut runtime, &request, false).unwrap();
 
         assert_eq!(tree.nodes.len(), 1);
         assert_eq!(tree.nodes[0].name, "nested");

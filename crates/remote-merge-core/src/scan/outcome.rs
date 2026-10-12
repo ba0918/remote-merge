@@ -2,15 +2,44 @@
 
 use serde::{Deserialize, Serialize};
 
-/// 走査の起点。パスは root_dir からの、"." の要素と空の要素と末尾の "/" を除いたもの
+/// 走査の起点
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScanScope {
     /// root_dir 全体
     Whole,
-    /// include の値。値そのものとその下を載せる（docs/ir/config/include.md）
-    Values(Vec<String>),
-    /// 指定したディレクトリの下だけ。件数の上限はディレクトリごとに当てる（TBL-scan-001）
-    Below(Vec<String>),
+    /// 指定した起点だけ（一つもなければ root_dir を確かめるだけ）
+    Starts(Vec<Start>),
+}
+
+/// 走査の起点一つ。`path` は root_dir からの、"." の要素と空の要素と末尾の "/" を除いたもの
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Start {
+    pub path: String,
+    /// 起点そのものも載せる（include の値。docs/ir/config/include.md）か、下だけを載せる
+    /// （指定したディレクトリ。TBL-scan-001）か
+    pub with_self: bool,
+    /// 件数の上限を当てる組。同じ組の起点は件数を合わせて数える（TBL-scan-001）
+    pub group: usize,
+}
+
+impl Start {
+    /// include の値の起点
+    pub fn value(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            with_self: true,
+            group: 0,
+        }
+    }
+
+    /// 指定したディレクトリの下だけの起点
+    pub fn below(path: impl Into<String>, group: usize) -> Self {
+        Self {
+            path: path.into(),
+            with_self: false,
+            group,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

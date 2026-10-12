@@ -2,8 +2,8 @@
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-003・REQ-ssh-023）。
 
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::outcome::ScanRequest;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
@@ -88,27 +88,10 @@ impl TargetIo for StoppedTargetIo {
     fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
         self.refuse(rt)
     }
-    fn root_dir(&self, rt: &CoreRuntime) -> anyhow::Result<PathBuf> {
-        rt.config
-            .servers
-            .get(&self.name)
-            .map(|server| server.root_dir.clone())
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", self.name))
-    }
-    fn fetch_tree_recursive(
+    fn scan_tree(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
-        _: usize,
-        _: bool,
-    ) -> anyhow::Result<FileTree> {
-        self.refuse(rt)
-    }
-    fn fetch_tree_for_subpath(
-        &mut self,
-        rt: &mut CoreRuntime,
-        _: &RelPath,
-        _: usize,
+        _: &ScanRequest,
         _: bool,
     ) -> anyhow::Result<FileTree> {
         self.refuse(rt)

@@ -1,14 +1,20 @@
 //! 起点を include の値か指定したディレクトリにした走査の規則の単体テスト
-use super::super::outcome::{ListedKind, ScanFailure, ScanScope};
+use super::super::outcome::{ListedKind, ScanFailure, ScanScope, Start};
 use super::super::raw::{LinkTarget, Unreached};
 use super::super::test_support::*;
 
+/// 指定したディレクトリの下だけの起点（ディレクトリごとに件数の組を分ける）
 fn below(paths: &[&str]) -> ScanScope {
-    ScanScope::Below(paths.iter().map(|p| p.to_string()).collect())
+    let starts = paths
+        .iter()
+        .enumerate()
+        .map(|(group, p)| Start::below(*p, group))
+        .collect();
+    ScanScope::Starts(starts)
 }
 
 fn values(paths: &[&str]) -> ScanScope {
-    ScanScope::Values(paths.iter().map(|p| p.to_string()).collect())
+    ScanScope::Starts(paths.iter().map(|p| Start::value(*p)).collect())
 }
 
 // @kotowari[REQ-scan-019, REQ-config-022]
@@ -193,4 +199,33 @@ fn no_include_value_left_still_checks_the_root_dir() {
     let mut fake = Fake::default().with(b"", unreached(Unreached::Missing));
     let result = run(&mut fake, &exclude(&[]), &scope(values(&[]), 9));
     assert_eq!(failure(result), ScanFailure::RootMissing);
+}
+
+// @kotowari[REQ-scan-019, REQ-config-034]
+#[test]
+fn an_include_value_inside_a_named_directory_is_listed_with_itself_in_that_directory_s_group() {
+    let mut fake = Fake::default()
+        .with(b"", root(None))
+        .with(b"a/f.txt", plain(file(b""), None))
+        .with(
+            b"b",
+            plain(dir(b"", 3), Some(subtree(3, vec![file(b"x"), file(b"y")]))),
+        );
+    let scope = ScanScope::Starts(vec![
+        Start {
+            path: "a/f.txt".into(),
+            with_self: true,
+            group: 0,
+        },
+        Start::below("b", 1),
+        Start::below("b/x", 1),
+    ]);
+    let listing = run(&mut fake, &exclude(&[]), &scope_request(scope, 2)).unwrap();
+    assert_eq!(listed(&listing), ["a/f.txt", "b/x", "b/y"]);
+    assert!(!listing.truncated);
+    assert_eq!(fake.asked_paths(), ["", "a/f.txt", "b"]);
+}
+
+fn scope_request(scope: ScanScope, max_entries: usize) -> super::super::outcome::ScanRequest {
+    super::super::outcome::ScanRequest { scope, max_entries }
 }

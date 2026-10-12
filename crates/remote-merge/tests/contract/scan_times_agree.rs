@@ -53,11 +53,13 @@ async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_all_t
     .await;
 
     let local = times(
-        remote_merge_engine::local_io::fetch_tree_recursive(
+        remote_merge_engine::local_io::scan_tree(
             &routes.local.root,
             &[],
-            &[],
-            MAX_ENTRIES,
+            &remote_merge_core::scan::outcome::ScanRequest {
+                scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+                max_entries: MAX_ENTRIES,
+            },
             true,
         )
         .map(|tree| tree.nodes)

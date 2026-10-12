@@ -6,7 +6,6 @@ pub mod change_check;
 pub(crate) mod confirm;
 pub mod connection;
 pub mod core;
-pub(crate) mod include_check;
 #[cfg(feature = "test-utils")]
 pub mod path_route;
 #[cfg(not(feature = "test-utils"))]
@@ -23,6 +22,7 @@ pub mod remote_size;
 mod remote_size;
 mod remote_target;
 mod restore_before;
+pub(crate) mod scan_entry;
 #[cfg(all(test, unix))]
 pub(crate) mod scripted_agent;
 pub mod side_io;

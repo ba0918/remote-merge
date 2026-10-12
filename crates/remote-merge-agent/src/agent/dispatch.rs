@@ -368,7 +368,7 @@ fn estimate_read_result_size(result: &FileReadResult) -> usize {
 mod tests {
     use super::*;
     use remote_merge_core::relative_path::RelPathError;
-    use remote_merge_core::scan::outcome::{ScanRequest, ScanScope};
+    use remote_merge_core::scan::outcome::{ScanRequest, ScanScope, Start};
 
     fn list_tree(scope: ScanScope) -> AgentRequest {
         AgentRequest::ListTree {
@@ -486,11 +486,11 @@ mod tests {
         let (tmp, mut d) = setup();
         let requests = [
             (
-                list_tree(ScanScope::Below(vec!["../../etc".into()])),
+                list_tree(ScanScope::Starts(vec![Start::below("../../etc", 0)])),
                 traversal("../../etc"),
             ),
             (
-                list_tree(ScanScope::Values(vec!["/etc".into()])),
+                list_tree(ScanScope::Starts(vec![Start::value("/etc")])),
                 absolute("/etc"),
             ),
             (
@@ -675,7 +675,7 @@ mod tests {
         fs::write(tmp.path().join("a.txt"), "a").unwrap();
         for root in ["", "/", "."] {
             let resps = d
-                .dispatch(list_tree(ScanScope::Below(vec![root.into()])))
+                .dispatch(list_tree(ScanScope::Starts(vec![Start::below(root, 0)])))
                 .unwrap();
             assert!(
                 matches!(resps.last(), Some(AgentResponse::TreeChunk { entries, .. }) if entries.len() == 1),

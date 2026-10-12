@@ -196,6 +196,9 @@ mod scan_excluded_dangling_link;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_excluded_unresolvable_link.rs"]
 mod scan_excluded_unresolvable_link;
+#[cfg(feature = "test-utils")]
+#[path = "contract/scan_filter_scope.rs"]
+mod scan_filter_scope;
 #[path = "contract/scan_limit_scope.rs"]
 mod scan_limit_scope;
 #[path = "contract/scan_limits.rs"]

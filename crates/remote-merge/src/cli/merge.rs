@@ -39,7 +39,7 @@ use crate::service::{
     fast_path_to_parent_dirs, has_root_parent_dir, resolve_scan_strategy, ScanStrategy,
 };
 use crate::side::Side;
-use crate::tree::{FileNode, FileTree};
+use crate::tree::FileTree;
 use remote_merge_core::relative_path::RelPath;
 
 /// merge サブコマンドの引数
@@ -176,7 +176,6 @@ pub fn execute_merge(
         &pair.left,
         &pair.right,
         &mut core,
-        &config,
         max_entries,
     )?;
 
@@ -493,7 +492,6 @@ fn run_hunk_merge(
     }
 
     // PartialScan: 対象ファイルの親ディレクトリのツリーを取得
-    let config = core.config.clone();
     let paths = vec![path.to_string()];
     let strategy = resolve_scan_strategy(std::slice::from_ref(rel_path), false);
     let (left_tree, right_tree, _statuses, _compare_failures) = fetch_trees_and_statuses_for_merge(
@@ -506,7 +504,6 @@ fn run_hunk_merge(
         left,
         right,
         &mut core,
-        &config,
         max_entries,
     )?;
 
@@ -564,7 +561,6 @@ fn fetch_trees_and_statuses_for_merge(
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
-    config: &AppConfig,
     max_entries: usize,
 ) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>, Vec<MergeFailure>)> {
     let (left_tree, right_tree) = match strategy {
@@ -578,11 +574,11 @@ fn fetch_trees_and_statuses_for_merge(
                 let rt = core.fetch_tree_recursive(right, max_entries, true)?;
                 (lt, rt)
             } else {
-                fetch_partial_trees(&dir_paths, left, right, core, config, max_entries)?
+                fetch_partial_trees(&dir_paths, left, right, core, max_entries)?
             }
         }
         ScanStrategy::PartialScan(ref dir_paths) => {
-            fetch_partial_trees(dir_paths, left, right, core, config, max_entries)?
+            fetch_partial_trees(dir_paths, left, right, core, max_entries)?
         }
         ScanStrategy::FullScan => {
             let lt = core.fetch_tree_recursive(left, max_entries, true)?;
@@ -661,70 +657,17 @@ pub(crate) fn unreadable_name_failures(
     .collect()
 }
 
-/// 指定ディレクトリパスのサブツリーを取得して結合する。
+/// 指定したディレクトリの下を、側ごとに一度の走査で取得する（root_dir の確認も側ごとに一度）
 fn fetch_partial_trees(
     dir_paths: &[String],
     left: &Side,
     right: &Side,
     core: &mut CoreRuntime,
-    config: &AppConfig,
     max_entries: usize,
 ) -> anyhow::Result<(FileTree, FileTree)> {
-    let mut left_tree = FileTree::new(&config.local.root_dir);
-    let mut right_tree = FileTree::new(&config.local.root_dir);
-
-    for dir_path in dir_paths {
-        let lt = core.fetch_tree_for_subpath(left, dir_path, max_entries, true)?;
-        let rt = core.fetch_tree_for_subpath(right, dir_path, max_entries, true)?;
-        merge_partial_nodes(&mut left_tree.nodes, lt.nodes);
-        merge_partial_nodes(&mut right_tree.nodes, rt.nodes);
-        left_tree.unreadable_names.extend(lt.unreadable_names);
-        right_tree.unreadable_names.extend(rt.unreadable_names);
-    }
-    left_tree.sort();
-    right_tree.sort();
-
+    let left_tree = core.fetch_tree_below(left, dir_paths, max_entries, true)?;
+    let right_tree = core.fetch_tree_below(right, dir_paths, max_entries, true)?;
     Ok((left_tree, right_tree))
-}
-
-/// 部分走査で得たサブツリーを、同じ名前のディレクトリの配下まで深くまとめる。
-pub(crate) fn merge_partial_nodes(target: &mut Vec<FileNode>, incoming: Vec<FileNode>) {
-    for node in incoming {
-        merge_partial_node(target, node);
-    }
-}
-
-fn merge_partial_node(target: &mut Vec<FileNode>, incoming: FileNode) {
-    if let Some(existing) = target.iter_mut().find(|node| node.name == incoming.name) {
-        merge_file_node(existing, incoming);
-    } else {
-        target.push(incoming);
-    }
-}
-
-fn merge_file_node(existing: &mut FileNode, incoming: FileNode) {
-    existing.kind = incoming.kind;
-    existing.size = existing.size.or(incoming.size);
-    existing.mtime = existing.mtime.or(incoming.mtime);
-    existing.permissions = existing.permissions.or(incoming.permissions);
-
-    match (&mut existing.children, incoming.children) {
-        (Some(existing_children), Some(incoming_children)) => {
-            for (_, child) in incoming_children {
-                if let Some(existing_child) = existing_children.get_mut(&child.name) {
-                    merge_file_node(existing_child, child);
-                } else {
-                    existing_children.insert(child.name.clone(), child);
-                }
-            }
-        }
-        (None, Some(incoming_children)) => {
-            existing.children = Some(incoming_children);
-        }
-        // (Some, None): incoming に子なし → 既存を保持
-        // (None, None): 両者とも子なし → 何もしない
-        (Some(_), None) | (None, None) => {}
-    }
 }
 
 #[cfg(test)]
@@ -816,34 +759,6 @@ mod tests {
             "unexpected error: {}",
             err
         );
-    }
-
-    #[test]
-    fn test_merge_partial_nodes_preserves_distinct_subtrees_under_same_root() {
-        let mut nodes = vec![FileNode::new_dir_with_children(
-            "app",
-            vec![FileNode::new_dir_with_children(
-                "controllers",
-                vec![FileNode::new_file("users.rs")],
-            )],
-        )];
-
-        merge_partial_nodes(
-            &mut nodes,
-            vec![FileNode::new_dir_with_children(
-                "app",
-                vec![FileNode::new_dir_with_children(
-                    "models",
-                    vec![FileNode::new_file("user.rs")],
-                )],
-            )],
-        );
-
-        assert_eq!(nodes.len(), 1);
-        let app = &nodes[0];
-        let children = app.children.as_ref().unwrap();
-        assert!(children.contains_key("controllers"));
-        assert!(children.contains_key("models"));
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::cli::ref_guard;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::diff::binary::compute_sha256;
 use crate::diff::engine::is_binary;
-use crate::runtime::include_check::resolved_path_outside_root;
+use crate::runtime::scan_entry::resolved_path_outside_root;
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::target_io::TargetPath;
 use crate::runtime::{CoreRuntime, RuntimeTargets};

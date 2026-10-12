@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 
 use crate::cli::content_reads::read_contents;
-use crate::cli::merge::merge_partial_nodes;
 use crate::config::{resolve_max_entries, AppConfig};
 use crate::merge::executor::MergeDirection;
 use crate::runtime::size_limit::SizeLimit;
@@ -135,7 +134,7 @@ pub fn execute_sync(
     }
     let left_side = &pairs[0].left;
     core.connect_if_remote(left_side)?;
-    let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, &config, max_entries)?;
+    let left_tree = fetch_tree_by_strategy(&strategy, left_side, &mut core, max_entries)?;
     let left_info = build_source_info(left_side, &core)?;
 
     // サーバごとの計画策定
@@ -157,19 +156,18 @@ pub fn execute_sync(
         }
 
         // right ツリー取得（ScanStrategy に基づく）
-        let right_tree =
-            match fetch_tree_by_strategy(&strategy, right_side, &mut core, &config, max_entries) {
-                Ok(t) => t,
-                Err(e) => {
-                    let info =
-                        build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
-                            label: right_side.display_name().to_string(),
-                            root: String::new(),
-                        });
-                    connection_failures.push((info, format!("{}", e)));
-                    continue;
-                }
-            };
+        let right_tree = match fetch_tree_by_strategy(&strategy, right_side, &mut core, max_entries)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                let info = build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
+                    label: right_side.display_name().to_string(),
+                    root: String::new(),
+                });
+                connection_failures.push((info, format!("{}", e)));
+                continue;
+            }
+        };
 
         // ステータス計算
         let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
@@ -563,7 +561,6 @@ fn fetch_tree_by_strategy(
     strategy: &ScanStrategy,
     side: &Side,
     core: &mut CoreRuntime,
-    config: &AppConfig,
     max_entries: usize,
 ) -> anyhow::Result<FileTree> {
     match strategy {
@@ -574,32 +571,14 @@ fn fetch_tree_by_strategy(
             if has_root_parent_dir(&dir_paths) {
                 core.fetch_tree_recursive(side, max_entries, true)
             } else {
-                fetch_partial_tree(&dir_paths, side, core, config, max_entries)
+                core.fetch_tree_below(side, &dir_paths, max_entries, true)
             }
         }
         ScanStrategy::PartialScan(ref dir_paths) => {
-            fetch_partial_tree(dir_paths, side, core, config, max_entries)
+            core.fetch_tree_below(side, dir_paths, max_entries, true)
         }
         ScanStrategy::FullScan => core.fetch_tree_recursive(side, max_entries, true),
     }
-}
-
-/// 指定ディレクトリパスのサブツリーを取得して結合する。
-fn fetch_partial_tree(
-    dir_paths: &[String],
-    side: &Side,
-    core: &mut CoreRuntime,
-    config: &AppConfig,
-    max_entries: usize,
-) -> anyhow::Result<FileTree> {
-    let mut tree = FileTree::new(&config.local.root_dir);
-    for dir_path in dir_paths {
-        let sub = core.fetch_tree_for_subpath(side, dir_path, max_entries, true)?;
-        merge_partial_nodes(&mut tree.nodes, sub.nodes);
-        tree.unreadable_names.extend(sub.unreadable_names);
-    }
-    tree.sort();
-    Ok(tree)
 }
 
 /// 確認プロンプト前の計画サマリーを stderr に出力する

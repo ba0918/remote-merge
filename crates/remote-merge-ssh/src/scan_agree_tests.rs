@@ -2,7 +2,7 @@
 //! エージェントの集め方で走査し、結果が同じになることを確かめる（REQ-scan-017）
 use std::fs;
 
-use remote_merge_core::scan::outcome::ScanScope;
+use remote_merge_core::scan::outcome::{ScanScope, Start};
 use remote_merge_core::scan::this_machine::MachineCollector;
 
 use crate::scan_test_shell::*;
@@ -18,14 +18,18 @@ fn the_scan_over_the_shell_agrees_with_the_scan_on_this_machine() {
         (temp.path().join("file"), ScanScope::Whole),
         (
             temp.path().to_path_buf(),
-            ScanScope::Below(vec!["d".into(), "to_dir".into(), "gone".into()]),
+            ScanScope::Starts(vec![
+                Start::below("d", 0),
+                Start::below("to_dir", 1),
+                Start::below("gone", 2),
+            ]),
         ),
         (
             temp.path().to_path_buf(),
-            ScanScope::Values(vec![
-                "to_dir".into(),
-                "dangling".into(),
-                "d/sub/f.txt".into(),
+            ScanScope::Starts(vec![
+                Start::value("to_dir"),
+                Start::value("dangling"),
+                Start::value("d/sub/f.txt"),
             ]),
         ),
     ];

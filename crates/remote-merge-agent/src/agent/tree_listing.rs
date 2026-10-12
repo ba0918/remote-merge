@@ -18,10 +18,10 @@ const ENTRIES_PER_CHUNK: usize = 1000;
 pub fn list_tree(root_dir: &Path, request: &ScanRequest, exclude: &[String]) -> Vec<AgentResponse> {
     let starts = match &request.scope {
         ScanScope::Whole => &[][..],
-        ScanScope::Values(paths) | ScanScope::Below(paths) => paths.as_slice(),
+        ScanScope::Starts(starts) => starts.as_slice(),
     };
     for start in starts {
-        if let Err(refusal) = RelPath::parse(start) {
+        if let Err(refusal) = RelPath::parse(&start.path) {
             return vec![AgentResponse::PathRefused { refusal }];
         }
     }
@@ -68,7 +68,7 @@ fn chunks(listing: Listing) -> Vec<AgentResponse> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remote_merge_core::scan::outcome::ScanFailure;
+    use remote_merge_core::scan::outcome::{ScanFailure, Start};
 
     fn whole() -> ScanRequest {
         ScanRequest {
@@ -108,7 +108,7 @@ mod tests {
     fn a_start_path_that_fails_the_input_check_is_refused_without_reading() {
         let temp = tempfile::tempdir().unwrap();
         let request = ScanRequest {
-            scope: ScanScope::Below(vec!["../etc".into()]),
+            scope: ScanScope::Starts(vec![Start::below("../etc", 0)]),
             max_entries: 10,
         };
         let responses = list_tree(temp.path(), &request, &[]);

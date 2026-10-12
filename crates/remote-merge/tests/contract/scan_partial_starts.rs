@@ -7,7 +7,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use super::scan_missing_root::{Sides, ROUTES};
+use super::scan_missing_root::{Route, Sides, ROUTES};
 
 /// root でない利用者として動いているか（root は読む権限のないディレクトリも読める）
 fn permissions_apply(dir: &std::path::Path) -> bool {
@@ -50,4 +50,30 @@ async fn a_source_directory_below_a_file_stops_the_scan_instead_of_listing_nothi
         let output = sides.run_from_tested(&["merge", "f.txt/x/", "--force"]);
         assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
     }
+}
+
+/// `dirs` を読み込み元のディレクトリとして --dry-run で merge したときに、SSH の偽サーバが受けた
+/// remote の root_dir を含むコマンドの数
+async fn commands_for(route: Route, dirs: &[&str]) -> usize {
+    let sides = Sides::new(route).await;
+    for dir in ["a", "b", "c"] {
+        sides
+            .fixture
+            .put(&format!("{dir}/g.txt"), Some("left\n"), Some("right\n"));
+    }
+    let mut args = vec!["merge"];
+    args.extend(dirs);
+    args.push("--dry-run");
+    let output = sides.run_from_tested(&args);
+    assert_eq!(output.status.code(), Some(0), "{route:?}: {output:?}");
+    sides.fixture.remote_commands().len()
+}
+
+// 走査とそのための root_dir の確認は、指定したディレクトリの数によらず側ごとに一度
+// @kotowari[REQ-scan-009, TBL-scan-001]
+#[tokio::test(flavor = "multi_thread")]
+async fn the_root_dir_is_checked_once_however_many_directories_are_named_over_ssh() {
+    let one = commands_for(Route::Ssh, &["a/"]).await;
+    let three = commands_for(Route::Ssh, &["a/", "b/", "c/"]).await;
+    assert_eq!(one, three);
 }

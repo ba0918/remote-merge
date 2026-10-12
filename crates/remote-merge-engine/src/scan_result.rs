@@ -2,20 +2,11 @@
 
 use std::path::Path;
 
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure, ScanScope};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanFailure};
 use remote_merge_core::scan::tree_build::to_tree;
 
 use crate::local_io::check_truncation;
 use crate::tree::FileTree;
-
-/// include の値（確かめて残ったもの）から走査の起点を決める。空なら root_dir 全体
-pub fn scope_of_include(include: &[String]) -> ScanScope {
-    if include.is_empty() {
-        ScanScope::Whole
-    } else {
-        ScanScope::Values(include.to_vec())
-    }
-}
 
 /// 走査の結果をツリーにする。root_dir がないときは `root_missing` の誤り（経路ごとの文言）にし、
 /// 件数の上限で打ち切った一覧は `fail_on_truncation` なら誤りにする（REQ-scan-004・008）
@@ -93,14 +84,5 @@ mod tests {
         let failed = Err(ScanError::Failure(cycle.clone()));
         let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
         assert_eq!(error.downcast_ref::<ScanFailure>(), Some(&cycle));
-    }
-
-    #[test]
-    fn a_scope_without_include_values_is_the_whole_root_dir() {
-        assert_eq!(scope_of_include(&[]), ScanScope::Whole);
-        assert_eq!(
-            scope_of_include(&["src".into()]),
-            ScanScope::Values(vec!["src".into()])
-        );
     }
 }

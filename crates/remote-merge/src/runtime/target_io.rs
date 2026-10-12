@@ -12,6 +12,7 @@ use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+use remote_merge_core::scan::outcome::ScanRequest;
 
 /// 一覧した子に include を当てる
 pub(crate) fn included_children(
@@ -122,21 +123,12 @@ pub(crate) trait TargetIo {
         target: &str,
     ) -> anyhow::Result<()>;
     fn fetch_tree(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<FileTree>;
-    /// 走査する root_dir（設定に書いたもの）
-    fn root_dir(&self, runtime: &CoreRuntime) -> anyhow::Result<PathBuf>;
-    /// 全体の走査。`include` は確かめて残った値で、空なら include の制限がない
-    fn fetch_tree_recursive(
+    /// 走査の規則で走査する（起点と件数の上限は `request`）。件数の上限で打ち切った一覧は
+    /// `fail_on_truncation` なら誤りにする
+    fn scan_tree(
         &mut self,
         runtime: &mut CoreRuntime,
-        include: &[String],
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> anyhow::Result<FileTree>;
-    fn fetch_tree_for_subpath(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        subpath: &RelPath,
-        max_entries: usize,
+        request: &ScanRequest,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree>;
     fn fetch_children(
@@ -284,40 +276,13 @@ impl TargetIo for LocalTargetIo {
         remote_merge_engine::local_io::fetch_tree(&self.root, &self.exclude)
     }
 
-    fn root_dir(&self, _: &CoreRuntime) -> anyhow::Result<PathBuf> {
-        Ok(self.root.clone())
-    }
-
-    fn fetch_tree_recursive(
+    fn scan_tree(
         &mut self,
         _: &mut CoreRuntime,
-        include: &[String],
-        max: usize,
+        request: &ScanRequest,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        remote_merge_engine::local_io::fetch_tree_recursive(
-            &self.root,
-            &self.exclude,
-            include,
-            max,
-            fail,
-        )
-    }
-
-    fn fetch_tree_for_subpath(
-        &mut self,
-        _: &mut CoreRuntime,
-        subpath: &RelPath,
-        max: usize,
-        fail: bool,
-    ) -> anyhow::Result<FileTree> {
-        remote_merge_engine::local_io::fetch_tree_for_subpath(
-            &self.root,
-            &self.exclude,
-            subpath,
-            max,
-            fail,
-        )
+        remote_merge_engine::local_io::scan_tree(&self.root, &self.exclude, request, fail)
     }
 
     fn fetch_children(

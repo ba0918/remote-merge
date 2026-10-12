@@ -6,11 +6,11 @@ use chrono::{DateTime, Utc};
 use remote_merge_core::path_resolution::{self, ResolvedPath};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::exclude::Exclude;
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest};
 use remote_merge_core::scan::this_machine::MachineCollector;
 use remote_merge_protocol::FileHashResult;
 
-use crate::scan_result::{into_tree, scope_of_include};
+use crate::scan_result::into_tree;
 
 use crate::merge::executor;
 use crate::tree::{FileNode, FileTree};
@@ -282,38 +282,20 @@ pub fn scan(root: &Path, exclude: &[String], request: &ScanRequest) -> Result<Li
     remote_merge_core::scan::drive::scan(&mut collector, &Exclude::new(exclude), request)
 }
 
-/// 全体の走査。`include` は確かめて残った値で、空なら include の制限がない
-pub fn fetch_tree_recursive(
+/// このマシンで走査してツリーにする。件数の上限で打ち切った一覧は `fail` なら誤りにする
+pub fn scan_tree(
     root: &Path,
     exclude: &[String],
-    include: &[String],
-    max: usize,
+    request: &ScanRequest,
     fail: bool,
 ) -> anyhow::Result<FileTree> {
-    let request = ScanRequest {
-        scope: scope_of_include(include),
-        max_entries: max,
-    };
-    into_tree(root, scan(root, exclude, &request), max, fail, || {
-        missing_root(root)
-    })
-}
-
-/// 指定したディレクトリの下だけの走査
-pub fn fetch_tree_for_subpath(
-    root: &Path,
-    exclude: &[String],
-    subpath: &RelPath,
-    max: usize,
-    fail: bool,
-) -> anyhow::Result<FileTree> {
-    let request = ScanRequest {
-        scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
-        max_entries: max,
-    };
-    into_tree(root, scan(root, exclude, &request), max, fail, || {
-        missing_root(root)
-    })
+    into_tree(
+        root,
+        scan(root, exclude, request),
+        request.max_entries,
+        fail,
+        || missing_root(root),
+    )
 }
 
 /// ローカルの root_dir がないときの誤り

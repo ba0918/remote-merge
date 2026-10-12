@@ -5,7 +5,6 @@
 //! 処理を止める（以降は `stopped_target` が行わずに失敗にする）。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
@@ -16,6 +15,7 @@ use super::side_io::hash_results_to_map;
 use super::size_limit::FileSize;
 use super::target_io::{included_children, TargetIo};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::outcome::ScanRequest;
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -170,45 +170,18 @@ impl TargetIo for RemoteTargetIo {
             rt.ssh_read(name, |rt| rt.fetch_remote_tree(name))
         })
     }
-    fn root_dir(&self, rt: &CoreRuntime) -> anyhow::Result<PathBuf> {
-        rt.config
-            .servers
-            .get(&self.name)
-            .map(|server| server.root_dir.clone())
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", self.name))
-    }
-    fn fetch_tree_recursive(
+    fn scan_tree(
         &mut self,
         rt: &mut CoreRuntime,
-        include: &[String],
-        max: usize,
+        request: &ScanRequest,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
         self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_fetch_tree_recursive(name, include, max, fail) {
+            if let Some(v) = rt.try_agent_scan(name, request, fail) {
                 return v;
             }
             rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| {
-                rt.fetch_remote_tree_recursive(name, include, max, fail)
-            })
-        })
-    }
-    fn fetch_tree_for_subpath(
-        &mut self,
-        rt: &mut CoreRuntime,
-        subpath: &RelPath,
-        max: usize,
-        fail: bool,
-    ) -> anyhow::Result<FileTree> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_fetch_tree_for_subpath(name, subpath, max, fail) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| {
-                rt.fetch_remote_tree_for_subpath(name, subpath, max, fail)
-            })
+            rt.ssh_read(name, |rt| rt.scan_remote_tree(name, request, fail))
         })
     }
     fn fetch_children(

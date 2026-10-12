@@ -3,10 +3,9 @@
 //! SSH接続管理、ファイルI/O、ツリー取得など、
 //! インターフェースに依存しない共通機能を提供する。
 
-use remote_merge_core::relative_path::RelPath;
 use remote_merge_core::scan::drive::scan;
 use remote_merge_core::scan::exclude::Exclude;
-use remote_merge_core::scan::outcome::{ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::ScanRequest;
 use remote_merge_engine::scan_result::into_tree;
 use remote_merge_ssh::scan_collect::SshCollector;
 use std::collections::HashMap;
@@ -876,39 +875,9 @@ impl CoreRuntime {
         Ok(tree)
     }
 
-    /// リモートツリーを再帰的に全走査する（CLI status 用）。`include` は確かめて残った値
-    pub fn fetch_remote_tree_recursive(
-        &mut self,
-        server_name: &str,
-        include: &[String],
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> anyhow::Result<FileTree> {
-        let request = ScanRequest {
-            scope: remote_merge_engine::scan_result::scope_of_include(include),
-            max_entries,
-        };
-        self.scan_remote_tree(server_name, &request, fail_on_truncation)
-    }
-
-    /// リモートのサブパス配下のみツリーを走査する（SSH 経由）
-    pub fn fetch_remote_tree_for_subpath(
-        &mut self,
-        server_name: &str,
-        subpath: &RelPath,
-        max_entries: usize,
-        fail_on_truncation: bool,
-    ) -> anyhow::Result<FileTree> {
-        let request = ScanRequest {
-            scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
-            max_entries,
-        };
-        self.scan_remote_tree(server_name, &request, fail_on_truncation)
-    }
-
     /// SSH の経路の集め方と走査の規則で走査する。走査の時間切れは接続の設定の timeout_sec から
     /// 決める（REQ-scan-013）
-    fn scan_remote_tree(
+    pub(crate) fn scan_remote_tree(
         &mut self,
         server_name: &str,
         request: &ScanRequest,
@@ -1331,7 +1300,14 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_server_config() {
         let mut rt = CoreRuntime::new_for_test();
-        let result = rt.fetch_remote_tree_recursive("nonexistent", &[], 10000, false);
+        let result = rt.scan_remote_tree(
+            "nonexistent",
+            &remote_merge_core::scan::outcome::ScanRequest {
+                scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+                max_entries: 10000,
+            },
+            false,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -1339,7 +1315,14 @@ mod tests {
     #[test]
     fn test_fetch_remote_tree_recursive_no_ssh_connection() {
         let mut rt = runtime_with_server("develop", "/var/www");
-        let result = rt.fetch_remote_tree_recursive("develop", &[], 10000, false);
+        let result = rt.scan_remote_tree(
+            "develop",
+            &remote_merge_core::scan::outcome::ScanRequest {
+                scope: remote_merge_core::scan::outcome::ScanScope::Whole,
+                max_entries: 10000,
+            },
+            false,
+        );
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not connected"));
     }

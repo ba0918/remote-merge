@@ -11,18 +11,14 @@ pub fn scan(
     exclude: &Exclude,
     request: &ScanRequest,
 ) -> Result<Listing, ScanError> {
-    let (scope, starts) = start_paths(&request.scope, exclude);
-    let whole = matches!(scope, ScanScope::Whole);
-    let counters = match scope {
-        ScanScope::Below(_) => starts.len(),
-        _ => 1,
-    };
+    let (whole, starts) = start_paths(&request.scope, exclude);
+    let counters = starts.iter().map(|s| s.group + 1).max().unwrap_or(1);
     let mut questions = vec![Question {
         path: Vec::new(),
         descend: whole,
     }];
-    questions.extend(starts.iter().map(|path| Question {
-        path: path.clone(),
+    questions.extend(starts.iter().map(|start| Question {
+        path: start.path.clone(),
         descend: true,
     }));
     let answers = ask(collector, &questions, exclude)?;
@@ -32,10 +28,11 @@ pub fn scan(
         let tree = answers[0].subtree.as_ref().ok_or_else(missing_subtree)?;
         walk.take_subtree(b"", tree, &[], 0)?;
     }
-    for (index, (path, answer)) in starts.iter().zip(&answers[1..]).enumerate() {
-        match scope {
-            ScanScope::Below(_) => take_below(&mut walk, path, answer, root_id, index)?,
-            _ => take_value(&mut walk, path, answer, root_id)?,
+    for (start, answer) in starts.iter().zip(&answers[1..]) {
+        if start.with_self {
+            take_value(&mut walk, &start.path, answer, root_id, start.group)?;
+        } else {
+            take_below(&mut walk, &start.path, answer, root_id, start.group)?;
         }
     }
     while !walk.pending.is_empty() && !walk.truncated {
@@ -98,16 +95,22 @@ fn unreached(path: &[u8], why: Unreached) -> Result<(), ScanError> {
 }
 
 /// include の値そのものと、その下を載せる（docs/ir/config/include.md）
-fn take_value(walk: &mut Walk, path: &[u8], answer: &Answer, root: DirId) -> Result<(), ScanError> {
+fn take_value(
+    walk: &mut Walk,
+    path: &[u8],
+    answer: &Answer,
+    root: DirId,
+    counter: usize,
+) -> Result<(), ScanError> {
     let entry = match &answer.entry {
         Err(why) => return unreached(path, *why),
         Ok(entry) => entry,
     };
     if entry.kind == RawKind::Directory {
         let tree = answer.subtree.as_ref().ok_or_else(missing_subtree)?;
-        return walk.take_subtree(path, tree, &[root], 0);
+        return walk.take_subtree(path, tree, &[root], counter);
     }
-    walk.take_leaf(path, entry, vec![root], 0)?;
+    walk.take_leaf(path, entry, vec![root], counter)?;
     match walk.pending.pop() {
         Some(link) => walk.take_link(link, answer),
         None => Ok(()),
@@ -144,36 +147,45 @@ fn take_below(
     }
 }
 
-/// 起点のパスを整え、exclude に当たるものと、ほかの起点の下にあるものを除く。root_dir 全体を
-/// 指すものがあれば全体の走査にする
-fn start_paths(scope: &ScanScope, exclude: &Exclude) -> (ScanScope, Vec<Vec<u8>>) {
-    let paths = match scope {
-        ScanScope::Whole => return (ScanScope::Whole, Vec::new()),
-        ScanScope::Values(paths) | ScanScope::Below(paths) => paths,
-    };
-    let mut normal: Vec<Vec<u8>> = paths.iter().map(|p| normalize(p).into_bytes()).collect();
-    if normal.iter().any(Vec::is_empty) {
-        return (ScanScope::Whole, Vec::new());
-    }
-    normal.sort();
-    normal.dedup();
-    let mut kept: Vec<Vec<u8>> = Vec::new();
-    for path in normal {
-        let nested = kept
-            .iter()
-            .any(|outer| path.starts_with(outer) && path.get(outer.len()) == Some(&b'/'));
-        if !nested && !exclude.excludes(&path) {
-            kept.push(path);
-        }
-    }
-    (scope.clone(), kept)
+/// 整えた起点
+struct StartPath {
+    path: Vec<u8>,
+    with_self: bool,
+    group: usize,
 }
 
-fn normalize(path: &str) -> String {
-    path.split('/')
-        .filter(|element| !element.is_empty() && *element != ".")
-        .collect::<Vec<_>>()
-        .join("/")
+/// 起点のパスを整え、exclude に当たるものと、ほかの起点の下にあるものを除く（同じパスなら自身も
+/// 載せる起点を残す）。root_dir 全体を指す起点があれば全体の走査にする。返す値の一つ目は全体の
+/// 走査か
+fn start_paths(scope: &ScanScope, exclude: &Exclude) -> (bool, Vec<StartPath>) {
+    let starts = match scope {
+        ScanScope::Whole => return (true, Vec::new()),
+        ScanScope::Starts(starts) => starts,
+    };
+    let mut normal: Vec<StartPath> = starts
+        .iter()
+        .map(|start| StartPath {
+            path: super::starts::normalize(&start.path).into_bytes(),
+            with_self: start.with_self,
+            group: start.group,
+        })
+        .collect();
+    if normal.iter().any(|start| start.path.is_empty()) {
+        return (true, Vec::new());
+    }
+    normal.sort_by(|a, b| a.path.cmp(&b.path).then(b.with_self.cmp(&a.with_self)));
+    let mut kept: Vec<StartPath> = Vec::new();
+    for start in normal {
+        let covered = kept.iter().any(|outer| {
+            outer.path == start.path
+                || (start.path.starts_with(&outer.path)
+                    && start.path.get(outer.path.len()) == Some(&b'/'))
+        });
+        if !covered && !exclude.excludes(&start.path) {
+            kept.push(start);
+        }
+    }
+    (false, kept)
 }
 
 #[cfg(test)]
