@@ -4,6 +4,7 @@ pub mod deploy;
 pub mod dispatch;
 #[cfg(unix)]
 pub mod file_io;
+pub mod inspection;
 #[cfg(unix)]
 mod listing;
 #[cfg(unix)]

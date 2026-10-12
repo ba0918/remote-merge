@@ -83,7 +83,7 @@ impl SshCommand {
         match self {
             Self::Scan => script.contains("@RMSCAN"),
             Self::ListChildren => script.contains("-maxdepth 1 -mindepth 1"),
-            Self::PathInspection => script.starts_with("LC_ALL=C; r="),
+            Self::PathInspection => script.starts_with(remote_merge_ssh::path_facts_script::PREFIX),
             Self::Stat => {
                 script.starts_with("LC_ALL=C; c=$(stat") || script.contains("stat -c '%Y %n'")
             }

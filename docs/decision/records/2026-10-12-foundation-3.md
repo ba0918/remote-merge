@@ -83,6 +83,10 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
   - why: 失敗した操作の結果をないことや空として扱わない（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。答えを外すと、呼び出し側はないことと答えなかったことを見分けられない（D9・D20）。
   - decided_by: Claude（REQ-paths-020・D9・D20 から導いた。自走の指示により決めた）
 
+- D27 SSH の経路のパスの確認で、相対の root_dir は、先に一回だけリモートの作業ディレクトリの実パス（`pwd -P`）を尋ね、それにつないだ絶対パスから辿る。作業ディレクトリを求められなければ（消えているなど）、確かめるパスのすべてを "cannot resolve path: cannot read" にし、作業ディレクトリが UTF-8 でなければ "cannot resolve path: non-UTF-8 path" にする。相対の root_dir では、問いの回数が辿る symlink の段の数に二を足したものまでになる。`ls -d` は、シェルのテストでないか入れないかを決められない要素に出会ったときだけ要り、そのときにないなら確認全体を道具がないの失敗にする。
+  - why: エージェントは作業ディレクトリの実パス（getcwd）を基準にし、求められなければ cannot read、UTF-8 でなければ non-UTF-8 path にするので、同じ状態で同じ結果にする（[REQ-paths-008](../../ir/paths/routes.md#REQ-paths-008)・[REQ-paths-012](../../ir/paths/routes.md#REQ-paths-012)）。問いの絶対パスは手順が作るので、基準が分かる前には問いを作れない。ls を先に求めると、ls を使わずに決まる確認まで止めてしまう（[TBL-ssh-002](../../ir/ssh/compatibility.md#TBL-ssh-002) は理由を見分けるときに要るとしている）。
+  - decided_by: Claude（REQ-paths-008・REQ-paths-012・TBL-ssh-002 から導いた。自走の指示により決めた）
+
 ## Rejected
 
 - D15 SSH の経路でも、操作の失敗を見分けられないときは今のとおり経路の例外として IR に残す。

@@ -88,23 +88,25 @@ async fn the_root_dir_is_checked_once_however_many_directories_are_named_over_ss
     assert_eq!(one, three);
 }
 
-/// root_dir と include の値 "src" のパスの確認のコマンドの数（SSH の偽サーバが受けたもの）
+/// root_dir と include の値 "src" のパスの確認のコマンドの数（SSH の偽サーバが受けたもの）。
+/// パスの確認は、要素の事実を尋ねるパスを一重引用符で囲んで "/" に近い順に並べるので、確かめる
+/// パスそのものは並びの最後（後ろに次の問いの区切りか改行が続く）にある
 fn root_and_include_checks(sides: &Sides) -> usize {
+    let remote = sides.fixture.remote();
+    let ends: Vec<String> = [
+        format!("'{}'", remote.display()),
+        format!("'{}/src'", remote.display()),
+    ]
+    .iter()
+    .flat_map(|last| [format!("{last} @Q"), format!("{last}\n")])
+    .collect();
     sides
         .fixture
         .server
         .commands()
         .iter()
-        .filter_map(|script| {
-            let rest = script.strip_prefix("LC_ALL=C; r=")?;
-            let (_, rest) = rest.split_once("; p=")?;
-            Some(
-                rest.split_once("; ")
-                    .map_or(rest, |(rel, _)| rel)
-                    .to_string(),
-            )
-        })
-        .filter(|rel| rel == "''" || rel == "'src'")
+        .filter(|script| super::ssh_server::is_path_inspection(script))
+        .filter(|script| ends.iter().any(|end| script.contains(end.as_str())))
         .count()
 }
 

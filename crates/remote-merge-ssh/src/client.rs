@@ -702,6 +702,16 @@ impl SshClient {
         )
     }
 
+    /// 事実を尋ねるスクリプトを動かし、標準出力・標準エラー・終了コードをそのまま返す。
+    /// 終了ステータスを受け取れなかったときは接続断の誤りにする
+    pub async fn run_bytes(
+        &mut self,
+        command: &str,
+    ) -> crate::error::Result<(Vec<u8>, Vec<u8>, u32)> {
+        let output = self.run_command_bytes(command).await?;
+        Ok((output.stdout, output.stderr, output.exit_code))
+    }
+
     /// 走査のスクリプト（[`crate::scan_script`]）を動かし、標準出力と標準エラーを返す。
     /// `timeout_sec` 秒で終わらなければ、接続の時間切れと区別できる誤りにする（REQ-scan-013）
     pub async fn run_scan_script(

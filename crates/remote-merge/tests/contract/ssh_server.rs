@@ -18,18 +18,10 @@ use tokio::net::TcpListener;
 
 use super::server_faults::{self, AgentInbound, FaultState, Faults, SshCommand, SudoAnswer};
 
-/// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か。
-/// 製品のコマンドは製品の並びで始まり、root_dir と相対パスを r と p に代入する
-#[cfg(feature = "test-utils")]
+/// 受けたコマンド（ログインシェルの包みを外したもの）が、製品の SSH の経路のパスの確認か
+/// （パスの要素の事実を尋ねるスクリプトは決まった書き出しで始まる）
 pub fn is_path_inspection(command: &str) -> bool {
-    command.starts_with(remote_merge::runtime::remote_path::INSPECT_PATH_PREFIX)
-}
-
-/// 製品の並びは test-utils の機能のときだけ読める。パスの確認を SSH で受ける試験は、どれも
-/// test-utils の機能のときだけ動く
-#[cfg(not(feature = "test-utils"))]
-pub fn is_path_inspection(_command: &str) -> bool {
-    false
+    command.starts_with(remote_merge_ssh::path_facts_script::PREFIX)
 }
 
 /// 受けたコマンドが、製品の SSH の経路のファイルの大きさの問い合わせか
@@ -635,30 +627,8 @@ impl server::Handler for LocalHandler {
             )?;
             return Ok(());
         }
-        if is_path_inspection(&script) {
-            // パスの確認には、root_dir の下の相対パスがそのまま存在するという答えを返す
-            let (root, rel) = script
-                .split_once("r=")
-                .and_then(|(_, rest)| rest.split_once("; p="))
-                .and_then(|(root, rest)| Some((root, rest.split_once("; ")?.0)))
-                .expect("path inspection includes root_dir and a path");
-            let (root, rel) = (root.trim_matches('\''), rel.trim_matches('\''));
-            let real_path = if rel.is_empty() {
-                root.to_string()
-            } else {
-                format!("{root}/{rel}")
-            };
-            session.data(
-                channel,
-                CryptoVec::from(format!("exists\0{real_path}\0").as_bytes()),
-            )?;
-            session.exit_status_request(channel, 0)?;
-            session.eof(channel)?;
-            session.close(channel)?;
-            return Ok(());
-        }
-        if SshCommand::Scan.matches(&script) {
-            // 走査は受けたまま実行して答える（root_dir はこのマシンの一時ディレクトリ）
+        if is_path_inspection(&script) || SshCommand::Scan.matches(&script) {
+            // パスの確認と走査は受けたまま実行して答える（root_dir はこのマシンの一時ディレクトリ）
             let result = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(&script)

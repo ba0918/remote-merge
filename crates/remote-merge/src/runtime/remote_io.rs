@@ -18,28 +18,6 @@ use remote_merge_core::relative_path::{EntryPath, RelPath};
 // Side::Remote 分岐の内部実装。side_io.rs が唯一の呼び出し元。
 
 impl CoreRuntime {
-    pub(crate) fn inspect_remote_path(
-        &mut self,
-        server_name: &str,
-        rel_path: &RelPath,
-    ) -> anyhow::Result<remote_merge_core::path_resolution::ResolvedPath> {
-        let root = self
-            .get_server_config(server_name)?
-            .root_dir
-            .to_string_lossy()
-            .into_owned();
-        let command =
-            super::remote_path::build_inspect_path_command(&root, rel_path.path_to_resolve());
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {server_name}"))?;
-        let output = self
-            .rt
-            .block_on(crate::ssh::exec_strict_bytes(client, &command))?;
-        super::remote_path::parse_inspect_path_output(&output)
-    }
-
     /// 複数のリモートファイルをバイト列としてバッチ読み込みする（`接続断` のやり直しは呼び出し元の
     /// `ssh_read` が行う）。
     ///

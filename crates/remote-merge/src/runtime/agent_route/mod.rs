@@ -48,7 +48,7 @@ pub(crate) fn inspect(
     path: &RelPath,
 ) -> anyhow::Result<ResolvedPath> {
     let inspection = with_agent(rt, server_name, |agent| agent.inspect_path(path))?;
-    super::path_route::resolved_from_agent(inspection)
+    crate::agent::inspection::resolved_from_agent(inspection)
 }
 
 pub(crate) fn write(

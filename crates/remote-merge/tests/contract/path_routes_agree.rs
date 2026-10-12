@@ -16,12 +16,11 @@ use std::process::{Command, Stdio};
 
 use remote_merge::agent::client::AgentClient;
 use remote_merge::agent::dispatch::Dispatcher;
+use remote_merge::agent::inspection::resolved_from_agent;
 use remote_merge::agent::protocol::{
     deserialize_response, serialize_response, AgentRequest, AgentResponse,
 };
 use remote_merge::agent::server::MetadataConfig;
-use remote_merge::runtime::path_route::resolved_from_agent;
-use remote_merge::runtime::remote_path::{build_inspect_path_command, parse_inspect_path_output};
 use remote_merge_core::path_resolution::ResolvedPath;
 
 /// 経路の答え。エラーは文言で比べる
@@ -40,23 +39,34 @@ fn ssh_with_path(root: &Path, rel: &str, path_env: &OsStr) -> Outcome {
     run_script(root.to_str().unwrap(), rel, path_env, None)
 }
 
-/// SSH のスクリプトを sh で動かす。`cwd` があれば、その作業ディレクトリで動かす
+/// SSH の経路の確認を、尋ねるスクリプトをこのマシンの sh で動かして行う。`cwd` があれば、
+/// その作業ディレクトリで動かす
 fn run_script(root: &str, rel: &str, path_env: &OsStr, cwd: Option<&Path>) -> Outcome {
-    let mut command = Command::new("/bin/sh");
-    command
-        .arg("-c")
-        .arg(build_inspect_path_command(root, rel))
-        .env("PATH", path_env);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let output = command.output().unwrap();
-    assert!(
-        output.status.success(),
-        "{rel}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    parse_inspect_path_output(&output.stdout).map_err(|error| error.to_string())
+    let run = |script: &str| {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script).env("PATH", path_env);
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{rel}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok::<_, String>(output.stdout)
+    };
+    let mut answers = remote_merge_ssh::path_facts::resolve_all(
+        root,
+        &[remote_merge_core::relative_path::RelPath::parse(rel)
+            .unwrap()
+            .path_to_resolve()
+            .to_string()],
+        65536,
+        run,
+    )
+    .unwrap();
+    answers.remove(0).map_err(|error| error.to_string())
 }
 
 fn ssh(root: &Path, rel: &str) -> Outcome {
@@ -333,18 +343,23 @@ fn command_in_removed_directory(cwd: &Path, program: &OsStr, args: &[&OsStr]) ->
 fn a_relative_root_dir_from_a_removed_working_directory_stops_with_cannot_read_on_both_remote_routes(
 ) {
     let base = Base::new();
-    let script = build_inspect_path_command("app", "a.txt");
     let removed = base.path.join("ssh-cwd");
     fs::create_dir(&removed).unwrap();
-    let output = command_in_removed_directory(
-        &removed,
-        OsStr::new("/bin/sh"),
-        &[OsStr::new("-c"), OsStr::new(&script)],
-    )
-    .output()
-    .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let ssh = parse_inspect_path_output(&output.stdout).map_err(|error| error.to_string());
+    let run = |script: &str| {
+        let output = command_in_removed_directory(
+            &removed,
+            OsStr::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new(script)],
+        )
+        .output()
+        .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        Ok::<_, String>(output.stdout)
+    };
+    let ssh = remote_merge_ssh::path_facts::resolve_all("app", &["a.txt".to_string()], 65536, run)
+        .unwrap()
+        .remove(0)
+        .map_err(|error| error.to_string());
 
     let removed = base.path.join("agent-cwd");
     fs::create_dir(&removed).unwrap();
@@ -471,4 +486,32 @@ fn generated_link_states_give_the_same_answer_on_all_three_routes() {
         let disagreement = disagreement(&root, query);
         proptest::prop_assert!(disagreement.is_none(), "{targets:?}: {disagreement:?}");
     });
+}
+
+// @kotowari[REQ-paths-008, EX-paths-043]
+#[test]
+fn ex_paths_043_below_a_directory_without_search_permission_every_route_answers_permission_denied()
+{
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let base = Base::new();
+    let root = base.path.join("root");
+    fs::create_dir_all(root.join("locked")).unwrap();
+    fs::write(root.join("locked/a.txt"), "content\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o600)).unwrap();
+
+    let answers: Vec<(Outcome, Outcome, Outcome)> = ["locked/a.txt", "locked"]
+        .iter()
+        .map(|rel| (local(&root, rel), ssh(&root, rel), agent(&root, rel)))
+        .collect();
+    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o700)).unwrap();
+
+    let denied = Err("cannot resolve path: permission denied".to_string());
+    assert_eq!(answers[0], (denied.clone(), denied.clone(), denied));
+    let exists = Ok(ResolvedPath::Exists {
+        real_path: format!("{}/locked", root.display()),
+    });
+    assert_eq!(answers[1], (exists.clone(), exists.clone(), exists));
 }

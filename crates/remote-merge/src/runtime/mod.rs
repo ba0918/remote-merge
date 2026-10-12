@@ -15,17 +15,9 @@ pub mod core;
 mod core_backup;
 mod local_ops;
 mod local_target;
-#[cfg(feature = "test-utils")]
-pub mod path_route;
-#[cfg(not(feature = "test-utils"))]
-mod path_route;
 mod remote_change;
 pub mod remote_io;
 mod remote_ops;
-#[cfg(feature = "test-utils")]
-pub mod remote_path;
-#[cfg(not(feature = "test-utils"))]
-mod remote_path;
 #[cfg(feature = "test-utils")]
 pub mod remote_size;
 #[cfg(not(feature = "test-utils"))]
@@ -40,6 +32,7 @@ pub(crate) mod scripted_agent;
 mod side_hashes;
 pub mod side_io;
 pub mod size_limit;
+mod ssh_inspect;
 mod ssh_scan;
 mod stopped_target;
 pub(crate) mod target_io;

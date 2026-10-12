@@ -4,6 +4,7 @@
 //! 外から受け取る。ローカルとエージェントは [`os::resolve_on_this_machine`] で同じ基本操作を使う。
 
 mod error;
+pub mod facts;
 pub mod os;
 mod walk;
 

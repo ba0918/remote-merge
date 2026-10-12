@@ -22,7 +22,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<ResolvedPath> {
         match self.remote_route(server)? {
             RemoteRoute::Agent => agent_route::inspect(self, server, path),
-            RemoteRoute::Ssh => self.inspect_remote_path(server, path),
+            RemoteRoute::Ssh => self.ssh_inspect(server, path),
         }
     }
 
