@@ -134,7 +134,7 @@ fn a_missing_extra_or_failed_answer_to_the_second_question_is_an_error() {
     let empty = [empty_dir(b"e", b"./e")];
     let apply = |records: &[u8], status: &[u8]| {
         let (stdout, stderr) = recheck_output(records, status);
-        let checks = read_recheck(&stdout, &stderr)?.unwrap();
+        let checks = match_round(&[&b"./e"[..]], read_recheck(&stdout, &stderr)?.unwrap())?;
         let mut answers = [answer(tree(vec![entry(b"e", RawKind::Directory)]))];
         apply_recheck(
             &mut answers,
@@ -157,4 +157,21 @@ fn a_missing_extra_or_failed_answer_to_the_second_question_is_an_error() {
 fn a_root_dir_that_cannot_be_entered_for_the_second_question_gives_no_answer() {
     let stdout = b"@RMSCAN\0@F\0U\0";
     assert_eq!(read_recheck(stdout, b"@RMSCAN\n"), Ok(None));
+}
+
+// @kotowari[REQ-scan-014]
+#[test]
+fn each_round_of_the_second_question_must_answer_exactly_what_it_asked() {
+    let a = check(b"./a", b"11", &[]);
+    let b = check(b"./b", b"11", &[]);
+    let both: [&[u8]; 2] = [b"./a", b"./b"];
+    assert_eq!(
+        match_round(&both, vec![b.clone(), a.clone()]),
+        Ok(vec![b.clone(), a.clone()])
+    );
+    // 二回に分けたとき、ほかの回で尋ねたディレクトリの答えは、この回の答えにならない
+    assert!(match_round(&[&b"./a"[..]], vec![b.clone()]).is_err());
+    assert!(match_round(&[&b"./b"[..]], vec![a.clone(), b.clone()]).is_err());
+    assert!(match_round(&both, vec![a.clone()]).is_err());
+    assert!(match_round(&both, vec![a.clone(), a.clone(), b.clone()]).is_err());
 }

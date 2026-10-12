@@ -12,7 +12,7 @@ use remote_merge_core::scan::raw::Subtree;
 
 use crate::scan_checks::{check_script, relative};
 use crate::scan_diagnostics::DirCheck;
-pub use crate::scan_recheck_read::{apply_recheck, read_recheck};
+pub use crate::scan_recheck_read::{apply_recheck, match_round, read_recheck};
 use crate::scan_script::{assign, root_setup, split_by_length, wrapped_len, END, MARKER};
 
 /// もう一度尋ねるディレクトリ。`answer` は問いの番号、`rel` は問いのパスからの相対パス、

@@ -8,7 +8,9 @@ use remote_merge_core::scan::raw::{Answer, CollectError, Collector, Question};
 use crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN;
 use crate::client::SshClient;
 use crate::scan_output::parse;
-use crate::scan_recheck::{apply_recheck, read_recheck, recheck_script, split_recheck, EmptyDir};
+use crate::scan_recheck::{
+    apply_recheck, match_round, read_recheck, recheck_script, split_recheck, EmptyDir,
+};
 use crate::scan_script::{build, root_gone, split_for_command_line, ScriptQuestion};
 
 pub struct SshCollector<'a> {
@@ -96,8 +98,8 @@ pub fn collect_with<E>(
     printed.dedup();
     let mut checks = Vec::new();
     for range in split_recheck(root, &printed, limit) {
-        let (stdout, stderr) =
-            run(&recheck_script(root, &printed[range])).map_err(CollectFailure::Run)?;
+        let asked = &printed[range];
+        let (stdout, stderr) = run(&recheck_script(root, asked)).map_err(CollectFailure::Run)?;
         if root_gone(&stdout) {
             return Err(CollectFailure::RootGone);
         }
@@ -105,7 +107,7 @@ pub fn collect_with<E>(
         let group = read_recheck(&stdout, &stderr)
             .map_err(CollectFailure::Read)?
             .ok_or(CollectFailure::RootGone)?;
-        checks.extend(group);
+        checks.extend(match_round(asked, group).map_err(CollectFailure::Read)?);
     }
     let paths: Vec<&[u8]> = questions.iter().map(|q| q.path.as_slice()).collect();
     apply_recheck(&mut answers, &empty, &checks, &paths, exclude).map_err(CollectFailure::Read)?;

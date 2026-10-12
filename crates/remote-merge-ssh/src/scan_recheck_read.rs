@@ -53,9 +53,35 @@ pub fn read_recheck(stdout: &[u8], stderr: &[u8]) -> Result<Option<Vec<DirCheck>
     Ok(Some(group))
 }
 
-/// もう一度尋ねた答えを入れる。子が見つかった・もう空と確かめられないディレクトリは変わった
-/// ものにする。exclude に当たる子（find が刈り込んだもの）は数えない。`question_paths` は問いの
-/// 番号ごとの root_dir からのパス
+/// 一回分の答え `checks` が、その回に尋ねたディレクトリ `asked` と一つずつ対応するかを確かめる
+pub fn match_round(asked: &[&[u8]], checks: Vec<DirCheck>) -> Result<Vec<DirCheck>, String> {
+    let mut unanswered: HashSet<&[u8]> = asked.iter().copied().collect();
+    for check in &checks {
+        if !unanswered.remove(check.printed.as_slice()) {
+            let what = if asked.contains(&check.printed.as_slice()) {
+                "twice"
+            } else {
+                "not asked"
+            };
+            return Err(mismatch(what, &check.printed));
+        }
+    }
+    match unanswered.into_iter().next() {
+        Some(missing) => Err(mismatch("missing", missing)),
+        None => Ok(checks),
+    }
+}
+
+fn mismatch(what: &str, path: &[u8]) -> String {
+    format!(
+        "The second directory check does not match the question ({what}): {}",
+        String::from_utf8_lossy(path)
+    )
+}
+
+/// もう一度尋ねた答え（回ごとに [`match_round`] で突き合わせたもの）を入れる。子が見つかった・
+/// もう空と確かめられないディレクトリは変わったものにする。exclude に当たる子（find が刈り込んだ
+/// もの）は数えない。`question_paths` は問いの番号ごとの root_dir からのパス
 pub fn apply_recheck(
     answers: &mut [Answer],
     empty: &[EmptyDir],
@@ -63,25 +89,10 @@ pub fn apply_recheck(
     question_paths: &[&[u8]],
     exclude: &Exclude,
 ) -> Result<(), String> {
-    let mismatch = |what: &str, path: &[u8]| {
-        format!(
-            "The second directory check does not match the question ({what}): {}",
-            String::from_utf8_lossy(path)
-        )
-    };
-    let mut by_printed: HashMap<&[u8], &DirCheck> = HashMap::new();
-    for check in checks {
-        if by_printed.insert(&check.printed, check).is_some() {
-            return Err(mismatch("twice", &check.printed));
-        }
-    }
-    let asked: HashSet<&[u8]> = empty.iter().map(|dir| dir.printed.as_slice()).collect();
-    if let Some(extra) = checks
+    let by_printed: HashMap<&[u8], &DirCheck> = checks
         .iter()
-        .find(|c| !asked.contains(c.printed.as_slice()))
-    {
-        return Err(mismatch("not asked", &extra.printed));
-    }
+        .map(|check| (check.printed.as_slice(), check))
+        .collect();
     for dir in empty {
         let check = by_printed
             .get(dir.printed.as_slice())
