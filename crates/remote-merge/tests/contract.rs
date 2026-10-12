@@ -145,6 +145,9 @@ mod merge_dry_run_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/merge_force_cli.rs"]
 mod merge_force_cli;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_hard_links.rs"]
+mod merge_hard_links;
 #[path = "contract/merge_hunks.rs"]
 mod merge_hunks;
 #[path = "contract/merge_kind_subtree.rs"]
@@ -180,6 +183,9 @@ mod merge_write;
 #[cfg(unix)]
 #[path = "contract/op_failure_kinds.rs"]
 mod op_failure_kinds;
+#[cfg(feature = "test-utils")]
+#[path = "contract/operation_failures_agree.rs"]
+mod operation_failures_agree;
 #[cfg(feature = "test-utils")]
 #[path = "contract/path_arguments_cli.rs"]
 mod path_arguments_cli;
@@ -327,6 +333,12 @@ mod ssh_strict_exec;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_sudo.rs"]
 mod ssh_sudo;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_unmarked_answer.rs"]
+mod ssh_unmarked_answer;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_write_in_place.rs"]
+mod ssh_write_in_place;
 #[cfg(feature = "test-utils")]
 #[path = "contract/status_agent_cli.rs"]
 mod status_agent_cli;

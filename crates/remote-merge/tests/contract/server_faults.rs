@@ -62,8 +62,6 @@ pub struct AgentCut {
 pub enum SshCommand {
     /// 全体やサブパスの find の走査
     Scan,
-    /// 子の一覧の find
-    ListChildren,
     /// パスの確認
     PathInspection,
     /// 更新時刻の stat
@@ -82,7 +80,6 @@ impl SshCommand {
     pub fn matches(self, script: &str) -> bool {
         match self {
             Self::Scan => script.contains("@RMSCAN"),
-            Self::ListChildren => script.contains("-maxdepth 1 -mindepth 1"),
             Self::PathInspection => script.starts_with(remote_merge_ssh::path_facts_script::PREFIX),
             Self::Stat => script.contains("stat -c '%Y %n'"),
             Self::Read => script.starts_with(remote_merge_ssh::contents_script::READ_PREFIX),
@@ -118,6 +115,8 @@ pub struct Faults {
     /// find を -printf を受け付けないもの（BusyBox の find と同じく、知らない式の誤りで 1 で
     /// 終える）にする
     pub find_without_printf: bool,
+    /// この種類の SSH のコマンドに、実行せずに目印のない空の答えを終了コード 0 で返す
+    pub unmarked_ssh: Option<SshCut>,
 }
 
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
@@ -132,6 +131,8 @@ pub struct FaultState {
     agent_cut_claimed: AtomicBool,
     ssh_cut_claimed: AtomicBool,
     ssh_cuts: AtomicUsize,
+    unmarked_claimed: AtomicBool,
+    unmarked_answers: AtomicUsize,
     agent_starts: AtomicUsize,
     agent_requests: Mutex<Vec<String>>,
     sudo_bin: Option<tempfile::TempDir>,
@@ -152,6 +153,8 @@ impl FaultState {
             agent_cut_claimed: AtomicBool::new(false),
             ssh_cut_claimed: AtomicBool::new(false),
             ssh_cuts: AtomicUsize::new(0),
+            unmarked_claimed: AtomicBool::new(false),
+            unmarked_answers: AtomicUsize::new(0),
             agent_starts: AtomicUsize::new(0),
             agent_requests: Mutex::new(Vec::new()),
             sudo_bin,
@@ -202,6 +205,23 @@ impl FaultState {
         }
         self.ssh_cuts.fetch_add(1, Ordering::SeqCst);
         true
+    }
+
+    /// このコマンドに目印のない空の答えを返すか。返すなら数える
+    pub fn should_unmark_ssh(&self, script: &str) -> bool {
+        let Some(cut) = self.faults.unmarked_ssh else {
+            return false;
+        };
+        if !cut.command.matches(script) || !claim(&self.unmarked_claimed, cut.repeat) {
+            return false;
+        }
+        self.unmarked_answers.fetch_add(1, Ordering::SeqCst);
+        true
+    }
+
+    /// 目印のない空の答えを返した回数
+    pub fn unmarked_answers(&self) -> usize {
+        self.unmarked_answers.load(Ordering::SeqCst)
     }
 
     /// エージェントの起動を拒むか（切った後に起動し直させないとき）

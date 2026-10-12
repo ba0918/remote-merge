@@ -38,7 +38,8 @@ const SSH_RESULT: &str = "REMOTE_MERGE_OPERATIONS_RESULT";
 const SSH_SERVER_TEST: &str = "path_operations_agree::a_listing_with_an_unreadable_link_target_stops_with_an_error_naming_the_link";
 
 /// SSH の経路の操作を受け持つプロセスなら、`SSH_REQUEST` の操作（"remove\tパス"、
-/// "chmod\tパス\t8 進の権限"、"list\tパス"、走査の "scan"）を行って結果の文字列を `SSH_RESULT` に書き、true を返す
+/// "chmod\tパス\t8 進の権限"、"list\tパス"、走査の "scan"、失敗の種類だけを返す
+/// "failure\t操作\tパス"）を行って結果の文字列を `SSH_RESULT` に書き、true を返す
 fn serve_ssh_request() -> bool {
     let Ok(config) = std::env::var(SSH_CONFIG) else {
         return false;
@@ -55,6 +56,12 @@ fn serve_ssh_request() -> bool {
         ["chmod", path, mode] => {
             operation_text(runtime.chmod_file(&side, path, u32::from_str_radix(mode, 8).unwrap()))
         }
+        ["failure", operation, path] => failure_kind_text(match *operation {
+            "read" => runtime.read_file_bytes(&side, path, false).map(|_| ()),
+            "remove" => runtime.remove_file(&side, path),
+            "chmod" => runtime.chmod_file(&side, path, 0o644),
+            other => panic!("{other}"),
+        }),
         ["list", path] => listing_text(
             runtime
                 .list_children(&side, path)
@@ -81,6 +88,17 @@ fn operation_text(result: anyhow::Result<()>) -> String {
     match result {
         Ok(()) => "ok".into(),
         Err(error) => format!("error: {error}"),
+    }
+}
+
+/// 操作の失敗の種類（成功なら "ok"）
+fn failure_kind_text(result: anyhow::Result<()>) -> String {
+    match result {
+        Ok(()) => "ok".into(),
+        Err(error) => match remote_merge_core::op_failure::failure_of(&error) {
+            Some(failure) => format!("{failure:?}"),
+            None => format!("untyped: {error:#}"),
+        },
     }
 }
 
@@ -118,8 +136,8 @@ pub(super) struct Routes {
     _server: TestServer,
     config: PathBuf,
     pub(super) local: RouteDir,
-    ssh: RouteDir,
-    agent: RouteDir,
+    pub(super) ssh: RouteDir,
+    pub(super) agent: RouteDir,
 }
 
 impl Routes {

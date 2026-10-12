@@ -14,15 +14,10 @@ use super::route_state::require_ssh_client;
 
 /// 結果のキー（入力されたままのパス）と、リモートのパス（root_dir につないだもの）
 fn asked(root: &str, paths: &[EntryPath]) -> Vec<(String, String)> {
-    let root = root.trim_end_matches('/');
     paths
         .iter()
         .map(|path| {
-            let full = if root.is_empty() {
-                path.as_str().to_string()
-            } else {
-                format!("{root}/{}", path.as_str())
-            };
+            let full = crate::merge::executor::remote_full_path(root, path.as_rel());
             (path.as_typed().to_string(), full)
         })
         .collect()
@@ -123,5 +118,23 @@ impl CoreRuntime {
                 (path, value)
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_root_dir_of_slash_asks_absolute_paths() {
+        let paths = [EntryPath::parse("a/b.txt").unwrap()];
+        assert_eq!(
+            asked("/", &paths),
+            [("a/b.txt".to_string(), "/a/b.txt".to_string())]
+        );
+        assert_eq!(
+            asked("/srv/app/", &paths),
+            [("a/b.txt".to_string(), "/srv/app/a/b.txt".to_string())]
+        );
     }
 }

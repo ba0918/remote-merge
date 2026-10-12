@@ -29,6 +29,7 @@ mod side_hashes;
 pub mod side_io;
 mod side_reads;
 pub mod size_limit;
+mod ssh_changes;
 mod ssh_contents;
 mod ssh_inspect;
 mod ssh_scan;

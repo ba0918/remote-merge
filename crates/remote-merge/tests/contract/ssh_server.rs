@@ -549,6 +549,12 @@ impl server::Handler for LocalHandler {
                 session.disconnect(Disconnect::ByApplication, "connection lost", "")?;
                 return Ok(());
             }
+            if self.faults.should_unmark_ssh(&command) {
+                session.exit_status_request(channel, 0)?;
+                session.eof(channel)?;
+                session.close(channel)?;
+                return Ok(());
+            }
             if self.faults.refuses_ssh(&command) {
                 session.extended_data(
                     channel,
@@ -660,14 +666,6 @@ impl server::Handler for LocalHandler {
             session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
             session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
             session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
-            session.eof(channel)?;
-            session.close(channel)?;
-            return Ok(());
-        }
-        if SshCommand::ListChildren.matches(&script) {
-            // パスの確認と同じく、どのパスも通常のファイルとして答える
-            session.data(channel, CryptoVec::from(b"NOTDIR\n".as_slice()))?;
-            session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
             session.close(channel)?;
             return Ok(());

@@ -97,33 +97,6 @@ impl CoreRuntime {
         }
     }
 
-    /// リモートファイルのパーミッションを変更する。
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `chmod_file(side, path, mode)` を使うこと。
-    pub(crate) fn chmod_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-        mode: u32,
-    ) -> anyhow::Result<()> {
-        let rel = rel_path.as_str();
-        remote_merge_core::operations::check_mode(rel, mode)?;
-        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
-
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        self.rt
-            .block_on(client.chmod_file(&full_path, mode))
-            .map_err(|error| {
-                let message =
-                    format!("failed to change permissions of {rel:?} to {mode:o}: {error}");
-                error.context(message)
-            })
-    }
-
     /// リモートファイルの mtime をバッチ取得する。
     ///
     /// `stat -c '%Y %n'` で一括取得し、`(rel_path, Option<DateTime<Utc>>)` のリストで返す。
@@ -182,51 +155,6 @@ impl CoreRuntime {
         }
 
         Ok(results)
-    }
-
-    /// リモートでファイルまたはシンボリックリンクを削除する。symlink はリンク先ではなくリンクを消す。
-    ///
-    /// 比べた後に消えていたパスは、削除の失敗として Err を返す。
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `remove_file(side, path)` を使うこと。
-    pub(crate) fn remove_remote_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-    ) -> anyhow::Result<()> {
-        let rel = rel_path.as_str();
-        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
-        let cmd = crate::ssh::tree_parser::build_remove_command(&full_path);
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt
-            .block_on(crate::ssh::exec_strict(client, &cmd))
-            .map_err(|error| {
-                let message = format!("failed to remove {rel:?}: {error}");
-                error.context(message)
-            })?;
-        Ok(())
-    }
-
-    /// リモートでシンボリックリンクを作成/更新する。親ディレクトリがなければ作る。
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `create_symlink(side, path, target)` を使うこと。
-    pub(crate) fn create_remote_symlink(
-        &mut self,
-        server_name: &str,
-        link_rel_path: &EntryPath,
-        target: &str,
-    ) -> anyhow::Result<()> {
-        let full_path = self.resolve_remote_path(server_name, link_rel_path.as_rel())?;
-        let cmd = crate::ssh::tree_parser::build_create_symlink_command(target, &full_path);
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(crate::ssh::exec_strict(client, &cmd))?;
-        Ok(())
     }
 
     /// リモートの `rel_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を、

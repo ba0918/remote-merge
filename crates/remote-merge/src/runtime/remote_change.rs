@@ -52,12 +52,10 @@ impl CoreRuntime {
                 let text = std::str::from_utf8(content)?;
                 self.write_remote_file(server, path, text)
             }
-            (RemoteRoute::Ssh, RemoteChange::Chmod { mode }) => {
-                self.chmod_remote_file(server, path, *mode)
-            }
-            (RemoteRoute::Ssh, RemoteChange::Remove) => self.remove_remote_file(server, path),
+            (RemoteRoute::Ssh, RemoteChange::Chmod { mode }) => self.ssh_chmod(server, path, *mode),
+            (RemoteRoute::Ssh, RemoteChange::Remove) => self.ssh_remove(server, path),
             (RemoteRoute::Ssh, RemoteChange::Symlink { target }) => {
-                self.create_remote_symlink(server, path, target)
+                self.ssh_create_symlink(server, path, target)
             }
         }
     }
