@@ -1777,6 +1777,7 @@ mod tests {
         }
     }
 
+    // @kotowari[REQ-paths-019, EX-paths-040]
     #[cfg(unix)]
     #[test]
     fn the_agent_route_receives_no_entry_operation_on_the_root_dir_itself() {
@@ -1787,6 +1788,7 @@ mod tests {
         assert_eq!(requests(&received), 0);
     }
 
+    // @kotowari[REQ-paths-019, EX-paths-040]
     #[test]
     fn the_ssh_route_receives_no_entry_operation_on_the_root_dir_itself() {
         // SSH の接続がない書き込み先でも、経路に届く前に型にするところで止まる

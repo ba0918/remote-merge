@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use remote_merge::config::load_config_from_paths;
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
+use remote_merge_core::relative_path::RelPathError;
 
 use super::agent_support::{AgentFixture, Setup};
 use super::server_faults::Faults;
@@ -78,9 +79,82 @@ async fn assert_root_dir_untouched(fixture: &AgentFixture, side: Side, target_ro
     );
 }
 
-// @kotowari[REQ-paths-013]
+// @kotowari[REQ-paths-019, EX-paths-040]
 #[tokio::test(flavor = "multi_thread")]
 async fn the_local_route_never_operates_on_the_root_dir_itself() {
     let fixture = AgentFixture::new(Setup::default(), Faults::default()).await;
     assert_root_dir_untouched(&fixture, Side::Local, fixture.local()).await;
+}
+
+/// root_dir を `root` として起動したエージェントのプロセスに、一つの項目への要求を `path` で送った
+/// ときに拒まれた理由
+fn agent_refusals(root: &Path, path: &str) -> Vec<Option<RelPathError>> {
+    use remote_merge::agent::client::AgentClient;
+    use remote_merge::agent::protocol::AgentRequest;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-merge"))
+        .arg("agent")
+        .arg("--root")
+        .arg(root)
+        .env("RUST_LOG", "off")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut client =
+        AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap()).unwrap();
+    let requests = [
+        AgentRequest::Remove { path: path.into() },
+        AgentRequest::Chmod {
+            path: path.into(),
+            mode: 0o700,
+        },
+        AgentRequest::WriteFile {
+            path: path.into(),
+            content: b"x".to_vec(),
+            is_binary: false,
+            more_to_follow: false,
+        },
+        AgentRequest::Symlink {
+            path: path.into(),
+            target: "x".into(),
+        },
+        AgentRequest::ReadEntryLink { path: path.into() },
+    ];
+    let refusals = requests
+        .iter()
+        .map(|request| {
+            client
+                .request(request)
+                .err()
+                .and_then(|error| error.downcast_ref::<RelPathError>().cloned())
+        })
+        .collect();
+    drop(client);
+    let _ = child.kill();
+    let _ = child.wait();
+    refusals
+}
+
+// @kotowari[REQ-paths-019, EX-paths-041]
+#[test]
+fn the_agent_refuses_requests_for_the_root_dir_itself_without_changing_it() {
+    let root = tempfile::TempDir::new().unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(root.path().join("kept.txt"), "kept\n").unwrap();
+
+    for path in ROOT_FORMS {
+        let expected = Some(RelPathError::RootDirItself(path.to_string()));
+        for refusal in agent_refusals(root.path(), path) {
+            assert_eq!(refusal, expected, "{path:?}");
+        }
+    }
+
+    assert_eq!(mode_of(root.path()), 0o755);
+    assert_eq!(
+        fs::read_to_string(root.path().join("kept.txt")).unwrap(),
+        "kept\n"
+    );
 }

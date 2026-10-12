@@ -632,6 +632,7 @@ mod tests {
         fs::metadata(path).unwrap().permissions().mode() & 0o7777
     }
 
+    // @kotowari[REQ-paths-019, EX-paths-041]
     #[test]
     fn a_request_for_one_entry_refuses_the_whole_root_dir_without_changing_it() {
         use std::os::unix::fs::PermissionsExt;
@@ -674,6 +675,7 @@ mod tests {
         );
     }
 
+    // @kotowari[REQ-paths-019]
     #[test]
     fn a_request_for_many_entries_carries_the_whole_root_dir_as_refused() {
         let (tmp, mut d) = setup();
@@ -709,6 +711,7 @@ mod tests {
         }
     }
 
+    // @kotowari[REQ-paths-019]
     #[test]
     fn requests_over_a_range_accept_the_whole_root_dir() {
         let (_tmp, mut d) = setup();

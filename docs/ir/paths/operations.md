@@ -46,6 +46,16 @@ SSH の経路の更新時刻は、リモートの find が出した桁までと�
 
 ディレクトリの権限の変更は、ローカル・SSH・エージェントのどの経路でも、そのディレクトリにすでに付いている setuid・setgid を残し、0o777 の範囲のビットと sticky を指定の値にする。ファイルの権限の変更は、指定の値そのものにする。
 
+### REQ-paths-019: root_dir 全体を一つの項目として操作しない
+- kind: prohibition
+- source: docs/decision/records/2026-10-12-foundation-1.md#B8
+- verification: unit
+
+ローカル・SSH・エージェントのどの経路でも、一つの項目への操作（書き込み・削除・権限の変更・symlink の作成・読み込み・更新時刻と大きさの取得・ハッシュ・項目のリンク先の読み込み）は、root_dir 全体を指すパス（空と "." でない要素を一つも持たない値。"/"・"//"・"."・"./"・空の値を含む）を受け付けず、root_dir に何もせずに "root_dir itself is not an entry: パス" の理由で失敗する。
+エージェントは通信で受け取った一つの項目への要求のパスが root_dir 全体を指すとき、その要求を行わずに拒み、複数のパスの要求ではそのパスだけを拒んだものとして返す。
+バックアップの記録の読み込みは、root_dir 全体を指すパスを持つ記録を解析できない記録として扱い、飛ばさずに backup/rollback-cli.md の REQ-backup-044 のとおり止まる。
+範囲を指す操作（走査・子の一覧・パスの確認）は、root_dir 全体を指すパスを受け付ける。
+
 ## Examples
 
 ```gherkin
@@ -108,4 +118,22 @@ Scenario: 名前に TAB か改行を含む子の一覧
 Given ディレクトリ "a" に、名前に TAB を含む "x\ty.txt" と、名前に改行を含む "p\nq.txt" がある
 When ローカル・SSH・エージェントのそれぞれの経路で "a" の子の一覧を取る
 Then どの経路でも、その二つが同じ名前で子に含まれる
+
+@id=EX-paths-040 @about=REQ-paths-019 @source=docs/decision/records/2026-10-12-foundation-1.md#B8
+Scenario: root_dir 全体の権限を変えようとする
+Given root_dir の権限が 0o755 である
+When ローカル・SSH・エージェントのそれぞれの経路で "/" の権限を 0o700 に変えようとする
+Then どの経路でも "root_dir itself is not an entry: /" の理由で失敗し、root_dir の権限は 0o755 のまま変わらない
+
+@id=EX-paths-041 @about=REQ-paths-019 @source=docs/decision/records/2026-10-12-foundation-1.md#B8
+Scenario: エージェントが root_dir 全体への削除の要求を受け取る
+Given エージェントの root_dir に "kept.txt" がある
+When エージェントが通信で "." の削除の要求を受け取る
+Then エージェントは何も消さずに、root_dir 全体を指すパスとして拒んだことを返す
+
+@id=EX-paths-042 @about=REQ-paths-019 @source=docs/decision/records/2026-10-12-foundation-1.md#B8
+Scenario: root_dir 全体を指すバックアップの記録
+Given バックアップのセッションの記録のパスが "./" に書き換えられている
+When rollback でセッションを一覧する
+Then 一覧はその記録を飛ばさずに、記録の場所と "root_dir itself is not an entry: ./" の理由を示すエラーで止まる
 ```
