@@ -1,22 +1,24 @@
 # 経路ごとのパスの確認
 
-ローカル・SSH・エージェントの経路がパスの確認を resolution.md の規則で同じ結果にすること、SSH とエージェントに固有の扱い、確認の結果を使う側の扱い。
+パスの確認の結果が経路によらないこと、確かめる道具がないときとリモートの相対の root_dir の扱い、確認の結果を使う側の扱い。
 
 ## Requirements
 
 ### REQ-paths-008: どの経路も同じ結果を返す
 - kind: invariant
-- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-06-path-resolution.md#A47, docs/decision/records/2026-10-06-path-resolution.md#A52
+- source: docs/decision/records/2026-10-06-path-resolution.md#A1, docs/decision/records/2026-10-06-path-resolution.md#A8, docs/decision/records/2026-10-06-path-resolution.md#A14, docs/decision/records/2026-10-06-path-resolution.md#A34, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A44, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D10
 - verification: property
 
-同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのパスの確認は、同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。ただし SSH の経路は "cannot read" に当たる OS の失敗を存在しないことと見分けない。ローカルの経路が macOS のときは、1024 バイト以上 4096 バイト未満の実パスで OS が先に失敗し "cannot resolve path: cannot read" になる。SSH の経路では、権限以外の理由で入れないディレクトリも "cannot resolve path: permission denied" になる。
+同じファイルシステムの状態と同じパスを同じ利用者・同じ権限で確認するとき、ローカル・SSH・エージェントのどの経路でも、パスの確認は同じ種類と同じバイト列の実パスの結果か、同じ "cannot resolve path: " の文言のエラーを返す。
+存在しないこと、"cannot resolve path: permission denied"、"cannot resolve path: cannot read" は、どの経路でも同じ状態で同じものになる。
+経路で違いうるのは、FLAG-paths-004 の OS のパスの長さの上限による違いだけである。
 
-### REQ-paths-009: SSH で readlink がなければ止める
+### REQ-paths-009: リンク文字列を読む道具がなければ止める
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A20, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A36
+- source: docs/decision/records/2026-10-06-path-resolution.md#A20, docs/decision/records/2026-10-06-path-resolution.md#A35, docs/decision/records/2026-10-06-path-resolution.md#A36, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D8
 - verification: unit
 
-SSH の経路でパスの確認が symlink に出会い、リモートに readlink がないとき、確認は "cannot resolve path: readlink not available" で止める。symlink に出会わない確認は readlink がなくても続ける。
+パスの確認が symlink に出会い、確かめる側のリモートにリンク文字列を読む道具（readlink）がないとき、確認は "cannot resolve path: readlink not available" で止める。symlink に出会わない確認は readlink がなくても続ける。
 
 ### REQ-paths-011: 祖先がディレクトリでなければ rollback 以外はエラーにする
 - kind: state_driven
@@ -28,10 +30,10 @@ merge と sync の --dry-run も、書き込む予定のパスについて実行
 
 ### REQ-paths-012: リモートの相対の root_dir はログインした利用者の作業ディレクトリを基準にする
 - kind: state_driven
-- source: docs/decision/records/2026-10-06-path-resolution.md#A53
+- source: docs/decision/records/2026-10-06-path-resolution.md#A53, docs/decision/records/2026-10-12-foundation-3.md#D12
 - verification: unit
 
-SSH かエージェントの経路で root_dir が相対パスのとき、パスの確認はリモートでログインした利用者の作業ディレクトリの実パスを基準に root_dir を絶対パスにしてから辿る。
+リモートの root_dir が相対パスのとき、どの経路で確かめても、パスの確認はリモートでログインした利用者の作業ディレクトリの実パスを基準に root_dir を絶対パスにしてから辿る。
 
 ## Examples
 
@@ -42,10 +44,16 @@ Given 同じ一時ディレクトリに、連なった symlink、"."・"//"・".
 When 同じ利用者がローカル・SSH・エージェントの経路で同じパスを確認する
 Then 三つの結果は種類も実パスのバイト列もエラーの文言も一致する
 
+@id=EX-paths-043 @about=REQ-paths-008 @source=docs/decision/records/2026-10-12-foundation-3.md#D10
+Scenario: 検索できないディレクトリの下を三つの経路で確認する
+Given root_dir の下の "locked" に、確認する root でない利用者の検索の権限がない
+When 同じ利用者がローカル・SSH・エージェントの経路で "locked/a.txt" と "locked" を確認する
+Then どの経路でも "locked/a.txt" は "cannot resolve path: permission denied" で止まり、"locked" は存在するで同じ実パスになる
+
 @id=EX-paths-020 @about=REQ-paths-009 @source=docs/decision/records/2026-10-06-path-resolution.md#A36,docs/decision/records/2026-10-06-path-resolution.md#A20,docs/decision/records/2026-10-06-path-resolution.md#A35
 Scenario: readlink のないリモート
-Given リモートに readlink がなく、root_dir の下に通常ファイル "a.txt" と symlink "l" がある
-When SSH の経路で "a.txt" と "l" を確認する
+Given リモートに readlink がなく、root_dir の下に通常ファイル "a.txt" と symlink "l" があり、エージェントを使わない
+When "a.txt" と "l" を確認する
 Then "a.txt" は存在するで、"l" の確認は "cannot resolve path: readlink not available" で止まる
 
 @id=EX-paths-022 @about=REQ-paths-011 @source=docs/decision/records/2026-10-06-path-resolution.md#A16

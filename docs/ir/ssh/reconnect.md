@@ -1,30 +1,30 @@
-# SSH とエージェントの接続断
+# リモートとの接続断
 
-SSH やエージェントとの接続断が操作の途中で起きたときに、やり直す範囲、変更の扱い、その回の処理を止める範囲。
+リモートとの `接続断` が操作の途中で起きたときに、やり直す範囲、変更の扱い、その回の処理を止める範囲。
 
 ## Requirements
 
 ### REQ-ssh-003: 読み取りだけ一度再試行する
 - kind: event_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A35, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-05-quality-ssh.md#A3, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A35, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2, docs/decision/records/2026-10-12-foundation-3.md#D11
 - verification: unit
 
-SSH の読み取りだけのリモート操作（ファイルの読み込み、ツリーの走査、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で `接続断` が起きたとき、再接続してその操作を一度だけ試し、再び失敗したら、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。
+リモートの読み取りだけの操作（ファイルの読み込み、ツリーの走査、パスの確認、stat、種類の調べ、子の一覧、ハッシュ、書き込み前の確認）の途中で `接続断` が起きたとき、同じ経路でつなぎ直してその操作を一度だけ試し、再び失敗したら（つなぎ直せないときを含む）、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。
 merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理（バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理を含む）で止めたときは、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出し、1 ファイルずつ読み直さない。
 
 ### REQ-ssh-004: 結果不明の変更を自動反復しない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A19
+- source: docs/decision/records/2026-09-25-spec-migration.md#A26, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-12-foundation-3.md#D11
 - verification: unit
 
-ローカル以外のどの経路でも、書き込み・symlink の作成・削除・権限の変更の最中に `接続断` が起きたとき、同じ変更を自動で繰り返さず、別の経路（エージェントから SSH への切り替えを含む）でも行わない。sudo=true を指定したかどうかによらない。
+リモートへの書き込み・symlink の作成・削除・権限の変更の最中に `接続断` が起きたとき、同じ変更を自動で繰り返さず、別の経路（エージェントから SSH への切り替えを含む）でも行わない。sudo=true を指定したかどうかによらない。
 
 ### REQ-ssh-022: 変更の最中の接続断で、そのファイルを確かめてから書き込み先への処理を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A41, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34, docs/decision/records/2026-10-11-agent-operations-consistency.md#A1
+- source: docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A39, docs/decision/records/2026-10-11-agent-operations.md#A40, docs/decision/records/2026-10-11-agent-operations.md#A41, docs/decision/records/2026-10-11-agent-operations.md#A8, docs/decision/records/2026-10-11-agent-operations.md#A9, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A34, docs/decision/records/2026-10-11-agent-operations-consistency.md#A1, docs/decision/records/2026-10-12-foundation-3.md#D11
 - verification: unit
 
-merge・sync（--delete を含む）・rollback が、書き込み先への書き込み・symlink の作成・削除・権限の変更の最中に `接続断` に出会ったとき、同じ経路で一度だけつなぎ直して（エージェントは起動し直し、SSH はつなぎ直し）、そのファイルの今の状態を読んで確かめる。
+merge・sync（--delete を含む）・rollback が、書き込み先への書き込み・symlink の作成・削除・権限の変更の最中に `接続断` に出会ったとき、同じ経路で一度だけつなぎ直して、そのファイルの今の状態を読んで確かめる。
 書き込みと symlink の作成は、書こうとしたものと同じなら「書けた」、書く前と同じ（書く前になかったなら、ない）なら「書いていない」、どちらでもなければ「書きかけ」とする。削除は、なければ「消せた」、あれば「消していない」とする。権限の変更は、読んだ権限で「変えた」か「変えていない」とする。
 「書けた」「消せた」「変えた」ファイルは済んだファイルとして結果に出し、それ以外はその結果が分かる error で failed に出す。
 ただし、「書けた」「消せた」「変えた」の後にそのファイルの変更が残っているとき（新しいファイルや作ったディレクトリの権限の変更、--with-permissions の権限の複製、symlink を置き換えるために消した後の作成）は、残りの変更を行わず、そのファイルを、済んだ変更と手を付けていない変更の両方が分かる error で failed に出す。
@@ -33,18 +33,17 @@ merge・sync（--delete を含む）・rollback が、書き込み先への書�
 前の操作の後に接続が使えなくなっていて変更の要求を送れなかったときも、同じく確かめて出す。
 中身を書いた後の権限の変更が `接続断` になったときは、そのファイルの error を、中身は書いたことと確かめた権限の結果の両方が分かるものにする。
 どの場合も、その書き込み先でまだ処理していない残りのファイルを変更せずに、手を付けていないことが分かる error で failed に出し、終了コード 2 を返す。済んだファイルはそのまま結果に出す。
-`接続断` が起きないときは、確かめるための要求を増やさない。ただし、バックアップが無効な rollback では、書き戻す前に、書き戻す先にある通常ファイルのハッシュを、書き戻すファイルの数によらずまとめて取り（SSH でコマンドの長さの上限のために分けることはある）、確かめの「書く前」に使う。SSH でハッシュを取るコマンドのないサーバでは、代わりに中身をまとめて読む。取ったものは保存しない。
+`接続断` が起きないときは、確かめるための要求を増やさない。ただし、バックアップが無効な rollback では、書き戻す前に、書き戻す先にある通常ファイルのハッシュを、書き戻すファイルの数によらずまとめて取り（コマンドの長さの上限のために分けることはある）、確かめの「書く前」に使う。ハッシュを取る道具のないリモート（ssh/compatibility.md の TBL-ssh-002）では、代わりに中身をまとめて読む。取ったものは保存しない。
 sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
 `接続断` でない失敗（相手が失敗を返した、コマンドが 0 以外で終わった）は、そのファイルだけを failed に出して残りを続ける。
 error の文言は IR で決めず、実装者が英語で書く。テストは、書いていない・書きかけ・結果が分からない・手を付けていない・中身は書いたことを区別できることを確かめ、文言を固定しない。
 
-### REQ-ssh-023: エージェントの読み取りも同じ経路で一度だけやり直す
+### REQ-ssh-023: 読み取りのやり直しで別の経路に切り替えない
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A33, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2
+- source: docs/decision/records/2026-10-11-agent-operations.md#A10, docs/decision/records/2026-10-11-agent-operations.md#A19, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A21, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-11-agent-operations.md#A32, docs/decision/records/2026-10-11-agent-operations.md#A33, docs/decision/records/2026-10-11-agent-operations.md#A37, docs/decision/records/2026-10-11-agent-operations-consistency.md#A2, docs/decision/records/2026-10-12-foundation-3.md#D4, docs/decision/records/2026-10-12-foundation-3.md#D11
 - verification: unit
 
-どのコマンドでも、エージェントで行う読み取りだけのリモート操作（REQ-ssh-003 と同じ範囲）の途中で `接続断` が起きたとき、エージェントを起動し直してその操作を一度だけ試し、再び失敗したら（起動し直せないときを含む）、その書き込み先への処理（status・diff ではそのコマンド）を止めて終了コード 2 を返す。SSH の経路には切り替えない。
-merge・sync・rollback で止めたときは、REQ-ssh-022 と同じ形で結果を出す。書き込み先の中身をまとめて読む処理（バックアップが無効な rollback が書き戻す前にまとめてハッシュを取る処理を含む）で止めたときは、REQ-ssh-003 と同じく、そのまとめに入っていたファイルをすべて理由付きの読み込みの失敗として failed に出す。
+どのコマンドでも、REQ-ssh-003 の読み取りのやり直しは、そのサーバに選んだ経路でだけ行い、つなぎ直せないときも再び失敗したときも、別の経路に切り替えずに REQ-ssh-003 のとおり止める。
 
 ## Examples
 
@@ -107,7 +106,7 @@ Then エージェントを起動し直して読み込みを一度やり直し、
 Scenario: 起動し直したエージェントでも読めない
 Given sudo=true を指定していないサーバで "a.txt"・"b.txt" を merge し、最初に読む "a.txt" の読み込みが、エージェントを起動し直した後にも接続断で失敗する
 When merge を実行する
-Then SSH の経路に切り替えずに止まり、どのファイルも書き込まず、終了コード 2 を返す
+Then 別の経路に切り替えずに止まり、どのファイルも書き込まず、終了コード 2 を返す
 
 @id=EX-ssh-043 @about=REQ-ssh-022 @source=docs/decision/records/2026-10-11-agent-operations.md#A9,docs/decision/records/2026-10-11-agent-operations.md#A38
 Scenario: --delete の削除の最中に切れる

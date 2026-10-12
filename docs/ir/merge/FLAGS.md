@@ -29,3 +29,10 @@
 - source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A14
 
 REQ-merge-041 の how_to_verify は、契約テストを作らない理由（比べた後に書き込み先が消える競合でだけ起きる）と、SSH のテストが生成した削除のコマンドを sh で実行することを書いているが、引いている決定（2026-10-05-ssh-strict-exec の A4・A9・A14）はどちらも書いていない。2026-10-11 の agent-operations の突き合わせで 3 回目まで残った。エージェントの経路も削除を行うようになる（REQ-ssh-010）ので、確かめ方をエージェントの削除のテストと合わせて書き直すときに、理由の出典を決める。
+
+### FLAG-merge-021: dd が nofollow を受け付けないリモートの書き込みの競合
+- kind: gap
+- related: REQ-merge-038, REQ-paths-013
+- source: docs/decision/records/2026-10-05-ssh-strict-exec.md#A11, docs/decision/records/2026-10-12-foundation-3.md#D12
+
+エージェントを使わないリモートで dd が "oflag=nofollow" を受け付けないときだけ、通常ファイルの書き込みは、書く直前に書き込み先が symlink でないことを確かめてから書く。その確認と書き込みの間に書き込み先が symlink に替わると、リンク先へ書く競合が残る。受け付けない dd があることは "docs/remote-tools.md" に書いた道具の限界で、ほかの経路は書き込み先を開くときに symlink を辿らない。
