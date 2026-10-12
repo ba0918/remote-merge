@@ -28,14 +28,14 @@ include 指定があり、include に一致しないディレクトリが左右�
 
 ### REQ-cli-096: 子の一覧を取れないディレクトリをエラーとして示す
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A11, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-12-foundation-2.md#C12
+- source: docs/decision/records/2026-10-11-agent-operations.md#A11, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-12-foundation-2.md#C12, docs/decision/records/2026-10-12-foundation-2.md#C13
 - verification: unit
 
 CLI diff は、指定したパスやその配下の子の一覧を、どの経路でも、ディレクトリではないもの（通常ファイル、ディレクトリでないものへの symlink、リンク切れの symlink、ないパス）と、一覧を取れなかったもの（読めないディレクトリ）とに分けて扱う。
 一覧の途中の `接続断` は REQ-ssh-003 と REQ-ssh-023 により、一覧の中の symlink のリンク先か更新時刻を読めないときは REQ-paths-017 による。
 ディレクトリではないものは、その種類に合わせて今までどおり比べる。
 一覧を取れなかったものは、ファイルとしてもない側としても扱わず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、ほかに指定したパスの比較を続けて終了コード 2 を返す。
-指定したディレクトリの配下を展開する走査が読めないディレクトリに当たったときは、REQ-scan-020 と REQ-scan-014 により、その指定したパス全体を一覧を取れなかったものとし、配下のどのファイルも比べず、errors には指定したパスを、理由には読めないディレクトリのパスを含めて出す。
+指定したディレクトリの配下を展開する走査が、読めないディレクトリ（REQ-scan-014）やリンク先を辿れない symlink（REQ-scan-018）のように走査全体を止める誤りに当たったときは、REQ-scan-020 により、その指定したパス全体を一覧を取れなかったものとし、配下のどのファイルも比べず、errors には指定したパスを、理由には止めた項目のパスを含めて出す。循環は REQ-cli-021 による。
 
 ## Examples
 
@@ -80,4 +80,10 @@ Scenario: 指定したディレクトリの配下に読めないディレクト�
 Given 右の "dir" の下の "dir/secret" はその利用者が読めないディレクトリで、左右の "dir/a.txt" は中身が違い、左右の "b.txt" も中身が違う
 When CLI diff で "dir" と "b.txt" を指定する
 Then "dir/a.txt" も "dir/secret" の配下も files に出ず、errors に "dir" が "dir/secret" を含む理由とともに出て、"b.txt" は比べられて差分が出て、終了コード 2 を返す
+
+@id=EX-cli-098 @about=REQ-cli-096 @source=docs/decision/records/2026-10-12-foundation-2.md#C13
+Scenario: 指定したディレクトリの配下にリンク先を辿れない symlink がある
+Given 右の "dir" の下の "dir/loop" は自分自身を指す symlink で、左右の "dir/a.txt" は中身が違い、左右の "b.txt" も中身が違う
+When CLI diff で "dir" と "b.txt" を指定する
+Then "dir/a.txt" は files に出ず、errors に "dir" が "dir/loop" を含む理由とともに出て、"b.txt" は比べられて差分が出て、終了コード 2 を返す
 ```

@@ -97,3 +97,31 @@ async fn an_unreadable_directory_below_a_named_directory_reports_the_whole_name(
         assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
     }
 }
+
+// @kotowari[REQ-cli-096, EX-cli-098]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_link_that_cannot_be_followed_below_a_named_directory_reports_the_whole_name() {
+    for route in ROUTES {
+        let sides = Sides::new(route).await;
+        sides
+            .fixture
+            .put("dir/a.txt", Some("left\n"), Some("right\n"));
+        sides.fixture.put("b.txt", Some("left\n"), Some("right\n"));
+        std::os::unix::fs::symlink("loop", sides.tested_root().join("dir/loop")).unwrap();
+
+        let output = sides.run_into_tested(&["diff", "dir", "b.txt"]);
+
+        let result = json(&output);
+        assert_eq!(paths_in(&result, "files"), ["b.txt"], "{route:?}: {result}");
+        let errors = result["errors"].as_array().cloned().unwrap_or_default();
+        assert_eq!(errors.len(), 1, "{route:?}: {result}");
+        assert_eq!(errors[0]["path"], "dir", "{route:?}: {result}");
+        assert!(
+            errors[0]["reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("dir/loop")),
+            "{route:?}: {result}"
+        );
+        assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
+    }
+}
