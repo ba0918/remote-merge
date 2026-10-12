@@ -907,6 +907,7 @@ impl CoreRuntime {
         let scanned = scan(&mut collector, &exclude, request);
         into_tree(
             &root_path,
+            &super::side_io::remote_shown_root(server_name, &root_path),
             scanned,
             request.max_entries,
             fail_on_truncation,

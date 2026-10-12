@@ -8,10 +8,13 @@ use remote_merge_core::scan::tree_build::to_tree;
 use crate::local_io::check_truncation;
 use crate::tree::FileTree;
 
-/// 走査の結果をツリーにする。root_dir がないときは `root_missing` の誤り（経路ごとの文言）にし、
+/// 走査の結果をツリーにする。root_dir がないときは `root_missing` の誤り（経路ごとの文言）に、
+/// root_dir が走査の途中で変わったときは `shown_root`（リモートならサーバ名を添えたもの）を添えた
+/// 誤りにし、
 /// 件数の上限で打ち切った一覧は `fail_on_truncation` なら誤りにする（REQ-scan-004・008）
 pub fn into_tree(
     root: &Path,
+    shown_root: &str,
     scanned: Result<Listing, ScanError>,
     max_entries: usize,
     fail_on_truncation: bool,
@@ -22,7 +25,7 @@ pub fn into_tree(
         Err(ScanError::Failure(ScanFailure::RootMissing)) => return Err(root_missing()),
         Err(ScanError::Failure(ScanFailure::RootChanged)) => {
             return Err(RootChanged {
-                root: root.to_path_buf(),
+                root: shown_root.to_string(),
             }
             .into())
         }
@@ -46,16 +49,13 @@ pub fn into_tree(
 /// 利用者が読んで分かるよう、root_dir のパスを添える
 #[derive(Debug)]
 pub struct RootChanged {
-    pub root: std::path::PathBuf,
+    /// 利用者に見せる root_dir（リモートなら "サーバ名:パス"）
+    pub root: String,
 }
 
 impl std::fmt::Display for RootChanged {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "root_dir changed during the scan: {}",
-            self.root.display()
-        )
+        write!(f, "root_dir changed during the scan: {}", self.root)
     }
 }
 
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn a_complete_listing_becomes_a_tree() {
-        let tree = into_tree(Path::new("/r"), Ok(listing(false)), 9, true, missing).unwrap();
+        let tree = into_tree(Path::new("/r"), "/r", Ok(listing(false)), 9, true, missing).unwrap();
         assert!(tree.find_node("a.txt").is_some());
         assert!(!tree.truncated);
     }
@@ -120,12 +120,13 @@ mod tests {
     // @kotowari[REQ-scan-004, REQ-scan-008]
     #[test]
     fn a_truncated_listing_fails_only_when_asked_to() {
-        let error = into_tree(Path::new("/r"), Ok(listing(true)), 9, true, missing).unwrap_err();
+        let error =
+            into_tree(Path::new("/r"), "/r", Ok(listing(true)), 9, true, missing).unwrap_err();
         assert_eq!(
             error.downcast_ref::<ScanTruncated>(),
             Some(&ScanTruncated { max_entries: 9 })
         );
-        let tree = into_tree(Path::new("/r"), Ok(listing(true)), 9, false, missing).unwrap();
+        let tree = into_tree(Path::new("/r"), "/r", Ok(listing(true)), 9, false, missing).unwrap();
         assert!(tree.truncated);
     }
 
@@ -133,11 +134,11 @@ mod tests {
     #[test]
     fn a_missing_root_dir_reads_as_the_route_says_and_other_failures_keep_their_kind() {
         let failed = Err(ScanError::Failure(ScanFailure::RootMissing));
-        let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
+        let error = into_tree(Path::new("/r"), "/r", failed, 9, true, missing).unwrap_err();
         assert_eq!(error.to_string(), "no root");
         let unreadable = ScanFailure::UnresolvableLink { path: "a".into() };
         let failed = Err(ScanError::Failure(unreadable.clone()));
-        let error = into_tree(Path::new("/r"), failed, 9, true, missing).unwrap_err();
+        let error = into_tree(Path::new("/r"), "/r", failed, 9, true, missing).unwrap_err();
         assert_eq!(error.downcast_ref::<ScanFailure>(), Some(&unreadable));
     }
 
@@ -145,10 +146,25 @@ mod tests {
     #[test]
     fn a_root_dir_that_changed_during_the_scan_is_reported_with_its_path() {
         let failed = Err(ScanError::Failure(ScanFailure::RootChanged));
-        let error = into_tree(Path::new("/srv/app"), failed, 9, true, missing).unwrap_err();
+        let error =
+            into_tree(Path::new("/srv/app"), "/srv/app", failed, 9, true, missing).unwrap_err();
         assert_eq!(
             error.to_string(),
             "root_dir changed during the scan: /srv/app"
+        );
+        let failed = Err(ScanError::Failure(ScanFailure::RootChanged));
+        let error = into_tree(
+            Path::new("/srv/app"),
+            "web:/srv/app",
+            failed,
+            9,
+            true,
+            missing,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "root_dir changed during the scan: web:/srv/app"
         );
     }
 
@@ -158,8 +174,8 @@ mod tests {
         let mut stopped = listing(false);
         stopped.cycle = Some("a/up".into());
         for fail in [true, false] {
-            let error =
-                into_tree(Path::new("/r"), Ok(stopped.clone()), 9, fail, missing).unwrap_err();
+            let error = into_tree(Path::new("/r"), "/r", Ok(stopped.clone()), 9, fail, missing)
+                .unwrap_err();
             assert!(error.to_string().contains("cycle at a/up"), "{error}");
             let partial = error.downcast_ref::<CycleStopped>().unwrap();
             assert!(partial.tree.find_node("a.txt").is_some());

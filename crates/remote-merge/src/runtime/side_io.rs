@@ -988,6 +988,7 @@ impl CoreRuntime {
             answer.and_then(|scanned| {
                 into_tree(
                     &root_dir,
+                    &remote_shown_root(server_name, &root_dir),
                     scanned.map_err(ScanError::Failure),
                     request.max_entries,
                     fail_on_truncation,
@@ -1179,6 +1180,11 @@ pub(crate) fn remote_root_missing(server_name: &str, root_dir: &std::path::Path)
     .into()
 }
 
+/// 利用者に見せるリモートの root_dir。root_dir がないときの誤りと同じく "サーバ名:パス" にする
+pub(crate) fn remote_shown_root(server_name: &str, root_dir: &std::path::Path) -> String {
+    format!("{server_name}:{}", root_dir.to_string_lossy())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1192,6 +1198,30 @@ mod tests {
         let mut rt = CoreRuntime::new_for_test();
         rt.config.local.root_dir = tmp.path().to_path_buf();
         rt
+    }
+
+    // @kotowari[REQ-scan-017]
+    #[test]
+    fn a_remote_root_dir_that_changed_during_the_scan_is_shown_with_its_server() {
+        let root = std::path::Path::new("/srv/app");
+        let failed = Err(remote_merge_core::scan::outcome::ScanError::Failure(
+            remote_merge_core::scan::outcome::ScanFailure::RootChanged,
+        ));
+        let error = into_tree(
+            root,
+            &remote_shown_root("web", root),
+            failed,
+            9,
+            true,
+            || remote_root_missing("web", root),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "root_dir changed during the scan: web:/srv/app"
+        );
+        let missing = remote_root_missing("web", root).to_string();
+        assert!(missing.ends_with(": web:/srv/app"), "{missing}");
     }
 
     #[test]

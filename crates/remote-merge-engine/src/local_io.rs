@@ -291,6 +291,7 @@ pub fn scan_tree(
 ) -> anyhow::Result<FileTree> {
     into_tree(
         root,
+        &root.display().to_string(),
         scan(root, exclude, request),
         request.max_entries,
         fail,
