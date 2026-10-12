@@ -687,6 +687,8 @@ fn convert_raw_ssh_config(raw: &RawSshConfig) -> SshConfig {
             .unwrap_or(StrictHostKeyChecking::Ask),
         // auto_yes は TOML から設定しない（CLI フラグで上書きする）
         auto_yes: false,
+        // known_hosts は TOML から設定しない（利用者の ~/.ssh/known_hosts を使う）
+        known_hosts: None,
     }
 }
 

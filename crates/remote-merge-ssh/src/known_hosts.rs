@@ -32,6 +32,8 @@ pub(crate) struct SshHandler {
     pub unknown_host_sender: Option<tokio::sync::oneshot::Sender<UnknownHostInfo>>,
     /// 利用者が承認した鍵（種別と base64）。あるときはこの鍵と完全に一致する鍵だけを受け入れる
     approved_key: Option<(String, String)>,
+    /// 使う known_hosts。None なら利用者の ~/.ssh/known_hosts
+    pub known_hosts: Option<std::path::PathBuf>,
 }
 
 impl SshHandler {
@@ -42,6 +44,7 @@ impl SshHandler {
             skip_host_key_check: false,
             unknown_host_sender: None,
             approved_key: None,
+            known_hosts: None,
         }
     }
 
@@ -90,7 +93,9 @@ impl client::Handler for SshHandler {
             return Ok(matches);
         }
 
-        let known_hosts_content = match known_hosts_io::read_known_hosts() {
+        let known_hosts_content = match known_hosts_io::read_known_hosts(
+            self.known_hosts.as_deref(),
+        ) {
             Ok(Some(content)) => content,
             Err(error) => {
                 return Err(anyhow::anyhow!(
@@ -235,7 +240,13 @@ impl SshHandler {
                 "known_hosts: unknown host. TOFU: adding host key: {}",
                 self.host
             );
-            known_hosts_io::append_known_hosts_entry(&self.host, self.port, key_type, key_base64);
+            known_hosts_io::append_known_hosts_entry(
+                self.known_hosts.as_deref(),
+                &self.host,
+                self.port,
+                key_type,
+                key_base64,
+            );
             Ok(true)
         }
     }

@@ -60,6 +60,9 @@ pub struct SshConfig {
     pub strict_host_key_checking: StrictHostKeyChecking,
     /// `--yes` フラグ: 未知ホストキーを自動承認する
     pub auto_yes: bool,
+    /// 使う known_hosts。None なら利用者の ~/.ssh/known_hosts。設定ファイルからは決めず、テストが
+    /// 一時ディレクトリのファイルを差し込むために使う
+    pub known_hosts: Option<std::path::PathBuf>,
 }
 
 /// ホストキー確認ポリシー
@@ -79,6 +82,7 @@ impl Default for SshConfig {
             timeout_sec: 300,
             strict_host_key_checking: StrictHostKeyChecking::Ask,
             auto_yes: false,
+            known_hosts: None,
         }
     }
 }

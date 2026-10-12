@@ -1,12 +1,13 @@
 //! known_hosts ファイルの I/O 操作（読み込み・書き込み・フォーマット）。
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::Path;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 
 use super::known_hosts::format_host_entry;
+use super::known_hosts_location::known_hosts_location;
 
 /// 公開鍵の SHA-256 フィンガープリントを `SHA256:xxx` 形式で返す
 pub(crate) fn format_fingerprint(public_key: &russh::keys::PublicKey) -> String {
@@ -43,18 +44,13 @@ pub(crate) fn format_fingerprint(public_key: &russh::keys::PublicKey) -> String 
     format!("SHA256:{}", trimmed)
 }
 
-/// known_hosts ファイルのパスを取得する
-pub(crate) fn known_hosts_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".ssh").join("known_hosts"))
-}
-
 /// known_hosts ファイルの内容を読み込む。
 ///
 /// ファイル（またはホームディレクトリ）がないときは `Ok(None)`。
 /// それ以外の読み込みの失敗を「ファイルなし」と同じにすると、鍵が変わったホストが
 /// 未知のホストとして承認され得るため、エラーとして返す。
-pub(crate) fn read_known_hosts() -> std::io::Result<Option<String>> {
-    let Some(path) = known_hosts_path() else {
+pub(crate) fn read_known_hosts(configured: Option<&Path>) -> std::io::Result<Option<String>> {
+    let Some(path) = known_hosts_location(configured) else {
         return Ok(None);
     };
     match std::fs::read_to_string(&path) {
@@ -65,8 +61,14 @@ pub(crate) fn read_known_hosts() -> std::io::Result<Option<String>> {
 }
 
 /// known_hosts ファイルにエントリを追加する
-pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, key_base64: &str) {
-    let Some(path) = known_hosts_path() else {
+pub(crate) fn append_known_hosts_entry(
+    configured: Option<&Path>,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    key_base64: &str,
+) {
+    let Some(path) = known_hosts_location(configured) else {
         tracing::warn!(target: "remote_merge::ssh::known_hosts_io", "Failed to get known_hosts path");
         return;
     };
@@ -107,18 +109,4 @@ pub(crate) fn append_known_hosts_entry(host: &str, port: u16, key_type: &str, ke
     }
 
     tracing::info!(target: "remote_merge::ssh::known_hosts_io", "Added new host key to known_hosts: {}", host_entry);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_known_hosts_path_returns_some() {
-        // ホームディレクトリが取得できる環境では Some を返す
-        if dirs::home_dir().is_some() {
-            let path = known_hosts_path().unwrap();
-            assert!(path.ends_with(".ssh/known_hosts"));
-        }
-    }
 }

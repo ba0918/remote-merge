@@ -1997,6 +1997,7 @@ dependencies = [
  "chrono",
  "dirs",
  "hmac",
+ "libc",
  "remote-merge-config",
  "remote-merge-core",
  "remote-merge-settings",

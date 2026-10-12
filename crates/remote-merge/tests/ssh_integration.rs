@@ -215,22 +215,6 @@ fn is_write_command(command: &str) -> bool {
     command.contains("cat >") || command.contains("openssl base64 -d")
 }
 
-/// 指定ホスト:ポートの known_hosts エントリを削除する。
-/// connect_with_verifier テストでポート再利用時の MITM 誤検知を防ぐ。
-fn remove_known_hosts_entry(host: &str, port: u16) {
-    let path = dirs::home_dir()
-        .map(|h| h.join(".ssh").join("known_hosts"))
-        .expect("home dir");
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    let pattern = format!("[{}]:{}", host, port);
-    let filtered: Vec<&str> = content.lines().filter(|l| !l.contains(&pattern)).collect();
-    if filtered.len() < content.lines().count() {
-        let _ = std::fs::write(&path, filtered.join("\n") + "\n");
-    }
-}
-
 /// テスト用 SSH サーバーを起動し、TestServerHandle を返す
 async fn start_test_server() -> TestServerHandle {
     start_test_server_with_password(None).await
@@ -326,6 +310,15 @@ fn make_ssh_config() -> SshConfig {
     SshConfig {
         timeout_sec: 5,
         ..SshConfig::default()
+    }
+}
+
+/// known_hosts を `dir` の下に置いた設定。テストは利用者の ~/.ssh/known_hosts に触れない
+/// （docs/decision/records/2026-10-12-foundation-1.md の B9）
+fn isolated_ssh_config(dir: &tempfile::TempDir) -> SshConfig {
+    SshConfig {
+        known_hosts: Some(dir.path().join("known_hosts")),
+        ..make_ssh_config()
     }
 }
 
@@ -718,8 +711,8 @@ async fn test_connect_with_verifier_accept_succeeds() {
     let handle = start_test_server().await;
     handle.registry.register("echo ok", "ok\n", 0);
 
-    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
-    remove_known_hosts_entry("127.0.0.1", handle.port);
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -727,7 +720,7 @@ async fn test_connect_with_verifier_accept_succeeds() {
         AuthMethod::Key,
         Some(key_file.path().to_path_buf()),
     );
-    let ssh_config = make_ssh_config();
+    let ssh_config = isolated_ssh_config(&known_hosts);
 
     let verifier = MockVerifier::new(true);
     let result =
@@ -749,8 +742,8 @@ async fn test_connect_with_verifier_reject_fails() {
     // verifier が false を返す → 接続拒否
     let handle = start_test_server().await;
 
-    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
-    remove_known_hosts_entry("127.0.0.1", handle.port);
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -758,7 +751,7 @@ async fn test_connect_with_verifier_reject_fails() {
         AuthMethod::Key,
         Some(key_file.path().to_path_buf()),
     );
-    let ssh_config = make_ssh_config();
+    let ssh_config = isolated_ssh_config(&known_hosts);
 
     let verifier = MockVerifier::new(false);
     let result =
@@ -811,8 +804,8 @@ async fn test_verifier_called_at_most_once_per_connection() {
     let handle = start_test_server().await;
     handle.registry.register("echo ok", "ok\n", 0);
 
-    // ポート再利用時の MITM 誤検知を防ぐため、既存エントリを削除
-    remove_known_hosts_entry("127.0.0.1", handle.port);
+    // known_hosts は一時ディレクトリに置き、利用者のファイルに触れない
+    let known_hosts = tempfile::TempDir::new().unwrap();
 
     let key_file = generate_test_key();
     let server_config = make_server_config(
@@ -820,7 +813,7 @@ async fn test_verifier_called_at_most_once_per_connection() {
         AuthMethod::Key,
         Some(key_file.path().to_path_buf()),
     );
-    let ssh_config = make_ssh_config();
+    let ssh_config = isolated_ssh_config(&known_hosts);
 
     let verifier = MockVerifier::new(true);
     let result =

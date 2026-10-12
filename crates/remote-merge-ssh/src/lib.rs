@@ -14,6 +14,7 @@ pub(crate) mod find_diagnostics;
 pub(crate) mod find_prune;
 pub(crate) mod known_hosts;
 pub(crate) mod known_hosts_io;
+pub(crate) mod known_hosts_location;
 pub(crate) mod login_shell;
 pub(crate) mod preferred;
 

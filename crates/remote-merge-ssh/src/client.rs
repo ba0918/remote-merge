@@ -162,6 +162,7 @@ impl SshClient {
         let mut handler = SshHandler::new(server_config.host.clone(), server_config.port);
         handler.skip_host_key_check = skip_host_key_check;
         handler.unknown_host_sender = tx;
+        handler.known_hosts = ssh_config.known_hosts.clone();
 
         let connect_result = tokio::time::timeout(
             Duration::from_secs(ssh_config.timeout_sec),
@@ -276,7 +277,13 @@ impl SshClient {
         }
 
         // 承認 → known_hosts に追加してリトライ
-        append_known_hosts_entry(&info.host, info.port, &info.key_type, &info.key_base64);
+        append_known_hosts_entry(
+            ssh_config.known_hosts.as_deref(),
+            &info.host,
+            info.port,
+            &info.key_type,
+            &info.key_base64,
+        );
 
         // リトライでは利用者が承認した鍵と完全に一致する鍵だけを受け入れる。
         let retry_handler = SshHandler::for_approved_key(

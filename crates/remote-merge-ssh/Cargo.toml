@@ -21,6 +21,9 @@ remote-merge-core = { path = "../remote-merge-core" }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
 [features]
 test-utils = []
 
