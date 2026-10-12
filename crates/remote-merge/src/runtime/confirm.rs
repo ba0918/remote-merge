@@ -117,9 +117,26 @@ impl CoreRuntime {
             }
             ResolvedPath::Symlink { link_target, .. } => Observed::Link(link_target),
             ResolvedPath::Exists { .. } if with_content => {
-                Observed::File(self.remote_read_one(server, path)?)
+                Observed::File(self.read_after_loss(server, path)?)
             }
             ResolvedPath::Exists { .. } => Observed::File(Vec::new()),
+        })
+    }
+
+    /// 確かめのための中身の読み込み（上限は当てない）
+    fn read_after_loss(&mut self, server: &str, path: &EntryPath) -> anyhow::Result<Vec<u8>> {
+        let unlimited = remote_merge_core::op_failure::SizeLimit::Unlimited;
+        let (_, content) = self
+            .remote_read_entries(server, std::slice::from_ref(path), unlimited)?
+            .pop()
+            .expect("every route answers each path asked");
+        content.map_err(|failure| {
+            remote_merge_core::op_failure::OpError::new(
+                remote_merge_core::op_failure::Operation::Read,
+                path.as_typed(),
+                failure,
+            )
+            .into()
         })
     }
 

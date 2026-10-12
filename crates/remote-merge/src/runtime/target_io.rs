@@ -7,7 +7,7 @@ use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
-use super::size_limit::FileSize;
+use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use remote_merge_core::listing::ChildListing;
@@ -72,22 +72,14 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         rel_path: &RelPath,
     ) -> anyhow::Result<ResolvedPath>;
-    fn read_file_bytes(
+    /// パスごとの中身か失敗の種類（symlink は辿った先）。`limit` を超えるファイルは読まずに上限を
+    /// 超える失敗にする。尋ねる操作そのものが失敗したら（やり直しても接続断など）Err
+    fn read_entries(
         &mut self,
         runtime: &mut CoreRuntime,
-        rel_path: &EntryPath,
-    ) -> anyhow::Result<Vec<u8>>;
-    /// パスごとの、symlink を辿った先のファイルの大きさ。大きさを尋ねる操作そのものが失敗したら Err
-    fn file_sizes(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>>;
-    fn read_files_bytes_batch(
-        &mut self,
-        runtime: &mut CoreRuntime,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>>;
+        paths: &[EntryPath],
+        limit: SizeLimit,
+    ) -> anyhow::Result<Vec<PathResult<Vec<u8>>>>;
     fn write_file(
         &mut self,
         runtime: &mut CoreRuntime,
@@ -152,12 +144,12 @@ pub(crate) trait TargetIo {
     fn connect(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<()>;
     fn disconnect(&mut self, runtime: &mut CoreRuntime);
     fn is_available(&self, runtime: &CoreRuntime) -> bool;
-    /// パスごとのハッシュ。ハッシュで比べられなければ Ok(None)（中身で比べる）
-    fn hashes(
+    /// パスごとの比べる値（symlink はリンク先、それ以外は中身の SHA-256）か失敗の種類
+    fn hash_entries(
         &mut self,
         runtime: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>>;
+    ) -> anyhow::Result<Vec<PathResult<String>>>;
     /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
     fn states_before_restore(
         &mut self,

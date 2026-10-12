@@ -539,8 +539,10 @@ async fn batch_read_cut_off_without_exit_status_is_a_connection_error() {
         .register_without_exit_status("/var/www/app/cut.txt", "partial");
     let (mut client, _key) = connect_client(&handle).await;
 
+    let script =
+        remote_merge_ssh::contents_script::read(&["/var/www/app/cut.txt".to_string()], None);
     let error = client
-        .read_files_batch_bytes(&["/var/www/app/cut.txt".to_string()])
+        .run_bytes(&script)
         .await
         .expect_err("a batch read without an exit status must not succeed");
 

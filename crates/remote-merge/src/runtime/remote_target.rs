@@ -9,9 +9,9 @@ use std::collections::HashMap;
 
 use super::core::CoreRuntime;
 use super::remote_change::RemoteChange;
-use super::size_limit::FileSize;
 use super::target_io::TargetIo;
 use crate::tree::{FileNode, FileTree};
+use remote_merge_core::op_failure::{PathResult, SizeLimit};
 
 pub(crate) struct RemoteTargetIo {
     name: String,
@@ -53,32 +53,6 @@ impl TargetIo for RemoteTargetIo {
     ) -> anyhow::Result<ResolvedPath> {
         let name = &self.name;
         rt.read_on_route(name, |rt| rt.remote_inspect(name, path))
-    }
-
-    fn read_file_bytes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        path: &EntryPath,
-    ) -> anyhow::Result<Vec<u8>> {
-        let name = &self.name;
-        rt.read_on_route(name, |rt| rt.remote_read_one(name, path))
-    }
-
-    fn file_sizes(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        rt.remote_sizes(&self.name, paths)
-    }
-
-    fn read_files_bytes_batch(
-        &mut self,
-        rt: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        let name = &self.name;
-        rt.read_on_route(name, |rt| rt.remote_read(name, paths))
     }
 
     fn write_file(
@@ -181,13 +155,23 @@ impl TargetIo for RemoteTargetIo {
         rt.has_client(&self.name)
     }
 
-    fn hashes(
+    fn read_entries(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
+        limit: SizeLimit,
+    ) -> anyhow::Result<Vec<PathResult<Vec<u8>>>> {
         let name = &self.name;
-        rt.read_on_route(name, |rt| rt.remote_hashes(name, paths))
+        rt.read_on_route(name, |rt| rt.remote_read_entries(name, paths, limit))
+    }
+
+    fn hash_entries(
+        &mut self,
+        rt: &mut CoreRuntime,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_hash_entries(name, paths))
     }
 
     fn states_before_restore(

@@ -1,14 +1,11 @@
 //! リモートの変更の操作と、経路ごとに中でやり直しを決める読み取り（大きさ・子の一覧）
 
-use std::collections::HashMap;
-
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 use super::agent_route;
 use super::core::CoreRuntime;
 use super::route_state::RemoteRoute;
-use super::size_limit::FileSize;
 use crate::tree::FileNode;
 
 /// 一つの項目への変更
@@ -62,20 +59,6 @@ impl CoreRuntime {
             (RemoteRoute::Ssh, RemoteChange::Symlink { target }) => {
                 self.create_remote_symlink(server, path, target)
             }
-        }
-    }
-
-    /// パスごとの大きさ。エージェントは読み取りとしてやり直し、SSH の問い合わせは中でやり直す
-    pub(crate) fn remote_sizes(
-        &mut self,
-        server: &str,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        match self.remote_route(server)? {
-            RemoteRoute::Agent => {
-                self.read_on_route(server, |rt| agent_route::sizes(rt, server, paths))
-            }
-            RemoteRoute::Ssh => self.ssh_file_sizes(server, paths),
         }
     }
 

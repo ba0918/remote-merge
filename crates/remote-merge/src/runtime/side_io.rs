@@ -15,27 +15,11 @@ use super::change_check::{Before, Change};
 use super::confirm::ConfirmedChange;
 use super::connection::{classify, label_read};
 use super::core::CoreRuntime;
-use super::size_limit::{self, SizeLimit};
+
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 #[cfg(test)]
 use remote_merge_engine::local_io::check_truncation;
-
-/// エージェントのハッシュの結果を、パスからハッシュ（symlink はリンク先）への対応にする。
-/// 読めなかったパスは入れない（大きさ・読み込み・ハッシュをパスごとの結果にするまでのつなぎ）
-pub(crate) fn hash_results_to_map(
-    results: &[crate::agent::protocol::FileHashResult],
-) -> HashMap<String, String> {
-    use crate::agent::protocol::FileHashResult;
-    results
-        .iter()
-        .filter_map(|result| match result {
-            FileHashResult::Ok { path, hash } => Some((path.clone(), hash.clone())),
-            FileHashResult::Symlink { path, target } => Some((path.clone(), target.clone())),
-            FileHashResult::Failed { .. } => None,
-        })
-        .collect()
-}
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
@@ -137,80 +121,6 @@ impl CoreRuntime {
     //
     // 製品の中身の読み込みはすべてこの二つの入口を通る。上限ありのときは経路に振り分ける前に
     // 大きさだけを尋ね、上限を超えるパスを読まない（docs/ir/cli/size-limit.md の REQ-cli-079）。
-
-    /// Side に基づいてバイト列を読み込む（バイナリファイル対応）。`force` が false なら
-    /// 上限を超えるファイルは読まずに `FileTooLarge` を返す
-    pub fn read_file_bytes(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        force: bool,
-    ) -> anyhow::Result<Vec<u8>> {
-        self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))
-            .map_err(label_read)?;
-        let rel_path = checked_entry(rel_path)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.read_file_bytes(self, &rel_path).map_err(label_read)
-    }
-
-    /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
-    ///
-    /// strict セマンティクス: ファイル単位の読み込みエラーは即座に `Err` として伝播する。上限を超えるパスは結果に
-    /// 入れないので、中身が要る呼び出し元は結果にないパスを一件ずつ読んで理由を受け取る。
-    /// CLI の中身の読み込みは、これを包む `cli::content_reads::read_contents` を使うこと。
-    pub fn read_files_bytes_batch(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-        limit: SizeLimit,
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        let readable = self
-            .paths_within_limit(side, rel_paths, limit)
-            .map_err(label_read)?;
-        let readable = checked_entries(&readable)?;
-        let mut io = super::target_io::for_side(side, self);
-        io.read_files_bytes_batch(self, &readable)
-            .map_err(label_read)
-    }
-
-    /// 上限ありのとき、`rel_path` を読まない理由があれば Err にする
-    fn refuse_over_limit(
-        &mut self,
-        side: &Side,
-        rel_path: &str,
-        limit: SizeLimit,
-    ) -> anyhow::Result<()> {
-        if limit == SizeLimit::Lifted {
-            return Ok(());
-        }
-        let asked = [checked_entry(rel_path)?];
-        let mut io = super::target_io::for_side(side, self);
-        let sizes = io
-            .file_sizes(self, &asked)
-            .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
-        match size_limit::refusal(rel_path, sizes.get(rel_path)) {
-            Some(refusal) => Err(refusal),
-            None => Ok(()),
-        }
-    }
-
-    /// 経路に読ませるパス。上限なしのときは大きさを尋ねない
-    fn paths_within_limit(
-        &mut self,
-        side: &Side,
-        rel_paths: &[String],
-        limit: SizeLimit,
-    ) -> anyhow::Result<Vec<String>> {
-        if limit == SizeLimit::Lifted || rel_paths.is_empty() {
-            return Ok(rel_paths.to_vec());
-        }
-        let asked = checked_entries(rel_paths)?;
-        let mut io = super::target_io::for_side(side, self);
-        let sizes = io
-            .file_sizes(self, &asked)
-            .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
-        Ok(size_limit::readable_paths(rel_paths, &sizes))
-    }
 
     // ── 書き込み ──
 
@@ -754,7 +664,13 @@ mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
     use crate::runtime::local_target::LocalTargetIo;
-    use crate::runtime::size_limit::{FileTooLarge, SizeLimit, MAX_BINARY_FILE_SIZE};
+    use crate::runtime::size_limit::{SizeLimit, MAX_BINARY_FILE_SIZE};
+    use remote_merge_core::op_failure::{failure_of, OpFailure};
+
+    /// 上限を超える失敗か
+    fn is_too_large(error: &anyhow::Error) -> bool {
+        matches!(failure_of(error), Some(OpFailure::TooLarge { .. }))
+    }
     use crate::runtime::target_io::TargetIo;
     use remote_merge_engine::scan_result::into_tree;
     use tempfile::TempDir;
@@ -802,11 +718,14 @@ mod tests {
             "content",
         )
         .unwrap();
-        assert_eq!(
-            io.read_file_bytes(&mut runtime, &EntryPath::parse("nested/file.txt").unwrap())
-                .unwrap(),
-            b"content"
-        );
+        let read = io
+            .read_entries(
+                &mut runtime,
+                &[EntryPath::parse("nested/file.txt").unwrap()],
+                remote_merge_core::op_failure::SizeLimit::Unlimited,
+            )
+            .unwrap();
+        assert_eq!(read[0].1.as_deref(), Ok(&b"content"[..]));
         io.remove_file(&mut runtime, &EntryPath::parse("nested/file.txt").unwrap())
             .unwrap();
         assert!(!tmp.path().join("nested/file.txt").exists());
@@ -905,7 +824,7 @@ mod tests {
 
         let error = rt.read_file_bytes(&Side::Local, "over", false).unwrap_err();
 
-        assert!(error.is::<FileTooLarge>(), "{error:#}");
+        assert!(is_too_large(&error), "{error:#}");
     }
 
     #[cfg(unix)]
@@ -916,22 +835,23 @@ mod tests {
 
         let error = rt.read_file_bytes(&Side::Local, "at", false).unwrap_err();
 
-        assert!(!error.is::<FileTooLarge>(), "{error:#}");
+        assert!(!is_too_large(&error), "{error:#}");
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_batch_leaves_out_a_file_over_the_limit_without_reading_it() {
+    fn a_batch_answers_a_file_over_the_limit_as_too_large_without_reading_it() {
         let tmp = TempDir::new().unwrap();
         let mut rt = runtime_with_unreadable_files_around_the_limit(&tmp);
         std::fs::write(tmp.path().join("small"), "s").unwrap();
         let paths = vec!["over".to_string(), "small".to_string()];
 
-        let bytes = rt
-            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+        let reads = rt
+            .read_files(&Side::Local, &paths, SizeLimit::Enforced)
             .unwrap();
 
-        assert_eq!(bytes.keys().collect::<Vec<_>>(), vec!["small"]);
+        assert!(is_too_large(reads[0].1.as_ref().unwrap_err()));
+        assert_eq!(reads[1].1.as_deref().unwrap(), b"s");
     }
 
     #[cfg(unix)]
@@ -942,7 +862,7 @@ mod tests {
 
         let error = rt.read_file_bytes(&Side::Local, "over", true).unwrap_err();
 
-        assert!(!error.is::<FileTooLarge>(), "{error:#}");
+        assert!(!is_too_large(&error), "{error:#}");
     }
 
     #[test]
@@ -1172,45 +1092,49 @@ mod tests {
     }
 
     #[test]
-    fn test_read_files_bytes_batch_local() {
+    fn test_read_files_local() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("a.bin"), vec![0x00, 0x01, 0x02]).unwrap();
         std::fs::write(tmp.path().join("b.txt"), "hello").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
         let paths = vec!["a.bin".to_string(), "b.txt".to_string()];
-        let batch = rt
-            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+        let reads = rt
+            .read_files(&Side::Local, &paths, SizeLimit::Enforced)
             .unwrap();
 
-        assert_eq!(batch.len(), 2);
-        assert_eq!(batch["a.bin"], vec![0x00, 0x01, 0x02]);
-        assert_eq!(batch["b.txt"], b"hello".to_vec());
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[0].1.as_deref().unwrap(), &[0x00, 0x01, 0x02]);
+        assert_eq!(reads[1].1.as_deref().unwrap(), b"hello");
     }
 
+    // 読めなかったパスはそのパスの失敗の種類で返り、ほかのパスの中身は返る
     #[test]
-    fn test_read_files_bytes_batch_strict_error() {
-        // strict セマンティクス: 存在しないファイルが含まれると Err を返す
+    fn a_path_that_cannot_be_read_fails_alone_with_its_kind() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("exists.txt"), "content").unwrap();
 
         let mut rt = create_test_runtime(&tmp);
         let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
-        let result = rt.read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced);
+        let reads = rt
+            .read_files(&Side::Local, &paths, SizeLimit::Enforced)
+            .unwrap();
 
-        assert!(result.is_err());
+        assert_eq!(reads[0].1.as_deref().unwrap(), b"content");
+        let error = reads[1].1.as_ref().unwrap_err();
+        assert_eq!(failure_of(error), Some(&OpFailure::NotFound), "{error:#}");
     }
 
     #[test]
-    fn test_read_files_bytes_batch_empty() {
+    fn test_read_files_empty() {
         let tmp = TempDir::new().unwrap();
         let mut rt = create_test_runtime(&tmp);
         let paths: Vec<String> = vec![];
-        let batch = rt
-            .read_files_bytes_batch(&Side::Local, &paths, SizeLimit::Enforced)
+        let reads = rt
+            .read_files(&Side::Local, &paths, SizeLimit::Enforced)
             .unwrap();
 
-        assert!(batch.is_empty());
+        assert!(reads.is_empty());
     }
 
     #[test]
@@ -1300,12 +1224,12 @@ mod tests {
         vec![EntryPath::parse("a.bin").unwrap()]
     }
 
-    /// サーバ "develop" の経路で `asked()` の大きさを尋ねる
-    fn remote_sizes(
+    /// サーバ "develop" の経路で `asked()` を上限を当てて読む
+    fn remote_reads(
         rt: &mut CoreRuntime,
-    ) -> anyhow::Result<HashMap<String, crate::runtime::size_limit::FileSize>> {
+    ) -> anyhow::Result<Vec<remote_merge_core::op_failure::PathResult<Vec<u8>>>> {
         let mut io = crate::runtime::target_io::for_side(&Side::Remote("develop".into()), rt);
-        io.file_sizes(rt, &asked())
+        io.read_entries(rt, &asked(), SizeLimit::Enforced.bytes())
     }
 
     #[cfg(unix)]
@@ -1330,7 +1254,7 @@ mod tests {
                 rt.read_file_bytes(side, root, false).map(|_| ()),
                 rt.current_link_target(side, root).map(|_| ()),
                 rt.stat_files(side, &[root.to_string()]).map(|_| ()),
-                rt.read_files_bytes_batch(side, &[root.to_string()], SizeLimit::Enforced)
+                rt.read_files(side, &[root.to_string()], SizeLimit::Enforced)
                     .map(|_| ()),
                 rt.try_hash_compare(&Side::Local, side, &[root.to_string()])
                     .map(|_| ()),
@@ -1371,21 +1295,21 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_error_returned_by_the_agent_fails_the_question_without_switching_to_ssh() {
-        let (mut rt, received) = runtime_with_scripted_agent(agent_error("stat failed"));
+        let (mut rt, received) = runtime_with_scripted_agent(agent_error("read failed"));
 
-        let error = remote_sizes(&mut rt).unwrap_err();
+        let error = remote_reads(&mut rt).unwrap_err();
 
-        assert!(format!("{error:#}").contains("stat failed"), "{error:#}");
+        assert!(format!("{error:#}").contains("read failed"), "{error:#}");
         assert_eq!(requests(&received), 1);
         assert!(rt.agent_clients.contains_key("develop"));
     }
 
-    // 一括の呼び出し元が大きさを尋ねる操作の失敗をパスごとに読み直すと、次の問い合わせの結果で
-    // 失敗が消えうる。読み直せば、エージェントは二つ目の問い合わせを受ける
+    // まとめての読み込みが失敗したとき、一括の呼び出し元はパスごとに読み直さない。読み直すと、
+    // 次の問い合わせの結果で失敗が消えうる。読み直せば、エージェントは二つ目の問い合わせを受ける
     #[cfg(unix)]
     #[test]
-    fn a_batch_caller_reports_a_failed_size_query_as_each_paths_failure_without_reading_again() {
-        let (mut rt, received) = runtime_with_scripted_agent(agent_error("stat failed"));
+    fn a_batch_caller_reports_a_failed_read_as_each_paths_failure_without_reading_again() {
+        let (mut rt, received) = runtime_with_scripted_agent(agent_error("read failed"));
 
         let reads = crate::cli::content_reads::read_contents(
             &mut rt,
@@ -1395,7 +1319,7 @@ mod tests {
         );
 
         let reason = reads.failure("a.bin").expect("a.bin must have failed");
-        assert!(reason.contains("stat failed"), "{reason}");
+        assert!(reason.contains("read failed"), "{reason}");
         assert_eq!(requests(&received), 1);
         assert!(rt.agent_clients.contains_key("develop"));
     }
@@ -1407,7 +1331,7 @@ mod tests {
     fn a_lost_agent_connection_is_not_asked_again_over_ssh_and_stays_a_connection_loss() {
         let (mut rt, received) = runtime_with_scripted_agent(None);
 
-        let error = remote_sizes(&mut rt).unwrap_err();
+        let error = remote_reads(&mut rt).unwrap_err();
 
         assert_eq!(
             crate::runtime::connection::classify(&error),
@@ -1427,14 +1351,16 @@ mod tests {
     #[test]
     fn a_path_the_agent_leaves_out_is_a_disconnection_and_is_not_asked_over_ssh() {
         for sudo in [false, true] {
-            let (mut rt, received) =
-                runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
+            let (mut rt, received) = runtime_with_scripted_agent(Some(
+                crate::agent::protocol::AgentResponse::FileContents {
                     results: vec![],
+                    is_last: true,
                     refused: vec![],
-                }));
+                },
+            ));
             rt.config.servers.get_mut("develop").unwrap().sudo = sudo;
 
-            let error = remote_sizes(&mut rt).unwrap_err();
+            let error = remote_reads(&mut rt).unwrap_err();
 
             assert!(
                 crate::runtime::connection::classify(&error).is_disconnection(),
@@ -1900,34 +1826,5 @@ mod tests {
         let children = rt.fetch_children(&Side::Local, "").unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "src");
-    }
-
-    // ── hash_results_to_map テスト ──
-
-    #[test]
-    fn test_hash_results_to_map() {
-        use crate::agent::protocol::FileHashResult;
-
-        let results = vec![
-            FileHashResult::Ok {
-                path: "a.txt".into(),
-                hash: "hash_a".into(),
-            },
-            FileHashResult::Symlink {
-                path: "link".into(),
-                target: "/opt/target".into(),
-            },
-            FileHashResult::Failed {
-                path: "fail.txt".into(),
-                failure: crate::agent::protocol::WireFailure::Io {
-                    reason: "error".into(),
-                },
-            },
-        ];
-        let map = hash_results_to_map(&results);
-        assert_eq!(map.len(), 2);
-        assert_eq!(map["a.txt"], "hash_a");
-        assert_eq!(map["link"], "/opt/target");
-        assert!(!map.contains_key("fail.txt"));
     }
 }

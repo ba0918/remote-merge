@@ -1,49 +1,38 @@
-//! エージェントの経路の読み取り（中身・大きさ・更新時刻・ハッシュ・項目のリンク先）。
+//! エージェントの経路の読み取り（中身・更新時刻・ハッシュ・項目のリンク先）。
 //! エージェントが答えた失敗の種類は、操作とパスを添えた誤りにする
 
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
-use remote_merge_core::op_failure::{failure_of, OpError, OpFailure, Operation};
+use remote_merge_core::op_failure::{
+    failure_of, OpError, OpFailure, Operation, PathResult, SizeLimit,
+};
 use remote_merge_core::relative_path::EntryPath;
 
 use super::{with_agent, AGENT_CHUNK_SIZE_LIMIT, AGENT_READ_BATCH_SIZE};
-use crate::agent::protocol::StatResult;
+use crate::agent::protocol::{FileHashResult, StatResult};
 use crate::runtime::core::CoreRuntime;
-use crate::runtime::size_limit::FileSize;
 
 fn failed(operation: Operation, path: &str, failure: OpFailure) -> anyhow::Error {
     OpError::new(operation, path, failure).into()
 }
 
-/// 中身をまとめて読む。読めなかったパスがあれば誤り
-pub(crate) fn read(
+/// パスごとの中身か失敗の種類。上限を超えるファイルはエージェントが中身を送らない
+pub(crate) fn read_entries(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[EntryPath],
-) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-    let mut contents = HashMap::new();
+    limit: SizeLimit,
+) -> anyhow::Result<Vec<PathResult<Vec<u8>>>> {
+    let size_limit = match limit {
+        SizeLimit::Bytes(bytes) => Some(bytes),
+        SizeLimit::Unlimited => None,
+    };
+    let mut answers = Vec::with_capacity(paths.len());
     for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
-        let results = with_agent(rt, server_name, |agent| {
-            agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT, None)
-        })?;
-        for (path, result) in results {
-            let content = result.map_err(|failure| failed(Operation::Read, &path, failure))?;
-            contents.insert(path, content);
-        }
+        answers.extend(with_agent(rt, server_name, |agent| {
+            agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT, size_limit)
+        })?);
     }
-    Ok(contents)
-}
-
-pub(crate) fn read_one(
-    rt: &mut CoreRuntime,
-    server_name: &str,
-    path: &EntryPath,
-) -> anyhow::Result<Vec<u8>> {
-    let mut contents = read(rt, server_name, std::slice::from_ref(path))?;
-    Ok(contents
-        .remove(path.as_typed())
-        .expect("the client checks that every path asked is answered"))
+    Ok(answers)
 }
 
 /// 一度に送るパスの数の上限ごとに分けて尋ねる。どれかの回が失敗したら全体の失敗にする
@@ -59,21 +48,6 @@ fn stat_in_batches(
         })?);
     }
     Ok(stats)
-}
-
-/// パスごとの大きさ。パスごとの失敗は分からない大きさにし、読み込みでその失敗を受け取る
-pub(crate) fn sizes(
-    rt: &mut CoreRuntime,
-    server_name: &str,
-    paths: &[EntryPath],
-) -> anyhow::Result<HashMap<String, FileSize>> {
-    Ok(stat_in_batches(rt, server_name, paths)?
-        .into_iter()
-        .map(|result| match result {
-            StatResult::Ok(stat) => (stat.path, FileSize::Known(stat.size)),
-            StatResult::Failed { path, .. } => (path, FileSize::Unknown),
-        })
-        .collect())
 }
 
 /// パスごとの更新時刻。ないパスは None、そのほかの失敗は誤り
@@ -116,12 +90,20 @@ pub(crate) fn entry_link(
     }
 }
 
-/// パスごとの比べる値（symlink はリンク先）
-pub(crate) fn hashes(
+/// パスごとの比べる値（symlink はリンク先、それ以外は中身の SHA-256）か失敗の種類
+pub(crate) fn hash_entries(
     rt: &mut CoreRuntime,
     server_name: &str,
     paths: &[EntryPath],
-) -> anyhow::Result<HashMap<String, String>> {
-    let results = with_agent(rt, server_name, |agent| agent.hash_files(paths))?;
-    Ok(crate::runtime::side_io::hash_results_to_map(&results))
+) -> anyhow::Result<Vec<PathResult<String>>> {
+    let mut answers = Vec::with_capacity(paths.len());
+    for chunk in paths.chunks(AGENT_READ_BATCH_SIZE) {
+        let results = with_agent(rt, server_name, |agent| agent.hash_files(chunk))?;
+        answers.extend(results.into_iter().map(|result| match result {
+            FileHashResult::Ok { path, hash } => (path, Ok(hash)),
+            FileHashResult::Symlink { path, target } => (path, Ok(target)),
+            FileHashResult::Failed { path, failure } => (path, Err(OpFailure::from(failure))),
+        }));
+    }
+    Ok(answers)
 }

@@ -310,6 +310,9 @@ mod ssh_interrupted_changes;
 #[path = "contract/ssh_interrupted_rollback.rs"]
 mod ssh_interrupted_rollback;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_remote_tools.rs"]
+mod ssh_remote_tools;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_route_choice.rs"]
 mod ssh_route_choice;
 #[cfg(feature = "test-utils")]

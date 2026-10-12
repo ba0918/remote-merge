@@ -5,8 +5,8 @@ use remote_merge_core::error::AppError;
 use remote_merge_core::scan::exclude::Exclude;
 use remote_merge_core::scan::raw::{Answer, CollectError, Collector, Question};
 
-use crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN;
 use crate::client::SshClient;
+use crate::command_limit::MAX_COMMAND_LEN as SSH_BATCH_MAX_COMMAND_LEN;
 use crate::scan_output::parse;
 use crate::scan_recheck::{
     apply_recheck, match_round, read_recheck, recheck_script, split_recheck, EmptyDir,

@@ -66,9 +66,9 @@ pub enum SshCommand {
     ListChildren,
     /// パスの確認
     PathInspection,
-    /// 大きさや更新時刻の stat
+    /// 更新時刻の stat
     Stat,
-    /// ファイルの中身の読み込み（1 ファイルとまとめ読み）
+    /// ファイルの中身の読み込み（パスごとに大きさを尋ねてから読む）
     Read,
     /// ファイルの書き込み
     Write,
@@ -84,16 +84,11 @@ impl SshCommand {
             Self::Scan => script.contains("@RMSCAN"),
             Self::ListChildren => script.contains("-maxdepth 1 -mindepth 1"),
             Self::PathInspection => script.starts_with(remote_merge_ssh::path_facts_script::PREFIX),
-            Self::Stat => {
-                script.starts_with("LC_ALL=C; c=$(stat") || script.contains("stat -c '%Y %n'")
-            }
-            Self::Read => {
-                script.starts_with("openssl base64 -in")
-                    || (script.contains("printf 'END") && script.contains("wc -c <"))
-            }
+            Self::Stat => script.contains("stat -c '%Y %n'"),
+            Self::Read => script.starts_with(remote_merge_ssh::contents_script::READ_PREFIX),
             Self::Write => script.contains("openssl base64 -d") || script.contains("cat >"),
             Self::Chmod => script.starts_with("chmod "),
-            Self::Hash => script.contains("sha256sum"),
+            Self::Hash => script.starts_with(remote_merge_ssh::contents_script::HASH_PREFIX),
         }
     }
 }

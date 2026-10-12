@@ -1,7 +1,9 @@
-pub mod batch_hash;
-pub mod batch_read;
 pub mod child_listing;
 pub mod client;
+pub mod command_limit;
+pub mod contents;
+pub mod contents_output;
+pub mod contents_script;
 pub mod entry_link;
 pub mod find_records;
 pub mod hint;

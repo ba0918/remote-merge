@@ -4,7 +4,7 @@
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation, Tool};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::RelPath;
-use remote_merge_ssh::batch_read::SSH_BATCH_MAX_COMMAND_LEN;
+use remote_merge_ssh::command_limit::MAX_COMMAND_LEN as SSH_BATCH_MAX_COMMAND_LEN;
 use remote_merge_ssh::path_facts::{resolve_all, FactsFailure, Resolution};
 
 use super::core::CoreRuntime;

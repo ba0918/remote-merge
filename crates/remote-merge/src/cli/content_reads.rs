@@ -4,19 +4,16 @@
 //! `ContentReads` で受け取る。呼び出し元は失敗を捨てず、読めなかったパスを読み直してその失敗を
 //! 消さない（読めた中身を後の段でもう一度読むことは妨げない）。
 
-use crate::runtime::connection::classify;
-use crate::runtime::size_limit::{SizeLimit, SizeQueryFailed};
+use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::CoreRuntime;
 use crate::service::content_reads::ContentReads;
 use crate::side::Side;
 
 /// `side` の `paths` の中身を読む。
 ///
-/// まとめて読み、まとめての結果に入らなかったパス（大きさの上限を超えたもの、経路が読めなかった
-/// もの）は一件ずつ読んでその理由を受け取る。大きさを尋ねる操作そのものが失敗したときと、
-/// まとめての読み込みがやり直しても `接続断` だったときは、一件ずつ読み直さずに尋ねたパスすべての
-/// 失敗にする（読み直すと次の問い合わせの結果で失敗が消えうる。接続断ではつなぎ直しがファイルの
-/// 数だけ繰り返される）。
+/// 経路はパスごとに中身か失敗の種類を返すので、読めなかったパスを読み直さない。尋ねる操作
+/// そのものがやり直しても `接続断` だったときなどは、尋ねたパスすべてをその理由の失敗にする
+/// （docs/ir/ssh/reconnect.md の REQ-ssh-003）。
 pub fn read_contents(
     core: &mut CoreRuntime,
     side: &Side,
@@ -27,31 +24,19 @@ pub fn read_contents(
     if paths.is_empty() {
         return reads;
     }
-    match core.read_files_bytes_batch(side, paths, limit) {
-        Ok(contents) => {
-            for (path, content) in contents {
-                reads.record_read(path, content);
+    match core.read_files(side, paths, limit) {
+        Ok(results) => {
+            for (path, content) in results {
+                match content {
+                    Ok(content) => reads.record_read(path, content),
+                    Err(error) => reads.record_failure(path.as_str(), format!("{error:#}")),
+                }
             }
         }
-        // 大きさを尋ねる操作の失敗と、やり直しても接続が使えなかったまとめの読み込みは、
-        // 一件ずつ読み直さない
-        Err(error) if error.is::<SizeQueryFailed>() || classify(&error).is_disconnection() => {
+        Err(error) => {
             for path in paths {
                 reads.record_failure(path.as_str(), format!("{error:#}"));
             }
-            return reads;
-        }
-        Err(error) => {
-            tracing::debug!("Batch read failed, reading one by one: {error:#}");
-        }
-    }
-    for path in paths {
-        if reads.contains(path) {
-            continue;
-        }
-        match core.read_file_bytes(side, path, limit == SizeLimit::Lifted) {
-            Ok(content) => reads.record_read(path.as_str(), content),
-            Err(error) => reads.record_failure(path.as_str(), format!("{error:#}")),
         }
     }
     reads

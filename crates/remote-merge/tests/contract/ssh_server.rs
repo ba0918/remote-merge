@@ -24,15 +24,50 @@ pub fn is_path_inspection(command: &str) -> bool {
     command.starts_with(remote_merge_ssh::path_facts_script::PREFIX)
 }
 
-/// 受けたコマンドが、製品の SSH の経路のファイルの大きさの問い合わせか
-#[cfg(feature = "test-utils")]
+/// 受けたコマンドが、製品の SSH の経路の中身の読み込みか。読み込みのスクリプトは、パスごとに
+/// 大きさを先に尋ね、上限を超えるファイルの中身は送らない
 pub fn is_file_size_query(command: &str) -> bool {
-    command.starts_with(remote_merge::runtime::remote_size::FILE_SIZE_PREFIX)
+    command.starts_with(remote_merge_ssh::contents_script::READ_PREFIX)
 }
 
-#[cfg(not(feature = "test-utils"))]
-pub fn is_file_size_query(_command: &str) -> bool {
-    false
+/// 読み込みのスクリプトが尋ねたパス（"set --" の一重引用符で囲んだ引数）
+fn read_script_paths(script: &str) -> Vec<String> {
+    let Some(line) = script.lines().find(|line| line.starts_with("set --")) else {
+        return Vec::new();
+    };
+    let mut paths = Vec::new();
+    let mut rest = &line["set --".len()..];
+    while let Some(start) = rest.find('\'') {
+        let mut word = String::new();
+        let mut tail = &rest[start + 1..];
+        loop {
+            let end = tail.find('\'').unwrap();
+            word.push_str(&tail[..end]);
+            tail = &tail[end + 1..];
+            // '\'' は引用の中の一重引用符
+            if let Some(after) = tail.strip_prefix("\\''") {
+                word.push('\'');
+                tail = after;
+            } else {
+                break;
+            }
+        }
+        paths.push(word);
+        rest = tail;
+    }
+    paths
+}
+
+/// どのパスも "remote updated\n" と答える読み込みの答え
+fn fabricated_read_answer(script: &str) -> Vec<u8> {
+    let mut answer = b"@RMREAD\0".to_vec();
+    for _ in read_script_paths(script) {
+        answer.extend_from_slice(b"@P\0C\0");
+        answer.extend_from_slice(b"15\0remote updated\n\0");
+        answer.extend_from_slice(b"0\0");
+    }
+    answer.extend_from_slice(b"@END\0");
+    answer
 }
 
 pub struct TestServer {
@@ -585,33 +620,22 @@ impl server::Handler for LocalHandler {
             return Ok(());
         }
         if is_file_size_query(&script) {
-            // 大きさの問い合わせは stat で調べるだけなので、受けたまま実行して答える
+            // 読み込みは、大きさの問い合わせとして切るか、読み取りとして切るか、どのパスも
+            // "remote updated" と答える
             let interruptions = self.size_interruptions.load(Ordering::SeqCst);
-            if self.size_attempts.fetch_add(1, Ordering::SeqCst) < interruptions {
+            if interruptions > 0
+                && self.size_attempts.fetch_add(1, Ordering::SeqCst) < interruptions
+            {
                 session.disconnect(Disconnect::ByApplication, "connection lost during stat", "")?;
                 return Ok(());
             }
-            let result = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(&script)
-                .output()?;
-            session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
-            session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
-            session.eof(channel)?;
-            session.close(channel)?;
-            return Ok(());
-        }
-        let answers_reads =
-            self.interrupt_reads > 0 || self.size_interruptions.load(Ordering::SeqCst) > 0;
-        if command.starts_with(b"openssl base64 -in") && answers_reads {
-            if self.read_attempts.fetch_add(1, Ordering::SeqCst) < self.interrupt_reads {
+            if self.interrupt_reads > 0
+                && self.read_attempts.fetch_add(1, Ordering::SeqCst) < self.interrupt_reads
+            {
                 session.disconnect(Disconnect::ByApplication, "connection lost during read", "")?;
                 return Ok(());
             }
-            session.data(
-                channel,
-                CryptoVec::from(b"cmVtb3RlIHVwZGF0ZWQK\n".as_slice()),
-            )?;
+            session.data(channel, CryptoVec::from(fabricated_read_answer(&script)))?;
             session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
             session.close(channel)?;

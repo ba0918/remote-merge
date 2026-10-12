@@ -44,15 +44,6 @@ impl CoreRuntime {
         }
     }
 
-    /// SSH の経路の読み取り（大きさの問い合わせなどの中で使う）。[`Self::read_on_route`] と同じ
-    pub(crate) fn ssh_read<T>(
-        &mut self,
-        server_name: &str,
-        read: impl FnMut(&mut Self) -> anyhow::Result<T>,
-    ) -> anyhow::Result<T> {
-        self.read_on_route(server_name, read)
-    }
-
     /// そのサーバへの処理を止めた印を立て、`error` をそのまま返す
     fn stop(&mut self, server_name: &str, error: anyhow::Error) -> anyhow::Error {
         self.stopped

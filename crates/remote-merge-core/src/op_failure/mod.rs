@@ -9,6 +9,9 @@ mod size_limit;
 pub use message::{failure_of, OpError, Operation};
 pub use size_limit::{check_size, SizeLimit, MAX_FILE_SIZE};
 
+/// 一つのパスの結果（結果のキーにするパスと、値か失敗の種類）
+pub type PathResult<T> = (String, Result<T, OpFailure>);
+
 /// 操作の失敗の種類
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpFailure {

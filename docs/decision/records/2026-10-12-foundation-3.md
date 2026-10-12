@@ -87,6 +87,10 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
   - why: エージェントは作業ディレクトリの実パス（getcwd）を基準にし、求められなければ cannot read、UTF-8 でなければ non-UTF-8 path にするので、同じ状態で同じ結果にする（[REQ-paths-008](../../ir/paths/routes.md#REQ-paths-008)・[REQ-paths-012](../../ir/paths/routes.md#REQ-paths-012)）。問いの絶対パスは手順が作るので、基準が分かる前には問いを作れない。ls を先に求めると、ls を使わずに決まる確認まで止めてしまう（[TBL-ssh-002](../../ir/ssh/compatibility.md#TBL-ssh-002) は理由を見分けるときに要るとしている）。
   - decided_by: Claude（REQ-paths-008・REQ-paths-012・TBL-ssh-002 から導いた。自走の指示により決めた）
 
+- D28 中身の読み込みとハッシュを、どの経路もパスごとの成功か失敗の種類で返す形にしたので、まとめての読み込みの結果からパスを黙って外すことを確かめていたテストを直す。side_io の単体テスト `a_batch_leaves_out_a_file_over_the_limit_without_reading_it`（上限を超えるファイルを結果に入れない）は、上限を超える失敗として返すことを確かめるテストに、`test_read_files_bytes_batch_strict_error`（読めないパスが一つあればまとめ全体を誤りにする）は、読めないパスだけがその種類の失敗になり、ほかのパスの中身は返ることを確かめるテストに直す。エージェントの大きさの問い合わせ（StatFiles）を前提にしていたテストは、上限を運ぶ読み込みの問い合わせ（ReadFiles）で同じことを確かめる形にする。SSH の大きさの問い合わせは読み込みのスクリプトの中で行うので、偽のサーバの試験の道具は、読み込みのスクリプトを大きさの問い合わせとしても数える。
+  - why: 外したパスの理由は呼び出し側に届かず、呼び出し側がパスごとに読み直していた（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)、D7）。まとめ全体を一つの誤りにすると、読めたファイルの中身まで失敗になる。
+  - decided_by: Claude（REQ-paths-020・D7 から導いた。自走の指示により決めた）
+
 ## Rejected
 
 - D15 SSH の経路でも、操作の失敗を見分けられないときは今のとおり経路の例外として IR に残す。

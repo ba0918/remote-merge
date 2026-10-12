@@ -10,7 +10,6 @@ use anyhow::Context as _;
 use crate::merge::executor;
 
 use super::core::CoreRuntime;
-use super::size_limit::FileSize;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 // ── CoreRuntime にリモートI/Oを実装 ──
@@ -18,55 +17,6 @@ use remote_merge_core::relative_path::{EntryPath, RelPath};
 // Side::Remote 分岐の内部実装。side_io.rs が唯一の呼び出し元。
 
 impl CoreRuntime {
-    /// 複数のリモートファイルをバイト列としてバッチ読み込みする（`接続断` のやり直しは呼び出し元の
-    /// `ssh_read` が行う）。
-    ///
-    /// SSH の `read_files_batch_bytes()` を使い、チャンク分割されたバッチ読み込みを行う。
-    /// side_io.rs の統一 API 経由でのみ使用する。
-    pub(crate) fn read_remote_files_batch_bytes(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        if rel_paths.is_empty() {
-            return Ok(HashMap::new());
-        }
-
-        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
-
-        let batch_result = self.read_files_batch_bytes_inner(server_name, &full_paths)?;
-        Ok(Self::map_to_rel_paths_bytes(
-            rel_paths,
-            &full_paths,
-            batch_result,
-        ))
-    }
-
-    /// 複数のリモートファイルの SHA-256 をまとめて取る（`接続断` のやり直しは呼び出し元の
-    /// `ssh_read` が行う）。結果のキーは root_dir からの相対パス
-    pub(crate) fn hash_remote_files_batch(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<crate::ssh::batch_hash::BatchHashes> {
-        use crate::ssh::batch_hash::BatchHashes;
-        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        Ok(
-            match self.rt.block_on(client.hash_files_batch(&full_paths))? {
-                BatchHashes::Unsupported => BatchHashes::Unsupported,
-                BatchHashes::Hashes(hashes) => BatchHashes::Hashes(Self::map_to_rel_paths_bytes(
-                    rel_paths,
-                    &full_paths,
-                    hashes,
-                )),
-            },
-        )
-    }
-
     /// リモートファイルに書き込む（自動再接続なし — safety のため）
     ///
     /// side_io.rs の統一 API 経由でのみ使用する。外部からは `write_file(side, path, content)` を使うこと。
@@ -103,45 +53,6 @@ impl CoreRuntime {
                 Err(e).with_context(|| format!("write remote file: {}", rel_path.as_typed()))
             }
         }
-    }
-
-    /// リモートファイルをバイト列として読み込む（バイナリファイル対応）
-    ///
-    /// `接続断` のやり直しは呼び出し元の `ssh_read` が行う。
-    /// side_io.rs の統一 API 経由でのみ使用する。
-    pub(crate) fn read_remote_file_bytes(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-    ) -> anyhow::Result<Vec<u8>> {
-        let full_path = self.resolve_remote_path(server_name, rel_path.as_rel())?;
-
-        self.read_file_bytes_inner(server_name, &full_path)
-    }
-
-    /// リモートのファイルの大きさを SSH のコマンドで調べる（`接続断` なら再接続して一度だけ
-    /// やり直す）。
-    ///
-    /// パスごとの失敗は `FileSize::Unknown`、コマンドの失敗と解析できない出力は Err にする。
-    /// side_io.rs の統一 API 経由でのみ使用する。
-    pub(crate) fn ssh_file_sizes(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        if rel_paths.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let full_paths = self.resolve_remote_paths(server_name, rel_paths)?;
-        let sizes = self.ssh_read(server_name, |runtime| {
-            runtime.file_sizes_inner(server_name, &full_paths)
-        })?;
-        Ok(rel_paths
-            .iter()
-            .map(|path| path.as_typed().to_string())
-            .zip(sizes)
-            .map(|(path, size)| (path, size.map_or(FileSize::Unknown, FileSize::Known)))
-            .collect())
     }
 
     /// リモートファイルにバイト列を書き込む（バイナリファイル対応）
@@ -376,67 +287,6 @@ impl CoreRuntime {
             .iter()
             .map(|rel| executor::remote_full_path(&remote_root, rel.as_rel()))
             .collect())
-    }
-
-    fn read_file_bytes_inner(
-        &mut self,
-        server_name: &str,
-        full_path: &str,
-    ) -> anyhow::Result<Vec<u8>> {
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.read_file_bytes(full_path))
-    }
-
-    /// `full_paths` の順番の大きさ。尋ねるパスは一括読み込みと同じ長さの上限でコマンドに分ける
-    fn file_sizes_inner(
-        &mut self,
-        server_name: &str,
-        full_paths: &[String],
-    ) -> anyhow::Result<Vec<Option<u64>>> {
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        let mut sizes = Vec::with_capacity(full_paths.len());
-        for (chunk, command) in super::remote_size::file_size_commands(full_paths) {
-            let output = self
-                .rt
-                .block_on(crate::ssh::exec_strict_bytes(client, &command))?;
-            sizes.extend(super::remote_size::parse_file_size_output(
-                &output,
-                chunk.len(),
-            )?);
-        }
-        Ok(sizes)
-    }
-
-    fn read_files_batch_bytes_inner(
-        &mut self,
-        server_name: &str,
-        full_paths: &[String],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.read_files_batch_bytes(full_paths))
-    }
-
-    fn map_to_rel_paths_bytes<T>(
-        rel_paths: &[EntryPath],
-        full_paths: &[String],
-        mut batch_result: HashMap<String, T>,
-    ) -> HashMap<String, T> {
-        let mut result = HashMap::with_capacity(batch_result.len());
-        for (i, rel_path) in rel_paths.iter().enumerate() {
-            if let Some(content) = batch_result.remove(&full_paths[i]) {
-                result.insert(rel_path.as_typed().to_string(), content);
-            }
-        }
-        result
     }
 }
 

@@ -5,14 +5,13 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use remote_merge_core::machine_ops;
-use remote_merge_core::op_failure::{Operation, SizeLimit};
+use remote_merge_core::op_failure::{Operation, PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::outcome::ScanRequest;
 
 use super::core::CoreRuntime;
 use super::local_ops::op_error;
-use super::size_limit::FileSize;
 use super::target_io::{included_children, TargetIo};
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
@@ -48,31 +47,6 @@ impl TargetIo for LocalTargetIo {
         rel_path: &RelPath,
     ) -> anyhow::Result<ResolvedPath> {
         remote_merge_engine::local_io::inspect_local_path(&self.root, rel_path)
-    }
-
-    fn read_file_bytes(
-        &mut self,
-        _: &mut CoreRuntime,
-        path: &EntryPath,
-    ) -> anyhow::Result<Vec<u8>> {
-        machine_ops::read(&self.root, path, SizeLimit::Unlimited)
-            .map_err(|failure| op_error(Operation::Read, path, failure))
-    }
-
-    fn file_sizes(
-        &mut self,
-        _: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        Ok(super::local_ops::sizes(&self.root, paths))
-    }
-
-    fn read_files_bytes_batch(
-        &mut self,
-        _: &mut CoreRuntime,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        super::local_ops::read_all(&self.root, paths)
     }
 
     fn write_file(
@@ -179,12 +153,21 @@ impl TargetIo for LocalTargetIo {
         true
     }
 
-    fn hashes(
+    fn read_entries(
         &mut self,
         _: &mut CoreRuntime,
         paths: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
-        super::local_ops::hashes(&self.root, paths).map(Some)
+        limit: SizeLimit,
+    ) -> anyhow::Result<Vec<PathResult<Vec<u8>>>> {
+        Ok(super::local_ops::read_each(&self.root, paths, limit))
+    }
+
+    fn hash_entries(
+        &mut self,
+        _: &mut CoreRuntime,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        Ok(super::local_ops::hash_each(&self.root, paths))
     }
 
     fn states_before_restore(

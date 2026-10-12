@@ -32,7 +32,7 @@ pub fn over_shell(
         root.as_os_str().as_bytes(),
         questions,
         exclude,
-        crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN,
+        crate::command_limit::MAX_COMMAND_LEN,
         run,
     )
     .map_err(|failure| match failure {

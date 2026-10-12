@@ -18,10 +18,6 @@ mod local_target;
 mod remote_change;
 pub mod remote_io;
 mod remote_ops;
-#[cfg(feature = "test-utils")]
-pub mod remote_size;
-#[cfg(not(feature = "test-utils"))]
-mod remote_size;
 mod remote_target;
 mod restore_before;
 mod route_retry;
@@ -31,7 +27,9 @@ pub(crate) mod scan_entry;
 pub(crate) mod scripted_agent;
 mod side_hashes;
 pub mod side_io;
+mod side_reads;
 pub mod size_limit;
+mod ssh_contents;
 mod ssh_inspect;
 mod ssh_scan;
 mod stopped_target;

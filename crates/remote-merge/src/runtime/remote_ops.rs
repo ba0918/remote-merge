@@ -1,10 +1,9 @@
 //! リモートの操作を、そのサーバに選んだ経路で一度だけ行う。経路を選び直さず、やり直しもしない
 //! （やり直しは `route_retry`、確かめは `confirm` が決める）
 
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use remote_merge_core::listing::ChildListing;
+use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 use remote_merge_core::scan::outcome::ScanRequest;
@@ -23,28 +22,6 @@ impl CoreRuntime {
         match self.remote_route(server)? {
             RemoteRoute::Agent => agent_route::inspect(self, server, path),
             RemoteRoute::Ssh => self.ssh_inspect(server, path),
-        }
-    }
-
-    pub(crate) fn remote_read(
-        &mut self,
-        server: &str,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        match self.remote_route(server)? {
-            RemoteRoute::Agent => agent_route::read(self, server, paths),
-            RemoteRoute::Ssh => self.read_remote_files_batch_bytes(server, paths),
-        }
-    }
-
-    pub(crate) fn remote_read_one(
-        &mut self,
-        server: &str,
-        path: &EntryPath,
-    ) -> anyhow::Result<Vec<u8>> {
-        match self.remote_route(server)? {
-            RemoteRoute::Agent => agent_route::read_one(self, server, path),
-            RemoteRoute::Ssh => self.read_remote_file_bytes(server, path),
         }
     }
 
@@ -87,21 +64,6 @@ impl CoreRuntime {
         }
     }
 
-    /// パスごとの比べる値。ハッシュの道具がなければ None（中身で比べる）
-    pub(crate) fn remote_hashes(
-        &mut self,
-        server: &str,
-        paths: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
-        match self.remote_route(server)? {
-            RemoteRoute::Agent => agent_route::hashes(self, server, paths).map(Some),
-            RemoteRoute::Ssh => match self.hash_remote_files_batch(server, paths)? {
-                crate::ssh::batch_hash::BatchHashes::Hashes(hashes) => Ok(Some(hashes)),
-                crate::ssh::batch_hash::BatchHashes::Unsupported => Ok(None),
-            },
-        }
-    }
-
     pub(crate) fn remote_scan(
         &mut self,
         server: &str,
@@ -111,6 +73,29 @@ impl CoreRuntime {
         match self.remote_route(server)? {
             RemoteRoute::Agent => agent_route::scan(self, server, request, fail_on_truncation),
             RemoteRoute::Ssh => self.scan_remote_tree(server, request, fail_on_truncation),
+        }
+    }
+
+    pub(crate) fn remote_read_entries(
+        &mut self,
+        server: &str,
+        paths: &[EntryPath],
+        limit: SizeLimit,
+    ) -> anyhow::Result<Vec<PathResult<Vec<u8>>>> {
+        match self.remote_route(server)? {
+            RemoteRoute::Agent => agent_route::read_entries(self, server, paths, limit),
+            RemoteRoute::Ssh => self.ssh_read_entries(server, paths, limit),
+        }
+    }
+
+    pub(crate) fn remote_hash_entries(
+        &mut self,
+        server: &str,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        match self.remote_route(server)? {
+            RemoteRoute::Agent => agent_route::hash_entries(self, server, paths),
+            RemoteRoute::Ssh => self.ssh_hash_entries(server, paths),
         }
     }
 }

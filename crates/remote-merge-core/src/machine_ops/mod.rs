@@ -39,11 +39,11 @@ pub fn size(root: &Path, entry: &EntryPath) -> Result<u64, OpFailure> {
         .map_err(failed)
 }
 
-/// 中身を読む。大きさを先に調べ、上限を超えるものは読まない
+/// 中身を読む。開く前に大きさを調べ（読む権限は要らない）、上限を超えるものは読まない
 pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>, OpFailure> {
-    let mut file = std::fs::File::open(full_path(root, entry)).map_err(failed)?;
-    let length = file.metadata().map_err(failed)?.len();
-    check_size(length, limit)?;
+    let path = full_path(root, entry);
+    check_size(std::fs::metadata(&path).map_err(failed)?.len(), limit)?;
+    let mut file = std::fs::File::open(&path).map_err(failed)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content).map_err(failed)?;
     Ok(content)
@@ -54,11 +54,16 @@ pub fn hash(root: &Path, entry: &EntryPath) -> Result<String, OpFailure> {
     let mut file = std::fs::File::open(full_path(root, entry)).map_err(failed)?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher).map_err(failed)?;
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex(&hasher.finalize()))
+}
+
+/// 中身の SHA-256（小文字の16進）
+pub fn sha256_hex(content: &[u8]) -> String {
+    hex(&Sha256::digest(content))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// symlink を辿った先の大きさ・更新時刻・権限

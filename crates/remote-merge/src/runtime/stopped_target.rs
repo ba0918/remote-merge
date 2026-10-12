@@ -10,8 +10,8 @@ use chrono::{DateTime, Utc};
 use crate::tree::{FileNode, FileTree};
 
 use super::core::CoreRuntime;
-use super::size_limit::FileSize;
 use super::target_io::TargetIo;
+use remote_merge_core::op_failure::{PathResult, SizeLimit};
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -36,21 +36,12 @@ impl TargetIo for StoppedTargetIo {
     fn inspect_path(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<ResolvedPath> {
         self.refuse(rt)
     }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, _: &EntryPath) -> anyhow::Result<Vec<u8>> {
-        self.refuse(rt)
-    }
-    fn file_sizes(
+    fn read_entries(
         &mut self,
         rt: &mut CoreRuntime,
         _: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        self.refuse(rt)
-    }
-    fn read_files_bytes_batch(
-        &mut self,
-        rt: &mut CoreRuntime,
-        _: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
+        _: SizeLimit,
+    ) -> anyhow::Result<Vec<PathResult<Vec<u8>>>> {
         self.refuse(rt)
     }
     fn write_file(&mut self, rt: &mut CoreRuntime, _: &EntryPath, _: &str) -> anyhow::Result<()> {
@@ -122,11 +113,11 @@ impl TargetIo for StoppedTargetIo {
     fn is_available(&self, rt: &CoreRuntime) -> bool {
         rt.has_client(&self.name)
     }
-    fn hashes(
+    fn hash_entries(
         &mut self,
         rt: &mut CoreRuntime,
         _: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
         self.refuse(rt)
     }
     fn states_before_restore(

@@ -11,8 +11,8 @@ use crate::side::Side;
 pub type SideHashes = (HashMap<String, String>, HashMap<String, String>);
 
 impl CoreRuntime {
-    /// `paths` の左右のハッシュ。どちらかの側にハッシュを取る道具がなければ None（中身で比べる）。
-    /// `接続断` は中身の比べ方に移らずに Err を返す
+    /// `paths` の左右のハッシュ。ハッシュを取れなかったパスは入らず、呼び出し側は中身を読んで
+    /// 比べ、読めなければその理由を出す。`接続断` は中身の比べ方に移らずに Err を返す
     pub fn try_hash_compare(
         &mut self,
         left: &Side,
@@ -41,6 +41,12 @@ impl CoreRuntime {
             return Err(stopped);
         }
         let mut io = super::target_io::for_side(side, self);
-        io.hashes(self, entries)
+        let hashes = io.hash_entries(self, entries)?;
+        Ok(Some(
+            hashes
+                .into_iter()
+                .filter_map(|(path, hash)| hash.ok().map(|hash| (path, hash)))
+                .collect(),
+        ))
     }
 }
