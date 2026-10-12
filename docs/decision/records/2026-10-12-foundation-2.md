@@ -4,7 +4,7 @@
 
 [土台の作り直し](./2026-10-12-foundation.md) の段 2 である。走査は三つの経路に別々の実装があり、exclude・include・件数・UTF-8 でない名前・循環・root_dir や部分パスがないときの判定を、それぞれが自分で決めていた。IR も、同じ規則を要件ごとに「ローカル・SSH・エージェントのどの経路でも」と繰り返し、経路の差を FLAG（FLAG-config-016・FLAG-scan-002・FLAG-scan-007・FLAG-scan-016）に残していた。[foundation A10](./2026-10-12-foundation.md#A10) のとおり、実装の前に IR を経路によらない文に書き直す。
 
-Position: C1〜C9 は決まった。IR の書き直しから始める。
+Position: C1〜C11 は決まった。段 2 の実装は、diff の名前で指定したディレクトリの展開を同じ走査に載せ替えるところ（REQ-scan-020）で止まっている。REQ-scan-014 と [REQ-cli-096](../../ir/cli/directory-paths.md#REQ-cli-096) のどちらを展開の配下の読めないディレクトリに当てるかの判断を待つ。
 
 ## Agreements
 
