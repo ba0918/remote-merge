@@ -15,6 +15,14 @@ use super::target_io::TargetPath;
 use crate::side::Side;
 use crate::tree::FileTree;
 
+/// 側ごとに確かめた include の値と、確かめたときの root_dir と include の設定。設定が変われば
+/// 確かめ直す
+#[derive(Debug, Clone)]
+pub(crate) struct CheckedInclude {
+    basis: (Option<std::path::PathBuf>, Vec<String>),
+    values: Option<Vec<String>>,
+}
+
 impl CoreRuntime {
     /// `side` を走査する。`dirs` は指定したディレクトリ（None なら root_dir 全体）で、件数の上限は
     /// ディレクトリごとに当てる（TBL-scan-001）。exclude と include は root_dir からのパスに当てる
@@ -44,12 +52,29 @@ impl CoreRuntime {
     /// の外へ解決される値は警告して飛ばし、確認がエラーになった値はそのエラーで止める
     /// （docs/ir/config/include.md の REQ-config-032・033）
     fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
+        let basis = (self.root_dir_of(side), self.config.filter.include.clone());
         if let Some(checked) = self.checked_include.get(side) {
-            return Ok(checked.clone());
+            if checked.basis == basis {
+                return Ok(checked.values.clone());
+            }
         }
-        let checked = self.check_include(side)?;
-        self.checked_include.insert(side.clone(), checked.clone());
-        Ok(checked)
+        let values = self.check_include(side)?;
+        self.checked_include.insert(
+            side.clone(),
+            CheckedInclude {
+                basis,
+                values: values.clone(),
+            },
+        );
+        Ok(values)
+    }
+
+    /// 設定に書いた `side` の root_dir（確かめた値を使い回してよいかを決めるのに使う）
+    fn root_dir_of(&self, side: &Side) -> Option<std::path::PathBuf> {
+        match side {
+            Side::Local => Some(self.config.local.root_dir.clone()),
+            Side::Remote(name) => self.config.servers.get(name).map(|s| s.root_dir.clone()),
+        }
     }
 
     fn check_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
@@ -104,5 +129,29 @@ mod tests {
             real_parent: PathBuf::from("/srv/shared"),
         };
         assert!(resolved_path_outside_root(&missing, root));
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn changed_include_values_are_checked_again() {
+        let temp = tempfile::tempdir().unwrap();
+        for path in ["a/x.txt", "b/y.txt"] {
+            let file = temp.path().join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "x").unwrap();
+        }
+        let mut core = CoreRuntime::new_for_test();
+        core.config.local.root_dir = temp.path().to_path_buf();
+        core.config.filter.include = vec!["a".into()];
+        let first = core.fetch_tree_recursive(&Side::Local, 100, true).unwrap();
+        assert!(first.find_node("a/x.txt").is_some());
+        core.config.filter.include = vec!["b".into()];
+        let second = core.fetch_tree_recursive(&Side::Local, 100, true).unwrap();
+        assert!(second.find_node("b/y.txt").is_some());
+        assert!(second.find_node("a/x.txt").is_none());
     }
 }

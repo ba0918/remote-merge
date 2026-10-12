@@ -68,7 +68,7 @@ pub struct CoreRuntime {
     pub(crate) stopped: HashMap<String, String>,
     /// 側ごとに一度だけ確かめた include の値（None は include の指定がない）。一つのコマンドで
     /// 何度走査しても、root_dir と include の値の確認と警告は側ごとに一度にする
-    pub(crate) checked_include: HashMap<crate::side::Side, Option<Vec<String>>>,
+    pub(crate) checked_include: HashMap<crate::side::Side, super::scan_entry::CheckedInclude>,
 }
 
 impl CoreRuntime {
