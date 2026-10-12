@@ -410,8 +410,8 @@ impl BackupStore {
             .join("records");
         let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
         let record_dir = records_dir.join(entry_key);
-        let record: StoredBackupRecord =
-            serde_json::from_slice(&fs::read(record_dir.join("record.json"))?)?;
+        let record_file = record_dir.join("record.json");
+        let record = parse_stored_record(&fs::read(&record_file)?, &record_file)?;
         match record {
             StoredBackupRecord::File { path, real_path } if path == rel_path => {
                 Ok(BackupRecord::File {
@@ -443,12 +443,27 @@ fn read_stored_record(record_dir: &Path) -> anyhow::Result<Option<StoredBackupRe
     let Some(bytes) = unless_not_found(fs::read(&path), &path)? else {
         return Ok(None);
     };
-    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+    parse_stored_record(&bytes, &path).map(Some)
+}
+
+/// 記録を解析する。記録の path は外から書き換えられうるので、root_dir からの相対パスの形で
+/// なければ解析できない記録として扱う
+fn parse_stored_record(bytes: &[u8], path: &Path) -> anyhow::Result<StoredBackupRecord> {
+    let record: StoredBackupRecord = serde_json::from_slice(bytes).map_err(|error| {
         anyhow::anyhow!(
             "backup record could not be parsed: {}: {error}",
             path.display()
         )
-    })
+    })?;
+    let (StoredBackupRecord::File { path: rel_path, .. }
+    | StoredBackupRecord::Symlink { path: rel_path, .. }) = &record;
+    remote_merge_core::relative_path::RelPath::parse(rel_path).map_err(|error| {
+        anyhow::anyhow!(
+            "backup record could not be parsed: {}: {error}",
+            path.display()
+        )
+    })?;
+    Ok(record)
 }
 
 /// 読み込みの結果。見つからなければ None、ほかの失敗はパスと理由を示すエラー

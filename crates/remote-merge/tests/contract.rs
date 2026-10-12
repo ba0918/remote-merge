@@ -4,6 +4,8 @@ mod backup_cleanup;
 mod backup_failure;
 #[path = "contract/backup_location.rs"]
 mod backup_location;
+#[path = "contract/backup_record_paths.rs"]
+mod backup_record_paths;
 #[path = "contract/backup_rollback_cli.rs"]
 mod backup_rollback_cli;
 #[cfg(feature = "test-utils")]
