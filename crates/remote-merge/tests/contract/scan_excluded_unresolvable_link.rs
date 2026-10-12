@@ -1,8 +1,8 @@
 #![cfg(unix)]
 //! リンク先を辿れない symlink（ループしている、途中にディレクトリでないものを含む）が exclude に
 //! 当たるか、exclude に当たるディレクトリの下にあるとき、どの経路の走査も止まらず、その symlink を
-//! 載せないこと（docs/ir/scan/listing.md の REQ-scan-015、docs/ir/config/filters.md の
-//! REQ-config-021）の契約テスト。
+//! 載せないこと（docs/ir/config/filters.md の REQ-config-021・
+//! REQ-config-044）の契約テスト。
 //!
 //! 左右に同じ "top.txt" を置き、調べる経路の側にだけ辿れない symlink を置く。一覧が "top.txt" の
 //! "equal" だけになることを、走査が止まらず symlink を除いた証拠にする。
@@ -78,7 +78,7 @@ pub(super) fn roots(
     roots
 }
 
-// @kotowari[REQ-scan-015, REQ-config-021]
+// @kotowari[REQ-config-044, REQ-config-021]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_local_scan_skips_an_excluded_symlink_whose_target_cannot_be_followed() {
     let fixture = SshFixture::new().await;
@@ -94,7 +94,7 @@ async fn req_scan_015_the_local_scan_skips_an_excluded_symlink_whose_target_cann
     }
 }
 
-// @kotowari[REQ-scan-015, REQ-config-021]
+// @kotowari[REQ-config-044, REQ-config-021]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_ssh_scan_skips_an_excluded_symlink_whose_target_cannot_be_followed() {
     let fixture = SshFixture::new().await;
@@ -110,7 +110,7 @@ async fn req_scan_015_the_ssh_scan_skips_an_excluded_symlink_whose_target_cannot
     }
 }
 
-// @kotowari[REQ-scan-015, REQ-config-021]
+// @kotowari[REQ-config-044, REQ-config-021]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_agent_scan_skips_an_excluded_symlink_whose_target_cannot_be_followed() {
     let fixture = AgentFixture::new().await;

@@ -1,7 +1,7 @@
 #![cfg(unix)]
 //! 走査が、リンク先がないのではなく辿れない symlink（ループしている、途中にディレクトリでないものを
 //! 含む）を、ディレクトリへのリンクでないものとして載せずにエラーで止まること
-//! （docs/ir/scan/listing.md の REQ-scan-015）の契約テスト。
+//! （docs/ir/scan/directory-links.md の REQ-scan-018）の契約テスト。
 //!
 //! 走査の一覧のテスト（scan_listing_cli）と同じく、実行ファイルを試験 SSH サーバに対して
 //! `status --left local --right develop --all --format json` で起動する。辿れない symlink は
@@ -43,7 +43,7 @@ fn assert_stopped_without_a_listing(label: &str, output: &Output) {
     assert!(json.get("files").is_none(), "{label}: {output:?}");
 }
 
-// @kotowari[REQ-scan-015]
+// @kotowari[REQ-scan-018]
 #[test]
 fn req_scan_015_the_local_scan_stops_on_a_symlink_whose_target_cannot_be_followed() {
     for (label, place) in UNRESOLVABLE {
@@ -60,7 +60,7 @@ fn req_scan_015_the_local_scan_stops_on_a_symlink_whose_target_cannot_be_followe
     }
 }
 
-// @kotowari[REQ-scan-015]
+// @kotowari[REQ-scan-018]
 #[test]
 fn req_scan_015_the_ssh_scan_stops_on_a_symlink_whose_target_cannot_be_followed() {
     for (label, place) in UNRESOLVABLE {
@@ -77,7 +77,7 @@ fn req_scan_015_the_ssh_scan_stops_on_a_symlink_whose_target_cannot_be_followed(
     }
 }
 
-// @kotowari[REQ-scan-015]
+// @kotowari[REQ-scan-018]
 #[tokio::test(flavor = "multi_thread")]
 async fn req_scan_015_the_agent_scan_stops_on_a_symlink_whose_target_cannot_be_followed() {
     let fixture = AgentFixture::new().await;

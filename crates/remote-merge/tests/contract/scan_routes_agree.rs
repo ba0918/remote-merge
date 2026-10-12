@@ -1,7 +1,7 @@
 #![cfg(unix)]
 //! 同じ設定と同じファイルの状態で、走査の一覧がローカル・SSH・エージェントの三つの経路で同じに
 //! なること（docs/ir/config/filters.md の REQ-config-022、docs/ir/scan/directory-links.md の
-//! REQ-scan-011・REQ-scan-002）の契約テスト。
+//! REQ-scan-002、docs/ir/scan/listing.md の REQ-scan-017）の契約テスト。
 //!
 //! 走査の一覧のテスト（scan_listing_cli）と同じく、実行ファイルを試験 SSH サーバに対して
 //! `status --left local --right develop --all --format json` で起動する。左は常にローカルの経路、
@@ -68,7 +68,7 @@ async fn descendants_of_a_directory_matched_by_a_path_pattern_are_excluded_via_t
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
 
-// ─── ディレクトリを指す symlink の配下（REQ-scan-011・REQ-scan-002） ─────────────────
+// ─── ディレクトリを指す symlink の配下（REQ-scan-017・REQ-scan-002） ─────────────────
 
 /// 右の走査の上限を超えるときの上限。左は上限を大きく下回る構成にし、左の走査が先に上限を
 /// 超えて右の経路を通らずに終わらないようにする
@@ -128,7 +128,7 @@ fn status_over_ssh_with(dirs: &mut TestDirs, extra_args: &[&str]) -> Output {
     status_over_ssh(dirs, &config, &local_root, extra_args)
 }
 
-// @kotowari[REQ-scan-011, REQ-scan-002, EX-scan-003]
+// @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-003]
 #[tokio::test(flavor = "multi_thread")]
 async fn files_inside_a_directory_link_are_listed_under_the_link_via_the_agent() {
     let fixture = AgentFixture::new().await;
@@ -220,7 +220,7 @@ async fn a_directory_link_back_to_an_ancestor_is_reported_as_an_incomplete_scan_
     assert_incomplete_scan_reported(&output, &CYCLE_WORDS);
 }
 
-// @kotowari[REQ-scan-011, REQ-scan-002, EX-scan-004]
+// @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-004]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_directory_link_back_to_an_ancestor_is_reported_as_an_incomplete_scan_via_the_agent() {
     let fixture = AgentFixture::new().await;
@@ -244,7 +244,7 @@ fn files_reached_through_a_directory_link_count_toward_the_scan_limit_over_ssh()
     assert_incomplete_scan_reported(&output, &LIMIT_WORDS);
 }
 
-// @kotowari[REQ-scan-011, REQ-scan-002, EX-scan-005]
+// @kotowari[REQ-scan-017, REQ-scan-002, EX-scan-005]
 #[tokio::test(flavor = "multi_thread")]
 async fn files_reached_through_a_directory_link_count_toward_the_scan_limit_via_the_agent() {
     let fixture = AgentFixture::new().await;
@@ -278,7 +278,7 @@ fn roots_with_a_cycle_below_a_b(fixture: &SshFixture) -> [std::path::PathBuf; 2]
     roots
 }
 
-// @kotowari[REQ-config-022]
+// @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_path_pattern_is_not_walked_over_ssh() {
     let fixture = SshFixture::new().await;
@@ -288,7 +288,7 @@ async fn a_cycle_below_a_directory_matched_by_a_path_pattern_is_not_walked_over_
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
 
-// @kotowari[REQ-config-021]
+// @kotowari[REQ-config-021, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_name_pattern_is_not_walked_over_ssh() {
     let fixture = SshFixture::new().await;
@@ -327,7 +327,7 @@ fn status_with_an_unreadable_directory(
     fixture.status_with_exclude(&local_root, &remote_root, exclude_line)
 }
 
-// @kotowari[REQ-config-022]
+// @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_not_read_over_ssh()
 {
@@ -343,7 +343,7 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_path_pattern_is_
 const NON_PRUNABLE_EXCLUDES: [&str; 2] = ["exclude = [\"a/?\"]", "exclude = [\"**/b\"]"];
 const EXCLUDE_B_BY_CLASS: &str = "exclude = [\"[b]\"]";
 
-// @kotowari[REQ-config-022]
+// @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan() {
     for exclude_line in NON_PRUNABLE_EXCLUDES {
@@ -355,7 +355,7 @@ async fn a_cycle_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_
     }
 }
 
-// @kotowari[REQ-config-021]
+// @kotowari[REQ-config-021, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_the_ssh_scan() {
     let fixture = SshFixture::new().await;
@@ -365,7 +365,7 @@ async fn a_cycle_below_a_directory_matched_by_a_glob_name_pattern_does_not_fail_
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
 
-// @kotowari[REQ-config-022]
+// @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan(
 ) {
@@ -377,7 +377,7 @@ async fn an_unreadable_directory_below_a_directory_matched_by_a_glob_path_patter
     }
 }
 
-// @kotowari[REQ-config-022]
+// @kotowari[REQ-config-022, REQ-config-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreadable_directory_with_a_non_ascii_name_below_a_directory_matched_by_a_glob_path_pattern_does_not_fail_the_ssh_scan(
 ) {

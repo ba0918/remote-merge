@@ -1,22 +1,23 @@
 # ディレクトリ symlink の表示と走査
 
-共有ディレクトリを指すリンクの配下を、CLI のファイル一覧にどう表示するか。
+走査が、root_dir より下のディレクトリを指す symlink の配下をどう一覧に載せるか、リンク先を辿れない symlink でどう止まるか。
 
 ## Requirements
 
-### REQ-scan-002: CLI の一覧にはリンク先の配下を含める
+### REQ-scan-002: 走査はディレクトリ symlink の配下を辿る
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A7, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
+- source: docs/decision/records/2026-09-25-spec-migration.md#A7, docs/decision/records/2026-10-05-quality-scan.md#A2, docs/decision/records/2026-10-12-foundation-2.md#C4
 - verification: unit
 
-CLI status はディレクトリを指す symlink の配下も走査件数の上限内で再帰列挙し、循環または件数超過が起きた場合は不完全な一覧であることを報告する。exclude で除外したディレクトリの下の循環は、config/filters.md の REQ-config-021 と REQ-config-022 のとおり報告しない。
+status・diff・merge・sync の走査は、途中のディレクトリを指す symlink の配下も走査件数の上限内で再帰列挙し、循環をデバイス番号と inode 番号で検出し、循環または件数超過が起きた場合は不完全な一覧であることを報告する。
 
-### REQ-scan-011: エージェントの経路もディレクトリ symlink を辿る
-- kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-scan.md#A2
+### REQ-scan-018: リンク先を辿れない symlink で走査を止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-12-ssh-output-parsing-consistency-2.md#A1, docs/decision/records/2026-10-12-foundation-2.md#C1
 - verification: unit
 
-エージェントの経路の走査も、ディレクトリを指す symlink の配下をローカルと SSH の経路と同じく列挙し、循環をデバイス番号と inode 番号で検出して不完全な一覧であることを報告する。
+リンク先がないのではなく、ループしているか途中にディレクトリでないものを含むためにリンク先を辿れない symlink があるとき、走査はそれがディレクトリへの symlink かを決められないので、それを載せずにエラーで止まる。
+リンク先がない symlink は REQ-scan-006 のとおり載せる。
 
 ## Examples
 

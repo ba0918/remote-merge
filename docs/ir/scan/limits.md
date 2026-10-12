@@ -1,6 +1,6 @@
 # ツリー走査の上限
 
-多数のファイルを持つ書き込み先や読めないディレクトリ・時間切れで、一覧が途中までしか取得できない場合の扱いと、件数の数え方、パスを指定したときの走査の範囲。
+多数のファイルを持つ書き込み先や読めないディレクトリ・時間切れで、一覧が途中までしか取得できない場合の扱いと、件数の数え方、パスを指定したときの走査の範囲とフィルタの当て方。
 
 ## Requirements
 
@@ -13,10 +13,10 @@
 
 ### REQ-scan-010: 件数はファイルと symlink だけを数える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-05-quality-scan.md#A1
+- source: docs/decision/records/2026-10-05-quality-scan.md#A1, docs/decision/records/2026-10-12-foundation-2.md#C1
 - verification: unit
 
-ローカル・SSH・エージェントのどの経路の走査も、件数の上限に当てる件数にはファイルと symlink だけを数え、ディレクトリを数えない。
+走査は、件数の上限に当てる件数にはファイルと symlink だけを数え、ディレクトリを数えない。
 
 ### REQ-scan-004: 不完全な走査を知らせる
 - kind: state_driven
@@ -57,10 +57,17 @@ SSH の経路の走査の時間切れの長さは [ssh] timeout_sec の値とし
 
 ### REQ-scan-014: 読めないディレクトリで走査全体を止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-scan.md#A5, docs/decision/records/2026-10-11-scan-route-parity-consistency-3.md#A1
+- source: docs/decision/records/2026-10-05-quality-scan.md#A5, docs/decision/records/2026-10-12-foundation-2.md#C1, docs/decision/records/2026-10-12-foundation-2.md#C5
 - verification: unit
 
-走査の途中に読めないディレクトリがあるとき、ローカル・SSH・エージェントのどの経路でも、そのディレクトリを飛ばした一覧を返さずに走査全体をエラーにし、終了コード 2 を返す。exclude で除外したディレクトリの下の読めないディレクトリは、config/filters.md の REQ-config-021 と REQ-config-022 のとおり走査を止めない。
+走査が読みに行くディレクトリを読めないとき、走査はそのディレクトリを飛ばした一覧を返さずに走査全体をエラーにし、終了コード 2 を返す。exclude に当たるディレクトリとその下は、config/filters.md の REQ-config-044 のとおり読みに行かない。
+
+### REQ-scan-019: フィルタは走査の起点によらず root_dir からのパスに当てる
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-12-foundation-2.md#C2
+- verification: unit
+
+走査は、起点が root_dir 全体でも指定したパスでも、exclude と include を root_dir からの相対パスに当てる。merge・sync が TBL-scan-001 のとおり指定したディレクトリや親ディレクトリの下だけを走査するときも同じである。
 
 ## Decision tables
 
@@ -117,15 +124,15 @@ Given 同期先ディレクトリの symlink が祖先へ戻り一覧が不完�
 When --delete なしで同期する
 Then 対象ディレクトリへの書き込みは始まらず循環が報告される
 
-@id=EX-scan-012 @about=REQ-scan-010 @source=docs/decision/records/2026-10-05-quality-scan.md#A1
+@id=EX-scan-012 @about=REQ-scan-010,REQ-scan-017 @source=docs/decision/records/2026-10-05-quality-scan.md#A1,docs/decision/records/2026-10-12-foundation-2.md#C1
 Scenario: ディレクトリを数えずに上限に収まる
 Given ファイル 2 件とそれを入れるディレクトリ 1 件があり件数の上限が 2 である
-When ローカル・SSH・エージェントのそれぞれの経路で走査する
-Then 上限超過にはならず 2 件のファイルが一覧に載る
+When ツリーを走査する
+Then 三つの経路で同じく、上限超過にはならず 2 件のファイルが一覧に載る
 
 @id=EX-scan-013 @about=REQ-scan-014 @source=docs/decision/records/2026-10-05-quality-scan.md#A5
-Scenario: エージェントの経路で読めないディレクトリがある
-Given リモートの root_dir の下に読む権限のないディレクトリがある
-When エージェントの経路で status を実行する
+Scenario: 読めないディレクトリがある
+Given root_dir の下に読む権限のないディレクトリがある
+When status を実行する
 Then 欠けた一覧で比べずにエラーで止まり終了コード 2 を返す
 ```
