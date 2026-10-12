@@ -10,8 +10,10 @@ use sha2::{Digest, Sha256};
 
 use super::file_io::{self, SavedMetadata};
 use super::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
+use super::receipt;
 use super::server::MetadataConfig;
 use super::tree_scan::{self, ScanOptions};
+use remote_merge_core::relative_path::RelPath;
 
 /// ストリーミングチャンクの閾値。
 ///
@@ -55,7 +57,9 @@ impl Dispatcher {
                 exclude,
                 include,
                 max_entries,
-            } => Some(self.handle_list_tree(&root, &exclude, &include, max_entries)),
+            } => Some(refused_or(&root, |root| {
+                self.handle_list_tree(&root, &exclude, &include, max_entries)
+            })),
             AgentRequest::ReadFiles {
                 paths,
                 chunk_size_limit,
@@ -67,38 +71,44 @@ impl Dispatcher {
                 // TODO: is_binary は将来のバイナリファイル最適化で使用予定
                 is_binary: _,
                 more_to_follow,
-            } => Some(vec![self.handle_write_file(
-                &path,
-                &content,
-                more_to_follow,
-            )]),
+            } => Some(refused_or(&path, |path| {
+                vec![self.handle_write_file(&path, &content, more_to_follow)]
+            })),
             AgentRequest::StatFiles { paths } => Some(vec![self.handle_stat_files(&paths)]),
-            AgentRequest::InspectPath { path } => Some(vec![AgentResponse::PathInspection {
-                result: file_io::inspect_path(&self.root_dir, &path),
-            }]),
-            AgentRequest::Symlink { path, target } => {
-                Some(vec![self.handle_symlink(&path, &target)])
-            }
-            AgentRequest::Remove { path } => Some(vec![operation_result(
-                remote_merge_core::operations::remove(&self.root_dir, &path),
-            )]),
-            AgentRequest::Chmod { path, mode } => Some(vec![operation_result(
-                remote_merge_core::operations::chmod(&self.root_dir, &path, mode),
-            )]),
+            AgentRequest::InspectPath { path } => Some(refused_or(&path, |path| {
+                vec![AgentResponse::PathInspection {
+                    result: file_io::inspect_path(&self.root_dir, path.as_typed()),
+                }]
+            })),
+            AgentRequest::Symlink { path, target } => Some(refused_or(&path, |path| {
+                vec![self.handle_symlink(&path, &target)]
+            })),
+            AgentRequest::Remove { path } => Some(refused_or(&path, |path| {
+                vec![operation_result(remote_merge_core::operations::remove(
+                    &self.root_dir,
+                    path.as_typed(),
+                ))]
+            })),
+            AgentRequest::Chmod { path, mode } => Some(refused_or(&path, |path| {
+                vec![operation_result(remote_merge_core::operations::chmod(
+                    &self.root_dir,
+                    path.as_typed(),
+                    mode,
+                ))]
+            })),
             AgentRequest::ListDir {
                 path,
                 exclude,
                 max_entries,
-            } => Some(super::listing::list_dir(
-                &self.root_dir,
-                &path,
-                &exclude,
-                max_entries,
-            )),
-            AgentRequest::ReadEntryLink { path } => Some(vec![super::entry_link::read_entry_link(
-                &self.root_dir,
-                &path,
-            )]),
+            } => Some(refused_or(&path, |path| {
+                super::listing::list_dir(&self.root_dir, path.as_typed(), &exclude, max_entries)
+            })),
+            AgentRequest::ReadEntryLink { path } => Some(refused_or(&path, |path| {
+                vec![super::entry_link::read_entry_link(
+                    &self.root_dir,
+                    path.as_typed(),
+                )]
+            })),
         }
     }
 
@@ -108,12 +118,12 @@ impl Dispatcher {
     /// これにより大規模ディレクトリでも1フレームが MAX_FRAME_SIZE を超えない。
     fn handle_list_tree(
         &self,
-        root: &str,
+        root: &RelPath,
         exclude: &[String],
         include: &[String],
         max_entries: usize,
     ) -> Vec<AgentResponse> {
-        let scan_root = match resolve_scan_root(&self.root_dir, root) {
+        let scan_root = match resolve_scan_root(&self.root_dir, root.as_str()) {
             Ok(p) => p,
             Err(e) => return vec![AgentResponse::Error { message: e }],
         };
@@ -169,17 +179,18 @@ impl Dispatcher {
     /// 累積コンテンツサイズが `STREAMING_CHUNK_THRESHOLD` を超えたタイミングで
     /// 中間チャンク (`is_last: false`) を送出し、最後のチャンクに `is_last: true` を設定する。
     fn handle_read_files(&self, paths: &[String], chunk_size_limit: usize) -> Vec<AgentResponse> {
+        let (paths, refused) = receipt::split_checked(paths);
         let mut responses: Vec<AgentResponse> = Vec::new();
         let mut current_results: Vec<FileReadResult> = Vec::new();
         let mut current_size: usize = 0;
 
-        for rel_path in paths {
+        for rel_path in paths.iter().map(RelPath::as_typed) {
             let file_results =
                 match file_io::read_file_chunked(&self.root_dir, rel_path, chunk_size_limit) {
                     Ok(chunks) => chunks,
                     Err(e) => {
                         vec![FileReadResult::Error {
-                            path: rel_path.clone(),
+                            path: rel_path.to_string(),
                             message: e.to_string(),
                         }]
                     }
@@ -194,6 +205,7 @@ impl Dispatcher {
                     responses.push(AgentResponse::FileContents {
                         results: std::mem::take(&mut current_results),
                         is_last: false,
+                        refused: Vec::new(),
                     });
                     current_size = 0;
                 }
@@ -206,6 +218,7 @@ impl Dispatcher {
         responses.push(AgentResponse::FileContents {
             results: current_results,
             is_last: true,
+            refused,
         });
 
         responses
@@ -217,9 +230,11 @@ impl Dispatcher {
     /// 結果はストリーミング対応のため Vec<AgentResponse> を返すが、
     /// 現時点では単一チャンクで全結果を返す。
     fn handle_hash_files(&self, paths: &[String]) -> Vec<AgentResponse> {
+        let (paths, refused) = receipt::split_checked(paths);
         let mut results: Vec<FileHashResult> = Vec::with_capacity(paths.len());
 
-        for rel_path in paths {
+        for rel_path in paths.iter().map(|path| path.as_typed().to_string()) {
+            let rel_path = &rel_path;
             // validate_path は canonicalize するため、シンボリックリンクを解決してしまう。
             // symlink 判定は canonicalize 前の raw パスで行う必要がある。
             let raw_path = self.root_dir.join(rel_path);
@@ -279,15 +294,17 @@ impl Dispatcher {
         vec![AgentResponse::FileHashes {
             results,
             is_last: true,
+            refused,
         }]
     }
 
     fn handle_write_file(
         &mut self,
-        rel_path: &str,
+        rel_path: &RelPath,
         content: &[u8],
         more_to_follow: bool,
     ) -> AgentResponse {
+        let rel_path = rel_path.as_typed();
         let is_first_chunk = !self.written_paths.contains(rel_path);
         let is_last_chunk = !more_to_follow;
 
@@ -338,9 +355,10 @@ impl Dispatcher {
     }
 
     fn handle_stat_files(&self, paths: &[String]) -> AgentResponse {
+        let (paths, refused) = receipt::split_checked(paths);
         let mut entries = Vec::new();
 
-        for rel_path in paths {
+        for rel_path in paths.iter().map(RelPath::as_typed) {
             match file_io::stat_file(&self.root_dir, rel_path) {
                 Ok(stat) => entries.push(stat),
                 Err(e) => {
@@ -351,13 +369,13 @@ impl Dispatcher {
             }
         }
 
-        AgentResponse::Stats { entries }
+        AgentResponse::Stats { entries, refused }
     }
 
-    fn handle_symlink(&self, rel_path: &str, target: &str) -> AgentResponse {
+    fn handle_symlink(&self, rel_path: &RelPath, target: &str) -> AgentResponse {
         match file_io::create_symlink_with_metadata(
             &self.root_dir,
-            rel_path,
+            rel_path.as_typed(),
             target,
             self.metadata_config.default_uid,
             self.metadata_config.default_gid,
@@ -377,6 +395,18 @@ impl Dispatcher {
 /// root パラメータを解決する。空文字列なら root_dir をそのまま使用。
 /// パストラバーサルを検出した場合はエラーを返す。
 /// Remove・Chmod の結果を応答にする。失敗の文言は操作・パス・原因を含む
+/// 一つのパスの要求の受け取り口。パスが入力の形の検査を通れば `handle` に渡し、通らなければ
+/// 拒んだ理由を返す
+fn refused_or(
+    path: &str,
+    handle: impl FnOnce(RelPath) -> Vec<AgentResponse>,
+) -> Vec<AgentResponse> {
+    match RelPath::parse(path) {
+        Ok(path) => handle(path),
+        Err(refusal) => vec![AgentResponse::PathRefused { refusal }],
+    }
+}
+
 fn operation_result(result: anyhow::Result<()>) -> AgentResponse {
     AgentResponse::OperationResult {
         error: result.err().map(|error| error.to_string()),
@@ -444,6 +474,7 @@ fn estimate_read_result_size(result: &FileReadResult) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remote_merge_core::relative_path::RelPathError;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -466,6 +497,187 @@ mod tests {
             responses.len()
         );
         responses.into_iter().next().unwrap()
+    }
+
+    // ── 受け取り口での入力の形の検査 ──
+
+    fn traversal(path: &str) -> RelPathError {
+        RelPathError::Traversal(path.into())
+    }
+
+    fn absolute(path: &str) -> RelPathError {
+        RelPathError::Absolute(path.into())
+    }
+
+    #[test]
+    fn read_files_carries_a_refused_path_as_its_own_failure_and_reads_the_others() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("ok.txt"), "data").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::ReadFiles {
+                paths: vec!["../etc/passwd".into(), "ok.txt".into()],
+                chunk_size_limit: 4096,
+            })
+            .unwrap();
+
+        match resps.last().unwrap() {
+            AgentResponse::FileContents { refused, .. } => {
+                assert_eq!(refused, &vec![traversal("../etc/passwd")]);
+            }
+            other => panic!("expected FileContents, got {other:?}"),
+        }
+        let results = collect_file_contents(resps);
+        assert_eq!(results.len(), 1, "{results:?}");
+        assert!(matches!(&results[0], FileReadResult::Ok { path, .. } if path == "ok.txt"));
+    }
+
+    #[test]
+    fn hash_files_carries_a_refused_path_as_its_own_failure() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("ok.txt"), "data").unwrap();
+
+        let resps = d
+            .dispatch(AgentRequest::HashFiles {
+                paths: vec!["/etc/passwd".into(), "ok.txt".into()],
+            })
+            .unwrap();
+
+        match single(resps) {
+            AgentResponse::FileHashes {
+                results, refused, ..
+            } => {
+                assert_eq!(refused, vec![absolute("/etc/passwd")]);
+                assert_eq!(results.len(), 1, "{results:?}");
+                assert!(matches!(&results[0], FileHashResult::Ok { path, .. } if path == "ok.txt"));
+            }
+            other => panic!("expected FileHashes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stat_files_carries_a_refused_path_instead_of_skipping_it() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("ok.txt"), "data").unwrap();
+
+        let resp = single(
+            d.dispatch(AgentRequest::StatFiles {
+                paths: vec!["../etc/passwd".into(), "ok.txt".into()],
+            })
+            .unwrap(),
+        );
+
+        match resp {
+            AgentResponse::Stats { entries, refused } => {
+                assert_eq!(refused, vec![traversal("../etc/passwd")]);
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].path, "ok.txt");
+            }
+            other => panic!("expected Stats, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_request_for_one_path_refuses_it_with_the_reason_before_touching_the_root() {
+        let (tmp, mut d) = setup();
+        let requests = [
+            (
+                AgentRequest::ListTree {
+                    root: "../../etc".into(),
+                    exclude: vec![],
+                    include: vec![],
+                    max_entries: 10000,
+                },
+                traversal("../../etc"),
+            ),
+            (
+                AgentRequest::ListTree {
+                    root: "/etc".into(),
+                    exclude: vec![],
+                    include: vec![],
+                    max_entries: 10000,
+                },
+                absolute("/etc"),
+            ),
+            (
+                AgentRequest::WriteFile {
+                    path: "../escape.txt".into(),
+                    content: b"evil".to_vec(),
+                    is_binary: false,
+                    more_to_follow: false,
+                },
+                traversal("../escape.txt"),
+            ),
+            (
+                AgentRequest::InspectPath {
+                    path: "/etc/passwd".into(),
+                },
+                absolute("/etc/passwd"),
+            ),
+            (
+                AgentRequest::Symlink {
+                    path: "../link".into(),
+                    target: "x".into(),
+                },
+                traversal("../link"),
+            ),
+            (
+                AgentRequest::Remove {
+                    path: "a/../../x".into(),
+                },
+                traversal("a/../../x"),
+            ),
+            (
+                AgentRequest::Chmod {
+                    path: "/tmp/x".into(),
+                    mode: 0o644,
+                },
+                absolute("/tmp/x"),
+            ),
+            (
+                AgentRequest::ListDir {
+                    path: "..".into(),
+                    exclude: vec![],
+                    max_entries: 10,
+                },
+                traversal(".."),
+            ),
+            (
+                AgentRequest::ReadEntryLink {
+                    path: "/etc".into(),
+                },
+                absolute("/etc"),
+            ),
+        ];
+        for (request, refusal) in requests {
+            let resps = d.dispatch(request.clone()).unwrap();
+            assert_eq!(
+                resps,
+                vec![AgentResponse::PathRefused { refusal }],
+                "{request:?}"
+            );
+        }
+        assert!(!tmp.path().parent().unwrap().join("escape.txt").exists());
+    }
+
+    #[test]
+    fn the_whole_root_dir_is_accepted_as_a_scan_root() {
+        let (tmp, mut d) = setup();
+        fs::write(tmp.path().join("a.txt"), "a").unwrap();
+        for root in ["", "/", "."] {
+            let resps = d
+                .dispatch(AgentRequest::ListTree {
+                    root: root.into(),
+                    exclude: vec![],
+                    include: vec![],
+                    max_entries: 10000,
+                })
+                .unwrap();
+            assert!(
+                matches!(resps.last(), Some(AgentResponse::TreeChunk { nodes, .. }) if nodes.len() == 1),
+                "{root:?}: {resps:?}"
+            );
+        }
     }
 
     // ── Ping / Shutdown ──
@@ -623,7 +835,9 @@ mod tests {
         let mut found_last = false;
         for resp in &responses {
             match resp {
-                AgentResponse::FileContents { results, is_last } => {
+                AgentResponse::FileContents {
+                    results, is_last, ..
+                } => {
                     all_results.extend(results.clone());
                     if *is_last {
                         assert!(!found_last, "multiple is_last=true found");
@@ -679,27 +893,6 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert!(matches!(&results[0], FileReadResult::Error { .. }));
-    }
-
-    #[test]
-    fn read_files_path_traversal_returns_error_variant() {
-        let (_tmp, mut d) = setup();
-
-        let resps = d
-            .dispatch(AgentRequest::ReadFiles {
-                paths: vec!["../etc/passwd".into()],
-                chunk_size_limit: 4096,
-            })
-            .unwrap();
-        let results = collect_file_contents(resps);
-
-        assert_eq!(results.len(), 1);
-        match &results[0] {
-            FileReadResult::Error { message, .. } => {
-                assert!(message.contains("path traversal"));
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
     }
 
     // ── WriteFile ──
@@ -799,29 +992,6 @@ mod tests {
         assert_eq!(content, "second");
     }
 
-    #[test]
-    fn write_file_path_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resp = single(
-            d.dispatch(AgentRequest::WriteFile {
-                path: "../escape.txt".into(),
-                content: b"evil".to_vec(),
-                is_binary: false,
-                more_to_follow: false,
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::WriteResult { success, error } => {
-                assert!(!success);
-                assert!(error.unwrap().contains("path traversal"));
-            }
-            other => panic!("expected WriteResult, got {other:?}"),
-        }
-    }
-
     // ── StatFiles ──
 
     #[test]
@@ -837,7 +1007,7 @@ mod tests {
         );
 
         match resp {
-            AgentResponse::Stats { entries } => {
+            AgentResponse::Stats { entries, .. } => {
                 assert_eq!(entries.len(), 1);
                 assert_eq!(entries[0].path, "s.txt");
                 assert_eq!(entries[0].size, 5);
@@ -954,79 +1124,6 @@ mod tests {
     // ── Path traversal protection ──
 
     #[test]
-    fn list_tree_path_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resps = d
-            .dispatch(AgentRequest::ListTree {
-                root: "../../etc".into(),
-                exclude: vec![],
-                include: vec![],
-                max_entries: 10000,
-            })
-            .unwrap();
-
-        assert_eq!(resps.len(), 1);
-        match &resps[0] {
-            AgentResponse::Error { message } => {
-                assert!(
-                    message.contains("path traversal"),
-                    "expected path traversal error, got: {message}"
-                );
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn stat_files_path_traversal_skips_entry() {
-        let (tmp, mut d) = setup();
-        // 正常なファイルも一緒に送り、トラバーサルパスがスキップされることを確認
-        fs::write(tmp.path().join("ok.txt"), "data").unwrap();
-
-        let resp = single(
-            d.dispatch(AgentRequest::StatFiles {
-                paths: vec!["../etc/passwd".into(), "ok.txt".into()],
-            })
-            .unwrap(),
-        );
-
-        match resp {
-            AgentResponse::Stats { entries } => {
-                // トラバーサルパスはスキップされ、ok.txt のみ返る
-                assert_eq!(entries.len(), 1);
-                assert_eq!(entries[0].path, "ok.txt");
-            }
-            other => panic!("expected Stats, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn list_tree_absolute_path_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resps = d
-            .dispatch(AgentRequest::ListTree {
-                root: "/etc".into(),
-                exclude: vec![],
-                include: vec![],
-                max_entries: 10000,
-            })
-            .unwrap();
-
-        assert_eq!(resps.len(), 1);
-        match &resps[0] {
-            AgentResponse::Error { message } => {
-                assert!(
-                    message.contains("absolute path not allowed"),
-                    "expected absolute path error, got: {message}"
-                );
-            }
-            other => panic!("expected Error, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn stat_files_nonexistent_skips_with_no_abort() {
         let (tmp, mut d) = setup();
         fs::write(tmp.path().join("exists.txt"), "hello").unwrap();
@@ -1039,7 +1136,7 @@ mod tests {
         );
 
         match resp {
-            AgentResponse::Stats { entries } => {
+            AgentResponse::Stats { entries, .. } => {
                 // nonexistent はスキップされ、exists.txt のみ返る
                 assert_eq!(entries.len(), 1);
                 assert_eq!(entries[0].path, "exists.txt");
@@ -1209,7 +1306,9 @@ mod tests {
 
         assert_eq!(resps.len(), 1);
         match &resps[0] {
-            AgentResponse::FileHashes { results, is_last } => {
+            AgentResponse::FileHashes {
+                results, is_last, ..
+            } => {
                 assert!(*is_last);
                 assert_eq!(results.len(), 1);
                 match &results[0] {
@@ -1240,7 +1339,9 @@ mod tests {
             .unwrap();
 
         match &resps[0] {
-            AgentResponse::FileHashes { results, is_last } => {
+            AgentResponse::FileHashes {
+                results, is_last, ..
+            } => {
                 assert!(*is_last);
                 assert_eq!(results.len(), 1);
                 match &results[0] {
@@ -1266,34 +1367,12 @@ mod tests {
             .unwrap();
 
         match &resps[0] {
-            AgentResponse::FileHashes { results, is_last } => {
+            AgentResponse::FileHashes {
+                results, is_last, ..
+            } => {
                 assert!(*is_last);
                 assert_eq!(results.len(), 1);
                 assert!(matches!(&results[0], FileHashResult::Error { .. }));
-            }
-            other => panic!("expected FileHashes, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn hash_files_path_traversal_returns_error() {
-        let (_tmp, mut d) = setup();
-
-        let resps = d
-            .dispatch(AgentRequest::HashFiles {
-                paths: vec!["../etc/passwd".into()],
-            })
-            .unwrap();
-
-        match &resps[0] {
-            AgentResponse::FileHashes { results, .. } => {
-                assert_eq!(results.len(), 1);
-                match &results[0] {
-                    FileHashResult::Error { reason, .. } => {
-                        assert!(reason.contains("path traversal"));
-                    }
-                    other => panic!("expected Error, got {other:?}"),
-                }
             }
             other => panic!("expected FileHashes, got {other:?}"),
         }
@@ -1312,7 +1391,9 @@ mod tests {
             .unwrap();
 
         match &resps[0] {
-            AgentResponse::FileHashes { results, is_last } => {
+            AgentResponse::FileHashes {
+                results, is_last, ..
+            } => {
                 assert!(*is_last);
                 assert_eq!(results.len(), 2);
                 // ハッシュは異なるべき
@@ -1392,7 +1473,9 @@ mod tests {
 
         assert_eq!(resps.len(), 1);
         match &resps[0] {
-            AgentResponse::FileContents { results, is_last } => {
+            AgentResponse::FileContents {
+                results, is_last, ..
+            } => {
                 assert!(results.is_empty());
                 assert!(*is_last);
             }

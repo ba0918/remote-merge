@@ -1745,6 +1745,7 @@ mod tests {
         let (mut rt, _) =
             runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
                 entries: vec![],
+                refused: vec![],
             }));
 
         let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
@@ -1762,6 +1763,7 @@ mod tests {
         let (mut rt, _) =
             runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
                 entries: vec![],
+                refused: vec![],
             }));
         rt.config.servers.get_mut("develop").unwrap().sudo = true;
 

@@ -5,7 +5,7 @@
 //! （絶対パスと ".." の要素）だけで、パスを辿って root_dir の外かどうかは判定しない。
 
 /// 入力の形の検査で拒んだ理由。文言には入力されたままの値を出す
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum RelPathError {
     #[error("absolute subpath not allowed: {0}")]
     Absolute(String),

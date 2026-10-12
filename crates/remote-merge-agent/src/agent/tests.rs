@@ -216,7 +216,7 @@ fn read_nonexistent_returns_error_not_crash() {
     let mut client = create_pair(&tmp);
 
     let results = client
-        .read_files(&["/nonexistent/path/xyz123".to_string()], 1024)
+        .read_files(&["nonexistent/path/xyz123".to_string()], 1024)
         .unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {

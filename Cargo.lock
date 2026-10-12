@@ -1977,6 +1977,7 @@ name = "remote-merge-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "remote-merge-core",
  "rmp-serde",
  "serde",
  "serde_json",

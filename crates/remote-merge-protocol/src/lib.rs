@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+pub use remote_merge_core::relative_path::RelPathError;
+
 macro_rules! define_protocol_version {
     ($version:literal) => {
         /// プロトコルバージョン（破壊的変更時にインクリメント）
@@ -13,6 +15,8 @@ macro_rules! define_protocol_version {
         /// v6 → v7: ListTree の応答に、循環で走査を止めたことを示す TreeIncomplete を追加
         /// v7 → v8: 一つの項目を辿らずに読む ReadEntryLink を追加
         /// v8 → v9: TreeChunk に UTF-8 として読めない名前のファイルの unreadable_names を追加
+        /// v9 → v10: 受け取ったパスを入力の形の検査で拒んだことを型で返す。一つのパスの要求は
+        ///           PathRefused、複数のパスの要求は FileContents・FileHashes・Stats の refused
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -30,7 +34,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(9);
+define_protocol_version!(10);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";
@@ -114,11 +118,15 @@ pub enum AgentResponse {
         results: Vec<FileReadResult>,
         /// ストリーミング対応: true で最後のチャンク。
         is_last: bool,
+        /// 入力の形の検査で拒んだパス。読まずに、最後のチャンクで返す
+        refused: Vec<RelPathError>,
     },
     FileHashes {
         results: Vec<FileHashResult>,
         /// ストリーミング対応: true で最後のチャンク。
         is_last: bool,
+        /// 入力の形の検査で拒んだパス
+        refused: Vec<RelPathError>,
     },
     WriteResult {
         success: bool,
@@ -126,6 +134,8 @@ pub enum AgentResponse {
     },
     Stats {
         entries: Vec<AgentFileStat>,
+        /// 入力の形の検査で拒んだパス
+        refused: Vec<RelPathError>,
     },
     PathInspection {
         result: AgentPathInspection,
@@ -146,6 +156,10 @@ pub enum AgentResponse {
     /// ReadEntryLink の応答
     EntryLink {
         result: AgentEntryLink,
+    },
+    /// 一つのパスの要求で、そのパスを入力の形の検査で拒んだ。何も読み書きしていない
+    PathRefused {
+        refusal: RelPathError,
     },
     Pong,
     Error {

@@ -9,6 +9,8 @@ mod entry_link;
 pub mod file_io;
 #[cfg(unix)]
 mod listing;
+#[cfg(unix)]
+mod receipt;
 pub use remote_merge_protocol as protocol;
 pub use remote_merge_protocol::framing;
 #[cfg(unix)]

@@ -56,10 +56,11 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         let frame = framing::read_frame(&mut self.reader)?;
         let resp = decode(&frame)?;
         // Error レスポンスは anyhow エラーに変換
-        if let AgentResponse::Error { ref message } = resp {
-            return Err(refused(format!("agent error: {message}")));
+        match resp {
+            AgentResponse::Error { message } => Err(refused(format!("agent error: {message}"))),
+            AgentResponse::PathRefused { refusal } => Err(refusal.into()),
+            resp => Ok(resp),
         }
-        Ok(resp)
     }
 
     /// ListTree を送信し、全エントリと一覧の終わり方を返す。
@@ -95,6 +96,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
                 }
+                AgentResponse::PathRefused { refusal } => return Err(refusal.into()),
                 AgentResponse::TreeIncomplete { reason } => {
                     return Ok(TreeList {
                         entries: Vec::new(),
@@ -158,7 +160,12 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
                 }
-                AgentResponse::FileContents { results, is_last } => {
+                AgentResponse::FileContents {
+                    results,
+                    is_last,
+                    refused,
+                } => {
+                    check_refused(refused)?;
                     all_results.extend(results);
                     if is_last {
                         break;
@@ -189,7 +196,12 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
                 }
-                AgentResponse::FileHashes { results, is_last } => {
+                AgentResponse::FileHashes {
+                    results,
+                    is_last,
+                    refused,
+                } => {
+                    check_refused(refused)?;
                     all_results.extend(results);
                     if is_last {
                         break;
@@ -242,7 +254,10 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             paths: paths.to_vec(),
         })?;
         match resp {
-            AgentResponse::Stats { entries } => Ok(entries),
+            AgentResponse::Stats { entries, refused } => {
+                check_refused(refused)?;
+                Ok(entries)
+            }
             other => Err(unexpected(format!(
                 "unexpected response to StatFiles: {other:?}"
             ))),
@@ -339,6 +354,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                 AgentResponse::Error { message } => {
                     return Err(refused(format!("agent error: {message}")))
                 }
+                AgentResponse::PathRefused { refusal } => return Err(refusal.into()),
                 AgentResponse::DirListing {
                     result: AgentDirListing::Children { entries },
                     is_last,
@@ -455,6 +471,14 @@ fn decode(frame: &[u8]) -> Result<AgentResponse> {
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
+/// エージェントが入力の形の検査で拒んだパスがあれば、最初のものの理由をエラーにする
+fn check_refused(refused: Vec<protocol::RelPathError>) -> Result<()> {
+    match refused.into_iter().next() {
+        Some(refusal) => Err(refusal.into()),
+        None => Ok(()),
+    }
+}
+
 /// Remove・Chmod の応答を検証する。
 fn check_operation_result(resp: AgentResponse, request: &str) -> Result<()> {
     match resp {
@@ -512,6 +536,64 @@ mod tests {
             .ok();
         });
         AgentClient::connect(client_stream.try_clone().unwrap(), client_stream).unwrap()
+    }
+
+    /// 決まった応答を一つだけ返すエージェントにつないだクライアント
+    fn answering(response: AgentResponse) -> AgentClient<std::io::Cursor<Vec<u8>>, Vec<u8>> {
+        let mut input = format!("{}\n", protocol::format_handshake()).into_bytes();
+        let frame = protocol::serialize_response(&response).unwrap();
+        framing::write_frame(&mut input, &frame).unwrap();
+        AgentClient::connect(std::io::Cursor::new(input), Vec::new()).unwrap()
+    }
+
+    fn refusal_of(error: &anyhow::Error) -> Option<&protocol::RelPathError> {
+        error.chain().find_map(|cause| cause.downcast_ref())
+    }
+
+    // ---- 受け取り口で拒まれたパス ----
+
+    #[test]
+    fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
+        let refusal = protocol::RelPathError::Traversal("../x".into());
+        let paths = ["ok.txt".to_string()];
+        let errors = [
+            answering(AgentResponse::Stats {
+                entries: Vec::new(),
+                refused: vec![refusal.clone()],
+            })
+            .stat_files(&paths)
+            .map(|_| ())
+            .unwrap_err(),
+            answering(AgentResponse::FileContents {
+                results: Vec::new(),
+                is_last: true,
+                refused: vec![refusal.clone()],
+            })
+            .read_files(&paths, 1024)
+            .map(|_| ())
+            .unwrap_err(),
+            answering(AgentResponse::FileHashes {
+                results: Vec::new(),
+                is_last: true,
+                refused: vec![refusal.clone()],
+            })
+            .hash_files(&paths)
+            .map(|_| ())
+            .unwrap_err(),
+            answering(AgentResponse::PathRefused {
+                refusal: refusal.clone(),
+            })
+            .inspect_path("ok.txt")
+            .map(|_| ())
+            .unwrap_err(),
+        ];
+        for error in &errors {
+            assert_eq!(refusal_of(error), Some(&refusal), "{error:#}");
+            assert!(
+                format!("{error:#}").contains("path traversal not allowed: ../x"),
+                "{error:#}"
+            );
+        }
     }
 
     // ---- Handshake ----
@@ -702,7 +784,7 @@ mod tests {
         // （dispatch 実装による — Stats が空配列を返すかもしれない）
         // 確実にエラーを検証するため、read_files で不正パスを試す
         let results = client
-            .read_files(&["/nonexistent/path/abc123".to_string()], 1024)
+            .read_files(&["nonexistent/path/abc123".to_string()], 1024)
             .unwrap();
         // エラーは FileReadResult::Error として返ってくる
         assert!(!results.is_empty());
