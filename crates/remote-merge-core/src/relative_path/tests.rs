@@ -132,3 +132,9 @@ fn a_checked_path_is_checked_again_with_the_same_result() {
     let path = parsed("src/");
     assert_eq!(RelPath::parse(path.as_str()).unwrap().as_str(), "src");
 }
+
+#[test]
+fn paths_are_listed_as_they_were_typed_in_order() {
+    let paths = [parsed("b/"), parsed("./a.txt"), parsed("/")];
+    assert_eq!(as_typed_all(&paths), ["b/", "./a.txt", "/"]);
+}

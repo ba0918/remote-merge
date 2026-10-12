@@ -3,7 +3,7 @@
 //! リモートエージェントプロセスとフレームプロトコルで通信する。
 //! Read/Write に対してジェネリックなので、SSHチャネルでもパイプでもテスト可能。
 
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{as_typed_all, RelPath};
 use std::io::{Read, Write};
 
 use anyhow::{bail, Result};
@@ -148,7 +148,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     ) -> Result<Vec<FileReadResult>> {
         // リクエスト送信（ストリーミングのため self.request() は使わない）
         let data = protocol::serialize_request(&AgentRequest::ReadFiles {
-            paths: typed(paths),
+            paths: as_typed_all(paths),
             chunk_size_limit,
         })?;
         framing::write_frame(&mut self.writer, &data)?;
@@ -185,7 +185,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// 複数ファイルの SHA-256 ハッシュを取得する（ストリーミング対応）。
     pub fn hash_files(&mut self, paths: &[RelPath]) -> Result<Vec<FileHashResult>> {
         let data = protocol::serialize_request(&AgentRequest::HashFiles {
-            paths: typed(paths),
+            paths: as_typed_all(paths),
         })?;
         framing::write_frame(&mut self.writer, &data)?;
 
@@ -253,7 +253,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// ファイルのメタデータを取得する。
     pub fn stat_files(&mut self, paths: &[RelPath]) -> Result<Vec<AgentFileStat>> {
         let resp = self.request(&AgentRequest::StatFiles {
-            paths: typed(paths),
+            paths: as_typed_all(paths),
         })?;
         match resp {
             AgentResponse::Stats { entries, refused } => {
@@ -471,14 +471,6 @@ fn unexpected(message: String) -> anyhow::Error {
 fn decode(frame: &[u8]) -> Result<AgentResponse> {
     protocol::deserialize_response(frame)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
-}
-
-/// 通信で送る、入力されたままの形のパス
-fn typed(paths: &[RelPath]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|path| path.as_typed().to_string())
-        .collect()
 }
 
 /// エージェントが入力の形の検査で拒んだパスがあれば、最初のものの理由をエラーにする

@@ -40,7 +40,7 @@ use crate::service::unreadable_names::requested_unreadable_names;
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::listing::ChildListing;
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{as_typed_all, RelPath};
 use remote_merge_engine::local_io::ScanTruncated;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -1058,14 +1058,6 @@ fn link_target_for_diff(
     })
 }
 
-/// 入力されたままの形のパス
-fn typed_paths(paths: &[RelPath]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|path| path.as_typed().to_string())
-        .collect()
-}
-
 /// FullScan: 従来通り全ツリーを取得する。
 fn run_diff_full_scan(
     paths: &[RelPath],
@@ -1079,7 +1071,7 @@ fn run_diff_full_scan(
     let (right_tree, right_truncated) = fetch_tree_keeping_read(core, right, max_entries)?;
     // UTF-8 として読めない名前のファイルは比べられないので、理由とともに誤りに載せる
     let unreadable: Vec<DiffError> = requested_unreadable_names(
-        &typed_paths(paths),
+        &as_typed_all(paths),
         &[
             (left.display_name(), &left_tree),
             (right.display_name(), &right_tree),
@@ -1144,7 +1136,7 @@ fn compute_statuses_and_resolve(
 
     let (existing_files, missing_files) = partition_existing_files(&target_files, &statuses);
     let empty_directories =
-        directories_without_files(&typed_paths(paths), &existing_files, left, right, core)?;
+        directories_without_files(&as_typed_all(paths), &existing_files, left, right, core)?;
     for path in missing_files
         .iter()
         .filter(|path| !empty_directories.contains(*path))

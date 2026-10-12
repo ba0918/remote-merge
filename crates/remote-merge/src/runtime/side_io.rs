@@ -19,7 +19,7 @@ use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
-use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::relative_path::{as_typed_all, RelPath};
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
@@ -60,14 +60,6 @@ fn checked(path: &str) -> anyhow::Result<RelPath> {
 
 fn checked_all(paths: &[String]) -> anyhow::Result<Vec<RelPath>> {
     paths.iter().map(|path| checked(path)).collect()
-}
-
-/// 入力されたままの形のパス（結果のキー）
-fn typed(paths: &[RelPath]) -> Vec<String> {
-    paths
-        .iter()
-        .map(|path| path.as_typed().to_string())
-        .collect()
 }
 
 impl CoreRuntime {
@@ -806,7 +798,7 @@ impl CoreRuntime {
                 Ok(results) => results,
                 Err(error) => return Some(Err(error)),
             };
-            match extract_batch_files_as_bytes(results, &typed(chunk)) {
+            match extract_batch_files_as_bytes(results, &as_typed_all(chunk)) {
                 Some(Ok(batch)) => merged.extend(batch),
                 Some(Err(e)) => return Some(Err(e)),
                 None => {
@@ -839,7 +831,7 @@ impl CoreRuntime {
         server_name: &str,
         rel_paths: &[RelPath],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let owned_rel_paths: Vec<String> = typed(rel_paths);
+        let owned_rel_paths: Vec<String> = as_typed_all(rel_paths);
         let agent_result = self.with_agent(server_name, "stat_files", Access::Read, |agent| {
             agent.stat_files(rel_paths)
         });

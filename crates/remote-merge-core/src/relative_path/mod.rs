@@ -101,5 +101,13 @@ impl RelPath {
     }
 }
 
+/// RelPath の並びを、入力されたままの値の並びにする（通信で送る値や結果のキー）
+pub fn as_typed_all(paths: &[RelPath]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.as_typed().to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;
