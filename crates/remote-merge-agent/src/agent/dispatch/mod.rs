@@ -66,14 +66,6 @@ impl Dispatcher {
                 Ok(path) => vec![reads::read_entry_link(root, &path)],
                 Err(refusal) => refused(refusal),
             },
-            AgentRequest::ListDir {
-                path,
-                exclude,
-                max_entries,
-            } => match RelPath::parse(&path) {
-                Ok(path) => super::listing::list_dir(root, &path, &exclude, max_entries),
-                Err(refusal) => refused(refusal),
-            },
             AgentRequest::WriteFile {
                 path,
                 content,

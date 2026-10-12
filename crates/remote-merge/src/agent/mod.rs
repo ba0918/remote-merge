@@ -6,7 +6,6 @@ pub use remote_merge_agent::agent::dispatch;
 pub use remote_merge_agent::agent::file_io;
 pub use remote_merge_protocol::framing;
 pub mod protocol;
-pub use remote_merge_agent::agent::child_nodes;
 pub use remote_merge_agent::agent::inspection;
 #[cfg(unix)]
 pub use remote_merge_agent::agent::server;

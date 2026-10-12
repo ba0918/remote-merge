@@ -119,10 +119,12 @@ fn a_request_for_one_path_refuses_it_with_the_reason_before_touching_the_root() 
             absolute("/tmp/x"),
         ),
         (
-            AgentRequest::ListDir {
-                path: "..".into(),
+            AgentRequest::ListTree {
+                request: remote_merge_core::scan::outcome::ScanRequest {
+                    scope: remote_merge_core::scan::outcome::ScanScope::Children("..".into()),
+                    max_entries: 10,
+                },
                 exclude: vec![],
-                max_entries: 10,
             },
             traversal(".."),
         ),

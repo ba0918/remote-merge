@@ -1,6 +1,6 @@
 //! 走査の起点のパスを整える。exclude に当たるものと、ほかの起点の下にあるものを除く
 use super::exclude::Exclude;
-use super::outcome::ScanScope;
+use super::outcome::Start;
 
 /// 整えた起点
 pub(super) struct StartPath {
@@ -16,11 +16,7 @@ pub(super) struct StartPath {
 /// 起点のパスを整え、exclude に当たるものと、ほかの起点の下にあるものを除く（同じパスなら自身も
 /// 載せる起点を残す）。root_dir 全体を指す起点があれば全体の走査にする。返す値の一つ目は全体の
 /// 走査か
-pub(super) fn start_paths(scope: &ScanScope, exclude: &Exclude) -> (bool, Vec<StartPath>) {
-    let starts = match scope {
-        ScanScope::Whole => return (true, Vec::new()),
-        ScanScope::Starts(starts) => starts,
-    };
+pub(super) fn start_paths(starts: &[Start], exclude: &Exclude) -> (bool, Vec<StartPath>) {
     let mut normal: Vec<StartPath> = starts
         .iter()
         .map(|start| StartPath {

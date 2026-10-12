@@ -6,12 +6,10 @@ pub mod dispatch;
 pub mod file_io;
 pub mod inspection;
 #[cfg(unix)]
-mod listing;
 #[cfg(unix)]
 mod receipt;
 pub use remote_merge_protocol as protocol;
 pub use remote_merge_protocol::framing;
-pub mod child_nodes;
 #[cfg(unix)]
 pub mod server;
 pub mod ssh_transport;

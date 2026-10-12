@@ -6,14 +6,14 @@ use std::path::Path;
 
 use super::*;
 use crate::scan::raw::{
-    Answer, LinkTarget, Question, RawKind, RawTime, ReadCause, Unreached, UnreadableDir,
+    Answer, Depth, LinkTarget, Question, RawKind, RawTime, ReadCause, Unreached, UnreadableDir,
 };
 
 fn ask(root: &Path, path: &[u8], descend: bool, exclude: &[&str]) -> Answer {
     let patterns: Vec<String> = exclude.iter().map(|p| p.to_string()).collect();
     let question = Question {
         path: path.to_vec(),
-        descend,
+        depth: [Depth::Itself, Depth::All][usize::from(descend)],
     };
     let mut collector = MachineCollector::new(root.to_path_buf());
     collector

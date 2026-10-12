@@ -49,6 +49,7 @@ impl Collector for Sabotaged {
             CollectFailure::Run(error) => CollectError::Failed(error.into()),
             CollectFailure::Read(message) => CollectError::Failed(anyhow::anyhow!(message)),
             CollectFailure::RootGone => CollectError::RootGone,
+            CollectFailure::ToolMissing(tool) => CollectError::Failed(anyhow::anyhow!("{tool}")),
         })
     }
 }

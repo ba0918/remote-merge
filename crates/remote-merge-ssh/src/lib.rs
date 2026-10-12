@@ -1,4 +1,3 @@
-pub mod child_listing;
 pub mod client;
 pub mod command_limit;
 pub mod contents;
@@ -12,10 +11,12 @@ pub mod passphrase_provider;
 pub mod path_facts;
 pub mod path_facts_output;
 pub mod path_facts_script;
+mod scan_check_script;
 pub mod scan_checks;
 pub mod scan_collect;
 pub mod scan_diagnostics;
 pub mod scan_fields;
+pub mod scan_find_probe;
 pub mod scan_output;
 pub mod scan_recheck;
 mod scan_recheck_read;
@@ -36,7 +37,7 @@ pub(crate) mod preferred;
 pub(crate) use remote_merge_core::{error, filter, tree};
 
 mod config {
-    pub(crate) use remote_merge_config::{expand_tilde, DEFAULT_MAX_DIR_ENTRIES};
+    pub(crate) use remote_merge_config::expand_tilde;
     pub(crate) use remote_merge_settings::{
         AuthMethod, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking,
     };

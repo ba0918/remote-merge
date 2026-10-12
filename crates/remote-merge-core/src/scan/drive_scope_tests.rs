@@ -1,6 +1,6 @@
 //! 起点を include の値か指定したディレクトリにした走査の規則の単体テスト
 use super::super::outcome::ScanFailure;
-use super::super::raw::Unreached;
+use super::super::raw::{Depth, Unreached};
 use super::super::test_support::*;
 
 // @kotowari[REQ-scan-019, REQ-config-022]
@@ -27,7 +27,7 @@ fn a_directory_below_an_excluded_one_is_not_read() {
     )
     .unwrap();
     assert!(listing.entries.is_empty());
-    assert!(fake.asked.iter().all(|q| !q.descend));
+    assert!(fake.asked.iter().all(|q| q.depth == Depth::Itself));
 }
 
 // @kotowari[REQ-scan-015, REQ-scan-009]

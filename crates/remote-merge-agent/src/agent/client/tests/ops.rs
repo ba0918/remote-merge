@@ -130,5 +130,3 @@ fn a_read_that_fails_answers_the_kind_of_the_failure() {
         )]
     );
 }
-
-// ---- ListDir ----

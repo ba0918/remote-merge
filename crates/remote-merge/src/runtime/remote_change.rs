@@ -1,7 +1,7 @@
 //! リモートの変更の操作と、経路ごとに中でやり直しを決める読み取り（大きさ・子の一覧）
 
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::children::ChildListing;
 
 use super::agent_route;
 use super::core::CoreRuntime;

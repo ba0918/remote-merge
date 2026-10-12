@@ -12,12 +12,16 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use remote_merge::agent::child_nodes::child_listing_from_agent;
 use remote_merge::agent::client::AgentClient;
 use remote_merge::runtime::CoreRuntime;
 use remote_merge::side::Side;
 use remote_merge::tree::{FileNode, NodeKind};
-use remote_merge_core::listing::{list_children_with, ChildListing, ListingReader};
+use remote_merge_core::scan::children::ChildListing;
+use remote_merge_core::scan::drive::scan;
+use remote_merge_core::scan::exclude::Exclude;
+use remote_merge_core::scan::outcome::{ScanError, ScanFailure, ScanRequest, ScanScope};
+
+use super::listing_support::{agent_children, UnreadableLink};
 use remote_merge_core::machine_ops::PermissionMode;
 use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
 use remote_merge_core::relative_path::EntryPath;
@@ -338,15 +342,8 @@ fn list_on_all_routes_excluding(
         .map_err(|error| error.to_string());
     let local_text = listing_text(local.clone());
     let ssh = routes.over_ssh(&format!("list\t{path}"));
-    let agent = routes.over_agent(|agent| {
-        listing_text(
-            agent
-                .client
-                .list_dir(rel, exclude, MAX_ENTRIES)
-                .map(child_listing_from_agent)
-                .map_err(|error| error.to_string()),
-        )
-    });
+    let agent =
+        routes.over_agent(|agent| listing_text(agent_children(&mut agent.client, rel, exclude)));
     (entries(local).unwrap(), [local_text, ssh, agent])
 }
 
@@ -511,17 +508,11 @@ async fn listing_the_same_directory_gives_the_same_entries_on_all_three_routes()
         .map_err(|error| error.to_string()),
     );
     let agent = routes.over_agent(|agent| {
-        entries(
-            agent
-                .client
-                .list_dir(
-                    &remote_merge_core::relative_path::RelPath::parse("v").unwrap(),
-                    &exclude,
-                    MAX_ENTRIES,
-                )
-                .map(child_listing_from_agent)
-                .map_err(|error| error.to_string()),
-        )
+        entries(agent_children(
+            &mut agent.client,
+            &remote_merge_core::relative_path::RelPath::parse("v").unwrap(),
+            &exclude,
+        ))
     });
     assert_eq!(agent, local);
     assert_eq!(local.unwrap().len(), 1);
@@ -588,37 +579,27 @@ async fn ex_paths_037_children_named_with_a_tab_or_a_newline_are_listed_by_the_s
     assert_eq!(names, ["p\nq.txt", "x\ty.txt"]);
 }
 
-/// リンク先の読み取りだけを失敗させる
-struct UnreadableLinks;
-
-impl ListingReader for UnreadableLinks {
-    fn read_link(&self, _: &Path) -> std::io::Result<PathBuf> {
-        Err(std::io::Error::other("injected readlink failure"))
-    }
-}
-
 // @kotowari[EX-paths-034]
 #[test]
 fn a_listing_with_an_unreadable_link_target_stops_with_an_error_naming_the_link() {
     if serve_ssh_request() {
         return;
     }
-    let root = tempfile::tempdir().unwrap();
-    fs::write(root.path().join("t.txt"), "x").unwrap();
-    symlink("t.txt", root.path().join("l")).unwrap();
+    let request = ScanRequest {
+        scope: ScanScope::Children(String::new()),
+        max_entries: MAX_ENTRIES,
+    };
 
-    let result = list_children_with(
-        &UnreadableLinks,
-        root.path(),
-        &remote_merge_core::relative_path::RelPath::root(),
-        &[],
-        MAX_ENTRIES,
+    let result = scan(&mut UnreadableLink, &Exclude::default(), &request);
+
+    let Err(ScanError::Failure(failure)) = result else {
+        panic!("a link without its target must not be listed: {result:?}");
+    };
+    assert_eq!(
+        failure,
+        ScanFailure::UnreadableLinkTarget { path: "l".into() }
     );
-
-    let error = result
-        .expect_err("a link without its target must not be listed")
-        .to_string();
-    assert!(error.contains("\"l\""), "{error}");
+    let error = failure.to_string();
     assert!(error.contains("link target"), "{error}");
     assert!(!error.contains("???"), "{error}");
 }

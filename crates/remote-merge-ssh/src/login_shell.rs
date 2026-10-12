@@ -115,11 +115,11 @@ mod tests {
         let questions = [
             crate::scan_script::ScriptQuestion {
                 path: b"",
-                descend: true,
+                depth: remote_merge_core::scan::raw::Depth::All,
             },
             crate::scan_script::ScriptQuestion {
                 path: b"link",
-                descend: true,
+                depth: remote_merge_core::scan::raw::Depth::All,
             },
         ];
         let prunable = remote_merge_core::scan::exclude::Prunable {

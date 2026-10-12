@@ -2,8 +2,8 @@
 //! [`Walk`] で一覧にする。root_dir の確認は、どの起点でも最初の問いの一つとして一度だけ行う。
 
 use super::exclude::Exclude;
-use super::outcome::{Listing, ScanError, ScanFailure, ScanRequest};
-use super::raw::{Answer, Collector, DirId, Question, RawKind, Unreached};
+use super::outcome::{Listing, ScanError, ScanFailure, ScanRequest, ScanScope};
+use super::raw::{Answer, Collector, Depth, DirId, Question, RawKind, Unreached};
 use super::start_paths::{start_paths, StartPath};
 use super::walk::{PendingLink, Walk};
 
@@ -12,15 +12,25 @@ pub fn scan(
     exclude: &Exclude,
     request: &ScanRequest,
 ) -> Result<Listing, ScanError> {
-    let (whole, starts) = start_paths(&request.scope, exclude);
+    let (whole, starts) = match &request.scope {
+        ScanScope::Whole => (true, Vec::new()),
+        ScanScope::Starts(starts) => start_paths(starts, exclude),
+        ScanScope::Children(path) => {
+            return super::children::scan_children(collector, exclude, path, request.max_entries)
+        }
+    };
     let counters = starts.iter().map(|s| s.group + 1).max().unwrap_or(1);
     let mut questions = vec![Question {
         path: Vec::new(),
-        descend: whole,
+        depth: if whole { Depth::All } else { Depth::Itself },
     }];
     questions.extend(starts.iter().map(|start| Question {
         path: start.path.clone(),
-        descend: start.descend,
+        depth: if start.descend {
+            Depth::All
+        } else {
+            Depth::Itself
+        },
     }));
     let answers = ask(collector, &questions, exclude)?;
     let root_id = root_identity(&answers[0])?;
@@ -42,7 +52,7 @@ pub fn scan(
             .iter()
             .map(|link| Question {
                 path: link.path.clone(),
-                descend: true,
+                depth: Depth::All,
             })
             .collect();
         let answers = ask(collector, &questions, exclude)?;
@@ -53,7 +63,7 @@ pub fn scan(
     Ok(walk.finish())
 }
 
-fn ask(
+pub(super) fn ask(
     collector: &mut dyn Collector,
     questions: &[Question],
     exclude: &Exclude,
@@ -72,7 +82,7 @@ fn ask(
     Ok(answers)
 }
 
-fn missing_subtree() -> ScanError {
+pub(super) fn missing_subtree() -> ScanError {
     ScanFailure::InconsistentAnswer {
         detail: "no entries below a directory".into(),
     }
@@ -80,7 +90,7 @@ fn missing_subtree() -> ScanError {
 }
 
 /// root_dir がないか読めなければ止める（REQ-scan-015）
-fn root_identity(answer: &Answer) -> Result<DirId, ScanFailure> {
+pub(super) fn root_identity(answer: &Answer) -> Result<DirId, ScanFailure> {
     match &answer.entry {
         Err(Unreached::Missing) => Err(ScanFailure::RootMissing),
         Err(_) => Err(ScanFailure::RootUnreadable),
@@ -90,7 +100,7 @@ fn root_identity(answer: &Answer) -> Result<DirId, ScanFailure> {
 }
 
 /// 起点に届かなかった理由を、ないなら Ok に、ほかは誤りにする
-fn unreached(path: &[u8], why: Unreached) -> Result<(), ScanError> {
+pub(super) fn unreached(path: &[u8], why: Unreached) -> Result<(), ScanError> {
     let path = String::from_utf8_lossy(path).into_owned();
     match why {
         Unreached::Missing => Ok(()),

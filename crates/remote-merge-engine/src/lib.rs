@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod backup_store;
+pub mod child_listing;
 pub mod local_io;
 pub mod merge;
 pub mod scan_result;

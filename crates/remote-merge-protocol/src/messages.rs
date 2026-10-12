@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AgentDirListing, AgentEntryLink, AgentPathInspection, FileHashResult, FileReadResult,
-    ListedEntry, RelPathError, ScanFailure, ScanRequest, StatResult, WireFailure,
+    AgentEntryLink, AgentPathInspection, FileHashResult, FileReadResult, ListedEntry, RelPathError,
+    ScanFailure, ScanRequest, StatResult, WireFailure,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -47,12 +47,6 @@ pub enum AgentRequest {
     Chmod {
         path: String,
         mode: u32,
-    },
-    /// root_dir からの `path` の直下の子を一覧する。`exclude` は子の root_dir からのパスに当てる
-    ListDir {
-        path: String,
-        exclude: Vec<String>,
-        max_entries: usize,
     },
     /// root_dir からの `path` の項目そのもの（最後の要素のリンクは辿らない）が symlink なら、その
     /// リンク先を読む。親ディレクトリは一覧しない
@@ -107,11 +101,6 @@ pub enum AgentResponse {
     },
     PathInspection {
         result: AgentPathInspection,
-    },
-    /// ListDir の応答。直下の子が多いときは、子を分けて複数の応答で返す（`is_last` で最後）
-    DirListing {
-        result: AgentDirListing,
-        is_last: bool,
     },
     /// ReadEntryLink の応答
     EntryLink {

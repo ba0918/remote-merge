@@ -22,6 +22,9 @@ pub(super) struct Walk<'a> {
     /// 循環に出会ったパス（不完全な一覧。REQ-scan-002）
     pub cycle: Option<String>,
     pub pending: Vec<PendingLink>,
+    /// ディレクトリへの symlink を辿って下を載せるか。子の一覧ではリンク先がディレクトリかだけを
+    /// 決め、辿らない
+    pub follow_links: bool,
 }
 
 impl<'a> Walk<'a> {
@@ -35,6 +38,7 @@ impl<'a> Walk<'a> {
             truncated: false,
             cycle: None,
             pending: Vec::new(),
+            follow_links: true,
         }
     }
 

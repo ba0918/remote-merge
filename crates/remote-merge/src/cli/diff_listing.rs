@@ -3,7 +3,7 @@
 //!
 //! 「ディレクトリではない」と「一覧を取れなかった」を分ける。
 
-use remote_merge_core::listing::ChildListing;
+use remote_merge_core::scan::children::ChildListing;
 
 use super::diff_expansion::Expansions;
 use crate::runtime::target_io::TargetPath;

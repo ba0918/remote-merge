@@ -130,6 +130,7 @@ fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
             Start::below("b", 1),
             Start::check("c", 2),
         ]),
+        ScanScope::Children("d".into()),
     ];
     for kind in &kinds {
         match kind {
@@ -138,7 +139,7 @@ fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
     }
     for scope in &scopes {
         match scope {
-            ScanScope::Whole | ScanScope::Starts(_) => {}
+            ScanScope::Whole | ScanScope::Starts(_) | ScanScope::Children(_) => {}
         }
     }
     (kinds, scopes)
@@ -193,5 +194,5 @@ fn every_kind_of_entry_and_scope_keeps_its_wire_shape() {
         "81a9547265654368756e6b959397a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b92a174c20000000000c290c3c0",
         "bump PROTOCOL_VERSION"
     );
-    assert_eq!(requests.join(","), "81a84c697374547265659292a557686f6c650190,81a84c69737454726565929281a65374617274739394a161c3c30094a162c2c30194a163c2c2020190", "bump PROTOCOL_VERSION");
+    assert_eq!(requests.join(","), "81a84c697374547265659292a557686f6c650190,81a84c69737454726565929281a65374617274739394a161c3c30094a162c2c30194a163c2c2020190,81a84c69737454726565929281a84368696c6472656ea1640190", "bump PROTOCOL_VERSION");
 }

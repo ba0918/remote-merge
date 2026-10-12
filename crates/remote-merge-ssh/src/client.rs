@@ -9,20 +9,16 @@ use russh::keys::load_secret_key;
 use russh::keys::PrivateKeyWithHashAlg;
 use russh::{client, ChannelMsg, Disconnect};
 
-use crate::config::{AuthMethod, ServerConfig, SshConfig};
-use crate::error::AppError;
-use crate::login_shell::wrap_for_login_shell;
-use crate::tree::FileNode;
-
-use super::find_records::{parse_find_records, RECORD_FORMAT};
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
-    build_mkdir_command, build_write_bytes_command, build_write_text_command, parse_find_record,
-    shell_escape,
+    build_mkdir_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
+use crate::config::{AuthMethod, ServerConfig, SshConfig};
+use crate::error::AppError;
+use crate::login_shell::wrap_for_login_shell;
 use zeroize::Zeroizing;
 
 /// リモートコマンドの実行結果
@@ -535,144 +531,6 @@ impl SshClient {
 
     /// ディレクトリ取得のデフォルトタイムアウト（秒）
     pub const DIR_TIMEOUT_SECS: u64 = 30;
-
-    /// リモートディレクトリの直下エントリを取得する
-    ///
-    /// `parent_rel_path` はプロジェクトルートからの相対パス（例: `"config"`）。
-    /// パスパターン（`config/*.toml` など）のフィルタに使われる。
-    /// ルート直下の場合は `""` を渡す。
-    pub async fn list_dir(
-        &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        parent_rel_path: &str,
-    ) -> crate::error::Result<Vec<FileNode>> {
-        self.list_dir_with_limit(
-            remote_path,
-            exclude,
-            parent_rel_path,
-            Self::DIR_TIMEOUT_SECS,
-            crate::config::DEFAULT_MAX_DIR_ENTRIES,
-        )
-        .await
-        .map(|(nodes, _)| nodes)
-    }
-
-    /// リモートディレクトリの直下エントリを取得する（制限付き）
-    ///
-    /// `parent_rel_path` はプロジェクトルートからの相対パス。
-    pub async fn list_dir_with_limit(
-        &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        parent_rel_path: &str,
-        timeout_secs: u64,
-        max_entries: usize,
-    ) -> crate::error::Result<(Vec<FileNode>, bool)> {
-        let command = list_dir_command(remote_path);
-
-        let result = tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            self.run_command_bytes(&command),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: self.server_name.clone(),
-            timeout_sec: timeout_secs,
-        })??;
-        if result.exit_code != 0 {
-            tracing::debug!(
-                target: "remote_merge::ssh::client",
-                "Remote command exited with non-zero: cmd='{}', code={}",
-                command,
-                result.exit_code
-            );
-        }
-
-        parse_listing(
-            &result.stdout,
-            remote_path,
-            exclude,
-            parent_rel_path,
-            max_entries,
-        )
-    }
-
-    /// リモートディレクトリの直下エントリを取得し、ディレクトリでなければエラーにする
-    ///
-    /// `list_dir` は `find` の終了コードを見ないため、通常ファイル・存在しないパス・
-    /// 参照先のない symlink でも空の一覧を返す。こちらは一覧の成否でディレクトリかを
-    /// 判定する呼び出し元向け。
-    pub async fn list_dir_strict(
-        &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        parent_rel_path: &str,
-    ) -> crate::error::Result<Vec<FileNode>> {
-        let command = list_dir_command(remote_path);
-        let output = tokio::time::timeout(
-            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
-            self.exec_strict_bytes(&command),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: self.server_name.clone(),
-            timeout_sec: Self::DIR_TIMEOUT_SECS,
-        })??;
-        let (nodes, _) = parse_listing(
-            &output,
-            remote_path,
-            exclude,
-            parent_rel_path,
-            crate::config::DEFAULT_MAX_DIR_ENTRIES,
-        )?;
-        Ok(nodes)
-    }
-
-    /// `remote_path` の直下の子を一覧し、ディレクトリでないことと一覧を取れなかったことを
-    /// 区別して返す。`rel` は root_dir からのパスで、exclude の当て方と文言に使う
-    pub async fn list_children(
-        &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        rel: &str,
-    ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
-        self.list_children_with_limit(
-            remote_path,
-            exclude,
-            rel,
-            crate::config::DEFAULT_MAX_DIR_ENTRIES,
-        )
-        .await
-    }
-
-    /// [`Self::list_children`] の、子を `max_entries` 件で打ち切るもの
-    pub async fn list_children_with_limit(
-        &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        rel: &str,
-        max_entries: usize,
-    ) -> crate::error::Result<remote_merge_core::listing::ChildListing> {
-        let command = super::child_listing::list_children_command(remote_path);
-        let output = tokio::time::timeout(
-            Duration::from_secs(Self::DIR_TIMEOUT_SECS),
-            self.run_command_bytes(&command),
-        )
-        .await
-        .map_err(|_| AppError::SshTimeout {
-            host: self.server_name.clone(),
-            timeout_sec: Self::DIR_TIMEOUT_SECS,
-        })??;
-        super::child_listing::parse_children_output(
-            &output.stdout,
-            &String::from_utf8_lossy(&output.stderr),
-            output.exit_code,
-            rel,
-            exclude,
-            max_entries,
-        )
-    }
 
     /// `remote_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を返す。
     /// 親ディレクトリは一覧しない。`rel` は root_dir からのパス（文言に使う）
@@ -1196,111 +1054,9 @@ fn read_file_command(remote_path: &str) -> String {
     format!("openssl base64 -in {escaped} && test ! -d {escaped}")
 }
 
-/// `list_dir_command` の出力を直下のノードに直す。返り値の bool は件数の上限で打ち切ったか。
-/// 出力の形が合わなければ Err
-fn parse_listing(
-    output: &[u8],
-    remote_path: &str,
-    exclude: &[String],
-    parent_rel_path: &str,
-    max_entries: usize,
-) -> crate::error::Result<(Vec<FileNode>, bool)> {
-    let mut nodes = Vec::new();
-    let mut truncated = false;
-
-    for record in parse_find_records(output)? {
-        if nodes.len() >= max_entries {
-            truncated = true;
-            tracing::warn!(target: "remote_merge::ssh::client", "Entry count reached limit {}: {}", max_entries, remote_path);
-            break;
-        }
-        if let Some(node) = parse_find_record(&record, remote_path, &[])? {
-            // maxdepth 1 で得たノード名は1セグメントのみ。ローカルとエージェントの経路と同じく、
-            // 名前だけでなく root_dir からのパスに当てる
-            let full_rel = if parent_rel_path.is_empty() {
-                node.name.clone()
-            } else {
-                format!("{}/{}", parent_rel_path, node.name)
-            };
-            if crate::filter::is_path_excluded(&full_rel, exclude) {
-                continue;
-            }
-            nodes.push(node);
-        }
-    }
-
-    Ok((nodes, truncated))
-}
-
-/// 子の一覧を取るコマンド。試験 SSH サーバを使う試験が、受けたコマンドのうち一覧を見分けるために
-/// test-utils の機能のときだけ公開する
-#[cfg(feature = "test-utils")]
-pub fn list_dir_command_for_tests(remote_path: &str) -> String {
-    list_dir_command(remote_path)
-}
-
-fn list_dir_command(remote_path: &str) -> String {
-    format!(
-        "find {}/ -maxdepth 1 -mindepth 1 -printf '{RECORD_FORMAT}'",
-        shell_escape(if remote_path.trim_end_matches('/').is_empty() {
-            "/"
-        } else {
-            remote_path.trim_end_matches('/')
-        })
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn listing_a_directory_link_reads_its_children() {
-        use std::os::unix::fs::symlink;
-        let root = tempfile::TempDir::new().unwrap();
-        let actual = root.path().join("real dir");
-        std::fs::create_dir(&actual).unwrap();
-        std::fs::write(actual.join("child.txt"), "content").unwrap();
-        let link = root.path().join("linked");
-        symlink(&actual, &link).unwrap();
-        let command = list_dir_command(link.to_str().unwrap());
-        let output = std::process::Command::new("sh")
-            .args(["-c", &command])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let text = String::from_utf8(output.stdout).unwrap();
-        assert!(text.contains("child.txt"), "{text:?}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn listing_keeps_names_and_link_targets_with_tabs_newlines_and_backslashes() {
-        use std::os::unix::fs::symlink;
-        let root = tempfile::TempDir::new().unwrap();
-        for name in ["x\ty.txt", "p\nq.txt", "b\\c.txt"] {
-            std::fs::write(root.path().join(name), "x").unwrap();
-        }
-        symlink("line\n", root.path().join("link")).unwrap();
-        let dir = root.path().to_str().unwrap();
-        let output = std::process::Command::new("sh")
-            .args(["-c", &list_dir_command(dir)])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let (nodes, _) = parse_listing(&output.stdout, dir, &[], "", 10).unwrap();
-        let mut names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
-        names.sort();
-        assert_eq!(names, ["b\\c.txt", "link", "p\nq.txt", "x\ty.txt"]);
-        let link = nodes.iter().find(|node| node.name == "link").unwrap();
-        assert_eq!(
-            link.kind,
-            crate::tree::NodeKind::Symlink {
-                target: "line\n".into()
-            }
-        );
-    }
 
     #[cfg(unix)]
     #[test]
@@ -1328,11 +1084,6 @@ mod tests {
         assert!(output.status.success(), "{output:?}");
         let encoded = String::from_utf8(output.stdout).unwrap();
         assert_eq!(decode_base64_output(&encoded).unwrap(), b"file body\n");
-    }
-
-    #[test]
-    fn listing_the_filesystem_root_uses_a_valid_path() {
-        assert!(list_dir_command("/").starts_with("find '/'/ "));
     }
 
     #[test]

@@ -13,8 +13,8 @@ use super::core::CoreRuntime;
 use super::target_io::TargetIo;
 use remote_merge_core::op_failure::{PathResult, SizeLimit};
 
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::scan::children::ChildListing;
 
 pub(crate) struct StoppedTargetIo {
     name: String,

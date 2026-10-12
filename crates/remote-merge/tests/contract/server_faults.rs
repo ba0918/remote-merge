@@ -115,6 +115,9 @@ pub struct Faults {
     pub refuse_agent_after_cut: bool,
     /// sha256sum と shasum のないサーバにする（どちらも見つからないときと同じく 127 で終える）
     pub without_hash_commands: bool,
+    /// find を -printf を受け付けないもの（BusyBox の find と同じく、知らない式の誤りで 1 で
+    /// 終える）にする
+    pub find_without_printf: bool,
 }
 
 /// サーバ全体（再接続した session をまたいで）で共有する故障の状態
@@ -133,12 +136,14 @@ pub struct FaultState {
     agent_requests: Mutex<Vec<String>>,
     sudo_bin: Option<tempfile::TempDir>,
     missing_hash_bin: Option<tempfile::TempDir>,
+    find_bin: Option<tempfile::TempDir>,
 }
 
 impl FaultState {
     pub fn new(faults: Faults) -> Arc<Self> {
         let sudo_bin = faults.fake_sudo.then(fake_sudo_bin);
         let missing_hash_bin = faults.without_hash_commands.then(missing_hash_bin);
+        let find_bin = faults.find_without_printf.then(find_without_printf_bin);
         Arc::new(Self {
             faults,
             armed_agent_cut: Mutex::new(None),
@@ -151,6 +156,7 @@ impl FaultState {
             agent_requests: Mutex::new(Vec::new()),
             sudo_bin,
             missing_hash_bin,
+            find_bin,
         })
     }
 
@@ -212,7 +218,7 @@ impl FaultState {
 
     /// PATH の先頭に置くディレクトリ（偽の sudo と、見つからないハッシュのコマンド）
     pub fn extra_path_dirs(&self) -> Vec<&Path> {
-        [&self.sudo_bin, &self.missing_hash_bin]
+        [&self.sudo_bin, &self.missing_hash_bin, &self.find_bin]
             .into_iter()
             .flatten()
             .map(|dir| dir.path())
@@ -254,6 +260,25 @@ fn missing_hash_bin() -> tempfile::TempDir {
         .unwrap();
         std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
+    dir
+}
+
+/// -printf を受け付けない find。ほかの式は手元の find に渡す
+fn find_without_printf_bin() -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::TempDir::new().unwrap();
+    let find = dir.path().join("find");
+    std::fs::write(
+        &find,
+        concat!(
+            "#!/bin/sh\n",
+            "for a do [ \"$a\" = -printf ] && { echo 'find: unrecognized: -printf' >&2; exit 1; }; done\n",
+            "for d in /usr/bin /bin; do [ -x \"$d/find\" ] && exec \"$d/find\" \"$@\"; done\n",
+            "exit 127\n",
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&find, std::fs::Permissions::from_mode(0o755)).unwrap();
     dir
 }
 
@@ -525,8 +550,7 @@ fn is_last(response: &AgentResponse) -> bool {
     match response {
         AgentResponse::TreeChunk { is_last, .. }
         | AgentResponse::FileContents { is_last, .. }
-        | AgentResponse::FileHashes { is_last, .. }
-        | AgentResponse::DirListing { is_last, .. } => *is_last,
+        | AgentResponse::FileHashes { is_last, .. } => *is_last,
         _ => true,
     }
 }

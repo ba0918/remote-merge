@@ -4,25 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::WireFailure;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum FileKind {
-    File,
-    Directory,
-    Symlink,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentFileEntry {
-    pub path: String,
-    pub kind: FileKind,
-    pub size: u64,
-    pub mtime_secs: i64,
-    pub mtime_nanos: u32,
-    pub permissions: u32,
-    pub symlink_target: Option<String>,
-    pub link_is_dir: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FileReadResult {
     Ok {
@@ -101,15 +82,4 @@ pub enum AgentEntryLink {
     NotSymlink,
     /// 項目を読めなかった（ない・途中がディレクトリでないを含む）
     Failed { failure: WireFailure },
-}
-
-/// ListDir の応答。一覧を止めるエラー（リンク先か更新時刻を読めない）は `AgentResponse::Error` で返す
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AgentDirListing {
-    /// 直下の子。`path` は子の名前
-    Children { entries: Vec<AgentFileEntry> },
-    /// 通常ファイル、ディレクトリでないものへの symlink、リンク切れ、ないパス
-    NotDirectory,
-    /// ディレクトリかもしれないのに中身が分からない
-    Unlistable { reason: String },
 }

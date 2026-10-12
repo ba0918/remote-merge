@@ -2,11 +2,13 @@
 //! （docs/decision/records/2026-10-12-foundation-2.md の C7）。
 
 use remote_merge_core::error::AppError;
+use remote_merge_core::op_failure::{OpError, OpFailure, Operation, Tool};
 use remote_merge_core::scan::exclude::Exclude;
 use remote_merge_core::scan::raw::{Answer, CollectError, Collector, Question};
 
 use crate::client::SshClient;
 use crate::command_limit::MAX_COMMAND_LEN as SSH_BATCH_MAX_COMMAND_LEN;
+use crate::scan_find_probe::find_unusable;
 use crate::scan_output::parse;
 use crate::scan_recheck::{
     apply_recheck, match_round, read_recheck, recheck_script, split_recheck, EmptyDir,
@@ -43,6 +45,14 @@ impl Collector for SshCollector<'_> {
                 CollectError::Failed(anyhow::Error::from(AppError::RemoteParse { message }))
             }
             CollectFailure::RootGone => CollectError::RootGone,
+            CollectFailure::ToolMissing(tool) => CollectError::Failed(
+                OpError::new(
+                    Operation::Scan,
+                    String::from_utf8_lossy(&self.root).into_owned(),
+                    OpFailure::ToolMissing(tool),
+                )
+                .into(),
+            ),
         })
     }
 }
@@ -54,6 +64,8 @@ pub enum CollectFailure<E> {
     Read(String),
     /// 走査を始めたときにはあった root_dir が、もうないかディレクトリでない
     RootGone,
+    /// 走査に要る道具がない（docs/ir/ssh/compatibility.md の REQ-ssh-026）
+    ToolMissing(Tool),
 }
 
 /// 問いをコマンド行に収まるまとまりにして `run` で動かし（標準出力と標準エラーを返す）、
@@ -70,7 +82,7 @@ pub fn collect_with<E>(
         .iter()
         .map(|q| ScriptQuestion {
             path: &q.path,
-            descend: q.descend,
+            depth: q.depth,
         })
         .collect();
     let mut answers = Vec::with_capacity(questions.len());
@@ -78,6 +90,9 @@ pub fn collect_with<E>(
     for range in split_for_command_line(root, &script_questions, &prunable, limit) {
         let part = &script_questions[range];
         let (stdout, stderr) = run(&build(root, part, &prunable)).map_err(CollectFailure::Run)?;
+        if find_unusable(&stdout) {
+            return Err(CollectFailure::ToolMissing(Tool::FindPrintf));
+        }
         // root_dir が途中で消えたら、ほかの知らせによらずそれで答える
         if root_gone(&stdout) {
             return Err(CollectFailure::RootGone);
@@ -117,3 +132,7 @@ pub fn collect_with<E>(
 #[cfg(all(test, unix))]
 #[path = "scan_root_gone_tests.rs"]
 mod root_gone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "scan_children_tests.rs"]
+mod children_tests;

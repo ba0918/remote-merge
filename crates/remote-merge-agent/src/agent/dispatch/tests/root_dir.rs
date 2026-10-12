@@ -92,10 +92,12 @@ fn requests_over_a_range_accept_the_whole_root_dir() {
     for root in ROOT_FORMS {
         for request in [
             AgentRequest::InspectPath { path: root.into() },
-            AgentRequest::ListDir {
-                path: root.into(),
+            AgentRequest::ListTree {
+                request: remote_merge_core::scan::outcome::ScanRequest {
+                    scope: remote_merge_core::scan::outcome::ScanScope::Children(root.into()),
+                    max_entries: 10,
+                },
                 exclude: vec![],
-                max_entries: 10,
             },
         ] {
             let responses = d.dispatch(request.clone()).unwrap();

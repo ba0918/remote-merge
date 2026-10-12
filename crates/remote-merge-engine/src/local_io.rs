@@ -5,10 +5,12 @@ use std::path::Path;
 
 use remote_merge_core::path_resolution::{self, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::scan::children::ChildListing;
 use remote_merge_core::scan::exclude::Exclude;
-use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest};
+use remote_merge_core::scan::outcome::{Listing, ScanError, ScanRequest, ScanScope};
 use remote_merge_core::scan::this_machine::MachineCollector;
 
+use crate::child_listing::into_child_listing;
 use crate::scan_result::into_tree;
 use crate::tree::{FileNode, FileTree};
 
@@ -102,9 +104,9 @@ pub fn fetch_children(
     path: &RelPath,
 ) -> anyhow::Result<Vec<FileNode>> {
     let nodes = match list_children(root, exclude, path)? {
-        remote_merge_core::listing::ChildListing::Children(nodes) => nodes,
-        remote_merge_core::listing::ChildListing::NotDirectory => Vec::new(),
-        remote_merge_core::listing::ChildListing::Unlistable(reason) => anyhow::bail!(reason),
+        ChildListing::Children(nodes) => nodes,
+        ChildListing::NotDirectory => Vec::new(),
+        ChildListing::Unlistable(reason) => anyhow::bail!(reason),
     };
     Ok(crate::filter::filter_children_by_include(
         nodes,
@@ -113,16 +115,23 @@ pub fn fetch_children(
     ))
 }
 
-/// root_dir からの `path` の直下の子を、三つの結果を区別して返す
+/// root_dir からの `path` の直下の子を、走査の集め方を深さ一つにしたもので集め、三つの結果を
+/// 区別して返す（docs/decision/records/2026-10-12-foundation-3.md の D6）
 pub fn list_children(
     root: &Path,
     exclude: &[String],
     path: &RelPath,
-) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
-    remote_merge_core::listing::list_children(
+) -> anyhow::Result<ChildListing> {
+    let request = ScanRequest {
+        scope: ScanScope::Children(path.as_str().to_string()),
+        max_entries: crate::config::DEFAULT_MAX_DIR_ENTRIES,
+    };
+    into_child_listing(
         root,
-        path,
-        exclude,
-        crate::config::DEFAULT_MAX_DIR_ENTRIES,
+        &root.display().to_string(),
+        path.as_str(),
+        scan(root, exclude, &request),
+        request.max_entries,
+        || missing_root(root),
     )
 }

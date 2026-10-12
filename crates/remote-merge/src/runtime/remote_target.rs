@@ -1,9 +1,9 @@
 //! リモートの比較先。そのサーバに選んだ経路だけで行い、読み取りの `接続断` は一度だけやり直す
 
 use chrono::{DateTime, Utc};
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::children::ChildListing;
 use remote_merge_core::scan::outcome::ScanRequest;
 use std::collections::HashMap;
 

@@ -1,8 +1,10 @@
-//! エージェントの経路の範囲の読み取り（子の一覧・走査）
+//! エージェントの経路の範囲の読み取り（子の一覧・走査）。どちらもローカルと同じ集め方と規則の
+//! 走査をエージェントに頼む
 
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::relative_path::RelPath;
-use remote_merge_core::scan::outcome::{ScanError, ScanRequest};
+use remote_merge_core::scan::children::ChildListing;
+use remote_merge_core::scan::outcome::{ScanError, ScanRequest, ScanScope};
+use remote_merge_engine::child_listing::into_child_listing;
 use remote_merge_engine::scan_result::into_tree;
 
 use super::with_agent;
@@ -10,6 +12,7 @@ use crate::runtime::core::CoreRuntime;
 use crate::runtime::side_io::{remote_root_missing, remote_shown_root};
 use crate::tree::FileTree;
 
+/// エージェントで、走査の集め方を深さ一つにしたもので子の一覧を取る（D6）
 pub(crate) fn list_children(
     rt: &mut CoreRuntime,
     server_name: &str,
@@ -17,10 +20,20 @@ pub(crate) fn list_children(
     exclude: &[String],
     max_entries: usize,
 ) -> anyhow::Result<ChildListing> {
-    let listing = with_agent(rt, server_name, |agent| {
-        agent.list_dir(path, exclude, max_entries)
-    })?;
-    Ok(crate::agent::child_nodes::child_listing_from_agent(listing))
+    let root_dir = rt.get_server_config(server_name)?.root_dir.clone();
+    let request = ScanRequest {
+        scope: ScanScope::Children(path.as_str().to_string()),
+        max_entries,
+    };
+    let scanned = with_agent(rt, server_name, |agent| agent.list_tree(&request, exclude))?;
+    into_child_listing(
+        &root_dir,
+        &remote_shown_root(server_name, &root_dir),
+        path.as_str(),
+        scanned.map_err(ScanError::Failure),
+        max_entries,
+        || remote_root_missing(server_name, &root_dir),
+    )
 }
 
 /// エージェントで、ローカルと同じ集め方と規則で走査する。走査を止めた誤り（root_dir がない・

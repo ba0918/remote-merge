@@ -2,10 +2,10 @@
 //! （やり直しは `route_retry`、確かめは `confirm` が決める）
 
 use chrono::{DateTime, Utc};
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::children::ChildListing;
 use remote_merge_core::scan::outcome::ScanRequest;
 
 use super::agent_route;
@@ -47,9 +47,7 @@ impl CoreRuntime {
             RemoteRoute::Agent => {
                 agent_route::list_children(self, server, path, exclude, max_entries)
             }
-            RemoteRoute::Ssh => {
-                self.list_remote_children_excluding(server, path, exclude, max_entries)
-            }
+            RemoteRoute::Ssh => self.list_children_over_ssh(server, path, exclude, max_entries),
         }
     }
 

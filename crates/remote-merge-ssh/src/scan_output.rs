@@ -3,7 +3,7 @@
 
 use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
 
-use crate::scan_checks::{apply_checks, place_vanished, split_stderr};
+use crate::scan_checks::{apply_checks_to, place_vanished, split_stderr};
 use crate::scan_recheck::{empty_dirs, EmptyDir};
 use crate::scan_tokens::Tokens;
 
@@ -152,7 +152,7 @@ pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Resu
             .next()
             .ok_or("The directory checks in the scan output are missing")?;
         let start = printed_start(question);
-        apply_checks(tree, &group, &start)?;
+        apply_checks_to(tree, &group, &start, question.depth)?;
         empty.extend(
             empty_dirs(tree, &group, &start)
                 .into_iter()

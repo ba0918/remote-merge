@@ -71,17 +71,16 @@ fn paths_in(json: &serde_json::Value, key: &str) -> Vec<String> {
 }
 
 /// 試験サーバが受けたコマンドのうち、`full_path` に触れたのに、パスの確認でも大きさの問い合わせでも
-/// 子の一覧でもないもの。どれも製品が test-utils で公開する並びか組み立てで見分けるので、中身を
+/// 子の一覧（走査のスクリプト）でもないもの。どれも製品が test-utils で公開する並びか組み立てで見分けるので、中身を
 /// 読むコマンドの書き方が変わっても、中身を読んだことはここに残る
 fn ssh_commands_beyond_inspection(commands: &[String], full_path: &Path) -> Vec<String> {
     let path = full_path.to_str().unwrap();
-    let listing = remote_merge::ssh::client::list_dir_command_for_tests(path);
     commands
         .iter()
         .filter(|command| command.contains(path))
         .filter(|command| !super::ssh_server::is_path_inspection(command))
         .filter(|command| !super::ssh_server::is_file_size_query(command))
-        .filter(|command| **command != listing)
+        .filter(|command| !command.contains(remote_merge_ssh::scan_script::MARKER))
         .cloned()
         .collect()
 }

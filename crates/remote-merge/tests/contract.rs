@@ -124,6 +124,9 @@ mod entry_path_routes;
 mod filters;
 #[path = "contract/init.rs"]
 mod init;
+#[cfg(feature = "test-utils")]
+#[path = "contract/listing_support.rs"]
+mod listing_support;
 #[path = "contract/logs_level.rs"]
 mod logs_level;
 #[cfg(feature = "test-utils")]
@@ -303,6 +306,9 @@ mod ssh_agent_version;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_connection_loss.rs"]
 mod ssh_connection_loss;
+#[cfg(feature = "test-utils")]
+#[path = "contract/ssh_find_required.rs"]
+mod ssh_find_required;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_interrupted_changes.rs"]
 mod ssh_interrupted_changes;

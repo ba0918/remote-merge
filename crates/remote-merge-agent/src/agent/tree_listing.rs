@@ -17,12 +17,13 @@ const ENTRIES_PER_CHUNK: usize = 1000;
 
 /// 起点のパスを入力の形の検査に通してから走査する。通らなければ何も読まずに拒んだ理由を返す
 pub fn list_tree(root_dir: &Path, request: &ScanRequest, exclude: &[String]) -> Vec<AgentResponse> {
-    let starts = match &request.scope {
-        ScanScope::Whole => &[][..],
-        ScanScope::Starts(starts) => starts.as_slice(),
+    let paths: Vec<&str> = match &request.scope {
+        ScanScope::Whole => Vec::new(),
+        ScanScope::Starts(starts) => starts.iter().map(|start| start.path.as_str()).collect(),
+        ScanScope::Children(path) => vec![path.as_str()],
     };
-    for start in starts {
-        if let Err(refusal) = RelPath::parse(&start.path) {
+    for path in paths {
+        if let Err(refusal) = RelPath::parse(path) {
             return vec![AgentResponse::PathRefused { refusal }];
         }
     }

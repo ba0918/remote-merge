@@ -12,14 +12,17 @@ impl Walk<'_> {
     pub fn take_link(&mut self, link: PendingLink, answer: &Answer) -> Result<(), ScanError> {
         match answer.link {
             Some(LinkTarget::Directory) => {
-                let Some(tree) = &answer.subtree else {
-                    return Err(changed(&link.path));
-                };
                 if let Some(index) = link.listed {
                     if let ListedKind::Symlink { is_dir, .. } = &mut self.entries[index].kind {
                         *is_dir = true;
                     }
                 }
+                if !self.follow_links {
+                    return Ok(());
+                }
+                let Some(tree) = &answer.subtree else {
+                    return Err(changed(&link.path));
+                };
                 self.take_subtree(&link.path, tree, &link.ancestors, link.counter)
             }
             Some(LinkTarget::NotDirectory | LinkTarget::Missing) => Ok(()),

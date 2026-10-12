@@ -10,7 +10,7 @@ use super::machine_fs::{
 };
 use super::parts::join;
 use super::raw::{
-    Answer, CollectError, Collector, LinkTarget, Question, RawKind, ReadCause, Subtree,
+    Answer, CollectError, Collector, Depth, LinkTarget, Question, RawKind, ReadCause, Subtree,
     UnreadableDir,
 };
 
@@ -25,7 +25,7 @@ impl MachineCollector {
 
     fn answer(&self, question: &Question, exclude: &Exclude) -> Answer {
         if question.path.is_empty() {
-            return self.answer_root(question.descend, exclude);
+            return self.answer_root(question.depth, exclude);
         }
         let full = self.root.join(path_of(&question.path));
         let entry = entry_at(&full, Vec::new());
@@ -37,8 +37,8 @@ impl MachineCollector {
             (Ok(entry), None) => entry.kind == RawKind::Directory,
             (_, link) => *link == Some(LinkTarget::Directory),
         };
-        let subtree =
-            (question.descend && is_dir).then(|| collect_below(&full, &question.path, exclude));
+        let subtree = (is_dir && question.depth != Depth::Itself)
+            .then(|| collect_below(&full, &question.path, question.depth, exclude));
         Answer {
             entry,
             link,
@@ -47,12 +47,13 @@ impl MachineCollector {
     }
 
     /// root_dir はリンクを辿って読む（REQ-scan-007）
-    fn answer_root(&self, descend: bool, exclude: &Exclude) -> Answer {
+    fn answer_root(&self, depth: Depth, exclude: &Exclude) -> Answer {
         let entry = std::fs::metadata(&self.root)
             .map(|meta| raw_entry(Vec::new(), &meta, None))
             .map_err(|e| unreached(&e));
         let is_dir = matches!(&entry, Ok(entry) if entry.kind == RawKind::Directory);
-        let subtree = (descend && is_dir).then(|| collect_below(&self.root, b"", exclude));
+        let subtree = (is_dir && depth != Depth::Itself)
+            .then(|| collect_below(&self.root, b"", depth, exclude));
         Answer {
             entry,
             link: None,
@@ -77,8 +78,9 @@ impl Collector for MachineCollector {
 }
 
 /// リンクを辿ったディレクトリ `dir` の下を、中の symlink を辿らずに集める。`logical` は
-/// root_dir からの `dir` のパスで、exclude を当てるのに使う
-fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
+/// root_dir からの `dir` のパスで、exclude を当てるのに使う。`depth` が `Children` なら子の
+/// ディレクトリは読まない
+fn collect_below(dir: &Path, logical: &[u8], depth: Depth, exclude: &Exclude) -> Subtree {
     let mut tree = Subtree {
         start: match std::fs::metadata(dir) {
             Ok(meta) => raw_entry(Vec::new(), &meta, None),
@@ -128,7 +130,7 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
                             .push(UnreadableDir::new(child_rel, ReadCause::Other));
                         continue;
                     };
-                    if entry.kind == RawKind::Directory {
+                    if entry.kind == RawKind::Directory && depth == Depth::All {
                         stack.push(child_rel);
                     }
                     tree.entries.push(entry);

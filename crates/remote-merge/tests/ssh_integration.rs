@@ -348,66 +348,6 @@ async fn test_ssh_connect_and_exec() {
 }
 
 #[tokio::test]
-async fn test_ssh_list_dir() {
-    let handle = start_test_server().await;
-
-    // find -printf のモックレスポンス（一つの項目は NUL で終える七つの列）
-    let find_output = [
-        "f\x001024\x001705312800.0\x00644\x00/var/www/app/index.html\x00\x00f\x00",
-        "d\x004096\x001705312800.0\x00755\x00/var/www/app/src\x00\x00d\x00",
-        "l\x0010\x001705312800.0\x00777\x00/var/www/app/config\x00../shared/config.json\x00N\x00",
-        "f\x002048\x001705312800.0\x00644\x00/var/www/app/README.md\x00\x00f\x00",
-        "d\x004096\x001705312800.0\x00755\x00/var/www/app/node_modules\x00\x00d\x00",
-    ]
-    .concat();
-    handle
-        .registry
-        .register("find '/var/www/app'", &find_output, 0);
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
-
-    let exclude = vec!["node_modules".to_string()];
-    let nodes = client
-        .list_dir("/var/www/app", &exclude, "")
-        .await
-        .expect("list_dir に失敗");
-
-    // node_modules は除外される
-    assert_eq!(nodes.len(), 4);
-
-    let names: Vec<&str> = nodes.iter().map(|n| n.name.as_str()).collect();
-    assert!(names.contains(&"index.html"));
-    assert!(names.contains(&"src"));
-    assert!(names.contains(&"config"));
-    assert!(names.contains(&"README.md"));
-    assert!(!names.contains(&"node_modules"));
-
-    // ファイルタイプの確認
-    let src = nodes.iter().find(|n| n.name == "src").unwrap();
-    assert!(src.is_dir());
-    assert!(!src.is_loaded()); // 遅延読み込み
-
-    let config = nodes.iter().find(|n| n.name == "config").unwrap();
-    assert!(config.is_symlink());
-
-    let index = nodes.iter().find(|n| n.name == "index.html").unwrap();
-    assert!(index.is_file());
-    assert_eq!(index.size, Some(1024));
-
-    client.disconnect().await.expect("切断に失敗");
-}
-
-#[tokio::test]
 async fn test_ssh_password_auth() {
     let handle = start_test_server_with_password(Some("secret123".to_string())).await;
     handle.registry.register("whoami", "testuser\n", 0);
@@ -485,34 +425,6 @@ async fn test_ssh_nonzero_exit_code() {
     // 非ゼロ終了でもstdoutは取得できる
     let output = client.exec("ls /nonexistent").await.expect("exec に失敗");
     assert!(output.contains("No such file or directory"));
-
-    client.disconnect().await.expect("切断に失敗");
-}
-
-#[tokio::test]
-async fn test_ssh_empty_directory() {
-    let handle = start_test_server().await;
-    // 空のfind出力
-    handle.registry.register("find '/var/www/empty'", "", 0);
-
-    let key_file = generate_test_key();
-    let server_config = make_server_config(
-        handle.port,
-        AuthMethod::Key,
-        Some(key_file.path().to_path_buf()),
-    );
-    let ssh_config = make_ssh_config();
-
-    let mut client = SshClient::connect_insecure("test", &server_config, &ssh_config)
-        .await
-        .expect("SSH接続に失敗");
-
-    let nodes = client
-        .list_dir("/var/www/empty", &[], "")
-        .await
-        .expect("list_dir に失敗");
-
-    assert!(nodes.is_empty());
 
     client.disconnect().await.expect("切断に失敗");
 }
@@ -853,7 +765,7 @@ async fn only_a_failed_root_check_means_the_scan_root_is_missing() {
     let (mut client, _key) = connect_client(&handle).await;
     let root = [ScriptQuestion {
         path: b"",
-        descend: true,
+        depth: remote_merge_core::scan::raw::Depth::All,
     }];
     let script = |path: &str| build(path.as_bytes(), &root, &Prunable::default());
 

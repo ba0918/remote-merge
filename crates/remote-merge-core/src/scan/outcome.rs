@@ -9,6 +9,10 @@ pub enum ScanScope {
     Whole,
     /// 指定した起点だけ（一つもなければ root_dir を確かめるだけ）
     Starts(Vec<Start>),
+    /// root_dir からのこのパスの直下の子（子の一覧。docs/ir/paths/operations.md の REQ-paths-017）。
+    /// ディレクトリならそれ自身を器のディレクトリとして載せ、子のリンクは辿らずにリンク先が
+    /// ディレクトリかだけを決める
+    Children(String),
 }
 
 /// 走査の起点一つ。`path` は root_dir からの、"." の要素と空の要素と末尾の "/" を除いたもの

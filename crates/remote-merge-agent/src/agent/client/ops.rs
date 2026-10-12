@@ -10,8 +10,7 @@ use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
 
 use super::{mismatch, unexpected, AgentClient, AgentRefused, WRITE_CHUNK_SIZE};
 use crate::agent::protocol::{
-    AgentDirListing, AgentEntryLink, AgentPathInspection, AgentRequest, AgentResponse,
-    RelPathError, WireFailure,
+    AgentEntryLink, AgentPathInspection, AgentRequest, AgentResponse, RelPathError, WireFailure,
 };
 
 /// エージェントが入力の形の検査で拒んだパスがあれば、その理由の誤り
@@ -120,37 +119,6 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             AgentResponse::PathRefused { refusal } => Err(refusal.into()),
             AgentResponse::Error { message } => Err(AgentRefused(message).into()),
             other => Err(unexpected("ReadEntryLink", &other)),
-        }
-    }
-
-    /// 直下の子の一覧。分けて返った子をつなぐ
-    pub fn list_dir(
-        &mut self,
-        path: &RelPath,
-        exclude: &[String],
-        max_entries: usize,
-    ) -> Result<AgentDirListing> {
-        self.send(&AgentRequest::ListDir {
-            path: path.as_typed().to_string(),
-            exclude: exclude.to_vec(),
-            max_entries,
-        })?;
-        let mut children = Vec::new();
-        loop {
-            match self.receive()? {
-                AgentResponse::DirListing { result, is_last } => match result {
-                    AgentDirListing::Children { entries } => {
-                        children.extend(entries);
-                        if is_last {
-                            return Ok(AgentDirListing::Children { entries: children });
-                        }
-                    }
-                    other => return Ok(other),
-                },
-                AgentResponse::PathRefused { refusal } => return Err(refusal.into()),
-                AgentResponse::Error { message } => return Err(AgentRefused(message).into()),
-                other => return Err(unexpected("ListDir", &other)),
-            }
         }
     }
 }

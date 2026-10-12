@@ -1,4 +1,5 @@
 use super::*;
+use crate::tree::FileNode;
 
 fn tree() -> FileTree {
     let mut tree = FileTree::new("/r");

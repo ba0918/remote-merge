@@ -7,47 +7,16 @@
 
 use std::collections::HashMap;
 
-use remote_merge_core::scan::raw::{join_relative, Answer, ReadCause, Subtree, UnreadableDir};
+use remote_merge_core::scan::raw::{
+    join_relative, Answer, Depth, ReadCause, Subtree, UnreadableDir,
+};
 
 use crate::scan_fields::printed_start;
 use crate::scan_script::ScriptQuestion;
 
 pub use crate::scan_diagnostics::DirCheck;
 
-/// find が出会ったディレクトリごとに、読めるか・検索できるかを確かめるスクリプト（変数 c）。結果は
-/// find の一覧と混ざらないよう標準エラーに、NUL で区切った目印付きの記録で出す。
-/// find の診断から推し量らない（診断を出さない find もある）。もうないかディレクトリでなくなって
-/// いたら "G" を出す。読めて検索できないディレクトリ（`every_name` なら読めるディレクトリすべて）は、
-/// その場で glob で子の名前を集める。glob が当たらずにパターンの文字列が返ったときは、その文字列を
-/// 名前に持つ子があるかを確かめて見分ける。検索できるディレクトリでは test で、検索できない
-/// ディレクトリでは一文字を [] で囲んだ glob で確かめる。シェルの関数は使わない（docs/remote-tools.md）
-pub(crate) fn check_script(every_name: bool) -> String {
-    let names_when = if every_name {
-        "[ $r = 1 ]"
-    } else {
-        "[ $r = 1 ] && [ $x = 0 ]"
-    };
-    format!(
-        concat!(
-            "c='exec >&2\n",
-            "for d do printf \"\\000@D\\000%s\\000\" \"$d\"\n",
-            " if [ ! -d \"$d\" ]; then printf \"G\\000\"; else\n",
-            " if [ -r \"$d\" ]; then r=1; else r=0; fi; if [ -x \"$d\" ]; then x=1; else x=0; fi\n",
-            " printf \"%s%s\\000\" $r $x\n",
-            " if {names_when}; then for p in \"$d\"/* \"$d\"/.[!.]* \"$d\"/..?*; do\n",
-            "  case \"$p\" in\n",
-            "   \"$d/*\") g=\"[*]\";; \"$d/.[!.]*\") g=\".[[]!.][*]\";; \"$d/..?*\") g=\"..[?][*]\";; *) g=;;\n",
-            "  esac\n",
-            "  if [ -z \"$g\" ]; then :\n",
-            "  elif [ $x = 1 ]; then [ -e \"$p\" ] || [ -h \"$p\" ] || continue\n",
-            "  else k=0; for q in \"$d\"/$g; do [ \"$q\" != \"$d/$g\" ] && k=1; done; [ $k = 1 ] || continue; fi\n",
-            "  printf \"N%s\\000\" \"${{p##*/}}\"\n",
-            " done; fi; fi; printf \"@E\\000\"\n",
-            "done'\n",
-        ),
-        names_when = names_when
-    )
-}
+pub(crate) use crate::scan_check_script::check_script;
 
 /// 標準エラーを分けたもの
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -109,6 +78,17 @@ fn read_check<'a>(tokens: &mut impl Iterator<Item = &'a [u8]>) -> Option<DirChec
 /// 問いの起点 `start`（find に渡した形）の部分木に、確かめた結果を入れる。一覧に出したディレクトリ
 /// （起点を含む）と確かめた結果は一つずつ対応しなければならない
 pub fn apply_checks(tree: &mut Subtree, checks: &[DirCheck], start: &[u8]) -> Result<(), String> {
+    apply_checks_to(tree, checks, start, Depth::All)
+}
+
+/// [`apply_checks`] の、下を集めた深さ `depth` に合わせたもの。子だけを集めた問いでは、子の
+/// ディレクトリを読まないので、確かめた結果は起点の一つだけである
+pub fn apply_checks_to(
+    tree: &mut Subtree,
+    checks: &[DirCheck],
+    start: &[u8],
+    depth: Depth,
+) -> Result<(), String> {
     let mismatch = |what: &str, path: &[u8]| {
         format!(
             "The directory checks do not match the listing ({what}): {}",
@@ -123,11 +103,14 @@ pub fn apply_checks(tree: &mut Subtree, checks: &[DirCheck], start: &[u8]) -> Re
             return Err(mismatch("twice", &check.printed));
         }
     }
+    let below = depth == Depth::All;
     let listed: Vec<Vec<u8>> = std::iter::once(Vec::new())
         .chain(
             tree.entries
                 .iter()
-                .filter(|entry| entry.kind == remote_merge_core::scan::raw::RawKind::Directory)
+                .filter(|entry| {
+                    below && entry.kind == remote_merge_core::scan::raw::RawKind::Directory
+                })
                 .map(|entry| entry.path.clone()),
         )
         .collect();

@@ -5,7 +5,9 @@
 //! 指定したパス全体を一覧を取れなかったものにする（docs/ir/cli/directory-paths.md の REQ-cli-096、
 //! docs/decision/records/2026-10-12-foundation-2.md の C12）。
 
-use remote_merge_core::listing::ChildListing;
+use remote_merge_core::scan::children::{
+    children_in, listing_failure, ChildListing, ListingFailure,
+};
 use remote_merge_core::scan::outcome::ScanFailure;
 use remote_merge_engine::local_io::ScanTruncated;
 use remote_merge_engine::scan_result::CycleStopped;
@@ -15,7 +17,7 @@ use crate::runtime::CoreRuntime;
 use crate::service::types::DiffError;
 use crate::service::unreadable_names::requested_unreadable_names;
 use crate::side::Side;
-use crate::tree::{FileNode, FileTree};
+use crate::tree::FileTree;
 
 /// 指定したディレクトリごと・側ごとの走査の結果
 pub(crate) struct Expansions {
@@ -138,41 +140,15 @@ fn scan_below(
     let Some(failure) = error.downcast_ref::<ScanFailure>() else {
         return Err(error);
     };
-    // 種類を足したらここで決め直すよう、受け皿を置かずにすべて挙げる
-    // （docs/decision/records/2026-10-12-foundation-2.md の C12・C13・C15）
-    match failure {
+    // 子の一覧と同じ規則で、続けられる誤りと止める誤りに分ける（C12・C13・C15）
+    match listing_failure(failure) {
         // 途中がディレクトリでないパスは、ディレクトリでないもの
-        ScanFailure::StartBlocked { .. } => Ok((Ok(FileTree::default()), None)),
+        ListingFailure::NotDirectory => Ok((Ok(FileTree::default()), None)),
         // その名前の部分木についての事実：指定したパス全体を一覧を取れなかったものにする
-        ScanFailure::UnreadableDirectory { .. }
-        | ScanFailure::StartUnreadable { .. }
-        | ScanFailure::UnresolvableLink { .. }
-        | ScanFailure::ChangedDuringScan { .. } => Ok((Err(error.to_string()), None)),
+        ListingFailure::Unlistable => Ok((Err(error.to_string()), None)),
         // root_dir を読めない・項目の情報を読めない（REQ-scan-015）・集め方や経路の失敗は、
         // diff 全体を止める
-        ScanFailure::RootMissing
-        | ScanFailure::RootUnreadable
-        | ScanFailure::RootChanged
-        | ScanFailure::UnreadableLinkTarget { .. }
-        | ScanFailure::UnreadableTime { .. }
-        | ScanFailure::InconsistentAnswer { .. }
-        | ScanFailure::CollectFailed { .. } => Err(error),
-    }
-}
-
-/// 木の `path` の直下の子。`path` がディレクトリかディレクトリへのリンクでなければ、ディレクトリ
-/// ではないもの
-fn children_in(tree: &FileTree, path: &str) -> ChildListing {
-    match tree.find_node(path) {
-        Some(node) if node.is_dir() || (node.is_symlink() && node.link_is_dir) => {
-            let children: Vec<FileNode> = node
-                .children
-                .as_ref()
-                .map(|children| children.values().cloned().collect())
-                .unwrap_or_default();
-            ChildListing::Children(children)
-        }
-        _ => ChildListing::NotDirectory,
+        ListingFailure::Stop => Err(error),
     }
 }
 

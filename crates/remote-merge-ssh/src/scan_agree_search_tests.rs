@@ -148,7 +148,7 @@ fn a_directory_check_that_fails_or_goes_missing_stops_the_scan() {
     let bin = failing_sh(temp.path());
     let questions = [ScriptQuestion {
         path: b"",
-        descend: true,
+        depth: remote_merge_core::scan::raw::Depth::All,
     }];
     let script = build(
         root.as_os_str().as_bytes(),

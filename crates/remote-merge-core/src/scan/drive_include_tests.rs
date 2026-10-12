@@ -1,6 +1,6 @@
 //! include の値と、指定したディレクトリを確かめるだけの起点の規則の単体テスト
 use super::super::outcome::{ListedKind, ScanFailure, ScanScope, Start};
-use super::super::raw::{LinkTarget, Unreached};
+use super::super::raw::{Depth, LinkTarget, Unreached};
 use super::super::test_support::*;
 
 // @kotowari[REQ-config-034, EX-config-011]
@@ -138,7 +138,10 @@ fn a_directory_only_checked_is_listed_without_reading_below_it() {
     );
     let listing = run(&mut fake, &exclude(&[]), &request).unwrap();
     assert_eq!(listed(&listing), ["docs/in/a"]);
-    assert!(fake.asked.iter().any(|q| q.path == b"docs" && !q.descend));
+    assert!(fake
+        .asked
+        .iter()
+        .any(|q| q.path == b"docs" && q.depth == Depth::Itself));
 }
 
 // @kotowari[REQ-config-044, REQ-cli-082]
@@ -152,7 +155,7 @@ fn an_excluded_named_directory_is_listed_only_as_a_directory_and_never_stops_the
     let listing = run(&mut fake, &exclude(&["target", "loop"]), &request).unwrap();
     let paths: Vec<&str> = listing.entries.iter().map(|e| e.path.as_str()).collect();
     assert_eq!(paths, ["target"]);
-    assert!(fake.asked.iter().all(|q| !q.descend));
+    assert!(fake.asked.iter().all(|q| q.depth == Depth::Itself));
 }
 
 // @kotowari[REQ-config-034, REQ-config-036]

@@ -3,6 +3,7 @@
 //! 規則は一か所にあり、経路は [`raw::Collector`] として生の項目を集めるだけにする
 //! （docs/decision/records/2026-10-12-foundation-2.md の C6）。
 
+pub mod children;
 pub mod drive;
 pub mod exclude;
 pub mod include;

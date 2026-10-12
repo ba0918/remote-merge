@@ -609,7 +609,7 @@ impl CoreRuntime {
         &mut self,
         side: &Side,
         dir_rel_path: &str,
-    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+    ) -> anyhow::Result<remote_merge_core::scan::children::ChildListing> {
         let dir_rel_path = checked(dir_rel_path)?;
         let mut io = super::target_io::for_side(side, self);
         io.list_children(self, &dir_rel_path)

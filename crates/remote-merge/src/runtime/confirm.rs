@@ -5,8 +5,8 @@
 //! 確かめは止めた後の比較先（`stopped_target`）を通さずに、選んだ経路で一度だけ行う。確かめの読み込みは
 //! やり直さず、つなぎ直しか読み込みが失敗したら「結果が分からない」にする。
 
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::scan::children::ChildListing;
 
 use super::change_check::{
     describe, describe_unconfirmed, judge, mode_in_listing, Change, Observed, Outcome,

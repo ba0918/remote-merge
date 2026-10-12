@@ -40,8 +40,8 @@ use crate::service::types::{
 use crate::service::unreadable_names::requested_unreadable_names;
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::relative_path::{as_typed_all, RelPath};
+use remote_merge_core::scan::children::ChildListing;
 use remote_merge_engine::local_io::ScanTruncated;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};

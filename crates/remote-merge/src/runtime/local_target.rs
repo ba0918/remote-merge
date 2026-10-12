@@ -14,7 +14,7 @@ use super::core::CoreRuntime;
 use super::local_ops::op_error;
 use super::target_io::{included_children, TargetIo};
 use crate::tree::{FileNode, FileTree};
-use remote_merge_core::listing::ChildListing;
+use remote_merge_core::scan::children::ChildListing;
 
 pub(crate) struct LocalTargetIo {
     root: PathBuf,

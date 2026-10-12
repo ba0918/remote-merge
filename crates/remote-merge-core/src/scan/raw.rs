@@ -71,12 +71,22 @@ pub enum Unreached {
     Unreadable,
 }
 
+/// 問いのパスが（リンクを辿って）ディレクトリのとき、その下をどこまで集めるか
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Depth {
+    /// パスそのものだけ
+    Itself,
+    /// 直下の子だけ（子の一覧。子のディレクトリは読まない）
+    Children,
+    /// 下のすべて
+    All,
+}
+
 /// 集め方への問い。`path` は root_dir からの、辿ったリンクの名前で書いたパス（空なら root_dir）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
     pub path: Vec<u8>,
-    /// パスが（リンクを辿って）ディレクトリなら、その下の項目も集めるか
-    pub descend: bool,
+    pub depth: Depth,
 }
 
 /// 起点の下の項目。`start` はリンクを辿った起点自身の項目で、循環の判定にその番号を使う
@@ -115,7 +125,7 @@ pub struct Answer {
     pub entry: Result<RawEntry, Unreached>,
     /// 問いのパスが symlink のとき、そのリンク先（root_dir では問わない）
     pub link: Option<LinkTarget>,
-    /// `descend` で、パスがリンクを辿ってディレクトリのときの下の項目
+    /// `depth` が `Itself` でなく、パスがリンクを辿ってディレクトリのときの下の項目
     pub subtree: Option<Subtree>,
 }
 

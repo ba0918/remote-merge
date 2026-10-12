@@ -4,23 +4,27 @@ use super::support::*;
 
 #[test]
 fn a_listing_larger_than_one_frame_is_returned_whole_and_the_agent_stays_usable() {
-    // 4000 バイトのリンク先の symlink 5000 個は、リンク先だけでフレームの上限（16 MiB）を超える
+    // 4000 バイトのリンク先の symlink 5000 個は、リンク先だけでフレームの上限（16 MiB）を超える。
+    // 子の一覧はリンク先がディレクトリかを辿って決めるので、名前の長さの上限に当たらない短い要素で
+    // つないだ、ないものを指すリンク先にする
     let tmp = TempDir::new().unwrap();
-    let target = "t".repeat(4000);
+    let target = "x/".repeat(2000);
     for index in 0..5000 {
         std::os::unix::fs::symlink(&target, tmp.path().join(format!("l{index}"))).unwrap();
     }
 
     let mut client = create_pair(&tmp);
-    let listing = client.list_dir(&rel(""), &[], 10_000).unwrap();
-
-    let AgentDirListing::Children { entries } = listing else {
-        panic!("{listing:?}");
+    let request = ScanRequest {
+        scope: remote_merge_core::scan::outcome::ScanScope::Children(String::new()),
+        max_entries: 10_000,
     };
-    assert_eq!(entries.len(), 5000);
-    assert!(entries
-        .iter()
-        .all(|entry| entry.symlink_target.as_deref() == Some(target.as_str())));
+    let listing = client.list_tree(&request, &[]).unwrap().unwrap();
+
+    assert_eq!(listing.entries.len(), 5000);
+    assert!(listing.entries.iter().all(|entry| matches!(
+        &entry.kind,
+        remote_merge_core::scan::outcome::ListedKind::Symlink { target: t, .. } if *t == target
+    )));
     client.ping().unwrap();
 }
 

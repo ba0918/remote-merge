@@ -6,6 +6,7 @@
 //! 辿って下を集める。項目は NUL で区切って出す。名前とリンク先に TAB・改行が入りうるため。
 
 use remote_merge_core::scan::exclude::Prunable;
+use remote_merge_core::scan::raw::Depth;
 
 /// find の -printf の書式。種類・デバイス番号・inode 番号・更新時刻・権限・大きさ・リンク文字列・パス
 pub const RECORD_FORMAT: &str = r"%y\0%D\0%i\0%T@\0%m\0%s\0%l\0%p\0";
@@ -16,7 +17,7 @@ pub const MARKER: &str = "@RMSCAN";
 /// 問い一つ。`path` は root_dir からのパス（空なら root_dir）
 pub struct ScriptQuestion<'a> {
     pub path: &'a [u8],
-    pub descend: bool,
+    pub depth: Depth,
 }
 
 /// バイト列を `printf` の書式の中に置ける形にする。英数字と "._/-" 以外は 3 桁の 8 進にする
@@ -85,6 +86,7 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
     let mut script = format!(
         "LC_ALL=C; export LC_ALL\nprintf '{MARKER}\\000'\nprintf '{MARKER}\\n' >&2\nF='{RECORD_FORMAT}'\n"
     );
+    script.push_str(crate::scan_find_probe::FIND_PROBE);
     script.push_str(&prune_setup);
     script.push_str(&crate::scan_checks::check_script(false));
     script.push_str(&root_setup(root));
@@ -99,10 +101,11 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
             "   else e=$(ls -dL -- \"$1\" 2>&1 >/dev/null); printf '@LX\\000%s\\000' \"$e\"; fi\n",
             "  fi\n",
             " else e=$(ls -d -- \"$1\" 2>&1 >/dev/null); printf '@E\\000%s\\000@Z\\000' \"$e\"; return; fi\n",
-            " if [ \"$2\" = 1 ] && [ -d \"$1\" ]; then printf '@T\\000'\n",
+            " if [ \"$2\" != 0 ] && [ -d \"$1\" ]; then printf '@T\\000'\n",
             "  find -H \"$1\" -prune -printf \"$F\"\n",
             "  printf '\\000@QS\\000' >&2; sh -c \"$c\" sh \"$1\"\n",
-            "  find -H \"$1\" -mindepth 1 {prune}\\( -type d -printf \"$F\" -exec sh -c \"$c\" sh {{}} + \\) -o -printf \"$F\"\n",
+            "  if [ \"$2\" = c ]; then find -H \"$1\" -mindepth 1 -maxdepth 1 {prune}-printf \"$F\"\n",
+            "  else find -H \"$1\" -mindepth 1 {prune}\\( -type d -printf \"$F\" -exec sh -c \"$c\" sh {{}} + \\) -o -printf \"$F\"; fi\n",
             "  printf '@R\\000%s\\000' \"$?\"\n",
             " fi\n",
             " printf '@Z\\000'\n",
@@ -139,7 +142,11 @@ fn question_lines(question: &ScriptQuestion) -> String {
     format!(
         "{}q \"$a\" {}\n",
         assign("a", &path),
-        u8::from(question.descend)
+        match question.depth {
+            Depth::Itself => '0',
+            Depth::All => '1',
+            Depth::Children => 'c',
+        }
     )
 }
 

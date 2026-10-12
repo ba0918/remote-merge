@@ -44,7 +44,7 @@ fn questions_are_split_so_that_each_command_line_fits_the_limit() {
         .iter()
         .map(|path| ScriptQuestion {
             path,
-            descend: true,
+            depth: remote_merge_core::scan::raw::Depth::All,
         })
         .collect();
     let limit = 4096;
@@ -69,7 +69,7 @@ fn a_root_dir_that_starts_with_a_dash_is_not_read_as_an_option() {
     std::fs::write(temp.path().join("-dash/a.txt"), "a").unwrap();
     let questions = [ScriptQuestion {
         path: b"",
-        descend: true,
+        depth: remote_merge_core::scan::raw::Depth::All,
     }];
     let script = build(b"-dash", &questions, &Prunable::default());
     let output = std::process::Command::new("sh")

@@ -114,7 +114,7 @@ fn full_protocol_roundtrip() {
 
 #[test]
 fn a_scan_over_the_protocol_becomes_a_file_tree() {
-    use crate::tree::NodeKind;
+    use remote_merge_core::tree::NodeKind;
 
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("root.txt"), "r").unwrap();

@@ -10,8 +10,8 @@ use super::core::CoreRuntime;
 use remote_merge_core::op_failure::{PathResult, SizeLimit};
 use remote_merge_core::relative_path::{EntryPath, RelPath};
 
-use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+use remote_merge_core::scan::children::ChildListing;
 use remote_merge_core::scan::outcome::ScanRequest;
 
 /// 一覧した子に include を当てる

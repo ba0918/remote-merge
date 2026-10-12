@@ -26,7 +26,8 @@ macro_rules! define_protocol_version {
         ///           TreeIncomplete をなくした
         /// v11 → v12: 操作の失敗を種類（WireFailure）で運ぶ。読み込みの要求は大きさの上限を運び、
         ///           Stats はパスごとに成功か失敗を返す。書き込み・symlink の作成・削除・権限の変更の
-        ///           結果を Changed にまとめた
+        ///           結果を Changed にまとめた。ListDir をなくし、子の一覧は ListTree の
+        ///           ScanScope::Children で求める
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -58,8 +59,7 @@ pub use messages::{AgentRequest, AgentResponse};
 
 mod data;
 pub use data::{
-    AgentDirListing, AgentEntryLink, AgentFileEntry, AgentFileStat, AgentPathInspection,
-    FileHashResult, FileKind, FileReadResult, StatResult,
+    AgentEntryLink, AgentFileStat, AgentPathInspection, FileHashResult, FileReadResult, StatResult,
 };
 
 // ---------------------------------------------------------------------------

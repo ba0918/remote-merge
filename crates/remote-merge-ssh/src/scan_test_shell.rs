@@ -39,6 +39,7 @@ pub fn over_shell(
         crate::scan_collect::CollectFailure::Run(error) => error.to_string(),
         crate::scan_collect::CollectFailure::Read(message) => message,
         crate::scan_collect::CollectFailure::RootGone => "root_dir went away".to_string(),
+        crate::scan_collect::CollectFailure::ToolMissing(tool) => tool.to_string(),
     })
 }
 
@@ -117,7 +118,11 @@ pub fn comparable(mut answers: Vec<Answer>) -> Vec<Answer> {
 pub fn question(path: &[u8], descend: bool) -> Question {
     Question {
         path: path.to_vec(),
-        descend,
+        depth: if descend {
+            remote_merge_core::scan::raw::Depth::All
+        } else {
+            remote_merge_core::scan::raw::Depth::Itself
+        },
     }
 }
 

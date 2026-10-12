@@ -8,7 +8,7 @@ fn a_directory_that_became_a_file_or_went_away_is_answered_as_changed() {
     let file = temp.path().join("was_dir");
     std::fs::write(&file, "now a file").unwrap();
     for path in [file, temp.path().join("gone")] {
-        let tree = collect_below(&path, b"x", &Exclude::default());
+        let tree = collect_below(&path, b"x", Depth::All, &Exclude::default());
         assert_eq!(tree.changed, [Vec::<u8>::new()], "{path:?}");
         assert!(tree.unreadable.is_empty(), "{path:?}");
         assert!(tree.entries.is_empty(), "{path:?}");

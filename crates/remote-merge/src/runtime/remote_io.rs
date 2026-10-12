@@ -229,29 +229,6 @@ impl CoreRuntime {
         Ok(())
     }
 
-    /// リモートディレクトリの子を SSH で一覧し、三つの結果を区別して返す。`exclude` を当て、子を
-    /// `max_entries` 件で打ち切る
-    pub(crate) fn list_remote_children_excluding(
-        &mut self,
-        server_name: &str,
-        rel_path: &RelPath,
-        exclude: &[String],
-        max_entries: usize,
-    ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
-        let rel = rel_path.as_str();
-        let full_path = self.resolve_remote_path(server_name, rel_path)?;
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        self.rt.block_on(client.list_children_with_limit(
-            full_path.trim_end_matches('/'),
-            exclude,
-            rel,
-            max_entries,
-        ))
-    }
-
     /// リモートの `rel_path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先を、
     /// SSH でその項目だけを読んで返す
     pub(crate) fn ssh_entry_link_target(
