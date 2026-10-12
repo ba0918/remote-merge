@@ -4,7 +4,6 @@ pub mod contents;
 pub mod contents_output;
 pub mod contents_script;
 pub mod entry_link;
-pub mod find_records;
 pub mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;
@@ -34,7 +33,7 @@ pub(crate) mod known_hosts_location;
 pub(crate) mod login_shell;
 pub(crate) mod preferred;
 
-pub(crate) use remote_merge_core::{error, filter, tree};
+pub(crate) use remote_merge_core::error;
 
 mod config {
     pub(crate) use remote_merge_config::expand_tilde;
