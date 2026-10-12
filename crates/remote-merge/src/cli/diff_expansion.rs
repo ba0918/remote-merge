@@ -8,7 +8,7 @@
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::scan::outcome::ScanFailure;
 use remote_merge_engine::local_io::ScanTruncated;
-use remote_merge_engine::scan_result::PartialScan;
+use remote_merge_engine::scan_result::CycleStopped;
 
 use crate::runtime::connection::classify;
 use crate::runtime::CoreRuntime;
@@ -123,14 +123,15 @@ fn scan_below(
     if classify(&error).is_disconnection() {
         return Ok((Err(format!("{error:#}")), None));
     }
-    let error = match error.downcast::<PartialScan>() {
-        Ok(partial) => {
-            let reason = partial.failure.to_string();
-            let path = match &partial.failure {
-                ScanFailure::Cycle { path } => path.clone(),
-                _ => path.to_string(),
+    // 循環は読めたところまでの木で比べ、循環に出会ったパスで誤りを出す（REQ-cli-021・C13）
+    let error = match error.downcast::<CycleStopped>() {
+        Ok(stopped) => {
+            let reason = stopped.to_string();
+            let notice = DiffError {
+                path: stopped.path,
+                reason,
             };
-            return Ok((Ok(partial.tree), Some(DiffError { path, reason })));
+            return Ok((Ok(stopped.tree), Some(notice)));
         }
         Err(error) => error,
     };
@@ -146,8 +147,7 @@ fn scan_below(
         ScanFailure::UnreadableDirectory { .. }
         | ScanFailure::StartUnreadable { .. }
         | ScanFailure::UnresolvableLink { .. }
-        | ScanFailure::ChangedDuringScan { .. }
-        | ScanFailure::Cycle { .. } => Ok((Err(error.to_string()), None)),
+        | ScanFailure::ChangedDuringScan { .. } => Ok((Err(error.to_string()), None)),
         // root_dir を読めない・項目の情報を読めない（REQ-scan-015）・集め方や経路の失敗は、
         // diff 全体を止める
         ScanFailure::RootMissing

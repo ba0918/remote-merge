@@ -131,8 +131,6 @@ pub enum ScanFailure {
     UnreadableLinkTarget { path: String },
     #[error("Cannot read the modification time of {path}")]
     UnreadableTime { path: String },
-    #[error("Directory scan incomplete: symbolic link cycle at {path}")]
-    Cycle { path: String },
     #[error("Entry changed during the scan: {path}")]
     ChangedDuringScan { path: String },
     /// 集め方の答えが問いと合わない

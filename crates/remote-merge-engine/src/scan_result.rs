@@ -24,8 +24,8 @@ pub fn into_tree(
         Err(ScanError::Collect(error)) => return Err(error),
     };
     if let Some(path) = listing.cycle.clone() {
-        return Err(PartialScan {
-            failure: ScanFailure::Cycle { path },
+        return Err(CycleStopped {
+            path,
             tree: to_tree(root, listing),
         }
         .into());
@@ -36,21 +36,27 @@ pub fn into_tree(
     Ok(to_tree(root, listing))
 }
 
-/// 循環で止めた走査（REQ-scan-002）。merge・sync・status はこれで止まり（REQ-scan-005）、diff は
-/// 読めたところまでのツリーで比べて不完全な比較として報告する（REQ-cli-021）
+/// 循環で止めた走査（REQ-scan-002）。走査を止める失敗（`ScanFailure`）とは別の型で、読めた
+/// ところまでのツリーを持つ。merge・sync・status はこれで止まり（REQ-scan-005）、diff は読めた
+/// ところまでのツリーで比べて不完全な比較として報告する（REQ-cli-021）
 #[derive(Debug)]
-pub struct PartialScan {
-    pub failure: ScanFailure,
+pub struct CycleStopped {
+    /// 循環に出会ったパス
+    pub path: String,
     pub tree: FileTree,
 }
 
-impl std::fmt::Display for PartialScan {
+impl std::fmt::Display for CycleStopped {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.failure.fmt(f)
+        write!(
+            f,
+            "Directory scan incomplete: symbolic link cycle at {}",
+            self.path
+        )
     }
 }
 
-impl std::error::Error for PartialScan {}
+impl std::error::Error for CycleStopped {}
 
 #[cfg(test)]
 mod tests {
@@ -119,7 +125,7 @@ mod tests {
             let error =
                 into_tree(Path::new("/r"), Ok(stopped.clone()), 9, fail, missing).unwrap_err();
             assert!(error.to_string().contains("cycle at a/up"), "{error}");
-            let partial = error.downcast_ref::<PartialScan>().unwrap();
+            let partial = error.downcast_ref::<CycleStopped>().unwrap();
             assert!(partial.tree.find_node("a.txt").is_some());
         }
     }
