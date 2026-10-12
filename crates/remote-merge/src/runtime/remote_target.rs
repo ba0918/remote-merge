@@ -1,24 +1,17 @@
-//! リモートの比較先の読み書き。エージェントがあればエージェントで、なければ SSH の経路で行う。
-//!
-//! SSH の読み取りは `接続断` なら再接続して一度だけやり直す（エージェントのやり直しは
-//! `reconnect::agent_call` が行う）。どの操作でも、接続の使えない失敗が返ったら、そのサーバへの
-//! 処理を止める（以降は `stopped_target` が行わずに失敗にする）。
-
-use std::collections::HashMap;
+//! リモートの比較先。そのサーバに選んだ経路だけで行い、読み取りの `接続断` は一度だけやり直す
 
 use chrono::{DateTime, Utc};
-
-use crate::tree::{FileNode, FileTree};
-
-use super::core::CoreRuntime;
-use super::side_io::hash_results_to_map;
-use super::size_limit::FileSize;
-use super::target_io::{included_children, TargetIo};
-use remote_merge_core::relative_path::{EntryPath, RelPath};
-use remote_merge_core::scan::outcome::ScanRequest;
-
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::outcome::ScanRequest;
+use std::collections::HashMap;
+
+use super::core::CoreRuntime;
+use super::remote_change::RemoteChange;
+use super::size_limit::FileSize;
+use super::target_io::TargetIo;
+use crate::tree::{FileNode, FileTree};
 
 pub(crate) struct RemoteTargetIo {
     name: String,
@@ -29,14 +22,26 @@ impl RemoteTargetIo {
         Self { name }
     }
 
-    /// `operation` を行い、接続の使えない失敗ならそのサーバへの処理を止める
-    fn guarded<T>(
+    fn change(
         &self,
         rt: &mut CoreRuntime,
-        operation: impl FnOnce(&mut CoreRuntime, &str) -> anyhow::Result<T>,
-    ) -> anyhow::Result<T> {
-        let result = operation(rt, &self.name);
-        rt.stop_on_disconnection(&self.name, result)
+        path: &EntryPath,
+        change: RemoteChange<'_>,
+    ) -> anyhow::Result<()> {
+        let name = &self.name;
+        rt.change_on_route(name, |rt| rt.remote_change(name, path, &change))
+    }
+
+    fn write(
+        &self,
+        rt: &mut CoreRuntime,
+        path: &EntryPath,
+        content: &[u8],
+        is_binary: bool,
+    ) -> anyhow::Result<()> {
+        tracing::debug!("Write remote file: {}:{}", self.name, path.as_typed());
+        let write = RemoteChange::Write { content, is_binary };
+        self.change(rt, path, write)
     }
 }
 
@@ -46,220 +51,150 @@ impl TargetIo for RemoteTargetIo {
         rt: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<ResolvedPath> {
-        self.guarded(rt, |rt, name| {
-            if let Some(value) = rt.try_agent_inspect_path(name, path) {
-                return value;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| rt.inspect_remote_path(name, path))
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_inspect(name, path))
     }
+
     fn read_file_bytes(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
     ) -> anyhow::Result<Vec<u8>> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_read_file_bytes(name, path) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| rt.read_remote_file_bytes(name, path))
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_read_one(name, path))
     }
+
     fn file_sizes(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
-        self.guarded(rt, |rt, name| rt.remote_file_sizes(name, paths))
+        rt.remote_sizes(&self.name, paths)
     }
+
     fn read_files_bytes_batch(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_read_files_bytes_batch(name, paths) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| rt.read_remote_files_batch_bytes(name, paths))
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_read(name, paths))
     }
+
     fn write_file(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
         content: &str,
     ) -> anyhow::Result<()> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_write_file(name, path, content.as_bytes(), false) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.write_remote_file(name, path, content)
-        })
+        self.write(rt, path, content.as_bytes(), false)
     }
+
     fn write_file_bytes(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_write_file(name, path, content, true) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.write_remote_file_bytes(name, path, content)
-        })
+        self.write(rt, path, content, true)
     }
+
     fn stat_files(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_stat_files(name, paths) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| rt.stat_remote_files(name, paths))
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_stat(name, paths))
     }
+
     fn chmod_file(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
         mode: u32,
     ) -> anyhow::Result<()> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_chmod(name, path, mode) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.chmod_remote_file(name, path, mode)
-        })
+        self.change(rt, path, RemoteChange::Chmod { mode })
     }
+
     fn remove_file(&mut self, rt: &mut CoreRuntime, path: &EntryPath) -> anyhow::Result<()> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_remove(name, path) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.remove_remote_file(name, path)
-        })
+        self.change(rt, path, RemoteChange::Remove)
     }
+
     fn create_symlink(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_symlink(name, path, target) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.create_remote_symlink(name, path, target)
-        })
+        self.change(rt, path, RemoteChange::Symlink { target })
     }
+
     fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
-        self.guarded(rt, |rt, name| {
-            rt.ssh_read(name, |rt| rt.fetch_remote_tree(name))
-        })
+        rt.remote_top_tree(&self.name)
     }
+
     fn scan_tree(
         &mut self,
         rt: &mut CoreRuntime,
         request: &ScanRequest,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        self.guarded(rt, |rt, name| {
-            if let Some(v) = rt.try_agent_scan(name, request, fail) {
-                return v;
-            }
-            rt.check_sudo_fallback(name)?;
-            rt.ssh_read(name, |rt| rt.scan_remote_tree(name, request, fail))
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_scan(name, request, fail))
     }
+
     fn fetch_children(
         &mut self,
         rt: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<Vec<FileNode>> {
-        if rt.has_agent(&self.name) {
-            // 今の呼び出し元は、ディレクトリでないことも一覧を取れなかったことも Err として受け取る
-            return match self.list_children(rt, path)? {
-                ChildListing::Children(nodes) => Ok(nodes),
-                ChildListing::NotDirectory => anyhow::bail!("not a directory: {}", path.as_typed()),
-                ChildListing::Unlistable(reason) => anyhow::bail!(reason),
-            };
-        }
-        self.guarded(rt, |rt, name| {
-            rt.check_sudo_fallback(name)?;
-            let nodes = rt.ssh_read(name, |rt| rt.fetch_remote_children(name, path))?;
-            Ok(crate::filter::filter_children_by_include(
-                nodes,
-                path.as_typed(),
-                &rt.config.filter.include,
-            ))
-        })
+        rt.remote_children(&self.name, path)
     }
+
     fn list_children(
         &mut self,
         rt: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<ChildListing> {
-        self.guarded(rt, |rt, name| {
-            let exclude = rt.config.filter.exclude.clone();
-            let listing = rt.list_remote_children_on_route(
-                name,
-                path,
-                &exclude,
-                crate::config::DEFAULT_MAX_DIR_ENTRIES,
-            )?;
-            Ok(included_children(
-                listing,
-                path.as_str(),
-                &rt.config.filter.include,
-            ))
-        })
+        rt.remote_children_included(&self.name, path)
     }
+
     fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
         path: &EntryPath,
     ) -> anyhow::Result<Option<String>> {
-        self.guarded(rt, |rt, name| rt.remote_entry_link_target(name, path))
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_entry_link(name, path))
     }
+
     fn connect(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<()> {
-        rt.connect(&self.name)
+        rt.connect_if_needed(&self.name)
     }
+
     fn disconnect(&mut self, rt: &mut CoreRuntime) {
         rt.disconnect(&self.name);
     }
+
     fn is_available(&self, rt: &CoreRuntime) -> bool {
         rt.has_client(&self.name)
     }
+
     fn hashes(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
-        self.guarded(rt, |rt, name| match rt.try_agent_hash_files(name, paths) {
-            Some(Ok(results)) => Ok(Some(hash_results_to_map(&results))),
-            // `接続断` は中身の比較に移らずに止める
-            Some(Err(error)) => Err(error),
-            None => Ok(None),
-        })
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_hashes(name, paths))
     }
+
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
-        self.guarded(rt, |rt, name| rt.remote_states_before_restore(name, paths))
+        rt.remote_states_before_restore(&self.name, paths)
     }
 }

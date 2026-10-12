@@ -340,33 +340,6 @@ impl CoreRuntime {
         Ok(())
     }
 
-    /// リモートディレクトリの子ノードを取得する
-    ///
-    /// side_io.rs の統一 API 経由でのみ使用する。外部からは `fetch_children(side, path)` を使うこと。
-    pub(crate) fn fetch_remote_children(
-        &mut self,
-        server_name: &str,
-        dir_rel_path: &RelPath,
-    ) -> anyhow::Result<Vec<crate::tree::FileNode>> {
-        let server_config = self.get_server_config(server_name)?;
-        let root_dir = server_config.root_dir.to_string_lossy().to_string();
-        let sub_dir = format!(
-            "{}/{}",
-            root_dir.trim_end_matches('/'),
-            dir_rel_path.as_str()
-        );
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-        let nodes = self.rt.block_on(client.list_dir_strict(
-            &sub_dir,
-            &self.config.filter.exclude,
-            dir_rel_path.as_typed(),
-        ))?;
-        Ok(nodes)
-    }
-
     /// リモートディレクトリの子を SSH で一覧し、三つの結果を区別して返す。`exclude` を当て、子を
     /// `max_entries` 件で打ち切る
     pub(crate) fn list_remote_children_excluding(

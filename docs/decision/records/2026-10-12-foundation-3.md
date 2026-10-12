@@ -72,6 +72,13 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
   - why: 失敗した操作の結果を、ないことや空として扱わない（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。外したパスは呼び出し側で「ハッシュで比べられない」と区別できず、中身の比べ方に黙って移る（D14）。
   - decided_by: Claude（REQ-paths-020 から導いた。自走の指示により決めた）
 
+- D24 経路の選び方を一つの関数にしたので、操作ごとに経路を選び直すことを確かめていたテストを直す。CoreRuntime の単体テストのうち、エージェントの起動の失敗を覚えて SSH に回すこと（`try_start_agent` とその記録 `AgentUnavailableReason`）、操作の失敗でエージェントを外すこと（`invalidate_agent`）、sudo のサーバでだけ SSH への切り替えを止めること（`check_sudo_fallback`）を確かめていたものは、その仕組みごと消し、同じ表の行は経路の選び方の関数の単体テストと契約テスト（TBL-ssh-001）で確かめる。side_io の単体テスト `a_path_the_agent_leaves_out_is_asked_again_over_ssh` は、エージェントが答えなかったパスを SSH で尋ね直すことを確かめていた。sudo の指定によらず SSH で尋ね直さず、尋ねられなかった理由でそのパスを読まないことを確かめるテストに直す。エージェントの読み込みの失敗を SSH に回すための部品（読めなかったら None を返す部品）の単体テストは、部品ごと消す。
+  - why: [REQ-ssh-010](../../ir/ssh/fallback.md#REQ-ssh-010) は選んだ経路ですべての操作を行い、操作の失敗で選び直さないと決めており、これらのテストはそれと違う動きを固めていた（D4・D14）。
+  - decided_by: Claude（REQ-ssh-010 と D4 から導いた。自走の指示により決めた）
+- D25 status のハッシュでの比較を、エージェントだけでなく SSH の経路でも行う。ハッシュを取る道具（sha256sum か shasum）がない SSH の経路のサーバだけ、今までどおり中身を読んで比べる。
+  - why: 今まではエージェントのないサーバでハッシュを使わず、同じ状態でも経路によって比べ方が違った。ハッシュは操作の一つで、どの経路でも同じ結果になる（[REQ-paths-013](../../ir/paths/operations.md#REQ-paths-013)）。道具がないときの扱いは [TBL-ssh-002](../../ir/ssh/compatibility.md#TBL-ssh-002) による。
+  - decided_by: Claude（REQ-paths-013 と TBL-ssh-002 から導いた。自走の指示により決めた）
+
 ## Rejected
 
 - D15 SSH の経路でも、操作の失敗を見分けられないときは今のとおり経路の例外として IR に残す。

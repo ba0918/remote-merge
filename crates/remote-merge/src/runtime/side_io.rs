@@ -7,7 +7,6 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 
-use crate::agent::protocol::FileReadResult;
 use crate::side::Side;
 use crate::tree::{FileNode, FileTree};
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -15,13 +14,9 @@ use remote_merge_core::path_resolution::ResolvedPath;
 use super::change_check::{Before, Change};
 use super::confirm::ConfirmedChange;
 use super::connection::{classify, label_read};
-use super::core::{BoxedAgentClient, CoreRuntime};
-use super::reconnect::{Access, AgentAnswer};
-use super::remote_size::{ask_agent_sizes, AgentSizes};
-use super::size_limit::{self, FileSize, SizeLimit};
-use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
-use remote_merge_core::scan::outcome::{ScanError, ScanRequest};
-use remote_merge_engine::scan_result::into_tree;
+use super::core::CoreRuntime;
+use super::size_limit::{self, SizeLimit};
+use remote_merge_core::relative_path::{EntryPath, RelPath};
 
 #[cfg(test)]
 use remote_merge_engine::local_io::check_truncation;
@@ -41,20 +36,6 @@ pub(crate) fn hash_results_to_map(
         })
         .collect()
 }
-
-/// Agent read_files のチャンクサイズ上限 (4 MB)。
-///
-/// 個別ファイルがこのサイズを超えると `more_to_follow` 付きの
-/// 複数 `FileReadResult::Ok` に分割される。
-/// `MAX_FRAME_SIZE` (16 MB) を超えないよう余裕を持たせた値。
-pub(crate) const AGENT_CHUNK_SIZE_LIMIT: usize = 4 * 1024 * 1024;
-
-/// Agent バッチ読み込みのパス数上限。
-///
-/// ストリーミング対応により、サーバー側がレスポンスをフレームサイズ内に
-/// 自律的に分割するため、SSH と同じ `AGENT_BATCH_MAX_PATHS` (2000) を使用できる。
-/// 1リクエストで多数のファイルを送信し、往復回数を削減する。
-pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 
 // ── CoreRuntime に Side ベース統一 I/O を実装 ──
 //
@@ -78,24 +59,6 @@ fn checked_entries(paths: &[String]) -> anyhow::Result<Vec<EntryPath>> {
 }
 
 impl CoreRuntime {
-    pub(crate) fn try_agent_inspect_path(
-        &mut self,
-        server_name: &str,
-        rel_path: &RelPath,
-    ) -> Option<anyhow::Result<ResolvedPath>> {
-        let result = self.with_agent(server_name, "inspect_path", Access::Read, |agent| {
-            agent.inspect_path(rel_path)
-        })?;
-        Some(result.and_then(super::path_route::resolved_from_agent))
-    }
-
-    pub(crate) fn server_uses_sudo(&self, server_name: &str) -> bool {
-        self.config
-            .servers
-            .get(server_name)
-            .is_some_and(|server| server.sudo)
-    }
-
     pub(crate) fn inspect_path(
         &mut self,
         side: &Side,
@@ -772,418 +735,6 @@ impl CoreRuntime {
 //
 // `&mut self` の借用の衝突を避けるため、agent_clients の操作は一時変数を介して行う。
 
-impl CoreRuntime {
-    /// Agent 経由でバイト列を読み込む
-    pub(crate) fn try_agent_read_file_bytes(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-    ) -> Option<anyhow::Result<Vec<u8>>> {
-        let rel = [rel_path.clone()];
-        let agent_result = self.with_agent(server_name, "read_file_bytes", Access::Read, |agent| {
-            agent.read_files(&rel, AGENT_CHUNK_SIZE_LIMIT)
-        });
-        flatten_agent_read_result(agent_result, extract_single_file_as_bytes)
-    }
-
-    /// Agent 経由で複数ファイルのバイト列をバッチ読み込む（チャンク分割対応）
-    ///
-    /// パスを `AGENT_READ_BATCH_SIZE` 件ごとにチャンク分割して Agent に送る。
-    /// エージェントが読めなかったパスがあれば Agent を無効化して None を返す
-    /// （呼び出し元が SSH フォールバックで全件リトライ）。`接続断` はやり直した後のエラーを返す
-    pub(crate) fn try_agent_read_files_bytes_batch(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-        if !self.has_agent(server_name) {
-            return None;
-        }
-        let mut merged: HashMap<String, Vec<u8>> = HashMap::with_capacity(rel_paths.len());
-
-        // パス数ベースのチャンク分割（フレームサイズ超過防止）
-        for chunk in rel_paths.chunks(AGENT_READ_BATCH_SIZE) {
-            let results = match self.with_agent(
-                server_name,
-                "read_files_bytes_batch",
-                Access::Read,
-                |agent| agent.read_files(chunk, AGENT_CHUNK_SIZE_LIMIT),
-            )? {
-                Ok(results) => results,
-                Err(error) => return Some(Err(error)),
-            };
-            match extract_batch_files_as_bytes(results, &entries_as_typed(chunk)) {
-                Some(Ok(batch)) => merged.extend(batch),
-                Some(Err(e)) => return Some(Err(e)),
-                None => {
-                    // FileReadResult::Error → SSH フォールバック
-                    self.invalidate_agent(server_name);
-                    return None;
-                }
-            }
-        }
-        Some(Ok(merged))
-    }
-
-    /// Agent 経由でファイルを書き込む
-    pub(crate) fn try_agent_write_file(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-        content: &[u8],
-        is_binary: bool,
-    ) -> Option<anyhow::Result<()>> {
-        self.with_agent(server_name, "write_file", Access::Modify, |agent| {
-            agent.write_file(rel_path, content, is_binary)
-        })
-    }
-
-    /// Agent 経由で stat を取得する
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn try_agent_stat_files(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let owned_rel_paths: Vec<String> = entries_as_typed(rel_paths);
-        let agent_result = self.with_agent(server_name, "stat_files", Access::Read, |agent| {
-            agent.stat_files(rel_paths)
-        });
-        // with_agent の結果に対して後処理を適用
-        match agent_result {
-            Some(Ok(stats)) => transform_stat_results(stats, &owned_rel_paths),
-            Some(Err(e)) => Some(Err(e)),
-            None => None,
-        }
-    }
-
-    /// リモートのファイルの大きさ。エージェントがあればエージェントに尋ね、なければ SSH の
-    /// コマンドで調べる。エージェントが答えなかったパスは SSH で尋ね直し、sudo を使うサーバでは
-    /// SSH に切り替えずに尋ねられなかったことにする
-    pub(crate) fn remote_file_sizes(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> anyhow::Result<HashMap<String, FileSize>> {
-        let Some(answer) = self.try_agent_file_sizes(server_name, rel_paths) else {
-            self.check_sudo_fallback(server_name)?;
-            return self.ssh_file_sizes(server_name, rel_paths);
-        };
-        let (known, omitted) = answer?;
-        let mut sizes: HashMap<String, FileSize> = known
-            .into_iter()
-            .map(|(path, size)| (path, FileSize::Known(size)))
-            .collect();
-        if omitted.is_empty() {
-            return Ok(sizes);
-        }
-        if self.server_uses_sudo(server_name) {
-            let reason = "file size not reported by the agent (SSH is not used with sudo = true)";
-            sizes.extend(omitted.into_iter().map(|path| {
-                (
-                    path.as_typed().to_string(),
-                    FileSize::Unavailable(reason.into()),
-                )
-            }));
-            return Ok(sizes);
-        }
-        self.check_sudo_fallback(server_name)?;
-        sizes.extend(self.ssh_file_sizes(server_name, &omitted)?);
-        Ok(sizes)
-    }
-
-    /// エージェントの `StatFiles` で大きさを尋ね、答えたパスの大きさと答えなかったパスを返す。
-    ///
-    /// エージェントがなければ None。`with_agent` は通さない: エージェントが返したエラーを SSH への
-    /// 切り替えにすると、その経路だけ上限が黙って外れうる。そこでエージェントが返したエラーは
-    /// 尋ねたパスすべての失敗にして、エージェントを使い続ける。`接続断` は起動し直して一度だけ
-    /// 尋ね直し、だめならそのエラーを返す（SSH には切り替えない）
-    #[allow(clippy::type_complexity)]
-    fn try_agent_file_sizes(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<EntryPath>)>> {
-        self.config.servers.get(server_name)?;
-        let answer = self.agent_call(server_name, Access::Read, |agent| {
-            ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
-                agent.stat_files(paths)
-            })
-        })?;
-        Some(match answer {
-            AgentAnswer::Done(answer) => {
-                answer.map(|AgentSizes { known, omitted }| (known, omitted))
-            }
-            AgentAnswer::Refused(error) => Err(error.context("agent could not report file sizes")),
-        })
-    }
-
-    /// Agent 経由でシンボリックリンクを作成する
-    pub(crate) fn try_agent_symlink(
-        &mut self,
-        server_name: &str,
-        rel_path: &EntryPath,
-        target: &str,
-    ) -> Option<anyhow::Result<()>> {
-        self.with_agent(server_name, "symlink", Access::Modify, |agent| {
-            agent.symlink(rel_path, target)
-        })
-    }
-
-    /// Agent 経由でファイルのハッシュを取得する。
-    ///
-    /// negotiated version < 3 の場合はエラーを返す（呼び出し元でフォールバック）。
-    /// 結果は `Vec<FileHashResult>` として返す。
-    pub fn try_agent_hash_files(
-        &mut self,
-        server_name: &str,
-        rel_paths: &[EntryPath],
-    ) -> Option<anyhow::Result<Vec<crate::agent::protocol::FileHashResult>>> {
-        self.with_agent(server_name, "hash_files", Access::Read, |agent| {
-            agent.hash_files(rel_paths)
-        })
-    }
-
-    /// Agent ハッシュ比較を使って status を精緻化する。
-    ///
-    /// left/right の Side に応じてハッシュを取得し、一致するか比較する。
-    /// 成功した場合は `(local_hashes, remote_hashes)` を返す。
-    /// Agent が利用不可、または hash_files がサポートされていない場合は `Ok(None)` を返す。
-    /// `接続断` は中身の比較に移らずに Err を返す。
-    ///
-    /// 呼び出し元は `refine_status_with_hashes()` に結果を渡してステータスを更新する。
-    #[allow(clippy::type_complexity)]
-    pub fn try_hash_compare(
-        &mut self,
-        left: &Side,
-        right: &Side,
-        paths: &[String],
-    ) -> anyhow::Result<Option<(HashMap<String, String>, HashMap<String, String>)>> {
-        if paths.is_empty() {
-            return Ok(Some((HashMap::new(), HashMap::new())));
-        }
-
-        // 現在の実装では left=Local, right=Remote の場合のみハッシュ比較を使用
-        if right.server_name().is_none() {
-            return Ok(None);
-        }
-        let paths = &checked_entries(paths)?;
-        let mut right_io = super::target_io::for_side(right, self);
-        let Some(remote_hashes) = right_io.hashes(self, paths)? else {
-            return Ok(None);
-        };
-        let mut left_io = super::target_io::for_side(left, self);
-        let Some(local_hashes) = left_io.hashes(self, paths)? else {
-            return Ok(None);
-        };
-
-        Ok(Some((local_hashes, remote_hashes)))
-    }
-
-    /// エージェントで、ローカルと同じ集め方と規則で走査する。走査を止めた誤り（root_dir がない・
-    /// 読めないディレクトリ・循環など）はエージェントの故障ではないので、SSH の経路に回さずに返す
-    pub(crate) fn try_agent_scan(
-        &mut self,
-        server_name: &str,
-        request: &ScanRequest,
-        fail_on_truncation: bool,
-    ) -> Option<anyhow::Result<FileTree>> {
-        let root_dir = self
-            .config
-            .servers
-            .get(server_name)
-            .map(|s| s.root_dir.clone())?;
-        let exclude = self.config.filter.exclude.clone();
-        self.with_agent(server_name, "list_tree", Access::Read, |agent| {
-            agent.list_tree(request, &exclude)
-        })
-        .map(|answer| {
-            answer.and_then(|scanned| {
-                into_tree(
-                    &root_dir,
-                    &remote_shown_root(server_name, &root_dir),
-                    scanned.map_err(ScanError::Failure),
-                    request.max_entries,
-                    fail_on_truncation,
-                    || remote_root_missing(server_name, &root_dir),
-                )
-            })
-        })
-    }
-
-    /// エージェントで操作する共通ヘルパー。
-    ///
-    /// - 成功、または `接続断`（読み取りはエージェントを起動し直して一度だけやり直した後）: Some
-    /// - エージェント未設定・サーバ未設定: None
-    /// - エージェントが失敗を返した: エージェントを外して None（呼び出し元が SSH の経路に回す。
-    ///   sudo を使うサーバでは呼び出し元の `check_sudo_fallback` が止める）
-    ///
-    /// `接続断` は SSH の経路に回さない（回の途中で経路を変えず、変更を繰り返さない）
-    fn with_agent<T, F>(
-        &mut self,
-        server_name: &str,
-        op_name: &str,
-        access: Access,
-        operation: F,
-    ) -> Option<anyhow::Result<T>>
-    where
-        F: FnMut(&mut BoxedAgentClient) -> anyhow::Result<T>,
-    {
-        self.config.servers.get(server_name)?;
-        match self.agent_call(server_name, access, operation)? {
-            AgentAnswer::Done(result) => Some(result),
-            AgentAnswer::Refused(error) => {
-                tracing::warn!(
-                    "Agent {} failed for {}, falling back to SSH: {}",
-                    op_name,
-                    server_name,
-                    error
-                );
-                self.invalidate_agent(server_name);
-                None
-            }
-        }
-    }
-
-    // ── Agent パス解決ヘルパー ──
-}
-
-// ── Agent read 結果変換ヘルパー（純粋関数） ──
-
-/// `with_agent` の結果（`Option<Result<Vec<FileReadResult>>>`）に対して
-/// 変換関数を適用し、最終結果を `Option<Result<T>>` として返す。
-///
-/// - `None` → そのまま `None`（Agent 未接続/エラー）
-/// - `Some(Err(e))` → `Some(Err(e))`（Agent 操作エラー）
-/// - `Some(Ok(results))` → `transform(results)` を適用
-fn flatten_agent_read_result<T, F>(
-    agent_result: Option<anyhow::Result<Vec<FileReadResult>>>,
-    transform: F,
-) -> Option<anyhow::Result<T>>
-where
-    F: FnOnce(Vec<FileReadResult>) -> Option<anyhow::Result<T>>,
-{
-    match agent_result {
-        Some(Ok(results)) => transform(results),
-        Some(Err(e)) => Some(Err(e)),
-        None => None,
-    }
-}
-
-/// `more_to_follow` チャンクを結合し、ファイル単位の `(path, content)` ペアに再組立する。
-///
-/// Agent が `chunk_size_limit > 0` でファイルを読み込むと、大きなファイルが
-/// 同じパスの複数 `FileReadResult::Ok` に分割される（`more_to_follow: true`）。
-/// この関数はそれらを結合し、ファイル単位のバイト列に戻す。
-///
-/// - `FileReadResult::Error` が含まれている場合は `None` を返す（SSH フォールバック用）
-fn reassemble_chunked_results(results: Vec<FileReadResult>) -> Option<Vec<(String, Vec<u8>)>> {
-    let mut assembled: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut current_path: Option<String> = None;
-    let mut current_buf: Vec<u8> = Vec::new();
-
-    for result in results {
-        match result {
-            FileReadResult::Ok {
-                path,
-                content,
-                more_to_follow,
-            } => {
-                // 新しいファイルの開始を検出
-                let is_new_file = current_path.as_ref() != Some(&path);
-                if is_new_file {
-                    // 前のファイルがあれば確定
-                    if let Some(prev_path) = current_path.take() {
-                        assembled.push((prev_path, std::mem::take(&mut current_buf)));
-                    }
-                    current_path = Some(path);
-                    current_buf = content;
-                } else {
-                    // 同一ファイルの続きチャンク
-                    current_buf.extend(content);
-                }
-
-                if !more_to_follow {
-                    // ファイル完了 → 確定
-                    if let Some(p) = current_path.take() {
-                        assembled.push((p, std::mem::take(&mut current_buf)));
-                    }
-                }
-            }
-            FileReadResult::Error { .. } => return None,
-        }
-    }
-
-    // 最後のファイルが more_to_follow のまま終わった場合（通常は起きないが安全策）
-    if let Some(p) = current_path.take() {
-        assembled.push((p, current_buf));
-    }
-
-    Some(assembled)
-}
-
-/// 単一ファイルの `FileReadResult` をバイト列として取得する。
-///
-/// `more_to_follow` チャンクを結合して返す。
-///
-/// - `FileReadResult::Ok` → `Some(Ok(Vec<u8>))`
-/// - `FileReadResult::Error` / 結果なし → `None`（SSH フォールバック）
-pub(crate) fn extract_single_file_as_bytes(
-    results: Vec<FileReadResult>,
-) -> Option<anyhow::Result<Vec<u8>>> {
-    let assembled = reassemble_chunked_results(results)?;
-    let (_, content) = assembled.into_iter().next()?;
-    Some(Ok(content))
-}
-
-/// 複数ファイルの `FileReadResult` をバイト列の `HashMap` に変換する。
-///
-/// `more_to_follow` チャンクを結合してからファイル単位の `HashMap` を返す。
-///
-/// - 全ファイル成功 → `Some(Ok(HashMap))`
-/// - `FileReadResult::Error` → `None`（SSH フォールバック）
-fn extract_batch_files_as_bytes(
-    results: Vec<FileReadResult>,
-    _rel_paths: &[String],
-) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
-    let assembled = reassemble_chunked_results(results)?;
-    let mut map = HashMap::with_capacity(assembled.len());
-    for (path, content) in assembled {
-        map.insert(path, content);
-    }
-    Some(Ok(map))
-}
-
-/// Agent stat 結果を `(path, Option<DateTime>)` のベクタに変換する。
-///
-/// - 結果数がパス数と一致 → `Some(Ok(Vec))`
-/// - 結果数不一致 → `None`（SSH フォールバック）
-#[allow(clippy::type_complexity)]
-fn transform_stat_results(
-    stats: Vec<crate::agent::protocol::AgentFileStat>,
-    rel_paths: &[String],
-) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-    if stats.len() != rel_paths.len() {
-        tracing::warn!(
-            "Agent stat_files returned {} results for {} paths, falling back to SSH",
-            stats.len(),
-            rel_paths.len()
-        );
-        return None;
-    }
-    let results: Vec<(String, Option<DateTime<Utc>>)> = rel_paths
-        .iter()
-        .enumerate()
-        .map(|(i, rel)| {
-            let mtime = stats
-                .get(i)
-                .and_then(|s| DateTime::from_timestamp(s.mtime_secs, s.mtime_nanos));
-            (rel.clone(), mtime)
-        })
-        .collect();
-    Some(Ok(results))
-}
-
 /// リモートの root_dir がないときの誤り（REQ-scan-015）
 pub(crate) fn remote_root_missing(server_name: &str, root_dir: &std::path::Path) -> anyhow::Error {
     crate::error::AppError::RemoteRootNotFound {
@@ -1205,6 +756,7 @@ mod tests {
     use crate::runtime::local_target::LocalTargetIo;
     use crate::runtime::size_limit::{FileTooLarge, SizeLimit, MAX_BINARY_FILE_SIZE};
     use crate::runtime::target_io::TargetIo;
+    use remote_merge_engine::scan_result::into_tree;
     use tempfile::TempDir;
 
     /// テスト用の CoreRuntime を tempdir をルートにして作成する
@@ -1748,6 +1300,14 @@ mod tests {
         vec![EntryPath::parse("a.bin").unwrap()]
     }
 
+    /// サーバ "develop" の経路で `asked()` の大きさを尋ねる
+    fn remote_sizes(
+        rt: &mut CoreRuntime,
+    ) -> anyhow::Result<HashMap<String, crate::runtime::size_limit::FileSize>> {
+        let mut io = crate::runtime::target_io::for_side(&Side::Remote("develop".into()), rt);
+        io.file_sizes(rt, &asked())
+    }
+
     #[cfg(unix)]
     fn requests(received: &std::sync::atomic::AtomicUsize) -> usize {
         received.load(std::sync::atomic::Ordering::SeqCst)
@@ -1813,7 +1373,7 @@ mod tests {
     fn an_error_returned_by_the_agent_fails_the_question_without_switching_to_ssh() {
         let (mut rt, received) = runtime_with_scripted_agent(agent_error("stat failed"));
 
-        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+        let error = remote_sizes(&mut rt).unwrap_err();
 
         assert!(format!("{error:#}").contains("stat failed"), "{error:#}");
         assert_eq!(requests(&received), 1);
@@ -1847,7 +1407,7 @@ mod tests {
     fn a_lost_agent_connection_is_not_asked_again_over_ssh_and_stays_a_connection_loss() {
         let (mut rt, received) = runtime_with_scripted_agent(None);
 
-        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+        let error = remote_sizes(&mut rt).unwrap_err();
 
         assert_eq!(
             crate::runtime::connection::classify(&error),
@@ -1861,38 +1421,26 @@ mod tests {
         assert_eq!(requests(&received), 1);
     }
 
+    // エージェントが答えなかったパスは、sudo の指定によらず SSH で尋ね直さず、尋ねられなかった理由で
+    // 読まない（REQ-ssh-010）
     #[cfg(unix)]
     #[test]
-    fn a_path_the_agent_leaves_out_is_asked_again_over_ssh() {
-        let (mut rt, _) =
-            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
-                entries: vec![],
-                refused: vec![],
-            }));
+    fn a_path_the_agent_leaves_out_is_refused_without_asking_over_ssh() {
+        for sudo in [false, true] {
+            let (mut rt, received) =
+                runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
+                    entries: vec![],
+                    refused: vec![],
+                }));
+            rt.config.servers.get_mut("develop").unwrap().sudo = sudo;
 
-        let error = rt.remote_file_sizes("develop", &asked()).unwrap_err();
+            let sizes = remote_sizes(&mut rt).unwrap();
 
-        assert!(rt.agent_clients.contains_key("develop"));
-        assert!(
-            format!("{error:#}").contains("SSH not connected"),
-            "{error:#}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_path_the_agent_leaves_out_is_not_read_on_a_server_using_sudo() {
-        let (mut rt, _) =
-            runtime_with_scripted_agent(Some(crate::agent::protocol::AgentResponse::Stats {
-                entries: vec![],
-                refused: vec![],
-            }));
-        rt.config.servers.get_mut("develop").unwrap().sudo = true;
-
-        let sizes = rt.remote_file_sizes("develop", &asked()).unwrap();
-
-        let refusal = size_limit::refusal("a.bin", sizes.get("a.bin")).unwrap();
-        assert!(!refusal.is::<FileTooLarge>(), "{refusal:#}");
+            let refusal = size_limit::refusal("a.bin", sizes.get("a.bin")).unwrap();
+            assert!(!refusal.is::<FileTooLarge>(), "{refusal:#}");
+            assert_eq!(requests(&received), 1);
+            assert!(rt.agent_clients.contains_key("develop"));
+        }
     }
 
     // ── restore_local_files テスト ──
@@ -2278,301 +1826,15 @@ mod tests {
 
     // ── extract_single_file_as_bytes テスト ──
 
-    #[test]
-    fn test_extract_single_file_as_bytes_ok() {
-        let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
-        let results = vec![FileReadResult::Ok {
-            path: "data.bin".to_string(),
-            content: data.clone(),
-            more_to_follow: false,
-        }];
-        let result = extract_single_file_as_bytes(results);
-        assert_eq!(result.unwrap().unwrap(), data);
-    }
-
-    #[test]
-    fn test_extract_single_file_as_bytes_error_returns_none() {
-        let results = vec![FileReadResult::Error {
-            path: "data.bin".to_string(),
-            message: "permission denied".to_string(),
-        }];
-        assert!(extract_single_file_as_bytes(results).is_none());
-    }
-
-    #[test]
-    fn test_extract_single_file_as_bytes_empty_returns_none() {
-        assert!(extract_single_file_as_bytes(vec![]).is_none());
-    }
-
     // ── extract_batch_files_as_bytes テスト ──
-
-    #[test]
-    fn test_extract_batch_files_as_bytes_all_ok() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "a.bin".to_string(),
-                content: vec![0x01],
-                more_to_follow: false,
-            },
-            FileReadResult::Ok {
-                path: "b.bin".to_string(),
-                content: vec![0x02],
-                more_to_follow: false,
-            },
-        ];
-        let paths = vec!["a.bin".to_string(), "b.bin".to_string()];
-        let map = extract_batch_files_as_bytes(results, &paths)
-            .unwrap()
-            .unwrap();
-        assert_eq!(map["a.bin"], vec![0x01]);
-        assert_eq!(map["b.bin"], vec![0x02]);
-    }
-
-    #[test]
-    fn test_extract_batch_files_as_bytes_error_returns_none() {
-        let results = vec![FileReadResult::Error {
-            path: "a.bin".to_string(),
-            message: "read failed".to_string(),
-        }];
-        let paths = vec!["a.bin".to_string()];
-        assert!(extract_batch_files_as_bytes(results, &paths).is_none());
-    }
 
     // ── reassemble_chunked_results テスト ──
 
-    #[test]
-    fn test_reassemble_single_file_no_chunks() {
-        let results = vec![FileReadResult::Ok {
-            path: "a.txt".to_string(),
-            content: b"hello".to_vec(),
-            more_to_follow: false,
-        }];
-        let assembled = reassemble_chunked_results(results).unwrap();
-        assert_eq!(assembled.len(), 1);
-        assert_eq!(assembled[0].0, "a.txt");
-        assert_eq!(assembled[0].1, b"hello");
-    }
-
-    #[test]
-    fn test_reassemble_single_file_multiple_chunks() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "big.bin".to_string(),
-                content: vec![0x01, 0x02],
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "big.bin".to_string(),
-                content: vec![0x03, 0x04],
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "big.bin".to_string(),
-                content: vec![0x05],
-                more_to_follow: false,
-            },
-        ];
-        let assembled = reassemble_chunked_results(results).unwrap();
-        assert_eq!(assembled.len(), 1);
-        assert_eq!(assembled[0].0, "big.bin");
-        assert_eq!(assembled[0].1, vec![0x01, 0x02, 0x03, 0x04, 0x05]);
-    }
-
-    #[test]
-    fn test_reassemble_multiple_files_with_chunks() {
-        let results = vec![
-            // file_a: 2 chunks
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"hel".to_vec(),
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"lo".to_vec(),
-                more_to_follow: false,
-            },
-            // file_b: 1 chunk
-            FileReadResult::Ok {
-                path: "b.txt".to_string(),
-                content: b"world".to_vec(),
-                more_to_follow: false,
-            },
-            // file_c: 3 chunks
-            FileReadResult::Ok {
-                path: "c.txt".to_string(),
-                content: b"ab".to_vec(),
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "c.txt".to_string(),
-                content: b"cd".to_vec(),
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "c.txt".to_string(),
-                content: b"ef".to_vec(),
-                more_to_follow: false,
-            },
-        ];
-        let assembled = reassemble_chunked_results(results).unwrap();
-        assert_eq!(assembled.len(), 3);
-        assert_eq!(assembled[0], ("a.txt".to_string(), b"hello".to_vec()));
-        assert_eq!(assembled[1], ("b.txt".to_string(), b"world".to_vec()));
-        assert_eq!(assembled[2], ("c.txt".to_string(), b"abcdef".to_vec()));
-    }
-
-    #[test]
-    fn test_reassemble_error_returns_none() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "a.txt".to_string(),
-                content: b"ok".to_vec(),
-                more_to_follow: false,
-            },
-            FileReadResult::Error {
-                path: "b.txt".to_string(),
-                message: "not found".to_string(),
-            },
-        ];
-        assert!(reassemble_chunked_results(results).is_none());
-    }
-
-    #[test]
-    fn test_reassemble_empty_results() {
-        let assembled = reassemble_chunked_results(vec![]).unwrap();
-        assert!(assembled.is_empty());
-    }
-
     // ── extract with chunks テスト ──
-
-    #[test]
-    fn test_extract_single_file_as_bytes_with_chunks() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "data.bin".to_string(),
-                content: vec![0x01, 0x02],
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "data.bin".to_string(),
-                content: vec![0x03, 0x04],
-                more_to_follow: false,
-            },
-        ];
-        let result = extract_single_file_as_bytes(results);
-        assert_eq!(result.unwrap().unwrap(), vec![0x01, 0x02, 0x03, 0x04]);
-    }
-
-    #[test]
-    fn test_extract_batch_files_as_bytes_with_chunks() {
-        let results = vec![
-            FileReadResult::Ok {
-                path: "a.bin".to_string(),
-                content: vec![0x01],
-                more_to_follow: true,
-            },
-            FileReadResult::Ok {
-                path: "a.bin".to_string(),
-                content: vec![0x02],
-                more_to_follow: false,
-            },
-            FileReadResult::Ok {
-                path: "b.bin".to_string(),
-                content: vec![0x03],
-                more_to_follow: false,
-            },
-        ];
-        let paths = vec!["a.bin".to_string(), "b.bin".to_string()];
-        let map = extract_batch_files_as_bytes(results, &paths)
-            .unwrap()
-            .unwrap();
-        assert_eq!(map["a.bin"], vec![0x01, 0x02]);
-        assert_eq!(map["b.bin"], vec![0x03]);
-    }
 
     // ── flatten_agent_read_result テスト ──
 
-    #[test]
-    fn test_flatten_agent_read_result_none_passthrough() {
-        let result: Option<anyhow::Result<Vec<u8>>> =
-            flatten_agent_read_result(None, extract_single_file_as_bytes);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_flatten_agent_read_result_some_err_passthrough() {
-        let err = Some(Err(anyhow::anyhow!("agent error")));
-        let result: Option<anyhow::Result<Vec<u8>>> =
-            flatten_agent_read_result(err, extract_single_file_as_bytes);
-        assert!(result.is_some());
-        assert!(result.unwrap().is_err());
-    }
-
-    #[test]
-    fn test_flatten_agent_read_result_some_ok_transforms() {
-        let ok = Some(Ok(vec![FileReadResult::Ok {
-            path: "x.txt".to_string(),
-            content: b"content".to_vec(),
-            more_to_follow: false,
-        }]));
-        let result: Option<anyhow::Result<Vec<u8>>> =
-            flatten_agent_read_result(ok, extract_single_file_as_bytes);
-        assert_eq!(result.unwrap().unwrap(), b"content");
-    }
-
     // ── transform_stat_results テスト ──
-
-    #[test]
-    fn test_transform_stat_results_matching_count() {
-        use crate::agent::protocol::AgentFileStat;
-        let stats = vec![
-            AgentFileStat {
-                path: "a.txt".to_string(),
-                mtime_secs: 1000000,
-                mtime_nanos: 0,
-                size: 100,
-                permissions: 0o644,
-            },
-            AgentFileStat {
-                path: "b.txt".to_string(),
-                mtime_secs: 2000000,
-                mtime_nanos: 0,
-                size: 200,
-                permissions: 0o755,
-            },
-        ];
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let result = transform_stat_results(stats, &paths);
-        let vec = result.unwrap().unwrap();
-        assert_eq!(vec.len(), 2);
-        assert_eq!(vec[0].0, "a.txt");
-        assert!(vec[0].1.is_some());
-        assert_eq!(vec[1].0, "b.txt");
-        assert!(vec[1].1.is_some());
-    }
-
-    #[test]
-    fn test_transform_stat_results_count_mismatch_returns_none() {
-        use crate::agent::protocol::AgentFileStat;
-        let stats = vec![AgentFileStat {
-            path: "a.txt".to_string(),
-            mtime_secs: 1000000,
-            mtime_nanos: 0,
-            size: 100,
-            permissions: 0o644,
-        }];
-        // 2パスに対して1結果 → None
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        assert!(transform_stat_results(stats, &paths).is_none());
-    }
-
-    #[test]
-    fn test_transform_stat_results_empty() {
-        let result = transform_stat_results(vec![], &[]);
-        let vec = result.unwrap().unwrap();
-        assert!(vec.is_empty());
-    }
 
     // ── fetch_children include フィルター ──
 

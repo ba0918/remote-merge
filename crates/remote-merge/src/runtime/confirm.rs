@@ -1,8 +1,8 @@
 //! 変更の最中の `接続断` の後、同じ経路で一度だけつなぎ直して書き込み先を確かめる
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-004）。
 //!
-//! 変更は繰り返さない。そのサーバへの処理を止める印は、失敗を返した経路（`remote_target`）が
-//! 立てているので、確かめは止めた後の比較先（`stopped_target`）を通さずに行う。確かめの読み込みは
+//! 変更は繰り返さない。そのサーバへの処理を止める印は、変更の操作（`route_retry`）が立てているので、
+//! 確かめは止めた後の比較先（`stopped_target`）を通さずに、選んだ経路で一度だけ行う。確かめの読み込みは
 //! やり直さず、つなぎ直しか読み込みが失敗したら「結果が分からない」にする。
 
 use remote_merge_core::listing::ChildListing;
@@ -97,11 +97,7 @@ impl CoreRuntime {
         path: &EntryPath,
         change: &Change<'_>,
     ) -> anyhow::Result<Observed> {
-        if self.has_agent(server) {
-            self.restart_agent(server)?;
-        } else {
-            self.try_reconnect(server)?;
-        }
+        self.reconnect_route(server)?;
         match change {
             Change::Chmod { .. } => self.observe_mode(server, path),
             Change::Write { .. } => self.observe_entry(server, path, true),
@@ -115,37 +111,15 @@ impl CoreRuntime {
         path: &EntryPath,
         with_content: bool,
     ) -> anyhow::Result<Observed> {
-        let resolved = if self.has_agent(server) {
-            self.agent_once(server, |agent| agent.inspect_path(path.as_rel()))
-                .and_then(super::path_route::resolved_from_agent)?
-        } else {
-            self.inspect_remote_path(server, path.as_rel())?
-        };
-        Ok(match resolved {
+        Ok(match self.remote_inspect(server, path.as_rel())? {
             ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. } => {
                 Observed::Absent
             }
             ResolvedPath::Symlink { link_target, .. } => Observed::Link(link_target),
             ResolvedPath::Exists { .. } if with_content => {
-                Observed::File(self.read_after_loss(server, path)?)
+                Observed::File(self.remote_read_one(server, path)?)
             }
             ResolvedPath::Exists { .. } => Observed::File(Vec::new()),
-        })
-    }
-
-    fn read_after_loss(&mut self, server: &str, path: &EntryPath) -> anyhow::Result<Vec<u8>> {
-        if !self.has_agent(server) {
-            return self.read_remote_file_bytes(server, path);
-        }
-        let paths = [path.clone()];
-        let results = self.agent_once(server, |agent| {
-            agent.read_files(&paths, super::side_io::AGENT_CHUNK_SIZE_LIMIT)
-        })?;
-        super::side_io::extract_single_file_as_bytes(results).unwrap_or_else(|| {
-            Err(anyhow::anyhow!(
-                "the agent could not read {}",
-                path.as_typed()
-            ))
         })
     }
 
@@ -155,27 +129,10 @@ impl CoreRuntime {
     /// 後だけ）
     fn observe_mode(&mut self, server: &str, path: &EntryPath) -> anyhow::Result<Observed> {
         let (parent, name) = path.parent_and_name();
-        let parent = &parent;
-        let listing = if self.has_agent(server) {
-            self.agent_once(server, |agent| agent.list_dir(parent, &[], usize::MAX))
-                .map(crate::agent::child_nodes::child_listing_from_agent)?
-        } else {
-            self.list_remote_children_excluding(server, parent, &[], usize::MAX)?
-        };
-        match listing {
+        match self.remote_list_children(server, &parent, &[], usize::MAX)? {
             ChildListing::Children(nodes) => Ok(mode_in_listing(&nodes, name)),
             ChildListing::NotDirectory => Ok(Observed::Absent),
             ChildListing::Unlistable(reason) => anyhow::bail!(reason),
         }
-    }
-
-    /// エージェントで一度だけ行う（やり直さない）
-    fn agent_once<T>(
-        &mut self,
-        server: &str,
-        mut operation: impl FnMut(&mut super::core::BoxedAgentClient) -> anyhow::Result<T>,
-    ) -> anyhow::Result<T> {
-        self.agent_call_once(server, &mut operation)
-            .unwrap_or_else(|| Err(anyhow::anyhow!("the agent for {server} is not available")))
     }
 }

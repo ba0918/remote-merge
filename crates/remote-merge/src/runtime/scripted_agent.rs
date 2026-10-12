@@ -40,5 +40,9 @@ pub(crate) fn connect(
     runtime
         .agent_clients
         .insert(server_name.to_string(), Arc::new(Mutex::new(agent)));
+    runtime.routes.insert(
+        server_name.to_string(),
+        super::route_state::RemoteRoute::Agent,
+    );
     received
 }

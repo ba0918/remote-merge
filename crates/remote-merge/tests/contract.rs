@@ -307,6 +307,9 @@ mod ssh_interrupted_changes;
 #[path = "contract/ssh_interrupted_rollback.rs"]
 mod ssh_interrupted_rollback;
 #[cfg(feature = "test-utils")]
+#[path = "contract/ssh_route_choice.rs"]
+mod ssh_route_choice;
+#[cfg(feature = "test-utils")]
 #[path = "contract/ssh_strict_exec.rs"]
 mod ssh_strict_exec;
 #[cfg(feature = "test-utils")]

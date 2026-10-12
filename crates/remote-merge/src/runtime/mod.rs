@@ -1,19 +1,27 @@
 //! Runtime: CLI の実行時基盤 (CoreRuntime) と比較先の構成 (RuntimeTargets)。
 
-mod agent_operations;
+mod agent_clients;
+#[cfg(unix)]
+mod agent_deploy;
+mod agent_route;
+mod agent_start;
+#[cfg(unix)]
+mod agent_target;
 mod backup_store;
 pub mod change_check;
 pub(crate) mod confirm;
 pub mod connection;
 pub mod core;
+mod core_backup;
 mod local_ops;
 mod local_target;
 #[cfg(feature = "test-utils")]
 pub mod path_route;
 #[cfg(not(feature = "test-utils"))]
 mod path_route;
-mod reconnect;
+mod remote_change;
 pub mod remote_io;
+mod remote_ops;
 #[cfg(feature = "test-utils")]
 pub mod remote_path;
 #[cfg(not(feature = "test-utils"))]
@@ -24,11 +32,15 @@ pub mod remote_size;
 mod remote_size;
 mod remote_target;
 mod restore_before;
+mod route_retry;
+pub(crate) mod route_state;
 pub(crate) mod scan_entry;
 #[cfg(all(test, unix))]
 pub(crate) mod scripted_agent;
+mod side_hashes;
 pub mod side_io;
 pub mod size_limit;
+mod ssh_scan;
 mod stopped_target;
 pub(crate) mod target_io;
 

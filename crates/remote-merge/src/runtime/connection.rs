@@ -6,6 +6,7 @@ use std::io;
 
 use crate::agent::client::AgentRefused;
 use crate::error::AppError;
+use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure};
 
 /// リモートの操作の失敗の種類
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,18 @@ pub fn classify(error: &anyhow::Error) -> Failure {
         }
         if cause.is::<AgentRefused>() {
             return Failure::Refused;
+        }
+        if let Some(error) = cause.downcast_ref::<OpError>() {
+            return match &error.failure {
+                OpFailure::Disconnected(Disconnection::NotSent(_)) => Failure::NotSent,
+                OpFailure::Disconnected(Disconnection::NoAnswer(_)) => Failure::Lost,
+                OpFailure::NotFound
+                | OpFailure::NotADirectory
+                | OpFailure::PermissionDenied
+                | OpFailure::TooLarge { .. }
+                | OpFailure::ToolMissing(_)
+                | OpFailure::Io(_) => Failure::Refused,
+            };
         }
         // 確かめた変更の失敗は、そのサーバへの処理を止めた `接続断` のまま
         if cause.is::<super::confirm::ConfirmedChange>() {
