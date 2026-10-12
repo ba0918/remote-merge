@@ -2,9 +2,9 @@
 
 ## Context
 
-[土台の作り直し](./2026-10-12-foundation.md) の段 1 である。土台の監査では、root_dir からのパスの検査が 8 か所以上にあり、意味が 3 通りに割れていた。入力の形を拒むもの（絶対パスと ".."）、".." を字面で畳んで root の外だけを拒むもの、実パスを求めて root の外を拒むもの（エージェントだけ）である。そのため、同じ "a/../b" をローカルの確認は拒み、読み込みは畳んで読む。エージェントだけが root_dir の外を指す途中の symlink 越しの読み書きと、".." や絶対パスをリンク先に持つ symlink の作成を拒む（[FLAG-merge-012](../../ir/merge/FLAGS.md#FLAG-merge-012)）。
+[土台の作り直し](./2026-10-12-foundation.md) の段 1 である。土台の監査では、root_dir からのパスの検査が 8 か所以上にあり、意味が 3 通りに割れていた。入力の形を拒むもの（絶対パスと ".."）、".." を字面で畳んで root の外だけを拒むもの、実パスを求めて root の外を拒むもの（エージェントだけ）である。そのため、同じ "a/../b" をローカルの確認は拒み、読み込みは畳んで読む。エージェントだけが root_dir の外を指す途中の symlink 越しの読み書きと、".." や絶対パスをリンク先に持つ symlink の作成を拒む（FLAG-merge-012）。
 
-Position: B1〜B5 は決まった。段 1 の計画は docs/plans/foundation-1.md。
+Position: B1〜B7 は決まった。段 1 の計画は docs/plans/foundation-1.md。
 
 ## Agreements
 
@@ -14,7 +14,7 @@ Position: B1〜B5 は決まった。段 1 の計画は docs/plans/foundation-1.m
 - B2 経路は、root_dir の外かどうかを字面でも実パスでも判定しない。パスを辿る必要があるところは、[REQ-paths-001](../../ir/paths/resolution.md#REQ-paths-001) のパスの確認を使う。
   - why: [REQ-merge-004](../../ir/merge/symlink.md#REQ-merge-004) は root_dir の外の共有ディレクトリへの途中の symlink 越しの書き込みを求め、入力に ".." がないことは B1 の型が保証する。字面で畳む判定と実パスの判定は、どちらも IR にない第三・第四の規則だった。
   - decided_by: 利用者（[foundation A3](./2026-10-12-foundation.md#A3) から導いた。自走の指示により書き下ろした）
-- B3 エージェントは、root_dir の外を指す途中の symlink 越しの読み書きと、".." や絶対パスをリンク先に持つ symlink の作成を拒まず、ローカルと SSH と同じ結果にする。[FLAG-merge-012](../../ir/merge/FLAGS.md#FLAG-merge-012) はこれで閉じる。
+- B3 エージェントは、root_dir の外を指す途中の symlink 越しの読み書きと、".." や絶対パスをリンク先に持つ symlink の作成を拒まず、ローカルと SSH と同じ結果にする。FLAG-merge-012 はこれで閉じる。
   - why: 利用者の基準（経路で挙動を変えない）と、旧仕様の symlink-merge 3.4・3.5 が同じ向きを指す。今はエージェントだけが拒み、sudo のサーバではその書き込みが失敗する。
   - decided_by: 利用者（2026-10-05 の品質の基準「経路によって挙動が変わるのは絶対に直す」から導いた。自走の指示により書き下ろした）
 - B4 パスを辿る手順そのもの（ローカルとエージェントが同じ関数を呼ぶもの）は段 1 では作り直さない。SSH の経路の辿り方は段 3 で、同じ純粋な手順にまとめて尋ねた事実を渡す形に替える。
@@ -23,3 +23,9 @@ Position: B1〜B5 は決まった。段 1 の計画は docs/plans/foundation-1.m
 - B5 エージェントの単体テストのうち、root_dir の外を指す途中の symlink 越しのパスを拒むこと（file_io の `symlink_escaping_root_rejected`）と、".." や絶対パスをリンク先に持つ symlink の作成を拒むこと（file_io の `symlink_target_traversal_rejected`・`symlink_absolute_target_rejected`、dispatch の `symlink_traversal_returns_error`）を確かめていたものは、拒まないことを確かめるテストに置き換える。今後も、IR と違う動きを固めたテストに当たったら、同じ扱いで IR に合わせて直し、この記録に B 番号で残す。
   - why: テストが [REQ-merge-004](../../ir/merge/symlink.md#REQ-merge-004)・[REQ-merge-023](../../ir/merge/symlink.md#REQ-merge-023) と違う動きを固めていたので IR に合わせた（[foundation A6](./2026-10-12-foundation.md#A6)）。
   - decided_by: 利用者（foundation A6 から導いた。自走の指示により書き下ろした）
+- B6 CoreRuntime の Side 単位の API（製品の runtime の side_io）が文字列のパスを受け取り、同じ検査の関数で RelPath にしているのは、入口の検査ではなく、呼び出し側が持つ内部の文字列（引数から作った値と走査の結果）を型にする変換として扱う。段 4・5 で呼び出し側を作り直し、パスを RelPath のまま渡すようにしたときに消す。バックアップの記録の読み込みは、コマンドの入口・エージェントの受け取り口と並ぶ受け取り口の一つとする（記録は集約先の外から書き換えられうるデータなので）。
+  - why: B1 は検査を二か所に置くとするが、段 1 では呼び出し側の cli と service は文字列のパスで動き続ける。それを今作り直すと段 4・5 の範囲を先取りするので、変換として残し、消す時期を決めておく。
+  - decided_by: 利用者（[foundation A7](./2026-10-12-foundation.md#A7) から導いた。自走の指示により書き下ろした）
+- B7 段 1 で上げた通信の版 10 が運ぶのは、受け取ったパスを入力の形の検査で拒んだことだけである。[foundation A9](./2026-10-12-foundation.md#A9) の失敗の種類（A2）は、段 3 で経路の操作に失敗の型を入れるときに運び、そのとき通信の版を 11 に上げる。
+  - why: 段 1 で失敗の型を先に通信に載せると、経路の操作の失敗の型（段 3）より前に通信の形を決めることになる。版は通信の形が変わるたびに上げる。
+  - decided_by: 利用者（[foundation A7](./2026-10-12-foundation.md#A7) から導いた。自走の指示により書き下ろした）
