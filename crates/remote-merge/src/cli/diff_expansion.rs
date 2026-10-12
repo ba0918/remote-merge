@@ -134,14 +134,28 @@ fn scan_below(
         }
         Err(error) => error,
     };
-    match error.downcast_ref::<ScanFailure>() {
-        Some(ScanFailure::StartBlocked { .. }) => Ok((Ok(FileTree::default()), None)),
-        Some(
-            ScanFailure::UnreadableDirectory { .. }
-            | ScanFailure::StartUnreadable { .. }
-            | ScanFailure::UnresolvableLink { .. },
-        ) => Ok((Err(error.to_string()), None)),
-        _ => Err(error),
+    let Some(failure) = error.downcast_ref::<ScanFailure>() else {
+        return Err(error);
+    };
+    // 種類を足したらここで決め直すよう、受け皿を置かずにすべて挙げる
+    // （docs/decision/records/2026-10-12-foundation-2.md の C12・C13・C15）
+    match failure {
+        // 途中がディレクトリでないパスは、ディレクトリでないもの
+        ScanFailure::StartBlocked { .. } => Ok((Ok(FileTree::default()), None)),
+        // その名前の部分木についての事実：指定したパス全体を一覧を取れなかったものにする
+        ScanFailure::UnreadableDirectory { .. }
+        | ScanFailure::StartUnreadable { .. }
+        | ScanFailure::UnresolvableLink { .. }
+        | ScanFailure::ChangedDuringScan { .. }
+        | ScanFailure::Cycle { .. } => Ok((Err(error.to_string()), None)),
+        // root_dir を読めない・項目の情報を読めない（REQ-scan-015）・集め方や経路の失敗は、
+        // diff 全体を止める
+        ScanFailure::RootMissing
+        | ScanFailure::RootUnreadable
+        | ScanFailure::UnreadableLinkTarget { .. }
+        | ScanFailure::UnreadableTime { .. }
+        | ScanFailure::InconsistentAnswer { .. }
+        | ScanFailure::CollectFailed { .. } => Err(error),
     }
 }
 
