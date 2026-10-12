@@ -105,13 +105,19 @@ fn a_record_whose_path_names_the_whole_root_dir_stops_the_list_with_the_reason()
             TempDir::new().unwrap(),
             TempDir::new().unwrap(),
         );
-        session_record_with_path(&local, &develop, &store, path);
+        let records = session_record_with_path(&local, &develop, &store, path);
 
         let message = list_error(&local, &develop, &store);
 
         assert!(
             message.contains(&format!("root_dir itself is not an entry: {path}")),
             "{path:?}: {message}"
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| message.contains(&record.display().to_string())),
+            "{path:?}: the record path is missing: {message}"
         );
     }
 }

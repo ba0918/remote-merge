@@ -123,7 +123,9 @@ Then どの経路でも、その二つが同じ名前で子に含まれる
 Scenario: root_dir 全体の権限を変えようとする
 Given root_dir の権限が 0o755 である
 When ローカル・SSH・エージェントのそれぞれの経路で "/" の権限を 0o700 に変えようとする
-Then どの経路でも "root_dir itself is not an entry: /" の理由で失敗し、root_dir の権限は 0o755 のまま変わらない
+Then どの経路でも "root_dir itself is not an entry: /" の理由で失敗する
+And ローカルの経路では root_dir の権限は 0o755 のまま変わらない
+And SSH とエージェントの経路では、変えようとする操作は経路に届く前に止まり、リモートには何も送られない
 
 @id=EX-paths-041 @about=REQ-paths-019 @source=docs/decision/records/2026-10-12-foundation-1.md#B8
 Scenario: エージェントが root_dir 全体への削除の要求を受け取る

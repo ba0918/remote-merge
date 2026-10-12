@@ -1765,6 +1765,8 @@ mod tests {
                 rt.stat_files(side, &[root.to_string()]).map(|_| ()),
                 rt.read_files_bytes_batch(side, &[root.to_string()], SizeLimit::Enforced)
                     .map(|_| ()),
+                rt.try_hash_compare(&Side::Local, side, &[root.to_string()])
+                    .map(|_| ()),
             ];
             for result in results {
                 let message = format!("{:#}", result.unwrap_err());
