@@ -36,6 +36,18 @@ impl EntryPath {
     pub fn parent_and_name(&self) -> (RelPath, &str) {
         self.rel.parent_and_name()
     }
+
+    /// root_dir に近い順の祖先の項目。root_dir 全体は含めない
+    pub fn parent_entries(&self) -> Vec<EntryPath> {
+        let mut parents = Vec::new();
+        let mut current = self.parent_and_name().0;
+        while let Ok(parent) = EntryPath::try_from(&current) {
+            current = parent.parent_and_name().0;
+            parents.push(parent);
+        }
+        parents.reverse();
+        parents
+    }
 }
 
 impl TryFrom<&RelPath> for EntryPath {

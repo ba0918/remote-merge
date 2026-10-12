@@ -64,6 +64,23 @@ fn entries_are_listed_as_they_were_typed() {
     assert_eq!(entries_as_typed(&entries), ["b/", "a"]);
 }
 
+#[test]
+fn the_parents_of_an_entry_never_include_the_root_dir_itself() {
+    let typed = |path: &str| -> Vec<String> {
+        EntryPath::parse(path)
+            .unwrap()
+            .parent_entries()
+            .iter()
+            .map(|entry| entry.as_typed().to_string())
+            .collect()
+    };
+    assert_eq!(typed("./sub/f.txt"), ["./sub"]);
+    assert_eq!(typed("a/b/c"), ["a", "a/b"]);
+    assert_eq!(typed("a/b/c/"), ["a", "a/b"]);
+    assert_eq!(typed("f"), Vec::<String>::new());
+    assert_eq!(typed("./f"), Vec::<String>::new());
+}
+
 /// "/" で区切った要素から組み立てた、RelPath::parse を通りうる文字列
 fn relative_inputs() -> impl Strategy<Value = String> {
     let element = prop_oneof![

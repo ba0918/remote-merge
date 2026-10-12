@@ -132,14 +132,12 @@ impl CoreRuntime {
     ) -> anyhow::Result<Vec<String>> {
         use super::target_io::TargetPath;
 
-        let path = std::path::Path::new(rel_path);
-        let mut parents = path
-            .ancestors()
-            .skip(1)
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(|parent| parent.to_string_lossy().into_owned())
+        // 祖先に root_dir 全体は入らない（root_dir は作るディレクトリとして扱わない）
+        let parents = checked_entry(rel_path)?
+            .parent_entries()
+            .iter()
+            .map(|parent| parent.as_typed().to_string())
             .collect::<Vec<_>>();
-        parents.reverse();
         parents
             .into_iter()
             .filter_map(|parent| match self.inspect_path(side, &parent) {
@@ -702,8 +700,30 @@ impl CoreRuntime {
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
         let subpath = checked(subpath)?;
+        self.refuse_missing_root_dir(side)?;
         let mut io = super::target_io::for_side(side, self);
         io.fetch_tree_for_subpath(self, &subpath, max_entries, fail_on_truncation)
+    }
+
+    /// root_dir がなければ、部分の走査も全体の走査と同じく走査の時点で止める
+    /// （docs/ir/scan/listing.md の REQ-scan-015）。部分のパスがないだけなら空の一覧にする
+    fn refuse_missing_root_dir(&mut self, side: &Side) -> anyhow::Result<()> {
+        if !matches!(
+            self.inspect_path(side, "")?,
+            super::target_io::TargetPath::Missing { .. }
+        ) {
+            return Ok(());
+        }
+        let io = super::target_io::for_side(side, self);
+        let root = io.root_dir(self)?;
+        Err(match side {
+            Side::Local => crate::error::AppError::PathNotFound { path: root },
+            Side::Remote(name) => crate::error::AppError::RemoteRootNotFound {
+                host: name.clone(),
+                path: root.to_string_lossy().into_owned(),
+            },
+        }
+        .into())
     }
 
     /// Side に基づいてディレクトリの子ノードを取得する
