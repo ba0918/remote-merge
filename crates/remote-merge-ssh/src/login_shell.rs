@@ -112,7 +112,25 @@ mod tests {
         std::fs::write(dir.path().join("it's/a\\b.txt"), "x").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("it's", dir.path().join("link")).unwrap();
-        let script = crate::tree_parser::build_find_command(dir.path().to_str().unwrap(), &[], &[]);
+        let questions = [
+            crate::scan_script::ScriptQuestion {
+                path: b"",
+                descend: true,
+            },
+            crate::scan_script::ScriptQuestion {
+                path: b"link",
+                descend: true,
+            },
+        ];
+        let prunable = remote_merge_core::scan::exclude::Prunable {
+            names: vec!["it's*".into()],
+            paths: vec!["a\\b".into()],
+        };
+        let script = crate::scan_script::build(
+            dir.path().to_str().unwrap().as_bytes(),
+            &questions,
+            &prunable,
+        );
         assert_every_login_shell_runs(&script, dir.path());
     }
 }

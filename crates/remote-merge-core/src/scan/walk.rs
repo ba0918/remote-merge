@@ -1,13 +1,13 @@
 //! 集めた生の項目を一覧に載せる規則。exclude・件数・UTF-8 でない名前・循環・辿るか・読めない
 //! ときに止めるかをここで決める（docs/ir/scan/ と docs/ir/config/filters.md）。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::exclude::Exclude;
 use super::outcome::{ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
 use super::parts::{changed, join, listed_entry, parent_ids, shown, unreadable_directory};
-use super::raw::{Answer, DirId, LinkTarget, RawEntry, RawKind, Subtree};
+use super::raw::{Answer, DirId, LinkTarget, RawEntry, RawKind, ReadCause, Subtree};
 
 pub(super) struct Walk<'a> {
     exclude: &'a Exclude,
@@ -62,9 +62,13 @@ impl<'a> Walk<'a> {
         if ancestors.contains(&tree.start.id) {
             return Err(ScanFailure::Cycle { path: shown(base) }.into());
         }
-        let unreadable: HashSet<&[u8]> = tree.unreadable.iter().map(Vec::as_slice).collect();
-        if unreadable.contains(&b""[..]) {
-            return Err(unreadable_directory(base).into());
+        let unreadable: HashMap<&[u8], ReadCause> = tree
+            .unreadable
+            .iter()
+            .map(|dir| (dir.path.as_slice(), dir.cause))
+            .collect();
+        if let Some(cause) = unreadable.get(&b""[..]) {
+            return Err(unreadable_directory(base, *cause).into());
         }
         let mut dir_ids: HashMap<&[u8], DirId> = HashMap::from([(&b""[..], tree.start.id)]);
         for entry in &tree.entries {
@@ -83,8 +87,8 @@ impl<'a> Walk<'a> {
                 continue;
             }
             if entry.kind == RawKind::Directory {
-                if unreadable.contains(entry.path.as_slice()) {
-                    return Err(unreadable_directory(&path).into());
+                if let Some(cause) = unreadable.get(entry.path.as_slice()) {
+                    return Err(unreadable_directory(&path, *cause).into());
                 }
                 self.list_directory(&path, entry)?;
                 continue;

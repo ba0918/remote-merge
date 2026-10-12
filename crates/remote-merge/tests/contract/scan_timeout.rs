@@ -25,7 +25,7 @@ fn slow_scan_shell(dir: &std::path::Path) -> &'static str {
     fs::write(
         &path,
         format!(
-            "#!/bin/sh\ncase \"$2\" in *\"find -L\"*) sleep {SCAN_DELAY_SEC} ;; esac\nexec sh -c \"$2\"\n"
+            "#!/bin/sh\ncase \"$2\" in *\"@RMSCAN\"*) sleep {SCAN_DELAY_SEC} ;; esac\nexec sh -c \"$2\"\n"
         ),
     )
     .unwrap();

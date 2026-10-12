@@ -17,17 +17,14 @@ use crate::tree::FileNode;
 
 use super::batch_hash::{self, BatchHashes};
 use super::batch_read;
-use super::excluded_branches::ExcludedBranches;
-use super::find_diagnostics;
 use super::find_records::{parse_find_records, RECORD_FORMAT};
 use super::host_key_verifier::HostKeyVerifier;
 use super::known_hosts::SshHandler;
 use super::known_hosts_io::append_known_hosts_entry;
 use super::passphrase_provider::{PassphraseProvider, MAX_PASSPHRASE_RETRIES};
 use super::tree_parser::{
-    build_find_command, build_mkdir_command, build_tree_from_flat, build_write_bytes_command,
-    build_write_text_command, find_record_name, parse_find_record, shell_escape,
-    unreadable_record_name,
+    build_mkdir_command, build_write_bytes_command, build_write_text_command, parse_find_record,
+    shell_escape,
 };
 use zeroize::Zeroizing;
 
@@ -50,17 +47,6 @@ fn exec_failure(command: &str, exit_code: u32, stderr: &str) -> AppError {
     AppError::SshExec {
         command: format!("{command}: exit={exit_code}, stderr={stderr}"),
     }
-}
-
-/// リモートの再帰走査の結果
-#[derive(Debug)]
-pub struct TreeListing {
-    /// 一覧に載せたノードのツリー
-    pub nodes: Vec<FileNode>,
-    /// 件数の上限で打ち切ったか
-    pub truncated: bool,
-    /// UTF-8 として読めない名前のファイルの走査の起点からのパス（`\xNN` で書いた形）
-    pub unreadable_names: Vec<String>,
 }
 
 /// SSH接続を管理するクライアント
@@ -716,106 +702,23 @@ impl SshClient {
         )
     }
 
-    /// リモートディレクトリを再帰的に全走査する（変更ファイルフィルター用）
-    pub async fn list_tree_recursive(
+    /// 走査のスクリプト（[`crate::scan_script`]）を動かし、標準出力と標準エラーを返す。
+    /// `timeout_sec` 秒で終わらなければ、接続の時間切れと区別できる誤りにする（REQ-scan-013）
+    pub async fn run_scan_script(
         &mut self,
-        remote_path: &str,
-        exclude: &[String],
-        include: &[String],
-        max_entries: usize,
-        timeout_secs: u64,
-    ) -> crate::error::Result<TreeListing> {
-        // root_dir の存在チェック。接続エラーなどを「ない」にしないよう、終了コード 1 だけを見る
-        let check_cmd = format!("test -d {}", shell_escape(remote_path));
-        let check = self.run_command(&check_cmd).await?;
-        match check.exit_code {
-            0 => {}
-            1 => {
-                return Err(AppError::RemoteRootNotFound {
-                    host: self.server_name.clone(),
-                    path: remote_path.to_string(),
-                }
-                .into());
-            }
-            code => anyhow::bail!(AppError::SshExec {
-                command: format!("{}: exit={}, stderr={}", check_cmd, code, check.stderr),
-            }),
-        }
-
-        let command = build_find_command(remote_path, include, exclude);
-
-        let result = match tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            self.run_command_bytes(&command),
+        script: &str,
+        timeout_sec: u64,
+    ) -> crate::error::Result<(Vec<u8>, Vec<u8>)> {
+        let output = tokio::time::timeout(
+            Duration::from_secs(timeout_sec),
+            self.run_command_bytes(script),
         )
         .await
-        {
-            Ok(result) => result?,
-            Err(_) => {
-                return Err(AppError::SshScanTimeout {
-                    host: self.server_name.clone(),
-                    timeout_sec: timeout_secs,
-                }
-                .into());
-            }
-        };
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        if find_diagnostics::scan_failed(result.exit_code, &stderr, remote_path, exclude) {
-            let find_stderr = find_diagnostics::find_stderr(&stderr);
-            anyhow::bail!(exec_failure(&command, result.exit_code, find_stderr));
-        }
-        if !find_diagnostics::find_stderr(&stderr).trim().is_empty() {
-            tracing::debug!(
-                target: "remote_merge::ssh::client",
-                "Recursive scan: ignored find errors below excluded paths: {}",
-                stderr.trim_end()
-            );
-        }
-        let records = parse_find_records(&result.stdout)?;
-
-        let excluded = ExcludedBranches::from_find_records(&records, remote_path, exclude);
-        let mut flat_nodes = Vec::new();
-        let mut truncated = false;
-        let mut unreadable_names = Vec::new();
-        // 載せたファイルと symlink の数
-        let mut counted = 0;
-
-        for record in &records {
-            if find_record_name(record, remote_path)
-                .is_some_and(|name| excluded.contains_ancestor_of(name))
-            {
-                continue;
-            }
-            // UTF-8 として読めない名前は置き換えて載せず、読めない名前として報告する（REQ-scan-012）
-            if record.unreadable_path.is_some() {
-                unreadable_names.extend(unreadable_record_name(record, remote_path, exclude));
-                continue;
-            }
-            let Some(node) = parse_find_record(record, remote_path, exclude)? else {
-                continue;
-            };
-            // 上限にはファイルと symlink だけを数え、上限の後に載せる項目がもう一件あるときだけ打ち切る
-            if !node.is_dir() {
-                if counted >= max_entries {
-                    truncated = true;
-                    tracing::warn!(
-                        target: "remote_merge::ssh::client",
-                        "Recursive scan: entry count reached limit {}: {}",
-                        max_entries,
-                        remote_path
-                    );
-                    break;
-                }
-                counted += 1;
-            }
-            flat_nodes.push(node);
-        }
-
-        Ok(TreeListing {
-            nodes: build_tree_from_flat(flat_nodes),
-            truncated,
-            unreadable_names,
-        })
+        .map_err(|_| AppError::SshScanTimeout {
+            host: self.server_name.clone(),
+            timeout_sec,
+        })??;
+        Ok((output.stdout, output.stderr))
     }
 
     /// 複数ファイルをバイト列としてバッチ読み込みする（チャンク分割対応）。

@@ -1,6 +1,6 @@
 //! 件数の上限と、root_dir・項目を読めないときの規則の単体テスト
 use super::super::outcome::ScanFailure;
-use super::super::raw::{LinkTarget, RawKind, RawTime, Unreached};
+use super::super::raw::{LinkTarget, RawKind, RawTime, ReadCause, Unreached, UnreadableDir};
 use super::super::test_support::*;
 
 // @kotowari[REQ-scan-010, REQ-scan-004, EX-scan-012, EX-scan-008, EX-scan-009]
@@ -55,7 +55,8 @@ fn a_missing_or_unreadable_root_dir_stops_the_scan() {
         ScanFailure::RootUnreadable
     );
     let mut tree = subtree(1, vec![]);
-    tree.unreadable.push(Vec::new());
+    tree.unreadable
+        .push(UnreadableDir::new(Vec::new(), ReadCause::Other));
     let mut fake = Fake::default().with(b"", root_with(tree));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),

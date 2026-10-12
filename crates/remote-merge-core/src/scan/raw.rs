@@ -5,6 +5,7 @@
 //! inode 番号を読んで返すだけで、何を載せるか・辿るか・止めるかは決めない。
 
 use super::exclude::Exclude;
+pub use super::outcome::ReadCause;
 
 /// デバイス番号と inode 番号。ディレクトリへの symlink の循環を見分けるのに使う（REQ-scan-002）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,8 +84,21 @@ pub struct Question {
 pub struct Subtree {
     pub start: RawEntry,
     pub entries: Vec<RawEntry>,
-    /// 読めなかったディレクトリの、問いのパスからの相対パス（起点そのものは空）
-    pub unreadable: Vec<Vec<u8>>,
+    /// 読めなかったディレクトリ
+    pub unreadable: Vec<UnreadableDir>,
+}
+
+/// 読めなかったディレクトリ。`path` は問いのパスからの相対パス（起点そのものは空）
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnreadableDir {
+    pub path: Vec<u8>,
+    pub cause: ReadCause,
+}
+
+impl UnreadableDir {
+    pub fn new(path: Vec<u8>, cause: ReadCause) -> Self {
+        Self { path, cause }
+    }
 }
 
 /// 問いへの答え

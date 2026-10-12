@@ -23,9 +23,9 @@ use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
 use remote_merge_core::scan::outcome::{ScanError, ScanRequest, ScanScope};
 use remote_merge_engine::scan_result::into_tree;
 
-pub(crate) use remote_merge_engine::local_io::{
-    check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
-};
+#[cfg(test)]
+use remote_merge_engine::local_io::check_truncation;
+pub(crate) use remote_merge_engine::local_io::hash_results_to_map;
 #[cfg(test)]
 pub(crate) use remote_merge_engine::local_io::{compute_local_file_hash, extract_hash_string};
 
@@ -2046,59 +2046,6 @@ mod tests {
         let rt = runtime_with_server("develop", "/var/www");
         // サーバー設定はあるが SSH 未接続 → false
         assert!(!rt.is_side_available(&Side::Remote("develop".to_string())));
-    }
-
-    // ── wrap_nodes_in_subpath テスト ──
-
-    #[test]
-    fn test_wrap_nodes_in_subpath_empty_subpath() {
-        let nodes = vec![FileNode::new_file("file.txt")];
-        let result = wrap_nodes_in_subpath("", nodes.clone());
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "file.txt");
-    }
-
-    #[test]
-    fn test_wrap_nodes_in_subpath_single_level() {
-        let nodes = vec![FileNode::new_file("file.txt")];
-        let result = wrap_nodes_in_subpath("app", nodes);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "app");
-        let children = result[0].children.as_ref().unwrap();
-        assert_eq!(children.len(), 1);
-        assert_eq!(children.get("file.txt").unwrap().name, "file.txt");
-    }
-
-    #[test]
-    fn test_wrap_nodes_in_subpath_multi_level() {
-        let nodes = vec![
-            FileNode::new_file("file_0.php"),
-            FileNode::new_file("file_1.php"),
-        ];
-        let result = wrap_nodes_in_subpath("app/controllers", nodes);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "app");
-        let app_children = result[0].children.as_ref().unwrap();
-        assert_eq!(app_children.len(), 1);
-        let controllers = app_children.get("controllers").unwrap();
-        assert_eq!(controllers.name, "controllers");
-        let ctrl_children = controllers.children.as_ref().unwrap();
-        assert_eq!(ctrl_children.len(), 2);
-        assert!(ctrl_children.contains_key("file_0.php"));
-        assert!(ctrl_children.contains_key("file_1.php"));
-    }
-
-    #[test]
-    fn test_wrap_nodes_in_subpath_empty_nodes() {
-        let result = wrap_nodes_in_subpath("app/controllers", vec![]);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "app");
-        let app_children = result[0].children.as_ref().unwrap();
-        assert_eq!(app_children.len(), 1);
-        let controllers = app_children.get("controllers").unwrap();
-        assert_eq!(controllers.name, "controllers");
-        let ctrl_children = controllers.children.as_ref().unwrap();
-        assert!(ctrl_children.is_empty());
     }
 
     // ── fetch_tree_for_subpath テスト ──

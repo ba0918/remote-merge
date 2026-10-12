@@ -79,7 +79,7 @@ pub enum SshCommand {
 impl SshCommand {
     pub fn matches(self, script: &str) -> bool {
         match self {
-            Self::Scan => script.contains("find -L ") && script.contains("-printf"),
+            Self::Scan => script.contains("@RMSCAN"),
             Self::ListChildren => script.contains("-maxdepth 1 -mindepth 1"),
             Self::PathInspection => script.starts_with("LC_ALL=C; r="),
             Self::Stat => {

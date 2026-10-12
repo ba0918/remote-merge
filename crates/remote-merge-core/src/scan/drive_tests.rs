@@ -1,6 +1,6 @@
 //! 全体の走査の規則の単体テスト。生の項目は手で作る
 use super::super::outcome::{ListedKind, ScanFailure};
-use super::super::raw::LinkTarget;
+use super::super::raw::{LinkTarget, ReadCause, UnreadableDir};
 use super::super::test_support::*;
 
 // @kotowari[REQ-scan-006, EX-scan-015, EX-scan-016]
@@ -151,13 +151,17 @@ fn names_that_are_not_utf8_are_reported_and_not_listed() {
 #[test]
 fn an_unreadable_directory_stops_the_scan() {
     let mut tree = subtree(1, vec![dir(b"locked", 2), file(b"a.txt")]);
-    tree.unreadable.push(b"locked".to_vec());
+    tree.unreadable.push(UnreadableDir::new(
+        b"locked".to_vec(),
+        ReadCause::PermissionDenied,
+    ));
     let mut fake = Fake::default().with(b"", root_with(tree));
     let result = run(&mut fake, &exclude(&[]), &whole(100));
     assert_eq!(
         failure(result),
         ScanFailure::UnreadableDirectory {
-            path: "locked".into()
+            path: "locked".into(),
+            cause: ReadCause::PermissionDenied,
         }
     );
 }
@@ -176,7 +180,10 @@ fn nothing_below_an_excluded_directory_is_read_or_stops_the_scan() {
             file(b"keep.txt"),
         ],
     );
-    tree.unreadable.push(b"cache/locked".to_vec());
+    tree.unreadable.push(UnreadableDir::new(
+        b"cache/locked".to_vec(),
+        ReadCause::Other,
+    ));
     let mut fake = Fake::default().with(b"", root_with(tree));
     let listing = run(&mut fake, &exclude(&["cache"]), &whole(100)).unwrap();
     assert_eq!(listed(&listing), ["keep.txt"]);

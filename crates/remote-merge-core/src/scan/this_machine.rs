@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use super::exclude::Exclude;
 use super::machine_fs::{bytes_of, entry_at, link_target, path_of, raw_entry, unreached};
 use super::parts::join;
-use super::raw::{Answer, CollectError, Collector, LinkTarget, Question, RawKind, Subtree};
+use super::raw::{
+    Answer, CollectError, Collector, LinkTarget, Question, RawKind, ReadCause, Subtree,
+    UnreadableDir,
+};
 
 pub struct MachineCollector {
     root: PathBuf,
@@ -81,27 +84,43 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
     let mut stack: Vec<Vec<u8>> = vec![Vec::new()];
     while let Some(rel) = stack.pop() {
         let read = std::fs::read_dir(dir.join(path_of(&rel)));
-        let Ok(children) = read else {
-            tree.unreadable.push(rel);
-            continue;
+        let children = match read {
+            Ok(children) => children,
+            Err(error) => {
+                tree.unreadable
+                    .push(UnreadableDir::new(rel, cause_of(&error)));
+                continue;
+            }
         };
         for child in children {
-            let Ok(child) = child else {
-                tree.unreadable.push(rel.clone());
-                break;
+            let child = match child {
+                Ok(child) => child,
+                Err(error) => {
+                    tree.unreadable
+                        .push(UnreadableDir::new(rel.clone(), cause_of(&error)));
+                    break;
+                }
             };
             let child_rel = join(&rel, &bytes_of(&child.file_name()));
             if exclude.excludes(&join(logical, &child_rel)) {
                 continue;
             }
-            match entry_at(&child.path(), child_rel.clone()) {
-                Ok(entry) => {
+            match std::fs::symlink_metadata(child.path()) {
+                Err(error) => {
+                    tree.unreadable
+                        .push(UnreadableDir::new(rel.clone(), cause_of(&error)));
+                }
+                Ok(_) => {
+                    let Ok(entry) = entry_at(&child.path(), child_rel.clone()) else {
+                        tree.unreadable
+                            .push(UnreadableDir::new(rel.clone(), ReadCause::Other));
+                        continue;
+                    };
                     if entry.kind == RawKind::Directory {
                         stack.push(child_rel);
                     }
                     tree.entries.push(entry);
                 }
-                Err(_) => tree.unreadable.push(rel.clone()),
             }
         }
     }
@@ -121,7 +140,16 @@ fn unreadable_start(dir: &Path) -> Subtree {
     Subtree {
         start,
         entries: Vec::new(),
-        unreadable: vec![Vec::new()],
+        unreadable: vec![UnreadableDir::new(Vec::new(), ReadCause::Other)],
+    }
+}
+
+/// ディレクトリを読めなかった理由
+fn cause_of(error: &std::io::Error) -> ReadCause {
+    if error.kind() == std::io::ErrorKind::PermissionDenied {
+        ReadCause::PermissionDenied
+    } else {
+        ReadCause::Other
     }
 }
 

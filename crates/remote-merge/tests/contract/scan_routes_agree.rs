@@ -200,7 +200,7 @@ impl SshFixture {
         // 経路の取り違えを防ぐ前提の確認で、要件の観測ではない
         let commands = self.server.commands();
         assert!(
-            commands.iter().any(|command| command.contains("find -L")),
+            commands.iter().any(|command| command.contains("@RMSCAN")),
             "the tree was not scanned over SSH: {commands:?}"
         );
         output

@@ -834,33 +834,38 @@ async fn test_verifier_called_at_most_once_per_connection() {
 
 #[tokio::test]
 async fn only_a_failed_root_check_means_the_scan_root_is_missing() {
+    use remote_merge_core::scan::exclude::Prunable;
+    use remote_merge_core::scan::raw::Unreached;
+    use remote_merge_ssh::scan_output::parse;
+    use remote_merge_ssh::scan_script::{build, ScriptQuestion};
+
     let handle = start_test_server().await;
-    handle.registry.register("/var/www/app/gone", "", 1);
+    handle.registry.register(
+        "/var/www/app/gone",
+        "@RMSCAN\0@F\0ls: cannot access '/var/www/app/gone': No such file or directory\0",
+        0,
+    );
     handle
         .registry
         .register_without_exit_status("/var/www/app/cut", "");
     let (mut client, _key) = connect_client(&handle).await;
+    let root = [ScriptQuestion {
+        path: b"",
+        descend: true,
+    }];
+    let script = |path: &str| build(path.as_bytes(), &root, &Prunable::default());
 
-    let missing = client
-        .list_tree_recursive("/var/www/app/gone", &[], &[], 100, 5)
+    let (stdout, stderr) = client
+        .run_scan_script(&script("/var/www/app/gone"), 5)
         .await
-        .expect_err("a missing root must fail the scan");
+        .unwrap();
     let cut_off = client
-        .list_tree_recursive("/var/www/app/cut", &[], &[], 100, 5)
+        .run_scan_script(&script("/var/www/app/cut"), 5)
         .await
-        .expect_err("a cut-off root check must fail the scan");
+        .expect_err("a cut-off scan must fail");
 
-    assert!(
-        matches!(
-            missing.downcast_ref::<remote_merge::error::AppError>(),
-            Some(remote_merge::error::AppError::RemoteRootNotFound { .. })
-        ),
-        "{missing:?}"
-    );
-    assert_eq!(
-        missing.to_string(),
-        "Remote root_dir not found: test:/var/www/app/gone"
-    );
+    let answers = parse(&stdout, &stderr, &root).unwrap();
+    assert_eq!(answers[0].entry, Err(Unreached::Missing));
     assert!(
         remote_merge::error::is_connection_error(&cut_off),
         "{cut_off:?}"

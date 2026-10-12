@@ -50,6 +50,22 @@ pub struct Listing {
     pub truncated: bool,
 }
 
+/// ディレクトリを読めなかった理由。経路によらず同じ文言にするため、OS や道具の文言は運ばない
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ReadCause {
+    PermissionDenied,
+    Other,
+}
+
+impl std::fmt::Display for ReadCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::PermissionDenied => "permission denied",
+            Self::Other => "read error",
+        })
+    }
+}
+
 /// 走査を止める誤り。パスは root_dir からのもので、読めない部分は `\xNN` と書く
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum ScanFailure {
@@ -61,8 +77,8 @@ pub enum ScanFailure {
     StartBlocked { path: String },
     #[error("Cannot scan {path}: it cannot be read")]
     StartUnreadable { path: String },
-    #[error("Cannot read directory: {path}")]
-    UnreadableDirectory { path: String },
+    #[error("Cannot read directory: {path}: {cause}")]
+    UnreadableDirectory { path: String, cause: ReadCause },
     #[error("Cannot follow symbolic link (loop or non-directory in its target): {path}")]
     UnresolvableLink { path: String },
     #[error("Cannot read the link target of {path}")]

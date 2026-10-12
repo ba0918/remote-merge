@@ -4,6 +4,11 @@
 //! インターフェースに依存しない共通機能を提供する。
 
 use remote_merge_core::relative_path::RelPath;
+use remote_merge_core::scan::drive::scan;
+use remote_merge_core::scan::exclude::Exclude;
+use remote_merge_core::scan::outcome::{ScanRequest, ScanScope};
+use remote_merge_engine::scan_result::into_tree;
+use remote_merge_ssh::scan_collect::SshCollector;
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -871,10 +876,7 @@ impl CoreRuntime {
         Ok(tree)
     }
 
-    /// リモートツリーを再帰的に全走査する（CLI status 用）。
-    ///
-    /// `list_tree_recursive` で全ファイルのメタデータ（size, mtime）を含むツリーを取得する。
-    /// 階層構造を持つ FileTree を返す。
+    /// リモートツリーを再帰的に全走査する（CLI status 用）。`include` は確かめて残った値
     pub fn fetch_remote_tree_recursive(
         &mut self,
         server_name: &str,
@@ -882,46 +884,14 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        let server_config = self
-            .config
-            .servers
-            .get(server_name)
-            .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
-        let root_dir = server_config.root_dir.to_string_lossy().to_string();
-        let root_path = server_config.root_dir.clone();
-        let exclude = self.config.filter.exclude.clone();
-        // 走査の時間切れは接続の設定の timeout_sec から決める（REQ-scan-013）
-        let scan_timeout_sec = self.config.ssh.timeout_sec;
-
-        let client = self
-            .ssh_clients
-            .get_mut(server_name)
-            .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        let listing = self.rt.block_on(client.list_tree_recursive(
-            &root_dir,
-            &exclude,
-            include,
+        let request = ScanRequest {
+            scope: remote_merge_engine::scan_result::scope_of_include(include),
             max_entries,
-            scan_timeout_sec,
-        ))?;
-
-        if listing.truncated {
-            super::side_io::check_truncation(max_entries, fail_on_truncation)?;
-        }
-
-        let mut tree = FileTree::new(&root_path);
-        tree.nodes = listing.nodes;
-        tree.unreadable_names = listing.unreadable_names;
-        tree.truncated = listing.truncated;
-        tree.sort();
-        Ok(tree)
+        };
+        self.scan_remote_tree(server_name, &request, fail_on_truncation)
     }
 
-    /// リモートのサブパス配下のみツリーを走査する（SSH 経由）。
-    ///
-    /// `list_tree_recursive` に `root_dir/subpath` を渡してサブツリーのみ走査し、
-    /// 返却パスは root_dir からの相対パスに正規化する。
+    /// リモートのサブパス配下のみツリーを走査する（SSH 経由）
     pub fn fetch_remote_tree_for_subpath(
         &mut self,
         server_name: &str,
@@ -929,71 +899,46 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
-        let subpath = subpath.as_str();
+        let request = ScanRequest {
+            scope: ScanScope::Below(vec![subpath.as_str().to_string()]),
+            max_entries,
+        };
+        self.scan_remote_tree(server_name, &request, fail_on_truncation)
+    }
+
+    /// SSH の経路の集め方と走査の規則で走査する。走査の時間切れは接続の設定の timeout_sec から
+    /// 決める（REQ-scan-013）
+    fn scan_remote_tree(
+        &mut self,
+        server_name: &str,
+        request: &ScanRequest,
+        fail_on_truncation: bool,
+    ) -> anyhow::Result<FileTree> {
         let server_config = self
             .config
             .servers
             .get(server_name)
             .ok_or_else(|| anyhow::anyhow!("Server '{}' not found in config", server_name))?;
-        let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let root_path = server_config.root_dir.clone();
-        let exclude = self.config.filter.exclude.clone();
-        // 走査の時間切れは接続の設定の timeout_sec から決める（REQ-scan-013）
-        let scan_timeout_sec = self.config.ssh.timeout_sec;
-
-        // root_dir/subpath を走査対象にする
-        let scan_path = if subpath.is_empty() {
-            root_dir.clone()
-        } else {
-            format!("{}/{}", root_dir.trim_end_matches('/'), subpath)
-        };
-
+        let exclude = Exclude::new(&self.config.filter.exclude);
         let client = self
             .ssh_clients
             .get_mut(server_name)
             .ok_or_else(|| anyhow::anyhow!("SSH not connected: {}", server_name))?;
-
-        // list_tree_recursive は scan_path を root として走査するため、
-        // 返却ノードのパスは scan_path からの相対になる。
-        // 存在しないパスの場合、list_tree_recursive の test -d チェックで失敗するため、
-        // その場合は空ツリーを返す。
-        // サブパス走査では include フィルターは適用しない
-        // （既に特定サブディレクトリを直接指定しているため）
-        let result = self.rt.block_on(client.list_tree_recursive(
-            &scan_path,
-            &exclude,
-            &[],
-            max_entries,
-            scan_timeout_sec,
-        ));
-
-        let listing = match result {
-            Ok(listing) => listing,
-            Err(e) => {
-                // リモートパスが存在しない場合は空ツリーを返す（型安全に判定）
-                if e.downcast_ref::<crate::error::AppError>()
-                    .is_some_and(|ae| {
-                        matches!(ae, crate::error::AppError::RemoteRootNotFound { .. })
-                    })
-                {
-                    return Ok(FileTree::new(&root_path));
-                }
-                return Err(e);
-            }
+        let mut collector = SshCollector {
+            client,
+            runtime: &self.rt,
+            root: root_path.to_string_lossy().into_owned().into_bytes(),
+            timeout_sec: self.config.ssh.timeout_sec,
         };
-
-        if listing.truncated {
-            super::side_io::check_truncation(max_entries, fail_on_truncation)?;
-        }
-
-        let mut tree = FileTree::new(&root_path);
-        // SSH の list_tree_recursive は scan_path をルートとして走査するため、
-        // 結果を subpath 配下にラップして root_dir からの相対パスにする
-        tree.nodes = super::side_io::wrap_nodes_in_subpath(subpath, listing.nodes);
-        tree.unreadable_names = super::side_io::names_in_subpath(subpath, listing.unreadable_names);
-        tree.truncated = listing.truncated;
-        tree.sort();
-        Ok(tree)
+        let scanned = scan(&mut collector, &exclude, request);
+        into_tree(
+            &root_path,
+            scanned,
+            request.max_entries,
+            fail_on_truncation,
+            || super::side_io::remote_root_missing(server_name, &root_path),
+        )
     }
 
     /// SSH 接続のみを再確立する（ツリー・キャッシュはそのまま）

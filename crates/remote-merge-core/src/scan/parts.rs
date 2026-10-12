@@ -17,11 +17,14 @@ pub(super) fn shown(path: &[u8]) -> String {
     escape_non_utf8(path)
 }
 
-pub(super) fn unreadable_directory(path: &[u8]) -> ScanFailure {
+pub(super) fn unreadable_directory(path: &[u8], cause: super::raw::ReadCause) -> ScanFailure {
     if path.is_empty() {
         ScanFailure::RootUnreadable
     } else {
-        ScanFailure::UnreadableDirectory { path: shown(path) }
+        ScanFailure::UnreadableDirectory {
+            path: shown(path),
+            cause,
+        }
     }
 }
 

@@ -656,8 +656,14 @@ impl server::Handler for LocalHandler {
             return Ok(());
         }
         if SshCommand::Scan.matches(&script) {
-            // 走査には、項目のない一覧を答える
-            session.exit_status_request(channel, 0)?;
+            // 走査は受けたまま実行して答える（root_dir はこのマシンの一時ディレクトリ）
+            let result = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .output()?;
+            session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+            session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
+            session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
             session.eof(channel)?;
             session.close(channel)?;
             return Ok(());

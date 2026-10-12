@@ -7,11 +7,15 @@ pub mod find_records;
 pub mod hint;
 pub mod host_key_verifier;
 pub mod passphrase_provider;
+pub mod scan_collect;
+pub mod scan_diagnostics;
+pub mod scan_fields;
+pub mod scan_output;
+pub mod scan_script;
+#[cfg(all(test, unix))]
+mod scan_test_shell;
 pub mod tree_parser;
 
-pub(crate) mod excluded_branches;
-pub(crate) mod find_diagnostics;
-pub(crate) mod find_prune;
 pub(crate) mod known_hosts;
 #[cfg(all(unix, any(test, feature = "test-utils")))]
 pub(crate) mod known_hosts_guard;

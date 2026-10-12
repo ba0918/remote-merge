@@ -10,7 +10,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use remote_merge::agent::dispatch::Dispatcher;
 use remote_merge::agent::protocol::{AgentRequest, AgentResponse};
 use remote_merge::agent::server::MetadataConfig;
-use remote_merge_core::scan::outcome::{ScanFailure, ScanRequest, ScanScope};
+use remote_merge_core::scan::outcome::{ReadCause, ScanFailure, ScanRequest, ScanScope};
 
 /// エージェントの受け取り口で root_dir 全体を走査した応答
 pub(super) fn agent_scan(root: &Path) -> Vec<AgentResponse> {
@@ -72,7 +72,10 @@ fn req_scan_015_the_agent_scan_stops_when_an_entry_cannot_be_stat_ed() {
     assert_eq!(
         responses,
         [AgentResponse::TreeFailed {
-            failure: ScanFailure::UnreadableDirectory { path: "sub".into() }
+            failure: ScanFailure::UnreadableDirectory {
+                path: "sub".into(),
+                cause: ReadCause::PermissionDenied,
+            }
         }],
         "an entry without its metadata must not be dropped"
     );

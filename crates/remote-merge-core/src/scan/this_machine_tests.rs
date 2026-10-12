@@ -5,7 +5,9 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::Path;
 
 use super::*;
-use crate::scan::raw::{Answer, LinkTarget, Question, RawKind, RawTime, Unreached};
+use crate::scan::raw::{
+    Answer, LinkTarget, Question, RawKind, RawTime, ReadCause, Unreached, UnreadableDir,
+};
 
 fn ask(root: &Path, path: &[u8], descend: bool, exclude: &[&str]) -> Answer {
     let patterns: Vec<String> = exclude.iter().map(|p| p.to_string()).collect();
@@ -140,7 +142,13 @@ fn an_excluded_directory_is_not_read_and_an_unreadable_one_is_reported() {
     }
     assert_eq!(paths(&answer), [b"locked"]);
     if applies {
-        assert_eq!(answer.subtree.unwrap().unreadable, [b"locked".to_vec()]);
+        assert_eq!(
+            answer.subtree.unwrap().unreadable,
+            [UnreadableDir::new(
+                b"locked".to_vec(),
+                ReadCause::PermissionDenied
+            )]
+        );
     }
 }
 

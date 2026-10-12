@@ -142,43 +142,6 @@ pub fn hash_results_to_map(results: &[FileHashResult]) -> HashMap<String, String
 
 // ── subpath ツリー構築ヘルパー ──
 
-/// サブパスを起点に走査した、読めない名前のファイルのパスを root_dir からのパスにする
-pub fn names_in_subpath(subpath: &str, names: Vec<String>) -> Vec<String> {
-    let subpath = subpath.trim_end_matches('/');
-    if subpath.is_empty() {
-        return names;
-    }
-    names
-        .into_iter()
-        .map(|name| format!("{subpath}/{name}"))
-        .collect()
-}
-
-/// スキャン結果のノード群を subpath の階層構造でラップする。
-///
-/// 例: subpath="app/controllers", nodes=[file_0.php, file_1.php]
-/// → [app/ → [controllers/ → [file_0.php, file_1.php]]]
-///
-/// これにより、返却パスが root_dir からの相対パスになる。
-pub fn wrap_nodes_in_subpath(subpath: &str, nodes: Vec<FileNode>) -> Vec<FileNode> {
-    if subpath.is_empty() {
-        return nodes;
-    }
-
-    let parts: Vec<&str> = subpath.split('/').filter(|s| !s.is_empty()).collect();
-    if parts.is_empty() {
-        return nodes;
-    }
-
-    // 最も深い部分から外側に向かってラップしていく
-    let mut current = nodes;
-    for part in parts.iter().rev() {
-        let dir = FileNode::new_dir_with_children(*part, current);
-        current = vec![dir];
-    }
-    current
-}
-
 // ── ローカル I/O ヘルパー（純粋関数） ──
 
 /// ローカルファイルの mtime をバッチ取得する
