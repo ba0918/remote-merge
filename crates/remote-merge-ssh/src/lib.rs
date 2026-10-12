@@ -12,6 +12,7 @@ pub mod scan_diagnostics;
 pub mod scan_fields;
 pub mod scan_output;
 pub mod scan_script;
+pub mod scan_search;
 #[cfg(all(test, unix))]
 mod scan_test_shell;
 pub mod tree_parser;

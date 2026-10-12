@@ -86,6 +86,9 @@ pub struct Subtree {
     pub entries: Vec<RawEntry>,
     /// 読めなかったディレクトリ
     pub unreadable: Vec<UnreadableDir>,
+    /// 情報（種類や更新時刻）を読めなかった項目。`path` はその項目自身の、問いのパスからの相対
+    /// パス。exclude に当たるかは規則が決める
+    pub unreadable_entries: Vec<UnreadableDir>,
 }
 
 /// 読めなかったディレクトリ。`path` は問いのパスからの相対パス（起点そのものは空）
@@ -130,4 +133,9 @@ impl From<anyhow::Error> for CollectError {
     fn from(error: anyhow::Error) -> Self {
         Self(error)
     }
+}
+
+/// 相対パス `base` の下の `name`（`base` が空なら `name` そのもの）
+pub fn join_relative(base: &[u8], name: &[u8]) -> Vec<u8> {
+    super::parts::join(base, name)
 }

@@ -32,8 +32,24 @@ fn printf_literal(bytes: &[u8]) -> String {
     text
 }
 
+/// root_dir に移る文。root_dir がないか入れなければ、その理由を出して終える。"/" で始まらない
+/// root_dir は "./" を前に付け、"-" で始まる値を cd のオプションに読ませない
+pub(crate) fn root_setup(root: &[u8]) -> String {
+    let root = if root.starts_with(b"/") {
+        root.to_vec()
+    } else {
+        [b"./", root].concat()
+    };
+    let mut setup = assign("r", &root);
+    setup.push_str(concat!(
+        "if [ -d \"$r\" ]; then cd \"$r\" 2>/dev/null || { printf '@F\\000U\\000'; exit 0; }\n",
+        "else e=$(ls -dL -- \"$r\" 2>&1 >/dev/null); printf '@F\\000%s\\000' \"$e\"; exit 0; fi\n",
+    ));
+    setup
+}
+
 /// 変数 `name` に `bytes` をそのまま入れる文。末尾の改行も残すため、後ろに "x" を足して外す
-fn assign(name: &str, bytes: &[u8]) -> String {
+pub(crate) fn assign(name: &str, bytes: &[u8]) -> String {
     format!(
         "{name}=$(printf '{}x'); {name}=${{{name}%x}}\n",
         printf_literal(bytes)
@@ -68,11 +84,7 @@ pub fn build(root: &[u8], questions: &[ScriptQuestion], prunable: &Prunable) -> 
         "LC_ALL=C; export LC_ALL\nprintf '{MARKER}\\000'\nprintf '{MARKER}\\n' >&2\nF='{RECORD_FORMAT}'\n"
     );
     script.push_str(&prune_setup);
-    script.push_str(&assign("r", root));
-    script.push_str(concat!(
-        "if [ -d \"$r\" ]; then cd \"$r\" 2>/dev/null || { printf '@F\\000U\\000'; exit 0; }\n",
-        "else e=$(ls -dL -- \"$r\" 2>&1 >/dev/null); printf '@F\\000%s\\000' \"$e\"; exit 0; fi\n",
-    ));
+    script.push_str(&root_setup(root));
     script.push_str(&format!(
         concat!(
             "q() {{\n",

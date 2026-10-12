@@ -49,3 +49,74 @@ fn the_scan_over_the_shell_agrees_with_the_scan_on_this_machine() {
         }
     }
 }
+
+/// root でない利用者として動いているか（root は権限のないディレクトリも読める）
+fn permissions_apply(dir: &std::path::Path) -> bool {
+    fs::read_dir(dir).is_err()
+}
+
+// @kotowari[REQ-scan-017, REQ-config-044]
+#[test]
+fn a_directory_without_search_permission_holding_only_excluded_entries_agrees() {
+    use std::os::unix::fs::PermissionsExt;
+    for pattern in ["cache", "c?che"] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("d/cache")).unwrap();
+        fs::write(root.join("top.txt"), "t").unwrap();
+        fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o644)).unwrap();
+        let applies = fs::symlink_metadata(root.join("d/cache")).is_err();
+        let rule = exclude(&[pattern]);
+        let machine = scan_with(
+            &mut MachineCollector::new(root.to_path_buf()),
+            &rule,
+            ScanScope::Whole,
+        );
+        let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
+        fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o755)).unwrap();
+        if !applies {
+            eprintln!("note: running as root; entries can be stat'ed without permission");
+            return;
+        }
+        assert!(machine.starts_with("Ok("), "{pattern}: {machine}");
+        assert_eq!(shell, machine, "{pattern}");
+    }
+}
+
+// @kotowari[REQ-scan-017, REQ-scan-014, REQ-config-044]
+#[test]
+fn unreadable_directories_with_odd_names_agree() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    for name in [
+        &b"lo\ncked"[..],
+        b"t\tab",
+        b"bad\xff",
+        b"q'uo: te",
+        b"back\\sl",
+    ] {
+        for parent in ["cache", "plain"] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path();
+            let dir = root.join(parent).join(OsStr::from_bytes(name));
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("h.txt"), "h").unwrap();
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+            let applies = permissions_apply(&dir);
+            let rule = exclude(&["c?che"]);
+            let machine = scan_with(
+                &mut MachineCollector::new(root.to_path_buf()),
+                &rule,
+                ScanScope::Whole,
+            );
+            let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+            if !applies {
+                eprintln!("note: running as root; unreadable directories cannot be made");
+                return;
+            }
+            assert_eq!(shell, machine, "{name:?} under {parent}");
+        }
+    }
+}

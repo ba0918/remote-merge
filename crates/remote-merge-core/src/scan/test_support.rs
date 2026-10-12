@@ -91,6 +91,7 @@ pub fn subtree(start_ino: u64, entries: Vec<RawEntry>) -> Subtree {
         start: dir(b"", start_ino),
         entries,
         unreadable: Vec::new(),
+        unreadable_entries: Vec::new(),
     }
 }
 

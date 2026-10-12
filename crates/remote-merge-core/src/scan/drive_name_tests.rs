@@ -89,3 +89,37 @@ fn a_link_target_that_is_not_utf8_is_listed_with_replacement_characters() {
         }
     );
 }
+
+// @kotowari[REQ-config-044, REQ-scan-014]
+#[test]
+fn an_entry_whose_information_cannot_be_read_stops_the_scan_unless_it_is_excluded() {
+    let tree = || {
+        let mut tree = subtree(1, vec![dir(b"d", 2), file(b"top.txt")]);
+        tree.unreadable_entries.push(UnreadableDir::new(
+            b"d/cache".to_vec(),
+            ReadCause::PermissionDenied,
+        ));
+        tree
+    };
+    let mut fake = Fake::default().with(b"", root_with(tree()));
+    let listing = run(&mut fake, &exclude(&["cache"]), &whole(9)).unwrap();
+    assert_eq!(listed(&listing), ["top.txt"]);
+
+    let mut fake = Fake::default().with(b"", root_with(tree()));
+    let result = run(&mut fake, &exclude(&[]), &whole(9));
+    assert_eq!(
+        failure(result),
+        ScanFailure::UnreadableDirectory {
+            path: "d".into(),
+            cause: ReadCause::PermissionDenied,
+        }
+    );
+}
+
+// @kotowari[REQ-scan-012]
+#[test]
+fn a_directory_whose_name_is_not_utf8_is_reported_even_when_empty() {
+    let mut fake = Fake::default().with(b"", root(Some(vec![dir(b"emp\xfey", 2)])));
+    let listing = run(&mut fake, &exclude(&[]), &whole(9)).unwrap();
+    assert_eq!(listing.unreadable_names, ["emp\\xfey"]);
+}

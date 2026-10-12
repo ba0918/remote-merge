@@ -3,7 +3,7 @@
 
 use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
 
-use crate::scan_fields::{link_target_from, raw_entry, unreached_from, Record};
+use crate::scan_fields::{link_target_from, printed_start, raw_entry, unreached_from, Record};
 use crate::scan_script::{ScriptQuestion, MARKER};
 
 /// NUL で区切った出力を前から読む
@@ -42,15 +42,6 @@ impl<'a> Tokens<'a> {
             link: self.next()?,
             path: self.next()?,
         })
-    }
-}
-
-/// 問いのパスを find に渡した形（root_dir は "."、それ以外は "./" を前に付ける）
-pub(crate) fn printed_start(question: &ScriptQuestion) -> Vec<u8> {
-    if question.path.is_empty() {
-        b".".to_vec()
-    } else {
-        [b"./", question.path].concat()
     }
 }
 
@@ -121,6 +112,7 @@ fn answer(
             start: entry_of(&tokens.record(first)?, &start)?,
             entries: Vec::new(),
             unreadable: Vec::new(),
+            unreadable_entries: Vec::new(),
         };
         loop {
             let first = tokens.next()?;

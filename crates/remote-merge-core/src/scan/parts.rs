@@ -95,3 +95,10 @@ impl PendingLink {
         }
     }
 }
+
+/// 相対パスの親（最後の "/" より前。なければ起点そのもの）
+pub(super) fn parent_of(path: &[u8]) -> &[u8] {
+    path.iter()
+        .rposition(|byte| *byte == b'/')
+        .map_or(&path[..0], |at| &path[..at])
+}

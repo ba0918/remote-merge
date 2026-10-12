@@ -176,3 +176,28 @@ fn a_time_before_1970_is_read_with_its_nanoseconds() {
         }
     );
 }
+
+// @kotowari[REQ-config-044, REQ-scan-014]
+#[test]
+fn an_entry_that_cannot_be_stat_ed_is_answered_with_its_own_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("d/x")).unwrap();
+    fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o644)).unwrap();
+    let applies = fs::symlink_metadata(root.join("d/x")).is_err();
+    let answer = ask(root, b"", true, &[]);
+    fs::set_permissions(root.join("d"), fs::Permissions::from_mode(0o755)).unwrap();
+    if !applies {
+        eprintln!("note: running as root; entries can be stat'ed without permission");
+        return;
+    }
+    let tree = answer.subtree.unwrap();
+    assert!(tree.unreadable.is_empty(), "{:?}", tree.unreadable);
+    assert_eq!(
+        tree.unreadable_entries,
+        [UnreadableDir::new(
+            b"d/x".to_vec(),
+            ReadCause::PermissionDenied
+        )]
+    );
+}

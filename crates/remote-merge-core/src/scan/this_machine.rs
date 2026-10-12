@@ -80,6 +80,7 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
         },
         entries: Vec::new(),
         unreadable: Vec::new(),
+        unreadable_entries: Vec::new(),
     };
     let mut stack: Vec<Vec<u8>> = vec![Vec::new()];
     while let Some(rel) = stack.pop() {
@@ -105,15 +106,16 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
             if exclude.excludes(&join(logical, &child_rel)) {
                 continue;
             }
+            // 情報を読めない項目は、その項目自身のパスで答える（どう扱うかは規則が決める）
             match std::fs::symlink_metadata(child.path()) {
                 Err(error) => {
-                    tree.unreadable
-                        .push(UnreadableDir::new(rel.clone(), cause_of(&error)));
+                    tree.unreadable_entries
+                        .push(UnreadableDir::new(child_rel, cause_of(&error)));
                 }
                 Ok(_) => {
                     let Ok(entry) = entry_at(&child.path(), child_rel.clone()) else {
-                        tree.unreadable
-                            .push(UnreadableDir::new(rel.clone(), ReadCause::Other));
+                        tree.unreadable_entries
+                            .push(UnreadableDir::new(child_rel, ReadCause::Other));
                         continue;
                     };
                     if entry.kind == RawKind::Directory {
@@ -141,6 +143,7 @@ fn unreadable_start(dir: &Path) -> Subtree {
         start,
         entries: Vec::new(),
         unreadable: vec![UnreadableDir::new(Vec::new(), ReadCause::Other)],
+        unreadable_entries: Vec::new(),
     }
 }
 

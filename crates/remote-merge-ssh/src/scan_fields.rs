@@ -148,6 +148,15 @@ fn unescape(quoted: &[u8]) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// 問いのパスを find に渡した形（root_dir は "."、それ以外は "./" を前に付ける）
+pub(crate) fn printed_start(question: &crate::scan_script::ScriptQuestion) -> Vec<u8> {
+    if question.path.is_empty() {
+        b".".to_vec()
+    } else {
+        [b"./", question.path].concat()
+    }
+}
+
 #[cfg(test)]
 #[path = "scan_fields_tests.rs"]
 mod tests;

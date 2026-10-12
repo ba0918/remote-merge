@@ -250,6 +250,9 @@ mod scan_unreadable_link;
 #[path = "contract/scan_unresolvable_link_cli.rs"]
 mod scan_unresolvable_link_cli;
 #[cfg(feature = "test-utils")]
+#[path = "contract/scan_unsearchable_directory.rs"]
+mod scan_unsearchable_directory;
+#[cfg(feature = "test-utils")]
 #[path = "contract/size_limit.rs"]
 mod size_limit;
 #[cfg(feature = "test-utils")]

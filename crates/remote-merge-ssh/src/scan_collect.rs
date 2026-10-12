@@ -9,6 +9,7 @@ use crate::batch_read::SSH_BATCH_MAX_COMMAND_LEN;
 use crate::client::SshClient;
 use crate::scan_output::parse;
 use crate::scan_script::{build, split_for_command_line, ScriptQuestion};
+use crate::scan_search::complete_unsearchable;
 
 pub struct SshCollector<'a> {
     pub client: &'a mut SshClient,
@@ -46,8 +47,14 @@ impl Collector for SshCollector<'_> {
             let (stdout, stderr) = self
                 .runtime
                 .block_on(self.client.run_scan_script(&script, self.timeout_sec))?;
-            let parsed = parse(&stdout, &stderr, part)
+            let mut parsed = parse(&stdout, &stderr, part)
                 .map_err(|message| anyhow::Error::from(AppError::RemoteParse { message }))?;
+            let (client, runtime, timeout_sec) =
+                (&mut *self.client, self.runtime, self.timeout_sec);
+            complete_unsearchable(&self.root, part, &mut parsed, |script| {
+                let (stdout, _) = runtime.block_on(client.run_scan_script(script, timeout_sec))?;
+                Ok(stdout)
+            })?;
             answers.extend(parsed);
         }
         Ok(answers)

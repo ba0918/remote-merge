@@ -60,3 +60,24 @@ fn questions_are_split_so_that_each_command_line_fits_the_limit() {
         assert!(crate::login_shell::wrap_for_login_shell(&script).len() <= limit);
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn a_root_dir_that_starts_with_a_dash_is_not_read_as_an_option() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(temp.path().join("-dash")).unwrap();
+    std::fs::write(temp.path().join("-dash/a.txt"), "a").unwrap();
+    let questions = [ScriptQuestion {
+        path: b"",
+        descend: true,
+    }];
+    let script = build(b"-dash", &questions, &Prunable::default());
+    let output = std::process::Command::new("sh")
+        .args(["-c", &script])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    let answers = crate::scan_output::parse(&output.stdout, &output.stderr, &questions).unwrap();
+    let entries = &answers[0].subtree.as_ref().unwrap().entries;
+    assert_eq!(entries[0].path, b"a.txt");
+}
