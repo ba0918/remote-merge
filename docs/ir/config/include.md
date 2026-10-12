@@ -6,7 +6,7 @@ include の値の要素の正規化と、値が走査する側にないとき、
 
 ### REQ-config-032: 走査する側にない include の値は飛ばす
 - kind: event_driven
-- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A2, docs/decision/records/2026-10-07-include-values-consistency.md#A3, docs/decision/records/2026-10-12-foundation-2.md#C1
+- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A2, docs/decision/records/2026-10-07-include-values-consistency.md#A3, docs/decision/records/2026-10-12-foundation-2.md#C1, docs/decision/records/2026-10-12-foundation-2.md#C8
 - verification: unit
 
 include の値が走査する側に存在しないとき、走査は "Include path does not exist, skipping: 値" の警告を標準エラーに出してその値を飛ばし、残りの値を走査する。
@@ -15,7 +15,7 @@ include の値が走査する側に存在しないとき、走査は "Include pa
 
 ### REQ-config-033: root_dir の外へ解決される include の値は使わない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A6, docs/decision/records/2026-10-12-foundation-2.md#C1
+- source: docs/decision/records/2026-10-05-quality-config.md#A1, docs/decision/records/2026-10-07-include-values-consistency.md#A6, docs/decision/records/2026-10-12-foundation-2.md#C1, docs/decision/records/2026-10-12-foundation-2.md#C8
 - verification: unit
 
 include の値が symlink を辿ると root_dir の外へ解決されるとき、走査は警告を標準エラーに出してその値を使わず、root_dir の外を走査しない。

@@ -4,7 +4,7 @@
 
 [土台の作り直し](./2026-10-12-foundation.md) の段 2 である。走査は三つの経路に別々の実装があり、exclude・include・件数・UTF-8 でない名前・循環・root_dir や部分パスがないときの判定を、それぞれが自分で決めていた。IR も、同じ規則を要件ごとに「ローカル・SSH・エージェントのどの経路でも」と繰り返し、経路の差を FLAG（FLAG-config-016・FLAG-scan-002・FLAG-scan-007・FLAG-scan-016）に残していた。[foundation A10](./2026-10-12-foundation.md#A10) のとおり、実装の前に IR を経路によらない文に書き直す。
 
-Position: C1〜C7 は決まった。IR の書き直しから始める。
+Position: C1〜C8 は決まった。IR の書き直しから始める。
 
 ## Agreements
 
@@ -29,3 +29,6 @@ Position: C1〜C7 は決まった。IR の書き直しから始める。
 - C7 走査の規則は、まとめて集める形で動く（[foundation A5](./2026-10-12-foundation.md#A5)）。SSH は一度の find で部分木の生の項目を集め、ディレクトリへの symlink を辿るときだけ、そのリンク先をもう一度まとめて集める。
   - why: 項目ごと・ディレクトリごとに尋ねると SSH の往復で使えない速さになる。
   - decided_by: 利用者（[foundation A5](./2026-10-12-foundation.md#A5) から導いた。自走の指示により書き下ろした）
+- C8 include の値を飛ばすときの警告（[REQ-config-032](../../ir/config/include.md#REQ-config-032)）と、root_dir の外へ解決される値を使わないときの警告（[REQ-config-033](../../ir/config/include.md#REQ-config-033)）は、値を含めて標準エラーに出す。
+  - why: 承認済みの IR がすでにこう書いているが、引いている決定に標準エラーと値を含めることが書かれておらず、突き合わせで出典の欠けとして出た。警告を標準出力に出すと JSON の出力を壊すので、ほかの警告と同じく標準エラーにする。
+  - decided_by: 利用者（承認済みの IR の文を出典の欠けとして補った。自走の指示により書き下ろした）
