@@ -25,11 +25,6 @@ pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
 };
 #[cfg(test)]
-pub(crate) use remote_merge_engine::local_io::{
-    chmod_local_file, compute_local_hashes_batch, create_local_symlink, remove_local_file,
-    stat_local_files,
-};
-#[cfg(test)]
 pub(crate) use remote_merge_engine::local_io::{compute_local_file_hash, extract_hash_string};
 
 /// Agent read_files のチャンクサイズ上限 (4 MB)。
@@ -1869,105 +1864,6 @@ mod tests {
         assert!(!refusal.is::<FileTooLarge>(), "{refusal:#}");
     }
 
-    // ── stat_local_files テスト ──
-
-    #[test]
-    fn test_stat_local_files_empty_paths() {
-        let tmp = TempDir::new().unwrap();
-        let results = stat_local_files(tmp.path(), &[]).unwrap();
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_stat_local_files_existing_file_has_mtime() {
-        let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("a.txt"), "content").unwrap();
-        let paths = vec!["a.txt".to_string()];
-        let results = stat_local_files(tmp.path(), &paths).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "a.txt");
-        assert!(results[0].1.is_some());
-    }
-
-    #[test]
-    fn test_stat_local_files_missing_file_returns_none() {
-        let tmp = TempDir::new().unwrap();
-        let paths = vec!["nonexistent.txt".to_string()];
-        let results = stat_local_files(tmp.path(), &paths).unwrap();
-        assert_eq!(results.len(), 1);
-        assert!(results[0].1.is_none());
-    }
-
-    #[test]
-    fn test_stat_local_files_mixed() {
-        let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("exists.txt"), "data").unwrap();
-        let paths = vec![
-            "exists.txt".to_string(),
-            "missing.txt".to_string(),
-            "also_missing.txt".to_string(),
-        ];
-        let results = stat_local_files(tmp.path(), &paths).unwrap();
-        assert_eq!(results.len(), 3);
-        assert!(results[0].1.is_some());
-        assert!(results[1].1.is_none());
-        assert!(results[2].1.is_none());
-    }
-
-    // ── chmod_local_file テスト ──
-
-    #[test]
-    fn test_chmod_local_file_nonexistent() {
-        let tmp = TempDir::new().unwrap();
-        let result = chmod_local_file(&tmp.path().join("nonexistent.txt"), 0o644);
-        assert!(result.is_err());
-    }
-
-    // ── remove_local_file テスト ──
-
-    #[test]
-    fn test_remove_local_file_nonexistent() {
-        let tmp = TempDir::new().unwrap();
-        let result = remove_local_file(&tmp.path().join("nonexistent.txt"));
-        assert!(result.is_err());
-    }
-
-    // ── create_local_symlink テスト ──
-
-    #[test]
-    fn creating_a_local_symlink_where_a_link_a_file_or_a_directory_exists_fails_without_change() {
-        let tmp = TempDir::new().unwrap();
-        let link_path = tmp.path().join("link.txt");
-        std::os::unix::fs::symlink("target1.txt", &link_path).unwrap();
-        let file_path = tmp.path().join("file.txt");
-        std::fs::write(&file_path, "regular content").unwrap();
-        let dir_path = tmp.path().join("dir");
-        std::fs::create_dir(&dir_path).unwrap();
-
-        assert!(create_local_symlink(&link_path, "target2.txt").is_err());
-        assert!(create_local_symlink(&file_path, "new_target").is_err());
-        assert!(create_local_symlink(&dir_path, "new_target").is_err());
-
-        assert_eq!(
-            std::fs::read_link(&link_path).unwrap().to_string_lossy(),
-            "target1.txt"
-        );
-        assert_eq!(
-            std::fs::read_to_string(&file_path).unwrap(),
-            "regular content"
-        );
-        assert_eq!(std::fs::read_dir(&dir_path).unwrap().count(), 0);
-    }
-
-    #[test]
-    fn test_create_local_symlink_creates_parent_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let link_path = tmp.path().join("a").join("b").join("link.txt");
-
-        create_local_symlink(&link_path, "target").unwrap();
-        assert!(link_path.symlink_metadata().unwrap().is_symlink());
-    }
-
     // ── restore_local_files テスト ──
 
     // ── connect_if_remote / disconnect_if_remote テスト ──
@@ -2771,7 +2667,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
 
-        let result = compute_local_file_hash(tmp.path(), "test.txt");
+        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("test.txt").unwrap());
         match result {
             crate::agent::protocol::FileHashResult::Ok { path, hash } => {
                 assert_eq!(path, "test.txt");
@@ -2790,7 +2686,7 @@ mod tests {
         std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
         std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
 
-        let result = compute_local_file_hash(tmp.path(), "link.txt");
+        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("link.txt").unwrap());
         match result {
             crate::agent::protocol::FileHashResult::Symlink { path, target } => {
                 assert_eq!(path, "link.txt");
@@ -2804,7 +2700,8 @@ mod tests {
     fn test_compute_local_file_hash_nonexistent() {
         let tmp = tempfile::TempDir::new().unwrap();
 
-        let result = compute_local_file_hash(tmp.path(), "nonexistent.txt");
+        let result =
+            compute_local_file_hash(tmp.path(), &EntryPath::parse("nonexistent.txt").unwrap());
         assert!(matches!(
             result,
             crate::agent::protocol::FileHashResult::Error { .. }
@@ -2816,7 +2713,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
 
-        let result = compute_local_file_hash(tmp.path(), "empty.txt");
+        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("empty.txt").unwrap());
         match result {
             crate::agent::protocol::FileHashResult::Ok { hash, .. } => {
                 // SHA-256 of empty string
@@ -2860,53 +2757,6 @@ mod tests {
             reason: "error".into(),
         };
         assert!(extract_hash_string(&result).is_none());
-    }
-
-    // ── compute_local_hashes_batch テスト ──
-
-    #[test]
-    fn test_compute_local_hashes_batch_multiple_files() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("a.txt"), "aaa").unwrap();
-        std::fs::write(tmp.path().join("b.txt"), "bbb").unwrap();
-
-        let paths = vec!["a.txt".to_string(), "b.txt".to_string()];
-        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
-        assert_eq!(hashes.len(), 2);
-        assert!(hashes.contains_key("a.txt"));
-        assert!(hashes.contains_key("b.txt"));
-        assert_ne!(hashes["a.txt"], hashes["b.txt"]);
-    }
-
-    #[test]
-    fn test_compute_local_hashes_batch_skips_errors() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("exists.txt"), "data").unwrap();
-
-        let paths = vec!["exists.txt".to_string(), "missing.txt".to_string()];
-        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
-        assert_eq!(hashes.len(), 1);
-        assert!(hashes.contains_key("exists.txt"));
-    }
-
-    #[test]
-    fn test_compute_local_hashes_batch_empty() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let hashes = compute_local_hashes_batch(tmp.path(), &[]);
-        assert!(hashes.is_empty());
-    }
-
-    #[test]
-    fn test_compute_local_hashes_batch_includes_symlinks() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
-        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
-
-        let paths = vec!["link.txt".to_string()];
-        let hashes = compute_local_hashes_batch(tmp.path(), &paths);
-        assert_eq!(hashes.len(), 1);
-        // シンボリックリンクはターゲットパスを返す
-        assert_eq!(hashes["link.txt"], "target.txt");
     }
 
     // ── hash_results_to_map テスト ──
