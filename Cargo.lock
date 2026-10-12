@@ -1877,6 +1877,7 @@ dependencies = [
  "dirs",
  "glob-match",
  "hmac",
+ "libc",
  "proptest",
  "remote-merge-agent",
  "remote-merge-config",

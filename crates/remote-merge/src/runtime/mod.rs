@@ -6,6 +6,8 @@ pub mod change_check;
 pub(crate) mod confirm;
 pub mod connection;
 pub mod core;
+mod local_ops;
+mod local_target;
 #[cfg(feature = "test-utils")]
 pub mod path_route;
 #[cfg(not(feature = "test-utils"))]

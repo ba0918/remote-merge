@@ -39,6 +39,7 @@ zeroize = "1"
 test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
+libc = "0.2"
 tempfile = "3"
 serial_test = "3"
 proptest = "1.11.0"

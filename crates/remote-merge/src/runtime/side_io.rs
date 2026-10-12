@@ -25,9 +25,22 @@ use remote_merge_engine::scan_result::into_tree;
 
 #[cfg(test)]
 use remote_merge_engine::local_io::check_truncation;
-pub(crate) use remote_merge_engine::local_io::hash_results_to_map;
-#[cfg(test)]
-pub(crate) use remote_merge_engine::local_io::{compute_local_file_hash, extract_hash_string};
+
+/// エージェントのハッシュの結果を、パスからハッシュ（symlink はリンク先）への対応にする。
+/// 読めなかったパスは入れない（大きさ・読み込み・ハッシュをパスごとの結果にするまでのつなぎ）
+pub(crate) fn hash_results_to_map(
+    results: &[crate::agent::protocol::FileHashResult],
+) -> HashMap<String, String> {
+    use crate::agent::protocol::FileHashResult;
+    results
+        .iter()
+        .filter_map(|result| match result {
+            FileHashResult::Ok { path, hash } => Some((path.clone(), hash.clone())),
+            FileHashResult::Symlink { path, target } => Some((path.clone(), target.clone())),
+            FileHashResult::Error { .. } => None,
+        })
+        .collect()
+}
 
 /// Agent read_files のチャンクサイズ上限 (4 MB)。
 ///
@@ -1189,8 +1202,9 @@ pub(crate) fn remote_shown_root(server_name: &str, root_dir: &std::path::Path) -
 mod tests {
     use super::*;
     use crate::runtime::core::CoreRuntime;
+    use crate::runtime::local_target::LocalTargetIo;
     use crate::runtime::size_limit::{FileTooLarge, SizeLimit, MAX_BINARY_FILE_SIZE};
-    use crate::runtime::target_io::{LocalTargetIo, TargetIo};
+    use crate::runtime::target_io::TargetIo;
     use tempfile::TempDir;
 
     /// テスト用の CoreRuntime を tempdir をルートにして作成する
@@ -2622,105 +2636,6 @@ mod tests {
         let children = rt.fetch_children(&Side::Local, "").unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "src");
-    }
-
-    // ── compute_local_file_hash テスト ──
-
-    #[test]
-    fn test_compute_local_file_hash_regular_file() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
-
-        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("test.txt").unwrap());
-        match result {
-            crate::agent::protocol::FileHashResult::Ok { path, hash } => {
-                assert_eq!(path, "test.txt");
-                assert_eq!(
-                    hash,
-                    "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-                );
-            }
-            other => panic!("expected Ok, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_compute_local_file_hash_symlink() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("target.txt"), "data").unwrap();
-        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
-
-        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("link.txt").unwrap());
-        match result {
-            crate::agent::protocol::FileHashResult::Symlink { path, target } => {
-                assert_eq!(path, "link.txt");
-                assert_eq!(target, "target.txt");
-            }
-            other => panic!("expected Symlink, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_compute_local_file_hash_nonexistent() {
-        let tmp = tempfile::TempDir::new().unwrap();
-
-        let result =
-            compute_local_file_hash(tmp.path(), &EntryPath::parse("nonexistent.txt").unwrap());
-        assert!(matches!(
-            result,
-            crate::agent::protocol::FileHashResult::Error { .. }
-        ));
-    }
-
-    #[test]
-    fn test_compute_local_file_hash_empty_file() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
-
-        let result = compute_local_file_hash(tmp.path(), &EntryPath::parse("empty.txt").unwrap());
-        match result {
-            crate::agent::protocol::FileHashResult::Ok { hash, .. } => {
-                // SHA-256 of empty string
-                assert_eq!(
-                    hash,
-                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                );
-            }
-            other => panic!("expected Ok, got {other:?}"),
-        }
-    }
-
-    // ── extract_hash_string テスト ──
-
-    #[test]
-    fn test_extract_hash_string_ok() {
-        let result = crate::agent::protocol::FileHashResult::Ok {
-            path: "a.txt".into(),
-            hash: "abc123".into(),
-        };
-        let (path, hash) = extract_hash_string(&result).unwrap();
-        assert_eq!(path, "a.txt");
-        assert_eq!(hash, "abc123");
-    }
-
-    #[test]
-    fn test_extract_hash_string_symlink() {
-        let result = crate::agent::protocol::FileHashResult::Symlink {
-            path: "link".into(),
-            target: "/opt/target".into(),
-        };
-        let (path, target) = extract_hash_string(&result).unwrap();
-        assert_eq!(path, "link");
-        assert_eq!(target, "/opt/target");
-    }
-
-    #[test]
-    fn test_extract_hash_string_error() {
-        let result = crate::agent::protocol::FileHashResult::Error {
-            path: "fail.txt".into(),
-            reason: "error".into(),
-        };
-        assert!(extract_hash_string(&result).is_none());
     }
 
     // ── hash_results_to_map テスト ──

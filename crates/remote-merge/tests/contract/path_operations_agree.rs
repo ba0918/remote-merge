@@ -18,6 +18,9 @@ use remote_merge::runtime::CoreRuntime;
 use remote_merge::side::Side;
 use remote_merge::tree::{FileNode, NodeKind};
 use remote_merge_core::listing::{list_children_with, ChildListing, ListingReader};
+use remote_merge_core::machine_ops::PermissionMode;
+use remote_merge_core::op_failure::{OpError, OpFailure, Operation};
+use remote_merge_core::relative_path::EntryPath;
 
 use super::server_faults::Faults;
 use super::ssh_server::TestServer;
@@ -253,10 +256,15 @@ impl<T: std::fmt::Debug> Outcomes<T> {
     }
 }
 
+/// ローカルの経路の失敗の文言（操作の失敗の型から一か所で作るもの）
+fn local_error(operation: Operation, path: &EntryPath, failure: OpFailure) -> String {
+    OpError::new(operation, path.as_typed(), failure).to_string()
+}
+
 fn remove_on_all_routes(routes: &Routes, path: &'static str) -> Outcomes<()> {
     let rel = &remote_merge_core::relative_path::EntryPath::parse(path).unwrap();
-    let local = remote_merge_engine::local_io::remove_file(&routes.local.root, rel)
-        .map_err(|error| error.to_string());
+    let local = remote_merge_core::machine_ops::remove(&routes.local.root, rel)
+        .map_err(|failure| local_error(Operation::Remove, rel, failure));
     let ssh = operation_outcome(routes.over_ssh(&format!("remove\t{path}")));
     let agent = routes.over_agent(|agent| agent.client.remove(rel).map_err(|e| e.to_string()));
     Outcomes { local, ssh, agent }
@@ -264,8 +272,12 @@ fn remove_on_all_routes(routes: &Routes, path: &'static str) -> Outcomes<()> {
 
 fn chmod_on_all_routes(routes: &Routes, path: &'static str, mode: u32) -> Outcomes<()> {
     let rel = &remote_merge_core::relative_path::EntryPath::parse(path).unwrap();
-    let local = remote_merge_engine::local_io::chmod_file(&routes.local.root, rel, mode)
-        .map_err(|error| error.to_string());
+    let local = PermissionMode::new(mode)
+        .map_err(|error| format!("cannot change permissions of {path}: {error}"))
+        .and_then(|mode| {
+            remote_merge_core::machine_ops::chmod(&routes.local.root, rel, mode)
+                .map_err(|failure| local_error(Operation::Chmod, rel, failure))
+        });
     let ssh = operation_outcome(routes.over_ssh(&format!("chmod\t{path}\t{mode:o}")));
     let agent = routes.over_agent(|agent| agent.client.chmod(rel, mode).map_err(|e| e.to_string()));
     Outcomes { local, ssh, agent }

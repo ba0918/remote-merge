@@ -62,6 +62,16 @@ Position: 段 3 の方針（D1〜D12・D14・D18〜D20）と IR の書き直し�
   - why: エージェントの応答が読めないと、その通信の流れのその後の応答も信用できず、結果も分からない。起動し直すのが正しい扱いなので接続断と同じにする（[REQ-ssh-023](../../ir/ssh/reconnect.md#REQ-ssh-023) の一度のやり直しが効く）。SSH の答えの形が壊れているのは、リモートの道具がこちらの知らない振る舞いをしたときで、書き込みの結果も分からない。接続断と同じく確かめて止めれば、止まる側に倒れる。
   - decided_by: Claude（読めない応答を続けて扱うと、ファイル一つの失敗として握りつぶすおそれがあるため。自走の指示により決めた）
 
+- D21 SSH の経路で道具が "Operation not permitted"（EPERM）で終わる文言を出したときも、権限がないにする。D2 はローカルとエージェントで EPERM を権限がないに訳すと決めており、`ls -d` の三つの文言だけを見ると、他人の持ち物のファイルの権限の変更が SSH でだけ I/O になる。
+  - why: 同じ状態の同じ失敗はどの経路でも同じ種類にする（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。EPERM の文言は CentOS 5〜7 と BusyBox の chmod で確かめた（[リモートの道具の違い](../../remote-tools.md)）。
+  - decided_by: Claude（D2 と REQ-paths-020 から一通りに決まるため。自走の指示により決めた）
+- D22 製品のテスト `req_cli_022_the_reason_for_an_unreadable_link_target_carries_the_read_failure`（tests/cli_diff.rs）は、読めない参照先の理由に、ローカルの OS の誤りの表示（"Permission denied (os error 13)"）がそのまま入ることを確かめていた。理由の文言は失敗の型から一か所で作る（D1）ので、経路によらない権限がないの文言（"permission denied"）が入ることを確かめるテストに直す。
+  - why: OS の表示を固定すると、SSH とエージェントの経路が同じ種類の失敗に同じ理由を出せず、[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020) と食い違う。REQ-cli-022 は理由を示すことを求め、OS の表示までは求めていない（D14）。
+  - decided_by: Claude（D1・D14 から導いた。自走の指示により決めた）
+- D23 engine の local_io の単体テスト `test_compute_local_hashes_batch_skips_errors` は、ハッシュを取れなかったパスを結果から黙って外すことを確かめていた。ローカルの経路のハッシュは、取れなかったパスを失敗の種類付きの誤りにする。古い local_io の項目の操作は `machine_ops` に置き換えて消し、そのほかの単体テストは同じ振る舞いを `machine_ops` のテストで確かめる。
+  - why: 失敗した操作の結果を、ないことや空として扱わない（[REQ-paths-020](../../ir/paths/operations.md#REQ-paths-020)）。外したパスは呼び出し側で「ハッシュで比べられない」と区別できず、中身の比べ方に黙って移る（D14）。
+  - decided_by: Claude（REQ-paths-020 から導いた。自走の指示により決めた）
+
 ## Rejected
 
 - D15 SSH の経路でも、操作の失敗を見分けられないときは今のとおり経路の例外として IR に残す。

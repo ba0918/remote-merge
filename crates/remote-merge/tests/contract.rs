@@ -174,6 +174,9 @@ mod merge_support;
 mod merge_symlink_changed_routes;
 #[path = "contract/merge_write.rs"]
 mod merge_write;
+#[cfg(unix)]
+#[path = "contract/op_failure_kinds.rs"]
+mod op_failure_kinds;
 #[cfg(feature = "test-utils")]
 #[path = "contract/path_arguments_cli.rs"]
 mod path_arguments_cli;

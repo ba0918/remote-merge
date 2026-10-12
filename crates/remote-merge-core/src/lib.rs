@@ -3,6 +3,8 @@ pub mod entry_link;
 pub mod error;
 pub mod filter;
 pub mod listing;
+pub mod machine_ops;
+pub mod op_failure;
 pub mod operations;
 pub mod path_resolution;
 pub mod relative_path;

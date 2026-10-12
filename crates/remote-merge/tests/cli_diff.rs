@@ -2143,13 +2143,14 @@ fn req_cli_022_the_reason_for_an_unreadable_link_target_carries_the_read_failure
     if !make_unreadable(&target) {
         return;
     }
-    let read_failure = std::fs::read(&target).unwrap_err().to_string();
+    // 読み込みの失敗は経路によらない種類の文言で示す（REQ-paths-020）
+    let read_failure = "permission denied";
 
     let (output, json) = diff_json(&env, &["link.txt"]);
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     let reason = json["errors"][0]["reason"].as_str().unwrap_or_default();
-    assert!(reason.contains(&read_failure), "{read_failure}: {json}");
+    assert!(reason.contains(read_failure), "{read_failure}: {json}");
 }
 
 // 読めなかった理由は、名前で読むときも走査して読むときも同じ形で出す
