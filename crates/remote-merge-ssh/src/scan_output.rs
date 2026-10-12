@@ -3,7 +3,7 @@
 
 use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
 
-use crate::scan_checks::{apply_checks, split_stderr};
+use crate::scan_checks::{apply_checks, place_vanished, split_stderr};
 use crate::scan_recheck::{empty_dirs, EmptyDir};
 use crate::scan_tokens::Tokens;
 
@@ -165,10 +165,11 @@ pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Resu
     if groups.next().is_some() {
         return Err("The scan output has directory checks for no question".into());
     }
-    let explained = crate::scan_diagnostics::validate(&parts.diagnostics, &checks)?;
-    if explained == 0 && statuses.iter().any(|status| status != b"0") {
+    let read = crate::scan_diagnostics::validate(&parts.diagnostics, &checks)?;
+    if read.explained == 0 && statuses.iter().any(|status| status != b"0") {
         return Err("find failed without saying which directory it could not read".into());
     }
+    place_vanished(&mut answers, questions, &read.vanished)?;
     Ok(Parsed { answers, empty })
 }
 

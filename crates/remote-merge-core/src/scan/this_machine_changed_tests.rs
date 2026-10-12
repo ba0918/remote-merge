@@ -23,3 +23,29 @@ fn only_a_missing_or_non_directory_path_counts_as_changed() {
     assert!(!went_away(&Error::from(ErrorKind::PermissionDenied)));
     assert!(!went_away(&Error::other("io")));
 }
+
+// @kotowari[REQ-scan-017, REQ-scan-014]
+#[test]
+fn an_entry_gone_before_its_information_was_read_is_answered_as_changed() {
+    use std::io::{Error, ErrorKind};
+    let mut tree = unreadable_start(Path::new("/"), &Error::from(ErrorKind::Other));
+    tree.unreadable.clear();
+    child_unreadable(
+        &mut tree,
+        b"d/gone".to_vec(),
+        &Error::from(ErrorKind::NotFound),
+    );
+    child_unreadable(
+        &mut tree,
+        b"d/locked".to_vec(),
+        &Error::from(ErrorKind::PermissionDenied),
+    );
+    assert_eq!(tree.changed, [b"d/gone".to_vec()]);
+    assert_eq!(
+        tree.unreadable_entries,
+        [UnreadableDir::new(
+            b"d/locked".to_vec(),
+            ReadCause::PermissionDenied
+        )]
+    );
+}

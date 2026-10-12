@@ -7,7 +7,10 @@
 
 use std::collections::HashMap;
 
-use remote_merge_core::scan::raw::{join_relative, ReadCause, Subtree, UnreadableDir};
+use remote_merge_core::scan::raw::{join_relative, Answer, ReadCause, Subtree, UnreadableDir};
+
+use crate::scan_fields::printed_start;
+use crate::scan_script::ScriptQuestion;
 
 pub use crate::scan_diagnostics::DirCheck;
 
@@ -149,6 +152,34 @@ pub fn apply_checks(tree: &mut Subtree, checks: &[DirCheck], start: &[u8]) -> Re
         Some(extra) => Err(mismatch("not listed", &extra.printed)),
         None => Ok(()),
     }
+}
+
+/// find が「もうない」と知らせた項目（find に渡した形のパス）を、それを含む部分木に変わった
+/// ものとして入れる。どの部分木にも入らない知らせは誤りにする
+pub fn place_vanished(
+    answers: &mut [Answer],
+    questions: &[ScriptQuestion],
+    vanished: &[Vec<u8>],
+) -> Result<(), String> {
+    for path in vanished {
+        let mut placed = false;
+        for (question, answer) in questions.iter().zip(answers.iter_mut()) {
+            let Some(tree) = &mut answer.subtree else {
+                continue;
+            };
+            if let Some(rel) = relative(path, &printed_start(question)) {
+                tree.changed.push(rel);
+                placed = true;
+            }
+        }
+        if !placed {
+            return Err(format!(
+                "find reported a missing entry outside the scan: {}",
+                String::from_utf8_lossy(path)
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// find に渡した形のパスの、起点からの相対パス

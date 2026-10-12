@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use super::outcome::{ListedEntry, ListedKind, ScanError, ScanFailure};
-use super::raw::{DirId, RawEntry, RawTime};
+use super::raw::{DirId, RawEntry, RawTime, ReadCause, Subtree};
 use crate::unreadable_name::escape_non_utf8;
 
 pub(crate) fn join(base: &[u8], rel: &[u8]) -> Vec<u8> {
@@ -98,4 +98,37 @@ pub(super) fn parent_of(path: &[u8]) -> &[u8] {
     path.iter()
         .rposition(|byte| *byte == b'/')
         .map_or(&path[..0], |at| &path[..at])
+}
+
+/// 起点の下の並びの一つ
+pub(super) enum Item<'a> {
+    Entry(&'a RawEntry),
+    /// 情報を読めなかった項目
+    Unread(ReadCause),
+    /// 一覧に出た後で変わった項目
+    Changed,
+}
+
+impl Item<'_> {
+    fn is_changed(&self) -> bool {
+        matches!(self, Self::Changed)
+    }
+}
+
+/// 起点の下の項目と、情報を読めなかった項目と、変わった項目を、パスの順に並べる。同じパスでは
+/// 変わったことを先に置く
+pub(super) fn in_path_order(tree: &Subtree) -> Vec<(&[u8], Item<'_>)> {
+    let mut sorted: Vec<(&[u8], Item)> = tree
+        .entries
+        .iter()
+        .map(|entry| (entry.path.as_slice(), Item::Entry(entry)))
+        .chain(
+            tree.unreadable_entries
+                .iter()
+                .map(|item| (item.path.as_slice(), Item::Unread(item.cause))),
+        )
+        .chain(tree.changed.iter().map(|p| (p.as_slice(), Item::Changed)))
+        .collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0).then(b.1.is_changed().cmp(&a.1.is_changed())));
+    sorted
 }

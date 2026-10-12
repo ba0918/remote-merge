@@ -17,18 +17,37 @@ pub struct DirCheck {
     pub names: Vec<Vec<u8>>,
 }
 
-/// 知らせがすべて確かめた結果と合うかを確かめ、合った知らせの数を返す。ディレクトリについての
-/// 知らせはそのディレクトリが読めないか検索できないとき、項目についての知らせはそれを入れている
-/// ディレクトリが検索できないときだけ合う
-pub fn validate(diagnostics: &[u8], checks: &[DirCheck]) -> Result<usize, String> {
+/// 知らせを照らし合わせた結果
+#[derive(Debug, PartialEq, Eq)]
+pub struct Validated {
+    /// 確かめた結果と合った知らせの数
+    pub explained: usize,
+    /// 一覧に出たのに、情報を取りに行ったらなかった項目（find に渡した形のパス）
+    pub vanished: Vec<Vec<u8>>,
+}
+
+/// 項目がもうないときの知らせの終わり（LC_ALL=C）
+const VANISHED: &[u8] = b": No such file or directory";
+
+/// 知らせがすべて確かめた結果と合うかを確かめる。ディレクトリについての知らせはそのディレクトリが
+/// 読めないか検索できないとき、項目についての知らせはそれを入れているディレクトリが検索できない
+/// ときだけ合う。項目がもうないという知らせは、走査の途中で変わった項目として返す
+pub fn validate(diagnostics: &[u8], checks: &[DirCheck]) -> Result<Validated, String> {
     let checked: HashMap<&[u8], &DirCheck> = checks
         .iter()
         .map(|check| (check.printed.as_slice(), check))
         .collect();
     let mut explained = 0;
+    let mut vanished = Vec::new();
     for message in messages(diagnostics) {
         let unexplained = || format!("find reported: {}", String::from_utf8_lossy(&message));
         let path = diagnosed_path(&message).ok_or_else(unexplained)?;
+        // 一覧に出た名前の情報を取りに行ったら、もうなかった（docs/remote-tools.md）
+        if message.ends_with(VANISHED) {
+            vanished.push(path);
+            explained += 1;
+            continue;
+        }
         let fits = match checked.get(path.as_slice()) {
             Some(check) => !check.readable || !check.searchable,
             None => path
@@ -42,7 +61,10 @@ pub fn validate(diagnostics: &[u8], checks: &[DirCheck]) -> Result<usize, String
         }
         explained += 1;
     }
-    Ok(explained)
+    Ok(Validated {
+        explained,
+        vanished,
+    })
 }
 
 /// 標準エラーを find の知らせ一つずつに分ける。古い find（4.2.27）はパスを引用しないので、名前の
@@ -117,7 +139,11 @@ mod validate_tests {
             "find: './d/x': Permission denied",
         ];
         for line in fits {
-            assert_eq!(validate(&stderr(line), &checks), Ok(1), "{line}");
+            assert_eq!(
+                validate(&stderr(line), &checks).map(|read| read.explained),
+                Ok(1),
+                "{line}"
+            );
         }
         let misfits = [
             "find: './ok': Permission denied",
@@ -128,5 +154,34 @@ mod validate_tests {
         for line in misfits {
             assert!(validate(&stderr(line), &checks).is_err(), "{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod vanished_tests {
+    use super::*;
+
+    // @kotowari[REQ-scan-017]
+    #[test]
+    fn an_entry_find_could_not_find_is_read_as_gone_in_every_quoting() {
+        let checks = [DirCheck {
+            printed: b"./ok".to_vec(),
+            readable: true,
+            searchable: true,
+            gone: false,
+            names: Vec::new(),
+        }];
+        let stderr = concat!(
+            "find: ./ok/a: No such file or directory\n",
+            "find: `./ok/b': No such file or directory\n",
+            "find: './ok/c': No such file or directory\n",
+        );
+        let read = validate(stderr.as_bytes(), &checks).unwrap();
+        assert_eq!(read.explained, 3);
+        assert_eq!(
+            read.vanished,
+            [b"./ok/a".to_vec(), b"./ok/b".to_vec(), b"./ok/c".to_vec()]
+        );
+        assert!(validate(b"find: './ok/d': Input/output error\n", &checks).is_err());
     }
 }

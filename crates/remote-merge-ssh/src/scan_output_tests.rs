@@ -90,3 +90,36 @@ fn a_record_kind_is_read_from_the_find_output() {
     let entries = &answers[0].subtree.as_ref().unwrap().entries;
     assert_eq!(entries[0].kind, RawKind::Other);
 }
+
+// @kotowari[REQ-scan-017]
+#[test]
+fn an_entry_find_reported_as_gone_is_answered_as_changed_in_its_subtree() {
+    let record = |path: &str| format!("d\x001\x002\x000\x00755\x004096\0\0{path}\0");
+    let answer = |start: &str| {
+        format!(
+            "@Q\0{}@T\0{}{}@R\x001\0@Z\0",
+            record(start),
+            record(start),
+            record(&format!("{start}/sub"))
+        )
+    };
+    let stdout = format!("@RMSCAN\0{}@END\0", answer("./q"));
+    let checks = "\0@QS\0\0@D\0./q\x0011\0@E\0\0@D\0./q/sub\x0011\0@E\0";
+    let questions = [ScriptQuestion {
+        path: b"q",
+        descend: true,
+    }];
+    let stderr = |message: &str| format!("@RMSCAN\n{checks}{message}").into_bytes();
+    let parsed = parse(
+        stdout.as_bytes(),
+        &stderr("find: `./q/sub/gone.txt': No such file or directory\n"),
+        &questions,
+    )
+    .unwrap();
+    assert_eq!(
+        parsed.answers[0].subtree.as_ref().unwrap().changed,
+        [b"sub/gone.txt".to_vec()]
+    );
+    let outside = stderr("find: './elsewhere': No such file or directory\n");
+    assert!(parse(stdout.as_bytes(), &outside, &questions).is_err());
+}

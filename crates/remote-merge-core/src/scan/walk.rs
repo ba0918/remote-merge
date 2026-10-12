@@ -1,13 +1,14 @@
 //! 集めた生の項目を一覧に載せる規則。exclude・件数・UTF-8 でない名前・循環・辿るか・読めない
 //! ときに止めるかをここで決める（docs/ir/scan/ と docs/ir/config/filters.md）。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::exclude::Exclude;
 use super::outcome::{ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
 use super::parts::{
-    changed, join, listed_entry, parent_ids, parent_of, shown, unreadable_directory,
+    changed, in_path_order, join, listed_entry, parent_ids, parent_of, shown, unreadable_directory,
+    Item,
 };
 use super::raw::{DirId, RawEntry, RawKind, ReadCause, Subtree};
 
@@ -79,10 +80,9 @@ impl<'a> Walk<'a> {
             .iter()
             .map(|dir| (dir.path.as_slice(), dir.cause))
             .collect();
-        // 一覧に載せた後で、ない・ディレクトリでない・中身が合わないと分かったディレクトリは、
-        // 読めないのではなく走査の途中で変わったもの（REQ-scan-017）
-        let changed_dirs: HashSet<&[u8]> = tree.changed.iter().map(Vec::as_slice).collect();
-        if changed_dirs.contains(&b""[..]) {
+        // 一覧に出た後で、ない・ディレクトリでない・中身が合わないと分かった項目は、読めない
+        // のではなく走査の途中で変わったもの（REQ-scan-017）
+        if tree.changed.iter().any(Vec::is_empty) {
             return Err(changed(base));
         }
         if let Some(cause) = unreadable.get(&b""[..]) {
@@ -94,32 +94,22 @@ impl<'a> Walk<'a> {
                 dir_ids.insert(&entry.path, entry.id);
             }
         }
-        // 項目と、情報を読めなかった項目を、パスの順に一つの並びで扱う。件数の上限や循環で
-        // 止まった位置より後ろのものには当たらない
-        let mut sorted: Vec<(&[u8], Option<&RawEntry>, Option<ReadCause>)> = tree
-            .entries
-            .iter()
-            .map(|entry| (entry.path.as_slice(), Some(entry), None))
-            .chain(
-                tree.unreadable_entries
-                    .iter()
-                    .map(|item| (item.path.as_slice(), None, Some(item.cause))),
-            )
-            .collect();
-        sorted.sort_by(|a, b| a.0.cmp(b.0));
-        for (rel, entry, unread) in sorted {
+        // 件数の上限や循環で止まった位置より後ろのものには当たらない
+        for (rel, item) in in_path_order(tree) {
             if self.stopped() {
                 return Ok(());
             }
             let path = join(base, rel);
-            let Some(entry) = entry else {
-                // 情報を読めなかった項目は、exclude に当たらなければ、それを入れている
-                // ディレクトリを読めなかったものにする（REQ-scan-014・REQ-config-044）
-                if self.exclude.excludes(&path) {
-                    continue;
+            let entry = match item {
+                Item::Entry(entry) => entry,
+                // exclude に当たる項目は見ない（REQ-config-044）
+                _ if self.exclude.excludes(&path) => continue,
+                Item::Changed => return Err(changed(&path)),
+                // 情報を読めなかった項目は、それを入れているディレクトリを読めなかったものに
+                // する（REQ-scan-014）
+                Item::Unread(cause) => {
+                    return Err(unreadable_directory(&join(base, parent_of(rel)), cause).into())
                 }
-                let cause = unread.unwrap_or(ReadCause::Other);
-                return Err(unreadable_directory(&join(base, parent_of(rel)), cause).into());
             };
             if entry.path.is_empty() || self.exclude.excludes(&path) {
                 continue;
@@ -129,9 +119,6 @@ impl<'a> Walk<'a> {
                 if ancestors.contains(&entry.id) {
                     self.cycle = Some(shown(&path));
                     return Ok(());
-                }
-                if changed_dirs.contains(entry.path.as_slice()) {
-                    return Err(changed(&path));
                 }
                 if let Some(cause) = unreadable.get(entry.path.as_slice()) {
                     return Err(unreadable_directory(&path, *cause).into());

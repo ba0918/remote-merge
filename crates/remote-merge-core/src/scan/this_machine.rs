@@ -113,10 +113,7 @@ fn collect_below(dir: &Path, logical: &[u8], exclude: &Exclude) -> Subtree {
             }
             // 情報を読めない項目は、その項目自身のパスで答える（どう扱うかは規則が決める）
             match std::fs::symlink_metadata(child.path()) {
-                Err(error) => {
-                    tree.unreadable_entries
-                        .push(UnreadableDir::new(child_rel, cause_of(&error)));
-                }
+                Err(error) => child_unreadable(&mut tree, child_rel, &error),
                 Ok(_) => {
                     let Ok(entry) = entry_at(&child.path(), child_rel.clone()) else {
                         tree.unreadable_entries
@@ -160,6 +157,16 @@ fn unreadable_start(dir: &Path, error: &std::io::Error) -> Subtree {
         unreadable_entries: Vec::new(),
         changed,
     }
+}
+
+/// 情報を読めなかった子の答え。一覧に出たのにもうないなら、走査の途中で変わったもの
+fn child_unreadable(tree: &mut Subtree, child_rel: Vec<u8>, error: &std::io::Error) {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        tree.changed.push(child_rel);
+        return;
+    }
+    tree.unreadable_entries
+        .push(UnreadableDir::new(child_rel, cause_of(error)));
 }
 
 /// 読みに行ったディレクトリが、もうないかディレクトリでなくなっていた（走査の途中で変わった）
