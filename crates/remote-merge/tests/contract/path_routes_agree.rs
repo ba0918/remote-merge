@@ -28,7 +28,11 @@ use remote_merge_core::path_resolution::ResolvedPath;
 type Outcome = Result<ResolvedPath, String>;
 
 fn local(root: &Path, rel: &str) -> Outcome {
-    remote_merge_engine::local_io::inspect_local_path(root, rel).map_err(|error| error.to_string())
+    remote_merge_engine::local_io::inspect_local_path(
+        root,
+        &remote_merge_core::relative_path::RelPath::parse(rel).unwrap(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// SSH のスクリプトを、PATH を `path_env` にした sh で動かす
@@ -91,7 +95,9 @@ fn agent_process(cwd: &Path, root: &str, rel: &str) -> Outcome {
         .unwrap();
     let mut client =
         AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap()).unwrap();
-    let inspection = client.inspect_path(rel).unwrap();
+    let inspection = client
+        .inspect_path(&remote_merge_core::relative_path::RelPath::parse(rel).unwrap())
+        .unwrap();
     drop(client);
     let _ = child.kill();
     let _ = child.wait();
@@ -355,7 +361,9 @@ fn a_relative_root_dir_from_a_removed_working_directory_stops_with_cannot_read_o
     .unwrap();
     let mut client =
         AgentClient::connect(child.stdout.take().unwrap(), child.stdin.take().unwrap()).unwrap();
-    let inspection = client.inspect_path("a.txt").unwrap();
+    let inspection = client
+        .inspect_path(&remote_merge_core::relative_path::RelPath::parse("a.txt").unwrap())
+        .unwrap();
     drop(client);
     let _ = child.kill();
     let _ = child.wait();

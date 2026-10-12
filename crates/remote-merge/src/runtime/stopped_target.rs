@@ -1,6 +1,7 @@
 //! `接続断` で処理を止めたサーバの比較先。読み書きは行わずに、行わなかったことを示す失敗にする
 //! （docs/ir/ssh/reconnect.md の REQ-ssh-022・REQ-ssh-003・REQ-ssh-023）。
 
+use remote_merge_core::relative_path::RelPath;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -32,46 +33,51 @@ impl StoppedTargetIo {
 }
 
 impl TargetIo for StoppedTargetIo {
-    fn inspect_path(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<ResolvedPath> {
+    fn inspect_path(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<ResolvedPath> {
         self.refuse(rt)
     }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<Vec<u8>> {
         self.refuse(rt)
     }
     fn file_sizes(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
+        _: &[RelPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         self.refuse(rt)
     }
     fn read_files_bytes_batch(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
+        _: &[RelPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         self.refuse(rt)
     }
-    fn write_file(&mut self, rt: &mut CoreRuntime, _: &str, _: &str) -> anyhow::Result<()> {
+    fn write_file(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: &str) -> anyhow::Result<()> {
         self.refuse(rt)
     }
-    fn write_file_bytes(&mut self, rt: &mut CoreRuntime, _: &str, _: &[u8]) -> anyhow::Result<()> {
+    fn write_file_bytes(
+        &mut self,
+        rt: &mut CoreRuntime,
+        _: &RelPath,
+        _: &[u8],
+    ) -> anyhow::Result<()> {
         self.refuse(rt)
     }
     fn stat_files(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
+        _: &[RelPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         self.refuse(rt)
     }
-    fn chmod_file(&mut self, rt: &mut CoreRuntime, _: &str, _: u32) -> anyhow::Result<()> {
+    fn chmod_file(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: u32) -> anyhow::Result<()> {
         self.refuse(rt)
     }
-    fn remove_file(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<()> {
+    fn remove_file(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<()> {
         self.refuse(rt)
     }
-    fn create_symlink(&mut self, rt: &mut CoreRuntime, _: &str, _: &str) -> anyhow::Result<()> {
+    fn create_symlink(&mut self, rt: &mut CoreRuntime, _: &RelPath, _: &str) -> anyhow::Result<()> {
         self.refuse(rt)
     }
     fn fetch_tree(&mut self, rt: &mut CoreRuntime) -> anyhow::Result<FileTree> {
@@ -96,22 +102,26 @@ impl TargetIo for StoppedTargetIo {
     fn fetch_tree_for_subpath(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &str,
+        _: &RelPath,
         _: usize,
         _: bool,
     ) -> anyhow::Result<FileTree> {
         self.refuse(rt)
     }
-    fn fetch_children(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<Vec<FileNode>> {
+    fn fetch_children(
+        &mut self,
+        rt: &mut CoreRuntime,
+        _: &RelPath,
+    ) -> anyhow::Result<Vec<FileNode>> {
         self.refuse(rt)
     }
-    fn list_children(&mut self, rt: &mut CoreRuntime, _: &str) -> anyhow::Result<ChildListing> {
+    fn list_children(&mut self, rt: &mut CoreRuntime, _: &RelPath) -> anyhow::Result<ChildListing> {
         self.refuse(rt)
     }
     fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &str,
+        _: &RelPath,
     ) -> anyhow::Result<Option<String>> {
         self.refuse(rt)
     }
@@ -127,14 +137,14 @@ impl TargetIo for StoppedTargetIo {
     fn hashes(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
+        _: &[RelPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         self.refuse(rt)
     }
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,
-        _: &[String],
+        _: &[RelPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
         self.refuse(rt)
     }

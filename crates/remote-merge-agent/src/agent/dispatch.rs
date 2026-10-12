@@ -4,7 +4,7 @@
 //! サービス層として動作し、stdin/stdout の知識は持たない。
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use sha2::{Digest, Sha256};
 
@@ -77,7 +77,7 @@ impl Dispatcher {
             AgentRequest::StatFiles { paths } => Some(vec![self.handle_stat_files(&paths)]),
             AgentRequest::InspectPath { path } => Some(refused_or(&path, |path| {
                 vec![AgentResponse::PathInspection {
-                    result: file_io::inspect_path(&self.root_dir, path.as_typed()),
+                    result: file_io::inspect_path(&self.root_dir, &path),
                 }]
             })),
             AgentRequest::Symlink { path, target } => Some(refused_or(&path, |path| {
@@ -86,13 +86,13 @@ impl Dispatcher {
             AgentRequest::Remove { path } => Some(refused_or(&path, |path| {
                 vec![operation_result(remote_merge_core::operations::remove(
                     &self.root_dir,
-                    path.as_typed(),
+                    &path,
                 ))]
             })),
             AgentRequest::Chmod { path, mode } => Some(refused_or(&path, |path| {
                 vec![operation_result(remote_merge_core::operations::chmod(
                     &self.root_dir,
-                    path.as_typed(),
+                    &path,
                     mode,
                 ))]
             })),
@@ -101,13 +101,10 @@ impl Dispatcher {
                 exclude,
                 max_entries,
             } => Some(refused_or(&path, |path| {
-                super::listing::list_dir(&self.root_dir, path.as_typed(), &exclude, max_entries)
+                super::listing::list_dir(&self.root_dir, &path, &exclude, max_entries)
             })),
             AgentRequest::ReadEntryLink { path } => Some(refused_or(&path, |path| {
-                vec![super::entry_link::read_entry_link(
-                    &self.root_dir,
-                    path.as_typed(),
-                )]
+                vec![super::entry_link::read_entry_link(&self.root_dir, &path)]
             })),
         }
     }
@@ -123,9 +120,10 @@ impl Dispatcher {
         include: &[String],
         max_entries: usize,
     ) -> Vec<AgentResponse> {
-        let scan_root = match resolve_scan_root(&self.root_dir, root.as_str()) {
-            Ok(p) => p,
-            Err(e) => return vec![AgentResponse::Error { message: e }],
+        let scan_root = if root.is_root() {
+            self.root_dir.clone()
+        } else {
+            self.root_dir.join(root.as_str())
         };
         let options = ScanOptions {
             root: scan_root,
@@ -184,13 +182,13 @@ impl Dispatcher {
         let mut current_results: Vec<FileReadResult> = Vec::new();
         let mut current_size: usize = 0;
 
-        for rel_path in paths.iter().map(RelPath::as_typed) {
+        for rel_path in &paths {
             let file_results =
                 match file_io::read_file_chunked(&self.root_dir, rel_path, chunk_size_limit) {
                     Ok(chunks) => chunks,
                     Err(e) => {
                         vec![FileReadResult::Error {
-                            path: rel_path.to_string(),
+                            path: rel_path.as_typed().to_string(),
                             message: e.to_string(),
                         }]
                     }
@@ -233,20 +231,10 @@ impl Dispatcher {
         let (paths, refused) = receipt::split_checked(paths);
         let mut results: Vec<FileHashResult> = Vec::with_capacity(paths.len());
 
-        for rel_path in paths.iter().map(|path| path.as_typed().to_string()) {
-            let rel_path = &rel_path;
-            // validate_path は canonicalize するため、シンボリックリンクを解決してしまう。
-            // symlink 判定は canonicalize 前の raw パスで行う必要がある。
-            let raw_path = self.root_dir.join(rel_path);
-
-            // パストラバーサル検証のみ validate_path を使用
-            if let Err(e) = file_io::validate_path(&self.root_dir, rel_path) {
-                results.push(FileHashResult::Error {
-                    path: rel_path.clone(),
-                    reason: e.to_string(),
-                });
-                continue;
-            }
+        for rel in &paths {
+            let rel_path = &rel.as_typed().to_string();
+            // symlink はリンク先を辿らずにリンク文字列を返すので、最後の要素は辿らない
+            let raw_path = self.root_dir.join(rel.as_str());
 
             // シンボリックリンク判定（raw パスで dereference せずチェック）
             match std::fs::symlink_metadata(&raw_path) {
@@ -304,6 +292,7 @@ impl Dispatcher {
         content: &[u8],
         more_to_follow: bool,
     ) -> AgentResponse {
+        let rel = rel_path;
         let rel_path = rel_path.as_typed();
         let is_first_chunk = !self.written_paths.contains(rel_path);
         let is_last_chunk = !more_to_follow;
@@ -319,7 +308,7 @@ impl Dispatcher {
 
         match file_io::write_file_with_metadata(
             &self.root_dir,
-            rel_path,
+            rel,
             content,
             is_first_chunk,
             is_last_chunk,
@@ -358,8 +347,9 @@ impl Dispatcher {
         let (paths, refused) = receipt::split_checked(paths);
         let mut entries = Vec::new();
 
-        for rel_path in paths.iter().map(RelPath::as_typed) {
-            match file_io::stat_file(&self.root_dir, rel_path) {
+        for rel in &paths {
+            let rel_path = rel.as_typed();
+            match file_io::stat_file(&self.root_dir, rel) {
                 Ok(stat) => entries.push(stat),
                 Err(e) => {
                     // handle_read_files と一貫性を持たせ、個別ファイルのエラーでは
@@ -375,7 +365,7 @@ impl Dispatcher {
     fn handle_symlink(&self, rel_path: &RelPath, target: &str) -> AgentResponse {
         match file_io::create_symlink_with_metadata(
             &self.root_dir,
-            rel_path.as_typed(),
+            rel_path,
             target,
             self.metadata_config.default_uid,
             self.metadata_config.default_gid,
@@ -392,8 +382,6 @@ impl Dispatcher {
     }
 }
 
-/// root パラメータを解決する。空文字列なら root_dir をそのまま使用。
-/// パストラバーサルを検出した場合はエラーを返す。
 /// Remove・Chmod の結果を応答にする。失敗の文言は操作・パス・原因を含む
 /// 一つのパスの要求の受け取り口。パスが入力の形の検査を通れば `handle` に渡し、通らなければ
 /// 拒んだ理由を返す
@@ -411,46 +399,6 @@ fn operation_result(result: anyhow::Result<()>) -> AgentResponse {
     AgentResponse::OperationResult {
         error: result.err().map(|error| error.to_string()),
     }
-}
-
-fn resolve_scan_root(root_dir: &Path, root: &str) -> Result<PathBuf, String> {
-    if root.is_empty() || root == "." {
-        return Ok(root_dir.to_path_buf());
-    }
-
-    // 絶対パスを拒否 — root_dir 外のディレクトリ走査を防止
-    if Path::new(root).is_absolute() {
-        return Err(format!("absolute path not allowed: {root}"));
-    }
-
-    // file_io::validate_path と同等のパストラバーサル検出
-    for component in Path::new(root).components() {
-        if matches!(component, std::path::Component::ParentDir) {
-            return Err(format!("path traversal detected: {root}"));
-        }
-    }
-
-    let joined = root_dir.join(root);
-
-    // 存在する場合は canonicalize して root_dir 配下か検証
-    if joined.exists() {
-        let canonical = joined
-            .canonicalize()
-            .map_err(|e| format!("failed to canonicalize: {e}"))?;
-        let root_canonical = root_dir
-            .canonicalize()
-            .map_err(|e| format!("failed to canonicalize root: {e}"))?;
-        if !canonical.starts_with(&root_canonical) {
-            return Err(format!(
-                "path escapes root directory: {} is not under {}",
-                canonical.display(),
-                root_canonical.display()
-            ));
-        }
-        return Ok(canonical);
-    }
-
-    Ok(joined)
 }
 
 /// FileReadResult のおおよそのシリアライズサイズを見積もる。

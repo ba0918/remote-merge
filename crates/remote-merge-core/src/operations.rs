@@ -4,23 +4,23 @@
 
 use std::path::Path;
 
-use crate::rel_path::operation_rel_path;
+use crate::relative_path::RelPath;
 
 /// 権限の変更で付けてよい値の上限。setuid・setgid・sticky は付けない
 pub const MAX_PERMISSION_MODE: u32 = 0o777;
 
 /// root_dir `root` の下の `path` を消す。末尾の symlink ならリンクだけを消し、ディレクトリと
 /// ないパスは消さずに失敗する
-pub fn remove(root: &Path, path: &str) -> anyhow::Result<()> {
-    let rel = operation_rel_path(path)?;
+pub fn remove(root: &Path, path: &RelPath) -> anyhow::Result<()> {
+    let rel = path.as_str();
     std::fs::remove_file(root.join(rel))
         .map_err(|error| anyhow::anyhow!("failed to remove {rel:?}: {error}"))
 }
 
 /// root_dir `root` の下の `path`（末尾の symlink はリンク先）の権限を `mode` にする。
 /// ディレクトリはすでに付いている setuid・setgid を残す（[`resulting_mode`]）
-pub fn chmod(root: &Path, path: &str, mode: u32) -> anyhow::Result<()> {
-    let rel = operation_rel_path(path)?;
+pub fn chmod(root: &Path, path: &RelPath, mode: u32) -> anyhow::Result<()> {
+    let rel = path.as_str();
     check_mode(rel, mode)?;
     set_mode(&root.join(rel), mode).map_err(|error| {
         anyhow::anyhow!("failed to change permissions of {rel:?} to {mode:o}: {error}")
@@ -65,6 +65,10 @@ fn set_mode(full: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    fn rel(path: &str) -> crate::relative_path::RelPath {
+        crate::relative_path::RelPath::parse(path).unwrap()
+    }
     use std::os::unix::fs::{symlink, PermissionsExt};
 
     fn mode_of(path: &Path) -> u32 {
@@ -99,26 +103,20 @@ mod tests {
             std::fs::Permissions::from_mode(0o644),
         )
         .unwrap();
-        let error = chmod(root.path(), "a.sh", 0o4755).unwrap_err().to_string();
+        let error = chmod(root.path(), &rel("a.sh"), 0o4755)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("a.sh") && error.contains("4755"), "{error}");
         assert_eq!(mode_of(&root.path().join("a.sh")), 0o644);
     }
 
     #[test]
-    fn a_trailing_slash_is_removed_after_the_path_is_checked() {
+    fn a_trailing_slash_is_removed_before_the_operation() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("t.txt"), "x").unwrap();
         symlink("t.txt", root.path().join("l")).unwrap();
-        remove(root.path(), "l/").unwrap();
+        remove(root.path(), &rel("l/")).unwrap();
         assert!(root.path().join("t.txt").exists());
         assert!(root.path().join("l").symlink_metadata().is_err());
-        assert_eq!(
-            remove(root.path(), "../x/").unwrap_err().to_string(),
-            "path traversal not allowed: ../x/"
-        );
-        assert_eq!(
-            chmod(root.path(), "/", 0o644).unwrap_err().to_string(),
-            "absolute subpath not allowed: /"
-        );
     }
 }

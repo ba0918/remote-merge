@@ -7,13 +7,14 @@ use remote_merge_core::listing::ChildListing;
 
 use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
+use remote_merge_core::relative_path::RelPath;
 
 impl CoreRuntime {
     /// エージェントで消す。エージェントがなければ None
     pub(crate) fn try_agent_remove(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
     ) -> Option<anyhow::Result<()>> {
         self.with_agent_operation(server_name, Access::Modify, |agent| agent.remove(rel_path))
     }
@@ -22,7 +23,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_chmod(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
         mode: u32,
     ) -> Option<anyhow::Result<()>> {
         self.with_agent_operation(server_name, Access::Modify, |agent| {
@@ -35,7 +36,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_list_children(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
         exclude: &[String],
         max_entries: usize,
     ) -> Option<anyhow::Result<ChildListing>> {
@@ -51,7 +52,7 @@ impl CoreRuntime {
     pub(crate) fn list_remote_children_on_route(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
         exclude: &[String],
         max_entries: usize,
     ) -> anyhow::Result<ChildListing> {
@@ -72,7 +73,7 @@ impl CoreRuntime {
     pub(crate) fn remote_entry_link_target(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
     ) -> anyhow::Result<Option<String>> {
         if let Some(target) = self.with_agent_operation(server_name, Access::Read, |agent| {
             agent.read_entry_link(rel_path)

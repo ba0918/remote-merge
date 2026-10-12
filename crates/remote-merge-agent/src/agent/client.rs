@@ -3,6 +3,7 @@
 //! リモートエージェントプロセスとフレームプロトコルで通信する。
 //! Read/Write に対してジェネリックなので、SSHチャネルでもパイプでもテスト可能。
 
+use remote_merge_core::relative_path::RelPath;
 use std::io::{Read, Write};
 
 use anyhow::{bail, Result};
@@ -71,14 +72,14 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// 失敗を返したのではないので、呼び出し元は SSH の経路に回さずに不完全な一覧として報告する
     pub fn list_tree(
         &mut self,
-        root: &str,
+        root: &RelPath,
         exclude: &[String],
         include: &[String],
         max_entries: usize,
     ) -> Result<TreeList> {
         // リクエスト送信（self.request() は単一レスポンス前提なので使わない）
         let data = protocol::serialize_request(&AgentRequest::ListTree {
-            root: root.to_string(),
+            root: root.as_typed().to_string(),
             exclude: exclude.to_vec(),
             include: include.to_vec(),
             max_entries,
@@ -142,12 +143,12 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// `is_last: true` まで読み続けて全結果を収集する。
     pub fn read_files(
         &mut self,
-        paths: &[String],
+        paths: &[RelPath],
         chunk_size_limit: usize,
     ) -> Result<Vec<FileReadResult>> {
         // リクエスト送信（ストリーミングのため self.request() は使わない）
         let data = protocol::serialize_request(&AgentRequest::ReadFiles {
-            paths: paths.to_vec(),
+            paths: typed(paths),
             chunk_size_limit,
         })?;
         framing::write_frame(&mut self.writer, &data)?;
@@ -182,9 +183,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// 複数ファイルの SHA-256 ハッシュを取得する（ストリーミング対応）。
-    pub fn hash_files(&mut self, paths: &[String]) -> Result<Vec<FileHashResult>> {
+    pub fn hash_files(&mut self, paths: &[RelPath]) -> Result<Vec<FileHashResult>> {
         let data = protocol::serialize_request(&AgentRequest::HashFiles {
-            paths: paths.to_vec(),
+            paths: typed(paths),
         })?;
         framing::write_frame(&mut self.writer, &data)?;
 
@@ -222,7 +223,8 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// チャンク転送の途中でエラーが発生した場合、サーバー側の
     /// `written_paths` は自動クリーンアップされる（dispatch.rs 参照）。
     /// リトライ時は最初のチャンクから再送すれば安全に上書きされる。
-    pub fn write_file(&mut self, path: &str, content: &[u8], is_binary: bool) -> Result<()> {
+    pub fn write_file(&mut self, path: &RelPath, content: &[u8], is_binary: bool) -> Result<()> {
+        let path = path.as_typed();
         if content.is_empty() {
             let resp = self.request(&AgentRequest::WriteFile {
                 path: path.to_string(),
@@ -249,9 +251,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// ファイルのメタデータを取得する。
-    pub fn stat_files(&mut self, paths: &[String]) -> Result<Vec<AgentFileStat>> {
+    pub fn stat_files(&mut self, paths: &[RelPath]) -> Result<Vec<AgentFileStat>> {
         let resp = self.request(&AgentRequest::StatFiles {
-            paths: paths.to_vec(),
+            paths: typed(paths),
         })?;
         match resp {
             AgentResponse::Stats { entries, refused } => {
@@ -264,9 +266,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         }
     }
 
-    pub fn inspect_path(&mut self, path: &str) -> Result<AgentPathInspection> {
+    pub fn inspect_path(&mut self, path: &RelPath) -> Result<AgentPathInspection> {
         let response = self.request(&AgentRequest::InspectPath {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
         })?;
         match response {
             AgentResponse::PathInspection { result } => Ok(result),
@@ -277,9 +279,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// シンボリックリンクを作成する。
-    pub fn symlink(&mut self, path: &str, target: &str) -> Result<()> {
+    pub fn symlink(&mut self, path: &RelPath, target: &str) -> Result<()> {
         let resp = self.request(&AgentRequest::Symlink {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
             target: target.to_string(),
         })?;
         match resp {
@@ -299,17 +301,17 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     }
 
     /// root_dir からの `path` を消す。失敗の応答は文言の Err にする
-    pub fn remove(&mut self, path: &str) -> Result<()> {
+    pub fn remove(&mut self, path: &RelPath) -> Result<()> {
         let response = self.request(&AgentRequest::Remove {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
         })?;
         check_operation_result(response, "Remove")
     }
 
     /// root_dir からの `path` の権限を `mode` にする。失敗の応答は文言の Err にする
-    pub fn chmod(&mut self, path: &str, mode: u32) -> Result<()> {
+    pub fn chmod(&mut self, path: &RelPath, mode: u32) -> Result<()> {
         let response = self.request(&AgentRequest::Chmod {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
             mode,
         })?;
         check_operation_result(response, "Chmod")
@@ -317,9 +319,9 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// root_dir からの `path` の項目そのもの（最後の要素のリンクは辿らない）が symlink ならそのリンク先。
     /// symlink でないか、ないなら None。拒まれたか読めなければ文言の Err にする
-    pub fn read_entry_link(&mut self, path: &str) -> Result<Option<String>> {
+    pub fn read_entry_link(&mut self, path: &RelPath) -> Result<Option<String>> {
         let response = self.request(&AgentRequest::ReadEntryLink {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
         })?;
         match response {
             AgentResponse::EntryLink { result } => match result {
@@ -336,12 +338,12 @@ impl<R: Read, W: Write> AgentClient<R, W> {
     /// root_dir からの `path` の直下の子を一覧する（分けて返された子は最後の応答まで集める）
     pub fn list_dir(
         &mut self,
-        path: &str,
+        path: &RelPath,
         exclude: &[String],
         max_entries: usize,
     ) -> Result<AgentDirListing> {
         let data = protocol::serialize_request(&AgentRequest::ListDir {
-            path: path.to_string(),
+            path: path.as_typed().to_string(),
             exclude: exclude.to_vec(),
             max_entries,
         })?;
@@ -471,6 +473,14 @@ fn decode(frame: &[u8]) -> Result<AgentResponse> {
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error).into())
 }
 
+/// 通信で送る、入力されたままの形のパス
+fn typed(paths: &[RelPath]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.as_typed().to_string())
+        .collect()
+}
+
 /// エージェントが入力の形の検査で拒んだパスがあれば、最初のものの理由をエラーにする
 fn check_refused(refused: Vec<protocol::RelPathError>) -> Result<()> {
     match refused.into_iter().next() {
@@ -515,6 +525,14 @@ fn check_write_result(resp: AgentResponse) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rel(path: &str) -> RelPath {
+        RelPath::parse(path).unwrap()
+    }
+
+    fn rels(paths: &[&str]) -> Vec<RelPath> {
+        paths.iter().map(|path| rel(path)).collect()
+    }
     use crate::agent::server::{run_agent_loop, MetadataConfig};
     use std::os::unix::net::UnixStream;
     use tempfile::TempDir;
@@ -555,7 +573,7 @@ mod tests {
     #[test]
     fn a_path_refused_by_the_agent_fails_each_request_with_the_typed_refusal() {
         let refusal = protocol::RelPathError::Traversal("../x".into());
-        let paths = ["ok.txt".to_string()];
+        let paths = rels(&["ok.txt"]);
         let errors = [
             answering(AgentResponse::Stats {
                 entries: Vec::new(),
@@ -583,7 +601,7 @@ mod tests {
             answering(AgentResponse::PathRefused {
                 refusal: refusal.clone(),
             })
-            .inspect_path("ok.txt")
+            .inspect_path(&rel("ok.txt"))
             .map(|_| ())
             .unwrap_err(),
         ];
@@ -677,7 +695,7 @@ mod tests {
     fn list_tree_empty_dir() {
         let tmp = TempDir::new().unwrap();
         let mut client = create_pair(&tmp);
-        let TreeList { entries, end, .. } = client.list_tree("", &[], &[], 10000).unwrap();
+        let TreeList { entries, end, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
         assert!(entries.is_empty());
         assert_eq!(end, TreeEnd::Complete);
     }
@@ -690,7 +708,7 @@ mod tests {
         std::fs::write(tmp.path().join("sub/inner.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let TreeList { entries, end, .. } = client.list_tree("", &[], &[], 10000).unwrap();
+        let TreeList { entries, end, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
 
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"hello.txt"));
@@ -708,9 +726,7 @@ mod tests {
         std::fs::write(tmp.path().join("test.txt"), "hello agent").unwrap();
 
         let mut client = create_pair(&tmp);
-        let results = client
-            .read_files(&["test.txt".to_string()], 1_048_576)
-            .unwrap();
+        let results = client.read_files(&rels(&["test.txt"]), 1_048_576).unwrap();
         assert_eq!(results.len(), 1);
         match &results[0] {
             FileReadResult::Ok { content, .. } => {
@@ -730,7 +746,7 @@ mod tests {
 
         let mut client = create_pair(&tmp);
         client
-            .write_file("out.txt", b"written data", false)
+            .write_file(&rel("out.txt"), b"written data", false)
             .unwrap();
 
         let content = std::fs::read_to_string(tmp.path().join("out.txt")).unwrap();
@@ -742,7 +758,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut client = create_pair(&tmp);
-        client.write_file("empty.txt", b"", false).unwrap();
+        client.write_file(&rel("empty.txt"), b"", false).unwrap();
 
         let content = std::fs::read(tmp.path().join("empty.txt")).unwrap();
         assert!(content.is_empty());
@@ -755,7 +771,7 @@ mod tests {
         let data = vec![0xABu8; WRITE_CHUNK_SIZE + 1000];
 
         let mut client = create_pair(&tmp);
-        client.write_file("large.bin", &data, true).unwrap();
+        client.write_file(&rel("large.bin"), &data, true).unwrap();
 
         let written = std::fs::read(tmp.path().join("large.bin")).unwrap();
         assert_eq!(written, data);
@@ -769,7 +785,7 @@ mod tests {
         std::fs::write(tmp.path().join("stat_me.txt"), "data").unwrap();
 
         let mut client = create_pair(&tmp);
-        let stats = client.stat_files(&["stat_me.txt".to_string()]).unwrap();
+        let stats = client.stat_files(&rels(&["stat_me.txt"])).unwrap();
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].size, 4);
     }
@@ -784,7 +800,7 @@ mod tests {
         // （dispatch 実装による — Stats が空配列を返すかもしれない）
         // 確実にエラーを検証するため、read_files で不正パスを試す
         let results = client
-            .read_files(&["nonexistent/path/abc123".to_string()], 1024)
+            .read_files(&rels(&["nonexistent/path/abc123"]), 1024)
             .unwrap();
         // エラーは FileReadResult::Error として返ってくる
         assert!(!results.is_empty());
@@ -823,7 +839,7 @@ mod tests {
         }
 
         let mut client = create_pair(&tmp);
-        let listing = client.list_dir("", &[], 10_000).unwrap();
+        let listing = client.list_dir(&rel(""), &[], 10_000).unwrap();
 
         let AgentDirListing::Children { entries } = listing else {
             panic!("{listing:?}");
@@ -843,7 +859,7 @@ mod tests {
         std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
 
         let mut client = create_pair(&tmp);
-        let results = client.hash_files(&["test.txt".to_string()]).unwrap();
+        let results = client.hash_files(&rels(&["test.txt"])).unwrap();
         assert_eq!(results.len(), 1);
         match &results[0] {
             protocol::FileHashResult::Ok { path, hash } => {
@@ -861,7 +877,7 @@ mod tests {
         std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
 
         let mut client = create_pair(&tmp);
-        let results = client.hash_files(&["link.txt".to_string()]).unwrap();
+        let results = client.hash_files(&rels(&["link.txt"])).unwrap();
         assert_eq!(results.len(), 1);
         match &results[0] {
             protocol::FileHashResult::Symlink { path, target } => {
@@ -877,7 +893,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
 
         let mut client = create_pair(&tmp);
-        let results = client.hash_files(&["nonexistent.txt".to_string()]).unwrap();
+        let results = client.hash_files(&rels(&["nonexistent.txt"])).unwrap();
         assert_eq!(results.len(), 1);
         assert!(matches!(
             &results[0],

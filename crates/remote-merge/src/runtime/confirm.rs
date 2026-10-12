@@ -14,6 +14,7 @@ use super::change_check::{
 use super::connection::{classify, is_stopped};
 use super::core::CoreRuntime;
 use crate::side::Side;
+use remote_merge_core::relative_path::RelPath;
 
 /// 確かめた結果が分かる変更の失敗。`接続断` の種類を持つ
 #[derive(Debug)]
@@ -55,7 +56,7 @@ impl CoreRuntime {
     pub(crate) fn settle_change(
         &mut self,
         side: &Side,
-        path: &str,
+        path: &RelPath,
         change: Change<'_>,
         result: anyhow::Result<()>,
     ) -> anyhow::Result<()> {
@@ -73,7 +74,7 @@ impl CoreRuntime {
         tracing::warn!(
             "Change lost the connection; reconnecting once to confirm it: server={} path={}: {}",
             server,
-            path,
+            path.as_typed(),
             cause
         );
         let (outcome, message) = match self.observe_after_loss(server, path, &change) {
@@ -93,7 +94,7 @@ impl CoreRuntime {
     fn observe_after_loss(
         &mut self,
         server: &str,
-        path: &str,
+        path: &RelPath,
         change: &Change<'_>,
     ) -> anyhow::Result<Observed> {
         if self.has_agent(server) {
@@ -111,7 +112,7 @@ impl CoreRuntime {
     fn observe_entry(
         &mut self,
         server: &str,
-        path: &str,
+        path: &RelPath,
         with_content: bool,
     ) -> anyhow::Result<Observed> {
         let resolved = if self.has_agent(server) {
@@ -132,27 +133,29 @@ impl CoreRuntime {
         })
     }
 
-    fn read_after_loss(&mut self, server: &str, path: &str) -> anyhow::Result<Vec<u8>> {
+    fn read_after_loss(&mut self, server: &str, path: &RelPath) -> anyhow::Result<Vec<u8>> {
         if !self.has_agent(server) {
             return self.read_remote_file_bytes(server, path);
         }
-        let paths = [path.to_string()];
+        let paths = [path.clone()];
         let results = self.agent_once(server, |agent| {
             agent.read_files(&paths, super::side_io::AGENT_CHUNK_SIZE_LIMIT)
         })?;
-        super::side_io::extract_single_file_as_bytes(results)
-            .unwrap_or_else(|| Err(anyhow::anyhow!("the agent could not read {path}")))
+        super::side_io::extract_single_file_as_bytes(results).unwrap_or_else(|| {
+            Err(anyhow::anyhow!(
+                "the agent could not read {}",
+                path.as_typed()
+            ))
+        })
     }
 
     /// 親の子の一覧から、そのパスの権限を読む。変えたパスそのものを読むので、exclude はどの経路でも
     /// 当てない（当てると、exclude に当たるディレクトリを作ったときにその権限を読めない）。
     /// 打ち切った一覧ではそのパスが入らないことがあるので、件数でも打ち切らない（読むのは `接続断` の
     /// 後だけ）
-    fn observe_mode(&mut self, server: &str, path: &str) -> anyhow::Result<Observed> {
-        let (parent, name) = match path.rsplit_once('/') {
-            Some((parent, name)) => (parent, name),
-            None => ("", path),
-        };
+    fn observe_mode(&mut self, server: &str, path: &RelPath) -> anyhow::Result<Observed> {
+        let (parent, name) = path.parent_and_name();
+        let parent = &parent;
         let listing = if self.has_agent(server) {
             self.agent_once(server, |agent| agent.list_dir(parent, &[], usize::MAX))
                 .map(crate::agent::tree_scan::child_listing_from_agent)?

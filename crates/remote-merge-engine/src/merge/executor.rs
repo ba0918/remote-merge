@@ -1,7 +1,9 @@
 //! マージ実行ロジック。
 //! LeftToRight（左 → 右）と RightToLeft（右 → 左）を担当する。
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use remote_merge_core::relative_path::RelPath;
 
 /// マージの方向
 ///
@@ -68,9 +70,8 @@ pub const MAX_BINARY_FILE_SIZE: usize = 104_857_600;
 /// ローカルファイルのバイト列を読み込む（バイナリファイル対応）
 ///
 /// UTF-8 変換を行わず、生のバイト列をそのまま返す。
-pub fn read_local_file_bytes(root_dir: &Path, rel_path: &str) -> crate::error::Result<Vec<u8>> {
-    let full_path = root_dir.join(rel_path);
-    let normalized = validate_path_within_root(root_dir, &full_path)?;
+pub fn read_local_file_bytes(root_dir: &Path, rel_path: &RelPath) -> crate::error::Result<Vec<u8>> {
+    let normalized = root_dir.join(rel_path.as_str());
 
     let bytes = std::fs::read(&normalized).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => crate::error::AppError::PathNotFound {
@@ -84,14 +85,13 @@ pub fn read_local_file_bytes(root_dir: &Path, rel_path: &str) -> crate::error::R
 
 /// ローカルファイルにバイト列を書き込む（バイナリファイル対応）
 ///
-/// root_dir 配下であることを検証してから書き込む。
+/// 途中の symlink は root_dir の外を指していても辿る。
 pub fn write_local_file_bytes(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     content: &[u8],
 ) -> crate::error::Result<()> {
-    let full_path = root_dir.join(rel_path);
-    let normalized = validate_path_within_root(root_dir, &full_path)?;
+    let normalized = root_dir.join(rel_path.as_str());
 
     if let Some(parent) = normalized.parent() {
         std::fs::create_dir_all(parent)?;
@@ -104,16 +104,13 @@ pub fn write_local_file_bytes(
 
 /// ローカルファイルに書き込む（RemoteToLocal で使用）
 ///
-/// root_dir 配下であることを検証してから書き込む
+/// 途中の symlink は root_dir の外を指していても辿る
 pub fn write_local_file(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     content: &str,
 ) -> crate::error::Result<()> {
-    let full_path = root_dir.join(rel_path);
-
-    // セキュリティ: root_dir 配下であることを検証
-    let normalized = validate_path_within_root(root_dir, &full_path)?;
+    let normalized = root_dir.join(rel_path.as_str());
 
     // 親ディレクトリを作成（存在しなければ）
     if let Some(parent) = normalized.parent() {
@@ -148,62 +145,23 @@ fn write_without_following_link(path: &Path, content: &[u8]) -> std::io::Result<
     std::fs::write(path, content)
 }
 
-/// パスが root_dir 配下にあることを検証する
-///
-/// `..` やシンボリックリンク経由のエスケープを防止する。
-/// 検証に成功した場合、正規化済みのフルパスを返す。
-pub fn validate_path_within_root(
-    root_dir: &Path,
-    full_path: &Path,
-) -> crate::error::Result<PathBuf> {
-    // canonicalize が使えない（ファイルが存在しない可能性）ので
-    // コンポーネントベースで検証する
-    let normalized = normalize_path(full_path);
-    let root_normalized = normalize_path(root_dir);
-
-    if !normalized.starts_with(&root_normalized) {
-        anyhow::bail!(crate::error::AppError::ConfigValidation {
-            field: "path".to_string(),
-            message: format!(
-                "Path escapes root_dir: {} (root: {})",
-                full_path.display(),
-                root_dir.display()
-            ),
-        });
-    }
-    Ok(normalized)
-}
-
-/// パスの `..` コンポーネントを解決して正規化する（ファイル存在不要）
-pub(crate) fn normalize_path(path: &Path) -> PathBuf {
-    let mut components = Vec::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                components.pop();
-            }
-            std::path::Component::CurDir => {}
-            c => components.push(c),
-        }
-    }
-    components.iter().collect()
-}
-
-/// root_dir からの相対パスを remote_root の下のパスにする。
-///
-/// 絶対パス（"/" を含む）と ".." の要素を含むパスは拒否する。root_dir 全体は空の値で指す。
-pub fn validate_remote_path(remote_root: &str, rel_path: &str) -> crate::error::Result<String> {
-    crate::rel_path::check_rel_path(rel_path)?;
-    Ok(format!(
+/// root_dir からの相対パスを remote_root の下のパスにする。root_dir 全体は remote_root に "/" を
+/// 付けたものになる
+pub fn remote_full_path(remote_root: &str, rel_path: &RelPath) -> String {
+    format!(
         "{}/{}",
         remote_root.trim_end_matches('/'),
-        rel_path
-    ))
+        rel_path.as_str()
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rel(path: &str) -> RelPath {
+        RelPath::parse(path).unwrap()
+    }
     use tempfile::TempDir;
 
     #[test]
@@ -218,7 +176,7 @@ mod tests {
     #[test]
     fn test_write_local_file() {
         let dir = TempDir::new().unwrap();
-        write_local_file(dir.path(), "test.txt", "hello world").unwrap();
+        write_local_file(dir.path(), &rel("test.txt"), "hello world").unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("test.txt")).unwrap();
         assert_eq!(content, "hello world");
@@ -227,7 +185,7 @@ mod tests {
     #[test]
     fn test_write_local_file_creates_parent_dirs() {
         let dir = TempDir::new().unwrap();
-        write_local_file(dir.path(), "a/b/c/test.txt", "nested").unwrap();
+        write_local_file(dir.path(), &rel("a/b/c/test.txt"), "nested").unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("a/b/c/test.txt")).unwrap();
         assert_eq!(content, "nested");
@@ -238,54 +196,25 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("existing.txt"), "old content").unwrap();
 
-        write_local_file(dir.path(), "existing.txt", "new content").unwrap();
+        write_local_file(dir.path(), &rel("existing.txt"), "new content").unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("existing.txt")).unwrap();
         assert_eq!(content, "new content");
     }
 
     #[test]
-    fn test_validate_path_within_root() {
-        let root = Path::new("/home/user/app");
-
-        // 正常パス: 正規化済みパスが返る
-        let result =
-            validate_path_within_root(root, Path::new("/home/user/app/src/main.rs")).unwrap();
-        assert_eq!(result, PathBuf::from("/home/user/app/src/main.rs"));
-
-        // パストラバーサル: エラー
-        assert!(
-            validate_path_within_root(root, Path::new("/home/user/app/../../../etc/passwd"))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn test_validate_remote_path() {
-        let result = validate_remote_path("/var/www/app", "src/index.html");
-        assert_eq!(result.unwrap(), "/var/www/app/src/index.html");
-
-        let result = validate_remote_path("/var/www/app", "../../../etc/passwd");
-        assert!(result.is_err());
-
+    fn test_remote_full_path() {
         assert_eq!(
-            validate_remote_path("/var/www/app", "").unwrap(),
-            "/var/www/app/"
+            remote_full_path("/var/www/app", &rel("src/index.html")),
+            "/var/www/app/src/index.html"
         );
-        for absolute in ["/etc/passwd", "/"] {
-            assert_eq!(
-                validate_remote_path("/var/www/app", absolute)
-                    .unwrap_err()
-                    .to_string(),
-                format!("absolute subpath not allowed: {absolute}")
-            );
-        }
+        assert_eq!(remote_full_path("/var/www/app", &rel("")), "/var/www/app/");
     }
 
     #[test]
-    fn test_validate_remote_path_trailing_slash() {
-        let result = validate_remote_path("/var/www/app/", "src/index.html");
-        assert_eq!(result.unwrap(), "/var/www/app/src/index.html");
+    fn test_remote_full_path_trailing_slash() {
+        let result = remote_full_path("/var/www/app/", &rel("src/index.html"));
+        assert_eq!(result, "/var/www/app/src/index.html");
     }
 
     #[test]
@@ -303,7 +232,7 @@ mod tests {
         let binary_data: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0xFD];
         std::fs::write(dir.path().join("binary.dat"), &binary_data).unwrap();
 
-        let result = read_local_file_bytes(dir.path(), "binary.dat").unwrap();
+        let result = read_local_file_bytes(dir.path(), &rel("binary.dat")).unwrap();
         assert_eq!(result, binary_data, "Binary data should be returned as-is");
     }
 
@@ -312,7 +241,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let binary_data: Vec<u8> = vec![0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD, 0x00, 0xAB];
 
-        write_local_file_bytes(dir.path(), "output.bin", &binary_data).unwrap();
+        write_local_file_bytes(dir.path(), &rel("output.bin"), &binary_data).unwrap();
 
         let written = std::fs::read(dir.path().join("output.bin")).unwrap();
         assert_eq!(written, binary_data, "Written bytes should match exactly");
@@ -324,7 +253,7 @@ mod tests {
         let text = "Hello, world!\nThis is a text file.\n";
         std::fs::write(dir.path().join("text.txt"), text).unwrap();
 
-        let result = read_local_file_bytes(dir.path(), "text.txt").unwrap();
+        let result = read_local_file_bytes(dir.path(), &rel("text.txt")).unwrap();
         assert_eq!(
             result,
             text.as_bytes(),
@@ -337,7 +266,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let text = "Text content via bytes API\n";
 
-        write_local_file_bytes(dir.path(), "text_out.txt", text.as_bytes()).unwrap();
+        write_local_file_bytes(dir.path(), &rel("text_out.txt"), text.as_bytes()).unwrap();
 
         let content = std::fs::read_to_string(dir.path().join("text_out.txt")).unwrap();
         assert_eq!(content, text);
@@ -348,7 +277,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let data = vec![0x01, 0x02, 0x03];
 
-        write_local_file_bytes(dir.path(), "a/b/c/nested.bin", &data).unwrap();
+        write_local_file_bytes(dir.path(), &rel("a/b/c/nested.bin"), &data).unwrap();
 
         let written = std::fs::read(dir.path().join("a/b/c/nested.bin")).unwrap();
         assert_eq!(written, data);
@@ -357,7 +286,7 @@ mod tests {
     #[test]
     fn test_read_local_file_bytes_not_found() {
         let dir = TempDir::new().unwrap();
-        let result = read_local_file_bytes(dir.path(), "nonexistent.bin");
+        let result = read_local_file_bytes(dir.path(), &rel("nonexistent.bin"));
         let err = result.unwrap_err();
         let app_err = err.downcast_ref::<crate::error::AppError>();
         assert!(
@@ -365,15 +294,6 @@ mod tests {
             "Expected PathNotFound, got: {}",
             err
         );
-    }
-
-    #[test]
-    fn test_read_local_file_bytes_path_traversal() {
-        let dir = TempDir::new().unwrap();
-        let result = read_local_file_bytes(dir.path(), "../../../etc/passwd");
-        assert!(result.is_err());
-        let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("Path escapes root_dir"));
     }
 
     /// `real.txt` を指す symlink `link.txt` を置いた一時ディレクトリ
@@ -402,7 +322,7 @@ mod tests {
     fn binary_write_refuses_a_symlink_destination() {
         let root = root_with_link_to_real_file();
 
-        let result = write_local_file_bytes(root.path(), "link.txt", b"new");
+        let result = write_local_file_bytes(root.path(), &rel("link.txt"), b"new");
 
         assert!(result.is_err());
         assert_link_and_target_unchanged(&root);
@@ -413,7 +333,7 @@ mod tests {
     fn text_write_refuses_a_symlink_destination() {
         let root = root_with_link_to_real_file();
 
-        let result = write_local_file(root.path(), "link.txt", "new");
+        let result = write_local_file(root.path(), &rel("link.txt"), "new");
 
         assert!(result.is_err());
         assert_link_and_target_unchanged(&root);

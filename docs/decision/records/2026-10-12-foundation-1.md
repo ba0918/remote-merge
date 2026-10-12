@@ -4,7 +4,7 @@
 
 [土台の作り直し](./2026-10-12-foundation.md) の段 1 である。土台の監査では、root_dir からのパスの検査が 8 か所以上にあり、意味が 3 通りに割れていた。入力の形を拒むもの（絶対パスと ".."）、".." を字面で畳んで root の外だけを拒むもの、実パスを求めて root の外を拒むもの（エージェントだけ）である。そのため、同じ "a/../b" をローカルの確認は拒み、読み込みは畳んで読む。エージェントだけが root_dir の外を指す途中の symlink 越しの読み書きと、".." や絶対パスをリンク先に持つ symlink の作成を拒む（[FLAG-merge-012](../../ir/merge/FLAGS.md#FLAG-merge-012)）。
 
-Position: B1〜B4 は決まった。段 1 の計画は docs/plans/foundation-1.md。
+Position: B1〜B5 は決まった。段 1 の計画は docs/plans/foundation-1.md。
 
 ## Agreements
 
@@ -20,3 +20,6 @@ Position: B1〜B4 は決まった。段 1 の計画は docs/plans/foundation-1.m
 - B4 パスを辿る手順そのもの（ローカルとエージェントが同じ関数を呼ぶもの）は段 1 では作り直さない。SSH の経路の辿り方は段 3 で、同じ純粋な手順にまとめて尋ねた事実を渡す形に替える。
   - why: 監査で、この手順はすでに一つの関数で IR の例どおりに書かれていると分かった。手を入れる価値は SSH の経路が別の言語（POSIX sh）で同じ手順を書き直していることにあり、それは段 3 の範囲である。
   - decided_by: 利用者（[foundation A7](./2026-10-12-foundation.md#A7) から導いた。自走の指示により書き下ろした）
+- B5 エージェントの単体テストのうち、root_dir の外を指す途中の symlink 越しのパスを拒むこと（file_io の `symlink_escaping_root_rejected`）と、".." や絶対パスをリンク先に持つ symlink の作成を拒むこと（file_io の `symlink_target_traversal_rejected`・`symlink_absolute_target_rejected`、dispatch の `symlink_traversal_returns_error`）を確かめていたものは、拒まないことを確かめるテストに置き換える。今後も、IR と違う動きを固めたテストに当たったら、同じ扱いで IR に合わせて直し、この記録に B 番号で残す。
+  - why: テストが [REQ-merge-004](../../ir/merge/symlink.md#REQ-merge-004)・[REQ-merge-023](../../ir/merge/symlink.md#REQ-merge-023) と違う動きを固めていたので IR に合わせた（[foundation A6](./2026-10-12-foundation.md#A6)）。
+  - decided_by: 利用者（foundation A6 から導いた。自走の指示により書き下ろした）

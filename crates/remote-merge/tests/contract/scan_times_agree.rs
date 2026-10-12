@@ -67,7 +67,12 @@ async fn req_scan_016_a_modification_time_before_1970_is_listed_as_read_on_all_t
     let agent = routes.over_agent(|agent| {
         let listed = agent
             .client
-            .list_tree("", &[], &[], MAX_ENTRIES)
+            .list_tree(
+                &remote_merge_core::relative_path::RelPath::root(),
+                &[],
+                &[],
+                MAX_ENTRIES,
+            )
             .map_err(|error| error.to_string());
         let entries = listed.map(|listed| {
             remote_merge::agent::tree_scan::convert_agent_entries_to_nodes(&listed.entries)

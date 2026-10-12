@@ -19,6 +19,7 @@ use super::core::{BoxedAgentClient, CoreRuntime};
 use super::reconnect::{Access, AgentAnswer};
 use super::remote_size::{ask_agent_sizes, AgentSizes};
 use super::size_limit::{self, FileSize, SizeLimit};
+use remote_merge_core::relative_path::RelPath;
 
 pub(crate) use remote_merge_engine::local_io::{
     check_truncation, hash_results_to_map, names_in_subpath, wrap_nodes_in_subpath,
@@ -50,11 +51,30 @@ pub(crate) const AGENT_READ_BATCH_SIZE: usize = 2000;
 // Remote ブランチでは Agent を優先的に使用し、失敗時は SSH にフォールバックする。
 // Agent が無い場合は直接 SSH パスを通る。
 
+/// 呼び出し元が文字列で持つパスを、経路の操作に渡す形にする。パスはコマンドの引数（入口で検査を
+/// 通ったもの）、走査で読んだ名前をつないだもの、バックアップの記録（読み込むところで検査を通った
+/// もの）から来る
+fn checked(path: &str) -> anyhow::Result<RelPath> {
+    Ok(RelPath::parse(path)?)
+}
+
+fn checked_all(paths: &[String]) -> anyhow::Result<Vec<RelPath>> {
+    paths.iter().map(|path| checked(path)).collect()
+}
+
+/// 入力されたままの形のパス（結果のキー）
+fn typed(paths: &[RelPath]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.as_typed().to_string())
+        .collect()
+}
+
 impl CoreRuntime {
     pub(crate) fn try_agent_inspect_path(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
     ) -> Option<anyhow::Result<ResolvedPath>> {
         let result = self.with_agent(server_name, "inspect_path", Access::Read, |agent| {
             agent.inspect_path(rel_path)
@@ -85,8 +105,9 @@ impl CoreRuntime {
         side: &Side,
         rel_path: &str,
     ) -> anyhow::Result<ResolvedPath> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        io.inspect_path(self, rel_path).map_err(label_read)
+        io.inspect_path(self, &rel_path).map_err(label_read)
     }
 
     /// 実パス `real_parent` の下で最初の要素がないと分かっている相対パス `tail` の確認を、
@@ -159,8 +180,9 @@ impl CoreRuntime {
     ) -> anyhow::Result<Vec<u8>> {
         self.refuse_over_limit(side, rel_path, SizeLimit::from_force(force))
             .map_err(label_read)?;
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        io.read_file_bytes(self, rel_path).map_err(label_read)
+        io.read_file_bytes(self, &rel_path).map_err(label_read)
     }
 
     /// Side に基づいて複数ファイルのバイト列をバッチ読み込みする
@@ -177,6 +199,7 @@ impl CoreRuntime {
         let readable = self
             .paths_within_limit(side, rel_paths, limit)
             .map_err(label_read)?;
+        let readable = checked_all(&readable)?;
         let mut io = super::target_io::for_side(side, self);
         io.read_files_bytes_batch(self, &readable)
             .map_err(label_read)
@@ -192,9 +215,10 @@ impl CoreRuntime {
         if limit == SizeLimit::Lifted {
             return Ok(());
         }
+        let asked = [checked(rel_path)?];
         let mut io = super::target_io::for_side(side, self);
         let sizes = io
-            .file_sizes(self, &[rel_path.to_string()])
+            .file_sizes(self, &asked)
             .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
         match size_limit::refusal(rel_path, sizes.get(rel_path)) {
             Some(refusal) => Err(refusal),
@@ -212,9 +236,10 @@ impl CoreRuntime {
         if limit == SizeLimit::Lifted || rel_paths.is_empty() {
             return Ok(rel_paths.to_vec());
         }
+        let asked = checked_all(rel_paths)?;
         let mut io = super::target_io::for_side(side, self);
         let sizes = io
-            .file_sizes(self, rel_paths)
+            .file_sizes(self, &asked)
             .map_err(|error| anyhow::Error::new(size_limit::SizeQueryFailed(error)))?;
         Ok(size_limit::readable_paths(rel_paths, &sizes))
     }
@@ -223,13 +248,14 @@ impl CoreRuntime {
 
     /// Side に基づいてファイルを書き込む
     pub fn write_file(&mut self, side: &Side, rel_path: &str, content: &str) -> anyhow::Result<()> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        let result = io.write_file(self, rel_path, content);
+        let result = io.write_file(self, &rel_path, content);
         let change = Change::Write {
             before: &Before::Unknown,
             content: content.as_bytes(),
         };
-        self.settle_change(side, rel_path, change, result)
+        self.settle_change(side, &rel_path, change, result)
     }
 
     /// Side に基づいてバイト列を書き込む（バイナリファイル対応）。`before` は書く前の状態で、
@@ -241,9 +267,10 @@ impl CoreRuntime {
         content: &[u8],
         before: &Before,
     ) -> anyhow::Result<()> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        let result = io.write_file_bytes(self, rel_path, content);
-        self.settle_change(side, rel_path, Change::Write { before, content }, result)
+        let result = io.write_file_bytes(self, &rel_path, content);
+        self.settle_change(side, &rel_path, Change::Write { before, content }, result)
     }
 
     // ── メタデータ ──
@@ -254,15 +281,17 @@ impl CoreRuntime {
         side: &Side,
         rel_paths: &[String],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
+        let rel_paths = checked_all(rel_paths)?;
         let mut io = super::target_io::for_side(side, self);
-        io.stat_files(self, rel_paths)
+        io.stat_files(self, &rel_paths)
     }
 
     /// Side に基づいてファイルのパーミッションを変更する
     pub fn chmod_file(&mut self, side: &Side, rel_path: &str, mode: u32) -> anyhow::Result<()> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        let result = io.chmod_file(self, rel_path, mode);
-        self.settle_change(side, rel_path, Change::Chmod { mode }, result)
+        let result = io.chmod_file(self, &rel_path, mode);
+        self.settle_change(side, &rel_path, Change::Chmod { mode }, result)
     }
 
     // ── バックアップ一覧・復元 ──
@@ -347,8 +376,9 @@ impl CoreRuntime {
         // まとめに入っていたファイルを理由付きの読み込みの失敗に、残りを手を付けていない失敗にする
         let mut states_before =
             if !self.config.backup.enabled && !dry_run && !present_files.is_empty() {
+                let present = checked_all(&present_files)?;
                 let mut io = super::target_io::for_side(side, self);
-                match io.states_before_restore(self, &present_files) {
+                match io.states_before_restore(self, &present) {
                     Ok(states) => states,
                     Err(error) if classify(&error).is_disconnection() => {
                         let error = label_read(error);
@@ -607,15 +637,17 @@ impl CoreRuntime {
         side: &Side,
         path: &str,
     ) -> anyhow::Result<Option<String>> {
+        let path = checked(path)?;
         let mut io = super::target_io::for_side(side, self);
-        io.entry_link_target(self, path)
+        io.entry_link_target(self, &path)
     }
 
     /// Side に基づいてファイルまたはシンボリックリンクを削除する
     pub fn remove_file(&mut self, side: &Side, rel_path: &str) -> anyhow::Result<()> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        let result = io.remove_file(self, rel_path);
-        self.settle_change(side, rel_path, Change::Remove, result)
+        let result = io.remove_file(self, &rel_path);
+        self.settle_change(side, &rel_path, Change::Remove, result)
     }
 
     // ── シンボリックリンク ──
@@ -627,9 +659,10 @@ impl CoreRuntime {
         rel_path: &str,
         target: &str,
     ) -> anyhow::Result<()> {
+        let rel_path = checked(rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        let result = io.create_symlink(self, rel_path, target);
-        self.settle_change(side, rel_path, Change::Symlink { target }, result)
+        let result = io.create_symlink(self, &rel_path, target);
+        self.settle_change(side, &rel_path, Change::Symlink { target }, result)
     }
 
     // ── ツリー ──
@@ -676,8 +709,9 @@ impl CoreRuntime {
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
+        let subpath = checked(subpath)?;
         let mut io = super::target_io::for_side(side, self);
-        io.fetch_tree_for_subpath(self, subpath, max_entries, fail_on_truncation)
+        io.fetch_tree_for_subpath(self, &subpath, max_entries, fail_on_truncation)
     }
 
     /// Side に基づいてディレクトリの子ノードを取得する
@@ -686,8 +720,9 @@ impl CoreRuntime {
         side: &Side,
         dir_rel_path: &str,
     ) -> anyhow::Result<Vec<FileNode>> {
+        let dir_rel_path = checked(dir_rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        io.fetch_children(self, dir_rel_path)
+        io.fetch_children(self, &dir_rel_path)
     }
 
     /// Side に基づいてディレクトリの子を一覧し、三つの結果を区別して返す
@@ -696,8 +731,9 @@ impl CoreRuntime {
         side: &Side,
         dir_rel_path: &str,
     ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
+        let dir_rel_path = checked(dir_rel_path)?;
         let mut io = super::target_io::for_side(side, self);
-        io.list_children(self, dir_rel_path)
+        io.list_children(self, &dir_rel_path)
     }
 
     // ── 接続 ──
@@ -735,9 +771,9 @@ impl CoreRuntime {
     pub(crate) fn try_agent_read_file_bytes(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
     ) -> Option<anyhow::Result<Vec<u8>>> {
-        let rel = [rel_path.to_string()];
+        let rel = [rel_path.clone()];
         let agent_result = self.with_agent(server_name, "read_file_bytes", Access::Read, |agent| {
             agent.read_files(&rel, AGENT_CHUNK_SIZE_LIMIT)
         });
@@ -752,7 +788,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_read_files_bytes_batch(
         &mut self,
         server_name: &str,
-        rel_paths: &[String],
+        rel_paths: &[RelPath],
     ) -> Option<anyhow::Result<HashMap<String, Vec<u8>>>> {
         if !self.has_agent(server_name) {
             return None;
@@ -770,7 +806,7 @@ impl CoreRuntime {
                 Ok(results) => results,
                 Err(error) => return Some(Err(error)),
             };
-            match extract_batch_files_as_bytes(results, chunk) {
+            match extract_batch_files_as_bytes(results, &typed(chunk)) {
                 Some(Ok(batch)) => merged.extend(batch),
                 Some(Err(e)) => return Some(Err(e)),
                 None => {
@@ -787,7 +823,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_write_file(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
         content: &[u8],
         is_binary: bool,
     ) -> Option<anyhow::Result<()>> {
@@ -801,9 +837,9 @@ impl CoreRuntime {
     pub(crate) fn try_agent_stat_files(
         &mut self,
         server_name: &str,
-        rel_paths: &[String],
+        rel_paths: &[RelPath],
     ) -> Option<anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>>> {
-        let owned_rel_paths: Vec<String> = rel_paths.to_vec();
+        let owned_rel_paths: Vec<String> = typed(rel_paths);
         let agent_result = self.with_agent(server_name, "stat_files", Access::Read, |agent| {
             agent.stat_files(rel_paths)
         });
@@ -821,7 +857,7 @@ impl CoreRuntime {
     pub(crate) fn remote_file_sizes(
         &mut self,
         server_name: &str,
-        rel_paths: &[String],
+        rel_paths: &[RelPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         let Some(answer) = self.try_agent_file_sizes(server_name, rel_paths) else {
             self.check_sudo_fallback(server_name)?;
@@ -837,11 +873,12 @@ impl CoreRuntime {
         }
         if self.server_uses_sudo(server_name) {
             let reason = "file size not reported by the agent (SSH is not used with sudo = true)";
-            sizes.extend(
-                omitted
-                    .into_iter()
-                    .map(|path| (path, FileSize::Unavailable(reason.into()))),
-            );
+            sizes.extend(omitted.into_iter().map(|path| {
+                (
+                    path.as_typed().to_string(),
+                    FileSize::Unavailable(reason.into()),
+                )
+            }));
             return Ok(sizes);
         }
         self.check_sudo_fallback(server_name)?;
@@ -859,8 +896,8 @@ impl CoreRuntime {
     fn try_agent_file_sizes(
         &mut self,
         server_name: &str,
-        rel_paths: &[String],
-    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<String>)>> {
+        rel_paths: &[RelPath],
+    ) -> Option<anyhow::Result<(HashMap<String, u64>, Vec<RelPath>)>> {
         self.config.servers.get(server_name)?;
         let answer = self.agent_call(server_name, Access::Read, |agent| {
             ask_agent_sizes(rel_paths, AGENT_READ_BATCH_SIZE, |paths| {
@@ -879,7 +916,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_symlink(
         &mut self,
         server_name: &str,
-        rel_path: &str,
+        rel_path: &RelPath,
         target: &str,
     ) -> Option<anyhow::Result<()>> {
         self.with_agent(server_name, "symlink", Access::Modify, |agent| {
@@ -894,7 +931,7 @@ impl CoreRuntime {
     pub fn try_agent_hash_files(
         &mut self,
         server_name: &str,
-        rel_paths: &[String],
+        rel_paths: &[RelPath],
     ) -> Option<anyhow::Result<Vec<crate::agent::protocol::FileHashResult>>> {
         self.with_agent(server_name, "hash_files", Access::Read, |agent| {
             agent.hash_files(rel_paths)
@@ -924,6 +961,7 @@ impl CoreRuntime {
         if right.server_name().is_none() {
             return Ok(None);
         }
+        let paths = &checked_all(paths)?;
         let mut right_io = super::target_io::for_side(right, self);
         let Some(remote_hashes) = right_io.hashes(self, paths)? else {
             return Ok(None);
@@ -951,7 +989,7 @@ impl CoreRuntime {
             .map(|s| s.root_dir.clone())?;
         let exclude = self.config.filter.exclude.clone();
         self.with_agent(server_name, "list_tree", Access::Read, |agent| {
-            agent.list_tree("", &exclude, include, max_entries)
+            agent.list_tree(&RelPath::root(), &exclude, include, max_entries)
         })
         .map(|r| {
             r.and_then(|listed| {
@@ -973,7 +1011,7 @@ impl CoreRuntime {
     pub(crate) fn try_agent_fetch_tree_for_subpath(
         &mut self,
         server_name: &str,
-        subpath: &str,
+        subpath: &RelPath,
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> Option<anyhow::Result<FileTree>> {
@@ -985,9 +1023,9 @@ impl CoreRuntime {
         let exclude = self.config.filter.exclude.clone();
         // サブパス走査では include フィルターは適用しない
         // （既に特定サブディレクトリを直接指定しているため）
-        let subpath_owned = subpath.to_string();
+        let subpath_owned = subpath.as_str().to_string();
         self.with_agent(server_name, "list_tree", Access::Read, |agent| {
-            agent.list_tree(&subpath_owned, &exclude, &[], max_entries)
+            agent.list_tree(subpath, &exclude, &[], max_entries)
         })
         .map(|r| {
             r.and_then(|listed| {
@@ -1215,13 +1253,19 @@ mod tests {
         let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
         let mut runtime = CoreRuntime::new_for_test();
 
-        io.write_file(&mut runtime, "nested/file.txt", "content")
-            .unwrap();
+        io.write_file(
+            &mut runtime,
+            &RelPath::parse("nested/file.txt").unwrap(),
+            "content",
+        )
+        .unwrap();
         assert_eq!(
-            io.read_file_bytes(&mut runtime, "nested/file.txt").unwrap(),
+            io.read_file_bytes(&mut runtime, &RelPath::parse("nested/file.txt").unwrap())
+                .unwrap(),
             b"content"
         );
-        io.remove_file(&mut runtime, "nested/file.txt").unwrap();
+        io.remove_file(&mut runtime, &RelPath::parse("nested/file.txt").unwrap())
+            .unwrap();
         assert!(!tmp.path().join("nested/file.txt").exists());
     }
 
@@ -1232,8 +1276,12 @@ mod tests {
         let mut io = LocalTargetIo::new(tmp.path().to_path_buf(), vec![], vec![]);
         let mut runtime = CoreRuntime::new_for_test();
 
-        io.create_symlink(&mut runtime, "link.txt", "target.txt")
-            .unwrap();
+        io.create_symlink(
+            &mut runtime,
+            &RelPath::parse("link.txt").unwrap(),
+            "target.txt",
+        )
+        .unwrap();
 
         assert_eq!(
             std::fs::read_link(tmp.path().join("link.txt")).unwrap(),
@@ -1251,7 +1299,7 @@ mod tests {
         let mut runtime = CoreRuntime::new_for_test();
 
         let tree = io
-            .fetch_tree_for_subpath(&mut runtime, "nested", 100, false)
+            .fetch_tree_for_subpath(&mut runtime, &RelPath::parse("nested").unwrap(), 100, false)
             .unwrap();
 
         assert_eq!(tree.nodes.len(), 1);
@@ -1424,6 +1472,7 @@ mod tests {
         assert!(
             err_chain.contains("Path escapes root_dir")
                 || err_chain.contains("Path traversal")
+                || err_chain.contains("path traversal not allowed")
                 || err_chain.contains("path not found")
                 || err_chain.contains("read local file"),
             "Unexpected error: {}",
@@ -1444,6 +1493,7 @@ mod tests {
         assert!(
             err_chain.contains("Path escapes root_dir")
                 || err_chain.contains("Path traversal")
+                || err_chain.contains("path traversal not allowed")
                 || err_chain.contains("path not found")
                 || err_chain.contains("write local file"),
             "Unexpected error: {}",
@@ -1675,8 +1725,8 @@ mod tests {
         })
     }
 
-    fn asked() -> Vec<String> {
-        vec!["a.bin".to_string()]
+    fn asked() -> Vec<RelPath> {
+        vec![RelPath::parse("a.bin").unwrap()]
     }
 
     #[cfg(unix)]
@@ -1708,7 +1758,7 @@ mod tests {
         let reads = crate::cli::content_reads::read_contents(
             &mut rt,
             &Side::Remote("develop".into()),
-            &asked(),
+            &["a.bin".to_string()],
             SizeLimit::Enforced,
         );
 

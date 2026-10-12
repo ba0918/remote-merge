@@ -74,7 +74,10 @@ impl Root {
 }
 
 fn inspect(root: &Path, rel: &str) -> anyhow::Result<ResolvedPath> {
-    remote_merge_engine::local_io::inspect_local_path(root, rel)
+    remote_merge_engine::local_io::inspect_local_path(
+        root,
+        &remote_merge_core::relative_path::RelPath::parse(rel).unwrap(),
+    )
 }
 
 fn symlink_result(link_target: &str, real_path: String) -> ResolvedPath {

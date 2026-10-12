@@ -3,6 +3,7 @@
 //! SSH接続管理、ファイルI/O、ツリー取得など、
 //! インターフェースに依存しない共通機能を提供する。
 
+use remote_merge_core::relative_path::RelPath;
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
@@ -924,10 +925,11 @@ impl CoreRuntime {
     pub fn fetch_remote_tree_for_subpath(
         &mut self,
         server_name: &str,
-        subpath: &str,
+        subpath: &RelPath,
         max_entries: usize,
         fail_on_truncation: bool,
     ) -> anyhow::Result<FileTree> {
+        let subpath = subpath.as_str();
         let server_config = self
             .config
             .servers

@@ -4,9 +4,10 @@
 use std::path::Path;
 
 use super::protocol::{AgentEntryLink, AgentResponse};
+use remote_merge_core::relative_path::RelPath;
 
 /// root_dir からの `path` の項目そのものを読んだ応答
-pub fn read_entry_link(root: &Path, path: &str) -> AgentResponse {
+pub fn read_entry_link(root: &Path, path: &RelPath) -> AgentResponse {
     let result = match remote_merge_core::entry_link::link_target_of_entry(root, path) {
         Ok(Some(target)) => AgentEntryLink::Symlink { target },
         Ok(None) => AgentEntryLink::NotSymlink,
@@ -23,7 +24,7 @@ mod tests {
     use std::os::unix::fs::{symlink, PermissionsExt};
 
     fn result(root: &Path, path: &str) -> AgentEntryLink {
-        match read_entry_link(root, path) {
+        match read_entry_link(root, &RelPath::parse(path).unwrap()) {
             AgentResponse::EntryLink { result } => result,
             other => panic!("{other:?}"),
         }
@@ -69,20 +70,5 @@ mod tests {
         let read = result(root.path(), "dir/link");
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(read, AgentEntryLink::Symlink { target: "t".into() });
-    }
-
-    #[test]
-    fn a_path_outside_the_root_is_refused_with_the_wording_of_the_other_routes() {
-        let root = tempfile::TempDir::new().unwrap();
-        for path in ["../x", "/etc/passwd"] {
-            let expected = remote_merge_core::entry_link::link_target_of_entry(root.path(), path)
-                .unwrap_err()
-                .to_string();
-            assert_eq!(
-                result(root.path(), path),
-                AgentEntryLink::Error { message: expected },
-                "{path}"
-            );
-        }
     }
 }

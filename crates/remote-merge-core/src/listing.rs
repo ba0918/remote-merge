@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 
 use crate::filter;
-use crate::rel_path::operation_rel_path;
+use crate::relative_path::RelPath;
 use crate::tree::FileNode;
 
 /// 子の一覧の結果
@@ -43,7 +43,7 @@ impl ListingReader for ThisMachine {
 /// 途中の symlink は root_dir の外を指していても辿る
 pub fn list_children(
     root: &Path,
-    path: &str,
+    path: &RelPath,
     exclude: &[String],
     max_entries: usize,
 ) -> anyhow::Result<ChildListing> {
@@ -54,11 +54,11 @@ pub fn list_children(
 pub fn list_children_with(
     reader: &impl ListingReader,
     root: &Path,
-    path: &str,
+    path: &RelPath,
     exclude: &[String],
     max_entries: usize,
 ) -> anyhow::Result<ChildListing> {
-    let rel = operation_rel_path(path)?;
+    let rel = path.as_str();
     let dir = root.join(rel);
     match std::fs::metadata(&dir) {
         Ok(meta) if meta.is_dir() => {}
@@ -179,6 +179,10 @@ fn unlistable(rel: &str, error: &io::Error) -> ChildListing {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    fn rel(path: &str) -> crate::relative_path::RelPath {
+        crate::relative_path::RelPath::parse(path).unwrap()
+    }
     use std::os::unix::fs::{symlink, PermissionsExt};
 
     fn listed(listing: ChildListing) -> Vec<FileNode> {
@@ -198,7 +202,7 @@ mod tests {
         symlink("f", root.path().join("to_file")).unwrap();
         symlink("nowhere", root.path().join("dangling")).unwrap();
         for path in ["f", "to_file", "dangling", "missing", "f/below"] {
-            let listing = list_children(root.path(), path, &[], 10).unwrap();
+            let listing = list_children(root.path(), &rel(path), &[], 10).unwrap();
             assert!(
                 matches!(listing, ChildListing::NotDirectory),
                 "{path}: {listing:?}"
@@ -212,7 +216,7 @@ mod tests {
         let locked = root.path().join("locked");
         std::fs::create_dir(&locked).unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let listing = list_children(root.path(), "locked", &[], 10).unwrap();
+        let listing = list_children(root.path(), &rel("locked"), &[], 10).unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
         if std::fs::read_dir(&locked).is_ok() && unsafe { libc::geteuid() } == 0 {
             return; // root はモードによらず読める
@@ -232,10 +236,11 @@ mod tests {
         std::fs::create_dir(root.path().join("d")).unwrap();
         std::fs::write(root.path().join("d/a.txt"), "x").unwrap();
         symlink("d", root.path().join("to_dir")).unwrap();
-        let names: Vec<String> = listed(list_children(root.path(), "to_dir/", &[], 10).unwrap())
-            .into_iter()
-            .map(|node| node.name)
-            .collect();
+        let names: Vec<String> =
+            listed(list_children(root.path(), &rel("to_dir/"), &[], 10).unwrap())
+                .into_iter()
+                .map(|node| node.name)
+                .collect();
         assert_eq!(names, ["a.txt"]);
     }
 
@@ -246,7 +251,7 @@ mod tests {
         let file = std::fs::File::create(root.path().join("old")).unwrap();
         file.set_modified(UNIX_EPOCH - Duration::from_millis(1500))
             .unwrap();
-        let nodes = listed(list_children(root.path(), "", &[], 10).unwrap());
+        let nodes = listed(list_children(root.path(), &rel(""), &[], 10).unwrap());
         let mtime = nodes[0].mtime.unwrap();
         assert_eq!(
             (mtime.timestamp(), mtime.timestamp_subsec_nanos()),
@@ -261,7 +266,7 @@ mod tests {
             std::fs::write(root.path().join(name), "x").unwrap();
         }
         assert_eq!(
-            listed(list_children(root.path(), "", &[], 2).unwrap()).len(),
+            listed(list_children(root.path(), &rel(""), &[], 2).unwrap()).len(),
             2
         );
     }
@@ -273,7 +278,7 @@ mod tests {
         std::fs::create_dir_all(root.path().join("vendor")).unwrap();
         let exclude = vec!["vendor/**".to_string()];
         let names = |path: &str| -> Vec<String> {
-            listed(list_children(root.path(), path, &exclude, 10).unwrap())
+            listed(list_children(root.path(), &rel(path), &exclude, 10).unwrap())
                 .into_iter()
                 .map(|node| node.name)
                 .collect()

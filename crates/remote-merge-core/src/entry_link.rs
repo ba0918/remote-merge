@@ -8,11 +8,12 @@
 use std::path::Path;
 
 use crate::listing::is_missing;
-use crate::rel_path::operation_rel_path;
+use crate::relative_path::RelPath;
 
 /// root_dir `root` の下の `path` の項目が symlink ならそのリンク先の文字列を返す
-pub fn link_target_of_entry(root: &Path, path: &str) -> anyhow::Result<Option<String>> {
-    let full = root.join(operation_rel_path(path)?);
+pub fn link_target_of_entry(root: &Path, path: &RelPath) -> anyhow::Result<Option<String>> {
+    let path = path.as_str();
+    let full = root.join(path);
     let meta = match full.symlink_metadata() {
         Ok(meta) => meta,
         Err(error) if is_missing(&error) => return Ok(None),
@@ -30,6 +31,10 @@ pub fn link_target_of_entry(root: &Path, path: &str) -> anyhow::Result<Option<St
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    fn rel(path: &str) -> crate::relative_path::RelPath {
+        crate::relative_path::RelPath::parse(path).unwrap()
+    }
     use std::os::unix::fs::symlink;
 
     fn root_with_entries() -> tempfile::TempDir {
@@ -45,7 +50,7 @@ mod tests {
     #[test]
     fn a_symlink_gives_its_link_target_as_read_without_following_it() {
         let root = root_with_entries();
-        let target = |path: &str| link_target_of_entry(root.path(), path).unwrap();
+        let target = |path: &str| link_target_of_entry(root.path(), &rel(path)).unwrap();
         assert_eq!(target("spaced").as_deref(), Some(" target "));
         assert_eq!(target("backslash").as_deref(), Some("sub\\b.txt"));
         assert_eq!(target("dirlink").as_deref(), Some("dir"));
@@ -63,7 +68,7 @@ mod tests {
             "dirlink/absent",
         ] {
             assert_eq!(
-                link_target_of_entry(root.path(), path).unwrap(),
+                link_target_of_entry(root.path(), &rel(path)).unwrap(),
                 None,
                 "{path}"
             );
@@ -78,7 +83,7 @@ mod tests {
         std::fs::create_dir(&locked).unwrap();
         symlink("t", locked.join("link")).unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let result = link_target_of_entry(root.path(), "locked/link");
+        let result = link_target_of_entry(root.path(), &rel("locked/link"));
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
         // root では権限に関わらず読めるので、読めたときは確かめない
         if running_as_root() {
@@ -90,11 +95,5 @@ mod tests {
     fn running_as_root() -> bool {
         // SAFETY: geteuid は引数を取らず、失敗しない
         unsafe { libc::geteuid() == 0 }
-    }
-
-    #[test]
-    fn a_path_escaping_the_root_is_refused() {
-        let root = root_with_entries();
-        assert!(link_target_of_entry(root.path(), "../x").is_err());
     }
 }

@@ -1,11 +1,14 @@
 //! エージェントのファイル I/O 操作（リモートサーバー上で実行）。
 //!
-//! 全操作は `validate_path`（書き込みと symlink の作成は最後の要素を辿らない `validate_entry_path`）を経由し、パストラバーサルを防止する。
+//! パスは受け取り口で入力の形を検査した `RelPath` で受け取る。途中の symlink は root_dir の外を
+//! 指していても辿る（docs/ir/paths/operations.md の REQ-paths-013）。
 
 use std::ffi::CString;
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
+
+use remote_merge_core::relative_path::RelPath;
 
 use anyhow::{bail, Context, Result};
 
@@ -37,106 +40,19 @@ impl SavedMetadata {
 }
 
 // ---------------------------------------------------------------------------
-// Path validation
+// Paths
 // ---------------------------------------------------------------------------
 
-/// root_dir 配下の相対パスを解決し、安全性を検証する。
-///
-/// - `..` コンポーネントを含むパスを拒否（パストラバーサル防止）
-/// - canonicalize 後に root_dir のプレフィックスであることを検証
-/// - 新規ファイル（存在しない）の場合は親ディレクトリで検証
-///
-/// NOTE: 親ディレクトリの canonicalize とファイル作成の間には TOCTOU 競合の
-/// 可能性がある（親ディレクトリがシンボリックリンクに差し替えられるケース等）。
-/// 現在のユースケース（単一ユーザー操作）ではリスクは低いが、マルチテナント環境
-/// では追加の対策が必要。
-pub fn validate_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
-    reject_escaping_rel_path(rel_path)?;
-
-    let joined = root_dir.join(rel_path);
-
-    // ファイルが存在する場合: canonicalize して root_dir 配下か検証
-    if joined.exists() {
-        let canonical = joined
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize: {}", joined.display()))?;
-        let root_canonical = root_dir
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize root: {}", root_dir.display()))?;
-        if !canonical.starts_with(&root_canonical) {
-            bail!(
-                "path escapes root directory: {} is not under {}",
-                canonical.display(),
-                root_canonical.display()
-            );
-        }
-        return Ok(canonical);
-    }
-
-    // 新規ファイル: 親ディレクトリで検証
-    ensure_existing_parent_under_root(root_dir, &joined)?;
-    Ok(joined)
+/// root_dir からの相対パスの、このマシンでのパス。末尾の "/" は除く
+fn full_path(root_dir: &Path, rel_path: &RelPath) -> PathBuf {
+    root_dir.join(rel_path.as_str())
 }
 
-/// 絶対パスと `..` を含む相対パスを拒否する（root_dir 外のファイルアクセスを防止）。
-fn reject_escaping_rel_path(rel_path: &str) -> Result<()> {
-    if Path::new(rel_path).is_absolute() {
-        bail!("absolute path not allowed: {rel_path}");
-    }
-    for component in Path::new(rel_path).components() {
-        if matches!(component, Component::ParentDir) {
-            bail!("path traversal detected: {rel_path}");
-        }
-    }
-    Ok(())
-}
-
-/// 親ディレクトリが存在すれば、実パスが root_dir 配下にあることを検証する。
-/// 親も存在しない場合は検査しない（書き込み側が mkdir_all する）。
-fn ensure_existing_parent_under_root(root_dir: &Path, joined: &Path) -> Result<()> {
-    let parent = joined
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("no parent directory for: {}", joined.display()))?;
-    if parent.exists() {
-        let parent_canonical = parent.canonicalize()?;
-        let root_canonical = root_dir.canonicalize()?;
-        if !parent_canonical.starts_with(&root_canonical) {
-            bail!(
-                "path escapes root directory: {} is not under {}",
-                parent_canonical.display(),
-                root_canonical.display()
-            );
-        }
-    }
-    Ok(())
-}
-
-/// 書き込み・symlink の作成先として、最後の要素を辿らずに root_dir 配下のパスを解決する。
-///
-/// 親ディレクトリが root_dir の中にあるかは `validate_path` の新規ファイルと同じに検査するが、
-/// 最後の要素が既存の symlink でもリンク先には化けさせず、リンクそのもののパスを返す。
-pub fn validate_entry_path(root_dir: &Path, rel_path: &str) -> Result<PathBuf> {
-    reject_escaping_rel_path(rel_path)?;
-    let joined = root_dir.join(rel_path);
-    if joined.file_name().is_none() {
-        bail!("no file name in path: {rel_path}");
-    }
-    ensure_existing_parent_under_root(root_dir, &joined)?;
-    Ok(joined)
-}
-
-pub fn inspect_path(root_dir: &Path, rel_path: &str) -> AgentPathInspection {
-    let relative = Path::new(rel_path);
-    if relative.is_absolute()
-        || relative
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return AgentPathInspection::Error {
-            message: format!("path traversal detected: {rel_path}"),
-        };
-    }
-    inspection_of(resolve_from_working_directory(root_dir, rel_path))
+pub fn inspect_path(root_dir: &Path, rel_path: &RelPath) -> AgentPathInspection {
+    inspection_of(resolve_from_working_directory(
+        root_dir,
+        rel_path.path_to_resolve(),
+    ))
 }
 
 /// 相対の root_dir は、リモートでログインした利用者の作業ディレクトリ（エージェントのプロセスの
@@ -254,10 +170,11 @@ fn apply_lchown(path: &Path, uid: Option<u32>, gid: Option<u32>) {
 /// chunk_size_limit を超えるファイルは分割して返す。
 pub fn read_file_chunked(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     chunk_size_limit: usize,
 ) -> Result<Vec<FileReadResult>> {
-    let path = validate_path(root_dir, rel_path)?;
+    let path = full_path(root_dir, rel_path);
+    let rel_path = rel_path.as_typed();
     let content = fs::read(&path).with_context(|| format!("failed to read: {}", path.display()))?;
 
     if chunk_size_limit == 0 || content.len() <= chunk_size_limit {
@@ -288,11 +205,11 @@ pub fn read_file_chunked(
 /// - `is_first_chunk=false`: append モード（既存ファイルに追記）
 pub fn write_file(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     content: &[u8],
     is_first_chunk: bool,
 ) -> Result<()> {
-    let path = validate_entry_path(root_dir, rel_path)?;
+    let path = full_path(root_dir, rel_path);
 
     if is_first_chunk {
         if let Some(parent) = path.parent() {
@@ -340,14 +257,14 @@ fn write_chunk_without_following_link(
 ///   - 新規ファイルだった場合: `config` のデフォルト値で設定
 pub fn write_file_with_metadata(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     content: &[u8],
     is_first_chunk: bool,
     is_last_chunk: bool,
     saved_metadata: Option<&SavedMetadata>,
     config: &MetadataConfig,
 ) -> Result<Option<SavedMetadata>> {
-    let path = validate_entry_path(root_dir, rel_path)?;
+    let path = full_path(root_dir, rel_path);
 
     let mut captured_metadata = None;
 
@@ -394,10 +311,11 @@ pub fn write_file_with_metadata(
 }
 
 /// ファイルのメタデータ（stat）を取得する。
-pub fn stat_file(root_dir: &Path, rel_path: &str) -> Result<AgentFileStat> {
-    let path = validate_path(root_dir, rel_path)?;
-    let meta = fs::symlink_metadata(&path)
-        .with_context(|| format!("failed to stat: {}", path.display()))?;
+pub fn stat_file(root_dir: &Path, rel_path: &RelPath) -> Result<AgentFileStat> {
+    let path = full_path(root_dir, rel_path);
+    let rel_path = rel_path.as_typed();
+    let meta =
+        fs::metadata(&path).with_context(|| format!("failed to stat: {}", path.display()))?;
     Ok(AgentFileStat {
         path: rel_path.to_string(),
         size: meta.size(),
@@ -408,7 +326,7 @@ pub fn stat_file(root_dir: &Path, rel_path: &str) -> Result<AgentFileStat> {
 }
 
 /// シンボリックリンクを作成する。ターゲットが root_dir 外に逃げないことを検証する。
-pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<()> {
+pub fn create_symlink(root_dir: &Path, rel_path: &RelPath, target: &str) -> Result<()> {
     create_symlink_with_metadata(root_dir, rel_path, target, None, None)
 }
 
@@ -417,12 +335,12 @@ pub fn create_symlink(root_dir: &Path, rel_path: &str, target: &str) -> Result<(
 /// symlink 作成後、euid==0 の場合のみ lchown で uid/gid を設定する。
 pub fn create_symlink_with_metadata(
     root_dir: &Path,
-    rel_path: &str,
+    rel_path: &RelPath,
     target: &str,
     uid: Option<u32>,
     gid: Option<u32>,
 ) -> Result<()> {
-    let link_path = validate_entry_path(root_dir, rel_path)?;
+    let link_path = full_path(root_dir, rel_path);
 
     // ターゲットの安全性検証: root_dir からの相対として解決
     for component in Path::new(target).components() {
@@ -462,58 +380,36 @@ mod tests {
         tempfile::tempdir().unwrap()
     }
 
-    // ── validate_path ──
-
-    #[test]
-    fn valid_relative_path_accepted() {
-        let tmp = setup();
-        fs::write(tmp.path().join("hello.txt"), "hi").unwrap();
-        let result = validate_path(tmp.path(), "hello.txt");
-        assert!(result.is_ok());
+    fn rel(path: &str) -> RelPath {
+        RelPath::parse(path).unwrap()
     }
 
-    #[test]
-    fn nested_valid_path_accepted() {
-        let tmp = setup();
-        fs::create_dir_all(tmp.path().join("a/b/c")).unwrap();
-        fs::write(tmp.path().join("a/b/c/file.txt"), "data").unwrap();
-        let result = validate_path(tmp.path(), "a/b/c/file.txt");
-        assert!(result.is_ok());
-    }
+    // ── 途中の symlink ──
 
+    // root_dir の外を指す途中の symlink も辿る（REQ-paths-013・REQ-merge-004）
     #[test]
-    fn dotdot_rejected() {
+    fn a_file_behind_an_intermediate_symlink_outside_the_root_is_read_and_written() {
         let tmp = setup();
-        let result = validate_path(tmp.path(), "../etc/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("path traversal"));
-    }
+        let outside = setup();
+        fs::write(outside.path().join("shared.txt"), "outside").unwrap();
+        symlink(outside.path(), tmp.path().join("shared")).unwrap();
 
-    #[test]
-    fn nested_dotdot_rejected() {
-        let tmp = setup();
-        let result = validate_path(tmp.path(), "foo/../../etc/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("path traversal"));
-    }
-
-    #[test]
-    fn symlink_escaping_root_rejected() {
-        let tmp = setup();
-        // root_dir 内にシンボリックリンクで外部を指すものを作成
-        let link = tmp.path().join("escape");
-        symlink("/etc", &link).unwrap();
-        let result = validate_path(tmp.path(), "escape/passwd");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("escapes root"));
-    }
-
-    #[test]
-    fn new_file_path_accepted_if_parent_valid() {
-        let tmp = setup();
-        fs::create_dir_all(tmp.path().join("subdir")).unwrap();
-        let result = validate_path(tmp.path(), "subdir/newfile.txt");
-        assert!(result.is_ok());
+        let results = read_file_chunked(tmp.path(), &rel("shared/shared.txt"), 1024).unwrap();
+        assert!(
+            matches!(&results[0], FileReadResult::Ok { content, .. } if content == b"outside"),
+            "{results:?}"
+        );
+        write_file(tmp.path(), &rel("shared/shared.txt"), b"updated", true).unwrap();
+        assert_eq!(
+            fs::read_to_string(outside.path().join("shared.txt")).unwrap(),
+            "updated"
+        );
+        assert_eq!(
+            stat_file(tmp.path(), &rel("shared/shared.txt"))
+                .unwrap()
+                .size,
+            7
+        );
     }
 
     // ── read_file_chunked ──
@@ -522,7 +418,7 @@ mod tests {
     fn read_small_text_file() {
         let tmp = setup();
         fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
-        let results = read_file_chunked(tmp.path(), "test.txt", 1024).unwrap();
+        let results = read_file_chunked(tmp.path(), &rel("test.txt"), 1024).unwrap();
         assert_eq!(results.len(), 1);
         match &results[0] {
             FileReadResult::Ok {
@@ -542,7 +438,7 @@ mod tests {
         let tmp = setup();
         let data: Vec<u8> = (0..=255).collect();
         fs::write(tmp.path().join("bin.dat"), &data).unwrap();
-        let results = read_file_chunked(tmp.path(), "bin.dat", 4096).unwrap();
+        let results = read_file_chunked(tmp.path(), &rel("bin.dat"), 4096).unwrap();
         assert_eq!(results.len(), 1);
         if let FileReadResult::Ok { content, .. } = &results[0] {
             assert_eq!(content, &data);
@@ -556,7 +452,7 @@ mod tests {
         let tmp = setup();
         let data = vec![0u8; 100];
         fs::write(tmp.path().join("big.dat"), &data).unwrap();
-        let results = read_file_chunked(tmp.path(), "big.dat", 30).unwrap();
+        let results = read_file_chunked(tmp.path(), &rel("big.dat"), 30).unwrap();
         // 100 / 30 = 4 chunks (30+30+30+10)
         assert_eq!(results.len(), 4);
         // 最後以外は more_to_follow = true
@@ -574,7 +470,7 @@ mod tests {
     #[test]
     fn read_nonexistent_file_returns_error() {
         let tmp = setup();
-        let result = read_file_chunked(tmp.path(), "nope.txt", 1024);
+        let result = read_file_chunked(tmp.path(), &rel("nope.txt"), 1024);
         assert!(result.is_err());
     }
 
@@ -583,7 +479,7 @@ mod tests {
     #[test]
     fn write_new_file() {
         let tmp = setup();
-        write_file(tmp.path(), "out.txt", b"data", true).unwrap();
+        write_file(tmp.path(), &rel("out.txt"), b"data", true).unwrap();
         assert_eq!(
             fs::read_to_string(tmp.path().join("out.txt")).unwrap(),
             "data"
@@ -593,7 +489,7 @@ mod tests {
     #[test]
     fn write_creates_parent_dirs() {
         let tmp = setup();
-        write_file(tmp.path(), "a/b/c/deep.txt", b"nested", true).unwrap();
+        write_file(tmp.path(), &rel("a/b/c/deep.txt"), b"nested", true).unwrap();
         assert_eq!(
             fs::read_to_string(tmp.path().join("a/b/c/deep.txt")).unwrap(),
             "nested"
@@ -604,7 +500,7 @@ mod tests {
     fn write_overwrites_existing() {
         let tmp = setup();
         fs::write(tmp.path().join("exist.txt"), "old").unwrap();
-        write_file(tmp.path(), "exist.txt", b"new", true).unwrap();
+        write_file(tmp.path(), &rel("exist.txt"), b"new", true).unwrap();
         assert_eq!(
             fs::read_to_string(tmp.path().join("exist.txt")).unwrap(),
             "new"
@@ -617,7 +513,7 @@ mod tests {
     fn stat_existing_file() {
         let tmp = setup();
         fs::write(tmp.path().join("s.txt"), "12345").unwrap();
-        let stat = stat_file(tmp.path(), "s.txt").unwrap();
+        let stat = stat_file(tmp.path(), &rel("s.txt")).unwrap();
         assert_eq!(stat.path, "s.txt");
         assert_eq!(stat.size, 5);
     }
@@ -625,7 +521,7 @@ mod tests {
     #[test]
     fn stat_nonexistent_returns_error() {
         let tmp = setup();
-        assert!(stat_file(tmp.path(), "nope").is_err());
+        assert!(stat_file(tmp.path(), &rel("nope")).is_err());
     }
 
     // ── create_backup ──
@@ -636,7 +532,7 @@ mod tests {
     fn symlink_creation() {
         let tmp = setup();
         fs::write(tmp.path().join("target.txt"), "link target").unwrap();
-        create_symlink(tmp.path(), "link.txt", "target.txt").unwrap();
+        create_symlink(tmp.path(), &rel("link.txt"), "target.txt").unwrap();
         let link = tmp.path().join("link.txt");
         assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
         assert_eq!(fs::read_to_string(&link).unwrap(), "link target");
@@ -645,7 +541,7 @@ mod tests {
     #[test]
     fn symlink_target_traversal_rejected() {
         let tmp = setup();
-        let result = create_symlink(tmp.path(), "bad_link", "../etc/passwd");
+        let result = create_symlink(tmp.path(), &rel("bad_link"), "../etc/passwd");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escapes root"));
     }
@@ -655,9 +551,9 @@ mod tests {
     #[test]
     fn write_file_chunked_transfer() {
         let tmp = setup();
-        write_file(tmp.path(), "chunked.bin", b"chunk1", true).unwrap();
-        write_file(tmp.path(), "chunked.bin", b"chunk2", false).unwrap();
-        write_file(tmp.path(), "chunked.bin", b"chunk3", false).unwrap();
+        write_file(tmp.path(), &rel("chunked.bin"), b"chunk1", true).unwrap();
+        write_file(tmp.path(), &rel("chunked.bin"), b"chunk2", false).unwrap();
+        write_file(tmp.path(), &rel("chunked.bin"), b"chunk3", false).unwrap();
         let content = fs::read(tmp.path().join("chunked.bin")).unwrap();
         assert_eq!(content, b"chunk1chunk2chunk3");
     }
@@ -816,7 +712,7 @@ mod tests {
 
         let saved = write_file_with_metadata(
             tmp.path(),
-            "new.txt",
+            &rel("new.txt"),
             b"hello",
             true, // is_first_chunk
             true, // is_last_chunk
@@ -846,7 +742,7 @@ mod tests {
 
         let saved = write_file_with_metadata(
             tmp.path(),
-            "existing.txt",
+            &rel("existing.txt"),
             b"new content",
             true, // is_first_chunk
             true, // is_last_chunk
@@ -876,7 +772,7 @@ mod tests {
         // 最初のチャンク（is_last_chunk=false なのでメタデータ適用されない）
         let saved = write_file_with_metadata(
             tmp.path(),
-            "chunked.bin",
+            &rel("chunked.bin"),
             b"chunk1",
             true,  // is_first_chunk
             false, // is_last_chunk
@@ -889,7 +785,7 @@ mod tests {
         // 2番目のチャンク（最終、メタデータ適用）
         write_file_with_metadata(
             tmp.path(),
-            "chunked.bin",
+            &rel("chunked.bin"),
             b"chunk2",
             false, // is_first_chunk
             true,  // is_last_chunk
@@ -912,7 +808,7 @@ mod tests {
         let tmp = setup();
         fs::write(tmp.path().join("target.txt"), "link target").unwrap();
 
-        create_symlink_with_metadata(tmp.path(), "meta_link.txt", "target.txt", None, None)
+        create_symlink_with_metadata(tmp.path(), &rel("meta_link.txt"), "target.txt", None, None)
             .unwrap();
 
         let link = tmp.path().join("meta_link.txt");
@@ -946,7 +842,7 @@ mod tests {
     #[test]
     fn symlink_absolute_target_rejected() {
         let tmp = setup();
-        let result = create_symlink(tmp.path(), "link", "/etc/passwd");
+        let result = create_symlink(tmp.path(), &rel("link"), "/etc/passwd");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("escapes root"));
     }
@@ -983,9 +879,9 @@ mod tests {
         let tmp = root_with_link_to_real_file();
         fs::write(tmp.path().join("rw/file.txt"), "kept").unwrap();
 
-        assert!(create_symlink(tmp.path(), "ro/link", "other").is_err());
-        assert!(create_symlink(tmp.path(), "rw/file.txt", "other").is_err());
-        assert!(create_symlink(tmp.path(), "rw", "other").is_err());
+        assert!(create_symlink(tmp.path(), &rel("ro/link"), "other").is_err());
+        assert!(create_symlink(tmp.path(), &rel("rw/file.txt"), "other").is_err());
+        assert!(create_symlink(tmp.path(), &rel("rw"), "other").is_err());
 
         assert_link_and_target_unchanged(&tmp);
         assert_eq!(
@@ -999,7 +895,7 @@ mod tests {
     fn writing_a_file_over_an_existing_symlink_fails_and_changes_neither_link_nor_target() {
         let tmp = root_with_link_to_real_file();
 
-        let result = write_file(tmp.path(), "ro/link", b"replaced", true);
+        let result = write_file(tmp.path(), &rel("ro/link"), b"replaced", true);
 
         assert!(result.is_err(), "{result:?}");
         assert_link_and_target_unchanged(&tmp);
@@ -1012,7 +908,7 @@ mod tests {
 
         let result = write_file_with_metadata(
             tmp.path(),
-            "ro/link",
+            &rel("ro/link"),
             b"replaced",
             true,
             true,

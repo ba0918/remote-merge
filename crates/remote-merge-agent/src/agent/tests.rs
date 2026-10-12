@@ -12,6 +12,15 @@ use super::client::{AgentClient, TreeList};
 use super::protocol::{FileKind, FileReadResult};
 use super::server::{run_agent_loop, MetadataConfig};
 use super::tree_scan::convert_agent_entries_to_nodes;
+use remote_merge_core::relative_path::RelPath;
+
+fn rel(path: &str) -> RelPath {
+    RelPath::parse(path).unwrap()
+}
+
+fn rels(paths: &[&str]) -> Vec<RelPath> {
+    paths.iter().map(|path| rel(path)).collect()
+}
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -50,7 +59,7 @@ fn full_protocol_roundtrip() {
     let mut client = create_pair(&tmp);
 
     // ListTree
-    let TreeList { entries, .. } = client.list_tree("", &[], &[], 10000).unwrap();
+    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
     assert!(paths.contains(&"hello.txt"));
     // ディレクトリ "sub" は buffer に含まれない（走査キューにのみ追加）
@@ -58,9 +67,7 @@ fn full_protocol_roundtrip() {
     assert!(paths.contains(&"sub/inner.txt"));
 
     // ReadFiles
-    let results = client
-        .read_files(&["hello.txt".to_string()], 1_048_576)
-        .unwrap();
+    let results = client.read_files(&rels(&["hello.txt"]), 1_048_576).unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
         FileReadResult::Ok { content, .. } => assert_eq!(content, b"world"),
@@ -69,7 +76,7 @@ fn full_protocol_roundtrip() {
 
     // WriteFile
     client
-        .write_file("written.txt", b"new content", false)
+        .write_file(&rel("written.txt"), b"new content", false)
         .unwrap();
     assert_eq!(
         fs::read_to_string(tmp.path().join("written.txt")).unwrap(),
@@ -77,7 +84,7 @@ fn full_protocol_roundtrip() {
     );
 
     // StatFiles
-    let stats = client.stat_files(&["written.txt".to_string()]).unwrap();
+    let stats = client.stat_files(&rels(&["written.txt"])).unwrap();
     assert_eq!(stats.len(), 1);
     assert_eq!(stats[0].size, 11); // "new content".len()
 
@@ -106,7 +113,7 @@ fn tree_scan_and_convert_to_file_nodes() {
     std::os::unix::fs::symlink("root.txt", tmp.path().join("link")).unwrap();
 
     let mut client = create_pair(&tmp);
-    let TreeList { entries, .. } = client.list_tree("", &[], &[], 10000).unwrap();
+    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
 
     // エントリ種類の検証
     let file_entry = entries.iter().find(|e| e.path == "root.txt").unwrap();
@@ -149,7 +156,7 @@ fn chunked_write_and_read_roundtrip() {
     let data = vec![0xCDu8; 4 * 1024 * 1024 + 1000];
 
     let mut client = create_pair(&tmp);
-    client.write_file("large.bin", &data, true).unwrap();
+    client.write_file(&rel("large.bin"), &data, true).unwrap();
 
     // ファイルシステム上で検証
     let written = fs::read(tmp.path().join("large.bin")).unwrap();
@@ -158,7 +165,7 @@ fn chunked_write_and_read_roundtrip() {
 
     // ReadFiles で読み返して検証
     let results = client
-        .read_files(&["large.bin".to_string()], 16 * 1024 * 1024)
+        .read_files(&rels(&["large.bin"]), 16 * 1024 * 1024)
         .unwrap();
     let mut reassembled = Vec::new();
     for r in &results {
@@ -187,7 +194,7 @@ fn exclude_patterns_filter_entries() {
     let mut client = create_pair(&tmp);
     let TreeList { entries, .. } = client
         .list_tree(
-            "",
+            &rel(""),
             &["node_modules".to_string(), ".git".to_string()],
             &[],
             10000,
@@ -216,7 +223,7 @@ fn read_nonexistent_returns_error_not_crash() {
     let mut client = create_pair(&tmp);
 
     let results = client
-        .read_files(&["nonexistent/path/xyz123".to_string()], 1024)
+        .read_files(&rels(&["nonexistent/path/xyz123"]), 1024)
         .unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
@@ -230,29 +237,18 @@ fn read_nonexistent_returns_error_not_crash() {
 }
 
 #[test]
-fn write_path_traversal_returns_error() {
-    let tmp = TempDir::new().unwrap();
-    let mut client = create_pair(&tmp);
-
-    // パストラバーサルを含む相対パスで WriteFile → エラーになるがクラッシュしない
-    let result = client.write_file("../../tmp/evil.txt", b"evil", false);
-    // write_file はエラーを返す（WriteResult.success=false → bail!）
-    assert!(result.is_err());
-}
-
-#[test]
 fn server_continues_after_error() {
     let tmp = TempDir::new().unwrap();
     let mut client = create_pair(&tmp);
 
     // エラーを引き起こす操作
-    let _ = client.read_files(&["/nonexistent/abc".to_string()], 1024);
+    let _ = client.read_files(&rels(&["nonexistent/abc"]), 1024);
 
     // サーバーが続行していることを Ping で確認
     client.ping().unwrap();
 
     // もう一度エラーを起こしても問題ない
-    let _ = client.read_files(&["/another/nonexistent".to_string()], 1024);
+    let _ = client.read_files(&rels(&["another/nonexistent"]), 1024);
     client.ping().unwrap();
 }
 
@@ -270,10 +266,10 @@ fn symlink_create_and_list_and_read() {
 
     // シンボリックリンク作成（相対パスで指定）
     let link_rel = "mylink.txt";
-    client.symlink(link_rel, "target.txt").unwrap();
+    client.symlink(&rel(link_rel), "target.txt").unwrap();
 
     // ListTree でシンボリックリンクが表示される
-    let TreeList { entries, .. } = client.list_tree("", &[], &[], 10000).unwrap();
+    let TreeList { entries, .. } = client.list_tree(&rel(""), &[], &[], 10000).unwrap();
     let link_entry = entries
         .iter()
         .find(|e| e.path == link_rel)
@@ -282,9 +278,7 @@ fn symlink_create_and_list_and_read() {
     assert_eq!(link_entry.symlink_target.as_deref(), Some("target.txt"));
 
     // ReadFiles でシンボリックリンクを読む → ターゲットの内容が返る
-    let results = client
-        .read_files(&[link_rel.to_string()], 1_048_576)
-        .unwrap();
+    let results = client.read_files(&rels(&[link_rel]), 1_048_576).unwrap();
     assert_eq!(results.len(), 1);
     match &results[0] {
         FileReadResult::Ok { content, .. } => {
@@ -321,7 +315,9 @@ fn read_50_files_in_single_request() {
     let mut client = create_pair(&tmp);
 
     // 全50ファイルを1リクエストで読み込む
-    let results = client.read_files(&paths, 1_048_576).unwrap();
+    let results = client
+        .read_files(&paths.iter().map(|p| rel(p)).collect::<Vec<_>>(), 1_048_576)
+        .unwrap();
     assert_eq!(results.len(), count);
 
     for (i, result) in results.iter().enumerate() {

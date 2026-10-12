@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use remote_merge_core::path_resolution::{self, ResolvedPath};
+use remote_merge_core::relative_path::RelPath;
 use remote_merge_protocol::FileHashResult;
 
 use crate::local;
@@ -246,76 +247,88 @@ pub fn create_local_symlink(full_path: &Path, target: &str) -> anyhow::Result<()
 /// 辿れないときのエラーは [`path_resolution::ResolveError`] で、表示は "cannot resolve path: " で始まる。
 /// 相対の root_dir は設定を読む段階で設定ファイルの場所を基準に絶対パスにするので、ここには
 /// 絶対パスだけが届く。届いた相対パスの基準は推し量らずにエラーにする
-pub fn inspect_local_path(root: &Path, rel_path: &str) -> anyhow::Result<ResolvedPath> {
+pub fn inspect_local_path(root: &Path, rel_path: &RelPath) -> anyhow::Result<ResolvedPath> {
     if !root.is_absolute() {
         anyhow::bail!("local root_dir is not an absolute path: {}", root.display());
     }
-    executor::validate_remote_path(&root.to_string_lossy(), rel_path)?;
     Ok(path_resolution::os::resolve_on_this_machine(
-        root, rel_path,
+        root,
+        rel_path.path_to_resolve(),
     )?)
 }
 
-pub fn read_file_bytes(root: &Path, path: &str) -> anyhow::Result<Vec<u8>> {
+pub fn read_file_bytes(root: &Path, path: &RelPath) -> anyhow::Result<Vec<u8>> {
     executor::read_local_file_bytes(root, path)
 }
 
+/// パスごとの中身。キーは入力されたままのパス
 pub fn read_files_bytes_batch(
     root: &Path,
-    paths: &[String],
+    paths: &[RelPath],
 ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
     paths
         .iter()
-        .map(|path| Ok((path.clone(), executor::read_local_file_bytes(root, path)?)))
-        .collect()
-}
-
-/// パスごとの、symlink を辿った先のファイルの大きさ。調べられないパス（ない、権限がない、
-/// root_dir の外）は None
-pub fn file_sizes(root: &Path, paths: &[String]) -> HashMap<String, Option<u64>> {
-    paths
-        .iter()
         .map(|path| {
-            let size = validated_path(root, path)
-                .ok()
-                .and_then(|full| std::fs::metadata(full).ok())
-                .map(|metadata| metadata.len());
-            (path.clone(), size)
+            Ok((
+                path.as_typed().to_string(),
+                executor::read_local_file_bytes(root, path)?,
+            ))
         })
         .collect()
 }
 
-pub fn write_file(root: &Path, path: &str, content: &str) -> anyhow::Result<()> {
-    executor::write_local_file(root, path, content)
-        .with_context(|| format!("write local file: {path}"))
+/// パスごとの、symlink を辿った先のファイルの大きさ。調べられないパス（ない、権限がない）は
+/// None。キーは入力されたままのパス
+pub fn file_sizes(root: &Path, paths: &[RelPath]) -> HashMap<String, Option<u64>> {
+    paths
+        .iter()
+        .map(|path| {
+            let size = std::fs::metadata(root.join(path.as_str()))
+                .ok()
+                .map(|metadata| metadata.len());
+            (path.as_typed().to_string(), size)
+        })
+        .collect()
 }
 
-pub fn write_file_bytes(root: &Path, path: &str, content: &[u8]) -> anyhow::Result<()> {
+pub fn write_file(root: &Path, path: &RelPath, content: &str) -> anyhow::Result<()> {
+    executor::write_local_file(root, path, content)
+        .with_context(|| format!("write local file: {}", path.as_typed()))
+}
+
+pub fn write_file_bytes(root: &Path, path: &RelPath, content: &[u8]) -> anyhow::Result<()> {
     executor::write_local_file_bytes(root, path, content)
 }
 
+/// パスごとの更新時刻。キーは入力されたままのパス
 pub fn stat_files(
     root: &Path,
-    paths: &[String],
+    paths: &[RelPath],
 ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
-    for path in paths {
-        validated_path(root, path)?;
+    let mut stats = stat_local_files(root, &operation_paths(paths))?;
+    for ((path, _), rel) in stats.iter_mut().zip(paths) {
+        *path = rel.as_typed().to_string();
     }
-    stat_local_files(root, paths)
+    Ok(stats)
 }
 
 /// root_dir からの `path` の権限を変える（docs/ir/paths/operations.md。エージェントと同じ手順）
-pub fn chmod_file(root: &Path, path: &str, mode: u32) -> anyhow::Result<()> {
+pub fn chmod_file(root: &Path, path: &RelPath, mode: u32) -> anyhow::Result<()> {
     remote_merge_core::operations::chmod(root, path, mode)
 }
 
 /// root_dir からの `path` を消す（docs/ir/paths/operations.md。エージェントと同じ手順）
-pub fn remove_file(root: &Path, path: &str) -> anyhow::Result<()> {
+pub fn remove_file(root: &Path, path: &RelPath) -> anyhow::Result<()> {
     remote_merge_core::operations::remove(root, path)
 }
 
-pub fn create_symlink(root: &Path, path: &str, target: &str) -> anyhow::Result<()> {
-    create_local_symlink(&validated_path(root, path)?, target)
+pub fn create_symlink(root: &Path, path: &RelPath, target: &str) -> anyhow::Result<()> {
+    create_local_symlink(&root.join(path.as_str()), target)
+}
+
+/// 末尾の "/" を除いた、操作に渡す形のパス
+fn operation_paths(paths: &[RelPath]) -> Vec<String> {
+    paths.iter().map(|path| path.as_str().to_string()).collect()
 }
 
 pub fn fetch_tree(root: &Path, exclude: &[String]) -> anyhow::Result<FileTree> {
@@ -344,17 +357,11 @@ pub fn fetch_tree_recursive(
 pub fn fetch_tree_for_subpath(
     root: &Path,
     exclude: &[String],
-    subpath: &str,
+    subpath: &RelPath,
     max: usize,
     fail: bool,
 ) -> anyhow::Result<FileTree> {
-    let subpath = subpath.trim_end_matches('/');
-    if std::path::Path::new(subpath).is_absolute() {
-        anyhow::bail!("absolute subpath not allowed: {}", subpath);
-    }
-    if subpath.split('/').any(|part| part == "..") {
-        anyhow::bail!("path traversal not allowed: {}", subpath);
-    }
+    let subpath = subpath.as_str();
     let scan_root = root.join(subpath);
     if !scan_root.exists() || !scan_root.is_dir() {
         return Ok(FileTree::new(root));
@@ -375,10 +382,11 @@ pub fn fetch_children(
     root: &Path,
     exclude: &[String],
     include: &[String],
-    path: &str,
+    path: &RelPath,
 ) -> anyhow::Result<Vec<FileNode>> {
-    // 利用者の入力した絶対パスや .. で root_dir の外を一覧しない
-    let nodes = local::scan_dir(&validated_path(root, path)?, exclude, path)?;
+    let full = root.join(path.as_str());
+    let path = path.as_typed();
+    let nodes = local::scan_dir(&full, exclude, path)?;
     Ok(crate::filter::filter_children_by_include(
         nodes, path, include,
     ))
@@ -389,7 +397,7 @@ pub fn fetch_children(
 pub fn list_children(
     root: &Path,
     exclude: &[String],
-    path: &str,
+    path: &RelPath,
 ) -> anyhow::Result<remote_merge_core::listing::ChildListing> {
     remote_merge_core::listing::list_children(
         root,
@@ -399,12 +407,18 @@ pub fn list_children(
     )
 }
 
-pub fn hashes(root: &Path, paths: &[String]) -> Option<HashMap<String, String>> {
-    Some(compute_local_hashes_batch(root, paths))
-}
-
-fn validated_path(root: &Path, rel_path: &str) -> anyhow::Result<PathBuf> {
-    executor::validate_path_within_root(root, &root.join(rel_path))
+/// パスごとのハッシュ（symlink はリンク先）。キーは入力されたままのパス
+pub fn hashes(root: &Path, paths: &[RelPath]) -> Option<HashMap<String, String>> {
+    Some(
+        paths
+            .iter()
+            .filter_map(|path| {
+                let result = compute_local_file_hash(root, path.as_str());
+                extract_hash_string(&result)
+                    .map(|(_, hash)| (path.as_typed().to_string(), hash.to_string()))
+            })
+            .collect(),
+    )
 }
 
 #[cfg(all(test, unix))]
@@ -455,7 +469,7 @@ mod tests {
         ];
         for (base, rel) in existing {
             let expected = std::fs::canonicalize(base.join(rel)).unwrap();
-            let real_path = match inspect_local_path(base, rel).unwrap() {
+            let real_path = match inspect_local_path(base, &RelPath::parse(rel).unwrap()).unwrap() {
                 ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
                     real_path
                 }
@@ -476,7 +490,7 @@ mod tests {
             let expected = std::fs::canonicalize(&root).unwrap().join(parent);
             let expected = expected.to_str().unwrap().trim_end_matches('/');
             assert_eq!(
-                inspect_local_path(&root, rel).unwrap(),
+                inspect_local_path(&root, &RelPath::parse(rel).unwrap()).unwrap(),
                 ResolvedPath::Missing {
                     real_parent: expected.to_string(),
                     parent_exists,
@@ -492,8 +506,8 @@ mod tests {
         let root = directory.path();
         std::fs::write(root.join("file"), "12345").unwrap();
         symlink("file", root.join("link")).unwrap();
-        let paths: Vec<String> = ["file", "link", "missing", "../outside"]
-            .map(String::from)
+        let paths: Vec<RelPath> = ["file", "link", "missing"]
+            .map(|path| RelPath::parse(path).unwrap())
             .to_vec();
 
         let sizes = file_sizes(root, &paths);
@@ -501,6 +515,5 @@ mod tests {
         assert_eq!(sizes["file"], Some(5));
         assert_eq!(sizes["link"], Some(5));
         assert_eq!(sizes["missing"], None);
-        assert_eq!(sizes["../outside"], None);
     }
 }

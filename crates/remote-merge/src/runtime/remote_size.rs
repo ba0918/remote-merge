@@ -3,6 +3,7 @@
 //! 大きさは読み込みと同じく symlink を辿った先のファイルについて調べる。上限の判定はここでは
 //! せず、`size_limit` が入口で行う。
 
+use remote_merge_core::relative_path::RelPath;
 use std::collections::{HashMap, HashSet};
 
 use crate::agent::protocol::AgentFileStat;
@@ -67,24 +68,24 @@ pub fn parse_file_size_output(output: &[u8], count: usize) -> anyhow::Result<Vec
 pub(crate) struct AgentSizes {
     /// 答えたパスの大きさ
     pub known: HashMap<String, u64>,
-    /// 答えなかったパス（root_dir の外を指す symlink など）
-    pub omitted: Vec<String>,
+    /// 答えなかったパス
+    pub omitted: Vec<RelPath>,
 }
 
 /// `paths` を `batch` 件ごとに `query` で尋ね、答えをパスで突き合わせる。答えの数や順番には
 /// 頼らず、答えのないパスは `omitted` にする。どれかの問い合わせが失敗したら全体を失敗にする
 /// （失敗の種類は呼び出し元が `connection::classify` で判定する）
 pub(crate) fn ask_agent_sizes<Q>(
-    paths: &[String],
+    paths: &[RelPath],
     batch: usize,
     mut query: Q,
 ) -> anyhow::Result<AgentSizes>
 where
-    Q: FnMut(&[String]) -> anyhow::Result<Vec<AgentFileStat>>,
+    Q: FnMut(&[RelPath]) -> anyhow::Result<Vec<AgentFileStat>>,
 {
     let mut known = HashMap::with_capacity(paths.len());
     for chunk in paths.chunks(batch) {
-        let asked: HashSet<&str> = chunk.iter().map(String::as_str).collect();
+        let asked: HashSet<&str> = chunk.iter().map(RelPath::as_typed).collect();
         known.extend(
             query(chunk)?
                 .into_iter()
@@ -94,7 +95,7 @@ where
     }
     let omitted = paths
         .iter()
-        .filter(|path| !known.contains_key(path.as_str()))
+        .filter(|path| !known.contains_key(path.as_typed()))
         .cloned()
         .collect();
     Ok(AgentSizes { known, omitted })
@@ -106,6 +107,13 @@ mod tests {
 
     fn paths(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| name.to_string()).collect()
+    }
+
+    fn rels(names: &[&str]) -> Vec<RelPath> {
+        names
+            .iter()
+            .map(|name| RelPath::parse(name).unwrap())
+            .collect()
     }
 
     // ── SSH のコマンド ──
@@ -211,7 +219,7 @@ mod tests {
 
     #[test]
     fn the_agent_is_asked_in_batches_and_answers_are_matched_by_path() {
-        let asked = paths(&["a", "b", "c"]);
+        let asked = rels(&["a", "b", "c"]);
         let mut batches = Vec::new();
 
         let answer = ask_agent_sizes(&asked, 2, |batch| {
@@ -220,27 +228,27 @@ mod tests {
             Ok(batch
                 .iter()
                 .rev()
-                .filter(|path| *path != "b")
-                .map(|path| stat(path, path.len() as u64))
+                .filter(|path| path.as_typed() != "b")
+                .map(|path| stat(path.as_typed(), path.as_typed().len() as u64))
                 .collect())
         });
 
-        assert_eq!(batches, vec![paths(&["a", "b"]), paths(&["c"])]);
+        assert_eq!(batches, vec![rels(&["a", "b"]), rels(&["c"])]);
         let AgentSizes { known, omitted } = answer.unwrap();
         assert_eq!(known.get("a"), Some(&1));
         assert_eq!(known.get("c"), Some(&1));
-        assert_eq!(omitted, paths(&["b"]));
+        assert_eq!(omitted, rels(&["b"]));
     }
 
     #[test]
     fn an_error_in_a_later_batch_fails_the_whole_question() {
         let mut calls = 0;
-        let answer = ask_agent_sizes(&paths(&["a", "b"]), 1, |batch| {
+        let answer = ask_agent_sizes(&rels(&["a", "b"]), 1, |batch| {
             calls += 1;
             if calls == 2 {
                 anyhow::bail!("agent error: stat failed");
             }
-            Ok(vec![stat(&batch[0], 1)])
+            Ok(vec![stat(batch[0].as_typed(), 1)])
         });
         assert!(answer.is_err(), "{answer:?}");
     }

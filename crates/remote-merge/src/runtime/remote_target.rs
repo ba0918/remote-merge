@@ -15,6 +15,7 @@ use super::core::CoreRuntime;
 use super::side_io::hash_results_to_map;
 use super::size_limit::FileSize;
 use super::target_io::{included_children, TargetIo};
+use remote_merge_core::relative_path::RelPath;
 
 use remote_merge_core::listing::ChildListing;
 use remote_merge_core::path_resolution::ResolvedPath;
@@ -40,7 +41,11 @@ impl RemoteTargetIo {
 }
 
 impl TargetIo for RemoteTargetIo {
-    fn inspect_path(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ResolvedPath> {
+    fn inspect_path(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &RelPath,
+    ) -> anyhow::Result<ResolvedPath> {
         self.guarded(rt, |rt, name| {
             if let Some(value) = rt.try_agent_inspect_path(name, path) {
                 return value;
@@ -49,7 +54,7 @@ impl TargetIo for RemoteTargetIo {
             rt.ssh_read(name, |rt| rt.inspect_remote_path(name, path))
         })
     }
-    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<Vec<u8>> {
+    fn read_file_bytes(&mut self, rt: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<Vec<u8>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_read_file_bytes(name, path) {
                 return v;
@@ -61,14 +66,14 @@ impl TargetIo for RemoteTargetIo {
     fn file_sizes(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[String],
+        paths: &[RelPath],
     ) -> anyhow::Result<HashMap<String, FileSize>> {
         self.guarded(rt, |rt, name| rt.remote_file_sizes(name, paths))
     }
     fn read_files_bytes_batch(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[String],
+        paths: &[RelPath],
     ) -> anyhow::Result<HashMap<String, Vec<u8>>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_read_files_bytes_batch(name, paths) {
@@ -81,7 +86,7 @@ impl TargetIo for RemoteTargetIo {
     fn write_file(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &str,
+        path: &RelPath,
         content: &str,
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -95,7 +100,7 @@ impl TargetIo for RemoteTargetIo {
     fn write_file_bytes(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &str,
+        path: &RelPath,
         content: &[u8],
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -109,7 +114,7 @@ impl TargetIo for RemoteTargetIo {
     fn stat_files(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[String],
+        paths: &[RelPath],
     ) -> anyhow::Result<Vec<(String, Option<DateTime<Utc>>)>> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_stat_files(name, paths) {
@@ -119,7 +124,12 @@ impl TargetIo for RemoteTargetIo {
             rt.ssh_read(name, |rt| rt.stat_remote_files(name, paths))
         })
     }
-    fn chmod_file(&mut self, rt: &mut CoreRuntime, path: &str, mode: u32) -> anyhow::Result<()> {
+    fn chmod_file(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &RelPath,
+        mode: u32,
+    ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_chmod(name, path, mode) {
                 return v;
@@ -128,7 +138,7 @@ impl TargetIo for RemoteTargetIo {
             rt.chmod_remote_file(name, path, mode)
         })
     }
-    fn remove_file(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<()> {
+    fn remove_file(&mut self, rt: &mut CoreRuntime, path: &RelPath) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_remove(name, path) {
                 return v;
@@ -140,7 +150,7 @@ impl TargetIo for RemoteTargetIo {
     fn create_symlink(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &str,
+        path: &RelPath,
         target: &str,
     ) -> anyhow::Result<()> {
         self.guarded(rt, |rt, name| {
@@ -183,17 +193,10 @@ impl TargetIo for RemoteTargetIo {
     fn fetch_tree_for_subpath(
         &mut self,
         rt: &mut CoreRuntime,
-        subpath: &str,
+        subpath: &RelPath,
         max: usize,
         fail: bool,
     ) -> anyhow::Result<FileTree> {
-        let subpath = subpath.trim_end_matches('/');
-        if std::path::Path::new(subpath).is_absolute() {
-            anyhow::bail!("absolute subpath not allowed: {}", subpath);
-        }
-        if subpath.split('/').any(|part| part == "..") {
-            anyhow::bail!("path traversal not allowed: {}", subpath);
-        }
         self.guarded(rt, |rt, name| {
             if let Some(v) = rt.try_agent_fetch_tree_for_subpath(name, subpath, max, fail) {
                 return v;
@@ -207,14 +210,13 @@ impl TargetIo for RemoteTargetIo {
     fn fetch_children(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &str,
+        path: &RelPath,
     ) -> anyhow::Result<Vec<FileNode>> {
-        remote_merge_engine::rel_path::check_rel_path(path)?;
         if rt.has_agent(&self.name) {
             // 今の呼び出し元は、ディレクトリでないことも一覧を取れなかったことも Err として受け取る
             return match self.list_children(rt, path)? {
                 ChildListing::Children(nodes) => Ok(nodes),
-                ChildListing::NotDirectory => anyhow::bail!("not a directory: {path}"),
+                ChildListing::NotDirectory => anyhow::bail!("not a directory: {}", path.as_typed()),
                 ChildListing::Unlistable(reason) => anyhow::bail!(reason),
             };
         }
@@ -223,12 +225,16 @@ impl TargetIo for RemoteTargetIo {
             let nodes = rt.ssh_read(name, |rt| rt.fetch_remote_children(name, path))?;
             Ok(crate::filter::filter_children_by_include(
                 nodes,
-                path,
+                path.as_typed(),
                 &rt.config.filter.include,
             ))
         })
     }
-    fn list_children(&mut self, rt: &mut CoreRuntime, path: &str) -> anyhow::Result<ChildListing> {
+    fn list_children(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &RelPath,
+    ) -> anyhow::Result<ChildListing> {
         self.guarded(rt, |rt, name| {
             let exclude = rt.config.filter.exclude.clone();
             let listing = rt.list_remote_children_on_route(
@@ -237,13 +243,17 @@ impl TargetIo for RemoteTargetIo {
                 &exclude,
                 crate::config::DEFAULT_MAX_DIR_ENTRIES,
             )?;
-            Ok(included_children(listing, path, &rt.config.filter.include))
+            Ok(included_children(
+                listing,
+                path.as_str(),
+                &rt.config.filter.include,
+            ))
         })
     }
     fn entry_link_target(
         &mut self,
         rt: &mut CoreRuntime,
-        path: &str,
+        path: &RelPath,
     ) -> anyhow::Result<Option<String>> {
         self.guarded(rt, |rt, name| rt.remote_entry_link_target(name, path))
     }
@@ -259,7 +269,7 @@ impl TargetIo for RemoteTargetIo {
     fn hashes(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[String],
+        paths: &[RelPath],
     ) -> anyhow::Result<Option<HashMap<String, String>>> {
         self.guarded(rt, |rt, name| match rt.try_agent_hash_files(name, paths) {
             Some(Ok(results)) => Ok(Some(hash_results_to_map(&results))),
@@ -271,7 +281,7 @@ impl TargetIo for RemoteTargetIo {
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,
-        paths: &[String],
+        paths: &[RelPath],
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>> {
         self.guarded(rt, |rt, name| rt.remote_states_before_restore(name, paths))
     }

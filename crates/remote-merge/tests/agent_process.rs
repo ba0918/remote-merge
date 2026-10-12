@@ -140,7 +140,11 @@ fn agent_nonexistent_root_exits_with_error() {
         .expect("handshake should succeed even with nonexistent root");
 
     // WriteFile を送ると root が存在しないためエラーが返るはず
-    let result = client.write_file("test.txt", b"data", false);
+    let result = client.write_file(
+        &remote_merge_core::relative_path::RelPath::parse("test.txt").unwrap(),
+        b"data",
+        false,
+    );
     assert!(
         result.is_err(),
         "write_file with nonexistent root should return an error"
@@ -248,7 +252,12 @@ fn agent_list_tree_roundtrip() {
 
     let remote_merge::agent::client::TreeList { entries, .. } = proc
         .client
-        .list_tree("", &[], &[], 10_000)
+        .list_tree(
+            &remote_merge_core::relative_path::RelPath::root(),
+            &[],
+            &[],
+            10_000,
+        )
         .expect("list_tree should succeed");
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();

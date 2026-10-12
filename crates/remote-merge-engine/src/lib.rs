@@ -3,7 +3,6 @@ pub mod backup_store;
 pub mod local;
 pub mod local_io;
 pub mod merge;
-pub mod rel_path;
 pub mod service;
 pub mod side;
 pub mod three_way;

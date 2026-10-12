@@ -249,19 +249,20 @@ impl<T: std::fmt::Debug> Outcomes<T> {
 }
 
 fn remove_on_all_routes(routes: &Routes, path: &'static str) -> Outcomes<()> {
-    let local = remote_merge_engine::local_io::remove_file(&routes.local.root, path)
+    let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
+    let local = remote_merge_engine::local_io::remove_file(&routes.local.root, rel)
         .map_err(|error| error.to_string());
     let ssh = operation_outcome(routes.over_ssh(&format!("remove\t{path}")));
-    let agent = routes.over_agent(|agent| agent.client.remove(path).map_err(|e| e.to_string()));
+    let agent = routes.over_agent(|agent| agent.client.remove(rel).map_err(|e| e.to_string()));
     Outcomes { local, ssh, agent }
 }
 
 fn chmod_on_all_routes(routes: &Routes, path: &'static str, mode: u32) -> Outcomes<()> {
-    let local = remote_merge_engine::local_io::chmod_file(&routes.local.root, path, mode)
+    let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
+    let local = remote_merge_engine::local_io::chmod_file(&routes.local.root, rel, mode)
         .map_err(|error| error.to_string());
     let ssh = operation_outcome(routes.over_ssh(&format!("chmod\t{path}\t{mode:o}")));
-    let agent =
-        routes.over_agent(|agent| agent.client.chmod(path, mode).map_err(|e| e.to_string()));
+    let agent = routes.over_agent(|agent| agent.client.chmod(rel, mode).map_err(|e| e.to_string()));
     Outcomes { local, ssh, agent }
 }
 
@@ -315,7 +316,8 @@ fn list_on_all_routes_excluding(
     path: &str,
     exclude: &[String],
 ) -> (Vec<Entry>, [String; 3]) {
-    let local = remote_merge_engine::local_io::list_children(&routes.local.root, exclude, path)
+    let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
+    let local = remote_merge_engine::local_io::list_children(&routes.local.root, exclude, rel)
         .map_err(|error| error.to_string());
     let local_text = listing_text(local.clone());
     let ssh = routes.over_ssh(&format!("list\t{path}"));
@@ -323,7 +325,7 @@ fn list_on_all_routes_excluding(
         listing_text(
             agent
                 .client
-                .list_dir(path, exclude, MAX_ENTRIES)
+                .list_dir(rel, exclude, MAX_ENTRIES)
                 .map(child_listing_from_agent)
                 .map_err(|error| error.to_string()),
         )
@@ -484,14 +486,22 @@ async fn listing_the_same_directory_gives_the_same_entries_on_all_three_routes()
     // エージェントの exclude はローカルと同じく、直下の子の root_dir からのパスに当てる
     let exclude = ["vendor/**".to_string()];
     let local = entries(
-        remote_merge_engine::local_io::list_children(&routes.local.root, &exclude, "v")
-            .map_err(|error| error.to_string()),
+        remote_merge_engine::local_io::list_children(
+            &routes.local.root,
+            &exclude,
+            &remote_merge_core::relative_path::RelPath::parse("v").unwrap(),
+        )
+        .map_err(|error| error.to_string()),
     );
     let agent = routes.over_agent(|agent| {
         entries(
             agent
                 .client
-                .list_dir("v", &exclude, MAX_ENTRIES)
+                .list_dir(
+                    &remote_merge_core::relative_path::RelPath::parse("v").unwrap(),
+                    &exclude,
+                    MAX_ENTRIES,
+                )
                 .map(child_listing_from_agent)
                 .map_err(|error| error.to_string()),
         )
@@ -580,7 +590,13 @@ fn a_listing_with_an_unreadable_link_target_stops_with_an_error_naming_the_link(
     fs::write(root.path().join("t.txt"), "x").unwrap();
     symlink("t.txt", root.path().join("l")).unwrap();
 
-    let result = list_children_with(&UnreadableLinks, root.path(), "", &[], MAX_ENTRIES);
+    let result = list_children_with(
+        &UnreadableLinks,
+        root.path(),
+        &remote_merge_core::relative_path::RelPath::root(),
+        &[],
+        MAX_ENTRIES,
+    );
 
     let error = result
         .expect_err("a link without its target must not be listed")

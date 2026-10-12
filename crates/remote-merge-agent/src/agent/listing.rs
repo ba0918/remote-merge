@@ -6,6 +6,7 @@ use std::path::Path;
 use super::protocol::{AgentDirListing, AgentFileEntry, AgentResponse, FileKind};
 use crate::tree::{FileNode, NodeKind};
 use remote_merge_core::listing::{list_children, ChildListing};
+use remote_merge_core::relative_path::RelPath;
 
 /// 一つの応答に入れる子の数。名前（NAME_MAX）とリンク先（PATH_MAX）が最も長い子でも、
 /// 応答がフレームの上限（16 MiB）に収まる数にする
@@ -15,7 +16,7 @@ pub const ENTRIES_PER_RESPONSE: usize = 1000;
 /// 一覧を止めるエラーは `Error` の応答にする
 pub fn list_dir(
     root: &Path,
-    path: &str,
+    path: &RelPath,
     exclude: &[String],
     max_entries: usize,
 ) -> Vec<AgentResponse> {

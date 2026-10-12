@@ -433,7 +433,12 @@ async fn agent_ssh_list_tree_roundtrip() {
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
     let remote_merge::agent::client::TreeList { entries, .. } = client
-        .list_tree("", &[], &[], 10_000)
+        .list_tree(
+            &remote_merge_core::relative_path::RelPath::root(),
+            &[],
+            &[],
+            10_000,
+        )
         .expect("list_tree failed");
 
     let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
@@ -486,7 +491,10 @@ async fn agent_ssh_read_files_roundtrip() {
     let mut client = AgentClient::connect(reader, writer).expect("AgentClient connect failed");
 
     let results = client
-        .read_files(&["test.txt".to_string()], 1_048_576)
+        .read_files(
+            &[remote_merge_core::relative_path::RelPath::parse("test.txt").unwrap()],
+            1_048_576,
+        )
         .expect("read_files failed");
 
     assert_eq!(results.len(), 1, "expected 1 result");
