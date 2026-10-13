@@ -14,7 +14,9 @@ use crate::tree_parser::{
 };
 
 const NO_TOOL: &str = "@RMNOTOOL";
-/// 書き込みのコマンドの書き出し。製品の書き込みのコマンドかを見分けるのに使える
+/// 書き込みのコマンドの書き出し。シェルには何もしない文で、製品の書き込みのコマンド（標準入力に中身を
+/// 送るもの）かを見分けるための印。試験の偽の SSH サーバは、この印で標準入力を待つ書き込みのコマンドを
+/// 見分ける（中身に "cat >" を含むかでは、読み込みのスクリプトと取り違える）
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
 const PARENT: &str = "@RMPARENT";
 
