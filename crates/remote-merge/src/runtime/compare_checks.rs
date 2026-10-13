@@ -6,6 +6,7 @@ use remote_merge_core::compare::{check_before_change, ChangeCheck, Observed, Rol
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 use remote_merge_core::path_resolution::ResolvedPath;
 use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::failure_kind::failure_of_scan_error;
 use remote_merge_core::scan::include::is_inside;
 use remote_merge_core::scan::outcome::{
     ListedKind, Listing, ScanFailure, ScanRequest, ScanScope, Start,
@@ -76,9 +77,11 @@ impl CoreRuntime {
             {
                 Ok(Observed::Absent)
             }
+            // 失敗の種類のまま渡す。種類を含まない誤りだけを、誤りの文の I/O の失敗にする
             Err(error) => Err(SideFailure {
                 role,
-                failure: OpFailure::Io(format!("{error:#}")),
+                failure: failure_of_scan_error(&error)
+                    .unwrap_or_else(|| OpFailure::Io(format!("{error:#}"))),
             }),
         };
         match check_before_change(compared, now) {

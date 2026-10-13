@@ -1,7 +1,7 @@
 //! 走査のスクリプト（[`crate::scan_script`]）の出力を、問いへの答えにする。読めない出力・
 //! 読めないパスを知らせる以外の find の診断・途中で切れた出力は、空にせずに誤りにする。
 
-use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, Subtree, Unreached};
+use remote_merge_core::scan::raw::{Answer, LinkTarget, RawEntry, ReadCause, Subtree, Unreached};
 
 use crate::scan_checks::{apply_checks_to, place_vanished, split_stderr};
 use crate::scan_recheck::{empty_dirs, EmptyDir};
@@ -120,7 +120,7 @@ pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Resu
             };
             if peek.next()? == b"@F" {
                 let why = match peek.next()? {
-                    b"U" => Unreached::Unreadable,
+                    b"U" => Unreached::Unreadable(ReadCause::Other),
                     b"" => Unreached::NotDirectory,
                     message => unreached_from(message),
                 };

@@ -108,7 +108,7 @@ pub(super) fn unreached(path: &[u8], why: Unreached) -> Result<(), ScanError> {
     match why {
         Unreached::Missing => Ok(()),
         Unreached::NotDirectory => Err(ScanFailure::StartBlocked { path }.into()),
-        Unreached::Unreadable => Err(ScanFailure::StartUnreadable { path }.into()),
+        Unreached::Unreadable(cause) => Err(ScanFailure::StartUnreadable { path, cause }.into()),
     }
 }
 

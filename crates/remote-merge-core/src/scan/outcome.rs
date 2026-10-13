@@ -159,7 +159,7 @@ pub enum ScanFailure {
     #[error("Cannot scan {path}: a parent is not a directory")]
     StartBlocked { path: String },
     #[error("Cannot scan {path}: it cannot be read")]
-    StartUnreadable { path: String },
+    StartUnreadable { path: String, cause: ReadCause },
     #[error("Cannot read directory: {path}: {cause}")]
     UnreadableDirectory { path: String, cause: ReadCause },
     #[error("Cannot follow symbolic link (loop or non-directory in its target): {path}")]

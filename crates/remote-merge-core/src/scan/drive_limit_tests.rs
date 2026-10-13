@@ -44,7 +44,7 @@ fn a_missing_or_unreadable_root_dir_stops_the_scan() {
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootMissing
     );
-    let mut fake = Fake::default().with(b"", unreached(Unreached::Unreadable));
+    let mut fake = Fake::default().with(b"", unreached(Unreached::Unreadable(ReadCause::Other)));
     assert_eq!(
         failure(run(&mut fake, &exclude(&[]), &whole(9))),
         ScanFailure::RootUnreadable

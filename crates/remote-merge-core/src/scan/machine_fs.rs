@@ -98,7 +98,7 @@ pub fn unreached(error: &io::Error) -> Unreached {
     if error.raw_os_error() == Some(libc::ENOTDIR) {
         return Unreached::NotDirectory;
     }
-    Unreached::Unreadable
+    Unreached::Unreadable(cause_of(error))
 }
 
 #[cfg(unix)]

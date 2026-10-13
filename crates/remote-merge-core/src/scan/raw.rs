@@ -68,7 +68,7 @@ pub enum Unreached {
     /// 途中の要素がディレクトリでない
     NotDirectory,
     /// 権限がないなど、そのほかの理由で読めない
-    Unreadable,
+    Unreadable(ReadCause),
 }
 
 /// 問いのパスが（リンクを辿って）ディレクトリのとき、その下をどこまで集めるか

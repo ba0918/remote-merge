@@ -1,6 +1,8 @@
 //! 走査のスクリプトの出力の一項目と、ls・find の文言の読み方
 
-use remote_merge_core::scan::raw::{DirId, LinkTarget, RawEntry, RawKind, RawTime, Unreached};
+use remote_merge_core::scan::raw::{
+    DirId, LinkTarget, RawEntry, RawKind, RawTime, ReadCause, Unreached,
+};
 
 /// find の -printf の一項目（[`super::scan_script::RECORD_FORMAT`] の 8 つの欄）
 pub struct Record<'a> {
@@ -82,8 +84,10 @@ pub fn unreached_from(message: &[u8]) -> Unreached {
         Unreached::Missing
     } else if message.ends_with(b"Not a directory") {
         Unreached::NotDirectory
+    } else if message.ends_with(b"Permission denied") {
+        Unreached::Unreadable(ReadCause::PermissionDenied)
     } else {
-        Unreached::Unreadable
+        Unreached::Unreadable(ReadCause::Other)
     }
 }
 

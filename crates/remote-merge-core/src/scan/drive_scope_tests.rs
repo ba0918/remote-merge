@@ -1,6 +1,6 @@
 //! 起点を include の値か指定したディレクトリにした走査の規則の単体テスト
 use super::super::outcome::ScanFailure;
-use super::super::raw::{Depth, Unreached};
+use super::super::raw::{Depth, ReadCause, Unreached};
 use super::super::test_support::*;
 
 // @kotowari[REQ-scan-019, REQ-config-022]
@@ -17,9 +17,10 @@ fn filters_are_matched_against_the_path_from_the_root_dir_below_a_directory() {
 // @kotowari[REQ-scan-019]
 #[test]
 fn a_directory_below_an_excluded_one_is_not_read() {
-    let mut fake = Fake::default()
-        .with(b"", root(None))
-        .with(b"cache/x", unreached(Unreached::Unreadable));
+    let mut fake = Fake::default().with(b"", root(None)).with(
+        b"cache/x",
+        unreached(Unreached::Unreadable(ReadCause::PermissionDenied)),
+    );
     let listing = run(
         &mut fake,
         &exclude(&["cache"]),
@@ -79,14 +80,16 @@ fn a_directory_that_cannot_be_reached_stops_the_scan() {
         ScanFailure::StartBlocked { path: "f/x".into() }
     );
 
-    let mut fake = Fake::default()
-        .with(b"", root(None))
-        .with(b"locked/x", unreached(Unreached::Unreadable));
+    let mut fake = Fake::default().with(b"", root(None)).with(
+        b"locked/x",
+        unreached(Unreached::Unreadable(ReadCause::PermissionDenied)),
+    );
     let result = run(&mut fake, &exclude(&[]), &scope(below(&["locked/x"]), 9));
     assert_eq!(
         failure(result),
         ScanFailure::StartUnreadable {
-            path: "locked/x".into()
+            path: "locked/x".into(),
+            cause: ReadCause::PermissionDenied,
         }
     );
 }

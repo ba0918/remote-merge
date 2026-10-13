@@ -170,7 +170,10 @@ fn failures_about_the_listed_directory_make_it_unlistable_and_others_stop() {
             path: "a".into(),
             cause: super::super::outcome::ReadCause::PermissionDenied,
         },
-        ScanFailure::StartUnreadable { path: "a".into() },
+        ScanFailure::StartUnreadable {
+            path: "a".into(),
+            cause: super::super::outcome::ReadCause::Other,
+        },
         ScanFailure::UnresolvableLink { path: "a".into() },
         ScanFailure::ChangedDuringScan { path: "a".into() },
     ];

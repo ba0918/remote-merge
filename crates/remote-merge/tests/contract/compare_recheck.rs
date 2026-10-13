@@ -9,6 +9,7 @@ use std::path::Path;
 use remote_merge::runtime::CompareScope;
 use remote_merge_core::compare::{Follow, Method, Role};
 use remote_merge_core::relative_path::EntryPath;
+use remote_merge_core::test_tree::PermissionLocks;
 
 use super::compare_support::{request, DestinationHashed};
 use super::flow_support::{child, Child, FlowRoutes, ROUTES};
@@ -29,6 +30,9 @@ fn rewrite_keeping_size_and_time(path: &Path, content: &str) {
 
 /// 子のプロセスで、比べた後に書き込み先を変え、変更の直前の判定をパスごとに答える
 fn answer(mut child: Child) {
+    if child.request == "compare, lock, check" {
+        return answer_locked(child);
+    }
     assert_eq!(child.request, "compare, change, check");
     let sides = child.sides(false);
     let asked = request(CompareScope::Whole, Method::Metadata, Follow::No);
@@ -75,6 +79,61 @@ fn ex_compare_017_018_a_destination_changed_after_the_comparison_is_not_changed_
         assert_eq!(
             text,
             "a.txt Ok(Changed)\nkeep.txt Ok(Unchanged)\nnew.txt Ok(Changed)\nold.txt Ok(Changed)\n",
+            "{route:?}"
+        );
+    }
+}
+
+const LOCKED_TEST: &str = "compare_recheck::a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes";
+
+/// 子のプロセスで、比べた後に書き込み先の "d" の検索の権限を外し、"d/a.txt" の変更の直前の判定を
+/// 答える
+fn answer_locked(mut child: Child) {
+    let sides = child.sides(false);
+    let asked = request(CompareScope::Whole, Method::Metadata, Follow::No);
+    let compared = child
+        .runtime
+        .compare(&sides, &asked, &DestinationHashed)
+        .unwrap();
+    let observed = compared.paths["d/a.txt"].observed(Role::Right).unwrap();
+    let locks = PermissionLocks::new();
+    locks.lock(child.roots.right.join("d"), 0o644);
+    if fs::symlink_metadata(child.roots.right.join("d/a.txt")).is_ok() {
+        return child.answer("permissions do not apply");
+    }
+    let checked = child.runtime.recheck_before_change(
+        &sides.right,
+        Role::Right,
+        &EntryPath::parse("d/a.txt").unwrap(),
+        &observed,
+    );
+    drop(locks);
+    child.answer(&format!("{checked:?}"));
+}
+
+// @kotowari[REQ-compare-015, REQ-compare-013]
+#[test]
+fn a_destination_whose_parent_cannot_be_searched_is_undecidable_as_permission_denied_on_all_three_routes(
+) {
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            fs::create_dir(root.join("d")).unwrap();
+            fs::write(root.join("d/a.txt"), "same\n").unwrap();
+        }
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, LOCKED_TEST, "compare, lock, check");
+        if text == "permissions do not apply" {
+            eprintln!("note: running as root; permissions do not apply");
+            return;
+        }
+        assert_eq!(
+            text,
+            "Ok(Undecidable(ReadFailed([SideFailure { role: Right, failure: PermissionDenied }])))",
             "{route:?}"
         );
     }
