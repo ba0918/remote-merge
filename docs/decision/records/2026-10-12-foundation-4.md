@@ -88,6 +88,9 @@ Position: 段 4 の仕様（E1〜E29）を書いた。比べる流れの IR は 
 - E29 その他の種類（FIFO・ソケット・デバイス）は E8 のとおり判定できないとし、どのコマンドも終了コード 2 にする。exclude で外せる。
   - why: 黙って外すのは握りつぶしで、警告だけで終了コード 0 にすると、自動の処理がそのパスを比べていないことに気づけない。
   - decided_by: Claude（利用者の品質の基準『経路差とエラーの握りつぶしは必ず直す』から導いた。自走の指示により決めた）
+- E30 SSH の経路の読み込みのスクリプトの単体テスト（`crates/remote-merge-ssh/src/contents_tests.rs` の `each_path_gets_its_content_or_the_kind_of_its_failure`）が、ディレクトリの中身の読み込みを理由 "Is a directory" の I/O の失敗として固めていたものを、"not a regular file" の I/O の失敗を確かめるように直す。
+  - why: [REQ-paths-021](../../ir/paths/operations.md#REQ-paths-021) は、辿った先がディレクトリを含む通常ファイルでないものの中身とハッシュを、理由 "not a regular file" の I/O の失敗で終えると決めている。失敗の種類（I/O）は変わらず、理由の文言だけが違っていた。
+  - decided_by: Claude（E19 と REQ-paths-021 から導いた。自走の指示により決めた）
 
 ## Rejected
 

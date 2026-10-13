@@ -45,8 +45,10 @@ pub fn size(root: &Path, entry: &EntryPath) -> Result<u64, OpFailure> {
 /// 中身を読む。開く前に大きさを調べ（読む権限は要らない）、上限を超えるものは読まない
 pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>, OpFailure> {
     let path = full_path(root, entry);
-    check_size(std::fs::metadata(&path).map_err(failed)?.len(), limit)?;
-    let mut file = std::fs::File::open(&path).map_err(failed)?;
+    let meta = std::fs::metadata(&path).map_err(failed)?;
+    regular_file(&meta)?;
+    check_size(meta.len(), limit)?;
+    let mut file = open_regular(&path)?;
     let mut content = Vec::new();
     file.read_to_end(&mut content).map_err(failed)?;
     Ok(content)
@@ -54,10 +56,38 @@ pub fn read(root: &Path, entry: &EntryPath, limit: SizeLimit) -> Result<Vec<u8>,
 
 /// symlink を辿った先の中身の SHA-256（小文字の16進）。中身を少しずつ読む
 pub fn hash(root: &Path, entry: &EntryPath) -> Result<String, OpFailure> {
-    let mut file = std::fs::File::open(full_path(root, entry)).map_err(failed)?;
+    let mut file = open_regular(&full_path(root, entry))?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut file, &mut hasher).map_err(failed)?;
     Ok(hex(&hasher.finalize()))
+}
+
+/// 通常ファイルでないもの（symlink は辿った先）の中身は読まない（docs/ir/paths/operations.md の
+/// REQ-paths-021）
+fn regular_file(meta: &std::fs::Metadata) -> Result<(), OpFailure> {
+    if meta.is_file() {
+        Ok(())
+    } else {
+        Err(OpFailure::Io(NOT_A_REGULAR_FILE.to_string()))
+    }
+}
+
+/// 通常ファイルでないものの理由
+pub const NOT_A_REGULAR_FILE: &str = "not a regular file";
+
+/// 読むために開き、開いたものが通常ファイルかを確かめる。確かめた後に FIFO に替わっていても書き手を
+/// 待たないよう、Unix では O_NONBLOCK で開く（通常ファイルの読み込みには効かない）
+fn open_regular(path: &Path) -> Result<std::fs::File, OpFailure> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path).map_err(failed)?;
+    regular_file(&file.metadata().map_err(failed)?)?;
+    Ok(file)
 }
 
 /// 中身の SHA-256（小文字の16進）
@@ -86,3 +116,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "parents_tests.rs"]
 mod parents_tests;
+
+#[cfg(all(test, unix))]
+#[path = "special_tests.rs"]
+mod special_tests;

@@ -7,6 +7,8 @@
 //! 変わっても、ほかのパスの答えを崩さない）。ハッシュは sha256sum、なければ shasum -a 256 で
 //! 取り、どちらもないか、あっても見つからないコマンド（終了コード 127）で終わるなら、通常ファイルに
 //! ついてはハッシュを取れないと答える（手元が中身を読む）。
+//! 辿った先が通常ファイルでないもの（ディレクトリ・FIFO・ソケット・デバイス）は、開いて待たずに
+//! "not a regular file" と答える（docs/ir/paths/operations.md の REQ-paths-021）。
 //! パスごとの処理ではシェルの関数を呼ばない。
 
 /// 読み込みの出力の始まりの目印
@@ -24,7 +26,7 @@ else z=n; fi
 ct=0; command -v cat >/dev/null 2>&1 && ct=1
 for p do
 printf '@P\000'
-if [ -d "$p" ]; then printf 'E\000Is a directory\000'; continue; fi
+if [ -e "$p" ] && [ ! -f "$p" ]; then printf 'E\000not a regular file\000'; continue; fi
 [ $z = n ] && { printf 'T\000'; continue; }
 if [ $z = s ]; then n=$(stat -L -c %s "$p" 2>&1) || { printf 'E\000%s\000' "$n"; continue; }
 else n=$(ls -ldnL "$p" 2>&1) || { printf 'E\000%s\000' "$n"; continue; }
@@ -49,7 +51,7 @@ if [ $rl = 0 ]; then printf 'R\000'
 elif t=$(readlink "$p" 2>/dev/null && echo .); then t=${t%.}; t=${t%?}; printf 'L\000%s\000' "$t"
 else e=$(readlink "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; fi
 continue; fi
-if [ -d "$p" ]; then printf 'E\000Is a directory\000'; continue; fi
+if [ -e "$p" ] && [ ! -f "$p" ]; then printf 'E\000not a regular file\000'; continue; fi
 if [ ! -r "$p" ]; then
 if [ $ct = 1 ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; else printf 'K\000'; fi
 continue; fi

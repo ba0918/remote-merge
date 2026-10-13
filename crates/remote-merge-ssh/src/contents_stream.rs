@@ -16,6 +16,7 @@ const RAW_MARKER: &[u8] = b"@RMRAW\0";
 const RAW_BODY: &str = r#"ct=0; command -v cat >/dev/null 2>&1 && ct=1
 for p do
 if [ $ct = 0 ]; then printf '@P\000\000%s\000K\000\000' "$B"; continue; fi
+if [ -e "$p" ] && [ ! -f "$p" ]; then printf '@P\000\000%s\0001\000not a regular file\000' "$B"; continue; fi
 printf '@P\000'; { e=$(cat "$p" 2>&1 >&3 3>&-); c=$?; } 3>&1
 printf '\000%s\000%s\000%s\000' "$B" "$c" "$e"
 done

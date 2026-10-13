@@ -42,7 +42,7 @@ fn each_path_gets_its_content_or_the_kind_of_its_failure() {
             ("f/a".to_string(), Err(OpFailure::NotADirectory)),
             (
                 "dir".to_string(),
-                Err(OpFailure::Io("Is a directory".into()))
+                Err(OpFailure::Io("not a regular file".into()))
             ),
             ("l".to_string(), Ok(b"x\0y\nz\n\n".to_vec())),
         ]
@@ -167,3 +167,6 @@ mod changed;
 
 #[path = "contents_tests/streamed.rs"]
 mod streamed;
+
+#[path = "contents_tests/special.rs"]
+mod special;
