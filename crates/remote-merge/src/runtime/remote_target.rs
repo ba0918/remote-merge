@@ -54,6 +54,15 @@ impl TargetIo for RemoteTargetIo {
         rt.read_on_route(name, |rt| rt.remote_inspect(name, path))
     }
 
+    fn inspect_paths(
+        &mut self,
+        rt: &mut CoreRuntime,
+        paths: &[RelPath],
+    ) -> anyhow::Result<Vec<anyhow::Result<ResolvedPath>>> {
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_inspect_paths(name, paths))
+    }
+
     fn write_file(
         &mut self,
         rt: &mut CoreRuntime,

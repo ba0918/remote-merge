@@ -24,6 +24,22 @@ impl CoreRuntime {
         }
     }
 
+    /// `paths` をまとめて確かめる（SSH は要素の事実をまとめて尋ね、エージェントは一度の要求）
+    pub(crate) fn remote_inspect_paths(
+        &mut self,
+        server: &str,
+        paths: &[RelPath],
+    ) -> anyhow::Result<Vec<anyhow::Result<ResolvedPath>>> {
+        match self.remote_route(server)? {
+            RemoteRoute::Agent => agent_route::inspect_paths(self, server, paths),
+            RemoteRoute::Ssh => Ok(self
+                .ssh_inspect_paths(server, paths)?
+                .into_iter()
+                .map(|resolution| resolution.map_err(anyhow::Error::from))
+                .collect()),
+        }
+    }
+
     pub(crate) fn remote_list_children(
         &mut self,
         server: &str,

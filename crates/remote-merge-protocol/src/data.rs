@@ -65,3 +65,10 @@ pub enum AgentEntryLink {
     /// 項目を読めなかった（ない・途中がディレクトリでないを含む）
     Failed { failure: WireFailure },
 }
+
+/// InspectPaths の一つのパスの答え。確かめた結果か、入力の形の検査で拒んだ理由
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AgentPathCheck {
+    Inspected(AgentPathInspection),
+    Refused(crate::RelPathError),
+}

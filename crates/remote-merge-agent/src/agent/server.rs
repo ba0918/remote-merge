@@ -152,6 +152,9 @@ fn summarize_request(request: &AgentRequest) -> String {
             content.len()
         ),
         AgentRequest::InspectPath { path } => format!("InspectPath path={path:?}"),
+        AgentRequest::InspectPaths { paths } => {
+            format!("InspectPaths path_count={}", paths.len())
+        }
         AgentRequest::Symlink { path, target } => {
             format!("Symlink path={path:?} target={target:?}")
         }

@@ -70,6 +70,18 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         rel_path: &RelPath,
     ) -> anyhow::Result<ResolvedPath>;
+    /// いくつものパスを確かめる。リモートの経路はまとめて尋ねる。答えは尋ねた順で、尋ねる操作
+    /// そのものの失敗（接続断など）は Err
+    fn inspect_paths(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        paths: &[RelPath],
+    ) -> anyhow::Result<Vec<anyhow::Result<ResolvedPath>>> {
+        Ok(paths
+            .iter()
+            .map(|path| self.inspect_path(runtime, path))
+            .collect())
+    }
     /// パスごとの中身か失敗の種類（symlink は辿った先）。`limit` を超えるファイルは読まずに上限を
     /// 超える失敗にする。尋ねる操作そのものが失敗したら（やり直しても接続断など）Err
     fn read_entries(

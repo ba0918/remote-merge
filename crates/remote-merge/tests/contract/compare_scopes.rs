@@ -11,7 +11,7 @@ use remote_merge::runtime::{CompareScope, ExternalLinks};
 use remote_merge_core::compare::{Follow, Method};
 
 use super::compare_support::{comparison_text, request, NothingUsed};
-use super::flow_support::{child, Child, FlowRoutes, ROUTES};
+use super::flow_support::{child, Child, FlowRoutes, Route, ROUTES};
 
 fn test_name(name: &str) -> String {
     format!("compare_scopes::{name}")
@@ -37,6 +37,25 @@ fn answer(mut child: Child) {
             ],
             ExternalLinks::Stop,
         ),
+        "many external" | "one external" => {
+            let count = if child.request == "many external" {
+                5
+            } else {
+                1
+            };
+            let paths = (0..count).map(|i| format!("d{i}/a/b/c.txt")).collect();
+            (vec![CompareScope::Entries(paths)], ExternalLinks::Stop)
+        }
+        "many links" | "one link" => (vec![CompareScope::Whole], ExternalLinks::Stop),
+        "many blocked" | "one blocked" => {
+            let count = if child.request == "many blocked" {
+                5
+            } else {
+                1
+            };
+            let paths = (0..count).map(|i| format!("f/x{i}.txt")).collect();
+            (vec![CompareScope::Entries(paths)], ExternalLinks::Follow)
+        }
         "blocked" => (
             vec![
                 CompareScope::Entries(vec!["d/a.txt".into(), "b.txt".into()]),
@@ -161,5 +180,102 @@ fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_
              e left-right=same\n",
             "{route:?}"
         );
+    }
+}
+
+/// `request` を `route` で動かしたときに、調べる経路が受けたパスの確認と走査の数
+fn round_trips(routes: &FlowRoutes, route: Route, test: &str, request: &str) -> (usize, usize) {
+    let commands = routes.ssh_commands().len();
+    let requests = routes.agent_requests().len();
+    routes.run(route, test, request);
+    let count = |kind: &str| -> usize {
+        match route {
+            Route::Ssh => routes.ssh_commands()[commands..]
+                .iter()
+                .filter(|command| command.contains(kind))
+                .count(),
+            _ => 0,
+        }
+    };
+    let asked = |kinds: &[&str]| -> usize {
+        routes.agent_requests()[requests..]
+            .iter()
+            .filter(|request| kinds.contains(&request.as_str()))
+            .count()
+    };
+    match route {
+        Route::Ssh => (count("@RMFACTS"), count("@RMSCAN")),
+        Route::Agent => (
+            asked(&["InspectPath", "InspectPaths"]),
+            asked(&["ListTree"]),
+        ),
+        Route::Local => (0, 0),
+    }
+}
+
+// @kotowari[REQ-compare-004]
+#[test]
+fn the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote_routes() {
+    let name =
+        "the_paths_to_check_for_links_outside_root_dir_are_asked_at_once_on_the_remote_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            for i in 0..5 {
+                let dir = root.join(format!("d{i}/a/b"));
+                fs::create_dir_all(&dir).unwrap();
+                fs::write(dir.join("c.txt"), "same\n").unwrap();
+                symlink(format!("d{i}"), root.join(format!("l{i}"))).unwrap();
+            }
+        }
+    });
+
+    // SSH はまとめて尋ねても、symlink を辿るたびにもう一度尋ねる（往復は symlink の深さ + 1 まで）
+    let cases = [
+        (
+            "one external",
+            "many external",
+            [(Route::Ssh, 1), (Route::Agent, 1)],
+        ),
+        (
+            "one link",
+            "many links",
+            [(Route::Ssh, 2), (Route::Agent, 1)],
+        ),
+    ];
+    for (one, many, expected) in cases {
+        for (route, checks) in expected {
+            let one = round_trips(&routes, route, &test_name(name), one);
+            let many = round_trips(&routes, route, &test_name(name), many);
+            assert_eq!(many, one, "{route:?}");
+            assert_eq!(one.0, checks, "{route:?}: path checks");
+        }
+    }
+}
+
+// @kotowari[REQ-compare-003]
+#[test]
+fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes(
+) {
+    let name = "named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_checked_on_the_remote_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        fs::create_dir(left.join("f")).unwrap();
+        for i in 0..5 {
+            fs::write(left.join(format!("f/x{i}.txt")), "left\n").unwrap();
+        }
+        fs::write(right.join("f"), "a file\n").unwrap();
+    });
+
+    for route in [Route::Ssh, Route::Agent] {
+        let one = round_trips(&routes, route, &test_name(name), "one blocked");
+        let many = round_trips(&routes, route, &test_name(name), "many blocked");
+        // 走査は、ふさがれた走査と root_dir だけを確かめる走査の二つ、パスの確認は一度
+        assert_eq!(one, (1, 2), "{route:?}");
+        assert_eq!(many, (1, 2), "{route:?}");
     }
 }

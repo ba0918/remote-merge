@@ -144,3 +144,44 @@ fn read_files_empty_paths_returns_empty_chunk() {
         other => panic!("expected FileContents, got {other:?}"),
     }
 }
+
+// ── InspectPaths（まとめて尋ねるパスの確認） ──
+
+#[cfg(unix)]
+#[test]
+fn inspect_paths_answers_each_path_in_order_and_refuses_bad_ones_alone() {
+    let (tmp, mut dispatcher) = setup();
+    fs::write(tmp.path().join("f"), "x").unwrap();
+    symlink("loop", tmp.path().join("loop")).unwrap();
+
+    let response = single(
+        dispatcher
+            .dispatch(AgentRequest::InspectPaths {
+                paths: vec!["f".into(), "../out".into(), "loop".into()],
+            })
+            .unwrap(),
+    );
+
+    let AgentResponse::PathInspections { results } = response else {
+        panic!("{response:?}");
+    };
+    assert_eq!(results.len(), 3);
+    assert!(matches!(
+        &results[0],
+        crate::agent::protocol::AgentPathCheck::Inspected(
+            crate::agent::protocol::AgentPathInspection::Exists { .. }
+        )
+    ));
+    assert!(matches!(
+        &results[1],
+        crate::agent::protocol::AgentPathCheck::Refused(_)
+    ));
+    assert_eq!(
+        results[2],
+        crate::agent::protocol::AgentPathCheck::Inspected(
+            crate::agent::protocol::AgentPathInspection::Unresolved {
+                cause: "too many levels of symbolic links".into(),
+            }
+        )
+    );
+}

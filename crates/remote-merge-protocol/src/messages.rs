@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AgentEntryLink, AgentPathInspection, FileHashResult, FileReadResult, ListedEntry, RelPathError,
-    ScanFailure, ScanRequest, WireFailure,
+    AgentEntryLink, AgentPathCheck, AgentPathInspection, FileHashResult, FileReadResult,
+    ListedEntry, RelPathError, ScanFailure, ScanRequest, WireFailure,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -36,6 +36,10 @@ pub enum AgentRequest {
     },
     InspectPath {
         path: String,
+    },
+    /// いくつものパスを一度に確かめる。答えは同じ順の `PathInspections`
+    InspectPaths {
+        paths: Vec<String>,
     },
     Symlink {
         path: String,
@@ -97,6 +101,10 @@ pub enum AgentResponse {
     },
     PathInspection {
         result: AgentPathInspection,
+    },
+    /// InspectPaths の応答。尋ねたパスと同じ順
+    PathInspections {
+        results: Vec<AgentPathCheck>,
     },
     /// ReadEntryLink の応答
     EntryLink {

@@ -51,6 +51,19 @@ pub(crate) fn inspect(
     crate::agent::inspection::resolved_from_agent(inspection)
 }
 
+/// `paths` を一度の要求でまとめて確かめる。答えは尋ねた順
+pub(crate) fn inspect_paths(
+    rt: &mut CoreRuntime,
+    server_name: &str,
+    paths: &[RelPath],
+) -> anyhow::Result<Vec<anyhow::Result<ResolvedPath>>> {
+    let inspections = with_agent(rt, server_name, |agent| agent.inspect_paths(paths))?;
+    Ok(inspections
+        .into_iter()
+        .map(|inspection| inspection.and_then(crate::agent::inspection::resolved_from_agent))
+        .collect())
+}
+
 pub(crate) fn write(
     rt: &mut CoreRuntime,
     server_name: &str,

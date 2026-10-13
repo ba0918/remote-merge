@@ -89,6 +89,16 @@ impl FlowRoutes {
         self.home.path()
     }
 
+    /// SSH の偽サーバが受けたコマンド（三つの経路で続けて並ぶ）
+    pub(super) fn ssh_commands(&self) -> Vec<String> {
+        self.server.commands()
+    }
+
+    /// エージェントが受けた要求の種類（三つの経路で続けて並ぶ）
+    pub(super) fn agent_requests(&self) -> Vec<String> {
+        self.server.faults().agent_requests()
+    }
+
     fn config(&self, route: Route) -> PathBuf {
         self.home.path().join(format!("{}.toml", route.name()))
     }

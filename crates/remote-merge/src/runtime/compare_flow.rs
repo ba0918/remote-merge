@@ -113,11 +113,7 @@ impl CoreRuntime {
             CompareScope::Below(paths) | CompareScope::Entries(paths) => paths,
         };
         for (role, side) in sides.each() {
-            let scope = self.compare_scope(side, &request.scope)?;
-            let mut listing = self.scan_named(side, scope, request.max_entries, named)?;
-            if let CompareScope::Below(dirs) = &request.scope {
-                listing = self.with_starts_themselves(side, dirs, listing, request.max_entries)?;
-            }
+            let (listing, links) = self.collect_side(side, request, named)?;
             if listing.truncated {
                 incomplete.push(Incomplete::Truncated {
                     role,
@@ -130,9 +126,7 @@ impl CoreRuntime {
                     path: path.clone(),
                 });
             }
-            if request.external_links == ExternalLinks::Stop {
-                let mut links = self.starts_outside_root(side, named)?;
-                links.extend(self.links_outside_root(side, &listing)?);
+            if let Some(links) = links {
                 outside.insert(role, links);
             }
             listings.insert(role, listing);
@@ -144,7 +138,11 @@ impl CoreRuntime {
     }
 
     /// 比べる範囲を、その側の走査の範囲にする。include はその側で確かめた値を当てる
-    fn compare_scope(&mut self, side: &Side, scope: &CompareScope) -> anyhow::Result<ScanScope> {
+    pub(super) fn compare_scope(
+        &mut self,
+        side: &Side,
+        scope: &CompareScope,
+    ) -> anyhow::Result<ScanScope> {
         Ok(match scope {
             CompareScope::Whole => scope_for(None, self.checked_include(side)?.as_deref()),
             CompareScope::Below(dirs) => {

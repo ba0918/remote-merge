@@ -10,7 +10,8 @@ use remote_merge_core::relative_path::{entries_as_typed, EntryPath, RelPath};
 
 use super::{mismatch, unexpected, AgentClient, AgentRefused, WRITE_CHUNK_SIZE};
 use crate::agent::protocol::{
-    AgentEntryLink, AgentPathInspection, AgentRequest, AgentResponse, RelPathError, WireFailure,
+    AgentEntryLink, AgentPathCheck, AgentPathInspection, AgentRequest, AgentResponse, RelPathError,
+    WireFailure,
 };
 
 /// エージェントが入力の形の検査で拒んだパスがあれば、その理由の誤り
@@ -80,6 +81,30 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             AgentResponse::PathRefused { refusal } => Err(refusal.into()),
             AgentResponse::Error { message } => Err(AgentRefused(message).into()),
             other => Err(unexpected("InspectPath", &other)),
+        }
+    }
+
+    /// `paths` を一度の要求でまとめて確かめる。答えは尋ねた順で、拒んだパスはそのパスだけの誤り
+    pub fn inspect_paths(&mut self, paths: &[RelPath]) -> Result<Vec<Result<AgentPathInspection>>> {
+        let request = AgentRequest::InspectPaths {
+            paths: paths
+                .iter()
+                .map(|path| path.as_typed().to_string())
+                .collect(),
+        };
+        match self.request(&request)? {
+            AgentResponse::PathInspections { results } if results.len() == paths.len() => {
+                Ok(results
+                    .into_iter()
+                    .map(|result| match result {
+                        AgentPathCheck::Inspected(inspection) => Ok(inspection),
+                        AgentPathCheck::Refused(refusal) => Err(refusal.into()),
+                    })
+                    .collect())
+            }
+            AgentResponse::PathInspections { .. } => Err(mismatch("InspectPaths")),
+            AgentResponse::Error { message } => Err(AgentRefused(message).into()),
+            other => Err(unexpected("InspectPaths", &other)),
         }
     }
 

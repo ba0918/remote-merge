@@ -13,7 +13,7 @@ use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::{EntryPath, RelPath, RelPathError};
 
 use super::file_io;
-use super::protocol::{AgentRequest, AgentResponse, WireFailure};
+use super::protocol::{AgentPathCheck, AgentRequest, AgentResponse, WireFailure};
 use super::server::MetadataConfig;
 
 pub struct Dispatcher {
@@ -62,6 +62,15 @@ impl Dispatcher {
                 }],
                 Err(refusal) => refused(refusal),
             },
+            AgentRequest::InspectPaths { paths } => vec![AgentResponse::PathInspections {
+                results: paths
+                    .iter()
+                    .map(|path| match RelPath::parse(path) {
+                        Ok(path) => AgentPathCheck::Inspected(file_io::inspect_path(root, &path)),
+                        Err(refusal) => AgentPathCheck::Refused(refusal),
+                    })
+                    .collect(),
+            }],
             AgentRequest::ReadEntryLink { path } => match EntryPath::parse(&path) {
                 Ok(path) => vec![reads::read_entry_link(root, &path)],
                 Err(refusal) => refused(refusal),

@@ -2,12 +2,12 @@
 //! symlink（docs/ir/compare/flow.md の REQ-compare-004）と、書き込み先の今の状態
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
-use remote_merge_core::compare::{check_before_change, ChangeCheck, Observed, Role, SideFailure};
+use remote_merge_core::compare::{
+    check_before_change, links_outside, ChangeCheck, Observed, Role, SideFailure,
+};
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
-use remote_merge_core::path_resolution::ResolvedPath;
-use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::relative_path::EntryPath;
 use remote_merge_core::scan::failure_kind::failure_of_scan_error;
-use remote_merge_core::scan::include::is_inside;
 use remote_merge_core::scan::outcome::{
     ListedKind, Listing, ScanFailure, ScanRequest, ScanScope, Start,
 };
@@ -17,50 +17,20 @@ use super::connection::classify;
 use super::core::CoreRuntime;
 use crate::side::Side;
 
-/// その側の root_dir の実パス
-pub(super) fn root_real_path(
-    io: &mut dyn super::target_io::TargetIo,
-    runtime: &mut CoreRuntime,
-) -> anyhow::Result<String> {
-    match io.inspect_path(runtime, &RelPath::root())? {
-        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
-            Ok(real_path)
-        }
-        other => anyhow::bail!("cannot resolve root_dir: {other:?}"),
-    }
-}
-
 impl CoreRuntime {
-    /// 一覧の symlink のうち、辿ると root_dir の外へ解決されるもののパス
+    /// 一覧の symlink のうち、辿ると root_dir の外へ解決されるもののパス。どの symlink も経路に
+    /// まとめて一度に尋ねる
     pub(super) fn links_outside_root(
         &mut self,
         side: &Side,
         listing: &Listing,
     ) -> anyhow::Result<Vec<String>> {
-        let links: Vec<&str> = listed_links(listing).collect();
+        let links: Vec<String> = listed_links(listing).map(String::from).collect();
         if links.is_empty() {
             return Ok(Vec::new());
         }
-        let mut io = super::target_io::for_side(side, self);
-        let root = root_real_path(io.as_mut(), self)?;
-        let mut outside: Vec<String> = Vec::new();
-        for link in links {
-            // 外へ解決されるリンクの下は集めないので、確かめない
-            if outside
-                .iter()
-                .any(|known| link.starts_with(&format!("{known}/")))
-            {
-                continue;
-            }
-            if let ResolvedPath::Symlink { real_path, .. } =
-                io.inspect_path(self, &RelPath::parse(link)?)?
-            {
-                if !is_inside(&real_path, &root) {
-                    outside.push(link.to_string());
-                }
-            }
-        }
-        Ok(outside)
+        let checked = self.path_facts(side, &links)?;
+        Ok(links_outside(&links, &checked.facts, &checked.root))
     }
 
     /// 変更の直前に、書き込み先 `side`（比べたときの側は `role`）の `path` の状態をもう一度集め、
