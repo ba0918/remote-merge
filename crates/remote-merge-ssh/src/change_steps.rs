@@ -64,6 +64,20 @@ pub(crate) fn parent_step(full: &str, drain: &str) -> String {
     )
 }
 
+/// 確かめたときにあった書き込み先（`n=0`）が、その後に親ごと消えていないかを、標準入力を読まずに
+/// 確かめ、消えていれば新しいファイルの手順（`n=1`）に回す文。ローカルの経路が書き込み先を作らずに
+/// 開いて "ない" と分かったときに、ない親を作って新しいファイルとして作るのと同じ（D41・D45）。dd が
+/// `conv=nocreat` を受け付ければ（coreutils）、書き込み先を作らず・切り詰めずに開いて確かめる。受け付け
+/// なければ（BusyBox）パスがあるかを確かめ直す。親を作る文より前に置く（親を作る文は一度だけ動かし、
+/// 作った親の記録を消さない）
+pub(crate) const GONE_CHECK: &str = concat!(
+    "if [ $n = 0 ]; then\n",
+    " if dd if=/dev/null of=/dev/null oflag=nofollow conv=nocreat count=0 2>/dev/null; then\n",
+    "  e=$(dd if=/dev/null of=\"$w\" oflag=nofollow conv=nocreat,notrunc count=0 2>&1) || [ \"${e%No such file or directory}\" = \"$e\" ] || n=1\n",
+    " elif [ ! -e \"$w\" ] && [ ! -L \"$w\" ]; then n=1; fi\n",
+    "fi\n",
+);
+
 /// 作ったディレクトリ `dirs`（下から順）を、書き込みのコマンドが失敗したときと同じ文で消すコマンド。
 /// 消せずに残ったものは同じ目印で標準エラーに出す（三つの経路の判断を比べる契約テストで使う）
 pub fn remove_created_dirs(dirs: &[&str]) -> String {

@@ -7,7 +7,7 @@
 
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
-use crate::change_steps::{creating, new_file, parent_step, EXISTS, PARENT};
+use crate::change_steps::{creating, new_file, parent_step, EXISTS, GONE_CHECK, PARENT};
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
@@ -37,6 +37,7 @@ pub fn write(full: &str, binary: bool) -> String {
         "w={}\nif [ -e \"$w\" ] || [ -L \"$w\" ]; then n=0; else n=1; fi\n",
         shell_escape(full)
     ));
+    script.push_str(GONE_CHECK);
     script.push_str(&parent_step(full, drain));
     // 既存の書き込み先で、dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由を
     // ローカルの経路の O_NOFOLLOW と同じ文言で出す（新しいファイルの手順は、現れた symlink を自分で断る）
@@ -161,3 +162,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "change_scripts_race_tests.rs"]
 mod race_tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_gone_tests.rs"]
+mod gone_tests;

@@ -28,8 +28,9 @@ pub fn open_for_write(root: &Path, entry: &EntryPath) -> Result<Opened, OpFailur
     open_for_write_with(root, entry, |_| {})
 }
 
-/// [`open_for_write`] の、書き込み先がないかを確かめた後・開く前に `between` を呼ぶもの
-pub(super) fn open_for_write_with(
+/// [`open_for_write`] の、書き込み先がないかを確かめた後・開く前に `between` を呼ぶもの（確かめてから
+/// 開くまでに起きた変更への答えを、経路の間で比べる契約テストで使う）
+pub fn open_for_write_with(
     root: &Path,
     entry: &EntryPath,
     between: impl FnOnce(&Path),

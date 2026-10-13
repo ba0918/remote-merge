@@ -383,6 +383,8 @@ mod sync_support;
 mod sync_targets;
 #[path = "contract/sync_text.rs"]
 mod sync_text;
+#[path = "contract/write_gone_parent_agree.rs"]
+mod write_gone_parent_agree;
 
 // @kotowari[REQ-testing-002]
 #[cfg(feature = "test-utils")]
