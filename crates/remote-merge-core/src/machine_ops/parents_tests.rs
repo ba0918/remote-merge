@@ -67,6 +67,26 @@ fn nothing_is_made_when_the_root_dir_is_gone() {
     assert!(!temp.path().join("top").exists());
 }
 
+// root_dir の上を辿れない（検索の権限がない）ときは、root_dir がないではなく権限がないにする（D48）
+#[test]
+fn a_root_dir_under_an_unsearchable_directory_is_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() == 0 } {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let locked = temp.path().join("locked");
+    fs::create_dir_all(locked.join("root")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let written = write(&locked.join("root"), &entry("sub/a.txt"), b"x");
+    let linked = create_symlink(&locked.join("root"), &entry("sub/link"), "t");
+
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(written, Err(OpFailure::PermissionDenied));
+    assert_eq!(linked, Err(OpFailure::PermissionDenied));
+}
+
 // @kotowari[REQ-merge-042]
 #[test]
 fn the_parents_created_for_an_open_are_named_from_the_top() {

@@ -90,6 +90,30 @@ fn a_destination_gone_after_the_check_is_made_as_a_new_file_like_this_machine() 
     }
 }
 
+// root_dir の上を辿れない（検索の権限がない）ときは、root_dir がないではなく権限がないにする
+// （ローカルの経路と同じ。D48）
+#[test]
+fn a_root_dir_under_an_unsearchable_directory_is_permission_denied_like_this_machine() {
+    if unsafe { libc::geteuid() == 0 } {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let locked = temp.path().join("locked");
+    fs::create_dir_all(locked.join("root")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let root = locked.join("root");
+    let target = root.join("sub/a.txt");
+    let bin = bin_with(&["cat", "dd", "ls", "mkdir", "rmdir"]);
+    let (root, target) = (root.to_str().unwrap(), target.to_str().unwrap());
+
+    let written = run_with_only(bin.path(), &write_under(root, target, false), b"new");
+    let linked = run_with_only(bin.path(), &symlink_under(root, "t", target), b"");
+
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(written, Err(OpFailure::PermissionDenied));
+    assert_eq!(linked, Err(OpFailure::PermissionDenied));
+}
+
 // root_dir がなければ、root_dir もその親も作らずに、root_dir がない失敗にする（ローカルの経路と同じ。
 // D47）。初めからないときと、確かめた後に消えたときのどちらも
 // @kotowari[REQ-merge-042]

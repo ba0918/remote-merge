@@ -39,8 +39,8 @@ pub(super) fn create_parents_with(
     path: &Path,
     mut mkdir: impl FnMut(&Path) -> std::io::Result<()>,
 ) -> Result<Vec<PathBuf>, OpFailure> {
-    if !root.is_dir() {
-        return Err(OpFailure::RootGone);
+    if let Some(failure) = root_failure(root) {
+        return Err(failure);
     }
     let Some(parent) = path.parent() else {
         return Ok(Vec::new());
@@ -62,6 +62,19 @@ pub(super) fn create_parents_with(
         parent_failure(parent, error),
         remove_dir,
     ))
+}
+
+/// root_dir `root` を使えないときの失敗。ない・ディレクトリでない（途中を含む）ときは root_dir がない、
+/// 上を辿れないときは権限がない（D48）
+fn root_failure(root: &Path) -> Option<OpFailure> {
+    match std::fs::metadata(root) {
+        Ok(meta) if meta.is_dir() => None,
+        Ok(_) => Some(OpFailure::RootGone),
+        Err(error) => Some(match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => OpFailure::RootGone,
+            _ => failed(error),
+        }),
+    }
 }
 
 /// 親 `dir` を作れなかった失敗。`dir` かその祖先がすでにあって（リンク切れの symlink を含む）

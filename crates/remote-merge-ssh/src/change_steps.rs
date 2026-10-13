@@ -31,9 +31,20 @@ const UNDO_PARENTS: &str = "for i in $c; do eval \"x=\\${$i}\"; e=$(rmdir -- \"$
 /// 作る親は root_dir `root` より下に限る。root_dir がない（ディレクトリでない）ときは何も作らずに
 /// 目印を出して終える（ローカルの経路と同じ。D47）。`root` が "/" なら限らない
 pub(crate) fn parent_step(full: &str, root: &str, drain: &str) -> String {
+    // ディレクトリでないときは ls -d の文言の終わりで分ける。検索の権限がない下のパスは
+    // "Permission denied" で、権限がない失敗にする（docs/remote-tools.md）
     let root_check = format!(
-        "r={}; if [ ! -d \"$r\" ]; then {drain}printf '\\n{ROOT_GONE}\\n' >&2; exit 1; fi\n",
-        shell_escape(root)
+        concat!(
+            "r={root}; if [ ! -d \"$r\" ]; then {drain}\n",
+            " if e=$(ls -d -- \"$r\" 2>&1) || [ \"${{e%Permission denied}}\" = \"$e\" ]; then printf '\\n{gone}\\n' >&2\n",
+            " else printf '\\n{parent}\\000%s\\000' \"$e\" >&2; fi\n",
+            " exit 1\n",
+            "fi\n",
+        ),
+        root = shell_escape(root),
+        drain = drain,
+        gone = ROOT_GONE,
+        parent = PARENT,
     );
     let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
         return format!("{root_check}set --; c=\n");
