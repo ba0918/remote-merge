@@ -26,12 +26,17 @@ impl PermissionLocks {
     }
 
     /// `path` の今の権限を覚える。試験が別の手段（子のプロセスなど）で権限を外しても、Drop でこの
-    /// 権限へ戻す
+    /// 権限へ戻す。戻すときの権限の変更はリンク先を変えるので、symlink は受け付けない
     pub fn keep(&self, path: impl AsRef<Path>) {
         let path = path.as_ref();
-        let original = fs::symlink_metadata(path)
-            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
-            .permissions();
+        let metadata = fs::symlink_metadata(path)
+            .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+        assert!(
+            !metadata.file_type().is_symlink(),
+            "the permissions of a symbolic link cannot be kept: {}",
+            path.display()
+        );
+        let original = metadata.permissions();
         self.locked
             .borrow_mut()
             .push((path.to_path_buf(), original));

@@ -74,3 +74,20 @@ fn a_kept_path_whose_permissions_were_removed_by_other_means_is_restored() {
     drop(locks);
     assert_eq!(fs::metadata(&path).unwrap().permissions().mode(), before);
 }
+
+// 戻すときの set_permissions はリンク先を変えるので、symlink の権限は覚えない
+#[test]
+fn a_symlink_is_refused_instead_of_changing_its_target_when_restoring() {
+    let owner = tempfile::tempdir().unwrap();
+    fs::write(owner.path().join("target"), "t").unwrap();
+    std::os::unix::fs::symlink("target", owner.path().join("link")).unwrap();
+    let locks = PermissionLocks::new();
+    let kept = catch_unwind(AssertUnwindSafe(|| locks.keep(owner.path().join("link"))));
+    let locked = catch_unwind(AssertUnwindSafe(|| {
+        locks.lock(owner.path().join("link"), 0o000)
+    }));
+    assert!(kept.is_err());
+    assert!(locked.is_err());
+    drop(locks);
+    assert_eq!(fs::read_to_string(owner.path().join("link")).unwrap(), "t");
+}
