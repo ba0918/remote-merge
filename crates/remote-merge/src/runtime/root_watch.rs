@@ -3,7 +3,7 @@
 //! の D47・D48）。三つの経路の比較先を `for_side` がこれで包むので、確かめ直しはここ一か所にある。
 
 use remote_merge_core::op_failure::{op_error_of, OpError, OpFailure, Operation, PathResult};
-use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 
 use super::core::CoreRuntime;
@@ -27,13 +27,18 @@ impl RootWatch {
         }
     }
 
-    /// root_dir がなくなったか。ない（途中がディレクトリでないを含む）ときだけ真で、確かめられない
-    /// とき（権限がない・接続断など）は偽
+    /// root_dir がなくなったか。ない（途中がディレクトリでないを含む）か、存在するが種類がディレクトリで
+    /// ない（root_dir が symlink ならその辿った先）ときだけ真で、確かめられないとき（権限がない・
+    /// 接続断など）は偽
     fn root_is_gone(&mut self, runtime: &mut CoreRuntime) -> bool {
-        matches!(
-            self.inner.inspect_path(runtime, &RelPath::root()),
-            Ok(ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. })
-        )
+        match self.inner.inspect_path(runtime, &RelPath::root()) {
+            Ok(ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. }) => true,
+            Ok(ResolvedPath::Exists { kind, .. }) => kind != ExistingKind::Directory,
+            Ok(ResolvedPath::Symlink { target_kind, .. }) => {
+                target_kind != Some(ExistingKind::Directory)
+            }
+            Err(_) => false,
+        }
     }
 
     /// 操作の失敗 `error` を決める。root_dir がない失敗か、「ない」「ディレクトリでない」の失敗で

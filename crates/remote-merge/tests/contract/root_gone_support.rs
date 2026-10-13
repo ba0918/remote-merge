@@ -12,6 +12,14 @@ pub use super::server_removal::When;
 
 pub const UNTOUCHED: &str = "not attempted";
 
+/// 二つの経路と二つのなくし方の組
+pub fn routes_and_ways() -> Vec<(Setup, Gone)> {
+    routes()
+        .into_iter()
+        .flat_map(|setup| [(setup, Gone::Removed), (setup, Gone::ReplacedByFile)])
+        .collect()
+}
+
 pub fn routes() -> [Setup; 2] {
     [
         Setup::default(),
@@ -36,6 +44,15 @@ pub async fn fixture_with(
     fixture
 }
 
+/// root_dir のなくし方
+#[derive(Debug, Clone, Copy)]
+pub enum Gone {
+    /// 中身ごと消す
+    Removed,
+    /// 中身ごと消して、同じパスに通常ファイルを置く
+    ReplacedByFile,
+}
+
 /// `request`（SSH では `command`）の `occurrence` 回目の `when` に remote の root_dir を消す
 pub fn remove_root_at(
     fixture: &AgentFixture,
@@ -44,12 +61,25 @@ pub fn remove_root_at(
     occurrence: usize,
     when: When,
 ) {
+    gone_root_at(fixture, request, command, occurrence, when, Gone::Removed);
+}
+
+/// [`remove_root_at`] の、なくし方 `gone` を選ぶもの
+pub fn gone_root_at(
+    fixture: &AgentFixture,
+    request: &'static str,
+    command: SshCommand,
+    occurrence: usize,
+    when: When,
+    gone: Gone,
+) {
     fixture.server.faults().removal.arm(Removal {
         agent_request: request,
         ssh_command: command,
         occurrence,
         when,
         dir: fixture.remote(),
+        replace_with_file: matches!(gone, Gone::ReplacedByFile),
     });
 }
 
@@ -96,7 +126,7 @@ pub fn assert_stopped(
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(stdout.matches(&message).count(), 1, "{stdout}");
-    assert!(!fixture.remote().exists(), "{output:?}");
+    assert!(!fixture.remote().is_dir(), "{output:?}");
 }
 
 pub const NEW: [(&str, Option<&str>, Option<&str>); 3] = [

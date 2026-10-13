@@ -25,6 +25,17 @@ pub struct Removal {
     pub occurrence: usize,
     pub when: When,
     pub dir: PathBuf,
+    /// 消した後に、同じパスに通常ファイルを置くか
+    pub replace_with_file: bool,
+}
+
+impl Removal {
+    fn apply(&self) {
+        std::fs::remove_dir_all(&self.dir).unwrap();
+        if self.replace_with_file {
+            std::fs::write(&self.dir, "now a file\n").unwrap();
+        }
+    }
 }
 
 /// 仕掛けた消し方と、受けた数と、次で消すか
@@ -54,7 +65,7 @@ impl ArmedRemoval {
             return;
         };
         if *next {
-            std::fs::remove_dir_all(&removal.dir).unwrap();
+            removal.apply();
             *armed = None;
             return;
         }
@@ -67,7 +78,7 @@ impl ArmedRemoval {
         }
         match removal.when {
             When::Before => {
-                std::fs::remove_dir_all(&removal.dir).unwrap();
+                removal.apply();
                 *armed = None;
             }
             When::AfterNext => *next = true,

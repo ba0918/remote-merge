@@ -25,13 +25,21 @@ async fn a_merge_stops_for_the_server_whose_root_dir_is_gone_in_the_middle() {
     }
 }
 
-// 既にあるファイルは、書く前の読み込みで root_dir がないと分かる
+// 既にあるファイルは、書く前の読み込みで root_dir がないと分かる。root_dir が通常ファイルに替わった
+// ときも同じ
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_of_existing_files_stops_when_the_root_dir_is_gone_before_a_read() {
-    for setup in routes() {
+    for (setup, gone) in routes_and_ways() {
         let fixture = fixture_with(setup, &EXISTING).await;
-        remove_root_at(&fixture, "WriteFile", SshCommand::Write, 1, When::AfterNext);
+        gone_root_at(
+            &fixture,
+            "WriteFile",
+            SshCommand::Write,
+            1,
+            When::AfterNext,
+            gone,
+        );
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt"]);
 
@@ -41,17 +49,25 @@ async fn a_merge_of_existing_files_stops_when_the_root_dir_is_gone_before_a_read
     }
 }
 
-// 権限を写すときは、書いた後の権限の変更で root_dir がないと分かる
+// 権限を写すときは、書いた後の権限の変更で root_dir がないと分かる。root_dir が通常ファイルに替わった
+// ときも同じ
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_with_permissions_stops_when_the_root_dir_is_gone_before_a_chmod() {
-    for setup in routes() {
+    for (setup, gone) in routes_and_ways() {
         let fixture = fixture_with(setup, &EXISTING).await;
         for (name, ..) in EXISTING {
             let local = fixture.local().join(name);
             fs::set_permissions(local, fs::Permissions::from_mode(0o600)).unwrap();
         }
-        remove_root_at(&fixture, "WriteFile", SshCommand::Write, 2, When::AfterNext);
+        gone_root_at(
+            &fixture,
+            "WriteFile",
+            SshCommand::Write,
+            2,
+            When::AfterNext,
+            gone,
+        );
 
         let output = fixture.run(&["merge", "a.txt", "b.txt", "c.txt", "--with-permissions"]);
 

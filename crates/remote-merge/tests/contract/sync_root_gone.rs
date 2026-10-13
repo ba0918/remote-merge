@@ -22,11 +22,11 @@ async fn a_sync_stops_for_the_server_whose_root_dir_is_gone_in_the_middle() {
     }
 }
 
-// --delete の削除で root_dir がないと分かる
+// --delete の削除で root_dir がないと分かる。root_dir が通常ファイルに替わったときも同じ
 // @kotowari[REQ-merge-044]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sync_with_delete_stops_when_the_root_dir_is_gone_before_a_removal() {
-    for setup in routes() {
+    for (setup, gone) in routes_and_ways() {
         let fixture = fixture_with(
             setup,
             &[
@@ -36,7 +36,14 @@ async fn a_sync_with_delete_stops_when_the_root_dir_is_gone_before_a_removal() {
             ],
         )
         .await;
-        remove_root_at(&fixture, "Remove", SshCommand::Remove, 2, When::Before);
+        gone_root_at(
+            &fixture,
+            "Remove",
+            SshCommand::Remove,
+            2,
+            When::Before,
+            gone,
+        );
 
         let output = fixture.run(&["sync", ".", "--delete", "--force"]);
 
