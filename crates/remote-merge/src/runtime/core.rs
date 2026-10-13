@@ -24,13 +24,13 @@ pub type BoxedAgentClient = AgentClient<UnixStream, UnixStream>;
 #[cfg(not(unix))]
 pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Cursor<Vec<u8>>>;
 
-/// CLI のランタイム基盤。
-///
-/// SSH接続管理、ファイルI/O、ツリー取得を担当する。
 /// テストだけ: パスを受けて呼ぶ関数
 #[cfg(feature = "test-utils")]
 pub type PathHook = Box<dyn Fn(&str)>;
 
+/// CLI のランタイム基盤。
+///
+/// SSH接続管理、ファイルI/O、ツリー取得を担当する。
 pub struct CoreRuntime {
     pub rt: tokio::runtime::Runtime,
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
