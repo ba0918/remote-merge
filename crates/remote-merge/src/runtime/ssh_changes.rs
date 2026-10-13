@@ -35,7 +35,7 @@ impl CoreRuntime {
             anyhow::anyhow!("cannot change permissions of {}: {error}", path.as_typed())
         })?;
         let full = self.ssh_full_path(server, path)?;
-        let command = format!("chmod {:o} -- {}", mode.bits(), shell_escape(&full));
+        let command = chmod_command(mode, &full);
         self.run_ssh_change(server, Operation::Chmod, path, &command)
     }
 
@@ -109,6 +109,35 @@ impl CoreRuntime {
     }
 }
 
+/// 権限を変えるコマンド。"-" で始まるパスをオプションに読ませない
+fn chmod_command(mode: PermissionMode, full: &str) -> String {
+    format!("chmod -- {:o} {}", mode.bits(), shell_escape(full))
+}
+
 fn changed(operation: Operation, path: &EntryPath, failure: OpFailure) -> anyhow::Error {
     OpError::new(operation, path.as_typed(), failure).into()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_starting_with_a_dash_is_not_read_as_an_option_of_chmod() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("-r"), "x").unwrap();
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(chmod_command(PermissionMode::new(0o600).unwrap(), "-r"))
+            .current_dir(temp.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(temp.path().join("-r"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 }
