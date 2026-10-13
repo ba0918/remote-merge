@@ -50,6 +50,18 @@ impl Start {
         }
     }
 
+    /// 起点そのものの状態だけを集める起点。ディレクトリなら器として載せて下を読まず、symlink なら
+    /// 辿らずにリンク先の種類だけを決める（比べる流れが名前で指定したパスと、変更の直前の書き込み先の
+    /// 状態を集めるのに使う）
+    pub fn itself(path: impl Into<String>, group: usize) -> Self {
+        Self {
+            path: path.into(),
+            with_self: true,
+            descend: false,
+            group,
+        }
+    }
+
     /// 指定したディレクトリがディレクトリかどうかだけを確かめる起点
     pub fn check(path: impl Into<String>, group: usize) -> Self {
         Self {

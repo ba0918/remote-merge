@@ -12,6 +12,7 @@ pub mod outcome;
 mod parts;
 pub mod raw;
 mod start_paths;
+mod start_take;
 pub mod starts;
 pub mod this_machine;
 pub mod tree_build;

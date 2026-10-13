@@ -34,6 +34,23 @@ impl Walk<'_> {
         }
     }
 
+    /// 待たせた symlink を辿らずに、リンク先の種類だけを答えから決める
+    pub fn point_link(&mut self, link: PendingLink, answer: &Answer) -> Result<(), ScanError> {
+        match answer.link {
+            Some(LinkTarget::Directory) => self.point(&link, LinkPoint::Directory),
+            Some(LinkTarget::Missing) => self.point(&link, LinkPoint::Missing),
+            Some(LinkTarget::NotDirectory) => {}
+            Some(LinkTarget::Unresolvable) => {
+                return Err(ScanFailure::UnresolvableLink {
+                    path: shown(&link.path),
+                }
+                .into())
+            }
+            None => return Err(changed(&link.path)),
+        }
+        Ok(())
+    }
+
     /// 一覧に載せた symlink のリンク先の種類を決める
     fn point(&mut self, link: &PendingLink, point: LinkPoint) {
         if let Some(index) = link.listed {
