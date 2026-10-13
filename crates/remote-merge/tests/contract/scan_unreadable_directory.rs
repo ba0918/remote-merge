@@ -8,9 +8,10 @@
 //! 読めるので、読めないディレクトリを作れないときはテストを飛ばす。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+
+use remote_merge_core::test_tree::PermissionLocks;
 
 use super::common::{gen_config, place_files, TestDirs};
 use super::scan_listing_cli::{status_over_ssh, AgentFixture};
@@ -19,27 +20,16 @@ use super::scan_listing_cli::{status_over_ssh, AgentFixture};
 const WITH_LOCKED: [(&str, &str); 2] = [("ok.txt", "same\n"), ("locked/secret.txt", "secret\n")];
 const READABLE: [(&str, &str); 1] = [("ok.txt", "same\n")];
 
-/// 読めなくしたディレクトリ。drop で読めるように戻し、一時ディレクトリを消せるようにする
-struct Locked(PathBuf);
-
-impl Locked {
-    /// `root` の下の "locked" を読めなくする。この利用者でも読めてしまうなら None
-    fn new(root: &Path) -> Option<Self> {
-        let path = root.join("locked");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        let locked = Self(path);
-        if fs::read_dir(&locked.0).is_ok() {
-            eprintln!("skipped: the directory is readable without permission (running as root)");
-            return None;
-        }
-        Some(locked)
+/// `root` の下の "locked" を読めなくする。この利用者でも読めてしまうなら None
+fn lock(root: &Path) -> Option<PermissionLocks> {
+    let path = root.join("locked");
+    let locks = PermissionLocks::new();
+    locks.lock(&path, 0o000);
+    if fs::read_dir(&path).is_ok() {
+        eprintln!("skipped: the directory is readable without permission (running as root)");
+        return None;
     }
-}
-
-impl Drop for Locked {
-    fn drop(&mut self) {
-        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
-    }
+    Some(locks)
 }
 
 /// 一覧（"files" を持つ JSON）を返さず、終了コード 2 で終わる
@@ -56,7 +46,7 @@ fn status_over_ssh_with(
     locked: fn(&TestDirs) -> PathBuf,
 ) -> Option<Output> {
     let mut dirs = TestDirs::new_2way(local_files, remote_files);
-    let _locked = Locked::new(&locked(&dirs))?;
+    let _locked = lock(&locked(&dirs))?;
     let (local_root, remote_root) = (dirs.local_dir.clone(), dirs.remote_dir.clone());
     let config = gen_config(&local_root, &remote_root, None, dirs.server_port());
     Some(status_over_ssh(&mut dirs, &config, &local_root, &[]))
@@ -92,7 +82,7 @@ async fn ex_scan_013_an_unreadable_directory_stops_the_scan_via_the_agent() {
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     place_files(&local_root, &READABLE);
     place_files(&remote_root, &WITH_LOCKED);
-    let Some(_locked) = Locked::new(&remote_root) else {
+    let Some(_locked) = lock(&remote_root) else {
         return;
     };
 

@@ -21,7 +21,7 @@ fn is_root() -> bool {
 
 #[test]
 fn reading_names_the_failure_of_each_state() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = crate::test_tree::TestTree::new();
     let root = temp.path();
     fs::write(root.join("f"), "x").unwrap();
     fs::write(root.join("a.txt"), "hello").unwrap();
@@ -38,9 +38,8 @@ fn reading_names_the_failure_of_each_state() {
     if !is_root() {
         fs::create_dir(root.join("locked")).unwrap();
         fs::write(root.join("locked/a.txt"), "x").unwrap();
-        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+        temp.lock(root.join("locked"), 0o000);
         let locked = read(root, &entry("locked/a.txt"), limit);
-        fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(locked, Err(OpFailure::PermissionDenied));
     }
 }

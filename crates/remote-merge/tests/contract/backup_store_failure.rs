@@ -8,39 +8,29 @@
 //! ディレクトリを作れないときはテストを飛ばす。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use remote_merge::cli::merge::{execute_merge, MergeArgs, MergeCommandOutput, MergeCommandResult};
 use remote_merge::cli::rollback::execute_rollback;
 use remote_merge::runtime::RuntimeTargets;
+use remote_merge_core::test_tree::PermissionLocks;
 use tempfile::TempDir;
 
 use super::backup_support::{
     config, fixed_now, merge_args, merge_files, rollback_list_args, store_entries, targets,
 };
 
-/// 書き込めなくしたディレクトリ。drop で書き込めるように戻し、一時ディレクトリを消せるようにする
-struct ReadOnly(PathBuf);
-
-impl ReadOnly {
-    /// `dir` を書き込めなくする。この利用者でも書き込めてしまうなら None
-    fn new(dir: &Path) -> Option<Self> {
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o500)).unwrap();
-        let read_only = Self(dir.to_path_buf());
-        if fs::write(dir.join(".probe"), "").is_ok() {
-            let _ = fs::remove_file(dir.join(".probe"));
-            eprintln!("skipped: the directory is writable without permission (running as root)");
-            return None;
-        }
-        Some(read_only)
+/// `dir` を書き込めなくする。Drop で、一時ディレクトリを消す前に戻す。この利用者でも書き込めて
+/// しまうなら None
+fn read_only(dir: &Path) -> Option<PermissionLocks> {
+    let locks = PermissionLocks::new();
+    locks.lock(dir, 0o500);
+    if fs::write(dir.join(".probe"), "").is_ok() {
+        let _ = fs::remove_file(dir.join(".probe"));
+        eprintln!("skipped: the directory is writable without permission (running as root)");
+        return None;
     }
-}
-
-impl Drop for ReadOnly {
-    fn drop(&mut self) {
-        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
-    }
+    Some(locks)
 }
 
 /// 書き込み先 develop を一時ディレクトリに差し替え、集約先を `store` にした差し替え
@@ -87,7 +77,7 @@ fn ex_backup_026_a_store_that_cannot_be_created_stops_the_merge_before_writing()
     let develop = TempDir::new().unwrap();
     let parent = TempDir::new().unwrap();
     let args = two_files(&local, &develop);
-    let Some(_read_only) = ReadOnly::new(parent.path()) else {
+    let Some(_read_only) = read_only(parent.path()) else {
         return;
     };
 

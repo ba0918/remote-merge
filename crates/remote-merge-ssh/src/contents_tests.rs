@@ -54,13 +54,13 @@ fn a_file_without_read_permission_or_behind_a_locked_directory_is_permission_den
     if is_root() {
         return;
     }
-    let temp = tempfile::tempdir().unwrap();
+    let temp = remote_merge_core::test_tree::TestTree::new();
     let root = fs::canonicalize(temp.path()).unwrap();
     fs::write(root.join("secret"), b"x").unwrap();
     fs::set_permissions(root.join("secret"), fs::Permissions::from_mode(0o000)).unwrap();
     fs::create_dir(root.join("locked")).unwrap();
     fs::write(root.join("locked/a"), b"x").unwrap();
-    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
+    temp.lock(root.join("locked"), 0o000);
 
     let answers = read_all(
         &paths(&root, &["secret", "locked/a"]),
@@ -69,7 +69,6 @@ fn a_file_without_read_permission_or_behind_a_locked_directory_is_permission_den
         65536,
         run,
     );
-    fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
 
     let failures: Vec<_> = answers.unwrap().into_iter().map(|(_, r)| r).collect();
     assert_eq!(

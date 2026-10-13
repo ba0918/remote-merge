@@ -358,12 +358,13 @@ fn dry_run_with_a_blocked_parent() -> (RollbackOutput, i32) {
     let merged = merge_files(merge, config.clone(), targets(&develop, &store));
     assert_eq!(merged.merged.len(), 2, "{merged:?}");
     let blocked = develop.path().join("sub");
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&blocked, 0o000);
     let mut args = rollback_args("develop", None);
     args.dry_run = true;
 
     let result = execute_rollback(args, config, targets(&develop, &store));
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o755)).unwrap();
+    drop(locks);
     let result = result.unwrap();
 
     let RollbackCommandOutput::DryRun { output, .. } = result.output else {

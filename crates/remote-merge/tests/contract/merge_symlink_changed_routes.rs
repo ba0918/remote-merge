@@ -19,6 +19,7 @@ use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::service::merge_flow::{execute_single_merge, MergeContext, SingleMergeResult};
 use remote_merge::service::types::{FileStatus, FileStatusKind};
 use remote_merge::side::Side;
+use remote_merge_core::test_tree::PermissionLocks;
 use tempfile::TempDir;
 
 use super::agent_support::{AgentFixture, Setup};
@@ -242,6 +243,9 @@ fn local_route(change: Change, backup: bool) -> (Outcome, TempDir) {
     let source = TempDir::new().unwrap();
     let destination = TempDir::new().unwrap();
     let store = TempDir::new().unwrap();
+    // 変更（ParentSearchOnly）が外した権限を、試験が落ちても消す前に戻す
+    let restore = PermissionLocks::new();
+    restore.keep(destination.path());
     put_links(source.path(), destination.path(), change);
     let config_path = source.path().join("config.toml");
     fs::write(
@@ -271,6 +275,7 @@ fn local_route(change: Change, backup: bool) -> (Outcome, TempDir) {
         drop(core);
         outcome
     });
+    drop(restore);
     (outcome, destination)
 }
 
@@ -307,6 +312,9 @@ async fn remote_route(
     if !backup {
         fixture.disable_backup();
     }
+    // 子のプロセスでの変更（ParentSearchOnly）が外した権限を、試験が落ちても消す前に戻す
+    let restore = PermissionLocks::new();
+    restore.keep(fixture.remote());
     put_links(&fixture.local(), &fixture.remote(), change);
     let result = fixture.home.path().join("child-result.txt");
     let output = Command::new(std::env::current_exe().unwrap())
@@ -327,6 +335,7 @@ async fn remote_route(
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     let outcome = Outcome::from_text(&fs::read_to_string(result).unwrap());
+    drop(restore);
     (outcome, fixture)
 }
 
@@ -495,9 +504,10 @@ async fn an_unchanged_destination_symlink_whose_parent_became_search_only_is_rep
     }
     // 権限に関わらず読める利用者（root）では、読めない親ディレクトリを作れない
     let probe = TempDir::new().unwrap();
-    set_mode(probe.path(), 0o300);
+    let locks = PermissionLocks::new();
+    locks.lock(probe.path(), 0o300);
     let unreadable = fs::read_dir(probe.path()).is_err();
-    set_mode(probe.path(), 0o700);
+    drop(locks);
     if !unreadable {
         eprintln!("skipped: a directory with mode 0300 is readable by this user");
         return;
@@ -514,8 +524,6 @@ async fn an_unchanged_destination_symlink_whose_parent_became_search_only_is_rep
         (&agent, agent_fixture.remote()),
     ];
     let observed = routes.map(|(outcome, root)| {
-        // 一時ディレクトリを消せるよう、確かめる前に権限を戻す
-        set_mode(&root, 0o700);
         (
             matches!(outcome, Outcome::Merged),
             fs::read_link(root.join(LINK)).ok(),

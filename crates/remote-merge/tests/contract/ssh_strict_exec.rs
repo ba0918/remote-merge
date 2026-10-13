@@ -72,13 +72,14 @@ fn a_symlink_under_a_missing_remote_directory_is_created_with_its_parent() {
 fn a_remote_file_that_cannot_be_deleted_fails_without_stopping_the_rest() {
     let env = CliEnv::new(&[], &[("locked/a.txt", "keep\n"), ("free.txt", "remove\n")]);
     let locked = env.remote_dir.join("locked");
-    set_mode(&locked, 0o555);
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&locked, 0o555);
     // root で実行すると権限を落としても消せてしまうため、前提の崩れを知らせる
     let precondition_holds = fs::write(locked.join("probe.txt"), "").is_err();
 
     let (code, json) = merge_without_backup(&env, &[".", "--delete"]);
 
-    set_mode(&locked, 0o755);
+    drop(locks);
     assert!(precondition_holds, "test needs an unremovable remote file");
     assert_eq!(code, Some(2), "{json}");
     let failed: Vec<&str> = json["failed"]

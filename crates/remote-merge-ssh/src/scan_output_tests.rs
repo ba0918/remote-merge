@@ -1,7 +1,6 @@
 //! スクリプトをこのマシンの sh と find で動かし、その答えがローカルとエージェントの集め方
 //! （core の MachineCollector）の答えと同じになることを確かめる
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 
 use remote_merge_core::scan::raw::{RawKind, ReadCause, UnreadableDir};
 
@@ -35,12 +34,12 @@ fn the_shell_answers_the_same_as_this_machine() {
 // @kotowari[REQ-scan-014, REQ-config-044]
 #[test]
 fn an_unreadable_directory_is_reported_unless_it_is_excluded() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = remote_merge_core::test_tree::TestTree::new();
     let root = temp.path();
     for dir in ["locked", "cache/locked"] {
         fs::create_dir_all(root.join(dir)).unwrap();
         fs::write(root.join(dir).join("in.txt"), "").unwrap();
-        fs::set_permissions(root.join(dir), fs::Permissions::from_mode(0o000)).unwrap();
+        temp.lock(root.join(dir), 0o000);
     }
     let applies = fs::read_dir(root.join("locked")).is_err();
     // "c?che" は find の刈り込みに使えないので、find は下に降りて読めないことを知らせる
@@ -48,9 +47,6 @@ fn an_unreadable_directory_is_reported_unless_it_is_excluded() {
         .iter()
         .map(|patterns| over_shell(root, &[question(b"", true)], &exclude(patterns)))
         .collect();
-    for dir in ["locked", "cache/locked"] {
-        fs::set_permissions(root.join(dir), fs::Permissions::from_mode(0o755)).unwrap();
-    }
     if !applies {
         eprintln!("note: running as root; unreadable directories cannot be made");
         return;

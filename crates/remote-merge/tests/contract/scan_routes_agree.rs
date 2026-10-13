@@ -298,16 +298,6 @@ async fn a_cycle_below_a_directory_matched_by_a_name_pattern_is_not_walked_over_
     assert_eq!(statuses_by_path(&output), all_equal(&["a/keep.txt"]));
 }
 
-/// 落ちても `path` の権限を戻し、一時ディレクトリを消せるようにする
-struct RestoreMode<'a>(&'a Path);
-
-impl Drop for RestoreMode<'_> {
-    fn drop(&mut self) {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(self.0, std::fs::Permissions::from_mode(0o755));
-    }
-}
-
 /// 左右に [`OUTSIDE_EXCLUDED_DIRECTORY`] を置き、右の `locked` の下を読めないディレクトリにして
 /// `exclude_line` の設定で status を起動する
 fn status_with_an_unreadable_directory(
@@ -315,15 +305,14 @@ fn status_with_an_unreadable_directory(
     locked: &str,
     exclude_line: &str,
 ) -> Output {
-    use std::os::unix::fs::PermissionsExt;
     let [local_root, remote_root] = ["local", "remote"].map(|side| fixture.temp.path().join(side));
     for root in [&local_root, &remote_root] {
         place_files(root, &OUTSIDE_EXCLUDED_DIRECTORY);
     }
     let locked = remote_root.join(locked);
     place_files(&locked, &ONE_FILE);
-    let _restore = RestoreMode(&locked);
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&locked, 0o000);
     fixture.status_with_exclude(&local_root, &remote_root, exclude_line)
 }
 

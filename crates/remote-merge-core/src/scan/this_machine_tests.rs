@@ -128,18 +128,15 @@ fn a_link_says_where_its_target_leads() {
 // @kotowari[REQ-config-044, REQ-scan-014]
 #[test]
 fn an_excluded_directory_is_not_read_and_an_unreadable_one_is_reported() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = crate::test_tree::TestTree::new();
     let root = temp.path();
     for dir in ["cache/locked", "locked"] {
         fs::create_dir_all(root.join(dir)).unwrap();
         fs::write(root.join(dir).join("in.txt"), "").unwrap();
-        fs::set_permissions(root.join(dir), fs::Permissions::from_mode(0o000)).unwrap();
+        temp.lock(root.join(dir), 0o000);
     }
     let applies = permissions_apply(&root.join("locked"));
     let answer = ask(root, b"", true, &["cache"]);
-    for dir in ["cache/locked", "locked"] {
-        fs::set_permissions(root.join(dir), fs::Permissions::from_mode(0o755)).unwrap();
-    }
     assert_eq!(paths(&answer), [b"locked"]);
     if applies {
         assert_eq!(

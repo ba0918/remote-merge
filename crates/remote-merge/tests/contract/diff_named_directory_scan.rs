@@ -6,7 +6,6 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Output;
 
 use serde_json::Value;
@@ -73,15 +72,15 @@ async fn an_unreadable_directory_below_a_named_directory_reports_the_whole_name(
         let secret = sides.tested_root().join("dir/secret");
         fs::create_dir_all(&secret).unwrap();
         fs::write(secret.join("hidden.txt"), "x\n").unwrap();
-        fs::set_permissions(&secret, fs::Permissions::from_mode(0o000)).unwrap();
+        let locks = remote_merge_core::test_tree::PermissionLocks::new();
+        locks.lock(&secret, 0o000);
         if fs::read_dir(&secret).is_ok() {
-            fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
             eprintln!("note: running as root; unreadable directories cannot be made");
             return;
         }
 
         let output = sides.run_into_tested(&["diff", "dir", "b.txt"]);
-        fs::set_permissions(&secret, fs::Permissions::from_mode(0o755)).unwrap();
+        drop(locks);
 
         let result = json(&output);
         assert_eq!(paths_in(&result, "files"), ["b.txt"], "{route:?}: {result}");

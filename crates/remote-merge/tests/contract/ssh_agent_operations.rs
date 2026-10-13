@@ -2,9 +2,6 @@
 //! エージェントがあれば削除・権限の変更・子の一覧をエージェントで行うこと
 //! （docs/ir/ssh/fallback.md の REQ-ssh-010）の契約テスト。
 
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
-
 use super::agent_support::{json, AgentFixture, Setup};
 use super::server_faults::Faults;
 
@@ -57,10 +54,11 @@ async fn an_operation_the_agent_fails_fails_that_file_and_the_next_file_still_go
     fixture.put("a-locked/old.txt", None, Some("old\n"));
     fixture.put("b-old.txt", None, Some("old\n"));
     let locked = fixture.remote().join("a-locked");
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&locked, 0o555);
 
     let sync = fixture.run(&["sync", ".", "--delete", "--force"]);
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    drop(locks);
 
     assert_eq!(sync.status.code(), Some(2), "{sync:?}");
     let result = json(&sync).to_string();

@@ -13,6 +13,11 @@ anyhow = "1"
 similar = "2"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+tempfile = { version = "3", optional = true }
+
+[features]
+## 試験の道具を公開する（ほかの crate の試験向け）
+test-utils = ["dep:tempfile"]
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"

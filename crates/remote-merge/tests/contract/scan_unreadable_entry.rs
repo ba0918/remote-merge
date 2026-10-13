@@ -3,7 +3,6 @@
 //! REQ-scan-016）、読めない項目を飛ばさずに止まること（同じく REQ-scan-015）の契約テスト。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -59,16 +58,16 @@ fn req_scan_015_the_agent_scan_stops_when_an_entry_cannot_be_stat_ed() {
     fs::create_dir(&sub).unwrap();
     fs::write(sub.join("a.txt"), "a").unwrap();
     // 読めるが検索できないディレクトリ: 名前は一覧できるが、項目を lstat できない
-    fs::set_permissions(&sub, fs::Permissions::from_mode(0o444)).unwrap();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&sub, 0o444);
     if sub.join("a.txt").symlink_metadata().is_ok() {
-        fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
         eprintln!("skipped: the entry can be stat'ed without permission (running as root)");
         return;
     }
 
     let responses = agent_scan(root.path());
 
-    fs::set_permissions(&sub, fs::Permissions::from_mode(0o755)).unwrap();
+    drop(locks);
     assert_eq!(
         responses,
         [AgentResponse::TreeFailed {

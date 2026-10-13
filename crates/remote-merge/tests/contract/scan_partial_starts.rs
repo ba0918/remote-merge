@@ -5,7 +5,6 @@
 //! の C9、docs/ir/scan/limits.md の REQ-scan-009・014）を三つの経路で確かめる契約テスト。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 
 use super::scan_missing_root::{Route, Sides, ROUTES};
 
@@ -23,14 +22,14 @@ async fn an_unreadable_source_directory_stops_the_scan_instead_of_listing_nothin
             .fixture
             .put("sub/g.txt", Some("left\n"), Some("right\n"));
         let locked = sides.tested_root().join("sub");
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let locks = remote_merge_core::test_tree::PermissionLocks::new();
+        locks.lock(&locked, 0o000);
         if !permissions_apply(&locked) {
-            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
             eprintln!("note: running as root; unreadable directories cannot be made");
             return;
         }
         let output = sides.run_from_tested(&["merge", "sub/", "--force"]);
-        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        drop(locks);
         assert_eq!(output.status.code(), Some(2), "{route:?}: {output:?}");
         assert!(
             String::from_utf8_lossy(&output.stdout)

@@ -11,10 +11,11 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Output;
 
+use remote_merge_core::test_tree::PermissionLocks;
 use serde_json::Value;
 
 use super::scan_missing_root::{Sides, ROUTES};
@@ -22,7 +23,7 @@ use super::scan_missing_root::{Sides, ROUTES};
 /// ツリーの中の、件数に数える項目（ファイルと symlink）の数。循環の下と exclude の下を除く
 const COUNTED: usize = 10;
 
-fn place_tree(root: &Path) {
+fn place_tree(root: &Path, locks: &PermissionLocks) {
     let file = |path: &[u8]| {
         let path = root.join(OsStr::from_bytes(path));
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -43,12 +44,7 @@ fn place_tree(root: &Path) {
     symlink("real", root.join("linked")).unwrap();
     symlink("nope", root.join("dangling")).unwrap();
     symlink(".", root.join("loopdir/back")).unwrap();
-    fs::set_permissions(root.join("cache/locked"), fs::Permissions::from_mode(0o000)).unwrap();
-}
-
-/// 読める権限に戻す（一時ディレクトリを消せるように）
-fn restore(root: &Path) {
-    let _ = fs::set_permissions(root.join("cache/locked"), fs::Permissions::from_mode(0o755));
+    locks.lock(root.join("cache/locked"), 0o000);
 }
 
 /// 出力を経路によらず比べられる形にする: 終了コード、項目のパス、errors のパス、止まった理由
@@ -76,14 +72,14 @@ fn observed(output: &Output) -> (Option<i32>, Vec<String>, Vec<String>, String) 
 async fn status_on(route: super::scan_missing_root::Route, exclude: &str, max: usize) -> String {
     let sides = Sides::new(route).await;
     let tested = sides.tested_root();
-    place_tree(&tested);
+    let locks = PermissionLocks::new();
+    place_tree(&tested, &locks);
     fs::create_dir_all(sides.other_root()).unwrap();
     let mut config = fs::read_to_string(&sides.fixture.config).unwrap();
     config.push_str(&format!("[filter]\nexclude = {exclude}\n"));
     fs::write(&sides.fixture.config, config).unwrap();
     let max = max.to_string();
     let output = sides.run_into_tested(&["status", "--max-entries", &max]);
-    restore(&tested);
     format!("{:?}", observed(&output))
 }
 

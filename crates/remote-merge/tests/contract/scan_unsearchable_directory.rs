@@ -7,9 +7,10 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
+
+use remote_merge_core::test_tree::PermissionLocks;
 
 use super::scan_missing_root::{Sides, ROUTES};
 
@@ -21,13 +22,13 @@ fn with_exclude(sides: &Sides, pattern: &str) {
 
 /// `dir` の権限を `mode` にして status を動かし、権限を戻す。権限が効かない（root で動く）なら None
 fn status_with_mode(sides: &Sides, dir: &Path, mode: u32) -> Option<Output> {
-    fs::set_permissions(dir, fs::Permissions::from_mode(mode)).unwrap();
+    let locks = PermissionLocks::new();
+    locks.lock(dir, mode);
     let applies = fs::read_dir(dir)
         .and_then(|mut e| e.next().transpose())
         .is_err()
         || fs::symlink_metadata(dir.join("cache")).is_err();
     let output = applies.then(|| sides.run_into_tested(&["status"]));
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
     if !applies {
         eprintln!("note: running as root; permissions do not apply");
     }
@@ -71,10 +72,11 @@ async fn an_unreadable_directory_with_a_newline_in_its_name_is_handled_the_same_
                 .join(OsStr::from_bytes(b"lo\ncked"));
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("h.txt"), "h\n").unwrap();
-            fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+            let locks = PermissionLocks::new();
+            locks.lock(&dir, 0o000);
             let applies = fs::read_dir(&dir).is_err();
             let output = sides.run_into_tested(&["status"]);
-            fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+            drop(locks);
             if !applies {
                 eprintln!("note: running as root; permissions do not apply");
                 return;
@@ -144,14 +146,13 @@ async fn many_unreadable_directories_below_an_excluded_directory_do_not_stop_the
                     .join(format!("cache/locked_directory_number_{i:04}"))
             })
             .collect();
+        let locks = PermissionLocks::new();
         for dir in &dirs {
             fs::create_dir_all(dir).unwrap();
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).unwrap();
+            locks.lock(dir, 0o000);
         }
         let output = sides.run_into_tested(&["status"]);
-        for dir in &dirs {
-            fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        drop(locks);
         assert_eq!(output.status.code(), Some(0), "{route:?}: {output:?}");
     }
 }

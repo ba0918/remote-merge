@@ -39,6 +39,7 @@ zeroize = "1"
 test-utils = ["remote-merge-ssh/test-utils"]
 
 [dev-dependencies]
+remote-merge-core = { path = "../remote-merge-core", features = ["test-utils"] }
 libc = "0.2"
 tempfile = "3"
 serial_test = "3"

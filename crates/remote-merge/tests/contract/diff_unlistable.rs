@@ -3,27 +3,18 @@
 //! （docs/ir/cli/directory-paths.md の REQ-cli-096）の契約テスト。
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+
+use remote_merge_core::test_tree::PermissionLocks;
 
 use super::agent_support::{json, AgentFixture, Setup};
 use super::server_faults::Faults;
 
-/// 読めないようにしたディレクトリ。テストが途中で失敗しても、一時ディレクトリを消せるように戻す
-struct Unreadable(PathBuf);
-
-impl Unreadable {
-    fn new(path: PathBuf) -> Self {
-        fs::create_dir_all(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for Unreadable {
-    fn drop(&mut self) {
-        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
-    }
+/// 読めないようにしたディレクトリ。テストが途中で失敗しても、一時ディレクトリを消す前に戻す
+fn unreadable(path: std::path::PathBuf) -> PermissionLocks {
+    fs::create_dir_all(&path).unwrap();
+    let locks = PermissionLocks::new();
+    locks.lock(&path, 0o000);
+    locks
 }
 
 /// エージェントの経路と SSH の経路
@@ -46,7 +37,7 @@ async fn an_unreadable_directory_is_reported_in_errors_and_not_compared() {
     for (route, setup) in routes() {
         let fixture = AgentFixture::new(setup, Faults::default()).await;
         fixture.put("secret/a.txt", Some("local\n"), None);
-        let _secret = Unreadable::new(fixture.remote().join("secret"));
+        let _secret = unreadable(fixture.remote().join("secret"));
 
         let output = fixture.run(&["diff", "secret"]);
 

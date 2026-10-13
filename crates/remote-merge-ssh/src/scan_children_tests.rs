@@ -52,14 +52,14 @@ fn the_children_over_the_shell_agree_with_the_children_on_this_machine() {
 // @kotowari[REQ-paths-017]
 #[test]
 fn a_child_directory_that_cannot_be_read_is_listed_without_reading_it() {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = remote_merge_core::test_tree::TestTree::new();
     let root = temp.path();
     fs::create_dir_all(root.join("a/locked/deep")).unwrap();
     fs::create_dir_all(root.join("a/empty")).unwrap();
     fs::write(root.join("a/f.txt"), "f").unwrap();
-    fs::set_permissions(root.join("a/locked"), fs::Permissions::from_mode(0o000)).unwrap();
+    temp.lock(root.join("a/locked"), 0o000);
     fs::create_dir_all(root.join("shut/inner")).unwrap();
-    fs::set_permissions(root.join("shut"), fs::Permissions::from_mode(0o000)).unwrap();
+    temp.lock(root.join("shut"), 0o000);
 
     let rule = exclude(&[]);
     let listed = scan_with(&mut Shell(root.to_path_buf()), &rule, children("a"));
@@ -67,8 +67,6 @@ fn a_child_directory_that_cannot_be_read_is_listed_without_reading_it() {
         agree(root, &rule, path);
     }
 
-    fs::set_permissions(root.join("a/locked"), fs::Permissions::from_mode(0o755)).unwrap();
-    fs::set_permissions(root.join("shut"), fs::Permissions::from_mode(0o755)).unwrap();
     assert!(listed.starts_with("Ok("), "{listed}");
     assert!(listed.contains("\"a/locked\""), "{listed}");
     assert!(!listed.contains("deep"), "{listed}");

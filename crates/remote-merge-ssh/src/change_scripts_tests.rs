@@ -10,6 +10,7 @@ use std::process::Stdio;
 use remote_merge_core::machine_ops;
 use remote_merge_core::op_failure::{OpFailure, Tool};
 use remote_merge_core::relative_path::EntryPath;
+use remote_merge_core::test_tree::TestTree;
 
 use super::*;
 use crate::contents_tests_support::bin_with;
@@ -44,20 +45,21 @@ fn has_openssl() -> bool {
 }
 
 /// "f" は通常ファイル、"dl" はリンク切れの symlink、"ro" は書き込めないディレクトリ
-fn state(root: &Path) {
+fn state(tree: &TestTree) {
+    let root = tree.path();
     fs::write(root.join("f"), "f").unwrap();
     std::os::unix::fs::symlink("nowhere", root.join("dl")).unwrap();
     fs::create_dir(root.join("ro")).unwrap();
-    fs::set_permissions(root.join("ro"), fs::Permissions::from_mode(0o555)).unwrap();
+    tree.lock(root.join("ro"), 0o555);
 }
 
 // @kotowari[REQ-paths-013, REQ-paths-020]
 #[test]
 fn writes_and_links_agree_with_this_machine_in_success_and_in_the_kind_of_failure() {
-    let ssh = tempfile::tempdir().unwrap();
-    let local = tempfile::tempdir().unwrap();
-    state(ssh.path());
-    state(local.path());
+    let ssh = TestTree::new();
+    let local = TestTree::new();
+    state(&ssh);
+    state(&local);
     let mut rels = vec![
         "new/a.txt",
         "f/a.txt",
@@ -84,9 +86,6 @@ fn writes_and_links_agree_with_this_machine_in_success_and_in_the_kind_of_failur
             machine_ops::create_symlink(local.path(), &link_entry, "t"),
             "symlink {rel}"
         );
-    }
-    for root in [ssh.path(), local.path()] {
-        fs::set_permissions(root.join("ro"), fs::Permissions::from_mode(0o755)).unwrap();
     }
     assert_eq!(fs::read(ssh.path().join("new/a.txt")).unwrap(), b"x");
 }

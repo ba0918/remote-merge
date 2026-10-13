@@ -4,6 +4,7 @@ use std::fs;
 
 use remote_merge_core::scan::outcome::ScanScope;
 use remote_merge_core::scan::this_machine::MachineCollector;
+use remote_merge_core::test_tree::TestTree;
 
 use crate::scan_test_shell::*;
 
@@ -11,15 +12,14 @@ use crate::scan_test_shell::*;
 fn compare_unsearchable(names: &[&[u8]], patterns: &[&str]) -> Option<(String, String)> {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::PermissionsExt;
-    let temp = tempfile::tempdir().unwrap();
+    let temp = TestTree::new();
     let root = temp.path();
     let d = root.join("d");
     fs::create_dir_all(&d).unwrap();
     for name in names {
         fs::write(d.join(OsStr::from_bytes(name)), "x").unwrap();
     }
-    fs::set_permissions(&d, fs::Permissions::from_mode(0o644)).unwrap();
+    temp.lock(&d, 0o644);
     let applies = fs::metadata(d.join("x-not-there")).is_err() && !permissions_apply_root();
     let rule = exclude(patterns);
     let machine = scan_with(
@@ -28,7 +28,6 @@ fn compare_unsearchable(names: &[&[u8]], patterns: &[&str]) -> Option<(String, S
         ScanScope::Whole,
     );
     let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
-    fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap();
     applies.then_some((machine, shell))
 }
 
@@ -63,8 +62,7 @@ fn a_readable_directory_without_search_permission_agrees_whatever_it_holds() {
 // @kotowari[REQ-scan-017, REQ-config-044]
 #[test]
 fn many_unreadable_directories_below_an_excluded_directory_agree() {
-    use std::os::unix::fs::PermissionsExt;
-    let temp = tempfile::tempdir().unwrap();
+    let temp = TestTree::new();
     let root = temp.path();
     let dirs: Vec<_> = (0..800)
         .map(|i| {
@@ -74,7 +72,7 @@ fn many_unreadable_directories_below_an_excluded_directory_agree() {
         .collect();
     for dir in &dirs {
         fs::create_dir_all(dir).unwrap();
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o000)).unwrap();
+        temp.lock(dir, 0o000);
     }
     let rule = exclude(&["c?che"]);
     let machine = scan_with(
@@ -83,9 +81,6 @@ fn many_unreadable_directories_below_an_excluded_directory_agree() {
         ScanScope::Whole,
     );
     let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
-    for dir in &dirs {
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
-    }
     assert!(machine.starts_with("Ok("), "{machine}");
     assert_eq!(shell, machine);
 }
@@ -95,14 +90,13 @@ fn many_unreadable_directories_below_an_excluded_directory_agree() {
 fn an_unreadable_directory_whose_name_holds_a_find_prefix_after_a_newline_agrees() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::PermissionsExt;
     for parent in ["cache", "plain"] {
-        let temp = tempfile::tempdir().unwrap();
+        let temp = TestTree::new();
         let root = temp.path();
         let dir = root.join(parent).join(OsStr::from_bytes(b"x\nfind: y"));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("h.txt"), "h").unwrap();
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+        temp.lock(&dir, 0o000);
         let rule = exclude(&["c?che"]);
         let machine = scan_with(
             &mut MachineCollector::new(root.to_path_buf()),
@@ -110,7 +104,6 @@ fn an_unreadable_directory_whose_name_holds_a_find_prefix_after_a_newline_agrees
             ScanScope::Whole,
         );
         let shell = scan_with(&mut Shell(root.to_path_buf()), &rule, ScanScope::Whole);
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
         if permissions_apply_root() {
             return;
         }
@@ -139,12 +132,11 @@ fn a_directory_check_that_fails_or_goes_missing_stops_the_scan() {
     use crate::scan_script::{build, ScriptQuestion};
     use remote_merge_core::scan::exclude::Prunable;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::PermissionsExt;
-    let temp = tempfile::tempdir().unwrap();
+    let temp = TestTree::new();
     let root = temp.path().join("root");
     fs::create_dir_all(root.join("skipme")).unwrap();
     fs::write(root.join("skipme/f.txt"), "f").unwrap();
-    fs::set_permissions(root.join("skipme"), fs::Permissions::from_mode(0o644)).unwrap();
+    temp.lock(root.join("skipme"), 0o644);
     let bin = failing_sh(temp.path());
     let questions = [ScriptQuestion {
         path: b"",
@@ -158,7 +150,6 @@ fn a_directory_check_that_fails_or_goes_missing_stops_the_scan() {
     let output = shell_command_with_path(&script, Some(&bin))
         .output()
         .unwrap();
-    fs::set_permissions(root.join("skipme"), fs::Permissions::from_mode(0o755)).unwrap();
     let parsed = crate::scan_output::parse(&output.stdout, &output.stderr, &questions);
     assert!(parsed.is_err(), "{parsed:?}");
 }

@@ -1402,8 +1402,9 @@ fn deletions_that_cannot_inspect_or_remove_the_destination_fail_without_stopping
     let hidden = destination.path().join("hidden");
     let locked = destination.path().join("locked");
     // hidden は中を調べられず、locked は中のファイルを消せない
-    fs::set_permissions(&hidden, fs::Permissions::from_mode(0o000)).unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    let locks = remote_merge_core::test_tree::PermissionLocks::new();
+    locks.lock(&hidden, 0o000);
+    locks.lock(&locked, 0o555);
     // root で実行すると権限を落としても調べられ消せてしまうため、前提の崩れを知らせる
     let preconditions_hold = fs::symlink_metadata(hidden.join("a.txt")).is_err()
         && fs::write(locked.join("probe.txt"), "").is_err();
@@ -1423,8 +1424,7 @@ fn deletions_that_cannot_inspect_or_remove_the_destination_fail_without_stopping
         false,
     );
 
-    fs::set_permissions(&hidden, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    drop(locks);
     assert!(
         preconditions_hold,
         "test needs an uninspectable and an unremovable destination"
