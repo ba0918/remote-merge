@@ -48,14 +48,23 @@ fn answer(mut child: Child) {
             (vec![CompareScope::Entries(paths)], ExternalLinks::Stop)
         }
         "many links" | "one link" => (vec![CompareScope::Whole], ExternalLinks::Stop),
-        "many blocked" | "one blocked" => {
-            let count = if child.request == "many blocked" {
+        "many blocked" | "one blocked" | "many blocked stop" | "one blocked stop" => {
+            let count = if child.request.starts_with("many") {
                 5
             } else {
                 1
             };
-            let paths = (0..count).map(|i| format!("f/x{i}.txt")).collect();
-            (vec![CompareScope::Entries(paths)], ExternalLinks::Follow)
+            let mut paths: Vec<String> = (0..count).map(|i| format!("f/x{i}.txt")).collect();
+            if child.request.ends_with("stop") {
+                // ふさがれない起点も一つ並べる（走査の後の確かめが要る）
+                paths.push("ok.txt".into());
+            }
+            let external = if child.request.ends_with("stop") {
+                ExternalLinks::Stop
+            } else {
+                ExternalLinks::Follow
+            };
+            (vec![CompareScope::Entries(paths)], external)
         }
         "cycle" => (vec![CompareScope::Whole], ExternalLinks::Follow),
         "unsearchable root" => {
@@ -326,14 +335,24 @@ fn named_paths_below_a_file_are_left_out_with_one_check_and_root_dir_is_still_ch
             fs::write(left.join(format!("f/x{i}.txt")), "left\n").unwrap();
         }
         fs::write(right.join("f"), "a file\n").unwrap();
+        for root in [left, right] {
+            fs::write(root.join("ok.txt"), "same\n").unwrap();
+        }
     });
 
     for route in [Route::Ssh, Route::Agent] {
-        let one = round_trips(&routes, route, &test_name(name), "one blocked");
-        let many = round_trips(&routes, route, &test_name(name), "many blocked");
-        // 走査は、ふさがれた走査と root_dir だけを確かめる走査の二つ、パスの確認は一度
-        assert_eq!(one, (1, 2), "{route:?}");
-        assert_eq!(many, (1, 2), "{route:?}");
+        // 走査は、ふさがれた走査と（残りの起点か root_dir だけを確かめる）走査し直しの二つ、パスの
+        // 確認は一度。外への
+        // リンクを辿らないときも、走査の後の確かめはふさがれた起点の確かめで取った事実を使い回す
+        for (one, many) in [
+            ("one blocked", "many blocked"),
+            ("one blocked stop", "many blocked stop"),
+        ] {
+            let one = round_trips(&routes, route, &test_name(name), one);
+            let many = round_trips(&routes, route, &test_name(name), many);
+            assert_eq!(one, (1, 2), "{route:?}");
+            assert_eq!(many, (1, 2), "{route:?}");
+        }
     }
 }
 

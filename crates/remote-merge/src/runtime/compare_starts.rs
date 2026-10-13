@@ -85,7 +85,7 @@ impl CoreRuntime {
         // root_dir の状態は、範囲と外へのリンクの扱いによらず、どの走査でも初めの問いで一度だけ
         // 確かめる（E42）。ない・ディレクトリでない・権限がないは、ここで走査の root_dir の誤りになる
         let scope = self.compare_scope(side, &request.scope)?;
-        let (mut listing, blocked) =
+        let (mut listing, blocked, known) =
             self.scan_named(side, scope, request.max_entries, named, Vec::new())?;
         if let CompareScope::Below(dirs) = &request.scope {
             listing = self.with_starts_themselves(
@@ -100,7 +100,7 @@ impl CoreRuntime {
             return Ok((listing, None));
         }
         // 外へのリンクを辿らないときは、走査の後に、起点の途中と一覧の symlink をまとめて一度に
-        // 確かめる
+        // 確かめる。ふさがれた起点を外すときに確かめた事実は使い回し、同じパスを二度尋ねない
         let starts: Vec<String> = named
             .iter()
             .filter(|path| !blocked.contains(&normalized(path).to_string()))
@@ -120,7 +120,24 @@ impl CoreRuntime {
         if paths.is_empty() {
             return Ok((listing, Some(Vec::new())));
         }
-        let checked = self.path_facts(side, &paths)?;
+        let unknown: Vec<String> = paths
+            .iter()
+            .filter(|path| {
+                !known
+                    .as_ref()
+                    .is_some_and(|known| known.facts.contains_key(*path))
+            })
+            .cloned()
+            .collect();
+        let checked = match known {
+            Some(known) if unknown.is_empty() => known,
+            Some(mut known) => {
+                let asked = self.path_facts(side, &unknown)?;
+                known.facts.extend(asked.facts);
+                known
+            }
+            None => self.path_facts(side, &unknown)?,
+        };
         let mut outside = outside_on_the_way(&starts, &checked.facts, &checked.root);
         outside.extend(links_outside(&links, &checked.facts, &checked.root));
         Ok((listing, Some(outside)))
@@ -142,7 +159,8 @@ impl CoreRuntime {
     /// `scope` で走査する。名前で指定した起点 `named` のうち途中がディレクトリでないもの（分かって
     /// いる `blocked` と、走査がそうと答えたもの）は、その側にないものとして外す。走査がそうと答えた
     /// ときは、残りの起点の途中をまとめて一度に確かめ、ふさがれた起点をまとめて外してから走査し直す。
-    /// 起点がなくなっても root_dir は確かめる。返す値の二つ目は外した起点
+    /// 起点がなくなっても root_dir は確かめる。返す値の二つ目は外した起点で、三つ目は外すときに確かめた
+    /// 起点の途中（起点そのものを含む）の事実
     pub(super) fn scan_named(
         &mut self,
         side: &Side,
@@ -150,17 +168,18 @@ impl CoreRuntime {
         max_entries: usize,
         named: &[String],
         mut blocked: Vec<String>,
-    ) -> anyhow::Result<(Listing, Vec<String>)> {
+    ) -> anyhow::Result<(Listing, Vec<String>, Option<PathFacts>)> {
         if let ScanScope::Starts(starts) = &mut scope {
             starts.retain(|start| !is_blocked(&start.path, &blocked));
         }
+        let mut known: Option<PathFacts> = None;
         loop {
             let request = ScanRequest {
                 scope: scope.clone(),
                 max_entries,
             };
             let error = match self.scan_listing(side, &request) {
-                Ok(listing) => return Ok((listing, blocked)),
+                Ok(listing) => return Ok((listing, blocked, known)),
                 Err(error) => error,
             };
             let reported = error.chain().find_map(|cause| match cause.downcast_ref() {
@@ -179,12 +198,16 @@ impl CoreRuntime {
                 .filter(|name| !is_blocked(name, &blocked))
                 .cloned()
                 .collect();
-            let checked = self.path_facts(side, &remaining)?;
+            let checked = self.path_facts(side, &paths_to_check(&remaining))?;
             blocked.push(reported);
             for path in blocked_starts(&remaining, &checked.facts) {
                 if !blocked.contains(&path) {
                     blocked.push(path);
                 }
+            }
+            match &mut known {
+                Some(known) => known.facts.extend(checked.facts),
+                None => known = Some(checked),
             }
             starts.retain(|start| !is_blocked(&start.path, &blocked));
         }
@@ -211,7 +234,7 @@ impl CoreRuntime {
         if starts.is_empty() {
             return Ok(listing);
         }
-        let (themselves, _) =
+        let (themselves, _, _) =
             self.scan_named(side, ScanScope::Starts(starts), max_entries, dirs, blocked)?;
         listing
             .entries
