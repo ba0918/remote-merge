@@ -60,6 +60,9 @@ pub enum RestorePathDecision {
     Skip(&'static str),
 }
 
+/// 書き戻す先の親ディレクトリがもうないので飛ばす理由
+pub const PARENT_GONE: &str = "parent directory no longer exists";
+
 pub fn decide_restore_path(
     record: &BackupPathRecord,
     current: &CurrentRestorePath,
@@ -91,9 +94,7 @@ pub fn decide_restore_path(
         CurrentRestorePath::Symlink { .. } => {
             RestorePathDecision::Skip("path now resolves to a different location")
         }
-        CurrentRestorePath::Missing { real_parent: None } => {
-            RestorePathDecision::Skip("parent directory no longer exists")
-        }
+        CurrentRestorePath::Missing { real_parent: None } => RestorePathDecision::Skip(PARENT_GONE),
         CurrentRestorePath::Missing {
             real_parent: Some(current_parent),
         } if real_path.parent() != Some(current_parent.as_path()) => {
@@ -444,10 +445,7 @@ mod tests {
             &CurrentRestorePath::Missing { real_parent: None },
         );
 
-        assert_eq!(
-            decision,
-            RestorePathDecision::Skip("parent directory no longer exists")
-        );
+        assert_eq!(decision, RestorePathDecision::Skip(PARENT_GONE));
     }
 
     #[test]

@@ -137,6 +137,17 @@ impl TargetIo for RootWatch {
         let answered = self.inner.hash_entries(rt, paths);
         self.entries(rt, Operation::Hash, answered)
     }
+    fn root_gone_before_skipping(
+        &mut self,
+        rt: &mut CoreRuntime,
+        path: &str,
+    ) -> Option<anyhow::Error> {
+        if !self.root_is_gone(rt) {
+            return None;
+        }
+        let gone = OpError::new(Operation::Write, path, OpFailure::RootGone).into();
+        Some(self.settle(rt, gone))
+    }
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,

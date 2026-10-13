@@ -145,6 +145,15 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<Vec<PathResult<String>>>;
+    /// 親がないとして `path` を飛ばす前に、root_dir がなくなっていないかを確かめる。なくなっていれば、
+    /// その側への処理を止めて root_dir がない誤りを返す（D48。確かめる比較先だけが答える）
+    fn root_gone_before_skipping(
+        &mut self,
+        _runtime: &mut CoreRuntime,
+        _path: &str,
+    ) -> Option<anyhow::Error> {
+        None
+    }
     /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
     fn states_before_restore(
         &mut self,
