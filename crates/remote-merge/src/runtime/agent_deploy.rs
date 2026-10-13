@@ -10,7 +10,8 @@ impl CoreRuntime {
     /// 版が一致した配置済みのバイナリを、ローカルの Agent のバイナリと SHA-256 で照合する。
     ///
     /// ローカルのバイナリを解決できないときは照合できないので、配置先の検査を通ったことだけを
-    /// 根拠に実行する（利用者が手で置いた Agent を使えるようにするため）。
+    /// 根拠に実行する（利用者が手で置いた Agent を使えるようにするため）。解決できたのに読めない
+    /// ときは照合せずに動かさず、配置できない誤りにする。
     #[cfg(unix)]
     pub(super) fn installed_binary_check(
         &mut self,
@@ -19,10 +20,10 @@ impl CoreRuntime {
         remote_target: &str,
         sudo: bool,
     ) -> anyhow::Result<deploy::InstalledBinary> {
-        let local_hash = deploy::resolve_agent_binary(remote_target)
-            .ok()
-            .and_then(|resolved| std::fs::read(resolved.path).ok())
-            .map(|bytes| deploy::sha256_of_bytes(&bytes));
+        let local_hash = super::agent_local_hash::local_agent_hash(
+            deploy::resolve_agent_binary(remote_target).map(|resolved| resolved.path),
+            |path| std::fs::read(path),
+        )?;
         let Some(local_hash) = local_hash else {
             tracing::info!(
                 "Local agent binary unavailable; running the installed agent unchecked: server={}",

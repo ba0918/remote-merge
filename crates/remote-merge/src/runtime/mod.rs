@@ -3,6 +3,7 @@
 mod agent_clients;
 #[cfg(unix)]
 mod agent_deploy;
+mod agent_local_hash;
 mod agent_route;
 mod agent_start;
 #[cfg(unix)]
