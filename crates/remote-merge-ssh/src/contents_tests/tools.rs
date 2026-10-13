@@ -88,3 +88,27 @@ fn shasum_gives_the_same_hash_when_sha256sum_is_missing() {
         ))
     );
 }
+
+// @kotowari[REQ-ssh-026, REQ-paths-020]
+#[test]
+fn a_link_hash_without_readlink_is_a_missing_tool_and_a_failing_readlink_names_its_kind() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    std::os::unix::fs::symlink("t", root.join("l")).unwrap();
+    let asked = paths(&root, &["l"]);
+
+    let without = bin_with(&["cat", "ls"]);
+    let hashes = hash_all(&asked, 65536, run_with_only(without.path())).unwrap();
+    assert_eq!(hashes[0].1, Err(OpFailure::ToolMissing(Tool::Readlink)));
+
+    let failing = bin_with(&["cat", "ls"]);
+    let readlink = failing.path().join("readlink");
+    fs::write(
+        &readlink,
+        "#!/bin/sh\necho \"readlink: $1: Permission denied\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&readlink, fs::Permissions::from_mode(0o755)).unwrap();
+    let hashes = hash_all(&asked, 65536, run_with_only(failing.path())).unwrap();
+    assert_eq!(hashes[0].1, Err(OpFailure::PermissionDenied));
+}

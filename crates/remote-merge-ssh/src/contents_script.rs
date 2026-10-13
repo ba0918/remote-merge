@@ -42,8 +42,9 @@ rl=0; command -v readlink >/dev/null 2>&1 && rl=1
 for p do
 printf '@P\000'
 if [ -L "$p" ]; then
-if [ $rl = 1 ] && t=$(readlink "$p" 2>/dev/null && echo .); then t=${t%.}; t=${t%?}; printf 'L\000%s\000' "$t"
-else printf 'E\000readlink is not available on the remote\000'; fi
+if [ $rl = 0 ]; then printf 'R\000'
+elif t=$(readlink "$p" 2>/dev/null && echo .); then t=${t%.}; t=${t%?}; printf 'L\000%s\000' "$t"
+else e=$(readlink "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; fi
 continue; fi
 if [ -d "$p" ]; then printf 'E\000Is a directory\000'; continue; fi
 if [ ! -r "$p" ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; continue; fi

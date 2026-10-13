@@ -130,6 +130,7 @@ pub fn parse_hash(
         let answer = match cursor.field()? {
             b"E" => Err(from_tool_message(cursor.field()?)),
             b"L" => Ok(Some(String::from_utf8_lossy(cursor.field()?).into_owned())),
+            b"R" => Err(OpFailure::ToolMissing(Tool::Readlink)),
             b"H" => Ok(Some(digest(cursor.field()?)?)),
             b"N" => Ok(None),
             other => {

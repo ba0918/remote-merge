@@ -50,6 +50,8 @@ pub enum Tool {
     Stat,
     /// バイナリの中身を書くための openssl の base64 の復号
     OpensslBase64,
+    /// symlink のリンク文字列を読む readlink（パスの確認の "readlink not available" と同じ道具）
+    Readlink,
 }
 
 /// 接続断のうち、要求を送れなかったか、送った後に結果を受け取れなかったか
