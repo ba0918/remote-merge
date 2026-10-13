@@ -3,6 +3,7 @@
 //! バックアップセッションの期限判定、復元計画の立案、exit code の算出を行う。
 //! I/O は一切含まない。
 
+pub use super::rollback_skip::SkipReason;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
@@ -57,11 +58,8 @@ pub enum CurrentRestorePath {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestorePathDecision {
     Restore,
-    Skip(&'static str),
+    Skip(SkipReason),
 }
-
-/// 書き戻す先の親ディレクトリがもうないので飛ばす理由
-pub const PARENT_GONE: &str = "parent directory no longer exists";
 
 pub fn decide_restore_path(
     record: &BackupPathRecord,
@@ -79,26 +77,28 @@ pub fn decide_restore_path(
             } if link_target == expected_target && current_parent == real_parent => {
                 RestorePathDecision::Restore
             }
-            _ => RestorePathDecision::Skip("symlink changed after merge"),
+            _ => RestorePathDecision::Skip(SkipReason::SymlinkChanged),
         };
     }
     let BackupPathRecord::File { real_path } = record else {
-        return RestorePathDecision::Skip("symlink restore not supported");
+        return RestorePathDecision::Skip(SkipReason::SymlinkRestoreNotSupported);
     };
 
     match current {
         CurrentRestorePath::Present { real_path: current } if current != real_path => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
         CurrentRestorePath::Present { .. } => RestorePathDecision::Restore,
         CurrentRestorePath::Symlink { .. } => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
-        CurrentRestorePath::Missing { real_parent: None } => RestorePathDecision::Skip(PARENT_GONE),
+        CurrentRestorePath::Missing { real_parent: None } => {
+            RestorePathDecision::Skip(SkipReason::ParentGone)
+        }
         CurrentRestorePath::Missing {
             real_parent: Some(current_parent),
         } if real_path.parent() != Some(current_parent.as_path()) => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
         CurrentRestorePath::Missing { .. } => RestorePathDecision::Restore,
     }
@@ -182,16 +182,14 @@ pub fn restore_request_refusal(
     };
     let decision = decide_restore_path(record, current);
     if let RestorePathDecision::Skip(reason) = decision {
-        if reason == "path now resolves to a different location"
-            || reason == "symlink changed after merge"
-        {
+        if reason.refuses_the_request() {
             return Some((
                 vec![],
                 files
                     .iter()
                     .map(|path| RollbackSkipped {
                         path: path.clone(),
-                        reason: reason.into(),
+                        reason: reason.to_string(),
                     })
                     .collect(),
                 vec![],
@@ -313,7 +311,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("symlink restore not supported")
+            RestorePathDecision::Skip(SkipReason::SymlinkRestoreNotSupported)
         );
     }
 
@@ -330,7 +328,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         );
     }
 
@@ -445,7 +443,7 @@ mod tests {
             &CurrentRestorePath::Missing { real_parent: None },
         );
 
-        assert_eq!(decision, RestorePathDecision::Skip(PARENT_GONE));
+        assert_eq!(decision, RestorePathDecision::Skip(SkipReason::ParentGone));
     }
 
     #[test]
@@ -461,7 +459,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         );
     }
 

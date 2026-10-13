@@ -305,14 +305,14 @@ impl CoreRuntime {
             };
             let decision = current.as_ref().map_or(
                 crate::service::rollback::RestorePathDecision::Skip(
-                    "symlink restore not supported",
+                    crate::service::rollback::SkipReason::SymlinkRestoreNotSupported,
                 ),
                 |current| crate::service::rollback::decide_restore_path(&backup_record, current),
             );
             if let crate::service::rollback::RestorePathDecision::Skip(reason) = decision {
                 // 親がないとして飛ばす前に、root_dir ごと消えていないかを確かめる（飛ばすときだけ
                 // 尋ねる。D48）
-                if reason == crate::service::rollback::PARENT_GONE {
+                if reason == crate::service::rollback::SkipReason::ParentGone {
                     let mut io = super::target_io::for_side(side, self);
                     if let Some(gone) = io.root_gone_before_skipping(self, path) {
                         failed.push(crate::service::types::RollbackFailure {
@@ -324,7 +324,7 @@ impl CoreRuntime {
                 }
                 skipped.push(crate::service::types::RollbackSkipped {
                     path: path.clone(),
-                    reason: reason.into(),
+                    reason: reason.to_string(),
                 });
                 continue;
             }
