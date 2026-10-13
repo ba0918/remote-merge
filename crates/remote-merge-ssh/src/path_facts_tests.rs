@@ -190,3 +190,15 @@ fn a_remote_without_ls_is_a_missing_tool() {
     .unwrap_err();
     assert!(matches!(failure, FactsFailure::NoLs), "{failure:?}");
 }
+
+// @kotowari[REQ-paths-008]
+#[test]
+fn a_link_whose_target_reads_like_the_no_ls_mark_is_still_a_link() {
+    let temp = tempfile::tempdir().unwrap();
+    symlink("@NOLS", temp.path().join("l")).unwrap();
+
+    let resolved = resolve(temp.path(), &["l"]);
+
+    let local = remote_merge_core::path_resolution::os::resolve_on_this_machine(temp.path(), "l");
+    assert_eq!(resolved, vec![local]);
+}

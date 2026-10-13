@@ -62,20 +62,24 @@ fn fact<'a>(
 /// `chains` に答えた出力を読む
 pub fn parse(stdout: &[u8], chains: &[Vec<String>]) -> Result<Answer, String> {
     let fields = fields(stdout)?;
-    if fields.contains(&&b"@NOLS"[..]) {
-        return Ok(Answer::NoLs);
-    }
     let mut iter = fields.into_iter().peekable();
     let mut answers = Vec::new();
+    // ls が要るのにないと分かったところで、スクリプトは記録の代わりに "@NOLS" を出して終える。
+    // 記録の欄（リンク文字列など）に同じ文字列が出ても取り違えないよう、記録の始まりでだけ読む
     for chain in chains {
-        if iter.next() != Some(&b"@Q"[..]) {
-            return Err("an answer is missing for a question".into());
+        match iter.next() {
+            Some(b"@Q") => {}
+            Some(b"@NOLS") => return Ok(Answer::NoLs),
+            _ => return Err("an answer is missing for a question".into()),
         }
         let mut facts = Vec::new();
         let mut stopped = false;
         while let Some(field) = iter.peek() {
             if *field == b"@Q" || *field == b"@END" {
                 break;
+            }
+            if *field == b"@NOLS" {
+                return Ok(Answer::NoLs);
             }
             let path = text(iter.next().expect("peeked"))?;
             let expected = chain.get(facts.len()).ok_or("more facts than asked")?;
