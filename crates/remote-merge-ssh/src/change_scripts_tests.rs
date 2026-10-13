@@ -215,3 +215,52 @@ fn without_cat_or_with_a_dd_lacking_nofollow_the_write_says_why_like_this_machin
     );
     assert_eq!(fs::read(root.path().join("target.txt")).unwrap(), b"kept");
 }
+
+// @kotowari[REQ-merge-042]
+#[test]
+fn a_write_or_a_link_failing_after_creating_parents_removes_them_like_this_machine() {
+    let ssh = tempfile::tempdir().unwrap();
+    let local = tempfile::tempdir().unwrap();
+    let long = "x".repeat(300);
+    for root in [ssh.path(), local.path()] {
+        fs::create_dir(root.join("kept")).unwrap();
+    }
+    let file = format!("kept/new/sub/{long}");
+    let link = format!("kept/other/{long}");
+
+    let written = outcome(
+        shell_command(&write(&format!("{}/{file}", ssh.path().display()), false)),
+        b"x",
+    );
+    let linked = outcome(
+        shell_command(&symlink("t", &format!("{}/{link}", ssh.path().display()))),
+        b"",
+    );
+
+    assert!(matches!(written, Err(OpFailure::Io(_))), "{written:?}");
+    assert!(matches!(linked, Err(OpFailure::Io(_))), "{linked:?}");
+    let _ = machine_ops::write(local.path(), &EntryPath::parse(&file).unwrap(), b"x");
+    let _ = machine_ops::create_symlink(local.path(), &EntryPath::parse(&link).unwrap(), "t");
+    for root in [ssh.path(), local.path()] {
+        assert!(root.join("kept").is_dir());
+        assert!(!root.join("kept/new").exists(), "{}", root.display());
+        assert!(!root.join("kept/other").exists(), "{}", root.display());
+    }
+}
+
+// @kotowari[REQ-merge-042]
+#[test]
+fn created_parents_that_cannot_be_removed_are_named_in_the_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let full = format!("{}/new/{}", root.path().display(), "x".repeat(300));
+    let bin = bin_with(&["cat", "dd", "mkdir"]);
+    put_tool(bin.path(), "rmdir", "exit 1\n");
+
+    let result = run_with_only(bin.path(), &write(&full, false), b"x");
+
+    let Err(OpFailure::Io(message)) = result else {
+        panic!("{result:?}");
+    };
+    assert!(message.contains("left"), "{message}");
+    assert!(message.contains("/new"), "{message}");
+}

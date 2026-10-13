@@ -13,7 +13,7 @@ use remote_merge_core::machine_ops;
 use remote_merge_core::op_failure::{from_io_error, OpFailure};
 use remote_merge_core::relative_path::EntryPath;
 
-use super::ownership::{missing_ancestors, own_created, OwnerOps};
+use super::ownership::{own_created, OwnerOps};
 use crate::agent::server::MetadataConfig;
 
 /// 分けて送られる書き込みの一つの分
@@ -38,21 +38,16 @@ pub(super) fn write_part(
     part: &Part,
     config: &MetadataConfig,
 ) -> Result<(), OpFailure> {
-    let owning = part.first && part.created && owner_to_set(config);
-    let new_dirs = if owning {
-        missing_ancestors(root, path)
-    } else {
-        Vec::new()
-    };
-    let mut file = machine_ops::open_for_write(root, path, part.first)?;
-    if owning {
+    let opened = machine_ops::open_for_write(root, path, part.first)?;
+    let mut file = opened.file;
+    if part.first && part.created && owner_to_set(config) {
         let full = root.join(path.as_str());
         let mut ops = Owner {
             config,
             entry: &full,
             file: Some(&file),
         };
-        own_created(&new_dirs, path.as_typed(), &mut ops)?;
+        own_created(&opened.new_dirs, path.as_typed(), &mut ops)?;
     }
     file.write_all(content)
         .map_err(|error| from_io_error(&error))
@@ -66,14 +61,8 @@ pub(super) fn symlink(
     target: &str,
     config: &MetadataConfig,
 ) -> Result<(), OpFailure> {
-    let owning = owner_to_set(config);
-    let new_dirs = if owning {
-        missing_ancestors(root, path)
-    } else {
-        Vec::new()
-    };
-    machine_ops::create_symlink(root, path, target)?;
-    if !owning {
+    let new_dirs = machine_ops::create_symlink_creating(root, path, target)?;
+    if !owner_to_set(config) {
         return Ok(());
     }
     let link = root.join(path.as_str());

@@ -18,20 +18,30 @@ const NO_TOOL: &str = "@RMNOTOOL";
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
 const PARENT: &str = "@RMPARENT";
 
-/// 親ディレクトリを作る文。mkdir が失敗したとき、親か親の祖先がすでにあって（リンク切れの symlink
-/// を含む）ディレクトリでなければ、mkdir の文言によらず "Not a directory" と答える（ローカルの
-/// 経路と同じ。CentOS 5 の mkdir は "exists but is not a directory"、リンク切れの親は coreutils で
-/// "File exists"、BusyBox で "No such file or directory" と出す）
+/// 作った親ディレクトリ（位置引数に下から順に入れたもの）を消す文。消せずに残ったものは目印を
+/// 付けて標準エラーに出す
+const UNDO_PARENTS: &str = "for x do rmdir -- \"$x\" 2>/dev/null || [ ! -e \"$x\" ] || printf '@RMLEFT %s\\n' \"$x\" >&2; done\n";
+
+/// 親ディレクトリを作る文。まだない親を位置引数に下から順に覚え、後で書き込み先を作れなかったときに
+/// 消せるようにする（ローカルの経路と同じ。REQ-merge-042）。mkdir が失敗したとき、親か親の祖先が
+/// すでにあって（リンク切れの symlink を含む）ディレクトリでなければ、mkdir の文言によらず
+/// "Not a directory" と答える（ローカルの経路と同じ。CentOS 5 の mkdir は
+/// "exists but is not a directory"、リンク切れの親は coreutils で "File exists"、BusyBox で
+/// "No such file or directory" と出す）
 fn parent_step(full: &str, drain: &str) -> String {
     let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
-        return String::new();
+        return "set --\n".into();
     };
     if parent.is_empty() || parent == "/" {
-        return String::new();
+        return "set --\n".into();
     }
     format!(
         concat!(
             "d={parent}\n",
+            "set --; a=$d\n",
+            "while ! {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }}; do set -- \"$@\" \"$a\"\n",
+            " case $a in */*) a=${{a%/*}}; [ -n \"$a\" ] || break;; *) break;; esac\n",
+            "done\n",
             "if [ ! -d \"$d\" ]; then\n",
             " m=$(mkdir -p -- \"$d\" 2>&1) || {{\n",
             "  a=$d\n",
@@ -40,13 +50,20 @@ fn parent_step(full: &str, drain: &str) -> String {
             "   case $a in */*) a=${{a%/*}};; *) break;; esac\n",
             "   [ -z \"$a\" ] && break\n",
             "  done\n",
+            "  {undo}",
             "  {drain}printf '{marker}\\000%s\\000' \"$m\" >&2; exit 1; }}\n",
             "fi\n",
         ),
         parent = shell_escape(parent),
         drain = drain,
         marker = PARENT,
+        undo = UNDO_PARENTS,
     )
+}
+
+/// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
+fn creating(create: &str) -> String {
+    format!("( {create}\n); s=$?\nif [ $s != 0 ]; then\n{UNDO_PARENTS}exit $s; fi\n")
 }
 
 /// 標準入力の中身を `full` にその場で書くコマンド。`binary` なら標準入力は base64 で、openssl で
@@ -76,12 +93,11 @@ pub fn write(full: &str, binary: bool) -> String {
         full = shell_escape(full),
         drain = drain,
     ));
-    script.push_str(&if binary {
+    script.push_str(&creating(&if binary {
         build_write_bytes_command(full)
     } else {
         build_write_text_command(full)
-    });
-    script.push('\n');
+    }));
     script
 }
 
@@ -102,15 +118,35 @@ pub fn write_input(content: &[u8], binary: bool) -> Vec<u8> {
 /// `full` に `target` を指す symlink を作るコマンド。作成先に何かがあれば置き換えずに失敗する
 pub fn symlink(target: &str, full: &str) -> String {
     format!(
-        "LC_ALL=C; export LC_ALL\n{}{}\n",
+        "LC_ALL=C; export LC_ALL\n{}{}",
         parent_step(full, ""),
-        build_create_symlink_command(target, full)
+        creating(&build_create_symlink_command(target, full))
     )
 }
 
 /// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする。目印は行の始まりに
 /// あるときだけ読む（道具の文言に含まれるパスの中の同じ文字列と取り違えない）
 pub fn failure(stderr: &[u8]) -> OpFailure {
+    let mut left = Vec::new();
+    let mut rest: Vec<&[u8]> = Vec::new();
+    for line in stderr.split(|byte| *byte == b'\n') {
+        match line.strip_prefix(b"@RMLEFT ") {
+            Some(dir) => left.push(String::from_utf8_lossy(dir).into_owned()),
+            None => rest.push(line),
+        }
+    }
+    let failure = kind_of(&rest.join(&b'\n'));
+    if left.is_empty() {
+        return failure;
+    }
+    OpFailure::Io(format!(
+        "{failure}; these created directories were left because they could not be removed: {}",
+        left.join(", ")
+    ))
+}
+
+/// 目印を除いた標準エラーの種類
+fn kind_of(stderr: &[u8]) -> OpFailure {
     for line in stderr.split(|byte| *byte == b'\n') {
         match line.strip_prefix(NO_TOOL.as_bytes()) {
             Some(b" cat") => return OpFailure::ToolMissing(Tool::Cat),

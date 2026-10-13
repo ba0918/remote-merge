@@ -4,7 +4,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use remote_merge_core::op_failure::OpFailure;
-use remote_merge_core::relative_path::EntryPath;
 
 use super::*;
 
@@ -99,17 +98,4 @@ fn what_cannot_be_removed_is_named_in_the_failure() {
     };
     assert!(message.contains("c.txt"), "{message}");
     assert!(message.contains("left"), "{message}");
-}
-
-#[test]
-fn the_missing_ancestors_are_listed_from_the_top() {
-    let temp = tempfile::tempdir().unwrap();
-    std::fs::create_dir(temp.path().join("a")).unwrap();
-
-    let missing = missing_ancestors(temp.path(), &EntryPath::parse("a/b/c/d.txt").unwrap());
-
-    assert_eq!(
-        missing,
-        [temp.path().join("a/b"), temp.path().join("a/b/c")]
-    );
 }

@@ -9,7 +9,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use remote_merge_core::op_failure::{from_io_error, OpFailure};
-use remote_merge_core::relative_path::EntryPath;
 
 /// 作ったものへの所有者の操作と、消す操作
 pub(super) trait OwnerOps {
@@ -17,22 +16,6 @@ pub(super) trait OwnerOps {
     fn chown_entry(&mut self) -> io::Result<()>;
     fn remove_entry(&mut self) -> io::Result<()>;
     fn remove_dir(&mut self, dir: &Path) -> io::Result<()>;
-}
-
-/// `root` の下の `path` の親のうち、まだないもの（上から順）。書き込みか symlink の作成の前に求める
-pub(super) fn missing_ancestors(root: &Path, path: &EntryPath) -> Vec<PathBuf> {
-    let mut missing = Vec::new();
-    let mut current = root.join(path.as_str());
-    while let Some(parent) = current.parent() {
-        if parent == root || !parent.starts_with(root) || std::fs::symlink_metadata(parent).is_ok()
-        {
-            break;
-        }
-        missing.push(parent.to_path_buf());
-        current = parent.to_path_buf();
-    }
-    missing.reverse();
-    missing
 }
 
 /// 作った親ディレクトリ（上から順）と項目に所有者を付ける。付けられなければ、項目と親を下から

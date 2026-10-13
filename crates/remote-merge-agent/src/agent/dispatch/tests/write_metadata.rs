@@ -123,3 +123,38 @@ fn a_new_file_keeps_the_mode_it_was_created_with_like_the_local_route() {
     );
     assert!(!d.writing.contains_key("brand_new.txt"));
 }
+
+// @kotowari[REQ-merge-042]
+#[test]
+fn a_write_or_a_link_failing_after_creating_parents_leaves_no_parent() {
+    let (tmp, mut d) = setup_with_config(MetadataConfig::default());
+    let long = "x".repeat(300);
+
+    let written = single(
+        d.dispatch(AgentRequest::WriteFile {
+            path: format!("new/sub/{long}"),
+            content: b"data".to_vec(),
+            is_binary: false,
+            more_to_follow: false,
+        })
+        .unwrap(),
+    );
+    let linked = single(
+        d.dispatch(AgentRequest::Symlink {
+            path: format!("other/{long}"),
+            target: "t".into(),
+        })
+        .unwrap(),
+    );
+
+    assert!(
+        matches!(written, AgentResponse::Changed { failure: Some(_) }),
+        "{written:?}"
+    );
+    assert!(
+        matches!(linked, AgentResponse::Changed { failure: Some(_) }),
+        "{linked:?}"
+    );
+    assert!(!tmp.path().join("new").exists());
+    assert!(!tmp.path().join("other").exists());
+}
