@@ -37,6 +37,31 @@ mod tests {
         assert_eq!(failure_of(&error), Some(&OpFailure::RootGone));
     }
 
+    // root_dir の祖先が通常ファイルに替わったときも、確かめ直しで root_dir がないとして止める（D48）
+    // @kotowari[REQ-merge-044]
+    #[test]
+    fn a_root_dir_whose_ancestor_became_a_file_stops_the_side_on_a_removal() {
+        use crate::runtime::target_io::for_side;
+        use remote_merge_core::relative_path::EntryPath;
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path().join("top");
+        let root = top.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.txt"), "a").unwrap();
+        let mut runtime = CoreRuntime::new_for_test();
+        runtime.config.local.root_dir = root.clone();
+        std::fs::remove_dir_all(&top).unwrap();
+        std::fs::write(&top, "now a file").unwrap();
+        let mut io = for_side(&crate::side::Side::Local, &runtime);
+
+        let error = io
+            .remove_file(&mut runtime, &EntryPath::parse("a.txt").unwrap())
+            .unwrap_err();
+
+        assert_eq!(failure_of(&error), Some(&OpFailure::RootGone), "{error}");
+        assert!(runtime.has_stopped());
+    }
+
     // ローカルの側も、root_dir がなくなったらその側への処理を止め、残りは行わなかったものにする
     // @kotowari[REQ-merge-044]
     #[test]

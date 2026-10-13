@@ -3,7 +3,7 @@
 //! の D47・D48）。三つの経路の比較先を `for_side` がこれで包むので、確かめ直しはここ一か所にある。
 
 use remote_merge_core::op_failure::{op_error_of, OpError, OpFailure, Operation, PathResult};
-use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
+use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
 use remote_merge_core::relative_path::RelPath;
 
 use super::core::CoreRuntime;
@@ -29,7 +29,7 @@ impl RootWatch {
 
     /// root_dir がなくなったか。ない（途中がディレクトリでないを含む）か、存在するが種類がディレクトリで
     /// ない（root_dir が symlink ならその辿った先）ときだけ真で、確かめられないとき（権限がない・
-    /// 接続断など）は偽
+    /// 接続断など）は偽。root_dir の祖先がディレクトリでないときは真
     fn root_is_gone(&mut self, runtime: &mut CoreRuntime) -> bool {
         match self.inner.inspect_path(runtime, &RelPath::root()) {
             Ok(ResolvedPath::Missing { .. } | ResolvedPath::AncestorNotDirectory { .. }) => true,
@@ -37,7 +37,10 @@ impl RootWatch {
             Ok(ResolvedPath::Symlink { target_kind, .. }) => {
                 target_kind != Some(ExistingKind::Directory)
             }
-            Err(_) => false,
+            // root_dir の祖先がディレクトリでない（REQ-paths-002 の "not a directory" の誤り）
+            Err(error) => error.chain().any(|cause| {
+                cause.downcast_ref::<ResolveError>() == Some(&ResolveError::NotADirectory)
+            }),
         }
     }
 
