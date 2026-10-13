@@ -21,6 +21,14 @@ fn the_transfer_lines_of_an_old_dd_are_not_in_the_reason() {
     );
 }
 
+// 転送量の行に似た語をパスに含む理由の行は消さない（権限がないの種類を失わない）
+#[test]
+fn a_reason_whose_path_holds_the_words_of_a_transfer_line_is_kept() {
+    let stderr = b"dd: failed to open '/srv/x bytes copied/1+0 records in': Permission denied\n1+0 records in\n0+0 records out\n0 bytes (0 B) copied, 2.1e-05 seconds, 0.0 kB/s\n";
+
+    assert_eq!(failure(stderr), OpFailure::PermissionDenied);
+}
+
 // 書き込み先が /dev/full なら、dd は開けて書くところで ENOSPC になる
 #[test]
 fn a_write_without_space_fails_with_only_the_reason_like_this_machine() {

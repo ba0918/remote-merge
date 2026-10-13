@@ -102,22 +102,37 @@ pub fn remove_created_dirs(dirs: &[&str]) -> String {
     )
 }
 
-/// 標準エラーから、dd の転送量の行（"records in"・"records out"・"bytes … copied"）を除く。
+/// 標準エラーから、dd の転送量の行（"N+N records in"・"N+N records out"・"N bytes … copied"）を除く。
 /// `status=none` を受け付けない古い dd（CentOS 5 の coreutils 5.97）は、書けずに終わったときも
-/// これらの行を理由の後に出すので、理由の文言に混ぜない
+/// これらの行を理由の後に出すので、理由の文言に混ぜない。行の始まりが数字の dd の形だけを除き、
+/// パスに同じ語を含む理由の行は残す
 pub(crate) fn without_dd_transfer_lines(stderr: &[u8]) -> Vec<u8> {
-    let is_transfer = |line: &[u8]| {
-        let line = String::from_utf8_lossy(line);
-        let line = line.trim_end();
-        line.ends_with(" records in")
-            || line.ends_with(" records out")
-            || (line.contains(" bytes ") && line.contains(" copied"))
-    };
     let kept: Vec<&[u8]> = stderr
         .split(|byte| *byte == b'\n')
-        .filter(|line| !is_transfer(line))
+        .filter(|line| !is_dd_transfer_line(&String::from_utf8_lossy(line)))
         .collect();
     kept.join(&b'\n')
+}
+
+/// dd の転送量の行か
+fn is_dd_transfer_line(line: &str) -> bool {
+    let line = line.trim_end();
+    let Some((_, rest)) = split_number(line) else {
+        return false;
+    };
+    if let Some(rest) = rest.strip_prefix('+') {
+        return split_number(rest)
+            .is_some_and(|(_, tail)| tail == " records in" || tail == " records out");
+    }
+    rest.starts_with(" bytes ") && rest.contains(" copied")
+}
+
+/// 先頭の数字の並びと残り。数字で始まらなければ None
+fn split_number(text: &str) -> Option<(&str, &str)> {
+    let end = text
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(text.len());
+    (end > 0).then(|| text.split_at(end))
 }
 
 /// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
