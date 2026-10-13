@@ -72,6 +72,9 @@ pub(super) struct Child {
     pub(super) runtime: CoreRuntime,
     pub(super) request: String,
     pub(super) roots: Roots,
+    /// コマンドをこの経路で動かすための設定と差し替え
+    pub(super) config: remote_merge::config::AppConfig,
+    pub(super) targets: RuntimeTargets,
     result: PathBuf,
 }
 
@@ -102,15 +105,13 @@ pub(super) fn child() -> Option<Child> {
     let roots = Roots::of(Path::new(&std::env::var(HOME).unwrap()), route);
     let config =
         remote_merge::config::load_config_from_paths(Some(Path::new(&config)), None).unwrap();
-    let mut runtime = match route {
-        Route::Local => CoreRuntime::with_targets(
-            config,
-            RuntimeTargets::production()
-                .with_local("fixture", &roots.right)
-                .with_local("reference", &roots.reference),
-        ),
-        Route::Ssh | Route::Agent => CoreRuntime::new(config),
+    let targets = match route {
+        Route::Local => RuntimeTargets::production()
+            .with_local("fixture", &roots.right)
+            .with_local("reference", &roots.reference),
+        Route::Ssh | Route::Agent => RuntimeTargets::production(),
     };
+    let mut runtime = CoreRuntime::with_targets(config.clone(), targets.clone());
     for server in ["fixture", "reference"] {
         if route != Route::Local {
             runtime.connect(server).unwrap();
@@ -122,6 +123,8 @@ pub(super) fn child() -> Option<Child> {
         runtime,
         request: std::env::var(REQUEST).unwrap(),
         roots,
+        config,
+        targets,
         result: PathBuf::from(std::env::var(RESULT).unwrap()),
     })
 }

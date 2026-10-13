@@ -14,7 +14,9 @@ use crate::service::merge_flow::{
     SingleMergeResult,
 };
 use crate::service::merge_reference_reads::{paths_to_read, reference_refusal_for, ThreeWaySides};
-use crate::service::other_kinds::{set_aside_other_kinds, OTHER_KIND_REASON};
+use crate::service::other_kinds::{
+    reference_other_kind_reason, reference_other_kinds, set_aside_other_kinds, OTHER_KIND_REASON,
+};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -284,7 +286,7 @@ pub fn execute_merge(
         let right_contents = read_needed(&pair.right, &right_tree);
         let ref_contents = read_needed(ref_s, &ref_tree);
 
-        let badges = compute_ref_badges(
+        let mut badges = compute_ref_badges(
             &file_statuses,
             &left_tree,
             &right_tree,
@@ -293,7 +295,24 @@ pub fn execute_merge(
             &right_contents,
             &ref_contents,
         );
+        // 参照先のその他の種類は、参照先にないとせず、参照先との組を判定できないとする。参照先との
+        // 確かめが要る（--force のない）ときは書かずに failed に出す
+        let reference_other = reference_other_kinds(&args.paths, &ref_tree);
+        for path in &reference_other {
+            badges.remove(path);
+        }
         if !args.force {
+            let reason = reference_other_kind_reason(ref_s.display_name());
+            plan.files.retain(|path| {
+                if !reference_other.contains(path) {
+                    return true;
+                }
+                conflict_failures.push(MergeFailure {
+                    path: path.clone(),
+                    error: reason.clone(),
+                });
+                false
+            });
             let sides = ThreeWaySides {
                 source: (&left_tree, &left_contents),
                 destination: (&right_tree, &right_contents),

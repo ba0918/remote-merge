@@ -14,7 +14,9 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::content_reads::{not_absent_in, verified_content_pairs};
-use crate::service::other_kinds::{set_aside_other_kinds, OTHER_KIND_REASON};
+use crate::service::other_kinds::{
+    reference_other_kind_reason, reference_other_kinds, set_aside_other_kinds, OTHER_KIND_REASON,
+};
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -177,10 +179,12 @@ pub fn execute_status(
 
     let mut ref_scan = None;
 
+    // 参照先のその他の種類は、参照先にないとせず、参照先との組だけを判定できないとする
+    let mut reference_other = Vec::new();
     if let Some((ref_s, ref_tree, info)) = reference {
         ref_info = Some(info);
         let reads = read_contents(&mut core, ref_s, &badge_paths, SizeLimit::Lifted);
-        let badges = compute_ref_badges(
+        let mut badges = compute_ref_badges(
             &files,
             &left_tree,
             &right_tree,
@@ -189,6 +193,14 @@ pub fn execute_status(
             &right_contents,
             &reads,
         );
+        let reason = reference_other_kind_reason(ref_s.display_name());
+        for path in reference_other_kinds(&[], &ref_tree) {
+            badges.remove(&path);
+            reference_other.push(UnreadableFile {
+                path,
+                reason: reason.clone(),
+            });
+        }
         ref_badges = Some(badges);
         ref_contents = Some((ref_s.display_name().to_string(), reads));
         ref_scan = Some((ref_s.display_name().to_string(), ref_tree));
@@ -226,6 +238,12 @@ pub fn execute_status(
         path,
         reason: OTHER_KIND_REASON.to_string(),
     }));
+    for other in reference_other {
+        match unreadable.iter_mut().find(|known| known.path == other.path) {
+            Some(known) => known.reason = format!("{}; {}", known.reason, other.reason),
+            None => unreadable.push(other),
+        }
+    }
 
     let mut output = with_unreadable_files(
         build_status_output(

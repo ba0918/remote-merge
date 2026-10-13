@@ -31,6 +31,22 @@ pub fn set_aside_other_kinds(requested: &[String], trees: &mut [&mut FileTree]) 
     paths.into_iter().collect()
 }
 
+/// 参照先の木で、指定したパス `requested` の範囲にあるその他の種類のパス。参照先との組だけが判定
+/// できず、左右の組の判定は残す（docs/ir/compare/flow.md の REQ-compare-004、E7）
+pub fn reference_other_kinds(requested: &[String], reference: &FileTree) -> Vec<String> {
+    let paths: BTreeSet<&String> = reference
+        .other_kinds
+        .iter()
+        .filter(|path| requested.is_empty() || requested.iter().any(|r| covers(r, path)))
+        .collect();
+    paths.into_iter().cloned().collect()
+}
+
+/// 参照先 `reference` との組だけを判定できない理由
+pub fn reference_other_kind_reason(reference: &str) -> String {
+    format!("{reference}: {OTHER_KIND_REASON}")
+}
+
 #[cfg(test)]
 #[path = "other_kinds_tests.rs"]
 mod tests;
