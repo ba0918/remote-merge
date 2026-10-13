@@ -10,6 +10,8 @@ use crate::tree_parser::shell_escape;
 pub(crate) const PARENT: &str = "@RMPARENT";
 /// 新しいファイルを作ろうとしたときに、書き込み先に何かが現れていたことを示す目印
 pub(crate) const EXISTS: &str = "@RMEXISTS";
+/// 道具がないことを示す目印（後に道具の名前が続く）
+pub(crate) const NO_TOOL: &str = "@RMNOTOOL";
 /// root_dir がない（ディレクトリでない）ことを示す目印
 pub(crate) const ROOT_GONE: &str = "@RMROOTGONE";
 
@@ -36,7 +38,8 @@ pub(crate) fn parent_step(full: &str, root: &str, drain: &str) -> String {
     let root_check = format!(
         concat!(
             "r={root}; if [ ! -d \"$r\" ]; then {drain}\n",
-            " if e=$(ls -d -- \"$r\" 2>&1) || [ \"${{e%Permission denied}}\" = \"$e\" ]; then printf '\\n{gone}\\n' >&2\n",
+            " if ! command -v ls >/dev/null 2>&1; then printf '\\n{no_tool} ls\\n' >&2\n",
+            " elif e=$(ls -d -- \"$r\" 2>&1) || [ \"${{e%Permission denied}}\" = \"$e\" ]; then printf '\\n{gone}\\n' >&2\n",
             " else printf '\\n{parent}\\000%s\\000' \"$e\" >&2; fi\n",
             " exit 1\n",
             "fi\n",
@@ -45,6 +48,7 @@ pub(crate) fn parent_step(full: &str, root: &str, drain: &str) -> String {
         drain = drain,
         gone = ROOT_GONE,
         parent = PARENT,
+        no_tool = NO_TOOL,
     );
     let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
         return format!("{root_check}set --; c=\n");

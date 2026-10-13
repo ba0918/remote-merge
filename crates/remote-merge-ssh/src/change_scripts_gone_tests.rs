@@ -114,6 +114,25 @@ fn a_root_dir_under_an_unsearchable_directory_is_permission_denied_like_this_mac
     assert_eq!(linked, Err(OpFailure::PermissionDenied));
 }
 
+// root_dir がディレクトリでなく、ls がないときは、ないか入れないかを見分けられないので、ls -d が
+// ない失敗にする（D48）
+#[test]
+fn a_root_dir_that_is_not_a_directory_without_ls_is_a_missing_tool() {
+    use remote_merge_core::op_failure::Tool;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    let target = root.join("sub/a.txt");
+    let bin = bin_with(&["cat", "dd", "mkdir", "rmdir"]);
+    let (root, target) = (root.to_str().unwrap(), target.to_str().unwrap());
+
+    let written = run_with_only(bin.path(), &write_under(root, target, false), b"new");
+    let linked = run_with_only(bin.path(), &symlink_under(root, "t", target), b"");
+
+    let missing = Err(OpFailure::ToolMissing(Tool::LsDirectory));
+    assert_eq!(written, missing);
+    assert_eq!(linked, missing);
+}
+
 // root_dir がなければ、root_dir もその親も作らずに、root_dir がない失敗にする（ローカルの経路と同じ。
 // D47）。初めからないときと、確かめた後に消えたときのどちらも
 // @kotowari[REQ-merge-042]
@@ -123,7 +142,7 @@ fn nothing_is_made_when_the_root_dir_is_gone_like_this_machine() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("top/root");
         let target = root.join("sub/a.txt");
-        let bin = bin_with(&["cat", "mkdir", "rmdir"]);
+        let bin = bin_with(&["cat", "ls", "mkdir", "rmdir"]);
         let gone = if during {
             fs::create_dir_all(root.join("sub")).unwrap();
             fs::write(&target, "old").unwrap();

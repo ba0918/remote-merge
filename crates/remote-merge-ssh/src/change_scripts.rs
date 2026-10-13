@@ -8,14 +8,13 @@
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
 use crate::change_steps::{
-    creating, new_file, parent_step, without_dd_transfer_lines, EXISTS, GONE_CHECK, PARENT,
-    ROOT_GONE,
+    creating, new_file, parent_step, without_dd_transfer_lines, EXISTS, GONE_CHECK, NO_TOOL,
+    PARENT, ROOT_GONE,
 };
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
 
-const NO_TOOL: &str = "@RMNOTOOL";
 /// 書き込みのコマンドの書き出し。シェルには何もしない文で、製品の書き込みのコマンド（標準入力に中身を
 /// 送るもの）かを見分けるための印。試験の偽の SSH サーバは、この印で標準入力を待つ書き込みのコマンドを
 /// 見分ける（中身に "cat >" を含むかでは、読み込みのスクリプトと取り違える）
@@ -158,6 +157,7 @@ fn kind_of(stderr: &[u8]) -> OpFailure {
         match line.strip_prefix(NO_TOOL.as_bytes()) {
             Some(b" cat") => return OpFailure::ToolMissing(Tool::Cat),
             Some(b" openssl") => return OpFailure::ToolMissing(Tool::OpensslBase64),
+            Some(b" ls") => return OpFailure::ToolMissing(Tool::LsDirectory),
             _ => {}
         }
         // 新しいファイルを作ろうとしたときに何かが現れていた。ローカルの経路の EEXIST と同じ文言にする
