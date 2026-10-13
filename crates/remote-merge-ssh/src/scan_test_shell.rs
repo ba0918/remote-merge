@@ -50,6 +50,20 @@ pub fn shell_command(script: &str) -> Command {
     shell_command_with_path(script, None)
 }
 
+/// REMOTE_MERGE_TEST_SCAN_IMAGE のコンテナの sh を、uid 1000 の利用者として、手元のディレクトリを
+/// 見せずに動かすコマンド（コンテナを指定していなければ None）。手元の試験を root で動かしていても、
+/// 検索の権限がないときの答えをそのコンテナの道具で確かめるために使う
+pub fn container_shell_as_user(script: &str) -> Option<Command> {
+    let image = std::env::var("REMOTE_MERGE_TEST_SCAN_IMAGE").unwrap_or_default();
+    if image.is_empty() {
+        return None;
+    }
+    let mut command = Command::new("docker");
+    command.args(["run", "--rm", "-i", "--user", "1000:1000"]);
+    command.args([image.as_str(), "/bin/sh", "-c", script]);
+    Some(command)
+}
+
 /// [`shell_command`] の、`bin` を PATH の先頭に置いたもの（find が -exec で起こす sh を差し替える）
 pub fn shell_command_with_path(script: &str, bin: Option<&Path>) -> Command {
     let image = std::env::var("REMOTE_MERGE_TEST_SCAN_IMAGE").unwrap_or_default();
