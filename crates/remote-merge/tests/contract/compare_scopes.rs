@@ -130,8 +130,17 @@ fn a_named_path_below_a_file_is_absent_on_that_side_and_the_others_go_on_on_all_
         return answer(child);
     }
     let routes = FlowRoutes::new(|left, right| {
+        // 更新時刻もそろえ、メタデータだけで同じと決まるようにする
+        let mtime =
+            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_789);
         for root in [left, right] {
             fs::write(root.join("b.txt"), "same\n").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(root.join("b.txt"))
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
             fs::create_dir(root.join("e")).unwrap();
         }
         fs::create_dir_all(left.join("d/sub")).unwrap();
