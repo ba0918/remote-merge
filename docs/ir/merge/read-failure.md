@@ -6,17 +6,17 @@
 
 ### REQ-merge-017: 読めないファイルは上書きしない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A51
+- source: docs/decision/records/2026-09-25-spec-migration.md#A51, docs/decision/records/2026-10-12-foundation-4.md#E7
 - verification: unit
 
-merge・sync の内容比較で元または先を読み取れないファイルは、同一または空の内容とみなさず、書き込みを止めてそのファイルの失敗を報告する。他のファイルは処理を続ける。
+merge・sync の内容比較で元または先を読み取れないファイルは、compare/reading.md の TBL-compare-005 のとおり、同一または空の内容とみなさず、書き込みを止めてそのファイルの失敗を報告する。他のファイルは処理を続ける。
 
 ### REQ-merge-019: 読めなかった側と原因を示す
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A1
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E7
 - verification: unit
 
-merge・sync の中身の読み比べで読み取りに失敗したファイルの failed の error は、"read failed: " に続けて、読めなかった側ごとの "left: 原因" と "right: 原因" を "; " でつないだものにする。
+merge・sync の中身の読み比べで読み取りに失敗したファイルの failed の error は、どのコマンドとも同じ compare/reading.md の REQ-compare-014 の形（"read failed: " に続けて、読めなかった側ごとの "left: 原因" と "right: 原因" を "; " でつないだもの）にする。
 
 ## Examples
 

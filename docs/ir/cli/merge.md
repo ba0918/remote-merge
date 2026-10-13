@@ -44,10 +44,10 @@ merge のテキスト出力は、書き込んだファイルを "Merged: パス"
 
 ### REQ-cli-051: 書き込み先が参照先から変わったファイルを書かない
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
+- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E6, docs/decision/records/2026-10-12-foundation-4.md#E10
 - verification: unit
 
---ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先の三つとも中身を読めた通常ファイル（バイナリを含む）のうち読み込み元と書き込み先の中身が違うものについて、中身をバイト列で比べて書き込み先が参照先から変わっていれば書き込まずに failed に出し、左右の両方が参照先から変わっていれば error を "three-way conflict"、書き込み先だけが変わっていれば "destination changed since reference" とし、読み込み元だけが参照先から変わったファイルは書き込む。--force があればこの確認をせずに書き込む。
+--ref があり参照先を実際に使い、--force のないファイル全体の merge は、--dry-run かどうかによらず（compare/flow.md の REQ-compare-005）、左右と参照先の三つとも中身を読めた通常ファイル（バイナリを含む）か三つとも末尾の symlink のもののうち読み込み元と書き込み先が違うものについて、通常ファイルは中身のバイト列で、symlink はリンク文字列で（compare/judgement.md の REQ-compare-008）比べて書き込み先が参照先から変わっていれば書き込まずに failed に出し、左右の両方が参照先から変わっていれば error を "three-way conflict"、書き込み先だけが変わっていれば "destination changed since reference" とし、読み込み元だけが参照先から変わったファイルは書き込む。--force があればこの確認をせずに書き込む。
 
 ### REQ-cli-073: 強制指定のないリモート間の merge を止める
 - kind: state_driven
@@ -66,12 +66,11 @@ CLI の merge は書き込む前に確認のプロンプトを出さない。
 
 ### REQ-cli-092: 三者の存在の組み合わせで書くかを決める
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A24, docs/decision/records/2026-10-05-size-limit.md#A30
+- source: docs/decision/records/2026-10-05-quality-cli.md#A9, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1, docs/decision/records/2026-10-05-quality-cli.md#A13, docs/decision/records/2026-10-05-quality-cli.md#A16, docs/decision/records/2026-10-05-size-limit.md#A24, docs/decision/records/2026-10-05-size-limit.md#A30, docs/decision/records/2026-10-12-foundation-4.md#E10, docs/decision/records/2026-10-12-foundation-4.md#E3
 - verification: unit
 - definition: TBL-cli-009
 
---ref があり参照先を実際に使い、--force も --dry-run もないファイル全体の merge は、左右と参照先にファイルがないことと読み込みに失敗したことを区別し、TBL-cli-009 に従って書くかどうかを決め、ないと分かっている側の中身は読みに行かない。
---force がなく --dry-run がある同じ merge でも、三つのどれかの読み込みに失敗したファイルは、ほかのファイルと混在していても TBL-cli-009 の読み込みに失敗した行に従う。
+--ref があり参照先を実際に使い、--force のないファイル全体の merge は、--dry-run かどうかによらず、左右と参照先にファイルがないこと（それぞれの側の状態から決める。compare/flow.md の REQ-compare-003）と読み込みに失敗したことを区別し、TBL-cli-009 に従って書くかどうかを決め、ないと分かっている側の中身は読みに行かない。
 読み込み元と書き込み先の種類が違うファイルは、TBL-cli-009 によらず REQ-merge-001 に従う。
 TBL-cli-009 が文言を決めていない failed の error は実装者が決め、テストはその文言を固定しない。
 

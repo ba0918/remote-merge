@@ -1,30 +1,30 @@
 # マージ対象の内容比較
 
-merge と sync の対象がメタデータ上等しく見える場合に、内容の違いを判定する規則。
+merge と sync が、compare/judgement.md の TBL-compare-003 のどちらの比べ方で対象を比べるか。判定の規則そのものは compare/judgement.md の TBL-compare-001 と TBL-compare-002 に置く。
 
 ## Requirements
 
 ### REQ-merge-005: ファイル指定では内容を比較する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A5
+- source: docs/decision/records/2026-09-25-spec-migration.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 
-ファイルを明示指定した merge と sync は、サイズと更新時刻が同じでも内容が異なれば書き込み先を更新し、内容が同じなら更新しない。
+ファイルを明示指定した merge と sync は、TBL-compare-003 の中身の比べ方で比べ、サイズと更新時刻が同じでも内容が異なれば書き込み先を更新し、内容が同じなら更新しない。
 
 ### REQ-merge-006: ディレクトリ指定では内容比較を選べる
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A5
+- source: docs/decision/records/2026-09-25-spec-migration.md#A5, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 
-ディレクトリ指定の merge と sync に --checksum が与えられたとき、サイズと更新時刻が同じファイルも内容を比較し、異なるものを更新する。
+ディレクトリ指定の merge と sync に --checksum が与えられたとき、TBL-compare-003 の中身の比べ方で比べ、サイズと更新時刻が同じファイルも内容を比較し、異なるものを更新する。
 
 ### REQ-merge-020: ディレクトリ指定の既定はサイズと更新時刻で判定する
 - kind: state_driven
-- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A2, docs/decision/records/2026-10-05-quality-merge.md#A2
+- source: docs/decision/records/2026-09-28-adopt-merge-write.md#A2, docs/decision/records/2026-10-05-quality-merge.md#A2, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 
---checksum のないディレクトリ指定の merge と sync は、サイズと更新時刻で変更ありと判定した組のうちサイズが同じものだけ中身を読み比べて中身が同じ組は書かず、サイズと更新時刻が同じファイルは中身が違っても書かない。
-更新時刻が同じとするのは、両側がともに秒より細かい精度の更新時刻を持ち、両側に共通する最も細かい精度で比べて同じときに限り、片側でも秒の精度しかなく秒が同じ組は中身を読み比べて、中身が違えば書く。
+--checksum のないディレクトリ指定の merge と sync は、TBL-compare-003 のメタデータの比べ方で比べ、TBL-compare-001 と TBL-compare-002 で違うと判定した組を書き、同じと判定した組は書かない。
+そのため、サイズが違う組は中身を読まずに書き、サイズと更新時刻が TBL-compare-001 の意味で同じ組は中身が違っても書かず、片側でも秒の精度しかなく秒が同じ組は中身で決めて、中身が違えば書く。
 
 ## Examples
 

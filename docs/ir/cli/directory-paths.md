@@ -13,25 +13,25 @@
 
 ### REQ-cli-077: include の外のディレクトリは差分なしとする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1
+- source: docs/decision/records/2026-10-05-ssh-directory-read.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-include 指定があり、include に一致しないディレクトリが左右の両方にあって、そのディレクトリを CLI diff に指定したとき、比べる経路の組と指定したパスの数によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
+include 指定があり、include に一致しないディレクトリが左右の両方にあって、そのディレクトリを CLI diff に指定したとき、指定したパスの数によらず、その配下を include で絞った結果に比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
 
 ### REQ-cli-087: 片側にだけあり比べるファイルのないディレクトリは差分なしとする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A10, docs/decision/records/2026-09-29-adopt-diff-output.md#A7
+- source: docs/decision/records/2026-10-05-quality-cli.md#A10, docs/decision/records/2026-09-29-adopt-diff-output.md#A7, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
 片側にだけあり、配下を include と exclude で絞ると比べるファイルがないディレクトリを CLI diff に指定したとき、"not found on either side" の警告もエラーも出さず、比べるファイル 0 件・差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
-片側にだけあるディレクトリを展開した子について、ない側を空とみなす警告は走査方式によらず出さない。
+片側にだけあるディレクトリを展開した子について、ない側を空とみなす警告は、パスの指定の仕方によらず出さない。
 
 ### REQ-cli-096: 子の一覧を取れないディレクトリをエラーとして示す
 - kind: event_driven
-- source: docs/decision/records/2026-10-11-agent-operations.md#A11, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-12-foundation-2.md#C12, docs/decision/records/2026-10-12-foundation-2.md#C13, docs/decision/records/2026-10-12-foundation-2.md#C15
+- source: docs/decision/records/2026-10-11-agent-operations.md#A11, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A23, docs/decision/records/2026-10-05-quality-cli.md#A5, docs/decision/records/2026-10-11-agent-operations.md#A31, docs/decision/records/2026-10-12-foundation-2.md#C12, docs/decision/records/2026-10-12-foundation-2.md#C13, docs/decision/records/2026-10-12-foundation-2.md#C15, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-CLI diff は、指定したパスやその配下の子の一覧を、どの経路でも、ディレクトリではないもの（通常ファイル、ディレクトリでないものへの symlink、リンク切れの symlink、ないパス）と、一覧を取れなかったもの（読めないディレクトリ）とに分けて扱う。
+CLI diff は、指定したパスやその配下の子の一覧を、ディレクトリではないもの（通常ファイル、ディレクトリでないものへの symlink、リンク切れの symlink、ないパス）と、一覧を取れなかったもの（読めないディレクトリ）とに分けて扱う。
 一覧の途中の `接続断` は REQ-ssh-003 と REQ-ssh-023 により、一覧の中の symlink のリンク先か更新時刻を読めないときは REQ-paths-017 による。
 ディレクトリではないものは、その種類に合わせて今までどおり比べる。
 一覧を取れなかったものは、ファイルとしてもない側としても扱わず、そのパスと理由を JSON ではトップレベルの errors に、テキストでは標準エラーに出し、ほかに指定したパスの比較を続けて終了コード 2 を返す。

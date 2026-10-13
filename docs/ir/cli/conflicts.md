@@ -6,10 +6,11 @@
 
 ### REQ-cli-016: 三者間の競合を明示する
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A39, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A11
+- source: docs/decision/records/2026-09-25-spec-migration.md#A39, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A4, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A11, docs/decision/records/2026-10-12-foundation-4.md#E16
 - verification: unit
 
 参照先に対して左右が同じ箇所を異なる内容に変えた競合があるとき、比較結果に競合を示す。
+バイナリと UTF-8 として読めないファイルは、用語の `競合` のとおりファイル全体を一つの箇所とし、左右がともに参照先から変わり左右の中身が違えば一つの競合として示す。
 
 ### REQ-cli-017: 競合を勝手に解消しない
 - kind: prohibition

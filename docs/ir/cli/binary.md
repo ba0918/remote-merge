@@ -6,10 +6,10 @@
 
 ### REQ-cli-009: バイナリのハッシュを差分に示す
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A24, docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-09-25-spec-migration.md#A24, docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-バイナリファイルの diff はテキスト差分を出さず、中身の違うバイナリには SHA-256 のハッシュと不一致を示し、中身の同じバイナリはパスの指定の仕方と走査方式によらず項目を出さない。
+バイナリファイルの diff はテキスト差分を出さず、中身の違うバイナリには SHA-256 のハッシュと不一致を示し、中身の同じバイナリはパスの指定の仕方によらず項目を出さない。
 
 ### REQ-cli-010: バイナリを元のバイト列で転送する
 - kind: invariant

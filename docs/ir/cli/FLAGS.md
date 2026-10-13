@@ -58,27 +58,12 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 旧個別仕様 symlink-merge の 3.3 は種類の違い・symlink の削除・パスを辿れないことによるスキップが一件でもある merge の終了コードを 2 にするとするが、実装は merge の終了コードの判定に skipped を数えないため、そのスキップだけの merge は終了コード 0 になる。
 
-### FLAG-cli-024: dry-run で参照先に対する確認をしない
-- kind: gap
-- related: REQ-cli-004, REQ-cli-051
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A15, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
-
---ref がある --dry-run の merge で、実装は REQ-cli-051 の参照先に対する確認をしないため、実際に実行すると REQ-cli-051 で書き込まれないファイルも merged に status "would merge" で出す。旧資料に記述がなくテストもない。
-
 ### FLAG-cli-026: 書き込むファイルのない merge と集約先の場所
 - kind: ambiguity
 - related: REQ-backup-018, REQ-cli-051
 - source: docs/decision/records/2026-09-28-merge-cli-mutant-flags.md#A2, docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A10
 
 バックアップが有効で集約先の場所が決まらない構成で、書き込むファイルが一つもない merge のとき、実装は全てのファイルが REQ-cli-051 の参照先に対する確認で外れた場合はエラーで止まらず failed にその確認の error（"three-way conflict" か "destination changed since reference"）を出し、全てのファイルがスキップで外れ REQ-cli-051 の確認で外れたファイルもない場合は "backup store location could not be determined" のエラーで止まる。REQ-backup-018 の「書き込む前にエラーで止まる」が書き込むファイルのない merge に及ぶかを IR は決めていない。
-
-### FLAG-cli-027: 参照先を使う merge での symlink
-- kind: ambiguity
-- related: REQ-cli-051, REQ-merge-003
-- source: docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A9, docs/decision/records/2026-10-05-size-limit.md#A30, docs/decision/records/2026-10-05-size-limit.md#A32
-
---ref を使う merge で読み込み元か書き込み先が symlink のとき、REQ-cli-051 の確認が symlink を何で比べるか（リンク先の文字列か、辿った先の中身か）を実装から確かめておらず、REQ-cli-051 の対象から外している。
-読み込み元と書き込み先と参照先の種類がそろわないときは TBL-cli-009 の種類の行と REQ-merge-001 で決まり、残るのは三つとも symlink のときの比べ方である。
 
 ### FLAG-cli-032: 0 始まりの行番号
 - kind: gap
@@ -87,47 +72,12 @@ sync の書き込む前の確認で、実装は書き込むファイルだけが
 
 diff のテキストの "@@" の行と JSON の left_start・right_start は 0 始まりの行番号で、先頭の行の変更が "@@ -0,1 +0,1 @@" になる。旧資料に記述がなく、行番号を確かめるテストもない。
 
-### FLAG-cli-034: files_with_changes が数えるもの
-- kind: contradiction
-- related: REQ-cli-053
-- source: docs/decision/records/2026-09-29-adopt-diff-output.md#A17
-
-利用者向けの手引きは summary の files_with_changes を hunk を一つ以上持つファイルの数とするが、実装はハッシュの違うバイナリとリンク先の違う symlink も数える。
-
-### FLAG-cli-048: 種類の違いの note の文言
-- kind: contradiction
-- related: REQ-cli-020
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A6
-
-REQ-cli-020 は解決後の種類の差を示すとするが、note は相手側に項目がない片側だけの symlink でも "type mismatch: symlink vs file"、相手側が通常ファイルのディレクトリ symlink でも "type mismatch: symlink vs directory" と出し、相手側の種類を正しく示さない場合がある（実装を読んで分かったことで未実行）。
-
-### FLAG-cli-049: ディレクトリの子の一覧の件数の打ち切り
-- kind: contradiction
-- related: REQ-cli-021
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A7
-
-REQ-cli-021 は件数超過を不完全な比較としてエラーで報告するとするが、diff がディレクトリの子を一覧するときは一つのディレクトリにつき 10,000 件で黙って打ち切り、不完全な比較として報告しない（実装を読んで分かったことで未実行）。
-
-### FLAG-cli-050: 通常のディレクトリの展開の理由のテキスト
-- kind: contradiction
-- related: REQ-cli-022
-- source: docs/decision/records/2026-09-30-adopt-diff-links.md#A8
-
-REQ-cli-022 は比較できなかったパスと理由を示すとするが、通常のディレクトリの展開で循環や件数超過が起きたとき、テキスト出力には理由が出ない（JSON では errors に出る。実装を読んで分かったことで未実行）。
-
 ### FLAG-cli-058: conflict_regions の要素の形
 - kind: contradiction
 - related: REQ-cli-065
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A6
 
 旧総合仕様の diff の JSON の例は conflict_regions の要素を "ref_range": [10, 12]、"left_lines"、"right_lines" の三つとするが、実装は "ref_range" を "start" と "end" を持つオブジェクト（0 始まりで終端を含まない）で出し、TUI 用の "left_diff_range"・"right_diff_range"・"left_file_lines"・"right_file_lines" も出す。
-
-### FLAG-cli-059: バイナリのファイルの競合
-- kind: contradiction
-- related: REQ-cli-016
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A7
-
-用語「競合」はバイナリや UTF-8 として読めないファイルをファイル全体で一つの箇所とし、REQ-cli-016 は競合を比較結果に示すとするが、diff は左右がバイナリ（先頭 8192 バイトに NUL を含むか、ファイル全体が正しい UTF-8 でない）のファイルで競合を示さない。参照先のファイルは不正な UTF-8 のバイトを置換文字に置き換えた中身で比べるため、参照先にだけ先頭 8192 バイトより後ろの不正な UTF-8 があるときは、置換文字を含むテキストとして行単位で競合を調べる。
 
 ### FLAG-cli-060: 参照先にないかバイナリのファイルの競合
 - kind: ambiguity
@@ -163,13 +113,6 @@ diff は左右がバイナリのファイルに "ref_hunks" を出さず、参�
 - source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A15
 
 diff は片側にないファイルを、ない側を空の内容として参照先と比べて競合を調べるため、片側にないことが参照先からの全行の削除として扱われ競合が示されうる。これが REQ-cli-016 の競合に当たるかが決まらない（実装を読んで分かったことで未実行）。
-
-### FLAG-cli-070: 参照先の root_dir の外の判定
-- kind: gap
-- related: REQ-cli-026, REQ-cli-063
-- source: docs/decision/records/2026-09-30-adopt-diff-ref.md#A18, docs/decision/records/2026-10-07-size-limit-consistency.md#A4
-
-diff の root_dir の外の判定は左右の項目だけを見るため、参照先の同じパスの途中のディレクトリが root_dir の外を指す symlink のとき、--follow-external-links なしでもその外のファイルの内容が "ref_hunks" に出る。参照先の同じパスそのものが symlink のときは、REQ-cli-090 により種類の違う参照先として読まないので出ない。
 
 ### FLAG-cli-071: 行を足すだけの変更の競合
 - kind: ambiguity

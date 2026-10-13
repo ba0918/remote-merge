@@ -27,10 +27,10 @@ rollback の dry-run はセッション内の復元予定とブロック理由�
 
 ### REQ-backup-027: 書き戻す前の内容を退避する
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-backup.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-09-27-adopt-backup.md#A15, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-12-foundation-4.md#E3
 - verification: unit
 
-バックアップが有効なとき、rollback は書き戻す前の現在の内容を新しいセッションに保存してその ID を pre_rollback_backup に示す。保存できないファイルは書き戻さず error "backup failed: " に続く原因で失敗とし、戻す先にファイルがなければ保存も pre_rollback_backup の表示もしない。
+バックアップが有効なとき、rollback は書き戻す前の現在の内容を新しいセッションに保存してその ID を pre_rollback_backup に示す。保存できないファイルは書き戻さず error "backup failed: " に続く原因で失敗とし、戻す先の状態にファイルがなければ（compare/flow.md の REQ-compare-003。読み込みの失敗からはないと決めない）保存も pre_rollback_backup の表示もしない。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
 ### REQ-backup-046: 退避した内容を読み戻せないファイルは書き戻さない

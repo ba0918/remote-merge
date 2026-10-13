@@ -6,17 +6,17 @@
 
 ### REQ-merge-011: 他者の更新を上書きしない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A35, docs/decision/records/2026-09-25-spec-migration.md#A38
+- source: docs/decision/records/2026-09-25-spec-migration.md#A35, docs/decision/records/2026-09-25-spec-migration.md#A38, docs/decision/records/2026-10-12-foundation-4.md#E9
 - verification: unit
 
-差分確認からマージまでに書き込み先の中身が変わったとき、サイズと更新時刻が元と同じでも、古い状態を前提としたマージは書き込みを止め、変更を報告する。
+差分確認からマージまでに書き込み先の中身が変わったとき、サイズと更新時刻が元と同じでも、古い状態を前提としたマージは、compare/reading.md の REQ-compare-015 の変更の直前の判定で書き込みを止め、変更を報告する。--hunks の merge と --delete の削除も同じである。
 
 ### REQ-merge-033: 更新を検知したファイルだけを止める
 - kind: event_driven
-- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9, docs/decision/records/2026-10-11-symlink-merge-check.md#A1, docs/decision/records/2026-10-11-symlink-merge-check-consistency.md#A1, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25
+- source: docs/decision/records/2026-10-04-merge-backup-flag-resolution.md#A9, docs/decision/records/2026-10-11-symlink-merge-check.md#A1, docs/decision/records/2026-10-11-symlink-merge-check-consistency.md#A1, docs/decision/records/2026-10-11-agent-operations.md#A38, docs/decision/records/2026-10-11-agent-operations.md#A20, docs/decision/records/2026-10-11-agent-operations.md#A25, docs/decision/records/2026-10-12-foundation-4.md#E9
 - verification: unit
 
-merge と sync は、比べたときから書き込み先の中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに failed に出し、他のファイルの処理は続ける。
+merge と sync は、REQ-compare-015 のとおり、比べたときから書き込み先の種類・リンク文字列・中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに（消さずに）failed に出し、他のファイルの処理は続ける。
 比べたときに symlink だった書き込み先のリンク先が UTF-8 として読めないバイトか置換文字 U+FFFD を含むときは、変わっていないことを確かめられないので、変わったファイルと同じく書かずに failed に出す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 

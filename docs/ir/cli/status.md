@@ -20,32 +20,33 @@ status に --all を指定したときは、等しいファイルも一覧に含
 
 ### REQ-cli-008: 内容で再比較できる
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A21, docs/decision/records/2026-10-05-size-limit.md#A31, docs/decision/records/2026-10-05-size-limit.md#A32
+- source: docs/decision/records/2026-09-25-spec-migration.md#A21, docs/decision/records/2026-10-05-size-limit.md#A31, docs/decision/records/2026-10-05-size-limit.md#A32, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 
-status に --checksum を指定したときは、左右にあるファイルの内容を読み比べ、メタデータが等しくても中身が違えば変更として報告する。左右で種類（REQ-merge-001 の通常ファイル・ディレクトリ・末尾の symlink）の違うパスは、中身を読まずに変更として報告する。
+status に --checksum を指定したときは、compare/judgement.md の TBL-compare-003 の中身の比べ方で比べ、メタデータが等しくても中身が違えば変更として報告する。
+左右で種類の違うパスは、TBL-compare-001 のとおり中身を読まずに変更として報告する。
 
 ### REQ-cli-027: メタデータと中身で差分を判定する
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-status.md#A2
+- source: docs/decision/records/2026-09-27-adopt-status.md#A2, docs/decision/records/2026-10-12-foundation-4.md#E2, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 - definition: TBL-cli-001
 
-status は左右のファイルを TBL-cli-001 に従って "left_only"・"right_only"・"modified"・"equal" に判定する。
+status は左右のファイルを compare/flow.md の比べる流れで判定し（--checksum がなければメタデータの比べ方）、その判定を TBL-cli-001 に従って "left_only"・"right_only"・"modified"・"equal" に訳す。
 
 ### REQ-cli-028: symlink は中身を読まずに判定する
 - kind: state_driven
-- source: docs/decision/records/2026-09-27-adopt-status.md#A3, docs/decision/records/2026-10-05-quality-cli.md#A6
+- source: docs/decision/records/2026-09-27-adopt-status.md#A3, docs/decision/records/2026-10-05-quality-cli.md#A6, docs/decision/records/2026-10-12-foundation-4.md#E6
 - verification: unit
 
-status は --checksum の有無と経路によらず、片方でも symlink のファイルの中身を読まず、両方が symlink ならリンク先の文字列が同じときだけ "equal"、違えば "modified" とし、片方だけが symlink なら "modified" とする。
+status は --checksum の有無によらず、片方でも symlink のファイルの中身を読まず、compare/judgement.md の REQ-compare-008 のとおり両方が symlink ならリンク先の文字列が同じときだけ "equal"、違えば "modified" とし、片方だけが symlink なら種類の違いとして "modified" とする。
 
 ### REQ-cli-094: status は大きさの上限を当てずに中身を比べる
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A12, docs/decision/records/2026-10-05-quality-cli.md#A2
+- source: docs/decision/records/2026-10-05-quality-cli.md#A12, docs/decision/records/2026-10-05-quality-cli.md#A2, docs/decision/records/2026-10-12-foundation-4.md#E5
 - verification: unit
 
-status は中身を読み比べるとき、REQ-cli-079 の大きさの上限を当てず、104,857,600 バイトを超えるファイルも中身を比べて判定する。
+status は中身を compare/reading.md の REQ-compare-010 のとおりハッシュで比べ、中身をメモリに持って読まないので、REQ-cli-079 の大きさの上限は当たらず、104,857,600 バイトを超えるファイルも中身を比べて判定する。
 
 ### REQ-cli-095: status は中身を少しずつ読んでハッシュで比べる
 - kind: ubiquitous
@@ -57,18 +58,18 @@ status はファイルの中身全体をメモリに持たず、中身を少し�
 
 ## Decision tables
 
-### TBL-cli-001: ファイルの判定
-- source: docs/decision/records/2026-09-27-adopt-status.md#A2, docs/decision/records/2026-10-05-quality-cli.md#A3
+### TBL-cli-001: 判定の status の値
+- source: docs/decision/records/2026-09-27-adopt-status.md#A2, docs/decision/records/2026-10-05-quality-cli.md#A3, docs/decision/records/2026-10-12-foundation-4.md#E2, docs/decision/records/2026-10-12-foundation-4.md#E7
 
-| 左右の有無と種類 | サイズと更新時刻 | 判定 |
-|---|---|---|
-| 左だけにある | - | "left_only" |
-| 右だけにある | - | "right_only" |
-| 片側がファイルで片側がディレクトリ | - | "modified" |
-| 両方がファイル | サイズが違う | "modified" |
-| 両方がファイル | サイズが同じで、両側がともに秒より細かい精度の更新時刻を持ち、両側に共通する最も細かい精度で更新時刻が同じ | 中身を読まずに "equal" |
-| 両方がファイル | サイズが同じで、片側でも更新時刻が秒の精度しかなく秒が同じ | 中身を読み比べ、同じなら "equal"、違えば "modified" |
-| 両方がファイル | サイズか更新時刻が分からない、またはサイズが同じで更新時刻が違う | 中身を読み比べ、同じなら "equal"、違えば "modified" |
+| 判定（compare/judgement.md の TBL-compare-001・TBL-compare-002） | status の値 |
+|---|---|
+| 片側だけ（左にある） | "left_only" |
+| 片側だけ（右にある） | "right_only" |
+| 種類の違い | "modified" |
+| 違う | "modified" |
+| 同じ（両方がディレクトリのときを除く） | "equal" |
+| 同じ（両方がディレクトリ） | そのパスは一覧に出さず、中の項目をそれぞれ判定する |
+| 判定できない | 値を付けず、compare/reading.md の TBL-compare-005 による |
 
 ## Examples
 

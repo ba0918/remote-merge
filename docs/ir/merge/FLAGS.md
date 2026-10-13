@@ -9,13 +9,6 @@
 
 --dry-run の merge --delete で書き込む予定がなく削除予定だけがあるとき、実装はテキストで削除予定を削除済みの形 "Deleted: パス" で出し、JSON でも deleted の status を実際に削除したときと同じ "ok" にするため、予定と実行済みを区別できない。旧資料に記述がなくテストもない。
 
-### FLAG-merge-017: --hunks の書き込み直前の確認
-- kind: contradiction
-- related: REQ-merge-011
-- source: docs/decision/records/2026-09-28-adopt-merge-hunks.md#A7
-
-利用者向けの手引き "skills/remote-merge/SKILL.md" は書き込む前に更新日時で楽観的ロックを確かめるとし、REQ-merge-011 は差分確認からマージまでに書き込み先が変わったら書き込みを止めるとするが、実装の --hunks の merge は書き込む直前の確認をせず、実行時に読んだ書き込み先との差分に番号を当てて書き込む。
-
 ### FLAG-merge-019: 差分のないファイルの --hunks のテキスト
 - kind: gap
 - related: REQ-merge-030

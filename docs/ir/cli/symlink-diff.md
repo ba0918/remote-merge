@@ -6,24 +6,25 @@ CLI diff が symlink を比べるとき、明示指定したときもディレ�
 
 ### REQ-cli-020: symlink のパスと参照先を一貫して比較する
 - kind: state_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A1, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A16, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A17, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A28, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A1, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A16, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A17, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A28, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A29, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E6, docs/decision/records/2026-10-12-foundation-4.md#E13
 - verification: unit
 
-CLI diff はファイル・ディレクトリ、左右の種類や存在の組み合わせによらず、symlink 自体のリンク文字列を示して参照先を辿り、解決後の種類と内容の差を示す。リンク文字列・種類・内容のいずれかが異なれば差分あり、すべて同じなら差分なしとする。片側だけに項目がある場合も読める内容を片側の差として示し、参照先がバイナリなら通常のバイナリ diff と同じ SHA-256 ハッシュを用いる。
+CLI diff はファイル・ディレクトリ、左右の種類や存在の組み合わせによらず、symlink 自体のリンク文字列を示して参照先を辿り、解決後の種類と内容の差を示す。リンクの組をリンク文字列で、辿った先の組を種類と内容で、compare/judgement.md の REQ-compare-008 のとおり同じ判定の表で判定し、どちらかの組が同じでなければ差分あり、両方とも同じなら差分なしとする。
+種類の違いの note は、両側に項目があり種類の違いと判定したときだけ、判定に使った両側の種類で出し、片側だけにある symlink には出さない。片側だけに項目がある場合も読める内容を片側の差として示し、参照先がバイナリなら通常のバイナリ diff と同じ SHA-256 ハッシュを用いる。
 
 ### REQ-cli-021: ディレクトリ symlink の配下を比較する
 - kind: state_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A7, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A7, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A11, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A18, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A31, docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E11
 - verification: unit
 
-ディレクトリへの symlink を含む比較は左右の種類や存在の組み合わせによらず、読めるディレクトリの配下を入口からの子パスで表示する。入れ子の symlink も同じ規則で扱い、指定した比較全体で循環を検出して既存の最大走査件数を一回だけ適用する。循環または上限超過でも読めた差分は残し、不完全な比較をエラーとして報告する。
+ディレクトリへの symlink を含む比較は左右の種類や存在の組み合わせによらず、読めるディレクトリの配下を入口からの子パスで表示する。入れ子の symlink も同じ規則で扱い、指定した比較全体で循環を検出して既存の最大走査件数を一回だけ適用する。ディレクトリの子の一覧もこの件数に数え、子の一覧だけの別の上限を持たない。循環または上限超過でも読めた差分は残し、不完全な比較をエラーとして報告する。
 
 ### REQ-cli-022: 参照先を読めない場合も比較できた範囲を示す
 - kind: event_driven
-- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A12, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A33
+- source: docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A12, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A30, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A33, docs/decision/records/2026-10-12-foundation-4.md#E12
 - verification: unit
 
-symlink の参照先がないか読めないとき、片側の項目自体がない場合と区別し、リンク文字列と取得できた子の差分を表示する。範囲外の追跡が無効、循環・件数超過・読取失敗で比較できなかった入口側のパスと理由を示してエラー終了（終了コード2）にする。JSON では読めた差分を files に残し、失敗をトップレベルの errors の path と reason で示す。読めない参照先を空ファイルと同一扱いしない。
+symlink の参照先がないか読めないとき、片側の項目自体がない場合と区別し、リンク文字列と取得できた子の差分を表示する。範囲外の追跡が無効、循環・件数超過・読取失敗で比較できなかった入口側のパスと理由を示してエラー終了（終了コード2）にする。JSON では読めた差分を files に残し、失敗をトップレベルの errors の path と reason で示し、テキストでは同じ path と reason を標準エラーに出す。読めない参照先を空ファイルと同一扱いしない。
 
 ### REQ-cli-024: リンクの差を JSON とテキストに分けて示す
 - kind: state_driven

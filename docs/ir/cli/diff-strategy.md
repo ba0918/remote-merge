@@ -1,45 +1,45 @@
-# パスの数によらない diff の比べ方
+# パスの指定の仕方によらない diff の比べ方
 
-CLI diff が、指定したパスの数（20 個以下か 21 個以上か）や走査方式によらず、名前で指定したファイル・フィルタ・symlink・件数の上限・ディレクトリとファイルの組を同じ規則で比べること。
+CLI diff が、パスを名前で指定したか・ディレクトリの展開か・root_dir 全体か・指定したパスの数によらず、ファイル・フィルタ・symlink・件数の上限・ディレクトリとファイルの組を compare/flow.md の同じ比べる流れで比べること。
 
 ## Requirements
 
-### REQ-cli-080: 名前で指定したファイルは中身で比べる
+### REQ-cli-080: diff はどのファイルも中身で比べる
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E4
 - verification: unit
 
-diff は名前で指定したファイルを、指定したパスの数によらず、サイズと更新時刻が同じでも中身で比べる。
+diff は、名前で指定したファイルも、ディレクトリの展開と root_dir 全体の下のファイルも、指定したパスの数によらず、compare/judgement.md の TBL-compare-003 の中身の比べ方で、サイズと更新時刻が同じでも中身で比べる。
 
 ### REQ-cli-081: フィルタはディレクトリの展開と全体の走査に当てる
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-diff は、指定したパスの数と走査方式によらず、名前で指定したファイルには include と exclude を当てずに比べ、指定したディレクトリの配下とパスを指定しないときの root_dir 全体には include と exclude を当てる。
+diff は、指定したパスの数によらず、名前で指定したファイルには include と exclude を当てずに比べ、指定したディレクトリの配下とパスを指定しないときの root_dir 全体には include と exclude を当てる。
 
 ### REQ-cli-082: 子がすべて除外されるディレクトリは差分なしとする
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-05-ssh-directory-read.md#A1
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-05-ssh-directory-read.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-配下がすべて exclude に当たるディレクトリが左右の両方にあり、そのディレクトリを CLI diff に指定したとき、REQ-cli-077 と同じく、比べる経路の組と指定したパスの数によらず比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
+配下がすべて exclude に当たるディレクトリが左右の両方にあり、そのディレクトリを CLI diff に指定したとき、REQ-cli-077 と同じく、指定したパスの数によらず比べるファイルがないものとして差分なしを報告し（テキストでは "0 file(s) with changes"）、終了コード 0 を返す。
 
 ### REQ-cli-083: 同じ symlink は項目に出さない
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-diff は、パスの指定の仕方と走査方式によらず symlink を REQ-cli-020 と REQ-cli-021 で比べ、リンク文字列も参照先の中身も左右で同じ symlink を files にもテキストにも項目として出さない。
+diff は、パスの指定の仕方によらず symlink を REQ-cli-020 と REQ-cli-021 で比べ、リンク文字列も参照先の中身も左右で同じ symlink を files にもテキストにも項目として出さない。
 
 ### REQ-cli-084: 件数の上限を超えても読めた差分を残す
 - kind: state_driven
-- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-29-adopt-diff-output.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A15, docs/decision/records/2026-09-29-adopt-scan-limits.md#A1, docs/decision/records/2026-10-12-untested-items-consistency.md#A1
+- source: docs/decision/records/2026-10-05-quality-cli.md#A4, docs/decision/records/2026-09-26-cli-diff-path-semantics.md#A20, docs/decision/records/2026-09-29-adopt-diff-output.md#A5, docs/decision/records/2026-10-05-quality-cli.md#A15, docs/decision/records/2026-09-29-adopt-scan-limits.md#A1, docs/decision/records/2026-10-12-untested-items-consistency.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-diff の走査が件数の上限を超えたとき、パスの数と走査方式によらず、読めた分の差分を files に残し、上限の超過をトップレベルの errors に載せて終了コード 2 を返す。
+diff の走査が件数の上限を超えたとき、パスの数と指定の仕方によらず、読めた分の差分を files に残し、上限の超過をトップレベルの errors に載せて終了コード 2 を返す。
 errors に載せる上限の超過の reason は、REQ-scan-008 の "Tree scan truncated at 上限 entries." で始まる案内の文とする。
-名前で指定したディレクトリを展開して比べるときも、件数の上限に当てる件数には scan/limits.md の REQ-scan-010 と同じくファイルと symlink だけを数え、ディレクトリを数えない。
+名前で指定したディレクトリを展開して比べるときも、件数の上限に当てる件数は scan/limits.md の REQ-scan-010 と同じくし、ディレクトリを数えない。
 
 ### REQ-cli-085: 通常のディレクトリと通常ファイルの組は両方を示す
 - kind: state_driven

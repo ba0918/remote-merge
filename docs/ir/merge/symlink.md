@@ -6,11 +6,11 @@
 
 ### REQ-merge-001: 種類の違う既存の対象を置き換えない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A1, docs/decision/records/2026-10-12-skip-subtree.md#A2, docs/decision/records/2026-10-12-skip-subtree.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A4, docs/decision/records/2026-10-12-skip-subtree-consistency.md#A1
+- source: docs/decision/records/2026-09-25-spec-migration.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A1, docs/decision/records/2026-10-12-skip-subtree.md#A2, docs/decision/records/2026-10-12-skip-subtree.md#A3, docs/decision/records/2026-10-12-skip-subtree.md#A4, docs/decision/records/2026-10-12-skip-subtree-consistency.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E2, docs/decision/records/2026-10-12-foundation-4.md#E8
 - verification: unit
 
-読み込み元と書き込み先の種類が通常ファイル・ディレクトリ・末尾の symlink の間で異なるとき、merge と sync は書き込み先を変更せず、その対象を理由付きでスキップする。
-ただし、ディレクトリと、ディレクトリへの symlink の組は種類の違いとせず、組そのものは置き換えず結果にも出さず、その中のパスをふつうに比べて merge・sync・--delete の対象にする（書き込み先の側が symlink なら REQ-merge-004 による）。
+読み込み元と書き込み先の種類が通常ファイル・ディレクトリ・末尾の symlink の間で異なるとき（compare/judgement.md の TBL-compare-001 の種類の違い）、merge と sync は書き込み先を変更せず、その対象を理由付きでスキップする。どちらかがその他の種類のときは REQ-compare-009 による。
+ただし、ディレクトリと、ディレクトリへの symlink の組は、種類の違いと判定してもスキップせず、組そのものは置き換えず結果にも出さず、その中のパスをふつうに比べて merge・sync・--delete の対象にする（書き込み先の側が symlink なら REQ-merge-004 による）。
 スキップした対象の配下は、--dry-run を含めて書かず、--delete でも消さない。結果の skipped にはスキップした対象を一件だけ出し、配下は出さない。
 配下のパスを直接指定し、その祖先が読み込み元と書き込み先で種類が違い、書き込み先の祖先がディレクトリかディレクトリへの symlink のときも、TBL-scan-001 の走査の範囲がその祖先を含めば（--delete を付けたときは常に含む）、その祖先をスキップした対象として扱い、そのパスを消さず、skipped には祖先を一件だけ出す。走査の範囲が祖先を含まないときは、そのパスだけで判定し、書き込み先にだけあるパスは REQ-merge-024 のとおりスキップする。書き込み先の祖先がディレクトリでないときは REQ-paths-011 による。
 
@@ -30,17 +30,17 @@ merge と sync の削除指定で書き込み先だけに末尾の symlink が�
 
 ### REQ-merge-004: 意図した共有リンクの先に書き込める
 - kind: state_driven
-- source: docs/decision/records/2026-09-25-spec-migration.md#A6
+- source: docs/decision/records/2026-09-25-spec-migration.md#A6, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-書き込み先の途中に既存の symlink があるとき、merge と sync はリンク先が root_dir の外でもローカル・SSH・エージェントの全経路でリンク先の既存ファイルをバックアップしてから更新する。
+書き込み先の途中に既存の symlink があるとき、merge と sync はリンク先が root_dir の外でもリンク先の既存ファイルをバックアップしてから更新する。
 
 ### REQ-merge-007: 引数によるパス脱出を拒否する
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A6, docs/decision/records/2026-10-05-quality-merge.md#A1
+- source: docs/decision/records/2026-09-25-spec-migration.md#A6, docs/decision/records/2026-10-05-quality-merge.md#A1, docs/decision/records/2026-10-12-foundation-4.md#E17
 - verification: unit
 
-merge と sync は、パスの引数に絶対パスか ".." の要素を含むパスがあるとき、ローカル・SSH・エージェントのどの経路でも、走査と書き込みの前にコマンド全体を絶対パスなら "absolute subpath not allowed: パス"、".." なら "path traversal not allowed: パス" のエラーで止め、終了コード 2 を返し、どのファイルも書き込まない。root_dir 全体を指す "/" の引数は従来どおり受け付ける。
+merge と sync は、パスの引数に絶対パスか ".." の要素を含むパスがあるとき、走査と書き込みの前にコマンド全体を絶対パスなら "absolute subpath not allowed: パス"、".." なら "path traversal not allowed: パス" のエラーで止め、終了コード 2 を返し、どのファイルも書き込まない。root_dir 全体を指す "/" の引数は従来どおり受け付ける。
 
 ### REQ-merge-023: 書き込み先にない symlink はそのまま作る
 - kind: state_driven
