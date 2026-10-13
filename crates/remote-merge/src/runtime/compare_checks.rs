@@ -1,0 +1,129 @@
+//! 比べる流れが状態を集めるときと、変更の直前に経路に尋ねる事実。root_dir の外へ解決される
+//! symlink（docs/ir/compare/flow.md の REQ-compare-004）と、書き込み先の今の状態
+//! （docs/ir/compare/reading.md の REQ-compare-015）
+
+use remote_merge_core::compare::{check_before_change, ChangeCheck, Observed, Role, SideFailure};
+use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
+use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::relative_path::{EntryPath, RelPath};
+use remote_merge_core::scan::include::is_inside;
+use remote_merge_core::scan::outcome::{
+    ListedKind, Listing, ScanFailure, ScanRequest, ScanScope, Start,
+};
+
+use super::compare_flow::listed_links;
+use super::connection::classify;
+use super::core::CoreRuntime;
+use crate::side::Side;
+
+impl CoreRuntime {
+    /// 一覧の symlink のうち、辿ると root_dir の外へ解決されるもののパス
+    pub(super) fn links_outside_root(
+        &mut self,
+        side: &Side,
+        listing: &Listing,
+    ) -> anyhow::Result<Vec<String>> {
+        let links: Vec<&str> = listed_links(listing).collect();
+        if links.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut io = super::target_io::for_side(side, self);
+        let root = match io.inspect_path(self, &RelPath::root())? {
+            ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+                real_path
+            }
+            other => anyhow::bail!("cannot resolve root_dir: {other:?}"),
+        };
+        let mut outside: Vec<String> = Vec::new();
+        for link in links {
+            // 外へ解決されるリンクの下は集めないので、確かめない
+            if outside
+                .iter()
+                .any(|known| link.starts_with(&format!("{known}/")))
+            {
+                continue;
+            }
+            if let ResolvedPath::Symlink { real_path, .. } =
+                io.inspect_path(self, &RelPath::parse(link)?)?
+            {
+                if !is_inside(&real_path, &root) {
+                    outside.push(link.to_string());
+                }
+            }
+        }
+        Ok(outside)
+    }
+
+    /// 変更の直前に、書き込み先 `side`（比べたときの側は `role`）の `path` の状態をもう一度集め、
+    /// 比べたときの状態 `compared` と比べて変えてよいかを決める。`接続断` は誤りとして返す
+    pub fn recheck_before_change(
+        &mut self,
+        side: &Side,
+        role: Role,
+        path: &EntryPath,
+        compared: &Observed,
+    ) -> anyhow::Result<ChangeCheck> {
+        let request = ScanRequest {
+            scope: ScanScope::Starts(vec![Start::itself(path.as_str(), 0)]),
+            max_entries: self.config.max_scan_entries,
+        };
+        let now = match self.scan_listing(side, &request) {
+            Ok(listing) => self.observe(side, role, path, &listing)?,
+            Err(error) if classify(&error).is_disconnection() => return Err(error),
+            // 途中がディレクトリでなければ、そのパスはない
+            Err(error)
+                if matches!(error.downcast_ref(), Some(ScanFailure::StartBlocked { .. })) =>
+            {
+                Ok(Observed::Absent)
+            }
+            Err(error) => Err(SideFailure {
+                role,
+                failure: OpFailure::Io(format!("{error:#}")),
+            }),
+        };
+        match check_before_change(compared, now) {
+            ChangeCheck::Disconnected(lost) => {
+                Err(OpError::new(Operation::Hash, path.as_typed(), lost.failure).into())
+            }
+            checked => Ok(checked),
+        }
+    }
+
+    /// 起点そのものの一覧から、そのパスの今の状態。通常ファイルはハッシュを取る
+    fn observe(
+        &mut self,
+        side: &Side,
+        role: Role,
+        path: &EntryPath,
+        listing: &Listing,
+    ) -> anyhow::Result<Result<Observed, SideFailure>> {
+        let entry = listing
+            .entries
+            .iter()
+            .find(|entry| entry.path == path.as_str());
+        Ok(Ok(match entry.map(|entry| &entry.kind) {
+            None => Observed::Absent,
+            Some(ListedKind::Other) => Observed::Other,
+            Some(ListedKind::Directory) => Observed::Directory,
+            Some(ListedKind::Symlink { target, .. }) => Observed::Symlink {
+                target: target.clone(),
+            },
+            Some(ListedKind::File) => {
+                let hashed = self.hash_contents(side, std::slice::from_ref(path))?;
+                match hashed.into_iter().find(|(key, _)| key == path.as_typed()) {
+                    Some((_, Ok(hash))) => Observed::File { hash },
+                    Some((_, Err(failure))) => return Ok(Err(SideFailure { role, failure })),
+                    None => {
+                        let lost = Disconnection::NoAnswer("no hash was answered".into());
+                        return Err(OpError::new(
+                            Operation::Hash,
+                            path.as_typed(),
+                            OpFailure::Disconnected(lost),
+                        )
+                        .into());
+                    }
+                }
+            }
+        }))
+    }
+}

@@ -51,7 +51,7 @@ impl CoreRuntime {
     /// 走査する側で確かめて残った include の値。include の指定がなければ None。ない値と root_dir
     /// の外へ解決される値は警告して飛ばし、確認がエラーになった値はそのエラーで止める
     /// （docs/ir/config/include.md の REQ-config-032・033）
-    fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
+    pub(crate) fn checked_include(&mut self, side: &Side) -> anyhow::Result<Option<Vec<String>>> {
         let basis = (self.root_dir_of(side), self.config.filter.include.clone());
         if let Some(checked) = self.checked_include.get(side) {
             if checked.basis == basis {

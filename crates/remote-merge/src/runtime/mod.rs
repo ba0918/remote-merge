@@ -10,6 +10,9 @@ mod agent_start;
 mod agent_target;
 mod backup_store;
 pub mod change_check;
+mod compare_checks;
+pub mod compare_flow;
+mod compare_reads;
 pub(crate) mod confirm;
 pub mod connection;
 pub mod core;
@@ -44,6 +47,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
+pub use self::compare_flow::{
+    Asked, CollectedStates, CompareRequest, CompareScope, CompareSides, Comparison, ExternalLinks,
+};
 pub use self::core::CoreRuntime;
 
 #[derive(Clone)]

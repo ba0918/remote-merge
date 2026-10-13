@@ -28,6 +28,24 @@ mod change_failures_agree;
 mod cli_results;
 #[path = "contract/cli_usage.rs"]
 mod cli_usage;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_links.rs"]
+mod compare_links;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_paths_agree.rs"]
+mod compare_paths_agree;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_reading.rs"]
+mod compare_reading;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_reading_kinds.rs"]
+mod compare_reading_kinds;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_recheck.rs"]
+mod compare_recheck;
+#[cfg(feature = "test-utils")]
+#[path = "contract/compare_support.rs"]
+mod compare_support;
 #[path = "contract/config_filters.rs"]
 mod config_filters;
 #[cfg(feature = "test-utils")]
@@ -125,6 +143,9 @@ mod dry_run_failures;
 mod entry_path_routes;
 #[path = "contract/filters.rs"]
 mod filters;
+#[cfg(feature = "test-utils")]
+#[path = "contract/flow_routes.rs"]
+mod flow_routes;
 #[cfg(feature = "test-utils")]
 #[path = "contract/flow_support.rs"]
 mod flow_support;
