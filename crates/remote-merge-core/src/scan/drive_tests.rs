@@ -62,7 +62,10 @@ fn files_below_a_directory_link_are_listed_under_the_link_name() {
     let link = listing.entries.iter().find(|e| e.path == "linked").unwrap();
     assert!(matches!(
         link.kind,
-        ListedKind::Symlink { is_dir: true, .. }
+        ListedKind::Symlink {
+            points_to: crate::scan::outcome::LinkPoint::Directory,
+            ..
+        }
     ));
 }
 

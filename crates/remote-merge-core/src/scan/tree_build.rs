@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use chrono::DateTime;
 
-use super::outcome::{ListedEntry, ListedKind, Listing};
+use super::outcome::{LinkPoint, ListedEntry, ListedKind, Listing};
 use crate::tree::{FileNode, FileTree, NodeKind};
 
 pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
@@ -54,13 +54,16 @@ fn node_of(entry: &ListedEntry) -> Option<FileNode> {
         ListedKind::File => (NodeKind::File, None, false),
         ListedKind::Directory => (NodeKind::Directory, Some(BTreeMap::new()), false),
         ListedKind::Other => return None,
-        ListedKind::Symlink { target, is_dir } => (
-            NodeKind::Symlink {
-                target: target.clone(),
-            },
-            is_dir.then(BTreeMap::new),
-            *is_dir,
-        ),
+        ListedKind::Symlink { target, points_to } => {
+            let is_dir = *points_to == LinkPoint::Directory;
+            (
+                NodeKind::Symlink {
+                    target: target.clone(),
+                },
+                is_dir.then(BTreeMap::new),
+                is_dir,
+            )
+        }
     };
     Some(FileNode {
         name: name.to_string(),

@@ -52,7 +52,7 @@ fn the_children_of_a_directory_are_collected_one_level_deep_and_links_are_not_fo
         link.kind,
         ListedKind::Symlink {
             target: "t".into(),
-            is_dir: true
+            points_to: crate::scan::outcome::LinkPoint::Directory
         }
     );
     let tree = to_tree("/r", listing);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::scan::outcome::{ListedEntry, ListedKind, Listing};
+use crate::scan::outcome::{LinkPoint, ListedEntry, ListedKind, Listing};
 use crate::tree::NodeKind;
 
 fn entry(path: &str, kind: ListedKind) -> ListedEntry {
@@ -17,7 +17,11 @@ fn entry(path: &str, kind: ListedKind) -> ListedEntry {
 fn link(path: &str, is_dir: bool) -> ListedEntry {
     let kind = ListedKind::Symlink {
         target: "t".into(),
-        is_dir,
+        points_to: if is_dir {
+            LinkPoint::Directory
+        } else {
+            LinkPoint::NotDirectory
+        },
     };
     entry(path, kind)
 }

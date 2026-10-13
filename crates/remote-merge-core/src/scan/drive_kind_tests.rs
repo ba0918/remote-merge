@@ -45,3 +45,35 @@ fn a_child_of_another_kind_is_listed_as_that_kind() {
     let listing = run(&mut fake, &exclude(&[]), &request).unwrap();
     assert_eq!(kind_of(&listing, "sock"), &ListedKind::Other);
 }
+
+/// 比べる流れが辿った先の組の状態にするため、一覧の symlink はリンク先がディレクトリか・ディレクトリで
+/// ないものか・ないかを持つ（docs/ir/compare/judgement.md の REQ-compare-008）
+// @kotowari[REQ-compare-008]
+#[test]
+fn a_listed_link_tells_whether_its_target_is_a_directory_another_entry_or_missing() {
+    use super::super::outcome::LinkPoint;
+    use super::super::raw::LinkTarget;
+    let mut fake = Fake::default()
+        .with(
+            b"",
+            root(Some(vec![
+                link(b"dir", b"d"),
+                link(b"file", b"f"),
+                link(b"gone", b"g"),
+            ])),
+        )
+        .with(
+            b"dir",
+            link_answer(LinkTarget::Directory, Some(subtree(4, vec![]))),
+        )
+        .with(b"file", link_answer(LinkTarget::NotDirectory, None))
+        .with(b"gone", link_answer(LinkTarget::Missing, None));
+    let listing = run(&mut fake, &exclude(&[]), &whole(9)).unwrap();
+    let point = |path: &str| match kind_of(&listing, path) {
+        ListedKind::Symlink { points_to, .. } => *points_to,
+        other => panic!("{path} is not a link: {other:?}"),
+    };
+    assert_eq!(point("dir"), LinkPoint::Directory);
+    assert_eq!(point("file"), LinkPoint::NotDirectory);
+    assert_eq!(point("gone"), LinkPoint::Missing);
+}

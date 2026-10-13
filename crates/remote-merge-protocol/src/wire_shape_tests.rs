@@ -35,7 +35,7 @@ fn the_scan_answers_keep_their_wire_shape() {
             path: "l".into(),
             kind: ListedKind::Symlink {
                 target: "t".into(),
-                is_dir: true,
+                points_to: remote_merge_core::scan::outcome::LinkPoint::Directory,
             },
             size: 1,
             mtime_secs: -2,
@@ -56,7 +56,7 @@ fn the_scan_answers_keep_their_wire_shape() {
     };
     assert_eq!(
         hex(&serialize_response(&chunk).unwrap()),
-        "81a9547265654368756e6b959197a16c81a753796d6c696e6b92a174c301fe0309cd01a4c391a16ec2a163",
+        "81a9547265654368756e6b959197a16c81a753796d6c696e6b92a174a94469726563746f727901fe0309cd01a4c391a16ec2a163",
         "bump PROTOCOL_VERSION"
     );
     assert_eq!(
@@ -120,7 +120,7 @@ fn every_kind_and_scope() -> (Vec<ListedKind>, Vec<ScanScope>) {
         ListedKind::Directory,
         ListedKind::Symlink {
             target: "t".into(),
-            is_dir: false,
+            points_to: remote_merge_core::scan::outcome::LinkPoint::NotDirectory,
         },
         ListedKind::Other,
     ];
@@ -195,7 +195,7 @@ fn every_kind_of_entry_and_scope_keeps_its_wire_shape() {
         .collect();
     assert_eq!(
         hex(&serialize_response(&chunk).unwrap()),
-        "81a9547265654368756e6b959497a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b92a174c2000000000097a165a54f746865720000000000c290c3c0",
+        "81a9547265654368756e6b959497a165a446696c65000000000097a165a94469726563746f7279000000000097a16581a753796d6c696e6b92a174ac4e6f744469726563746f7279000000000097a165a54f746865720000000000c290c3c0",
         "bump PROTOCOL_VERSION"
     );
     assert_eq!(requests.join(","), "81a84c697374547265659292a557686f6c650190,81a84c69737454726565929281a65374617274739394a161c3c30094a162c2c30194a163c2c2020190,81a84c69737454726565929281a84368696c6472656ea1640190", "bump PROTOCOL_VERSION");

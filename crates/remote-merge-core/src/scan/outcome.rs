@@ -74,11 +74,22 @@ pub enum ListedKind {
     Directory,
     Symlink {
         target: String,
-        is_dir: bool,
+        points_to: LinkPoint,
     },
     /// 通常ファイル・ディレクトリ・symlink のどれでもないもの（FIFO・ソケット・デバイス。
     /// docs/ir/scan/listing.md の REQ-scan-021）。中身は読まない
     Other,
+}
+
+/// 一覧に載せた symlink のリンク先を辿った種類。辿れないリンクは一覧に載せず走査を止める
+/// （docs/ir/scan/directory-links.md の REQ-scan-018）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkPoint {
+    Directory,
+    /// ディレクトリでないもの（通常ファイル・その他の種類）
+    NotDirectory,
+    /// リンク先がない（リンク切れ）
+    Missing,
 }
 
 /// 一覧に載せた項目。`path` は root_dir からのパス

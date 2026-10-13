@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::exclude::Exclude;
-use super::outcome::{ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
+use super::outcome::{LinkPoint, ListedEntry, ListedKind, Listing, ScanError, ScanFailure};
 pub(super) use super::parts::PendingLink;
 use super::parts::{
     changed, in_path_order, join, listed_entry, parent_ids, parent_of, shown, unreadable_directory,
@@ -169,7 +169,7 @@ impl<'a> Walk<'a> {
         let kind = match (target, &entry.kind) {
             (Some(target), _) => ListedKind::Symlink {
                 target: String::from_utf8_lossy(target).into_owned(),
-                is_dir: false,
+                points_to: LinkPoint::NotDirectory,
             },
             // その他の種類は通常ファイルとせず、その種類のまま載せる（REQ-scan-021）
             (None, RawKind::Other) => ListedKind::Other,

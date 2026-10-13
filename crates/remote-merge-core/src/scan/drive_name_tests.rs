@@ -85,7 +85,7 @@ fn a_link_target_that_is_not_utf8_is_listed_with_replacement_characters() {
         listing.entries[0].kind,
         ListedKind::Symlink {
             target: "bad\u{fffd}".into(),
-            is_dir: false
+            points_to: crate::scan::outcome::LinkPoint::Missing
         }
     );
 }

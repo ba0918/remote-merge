@@ -35,7 +35,10 @@ fn an_include_value_naming_a_directory_link_lists_the_link_and_its_contents_unde
             .find(|e| e.path == "current")
             .unwrap()
             .kind,
-        ListedKind::Symlink { is_dir: true, .. }
+        ListedKind::Symlink {
+            points_to: crate::scan::outcome::LinkPoint::Directory,
+            ..
+        }
     ));
 }
 
@@ -173,10 +176,16 @@ fn a_file_value_after_a_value_holding_a_link_lists_both_without_mixing_their_ans
 
 /// "a/l" がディレクトリへのリンクとして載ったか
 fn followed(listing: &super::super::outcome::Listing, path: &str) -> bool {
-    listing
-        .entries
-        .iter()
-        .any(|e| e.path == path && matches!(e.kind, ListedKind::Symlink { is_dir: true, .. }))
+    listing.entries.iter().any(|e| {
+        e.path == path
+            && matches!(
+                e.kind,
+                ListedKind::Symlink {
+                    points_to: crate::scan::outcome::LinkPoint::Directory,
+                    ..
+                }
+            )
+    })
 }
 
 // @kotowari[REQ-scan-004, REQ-config-034]

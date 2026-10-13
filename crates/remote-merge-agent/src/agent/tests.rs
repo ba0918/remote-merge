@@ -132,7 +132,7 @@ fn a_scan_over_the_protocol_becomes_a_file_tree() {
         link_entry.kind,
         ListedKind::Symlink {
             target: "root.txt".into(),
-            is_dir: false
+            points_to: remote_merge_core::scan::outcome::LinkPoint::NotDirectory
         }
     );
 
@@ -273,7 +273,7 @@ fn symlink_create_and_list_and_read() {
         link_entry.kind,
         ListedKind::Symlink {
             target: "target.txt".into(),
-            is_dir: false
+            points_to: remote_merge_core::scan::outcome::LinkPoint::NotDirectory
         }
     );
 

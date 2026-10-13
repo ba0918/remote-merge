@@ -22,7 +22,9 @@ pub(super) fn listing_text(listing: anyhow::Result<Listing>) -> String {
                 let kind = match &entry.kind {
                     ListedKind::File => "file".to_string(),
                     ListedKind::Directory => "directory".to_string(),
-                    ListedKind::Symlink { target, is_dir } => format!("symlink {target} {is_dir}"),
+                    ListedKind::Symlink { target, points_to } => {
+                        format!("symlink {target} {points_to:?}")
+                    }
                     ListedKind::Other => "other".to_string(),
                 };
                 format!("{} {kind}\n", entry.path)
