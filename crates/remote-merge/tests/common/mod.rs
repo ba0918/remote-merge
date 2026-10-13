@@ -482,11 +482,33 @@ impl CliEnv {
 
 // ─── CLI コマンド生成（config なし） ─────────────────────
 
+/// 一時ディレクトリの XDG_DATA_HOME と XDG_CACHE_HOME を持つ Command。一時ディレクトリは Command と
+/// 一緒に消える
+pub struct IsolatedCommand {
+    command: Command,
+    _homes: TempDir,
+}
+
+impl std::ops::Deref for IsolatedCommand {
+    type Target = Command;
+
+    fn deref(&self) -> &Command {
+        &self.command
+    }
+}
+
+impl std::ops::DerefMut for IsolatedCommand {
+    fn deref_mut(&mut self) -> &mut Command {
+        &mut self.command
+    }
+}
+
 /// remote-merge バイナリの Command を生成する（config 指定なし）。
 ///
 /// 環境変数をクリアして RUST_LOG 等の影響を排除する。
-/// exit code テスト等、config 不要なケースで使う。
-pub fn remote_merge_cmd() -> Command {
+/// exit code テスト等、config 不要なケースで使う。起動したプロセスが終わるまで、返したものを
+/// 持っておく
+pub fn remote_merge_cmd() -> IsolatedCommand {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_remote-merge"));
     cmd.env_clear();
     // 最低限必要な環境変数を復元
@@ -496,16 +518,19 @@ pub fn remote_merge_cmd() -> Command {
     if let Ok(path) = std::env::var("PATH") {
         cmd.env("PATH", path);
     }
-    let data_home = TempDir::new()
-        .expect("Failed to create isolated data home")
-        .keep();
-    cmd.env("XDG_DATA_HOME", data_home);
+    let homes = TempDir::new().expect("Failed to create isolated homes");
+    let data_home = homes.path().join("data");
     // 診断ログを開発者のキャッシュに書かない
-    let cache_home = TempDir::new()
-        .expect("Failed to create isolated cache home")
-        .keep();
+    let cache_home = homes.path().join("cache");
+    for home in [&data_home, &cache_home] {
+        fs::create_dir(home).expect("Failed to create an isolated home");
+    }
+    cmd.env("XDG_DATA_HOME", data_home);
     cmd.env("XDG_CACHE_HOME", cache_home);
-    cmd
+    IsolatedCommand {
+        command: cmd,
+        _homes: homes,
+    }
 }
 
 // ─── アサーションヘルパー ────────────────────────────────

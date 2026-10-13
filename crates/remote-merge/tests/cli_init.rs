@@ -28,7 +28,8 @@ fn test_init_creates_config_file() {
     //   Exclude patterns (comma-separated) (default: ...): → 空行
     let stdin_input = "\nexample.com\n\n\n\n/var/www\n\n\n";
 
-    let mut child = remote_merge_cmd()
+    let mut command = remote_merge_cmd();
+    let mut child = command
         .arg("init")
         .current_dir(tmp.path())
         .stdin(Stdio::piped())
@@ -96,7 +97,8 @@ fn test_init_does_not_overwrite_existing() {
     // 上書き確認プロンプトに "N" を返す
     let stdin_input = "N\n";
 
-    let mut child = remote_merge_cmd()
+    let mut command = remote_merge_cmd();
+    let mut child = command
         .arg("init")
         .current_dir(tmp.path())
         .stdin(Stdio::piped())

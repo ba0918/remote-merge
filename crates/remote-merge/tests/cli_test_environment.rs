@@ -21,3 +21,16 @@ fn cli_commands_use_isolated_data_home() {
 fn command_without_config_uses_isolated_data_home() {
     assert!(xdg_data_home(&remote_merge_cmd()).is_some());
 }
+
+#[test]
+fn the_isolated_homes_of_a_command_without_config_are_removed_with_the_command() {
+    let command = remote_merge_cmd();
+    let data_home = xdg_data_home(&command).unwrap();
+    assert!(data_home.exists());
+    drop(command);
+    assert!(
+        !data_home.exists(),
+        "{} was left behind",
+        data_home.display()
+    );
+}

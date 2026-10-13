@@ -27,9 +27,9 @@ fn lock_records(dir: &Path, keep: &Path) {
     }
 }
 
-/// root_dir を `root` にし、バックアップを有効にした設定ファイル
-fn config_file(root: &Path) -> PathBuf {
-    let path = root.with_extension("toml");
+/// root_dir を `root` にし、バックアップを有効にした設定ファイルを `dir` に置く
+fn config_file(dir: &Path, root: &Path) -> PathBuf {
+    let path = dir.join("config.toml");
     fs::write(
         &path,
         format!(
@@ -49,9 +49,12 @@ fn ex_backup_032_a_saved_record_that_cannot_be_read_back_stops_only_that_file() 
     }
     let root = tempfile::tempdir().unwrap();
     let store = tempfile::tempdir().unwrap();
-    let config =
-        remote_merge::config::load_config_from_paths(Some(&config_file(root.path())), None)
-            .unwrap();
+    let config_dir = tempfile::tempdir().unwrap();
+    let config = remote_merge::config::load_config_from_paths(
+        Some(&config_file(config_dir.path(), root.path())),
+        None,
+    )
+    .unwrap();
     let mut rt = CoreRuntime::with_targets(
         config,
         RuntimeTargets::production().with_backup_store(Some(store.path().to_path_buf())),
