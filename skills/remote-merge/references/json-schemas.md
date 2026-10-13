@@ -82,7 +82,7 @@ Diff always returns a `MultiDiffOutput` wrapper, even for a single file.
 
 - `files`: array of per-file diff outputs
 - `summary.scanned_files`: total number of files scanned (including equal/unchanged files)
-- `summary.files_with_changes`: number of files that have at least one hunk
+- `summary.files_with_changes`: number of files that differ, exist on one side only, or differ in kind, including binary files and symlinks (the same files that make the exit code 1). The text output's "file(s) with changes" counts the same files
 - `truncated`: true when `--max-files` limit was reached (default: 100; use `--max-files 0` for unlimited). Omitted when false.
 - `changed_files_total`: total number of changed files before truncation. Present only when `truncated` is true.
 - Line types within hunks: `context`, `added`, `removed`. Per-file `truncated` is true when `--max-lines` was hit.
