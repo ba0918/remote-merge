@@ -131,6 +131,9 @@ mod flow_support;
 #[path = "contract/init.rs"]
 mod init;
 #[cfg(feature = "test-utils")]
+#[path = "contract/listing_limit.rs"]
+mod listing_limit;
+#[cfg(feature = "test-utils")]
 #[path = "contract/listing_support.rs"]
 mod listing_support;
 #[path = "contract/logs_level.rs"]

@@ -68,9 +68,6 @@ const DEFAULT_DIR_PERMISSIONS: u32 = 0o775;
 /// ツリースキャンのデフォルト最大エントリ数
 pub const DEFAULT_MAX_SCAN_ENTRIES: usize = 50_000;
 
-/// ディレクトリ取得のデフォルト最大エントリ数（ローカル・リモート共通）
-pub const DEFAULT_MAX_DIR_ENTRIES: usize = 10_000;
-
 /// max_scan_entries の有効範囲: 1 以上 1,000,000 以下
 pub fn validate_max_scan_entries(n: usize) -> Result<(), String> {
     if n == 0 || n > 1_000_000 {
@@ -1998,11 +1995,6 @@ strict_host_key_checking = "no"
     #[test]
     fn test_default_max_scan_entries_is_50000() {
         assert_eq!(DEFAULT_MAX_SCAN_ENTRIES, 50_000);
-    }
-
-    #[test]
-    fn test_default_max_dir_entries_is_10000() {
-        assert_eq!(DEFAULT_MAX_DIR_ENTRIES, 10_000);
     }
 
     #[test]

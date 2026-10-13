@@ -56,10 +56,11 @@ pub fn inspect_local_path(root: &Path, rel_path: &RelPath) -> anyhow::Result<Res
     )?)
 }
 
-/// root_dir の直下だけのツリー（下のディレクトリは読まない）
-pub fn fetch_tree(root: &Path, exclude: &[String]) -> anyhow::Result<FileTree> {
+/// root_dir の直下だけのツリー（下のディレクトリは読まない）。子は走査と同じ件数の上限
+/// `max_entries` で数える
+pub fn fetch_tree(root: &Path, exclude: &[String], max_entries: usize) -> anyhow::Result<FileTree> {
     let mut tree = FileTree::new(root);
-    tree.nodes = fetch_children(root, exclude, &[], &RelPath::root())?;
+    tree.nodes = fetch_children(root, exclude, &[], &RelPath::root(), max_entries)?;
     tree.sort();
     Ok(tree)
 }
@@ -115,8 +116,9 @@ pub fn fetch_children(
     exclude: &[String],
     include: &[String],
     path: &RelPath,
+    max_entries: usize,
 ) -> anyhow::Result<Vec<FileNode>> {
-    let nodes = match list_children(root, exclude, path)? {
+    let nodes = match list_children(root, exclude, path, max_entries)? {
         ChildListing::Children(nodes) => nodes,
         ChildListing::NotDirectory => Vec::new(),
         ChildListing::Unlistable(reason) => anyhow::bail!(reason),
@@ -129,15 +131,18 @@ pub fn fetch_children(
 }
 
 /// root_dir からの `path` の直下の子を、走査の集め方を深さ一つにしたもので集め、三つの結果を
-/// 区別して返す（docs/decision/records/2026-10-12-foundation-3.md の D6）
+/// 区別して返す（docs/decision/records/2026-10-12-foundation-3.md の D6）。子は走査と同じ件数の
+/// 上限 `max_entries` で数え、超えたら [`ChildrenTruncated`](crate::child_listing::ChildrenTruncated)
+/// の誤りにする（docs/ir/cli/symlink-diff.md の REQ-cli-021）
 pub fn list_children(
     root: &Path,
     exclude: &[String],
     path: &RelPath,
+    max_entries: usize,
 ) -> anyhow::Result<ChildListing> {
     let request = ScanRequest {
         scope: ScanScope::Children(path.as_str().to_string()),
-        max_entries: crate::config::DEFAULT_MAX_DIR_ENTRIES,
+        max_entries,
     };
     into_child_listing(
         root,

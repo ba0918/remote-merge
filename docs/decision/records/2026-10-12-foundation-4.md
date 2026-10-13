@@ -91,6 +91,9 @@ Position: 段 4 の仕様（E1〜E29）を書いた。比べる流れの IR は 
 - E30 SSH の経路の読み込みのスクリプトの単体テスト（`crates/remote-merge-ssh/src/contents_tests.rs` の `each_path_gets_its_content_or_the_kind_of_its_failure`）が、ディレクトリの中身の読み込みを理由 "Is a directory" の I/O の失敗として固めていたものを、"not a regular file" の I/O の失敗を確かめるように直す。
   - why: [REQ-paths-021](../../ir/paths/operations.md#REQ-paths-021) は、辿った先がディレクトリを含む通常ファイルでないものの中身とハッシュを、理由 "not a regular file" の I/O の失敗で終えると決めている。失敗の種類（I/O）は変わらず、理由の文言だけが違っていた。
   - decided_by: Claude（E19 と REQ-paths-021 から導いた。自走の指示により決めた）
+- E31 子の一覧の結果の単体テスト（`crates/remote-merge-engine/src/child_listing_tests.rs` の `a_listed_directory_gives_its_children_and_a_truncated_listing_keeps_what_was_read`）が、件数の上限で打ち切った子の一覧を、印のない読めた子の一覧として返すことを固めていたものを、読めた子を持つ不完全な一覧の誤り（`ChildrenTruncated`）として返すことを確かめるように直す。
+  - why: E11 と [REQ-cli-021](../../ir/cli/symlink-diff.md#REQ-cli-021)・[REQ-scan-004](../../ir/scan/limits.md#REQ-scan-004) は、子の一覧が上限を超えたら不完全な一覧として知らせると決めている。今のテストは、FLAG-cli-049 で持ち越していた黙った打ち切りを固めていた。
+  - decided_by: Claude（E19 と E11 から導いた。自走の指示により決めた）
 
 ## Rejected
 

@@ -54,7 +54,7 @@ impl CoreRuntime {
     ) -> anyhow::Result<ChildListing> {
         let exclude = self.config.filter.exclude.clone();
         let include = self.config.filter.include.clone();
-        let max_entries = crate::config::DEFAULT_MAX_DIR_ENTRIES;
+        let max_entries = self.config.max_scan_entries;
         let listing = self.read_on_route(server, |rt| {
             rt.remote_list_children(server, path, &exclude, max_entries)
         })?;

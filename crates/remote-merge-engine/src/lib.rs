@@ -13,5 +13,5 @@ use remote_merge_core::{diff, error, filter, tree};
 mod config {
     #[cfg(test)]
     pub(crate) use remote_merge_config::AuthMethod;
-    pub(crate) use remote_merge_config::{LocalConfig, ServerConfig, DEFAULT_MAX_DIR_ENTRIES};
+    pub(crate) use remote_merge_config::{LocalConfig, ServerConfig};
 }

@@ -4,5 +4,5 @@ pub use remote_merge_config::{
     resolve_dir_permissions, resolve_file_permissions, resolve_max_entries,
     validate_max_scan_entries, AgentConfig, AppConfig, AuthMethod, BackupConfig, DefaultsConfig,
     FilterConfig, LocalConfig, ServerConfig, SshConfig, SshOptions, StrictHostKeyChecking,
-    DEFAULT_MAX_DIR_ENTRIES, DEFAULT_MAX_SCAN_ENTRIES,
+    DEFAULT_MAX_SCAN_ENTRIES,
 };

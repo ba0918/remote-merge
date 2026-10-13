@@ -6,7 +6,7 @@ use remote_merge_core::scan::outcome::{
     ListedEntry, ListedKind, Listing, ReadCause, ScanError, ScanFailure,
 };
 
-use super::into_child_listing;
+use super::{into_child_listing, ChildrenTruncated};
 
 fn entry(path: &str, kind: ListedKind) -> ListedEntry {
     ListedEntry {
@@ -28,13 +28,12 @@ fn listed(dir: &str, scanned: Result<Listing, ScanError>) -> anyhow::Result<Chil
 
 // @kotowari[REQ-paths-013, REQ-paths-017]
 #[test]
-fn a_listed_directory_gives_its_children_and_a_truncated_listing_keeps_what_was_read() {
+fn a_listed_directory_gives_its_children() {
     let listing = Listing {
         entries: vec![
             entry("a", ListedKind::Directory),
             entry("a/x.txt", ListedKind::File),
         ],
-        truncated: true,
         ..Listing::default()
     };
     let children = listed("a", Ok(listing.clone())).unwrap();
@@ -43,6 +42,30 @@ fn a_listed_directory_gives_its_children_and_a_truncated_listing_keeps_what_was_
         listed("b", Ok(listing)).unwrap(),
         ChildListing::NotDirectory
     ));
+}
+
+// @kotowari[REQ-cli-021, REQ-scan-004, REQ-scan-008]
+#[test]
+fn a_listing_cut_at_the_limit_is_reported_as_incomplete_with_what_was_read() {
+    let listing = Listing {
+        entries: vec![
+            entry("a", ListedKind::Directory),
+            entry("a/x.txt", ListedKind::File),
+        ],
+        truncated: true,
+        ..Listing::default()
+    };
+    let error = listed("a", Ok(listing)).unwrap_err();
+    let truncated = error.downcast_ref::<ChildrenTruncated>().unwrap();
+    assert_eq!(truncated.max_entries, 9);
+    assert!(
+        matches!(&truncated.listing, ChildListing::Children(nodes) if nodes.len() == 1),
+        "{truncated:?}"
+    );
+    assert!(
+        error.to_string().contains("truncated at 9 entries"),
+        "{error}"
+    );
 }
 
 // @kotowari[REQ-paths-013, REQ-cli-096]

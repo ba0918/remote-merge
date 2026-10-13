@@ -358,8 +358,9 @@ fn list_on_all_routes_excluding(
     exclude: &[String],
 ) -> (Vec<Entry>, [String; 3]) {
     let rel = &remote_merge_core::relative_path::RelPath::parse(path).unwrap();
-    let local = remote_merge_engine::local_io::list_children(&routes.local.root, exclude, rel)
-        .map_err(|error| error.to_string());
+    let local =
+        remote_merge_engine::local_io::list_children(&routes.local.root, exclude, rel, MAX_ENTRIES)
+            .map_err(|error| error.to_string());
     let local_text = listing_text(local.clone());
     let ssh = routes.over_ssh(&format!("list\t{path}"));
     let agent =
@@ -524,6 +525,7 @@ async fn listing_the_same_directory_gives_the_same_entries_on_all_three_routes()
             &routes.local.root,
             &exclude,
             &remote_merge_core::relative_path::RelPath::parse("v").unwrap(),
+            MAX_ENTRIES,
         )
         .map_err(|error| error.to_string()),
     );

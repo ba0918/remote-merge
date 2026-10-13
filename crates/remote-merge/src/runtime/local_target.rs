@@ -90,8 +90,9 @@ impl TargetIo for LocalTargetIo {
             .map_err(|failure| op_error(Operation::CreateSymlink, path, failure))
     }
 
-    fn fetch_tree(&mut self, _: &mut CoreRuntime) -> anyhow::Result<FileTree> {
-        remote_merge_engine::local_io::fetch_tree(&self.root, &self.exclude)
+    fn fetch_tree(&mut self, runtime: &mut CoreRuntime) -> anyhow::Result<FileTree> {
+        let max_entries = runtime.config.max_scan_entries;
+        remote_merge_engine::local_io::fetch_tree(&self.root, &self.exclude, max_entries)
     }
 
     fn scan_tree(
@@ -113,7 +114,7 @@ impl TargetIo for LocalTargetIo {
 
     fn fetch_children(
         &mut self,
-        _: &mut CoreRuntime,
+        runtime: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<Vec<FileNode>> {
         remote_merge_engine::local_io::fetch_children(
@@ -121,16 +122,22 @@ impl TargetIo for LocalTargetIo {
             &self.exclude,
             &self.include,
             path,
+            runtime.config.max_scan_entries,
         )
     }
 
     fn list_children(
         &mut self,
-        _: &mut CoreRuntime,
+        runtime: &mut CoreRuntime,
         path: &RelPath,
     ) -> anyhow::Result<ChildListing> {
-        let listing =
-            remote_merge_engine::local_io::list_children(&self.root, &self.exclude, path)?;
+        let max_entries = runtime.config.max_scan_entries;
+        let listing = remote_merge_engine::local_io::list_children(
+            &self.root,
+            &self.exclude,
+            path,
+            max_entries,
+        )?;
         Ok(included_children(listing, path.as_str(), &self.include))
     }
 

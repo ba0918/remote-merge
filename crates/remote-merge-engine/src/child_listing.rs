@@ -7,12 +7,14 @@ use remote_merge_core::scan::children::{
 };
 use remote_merge_core::scan::outcome::{Listing, ScanError};
 
+use crate::local_io::ScanTruncated;
 use crate::scan_result::into_tree;
 
 /// 子の一覧の走査（`ScanScope::Children(dir)`）の結果を子の一覧にする。途中がディレクトリで
 /// ないことはディレクトリではないものに、一覧するディレクトリを読めないことなどは一覧を取れ
-/// なかったものにし、ほかの誤りは走査と同じく返す。件数の上限での打ち切りは、読めた子で続ける
-/// （docs/ir/cli/FLAGS.md の FLAG-cli-049）
+/// なかったものにし、ほかの誤りは走査と同じく返す。件数の上限で打ち切った一覧は、読めた子を持つ
+/// [`ChildrenTruncated`] の誤りにする（docs/ir/cli/symlink-diff.md の REQ-cli-021、
+/// docs/ir/scan/limits.md の REQ-scan-004）
 pub fn into_child_listing(
     root: &Path,
     shown_root: &str,
@@ -30,8 +32,35 @@ pub fn into_child_listing(
         other => other,
     };
     let tree = into_tree(root, shown_root, scanned, max_entries, false, root_missing)?;
-    Ok(children_in(&tree, dir))
+    let listing = children_in(&tree, dir);
+    if tree.truncated {
+        return Err(ChildrenTruncated {
+            max_entries,
+            listing,
+        }
+        .into());
+    }
+    Ok(listing)
 }
+
+/// 件数の上限で打ち切った子の一覧（REQ-scan-004）。走査を止める失敗とは別の型で、読めたところまでの
+/// 子の一覧を持つ
+#[derive(Debug)]
+pub struct ChildrenTruncated {
+    pub max_entries: usize,
+    pub listing: ChildListing,
+}
+
+impl std::fmt::Display for ChildrenTruncated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        ScanTruncated {
+            max_entries: self.max_entries,
+        }
+        .fmt(f)
+    }
+}
+
+impl std::error::Error for ChildrenTruncated {}
 
 #[cfg(test)]
 #[path = "child_listing_tests.rs"]

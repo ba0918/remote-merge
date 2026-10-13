@@ -148,6 +148,15 @@ impl FlowRoutes {
         self.home.path().join(route.name()).join("right")
     }
 
+    /// 三つの経路の設定の先頭（どのセクションにも入らない位置）に `line` を足す
+    pub(super) fn with_top_level(self, line: &str) -> Self {
+        for route in ROUTES {
+            let text = fs::read_to_string(self.config(route)).unwrap();
+            fs::write(self.config(route), format!("{line}\n{text}")).unwrap();
+        }
+        self
+    }
+
     fn config(&self, route: Route) -> PathBuf {
         self.home.path().join(format!("{}.toml", route.name()))
     }
