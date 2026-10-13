@@ -112,6 +112,7 @@ pub fn execute_status(
         // `接続断` で止めたときは、そのサーバの読み込みは行わずに理由付きの失敗になり、
         // 比べるはずだったファイルは理由とともに errors に出る
         core.try_hash_compare(&pair.left, &pair.right, &paths_to_compare)
+            .map(Some)
             .unwrap_or_else(|error| {
                 tracing::warn!("Hash comparison stopped: {error:#}");
                 None

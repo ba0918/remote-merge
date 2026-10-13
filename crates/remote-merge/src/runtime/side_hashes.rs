@@ -18,35 +18,29 @@ impl CoreRuntime {
         left: &Side,
         right: &Side,
         paths: &[String],
-    ) -> anyhow::Result<Option<SideHashes>> {
+    ) -> anyhow::Result<SideHashes> {
         let entries = paths
             .iter()
             .map(|path| EntryPath::parse(path))
             .collect::<Result<Vec<_>, _>>()?;
-        let Some(left_hashes) = self.side_hashes(left, &entries)? else {
-            return Ok(None);
-        };
-        let Some(right_hashes) = self.side_hashes(right, &entries)? else {
-            return Ok(None);
-        };
-        Ok(Some((left_hashes, right_hashes)))
+        let left_hashes = self.side_hashes(left, &entries)?;
+        let right_hashes = self.side_hashes(right, &entries)?;
+        Ok((left_hashes, right_hashes))
     }
 
     fn side_hashes(
         &mut self,
         side: &Side,
         entries: &[EntryPath],
-    ) -> anyhow::Result<Option<HashMap<String, String>>> {
+    ) -> anyhow::Result<HashMap<String, String>> {
         if let Some(stopped) = self.stopped_error_for(side) {
             return Err(stopped);
         }
         let mut io = super::target_io::for_side(side, self);
         let hashes = io.hash_entries(self, entries)?;
-        Ok(Some(
-            hashes
-                .into_iter()
-                .filter_map(|(path, hash)| hash.ok().map(|hash| (path, hash)))
-                .collect(),
-        ))
+        Ok(hashes
+            .into_iter()
+            .filter_map(|(path, hash)| hash.ok().map(|hash| (path, hash)))
+            .collect())
     }
 }
