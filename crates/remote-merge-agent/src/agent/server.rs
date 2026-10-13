@@ -139,6 +139,9 @@ fn summarize_request(request: &AgentRequest) -> String {
             paths.len()
         ),
         AgentRequest::HashFiles { paths } => format!("HashFiles path_count={}", paths.len()),
+        AgentRequest::HashContents { paths } => {
+            format!("HashContents path_count={}", paths.len())
+        }
         AgentRequest::WriteFile {
             path,
             content,

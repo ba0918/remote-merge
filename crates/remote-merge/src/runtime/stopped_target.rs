@@ -114,6 +114,13 @@ impl TargetIo for StoppedTargetIo {
     ) -> anyhow::Result<Vec<PathResult<String>>> {
         self.refuse(rt)
     }
+    fn hash_contents(
+        &mut self,
+        rt: &mut CoreRuntime,
+        _: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        self.refuse(rt)
+    }
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,

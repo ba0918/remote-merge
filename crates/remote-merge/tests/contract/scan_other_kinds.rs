@@ -8,9 +8,10 @@ use std::process::Command;
 
 use remote_merge_core::scan::outcome::{ListedKind, Listing, ScanRequest, ScanScope};
 
-use super::flow_support::{child, FlowRoutes, ROUTES};
+use super::flow_support::{child, Child, FlowRoutes, ROUTES};
 
-const SERVING_TEST: &str = "scan_other_kinds::answer_in_the_child_process";
+const THIS_TEST: &str =
+    "scan_other_kinds::ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes";
 
 /// 一覧の項目を "パス 種類" の行にする
 pub(super) fn listing_text(listing: anyhow::Result<Listing>) -> String {
@@ -34,11 +35,8 @@ pub(super) fn listing_text(listing: anyhow::Result<Listing>) -> String {
     }
 }
 
-#[test]
-fn answer_in_the_child_process() {
-    let Some(mut child) = child() else {
-        return;
-    };
+/// 子のプロセスで、右の側を root_dir 全体で走査した一覧を答える
+fn answer(mut child: Child) {
     assert_eq!(child.request, "scan");
     let right = child.right();
     let request = ScanRequest {
@@ -60,17 +58,19 @@ pub(super) fn make_socket(path: &Path) {
 }
 
 // @kotowari[REQ-scan-021, REQ-scan-017, EX-scan-017]
-#[tokio::test(flavor = "multi_thread")]
-async fn ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes() {
+#[test]
+fn ex_scan_017_a_fifo_and_a_socket_are_listed_as_another_kind_on_all_three_routes() {
+    if let Some(child) = child() {
+        return answer(child);
+    }
     let routes = FlowRoutes::new(|_, right| {
         make_fifo(&right.join("pipe"));
         make_socket(&right.join("app.sock"));
         std::fs::write(right.join("a.txt"), "a\n").unwrap();
-    })
-    .await;
+    });
 
     for route in ROUTES {
-        let text = routes.run(route, SERVING_TEST, "scan");
+        let text = routes.run(route, THIS_TEST, "scan");
         assert_eq!(
             text, "a.txt file\napp.sock other\npipe other\n",
             "{route:?}"

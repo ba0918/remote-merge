@@ -8,8 +8,8 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn the_protocol_version_is_fourteen() {
-    assert_eq!(PROTOCOL_VERSION, 14);
+fn the_protocol_version_is_fifteen() {
+    assert_eq!(PROTOCOL_VERSION, 15);
 }
 
 #[test]

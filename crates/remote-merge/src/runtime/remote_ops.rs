@@ -85,6 +85,17 @@ impl CoreRuntime {
         }
     }
 
+    pub(crate) fn remote_hash_contents(
+        &mut self,
+        server: &str,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        match self.remote_route(server)? {
+            RemoteRoute::Agent => agent_route::hash_contents(self, server, paths),
+            RemoteRoute::Ssh => self.ssh_hash_contents(server, paths),
+        }
+    }
+
     pub(crate) fn remote_hash_entries(
         &mut self,
         server: &str,

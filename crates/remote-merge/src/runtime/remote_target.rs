@@ -173,6 +173,15 @@ impl TargetIo for RemoteTargetIo {
         rt.read_on_route(name, |rt| rt.remote_hash_entries(name, paths))
     }
 
+    fn hash_contents(
+        &mut self,
+        rt: &mut CoreRuntime,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        let name = &self.name;
+        rt.read_on_route(name, |rt| rt.remote_hash_contents(name, paths))
+    }
+
     fn states_before_restore(
         &mut self,
         rt: &mut CoreRuntime,

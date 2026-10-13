@@ -5,7 +5,7 @@ mod listing;
 mod reads;
 
 pub(crate) use listing::{list_children, scan, scan_listing};
-pub(crate) use reads::{entry_link, hash_entries, read_entries};
+pub(crate) use reads::{entry_link, hash_contents, hash_entries, read_entries};
 
 use remote_merge_core::op_failure::{Disconnection, OpError, OpFailure, Operation};
 use remote_merge_core::path_resolution::ResolvedPath;

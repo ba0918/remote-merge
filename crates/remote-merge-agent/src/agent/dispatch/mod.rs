@@ -55,6 +55,7 @@ impl Dispatcher {
                 size_limit,
             } => reads::read_files(root, &paths, chunk_size_limit, size_limit),
             AgentRequest::HashFiles { paths } => vec![reads::hash_files(root, &paths)],
+            AgentRequest::HashContents { paths } => vec![reads::hash_contents(root, &paths)],
             AgentRequest::InspectPath { path } => match RelPath::parse(&path) {
                 Ok(path) => vec![AgentResponse::PathInspection {
                     result: file_io::inspect_path(root, &path),

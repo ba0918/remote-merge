@@ -170,3 +170,6 @@ mod streamed;
 
 #[path = "contents_tests/special.rs"]
 mod special;
+
+#[path = "contents_tests/followed.rs"]
+mod followed;

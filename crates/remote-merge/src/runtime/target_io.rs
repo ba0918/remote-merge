@@ -150,6 +150,12 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<Vec<PathResult<String>>>;
+    /// パスごとの中身の SHA-256 か失敗の種類（末尾の symlink も辿った先の中身）
+    fn hash_contents(
+        &mut self,
+        runtime: &mut CoreRuntime,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>>;
     /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
     fn states_before_restore(
         &mut self,

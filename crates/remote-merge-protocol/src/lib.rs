@@ -31,6 +31,7 @@ macro_rules! define_protocol_version {
         /// v12 → v13: 走査の一覧の項目の種類に、FIFO・ソケット・デバイスのその他の種類（Other）を足した
         /// v13 → v14: 一覧の symlink に、リンク先がディレクトリか・ディレクトリでないか・ないか
         ///           （points_to）を持たせた
+        /// v14 → v15: symlink も辿った先の中身のハッシュを取る HashContents を足した
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。
@@ -48,7 +49,7 @@ macro_rules! define_protocol_version {
     };
 }
 
-define_protocol_version!(14);
+define_protocol_version!(15);
 
 /// ハンドシェイク行のプレフィックス
 pub const HANDSHAKE_PREFIX: &str = "remote-merge agent";

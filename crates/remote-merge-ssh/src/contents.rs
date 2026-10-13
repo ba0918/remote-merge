@@ -4,7 +4,7 @@
 use remote_merge_core::op_failure::OpFailure;
 
 use crate::contents_output::{parse_hash, parse_read};
-use crate::contents_script::{hash, read, split};
+use crate::contents_script::{hash, hash_contents, read, split};
 use crate::contents_stream::{raw, RawDigests};
 
 /// 一つのパスの答え（結果のキーと、値か失敗の種類）
@@ -60,6 +60,19 @@ pub fn hash_all<E>(
 ) -> Result<Vec<PathAnswer<Option<String>>>, ContentsFailure<E>> {
     in_commands(asked, &hash(&[]), max_len, |paths| {
         let stdout = run(&hash(paths)).map_err(ContentsFailure::Run)?;
+        parse_hash(&stdout, paths.len()).map_err(ContentsFailure::Unreadable)
+    })
+}
+
+/// パスごとの中身の SHA-256（末尾の symlink も辿った先の中身）を取る。値が None のパスは、ハッシュを
+/// 取る道具がないので、呼び出し側が中身を読んで取る（docs/ir/compare/reading.md の REQ-compare-010）
+pub fn hash_contents_all<E>(
+    asked: &[(String, String)],
+    max_len: usize,
+    mut run: impl FnMut(&str) -> Result<Vec<u8>, E>,
+) -> Result<Vec<PathAnswer<Option<String>>>, ContentsFailure<E>> {
+    in_commands(asked, &hash_contents(&[]), max_len, |paths| {
+        let stdout = run(&hash_contents(paths)).map_err(ContentsFailure::Run)?;
         parse_hash(&stdout, paths.len()).map_err(ContentsFailure::Unreadable)
     })
 }

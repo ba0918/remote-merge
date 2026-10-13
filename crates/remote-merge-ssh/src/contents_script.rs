@@ -39,19 +39,24 @@ done
 printf '@END\000'
 "#;
 
-const HASH_BODY: &str = r#"if command -v sha256sum >/dev/null 2>&1; then h=sha256sum
+const HASH_HEAD: &str = r#"if command -v sha256sum >/dev/null 2>&1; then h=sha256sum
 elif command -v shasum >/dev/null 2>&1; then h='shasum -a 256'
 else h=; fi
 rl=0; command -v readlink >/dev/null 2>&1 && rl=1
 ct=0; command -v cat >/dev/null 2>&1 && ct=1
 for p do
 printf '@P\000'
-if [ -L "$p" ]; then
+"#;
+
+/// 末尾の symlink はハッシュを取らずにリンク文字列を答える（`hash` だけが使う）
+const HASH_LINK: &str = r#"if [ -L "$p" ]; then
 if [ $rl = 0 ]; then printf 'R\000'
 elif t=$(readlink "$p" 2>/dev/null && echo .); then t=${t%.}; t=${t%?}; printf 'L\000%s\000' "$t"
 else e=$(readlink "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; fi
 continue; fi
-if [ -e "$p" ] && [ ! -f "$p" ]; then printf 'E\000not a regular file\000'; continue; fi
+"#;
+
+const HASH_TAIL: &str = r#"if [ -e "$p" ] && [ ! -f "$p" ]; then printf 'E\000not a regular file\000'; continue; fi
 if [ ! -r "$p" ]; then
 if [ $ct = 1 ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; else printf 'K\000'; fi
 continue; fi
@@ -100,9 +105,20 @@ pub fn read(paths: &[String], limit: Option<u64>, boundary: &str) -> String {
     )
 }
 
-/// `paths` のハッシュを取るスクリプト
+/// `paths` のハッシュを取るスクリプト。末尾の symlink はリンク文字列を答える
 pub fn hash(paths: &[String]) -> String {
-    format!("{HASH_PREFIX}set --{}\n{HASH_BODY}", arguments(paths))
+    format!(
+        "{HASH_PREFIX}set --{}\n{HASH_HEAD}{HASH_LINK}{HASH_TAIL}",
+        arguments(paths)
+    )
+}
+
+/// `paths` の中身のハッシュを取るスクリプト。末尾の symlink も辿った先の中身のハッシュを取る
+pub fn hash_contents(paths: &[String]) -> String {
+    format!(
+        "{HASH_PREFIX}set --{}\n{HASH_HEAD}{HASH_TAIL}",
+        arguments(paths)
+    )
 }
 
 /// パスをコマンド行が `limit` バイトに収まるまとまりに分ける。`script` はパスのない台

@@ -169,6 +169,14 @@ impl TargetIo for LocalTargetIo {
         Ok(super::local_ops::hash_each(&self.root, paths))
     }
 
+    fn hash_contents(
+        &mut self,
+        _: &mut CoreRuntime,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        Ok(super::local_ops::hash_contents_each(&self.root, paths))
+    }
+
     fn states_before_restore(
         &mut self,
         _: &mut CoreRuntime,

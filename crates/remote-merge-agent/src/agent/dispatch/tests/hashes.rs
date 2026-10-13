@@ -150,3 +150,43 @@ fn hash_files_empty_file() {
         other => panic!("expected FileHashes, got {other:?}"),
     }
 }
+
+// ── HashContents（比べる流れのハッシュ。symlink は辿った先の中身） ──
+
+// @kotowari[REQ-compare-010]
+#[test]
+fn hash_contents_follows_a_link_to_the_content_of_its_target() {
+    let (tmp, mut d) = setup();
+    fs::write(tmp.path().join("target.txt"), "hello world").unwrap();
+    symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+    symlink("gone", tmp.path().join("dangling")).unwrap();
+
+    let resps = d
+        .dispatch(AgentRequest::HashContents {
+            paths: vec!["link.txt".into(), "dangling".into()],
+        })
+        .unwrap();
+
+    let expected = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+    match &resps[..] {
+        [AgentResponse::FileHashes {
+            results, is_last, ..
+        }] => {
+            assert!(*is_last);
+            assert_eq!(
+                results,
+                &vec![
+                    FileHashResult::Ok {
+                        path: "link.txt".into(),
+                        hash: expected.into()
+                    },
+                    FileHashResult::Failed {
+                        path: "dangling".into(),
+                        failure: WireFailure::NotFound
+                    },
+                ]
+            );
+        }
+        other => panic!("expected FileHashes, got {other:?}"),
+    }
+}

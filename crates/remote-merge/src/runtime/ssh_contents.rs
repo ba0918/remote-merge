@@ -7,7 +7,9 @@ use remote_merge_core::op_failure::{
 };
 use remote_merge_core::relative_path::EntryPath;
 use remote_merge_ssh::command_limit::MAX_COMMAND_LEN;
-use remote_merge_ssh::contents::{digest_all, fill_unhashed, hash_all, read_all, ContentsFailure};
+use remote_merge_ssh::contents::{
+    digest_all, fill_unhashed, hash_all, hash_contents_all, read_all, ContentsFailure,
+};
 use remote_merge_ssh::contents_stream::RawDigests;
 
 use super::core::CoreRuntime;
@@ -82,10 +84,29 @@ impl CoreRuntime {
         .map_err(|failure| failed(failure, Operation::Read, &first))
     }
 
+    /// パスごとの比べる値（symlink はリンク先、それ以外は中身の SHA-256）
     pub(crate) fn ssh_hash_entries(
         &mut self,
         server: &str,
         paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        self.ssh_hashes(server, paths, Follow::No)
+    }
+
+    /// パスごとの中身の SHA-256（symlink も辿った先の中身）
+    pub(crate) fn ssh_hash_contents(
+        &mut self,
+        server: &str,
+        paths: &[EntryPath],
+    ) -> anyhow::Result<Vec<PathResult<String>>> {
+        self.ssh_hashes(server, paths, Follow::Yes)
+    }
+
+    fn ssh_hashes(
+        &mut self,
+        server: &str,
+        paths: &[EntryPath],
+        follow: Follow,
     ) -> anyhow::Result<Vec<PathResult<String>>> {
         let root = self
             .get_server_config(server)?
@@ -94,9 +115,11 @@ impl CoreRuntime {
             .into_owned();
         let asked = asked(&root, paths);
         let first = asked.first().map_or(String::new(), |(key, _)| key.clone());
-        let hashes = hash_all(&asked, MAX_COMMAND_LEN, |script| {
-            self.run_ssh_script(server, script)
-        })
+        let run = |script: &str| self.run_ssh_script(server, script);
+        let hashes = match follow {
+            Follow::No => hash_all(&asked, MAX_COMMAND_LEN, run),
+            Follow::Yes => hash_contents_all(&asked, MAX_COMMAND_LEN, run),
+        }
         .map_err(|failure| failed(failure, Operation::Hash, &first))?;
         // ハッシュを取る道具のないサーバでは、その通常ファイルの中身を少しずつ受けて手元で取る
         if hashes.iter().any(|(_, hash)| matches!(hash, Ok(None))) {
@@ -131,6 +154,13 @@ impl CoreRuntime {
         }
         Ok(())
     }
+}
+
+/// 末尾の symlink のハッシュを、リンク文字列にするか辿った先の中身にするか
+#[derive(Clone, Copy)]
+enum Follow {
+    No,
+    Yes,
 }
 
 /// 中身の終わりを見分ける区切り。読むファイルの中身から推し量れないよう、問いごとに作る

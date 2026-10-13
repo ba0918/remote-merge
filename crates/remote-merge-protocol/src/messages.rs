@@ -23,6 +23,11 @@ pub enum AgentRequest {
     HashFiles {
         paths: Vec<String>,
     },
+    /// パスごとの中身の SHA-256。末尾の symlink も辿った先の中身のハッシュを取る（比べる流れが使う）。
+    /// 応答は FileHashes で、Symlink の結果は返さない
+    HashContents {
+        paths: Vec<String>,
+    },
     WriteFile {
         path: String,
         content: Vec<u8>,

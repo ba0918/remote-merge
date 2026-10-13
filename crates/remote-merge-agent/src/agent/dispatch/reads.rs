@@ -133,6 +133,29 @@ pub(super) fn hash_files(root: &Path, paths: &[String]) -> AgentResponse {
     }
 }
 
+/// パスごとの中身の SHA-256。末尾の symlink も辿った先の中身のハッシュを取る
+pub(super) fn hash_contents(root: &Path, paths: &[String]) -> AgentResponse {
+    let (entries, refused) = split_entries(paths);
+    let results = entries
+        .iter()
+        .map(|entry| {
+            let path = entry.as_typed().to_string();
+            match machine_ops::hash(root, entry) {
+                Ok(hash) => FileHashResult::Ok { path, hash },
+                Err(failure) => FileHashResult::Failed {
+                    path,
+                    failure: wire(&failure),
+                },
+            }
+        })
+        .collect();
+    AgentResponse::FileHashes {
+        results,
+        is_last: true,
+        refused,
+    }
+}
+
 /// 項目そのもの（最後の要素のリンクは辿らない）のリンク先
 pub(super) fn read_entry_link(root: &Path, path: &EntryPath) -> AgentResponse {
     let result = match machine_ops::entry_link(root, path) {

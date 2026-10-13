@@ -69,6 +69,14 @@ pub(super) fn read_each(
         .collect()
 }
 
+/// パスごとの中身の SHA-256（symlink も辿った先の中身）か失敗の種類
+pub(super) fn hash_contents_each(root: &Path, paths: &[EntryPath]) -> Vec<PathResult<String>> {
+    paths
+        .iter()
+        .map(|path| (path.as_typed().to_string(), machine_ops::hash(root, path)))
+        .collect()
+}
+
 /// パスごとの比べる値。symlink はリンク先、それ以外は中身の SHA-256
 pub(super) fn hash_each(root: &Path, paths: &[EntryPath]) -> Vec<PathResult<String>> {
     paths

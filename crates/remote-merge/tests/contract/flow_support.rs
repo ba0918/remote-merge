@@ -8,7 +8,8 @@
 use std::fs;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use remote_merge::runtime::{CoreRuntime, RuntimeTargets};
 use remote_merge::side::Side;
@@ -98,12 +99,15 @@ pub(super) fn child() -> Option<Child> {
 /// 三つの経路の左右の root_dir と、SSH とエージェントの経路の偽サーバ
 pub(super) struct FlowRoutes {
     home: tempfile::TempDir,
-    _server: TestServer,
+    server: TestServer,
+    /// 偽サーバを動かす非同期の実行環境。テストは子のプロセスで製品の実行時処理（自分の非同期の
+    /// 実行環境を持つ）を動かすので、テストの関数を非同期にしない
+    _runtime: tokio::runtime::Runtime,
 }
 
 impl FlowRoutes {
     /// 経路ごとに左右の root_dir を作り、`state(左, 右)` で同じ状態にする
-    pub(super) async fn new(state: impl Fn(&Path, &Path)) -> Self {
+    pub(super) fn new(state: impl Fn(&Path, &Path)) -> Self {
         let home = tempfile::Builder::new()
             .permissions(fs::Permissions::from_mode(0o700))
             .tempdir()
@@ -115,10 +119,16 @@ impl FlowRoutes {
             .create(deployed.parent().unwrap())
             .unwrap();
         std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_remote-merge"), &deployed).unwrap();
-        let server = TestServer::filesystem_with_faults(home.path(), true, Faults::default()).await;
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let server = runtime.block_on(TestServer::filesystem_with_faults(
+            home.path(),
+            true,
+            Faults::default(),
+        ));
         let routes = Self {
             home,
-            _server: server,
+            server,
+            _runtime: runtime,
         };
         for route in ROUTES {
             let (left, right) = (routes.left(route), routes.right(route));
@@ -146,18 +156,32 @@ impl FlowRoutes {
         format!(
             "[local]\nroot_dir = {:?}\n[servers.fixture]\nhost = \"127.0.0.1\"\nport = {}\nuser = \"testuser\"\nauth = \"password\"\npassword = \"fixture-password\"\nroot_dir = {:?}\n[agent]\nenabled = {}\ndeploy_dir = {:?}\n[ssh]\ntimeout_sec = 3\nstrict_host_key_checking = \"no\"\n",
             self.left(route).to_str().unwrap(),
-            self._server.port(),
+            self.server.port(),
             self.right(route).to_str().unwrap(),
             route == Route::Agent,
             self.home.path().join("agent").to_str().unwrap(),
         )
     }
 
-    /// `serving_test`（[`child`] を受けて答えるテスト）を子のプロセスで動かし、`route` の経路で
-    /// `request` を行った答えを返す
-    pub(super) fn run(&self, route: Route, serving_test: &str, request: &str) -> String {
+    /// テスト `test`（初めに [`child`] を見て、子のプロセスなら求めに答えて終わるもの）を子の
+    /// プロセスで動かし、`route` の経路で `request` を行った答えを返す
+    pub(super) fn run(&self, route: Route, test: &str, request: &str) -> String {
+        self.run_within(route, test, request, Duration::from_secs(120), || {})
+            .unwrap_or_else(|| panic!("{route:?}: {request} did not finish"))
+    }
+
+    /// [`run`](Self::run) を時間の上限 `limit` の内で行う。終わらなければ `release`（待っている
+    /// 相手を終わらせるもの）を呼んで子のプロセスを止め、None を返す
+    pub(super) fn run_within(
+        &self,
+        route: Route,
+        test: &str,
+        request: &str,
+        limit: Duration,
+        release: impl Fn(),
+    ) -> Option<String> {
         let result = self.home.path().join("flow-result");
-        let output = Command::new(std::env::current_exe().unwrap())
+        let mut process = Command::new(std::env::current_exe().unwrap())
             .env("HOME", self.home.path())
             .env("XDG_CACHE_HOME", self.home.path().join("cache"))
             .env("XDG_CONFIG_HOME", self.home.path().join("config"))
@@ -168,12 +192,25 @@ impl FlowRoutes {
             .env(REQUEST, request)
             .env(RESULT, &result)
             .env(RIGHT, self.right(route))
-            .args(["--exact", serving_test, "--nocapture"])
-            .output()
+            .args(["--exact", test, "--nocapture"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        let deadline = Instant::now() + limit;
+        while process.try_wait().unwrap().is_none() {
+            if Instant::now() > deadline {
+                release();
+                process.kill().unwrap();
+                process.wait().unwrap();
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let output = process.wait_with_output().unwrap();
         assert!(output.status.success(), "{route:?}: {output:?}");
         let answer = fs::read_to_string(&result).unwrap();
         fs::remove_file(&result).unwrap();
-        answer
+        Some(answer)
     }
 }

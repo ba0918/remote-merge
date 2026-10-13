@@ -112,9 +112,28 @@ impl<R: Read, W: Write> AgentClient<R, W> {
 
     /// パスごとの比べる値（symlink はリンク先）
     pub fn hash_files(&mut self, paths: &[EntryPath]) -> Result<Vec<FileHashResult>> {
-        self.send(&AgentRequest::HashFiles {
+        let request = AgentRequest::HashFiles {
             paths: entries_as_typed(paths),
-        })?;
+        };
+        self.hashes(&request, "HashFiles", paths)
+    }
+
+    /// パスごとの中身の SHA-256（末尾の symlink も辿った先の中身）
+    pub fn hash_contents(&mut self, paths: &[EntryPath]) -> Result<Vec<FileHashResult>> {
+        let request = AgentRequest::HashContents {
+            paths: entries_as_typed(paths),
+        };
+        self.hashes(&request, "HashContents", paths)
+    }
+
+    /// ハッシュの要求を送り、FileHashes の応答を最後まで受ける
+    fn hashes(
+        &mut self,
+        request: &AgentRequest,
+        name: &str,
+        paths: &[EntryPath],
+    ) -> Result<Vec<FileHashResult>> {
+        self.send(request)?;
         let mut all = Vec::new();
         loop {
             match self.receive()? {
@@ -130,7 +149,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
                     }
                 }
                 AgentResponse::Error { message } => return Err(AgentRefused(message).into()),
-                other => return Err(unexpected("HashFiles", &other)),
+                other => return Err(unexpected(name, &other)),
             }
         }
         let answered = all.iter().map(|result| match result {
@@ -138,7 +157,7 @@ impl<R: Read, W: Write> AgentClient<R, W> {
             | FileHashResult::Symlink { path, .. }
             | FileHashResult::Failed { path, .. } => path.as_str(),
         });
-        check_answered("HashFiles", paths, answered)?;
+        check_answered(name, paths, answered)?;
         Ok(all)
     }
 }
