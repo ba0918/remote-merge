@@ -36,12 +36,13 @@ find が -printf か "-exec … {} +" を受け付けないときの誤りの文
 ## Decision tables
 
 ### TBL-ssh-002: エージェントを使わないときのリモートの道具
-- source: docs/decision/records/2026-10-12-foundation-3.md#D2, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D7, docs/decision/records/2026-10-12-foundation-3.md#D8, docs/decision/records/2026-10-12-foundation-2.md#C14
+- source: docs/decision/records/2026-10-12-foundation-3.md#D2, docs/decision/records/2026-10-12-foundation-3.md#D5, docs/decision/records/2026-10-12-foundation-3.md#D7, docs/decision/records/2026-10-12-foundation-3.md#D8, docs/decision/records/2026-10-12-foundation-3.md#D33, docs/decision/records/2026-10-12-foundation-2.md#C14
 
 | 道具 | 使う操作 | ないときの扱い |
 |---|---|---|
 | -printf と "-exec … {} +" を受け付ける find（GNU findutils 4.2.27 以降。BusyBox の find は当たらない） | 走査・子の一覧 | 道具がないの失敗 |
 | readlink | パスの確認が symlink に出会ったとき | paths/routes.md の REQ-paths-009 |
+| readlink | ハッシュ（symlink のリンク先を比べる値にする）と項目のリンク先の読み込みが symlink に出会ったとき | 道具がないの失敗 |
 | ls の "-d" | パスの確認と操作で、ないか入れない理由を見分けるとき | 道具がないの失敗 |
 | sha256sum、なければ "shasum -a 256" | ハッシュ | 中身を読む（reconnect.md の REQ-ssh-022） |
 | "stat -L -c %s"、stat が "-c" を受け付けなければ "ls -ldn" | 大きさ | 道具がないの失敗 |
