@@ -1,6 +1,6 @@
 # 走査の一覧に載るもの
 
-status・diff・merge・sync のツリーの走査が、symlink・root_dir・UTF-8 でない名前・更新時刻をどう一覧に載せるか、root_dir や項目の情報を読めないときにどう止まるか、走査の結果が経路によらないこと。
+status・diff・merge・sync のツリーの走査が、symlink・その他の種類・root_dir・UTF-8 でない名前・更新時刻をどう一覧に載せるか、root_dir や項目の情報を読めないときにどう止まるか、走査の結果が経路によらないこと。
 
 ## Requirements
 
@@ -29,11 +29,19 @@ root_dir 自体がディレクトリへの symlink のとき、status・diff・m
 
 ### REQ-scan-012: UTF-8 でない名前を置き換えて載せない
 - kind: prohibition
-- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-untested-items-implement.md#A5, docs/decision/records/2026-10-12-untested-items-consistency.md#A4
+- source: docs/decision/records/2026-10-05-quality-scan.md#A3, docs/decision/records/2026-10-05-quality-scan.md#A6, docs/decision/records/2026-10-05-quality-scan.md#A7, docs/decision/records/2026-10-12-untested-items-implement.md#A5, docs/decision/records/2026-10-12-untested-items-consistency.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E7
 - verification: unit
 
 ツリーの走査は、UTF-8 として読めない名前のファイルを置換文字に置き換えた名前で一覧に載せず、読めない名前として報告する。報告するパスは、root_dir からのパスの UTF-8 として読める部分はそのままにし、読めない部分のバイトを一つずつ "\xNN"（NN は小文字の 16 進 2 桁）と書いたものとする。
-status と diff は、そのファイルを REQ-cli-088 と REQ-cli-089 の読めないファイルと同じく errors に出す。merge と sync は、そのファイルをそのパスの failed の項目として出す。failed の理由の文言は IR で決めず、実装者が決め、テストはその文言を固定しない。そのファイルがあるとき、status・diff・merge・sync は終了コード 2 を返す。
+そのファイルは compare/judgement.md の TBL-compare-001 で判定できないとし、compare/reading.md の TBL-compare-005 のとおり、status と diff は errors に、merge と sync はそのパスの failed の項目として出し、終了コード 2 を返す。理由の文言は IR で決めず、実装者が決め、テストはその文言を固定しない。
+
+### REQ-scan-021: その他の種類はその種類のまま載せる
+- kind: ubiquitous
+- source: docs/decision/records/2026-10-12-foundation-4.md#E8
+- verification: unit
+
+ツリーの走査と子の一覧は、通常ファイル・ディレクトリ・symlink のどれでもないもの（FIFO・ソケット・デバイス）を、通常ファイルとせずにその他の種類として一覧に載せ、その中身を読まない。
+その他の種類の項目は、件数の上限に当てる件数に数える（REQ-scan-010）。
 
 ### REQ-scan-020: diff のディレクトリの展開も同じ走査を使う
 - kind: state_driven
@@ -61,6 +69,12 @@ root_dir がないか読めないときは走査の時点で止まり、走査�
 ## Examples
 
 ```gherkin
+@id=EX-scan-017 @about=REQ-scan-021,REQ-scan-017 @source=docs/decision/records/2026-10-12-foundation-4.md#E8
+Scenario: 名前付きパイプとソケットの走査
+Given root_dir に名前付きパイプ "pipe" と UNIX ドメインソケット "app.sock" がある
+When ツリーを走査する
+Then 三つの経路で同じく、"pipe" と "app.sock" は通常ファイルでなくその他の種類として一覧に載り、走査は止まらずに終わる
+
 @id=EX-scan-014 @about=REQ-scan-012 @source=docs/decision/records/2026-10-05-quality-scan.md#A6,docs/decision/records/2026-10-05-quality-scan.md#A3
 Scenario: UTF-8 として読めない名前のファイルがある
 Given 左の root_dir に UTF-8 として読めない名前のファイルがある

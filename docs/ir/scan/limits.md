@@ -11,12 +11,12 @@
 
 ツリー走査にファイル件数の上限を設け、利用者はその上限を変更できる。
 
-### REQ-scan-010: 件数はファイルと symlink だけを数える
+### REQ-scan-010: 件数はディレクトリでない項目だけを数える
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-05-quality-scan.md#A1, docs/decision/records/2026-10-12-foundation-2.md#C1
+- source: docs/decision/records/2026-10-05-quality-scan.md#A1, docs/decision/records/2026-10-12-foundation-2.md#C1, docs/decision/records/2026-10-12-foundation-4.md#E8, docs/decision/records/2026-10-12-foundation-4.md#E11
 - verification: unit
 
-走査は、件数の上限に当てる件数にはファイルと symlink だけを数え、ディレクトリを数えない。
+走査は、件数の上限に当てる件数にはファイルと symlink とその他の種類（REQ-scan-021）を数え、ディレクトリを数えない。子の一覧も、同じ比較の走査と同じ件数の上限に数え、子の一覧だけの別の上限を持たない。
 
 ### REQ-scan-004: 不完全な走査を知らせる
 - kind: state_driven

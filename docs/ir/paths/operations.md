@@ -1,6 +1,6 @@
 # 経路によらない操作と失敗の種類
 
-リモートとローカルのファイルへの操作の結果と失敗の種類が経路によらないこと、削除・権限の変更・子の一覧の振る舞い、受け付けない権限の値、失敗の伝え方、一覧の各項目の値。
+リモートとローカルのファイルへの操作の結果と失敗の種類が経路によらないこと、削除・権限の変更・子の一覧の振る舞い、通常ファイルでないものの読み込み、受け付けない権限の値、失敗の伝え方、一覧の各項目の値。
 
 ## Requirements
 
@@ -67,9 +67,23 @@ symlink のリンク先か更新時刻を読めないときは、走査の REQ-s
 上限を超えるは、操作が答えた大きさと上限から決め、経路ごとに決めない。
 失敗した操作の結果を、ないこと・空・既定の値・同じ中身として扱わない。
 
+### REQ-paths-021: 通常ファイルでないものの中身を読みに行って待たない
+- kind: prohibition
+- source: docs/decision/records/2026-10-12-foundation-4.md#E8
+- verification: unit
+
+中身の読み込みとハッシュは、パス（末尾の symlink は辿った先）が通常ファイルでないとき（ディレクトリ・FIFO・ソケット・デバイス）、開いて書き手や相手を待たずに、理由を "not a regular file" とした I/O の失敗で終わる。
+状態を集めた後に通常ファイルが FIFO に替わったときも同じにする。
+
 ## Examples
 
 ```gherkin
+@id=EX-paths-046 @about=REQ-paths-021 @source=docs/decision/records/2026-10-12-foundation-4.md#E8
+Scenario: 名前付きパイプを三つの経路で読む
+Given root_dir に、書き手のいない名前付きパイプ "pipe" がある
+When ローカル・SSH・エージェントのそれぞれの経路で "pipe" の中身とハッシュを読む
+Then どの経路でも待たずに、理由 "not a regular file" の I/O の失敗で終わる
+
 @id=EX-paths-026 @about=REQ-paths-013 @source=docs/decision/records/2026-10-11-agent-operations.md#A7,docs/decision/records/2026-10-11-agent-operations.md#A31
 Scenario: 三つの経路で末尾の symlink を削除する
 Given ローカル・SSH・エージェントの root_dir に、同じくファイル "t.txt" を指す symlink "l" がある
