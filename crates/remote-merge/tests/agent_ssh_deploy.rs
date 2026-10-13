@@ -298,19 +298,15 @@ async fn start_process_agent_server() -> u16 {
         .push(PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap());
     let config = Arc::new(config);
 
+    // 一度閉じたポートを開き直すと、負荷の下では開き直す前につなぎに行って断られるので、開いた
+    // まま渡す（つなぎは受け付けを始めるまで待たされる）
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    drop(listener);
 
     let mut server = ProcessAgentServer { id: 0 };
-    let addr = format!("127.0.0.1:{port}");
-
     tokio::spawn(async move {
-        let _ = server.run_on_address(config, &addr).await;
+        let _ = server.run_on_socket(config, &listener).await;
     });
-
-    // サーバー起動を待つ
-    tokio::time::sleep(Duration::from_millis(150)).await;
 
     port
 }
