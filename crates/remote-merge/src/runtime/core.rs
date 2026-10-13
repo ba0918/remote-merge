@@ -27,6 +27,10 @@ pub type BoxedAgentClient = AgentClient<std::io::Cursor<Vec<u8>>, std::io::Curso
 /// CLI のランタイム基盤。
 ///
 /// SSH接続管理、ファイルI/O、ツリー取得を担当する。
+/// テストだけ: パスを受けて呼ぶ関数
+#[cfg(feature = "test-utils")]
+pub type PathHook = Box<dyn Fn(&str)>;
+
 pub struct CoreRuntime {
     pub rt: tokio::runtime::Runtime,
     /// サーバ名 -> SSH 接続のマップ（複数サーバ同時接続対応）
@@ -49,6 +53,10 @@ pub struct CoreRuntime {
     /// 側ごとに一度だけ確かめた include の値（None は include の指定がない）。一つのコマンドで
     /// 何度走査しても、root_dir と include の値の確認と警告は側ごとに一度にする
     pub(crate) checked_include: HashMap<crate::side::Side, super::scan_entry::CheckedInclude>,
+    /// テストだけ: rollback が書き戻す前の内容を退避した直後に呼ぶ（退避した記録を読めなくして、
+    /// 読み戻しの失敗を起こすため）
+    #[cfg(feature = "test-utils")]
+    pub(crate) after_pre_rollback_save: Option<PathHook>,
 }
 
 impl CoreRuntime {
@@ -77,6 +85,8 @@ impl CoreRuntime {
             backup_store,
             stopped: HashMap::new(),
             checked_include: HashMap::new(),
+            #[cfg(feature = "test-utils")]
+            after_pre_rollback_save: None,
         }
     }
 

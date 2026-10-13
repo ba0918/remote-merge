@@ -7,7 +7,7 @@ use super::change_check::Before;
 /// 退避した記録の読み戻しの結果（退避しなかったなら None）から「書く前」を決める。通常のファイルの
 /// 記録ならその中身、退避しなかったか symlink の記録なら None（呼び出し側がほかの手段で決める）。
 /// 読み戻せなければ、そのファイルを書き戻さない誤り
-pub fn before_from_saved(
+pub(super) fn before_from_saved(
     saved: Option<anyhow::Result<BackupRecord>>,
 ) -> anyhow::Result<Option<Before>> {
     match saved {

@@ -1,4 +1,6 @@
 use std::fs::{self, OpenOptions};
+
+use anyhow::Context as _;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -411,12 +413,19 @@ impl BackupStore {
         let entry_key = format!("{:x}", Sha256::digest(rel_path.as_bytes()));
         let record_dir = records_dir.join(entry_key);
         let record_file = record_dir.join("record.json");
-        let record = parse_stored_record(&fs::read(&record_file)?, &record_file)?;
+        let stored = fs::read(&record_file)
+            .with_context(|| format!("cannot read the backup record {}", record_file.display()))?;
+        let record = parse_stored_record(&stored, &record_file)?;
         match record {
             StoredBackupRecord::File { path, real_path } if path == rel_path => {
                 Ok(BackupRecord::File {
                     real_path,
-                    content: fs::read(record_dir.join("content"))?,
+                    content: {
+                        let content = record_dir.join("content");
+                        fs::read(&content).with_context(|| {
+                            format!("cannot read the backed-up content {}", content.display())
+                        })?
+                    },
                 })
             }
             StoredBackupRecord::File { .. } => anyhow::bail!("backup record path does not match"),

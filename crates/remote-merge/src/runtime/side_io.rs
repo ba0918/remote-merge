@@ -326,7 +326,13 @@ impl CoreRuntime {
 
             let pre_rollback_backup = if let Some(pre_session_id) = &pre_session_id {
                 match self.save_backup_if_exists(side, path, pre_session_id, force) {
-                    Ok(Some(_)) => Some(pre_session_id.clone()),
+                    Ok(Some(_)) => {
+                        #[cfg(feature = "test-utils")]
+                        if let Some(hook) = &self.after_pre_rollback_save {
+                            hook(path);
+                        }
+                        Some(pre_session_id.clone())
+                    }
                     Ok(None) => None,
                     Err(error) => {
                         failed.push(crate::service::types::RollbackFailure {

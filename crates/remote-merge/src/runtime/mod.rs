@@ -20,7 +20,7 @@ mod remote_change;
 mod remote_ops;
 mod remote_target;
 mod restore_before;
-pub mod restore_saved;
+mod restore_saved;
 mod route_retry;
 pub(crate) mod route_state;
 pub(crate) mod scan_entry;

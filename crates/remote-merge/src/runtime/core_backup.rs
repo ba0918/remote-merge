@@ -16,6 +16,12 @@ impl CoreRuntime {
         Ok(session_id)
     }
 
+    /// テストだけ: rollback が書き戻す前の内容を退避した直後に呼ぶ関数を置く
+    #[cfg(feature = "test-utils")]
+    pub fn set_after_pre_rollback_save(&mut self, hook: super::core::PathHook) {
+        self.after_pre_rollback_save = Some(hook);
+    }
+
     pub fn finish_backup_session(&self, session_id: &str) {
         self.backup_store.finish_session(session_id);
     }
