@@ -66,6 +66,14 @@ fn the_failure_answers_keep_their_wire_shape() {
         "81a74368616e6765649181a8546f6f4c61726765920201",
         "bump PROTOCOL_VERSION"
     );
+    let root_gone = AgentResponse::Changed {
+        failure: Some(WireFailure::RootGone),
+    };
+    assert_eq!(
+        hex(&serialize_response(&root_gone).unwrap()),
+        "81a74368616e67656491a8526f6f74476f6e65",
+        "bump PROTOCOL_VERSION"
+    );
 }
 
 #[test]
