@@ -2,7 +2,9 @@
 //!
 //! パスごとに "@P" で始まる答えを一つ出す。失敗は道具が標準エラーに出した文言をそのまま返し、
 //! 種類は手元が文言の終わりで決める。大きさは `stat -L -c %s`、受け付けなければ `ls -ldnL` で
-//! 尋ね、上限を超えるファイルの中身は送らない。ハッシュは sha256sum、なければ shasum -a 256 で
+//! 尋ね、上限を超えるファイルの中身は送らない。中身は尋ねた大きさに縛らずに cat が読めたものを
+//! そのまま送り、手元が問いごとに決めた区切りで終わりを見分ける（大きさを尋ねた後に長さが
+//! 変わっても、ほかのパスの答えを崩さない）。ハッシュは sha256sum、なければ shasum -a 256 で
 //! 取り、どちらもないか、あっても見つからないコマンド（終了コード 127）で終わるなら、通常ファイルに
 //! ついてはハッシュを取れないと答える（手元が中身を読む）。
 //! パスごとの処理ではシェルの関数を呼ばない。
@@ -27,8 +29,8 @@ if [ $z = s ]; then n=$(stat -L -c %s "$p" 2>&1) || { printf 'E\000%s\000' "$n";
 else n=$(ls -ldnL "$p" 2>&1) || { printf 'E\000%s\000' "$n"; continue; }
 n=$(printf '%s\n' "$n" | awk 'NR==1{print $5}'); fi
 if [ "$L" -ge 0 ] && [ "$n" -gt "$L" ]; then printf 'B\000%s\000' "$n"; continue; fi
-if [ ! -r "$p" ]; then e=$(cat "$p" 2>&1 >/dev/null); printf 'E\000%s\000' "$e"; continue; fi
-printf 'C\000%s\000' "$n"; cat "$p" 2>/dev/null; printf '\000%s\000' "$?"
+printf 'C\000'; { e=$(cat "$p" 2>&1 >&3 3>&-); c=$?; } 3>&1
+printf '\000%s\000%s\000%s\000' "$B" "$c" "$e"
 done
 printf '@END\000'
 "#;
@@ -60,7 +62,7 @@ fn quoted(text: &str) -> String {
 }
 
 /// "-" で始まる相対パスを道具のオプションに読ませないよう、"/" で始まらないパスは "./" を付ける
-fn argument(path: &str) -> String {
+pub(crate) fn argument(path: &str) -> String {
     if path.starts_with('/') {
         quoted(path)
     } else {
@@ -75,11 +77,17 @@ fn arguments(paths: &[String]) -> String {
         .collect()
 }
 
+/// 中身の終わりの区切り。`boundary` は問いごとに手元が決める、16 進の数字だけの文字列
+pub fn content_end(boundary: &str) -> String {
+    format!("@B{boundary}")
+}
+
 /// `paths` を読むスクリプト。`limit` を超えるファイルは読まない
-pub fn read(paths: &[String], limit: Option<u64>) -> String {
+pub fn read(paths: &[String], limit: Option<u64>, boundary: &str) -> String {
     let limit = limit.map_or("-1".to_string(), |limit| limit.to_string());
     format!(
-        "{READ_PREFIX}L={limit}\nset --{}\n{READ_BODY}",
+        "{READ_PREFIX}L={limit}; B={}\nset --{}\n{READ_BODY}",
+        quoted(&content_end(boundary)),
         arguments(paths)
     )
 }

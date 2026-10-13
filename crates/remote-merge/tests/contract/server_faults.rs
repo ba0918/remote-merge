@@ -66,7 +66,8 @@ pub enum SshCommand {
     PathInspection,
     /// 更新時刻の stat
     Stat,
-    /// ファイルの中身の読み込み（パスごとに大きさを尋ねてから読む）
+    /// ファイルの中身の読み込み（パスごとに大きさを尋ねてから読むものと、ハッシュを取る道具がない
+    /// ときに中身をそのまま受けて手元でハッシュを取るもの）
     Read,
     /// ファイルの書き込み
     Write,
@@ -82,7 +83,10 @@ impl SshCommand {
             Self::Scan => script.contains("@RMSCAN"),
             Self::PathInspection => script.starts_with(remote_merge_ssh::path_facts_script::PREFIX),
             Self::Stat => script.contains("stat -c '%Y %n'"),
-            Self::Read => script.starts_with(remote_merge_ssh::contents_script::READ_PREFIX),
+            Self::Read => {
+                script.starts_with(remote_merge_ssh::contents_script::READ_PREFIX)
+                    || script.starts_with(remote_merge_ssh::contents_stream::RAW_PREFIX)
+            }
             Self::Write => script.contains("openssl base64 -d") || script.contains("cat >"),
             Self::Chmod => script.starts_with("chmod "),
             Self::Hash => script.starts_with(remote_merge_ssh::contents_script::HASH_PREFIX),

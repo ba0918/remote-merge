@@ -60,11 +60,17 @@ fn read_script_paths(script: &str) -> Vec<String> {
 
 /// どのパスも "remote updated\n" と答える読み込みの答え
 fn fabricated_read_answer(script: &str) -> Vec<u8> {
+    // 中身の終わりの区切りは、スクリプトの "B='…'" に書かれている
+    let boundary = script
+        .split("B='")
+        .nth(1)
+        .and_then(|rest| rest.split('\'').next())
+        .unwrap();
     let mut answer = b"@RMREAD\0".to_vec();
     for _ in read_script_paths(script) {
-        answer.extend_from_slice(b"@P\0C\0");
-        answer.extend_from_slice(b"15\0remote updated\n\0");
-        answer.extend_from_slice(b"0\0");
+        answer.extend_from_slice(b"@P\0C\0remote updated\n\0");
+        answer.extend_from_slice(boundary.as_bytes());
+        answer.extend_from_slice(b"\x000\0\0");
     }
     answer.extend_from_slice(b"@END\0");
     answer

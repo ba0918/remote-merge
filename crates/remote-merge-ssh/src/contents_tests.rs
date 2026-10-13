@@ -40,7 +40,7 @@ fn each_path_gets_its_content_or_the_kind_of_its_failure() {
     symlink("a.bin", root.join("l")).unwrap();
 
     let asked = paths(&root, &["a.bin", "empty", "missing", "f/a", "dir", "l"]);
-    let answers = read_all(&asked, None, 65536, run).unwrap();
+    let answers = read_all(&asked, None, "0123456789abcdef0123456789abcdef", 65536, run).unwrap();
 
     assert_eq!(
         answers,
@@ -71,7 +71,13 @@ fn a_file_without_read_permission_or_behind_a_locked_directory_is_permission_den
     fs::write(root.join("locked/a"), b"x").unwrap();
     fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o000)).unwrap();
 
-    let answers = read_all(&paths(&root, &["secret", "locked/a"]), None, 65536, run);
+    let answers = read_all(
+        &paths(&root, &["secret", "locked/a"]),
+        None,
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        run,
+    );
     fs::set_permissions(root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
 
     let failures: Vec<_> = answers.unwrap().into_iter().map(|(_, r)| r).collect();
@@ -91,7 +97,14 @@ fn a_file_over_the_limit_is_answered_with_its_size_and_not_read() {
     fs::write(root.join("big"), vec![1u8; 11]).unwrap();
     fs::write(root.join("small"), vec![1u8; 10]).unwrap();
 
-    let answers = read_all(&paths(&root, &["big", "small"]), Some(10), 65536, run).unwrap();
+    let answers = read_all(
+        &paths(&root, &["big", "small"]),
+        Some(10),
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        run,
+    )
+    .unwrap();
 
     assert_eq!(
         answers[0].1,
@@ -119,7 +132,14 @@ fn many_paths_are_split_into_commands_within_the_length_limit() {
         run(script)
     };
 
-    let answers = read_all(&paths(&root, &rels), None, 4096, counting).unwrap();
+    let answers = read_all(
+        &paths(&root, &rels),
+        None,
+        "0123456789abcdef0123456789abcdef",
+        4096,
+        counting,
+    )
+    .unwrap();
 
     assert!(commands > 1);
     assert!(answers
@@ -150,3 +170,9 @@ fn hashes_are_taken_with_sha256sum_or_shasum_and_named_when_neither_exists() {
 
 #[path = "contents_tests/tools.rs"]
 mod tools;
+
+#[path = "contents_tests/changed.rs"]
+mod changed;
+
+#[path = "contents_tests/streamed.rs"]
+mod streamed;

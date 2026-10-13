@@ -33,12 +33,15 @@ impl<'a> Cursor<'a> {
         Ok(field)
     }
 
-    fn bytes(&mut self, count: usize) -> Result<&'a [u8], String> {
-        if self.rest.len() < count {
-            return Err("the content ended early".into());
-        }
-        let (taken, rest) = self.rest.split_at(count);
-        self.rest = rest;
+    /// `end` の並びの前まで。`end` は読み飛ばす
+    fn until(&mut self, end: &[u8]) -> Result<&'a [u8], String> {
+        let at = self
+            .rest
+            .windows(end.len())
+            .position(|window| window == end)
+            .ok_or("the content has no end")?;
+        let taken = &self.rest[..at];
+        self.rest = &self.rest[at + end.len()..];
         Ok(taken)
     }
 
@@ -67,12 +70,19 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// 読み込みの答え。パスごとに中身か失敗の種類
+/// 読み込みの答え。パスごとに中身か失敗の種類。中身は `boundary` の区切りまで
 pub fn parse_read(
     stdout: &[u8],
     count: usize,
     limit: Option<u64>,
+    boundary: &str,
 ) -> Result<Vec<Result<Vec<u8>, OpFailure>>, String> {
+    let end = [
+        b"\0",
+        super::contents_script::content_end(boundary).as_bytes(),
+        b"\0",
+    ]
+    .concat();
     let mut cursor = Cursor::after_marker(stdout, super::contents_script::READ_MARKER)?;
     let mut answers = Vec::with_capacity(count);
     for _ in 0..count {
@@ -86,16 +96,12 @@ pub fn parse_read(
                 Err(OpFailure::TooLarge { size, limit })
             }
             b"C" => {
-                let size = cursor.number()?;
-                let size = usize::try_from(size).map_err(|_| "the content is too large")?;
-                let content = cursor.bytes(size)?.to_vec();
-                cursor.expect(b"")?;
-                match cursor.field()? {
+                let content = cursor.until(&end)?.to_vec();
+                let status = cursor.field()?;
+                let message = cursor.field()?;
+                match status {
                     b"0" => Ok(content),
-                    status => Err(OpFailure::Io(format!(
-                        "cat exited with {}",
-                        String::from_utf8_lossy(status)
-                    ))),
+                    _ => Err(from_tool_message(message)),
                 }
             }
             other => {

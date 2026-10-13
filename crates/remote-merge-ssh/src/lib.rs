@@ -3,6 +3,7 @@ pub mod command_limit;
 pub mod contents;
 pub mod contents_output;
 pub mod contents_script;
+pub mod contents_stream;
 pub mod entry_link;
 pub mod hint;
 pub mod host_key_verifier;

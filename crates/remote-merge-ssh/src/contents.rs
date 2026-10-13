@@ -5,6 +5,7 @@ use remote_merge_core::op_failure::OpFailure;
 
 use crate::contents_output::{parse_hash, parse_read};
 use crate::contents_script::{hash, read, split};
+use crate::contents_stream::{raw, RawDigests};
 
 /// 一つのパスの答え（結果のキーと、値か失敗の種類）
 pub type PathAnswer<T> = (String, Result<T, OpFailure>);
@@ -34,16 +35,19 @@ fn in_commands<T, E>(
     Ok(answers)
 }
 
-/// 中身をパスごとに読む。`limit` を超えるファイルは読まずに上限を超える失敗にする
+/// 中身をパスごとに読む。`limit` を超えるファイルは読まずに上限を超える失敗にする。
+/// `boundary` は中身の終わりを見分ける区切りで、読むファイルの中身から推し量れない値を呼び出し側が
+/// 渡す（16 進の数字だけ）
 pub fn read_all<E>(
     asked: &[(String, String)],
     limit: Option<u64>,
+    boundary: &str,
     max_len: usize,
     mut run: impl FnMut(&str) -> Result<Vec<u8>, E>,
 ) -> Result<Vec<PathAnswer<Vec<u8>>>, ContentsFailure<E>> {
-    in_commands(asked, &read(&[], limit), max_len, |paths| {
-        let stdout = run(&read(paths, limit)).map_err(ContentsFailure::Run)?;
-        parse_read(&stdout, paths.len(), limit).map_err(ContentsFailure::Unreadable)
+    in_commands(asked, &read(&[], limit, boundary), max_len, |paths| {
+        let stdout = run(&read(paths, limit, boundary)).map_err(ContentsFailure::Run)?;
+        parse_read(&stdout, paths.len(), limit, boundary).map_err(ContentsFailure::Unreadable)
     })
 }
 
@@ -58,6 +62,66 @@ pub fn hash_all<E>(
         let stdout = run(&hash(paths)).map_err(ContentsFailure::Run)?;
         parse_hash(&stdout, paths.len()).map_err(ContentsFailure::Unreadable)
     })
+}
+
+/// 通常ファイルの中身をまとめて尋ね、受けながら手元で SHA-256 を取る（コマンド行の長さで分ける）。
+/// `run` はスクリプトを動かし、標準出力を受けた順に渡された `RawDigests` へ渡す
+pub fn digest_all<E>(
+    fulls: &[String],
+    boundary: &str,
+    max_len: usize,
+    mut run: impl FnMut(&str, &mut RawDigests) -> Result<(), E>,
+) -> Result<Vec<Result<String, OpFailure>>, ContentsFailure<E>> {
+    let mut digests = Vec::with_capacity(fulls.len());
+    for range in split(&raw(&[], boundary), fulls, max_len) {
+        let part = &fulls[range];
+        let mut answer = RawDigests::new(boundary);
+        run(&raw(part, boundary), &mut answer).map_err(ContentsFailure::Run)?;
+        digests.extend(
+            answer
+                .finish(part.len())
+                .map_err(ContentsFailure::Unreadable)?,
+        );
+    }
+    Ok(digests)
+}
+
+/// ハッシュを取る道具がなくて値のないパス（`Ok(None)`）を、`digest`（そのパスのリモートのパスを
+/// まとめて受けて、パスごとのハッシュか失敗の種類を同じ順で返す）で埋める。順と重なったパスは保つ
+pub fn fill_unhashed<E>(
+    asked: &[(String, String)],
+    hashes: Vec<PathAnswer<Option<String>>>,
+    digest: impl FnOnce(&[String]) -> Result<Vec<Result<String, OpFailure>>, E>,
+) -> Result<Vec<PathAnswer<String>>, E> {
+    let unhashed: Vec<String> = asked
+        .iter()
+        .zip(&hashes)
+        .filter(|(_, (_, hash))| matches!(hash, Ok(None)))
+        .map(|((_, full), _)| full.clone())
+        .collect();
+    let mut digests = if unhashed.is_empty() {
+        Vec::new()
+    } else {
+        digest(&unhashed)?
+    }
+    .into_iter();
+    Ok(hashes
+        .into_iter()
+        .map(|(key, hash)| {
+            let value = match hash {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => digests.next().unwrap_or_else(|| {
+                    Err(OpFailure::Disconnected(
+                        remote_merge_core::op_failure::Disconnection::NoAnswer(
+                            "no digest for a path".into(),
+                        ),
+                    ))
+                }),
+                Err(failure) => Err(failure),
+            };
+            (key, value)
+        })
+        .collect())
 }
 
 #[cfg(all(test, unix))]

@@ -452,7 +452,7 @@ async fn batch_read_cut_off_without_exit_status_is_a_connection_error() {
     let (mut client, _key) = connect_client(&handle).await;
 
     let script =
-        remote_merge_ssh::contents_script::read(&["/var/www/app/cut.txt".to_string()], None);
+        remote_merge_ssh::contents_script::read(&["/var/www/app/cut.txt".to_string()], None, "0f");
     let error = client
         .run_bytes(&script)
         .await

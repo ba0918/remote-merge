@@ -636,6 +636,24 @@ impl SshClient {
         &mut self,
         command: &str,
     ) -> crate::error::Result<CommandOutputBytes> {
+        let mut stdout = Vec::new();
+        let (stderr, exit_code) = self
+            .run_streaming(command, &mut |data| stdout.extend_from_slice(data))
+            .await?;
+        Ok(CommandOutputBytes {
+            stdout,
+            stderr,
+            exit_code,
+        })
+    }
+
+    /// コマンドを実行し、標準出力を受けた順に `on_stdout` へ渡す。返す値は標準エラーと終了コード。
+    /// 終了ステータスを受け取らずにチャネルが終わったときは接続断の誤りにする
+    pub async fn run_streaming(
+        &mut self,
+        command: &str,
+        on_stdout: &mut (dyn FnMut(&[u8]) + Send),
+    ) -> crate::error::Result<(Vec<u8>, u32)> {
         let mut channel = self.open_channel_with_retry().await?;
 
         channel
@@ -645,7 +663,6 @@ impl SshClient {
                 command: command.to_string(),
             })?;
 
-        let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let mut exit_code = None;
 
@@ -654,9 +671,7 @@ impl SshClient {
                 break;
             };
             match msg {
-                ChannelMsg::Data { ref data } => {
-                    stdout.extend_from_slice(data);
-                }
+                ChannelMsg::Data { ref data } => on_stdout(data),
                 ChannelMsg::ExtendedData { ref data, ext } => {
                     if ext == 1 {
                         stderr.extend_from_slice(data);
@@ -678,11 +693,7 @@ impl SshClient {
             });
         };
 
-        Ok(CommandOutputBytes {
-            stdout,
-            stderr,
-            exit_code,
-        })
+        Ok((stderr, exit_code))
     }
 
     /// リモートファイルに内容を書き込む（stdin 経由の cat >）

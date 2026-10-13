@@ -102,6 +102,7 @@ fn the_size_comes_from_ls_when_stat_refuses_c_and_is_a_missing_tool_without_both
     let by_ls = read_all(
         &asked(root.path(), "a.txt"),
         Some(100),
+        "0123456789abcdef0123456789abcdef",
         65536,
         run_in(with_ls.path()),
     )
@@ -109,6 +110,7 @@ fn the_size_comes_from_ls_when_stat_refuses_c_and_is_a_missing_tool_without_both
     let neither = read_all(
         &asked(root.path(), "a.txt"),
         Some(100),
+        "0123456789abcdef0123456789abcdef",
         65536,
         run_in(without_ls.path()),
     )

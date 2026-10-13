@@ -40,11 +40,25 @@ fn without_stat_c_the_size_is_read_from_ls_and_without_both_it_is_a_missing_tool
     let asked = paths(&root, &["a"]);
 
     let with_ls = bin_with(&["ls", "cat", "awk"]);
-    let answers = read_all(&asked, Some(10), 65536, run_with_only(with_ls.path())).unwrap();
+    let answers = read_all(
+        &asked,
+        Some(10),
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        run_with_only(with_ls.path()),
+    )
+    .unwrap();
     assert_eq!(answers[0].1, Ok(b"abc".to_vec()));
 
     let without = bin_with(&["cat"]);
-    let answers = read_all(&asked, Some(10), 65536, run_with_only(without.path())).unwrap();
+    let answers = read_all(
+        &asked,
+        Some(10),
+        "0123456789abcdef0123456789abcdef",
+        65536,
+        run_with_only(without.path()),
+    )
+    .unwrap();
     assert_eq!(answers[0].1, Err(OpFailure::ToolMissing(Tool::Stat)));
 }
 
