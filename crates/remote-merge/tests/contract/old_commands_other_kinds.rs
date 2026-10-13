@@ -39,7 +39,7 @@ async fn ex_compare_010_status_and_diff_report_fifos_on_both_sides_and_exit_with
         for root in [sides.tested_root(), sides.other_root()] {
             make_fifo(&root.join("pipe"));
         }
-        for command in [&["status"][..], &["diff", "."]] {
+        for command in [&["status"][..], &["diff", "."], &["diff", "pipe"]] {
             let output = sides.run_into_tested(command);
             assert_eq!(
                 output.status.code(),
