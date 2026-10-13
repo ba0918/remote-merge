@@ -6,7 +6,7 @@ use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::Path;
 
-use remote_merge_core::path_resolution::{ResolveError, ResolvedPath};
+use remote_merge_core::path_resolution::{ExistingKind, ResolveError, ResolvedPath};
 
 use super::*;
 use crate::scan_test_shell::shell_command;
@@ -51,7 +51,8 @@ fn each_kind_of_element_is_answered_like_the_local_walk() {
         answers,
         vec![
             Ok(ResolvedPath::Exists {
-                real_path: real(&root, "dir/a.txt")
+                real_path: real(&root, "dir/a.txt"),
+                kind: ExistingKind::File,
             }),
             Ok(ResolvedPath::AncestorNotDirectory {
                 real_path: real(&root, "f"),
@@ -62,14 +63,17 @@ fn each_kind_of_element_is_answered_like_the_local_walk() {
                 parent_exists: false
             }),
             Ok(ResolvedPath::Exists {
-                real_path: real(&root, "dir/a.txt")
+                real_path: real(&root, "dir/a.txt"),
+                kind: ExistingKind::File,
             }),
             Ok(ResolvedPath::Symlink {
                 link_target: "end\n".into(),
-                real_path: real(&root, "end\n")
+                real_path: real(&root, "end\n"),
+                target_kind: None,
             }),
             Ok(ResolvedPath::Exists {
-                real_path: root.display().to_string()
+                real_path: root.display().to_string(),
+                kind: ExistingKind::Directory,
             }),
         ]
     );
@@ -94,7 +98,8 @@ fn a_directory_without_search_permission_stops_with_permission_denied() {
         vec![
             Err(ResolveError::PermissionDenied),
             Ok(ResolvedPath::Exists {
-                real_path: real(&root, "locked")
+                real_path: real(&root, "locked"),
+                kind: ExistingKind::Directory,
             })
         ]
     );
@@ -159,7 +164,8 @@ fn a_relative_root_dir_is_resolved_from_the_working_directory() {
     assert_eq!(
         answers,
         vec![Ok(ResolvedPath::Exists {
-            real_path: format!("{}/app/a.txt", home.display())
+            real_path: format!("{}/app/a.txt", home.display()),
+            kind: ExistingKind::File,
         })]
     );
 }

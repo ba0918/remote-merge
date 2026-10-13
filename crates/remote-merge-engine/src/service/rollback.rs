@@ -108,7 +108,7 @@ pub fn decide_restore_path(
 /// スキップに回し、それ以外のディレクトリでない祖先は辿れないものとしてエラーにする
 pub fn current_restore_path(resolved: ResolvedPath) -> Result<CurrentRestorePath, ResolveError> {
     Ok(match resolved {
-        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+        ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
             CurrentRestorePath::Present {
                 real_path: real_path.into(),
             }
@@ -298,6 +298,7 @@ pub fn rollback_exit_code(output: &RollbackOutput) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remote_merge_core::path_resolution::ExistingKind;
     use std::path::PathBuf;
 
     #[test]
@@ -394,12 +395,14 @@ mod tests {
             recorded_symlink_target(ResolvedPath::Symlink {
                 link_target: "release".into(),
                 real_path: "/srv/release".into(),
+                target_kind: Some(ExistingKind::Directory),
             }),
             Ok(Some(PathBuf::from("release")))
         );
         for changed in [
             ResolvedPath::Exists {
                 real_path: "/srv/app/link".into(),
+                kind: ExistingKind::File,
             },
             ResolvedPath::AncestorNotDirectory {
                 real_path: "/srv/app/dir".into(),

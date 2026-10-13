@@ -7,7 +7,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 
 /// 確認の root にする一時ディレクトリ。パスは symlink を含まない実パスにそろえる
 struct Root {
@@ -80,10 +80,15 @@ fn inspect(root: &Path, rel: &str) -> anyhow::Result<ResolvedPath> {
     )
 }
 
-fn symlink_result(link_target: &str, real_path: String) -> ResolvedPath {
+fn symlink_result(
+    link_target: &str,
+    real_path: String,
+    target_kind: Option<ExistingKind>,
+) -> ResolvedPath {
     ResolvedPath::Symlink {
         link_target: link_target.into(),
         real_path,
+        target_kind,
     }
 }
 
@@ -99,7 +104,7 @@ fn ex_paths_001_dots_and_doubled_slashes_in_a_link_target_are_ignored() {
     for (link, target) in [("link", "dir/./file.txt"), ("link2", "dir//file.txt")] {
         assert_eq!(
             root.inspect(link).unwrap(),
-            symlink_result(target, root.real("dir/file.txt")),
+            symlink_result(target, root.real("dir/file.txt"), Some(ExistingKind::File)),
             "{link}"
         );
     }
@@ -114,7 +119,8 @@ fn ex_paths_002_an_empty_path_follows_a_root_dir_that_is_a_symlink() {
     assert_eq!(
         inspect(&base.path.join("root"), "").unwrap(),
         ResolvedPath::Exists {
-            real_path: base.real("real")
+            real_path: base.real("real"),
+            kind: ExistingKind::Directory,
         }
     );
 }
@@ -148,7 +154,7 @@ fn ex_paths_007_a_dangling_terminal_symlink_resolves_to_the_missing_name_it_poin
 
     assert_eq!(
         root.inspect("a/l").unwrap(),
-        symlink_result("../b/missing", root.real("b/missing"))
+        symlink_result("../b/missing", root.real("b/missing"), None)
     );
 }
 
@@ -215,7 +221,11 @@ fn ex_paths_009_the_trailing_slash_of_a_link_target_is_not_counted_in_the_length
 
     assert_eq!(
         root.inspect("link").unwrap(),
-        symlink_result(&format!("{deep}/"), root.real(&deep))
+        symlink_result(
+            &format!("{deep}/"),
+            root.real(&deep),
+            Some(ExistingKind::Directory),
+        )
     );
 }
 
@@ -229,7 +239,7 @@ fn ex_paths_010_a_long_link_target_with_a_short_real_path_is_followed() {
 
     assert_eq!(
         root.inspect("link").unwrap(),
-        symlink_result(&target, root.real("file.txt"))
+        symlink_result(&target, root.real("file.txt"), Some(ExistingKind::File))
     );
 }
 
@@ -266,7 +276,7 @@ fn ex_paths_011_forty_links_in_a_row_are_followed() {
 
     assert_eq!(
         root.inspect("l1").unwrap(),
-        symlink_result("l2", root.real("file.txt"))
+        symlink_result("l2", root.real("file.txt"), Some(ExistingKind::File))
     );
 }
 
@@ -313,7 +323,7 @@ fn ex_paths_014_a_trailing_slash_on_a_missing_link_target_does_not_require_a_dir
 
     assert_eq!(
         root.inspect("l").unwrap(),
-        symlink_result("newdir/", root.real("newdir"))
+        symlink_result("newdir/", root.real("newdir"), None)
     );
 }
 

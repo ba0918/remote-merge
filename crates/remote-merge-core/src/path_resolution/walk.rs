@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use super::{
-    EntryKind, PathOps, ResolveError, ResolvedPath, NAME_LENGTH_LIMIT, PATH_LENGTH_LIMIT,
-    SYMLINK_LIMIT,
+    EntryKind, ExistingKind, PathOps, ResolveError, ResolvedPath, NAME_LENGTH_LIMIT,
+    PATH_LENGTH_LIMIT, SYMLINK_LIMIT,
 };
 
 /// まだ辿っていない一つの要素
@@ -128,6 +128,8 @@ pub fn resolve_path(
     let mut terminal_link = None;
     let mut inserted_links = 0;
     let mut missing_parent_exists = None;
+    // 最後に辿った要素の種類（"/" はディレクトリ）
+    let mut kind = ExistingKind::Directory;
     while let Some(component) = queue.pop_front() {
         let rest = queue.len();
         expansions.retain(|expansion| expansion.rest <= rest);
@@ -181,35 +183,47 @@ pub fn resolve_path(
                     queue.push_front(target_component);
                 }
             }
-            EntryKind::Directory => real = next,
-            kind @ (EntryKind::RegularFile | EntryKind::Other) => {
+            EntryKind::Directory => {
+                kind = ExistingKind::Directory;
+                real = next;
+            }
+            found @ (EntryKind::RegularFile | EntryKind::Other) => {
                 if rest > 0 {
                     return not_a_directory_before(
                         &expansions,
                         rest,
                         component.from_rel,
                         next,
-                        kind,
+                        found,
                     );
                 }
                 if component.slash_after {
                     return Err(ResolveError::NotADirectory);
                 }
+                kind = if found == EntryKind::RegularFile {
+                    ExistingKind::File
+                } else {
+                    ExistingKind::Other
+                };
                 real = next;
             }
         }
     }
 
     Ok(match (terminal_link, missing_parent_exists) {
-        (Some(link_target), _) => ResolvedPath::Symlink {
+        (Some(link_target), parent_exists) => ResolvedPath::Symlink {
             link_target,
             real_path: real,
+            target_kind: parent_exists.is_none().then_some(kind),
         },
         (None, Some(parent_exists)) => ResolvedPath::Missing {
             real_parent: parent(&real),
             parent_exists,
         },
-        (None, None) => ResolvedPath::Exists { real_path: real },
+        (None, None) => ResolvedPath::Exists {
+            real_path: real,
+            kind,
+        },
     })
 }
 

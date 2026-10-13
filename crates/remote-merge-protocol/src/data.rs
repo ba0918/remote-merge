@@ -1,5 +1,6 @@
 //! 通信で運ぶ値の型
 
+use remote_merge_core::path_resolution::ExistingKind;
 use serde::{Deserialize, Serialize};
 
 use crate::WireFailure;
@@ -38,10 +39,13 @@ pub enum AgentPathInspection {
     },
     Exists {
         real_path: String,
+        kind: ExistingKind,
     },
     Symlink {
         link_target: String,
         real_path: String,
+        /// 辿った先の種類（辿った先が存在しなければ None）
+        target_kind: Option<ExistingKind>,
     },
     AncestorNotDirectory {
         real_path: String,

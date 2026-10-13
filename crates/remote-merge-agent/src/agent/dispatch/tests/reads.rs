@@ -69,6 +69,7 @@ fn inspect_path_resolves_an_intermediate_symlink_outside_the_root() {
                     .join("file.txt")
                     .to_string_lossy()
                     .into_owned(),
+                kind: remote_merge_core::path_resolution::ExistingKind::File,
             },
         }
     );

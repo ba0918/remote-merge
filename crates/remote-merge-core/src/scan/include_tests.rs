@@ -1,11 +1,12 @@
 use super::*;
-use crate::path_resolution::ResolvedPath;
+use crate::path_resolution::{ExistingKind, ResolvedPath};
 
 const ROOT: &str = "/srv/app";
 
 fn exists(real_path: &str) -> ResolvedPath {
     ResolvedPath::Exists {
         real_path: real_path.into(),
+        kind: ExistingKind::Directory,
     }
 }
 
@@ -13,6 +14,7 @@ fn symlink(real_path: &str) -> ResolvedPath {
     ResolvedPath::Symlink {
         link_target: "x".into(),
         real_path: real_path.into(),
+        target_kind: Some(ExistingKind::Directory),
     }
 }
 

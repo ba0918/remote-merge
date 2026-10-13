@@ -15,13 +15,17 @@ pub fn resolved_from_agent(inspection: AgentPathInspection) -> anyhow::Result<Re
             real_parent,
             parent_exists,
         }),
-        AgentPathInspection::Exists { real_path } => Ok(ResolvedPath::Exists { real_path }),
+        AgentPathInspection::Exists { real_path, kind } => {
+            Ok(ResolvedPath::Exists { real_path, kind })
+        }
         AgentPathInspection::Symlink {
             link_target,
             real_path,
+            target_kind,
         } => Ok(ResolvedPath::Symlink {
             link_target,
             real_path,
+            target_kind,
         }),
         AgentPathInspection::AncestorNotDirectory {
             real_path,

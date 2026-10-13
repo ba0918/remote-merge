@@ -1,4 +1,5 @@
 use super::*;
+use remote_merge_core::path_resolution::ExistingKind;
 
 // ---- Handshake ----
 
@@ -73,10 +74,17 @@ fn every_kind_of_path_inspection_survives_the_wire_format() {
         },
         AgentPathInspection::Exists {
             real_path: "/srv/app/file.txt".into(),
+            kind: ExistingKind::File,
         },
         AgentPathInspection::Symlink {
             link_target: "../shared/file.txt".into(),
             real_path: "/srv/shared/file.txt".into(),
+            target_kind: Some(ExistingKind::File),
+        },
+        AgentPathInspection::Symlink {
+            link_target: "nowhere".into(),
+            real_path: "/srv/app/nowhere".into(),
+            target_kind: None,
         },
         AgentPathInspection::AncestorNotDirectory {
             real_path: "/srv/app/dir".into(),
@@ -94,4 +102,33 @@ fn every_kind_of_path_inspection_survives_the_wire_format() {
         let bytes = serialize_response(&response).unwrap();
         assert_eq!(deserialize_response(&bytes).unwrap(), response);
     }
+}
+
+/// パスの確認の答えが運ぶ種類の形（通信の版 13）。形が変わったらここが落ちる
+#[test]
+fn the_kinds_of_a_path_inspection_keep_their_wire_shape() {
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    let exists = AgentResponse::PathInspection {
+        result: AgentPathInspection::Exists {
+            real_path: "/a".into(),
+            kind: ExistingKind::Directory,
+        },
+    };
+    let link = AgentResponse::PathInspection {
+        result: AgentPathInspection::Symlink {
+            link_target: "b".into(),
+            real_path: "/b".into(),
+            target_kind: None,
+        },
+    };
+    assert_eq!(
+        hex(&serialize_response(&exists).unwrap()),
+        "81ae50617468496e7370656374696f6e9181a645786973747392a22f61a94469726563746f7279",
+        "bump PROTOCOL_VERSION"
+    );
+    assert_eq!(
+        hex(&serialize_response(&link).unwrap()),
+        "81ae50617468496e7370656374696f6e9181a753796d6c696e6b93a162a22f62c0",
+        "bump PROTOCOL_VERSION"
+    );
 }

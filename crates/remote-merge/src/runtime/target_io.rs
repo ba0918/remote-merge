@@ -50,12 +50,13 @@ pub(crate) fn target_path_outside_rollback(resolved: ResolvedPath) -> anyhow::Re
         ResolvedPath::Missing { real_parent, .. } => TargetPath::Missing {
             real_parent: real_parent.into(),
         },
-        ResolvedPath::Exists { real_path } => TargetPath::File {
+        ResolvedPath::Exists { real_path, .. } => TargetPath::File {
             real_path: real_path.into(),
         },
         ResolvedPath::Symlink {
             link_target,
             real_path,
+            ..
         } => TargetPath::Symlink {
             link_target: link_target.into(),
             real_path: real_path.into(),

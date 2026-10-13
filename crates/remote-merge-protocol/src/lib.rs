@@ -28,7 +28,8 @@ macro_rules! define_protocol_version {
         ///           使われなくなった StatFiles をなくした。書き込み・symlink の作成・削除・権限の変更の
         ///           結果を Changed にまとめた。ListDir をなくし、子の一覧は ListTree の
         ///           ScanScope::Children で求める
-        /// v12 → v13: 変更の途中で root_dir がなくなっていたことを WireFailure::RootGone で運ぶ
+        /// v12 → v13: 変更の途中で root_dir がなくなっていたことを WireFailure::RootGone で運ぶ。
+        ///           パスの確認の Exists に種類を、Symlink に辿った先の種類を足した
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。

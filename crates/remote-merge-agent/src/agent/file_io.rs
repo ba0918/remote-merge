@@ -40,13 +40,17 @@ fn inspection_of(resolved: Result<ResolvedPath, ResolveError>) -> AgentPathInspe
             real_parent,
             parent_exists,
         },
-        Ok(ResolvedPath::Exists { real_path }) => AgentPathInspection::Exists { real_path },
+        Ok(ResolvedPath::Exists { real_path, kind }) => {
+            AgentPathInspection::Exists { real_path, kind }
+        }
         Ok(ResolvedPath::Symlink {
             link_target,
             real_path,
+            target_kind,
         }) => AgentPathInspection::Symlink {
             link_target,
             real_path,
+            target_kind,
         },
         Ok(ResolvedPath::AncestorNotDirectory {
             real_path,
