@@ -8,7 +8,6 @@ use crate::agent::deploy::{self, VersionCheck};
 #[cfg(unix)]
 use crate::agent::ssh_transport::SshAgentTransport;
 #[cfg(unix)]
-use crate::config;
 use remote_merge_core::route_choice::AgentState;
 
 #[cfg(unix)]
@@ -36,8 +35,6 @@ impl CoreRuntime {
         let user = server_config.user.clone();
         let root_dir = server_config.root_dir.to_string_lossy().to_string();
         let sudo = server_config.sudo;
-        let file_perm = config::resolve_file_permissions(server_config, &self.config.defaults);
-        let dir_perm = config::resolve_dir_permissions(server_config, &self.config.defaults);
         let deploy_dir = self.config.agent.deploy_dir.clone();
 
         // sudo=true の場合: pre-flight チェック
@@ -122,15 +119,8 @@ impl CoreRuntime {
         }
 
         // Agent プロセスを起動
-        let agent_command = deploy::build_agent_command(
-            &remote_path,
-            &root_dir,
-            sudo,
-            default_uid,
-            default_gid,
-            file_perm,
-            dir_perm,
-        );
+        let agent_command =
+            deploy::build_agent_command(&remote_path, &root_dir, sudo, default_uid, default_gid);
         tracing::debug!(
             "Starting agent: server={}, command={}",
             server_name,

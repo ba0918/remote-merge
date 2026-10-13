@@ -161,8 +161,6 @@ pub fn build_agent_command(
     sudo: bool,
     default_uid: Option<u32>,
     default_gid: Option<u32>,
-    file_permissions: u32,
-    dir_permissions: u32,
 ) -> String {
     let escaped_path = shell_escape(&remote_path.to_string_lossy());
     let escaped_root = shell_escape(root_dir);
@@ -178,7 +176,5 @@ pub fn build_agent_command(
     if let Some(gid) = default_gid {
         cmd.push_str(&format!(" --default-gid {gid}"));
     }
-    cmd.push_str(&format!(" --file-permissions {file_permissions}"));
-    cmd.push_str(&format!(" --dir-permissions {dir_permissions}"));
     cmd
 }

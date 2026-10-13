@@ -18,16 +18,12 @@ use super::protocol::{self, AgentRequest, AgentResponse};
 
 /// Agent 起動時に渡されるメタデータ設定。
 ///
-/// ファイル書き込み時の所有者・パーミッションのデフォルト値を保持する。
-/// None の場合は Agent 内ではデフォルト適用しない（OS デフォルトを使用）。
+/// sudo のエージェントが新しく作ったものに付ける所有者（ログインした利用者）を保持する。
+/// None の場合は所有者を変えない。新しいファイルとディレクトリの権限は merge が付ける。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MetadataConfig {
     pub default_uid: Option<u32>,
     pub default_gid: Option<u32>,
-    /// 新規ファイルのデフォルトパーミッション（10進数）
-    pub file_permissions: Option<u32>,
-    /// 新規ディレクトリのデフォルトパーミッション（10進数）
-    pub dir_permissions: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -391,8 +387,6 @@ mod tests {
         let config = MetadataConfig::default();
         assert_eq!(config.default_uid, None);
         assert_eq!(config.default_gid, None);
-        assert_eq!(config.file_permissions, None);
-        assert_eq!(config.dir_permissions, None);
     }
 
     #[test]
@@ -400,13 +394,9 @@ mod tests {
         let config = MetadataConfig {
             default_uid: Some(1000),
             default_gid: Some(1000),
-            file_permissions: Some(0o644),
-            dir_permissions: Some(0o755),
         };
         assert_eq!(config.default_uid, Some(1000));
         assert_eq!(config.default_gid, Some(1000));
-        assert_eq!(config.file_permissions, Some(0o644));
-        assert_eq!(config.dir_permissions, Some(0o755));
     }
 
     #[test]
@@ -414,13 +404,9 @@ mod tests {
         let config = MetadataConfig {
             default_uid: Some(500),
             default_gid: None,
-            file_permissions: Some(436),
-            dir_permissions: None,
         };
         assert_eq!(config.default_uid, Some(500));
         assert_eq!(config.default_gid, None);
-        assert_eq!(config.file_permissions, Some(436));
-        assert_eq!(config.dir_permissions, None);
     }
 
     #[test]
@@ -428,8 +414,6 @@ mod tests {
         let config = MetadataConfig {
             default_uid: Some(1000),
             default_gid: Some(1000),
-            file_permissions: Some(436),
-            dir_permissions: Some(509),
         };
         let cloned = config.clone();
         assert_eq!(config, cloned);
@@ -442,8 +426,6 @@ mod tests {
         let config = MetadataConfig {
             default_uid: Some(1000),
             default_gid: Some(1000),
-            file_permissions: Some(436),
-            dir_permissions: Some(509),
         };
 
         let mut input = Vec::new();

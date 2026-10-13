@@ -388,27 +388,27 @@ mod tests {
     #[test]
     fn build_agent_command_basic() {
         let path = PathBuf::from("/var/tmp/remote-merge-user/remote-merge");
-        let cmd = build_agent_command(&path, "/var/www/app", false, None, None, 436, 509);
+        let cmd = build_agent_command(&path, "/var/www/app", false, None, None);
         assert_eq!(
             cmd,
-            "'/var/tmp/remote-merge-user/remote-merge' agent --root '/var/www/app' --file-permissions 436 --dir-permissions 509"
+            "'/var/tmp/remote-merge-user/remote-merge' agent --root '/var/www/app'"
         );
     }
 
     #[test]
     fn build_agent_command_escapes_root_dir() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/var/www/my app", false, None, None, 436, 509);
+        let cmd = build_agent_command(&path, "/var/www/my app", false, None, None);
         assert_eq!(
             cmd,
-            "'/var/tmp/rm/remote-merge' agent --root '/var/www/my app' --file-permissions 436 --dir-permissions 509"
+            "'/var/tmp/rm/remote-merge' agent --root '/var/www/my app'"
         );
     }
 
     #[test]
     fn build_agent_command_with_quotes_in_path() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/var/www/it's", false, None, None, 436, 509);
+        let cmd = build_agent_command(&path, "/var/www/it's", false, None, None);
         // shell_escape は ' を '\'' にエスケープする
         assert!(cmd.contains("agent --root"));
         assert!(cmd.contains("it"));
@@ -419,7 +419,7 @@ mod tests {
     #[test]
     fn build_agent_command_sudo_true_has_sudo_prefix() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/app", true, Some(1000), Some(1000), 436, 509);
+        let cmd = build_agent_command(&path, "/app", true, Some(1000), Some(1000));
         assert!(
             cmd.starts_with("sudo "),
             "should start with 'sudo ': cmd={cmd}"
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn build_agent_command_sudo_false_no_sudo_prefix() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/app", false, None, None, 436, 509);
+        let cmd = build_agent_command(&path, "/app", false, None, None);
         assert!(
             !cmd.starts_with("sudo "),
             "should NOT start with 'sudo ': cmd={cmd}"
@@ -437,23 +437,23 @@ mod tests {
     }
 
     #[test]
-    fn build_agent_command_includes_uid_gid_permissions() {
+    fn build_agent_command_includes_uid_gid() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/app", true, Some(1000), Some(1000), 436, 509);
+        let cmd = build_agent_command(&path, "/app", true, Some(1000), Some(1000));
         assert_eq!(
             cmd,
-            "sudo '/var/tmp/rm/remote-merge' agent --root '/app' --default-uid 1000 --default-gid 1000 --file-permissions 436 --dir-permissions 509"
+            "sudo '/var/tmp/rm/remote-merge' agent --root '/app' --default-uid 1000 --default-gid 1000"
         );
     }
 
     #[test]
     fn build_agent_command_without_uid_gid() {
         let path = PathBuf::from("/var/tmp/rm/remote-merge");
-        let cmd = build_agent_command(&path, "/app", false, None, None, 436, 509);
+        let cmd = build_agent_command(&path, "/app", false, None, None);
         assert!(!cmd.contains("--default-uid"), "cmd={cmd}");
         assert!(!cmd.contains("--default-gid"), "cmd={cmd}");
-        assert!(cmd.contains("--file-permissions 436"), "cmd={cmd}");
-        assert!(cmd.contains("--dir-permissions 509"), "cmd={cmd}");
+        assert!(!cmd.contains("--file-permissions"), "cmd={cmd}");
+        assert!(!cmd.contains("--dir-permissions"), "cmd={cmd}");
     }
 
     // --- build_deploy_commands: sudo ---

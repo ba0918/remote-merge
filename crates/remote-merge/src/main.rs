@@ -232,12 +232,6 @@ enum Commands {
         /// Default GID for new files
         #[arg(long)]
         default_gid: Option<u32>,
-        /// Default permissions for new files (decimal)
-        #[arg(long)]
-        file_permissions: Option<u32>,
-        /// Default permissions for new directories (decimal)
-        #[arg(long)]
-        dir_permissions: Option<u32>,
     },
 }
 
@@ -501,28 +495,18 @@ fn try_main() -> anyhow::Result<()> {
             root,
             default_uid,
             default_gid,
-            file_permissions,
-            dir_permissions,
         } => {
             #[cfg(unix)]
             {
                 let metadata_config = remote_merge::agent::server::MetadataConfig {
                     default_uid,
                     default_gid,
-                    file_permissions,
-                    dir_permissions,
                 };
                 remote_merge::agent::server::run_agent_server(root, metadata_config)?;
             }
             #[cfg(not(unix))]
             {
-                let _ = (
-                    root,
-                    default_uid,
-                    default_gid,
-                    file_permissions,
-                    dir_permissions,
-                );
+                let _ = (root, default_uid, default_gid);
                 anyhow::bail!("The agent subcommand is only supported on Unix platforms");
             }
         }
@@ -766,10 +750,6 @@ mod tests {
             "1000",
             "--default-gid",
             "1000",
-            "--file-permissions",
-            "436",
-            "--dir-permissions",
-            "509",
         ])
         .unwrap();
 
@@ -778,14 +758,10 @@ mod tests {
                 root,
                 default_uid,
                 default_gid,
-                file_permissions,
-                dir_permissions,
             } => {
                 assert_eq!(root, PathBuf::from("/app"));
                 assert_eq!(default_uid, Some(1000));
                 assert_eq!(default_gid, Some(1000));
-                assert_eq!(file_permissions, Some(436));
-                assert_eq!(dir_permissions, Some(509));
             }
             other => panic!("expected Agent command, got {other:?}"),
         }
@@ -799,14 +775,10 @@ mod tests {
             Commands::Agent {
                 default_uid,
                 default_gid,
-                file_permissions,
-                dir_permissions,
                 ..
             } => {
                 assert_eq!(default_uid, None);
                 assert_eq!(default_gid, None);
-                assert_eq!(file_permissions, None);
-                assert_eq!(dir_permissions, None);
             }
             other => panic!("expected Agent command, got {other:?}"),
         }
@@ -821,8 +793,6 @@ mod tests {
             "/app",
             "--default-uid",
             "500",
-            "--file-permissions",
-            "436",
         ])
         .unwrap();
 
@@ -830,14 +800,10 @@ mod tests {
             Commands::Agent {
                 default_uid,
                 default_gid,
-                file_permissions,
-                dir_permissions,
                 ..
             } => {
                 assert_eq!(default_uid, Some(500));
                 assert_eq!(default_gid, None);
-                assert_eq!(file_permissions, Some(436));
-                assert_eq!(dir_permissions, None);
             }
             other => panic!("expected Agent command, got {other:?}"),
         }

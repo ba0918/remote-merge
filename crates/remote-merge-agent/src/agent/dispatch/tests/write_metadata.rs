@@ -12,8 +12,6 @@ fn write_file_propagates_metadata_config() {
     let (tmp, mut d) = setup_with_config(MetadataConfig {
         default_uid: Some(1000),
         default_gid: Some(1000),
-        file_permissions: Some(0o644),
-        dir_permissions: Some(0o755),
     });
 
     let resp = single(
@@ -41,8 +39,6 @@ fn write_file_chunked_saved_metadata_management() {
     let (tmp, mut d) = setup_with_config(MetadataConfig {
         default_uid: None,
         default_gid: None,
-        file_permissions: Some(0o600),
-        dir_permissions: None,
     });
 
     // 既存ファイルを作成
@@ -96,8 +92,6 @@ fn a_new_file_keeps_the_mode_it_was_created_with_like_the_local_route() {
     let (tmp, mut d) = setup_with_config(MetadataConfig {
         default_uid: None,
         default_gid: None,
-        file_permissions: Some(0o600),
-        dir_permissions: None,
     });
 
     let resp = single(

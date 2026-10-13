@@ -386,14 +386,11 @@ fn test_build_agent_command_with_sudo() {
         true,
         Some(1000),
         Some(1000),
-        0o644,
-        0o755,
     );
     assert!(cmd.starts_with("sudo "));
     assert!(cmd.contains("--default-uid 1000"));
     assert!(cmd.contains("--default-gid 1000"));
-    assert!(cmd.contains("--file-permissions 420")); // 0o644 = 420
-    assert!(cmd.contains("--dir-permissions 493")); // 0o755 = 493
+    assert!(!cmd.contains("--file-permissions"));
 }
 
 #[test]
@@ -406,12 +403,9 @@ fn test_build_agent_command_without_sudo() {
         false,
         None,
         None,
-        0o664,
-        0o775,
     );
     assert!(!cmd.starts_with("sudo "));
     assert!(!cmd.contains("--default-uid"));
     assert!(!cmd.contains("--default-gid"));
-    assert!(cmd.contains("--file-permissions 436")); // 0o664 = 436
-    assert!(cmd.contains("--dir-permissions 509")); // 0o775 = 509
+    assert!(!cmd.contains("--dir-permissions"));
 }
