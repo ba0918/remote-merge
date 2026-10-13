@@ -5,10 +5,9 @@
 //! 標準エラーに出した文言の終わりで手元が決める。書き込みに要る道具がないときと、親を作れなかった
 //! ときは、目印を付けて標準エラーに出す。書き込みは失敗で終わるときも標準入力を読み切る。
 
-use std::path::Path;
-
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
+use crate::change_steps::{creating, new_file, parent_step, EXISTS, PARENT};
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
@@ -18,56 +17,6 @@ const NO_TOOL: &str = "@RMNOTOOL";
 /// 送るもの）かを見分けるための印。試験の偽の SSH サーバは、この印で標準入力を待つ書き込みのコマンドを
 /// 見分ける（中身に "cat >" を含むかでは、読み込みのスクリプトと取り違える）
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
-const PARENT: &str = "@RMPARENT";
-
-/// 作った親ディレクトリ（位置引数に下から順に入れたもの）を消す文。消せずに残ったものは、名前と
-/// rmdir の文言を NUL で区切り、目印を付けて標準エラーに出す（名前に改行が入りうるため）
-const UNDO_PARENTS: &str = "for x do e=$(rmdir -- \"$x\" 2>&1) || [ ! -e \"$x\" ] || printf '\\n@RMLEFT\\000%s\\000%s\\000' \"$x\" \"$e\" >&2; done\n";
-
-/// 親ディレクトリを作る文。まだない親を位置引数に下から順に覚え、後で書き込み先を作れなかったときに
-/// 消せるようにする（ローカルの経路と同じ。REQ-merge-042）。mkdir が失敗したとき、親か親の祖先が
-/// すでにあって（リンク切れの symlink を含む）ディレクトリでなければ、mkdir の文言によらず
-/// "Not a directory" と答える（ローカルの経路と同じ。CentOS 5 の mkdir は
-/// "exists but is not a directory"、リンク切れの親は coreutils で "File exists"、BusyBox で
-/// "No such file or directory" と出す）
-fn parent_step(full: &str, drain: &str) -> String {
-    let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
-        return "set --\n".into();
-    };
-    if parent.is_empty() || parent == "/" {
-        return "set --\n".into();
-    }
-    format!(
-        concat!(
-            "d={parent}\n",
-            "set --; a=$d\n",
-            "while ! {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }}; do set -- \"$@\" \"$a\"\n",
-            " case $a in */*) a=${{a%/*}}; [ -n \"$a\" ] || break;; *) break;; esac\n",
-            "done\n",
-            "if [ ! -d \"$d\" ]; then\n",
-            " m=$(mkdir -p -- \"$d\" 2>&1) || {{\n",
-            "  a=$d\n",
-            "  while :; do\n",
-            "   if {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }} && [ ! -d \"$a\" ]; then m='Not a directory'; break; fi\n",
-            "   case $a in */*) a=${{a%/*}};; *) break;; esac\n",
-            "   [ -z \"$a\" ] && break\n",
-            "  done\n",
-            "  {undo}",
-            "  {drain}printf '{marker}\\000%s\\000' \"$m\" >&2; exit 1; }}\n",
-            "fi\n",
-        ),
-        parent = shell_escape(parent),
-        drain = drain,
-        marker = PARENT,
-        undo = UNDO_PARENTS,
-    )
-}
-
-/// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
-fn creating(create: &str) -> String {
-    format!("( {create}\n); s=$?\nif [ $s != 0 ]; then\n{UNDO_PARENTS}exit $s; fi\n")
-}
-
 /// 標準入力の中身を `full` にその場で書くコマンド。`binary` なら標準入力は base64 で、openssl で
 /// 復号する（openssl がなければ書き込み先を開かずに失敗する）
 pub fn write(full: &str, binary: bool) -> String {
@@ -82,24 +31,33 @@ pub fn write(full: &str, binary: bool) -> String {
             "command -v openssl >/dev/null 2>&1 || {{ {drain}printf '\\n{NO_TOOL} openssl\\n' >&2; exit 1; }}\n"
         ));
     }
+    // 書き込み先がないかを、親を作る前に確かめる（ローカルの経路と同じ）。なければ新しいファイルとして
+    // O_EXCL で作る（REQ-merge-043）
+    script.push_str(&format!(
+        "w={}\nif [ -e \"$w\" ] || [ -L \"$w\" ]; then n=0; else n=1; fi\n",
+        shell_escape(full)
+    ));
     script.push_str(&parent_step(full, drain));
     // dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由をローカルの経路の
     // O_NOFOLLOW と同じ文言で出す
     script.push_str(&format!(
         concat!(
-            "w={full}\n",
             "if [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
             " {drain}printf 'Too many levels of symbolic links\\n' >&2; exit 1\n",
             "fi\n",
         ),
-        full = shell_escape(full),
         drain = drain,
     ));
-    script.push_str(&creating(&if binary {
-        build_write_bytes_command(full)
+    let (existing, writer) = if binary {
+        (build_write_bytes_command(full), "openssl base64 -d -A")
     } else {
-        build_write_text_command(full)
-    }));
+        (build_write_text_command(full), "cat")
+    };
+    script.push_str("if [ $n = 1 ]; then\n");
+    script.push_str(&creating(&new_file(full, writer)));
+    script.push_str("else\n");
+    script.push_str(&creating(&existing));
+    script.push_str("fi\n");
     script
 }
 
@@ -176,6 +134,11 @@ fn kind_of(stderr: &[u8]) -> OpFailure {
             Some(b" openssl") => return OpFailure::ToolMissing(Tool::OpensslBase64),
             _ => {}
         }
+        // 新しいファイルを作ろうとしたときに何かが現れていた。ローカルの経路の EEXIST と同じ文言にする
+        // （シェルの noclobber の文言は bash と dash・BusyBox で違う）
+        if line == EXISTS.as_bytes() {
+            return OpFailure::Io("File exists".into());
+        }
     }
     let parent = [PARENT.as_bytes(), b"\0"].concat();
     let at_line_start = |at: usize| at == 0 || stderr[at - 1] == b'\n';
@@ -194,3 +157,7 @@ fn kind_of(stderr: &[u8]) -> OpFailure {
 #[cfg(all(test, unix))]
 #[path = "change_scripts_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_race_tests.rs"]
+mod race_tests;
