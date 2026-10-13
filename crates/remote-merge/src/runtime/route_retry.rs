@@ -36,6 +36,8 @@ impl StopKey {
 pub(crate) struct Stop {
     cause: StopCause,
     reason: String,
+    /// 止めた順（0 から）。いくつもの側を止めたときに、最初に止めた側を決める
+    order: usize,
 }
 
 impl CoreRuntime {
@@ -88,9 +90,11 @@ impl CoreRuntime {
     }
 
     fn stop_with(&mut self, key: StopKey, cause: StopCause, error: &anyhow::Error) {
+        let order = self.stopped.len();
         self.stopped.entry(key).or_insert_with(|| Stop {
             cause,
             reason: format!("{error:#}"),
+            order,
         });
     }
 
@@ -100,11 +104,13 @@ impl CoreRuntime {
     }
 
     /// root_dir がなくなって処理を止めた側があれば、その「行わなかった」のエラー（止めたときの最初の
-    /// root_dir がない誤りを持つ。D48）。読むだけのコマンドが、それを出して止めるのに使う
+    /// root_dir がない誤りを持つ。D48）。いくつもの側を止めていれば、最初に止めた側のもの。読むだけの
+    /// コマンドが、それを出して止めるのに使う
     pub fn root_gone_stop(&self) -> Option<anyhow::Error> {
         self.stopped
             .iter()
-            .find(|(_, stop)| stop.cause == StopCause::RootGone)
+            .filter(|(_, stop)| stop.cause == StopCause::RootGone)
+            .min_by_key(|(_, stop)| stop.order)
             .and_then(|(key, _)| self.stopped_error_of(key))
     }
 
@@ -128,4 +134,28 @@ impl CoreRuntime {
 /// 接続が使えなくなった失敗か。止めた後の「行わなかった」は、もうつなぎ直さない
 fn is_lost(error: &anyhow::Error) -> bool {
     classify(error).is_disconnection() && !is_stopped(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 両側（ここでは多くの側）の root_dir がなくなったときは、最初に止めた側の理由を出す（実行ごとに
+    // 変わらない）
+    #[test]
+    fn the_first_side_stopped_for_a_root_gone_is_the_one_shown() {
+        let mut runtime = CoreRuntime::new_for_test();
+        runtime.stop_for_root_gone(StopKey::Local, &anyhow::anyhow!("first"));
+        for n in 0..16 {
+            let key = StopKey::Server(format!("server{n}"));
+            runtime.stop_for_root_gone(key, &anyhow::anyhow!("later {n}"));
+        }
+
+        let stopped = runtime.root_gone_stop().unwrap();
+        let reason = stopped
+            .downcast_ref::<ProcessingStopped>()
+            .map(|stopped| stopped.reason.clone());
+
+        assert_eq!(reason.as_deref(), Some("first"));
+    }
 }
