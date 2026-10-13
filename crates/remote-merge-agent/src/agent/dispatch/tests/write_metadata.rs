@@ -92,7 +92,7 @@ fn write_file_chunked_saved_metadata_management() {
 }
 
 #[test]
-fn write_file_new_file_uses_config_defaults() {
+fn a_new_file_keeps_the_mode_it_was_created_with_like_the_local_route() {
     let (tmp, mut d) = setup_with_config(MetadataConfig {
         default_uid: None,
         default_gid: None,
@@ -114,7 +114,18 @@ fn write_file_new_file_uses_config_defaults() {
         fs::read_to_string(tmp.path().join("brand_new.txt")).unwrap(),
         "data"
     );
-    // 新しく作ったファイルには既定の権限が付く
-    assert_eq!(mode_of(&tmp.path().join("brand_new.txt")), 0o600);
+    // 新しいファイルの権限は、どの経路でも書いた後に merge が設定の値で付ける。エージェントは
+    // ローカルの経路と同じく、作ったときの権限のままにする
+    let local = tempfile::tempdir().unwrap();
+    remote_merge_core::machine_ops::write(
+        local.path(),
+        &remote_merge_core::relative_path::EntryPath::parse("brand_new.txt").unwrap(),
+        b"data",
+    )
+    .unwrap();
+    assert_eq!(
+        mode_of(&tmp.path().join("brand_new.txt")),
+        mode_of(&local.path().join("brand_new.txt"))
+    );
     assert!(!d.writing.contains_key("brand_new.txt"));
 }

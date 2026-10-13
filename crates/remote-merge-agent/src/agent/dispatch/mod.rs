@@ -103,12 +103,10 @@ impl Dispatcher {
         let part = match self.writing.get(&key) {
             Some(created) => writes::Part {
                 first: false,
-                last: !more_to_follow,
                 created: *created,
             },
             None => writes::Part {
                 first: true,
-                last: !more_to_follow,
                 created: writes::is_new(&self.root_dir, path),
             },
         };
