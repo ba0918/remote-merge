@@ -91,7 +91,7 @@ pub fn from_error(error: &anyhow::Error) -> OpFailure {
 }
 
 /// std の表示に付く " (os error N)" を除いた OS の理由
-fn os_reason(error: &std::io::Error) -> String {
+pub fn os_reason(error: &std::io::Error) -> String {
     let shown = error.to_string();
     match (error.raw_os_error(), shown.rfind(" (os error ")) {
         (Some(_), Some(at)) => shown[..at].to_string(),

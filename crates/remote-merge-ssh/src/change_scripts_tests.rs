@@ -264,3 +264,28 @@ fn created_parents_that_cannot_be_removed_are_named_in_the_failure() {
     assert!(message.contains("left"), "{message}");
     assert!(message.contains("/new"), "{message}");
 }
+
+// @kotowari[REQ-merge-042, REQ-paths-020]
+#[test]
+fn a_left_parent_whose_name_holds_a_newline_keeps_the_kind_and_shows_the_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let parent = "p\nNo such file or directory";
+    let full = format!("{}/{parent}/{}", root.path().display(), "x".repeat(300));
+    let bin = bin_with(&["cat", "dd", "mkdir"]);
+    put_tool(
+        bin.path(),
+        "rmdir",
+        "echo \"rmdir: failed to remove '$2': Permission denied\" >&2\nexit 1\n",
+    );
+
+    let result = run_with_only(bin.path(), &write(&full, false), b"x");
+
+    let Err(OpFailure::Io(message)) = result else {
+        panic!("{result:?}");
+    };
+    assert!(message.contains("File name too long"), "{message}");
+    assert!(
+        message.contains(&format!("{parent} (Permission denied)")),
+        "{message}"
+    );
+}

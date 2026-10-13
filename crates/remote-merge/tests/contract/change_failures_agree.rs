@@ -133,3 +133,36 @@ async fn writes_links_and_link_reads_give_the_same_result_on_all_three_routes() 
 
     assert!(differences.is_empty(), "{differences:#?}");
 }
+
+// @kotowari[REQ-merge-042, REQ-paths-013]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_write_or_a_link_failing_after_creating_parents_leaves_no_parent_on_all_three_routes() {
+    let routes = Routes::new(state).await;
+    let long = "x".repeat(300);
+    let cases = [
+        ("write", format!("new/sub/{long}"), "new"),
+        ("symlink", format!("other/{long}"), "other"),
+    ];
+
+    let mut differences = Vec::new();
+    for (operation, path, parent) in &cases {
+        let entry = EntryPath::parse(path).unwrap();
+        let outcomes = [
+            on_local(&routes.local.root, operation, &entry),
+            on_ssh(&routes, operation, &entry),
+            on_agent(&routes, operation, &entry),
+        ];
+        let left: Vec<bool> = [&routes.local, &routes.ssh, &routes.agent]
+            .iter()
+            .map(|route| route.root.join(parent).exists())
+            .collect();
+        if outcomes.iter().any(|outcome| !outcome.starts_with("Io(")) || left.contains(&true) {
+            differences.push(format!("{operation}: {outcomes:?} left={left:?}"));
+        }
+    }
+    for route in [&routes.local, &routes.ssh, &routes.agent] {
+        fs::set_permissions(route.root.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    assert!(differences.is_empty(), "{differences:#?}");
+}

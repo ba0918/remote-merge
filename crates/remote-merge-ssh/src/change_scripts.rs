@@ -20,9 +20,9 @@ const NO_TOOL: &str = "@RMNOTOOL";
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
 const PARENT: &str = "@RMPARENT";
 
-/// 作った親ディレクトリ（位置引数に下から順に入れたもの）を消す文。消せずに残ったものは目印を
-/// 付けて標準エラーに出す
-const UNDO_PARENTS: &str = "for x do rmdir -- \"$x\" 2>/dev/null || [ ! -e \"$x\" ] || printf '@RMLEFT %s\\n' \"$x\" >&2; done\n";
+/// 作った親ディレクトリ（位置引数に下から順に入れたもの）を消す文。消せずに残ったものは、名前と
+/// rmdir の文言を NUL で区切り、目印を付けて標準エラーに出す（名前に改行が入りうるため）
+const UNDO_PARENTS: &str = "for x do e=$(rmdir -- \"$x\" 2>&1) || [ ! -e \"$x\" ] || printf '\\n@RMLEFT\\000%s\\000%s\\000' \"$x\" \"$e\" >&2; done\n";
 
 /// 親ディレクトリを作る文。まだない親を位置引数に下から順に覚え、後で書き込み先を作れなかったときに
 /// 消せるようにする（ローカルの経路と同じ。REQ-merge-042）。mkdir が失敗したとき、親か親の祖先が
@@ -129,15 +129,8 @@ pub fn symlink(target: &str, full: &str) -> String {
 /// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする。目印は行の始まりに
 /// あるときだけ読む（道具の文言に含まれるパスの中の同じ文字列と取り違えない）
 pub fn failure(stderr: &[u8]) -> OpFailure {
-    let mut left = Vec::new();
-    let mut rest: Vec<&[u8]> = Vec::new();
-    for line in stderr.split(|byte| *byte == b'\n') {
-        match line.strip_prefix(b"@RMLEFT ") {
-            Some(dir) => left.push(String::from_utf8_lossy(dir).into_owned()),
-            None => rest.push(line),
-        }
-    }
-    let failure = kind_of(&rest.join(&b'\n'));
+    let (rest, left) = left_parents(stderr);
+    let failure = kind_of(&rest);
     if left.is_empty() {
         return failure;
     }
@@ -145,6 +138,34 @@ pub fn failure(stderr: &[u8]) -> OpFailure {
         "{failure}; these created directories were left because they could not be removed: {}",
         left.join(", ")
     ))
+}
+
+/// 標準エラーから、消せずに残った親の記録（名前と、rmdir の文言の終わりの理由）を取り出し、残りの
+/// 標準エラーと分ける。記録は "名前 (理由)" の形にする（ローカルの経路と同じ）
+fn left_parents(stderr: &[u8]) -> (Vec<u8>, Vec<String>) {
+    const MARK: &[u8] = b"\n@RMLEFT\0";
+    let mut rest = Vec::new();
+    let mut left = Vec::new();
+    let mut tail = stderr;
+    while let Some(at) = tail.windows(MARK.len()).position(|window| window == MARK) {
+        rest.extend_from_slice(&tail[..at]);
+        let mut fields = tail[at + MARK.len()..].splitn(3, |byte| *byte == 0);
+        let (Some(name), Some(message), Some(after)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            rest.extend_from_slice(&tail[at..]);
+            return (rest, left);
+        };
+        let message = String::from_utf8_lossy(message);
+        let message = message.trim_end();
+        let reason = message
+            .rsplit_once(": ")
+            .map_or(message, |(_, reason)| reason);
+        left.push(format!("{} ({reason})", String::from_utf8_lossy(name)));
+        tail = after;
+    }
+    rest.extend_from_slice(tail);
+    (rest, left)
 }
 
 /// 目印を除いた標準エラーの種類

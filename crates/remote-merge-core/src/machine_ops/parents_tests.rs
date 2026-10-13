@@ -94,7 +94,7 @@ fn parents_that_cannot_be_removed_are_named_in_the_failure() {
     let failure = undo_parents(&dirs, OpFailure::NotFound, |dir| {
         removed.push(dir.to_path_buf());
         if dir.ends_with("a") {
-            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            Err(std::io::Error::from_raw_os_error(libc::EACCES))
         } else {
             Ok(())
         }
@@ -104,7 +104,7 @@ fn parents_that_cannot_be_removed_are_named_in_the_failure() {
     let OpFailure::Io(message) = failure else {
         panic!("{failure:?}");
     };
-    assert!(message.contains("/r/a"), "{message}");
+    assert!(message.contains("/r/a (Permission denied)"), "{message}");
     assert!(message.contains("left"), "{message}");
     assert_eq!(
         undo_parents(&dirs, OpFailure::NotFound, |_| Ok(())),

@@ -8,7 +8,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use remote_merge_core::op_failure::{from_io_error, OpFailure};
+use remote_merge_core::op_failure::{from_io_error, os_reason, OpFailure};
 
 /// 作ったものへの所有者の操作と、消す操作
 pub(super) trait OwnerOps {
@@ -35,11 +35,11 @@ pub(super) fn own_created(
     let reason = from_io_error(&error);
     let mut left = Vec::new();
     if let Err(removal) = ops.remove_entry() {
-        left.push(format!("{entry_shown} ({removal})"));
+        left.push(format!("{entry_shown} ({})", os_reason(&removal)));
     }
     for dir in dirs.iter().rev() {
         if let Err(removal) = ops.remove_dir(dir) {
-            left.push(format!("{} ({removal})", dir.display()));
+            left.push(format!("{} ({})", dir.display(), os_reason(&removal)));
         }
     }
     if left.is_empty() {

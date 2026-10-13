@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use super::failed;
-use crate::op_failure::OpFailure;
+use crate::op_failure::{os_reason, OpFailure};
 
 /// `path` の親のうち、まだないもの（上から順）
 fn missing_parents(path: &Path) -> Vec<PathBuf> {
@@ -51,7 +51,7 @@ pub fn undo_parents(
         .filter_map(|dir| {
             remove(dir)
                 .err()
-                .map(|error| format!("{} ({error})", dir.display()))
+                .map(|error| format!("{} ({})", dir.display(), os_reason(&error)))
         })
         .collect();
     if left.is_empty() {
