@@ -208,6 +208,8 @@ mod rollback_path_agent;
 mod rollback_path_ssh;
 #[path = "contract/rollback_paths.rs"]
 mod rollback_paths;
+#[path = "contract/rollback_saved_record.rs"]
+mod rollback_saved_record;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_entry_count.rs"]
 mod scan_entry_count;

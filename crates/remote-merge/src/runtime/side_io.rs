@@ -343,13 +343,23 @@ impl CoreRuntime {
 
             let write_result = match record {
                 super::backup_store::BackupRecord::File { content, .. } => {
-                    let before = self.restore_before(
+                    // 退避した記録を読み戻せないファイルは書き戻さない（REQ-backup-046）
+                    let before = match self.restore_before(
                         side,
                         path,
                         current.as_ref(),
                         &pre_rollback_backup,
                         &mut states_before,
-                    );
+                    ) {
+                        Ok(before) => before,
+                        Err(error) => {
+                            failed.push(crate::service::types::RollbackFailure {
+                                path: path.clone(),
+                                error: format!("{error:#}"),
+                            });
+                            continue;
+                        }
+                    };
                     let backup = pre_rollback_backup
                         .as_ref()
                         .map(|session| format!("{session}/{path}"));
@@ -394,24 +404,19 @@ impl CoreRuntime {
         current: Option<&crate::service::rollback::CurrentRestorePath>,
         pre_rollback_backup: &Option<String>,
         states_before: &mut HashMap<String, Before>,
-    ) -> Before {
+    ) -> anyhow::Result<Before> {
         if matches!(
             current,
             Some(crate::service::rollback::CurrentRestorePath::Missing { .. })
         ) {
-            return Before::Absent;
+            return Ok(Before::Absent);
         }
-        let saved = pre_rollback_backup.as_ref().and_then(|session| {
+        let saved = pre_rollback_backup.as_ref().map(|session| {
             self.backup_store
                 .read_record(&self.config, side, session, path)
-                .ok()
         });
-        match saved {
-            Some(super::backup_store::BackupRecord::File { content, .. }) => {
-                Before::Content(content)
-            }
-            _ => states_before.remove(path).unwrap_or(Before::Unknown),
-        }
+        Ok(super::restore_saved::before_from_saved(saved)?
+            .unwrap_or_else(|| states_before.remove(path).unwrap_or(Before::Unknown)))
     }
 
     /// 書き戻す前の読み取りが `接続断` で止まったときの結果。読み取りに入っていたファイル

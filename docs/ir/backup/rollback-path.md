@@ -33,6 +33,13 @@ rollback の dry-run はセッション内の復元予定とブロック理由�
 バックアップが有効なとき、rollback は書き戻す前の現在の内容を新しいセッションに保存してその ID を pre_rollback_backup に示す。保存できないファイルは書き戻さず error "backup failed: " に続く原因で失敗とし、戻す先にファイルがなければ保存も pre_rollback_backup の表示もしない。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
 
+### REQ-backup-046: 退避した内容を読み戻せないファイルは書き戻さない
+- kind: event_driven
+- source: docs/decision/records/2026-10-12-foundation-3.md#D34
+- verification: unit
+
+rollback が REQ-backup-027 のとおり書き戻す前の内容を保存した後、その記録を読み戻せないとき（書き込みの最中の `接続断` の後に確かめる「書く前」の状態に使う）、どの経路でも、そのファイルを書き戻さず、読めなかった記録のパスと理由を示す error で failed に出し、ほかのファイルの書き戻しを続ける。書く前の状態を分からないものとして書き戻すことはしない。
+
 ### REQ-backup-028: 無効時は退避せずに書き戻す
 - kind: state_driven
 - source: docs/decision/records/2026-09-27-adopt-backup.md#A19
@@ -137,4 +144,10 @@ Scenario: 親のディレクトリが通常ファイルを指す symlink に置�
 Given --delete で "dir/a.txt" を削除したセッションがあり、その後 "dir" が通常ファイル "file.txt" を指す symlink に置き換わった
 When そのセッションを復元する
 Then "dir/a.txt" は書き戻されずスキップ理由 "parent directory no longer exists" が報告され、"file.txt" は変わらない
+
+@id=EX-backup-032 @about=REQ-backup-046 @source=docs/decision/records/2026-10-12-foundation-3.md#D34
+Scenario: 退避した内容を読み戻せない
+Given バックアップが有効な rollback で、"a.txt" の書き戻す前の内容は保存できたが、単体テストでその記録の読み戻しの失敗を差し込む
+When その rollback の "a.txt" を書き戻す
+Then "a.txt" は書き戻されず、読めなかった記録と理由を示す error で failed に出て、ほかのファイルは書き戻される
 ```
