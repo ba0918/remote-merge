@@ -7,7 +7,10 @@
 
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 
-use crate::change_steps::{creating, new_file, parent_step, EXISTS, GONE_CHECK, PARENT, ROOT_GONE};
+use crate::change_steps::{
+    creating, new_file, parent_step, without_dd_transfer_lines, EXISTS, GONE_CHECK, PARENT,
+    ROOT_GONE,
+};
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
@@ -111,7 +114,7 @@ fn root_dir(root: &str) -> &str {
 /// あるときだけ読む（道具の文言に含まれるパスの中の同じ文字列と取り違えない）
 pub fn failure(stderr: &[u8]) -> OpFailure {
     let (rest, left) = left_parents(stderr);
-    let failure = kind_of(&rest);
+    let failure = kind_of(&without_dd_transfer_lines(&rest));
     if left.is_empty() {
         return failure;
     }
@@ -191,3 +194,7 @@ mod race_tests;
 #[cfg(all(test, unix))]
 #[path = "change_scripts_gone_tests.rs"]
 mod gone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_space_tests.rs"]
+mod space_tests;

@@ -102,6 +102,24 @@ pub fn remove_created_dirs(dirs: &[&str]) -> String {
     )
 }
 
+/// 標準エラーから、dd の転送量の行（"records in"・"records out"・"bytes … copied"）を除く。
+/// `status=none` を受け付けない古い dd（CentOS 5 の coreutils 5.97）は、書けずに終わったときも
+/// これらの行を理由の後に出すので、理由の文言に混ぜない
+pub(crate) fn without_dd_transfer_lines(stderr: &[u8]) -> Vec<u8> {
+    let is_transfer = |line: &[u8]| {
+        let line = String::from_utf8_lossy(line);
+        let line = line.trim_end();
+        line.ends_with(" records in")
+            || line.ends_with(" records out")
+            || (line.contains(" bytes ") && line.contains(" copied"))
+    };
+    let kept: Vec<&[u8]> = stderr
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !is_transfer(line))
+        .collect();
+    kept.join(&b'\n')
+}
+
 /// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
 pub(crate) fn creating(create: &str) -> String {
     format!("( {create}\n); s=$?\nif [ $s != 0 ]; then\n{UNDO_PARENTS}exit $s; fi\n")
