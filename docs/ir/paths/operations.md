@@ -59,10 +59,10 @@ symlink のリンク先か更新時刻を読めないときは、走査の REQ-s
 
 ### REQ-paths-020: 操作の失敗は一つの種類で返す
 - kind: ubiquitous
-- source: docs/decision/records/2026-10-12-foundation.md#A2, docs/decision/records/2026-10-12-foundation-3.md#D1, docs/decision/records/2026-10-12-foundation-3.md#D2
+- source: docs/decision/records/2026-10-12-foundation.md#A2, docs/decision/records/2026-10-12-foundation-3.md#D1, docs/decision/records/2026-10-12-foundation-3.md#D2, docs/decision/records/2026-10-12-foundation-3.md#D47
 - verification: unit
 
-操作が失敗したときは、その理由を、ない・ディレクトリでない・権限がない・上限を超える・道具がない・I/O・`接続断` のどれか一つの種類に決め、同じ状態の同じ失敗はどの経路でも同じ種類にする。
+操作が失敗したときは、その理由を、ない・ディレクトリでない・権限がない・上限を超える・道具がない・I/O・`接続断`・root_dir がない（変更の途中で root_dir がなくなっていた）のどれか一つの種類に決め、同じ状態の同じ失敗はどの経路でも同じ種類にする。
 道具がないは、操作に要る道具の名前を持ち、I/O は OS かリモートが返した理由を持つ。
 上限を超えるは、操作が答えた大きさと上限から決め、経路ごとに決めない。
 失敗した操作の結果を、ないこと・空・既定の値・同じ中身として扱わない。
