@@ -29,3 +29,18 @@ fn a_prefixed_lost_connection_is_still_a_lost_connection() {
 
     assert!(classify(&error).is_disconnection());
 }
+
+#[test]
+fn a_prefixed_failure_keeps_the_causes_in_its_message() {
+    let error = op(OpFailure::NotFound).context("restoring a.txt");
+
+    let prefixed = prefixed(error, "backup failed: ");
+
+    let message = prefixed.to_string();
+    assert!(
+        message.starts_with("backup failed: restoring a.txt"),
+        "{message}"
+    );
+    assert!(message.contains("no such file or directory"), "{message}");
+    assert_eq!(failure_of(&prefixed), Some(&OpFailure::NotFound));
+}

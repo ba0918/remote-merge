@@ -119,11 +119,11 @@ pub fn prefixed(error: anyhow::Error, prefix: &str) -> anyhow::Error {
     match classify(&error) {
         Failure::Refused => match remote_merge_core::op_failure::op_error_of(&error) {
             Some(op_error) => remote_merge_core::op_failure::Prefixed {
-                message: format!("{prefix}{error}"),
+                message: format!("{prefix}{error:#}"),
                 error: op_error.clone(),
             }
             .into(),
-            None => anyhow::anyhow!("{prefix}{error}"),
+            None => anyhow::anyhow!("{prefix}{error:#}"),
         },
         failure => Labeled {
             failure,
