@@ -213,6 +213,7 @@ fn the_batched_path_check_keeps_its_wire_shape() {
         results: vec![
             AgentPathCheck::Inspected(AgentPathInspection::Exists {
                 real_path: "/r/a".into(),
+                kind: remote_merge_core::path_resolution::ExistingKind::File,
             }),
             AgentPathCheck::Refused(RelPathError::Traversal("../b".into())),
         ],
@@ -224,7 +225,7 @@ fn the_batched_path_check_keeps_its_wire_shape() {
     );
     assert_eq!(
         hex(&serialize_response(&response).unwrap()),
-        "81af50617468496e7370656374696f6e73919281a9496e7370656374656481a645786973747391a42f722f6181a75265667573656481a954726176657273616ca42e2e2f62",
+        "81af50617468496e7370656374696f6e73919281a9496e7370656374656481a645786973747392a42f722f61a446696c6581a75265667573656481a954726176657273616ca42e2e2f62",
         "bump PROTOCOL_VERSION"
     );
 }

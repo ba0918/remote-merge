@@ -75,6 +75,8 @@ pub enum SshCommand {
     Chmod,
     /// ファイルのハッシュ（sha256sum か shasum）
     Hash,
+    /// 項目の削除
+    Remove,
 }
 
 impl SshCommand {
@@ -93,6 +95,7 @@ impl SshCommand {
             }
             Self::Chmod => script.starts_with("chmod "),
             Self::Hash => script.starts_with(remote_merge_ssh::contents_script::HASH_PREFIX),
+            Self::Remove => script.starts_with("rm -- "),
         }
     }
 }
@@ -145,6 +148,8 @@ pub struct FaultState {
     sudo_bin: Option<tempfile::TempDir>,
     missing_hash_bin: Option<tempfile::TempDir>,
     find_bin: Option<tempfile::TempDir>,
+    /// 決めた回の書き込みの前にディレクトリを消す仕掛け
+    pub removal: super::server_removal::ArmedRemoval,
 }
 
 impl FaultState {
@@ -167,6 +172,7 @@ impl FaultState {
             sudo_bin,
             missing_hash_bin,
             find_bin,
+            removal: Default::default(),
         })
     }
 
@@ -371,6 +377,7 @@ impl AgentInbound {
         while let Some(frame) = take_frame(&mut self.buffer) {
             if let Ok(request) = deserialize_request(&frame[4..]) {
                 self.note(&request);
+                self.state.removal.on_agent_request(&request_kind(&request));
             }
         }
         let mut stdin = self.stdin.lock().await;

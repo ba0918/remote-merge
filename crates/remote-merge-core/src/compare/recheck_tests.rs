@@ -62,7 +62,7 @@ fn a_failure_to_collect_the_state_again_is_undecidable_unless_it_is_a_disconnect
     };
     assert_eq!(
         check_before_change(&file("h"), Err(lost.clone())),
-        ChangeCheck::Disconnected(lost)
+        ChangeCheck::Stopped(lost)
     );
 }
 

@@ -73,7 +73,7 @@ fn a_disconnection_is_left_to_the_reconnection_rules() {
     );
     assert_eq!(
         judged,
-        ContentJudgement::Disconnected(SideFailure {
+        ContentJudgement::Stopped(SideFailure {
             role: Role::Right,
             failure: disconnected(),
         })
@@ -126,5 +126,25 @@ fn the_reason_uses_the_one_wording_of_each_failure() {
     assert_eq!(
         Undecidable::NotRegularFile.to_string(),
         "not a regular file"
+    );
+}
+
+// @kotowari[TBL-compare-004, REQ-merge-044]
+#[test]
+fn a_gone_root_dir_stops_the_side_instead_of_making_the_path_undecidable() {
+    assert_eq!(
+        read_failure_handling(&OpFailure::RootGone),
+        FailureHandling::StopSide
+    );
+    let judged = judge_hashes(
+        (Role::Left, &Err(OpFailure::PermissionDenied)),
+        (Role::Right, &Err(OpFailure::RootGone)),
+    );
+    assert_eq!(
+        judged,
+        ContentJudgement::Stopped(SideFailure {
+            role: Role::Right,
+            failure: OpFailure::RootGone,
+        })
     );
 }

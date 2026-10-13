@@ -25,6 +25,8 @@ mod remote_ops;
 mod remote_target;
 mod restore_before;
 mod restore_saved;
+mod root_gone;
+mod root_watch;
 mod route_retry;
 pub(crate) mod route_state;
 pub(crate) mod scan_entry;
@@ -52,6 +54,7 @@ pub use self::compare_flow::{
     Asked, CollectedStates, CompareRequest, CompareScope, CompareSides, Comparison, ExternalLinks,
 };
 pub use self::core::CoreRuntime;
+pub use self::root_gone::command_error_message;
 
 #[derive(Clone)]
 pub struct RuntimeTargets {

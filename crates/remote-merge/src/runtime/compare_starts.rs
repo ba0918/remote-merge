@@ -50,7 +50,7 @@ impl CoreRuntime {
         let mut io = super::target_io::for_side(side, self);
         let mut answers = io.inspect_paths(self, &rels)?.into_iter();
         let root = match answers.next().expect("root_dir was asked")? {
-            ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+            ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
                 real_path
             }
             other => anyhow::bail!("cannot resolve root_dir: {other:?}"),

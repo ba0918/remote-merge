@@ -11,6 +11,8 @@ pub enum FailureHandling {
     Undecidable,
     /// 判定せず、つなぎ直しの規則（docs/ir/ssh/reconnect.md の REQ-ssh-003）に任せる
     ByReconnection,
+    /// 判定せず、その側への処理を止める（docs/ir/merge/concurrency.md の REQ-merge-044）
+    StopSide,
 }
 
 /// 失敗の種類から扱いを決める。種類を足したらここで決め直すよう、すべて挙げる
@@ -24,6 +26,8 @@ pub fn read_failure_handling(failure: &OpFailure) -> FailureHandling {
         | OpFailure::ToolMissing(_)
         | OpFailure::Io(_) => FailureHandling::Undecidable,
         OpFailure::Disconnected(_) => FailureHandling::ByReconnection,
+        // root_dir ごとなくなった: そのパスだけを判定できないとせず、その側を止める
+        OpFailure::RootGone => FailureHandling::StopSide,
     }
 }
 
@@ -31,8 +35,9 @@ pub fn read_failure_handling(failure: &OpFailure) -> FailureHandling {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContentJudgement {
     Decided(Verdict),
-    /// どれかの側が `接続断` になった。判定せずにつなぎ直しの規則に任せる
-    Disconnected(SideFailure),
+    /// どれかの側が、判定せずに止める失敗（`接続断` か root_dir がない）になった。`接続断` は
+    /// つなぎ直しの規則に、root_dir がないはその側を止める規則に任せる
+    Stopped(SideFailure),
 }
 
 /// 読み込みの失敗をまとめた扱い
@@ -41,15 +46,19 @@ pub enum ReadOutcome {
     /// どの側も読めた
     Read,
     Undecidable(Undecidable),
-    Disconnected(SideFailure),
+    /// 判定せずに止める失敗（`接続断` か root_dir がない）があった
+    Stopped(SideFailure),
 }
 
-/// 側ごとの読み込みの失敗をまとめる。`接続断` が一つでもあれば、判定せずにそれを返す
+/// 側ごとの読み込みの失敗をまとめる。判定せずに止める失敗（`接続断` か root_dir がない）が一つでも
+/// あれば、判定せずにそれを返す
 pub fn read_outcome(failures: impl IntoIterator<Item = SideFailure>) -> ReadOutcome {
     let mut undecidable = Vec::new();
     for failed in failures {
         match read_failure_handling(&failed.failure) {
-            FailureHandling::ByReconnection => return ReadOutcome::Disconnected(failed),
+            FailureHandling::ByReconnection | FailureHandling::StopSide => {
+                return ReadOutcome::Stopped(failed)
+            }
             FailureHandling::Undecidable => undecidable.push(failed),
         }
     }
@@ -72,7 +81,7 @@ pub fn judge_hashes(
         })
     });
     match (read_outcome(failures), first.1, second.1) {
-        (ReadOutcome::Disconnected(failed), _, _) => ContentJudgement::Disconnected(failed),
+        (ReadOutcome::Stopped(failed), _, _) => ContentJudgement::Stopped(failed),
         (ReadOutcome::Undecidable(why), _, _) => {
             ContentJudgement::Decided(Verdict::Undecidable(why))
         }

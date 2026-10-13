@@ -49,7 +49,8 @@ pub fn classify(error: &anyhow::Error) -> Failure {
                 | OpFailure::PermissionDenied
                 | OpFailure::TooLarge { .. }
                 | OpFailure::ToolMissing(_)
-                | OpFailure::Io(_) => Failure::Refused,
+                | OpFailure::Io(_)
+                | OpFailure::RootGone => Failure::Refused,
             };
         }
         // 確かめた変更の失敗は、そのサーバへの処理を止めた `接続断` のまま
@@ -138,21 +139,40 @@ pub(crate) fn is_stopped(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| cause.is::<ProcessingStopped>())
 }
 
-/// `接続断` の後、その書き込み先への処理を止めたので行わなかった
+/// 書き込み先への処理を止めた理由の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopCause {
+    /// `接続断`
+    ConnectionLost,
+    /// 変更の途中で root_dir がなくなっていた（D47）
+    RootGone,
+}
+
+/// `接続断` か root_dir がなくなったことで、その書き込み先への処理を止めたので行わなかった
 #[derive(Debug)]
 pub struct ProcessingStopped {
+    /// 止めた書き込み先（サーバ名か "local"）
     pub server: String,
-    /// 止めた理由（最初の `接続断` のエラー）
+    /// 止めた理由（最初の失敗のエラー）
     pub reason: String,
+    pub cause: StopCause,
 }
 
 impl std::fmt::Display for ProcessingStopped {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "not attempted: processing for {} stopped after the connection was lost ({})",
-            self.server, self.reason
-        )
+        match self.cause {
+            StopCause::ConnectionLost => write!(
+                f,
+                "not attempted: processing for {} stopped after the connection was lost ({})",
+                self.server, self.reason
+            ),
+            // root_dir がない文言は最初の失敗に一度だけ出す
+            StopCause::RootGone => write!(
+                f,
+                "not attempted: processing for {} stopped because its root_dir was gone",
+                self.server
+            ),
+        }
     }
 }
 
@@ -207,6 +227,7 @@ mod tests {
                 ProcessingStopped {
                     server: host(),
                     reason: "lost".into(),
+                    cause: StopCause::ConnectionLost,
                 }
                 .into(),
                 Failure::NotSent,

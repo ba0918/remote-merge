@@ -83,7 +83,7 @@ impl CoreRuntime {
             return Ok(None);
         }
         let real_root = match self.inspect_path_for_rollback(side, "")? {
-            ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+            ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
                 real_path
             }
             // root_dir がないか読めないことは、走査の最初の問いで報告する

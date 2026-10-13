@@ -1,4 +1,6 @@
+mod change_failure;
 pub mod change_scripts;
+pub mod change_steps;
 pub mod client;
 pub mod command_limit;
 pub mod contents;

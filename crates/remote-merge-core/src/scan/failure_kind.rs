@@ -1,4 +1,4 @@
-//! 走査の誤りを、操作の失敗の七つの種類（docs/ir/paths/operations.md の REQ-paths-020）にする。
+//! 走査の誤りを、操作の失敗の八つの種類（docs/ir/paths/operations.md の REQ-paths-020）にする。
 //! 比べる流れが変更の直前に集め直した状態の失敗を、種類のまま判定に渡すのに使う
 //! （docs/ir/compare/reading.md の REQ-compare-015）
 
@@ -11,7 +11,9 @@ use super::outcome::{ReadCause, ScanFailure};
 pub fn failure_kind(failure: &ScanFailure) -> OpFailure {
     let io = || OpFailure::Io(failure.to_string());
     match failure {
-        ScanFailure::RootMissing => OpFailure::NotFound,
+        // root_dir がないかなくなった: 変更の途中で root_dir がなくなったものと同じ種類にする
+        // （docs/decision/records/2026-10-12-foundation-3.md の D47）
+        ScanFailure::RootMissing | ScanFailure::RootChanged => OpFailure::RootGone,
         ScanFailure::StartBlocked { .. } => OpFailure::NotADirectory,
         ScanFailure::StartUnreadable { cause, .. }
         | ScanFailure::UnreadableDirectory { cause, .. } => match cause {
@@ -23,7 +25,6 @@ pub fn failure_kind(failure: &ScanFailure) -> OpFailure {
             OpFailure::Disconnected(Disconnection::NoAnswer(failure.to_string()))
         }
         ScanFailure::RootUnreadable
-        | ScanFailure::RootChanged
         | ScanFailure::UnresolvableLink { .. }
         | ScanFailure::UnreadableLinkTarget { .. }
         | ScanFailure::UnreadableTime { .. }

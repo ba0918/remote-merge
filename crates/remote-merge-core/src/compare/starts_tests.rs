@@ -7,12 +7,14 @@ fn link(real: &str) -> ResolvedPath {
     ResolvedPath::Symlink {
         link_target: "t".into(),
         real_path: real.into(),
+        target_kind: Some(crate::path_resolution::ExistingKind::Directory),
     }
 }
 
 fn exists(real: &str) -> ResolvedPath {
     ResolvedPath::Exists {
         real_path: real.into(),
+        kind: crate::path_resolution::ExistingKind::File,
     }
 }
 

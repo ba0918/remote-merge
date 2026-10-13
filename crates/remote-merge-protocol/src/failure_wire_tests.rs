@@ -1,4 +1,4 @@
-//! 操作の失敗の種類を運ぶ通信の形（通信の版 12）。形が変わったらここが落ちるので、通信の版を
+//! 操作の失敗の種類を運ぶ通信の形（通信の版 13）。形が変わったらここが落ちるので、通信の版を
 //! 上げ、このバイト列を書き直す
 use super::*;
 use remote_merge_core::op_failure::{Disconnection, OpFailure, Tool};
@@ -20,6 +20,7 @@ fn every_kind_the_agent_can_answer_comes_back_as_the_same_kind() {
         OpFailure::PermissionDenied,
         OpFailure::TooLarge { size: 9, limit: 8 },
         OpFailure::Io("Is a directory".into()),
+        OpFailure::RootGone,
     ];
     for kind in kinds {
         let wire = WireFailure::from(&kind);
@@ -63,6 +64,14 @@ fn the_failure_answers_keep_their_wire_shape() {
     assert_eq!(
         hex(&serialize_response(&write).unwrap()),
         "81a74368616e6765649181a8546f6f4c61726765920201",
+        "bump PROTOCOL_VERSION"
+    );
+    let root_gone = AgentResponse::Changed {
+        failure: Some(WireFailure::RootGone),
+    };
+    assert_eq!(
+        hex(&serialize_response(&root_gone).unwrap()),
+        "81a74368616e67656491a8526f6f74476f6e65",
         "bump PROTOCOL_VERSION"
     );
 }

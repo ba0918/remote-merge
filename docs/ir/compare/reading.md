@@ -56,7 +56,7 @@ merge と sync は、書き込み・symlink の作成と置き換え・削除・
 ## Decision tables
 
 ### TBL-compare-004: 比べるための読み込みの失敗の扱い
-- source: docs/decision/records/2026-10-12-foundation-4.md#E3, docs/decision/records/2026-10-12-foundation-4.md#E7, docs/decision/records/2026-10-12-foundation-4.md#E5
+- source: docs/decision/records/2026-10-12-foundation-4.md#E3, docs/decision/records/2026-10-12-foundation-4.md#E7, docs/decision/records/2026-10-12-foundation-4.md#E5, docs/decision/records/2026-10-12-foundation-4.md#E35
 
 | 失敗の種類（REQ-paths-020） | 扱い |
 |---|---|
@@ -67,6 +67,7 @@ merge と sync は、書き込み・symlink の作成と置き換え・削除・
 | 道具がない | 判定できない。理由に道具の名前を含める |
 | I/O | 判定できない |
 | `接続断` | 判定できないとせず、ssh/reconnect.md の REQ-ssh-003・REQ-ssh-022・REQ-ssh-023 による |
+| root_dir がない | 判定できないとせず、その側への処理を止める（merge/concurrency.md の REQ-merge-044） |
 
 ### TBL-compare-005: 判定できないパスのコマンドごとの扱い
 - source: docs/decision/records/2026-10-12-foundation-4.md#E7, docs/decision/records/2026-10-12-foundation-4.md#E12

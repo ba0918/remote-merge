@@ -8,7 +8,7 @@ use std::path::Path;
 use remote_merge_core::op_failure::OpFailure;
 
 use super::*;
-use crate::contents_tests_support::{bin_with, run, run_with_only};
+use crate::contents_tests_support::{bin_with, fed, run, run_with_only};
 
 pub(super) fn paths(root: &Path, rels: &[&str]) -> Vec<(String, String)> {
     rels.iter()
@@ -31,7 +31,7 @@ fn each_path_gets_its_content_or_the_kind_of_its_failure() {
     symlink("a.bin", root.join("l")).unwrap();
 
     let asked = paths(&root, &["a.bin", "empty", "missing", "f/a", "dir", "l"]);
-    let answers = read_all(&asked, None, "0123456789abcdef0123456789abcdef", 65536, run).unwrap();
+    let answers = read_all(&asked, None, "0123456789abcdef0123456789abcdef", 65536, fed).unwrap();
 
     assert_eq!(
         answers,
@@ -67,7 +67,7 @@ fn a_file_without_read_permission_or_behind_a_locked_directory_is_permission_den
         None,
         "0123456789abcdef0123456789abcdef",
         65536,
-        run,
+        fed,
     );
 
     let failures: Vec<_> = answers.unwrap().into_iter().map(|(_, r)| r).collect();
@@ -92,7 +92,7 @@ fn a_file_over_the_limit_is_answered_with_its_size_and_not_read() {
         Some(10),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run,
+        fed,
     )
     .unwrap();
 
@@ -116,10 +116,10 @@ fn many_paths_are_split_into_commands_within_the_length_limit() {
     }
     let rels: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut commands = 0;
-    let counting = |script: &str| {
+    let counting = |script: &str, input: &[u8]| {
         commands += 1;
         assert!(script.len() < 4096, "{}", script.len());
-        run(script)
+        fed(script, input)
     };
 
     let answers = read_all(
@@ -172,3 +172,6 @@ mod special;
 
 #[path = "contents_tests/followed.rs"]
 mod followed;
+
+#[path = "contents_tests/boundary.rs"]
+mod boundary;

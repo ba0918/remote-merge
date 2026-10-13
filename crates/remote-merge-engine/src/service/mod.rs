@@ -11,6 +11,7 @@ pub mod other_kinds;
 pub mod path_resolver;
 pub mod preview_paths;
 pub mod rollback;
+pub mod rollback_skip;
 pub mod status;
 pub mod status_ref_badge;
 pub mod status_unreadable;

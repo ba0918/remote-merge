@@ -3,6 +3,7 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
+use super::open::open_for_write;
 use super::parents::{create_parents, remove_dir, undo_parents};
 use super::{failed, full_path, PermissionMode};
 use crate::op_failure::OpFailure;
@@ -12,46 +13,8 @@ use crate::relative_path::EntryPath;
 /// 作らないので、inode・所有者・権限・ハードリンクが残る。最後の要素が symlink なら辿らずに失敗する
 /// （REQ-merge-038）
 pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFailure> {
-    let mut opened = open_for_write(root, entry, true)?;
+    let mut opened = open_for_write(root, entry)?;
     opened.file.write_all(content).map_err(failed)
-}
-
-/// 開いた書き込み先と、開くために作った親ディレクトリ（上から順）
-pub struct Opened {
-    pub file: std::fs::File,
-    pub new_dirs: Vec<PathBuf>,
-}
-
-/// 書き込み先を開く。`first` なら親を作り、作るか古い中身を切り詰めて開く（分けて書く最初の分）。
-/// そうでなければ後ろに書き足すために開く。どちらも最後の要素が symlink なら辿らずに失敗する。
-/// 親を作った後で開けなければ、作った親を消して失敗にする
-pub fn open_for_write(root: &Path, entry: &EntryPath, first: bool) -> Result<Opened, OpFailure> {
-    let path = full_path(root, entry);
-    let mut options = std::fs::OpenOptions::new();
-    let new_dirs = if first {
-        options.write(true).create(true).truncate(true);
-        create_parents(&path)?
-    } else {
-        options.append(true);
-        Vec::new()
-    };
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    #[cfg(not(unix))]
-    if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(undo_parents(
-            &new_dirs,
-            OpFailure::Io("the destination is a symbolic link".to_string()),
-            remove_dir,
-        ));
-    }
-    match options.open(&path) {
-        Ok(file) => Ok(Opened { file, new_dirs }),
-        Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),
-    }
 }
 
 /// 項目を消す。末尾の symlink はリンクだけを消し、ディレクトリとないパスは消さずに失敗する
@@ -98,7 +61,7 @@ pub fn create_symlink_creating(
     target: &str,
 ) -> Result<Vec<PathBuf>, OpFailure> {
     let path = full_path(root, entry);
-    let new_dirs = create_parents(&path)?;
+    let new_dirs = create_parents(root, &path)?;
     match std::os::unix::fs::symlink(target, &path) {
         Ok(()) => Ok(new_dirs),
         Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),

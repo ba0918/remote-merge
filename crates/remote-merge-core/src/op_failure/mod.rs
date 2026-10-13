@@ -31,6 +31,10 @@ pub enum OpFailure {
     Io(String),
     /// 要求を送り始めた後に結果を受け取れなかった（docs/ir/CONTEXT.md の `接続断`）
     Disconnected(Disconnection),
+    /// 変更の途中で root_dir がなくなっていた（ディレクトリでなくなったものを含む）。走査の
+    /// RootChanged と同じく、root_dir の誤りとして示す（docs/decision/records/2026-10-12-foundation-3.md
+    /// の D47）
+    RootGone,
 }
 
 impl OpFailure {

@@ -3,6 +3,7 @@
 //! バックアップセッションの期限判定、復元計画の立案、exit code の算出を行う。
 //! I/O は一切含まない。
 
+pub use super::rollback_skip::SkipReason;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 
@@ -57,7 +58,7 @@ pub enum CurrentRestorePath {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestorePathDecision {
     Restore,
-    Skip(&'static str),
+    Skip(SkipReason),
 }
 
 pub fn decide_restore_path(
@@ -76,28 +77,28 @@ pub fn decide_restore_path(
             } if link_target == expected_target && current_parent == real_parent => {
                 RestorePathDecision::Restore
             }
-            _ => RestorePathDecision::Skip("symlink changed after merge"),
+            _ => RestorePathDecision::Skip(SkipReason::SymlinkChanged),
         };
     }
     let BackupPathRecord::File { real_path } = record else {
-        return RestorePathDecision::Skip("symlink restore not supported");
+        return RestorePathDecision::Skip(SkipReason::SymlinkRestoreNotSupported);
     };
 
     match current {
         CurrentRestorePath::Present { real_path: current } if current != real_path => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
         CurrentRestorePath::Present { .. } => RestorePathDecision::Restore,
         CurrentRestorePath::Symlink { .. } => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
         CurrentRestorePath::Missing { real_parent: None } => {
-            RestorePathDecision::Skip("parent directory no longer exists")
+            RestorePathDecision::Skip(SkipReason::ParentGone)
         }
         CurrentRestorePath::Missing {
             real_parent: Some(current_parent),
         } if real_path.parent() != Some(current_parent.as_path()) => {
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         }
         CurrentRestorePath::Missing { .. } => RestorePathDecision::Restore,
     }
@@ -108,7 +109,7 @@ pub fn decide_restore_path(
 /// スキップに回し、それ以外のディレクトリでない祖先は辿れないものとしてエラーにする
 pub fn current_restore_path(resolved: ResolvedPath) -> Result<CurrentRestorePath, ResolveError> {
     Ok(match resolved {
-        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => {
+        ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
             CurrentRestorePath::Present {
                 real_path: real_path.into(),
             }
@@ -181,16 +182,14 @@ pub fn restore_request_refusal(
     };
     let decision = decide_restore_path(record, current);
     if let RestorePathDecision::Skip(reason) = decision {
-        if reason == "path now resolves to a different location"
-            || reason == "symlink changed after merge"
-        {
+        if reason.refuses_the_request() {
             return Some((
                 vec![],
                 files
                     .iter()
                     .map(|path| RollbackSkipped {
                         path: path.clone(),
-                        reason: reason.into(),
+                        reason: reason.to_string(),
                     })
                     .collect(),
                 vec![],
@@ -298,6 +297,7 @@ pub fn rollback_exit_code(output: &RollbackOutput) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remote_merge_core::path_resolution::ExistingKind;
     use std::path::PathBuf;
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("symlink restore not supported")
+            RestorePathDecision::Skip(SkipReason::SymlinkRestoreNotSupported)
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         );
     }
 
@@ -394,12 +394,14 @@ mod tests {
             recorded_symlink_target(ResolvedPath::Symlink {
                 link_target: "release".into(),
                 real_path: "/srv/release".into(),
+                target_kind: Some(ExistingKind::Directory),
             }),
             Ok(Some(PathBuf::from("release")))
         );
         for changed in [
             ResolvedPath::Exists {
                 real_path: "/srv/app/link".into(),
+                kind: ExistingKind::File,
             },
             ResolvedPath::AncestorNotDirectory {
                 real_path: "/srv/app/dir".into(),
@@ -441,10 +443,7 @@ mod tests {
             &CurrentRestorePath::Missing { real_parent: None },
         );
 
-        assert_eq!(
-            decision,
-            RestorePathDecision::Skip("parent directory no longer exists")
-        );
+        assert_eq!(decision, RestorePathDecision::Skip(SkipReason::ParentGone));
     }
 
     #[test]
@@ -460,7 +459,7 @@ mod tests {
 
         assert_eq!(
             decision,
-            RestorePathDecision::Skip("path now resolves to a different location")
+            RestorePathDecision::Skip(SkipReason::ResolvesElsewhere)
         );
     }
 

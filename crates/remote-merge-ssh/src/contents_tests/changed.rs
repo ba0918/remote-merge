@@ -10,7 +10,7 @@ use remote_merge_core::op_failure::OpFailure;
 
 use super::super::*;
 use super::paths;
-use crate::contents_tests_support::{bin_with, run, run_with_only};
+use crate::contents_tests_support::{bin_with, fed, fed_with_only};
 
 const BOUNDARY: &str = "0123456789abcdef0123456789abcdef";
 
@@ -43,7 +43,7 @@ fn content_longer_or_shorter_than_the_answered_size_is_read_whole_for_that_path_
             Some(1000),
             BOUNDARY,
             65536,
-            run_with_only(bin.path()),
+            fed_with_only(bin.path()),
         )
         .unwrap();
         assert_eq!(answers[0].1, Ok(b"abcdef\0ghi".to_vec()), "{size}");
@@ -70,7 +70,7 @@ fn a_cat_failing_part_way_is_that_path_failure_of_the_kind_its_message_ends_with
         None,
         BOUNDARY,
         65536,
-        run_with_only(bin.path()),
+        fed_with_only(bin.path()),
     )
     .unwrap();
 
@@ -85,7 +85,7 @@ fn content_holding_another_boundary_is_returned_unchanged() {
     let tricky = b"\0@Bffffffffffffffffffffffffffffffff\0\x000\0\0@END\0".to_vec();
     fs::write(root.join("t"), &tricky).unwrap();
 
-    let answers = read_all(&paths(&root, &["t"]), None, BOUNDARY, 65536, run).unwrap();
+    let answers = read_all(&paths(&root, &["t"]), None, BOUNDARY, 65536, fed).unwrap();
 
     assert_eq!(answers[0].1, Ok(tricky));
 }

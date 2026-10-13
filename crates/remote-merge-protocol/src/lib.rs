@@ -30,10 +30,12 @@ macro_rules! define_protocol_version {
         ///           ScanScope::Children で求める
         /// v12 → v13: 走査の一覧の項目の種類に、FIFO・ソケット・デバイスのその他の種類（Other）を
         ///           足した。一覧の symlink に、リンク先がディレクトリか・ディレクトリでないか・ないか
-        ///           （points_to。辿った先がその他の種類かも）を持たせ、リンク文字列を UTF-8 でなくてもそのままのバイト列で運ぶ。
-        ///           symlink も辿った先の中身のハッシュを取る HashContents を足した。起点を読めない
-        ///           走査の誤り（StartUnreadable）に、権限がないかどうか（cause）を持たせた。
-        ///           いくつものパスをまとめて確かめる InspectPaths を足した
+        ///           （points_to。辿った先がその他の種類かも）を持たせ、リンク文字列を UTF-8 でなくても
+        ///           そのままのバイト列で運ぶ。symlink も辿った先の中身のハッシュを取る HashContents を
+        ///           足した。起点を読めない走査の誤り（StartUnreadable）に、権限がないかどうか（cause）を
+        ///           持たせた。いくつものパスをまとめて確かめる InspectPaths を足した。変更の途中で
+        ///           root_dir がなくなっていたことを WireFailure::RootGone で運ぶ。パスの確認の Exists に
+        ///           種類を、Symlink に辿った先の種類を足した
         pub const PROTOCOL_VERSION: u32 = $version;
 
         /// CLI のバージョン表示。配置済み Agent の互換性判定にも使う。

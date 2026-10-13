@@ -14,7 +14,8 @@ fn each_scan_failure_carries_the_kind_of_operation_failure_it_is() {
         (failure, OpFailure::Io(text))
     };
     let cases = [
-        (ScanFailure::RootMissing, OpFailure::NotFound),
+        (ScanFailure::RootMissing, OpFailure::RootGone),
+        (ScanFailure::RootChanged, OpFailure::RootGone),
         (
             ScanFailure::StartBlocked { path: path() },
             OpFailure::NotADirectory,
@@ -46,7 +47,6 @@ fn each_scan_failure_carries_the_kind_of_operation_failure_it_is() {
             OpFailure::Io("Cannot collect the entries to scan: m".into()),
         ),
         io(ScanFailure::RootUnreadable),
-        io(ScanFailure::RootChanged),
         io(ScanFailure::StartUnreadable {
             path: path(),
             cause: ReadCause::Other,
@@ -79,6 +79,6 @@ fn an_operation_failure_inside_a_scan_error_keeps_its_kind() {
         Some(OpFailure::ToolMissing(Tool::Cat))
     );
     let scan = anyhow::Error::from(ScanFailure::RootMissing);
-    assert_eq!(failure_of_scan_error(&scan), Some(OpFailure::NotFound));
+    assert_eq!(failure_of_scan_error(&scan), Some(OpFailure::RootGone));
     assert_eq!(failure_of_scan_error(&anyhow::anyhow!("other")), None);
 }

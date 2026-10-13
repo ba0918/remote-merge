@@ -17,6 +17,9 @@ pub(crate) mod ssh_server;
 #[path = "../contract/server_faults.rs"]
 pub(crate) mod server_faults;
 
+#[path = "../contract/server_removal.rs"]
+pub(crate) mod server_removal;
+
 pub(crate) mod login_shell;
 
 // ─── ファイル配置ヘルパー ────────────────────────────────

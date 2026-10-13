@@ -83,6 +83,7 @@ impl fmt::Display for OpFailure {
             ),
             Self::ToolMissing(tool) => write!(f, "{tool}"),
             Self::Io(reason) => f.write_str(reason),
+            Self::RootGone => f.write_str("root_dir is gone"),
             Self::Disconnected(Disconnection::NotSent(detail)) => {
                 write!(f, "connection lost before the request was sent: {detail}")
             }

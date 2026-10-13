@@ -31,25 +31,60 @@ fn a_parent_that_is_a_file_is_not_a_directory_however_deep() {
 }
 
 #[test]
-fn a_file_opened_for_the_first_part_is_truncated_and_later_parts_are_appended() {
+fn an_opened_file_is_truncated_and_later_parts_follow_in_the_same_file() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("a.txt"), "old content").unwrap();
 
-    open_for_write(temp.path(), &entry("a.txt"), true)
-        .unwrap()
-        .file
-        .write_all(b"new")
-        .unwrap();
-    open_for_write(temp.path(), &entry("a.txt"), false)
-        .unwrap()
-        .file
-        .write_all(b" part")
-        .unwrap();
+    let mut opened = open_for_write(temp.path(), &entry("a.txt")).unwrap();
+    opened.file.write_all(b"new").unwrap();
+    opened.file.write_all(b" part").unwrap();
 
     assert_eq!(
         fs::read_to_string(temp.path().join("a.txt")).unwrap(),
         "new part"
     );
+}
+
+// root_dir がなければ、root_dir もその親も作らずに、root_dir がない失敗にする（D47）
+// @kotowari[REQ-merge-042]
+#[test]
+fn nothing_is_made_when_the_root_dir_is_gone() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("top/root");
+
+    for path in ["a.txt", "sub/a.txt"] {
+        assert_eq!(
+            write(&root, &entry(path), b"x"),
+            Err(OpFailure::RootGone),
+            "{path}"
+        );
+        assert_eq!(
+            create_symlink(&root, &entry(path), "t"),
+            Err(OpFailure::RootGone),
+            "{path}"
+        );
+    }
+    assert!(!temp.path().join("top").exists());
+}
+
+// root_dir の上を辿れない（検索の権限がない）ときは、root_dir がないではなく権限がないにする（D48）
+#[test]
+fn a_root_dir_under_an_unsearchable_directory_is_permission_denied() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() == 0 } {
+        return;
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let locked = temp.path().join("locked");
+    fs::create_dir_all(locked.join("root")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let written = write(&locked.join("root"), &entry("sub/a.txt"), b"x");
+    let linked = create_symlink(&locked.join("root"), &entry("sub/link"), "t");
+
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(written, Err(OpFailure::PermissionDenied));
+    assert_eq!(linked, Err(OpFailure::PermissionDenied));
 }
 
 // @kotowari[REQ-merge-042]
@@ -58,7 +93,7 @@ fn the_parents_created_for_an_open_are_named_from_the_top() {
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir(temp.path().join("a")).unwrap();
 
-    let opened = open_for_write(temp.path(), &entry("a/b/c/d.txt"), true).unwrap();
+    let opened = open_for_write(temp.path(), &entry("a/b/c/d.txt")).unwrap();
 
     assert_eq!(
         opened.new_dirs,
@@ -81,6 +116,47 @@ fn an_open_or_a_link_that_fails_after_creating_parents_removes_them() {
     assert!(temp.path().join("kept").is_dir());
     assert!(!temp.path().join("kept/new").exists());
     assert!(!temp.path().join("kept/other").exists());
+}
+
+// 確かめてから作るまでの間に別の誰かが作った親は、作ったものに数えない（後で所有者を付けたり
+// 消したりしない）
+#[test]
+fn a_parent_made_by_someone_else_before_the_mkdir_is_not_counted_as_created() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("a/b/c.txt");
+
+    let made = super::parents::create_parents_with(temp.path(), &target, |dir| {
+        if dir.ends_with("a") {
+            fs::create_dir(dir)?;
+        }
+        fs::create_dir(dir)
+    })
+    .unwrap();
+
+    assert_eq!(made, [temp.path().join("a/b")]);
+}
+
+// 作ったディレクトリが消えていれば消せたもの、別のもの（ディレクトリでないもの）に替わっていれば
+// 残ったものにする
+#[test]
+fn a_created_directory_gone_is_removed_and_one_replaced_by_something_else_is_left() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir(root.join("empty")).unwrap();
+    fs::write(root.join("file"), "x").unwrap();
+    std::os::unix::fs::symlink("nowhere", root.join("dangling")).unwrap();
+    fs::create_dir(root.join("real")).unwrap();
+    std::os::unix::fs::symlink("real", root.join("to_dir")).unwrap();
+
+    let removed = |name: &str| super::parents::remove_dir(&root.join(name)).is_ok();
+
+    assert!(removed("gone"));
+    assert!(removed("empty"));
+    assert!(!root.join("empty").exists());
+    assert!(!removed("file"));
+    assert!(!removed("dangling"));
+    assert!(!removed("to_dir"));
+    assert!(root.join("file").exists());
 }
 
 #[test]

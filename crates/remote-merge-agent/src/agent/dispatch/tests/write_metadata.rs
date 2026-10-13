@@ -50,7 +50,7 @@ fn write_file_chunked_saved_metadata_management() {
     )
     .unwrap();
 
-    // 最初の分: 書き込み先がもとからあったことを覚える
+    // 最初の分: 開いたファイルを最後の分まで持つ
     let resp1 = single(
         d.dispatch(AgentRequest::WriteFile {
             path: "existing.txt".into(),
@@ -62,7 +62,7 @@ fn write_file_chunked_saved_metadata_management() {
     );
     assert_eq!(resp1, AgentResponse::Changed { failure: None });
 
-    assert_eq!(d.writing.get("existing.txt"), Some(&false));
+    assert!(d.writing.contains_key("existing.txt"));
 
     // 最後の分: 既存のファイルはその場で書き換えたので、権限はもとのまま
     let resp2 = single(

@@ -120,3 +120,35 @@ fn the_whole_root_dir_is_accepted_as_a_scan_root() {
         );
     }
 }
+
+// root_dir がなくなっていれば、書き込みも symlink の作成も root_dir を作り直さずに、root_dir がない
+// 失敗を運ぶ（ローカルと SSH の経路と同じ。D47）
+// @kotowari[REQ-merge-042]
+#[test]
+fn a_change_under_a_root_dir_that_is_gone_answers_root_gone_without_making_it() {
+    let (tmp, mut d) = setup();
+    let root = tmp.path().to_path_buf();
+    fs::remove_dir(&root).unwrap();
+    let requests = [
+        AgentRequest::WriteFile {
+            path: "sub/a.txt".into(),
+            content: b"x".to_vec(),
+            is_binary: false,
+            more_to_follow: false,
+        },
+        AgentRequest::Symlink {
+            path: "sub/link".into(),
+            target: "x".into(),
+        },
+    ];
+    for request in requests {
+        assert_eq!(
+            d.dispatch(request.clone()).unwrap(),
+            vec![AgentResponse::Changed {
+                failure: Some(WireFailure::RootGone)
+            }],
+            "{request:?}"
+        );
+    }
+    assert!(!root.exists());
+}

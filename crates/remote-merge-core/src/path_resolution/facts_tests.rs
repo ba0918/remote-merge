@@ -1,3 +1,4 @@
+use super::super::ExistingKind;
 use super::*;
 
 fn book(entries: &[(&str, PathFact)]) -> FactBook {
@@ -36,7 +37,8 @@ fn facts_up_to_the_end_resolve_the_path() {
     assert_eq!(
         next_step("/srv", "a.txt", &facts),
         Step::Done(Ok(ResolvedPath::Exists {
-            real_path: "/srv/a.txt".into()
+            real_path: "/srv/a.txt".into(),
+            kind: ExistingKind::File,
         }))
     );
 }
@@ -72,7 +74,8 @@ fn a_directory_without_search_permission_stops_with_permission_denied() {
     assert_eq!(
         next_step("/srv", "locked", &facts),
         Step::Done(Ok(ResolvedPath::Exists {
-            real_path: "/srv/locked".into()
+            real_path: "/srv/locked".into(),
+            kind: ExistingKind::Directory,
         }))
     );
 }

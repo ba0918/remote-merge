@@ -95,12 +95,22 @@ pub fn content_end(boundary: &str) -> String {
     format!("@B{boundary}")
 }
 
-/// `paths` を読むスクリプト。`limit` を超えるファイルは読まない
-pub fn read(paths: &[String], limit: Option<u64>, boundary: &str) -> String {
+/// 区切りを標準入力の最初の一行から読み、中身の終わりの区切り `B` にする文。区切りはコマンドの
+/// 引数に入れない（同じリモートの他の利用者がプロセスの一覧から読めるので、読まれるファイルに区切りを
+/// 書いて答えの形を崩せる）。16 進の数字だけでなければ何も答えずに終える
+pub(crate) const BOUNDARY_FROM_INPUT: &str = "IFS= read -r b\ncase $b in ''|*[!0-9a-f]*) printf 'no boundary on the standard input\\n' >&2; exit 1;; esac\nB=@B$b\n";
+
+/// 区切りを読むスクリプトに送る標準入力
+pub fn boundary_input(boundary: &str) -> Vec<u8> {
+    format!("{boundary}\n").into_bytes()
+}
+
+/// `paths` を読むスクリプト。`limit` を超えるファイルは読まない。区切りは標準入力で受ける
+/// （[`boundary_input`]）
+pub fn read(paths: &[String], limit: Option<u64>) -> String {
     let limit = limit.map_or("-1".to_string(), |limit| limit.to_string());
     format!(
-        "{READ_PREFIX}L={limit}; B={}\nset --{}\n{READ_BODY}",
-        quoted(&content_end(boundary)),
+        "{READ_PREFIX}{BOUNDARY_FROM_INPUT}L={limit}\nset --{}\n{READ_BODY}",
         arguments(paths)
     )
 }

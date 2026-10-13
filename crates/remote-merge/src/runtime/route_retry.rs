@@ -4,8 +4,41 @@
 //! （REQ-ssh-003・REQ-ssh-023）。変更はやり直さずに止め、書き込み先の確かめは `confirm` が行う
 //! （REQ-ssh-004・REQ-ssh-022）。どちらも別の経路には切り替えない。
 
-use super::connection::{classify, is_stopped, retry_failed, ProcessingStopped};
+use super::connection::{classify, is_stopped, retry_failed, ProcessingStopped, StopCause};
 use super::core::CoreRuntime;
+use crate::side::Side;
+
+/// 処理を止める単位（サーバか、ローカルの側）
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum StopKey {
+    Server(String),
+    Local,
+}
+
+impl StopKey {
+    pub(crate) fn of(side: &Side) -> Self {
+        match side.server_name() {
+            Some(name) => Self::Server(name.to_string()),
+            None => Self::Local,
+        }
+    }
+
+    fn shown(&self) -> &str {
+        match self {
+            Self::Server(name) => name,
+            Self::Local => "local",
+        }
+    }
+}
+
+/// 止めた理由
+#[derive(Debug, Clone)]
+pub(crate) struct Stop {
+    cause: StopCause,
+    reason: String,
+    /// 止めた順（0 から）。いくつもの側を止めたときに、最初に止めた側を決める
+    order: usize,
+}
 
 impl CoreRuntime {
     /// 読み取りの操作。`接続断` なら同じ経路でつなぎ直して一度だけやり直す
@@ -46,29 +79,52 @@ impl CoreRuntime {
 
     /// そのサーバへの処理を止めた印を立て、`error` をそのまま返す
     fn stop(&mut self, server_name: &str, error: anyhow::Error) -> anyhow::Error {
-        self.stopped
-            .entry(server_name.to_string())
-            .or_insert_with(|| format!("{error:#}"));
+        let key = StopKey::Server(server_name.to_string());
+        self.stop_with(key, StopCause::ConnectionLost, &error);
         error
     }
 
-    /// どれかのサーバへの処理を `接続断` で止めたか（その回は終了コード 2 で終える）
+    /// root_dir がなくなったので、`key` への処理を止めた印を立てる（D47）
+    pub(crate) fn stop_for_root_gone(&mut self, key: StopKey, error: &anyhow::Error) {
+        self.stop_with(key, StopCause::RootGone, error);
+    }
+
+    fn stop_with(&mut self, key: StopKey, cause: StopCause, error: &anyhow::Error) {
+        let order = self.stopped.len();
+        self.stopped.entry(key).or_insert_with(|| Stop {
+            cause,
+            reason: format!("{error:#}"),
+            order,
+        });
+    }
+
+    /// どれかの書き込み先への処理を止めたか（その回は終了コード 2 で終える）
     pub fn has_stopped(&self) -> bool {
         !self.stopped.is_empty()
     }
 
-    /// `side` が処理を止めたサーバなら、行わなかったことを示すエラー
-    pub fn stopped_error_for(&self, side: &crate::side::Side) -> Option<anyhow::Error> {
-        side.server_name()
-            .and_then(|server_name| self.stopped_error(server_name))
+    /// root_dir がなくなって処理を止めた側があれば、その「行わなかった」のエラー（止めたときの最初の
+    /// root_dir がない誤りを持つ。D48）。いくつもの側を止めていれば、最初に止めた側のもの。読むだけの
+    /// コマンドが、それを出して止めるのに使う
+    pub fn root_gone_stop(&self) -> Option<anyhow::Error> {
+        self.stopped
+            .iter()
+            .filter(|(_, stop)| stop.cause == StopCause::RootGone)
+            .min_by_key(|(_, stop)| stop.order)
+            .and_then(|(key, _)| self.stopped_error_of(key))
     }
 
-    /// 処理を止めたサーバなら、行わなかったことを示すエラー
-    pub(crate) fn stopped_error(&self, server_name: &str) -> Option<anyhow::Error> {
-        self.stopped.get(server_name).map(|reason| {
+    /// `side` への処理を止めていたら、行わなかったことを示すエラー
+    pub fn stopped_error_for(&self, side: &Side) -> Option<anyhow::Error> {
+        self.stopped_error_of(&StopKey::of(side))
+    }
+
+    pub(crate) fn stopped_error_of(&self, key: &StopKey) -> Option<anyhow::Error> {
+        self.stopped.get(key).map(|stop| {
             ProcessingStopped {
-                server: server_name.to_string(),
-                reason: reason.clone(),
+                server: key.shown().to_string(),
+                reason: stop.reason.clone(),
+                cause: stop.cause,
             }
             .into()
         })
@@ -78,4 +134,28 @@ impl CoreRuntime {
 /// 接続が使えなくなった失敗か。止めた後の「行わなかった」は、もうつなぎ直さない
 fn is_lost(error: &anyhow::Error) -> bool {
     classify(error).is_disconnection() && !is_stopped(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 両側（ここでは多くの側）の root_dir がなくなったときは、最初に止めた側の理由を出す（実行ごとに
+    // 変わらない）
+    #[test]
+    fn the_first_side_stopped_for_a_root_gone_is_the_one_shown() {
+        let mut runtime = CoreRuntime::new_for_test();
+        runtime.stop_for_root_gone(StopKey::Local, &anyhow::anyhow!("first"));
+        for n in 0..16 {
+            let key = StopKey::Server(format!("server{n}"));
+            runtime.stop_for_root_gone(key, &anyhow::anyhow!("later {n}"));
+        }
+
+        let stopped = runtime.root_gone_stop().unwrap();
+        let reason = stopped
+            .downcast_ref::<ProcessingStopped>()
+            .map(|stopped| stopped.reason.clone());
+
+        assert_eq!(reason.as_deref(), Some("first"));
+    }
 }

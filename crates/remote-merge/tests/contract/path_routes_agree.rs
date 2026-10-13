@@ -21,7 +21,7 @@ use remote_merge::agent::protocol::{
     deserialize_response, serialize_response, AgentRequest, AgentResponse,
 };
 use remote_merge::agent::server::MetadataConfig;
-use remote_merge_core::path_resolution::ResolvedPath;
+use remote_merge_core::path_resolution::{ExistingKind, ResolvedPath};
 
 /// 経路の答え。エラーは文言で比べる
 type Outcome = Result<ResolvedPath, String>;
@@ -397,6 +397,7 @@ fn ex_paths_025_a_relative_root_dir_is_resolved_from_the_remote_working_director
     fs::write(home.join("app/a.txt"), "content\n").unwrap();
     let expected = Ok(ResolvedPath::Exists {
         real_path: format!("{}/app/a.txt", home.display()),
+        kind: ExistingKind::File,
     });
     let path_env = std::env::var_os("PATH").unwrap_or_default();
 
@@ -415,7 +416,8 @@ fn ex_paths_020_without_readlink_only_paths_that_meet_a_symlink_stop() {
     assert_eq!(
         ssh_with_path(&base.path, "a.txt", empty.path().as_os_str()),
         Ok(ResolvedPath::Exists {
-            real_path: format!("{}/a.txt", base.path.display())
+            real_path: format!("{}/a.txt", base.path.display()),
+            kind: ExistingKind::File,
         })
     );
     assert_eq!(
@@ -512,6 +514,7 @@ fn ex_paths_043_below_a_directory_without_search_permission_every_route_answers_
     assert_eq!(answers[0], (denied.clone(), denied.clone(), denied));
     let exists = Ok(ResolvedPath::Exists {
         real_path: format!("{}/locked", root.display()),
+        kind: ExistingKind::Directory,
     });
     assert_eq!(answers[1], (exists.clone(), exists.clone(), exists));
 }

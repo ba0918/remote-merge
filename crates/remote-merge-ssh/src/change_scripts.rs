@@ -5,72 +5,28 @@
 //! 標準エラーに出した文言の終わりで手元が決める。書き込みに要る道具がないときと、親を作れなかった
 //! ときは、目印を付けて標準エラーに出す。書き込みは失敗で終わるときも標準入力を読み切る。
 
-use std::path::Path;
+pub use crate::change_failure::failure;
 
-use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
-
+use crate::change_steps::{creating, new_file, parent_step, GONE_CHECK, NO_TOOL};
 use crate::tree_parser::{
     build_create_symlink_command, build_write_bytes_command, build_write_text_command, shell_escape,
 };
 
-const NO_TOOL: &str = "@RMNOTOOL";
 /// 書き込みのコマンドの書き出し。シェルには何もしない文で、製品の書き込みのコマンド（標準入力に中身を
 /// 送るもの）かを見分けるための印。試験の偽の SSH サーバは、この印で標準入力を待つ書き込みのコマンドを
 /// 見分ける（中身に "cat >" を含むかでは、読み込みのスクリプトと取り違える）
 pub const WRITE_PREFIX: &str = "LC_ALL=C; export LC_ALL; : RMWRITE\n";
-const PARENT: &str = "@RMPARENT";
-
-/// 作った親ディレクトリ（位置引数に下から順に入れたもの）を消す文。消せずに残ったものは、名前と
-/// rmdir の文言を NUL で区切り、目印を付けて標準エラーに出す（名前に改行が入りうるため）
-const UNDO_PARENTS: &str = "for x do e=$(rmdir -- \"$x\" 2>&1) || [ ! -e \"$x\" ] || printf '\\n@RMLEFT\\000%s\\000%s\\000' \"$x\" \"$e\" >&2; done\n";
-
-/// 親ディレクトリを作る文。まだない親を位置引数に下から順に覚え、後で書き込み先を作れなかったときに
-/// 消せるようにする（ローカルの経路と同じ。REQ-merge-042）。mkdir が失敗したとき、親か親の祖先が
-/// すでにあって（リンク切れの symlink を含む）ディレクトリでなければ、mkdir の文言によらず
-/// "Not a directory" と答える（ローカルの経路と同じ。CentOS 5 の mkdir は
-/// "exists but is not a directory"、リンク切れの親は coreutils で "File exists"、BusyBox で
-/// "No such file or directory" と出す）
-fn parent_step(full: &str, drain: &str) -> String {
-    let Some(parent) = Path::new(full).parent().and_then(Path::to_str) else {
-        return "set --\n".into();
-    };
-    if parent.is_empty() || parent == "/" {
-        return "set --\n".into();
-    }
-    format!(
-        concat!(
-            "d={parent}\n",
-            "set --; a=$d\n",
-            "while ! {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }}; do set -- \"$@\" \"$a\"\n",
-            " case $a in */*) a=${{a%/*}}; [ -n \"$a\" ] || break;; *) break;; esac\n",
-            "done\n",
-            "if [ ! -d \"$d\" ]; then\n",
-            " m=$(mkdir -p -- \"$d\" 2>&1) || {{\n",
-            "  a=$d\n",
-            "  while :; do\n",
-            "   if {{ [ -e \"$a\" ] || [ -L \"$a\" ]; }} && [ ! -d \"$a\" ]; then m='Not a directory'; break; fi\n",
-            "   case $a in */*) a=${{a%/*}};; *) break;; esac\n",
-            "   [ -z \"$a\" ] && break\n",
-            "  done\n",
-            "  {undo}",
-            "  {drain}printf '{marker}\\000%s\\000' \"$m\" >&2; exit 1; }}\n",
-            "fi\n",
-        ),
-        parent = shell_escape(parent),
-        drain = drain,
-        marker = PARENT,
-        undo = UNDO_PARENTS,
-    )
-}
-
-/// 書き込み先を作るコマンド `create` を動かし、失敗したら作った親を消して同じ終了コードで終える文
-fn creating(create: &str) -> String {
-    format!("( {create}\n); s=$?\nif [ $s != 0 ]; then\n{UNDO_PARENTS}exit $s; fi\n")
-}
-
-/// 標準入力の中身を `full` にその場で書くコマンド。`binary` なら標準入力は base64 で、openssl で
-/// 復号する（openssl がなければ書き込み先を開かずに失敗する）
+/// root_dir に限らずに `full` へ書くコマンド（[`write_under`] の root_dir を "/" にしたもの）。
+/// root_dir の外に置くエージェントの配置で使う
 pub fn write(full: &str, binary: bool) -> String {
+    write_under("/", full, binary)
+}
+
+/// 標準入力の中身を、root_dir `root` の下の `full` にその場で書くコマンド。`binary` なら標準入力は
+/// base64 で、openssl で復号する（openssl がなければ書き込み先を開かずに失敗する）。作る親は root_dir
+/// より下に限り、root_dir がなければ何も作らずに失敗する（D47）
+pub fn write_under(root: &str, full: &str, binary: bool) -> String {
+    let root = root_dir(root);
     let drain = "cat >/dev/null; ";
     let mut script = String::from(WRITE_PREFIX);
     // cat がなければ標準入力を dd で読み切る（どちらもなければ読み切らずに終える）
@@ -82,24 +38,34 @@ pub fn write(full: &str, binary: bool) -> String {
             "command -v openssl >/dev/null 2>&1 || {{ {drain}printf '\\n{NO_TOOL} openssl\\n' >&2; exit 1; }}\n"
         ));
     }
-    script.push_str(&parent_step(full, drain));
-    // dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由をローカルの経路の
-    // O_NOFOLLOW と同じ文言で出す
+    // 書き込み先がないかを、親を作る前に確かめる（ローカルの経路と同じ）。なければ新しいファイルとして
+    // O_EXCL で作る（REQ-merge-043）
+    script.push_str(&format!(
+        "w={}\nif [ -e \"$w\" ] || [ -L \"$w\" ]; then n=0; else n=1; fi\n",
+        shell_escape(full)
+    ));
+    script.push_str(GONE_CHECK);
+    script.push_str(&parent_step(full, root, drain));
+    // 既存の書き込み先で、dd が oflag=nofollow を受け付けず書き込み先が symlink なら、辿らずに断る理由を
+    // ローカルの経路の O_NOFOLLOW と同じ文言で出す（新しいファイルの手順は、現れた symlink を自分で断る）
     script.push_str(&format!(
         concat!(
-            "w={full}\n",
-            "if [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
+            "if [ $n = 0 ] && [ -L \"$w\" ] && ! dd if=/dev/null of=/dev/null oflag=nofollow 2>/dev/null; then\n",
             " {drain}printf 'Too many levels of symbolic links\\n' >&2; exit 1\n",
             "fi\n",
         ),
-        full = shell_escape(full),
         drain = drain,
     ));
-    script.push_str(&creating(&if binary {
-        build_write_bytes_command(full)
+    let (existing, writer) = if binary {
+        (build_write_bytes_command(full), "openssl base64 -d -A")
     } else {
-        build_write_text_command(full)
-    }));
+        (build_write_text_command(full), "cat")
+    };
+    script.push_str("if [ $n = 1 ]; then\n");
+    script.push_str(&creating(&new_file(full, writer)));
+    script.push_str("else\n");
+    script.push_str(&creating(&existing));
+    script.push_str("fi\n");
     script
 }
 
@@ -117,80 +83,45 @@ pub fn write_input(content: &[u8], binary: bool) -> Vec<u8> {
     encoded
 }
 
-/// `full` に `target` を指す symlink を作るコマンド。作成先に何かがあれば置き換えずに失敗する
+/// root_dir に限らずに `full` へ symlink を作るコマンド（[`symlink_under`] の root_dir を "/" にしたもの）
 pub fn symlink(target: &str, full: &str) -> String {
+    symlink_under("/", target, full)
+}
+
+/// root_dir `root` の下の `full` に `target` を指す symlink を作るコマンド。作成先に何かがあれば
+/// 置き換えずに失敗する。作る親は [`write_under`] と同じく root_dir より下に限る
+pub fn symlink_under(root: &str, target: &str, full: &str) -> String {
     format!(
         "LC_ALL=C; export LC_ALL\n{}{}",
-        parent_step(full, ""),
+        parent_step(full, root_dir(root), ""),
         creating(&build_create_symlink_command(target, full))
     )
 }
 
-/// 0 以外で終わった書き込みか symlink の作成の標準エラーを、失敗の種類にする。目印は行の始まりに
-/// あるときだけ読む（道具の文言に含まれるパスの中の同じ文字列と取り違えない）
-pub fn failure(stderr: &[u8]) -> OpFailure {
-    let (rest, left) = left_parents(stderr);
-    let failure = kind_of(&rest);
-    if left.is_empty() {
-        return failure;
+/// 親を辿るときに比べる root_dir。終わりの "/" を除く（書き込み先のパスの祖先と同じ形にする）
+fn root_dir(root: &str) -> &str {
+    match root.trim_end_matches('/') {
+        "" => "/",
+        trimmed => trimmed,
     }
-    OpFailure::Io(format!(
-        "{failure}; these created directories were left because they could not be removed: {}",
-        left.join(", ")
-    ))
-}
-
-/// 標準エラーから、消せずに残った親の記録（名前と、rmdir の文言の終わりの理由）を取り出し、残りの
-/// 標準エラーと分ける。記録は "名前 (理由)" の形にする（ローカルの経路と同じ）
-fn left_parents(stderr: &[u8]) -> (Vec<u8>, Vec<String>) {
-    const MARK: &[u8] = b"\n@RMLEFT\0";
-    let mut rest = Vec::new();
-    let mut left = Vec::new();
-    let mut tail = stderr;
-    while let Some(at) = tail.windows(MARK.len()).position(|window| window == MARK) {
-        rest.extend_from_slice(&tail[..at]);
-        let mut fields = tail[at + MARK.len()..].splitn(3, |byte| *byte == 0);
-        let (Some(name), Some(message), Some(after)) =
-            (fields.next(), fields.next(), fields.next())
-        else {
-            rest.extend_from_slice(&tail[at..]);
-            return (rest, left);
-        };
-        let message = String::from_utf8_lossy(message);
-        let message = message.trim_end();
-        let reason = message
-            .rsplit_once(": ")
-            .map_or(message, |(_, reason)| reason);
-        left.push(format!("{} ({reason})", String::from_utf8_lossy(name)));
-        tail = after;
-    }
-    rest.extend_from_slice(tail);
-    (rest, left)
-}
-
-/// 目印を除いた標準エラーの種類
-fn kind_of(stderr: &[u8]) -> OpFailure {
-    for line in stderr.split(|byte| *byte == b'\n') {
-        match line.strip_prefix(NO_TOOL.as_bytes()) {
-            Some(b" cat") => return OpFailure::ToolMissing(Tool::Cat),
-            Some(b" openssl") => return OpFailure::ToolMissing(Tool::OpensslBase64),
-            _ => {}
-        }
-    }
-    let parent = [PARENT.as_bytes(), b"\0"].concat();
-    let at_line_start = |at: usize| at == 0 || stderr[at - 1] == b'\n';
-    let found =
-        (0..stderr.len()).find(|&at| at_line_start(at) && stderr[at..].starts_with(&parent));
-    if let Some(at) = found {
-        let message = stderr[at + parent.len()..]
-            .split(|byte| *byte == 0)
-            .next()
-            .unwrap_or_default();
-        return from_tool_message(message);
-    }
-    from_tool_message(stderr)
 }
 
 #[cfg(all(test, unix))]
 #[path = "change_scripts_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_race_tests.rs"]
+mod race_tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_gone_tests.rs"]
+mod gone_tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_space_tests.rs"]
+mod space_tests;
+
+#[cfg(all(test, unix))]
+#[path = "change_scripts_permission_tests.rs"]
+mod permission_tests;

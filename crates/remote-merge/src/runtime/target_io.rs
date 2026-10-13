@@ -1,3 +1,4 @@
+use super::route_retry::StopKey;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -49,12 +50,13 @@ pub(crate) fn target_path_outside_rollback(resolved: ResolvedPath) -> anyhow::Re
         ResolvedPath::Missing { real_parent, .. } => TargetPath::Missing {
             real_parent: real_parent.into(),
         },
-        ResolvedPath::Exists { real_path } => TargetPath::File {
+        ResolvedPath::Exists { real_path, .. } => TargetPath::File {
             real_path: real_path.into(),
         },
         ResolvedPath::Symlink {
             link_target,
             real_path,
+            ..
         } => TargetPath::Symlink {
             link_target: link_target.into(),
             real_path: real_path.into(),
@@ -168,6 +170,15 @@ pub(crate) trait TargetIo {
         runtime: &mut CoreRuntime,
         paths: &[EntryPath],
     ) -> anyhow::Result<Vec<PathResult<String>>>;
+    /// 親がないとして `path` を飛ばす前に、root_dir がなくなっていないかを確かめる。なくなっていれば、
+    /// その側への処理を止めて root_dir がない誤りを返す（D48。確かめる比較先だけが答える）
+    fn root_gone_before_skipping(
+        &mut self,
+        _runtime: &mut CoreRuntime,
+        _path: &str,
+    ) -> Option<anyhow::Error> {
+        None
+    }
     /// バックアップが無効な rollback で書き戻す前の、`paths` の状態（`restore_before`）
     fn states_before_restore(
         &mut self,
@@ -176,19 +187,35 @@ pub(crate) trait TargetIo {
     ) -> anyhow::Result<HashMap<String, super::change_check::Before>>;
 }
 
+/// `side` の比較先。処理を止めた側（ローカルの側とローカルに置き換えたサーバを含む）は、どの操作も
+/// 行わない比較先にする。それ以外は、変更の手順の失敗で root_dir を確かめ直す比較先で包む（D48・D49）
 pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> {
-    match side {
-        Side::Local => Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
-        Side::Remote(name) => match runtime.targets.local_override(name) {
-            Some(root) => Box::new(super::local_target::LocalTargetIo::new(
-                root.to_path_buf(),
-                runtime.config.filter.exclude.clone(),
-                runtime.config.filter.include.clone(),
-            )),
-            None if runtime.stopped.contains_key(name) => {
-                Box::new(super::stopped_target::StoppedTargetIo::new(name.clone()))
-            }
-            None => Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
-        },
+    let key = StopKey::of(side);
+    if runtime.stopped.contains_key(&key) {
+        return Box::new(super::stopped_target::StoppedTargetIo::new(key));
     }
+    let (inner, shown_root): (Box<dyn TargetIo>, String) = match side {
+        Side::Local => (
+            Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
+            runtime.config.local.root_dir.display().to_string(),
+        ),
+        Side::Remote(name) => match runtime.targets.local_override(name) {
+            Some(root) => (
+                Box::new(super::local_target::LocalTargetIo::new(
+                    root.to_path_buf(),
+                    runtime.config.filter.exclude.clone(),
+                    runtime.config.filter.include.clone(),
+                )),
+                root.display().to_string(),
+            ),
+            None => (
+                Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
+                match runtime.get_server_config(name) {
+                    Ok(server) => super::side_io::remote_shown_root(name, &server.root_dir),
+                    Err(_) => name.clone(),
+                },
+            ),
+        },
+    };
+    Box::new(super::root_watch::RootWatch::new(key, shown_root, inner))
 }

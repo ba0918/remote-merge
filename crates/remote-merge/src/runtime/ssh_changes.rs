@@ -46,8 +46,8 @@ impl CoreRuntime {
         path: &EntryPath,
         target: &str,
     ) -> anyhow::Result<()> {
-        let full = self.ssh_full_path(server, path)?;
-        let command = change_scripts::symlink(target, &full);
+        let (root, full) = self.ssh_root_and_full_path(server, path)?;
+        let command = change_scripts::symlink_under(&root, target, &full);
         let client = require_ssh_client(&mut self.ssh_clients, server)?;
         let (_, stderr, exit) = self.rt.block_on(client.run_bytes(&command))?;
         match exit {
@@ -68,8 +68,8 @@ impl CoreRuntime {
         content: &[u8],
         binary: bool,
     ) -> anyhow::Result<()> {
-        let full = self.ssh_full_path(server, path)?;
-        let command = change_scripts::write(&full, binary);
+        let (root, full) = self.ssh_root_and_full_path(server, path)?;
+        let command = change_scripts::write_under(&root, &full, binary);
         let input = change_scripts::write_input(content, binary);
         let client = require_ssh_client(&mut self.ssh_clients, server)?;
         let (_, stderr, exit) = self.rt.block_on(client.run_with_input(&command, &input))?;
@@ -84,12 +84,22 @@ impl CoreRuntime {
     }
 
     fn ssh_full_path(&self, server: &str, path: &EntryPath) -> anyhow::Result<String> {
+        Ok(self.ssh_root_and_full_path(server, path)?.1)
+    }
+
+    /// root_dir と、その下の `path` のフルパス
+    fn ssh_root_and_full_path(
+        &self,
+        server: &str,
+        path: &EntryPath,
+    ) -> anyhow::Result<(String, String)> {
         let root = self
             .get_server_config(server)?
             .root_dir
             .to_string_lossy()
             .into_owned();
-        Ok(remote_full_path(&root, path.as_rel()))
+        let full = remote_full_path(&root, path.as_rel());
+        Ok((root, full))
     }
 
     /// 変更のコマンドを動かす。接続の失敗はそのまま返し、0 以外で終わったら失敗の種類にする

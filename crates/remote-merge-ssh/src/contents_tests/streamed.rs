@@ -8,19 +8,16 @@ use remote_merge_core::op_failure::OpFailure;
 use super::super::*;
 use super::paths;
 use crate::contents_stream::RawDigests;
-use crate::scan_test_shell::shell_command;
+use crate::contents_tests_support::fed;
 
 const ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 const BOUNDARY: &str = "0123456789abcdef0123456789abcdef";
 
 /// スクリプトを動かし、ログインシェルの出力に見立てた前置きの後に、標準出力を `chunk` バイトずつ渡す
-fn over_shell(chunk: usize) -> impl FnMut(&str, &mut RawDigests) -> Result<(), String> {
-    move |script: &str, digests: &mut RawDigests| {
-        let output = shell_command(script).output().map_err(|e| e.to_string())?;
-        for piece in b"login banner\n@RMRA"
-            .chunks(3)
-            .chain(output.stdout.chunks(chunk))
-        {
+fn over_shell(chunk: usize) -> impl FnMut(&str, &[u8], &mut RawDigests) -> Result<(), String> {
+    move |script: &str, input: &[u8], digests: &mut RawDigests| {
+        let stdout = fed(script, input)?;
+        for piece in b"login banner\n@RMRA".chunks(3).chain(stdout.chunks(chunk)) {
             digests.feed(piece);
         }
         Ok(())
@@ -66,9 +63,9 @@ fn many_paths_are_asked_in_commands_within_the_length_limit() {
     let fulls: Vec<String> = paths(&root, &rels).into_iter().map(|(_, f)| f).collect();
     let mut commands = 0;
     let mut run = over_shell(4096);
-    let counting = |script: &str, digests: &mut RawDigests| {
+    let counting = |script: &str, input: &[u8], digests: &mut RawDigests| {
         commands += 1;
-        run(script, digests)
+        run(script, input, digests)
     };
 
     let digests = digest_all(&fulls, BOUNDARY, 4096, counting).unwrap();

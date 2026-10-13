@@ -10,7 +10,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - ルートは Cargo ワークスペース。members と default-members は `crates/remote-merge/`、`crates/remote-merge-core/`、`crates/remote-merge-protocol/`、`crates/remote-merge-settings/`、`crates/remote-merge-ssh/`、`crates/remote-merge-config/`、`crates/remote-merge-agent/`、`crates/remote-merge-engine/`。`Cargo.lock`、`.cargo/`、release profile と `target/` はルートに置く。
 - `crates/remote-merge-core/src/`: tree・diff・error・filter とその単体テスト。製品は同じ型を `remote_merge::{tree, diff, error, filter}` から再公開する。
 - `crates/remote-merge-core/src/relative_path/`: root_dir からの相対パスの型 `RelPath`（入力の形の検査 `RelPath::parse` を通ったときだけ作れる。コマンドの入口・エージェントの受け取り口・バックアップの記録の読み込みで使う）と、root_dir の下の一つの項目を表す `EntryPath`（root_dir 全体を表せない型）。経路の操作（製品の `TargetIo`、engine の `local_io`、エージェントの受け取り口とクライアント、SSH の事実の集め方）は、項目の操作（読み書き・削除・権限の変更・symlink の作成・stat・ハッシュ・大きさ・項目のリンク先）では `EntryPath` を、範囲の操作（走査・子の一覧・パスの確認）では `RelPath` を受け取り、自分では入力の形も root_dir の外かどうかも検査しない。
-- `crates/remote-merge-core/src/op_failure/`: 操作の失敗の一つの型 `OpFailure`（ない・ディレクトリでない・権限がない・上限を超える・道具がない・I/O・接続断の七つ）、OS の誤りとリモートの道具の文言の終わりからの訳し方（`from_io_error`・`from_tool_message`）、大きさの上限の判定（`check_size`）、利用者に示す文言を一か所で作る `OpError`。どの経路も操作の結果をこの型で返し、扱い（止めるか続けるか）は経路の外で決める。
+- `crates/remote-merge-core/src/op_failure/`: 操作の失敗の一つの型 `OpFailure`（ない・ディレクトリでない・権限がない・上限を超える・道具がない・I/O・接続断・root_dir がないの八つ）、OS の誤りとリモートの道具の文言の終わりからの訳し方（`from_io_error`・`from_tool_message`）、大きさの上限の判定（`check_size`）、利用者に示す文言を一か所で作る `OpError`。どの経路も操作の結果をこの型で返し、扱い（止めるか続けるか）は経路の外で決める。
 - `crates/remote-merge-core/src/machine_ops/`: このマシンの一つの項目への操作（読み込み・大きさ・ハッシュ・stat・項目のリンク先・その場で書き換える書き込み・削除・権限の変更・symlink の作成）。ローカルとエージェントは同じ関数を呼ぶ。中身の読み込みとハッシュは、辿った先が通常ファイルでなければ開いて待たずに "not a regular file" の I/O の失敗にする（REQ-paths-021）。`crates/remote-merge-core/src/route_choice/`: エージェントか SSH かをサーバにつなぐときに一度だけ選ぶ純粋な関数（TBL-ssh-001）。
 - `crates/remote-merge-core/src/compare/`: 比べる流れ（docs/ir/compare/）の規則を純粋な関数で一つずつ置く。状態の組の判定（`judge`。TBL-compare-001）、中身のハッシュからの判定と読み込みの失敗の扱い（`contents`。TBL-compare-002・004）、コマンドと指定からの比べ方と二つの symlink の組の合わせ方（`method`。TBL-compare-003・REQ-compare-008）、変更の直前の判定（`recheck`。REQ-compare-015）、判定の値と判定できない理由の文（`verdict`。REQ-compare-014）。流れの組み立てのうち事実を受けて進める段も純粋な関数で、側ごとの一覧から状態の表を作り（`table`）、組ごとに判定して中身を求める側を決め（`pairs`）、読んだハッシュと中身で決め直す（`settle`）。コマンドが判定の扱いに使うハッシュと中身は `Uses` で告げる。
 - `crates/remote-merge-core/src/scan/`: 走査の規則（exclude・include・件数・UTF-8 でない名前・循環・辿るか・読めないときに止めるか）を一か所に置いた純粋な関数群と、ローカルとエージェントが共有するこのマシンの集め方（`this_machine`）。子の一覧は走査の範囲の一つ（`ScanScope::Children`、`children`）で、集め方への問いを深さ一つにして同じ規則で作る。経路は生の項目を問いに答えて返すだけで、SSH の集め方は `remote-merge-ssh` の `scan_script`・`scan_output`・`scan_collect`（find にリンク先を辿らせない POSIX sh のスクリプト。初めに find が -printf と -exec … {} + を受け付けるかを確かめる）、エージェントは `tree_listing` で同じ規則を動かす。子の一覧の結果は三つの経路とも engine の `child_listing` で同じ形にし、子は走査と同じ件数の上限（max_scan_entries）で数えて、超えたら読めた子を持つ `ChildrenTruncated` の誤りにする。一覧の項目の種類は通常ファイル・ディレクトリ・symlink（リンク先がディレクトリか・ディレクトリでないか・ないか）・その他の種類（FIFO・ソケット・デバイス）で、その他の種類は段 5 まで古い木のノードにせずパスだけを `other_kinds` に残し、古い status・diff・merge・sync は engine の `service/other_kinds` でどの側の木からもそのパスを下ごと外して、判定できない（errors・failed、終了コード 2）とする。起点そのものだけを集める起点（`Start::itself`）は、比べる流れが名前で指定したパスと変更の直前の書き込み先の状態を集めるのに使う。製品の走査は `runtime/scan_entry.rs` の一つの入口（include の値の確認と起点の決め方）を通り、diff の名前で指定したディレクトリの展開も `cli/diff_expansion.rs` から同じ入口を使う。
@@ -51,6 +51,7 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 | Run | `cargo run -- status --left local --right <server>`（サブコマンドなしは使い方を出して終了コード 2） |
 | Spec check | `kotowari check` |
 | Real OpenSSH/sudo tests | `scripts/run-container-e2e.sh`（Docker 必須、通常テストと別パッケージ） |
+| Old remote tools | `REMOTE_MERGE_TEST_SCAN_IMAGE=centos:5 cargo nextest run -p remote-merge-ssh`（Docker 必須。centos:5〜7・busybox:1.37.0 などのコンテナの sh と道具でリモートのスクリプトを動かす。イメージを指定しないと、コンテナでしか確かめられない試験は飛ばす。`REMOTE_MERGE_TEST_REQUIRE_SCAN_IMAGE=1` を置くと、飛ばさずに失敗にする。`REMOTE_MERGE_TEST_REQUIRE_FISH=1` は fish がないときに同じく失敗にする） |
 
 ## Conventions specific to this project
 
@@ -58,6 +59,14 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - コミットメッセージは Conventional Commits 形式で、件名・本文は日本語。
 - `lefthook.yml` は fmt・仕様検査を pre-commit、Clippy・通常テストを pre-push で読み取り専用で実行する。既存の個人フックを置き換えないため `lefthook install` は自動実行しない。既存フックの所有者が内容を確認し、必要なら手動で統合する。未ステージの変更も手動検査する場合は `lefthook run pre-commit --force --no-auto-install` / `lefthook run pre-push --force --no-auto-install` を使う。
 - 旧 OpenSSH の手動負荷試行は `bench/legacy-ssh/setup.sh` から開始する。試行中のシェルを終了すると専用コンテナ・イメージ・鍵・known_hosts・データが破棄され、個人の SSH 設定は変更されない。CI の保証範囲には含めない。
+
+## Security boundary
+
+レビューや実装で security の指摘を直すかを判断するときは、この節に照らす。決定は [foundation A11](docs/decision/records/2026-10-12-foundation.md#A11)。
+
+- 信頼するもの: 操作する利用者、接続先のサーバ、配置先に書ける組織内のアカウント。配置先は組織内の誰でも書ける共有ディレクトリが普通である。
+- 直さないもの: その中の誰かが、ツールの確かめと変更の間にすり替える（ハードリンク・symlink・rename の差し替え）攻撃。
+- 直すもの: 同時に動く別の作業（並行するデプロイ・ほかの利用者のふつうの編集）で、ツールが壊す・誤った結果を返す・黙って失敗する正しさの問題。信頼しない入力（ネットワーク越しの応答の解釈、パスの形）からのコマンド注入と、root_dir の外への書き込み。
 
 ## Constraints
 

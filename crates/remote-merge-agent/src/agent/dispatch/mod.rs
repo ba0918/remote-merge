@@ -19,9 +19,8 @@ use super::server::MetadataConfig;
 pub struct Dispatcher {
     root_dir: PathBuf,
     metadata_config: MetadataConfig,
-    /// 分けて送られる書き込みで最初の分を書き終えたパスと、最初の分を書く前に書き込み先が
-    /// なかったか
-    pub(crate) writing: HashMap<String, bool>,
+    /// 分けて送られる書き込みで最初の分を書き終えたパスと、最初の分で開いたファイル
+    pub(crate) writing: HashMap<String, std::fs::File>,
 }
 
 /// 一つのパスの要求で、パスを拒んだときの応答
@@ -106,32 +105,20 @@ impl Dispatcher {
         })
     }
 
-    /// 書き込みの一つの分を書く。分けて送られるときは、最初の分の前に書き込み先がなかったかを
-    /// 最後の分まで覚える
+    /// 書き込みの一つの分を書く。分けて送られるときは、最初の分で開いたファイルを最後の分まで持ち、
+    /// 後の分はそれに書き足す
     fn write(&mut self, path: &EntryPath, content: &[u8], more_to_follow: bool) -> AgentResponse {
         let key = path.as_typed().to_string();
-        let part = match self.writing.get(&key) {
-            Some(created) => writes::Part {
-                first: false,
-                created: *created,
-            },
-            None => writes::Part {
-                first: true,
-                created: writes::is_new(&self.root_dir, path),
-            },
+        let written = match self.writing.remove(&key) {
+            Some(mut file) => writes::write_more(&mut file, content).map(|()| file),
+            None => writes::write_first(&self.root_dir, path, content, &self.metadata_config),
         };
-        let written =
-            writes::write_part(&self.root_dir, path, content, &part, &self.metadata_config);
-        if written.is_ok() && more_to_follow {
-            self.writing.insert(key, part.created);
-        } else {
-            self.forget(&key);
-        }
+        let written = written.map(|file| {
+            if more_to_follow {
+                self.writing.insert(key, file);
+            }
+        });
         changes::changed(written)
-    }
-
-    fn forget(&mut self, key: &str) {
-        self.writing.remove(key);
     }
 }
 

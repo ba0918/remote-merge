@@ -63,7 +63,7 @@ impl CoreRuntime {
             }),
         };
         match check_before_change(compared, now) {
-            ChangeCheck::Disconnected(lost) => {
+            ChangeCheck::Stopped(lost) => {
                 Err(OpError::new(Operation::Hash, path.as_typed(), lost.failure).into())
             }
             checked => Ok(checked),

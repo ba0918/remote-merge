@@ -36,7 +36,9 @@ pub fn decide_value(
     let real_path = match resolved {
         ResolvedPath::Missing { .. } => return Ok(ValueDecision::Skip),
         ResolvedPath::AncestorNotDirectory { .. } => return Err(ResolveError::NotADirectory),
-        ResolvedPath::Exists { real_path } | ResolvedPath::Symlink { real_path, .. } => real_path,
+        ResolvedPath::Exists { real_path, .. } | ResolvedPath::Symlink { real_path, .. } => {
+            real_path
+        }
     };
     Ok(if is_inside(real_path, real_root) {
         ValueDecision::Scan

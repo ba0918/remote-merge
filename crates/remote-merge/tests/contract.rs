@@ -81,6 +81,8 @@ mod config_values;
 #[cfg(feature = "test-utils")]
 #[path = "contract/config_values_cli.rs"]
 mod config_values_cli;
+#[path = "contract/created_removal_agree.rs"]
+mod created_removal_agree;
 #[path = "contract/diagnostics.rs"]
 mod diagnostics;
 #[cfg(all(unix, feature = "test-utils"))]
@@ -209,6 +211,9 @@ mod merge_ref_hunks_fix;
 mod merge_ref_kinds;
 #[path = "contract/merge_results.rs"]
 mod merge_results;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_root_gone.rs"]
+mod merge_root_gone;
 #[path = "contract/merge_support.rs"]
 mod merge_support;
 #[cfg(feature = "test-utils")]
@@ -253,6 +258,9 @@ mod rollback_paths;
 #[cfg(feature = "test-utils")]
 #[path = "contract/rollback_saved_record.rs"]
 mod rollback_saved_record;
+#[cfg(feature = "test-utils")]
+#[path = "contract/root_gone_support.rs"]
+mod root_gone_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/scan_entry_count.rs"]
 mod scan_entry_count;
@@ -347,6 +355,8 @@ mod ssh_reconnect;
 #[cfg(feature = "test-utils")]
 use common::server_faults;
 #[cfg(feature = "test-utils")]
+use common::server_removal;
+#[cfg(feature = "test-utils")]
 use common::ssh_server;
 #[cfg(feature = "test-utils")]
 #[path = "contract/agent_support.rs"]
@@ -354,6 +364,9 @@ mod agent_support;
 #[cfg(feature = "test-utils")]
 #[path = "contract/agent_unreadable_answer.rs"]
 mod agent_unreadable_answer;
+#[cfg(feature = "test-utils")]
+#[path = "contract/source_root_gone.rs"]
+mod source_root_gone;
 #[cfg(feature = "test-utils")]
 #[path = "contract/ssh_agent_operations.rs"]
 mod ssh_agent_operations;
@@ -417,12 +430,17 @@ mod status_unreadable;
 mod sync_cli;
 #[path = "contract/sync_results.rs"]
 mod sync_results;
+#[cfg(feature = "test-utils")]
+#[path = "contract/sync_root_gone.rs"]
+mod sync_root_gone;
 #[path = "contract/sync_support.rs"]
 mod sync_support;
 #[path = "contract/sync_targets.rs"]
 mod sync_targets;
 #[path = "contract/sync_text.rs"]
 mod sync_text;
+#[path = "contract/write_gone_parent_agree.rs"]
+mod write_gone_parent_agree;
 
 // @kotowari[REQ-testing-002]
 #[cfg(feature = "test-utils")]

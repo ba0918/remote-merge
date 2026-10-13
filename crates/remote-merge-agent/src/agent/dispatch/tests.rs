@@ -6,4 +6,5 @@ mod root_dir;
 mod support;
 mod tree;
 mod write_metadata;
+mod write_races;
 mod writes;

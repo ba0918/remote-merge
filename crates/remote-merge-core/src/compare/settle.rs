@@ -58,7 +58,7 @@ fn settle(
             let second = (pair.second, hash_of(hashes, pair.second)?);
             match judge_hashes(first, second) {
                 ContentJudgement::Decided(verdict) => Ok(verdict),
-                ContentJudgement::Disconnected(failed) => Err(failed),
+                ContentJudgement::Stopped(failed) => Err(failed),
             }
         }
     }
@@ -91,7 +91,7 @@ pub fn apply_reads(
                 .filter(|failed| failed.role == pair.pair.first || failed.role == pair.pair.second)
                 .cloned();
             match read_outcome(failed) {
-                ReadOutcome::Disconnected(failed) => return Err(failed),
+                ReadOutcome::Stopped(failed) => return Err(failed),
                 ReadOutcome::Undecidable(why)
                     if !matches!(pair.verdict, Verdict::Undecidable(_)) =>
                 {

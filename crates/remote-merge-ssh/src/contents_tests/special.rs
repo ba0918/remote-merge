@@ -12,8 +12,7 @@ use remote_merge_core::op_failure::OpFailure;
 use super::super::*;
 use super::paths;
 use crate::contents_stream::RawDigests;
-use crate::contents_tests_support::run;
-use crate::scan_test_shell::shell_command;
+use crate::contents_tests_support::{fed, run};
 
 const BOUNDARY: &str = "0123456789abcdef0123456789abcdef";
 /// 待たずに終わったとみなす時間（コンテナで動かすときの起動の時間を含む）
@@ -68,7 +67,7 @@ fn reading_a_directory_or_a_fifo_fails_as_not_a_regular_file_without_waiting() {
     let asked = paths(&root, &["dir", "pipe"]);
 
     let answers = within_limit(&root.join("pipe"), move || {
-        read_all(&asked, None, BOUNDARY, 65536, run).unwrap()
+        read_all(&asked, None, BOUNDARY, 65536, fed).unwrap()
     });
 
     assert_eq!(
@@ -115,9 +114,8 @@ fn hashing_a_fifo_from_its_streamed_content_fails_without_waiting() {
         .collect();
 
     let digests = within_limit(&root.join("pipe"), move || {
-        let mut over_shell = |script: &str, digests: &mut RawDigests| {
-            let output = shell_command(script).output().map_err(|e| e.to_string())?;
-            digests.feed(&output.stdout);
+        let mut over_shell = |script: &str, input: &[u8], digests: &mut RawDigests| {
+            digests.feed(&fed(script, input)?);
             Ok::<(), String>(())
         };
         digest_all(&fulls, BOUNDARY, 65536, &mut over_shell).unwrap()

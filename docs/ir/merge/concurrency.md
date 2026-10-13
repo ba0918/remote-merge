@@ -6,10 +6,11 @@
 
 ### REQ-merge-011: 他者の更新を上書きしない
 - kind: prohibition
-- source: docs/decision/records/2026-09-25-spec-migration.md#A35, docs/decision/records/2026-09-25-spec-migration.md#A38, docs/decision/records/2026-10-12-foundation-4.md#E9
+- source: docs/decision/records/2026-09-25-spec-migration.md#A35, docs/decision/records/2026-09-25-spec-migration.md#A38, docs/decision/records/2026-10-12-foundation-4.md#E9, docs/decision/records/2026-10-12-foundation-3.md#D46
 - verification: unit
 
 差分確認からマージまでに書き込み先の中身が変わったとき、サイズと更新時刻が元と同じでも、古い状態を前提としたマージは、compare/reading.md の REQ-compare-015 の変更の直前の判定で書き込みを止め、変更を報告する。--hunks の merge と --delete の削除も同じである。
+変わったかは書き込みの直前に一度だけ確かめ、確かめてから書くまでの短い間に変わったものは追わない（ふつうの並行する作業でも、この間に書き込み先を書き換えれば上書きしうる）。
 
 ### REQ-merge-033: 更新を検知したファイルだけを止める
 - kind: event_driven
@@ -19,6 +20,18 @@
 merge と sync は、REQ-compare-015 のとおり、比べたときから書き込み先の種類・リンク文字列・中身が変わったファイルと、比べたときになかった書き込み先が現れたファイルを書かずに（消さずに）failed に出し、他のファイルの処理は続ける。
 比べたときに symlink だった書き込み先のリンク先が UTF-8 として読めないバイトか置換文字 U+FFFD を含むときは、変わっていないことを確かめられないので、変わったファイルと同じく書かずに failed に出す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
+
+### REQ-merge-044: 処理の途中で root_dir ごと消えたら、その側への処理を止める
+- kind: event_driven
+- source: docs/decision/records/2026-10-12-foundation-3.md#D47, docs/decision/records/2026-10-12-foundation-3.md#D48, docs/decision/records/2026-10-12-foundation-3.md#D49
+- verification: unit
+
+どのコマンドでも、どの側（読み込み元・書き込み先）でも、どの経路でも、処理の途中でその側の root_dir がなくなった（ディレクトリでなくなったもの、祖先がディレクトリでなくなったものを含む）と分かったときは、その側への処理を止め、終了コード 2 を返す。
+merge・sync・rollback では、そのファイルを root_dir がないことと root_dir（リモートは "サーバ名:パス"）が分かる error で failed に出し、その側を使うまだ処理していない残りのファイル（読み込み元の側が止まったときは、それを読む書き込み先のファイルも）を変更せずに、手を付けていないことが分かる error で failed に出す。それまでに済んだファイルはそのまま結果に出し、root_dir もその親も作り直さない。sync の他の書き込み先は REQ-merge-015 のとおり処理を続ける。
+読むだけのコマンド（diff・status）では、走査の root_dir の誤り（REQ-scan-017）と同じく、root_dir がないことと root_dir が分かる誤りで止める。
+root_dir がなくなったと分かるのは、その側への操作が、ない・ディレクトリでないと答えた後に root_dir を確かめ直したとき、root_dir 直下のパスの親（root_dir そのもの）がないか途中がディレクトリでないと答えた後に確かめ直したとき、親を作る前に root_dir を確かめたときである。深いパスの親がないというふつうの答えでは確かめ直さない。
+root_dir の上を辿れない（権限がない）ときは root_dir がないとせず、権限がない失敗にして処理を続ける。root_dir がディレクトリでないときの理由を見分ける道具がリモートにないときは、その道具がない失敗にする。
+root_dir がない文言は一度だけ出す。
 
 ### REQ-merge-038: 最後の要素が symlink のパスへ通常ファイルを書かない
 - kind: prohibition
@@ -62,6 +75,17 @@ merge・sync・rollback の symlink の更新は、比べたときにあった�
 --delete の merge と sync は、消そうとした書き込み先が比べた後に消えていたとき、そのファイルをないの失敗（paths/operations.md の REQ-paths-020）として failed に出し、他のファイルの処理は続ける。
 リモートの削除を使う symlink の更新でも、消えていた書き込み先は failed に出す。
 `接続断` のときは、そのファイルを含めて REQ-ssh-022・REQ-ssh-003・REQ-ssh-023 による。
+
+### REQ-merge-043: 新しいファイルを作る書き込みは、現れたものを書き換えない
+- kind: prohibition
+- source: docs/decision/records/2026-10-12-foundation-3.md#D37, docs/decision/records/2026-10-12-foundation-3.md#D38, docs/decision/records/2026-10-12-foundation-3.md#D41, docs/decision/records/2026-10-12-foundation-3.md#D42, docs/decision/records/2026-10-12-foundation-3.md#D45
+- verification: review
+- how_to_verify: ローカルとエージェントは "crates/remote-merge-core/src/machine_ops/new_file_tests.rs" の a_hard_link_placed_after_the_check_for_a_new_file_is_not_written（書き込み先がないと確かめた後・開く前に、別のファイルへのハードリンクを置く）と a_destination_gone_after_the_check_is_made_as_a_new_file、SSH は "crates/remote-merge-ssh/src/change_scripts_race_tests.rs" の a_hard_link_placed_after_the_check_for_a_new_file_is_not_written_like_this_machine と a_link_to_a_device_placed_after_the_check_for_a_new_file_is_file_exists_like_this_machine（dd が "oflag=nofollow" と "conv=excl" を受け付けるときと受け付けないときに、親を作った直後にハードリンクか /dev/null への symlink を置く mkdir を PATH に置いて、生成したコマンドを sh で実行する）と a_new_file_is_opened_by_a_dd_with_excl_and_nofollow_when_the_dd_accepts_them、確かめたときにあった書き込み先が消えたときは "crates/remote-merge-ssh/src/change_scripts_gone_tests.rs" の a_destination_gone_with_its_parent_after_the_check_is_made_again_from_the_parent と a_destination_gone_after_the_check_is_made_as_a_new_file_like_this_machine（最初の呼び出しで書き込み先か親を消す dd を PATH に置く）、エージェントが分けて送られた書き込みの後の分を最初の分で開いたファイルに書くことは "crates/remote-merge-agent/src/agent/dispatch/tests/write_races.rs" の later_parts_go_to_the_file_opened_for_the_first_part_even_if_the_path_is_swapped を読み、どの経路でも書き込みが "File exists" の I/O の失敗になり、ハードリンク先のファイルが変わらないことを人が確かめる。これらの単体テストは kotowari が印を数えるテストファイルの外にある。書き込み先がないと確かめた後に同じパスに項目が現れることは、その競合でだけ起きるため、契約テストでは作らない。確かめたときにあった書き込み先が親ごと消えたときに三つの経路が同じに作り直すことは "crates/remote-merge/tests/contract/write_gone_parent_agree.rs" の契約テストで比べる。
+
+書き込み先がないときの書き込みは、新しいファイルとして作り、ないと確かめた後に同じパスに何か（並行する別の作業が作った通常ファイル・どこを指すかによらない symlink・別のファイルへのハードリンク）が現れていれば、それを開かず、書き換えず、所有者も変えずに、どの経路でも I/O の失敗（理由は "File exists"）にする。
+確かめたときにあった書き込み先が開く前に消えていたときも（親ごと消えていたときは、ない親を作り直して）、どの経路でも新しいファイルとして作る（REQ-merge-042 のとおりログインした利用者の持ち物になる）。
+エージェントが分けて送られた中身を書くときは、後の分も最初の分で開いたファイルに書き、書いている間に書き込み先のパスが別のファイルに差し替えられても、差し替えたファイルに書かない。
+既存の書き込み先の書き換えは REQ-merge-039 による。
 
 ## Examples
 
@@ -137,4 +161,16 @@ Scenario: 三つの経路で既存のファイルに書く
 Given ローカル・SSH・エージェントの書き込み先に、別の名前のハードリンクもある既存の "a.txt" がある
 When それぞれの経路で "a.txt" に新しい中身を merge する
 Then どの経路でも "a.txt" の inode と所有者は書く前と同じで、ハードリンクの別の名前からも新しい中身が読める
+
+@id=EX-merge-065 @about=REQ-merge-043 @source=docs/decision/records/2026-10-12-foundation-3.md#D37
+Scenario: 新しいファイルを作る間に並行する作業が同じファイルを作る
+Given sudo=true のサーバで、書き込み先 "new.txt" がないと確かめた後、作る前に、並行する別のデプロイが "new.txt" を作った
+When "new.txt" を merge する
+Then "new.txt" は failed に出て、別のデプロイが作った "new.txt" の中身と所有者は変わらない
+
+@id=EX-merge-066 @about=REQ-merge-044 @source=docs/decision/records/2026-10-12-foundation-3.md#D47
+Scenario: 三つのファイルの merge の二つ目の前に root_dir ごと消える
+Given "a.txt"・"b.txt"・"c.txt" を merge し、"a.txt" を書いた後、"b.txt" を書く前に、書き込み先の root_dir が中身ごと消えた
+When merge の結果を見る
+Then "a.txt" は書き込まれ、"b.txt" は root_dir がない失敗、"c.txt" は手を付けていない失敗として failed に出て、root_dir は作り直されず、終了コード 2 を返す
 ```

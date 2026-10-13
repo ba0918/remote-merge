@@ -26,18 +26,32 @@ pub enum ResolvedPath {
         real_parent: String,
         parent_exists: bool,
     },
-    /// symlink でないもの（ディレクトリを含む）が存在する
-    Exists { real_path: String },
-    /// 末尾の要素が symlink。`real_path` はリンク先を同じ規則で辿った実パス
+    /// symlink でないもの（ディレクトリを含む）が存在する。`kind` はその種類
+    Exists {
+        real_path: String,
+        kind: ExistingKind,
+    },
+    /// 末尾の要素が symlink。`real_path` はリンク先を同じ規則で辿った実パスで、`target_kind` は
+    /// 辿った先の種類（辿った先が存在しなければ None）
     Symlink {
         link_target: String,
         real_path: String,
+        target_kind: Option<ExistingKind>,
     },
     /// 確認するパスの途中の要素がディレクトリでない。`real_path` はその要素を辿った実パス
     AncestorNotDirectory {
         real_path: String,
         regular_file: bool,
     },
+}
+
+/// 存在するもの（symlink は辿った先）の種類（foundation A2 の「存在する（ファイル・ディレクトリ・
+/// その他）」）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExistingKind {
+    File,
+    Directory,
+    Other,
 }
 
 /// 一つのパスを lstat した種類
@@ -59,3 +73,6 @@ pub trait PathOps {
     /// symlink `path` のリンク文字列のバイト列
     fn read_link(&self, path: &str) -> Result<Vec<u8>, ResolveError>;
 }
+
+#[cfg(all(test, unix))]
+mod kind_tests;
