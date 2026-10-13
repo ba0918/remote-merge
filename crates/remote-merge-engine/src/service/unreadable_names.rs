@@ -41,7 +41,7 @@ pub fn requested_unreadable_names(
 }
 
 /// 指定したパス `requested` が `name` を比べる範囲に含むか
-fn covers(requested: &str, name: &str) -> bool {
+pub(crate) fn covers(requested: &str, name: &str) -> bool {
     let requested = requested.trim_end_matches('/');
     requested.is_empty()
         || requested == "."

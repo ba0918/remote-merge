@@ -669,6 +669,7 @@ mod tests {
                 FileNode::new_file("vendor"),
             ],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let original_len = tree.nodes.len();
@@ -694,6 +695,7 @@ mod tests {
                 FileNode::new_file("README.md"),
             ],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let include = vec!["src".to_string(), "vendor/current".to_string()];

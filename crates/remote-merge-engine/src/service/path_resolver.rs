@@ -357,6 +357,7 @@ mod tests {
                 FileNode::new_dir_with_children("empty_dir", vec![]),
             ],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         }
     }
@@ -501,6 +502,7 @@ mod tests {
                 vec![FileNode::new_file("main.rs")],
             )],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let right_tree = FileTree {
@@ -510,6 +512,7 @@ mod tests {
                 vec![FileNode::new_file("extra.rs")],
             )],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![
@@ -531,6 +534,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![
@@ -550,6 +554,7 @@ mod tests {
             root: PathBuf::from("/project"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let right_tree = FileTree {
@@ -559,6 +564,7 @@ mod tests {
                 vec![FileNode::new_file("run.sh")],
             )],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![make_status("deploy/run.sh", FileStatusKind::RightOnly)];
@@ -652,6 +658,7 @@ mod tests {
                 vec![FileNode::new_file("main.rs"), FileNode::new_file("lib.rs")],
             )],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let right_tree = FileTree {
@@ -664,6 +671,7 @@ mod tests {
                 ],
             )],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![
@@ -772,6 +780,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![
@@ -792,6 +801,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let statuses = vec![

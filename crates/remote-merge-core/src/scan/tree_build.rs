@@ -12,10 +12,13 @@ pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
     let mut top: BTreeMap<String, FileNode> = BTreeMap::new();
     let mut entries = listing.entries;
     entries.sort_by(|a, b| a.path.cmp(&b.path));
-    // その他の種類は、段 5 で比べる流れに載せ替えるまで古いコマンドが読みに行かないよう、古い木には
-    // 載せない（一覧には残る。docs/decision/records/2026-10-12-foundation-4.md の E8）
+    // その他の種類は、段 5 で比べる流れに載せ替えるまで古いコマンドが読みに行かないよう、ノードに
+    // せずにパスだけを残す。古いコマンドはそのパスを判定できないとする（docs/decision/records/
+    // 2026-10-12-foundation-4.md の E8）
+    let mut other_kinds = Vec::new();
     for entry in entries {
         let Some(node) = node_of(&entry) else {
+            other_kinds.push(entry.path);
             continue;
         };
         let elements: Vec<&str> = entry.path.split('/').collect();
@@ -43,6 +46,7 @@ pub fn to_tree(root: impl Into<PathBuf>, listing: Listing) -> FileTree {
     let mut tree = FileTree::new(root);
     tree.nodes = top.into_values().collect();
     tree.unreadable_names = listing.unreadable_names;
+    tree.other_kinds = other_kinds;
     tree.truncated = listing.truncated;
     tree.sort();
     tree

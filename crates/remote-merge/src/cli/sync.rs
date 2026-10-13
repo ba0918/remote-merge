@@ -156,19 +156,24 @@ pub fn execute_sync(
         }
 
         // right ツリー取得（ScanStrategy に基づく）
-        let right_tree = match fetch_tree_by_strategy(&strategy, right_side, &mut core, max_entries)
-        {
-            Ok(t) => t,
-            Err(e) => {
-                let info = build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
-                    label: right_side.display_name().to_string(),
-                    root: String::new(),
-                });
-                connection_failures.push((info, format!("{}", e)));
-                continue;
-            }
-        };
+        let mut right_tree =
+            match fetch_tree_by_strategy(&strategy, right_side, &mut core, max_entries) {
+                Ok(t) => t,
+                Err(e) => {
+                    let info =
+                        build_source_info(right_side, &core).unwrap_or_else(|_| SourceInfo {
+                            label: right_side.display_name().to_string(),
+                            root: String::new(),
+                        });
+                    connection_failures.push((info, format!("{}", e)));
+                    continue;
+                }
+            };
 
+        // その他の種類は書き込み先ごとに外すので、読み込み元の木は書き込み先ごとに写す
+        let mut left_tree = left_tree.clone();
+        let other_kinds =
+            super::merge::other_kind_failures(&args.paths, &mut left_tree, &mut right_tree);
         // ステータス計算
         let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
@@ -204,6 +209,7 @@ pub fn execute_sync(
             (left_side, &left_tree),
             (right_side, &right_tree),
         ));
+        compare_failures.extend(other_kinds);
 
         // パス解決 + 差分フィルタ
         let resolved_paths =
@@ -674,6 +680,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let plan = plan_merge(&["src/main.rs".into()]);
@@ -729,6 +736,7 @@ mod tests {
             root: PathBuf::from("/remote"),
             nodes: vec![],
             unreadable_names: Vec::new(),
+            other_kinds: Vec::new(),
             truncated: false,
         };
         let plan = MergePlan {

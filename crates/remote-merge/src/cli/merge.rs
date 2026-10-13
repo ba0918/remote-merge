@@ -14,6 +14,7 @@ use crate::service::merge_flow::{
     SingleMergeResult,
 };
 use crate::service::merge_reference_reads::{paths_to_read, reference_refusal_for, ThreeWaySides};
+use crate::service::other_kinds::{set_aside_other_kinds, OTHER_KIND_REASON};
 use crate::service::output::{
     format_json, format_merge_outcome_json, format_merge_outcome_text, format_merge_text,
     OutputFormat,
@@ -563,7 +564,7 @@ fn fetch_trees_and_statuses_for_merge(
     core: &mut CoreRuntime,
     max_entries: usize,
 ) -> anyhow::Result<(FileTree, FileTree, Vec<FileStatus>, Vec<MergeFailure>)> {
-    let (left_tree, right_tree) = match strategy {
+    let (mut left_tree, mut right_tree) = match strategy {
         ScanStrategy::FastPath(ref target_paths) => {
             // FastPath → 各ファイルの親ディレクトリで PartialScan
             let dir_paths = fast_path_to_parent_dirs(target_paths);
@@ -587,6 +588,7 @@ fn fetch_trees_and_statuses_for_merge(
         }
     };
 
+    let other_kinds = other_kind_failures(comparison.requested, &mut left_tree, &mut right_tree);
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
@@ -621,8 +623,25 @@ fn fetch_trees_and_statuses_for_merge(
         (left, &left_tree),
         (right, &right_tree),
     ));
+    failures.extend(other_kinds);
 
     Ok((left_tree, right_tree, statuses, failures))
+}
+
+/// 指定したパスの範囲にあるその他の種類のパスを、両側の木から下ごと外して merge と sync の failed に
+/// する。そのパスは書かず、書き換えず、--delete でも消さない（REQ-compare-009）
+pub(crate) fn other_kind_failures(
+    requested: &[String],
+    left_tree: &mut FileTree,
+    right_tree: &mut FileTree,
+) -> Vec<MergeFailure> {
+    set_aside_other_kinds(requested, &mut [left_tree, right_tree])
+        .into_iter()
+        .map(|path| MergeFailure {
+            path,
+            error: OTHER_KIND_REASON.to_string(),
+        })
+        .collect()
 }
 
 /// 左右のどちらにもない指定したパスを、パスごとに標準エラーに警告して merge と sync の failed にする

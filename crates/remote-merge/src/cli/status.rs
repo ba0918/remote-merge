@@ -14,6 +14,7 @@ use crate::config::{resolve_max_entries, AppConfig};
 use crate::runtime::size_limit::SizeLimit;
 use crate::runtime::{CoreRuntime, RuntimeTargets};
 use crate::service::content_reads::{not_absent_in, verified_content_pairs};
+use crate::service::other_kinds::{set_aside_other_kinds, OTHER_KIND_REASON};
 use crate::service::output::{format_json, format_status_text, OutputFormat};
 use crate::service::source_pair::{
     build_source_info, resolve_ref_source, resolve_source_pair, SourceArgs,
@@ -83,12 +84,14 @@ pub fn execute_status(
     core.connect_if_remote(&pair.right)?;
 
     // 左側ツリー取得（再帰走査でメタデータ付き）
-    let left_tree = core.fetch_tree_recursive(&pair.left, max_entries, true)?;
+    let mut left_tree = core.fetch_tree_recursive(&pair.left, max_entries, true)?;
     let left_info = build_source_info(&pair.left, &core)?;
 
     // 右側ツリー取得（再帰走査でメタデータ付き）
-    let right_tree = core.fetch_tree_recursive(&pair.right, max_entries, true)?;
+    let mut right_tree = core.fetch_tree_recursive(&pair.right, max_entries, true)?;
     let right_info = build_source_info(&pair.right, &core)?;
+    // その他の種類は比べず、判定できないものとして errors に出す
+    let other_kinds = set_aside_other_kinds(&[], &mut [&mut left_tree, &mut right_tree]);
 
     // ステータス計算（メタデータ比較）
     let mut files = compute_status_from_trees(&left_tree, &right_tree);
@@ -219,6 +222,10 @@ pub fn execute_status(
             .into_iter()
             .map(|(path, reason)| UnreadableFile { path, reason }),
     );
+    unreadable.extend(other_kinds.into_iter().map(|path| UnreadableFile {
+        path,
+        reason: OTHER_KIND_REASON.to_string(),
+    }));
 
     let mut output = with_unreadable_files(
         build_status_output(

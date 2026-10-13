@@ -20,6 +20,7 @@ use crate::service::diff::{
 };
 use crate::service::max_files::{changes_without_reading, limit_changed_files, ChangedFileBudget};
 use crate::service::merge::find_symlink_target;
+use crate::service::other_kinds::{set_aside_other_kinds, OTHER_KIND_REASON};
 use crate::service::output::{format_json, format_multi_diff_text, OutputFormat};
 use crate::service::path_resolver::{
     filter_changed_files, parse_path_arguments, partition_existing_files,
@@ -1054,10 +1055,17 @@ fn compute_statuses_and_resolve(
     paths: &[RelPath],
     (left, right): (&Side, &Side),
     (core, expansions): (&mut CoreRuntime, &mut Expansions),
-    (left_tree, right_tree): (FileTree, FileTree),
-    scan_errors: Vec<DiffError>,
+    (mut left_tree, mut right_tree): (FileTree, FileTree),
+    mut scan_errors: Vec<DiffError>,
     limit: SizeLimit,
 ) -> anyhow::Result<DiffScanResult> {
+    // その他の種類は比べず、判定できないものとして errors に出す
+    let requested: Vec<String> = paths.iter().map(|path| path.as_str().to_string()).collect();
+    let other_kinds = set_aside_other_kinds(&requested, &mut [&mut left_tree, &mut right_tree]);
+    scan_errors.extend(other_kinds.into_iter().map(|path| DiffError {
+        path,
+        reason: OTHER_KIND_REASON.to_string(),
+    }));
     let mut statuses = compute_status_from_trees(&left_tree, &right_tree);
 
     // Refine statuses with content comparison for metadata-ambiguous files
