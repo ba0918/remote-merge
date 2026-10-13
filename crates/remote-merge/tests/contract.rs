@@ -181,6 +181,9 @@ mod merge_ref_hunks_fix;
 mod merge_ref_kinds;
 #[path = "contract/merge_results.rs"]
 mod merge_results;
+#[cfg(feature = "test-utils")]
+#[path = "contract/merge_root_gone.rs"]
+mod merge_root_gone;
 #[path = "contract/merge_support.rs"]
 mod merge_support;
 #[cfg(feature = "test-utils")]
@@ -306,6 +309,8 @@ mod ssh_login_shell;
 mod ssh_reconnect;
 #[cfg(feature = "test-utils")]
 use common::server_faults;
+#[cfg(feature = "test-utils")]
+use common::server_removal;
 #[cfg(feature = "test-utils")]
 use common::ssh_server;
 #[cfg(feature = "test-utils")]

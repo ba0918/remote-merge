@@ -571,6 +571,7 @@ impl server::Handler for LocalHandler {
                     || (fake_sudo && server_faults::is_sudo_preflight(&command)),
                 "unexpected remote command: {command}"
             );
+            self.faults.removal.on_ssh_command(&command);
             if self.faults.should_cut_ssh(&command) {
                 session.disconnect(Disconnect::ByApplication, "connection lost", "")?;
                 return Ok(());

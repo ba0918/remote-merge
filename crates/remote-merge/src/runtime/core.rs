@@ -48,8 +48,9 @@ pub struct CoreRuntime {
     pub(crate) passphrase_provider: Option<Arc<dyn PassphraseProvider>>,
     pub(crate) targets: super::RuntimeTargets,
     pub(crate) backup_store: super::backup_store::BackupStore,
-    /// `接続断` で処理を止めたサーバ名と、止めた理由。以降の操作は行わずに失敗にする
-    pub(crate) stopped: HashMap<String, String>,
+    /// `接続断` か root_dir がなくなったことで処理を止めた書き込み先と、止めた理由。以降の操作は
+    /// 行わずに失敗にする
+    pub(crate) stopped: HashMap<super::route_retry::StopKey, super::route_retry::Stop>,
     /// 側ごとに一度だけ確かめた include の値（None は include の指定がない）。一つのコマンドで
     /// 何度走査しても、root_dir と include の値の確認と警告は側ごとに一度にする
     pub(crate) checked_include: HashMap<crate::side::Side, super::scan_entry::CheckedInclude>,

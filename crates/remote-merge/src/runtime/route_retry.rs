@@ -4,8 +4,39 @@
 //! （REQ-ssh-003・REQ-ssh-023）。変更はやり直さずに止め、書き込み先の確かめは `confirm` が行う
 //! （REQ-ssh-004・REQ-ssh-022）。どちらも別の経路には切り替えない。
 
-use super::connection::{classify, is_stopped, retry_failed, ProcessingStopped};
+use super::connection::{classify, is_stopped, retry_failed, ProcessingStopped, StopCause};
 use super::core::CoreRuntime;
+use crate::side::Side;
+
+/// 処理を止める単位（サーバか、ローカルの側）
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum StopKey {
+    Server(String),
+    Local,
+}
+
+impl StopKey {
+    pub(crate) fn of(side: &Side) -> Self {
+        match side.server_name() {
+            Some(name) => Self::Server(name.to_string()),
+            None => Self::Local,
+        }
+    }
+
+    fn shown(&self) -> &str {
+        match self {
+            Self::Server(name) => name,
+            Self::Local => "local",
+        }
+    }
+}
+
+/// 止めた理由
+#[derive(Debug, Clone)]
+pub(crate) struct Stop {
+    cause: StopCause,
+    reason: String,
+}
 
 impl CoreRuntime {
     /// 読み取りの操作。`接続断` なら同じ経路でつなぎ直して一度だけやり直す
@@ -46,29 +77,44 @@ impl CoreRuntime {
 
     /// そのサーバへの処理を止めた印を立て、`error` をそのまま返す
     fn stop(&mut self, server_name: &str, error: anyhow::Error) -> anyhow::Error {
-        self.stopped
-            .entry(server_name.to_string())
-            .or_insert_with(|| format!("{error:#}"));
+        let key = StopKey::Server(server_name.to_string());
+        self.stop_with(key, StopCause::ConnectionLost, &error);
         error
     }
 
-    /// どれかのサーバへの処理を `接続断` で止めたか（その回は終了コード 2 で終える）
+    /// root_dir がなくなったので、`key` への処理を止めた印を立てる（D47）
+    pub(crate) fn stop_for_root_gone(&mut self, key: StopKey, error: &anyhow::Error) {
+        self.stop_with(key, StopCause::RootGone, error);
+    }
+
+    fn stop_with(&mut self, key: StopKey, cause: StopCause, error: &anyhow::Error) {
+        self.stopped.entry(key).or_insert_with(|| Stop {
+            cause,
+            reason: format!("{error:#}"),
+        });
+    }
+
+    /// どれかの書き込み先への処理を止めたか（その回は終了コード 2 で終える）
     pub fn has_stopped(&self) -> bool {
         !self.stopped.is_empty()
     }
 
-    /// `side` が処理を止めたサーバなら、行わなかったことを示すエラー
-    pub fn stopped_error_for(&self, side: &crate::side::Side) -> Option<anyhow::Error> {
-        side.server_name()
-            .and_then(|server_name| self.stopped_error(server_name))
+    /// `side` への処理を止めていたら、行わなかったことを示すエラー
+    pub fn stopped_error_for(&self, side: &Side) -> Option<anyhow::Error> {
+        self.stopped_error_of(&StopKey::of(side))
     }
 
     /// 処理を止めたサーバなら、行わなかったことを示すエラー
     pub(crate) fn stopped_error(&self, server_name: &str) -> Option<anyhow::Error> {
-        self.stopped.get(server_name).map(|reason| {
+        self.stopped_error_of(&StopKey::Server(server_name.to_string()))
+    }
+
+    fn stopped_error_of(&self, key: &StopKey) -> Option<anyhow::Error> {
+        self.stopped.get(key).map(|stop| {
             ProcessingStopped {
-                server: server_name.to_string(),
-                reason: reason.clone(),
+                server: key.shown().to_string(),
+                reason: stop.reason.clone(),
+                cause: stop.cause,
             }
             .into()
         })

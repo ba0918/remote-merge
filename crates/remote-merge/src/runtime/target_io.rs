@@ -155,12 +155,18 @@ pub(crate) fn for_side(side: &Side, runtime: &CoreRuntime) -> Box<dyn TargetIo> 
     match side {
         Side::Local => Box::new(super::local_target::LocalTargetIo::from_runtime(runtime)),
         Side::Remote(name) => match runtime.targets.local_override(name) {
-            Some(root) => Box::new(super::local_target::LocalTargetIo::new(
-                root.to_path_buf(),
-                runtime.config.filter.exclude.clone(),
-                runtime.config.filter.include.clone(),
-            )),
-            None if runtime.stopped.contains_key(name) => {
+            Some(root) => Box::new(
+                super::local_target::LocalTargetIo::new(
+                    root.to_path_buf(),
+                    runtime.config.filter.exclude.clone(),
+                    runtime.config.filter.include.clone(),
+                )
+                .stopped_as(super::route_retry::StopKey::Server(name.clone())),
+            ),
+            None if runtime
+                .stopped
+                .contains_key(&super::route_retry::StopKey::Server(name.clone())) =>
+            {
                 Box::new(super::stopped_target::StoppedTargetIo::new(name.clone()))
             }
             None => Box::new(super::remote_target::RemoteTargetIo::new(name.clone())),
