@@ -7,6 +7,7 @@ tests:
     - "crates/remote-merge/tests/contract/**/*.rs"
     - "crates/remote-merge/tests/cli_diff.rs"
     - "tests/container-e2e/tests/sudo.rs"
+    - "tests/container-e2e/tests/sudo/*.rs"
   rust:
     attributes: []
     macros: []
