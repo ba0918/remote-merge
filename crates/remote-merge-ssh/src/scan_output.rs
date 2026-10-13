@@ -122,6 +122,7 @@ pub fn parse(stdout: &[u8], stderr: &[u8], questions: &[ScriptQuestion]) -> Resu
             if peek.next()? == b"@F" {
                 let why = match peek.next()? {
                     b"U" => Unreached::Unreadable(ReadCause::Other),
+                    b"P" => Unreached::Unreadable(ReadCause::PermissionDenied),
                     b"" => Unreached::NotDirectory,
                     message => unreached_from(message),
                 };
@@ -195,3 +196,7 @@ mod agree_tests;
 #[cfg(all(test, unix))]
 #[path = "scan_agree_search_tests.rs"]
 mod agree_search_tests;
+
+#[cfg(all(test, unix))]
+#[path = "scan_root_permission_tests.rs"]
+mod root_permission_tests;

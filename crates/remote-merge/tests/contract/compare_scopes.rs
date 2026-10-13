@@ -58,6 +58,23 @@ fn answer(mut child: Child) {
             (vec![CompareScope::Entries(paths)], ExternalLinks::Follow)
         }
         "cycle" => (vec![CompareScope::Whole], ExternalLinks::Follow),
+        "unsearchable root" => {
+            let locks = remote_merge_core::test_tree::PermissionLocks::new();
+            locks.lock(&child.roots.right, 0o000);
+            if std::fs::read_dir(&child.roots.right).is_ok() {
+                drop(locks);
+                return child.answer("permissions do not apply");
+            }
+            let request = request(CompareScope::Whole, Method::Metadata, Follow::No);
+            let compared = child.runtime.compare(&sides, &request, &NothingUsed);
+            drop(locks);
+            let kind = compared
+                .as_ref()
+                .err()
+                .and_then(remote_merge_core::scan::failure_kind::failure_of_scan_error);
+            let text = format!("kind={kind:?} stopped={}", child.runtime.has_stopped());
+            return child.answer(&text);
+        }
         "missing root" => {
             let text = [ExternalLinks::Stop, ExternalLinks::Follow]
                 .into_iter()
@@ -379,6 +396,32 @@ fn a_root_dir_missing_from_the_start_is_the_same_scan_error_in_every_scope_on_al
         assert!(
             results[0].ends_with("kind=Some(Some(RootMissing)) stopped=false"),
             "{route:?}: {text}"
+        );
+    }
+}
+
+// @kotowari[REQ-scan-015, REQ-paths-020]
+#[test]
+fn a_root_dir_without_search_permission_is_permission_denied_on_all_three_routes() {
+    let name = "a_root_dir_without_search_permission_is_permission_denied_on_all_three_routes";
+    if let Some(child) = child() {
+        return answer(child);
+    }
+    let routes = FlowRoutes::new(|left, right| {
+        for root in [left, right] {
+            fs::write(root.join("a.txt"), "same\n").unwrap();
+        }
+    });
+
+    for route in ROUTES {
+        let text = routes.run(route, &test_name(name), "unsearchable root");
+        if text == "permissions do not apply" {
+            eprintln!("note: running as root; permissions do not apply");
+            return;
+        }
+        assert_eq!(
+            text, "kind=Some(PermissionDenied) stopped=false",
+            "{route:?}"
         );
     }
 }

@@ -44,7 +44,9 @@ pub(crate) fn root_setup(root: &[u8]) -> String {
     };
     let mut setup = assign("r", &root);
     setup.push_str(concat!(
-        "if [ -d \"$r\" ]; then cd \"$r\" 2>/dev/null || { printf '@F\\000U\\000'; exit 0; }\n",
+        // 入れないディレクトリは、検索の権限がなければ P（権限がない）、ほかは U と答える
+        // （検索の権限がないディレクトリは [ -x ] が偽になる。docs/remote-tools.md）
+        "if [ -d \"$r\" ]; then cd \"$r\" 2>/dev/null || { if [ -x \"$r\" ]; then printf '@F\\000U\\000'; else printf '@F\\000P\\000'; fi; exit 0; }\n",
         "else e=$(ls -dL -- \"$r\" 2>&1 >/dev/null); printf '@F\\000%s\\000' \"$e\"; exit 0; fi\n",
         "R=$PWD\n",
     ));
