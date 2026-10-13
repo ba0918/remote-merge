@@ -46,13 +46,19 @@ impl CoreRuntime {
     fn run_ssh_script(&mut self, server: &str, script: &str) -> anyhow::Result<Vec<u8>> {
         let client = require_ssh_client(&mut self.ssh_clients, server)?;
         let (stdout, stderr, exit) = self.rt.block_on(client.run_bytes(script))?;
-        if exit != 0 {
-            anyhow::bail!(
-                "the remote command failed on {server}: exit={exit}, stderr={}",
-                String::from_utf8_lossy(&stderr).trim_end()
-            );
-        }
-        Ok(stdout)
+        exited_well(server, stdout, &stderr, exit)
+    }
+
+    /// [`Self::run_ssh_script`] の、`input` を標準入力に送るもの
+    fn run_ssh_script_with_input(
+        &mut self,
+        server: &str,
+        script: &str,
+        input: &[u8],
+    ) -> anyhow::Result<Vec<u8>> {
+        let client = require_ssh_client(&mut self.ssh_clients, server)?;
+        let (stdout, stderr, exit) = self.rt.block_on(client.run_with_input(script, input))?;
+        exited_well(server, stdout, &stderr, exit)
     }
 
     pub(crate) fn ssh_read_entries(
@@ -77,7 +83,7 @@ impl CoreRuntime {
             limit,
             &fresh_boundary(),
             MAX_COMMAND_LEN,
-            |script| self.run_ssh_script(server, script),
+            |script, input| self.run_ssh_script_with_input(server, script, input),
         )
         .map_err(|failure| failed(failure, Operation::Read, &first))
     }
@@ -105,9 +111,12 @@ impl CoreRuntime {
         let first = first.clone();
         fill_unhashed(&asked, hashes, |fulls| {
             let boundary = fresh_boundary();
-            digest_all(fulls, &boundary, MAX_COMMAND_LEN, |script, digests| {
-                self.run_ssh_streaming(server, script, digests)
-            })
+            digest_all(
+                fulls,
+                &boundary,
+                MAX_COMMAND_LEN,
+                |script, input, digests| self.run_ssh_streaming(server, script, input, digests),
+            )
             .map_err(|failure| failed(failure, Operation::Hash, &first))
         })
     }
@@ -117,20 +126,28 @@ impl CoreRuntime {
         &mut self,
         server: &str,
         script: &str,
+        input: &[u8],
         digests: &mut RawDigests,
     ) -> anyhow::Result<()> {
         let client = require_ssh_client(&mut self.ssh_clients, server)?;
-        let (stderr, exit) = self
-            .rt
-            .block_on(client.run_streaming(script, &mut |piece: &[u8]| digests.feed(piece)))?;
-        if exit != 0 {
-            anyhow::bail!(
-                "the remote command failed on {server}: exit={exit}, stderr={}",
-                String::from_utf8_lossy(&stderr).trim_end()
-            );
-        }
-        Ok(())
+        let (stderr, exit) = self.rt.block_on(client.run_streaming_with_input(
+            script,
+            input,
+            &mut |piece: &[u8]| digests.feed(piece),
+        ))?;
+        exited_well(server, Vec::new(), &stderr, exit).map(|_| ())
     }
+}
+
+/// 0 で終わったときの標準出力。0 以外なら終了コードと標準エラーを示す誤り
+fn exited_well(server: &str, stdout: Vec<u8>, stderr: &[u8], exit: u32) -> anyhow::Result<Vec<u8>> {
+    if exit != 0 {
+        anyhow::bail!(
+            "the remote command failed on {server}: exit={exit}, stderr={}",
+            String::from_utf8_lossy(stderr).trim_end()
+        );
+    }
+    Ok(stdout)
 }
 
 /// 中身の終わりを見分ける区切り。読むファイルの中身から推し量れないよう、問いごとに作る

@@ -7,7 +7,7 @@
 use remote_merge_core::op_failure::{from_tool_message, OpFailure, Tool};
 use sha2::{Digest, Sha256};
 
-use crate::contents_script::{argument, content_end};
+use crate::contents_script::{argument, content_end, BOUNDARY_FROM_INPUT};
 
 /// スクリプトの書き出し。製品の読み込みのコマンドかを見分けるのに使える
 pub const RAW_PREFIX: &str = "LC_ALL=C; export LC_ALL; printf '@RMRAW\\000'\n";
@@ -22,16 +22,15 @@ done
 printf '@END\000'
 "#;
 
-/// `paths` の中身をそのまま出すスクリプト
-pub fn raw(paths: &[String], boundary: &str) -> String {
+/// `paths` の中身をそのまま出すスクリプト。区切りは標準入力で受ける（[`boundary_input`]）
+///
+/// [`boundary_input`]: crate::contents_script::boundary_input
+pub fn raw(paths: &[String]) -> String {
     let words: String = paths
         .iter()
         .map(|path| format!(" {}", argument(path)))
         .collect();
-    format!(
-        "{RAW_PREFIX}B='{}'\nset --{words}\n{RAW_BODY}",
-        content_end(boundary)
-    )
+    format!("{RAW_PREFIX}{BOUNDARY_FROM_INPUT}set --{words}\n{RAW_BODY}")
 }
 
 enum State {

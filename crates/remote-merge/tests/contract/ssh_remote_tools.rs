@@ -52,6 +52,28 @@ fn run_in(bin: &Path) -> impl FnMut(&str) -> Result<Vec<u8>, String> + '_ {
     }
 }
 
+/// [`run_in`] の、`input` を標準入力に送るもの（中身の読み込みは区切りを標準入力で受ける）
+fn fed_in(bin: &Path) -> impl FnMut(&str, &[u8]) -> Result<Vec<u8>, String> + '_ {
+    move |script: &str, input: &[u8]| {
+        use std::io::Write as _;
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .env("PATH", bin)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        let mut stdin = child.stdin.take().expect("stdin is piped");
+        stdin.write_all(input).map_err(|error| error.to_string())?;
+        drop(stdin);
+        let output = child
+            .wait_with_output()
+            .map_err(|error| error.to_string())?;
+        Ok(output.stdout)
+    }
+}
+
 fn asked(root: &Path, rel: &str) -> Vec<(String, String)> {
     vec![(rel.to_string(), format!("{}/{rel}", root.display()))]
 }
@@ -104,7 +126,7 @@ fn the_size_comes_from_ls_when_stat_refuses_c_and_is_a_missing_tool_without_both
         Some(100),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run_in(with_ls.path()),
+        fed_in(with_ls.path()),
     )
     .unwrap();
     let neither = read_all(
@@ -112,7 +134,7 @@ fn the_size_comes_from_ls_when_stat_refuses_c_and_is_a_missing_tool_without_both
         Some(100),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run_in(without_ls.path()),
+        fed_in(without_ls.path()),
     )
     .unwrap();
 

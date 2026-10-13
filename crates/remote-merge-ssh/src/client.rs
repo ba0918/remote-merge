@@ -623,46 +623,17 @@ impl SshClient {
         command: &str,
         on_stdout: &mut (dyn FnMut(&[u8]) + Send),
     ) -> crate::error::Result<(Vec<u8>, u32)> {
-        let mut channel = self.open_channel_with_retry().await?;
+        self.stream(command, None, on_stdout).await
+    }
 
-        channel
-            .exec(true, wrap_for_login_shell(command))
-            .await
-            .map_err(|_e| AppError::SshExec {
-                command: command.to_string(),
-            })?;
-
-        let mut stderr = Vec::new();
-        let mut exit_code = None;
-
-        loop {
-            let Some(msg) = channel.wait().await else {
-                break;
-            };
-            match msg {
-                ChannelMsg::Data { ref data } => on_stdout(data),
-                ChannelMsg::ExtendedData { ref data, ext } => {
-                    if ext == 1 {
-                        stderr.extend_from_slice(data);
-                    }
-                }
-                ChannelMsg::ExitStatus { exit_status } => {
-                    exit_code = Some(exit_status);
-                }
-                _ => {}
-            }
-        }
-
-        let _ = channel.close().await;
-
-        let Some(exit_code) = exit_code else {
-            anyhow::bail!(AppError::SshDisconnected {
-                host: self.server_name.clone(),
-                message: "Remote command ended without an exit status".into(),
-            });
-        };
-
-        Ok((stderr, exit_code))
+    /// [`Self::run_streaming`] の、`input` を標準入力に送って閉じるもの
+    pub async fn run_streaming_with_input(
+        &mut self,
+        command: &str,
+        input: &[u8],
+        on_stdout: &mut (dyn FnMut(&[u8]) + Send),
+    ) -> crate::error::Result<(Vec<u8>, u32)> {
+        self.stream(command, Some(input), on_stdout).await
     }
 
     /// コマンドを実行し、`input` を標準入力に送って閉じ、標準出力・標準エラー・終了コードを返す。
@@ -672,6 +643,23 @@ impl SshClient {
         command: &str,
         input: &[u8],
     ) -> crate::error::Result<(Vec<u8>, Vec<u8>, u32)> {
+        let mut stdout = Vec::new();
+        let (stderr, exit_code) = self
+            .stream(command, Some(input), &mut |data| {
+                stdout.extend_from_slice(data)
+            })
+            .await?;
+        Ok((stdout, stderr, exit_code))
+    }
+
+    /// コマンドを実行し、`input` があれば標準入力に送って閉じ、標準出力を受けた順に `on_stdout` へ
+    /// 渡す。返す値は標準エラーと終了コード
+    async fn stream(
+        &mut self,
+        command: &str,
+        input: Option<&[u8]>,
+        on_stdout: &mut (dyn FnMut(&[u8]) + Send),
+    ) -> crate::error::Result<(Vec<u8>, u32)> {
         let mut channel = self.open_channel_with_retry().await?;
         channel
             .exec(true, wrap_for_login_shell(command))
@@ -679,22 +667,24 @@ impl SshClient {
             .map_err(|_e| AppError::SshExec {
                 command: command.to_string(),
             })?;
-        if let Err(error) = self.send_data_chunked(&mut channel, input).await {
-            let _ = channel.close().await;
-            return Err(error);
-        }
-        if let Err(error) = channel.eof().await {
-            let _ = channel.close().await;
-            return Err(AppError::SshDisconnected {
-                host: self.server_name.clone(),
-                message: format!("Failed to send EOF: {error}"),
+        if let Some(input) = input {
+            if let Err(error) = self.send_data_chunked(&mut channel, input).await {
+                let _ = channel.close().await;
+                return Err(error);
             }
-            .into());
+            if let Err(error) = channel.eof().await {
+                let _ = channel.close().await;
+                return Err(AppError::SshDisconnected {
+                    host: self.server_name.clone(),
+                    message: format!("Failed to send EOF: {error}"),
+                }
+                .into());
+            }
         }
-        let (mut stdout, mut stderr, mut exit_code) = (Vec::new(), Vec::new(), None);
+        let (mut stderr, mut exit_code) = (Vec::new(), None);
         while let Some(message) = channel.wait().await {
             match message {
-                ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
+                ChannelMsg::Data { ref data } => on_stdout(data),
                 ChannelMsg::ExtendedData { ref data, ext: 1 } => stderr.extend_from_slice(data),
                 ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status),
                 _ => {}
@@ -707,7 +697,7 @@ impl SshClient {
                 message: "Remote command ended without an exit status".into(),
             });
         };
-        Ok((stdout, stderr, exit_code))
+        Ok((stderr, exit_code))
     }
 
     /// チャネルにデータをチャンク分割で送信する。

@@ -4,7 +4,7 @@
 use remote_merge_core::op_failure::OpFailure;
 
 use crate::contents_output::{parse_hash, parse_read};
-use crate::contents_script::{hash, read, split};
+use crate::contents_script::{boundary_input, hash, read, split};
 use crate::contents_stream::{raw, RawDigests};
 
 /// 一つのパスの答え（結果のキーと、値か失敗の種類）
@@ -37,16 +37,17 @@ pub(crate) fn in_commands<T, E>(
 
 /// 中身をパスごとに読む。`limit` を超えるファイルは読まずに上限を超える失敗にする。
 /// `boundary` は中身の終わりを見分ける区切りで、読むファイルの中身から推し量れない値を呼び出し側が
-/// 渡す（16 進の数字だけ）
+/// 渡す（16 進の数字だけ）。`run` はスクリプトと、標準入力に送るもの（区切り）を受けて動かす
 pub fn read_all<E>(
     asked: &[(String, String)],
     limit: Option<u64>,
     boundary: &str,
     max_len: usize,
-    mut run: impl FnMut(&str) -> Result<Vec<u8>, E>,
+    mut run: impl FnMut(&str, &[u8]) -> Result<Vec<u8>, E>,
 ) -> Result<Vec<PathAnswer<Vec<u8>>>, ContentsFailure<E>> {
-    in_commands(asked, &read(&[], limit, boundary), max_len, |paths| {
-        let stdout = run(&read(paths, limit, boundary)).map_err(ContentsFailure::Run)?;
+    let input = boundary_input(boundary);
+    in_commands(asked, &read(&[], limit), max_len, |paths| {
+        let stdout = run(&read(paths, limit), &input).map_err(ContentsFailure::Run)?;
         parse_read(&stdout, paths.len(), limit, boundary).map_err(ContentsFailure::Unreadable)
     })
 }
@@ -65,18 +66,20 @@ pub fn hash_all<E>(
 }
 
 /// 通常ファイルの中身をまとめて尋ね、受けながら手元で SHA-256 を取る（コマンド行の長さで分ける）。
-/// `run` はスクリプトを動かし、標準出力を受けた順に渡された `RawDigests` へ渡す
+/// `run` はスクリプトと標準入力に送るもの（区切り）を受けて動かし、標準出力を受けた順に渡された
+/// `RawDigests` へ渡す
 pub fn digest_all<E>(
     fulls: &[String],
     boundary: &str,
     max_len: usize,
-    mut run: impl FnMut(&str, &mut RawDigests) -> Result<(), E>,
+    mut run: impl FnMut(&str, &[u8], &mut RawDigests) -> Result<(), E>,
 ) -> Result<Vec<Result<String, OpFailure>>, ContentsFailure<E>> {
+    let input = boundary_input(boundary);
     let mut digests = Vec::with_capacity(fulls.len());
-    for range in split(&raw(&[], boundary), fulls, max_len) {
+    for range in split(&raw(&[]), fulls, max_len) {
         let part = &fulls[range];
         let mut answer = RawDigests::new(boundary);
-        run(&raw(part, boundary), &mut answer).map_err(ContentsFailure::Run)?;
+        run(&raw(part), &input, &mut answer).map_err(ContentsFailure::Run)?;
         digests.extend(
             answer
                 .finish(part.len())

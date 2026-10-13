@@ -8,7 +8,7 @@ use remote_merge_core::op_failure::{OpFailure, Tool};
 
 use super::super::*;
 use super::paths;
-use crate::contents_tests_support::{bin_with, run_with_only};
+use crate::contents_tests_support::{bin_with, fed_with_only, run_with_only};
 
 #[test]
 fn without_stat_c_the_size_is_read_from_ls_and_without_both_it_is_a_missing_tool() {
@@ -23,7 +23,7 @@ fn without_stat_c_the_size_is_read_from_ls_and_without_both_it_is_a_missing_tool
         Some(10),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run_with_only(with_ls.path()),
+        fed_with_only(with_ls.path()),
     )
     .unwrap();
     assert_eq!(answers[0].1, Ok(b"abc".to_vec()));
@@ -34,7 +34,7 @@ fn without_stat_c_the_size_is_read_from_ls_and_without_both_it_is_a_missing_tool
         Some(10),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run_with_only(without.path()),
+        fed_with_only(without.path()),
     )
     .unwrap();
     assert_eq!(answers[0].1, Err(OpFailure::ToolMissing(Tool::Stat)));
@@ -105,19 +105,19 @@ fn reads_and_hashes_from_the_content_without_cat_are_a_missing_tool() {
         Some(10),
         "0123456789abcdef0123456789abcdef",
         65536,
-        run_with_only(without_cat.path()),
+        fed_with_only(without_cat.path()),
     )
     .unwrap();
     assert_eq!(read[0].1, Err(OpFailure::ToolMissing(Tool::Cat)));
 
-    let mut run = run_with_only(without_cat.path());
+    let mut run = fed_with_only(without_cat.path());
     let fulls = vec![asked[0].1.clone()];
     let digests = digest_all(
         &fulls,
         "0123456789abcdef0123456789abcdef",
         65536,
-        |script: &str, digests: &mut crate::contents_stream::RawDigests| {
-            digests.feed(&run(script)?);
+        |script: &str, input: &[u8], digests: &mut crate::contents_stream::RawDigests| {
+            digests.feed(&run(script, input)?);
             Ok::<_, String>(())
         },
     )

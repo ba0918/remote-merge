@@ -59,13 +59,10 @@ fn read_script_paths(script: &str) -> Vec<String> {
 }
 
 /// どのパスも "remote updated\n" と答える読み込みの答え
-fn fabricated_read_answer(script: &str) -> Vec<u8> {
-    // 中身の終わりの区切りは、スクリプトの "B='…'" に書かれている
-    let boundary = script
-        .split("B='")
-        .nth(1)
-        .and_then(|rest| rest.split('\'').next())
-        .unwrap();
+fn fabricated_read_answer(script: &str, input: &[u8]) -> Vec<u8> {
+    // 中身の終わりの区切りは、標準入力の最初の行で受ける
+    let line = input.split(|byte| *byte == b'\n').next().unwrap();
+    let boundary = format!("@B{}", String::from_utf8_lossy(line));
     let mut answer = b"@RMREAD\0".to_vec();
     for _ in read_script_paths(script) {
         answer.extend_from_slice(b"@P\0C\0remote updated\n\0");
@@ -393,6 +390,7 @@ impl server::Server for LocalServer {
             accepted_logins: Arc::clone(&self.accepted_logins),
             login_shell: Arc::clone(&self.login_shell),
             write_channels: HashMap::new(),
+            fabricated_reads: HashMap::new(),
             agent_inbound: HashMap::new(),
             faults: Arc::clone(&self.faults),
         }
@@ -416,6 +414,8 @@ struct LocalHandler {
     accepted_logins: Arc<AtomicUsize>,
     login_shell: Arc<Mutex<&'static str>>,
     write_channels: HashMap<ChannelId, (String, Vec<u8>)>,
+    /// 標準入力（区切り）を受けてから作り上げた答えを返す読み込み
+    fabricated_reads: HashMap<ChannelId, (String, Vec<u8>)>,
     agent_inbound: HashMap<ChannelId, AgentInbound>,
     faults: Arc<FaultState>,
 }
@@ -456,6 +456,9 @@ impl server::Handler for LocalHandler {
         if let Some((_, buffer)) = self.write_channels.get_mut(&channel) {
             buffer.extend_from_slice(data);
         }
+        if let Some((_, buffer)) = self.fabricated_reads.get_mut(&channel) {
+            buffer.extend_from_slice(data);
+        }
         Ok(())
     }
 
@@ -477,11 +480,24 @@ impl server::Handler for LocalHandler {
                 .spawn()?;
             child.stdin.take().unwrap().write_all(&encoded)?;
             let result = child.wait_with_output()?;
+            // 標準入力を受けた読み込みは標準出力に答える
+            if !result.stdout.is_empty() {
+                session.data(channel, CryptoVec::from(result.stdout.as_slice()))?;
+            }
             // 本物の SSH と同じく、標準入力を受けたコマンドの標準エラーも返す
             if !result.stderr.is_empty() {
                 session.extended_data(channel, 1, CryptoVec::from(result.stderr.as_slice()))?;
             }
             session.exit_status_request(channel, result.status.code().unwrap_or(1) as u32)?;
+            session.eof(channel)?;
+            session.close(channel)?;
+        }
+        if let Some((script, input)) = self.fabricated_reads.remove(&channel) {
+            session.data(
+                channel,
+                CryptoVec::from(fabricated_read_answer(&script, &input)),
+            )?;
+            session.exit_status_request(channel, 0)?;
             session.eof(channel)?;
             session.close(channel)?;
         }
@@ -590,8 +606,10 @@ impl server::Handler for LocalHandler {
             } else {
                 received
             };
+            // 書き込みと中身の読み込み（区切りを標準入力で受ける）は、標準入力を受け終えてから動かす
             if command.starts_with(remote_merge_ssh::change_scripts::WRITE_PREFIX)
                 || command.contains("openssl base64 -d -A -out")
+                || SshCommand::Read.matches(&command)
             {
                 self.write_channels.insert(channel, (received, Vec::new()));
                 return Ok(());
@@ -653,10 +671,8 @@ impl server::Handler for LocalHandler {
                 session.disconnect(Disconnect::ByApplication, "connection lost during read", "")?;
                 return Ok(());
             }
-            session.data(channel, CryptoVec::from(fabricated_read_answer(&script)))?;
-            session.exit_status_request(channel, 0)?;
-            session.eof(channel)?;
-            session.close(channel)?;
+            self.fabricated_reads
+                .insert(channel, (script.clone(), Vec::new()));
             return Ok(());
         }
         if String::from_utf8_lossy(command).contains("openssl base64 -d") && self.incomplete_writes
