@@ -61,6 +61,7 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 の順。S1・S2 は純粋な関数
 | REQ-cli-021（子の一覧の件数） | S5 | 子の一覧が走査の上限を超えたときに不完全な一覧として返る契約テスト |
 | REQ-compare-005・013・TBL-compare-005、EX-compare-005・015、コマンドの要件の書き直し（TBL-cli-001・REQ-cli-080・REQ-cli-088〜090・REQ-merge-017・019・020・033・034 ほか） | 段 5 | 各コマンドを流れに載せ替えたときに CLI の出力で示す |
 | TBL-cli-005・REQ-cli-035（参照先の印）、REQ-cli-047・TBL-cli-007（種類の違いのスキップの終了コードと状態）、REQ-cli-097・098・099（競合）、REQ-cli-063・100・101（参照先との差）、EX-cli-099〜111 | 段 5 | 各コマンドを流れに載せ替えたときに CLI の出力で示す。REQ-cli-098 は今の diff の示し方を固めるもので、載せ替えの前に今の出力でテストを書いてもよい |
+| REQ-compare-009・014（その他の種類の理由の文） | 段 5 | 段 4 で古いコマンドに入れたその他の種類の理由の文は、左右は "not a regular file"、参照先は "参照先の名前: not a regular file"、読み込みの失敗は "側の名前: cannot read …" と揃っていない。載せ替えるときに REQ-compare-009・014 の一つの形にし、名前で指定・ディレクトリの展開・root_dir 全体の指定の仕方ごとと、status・diff・merge・sync・rollback のコマンドごとに確かめるテストを置く |
 
 ## Left to the implementer
 
@@ -93,6 +94,7 @@ systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-feature
 - E24〜E28 の出力の変更（参照先の印・種類の違いの終了コード・競合・参照先との差の出し方）。段 5 で各コマンドを載せ替えるときに入れる
 - 新しいディレクトリの権限の要件から経路の名前を外すこと（REQ-merge-012。段 5）
 - 行の差分と競合の箇所の数え方（diff の hunk の作り方）。要件は REQ-cli-098 に書き、テストは段 5 で入れる
+- その他の種類の理由の文を REQ-compare-009・014 の一つの形にし、指定の仕方とコマンドごとに確かめるテストを置くこと（段 5。Verification map の行）
 
 ## Steps
 
