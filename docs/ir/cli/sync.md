@@ -28,7 +28,7 @@ sync は --right に指定した順に書き込み先を一つずつ処理する
 
 ### REQ-cli-041: 書き込み先ごとの状態を判定する
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A4
+- source: docs/decision/records/2026-09-27-adopt-sync.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E25
 - verification: unit
 - definition: TBL-cli-007
 
@@ -93,11 +93,23 @@ sync のテキスト出力は "Sync: 元 → 先1, 先2" の見出しに続け�
 | 設定にないサーバ名を指定する | "Server '名前' not found in config" |
 
 ### TBL-cli-007: 書き込み先の状態
-- source: docs/decision/records/2026-09-27-adopt-sync.md#A4
+- source: docs/decision/records/2026-09-27-adopt-sync.md#A4, docs/decision/records/2026-10-12-foundation-4.md#E25
 
-| 書き込めたファイル | 失敗 | status |
+| 書き込めたファイル | 失敗か種類の違い（REQ-merge-001）のスキップ | status |
 |---|---|---|
 | ある | ない | "success" |
 | ある | ある | "partial" |
 | ない | ある | "failed" |
 | ない | ない | "success" |
+
+--delete なしで書き込み先だけのファイルをスキップしたこと（REQ-merge-024）は、この表の失敗に数えない。
+
+## Examples
+
+```gherkin
+@id=EX-cli-103 @about=REQ-cli-041 @source=docs/decision/records/2026-10-12-foundation-4.md#E25
+Scenario: 種類の違いでスキップしたパスのある書き込み先
+Given 書き込み先 "s1" の "x" は読み込み元と種類が違い、ほかのファイルは書き込める
+When "s1" へ sync する
+Then "s1" の status は "partial" になり、終了コード 2 を返す
+```

@@ -6,12 +6,13 @@ diff・status・merge・sync・rollback が通る比べる流れ（両側の状�
 
 ## Specification
 
-- 方針: `docs/decision/records/2026-10-12-foundation.md`（A1〜A10）、`docs/decision/records/2026-10-12-foundation-4.md`（E1〜E20、U1〜U6 は利用者に返している）
+- 方針: `docs/decision/records/2026-10-12-foundation.md`（A1〜A10）、`docs/decision/records/2026-10-12-foundation-4.md`（E1〜E29）
 - 段 2・段 3 の記録: `docs/decision/records/2026-10-12-foundation-2.md`（C6・C11・C15）、`docs/decision/records/2026-10-12-foundation-3.md`（D1・D2・D6・D7・D29）
 - 比べる流れ: `docs/ir/compare/flow.md`（REQ-compare-001〜005）、`docs/ir/compare/judgement.md`（REQ-compare-006〜009、TBL-compare-001〜003）、`docs/ir/compare/reading.md`（REQ-compare-010〜015、TBL-compare-004・005）
 - 走査と子の一覧: `docs/ir/scan/listing.md`（REQ-scan-021・REQ-scan-012）、`docs/ir/scan/limits.md`（REQ-scan-010・REQ-scan-004・REQ-scan-008）、`docs/ir/cli/symlink-diff.md`（REQ-cli-021）
 - 操作: `docs/ir/paths/operations.md`（REQ-paths-021・REQ-paths-020）
 - 流れを引くコマンドの要件（段 5 で CLI の出力として示す）: `docs/ir/cli/status.md`、`docs/ir/cli/unreadable.md`、`docs/ir/cli/size-limit.md`、`docs/ir/cli/diff-strategy.md`、`docs/ir/cli/diff-output.md`、`docs/ir/cli/symlink-diff.md`、`docs/ir/cli/conflicts.md`、`docs/ir/cli/merge.md`、`docs/ir/merge/comparison.md`、`docs/ir/merge/read-failure.md`、`docs/ir/merge/concurrency.md`、`docs/ir/merge/deletion.md`、`docs/ir/merge/symlink.md`、`docs/ir/backup/rollback-path.md`（REQ-backup-027）
+- 段 5 で CLI の出力として示す、段 4 で決めた出力の要件（E24〜E28）: `docs/ir/cli/status-targets.md`（TBL-cli-005、REQ-cli-035）、`docs/ir/cli/merge.md`（REQ-cli-047）、`docs/ir/cli/sync.md`（TBL-cli-007）、`docs/ir/cli/conflicts.md`（REQ-cli-097・098・099）、`docs/ir/cli/reference.md`（REQ-cli-063・100・101）
 
 ## Approach and why
 
@@ -59,6 +60,7 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 の順。S1・S2 は純粋な関数
 | REQ-paths-021、EX-paths-046 | S4 | 三つの経路で書き手のいない FIFO の中身とハッシュを読み、待たずに失敗する契約テスト（時間の上限を付ける） |
 | REQ-cli-021（子の一覧の件数） | S5 | 子の一覧が走査の上限を超えたときに不完全な一覧として返る契約テスト |
 | REQ-compare-005・013・TBL-compare-005、EX-compare-005・015、コマンドの要件の書き直し（TBL-cli-001・REQ-cli-080・REQ-cli-088〜090・REQ-merge-017・019・020・033・034 ほか） | 段 5 | 各コマンドを流れに載せ替えたときに CLI の出力で示す |
+| TBL-cli-005・REQ-cli-035（参照先の印）、REQ-cli-047・TBL-cli-007（種類の違いのスキップの終了コードと状態）、REQ-cli-097・098・099（競合）、REQ-cli-063・100・101（参照先との差）、EX-cli-099〜111 | 段 5 | 各コマンドを流れに載せ替えたときに CLI の出力で示す。REQ-cli-098 は今の diff の示し方を固めるもので、載せ替えの前に今の出力でテストを書いてもよい |
 
 ## Left to the implementer
 
@@ -75,7 +77,6 @@ S1 → S2 → S3 → S4 → S5 → S6 → S7 の順。S1・S2 は純粋な関数
 - `remote_merge::cli::*` の `execute_*` の形か出力の型を変える必要があるとき
 - 道具の限界で、三つの経路の状態やハッシュを揃えられないと分かったとき（特に、SSH で FIFO を開かずに通常ファイルでないと決められないとき）。揃えられない理由と、確かめた道具の版を添えて返す
 - その他の種類を載せる変更や子の一覧の上限の変更で、既存のテストを IR と違う動きを固めていたと説明できる以上に書き換えないと通らないとき
-- 利用者に返した U1〜U6 の答えが要るところに来たとき（とくに U6 で、その他の種類の扱いを変える答えが来たとき）
 
 ## Test command
 
@@ -89,9 +90,9 @@ systemd-run --user --scope -q -p MemoryMax=8G -- cargo nextest run --all-feature
 
 - diff・status・merge・sync・rollback を新しい流れに載せ替えること、コマンドごとの扱いの表を判定の値からの写しとして書くこと、古い比べる実装を消すこと（段 5）
 - CLI の出力で示す要件と例のテスト（Verification map の「段 5」の行）
-- 利用者に返した U1〜U6（参照先の印・種類の違いの終了コード・競合の意味・参照先との差の出し方・その他の種類の終了コード）
+- E24〜E28 の出力の変更（参照先の印・種類の違いの終了コード・競合・参照先との差の出し方）。段 5 で各コマンドを載せ替えるときに入れる
 - 新しいディレクトリの権限の要件から経路の名前を外すこと（REQ-merge-012。段 5）
-- 行の差分と競合の箇所の数え方（diff の hunk の作り方）
+- 行の差分と競合の箇所の数え方（diff の hunk の作り方）。要件は REQ-cli-098 に書き、テストは段 5 で入れる
 
 ## Steps
 

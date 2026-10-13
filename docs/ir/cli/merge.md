@@ -14,10 +14,11 @@ merge は TBL-cli-008 の指定ではエラーで止まり、終了コード 2 �
 
 ### REQ-cli-047: 終了コード
 - kind: ubiquitous
-- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A2
+- source: docs/decision/records/2026-09-28-adopt-merge-cli.md#A2, docs/decision/records/2026-10-12-foundation-4.md#E25
 - verification: unit
 
-merge は failed が空なら終了コード 0、failed が一件でもあれば 2、エラーで止まったときは 2 を返す。
+merge は failed が空で種類の違い（REQ-merge-001）でスキップしたパスもなければ終了コード 0、failed か種類の違いのスキップが一件でもあれば 2、エラーで止まったときは 2 を返す。
+--delete なしで書き込み先だけのファイルをスキップしたこと（REQ-merge-024）は、終了コードを変えない。
 
 ### REQ-cli-048: JSON の形
 - kind: ubiquitous
@@ -102,6 +103,18 @@ TBL-cli-009 が文言を決めていない failed の error は実装者が決�
 ## Examples
 
 ```gherkin
+@id=EX-cli-101 @about=REQ-cli-047 @source=docs/decision/records/2026-10-12-foundation-4.md#E25
+Scenario: 種類の違いでスキップしたパスのある merge
+Given 読み込み元の "x" は通常ファイルで書き込み先の "x" はディレクトリであり、"a.txt" は書き込める
+When "x" と "a.txt" を merge する
+Then "a.txt" は書き込まれ、"x" は skipped に出て、終了コード 2 を返す
+
+@id=EX-cli-102 @about=REQ-cli-047 @source=docs/decision/records/2026-10-12-foundation-4.md#E25
+Scenario: 書き込み先だけのファイルのスキップは終了コードを変えない
+Given 書き込み先にだけ "extra.txt" があり、ほかのファイルは書き込める
+When --delete なしで root_dir 全体を merge する
+Then "extra.txt" は skipped に出て、終了コード 0 を返す
+
 @id=EX-cli-063 @about=REQ-cli-051 @source=docs/decision/records/2026-09-28-merge-ref-hunks-fix.md#A1
 Scenario: 左右が別々の箇所を変えた
 Given 参照先に対して読み込み元と書き込み先が別々の行を変えたテキストのファイルがある
