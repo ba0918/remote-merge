@@ -57,6 +57,14 @@ SSH 経由でローカルと複数のリモートサーバのファイルを比�
 - `lefthook.yml` は fmt・仕様検査を pre-commit、Clippy・通常テストを pre-push で読み取り専用で実行する。既存の個人フックを置き換えないため `lefthook install` は自動実行しない。既存フックの所有者が内容を確認し、必要なら手動で統合する。未ステージの変更も手動検査する場合は `lefthook run pre-commit --force --no-auto-install` / `lefthook run pre-push --force --no-auto-install` を使う。
 - 旧 OpenSSH の手動負荷試行は `bench/legacy-ssh/setup.sh` から開始する。試行中のシェルを終了すると専用コンテナ・イメージ・鍵・known_hosts・データが破棄され、個人の SSH 設定は変更されない。CI の保証範囲には含めない。
 
+## Security boundary
+
+レビューや実装で security の指摘を直すかを判断するときは、この節に照らす。決定は [foundation A11](docs/decision/records/2026-10-12-foundation.md#A11)。
+
+- 信頼するもの: 操作する利用者、接続先のサーバ、配置先に書ける組織内のアカウント。配置先は組織内の誰でも書ける共有ディレクトリが普通である。
+- 直さないもの: その中の誰かが、ツールの確かめと変更の間にすり替える（ハードリンク・symlink・rename の差し替え）攻撃。
+- 直すもの: 同時に動く別の作業（並行するデプロイ・ほかの利用者のふつうの編集）で、ツールが壊す・誤った結果を返す・黙って失敗する正しさの問題。信頼しない入力（ネットワーク越しの応答の解釈、パスの形）からのコマンド注入と、root_dir の外への書き込み。
+
 ## Constraints
 
 - 読み取り中の SSH 接続エラーは一度だけ再試行する。書き込み前には対象の内容も再確認する（現行の更新時刻だけの検査は IR に対する実装課題）。
