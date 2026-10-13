@@ -28,24 +28,6 @@ pub enum FileHashResult {
     Failed { path: String, failure: WireFailure },
 }
 
-/// StatFiles レスポンス用のメタデータ。
-/// permissions を含む（楽観的ロック時にパーミッション変化も検知するため）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentFileStat {
-    pub path: String,
-    pub size: u64,
-    pub mtime_secs: i64,
-    pub mtime_nanos: u32,
-    pub permissions: u32,
-}
-
-/// StatFiles の一つのパスの結果
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum StatResult {
-    Ok(AgentFileStat),
-    Failed { path: String, failure: WireFailure },
-}
-
 /// InspectPath の応答。"/" から要素ごとに辿った確認の結果の四つの種類か、辿れなかった原因の文言
 /// （`Unresolved`）か、確認の前に拒んだ理由（`Error`）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

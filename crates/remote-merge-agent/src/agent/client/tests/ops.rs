@@ -100,19 +100,6 @@ fn write_file_auto_chunking() {
     assert_eq!(written, data);
 }
 
-// ---- StatFiles ----
-
-#[test]
-fn stat_files_existing() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("stat_me.txt"), "data").unwrap();
-
-    let mut client = create_pair(&tmp);
-    let stats = client.stat_files(&rels(&["stat_me.txt"])).unwrap();
-    assert_eq!(stats.len(), 1);
-    assert!(matches!(&stats[0], StatResult::Ok(stat) if stat.size == 4));
-}
-
 // ---- Error response ----
 
 #[test]

@@ -77,11 +77,6 @@ fn a_request_for_many_entries_carries_the_whole_root_dir_as_refused() {
             matches!(&hashed, AgentResponse::FileHashes { refused: r, results, .. } if *r == refused && results.len() == 1),
             "{root:?}: {hashed:?}"
         );
-        let stats = single(d.dispatch(AgentRequest::StatFiles { paths }).unwrap());
-        assert!(
-            matches!(&stats, AgentResponse::Stats { refused: r, results } if *r == refused && results.len() == 1),
-            "{root:?}: {stats:?}"
-        );
     }
 }
 

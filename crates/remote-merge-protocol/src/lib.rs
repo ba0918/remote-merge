@@ -24,8 +24,8 @@ macro_rules! define_protocol_version {
         /// v10 → v11: ListTree を走査の規則の求め（起点の範囲と件数の上限）にし、TreeChunk で
         ///           規則が載せた一覧の項目を、TreeFailed で走査を止めた誤りの種類を運ぶ。
         ///           TreeIncomplete をなくした
-        /// v11 → v12: 操作の失敗を種類（WireFailure）で運ぶ。読み込みの要求は大きさの上限を運び、
-        ///           Stats はパスごとに成功か失敗を返す。書き込み・symlink の作成・削除・権限の変更の
+        /// v11 → v12: 操作の失敗を種類（WireFailure）で運ぶ。読み込みの要求は大きさの上限を運ぶ。
+        ///           使われなくなった StatFiles をなくした。書き込み・symlink の作成・削除・権限の変更の
         ///           結果を Changed にまとめた。ListDir をなくし、子の一覧は ListTree の
         ///           ScanScope::Children で求める
         pub const PROTOCOL_VERSION: u32 = $version;
@@ -58,9 +58,7 @@ mod messages;
 pub use messages::{AgentRequest, AgentResponse};
 
 mod data;
-pub use data::{
-    AgentEntryLink, AgentFileStat, AgentPathInspection, FileHashResult, FileReadResult, StatResult,
-};
+pub use data::{AgentEntryLink, AgentPathInspection, FileHashResult, FileReadResult};
 
 // ---------------------------------------------------------------------------
 // Handshake helpers

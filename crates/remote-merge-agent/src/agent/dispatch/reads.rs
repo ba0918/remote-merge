@@ -8,9 +8,7 @@ use remote_merge_core::op_failure::SizeLimit;
 use remote_merge_core::relative_path::EntryPath;
 
 use super::wire;
-use crate::agent::protocol::{
-    AgentEntryLink, AgentFileStat, AgentResponse, FileHashResult, FileReadResult, StatResult,
-};
+use crate::agent::protocol::{AgentEntryLink, AgentResponse, FileHashResult, FileReadResult};
 use crate::agent::receipt::split_entries;
 
 /// 一つの FileContents に載せる中身の大きさの目安。フレームの上限（16MB）に余裕を持たせる
@@ -133,31 +131,6 @@ pub(super) fn hash_files(root: &Path, paths: &[String]) -> AgentResponse {
         is_last: true,
         refused,
     }
-}
-
-/// パスごとの大きさ・更新時刻・権限（symlink は辿った先）
-pub(super) fn stat_files(root: &Path, paths: &[String]) -> AgentResponse {
-    let (entries, refused) = split_entries(paths);
-    let results = entries
-        .iter()
-        .map(|entry| {
-            let path = entry.as_typed().to_string();
-            match machine_ops::stat(root, entry) {
-                Ok(stat) => StatResult::Ok(AgentFileStat {
-                    path,
-                    size: stat.size,
-                    mtime_secs: stat.mtime_secs,
-                    mtime_nanos: stat.mtime_nanos,
-                    permissions: stat.permissions,
-                }),
-                Err(failure) => StatResult::Failed {
-                    path,
-                    failure: wire(&failure),
-                },
-            }
-        })
-        .collect();
-    AgentResponse::Stats { results, refused }
 }
 
 /// 項目そのもの（最後の要素のリンクは辿らない）のリンク先

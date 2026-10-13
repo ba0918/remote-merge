@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AgentEntryLink, AgentPathInspection, FileHashResult, FileReadResult, ListedEntry, RelPathError,
-    ScanFailure, ScanRequest, StatResult, WireFailure,
+    ScanFailure, ScanRequest, WireFailure,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,9 +28,6 @@ pub enum AgentRequest {
         content: Vec<u8>,
         is_binary: bool,
         more_to_follow: bool,
-    },
-    StatFiles {
-        paths: Vec<String>,
     },
     InspectPath {
         path: String,
@@ -92,12 +89,6 @@ pub enum AgentResponse {
     /// WriteFile・Symlink・Remove・Chmod の結果。失敗ならその種類
     Changed {
         failure: Option<WireFailure>,
-    },
-    /// StatFiles の、尋ねたパスごとの結果
-    Stats {
-        results: Vec<StatResult>,
-        /// 入力の形の検査で拒んだパス
-        refused: Vec<RelPathError>,
     },
     PathInspection {
         result: AgentPathInspection,

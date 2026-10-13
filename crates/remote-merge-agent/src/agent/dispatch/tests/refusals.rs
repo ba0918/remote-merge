@@ -50,28 +50,6 @@ fn hash_files_carries_a_refused_path_as_its_own_failure() {
 }
 
 #[test]
-fn stat_files_carries_a_refused_path_instead_of_skipping_it() {
-    let (tmp, mut d) = setup();
-    fs::write(tmp.path().join("ok.txt"), "data").unwrap();
-
-    let resp = single(
-        d.dispatch(AgentRequest::StatFiles {
-            paths: vec!["../etc/passwd".into(), "ok.txt".into()],
-        })
-        .unwrap(),
-    );
-
-    match resp {
-        AgentResponse::Stats { results, refused } => {
-            assert_eq!(refused, vec![traversal("../etc/passwd")]);
-            assert_eq!(results.len(), 1);
-            assert!(matches!(&results[0], StatResult::Ok(stat) if stat.path == "ok.txt"));
-        }
-        other => panic!("expected Stats, got {other:?}"),
-    }
-}
-
-#[test]
 fn a_request_for_one_path_refuses_it_with_the_reason_before_touching_the_root() {
     let (tmp, mut d) = setup();
     let requests = [

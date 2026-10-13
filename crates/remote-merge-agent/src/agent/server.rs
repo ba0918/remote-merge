@@ -152,7 +152,6 @@ fn summarize_request(request: &AgentRequest) -> String {
             "WriteFile path={path:?} content_len={} is_binary={is_binary} more_to_follow={more_to_follow}",
             content.len()
         ),
-        AgentRequest::StatFiles { paths } => format!("StatFiles path_count={}", paths.len()),
         AgentRequest::InspectPath { path } => format!("InspectPath path={path:?}"),
         AgentRequest::Symlink { path, target } => {
             format!("Symlink path={path:?} target={target:?}")

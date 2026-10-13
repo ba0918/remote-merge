@@ -1,7 +1,7 @@
 //! 受け取り口のテストの道具
 
 pub(super) use super::super::*;
-pub(super) use crate::agent::protocol::{FileHashResult, FileReadResult, StatResult, WireFailure};
+pub(super) use crate::agent::protocol::{FileHashResult, FileReadResult, WireFailure};
 pub(super) use remote_merge_core::relative_path::RelPathError;
 pub(super) use remote_merge_core::scan::outcome::{ScanRequest, ScanScope, Start};
 pub(super) use std::fs;

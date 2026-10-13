@@ -7,7 +7,6 @@ mod mode;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use sha2::{Digest as _, Sha256};
 
 pub use change::{chmod, create_symlink, open_for_write, remove, write};
@@ -64,34 +63,6 @@ pub fn sha256_hex(content: &[u8]) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-/// symlink を辿った先の大きさ・更新時刻・権限
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EntryStat {
-    pub size: u64,
-    pub mtime_secs: i64,
-    pub mtime_nanos: u32,
-    /// 0o7777 の範囲の権限のビット
-    pub permissions: u32,
-}
-
-#[cfg(unix)]
-pub fn stat(root: &Path, entry: &EntryPath) -> Result<EntryStat, OpFailure> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(full_path(root, entry)).map_err(failed)?;
-    Ok(EntryStat {
-        size: meta.len(),
-        mtime_secs: meta.mtime(),
-        mtime_nanos: meta.mtime_nsec() as u32,
-        permissions: meta.mode() & 0o7777,
-    })
-}
-
-/// symlink を辿った先の更新時刻
-pub fn modified(root: &Path, entry: &EntryPath) -> Result<DateTime<Utc>, OpFailure> {
-    let meta = std::fs::metadata(full_path(root, entry)).map_err(failed)?;
-    meta.modified().map(DateTime::<Utc>::from).map_err(failed)
 }
 
 /// 項目そのものがリンクならリンク文字列を、親を一覧せずに読む

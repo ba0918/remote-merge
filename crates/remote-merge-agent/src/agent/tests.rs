@@ -9,7 +9,6 @@ use std::os::unix::net::UnixStream;
 use tempfile::TempDir;
 
 use super::client::AgentClient;
-use super::protocol::StatResult;
 use super::server::{run_agent_loop, MetadataConfig};
 use remote_merge_core::op_failure::OpFailure;
 use remote_merge_core::relative_path::EntryPath;
@@ -95,11 +94,6 @@ fn full_protocol_roundtrip() {
         fs::read_to_string(tmp.path().join("written.txt")).unwrap(),
         "new content"
     );
-
-    // StatFiles
-    let stats = client.stat_files(&rels(&["written.txt"])).unwrap();
-    assert_eq!(stats.len(), 1);
-    assert!(matches!(&stats[0], StatResult::Ok(stat) if stat.size == 11));
 
     // Ping
     client.ping().unwrap();

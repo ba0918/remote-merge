@@ -10,9 +10,7 @@ use remote_merge_core::scan::outcome::{Listing, ScanFailure, ScanRequest};
 
 use super::ops::{check_answered, check_refused, PathContent};
 use super::{mismatch, unexpected, AgentClient, AgentRefused};
-use crate::agent::protocol::{
-    AgentRequest, AgentResponse, FileHashResult, FileReadResult, StatResult,
-};
+use crate::agent::protocol::{AgentRequest, AgentResponse, FileHashResult, FileReadResult};
 
 impl<R: Read, W: Write> AgentClient<R, W> {
     /// 走査の規則で走査する。走査を止めた誤りは内側の Err
@@ -142,24 +140,5 @@ impl<R: Read, W: Write> AgentClient<R, W> {
         });
         check_answered("HashFiles", paths, answered)?;
         Ok(all)
-    }
-
-    /// パスごとの大きさ・更新時刻・権限
-    pub fn stat_files(&mut self, paths: &[EntryPath]) -> Result<Vec<StatResult>> {
-        match self.request(&AgentRequest::StatFiles {
-            paths: entries_as_typed(paths),
-        })? {
-            AgentResponse::Stats { results, refused } => {
-                check_refused(refused)?;
-                let answered = results.iter().map(|result| match result {
-                    StatResult::Ok(stat) => stat.path.as_str(),
-                    StatResult::Failed { path, .. } => path.as_str(),
-                });
-                check_answered("StatFiles", paths, answered)?;
-                Ok(results)
-            }
-            AgentResponse::Error { message } => Err(AgentRefused(message).into()),
-            other => Err(unexpected("StatFiles", &other)),
-        }
     }
 }

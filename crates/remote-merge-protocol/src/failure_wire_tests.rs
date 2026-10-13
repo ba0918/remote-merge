@@ -52,24 +52,12 @@ fn the_failure_answers_keep_their_wire_shape() {
         is_last: true,
         refused: vec![],
     };
-    let stat = AgentResponse::Stats {
-        results: vec![StatResult::Failed {
-            path: "m".into(),
-            failure: WireFailure::NotFound,
-        }],
-        refused: vec![],
-    };
     let write = AgentResponse::Changed {
         failure: Some(WireFailure::TooLarge { size: 2, limit: 1 }),
     };
     assert_eq!(
         hex(&serialize_response(&read).unwrap()),
         "81ac46696c65436f6e74656e7473939181a64661696c656492a161b05065726d697373696f6e44656e696564c390",
-        "bump PROTOCOL_VERSION"
-    );
-    assert_eq!(
-        hex(&serialize_response(&stat).unwrap()),
-        "81a55374617473929181a64661696c656492a16da84e6f74466f756e6490",
         "bump PROTOCOL_VERSION"
     );
     assert_eq!(

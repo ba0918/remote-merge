@@ -182,32 +182,3 @@ fn a_hash_is_the_sha256_of_the_content_reached_through_links() {
     assert_eq!(hash(root, &entry("l")).as_deref(), Ok(expected));
     assert_eq!(hash(root, &entry("missing")), Err(OpFailure::NotFound));
 }
-
-#[test]
-fn the_modified_time_follows_links_and_names_a_missing_path() {
-    let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("a.txt"), "x").unwrap();
-    assert!(modified(temp.path(), &entry("a.txt")).is_ok());
-    assert_eq!(
-        modified(temp.path(), &entry("missing")),
-        Err(OpFailure::NotFound)
-    );
-}
-
-#[test]
-fn the_status_of_an_entry_follows_links_and_names_a_missing_path() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path();
-    fs::write(root.join("a.txt"), "12345").unwrap();
-    fs::set_permissions(root.join("a.txt"), fs::Permissions::from_mode(0o640)).unwrap();
-    symlink("a.txt", root.join("l")).unwrap();
-    let status = stat(root, &entry("l")).unwrap();
-    assert_eq!(status.size, 5);
-    assert_eq!(status.permissions, 0o640);
-    let meta = fs::metadata(root.join("a.txt")).unwrap();
-    assert_eq!(
-        (status.mtime_secs, status.mtime_nanos),
-        (meta.mtime(), meta.mtime_nsec() as u32)
-    );
-    assert_eq!(stat(root, &entry("gone")), Err(OpFailure::NotFound));
-}
