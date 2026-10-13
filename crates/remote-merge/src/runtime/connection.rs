@@ -35,7 +35,12 @@ pub fn classify(error: &anyhow::Error) -> Failure {
         if cause.is::<AgentRefused>() {
             return Failure::Refused;
         }
-        if let Some(error) = cause.downcast_ref::<OpError>() {
+        let op_error = cause.downcast_ref::<OpError>().or_else(|| {
+            cause
+                .downcast_ref::<remote_merge_core::op_failure::Prefixed>()
+                .map(|prefixed| &prefixed.error)
+        });
+        if let Some(error) = op_error {
             return match &error.failure {
                 OpFailure::Disconnected(Disconnection::NotSent(_)) => Failure::NotSent,
                 OpFailure::Disconnected(Disconnection::NoAnswer(_)) => Failure::Lost,
@@ -109,11 +114,17 @@ impl std::fmt::Display for Labeled {
 
 impl std::error::Error for Labeled {}
 
-/// 文言の前に `prefix` を付ける。接続の使えない失敗は種類を残し、それ以外は今までどおり
-/// 文言だけの失敗にする
+/// 文言の前に `prefix` を付ける。接続の使えない失敗と操作の失敗は種類を残す
 pub fn prefixed(error: anyhow::Error, prefix: &str) -> anyhow::Error {
     match classify(&error) {
-        Failure::Refused => anyhow::anyhow!("{prefix}{error}"),
+        Failure::Refused => match remote_merge_core::op_failure::op_error_of(&error) {
+            Some(op_error) => remote_merge_core::op_failure::Prefixed {
+                message: format!("{prefix}{error}"),
+                error: op_error.clone(),
+            }
+            .into(),
+            None => anyhow::anyhow!("{prefix}{error}"),
+        },
         failure => Labeled {
             failure,
             message: format!("{prefix}{error:#}"),
@@ -277,3 +288,7 @@ mod tests {
         assert_eq!(classify(&refused), Failure::Refused);
     }
 }
+
+#[cfg(test)]
+#[path = "connection_prefixed_tests.rs"]
+mod prefixed_tests;

@@ -6,7 +6,7 @@
 mod message;
 mod size_limit;
 
-pub use message::{failure_of, OpError, Operation};
+pub use message::{failure_of, op_error_of, OpError, Operation, Prefixed};
 pub use size_limit::{check_size, SizeLimit, MAX_FILE_SIZE};
 
 /// 一つのパスの結果（結果のキーにするパスと、値か失敗の種類）
@@ -77,6 +77,9 @@ pub fn from_error(error: &anyhow::Error) -> OpFailure {
     for cause in error.chain() {
         if let Some(op) = cause.downcast_ref::<OpError>() {
             return op.failure.clone();
+        }
+        if let Some(prefixed) = cause.downcast_ref::<Prefixed>() {
+            return prefixed.error.failure.clone();
         }
         if let Some(io) = cause.downcast_ref::<std::io::Error>() {
             return from_io_error(io);

@@ -111,10 +111,34 @@ impl fmt::Display for Tool {
     }
 }
 
+/// 前に文言を足した操作の失敗。文言は足した文言と元の誤りの文言をつないだもので、種類は元の
+/// 操作の失敗のまま持つ（原因の連なりは持たないので、`{:#}` でも同じ文言が二度並ばない）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prefixed {
+    pub message: String,
+    pub error: OpError,
+}
+
+impl fmt::Display for Prefixed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Prefixed {}
+
+/// anyhow の誤りの連なりの中の操作の失敗
+pub fn op_error_of(error: &anyhow::Error) -> Option<&OpError> {
+    error.chain().find_map(|cause| {
+        cause.downcast_ref::<OpError>().or_else(|| {
+            cause
+                .downcast_ref::<Prefixed>()
+                .map(|prefixed| &prefixed.error)
+        })
+    })
+}
+
 /// anyhow の誤りの連なりの中の操作の失敗の種類
 pub fn failure_of(error: &anyhow::Error) -> Option<&OpFailure> {
-    error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<OpError>())
-        .map(|error| &error.failure)
+    op_error_of(error).map(|error| &error.failure)
 }
