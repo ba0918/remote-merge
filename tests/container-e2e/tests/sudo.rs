@@ -325,3 +325,32 @@ fn ex_merge_064_a_new_file_and_its_new_directory_belong_to_the_login_user_under_
     let owners = docker(&container, "stat -c '%U' /data/owned-new /data/owned-new/a.txt");
     assert_eq!(String::from_utf8(owners.stdout).unwrap(), "testuser\ntestuser\n");
 }
+
+// 4MB を超えて分けて送る新しいファイルも、sudo で動くエージェントは最初の分で O_EXCL で作って開いた
+// ファイルに最後の分まで書き、ログインした利用者の持ち物にする
+// @kotowari[REQ-merge-042]
+#[test]
+fn a_new_file_sent_in_several_parts_under_sudo_is_written_whole_and_belongs_to_the_login_user() {
+    let container = std::env::var("REMOTE_MERGE_E2E_CONTAINER").unwrap();
+    let port = std::env::var("REMOTE_MERGE_E2E_PORT").unwrap();
+    let home = TempDir::new().unwrap();
+    fs::create_dir_all(home.path().join("local/owned-big")).unwrap();
+    let content: Vec<u8> = (0..9 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    fs::write(home.path().join("local/owned-big/a.bin"), &content).unwrap();
+    let setup = docker(
+        &container,
+        "mkdir -p /data /tmp/agent/remote-merge-testuser && chown root:root /data && rm -rf /data/owned-big",
+    );
+    assert!(setup.status.success(), "{setup:?}");
+
+    let output = run_with(&home, &port, true, "/tmp/agent", &["merge", "owned-big/a.bin"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let owner = docker(&container, "stat -c '%U %s' /data/owned-big/a.bin");
+    assert_eq!(
+        String::from_utf8(owner.stdout).unwrap(),
+        format!("testuser {}\n", content.len())
+    );
+    let copied = docker(&container, "cat /data/owned-big/a.bin");
+    assert!(copied.stdout == content, "the copied content differs");
+}

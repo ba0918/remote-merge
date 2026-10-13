@@ -25,17 +25,51 @@ fn missing_parents(path: &Path) -> Vec<PathBuf> {
 /// 作ろうとした親がすでにあってディレクトリでなければ、途中の要素がディレクトリでない失敗にする
 /// （REQ-paths-020）
 pub(super) fn create_parents(path: &Path) -> Result<Vec<PathBuf>, OpFailure> {
+    create_parents_with(path, |dir| std::fs::create_dir(dir))
+}
+
+/// [`create_parents`] の、一つのディレクトリを作る手段 `mkdir` を受け取るもの。作ったものに数えるのは
+/// `mkdir` が成功したものだけで、作る前に別の誰かが作ったディレクトリは数えない（後で所有者を付けたり
+/// 消したりしない。docs/decision/records/2026-10-12-foundation-3.md の D39）
+pub(super) fn create_parents_with(
+    path: &Path,
+    mut mkdir: impl FnMut(&Path) -> std::io::Result<()>,
+) -> Result<Vec<PathBuf>, OpFailure> {
     let Some(parent) = path.parent() else {
         return Ok(Vec::new());
     };
-    let missing = missing_parents(path);
-    let failure = match std::fs::create_dir_all(parent) {
-        Ok(()) => return Ok(missing),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => OpFailure::NotADirectory,
-        Err(error) => failed(error),
-    };
-    // 途中まで作れていたら、作ったところを消す
-    Err(undo_parents(&missing, failure, remove_dir))
+    let mut made = Vec::new();
+    for dir in missing_parents(path) {
+        match mkdir(&dir) {
+            Ok(()) => made.push(dir),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}
+            Err(error) => return Err(undo_parents(&made, parent_failure(&dir, error), remove_dir)),
+        }
+    }
+    if parent.as_os_str().is_empty() || parent.is_dir() {
+        return Ok(made);
+    }
+    let error = std::io::Error::from(std::io::ErrorKind::NotADirectory);
+    Err(undo_parents(
+        &made,
+        parent_failure(parent, error),
+        remove_dir,
+    ))
+}
+
+/// 親 `dir` を作れなかった失敗。`dir` かその祖先がすでにあって（リンク切れの symlink を含む）
+/// ディレクトリでなければ、途中の要素がディレクトリでない失敗にする（D35）
+fn parent_failure(dir: &Path, error: std::io::Error) -> OpFailure {
+    let blocked = dir.ancestors().any(|ancestor| {
+        !ancestor.as_os_str().is_empty()
+            && std::fs::symlink_metadata(ancestor).is_ok()
+            && !ancestor.is_dir()
+    });
+    if blocked {
+        OpFailure::NotADirectory
+    } else {
+        failed(error)
+    }
 }
 
 /// 作った親 `dirs`（上から順）を下から消して、`failure` を返す。消せなかったものがあれば、それを示す

@@ -86,3 +86,7 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "parents_tests.rs"]
 mod parents_tests;
+
+#[cfg(all(test, unix))]
+#[path = "new_file_tests.rs"]
+mod new_file_tests;

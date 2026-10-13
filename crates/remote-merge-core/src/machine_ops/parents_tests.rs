@@ -31,20 +31,13 @@ fn a_parent_that_is_a_file_is_not_a_directory_however_deep() {
 }
 
 #[test]
-fn a_file_opened_for_the_first_part_is_truncated_and_later_parts_are_appended() {
+fn an_opened_file_is_truncated_and_later_parts_follow_in_the_same_file() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("a.txt"), "old content").unwrap();
 
-    open_for_write(temp.path(), &entry("a.txt"), true)
-        .unwrap()
-        .file
-        .write_all(b"new")
-        .unwrap();
-    open_for_write(temp.path(), &entry("a.txt"), false)
-        .unwrap()
-        .file
-        .write_all(b" part")
-        .unwrap();
+    let mut opened = open_for_write(temp.path(), &entry("a.txt")).unwrap();
+    opened.file.write_all(b"new").unwrap();
+    opened.file.write_all(b" part").unwrap();
 
     assert_eq!(
         fs::read_to_string(temp.path().join("a.txt")).unwrap(),
@@ -58,7 +51,7 @@ fn the_parents_created_for_an_open_are_named_from_the_top() {
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir(temp.path().join("a")).unwrap();
 
-    let opened = open_for_write(temp.path(), &entry("a/b/c/d.txt"), true).unwrap();
+    let opened = open_for_write(temp.path(), &entry("a/b/c/d.txt")).unwrap();
 
     assert_eq!(
         opened.new_dirs,
@@ -81,6 +74,24 @@ fn an_open_or_a_link_that_fails_after_creating_parents_removes_them() {
     assert!(temp.path().join("kept").is_dir());
     assert!(!temp.path().join("kept/new").exists());
     assert!(!temp.path().join("kept/other").exists());
+}
+
+// 確かめてから作るまでの間に別の誰かが作った親は、作ったものに数えない（後で所有者を付けたり
+// 消したりしない）
+#[test]
+fn a_parent_made_by_someone_else_before_the_mkdir_is_not_counted_as_created() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("a/b/c.txt");
+
+    let made = super::parents::create_parents_with(&target, |dir| {
+        if dir.ends_with("a") {
+            fs::create_dir(dir)?;
+        }
+        fs::create_dir(dir)
+    })
+    .unwrap();
+
+    assert_eq!(made, [temp.path().join("a/b")]);
 }
 
 #[test]

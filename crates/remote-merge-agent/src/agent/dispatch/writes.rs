@@ -16,31 +16,19 @@ use remote_merge_core::relative_path::EntryPath;
 use super::ownership::{own_created, OwnerOps};
 use crate::agent::server::MetadataConfig;
 
-/// 分けて送られる書き込みの一つの分
-pub(super) struct Part {
-    pub first: bool,
-    /// 最初の分を書く前に書き込み先がなかった
-    pub created: bool,
-}
-
-/// 書き込み先がまだないか（最初の分を書く前に確かめる）
-pub(super) fn is_new(root: &Path, path: &EntryPath) -> bool {
-    std::fs::symlink_metadata(root.join(path.as_str())).is_err()
-}
-
-/// 一つの分を書く。最初の分は親を作って切り詰め、後の分は書き足す。root で動くときは、新しく作った
-/// ファイルと親ディレクトリの所有者を、中身を書く前に既定の利用者にする（[`own_created`]）。権限は、
-/// どの経路でも書いた後に merge が設定の値で付ける
-pub(super) fn write_part(
+/// 最初の分を書く。書き込み先を開き（ないときは新しいファイルとして O_EXCL で作る）、root で動くとき
+/// は、新しく作ったファイルと親ディレクトリの所有者を、中身を書く前に既定の利用者にする
+/// （[`own_created`]）。返したファイルに後の分を書き足し、パスで開き直さない（開き直すと、分の間に
+/// 差し替えられたファイルに書く）。権限は、どの経路でも書いた後に merge が設定の値で付ける
+pub(super) fn write_first(
     root: &Path,
     path: &EntryPath,
     content: &[u8],
-    part: &Part,
     config: &MetadataConfig,
-) -> Result<(), OpFailure> {
-    let opened = machine_ops::open_for_write(root, path, part.first)?;
+) -> Result<std::fs::File, OpFailure> {
+    let opened = machine_ops::open_for_write(root, path)?;
     let mut file = opened.file;
-    if part.first && part.created && owner_to_set(config) {
+    if opened.created && owner_to_set(config) {
         let full = root.join(path.as_str());
         let mut ops = Owner {
             config,
@@ -49,6 +37,12 @@ pub(super) fn write_part(
         };
         own_created(&opened.new_dirs, path.as_typed(), &mut ops)?;
     }
+    write_more(&mut file, content)?;
+    Ok(file)
+}
+
+/// 最初の分で開いたファイルに、後の分を書き足す
+pub(super) fn write_more(file: &mut std::fs::File, content: &[u8]) -> Result<(), OpFailure> {
     file.write_all(content)
         .map_err(|error| from_io_error(&error))
 }
@@ -76,10 +70,10 @@ pub(super) fn symlink(
 
 /// 本物の所有者の操作。開いたファイルがあればそれに（パスの差し替えに惑わされないよう fchown で）、
 /// なければ項目そのもの（リンクは辿らない）に付ける
-struct Owner<'a> {
-    config: &'a MetadataConfig,
-    entry: &'a Path,
-    file: Option<&'a std::fs::File>,
+pub(super) struct Owner<'a> {
+    pub(super) config: &'a MetadataConfig,
+    pub(super) entry: &'a Path,
+    pub(super) file: Option<&'a std::fs::File>,
 }
 
 impl OwnerOps for Owner<'_> {
@@ -93,7 +87,18 @@ impl OwnerOps for Owner<'_> {
             None => std::os::unix::fs::lchown(self.entry, uid, gid),
         }
     }
+    /// 作ったファイルを消す。パスにあるものが開いたファイルと別のもの（作った後に差し替えられた）なら
+    /// 消さない
     fn remove_entry(&mut self) -> std::io::Result<()> {
+        if let Some(file) = self.file {
+            use std::os::unix::fs::MetadataExt;
+            let (opened, now) = (file.metadata()?, std::fs::symlink_metadata(self.entry)?);
+            if (opened.dev(), opened.ino()) != (now.dev(), now.ino()) {
+                return Err(std::io::Error::other(
+                    "the path no longer holds the created file",
+                ));
+            }
+        }
         std::fs::remove_file(self.entry)
     }
     fn remove_dir(&mut self, dir: &Path) -> std::io::Result<()> {

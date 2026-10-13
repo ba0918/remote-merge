@@ -12,7 +12,7 @@ use crate::relative_path::EntryPath;
 /// 作らないので、inode・所有者・権限・ハードリンクが残る。最後の要素が symlink なら辿らずに失敗する
 /// （REQ-merge-038）
 pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFailure> {
-    let mut opened = open_for_write(root, entry, true)?;
+    let mut opened = open_for_write(root, entry)?;
     opened.file.write_all(content).map_err(failed)
 }
 
@@ -20,19 +20,37 @@ pub fn write(root: &Path, entry: &EntryPath, content: &[u8]) -> Result<(), OpFai
 pub struct Opened {
     pub file: std::fs::File,
     pub new_dirs: Vec<PathBuf>,
+    /// このとき新しく作った（O_EXCL で作れた）ファイルか
+    pub created: bool,
 }
 
-/// 書き込み先を開く。`first` なら親を作り、作るか古い中身を切り詰めて開く（分けて書く最初の分）。
-/// そうでなければ後ろに書き足すために開く。どちらも最後の要素が symlink なら辿らずに失敗する。
-/// 親を作った後で開けなければ、作った親を消して失敗にする
-pub fn open_for_write(root: &Path, entry: &EntryPath, first: bool) -> Result<Opened, OpFailure> {
+/// 書き込み先を開いて古い中身を切り詰める。分けて書くときは、返したファイルに後の分を書き足す
+/// （パスで開き直さない）。最後の要素が symlink なら辿らずに失敗する。
+///
+/// 書き込み先がなければ、ない親を作ってから新しいファイルとして作る（O_EXCL）。確かめてから作るまでに
+/// 同じパスに何かが現れたら（別のファイルへのハードリンクを含む）、それを開かずに "File exists" の
+/// I/O の失敗にする（docs/ir/merge/concurrency.md の REQ-merge-043）。親を作った後で開けなければ、
+/// 作った親を消して失敗にする
+pub fn open_for_write(root: &Path, entry: &EntryPath) -> Result<Opened, OpFailure> {
+    open_for_write_with(root, entry, |_| {})
+}
+
+/// [`open_for_write`] の、書き込み先がないかを確かめた後・開く前に `between` を呼ぶもの
+pub(super) fn open_for_write_with(
+    root: &Path,
+    entry: &EntryPath,
+    between: impl FnOnce(&Path),
+) -> Result<Opened, OpFailure> {
     let path = full_path(root, entry);
+    let created = std::fs::symlink_metadata(&path).is_err();
+    between(&path);
     let mut options = std::fs::OpenOptions::new();
-    let new_dirs = if first {
-        options.write(true).create(true).truncate(true);
+    let new_dirs = if created {
+        options.write(true).create_new(true);
         create_parents(&path)?
     } else {
-        options.append(true);
+        // 既存のファイルはその場で書き換える（REQ-merge-039）
+        options.write(true).create(true).truncate(true);
         Vec::new()
     };
     #[cfg(unix)]
@@ -49,7 +67,11 @@ pub fn open_for_write(root: &Path, entry: &EntryPath, first: bool) -> Result<Ope
         ));
     }
     match options.open(&path) {
-        Ok(file) => Ok(Opened { file, new_dirs }),
+        Ok(file) => Ok(Opened {
+            file,
+            new_dirs,
+            created,
+        }),
         Err(error) => Err(undo_parents(&new_dirs, failed(error), remove_dir)),
     }
 }
